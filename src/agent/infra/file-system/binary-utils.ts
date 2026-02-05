@@ -51,6 +51,19 @@ const BINARY_EXTENSIONS = new Set([
 const IMAGE_EXTENSIONS = new Set(['.bmp', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp'])
 
 /**
+ * Office document extensions that can be parsed for text extraction.
+ * Sorted alphabetically as required by linter.
+ */
+const OFFICE_EXTENSIONS = new Set([
+  '.docx',
+  '.odp',
+  '.ods',
+  '.odt',
+  '.pptx',
+  '.xlsx',
+])
+
+/**
  * PDF extension for special handling.
  */
 const PDF_EXTENSION = '.pdf'
@@ -202,6 +215,18 @@ export function getMimeType(filePath: string): null | string {
  */
 export function isMediaFile(filePath: string): boolean {
   return isImageFile(filePath)
+}
+
+/**
+ * Checks if a file is an Office document based on its extension.
+ * These files can be parsed for text extraction using officeparser.
+ *
+ * @param filePath - Path to the file
+ * @returns true if the file is an Office document
+ */
+export function isOfficeFile(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase()
+  return OFFICE_EXTENSIONS.has(ext)
 }
 
 /**

@@ -10,6 +10,7 @@ import React from 'react'
 import type {AuthToken} from '../../server/core/domain/entities/auth-token.js'
 import type {BrvConfig} from '../../server/core/domain/entities/brv-config.js'
 import type {ITokenStore} from '../../server/core/interfaces/auth/i-token-store.js'
+import type {IConnectorManager} from '../../server/core/interfaces/connectors/i-connector-manager.js'
 import type {ITrackingService} from '../../server/core/interfaces/services/i-tracking-service.js'
 import type {IOnboardingPreferenceStore} from '../../server/core/interfaces/storage/i-onboarding-preference-store.js'
 import type {IProjectConfigStore} from '../../server/core/interfaces/storage/i-project-config-store.js'
@@ -20,7 +21,6 @@ import {
   ModeProvider,
   OnboardingProvider,
   ServicesProvider,
-  StatusProvider,
   TasksProvider,
   ThemeProvider,
   TransportProvider,
@@ -28,6 +28,7 @@ import {
 
 interface AppProvidersProps {
   children: React.ReactNode
+  connectorManager: IConnectorManager
   initialAuthToken?: AuthToken
   initialBrvConfig?: BrvConfig
   onboardingPreferenceStore: IOnboardingPreferenceStore
@@ -39,6 +40,7 @@ interface AppProvidersProps {
 
 export function AppProviders({
   children,
+  connectorManager,
   initialAuthToken,
   initialBrvConfig,
   onboardingPreferenceStore,
@@ -49,6 +51,7 @@ export function AppProviders({
 }: AppProvidersProps): React.ReactElement {
   return (
     <ServicesProvider
+      connectorManager={connectorManager}
       onboardingPreferenceStore={onboardingPreferenceStore}
       projectConfigStore={projectConfigStore}
       tokenStore={tokenStore}
@@ -62,9 +65,7 @@ export function AppProviders({
               <TransportProvider>
                 <TasksProvider>
                   <OnboardingProvider>
-                    <StatusProvider>
-                      {children}
-                    </StatusProvider>
+                    {children}
                   </OnboardingProvider>
                 </TasksProvider>
               </TransportProvider>

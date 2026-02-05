@@ -69,6 +69,10 @@ export interface ReasoningContentItem {
 export interface ActivityLog {
   changes: {created: string[]; updated: string[]}
   content: string
+  /** File references passed via @filepath syntax */
+  files?: string[]
+  /** Folder references passed via @folderpath syntax */
+  folders?: string[]
   id: string
   input: string
   /** Whether LLM is currently streaming response (deprecated, use isReasoningStreaming/isTextStreaming) */
@@ -82,5 +86,5 @@ export interface ActivityLog {
   streamingContent?: string
   timestamp: Date
   toolCalls?: ToolProgressItem[]
-  type: 'curate' | 'query'
+  type: 'curate' | 'curate-folder' | 'query'
 }

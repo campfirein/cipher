@@ -2,29 +2,33 @@
  * Footer Component - Dynamic based on active tab
  */
 
-import {Box, Text} from 'ink'
-import React, {useMemo} from 'react'
+import {Box, Spacer, Text} from 'ink'
+import React from 'react'
 
-import {useMode} from '../contexts/mode-context.js'
-import {useOnboarding} from '../contexts/onboarding-context.js'
-import {useTheme} from '../contexts/theme-context.js'
+import {useMode, useOnboarding, useTasks, useTheme} from '../contexts/index.js'
 
 export const Footer: React.FC = () => {
   const {shortcuts} = useMode()
-  const {shouldShowOnboarding} = useOnboarding()
+  const {isLoadingOnboardingCheck, shouldShowOnboarding} = useOnboarding()
   const {
     theme: {colors},
   } = useTheme()
+  const {stats: taskStats} = useTasks()
 
-  // Filter out 'tab' shortcut during onboarding (tab switching is disabled)
-  const visibleShortcuts = useMemo(
-    () => (shouldShowOnboarding ? shortcuts.filter((s) => s.key !== 'tab') : shortcuts),
-    [shortcuts, shouldShowOnboarding],
-  )
+  if (shouldShowOnboarding || isLoadingOnboardingCheck) {
+    return <Box height={1} paddingX={1} width="100%" />
+  }
 
   return (
     <Box paddingX={1} width="100%">
-      {visibleShortcuts.map((shortcut, index) => (
+      <Box flexShrink={0}>
+        <Text color={colors.dimText}>~ in queue: </Text>
+        <Text color={colors.warning}>{taskStats?.created ?? 0}</Text>
+        <Text color={colors.dimText}> | running: </Text>
+        <Text color={colors.primary}>{taskStats?.started ?? 0}</Text>
+      </Box>
+      <Spacer />
+      {shortcuts.map((shortcut, index) => (
         <Box key={shortcut.key}>
           {index > 0 && <Text color={colors.dimText}> • </Text>}
           <Text color={colors.text}>{shortcut.key}</Text>

@@ -317,6 +317,10 @@ describe('InitUseCase', () => {
         message: 'Hook connector installed for Claude Code',
         success: true,
       }),
+      migrateOrphanedConnectors: stub<
+        Parameters<IConnectorManager['migrateOrphanedConnectors']>,
+        ReturnType<IConnectorManager['migrateOrphanedConnectors']>
+      >().resolves([]),
       status: stub(),
       switchConnector: stub<
         Parameters<IConnectorManager['switchConnector']>,
@@ -350,8 +354,8 @@ describe('InitUseCase', () => {
     })
 
     testSpaces = [
-      new SpaceImpl('space-1', 'frontend-app', 'team-1', 'acme-corp'),
-      new SpaceImpl('space-2', 'backend-api', 'team-1', 'acme-corp'),
+      new SpaceImpl({id: 'space-1', isDefault: false, name: 'frontend-app', teamId: 'team-1', teamName: 'acme-corp'}),
+      new SpaceImpl({id: 'space-2', isDefault: false, name: 'backend-api', teamId: 'team-1', teamName: 'acme-corp'}),
     ]
 
     testTeams = [
@@ -362,6 +366,7 @@ describe('InitUseCase', () => {
         displayName: 'Acme Corp',
         id: 'team-1',
         isActive: true,
+        isDefault: false,
         name: 'acme-corp',
         updatedAt: new Date('2024-01-02T00:00:00Z'),
       }),

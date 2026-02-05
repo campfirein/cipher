@@ -11,6 +11,7 @@ describe('Team', () => {
     displayName: 'Test Team',
     id: '123e4567-e89b-12d3-a456-426614174000',
     isActive: true,
+    isDefault: false,
     name: 'test-team',
     updatedAt: new Date('2024-01-02T00:00:00Z'),
   }
@@ -69,6 +70,7 @@ describe('Team', () => {
         display_name: 'Test Team',
         id: '123e4567-e89b-12d3-a456-426614174000',
         is_active: true,
+        is_default: false,
         name: 'test-team',
         updated_at: '2024-01-02T00:00:00Z',
       }
@@ -92,6 +94,7 @@ describe('Team', () => {
         display_name: 'Test Team',
         id: '123e4567-e89b-12d3-a456-426614174000',
         is_active: true,
+        is_default: false,
         name: 'test-team',
         updated_at: '2024-01-02T00:00:00Z',
       }
@@ -107,6 +110,7 @@ describe('Team', () => {
         display_name: 'Test Team',
         id: '123e4567-e89b-12d3-a456-426614174000',
         is_active: true,
+        is_default: false,
         name: 'test-team',
         updated_at: '2024-01-02T00:00:00Z',
       }
@@ -199,6 +203,21 @@ describe('Team', () => {
       expect(() => Team.fromJson(json))
         .to.throw(TypeError, 'Team JSON must have a string updated_at field')
     })
+
+    it('should throw TypeError when is_default is not a boolean', () => {
+      const json = {
+        created_at: '2024-01-01T00:00:00Z',
+        display_name: 'Test Team',
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        is_active: true,
+        is_default: 'false',
+        name: 'test-team',
+        updated_at: '2024-01-02T00:00:00Z',
+      }
+
+      expect(() => Team.fromJson(json))
+        .to.throw(TypeError, 'Team JSON must have a boolean is_default field')
+    })
   })
 
   describe('toJson', () => {
@@ -213,6 +232,7 @@ describe('Team', () => {
         displayName: validTeamParams.displayName,
         id: validTeamParams.id,
         isActive: validTeamParams.isActive,
+        isDefault: validTeamParams.isDefault,
         name: validTeamParams.name,
         updatedAt: validTeamParams.updatedAt.toISOString(),
       })

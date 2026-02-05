@@ -12,7 +12,7 @@ import {lockKeyFromStorageKey, RWLock} from '../llm/context/rw-lock.js'
 export interface SqliteKeyStorageConfig {
   /**
    * Database file path (relative or absolute).
-   * Defaults to '.brv/context.db'
+   * Defaults to 'context.db'
    */
   dbPath?: string
 
@@ -24,7 +24,7 @@ export interface SqliteKeyStorageConfig {
 
   /**
    * Storage directory for the database file.
-   * Defaults to process.cwd()/.brv
+   * Defaults to process.cwd()/.brv/blobs
    */
   storageDir?: string
 }
@@ -58,7 +58,7 @@ export class SqliteKeyStorage implements IKeyStorage {
 
   constructor(config?: SqliteKeyStorageConfig) {
     this.inMemory = config?.inMemory ?? false
-    this.storageDir = config?.storageDir ?? join(process.cwd(), '.brv')
+    this.storageDir = config?.storageDir ?? join(process.cwd(), '.brv', 'blobs')
     this.dbPath = this.inMemory ? ':memory:' : join(this.storageDir, config?.dbPath ?? 'context.db')
   }
 

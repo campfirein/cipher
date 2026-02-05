@@ -8,6 +8,7 @@ interface TeamParams {
   displayName: string
   id: string
   isActive: boolean
+  isDefault: boolean
   name: string
   updatedAt: Date
 }
@@ -23,6 +24,7 @@ export class Team {
   public readonly displayName: string
   public readonly id: string
   public readonly isActive: boolean
+  public readonly isDefault: boolean
   public readonly name: string
   public readonly updatedAt: Date
 
@@ -45,6 +47,7 @@ export class Team {
     this.displayName = params.displayName
     this.id = params.id
     this.isActive = params.isActive
+    this.isDefault = params.isDefault
     this.name = params.name
     this.updatedAt = params.updatedAt
   }
@@ -78,6 +81,10 @@ export class Team {
       throw new TypeError('Team JSON must have a string updated_at field')
     }
 
+    if (typeof json.is_default !== 'boolean') {
+      throw new TypeError('Team JSON must have a boolean is_default field')
+    }
+
     return new Team({
       avatarUrl: typeof json.avatar_url === 'string' ? json.avatar_url : '',
       createdAt: new Date(json.created_at),
@@ -85,6 +92,7 @@ export class Team {
       displayName: json.display_name,
       id: json.id,
       isActive: json.is_active,
+      isDefault: json.is_default,
       name: json.name,
       updatedAt: new Date(json.updated_at),
     })
@@ -109,6 +117,7 @@ export class Team {
       displayName: this.displayName,
       id: this.id,
       isActive: this.isActive,
+      isDefault: this.isDefault,
       name: this.name,
       updatedAt: this.updatedAt.toISOString(),
     }

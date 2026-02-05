@@ -20,6 +20,7 @@ import type {IHistoryStorage} from '../../core/interfaces/i-history-storage.js'
 import type {ValidatedAgentConfig} from './agent-schemas.js'
 
 import {createBlobStorage} from '../blob/blob-storage-factory.js'
+import {EnvironmentContextBuilder} from '../environment/environment-context-builder.js'
 import {AgentEventBus, SessionEventBus} from '../events/event-emitter.js'
 import {FileSystemService} from '../file-system/file-system-service.js'
 import {ByteRoverLlmHttpService} from '../http/internal-llm-http-service.js'
@@ -32,6 +33,7 @@ import {GeminiTokenizer} from '../llm/tokenizers/gemini-tokenizer.js'
 import {EventBasedLogger} from '../logger/event-based-logger.js'
 import {MemoryManager} from '../memory/memory-manager.js'
 import {ProcessService} from '../process/process-service.js'
+import {SandboxService} from '../sandbox/sandbox-service.js'
 import {BlobHistoryStorage} from '../storage/blob-history-storage.js'
 import {DualFormatHistoryStorage} from '../storage/dual-format-history-storage.js'
 import {GranularHistoryStorage} from '../storage/granular-history-storage.js'
@@ -144,6 +146,17 @@ export async function createCipherAgentServices(
   const memoryLogger = logger.withSource('MemoryManager')
   const memoryManager = new MemoryManager(blobStorage, memoryLogger)
 
+  // 5b. Sandbox service for code execution (no dependencies)
+  const sandboxService = new SandboxService()
+
+  // 5c. Build environment context for sandbox injection
+  const environmentBuilder = new EnvironmentContextBuilder()
+  const environmentContext = await environmentBuilder.build({
+    includeBrvStructure: false, // Not needed for sandbox - only basic env info
+    includeFileTree: false, // Not needed for sandbox - only basic env info
+    workingDirectory,
+  })
+
   // 6. System prompt manager - SHARED across sessions
   // Calculate path to prompts directory relative to this file's location
   // This file is at dist/agent/core/service-initializer.js
@@ -177,10 +190,12 @@ export async function createCipherAgentServices(
   const descriptionLoader = new ToolDescriptionLoader()
   const toolProvider: ToolProvider = new ToolProvider(
     {
+      environmentContext,
       fileSystemService,
       getToolProvider: (): ToolProvider => toolProvider,
       memoryManager,
       processService,
+      sandboxService,
     },
     systemPromptManager,
     descriptionLoader,
@@ -254,6 +269,7 @@ export async function createCipherAgentServices(
     messageStorageService,
     policyEngine,
     processService,
+    sandboxService,
     systemPromptManager,
     toolManager,
     toolProvider,

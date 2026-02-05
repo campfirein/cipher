@@ -4,6 +4,7 @@ import type {
   ConnectorInstallResult,
   ConnectorStatus,
   ConnectorSwitchResult,
+  OrphanedConnectorMigrationResult,
 } from '../../core/interfaces/connectors/connector-types.js'
 import type {IConnectorManager} from '../../core/interfaces/connectors/i-connector-manager.js'
 import type {IConnector} from '../../core/interfaces/connectors/i-connector.js'
@@ -12,9 +13,13 @@ import type {IRuleTemplateService} from '../../core/interfaces/services/i-rule-t
 
 import {AGENT_CONNECTOR_CONFIG, AGENT_VALUES} from '../../core/domain/entities/agent.js'
 import {CONNECTOR_TYPES} from '../../core/domain/entities/connector-type.js'
+import {HOOK_CONNECTOR_CONFIGS} from './hook/hook-connector-config.js'
 import {HookConnector} from './hook/hook-connector.js'
+import {MCP_CONNECTOR_CONFIGS} from './mcp/mcp-connector-config.js'
 import {McpConnector} from './mcp/mcp-connector.js'
+import {RULES_CONNECTOR_CONFIGS} from './rules/rules-connector-config.js'
 import {RulesConnector} from './rules/rules-connector.js'
+import {SKILL_CONNECTOR_CONFIGS} from './skill/skill-connector-config.js'
 import {SkillConnector} from './skill/skill-connector.js'
 
 /**
@@ -114,6 +119,54 @@ export class ConnectorManager implements IConnectorManager {
     const defaultType = this.getDefaultConnectorType(agent)
     const connector = this.getConnector(defaultType)
     return connector.install(agent)
+  }
+
+  async migrateOrphanedConnectors(): Promise<OrphanedConnectorMigrationResult[]> {
+    // Step 1: Collect orphaned agent/connector pairs. Each connector config map
+    // (e.g., MCP_CONNECTOR_CONFIGS) defines which agents have configs for that type.
+    // An agent is orphaned when it exists in the config map but the connector type
+    // is no longer in AGENT_CONNECTOR_CONFIG[agent].supported.
+    const connectorConfigAgents: Array<{agents: Agent[]; type: ConnectorType}> = [
+      {agents: AGENT_VALUES.filter((a) => a in HOOK_CONNECTOR_CONFIGS), type: 'hook'},
+      {agents: AGENT_VALUES.filter((a) => a in MCP_CONNECTOR_CONFIGS), type: 'mcp'},
+      {agents: AGENT_VALUES.filter((a) => a in RULES_CONNECTOR_CONFIGS), type: 'rules'},
+      {agents: AGENT_VALUES.filter((a) => a in SKILL_CONNECTOR_CONFIGS), type: 'skill'},
+    ]
+
+    const orphanedPairs: Array<{agent: Agent; connector: IConnector}> = []
+
+    for (const {agents, type} of connectorConfigAgents) {
+      const connector = this.connectors.get(type)
+      if (!connector) continue
+
+      for (const agent of agents) {
+        if (!AGENT_CONNECTOR_CONFIG[agent].supported.includes(type)) {
+          orphanedPairs.push({agent, connector})
+        }
+      }
+    }
+
+    // Step 2: Check each candidate in parallel. Use { force: true } to bypass
+    // the isSupported() guard, since these connectors are no longer in the
+    // agent's supported list but may still have configs on disk from when
+    // they were previously supported.
+    const settledResults = await Promise.allSettled(
+      orphanedPairs.map(async ({agent, connector}) => {
+        const status = await connector.status(agent, {force: true})
+        if (!status.installed) return null
+        const uninstallResult = await connector.uninstall(agent, {force: true})
+        return {
+          agent,
+          configPath: uninstallResult.configPath,
+          success: uninstallResult.success,
+        }
+      }),
+    )
+
+    return settledResults
+      .filter((r): r is PromiseFulfilledResult<null | OrphanedConnectorMigrationResult> => r.status === 'fulfilled')
+      .map((r) => r.value)
+      .filter((result): result is OrphanedConnectorMigrationResult => result !== null)
   }
 
   async status(type: ConnectorType, agent: Agent): Promise<ConnectorStatus> {

@@ -205,11 +205,7 @@ export class SqliteBlobStorage implements IBlobStorage {
       this.db.pragma('journal_mode = WAL')
 
       // Run migrations to ensure schema is up-to-date
-      const appliedCount = runMigrations(this.db, this.logger)
-
-      if (appliedCount > 0) {
-        this.logger.info(`💾 Initializing storage...`)
-      }
+      runMigrations(this.db, this.logger)
 
       this.initialized = true
     } catch (error) {

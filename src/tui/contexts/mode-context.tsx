@@ -9,7 +9,7 @@
  * const {mode, setMode, shortcuts} = useMode()
  *
  * // Access current mode
- * console.log(mode) // "activity" or "console"
+ * console.log(mode) // "main" or "suggestions"
  *
  * // Switch mode
  * setMode('suggestions')
@@ -21,7 +21,7 @@
 
 import React, {createContext, useCallback, useContext, useMemo, useState} from 'react'
 
-type Mode = 'activity' | 'console' | 'suggestions'
+type Mode = 'main' | 'suggestions'
 
 /**
  * Keyboard shortcut definition
@@ -35,18 +35,8 @@ export interface Shortcut {
  * Keyboard shortcuts by mode
  */
 const SHORTCUTS_BY_MODE = {
-  activity: [
+  main: [
     {description: 'navigate', key: '↑↓'},
-    {description: 'go to top/bottom', key: 'g/G'},
-    {description: 'expand/collapse item', key: 'ctrl+o'},
-    {description: 'switch view', key: 'tab'},
-    {description: 'quit', key: 'ctrl+c'},
-  ],
-  console: [
-    {description: 'navigate', key: '↑↓'},
-    {description: 'go to top/bottom', key: 'g/G'},
-    {description: 'expand/collapse item', key: 'ctrl+o'},
-    {description: 'switch view', key: 'tab'},
     {description: 'quit', key: 'ctrl+c'},
   ],
   suggestions: [
@@ -72,7 +62,7 @@ interface ModeProviderProps {
   initialMode?: Mode
 }
 
-export function ModeProvider({children, initialMode = 'activity'}: ModeProviderProps): React.ReactElement {
+export function ModeProvider({children, initialMode = 'main'}: ModeProviderProps): React.ReactElement {
   const [mode, setModeState] = useState<Mode>(initialMode)
   const [extraShortcuts, setExtraShortcuts] = useState<Shortcut[]>([])
 

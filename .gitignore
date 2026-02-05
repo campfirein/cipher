@@ -16,3 +16,5 @@ pnpm-lock.yaml
 
 # ByteRover workspace (local development only)
 .brv/
+
+tsconfig.tsbuildinfo

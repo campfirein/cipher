@@ -9,7 +9,7 @@ import type {
   ConnectorStatus,
   ConnectorUninstallResult,
 } from '../../../core/interfaces/connectors/connector-types.js'
-import type {IConnector} from '../../../core/interfaces/connectors/i-connector.js'
+import type {ConnectorOperationOptions, IConnector} from '../../../core/interfaces/connectors/i-connector.js'
 import type {IFileService} from '../../../core/interfaces/services/i-file-service.js'
 import type {IRuleTemplateService} from '../../../core/interfaces/services/i-rule-template-service.js'
 import type {IMcpConfigWriter} from '../../../core/interfaces/storage/i-mcp-config-writer.js'
@@ -107,8 +107,8 @@ export class McpConnector implements IConnector {
     return agent in MCP_CONNECTOR_CONFIGS && AGENT_CONNECTOR_CONFIG[agent].supported.includes(this.connectorType)
   }
 
-  async status(agent: Agent): Promise<ConnectorStatus> {
-    if (!this.isSupported(agent)) {
+  async status(agent: Agent, options?: ConnectorOperationOptions): Promise<ConnectorStatus> {
+    if (!options?.force && !this.isSupported(agent)) {
       return {
         configExists: false,
         configPath: '',
@@ -117,7 +117,15 @@ export class McpConnector implements IConnector {
       }
     }
 
-    const config = MCP_CONNECTOR_CONFIGS[agent]
+    if (!(agent in MCP_CONNECTOR_CONFIGS)) {
+      return {
+        configExists: false,
+        configPath: '',
+        installed: false,
+      }
+    }
+
+    const config = MCP_CONNECTOR_CONFIGS[agent as McpSupportedAgent]
 
     // For manual mode, check if the rule file has MCP content
     if (config.mode === 'manual') {
@@ -127,8 +135,8 @@ export class McpConnector implements IConnector {
     return this.statusAutomatic(agent, config)
   }
 
-  async uninstall(agent: Agent): Promise<ConnectorUninstallResult> {
-    if (!this.isSupported(agent)) {
+  async uninstall(agent: Agent, options?: ConnectorOperationOptions): Promise<ConnectorUninstallResult> {
+    if (!options?.force && !this.isSupported(agent)) {
       return {
         configPath: '',
         message: `MCP connector does not support agent: ${agent}`,
@@ -137,7 +145,16 @@ export class McpConnector implements IConnector {
       }
     }
 
-    const config = MCP_CONNECTOR_CONFIGS[agent]
+    if (!(agent in MCP_CONNECTOR_CONFIGS)) {
+      return {
+        configPath: '',
+        message: `MCP connector has no config for agent: ${agent}`,
+        success: true,
+        wasInstalled: false,
+      }
+    }
+
+    const config = MCP_CONNECTOR_CONFIGS[agent as McpSupportedAgent]
     const fullPath = this.getFullConfigPath(config)
     const writer = this.createWriter(config)
 

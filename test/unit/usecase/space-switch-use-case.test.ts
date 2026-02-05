@@ -84,8 +84,8 @@ const createMockConfig = (): BrvConfig =>
   })
 
 const createMockSpaces = (): SpaceEntity[] => [
-  new SpaceEntity('space-1', 'frontend-app', 'team-1', 'acme-corp'),
-  new SpaceEntity('space-2', 'backend-api', 'team-1', 'acme-corp'),
+  new SpaceEntity({id: 'space-1', isDefault: false, name: 'frontend-app', teamId: 'team-1', teamName: 'acme-corp'}),
+  new SpaceEntity({id: 'space-2', isDefault: false, name: 'backend-api', teamId: 'team-1', teamName: 'acme-corp'}),
 ]
 
 const createMockTeams = (): TeamEntity[] => [
@@ -96,6 +96,7 @@ const createMockTeams = (): TeamEntity[] => [
     displayName: 'Acme Corp',
     id: 'team-1',
     isActive: true,
+    isDefault: false,
     name: 'acme-corp',
     updatedAt: new Date('2024-01-02T00:00:00Z'),
   }),
@@ -106,6 +107,7 @@ const createMockTeams = (): TeamEntity[] => [
     displayName: 'Beta Co',
     id: 'team-2',
     isActive: true,
+    isDefault: false,
     name: 'beta-co',
     updatedAt: new Date('2024-01-02T00:00:00Z'),
   }),
@@ -400,7 +402,7 @@ describe('SpaceSwitchUseCase', () => {
   describe('Switch to different team', () => {
     it('should switch to a different team and space', async () => {
       const teams = createMockTeams()
-      const spacesForTeam2 = [new SpaceEntity('space-3', 'mobile-app', 'team-2', 'beta-co')]
+      const spacesForTeam2 = [new SpaceEntity({id: 'space-3', isDefault: false, name: 'mobile-app', teamId: 'team-2', teamName: 'beta-co'})]
 
       configStore.read.resolves(createMockConfig())
       tokenStore.load.resolves(createMockToken())

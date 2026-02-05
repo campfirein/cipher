@@ -73,9 +73,11 @@ export function registerBrvQueryTool(
       // In global mode, associate client with the resolved project.
       // Fire-and-forget: server handler is idempotent.
       if (!getWorkingDirectory()) {
-        client.requestWithAck(TransportClientEventNames.ASSOCIATE_PROJECT, {
-          projectPath: cwdResult.clientCwd,
-        }).catch(() => {})
+        client
+          .requestWithAck(TransportClientEventNames.ASSOCIATE_PROJECT, {
+            projectPath: cwdResult.clientCwd,
+          })
+          .catch(() => {})
       }
 
       try {

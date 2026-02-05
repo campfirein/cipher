@@ -68,6 +68,7 @@ export class CurateUseCase implements ICurateUseCase {
   public async run({
     context,
     files,
+    folders,
     format = 'text',
     headless = false,
     verbose = false,
@@ -76,15 +77,20 @@ export class CurateUseCase implements ICurateUseCase {
 
     const hasContext = Boolean(context?.trim())
     const hasFiles = Boolean(files?.length)
+    const hasFolders = Boolean(folders?.length)
 
-    if (!hasContext && !hasFiles) {
+    if (!hasContext && !hasFiles && !hasFolders) {
       if (format === 'json') {
-        this.outputJsonResult({message: 'Either a context argument or file reference is required.', status: 'error'})
+        this.outputJsonResult({
+          message: 'Either a context argument, file reference, or folder reference is required.',
+          status: 'error',
+        })
       } else {
-        this.terminal.log('Either a context argument or file reference is required.')
+        this.terminal.log('Either a context argument, file reference, or folder reference is required.')
         this.terminal.log('Usage:')
         this.terminal.log('  brv curate "your context here"')
         this.terminal.log('  brv curate @src/file.ts')
+        this.terminal.log('  brv curate @src/             # folder pack')
         this.terminal.log('  brv curate "context with files" @src/file.ts')
       }
 
@@ -110,14 +116,17 @@ export class CurateUseCase implements ICurateUseCase {
       // may arrive before listeners are set up. waitForTaskCompletion registers
       // listeners synchronously in the Promise constructor.
       const completionPromise = this.waitForTaskCompletion(client, taskId, format)
+      // Determine task type: folder pack takes precedence over file-based curate
+      const taskType = hasFolders ? 'curate-folder' : 'curate'
 
       // Send task:create request
       await client.requestWithAck<TaskAck>('task:create', {
         clientCwd: process.cwd(),
         content: resolvedContent,
         ...(files?.length ? {files} : {}),
+        ...(hasFolders && folders ? {folderPath: folders[0]} : {}),
         taskId,
-        type: 'curate',
+        type: taskType,
       })
 
       // Wait for the already-listening completion promise

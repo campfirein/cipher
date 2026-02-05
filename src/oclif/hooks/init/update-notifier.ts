@@ -5,9 +5,9 @@ import {execSync} from 'node:child_process'
 import updateNotifier from 'update-notifier'
 
 /**
- * Check interval for update notifications (24 hours)
+ * Check interval for update notifications (1 hour)
  */
-export const UPDATE_CHECK_INTERVAL_MS = 1000 * 60 * 60 * 24
+export const UPDATE_CHECK_INTERVAL_MS = 1000 * 60 * 60
 
 /**
  * Narrowed notifier type for dependency injection

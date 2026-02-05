@@ -2,46 +2,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import {SystemPromptError} from '../../core/domain/errors/system-prompt-error.js'
-import {EnvironmentContextOptionsSchema, type ValidatedEnvironmentContextOptions} from './schemas.js'
+import type { EnvironmentContext } from '../../core/domain/environment/types.js'
 
-/**
- * Environment context information for system prompts.
- * Provides the Cipher agent with awareness of its operating environment.
- */
-export interface EnvironmentContext {
-  /** Formatted .brv directory structure explanation */
-  brvStructure: string
-  /** Formatted project file tree */
-  fileTree: string
-  /** Whether the working directory is a git repository */
-  isGitRepository: boolean
-  /** Node.js version */
-  nodeVersion: string
-  /** Operating system version */
-  osVersion: string
-  /** Operating system platform (darwin, linux, win32) */
-  platform: string
-  /** Absolute path to the working directory */
-  workingDirectory: string
-}
-
-/**
- * Options for building environment context.
- * @deprecated Use ValidatedEnvironmentContextOptions from schemas.ts instead
- */
-export interface EnvironmentContextOptions {
-  /** Whether to include .brv structure explanation (default: true) */
-  includeBrvStructure?: boolean
-  /** Whether to include file tree (default: true) */
-  includeFileTree?: boolean
-  /** Maximum depth for file tree traversal (default: 3) */
-  maxFileTreeDepth?: number
-  /** Maximum number of entries in file tree (default: 100) */
-  maxFileTreeEntries?: number
-  /** Working directory path */
-  workingDirectory: string
-}
+import { SystemPromptError } from '../../core/domain/errors/system-prompt-error.js'
+import {
+  type EnvironmentContextOptionsInput,
+  EnvironmentContextOptionsSchema,
+  type ValidatedEnvironmentContextOptions,
+} from '../system-prompt/schemas.js'
 
 /**
  * Options for directory traversal.
@@ -52,7 +20,7 @@ interface TraverseOptions {
   /** Current directory path */
   dir: string
   /** Counter for entries added (mutable object) */
-  entriesCount: {value: number}
+  entriesCount: { value: number }
   /** Array to append lines to */
   lines: string[]
   /** Maximum depth to traverse */
@@ -60,7 +28,7 @@ interface TraverseOptions {
   /** Maximum entries to include */
   maxEntries: number
   /** Counter for truncated entries (mutable object) */
-  truncatedCount: {value: number}
+  truncatedCount: { value: number }
 }
 
 /**
@@ -89,7 +57,7 @@ const EXCLUDE_PATTERNS = [
 ]
 
 /**
- * Builds environment context for system prompts.
+ * Builds environment context for system prompts and sandbox execution.
  *
  * Gathers information about:
  * - Working directory
@@ -102,10 +70,10 @@ export class EnvironmentContextBuilder {
   /**
    * Build the complete environment context.
    *
-   * @param options - Configuration options
+   * @param options - Configuration options (validated against EnvironmentContextOptionsSchema)
    * @returns Environment context object
    */
-  public async build(options: EnvironmentContextOptions): Promise<EnvironmentContext> {
+  public async build(options: EnvironmentContextOptionsInput): Promise<EnvironmentContext> {
     // Validate options with Zod schema
     const parseResult = EnvironmentContextOptionsSchema.safeParse(options)
 
@@ -167,7 +135,7 @@ export class EnvironmentContextBuilder {
     const structure: string[] = ['<brv-structure>', '.brv/']
 
     try {
-      const entries = fs.readdirSync(brvDir, {withFileTypes: true})
+      const entries = fs.readdirSync(brvDir, { withFileTypes: true })
 
       for (const entry of entries) {
         if (entry.isDirectory()) {
@@ -195,8 +163,8 @@ export class EnvironmentContextBuilder {
    * @returns Formatted file tree string
    */
   private buildFileTree(dir: string, maxDepth: number, maxEntries: number): string {
-    const entriesCount = {value: 0}
-    const truncatedCount = {value: 0}
+    const entriesCount = { value: 0 }
+    const truncatedCount = { value: 0 }
     const lines: string[] = ['<files>']
 
     this.traverseDirectory({
@@ -295,14 +263,14 @@ export class EnvironmentContextBuilder {
    * @param options.lines - Array to append lines to
    */
   private traverseDirectory(options: TraverseOptions): void {
-    const {currentDepth, dir, entriesCount, lines, maxDepth, maxEntries, truncatedCount} = options
+    const { currentDepth, dir, entriesCount, lines, maxDepth, maxEntries, truncatedCount } = options
     if (currentDepth >= maxDepth) {
       return
     }
 
     let entries: fs.Dirent[]
     try {
-      entries = fs.readdirSync(dir, {withFileTypes: true})
+      entries = fs.readdirSync(dir, { withFileTypes: true })
     } catch {
       return
     }

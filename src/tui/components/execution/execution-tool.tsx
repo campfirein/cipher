@@ -49,6 +49,73 @@ interface ToolDisplayParts {
 }
 
 /**
+ * Extract key context from code (file paths, search terms, etc.)
+ * Used as fallback when comments are missing or generic.
+ */
+function extractCodeContext(code: string): string | undefined {
+  // Try to extract file paths from tools.readFile() calls
+  const readFileMatch = code.match(/tools\.readFile\s*\(\s*['"]([^'"]+)['"]\s*\)/)
+  if (readFileMatch) {
+    return `Read ${readFileMatch[1]}`
+  }
+
+  // Try to extract search terms from tools.searchKnowledge() calls
+  const searchMatch = code.match(/tools\.searchKnowledge\s*\(\s*['"]([^'"]+)['"]\s*\)/)
+  if (searchMatch) {
+    return `Search: ${searchMatch[1]}`
+  }
+
+  // Try to extract grep patterns
+  const grepMatch = code.match(/tools\.grep\s*\(\s*['"]([^'"]+)['"]\s*\)/)
+  if (grepMatch) {
+    return `Grep: ${grepMatch[1]}`
+  }
+
+  // Try to extract curate path/title from tools.curate() calls
+  const curatePathMatch = code.match(/path:\s*['"]([^'"]+)['"]/)
+  const curateTitleMatch = code.match(/title:\s*['"]([^'"]+)['"]/)
+  if (curatePathMatch && curateTitleMatch) {
+    return `Curate ${curateTitleMatch[1]} to ${curatePathMatch[1]}`
+  }
+
+  if (curatePathMatch) {
+    return `Curate to ${curatePathMatch[1]}`
+  }
+
+  return undefined
+}
+
+/**
+ * Extract the first meaningful comment from JavaScript/TypeScript code.
+ * Falls back to extracting context from the code itself.
+ */
+function extractCodeDescription(code: string): string | undefined {
+  // Match single-line comments: // comment
+  const singleLineMatch = code.match(/\/\/\s*(.+?)(?:\n|$)/)
+  if (singleLineMatch) {
+    const comment = singleLineMatch[1].trim()
+    // If comment is too generic, try to extract more context
+    if (comment.length < 20 || /^(read|curate|search|get|fetch)\s+(the\s+)?(file|data|content)/i.test(comment)) {
+      const context = extractCodeContext(code)
+      if (context) return context
+    }
+
+    return comment
+  }
+
+  // Match multi-line comments: /* comment */ or /** comment */
+  const multiLineMatch = code.match(/\/\*\*?\s*([\s\S]*?)\s*\*\//)
+  if (multiLineMatch) {
+    // Get first line of multi-line comment
+    const firstLine = multiLineMatch[1].split('\n')[0].replace(/^\s*\*?\s*/, '').trim()
+    if (firstLine) return firstLine
+  }
+
+  // No comment found - try to extract context from code
+  return extractCodeContext(code)
+}
+
+/**
  * Format tool display with parameters based on tool type.
  * Returns separate parts for tool name and arguments for independent styling.
  */
@@ -65,6 +132,21 @@ function formatToolDisplay(toolName: string, args?: Record<string, unknown>, isE
         // Truncate long commands unless expanded
         const display = isExpanded || cmdStr.length <= 60 ? cmdStr : cmdStr.slice(0, 57) + '...'
         return {toolArguments: `$ ${display}`, toolName: 'Bash'}
+      }
+
+      break
+    }
+
+    case 'code_exec':
+    case 'CodeExec': {
+      const {code} = args
+      if (code && typeof code === 'string') {
+        const description = extractCodeDescription(code)
+        if (description) {
+          // Truncate description unless expanded
+          const display = isExpanded || description.length <= 60 ? description : description.slice(0, 57) + '...'
+          return {toolArguments: display, toolName: 'CodeExec'}
+        }
       }
 
       break

@@ -42,7 +42,7 @@ This launches a persistent session with a React/Ink-based terminal interface whe
 
 ```
 /status                 # Show auth, config, and context tree state
-/curate [context] [@files]  # Curate context to the context tree
+/curate [context] [@paths]  # Curate context to the context tree
 /query <query>          # Query information from context tree (alias: /q)
 /connector              # Manage coding agent connectors (alias: /connectors)
 /provider               # Connect to an LLM provider (aliases: /providers, /connect)
@@ -58,7 +58,7 @@ This launches a persistent session with a React/Ink-based terminal interface whe
 /logout [-y]            # Log out
 ```
 
-First-time users will see an interactive onboarding flow. Press `Esc` at any time to skip onboarding.
+First-time users will see an interactive onboarding flow. Press `Esc` at any time to skip onboarding or cancel streaming responses.
 
 ### Standalone CLI Commands
 
@@ -162,6 +162,7 @@ brv
 - **Slash commands**: Use `/command` syntax for all operations (e.g., `/login`, `/push`, `/query`)
 - **Interactive onboarding**: First-time users get a guided setup flow (press `Esc` to skip)
 - **Real-time feedback**: See streaming responses and progress indicators
+- **Escape to cancel**: Press `Esc` to cancel streaming responses and long-running commands
 - **Tab completion**: Auto-complete slash commands as you type
 
 **Available Slash Commands**
@@ -169,7 +170,7 @@ brv
 | Command | Description |
 | ------- | ----------- |
 | `/status` | Show CLI status and project information |
-| `/curate [context] [@files]` | Curate context to the context tree (use `@filepath` for file references) |
+| `/curate [context] [@paths]` | Curate context to the context tree (use `@path` for file or folder references) |
 | `/query <query>` (alias: `/q`) | Query and retrieve information from context tree |
 | `/connector` (alias: `/connectors`) | Manage coding agent connectors (skill, mcp, rules, hook) |
 | `/provider` (aliases: `/providers`, `/connect`) | Connect to an LLM provider (e.g., OpenRouter) |
@@ -188,6 +189,7 @@ brv
 
 - REPL mode is the primary way to use ByteRover CLI for an interactive experience
 - Commands like `logout`, `space`, `connector`, `provider`, `model`, `reset`, and `new` are only available in REPL mode
+- Press `Esc` to cancel streaming responses or long-running commands
 - Use `Ctrl+C` to exit REPL mode
 
 ### Slash Command Details
@@ -206,7 +208,7 @@ Curate context to the context tree using interactive or autonomous mode.
 | -------- | ---- | -------- | ----------- |
 | `context` | string | No | Knowledge context (triggers autonomous mode if provided) |
 
-**File References**: Use `@filepath` syntax to include files as context (up to 5 files).
+**File and Folder References**: Use `@path` syntax to include files or folders (up to 5 references total). Folders are packed into a structured format.
 
 **Examples**
 
@@ -219,6 +221,9 @@ Curate context to the context tree using interactive or autonomous mode.
 
 # Include file references
 /curate "Session handling logic" @src/auth/session.ts @src/middleware/auth.ts
+
+# Include folder reference
+/curate "Authentication module overview" @src/auth/
 ```
 
 #### `/query` (alias: `/q`)
@@ -624,7 +629,7 @@ Curate context to the context tree using interactive or autonomous mode.
 
 | Flag | Description | Default |
 | ---- | ----------- | ------- |
-| `-f, --files <paths>` | Include specific file paths for critical context (max 5 files). Use multiple `-f` flags for multiple files | None |
+| `-f, --files <paths>` | Include file or folder paths for context (max 5 total). Use multiple `-f` flags for multiple paths. Folders are packed into a structured format | None |
 | `--headless` | Run in headless mode (no TTY required) | `false` |
 | `--format <option>` | Output format: `text` or `json` | `text` |
 
@@ -643,6 +648,9 @@ brv curate "This module handles user sessions" -f src/auth/session.ts
 brv curate "JWT authentication implementation" --files src/auth/jwt.ts --files docs/auth.md
 brv curate "Auth logic" -f src/auth.ts -f src/middleware/auth.ts
 
+# Include folder reference
+brv curate "Authentication module overview" -f src/auth/
+
 # Headless mode for CI/CD
 brv curate "Auth uses JWT tokens" --headless --format json
 ```
@@ -654,7 +662,7 @@ brv curate "Auth uses JWT tokens" --headless --format json
 - Context tree must exist (run `/init` or `brv init` first)
 - **Interactive mode (without context)**: Navigate context tree, select domain/topic, creates markdown file with descriptive name
 - **Autonomous mode (with context)**: ByteRover agent automatically determines best location and adds content
-- **File references**: Up to 5 files. Use `--files` or `-f` flag for CLI mode, or `@filepath` syntax in REPL mode. Files must be text files within the project directory
+- **File and folder references**: Up to 5 references total. Use `--files` or `-f` flag for CLI mode, or `@path` syntax in REPL mode. For folders, contents are packed into a structured format. Files must be text files within the project directory
 
 ---
 

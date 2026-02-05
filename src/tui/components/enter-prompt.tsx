@@ -7,6 +7,8 @@
 import {Text, useInput} from 'ink'
 import React from 'react'
 
+import {useTheme} from '../hooks/index.js'
+
 interface EnterPromptProps {
   action: string
   active?: boolean
@@ -14,6 +16,8 @@ interface EnterPromptProps {
 }
 
 export const EnterPrompt: React.FC<EnterPromptProps> = ({action, active = true, onEnter}) => {
+  const {theme: {colors}} = useTheme()
+
   useInput(
     (_input, key) => {
       if (key.return && active) {
@@ -24,9 +28,9 @@ export const EnterPrompt: React.FC<EnterPromptProps> = ({action, active = true, 
   )
 
   return (
-    <Text color="gray">
+    <Text color={colors.dimText}>
       Press{' '}
-      <Text backgroundColor="cyan" color="black">
+      <Text backgroundColor={colors.primary} color={colors.text}>
         {' Enter '}
       </Text>{' '}
       to {action}

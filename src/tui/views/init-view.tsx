@@ -9,6 +9,7 @@ import {Box, Text, useInput} from 'ink'
 import React, {useState} from 'react'
 
 import {EnterPrompt, Init} from '../components/index.js'
+import {useAuth, useTransport} from '../contexts/index.js'
 import {useMode, useTheme} from '../hooks/index.js'
 
 type InitStep = 'complete' | 'init' | 'prompt'
@@ -28,6 +29,8 @@ export const InitView: React.FC<InitViewProps> = ({availableHeight, onInitComple
   const {theme: {colors}} = useTheme()
   const {mode} = useMode()
   const [step, setStep] = useState<InitStep>('prompt')
+  const {reloadAuth} = useAuth()
+  const {client} = useTransport()
 
   const maxOutputLines = MIN_OUTPUT_LINES
 
@@ -42,20 +45,22 @@ export const InitView: React.FC<InitViewProps> = ({availableHeight, onInitComple
         onInitComplete?.()
       }
     },
-    {isActive: mode === 'activity' && step === 'prompt'}
+    {isActive: mode === 'main' && step === 'prompt'}
   )
+  
+  const handleInitComplete = async () => {
+    onInitComplete?.()
+    // Reload auth to detect config change
+    await reloadAuth()
+
+    // Restart agent to pick up new project state
+    if (client) {
+      await client.requestWithAck('agent:restart', {reason: 'Project initialized'})
+    }
+  }
 
   return (
-    <Box
-      borderColor={colors.border}
-      borderLeft={false}
-      borderRight={false}
-      borderStyle="single"
-      borderTop={false}
-      flexDirection="column"
-      height={availableHeight}
-      width="100%"
-    >
+    <Box flexDirection="column" height={availableHeight} width="100%">
       <Box flexDirection="column" paddingX={1}>
         {step === 'prompt' && (
           <>
@@ -81,7 +86,7 @@ export const InitView: React.FC<InitViewProps> = ({availableHeight, onInitComple
               <Text bold color={colors.primary}>Initialize Project</Text>
             </Box>
             <Init
-              active={mode === 'activity'}
+              active={mode === 'main'}
               autoStart={true}
               maxOutputLines={maxOutputLines}
               onInitComplete={() => setStep('complete')}
@@ -101,8 +106,8 @@ export const InitView: React.FC<InitViewProps> = ({availableHeight, onInitComple
               </Text>
               <EnterPrompt
                 action="continue"
-                active={mode === 'activity'}
-                onEnter={onInitComplete}
+                active={mode === 'main'}
+                onEnter={handleInitComplete}
               />
             </Box>
           </>

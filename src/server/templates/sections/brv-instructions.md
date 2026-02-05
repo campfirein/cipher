@@ -55,14 +55,20 @@ brv query "What do I need to know about [relevant topic]?"
 - Found a bug root cause or fix pattern
 
 ```bash
-# CONTEXT argument MUST come BEFORE -f flag
-# Max 5 files per curate
+# CONTEXT argument MUST come BEFORE flags
+# Max 5 files per curate with -f flag
 brv curate "Specific insight with details" -f path/to/file.ts
 brv curate "Multi-file insight" -f file1.ts -f file2.ts
+
+# For folder pack (analyze entire folder), use -d or --folder flag
+brv curate "Analyze this module" -d path/to/folder/
+brv curate --folder src/auth/  # folder-only mode
 ```
 
 **GOOD:** `brv curate "Auth uses JWT 24h expiry, refresh in httpOnly cookies" -f src/auth.ts`
+**GOOD:** `brv curate "Analyze auth module" -d src/auth/`
 **BAD:** `brv curate "Fixed auth"` (too vague), `brv curate -f file.ts "text"` (wrong order)
+**BAD:** `brv curate -folder src/` (use `-d` or `--folder`, NOT `-folder`)
 
 **⚠️ CRITICAL - LONG CONVERSATIONS:**
 If you modify code 10 times in a conversation, curate 10 times. Do NOT batch or skip. Each code change = immediate curate before moving on.

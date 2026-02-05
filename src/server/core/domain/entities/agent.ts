@@ -51,16 +51,16 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
     supported: ['rules'],
   },
   'Augment Code': {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'rules',
+    supported: ['rules'],
   },
   'Claude Code': {
     default: 'skill',
     supported: ['rules', 'hook', 'mcp', 'skill'],
   },
   Cline: {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'rules',
+    supported: ['rules'],
   },
   Codex: {
     default: 'mcp',
@@ -91,28 +91,28 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
     supported: ['rules', 'mcp'],
   },
   Qoder: {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'rules',
+    supported: ['rules'],
   },
   'Qwen Code': {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'rules',
+    supported: ['rules'],
   },
   'Roo Code': {
     default: 'mcp',
     supported: ['rules', 'mcp'],
   },
   'Trae.ai': {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'rules',
+    supported: ['rules'],
   },
   Warp: {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'rules',
+    supported: ['rules'],
   },
   Windsurf: {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'rules',
+    supported: ['rules'],
   },
   Zed: {
     default: 'mcp',

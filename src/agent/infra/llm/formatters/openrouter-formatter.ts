@@ -84,11 +84,7 @@ export class OpenRouterMessageFormatter implements IMessageFormatter<ChatComplet
             // Remove from pending since we found its result
             pendingToolCallIds.delete(msg.toolCallId)
           } else {
-            // Orphaned tool result (result without matching call)
-            // Skip it to prevent API errors
-            console.warn(
-              `Skipping orphaned tool result ${msg.toolCallId} (no matching tool call found)`,
-            )
+            // Orphaned tool result (result without matching call) - skip to prevent API errors
           }
 
           break
@@ -115,9 +111,7 @@ export class OpenRouterMessageFormatter implements IMessageFormatter<ChatComplet
           // eslint-disable-next-line camelcase
           tool_call_id: toolCallId,
         })
-        console.warn(
-          `Tool call ${toolCallId} had no matching tool result - added synthetic error result`,
-        )
+        // Orphaned tool call - synthetic error result added
       }
     }
 

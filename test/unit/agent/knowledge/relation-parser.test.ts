@@ -226,5 +226,40 @@ describe('relation-parser', () => {
         '\n## Relations\n@backend/database/database_orm_and_services.md\n@structure/api/guide.md\n@testing/unit/basics.md\n',
       )
     })
+
+    it('should normalize paths to lowercase', () => {
+      const result = generateRelationsSection(['Architecture/Agents/Overview.md', 'Structure/API/Guide.md'])
+
+      expect(result).to.equal('\n## Relations\n@architecture/agents/overview.md\n@structure/api/guide.md\n')
+    })
+
+    it('should replace spaces with underscores', () => {
+      const result = generateRelationsSection([
+        'architecture/agents/Sandbox and Security.md',
+        'code style/Error Handling/overview.md',
+      ])
+
+      expect(result).to.equal(
+        '\n## Relations\n@architecture/agents/sandbox_and_security.md\n@code_style/error_handling/overview.md\n',
+      )
+    })
+
+    it('should normalize paths with mixed case and spaces', () => {
+      const result = generateRelationsSection([
+        'Architecture/Agents/Overview.md',
+        'architecture/agents/Sandbox and Security.md',
+        'Code Style/Error Handling.md',
+      ])
+
+      expect(result).to.equal(
+        '\n## Relations\n@architecture/agents/overview.md\n@architecture/agents/sandbox_and_security.md\n@code_style/error_handling.md\n',
+      )
+    })
+
+    it('should handle multiple consecutive spaces', () => {
+      const result = generateRelationsSection(['architecture/agents/Sandbox  and   Security.md'])
+
+      expect(result).to.equal('\n## Relations\n@architecture/agents/sandbox_and_security.md\n')
+    })
   })
 })
