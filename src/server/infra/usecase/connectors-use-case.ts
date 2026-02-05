@@ -1,3 +1,5 @@
+import chalk from 'chalk'
+
 import type {Agent} from '../../core/domain/entities/agent.js'
 import type {ConnectorType} from '../../core/domain/entities/connector-type.js'
 import type {IConnectorManager} from '../../core/interfaces/connectors/i-connector-manager.js'
@@ -187,6 +189,13 @@ export class ConnectorsUseCase implements IConnectorsUseCase {
         this.terminal.log(`${agent} connected via ${result.toType}`)
         this.terminal.log(`   Installed: ${result.installResult.configPath}`)
       }
+
+
+      // Show how to use instructions
+      this.terminal.log("\nWHAT'S NEXT")
+      this.terminal.log('Try this in your next prompt:')
+      this.terminal.log(chalk.hex('#0AA77D').italic('> "Save our API authentication patterns, use brv curate"'))
+      this.terminal.log('Docs: https://docs.byterover.dev/common-workflows/curate-context')
 
       // Show restart message for hook connector
       if (['hook', 'mcp', 'skill'].includes(result.toType) && !result.installResult.alreadyInstalled) {

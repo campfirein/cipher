@@ -5,15 +5,16 @@ import {Space} from './space.js'
 
 /**
  * Parameters for creating a BrvConfig instance.
+ * chatLogPath, cwd, and ide are optional to support partial configs (e.g., after login pre-select).
  */
 export type BrvConfigParams = {
-  chatLogPath: string
+  chatLogPath?: string
   cipherAgentContext?: string
   cipherAgentModes?: string[]
   cipherAgentSystemPrompt?: string
   createdAt: string
-  cwd: string
-  ide: Agent
+  cwd?: string
+  ide?: Agent
   spaceId: string
   spaceName: string
   teamId: string
@@ -28,6 +29,14 @@ export type FromSpaceParams = {
   chatLogPath: string
   cwd: string
   ide: Agent
+  space: Space
+}
+
+/**
+ * Parameters for creating a partial BrvConfig from a Space entity.
+ * Used for login pre-select when user has only one team and one space.
+ */
+export type PartialFromSpaceParams = {
   space: Space
 }
 
@@ -53,14 +62,13 @@ const isCodingAgent = (value: unknown): value is Agent => {
 /**
  * Type guard for BrvConfigFromJson - validates JSON structure at runtime.
  * Note: version is optional in this check (old configs may not have it).
+ * chatLogPath, cwd, and ide are optional to support partial configs.
  */
 const isBrvConfigJson = (json: unknown): json is BrvConfigFromJson => {
   if (typeof json !== 'object' || json === null) return false
 
   const requiredInputJsonKeys = [
-    'chatLogPath',
     'createdAt',
-    'cwd',
     'spaceId',
     'spaceName',
     'teamId',
@@ -73,12 +81,11 @@ const isBrvConfigJson = (json: unknown): json is BrvConfigFromJson => {
     }
   }
 
-  if (!('ide' in json) || !isCodingAgent((json as Record<string, unknown>).ide)) {
-    return false
-  }
-
   // Check optional fields if present
   const obj = json as Record<string, unknown>
+  if (obj.chatLogPath !== undefined && typeof obj.chatLogPath !== 'string') return false
+  if (obj.cwd !== undefined && typeof obj.cwd !== 'string') return false
+  if (obj.ide !== undefined && !isCodingAgent(obj.ide)) return false
   if (obj.cipherAgentContext !== undefined && typeof obj.cipherAgentContext !== 'string') return false
   if (obj.cipherAgentSystemPrompt !== undefined && typeof obj.cipherAgentSystemPrompt !== 'string') return false
   if (obj.cipherAgentModes !== undefined && !Array.isArray(obj.cipherAgentModes)) return false
@@ -92,13 +99,13 @@ const isBrvConfigJson = (json: unknown): json is BrvConfigFromJson => {
  * This config links a project directory to a ByteRover space.
  */
 export class BrvConfig {
-  public readonly chatLogPath: string
+  public readonly chatLogPath?: string
   public readonly cipherAgentContext?: string
   public readonly cipherAgentModes?: string[]
   public readonly cipherAgentSystemPrompt?: string
   public readonly createdAt: string
-  public readonly cwd: string
-  public readonly ide: Agent
+  public readonly cwd?: string
+  public readonly ide?: Agent
   public readonly spaceId: string
   public readonly spaceName: string
   public readonly teamId: string
@@ -187,6 +194,22 @@ export class BrvConfig {
       createdAt: new Date().toISOString(),
       cwd: params.cwd,
       ide: params.ide,
+      spaceId: params.space.id,
+      spaceName: params.space.name,
+      teamId: params.space.teamId,
+      teamName: params.space.teamName,
+      version: BRV_CONFIG_VERSION,
+    })
+  }
+
+  /**
+   * Creates a partial BrvConfig from a Space entity.
+   * Used for login pre-select when user has only one team and one space.
+   * Does not include chatLogPath, cwd, or ide (agent selection happens in /init).
+   */
+  public static partialFromSpace(params: PartialFromSpaceParams): BrvConfig {
+    return new BrvConfig({
+      createdAt: new Date().toISOString(),
       spaceId: params.space.id,
       spaceName: params.space.name,
       teamId: params.space.teamId,

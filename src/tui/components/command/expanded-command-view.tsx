@@ -1,8 +1,8 @@
 /**
  * Expanded Message View Component
  *
- * Full-screen overlay displaying a single command message with scrollable output.
- * Activated by Ctrl+O on a selected message, dismissed with Ctrl+O or Esc.
+ * Full-screen overlay displaying a command message with scrollable output.
+ * Activated by Ctrl+O on a selected command message, dismissed with Ctrl+O or Esc.
  */
 
 import {Box, Spacer, Text, useInput, useStdout} from 'ink'
@@ -11,31 +11,34 @@ import React, {useEffect, useRef, useState} from 'react'
 
 import type {CommandMessage} from '../../types.js'
 
+import {useCommands} from '../../contexts/commands-context.js'
 import {useTheme} from '../../hooks/index.js'
+import {formatTime} from '../../utils/index.js'
+import {MessageItem} from '../message-item.js'
+import {CommandOutput} from './command-output.js'
+import {LiveStreamingOutput} from './index.js'
 
-interface ExpandedMessageViewProps {
+export interface ExpandedCommandViewProps {
   /** Available height for the expanded view (in terminal rows) */
   availableHeight: number
   /** Whether input handling is active */
   isActive: boolean
-  /** The message to display in expanded view */
+  /** The command message to display in expanded view */
   message: CommandMessage
-  /** Index of the message */
-  messageIndex: number
   /** Callback when the view should close */
   onClose: () => void
-  /** Render function for the message item */
-  renderMessageItem: (msg: CommandMessage, index: number, isExpanded?: boolean) => React.ReactNode
+  /** Terminal width for text wrapping calculations */
+  terminalWidth: number
 }
 
-export const ExpandedMessageView: React.FC<ExpandedMessageViewProps> = ({
+export const ExpandedCommandView: React.FC<ExpandedCommandViewProps> = ({
   availableHeight,
   isActive,
   message,
-  messageIndex,
   onClose,
-  renderMessageItem,
+  terminalWidth,
 }) => {
+  const {activePrompt, isStreaming, streamingMessages} = useCommands()
   const {
     theme: {colors},
   } = useTheme()
@@ -50,9 +53,7 @@ export const ExpandedMessageView: React.FC<ExpandedMessageViewProps> = ({
     setHasMoreBelow(currentOffset < maxOffset)
   }
 
-  // Initial scroll position check
   useEffect(() => {
-    // Delay to allow ScrollView to measure content
     const timer = setTimeout(updateScrollIndicator, 50)
     return () => clearTimeout(timer)
   }, [message])
@@ -74,7 +75,7 @@ export const ExpandedMessageView: React.FC<ExpandedMessageViewProps> = ({
     (input, key) => {
       if (!scrollViewRef.current) return
 
-      if ((key.ctrl && input === 'o') || key.escape) {
+      if ((key.ctrl && input === 'o')) {
         onClose()
       }
 
@@ -104,25 +105,54 @@ export const ExpandedMessageView: React.FC<ExpandedMessageViewProps> = ({
     {isActive}
   )
 
+  const displayTime = message.timestamp ? formatTime(message.timestamp) : ''
+  const hasCompletedOutput = message.output && message.output.length > 0
+  const showLiveOutput = (isStreaming || activePrompt) && (streamingMessages.length > 0 || activePrompt)
+
+  if (message.type === 'error') {
+    return <MessageItem isActive={isActive} isExpanded message={message} onClose={onClose} />
+  }
+
   return (
-    <Box flexDirection="column" height="100%" paddingX={2} width="100%">
+    <Box flexDirection="column" height="100%" paddingBottom={1} width="100%">
       {/* Fixed Header */}
-      <Box>
-        <Text dimColor>[ctrl+o/esc] close | [↑↓/jk] scroll | [g/G] top/bottom</Text>
+      <Box gap={1}>
+        <Text color={colors.primary}>• {message.fromCommand}</Text>
         <Spacer />
+        <Text color={colors.dimText}>{displayTime}</Text>
       </Box>
 
       {/* Scrollable content area */}
-      <Box borderColor={colors.border} borderStyle="single" flexDirection="column" flexGrow={1} height={availableHeight - 1}>
-        <ScrollView height={availableHeight - 2} ref={scrollViewRef}>
-          {renderMessageItem(message, messageIndex, true)}
+      <Box borderColor={colors.border} borderStyle="single" flexDirection="column" height={availableHeight - 1}>
+        <ScrollView height={availableHeight - 4} ref={scrollViewRef}>
+          <Box flexDirection="column">
+            {!hasCompletedOutput && showLiveOutput && (
+              <LiveStreamingOutput
+                activePrompt={activePrompt}
+                isExpanded
+                isStreaming={isStreaming}
+                streamingMessages={streamingMessages}
+                terminalWidth={terminalWidth}
+              />
+            )}
+
+            {hasCompletedOutput && (
+              <CommandOutput isExpanded output={message.output!} terminalWidth={terminalWidth} />
+            )}
+
+            {!hasCompletedOutput && !showLiveOutput && (
+              <Text color={colors.dimText}>No output</Text>
+            )}
+          </Box>
         </ScrollView>
         {/* More content indicator */}
         <Box justifyContent="center">
-          <Text color={colors.dimText}>{hasMoreBelow ? "↓" : " "}</Text>
+          <Text color={colors.dimText}>{hasMoreBelow ? '↓' : ' '}</Text>
         </Box>
       </Box>
-
+      <Box>
+        <Text color={colors.dimText}>[ctrl+o] to collapse</Text>
+      </Box>
     </Box>
   )
 }

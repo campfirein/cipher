@@ -177,8 +177,6 @@ export class RetryableContentGenerator implements IContentGenerator {
   private emitExhausted(attempts: number, error: unknown): void {
     const errorMessage = error instanceof Error ? error.message : String(error)
 
-    console.error(`[Retry] All ${attempts} attempts exhausted. Final error: ${errorMessage}`)
-
     this.eventBus?.emit('llmservice:error', {
       error: `All ${attempts} retry attempts exhausted: ${errorMessage}`,
     })
@@ -189,11 +187,6 @@ export class RetryableContentGenerator implements IContentGenerator {
    */
   private emitRetry(attempt: number, maxAttempts: number, error: unknown, delayMs: number): void {
     const errorMessage = error instanceof Error ? error.message : String(error)
-
-    console.warn(
-      `[Retry] Attempt ${attempt}/${maxAttempts} failed: ${errorMessage}. ` +
-        `Retrying in ${delayMs}ms...`,
-    )
 
     this.eventBus?.emit('llmservice:warning', {
       message: `Retry attempt ${attempt}/${maxAttempts} after ${delayMs}ms: ${errorMessage}`,

@@ -197,13 +197,6 @@ export class CoreToolScheduler implements IToolScheduler {
    * Emit policy check event.
    */
   private emitPolicyChecked(execution: ScheduledToolExecution, result: PolicyEvaluationResult): void {
-    if (this.config.verbose) {
-      console.debug(
-        `[ToolScheduler] Policy check for '${execution.toolName}': ${result.decision}` +
-          (result.reason ? ` (${result.reason})` : ''),
-      )
-    }
-
     // Emit warning for denied tools
     if (this.eventBus && result.decision === 'DENY') {
       this.eventBus.emit('llmservice:warning', {
@@ -217,9 +210,5 @@ export class CoreToolScheduler implements IToolScheduler {
    */
   private updateStatus(execution: ScheduledToolExecution, status: ScheduledToolStatus): void {
     execution.status = status
-
-    if (this.config.verbose) {
-      console.debug(`[ToolScheduler] ${execution.toolName}: ${status}`)
-    }
   }
 }

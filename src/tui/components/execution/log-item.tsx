@@ -22,7 +22,7 @@ interface LogItemProps {
   /** Dynamic heights based on terminal breakpoint */
   heights: MessageItemHeights
   /** Whether content should be fully expanded (no truncation) */
-  isExpand?: boolean
+  isExpanded?: boolean
   /** Whether this log item is currently selected */
   isSelected?: boolean
   /** The activity log to display */
@@ -31,7 +31,7 @@ interface LogItemProps {
   shouldShowExpand?: boolean
 }
 
-export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpand, isSelected, log, shouldShowExpand = true}) => {
+export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpanded, isSelected, log}) => {
   const {
     theme: {colors},
   } = useTheme()
@@ -74,7 +74,7 @@ export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpand, isSelec
             <StreamingText
               content={log.streamingContent}
               isStreaming={Boolean(log.isStreaming)}
-              maxLines={isExpand ? 0 : heights.maxContentLines}
+              maxLines={isExpanded ? 0 : heights.maxContentLines}
               showCursor={Boolean(log.isStreaming)}
             />
           )}
@@ -93,6 +93,7 @@ export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpand, isSelec
           {log.status === 'completed' && (
             <ExecutionChanges
               created={log.changes.created}
+              isExpanded={isExpanded}
               marginTop={1}
               maxChanges={heights.maxChanges}
               updated={log.changes.updated}
@@ -100,7 +101,7 @@ export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpand, isSelec
           )}
 
           {/* Expand indicator */}
-          {isSelected && shouldShowExpand ? (
+          {isSelected ? (
             <Text color={colors.dimText}>Show remaining output • [ctrl+o] to expand</Text>
           ) : (
             <Text> </Text>
@@ -110,5 +111,4 @@ export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpand, isSelec
     </Box>
   )
 })
-LogItem.displayName = 'LogItem'
 

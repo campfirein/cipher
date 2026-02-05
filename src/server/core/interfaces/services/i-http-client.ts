@@ -32,4 +32,13 @@ export interface IHttpClient {
    * @returns A promise that resolves to the response data
    */
   post: <TResponse, TData = unknown>(url: string, data?: TData, config?: HttpRequestConfig) => Promise<TResponse>
+
+  /**
+   * Performs an HTTP PUT request.
+   * @param url The URL to request
+   * @param data The data to send in the request body
+   * @param config Optional request configuration (headers, timeout)
+   * @returns A promise that resolves to the response data
+   */
+  put: <TResponse, TData = unknown>(url: string, data?: TData, config?: HttpRequestConfig) => Promise<TResponse>
 }
