@@ -344,6 +344,7 @@ async function main(): Promise<void> {
           size: agentPool!.getSize(),
         },
         clients: clientManager.getAllClients().map((c) => ({
+          agentName: c.agentName,
           connectedAt: c.connectedAt,
           id: c.id,
           projectPath: c.projectPath,

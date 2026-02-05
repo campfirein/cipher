@@ -213,6 +213,25 @@ export class ConnectionCoordinator {
     return {success: true}
   }
 
+  private handleClientUpdateAgentName(
+    clientId: string,
+    data: {agentName: string},
+  ): {error?: string; success: boolean} {
+    if (!this.clientManager) {
+      return {error: 'ClientManager not available', success: false}
+    }
+
+    const client = this.clientManager.getClient(clientId)
+    if (!client) {
+      return {error: 'Client not registered', success: false}
+    }
+
+    this.clientManager.setAgentName(clientId, data.agentName)
+    transportLog(`Client ${clientId} identified as agent: ${data.agentName}`)
+
+    return {success: true}
+  }
+
   private handleClientRegister(
     clientId: string,
     data: {clientType: ClientType; projectPath?: string},
@@ -379,6 +398,11 @@ export class ConnectionCoordinator {
     this.transport.onRequest<{projectPath: string}, {error?: string; success: boolean}>(
       TransportClientEventNames.ASSOCIATE_PROJECT,
       (data, clientId) => this.handleClientAssociateProject(clientId, data),
+    )
+
+    this.transport.onRequest<{agentName: string}, {error?: string; success: boolean}>(
+      TransportClientEventNames.UPDATE_AGENT_NAME,
+      (data, clientId) => this.handleClientUpdateAgentName(clientId, data),
     )
   }
 

@@ -94,6 +94,17 @@ export interface IClientManager {
   register(clientId: string, type: ClientType, projectPath?: string): void
 
   /**
+   * Set the agent name for an MCP client.
+   * Called when the MCP initialize handshake provides clientInfo with the agent name.
+   *
+   * No-op if client is unknown.
+   *
+   * @param clientId - The client's Socket.IO ID
+   * @param agentName - The agent name from MCP clientInfo (e.g., "Windsurf", "Claude Code")
+   */
+  setAgentName(clientId: string, agentName: string): void
+
+  /**
    * Unregister a client on disconnect.
    * Automatically checks if the client's project now has 0 external clients
    * and fires onProjectEmpty callback if so.

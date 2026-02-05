@@ -2,6 +2,7 @@ import {connectToDaemon, type ITransportClient} from '@campfirein/brv-transport-
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 
+import {TransportClientEventNames} from '../../core/domain/transport/schemas.js'
 import {resolveLocalServerMainPath} from '../../utils/server-main-resolver.js'
 import {detectMcpMode, type McpMode} from './mcp-mode-detector.js'
 import {registerBrvCurateTool, registerBrvQueryTool} from './tools/index.js'
@@ -31,6 +32,8 @@ const RECONNECT_BACKOFF_MULTIPLIER = 1.5
  * - Tasks are executed by the existing agent process
  */
 export class ByteRoverMcpServer {
+  /** Cached agent name from MCP initialize handshake, re-sent on reconnect */
+  private _agentName: string | undefined
   private client: ITransportClient | undefined
   private readonly config: McpServerConfig
   private currentReconnectDelay: number = RECONNECT_DELAY_MS
@@ -87,6 +90,18 @@ export class ByteRoverMcpServer {
 
     // Monitor connection state changes and handle reconnection
     this.setupStateChangeHandler(result.client)
+
+    // Capture the coding agent's identity after MCP initialize handshake
+    this.server.server.oninitialized = () => {
+      const clientVersion = this.server.server.getClientVersion()
+      if (clientVersion?.name && this.client) {
+        this._agentName = clientVersion.name
+        this.log(`MCP client identified: ${clientVersion.name} v${clientVersion.version}`)
+        this.sendAgentName()
+      } else {
+        this.log('MCP client did not provide clientInfo name')
+      }
+    }
 
     // Start MCP server with stdio transport
     this.transport = new StdioServerTransport()
@@ -214,6 +229,20 @@ export class ByteRoverMcpServer {
   }
 
   /**
+   * Sends the cached agent name to the daemon (fire-and-forget).
+   * Called after MCP initialize handshake and on Socket.IO reconnection.
+   */
+  private sendAgentName(): void {
+    if (!this._agentName || !this.client) return
+
+    this.client
+      .requestWithAck(TransportClientEventNames.UPDATE_AGENT_NAME, {agentName: this._agentName})
+      .catch((error: unknown) => {
+        this.log(`Failed to send agent name: ${error instanceof Error ? error.message : String(error)}`)
+      })
+  }
+
+  /**
    * Sets up the state change handler for a client.
    * Handles disconnection by triggering auto-reconnect.
    */
@@ -228,6 +257,8 @@ export class ByteRoverMcpServer {
           // Reset backoff delay on successful connection
           this.currentReconnectDelay = RECONNECT_DELAY_MS
           this.isReconnecting = false
+          // Re-send cached agent name after reconnection (new clientId needs it)
+          this.sendAgentName()
           break
         }
 

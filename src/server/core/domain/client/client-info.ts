@@ -36,6 +36,7 @@ export function isValidClientType(value: unknown): value is ClientType {
  * Construction parameters for ClientInfo.
  */
 type ClientInfoParams = {
+  agentName?: string
   connectedAt: number
   id: string
   projectPath?: string
@@ -49,6 +50,8 @@ export class ClientInfo {
   public readonly connectedAt: number
   public readonly id: string
   public readonly type: ClientType
+  /** Mutable: set via setAgentName() for MCP clients after MCP initialize handshake */
+  private _agentName: string | undefined
   /** Mutable: set via associateProject() for global-scope MCP clients */
   private _projectPath: string | undefined
 
@@ -56,7 +59,16 @@ export class ClientInfo {
     this.id = params.id
     this.type = params.type
     this.connectedAt = params.connectedAt
+    this._agentName = params.agentName
     this._projectPath = params.projectPath
+  }
+
+  /**
+   * The agent name reported by the MCP client during initialize handshake.
+   * Undefined for non-MCP clients or MCP clients that haven't completed handshake.
+   */
+  get agentName(): string | undefined {
+    return this._agentName
   }
 
   /**
@@ -88,5 +100,13 @@ export class ClientInfo {
    */
   associateProject(projectPath: string): void {
     this._projectPath = projectPath
+  }
+
+  /**
+   * Set the agent name for this MCP client.
+   * Called after MCP initialize handshake provides clientInfo.
+   */
+  setAgentName(agentName: string): void {
+    this._agentName = agentName
   }
 }

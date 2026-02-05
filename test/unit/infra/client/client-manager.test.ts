@@ -371,6 +371,37 @@ describe('ClientManager', () => {
     })
   })
 
+  describe('setAgentName()', () => {
+    it('should set agent name on registered client', () => {
+      manager.register('client-1', 'mcp', PROJECT_A)
+      manager.setAgentName('client-1', 'Windsurf')
+
+      const client = manager.getClient('client-1')
+      expect(client!.agentName).to.equal('Windsurf')
+    })
+
+    it('should be a no-op for unknown clientId', () => {
+      // Should not throw
+      manager.setAgentName('unknown', 'Windsurf')
+    })
+
+    it('should allow overwriting agent name', () => {
+      manager.register('client-1', 'mcp', PROJECT_A)
+      manager.setAgentName('client-1', 'Windsurf')
+      manager.setAgentName('client-1', 'Claude Code')
+
+      const client = manager.getClient('client-1')
+      expect(client!.agentName).to.equal('Claude Code')
+    })
+
+    it('should return undefined agentName by default', () => {
+      manager.register('client-1', 'mcp', PROJECT_A)
+
+      const client = manager.getClient('client-1')
+      expect(client!.agentName).to.be.undefined
+    })
+  })
+
   describe('Project Isolation', () => {
     it('should track clients per project independently', () => {
       manager.register('client-1', 'tui', PROJECT_A)

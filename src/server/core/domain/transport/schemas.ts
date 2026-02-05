@@ -309,6 +309,7 @@ export const TransportAgentEventNames = {
 export const TransportClientEventNames = {
   ASSOCIATE_PROJECT: 'client:associateProject',
   REGISTER: 'client:register',
+  UPDATE_AGENT_NAME: 'client:updateAgentName',
 } as const
 
 /**

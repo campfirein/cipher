@@ -80,6 +80,13 @@ export class ClientManager implements IClientManager {
     this.projectEmptyCallback = callback
   }
 
+  setAgentName(clientId: string, agentName: string): void {
+    const client = this.clients.get(clientId)
+    if (!client) return
+
+    client.setAgentName(agentName)
+  }
+
   register(clientId: string, type: ClientType, projectPath?: string): void {
     // Cleanup old project index if clientId already registered (reconnect scenario)
     const existing = this.clients.get(clientId)

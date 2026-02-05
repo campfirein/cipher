@@ -45,6 +45,7 @@ type DaemonState = {
     size: number
   }
   clients: Array<{
+    agentName?: string
     connectedAt: number
     id: string
     projectPath?: string
@@ -289,12 +290,13 @@ export default class Debug extends Command {
       const isLast = i === clients.length - 1
       const prefix = isLast ? '    └── ' : '    ├── '
       const childPrefix = isLast ? '        ' : '    │   '
+      const typeLabel = client.agentName ? `${client.type} · ${client.agentName}` : client.type
       const typeColor =
         client.type === 'agent'
-          ? chalk.cyan(client.type)
+          ? chalk.cyan(typeLabel)
           : client.type === 'tui'
-            ? chalk.green(client.type)
-            : chalk.blue(client.type)
+            ? chalk.green(typeLabel)
+            : chalk.blue(typeLabel)
 
       lines.push(
         `${prefix}${client.id} (${typeColor})`,
