@@ -10,43 +10,41 @@
  * ```
  */
 
-import React, {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react'
+import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react'
 
+import {getCurrentConfig} from '../../server/config/environment.js'
+import {BrvConfig} from '../../server/core/domain/entities/brv-config.js'
+import {HttpSpaceService} from '../../server/infra/space/http-space-service.js'
+import {HttpTeamService} from '../../server/infra/team/http-team-service.js'
+import {HttpUserService} from '../../server/infra/user/http-user-service.js'
 import {useAuth} from './auth-context.js'
+import {useTransport} from './index.js'
 import {useServices} from './services-context.js'
 import {useTasks} from './tasks-context.js'
 
-export type OnboardingStep = 'complete' | 'curate' | 'init' | 'query'
+export type OnboardingStep = 'curate' | 'curating' | 'explore' | 'query' | 'querying'
 
 export interface OnboardingContextValue {
+  /** Mark init flow as complete */
+  completeInitFlow: () => void
   /** Set onboarding complete state. Pass skipped=true when user skips via Esc */
   completeOnboarding: (skipped?: boolean) => void
-  /** Whether user has acknowledged curate completion */
-  curateAcknowledged: boolean
   /** Current onboarding step */
   currentStep: OnboardingStep
-  /** Whether curate has been completed at least once */
-  hasCurated: boolean
-  /** Whether query has been completed at least once */
-  hasQueried: boolean
-  /** Whether user has acknowledged init completion */
-  initAcknowledged: boolean
-  /** Whether the project is initialized (brvConfig exists) */
-  isInitialized: boolean
-  /** Whether we're still loading the dismissed state */
-  isLoadingDismissed: boolean
-  /** Whether user has acknowledged query completion */
-  queryAcknowledged: boolean
-  /** Set curate acknowledged state */
-  setCurateAcknowledged: (value: boolean) => void
-  /** Set init acknowledged state */
-  setInitAcknowledged: (value: boolean) => void
-  /** Set query acknowledged state */
-  setQueryAcknowledged: (value: boolean) => void
+  /** Map of command names to their recommended text (session-only, set after onboarding completes) */
+  highlightedCommands: Map<string, string>
+  /** Whether init flow has been completed */
+  initFlowCompleted: boolean
+  /** Whether onboarding check is still loading (user check + auto-select if needed) */
+  isLoadingOnboardingCheck: boolean
+  /** Remove a command from highlighted commands (called after command is executed) */
+  removeHighlightedCommand: (commandName: string) => void
+  /** Set current onboarding step */
+  setCurrentStep: (step: OnboardingStep) => void
+  /** Whether init view should be shown */
+  shouldShowInit: boolean
   /** Whether onboarding should be shown */
   shouldShowOnboarding: boolean
-  /** Total number of steps (excluding complete) */
-  totalSteps: number
 }
 
 const OnboardingContext = createContext<OnboardingContextValue | undefined>(undefined)
@@ -58,188 +56,187 @@ interface OnboardingProviderProps {
 /**
  * Provider for onboarding state
  *
- * State derivation:
- * - Init: When !brvConfig
- * - Curate: When brvConfig exists but no curate completion in session
- * - Query: When curate completed but no query completion in session
- * - Complete: When both curate and query completed
+ * Step flow: curate → curating → query → querying → explore
+ * Transitions happen automatically based on task states.
  *
- * Onboarding starts when project is not initialized on mount and
- * continues until all steps are completed and dismissed.
+ * Onboarding starts when user.hasOnboardedCli is false.
  */
 export function OnboardingProvider({children}: OnboardingProviderProps): React.ReactElement {
-  const {brvConfig, isInitialConfigLoaded} = useAuth()
   const {tasks} = useTasks()
-  const {onboardingPreferenceStore, trackingService} = useServices()
+  const {projectConfigStore, trackingService} = useServices()
+  const {authToken, brvConfig, isLoadingUser, user} = useAuth()
+  const {client} = useTransport()
 
-  const isInitialized = brvConfig !== undefined
+  // Track if onboarding was completed in this session (to hide immediately after completing)
+  const [completedInSession, setCompletedInSession] = useState(false)
 
-  // Track if we've already checked initial config state
-  const hasCheckedRef = useRef(false)
+  // Track if init flow has been completed
+  const [initFlowCompleted, setInitFlowCompleted] = useState(Boolean(brvConfig))
 
-  // Track if project was not initialized after initial config check
-  // This determines whether we're in onboarding mode for this session
-  const wasNotInitializedRef = useRef(true)
+  // Highlighted commands with their recommended text (session-only, set after onboarding completes)
+  const [highlightedCommands, setHighlightedCommands] = useState<Map<string, string>>(new Map())
 
-  // Track if user has ever dismissed onboarding (persisted across sessions)
-  const [hasDismissed, setHasDismissed] = useState(false)
-  const [isLoadingDismissed, setIsLoadingDismissed] = useState(true)
+  const removeHighlightedCommand = useCallback((commandName: string) => {
+    setHighlightedCommands((prev) => {
+      const next = new Map(prev)
+      next.delete(commandName)
+      return next
+    })
+  }, [])
+  const completeInitFlow = useCallback(() => setInitFlowCompleted(true), [])
 
-  // Check if user has dismissed onboarding before (based on existence of lastDismissedAt)
+  // Track if onboarding check is loading (user check + auto-select if needed)
+  const [isLoadingOnboardingCheck, setIsLoadingOnboardingCheck] = useState(true)
+
+  // Auto-select default team and space
+  const autoSelectTeamSpace = useCallback(async () => {
+    if (!authToken) return
+
+    try {
+      const config = getCurrentConfig()
+      const teamService = new HttpTeamService({apiBaseUrl: config.apiBaseUrl})
+      const spaceService = new HttpSpaceService({apiBaseUrl: config.apiBaseUrl})
+
+      const {teams} = await teamService.getTeams(authToken.sessionKey, {fetchAll: true})
+      const defaultTeam = teams.find((team) => team.isDefault)
+      if (!defaultTeam) return
+
+      const {spaces} = await spaceService.getSpaces(authToken.sessionKey, defaultTeam.id, {fetchAll: true})
+      const defaultSpace = spaces.find((space) => space.isDefault)
+      if (!defaultSpace) return
+
+      const brvConfig = BrvConfig.partialFromSpace({space: defaultSpace})
+      await projectConfigStore.write(brvConfig)
+      await client?.requestWithAck('agent:restart', {reason: 'Auto select team/space'})
+    } catch {
+      // Silently ignore errors - auto-selection is optional
+    }
+  }, [authToken, client, projectConfigStore])
+
+  // Auto-select team/space when showing onboarding and user is logged in
   useEffect(() => {
-    const checkDismissed = async () => {
-      try {
-        const lastDismissedAt = await onboardingPreferenceStore.getLastDismissedAt()
-        setHasDismissed(Boolean(lastDismissedAt))
-      } finally {
-        setIsLoadingDismissed(false)
+    const checkOnboarding = async () => {
+      if (isLoadingUser) return
+
+      // User has already onboarded - no need to auto-select
+      if (user?.hasOnboardedCli) {
+        setIsLoadingOnboardingCheck(false)
+        return
       }
+
+      // User needs onboarding - run auto-select then set loading to false
+      if (user && !user.hasOnboardedCli && authToken?.isValid()) {
+        await autoSelectTeamSpace()
+      }
+
+      setIsLoadingOnboardingCheck(false)
     }
 
-    checkDismissed()
-  }, [onboardingPreferenceStore])
+    checkOnboarding()
+  }, [isLoadingUser, user, authToken, autoSelectTeamSpace])
 
-  // Update ref once initial config load completes (only once)
-  // This distinguishes "async load found existing config" from "user just ran init"
+  // Current onboarding step state
+  const [currentStep, setCurrentStep] = useState<OnboardingStep>('curate')
+
+  // Watch tasks and automatically transition steps
+  // Flow: curate → curating → query → querying → explore
   useEffect(() => {
-    if (isInitialConfigLoaded && !hasCheckedRef.current) {
-      hasCheckedRef.current = true
-      if (isInitialized) {
-        // Config existed before user interaction - don't show onboarding
-        wasNotInitializedRef.current = false
-      }
-    }
-  }, [isInitialConfigLoaded, isInitialized])
-
-  // Track acknowledgment for completed steps (user pressed Enter after seeing output)
-  const [initAcknowledged, setInitAcknowledgedState] = useState(false)
-  const [curateAcknowledged, setCurateAcknowledgedState] = useState(false)
-  const [queryAcknowledged, setQueryAcknowledgedState] = useState(false)
-
-  // Track if init was completed during this onboarding session (to avoid duplicate tracking)
-  const initTrackedRef = useRef(false)
-
-  // Track init completion when isInitialized changes during onboarding
-  useEffect(() => {
-    if (wasNotInitializedRef.current && isInitialized && !initTrackedRef.current) {
-      initTrackedRef.current = true
-      trackingService.track('onboarding:init_completed')
-    }
-  }, [isInitialized, trackingService])
-
-  // Wrapper for setInitAcknowledged that also tracks
-  const setInitAcknowledged = useCallback(
-    (value: boolean) => {
-      setInitAcknowledgedState(value)
-    },
-    [],
-  )
-
-  // Wrapper for setCurateAcknowledged that also tracks
-  const setCurateAcknowledged = useCallback(
-    (value: boolean) => {
-      setCurateAcknowledgedState(value)
-      if (value) {
-        trackingService.track('onboarding:curate_completed')
-      }
-    },
-    [trackingService],
-  )
-
-  // Wrapper for setQueryAcknowledged that also tracks
-  const setQueryAcknowledged = useCallback(
-    (value: boolean) => {
-      setQueryAcknowledgedState(value)
-      if (value) {
-        trackingService.track('onboarding:query_completed')
-      }
-    },
-    [trackingService],
-  )
-
-  // Check for completed curate/query tasks in session
-  const {hasCurated, hasQueried} = useMemo(() => {
-    let curateCompleted = false
-    let queryCompleted = false
+    let isCurating = false
+    let hasCurated = false
+    let isQuerying = false
+    let hasQueried = false
 
     for (const task of tasks.values()) {
-      if (task.status === 'completed') {
-        if (task.type === 'curate') {
-          curateCompleted = true
-        } else if (task.type === 'query') {
-          queryCompleted = true
-        }
+      if (task.type === 'curate') {
+        if (task.status === 'completed') hasCurated = true
+        if (task.status === 'started' || task.status === 'created') isCurating = true
       }
 
-      // Early exit if both found
-      if (curateCompleted && queryCompleted) break
+      if (task.type === 'query') {
+        if (task.status === 'completed') hasQueried = true
+        if (task.status === 'started' || task.status === 'created') isQuerying = true
+      }
     }
 
-    return {hasCurated: curateCompleted, hasQueried: queryCompleted}
-  }, [tasks])
+    if (currentStep === 'explore') return
 
-  // Derive current step (considering acknowledgment)
-  // Stay on each step until user acknowledges the completion
-  const currentStep: OnboardingStep = useMemo(() => {
-    if (!isInitialized) return 'init'
-    // isInitialized is true but not yet acknowledged -> stay on init
-    if (!initAcknowledged) return 'init'
-    if (!hasCurated) return 'curate'
-    // hasCurated is true but not yet acknowledged -> stay on curate
-    if (!curateAcknowledged) return 'curate'
-    if (!hasQueried) return 'query'
-    // hasQueried is true but not yet acknowledged -> stay on query
-    if (!queryAcknowledged) return 'query'
-    return 'complete'
-  }, [isInitialized, initAcknowledged, hasCurated, hasQueried, curateAcknowledged, queryAcknowledged])
+    if (currentStep === 'querying' && hasQueried) {
+      trackingService.track('onboarding:query_completed')
+      setCurrentStep('explore')
+      return
+    }
 
-  // Show onboarding if:
-  // 1. Project was not initialized after initial config check, AND
-  // 2. User has never dismissed onboarding before (persisted)
-  const shouldShowOnboarding = wasNotInitializedRef.current && !hasDismissed
+    if (currentStep === 'query' && isQuerying) {
+      setCurrentStep('querying')
+      return
+    }
+
+    if (currentStep === 'curating' && hasCurated) {
+      trackingService.track('onboarding:curate_completed')
+      setCurrentStep('query')
+      return
+    }
+
+    if (currentStep === 'curate' && isCurating) {
+      setCurrentStep('curating')
+    }
+  }, [tasks, currentStep, trackingService])
+
+  // Show onboarding if user has not completed onboarding (from server) and not completed in this session
+  const shouldShowOnboarding = !completedInSession && user !== undefined && !user.hasOnboardedCli && !isLoadingUser
+
+  // Show init view if init flow not completed and not showing onboarding
+  const shouldShowInit = !initFlowCompleted && !shouldShowOnboarding && !isLoadingUser
 
   const completeOnboarding = useCallback(
     (skipped = false) => {
-      setHasDismissed(true)
-      onboardingPreferenceStore.setLastDismissedAt(Date.now())
+      setCompletedInSession(true)
+      completeInitFlow()
       if (skipped) {
         trackingService.track('onboarding:skipped', {step: currentStep})
       } else {
         trackingService.track('onboarding:completed')
+        setHighlightedCommands(
+          new Map([
+            ['connector', 'Recommend: Connect ByteRover to your agents'],
+            ['push', 'Recommend: Sync your local context to the cloud'],
+            ['status', 'Recommend: Check your context tree status and project info'],
+          ]),
+        )
+      }
+
+      // Update user's hasOnboardedCli flag on the server
+      if (authToken?.isValid()) {
+        const config = getCurrentConfig()
+        const userService = new HttpUserService({apiBaseUrl: config.apiBaseUrl})
+        userService.updateCurrentUser(authToken.sessionKey, {hasOnboardedCli: true})
       }
     },
-    [currentStep, onboardingPreferenceStore, trackingService],
+    [authToken, currentStep, trackingService, completeInitFlow],
   )
 
   const contextValue = useMemo(
     () => ({
+      completeInitFlow,
       completeOnboarding,
-      curateAcknowledged,
       currentStep,
-      hasCurated,
-      hasQueried,
-      initAcknowledged,
-      isInitialized,
-      isLoadingDismissed,
-      queryAcknowledged,
-      setCurateAcknowledged,
-      setInitAcknowledged,
-      setQueryAcknowledged,
+      highlightedCommands,
+      initFlowCompleted,
+      isLoadingOnboardingCheck,
+      removeHighlightedCommand,
+      setCurrentStep,
+      shouldShowInit,
       shouldShowOnboarding,
-      totalSteps: 3, // init, curate, query (complete is not counted)
     }),
     [
+      completeInitFlow,
       completeOnboarding,
-      curateAcknowledged,
       currentStep,
-      hasCurated,
-      hasQueried,
-      hasDismissed,
-      initAcknowledged,
-      isInitialized,
-      isLoadingDismissed,
-      queryAcknowledged,
-      setInitAcknowledged,
+      highlightedCommands,
+      initFlowCompleted,
+      isLoadingOnboardingCheck,
+      removeHighlightedCommand,
+      shouldShowInit,
       shouldShowOnboarding,
     ],
   )

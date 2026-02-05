@@ -2,6 +2,29 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [1.7.0]
+
+### Added
+
+- **Folder reference support** - Use `@folder_path` syntax in `/curate` command to include entire directories. Files are packed into a structured format for comprehensive context curation. Also available in MCP `brv-curate` tool.
+- **Escape key to cancel** - Press Esc to cancel streaming responses and long-running commands with timestamped cancellation feedback.
+- **Improved onboarding flow** - Streamlined first-time setup with server-side onboarding state, auto-selection of default team/space, and clearer "What's Next" guidance for connector setup.
+- **Query command alias** - Use `/q` as a shorthand for `/query` command.
+- **Enhanced activity logs** - Activity logs now display code descriptions and file references for better traceability.
+
+### Changed
+
+- **Faster update checks** - Update notifier now checks every hour instead of every 24 hours for quicker access to new releases.
+- **Improved query performance** - Query operations now use optimized programmatic search with sandboxed code execution for reduced latency.
+- **Simplified agent architecture** - Removed subagent task delegation for more direct and responsive command execution.
+
+### Fixed
+
+- **NPM security vulnerabilities** - Addressed critical security issues identified in dependency audit.
+- **Orphaned connector migration** - Fixed connector configuration migration when switching between connector types.
+- **TUI layout stability** - Removed stray console output that could disrupt terminal UI rendering.
+- **Context relation paths** - Relation paths in context.md files are now consistently normalized to lowercase with underscores.
+
 ## [1.6.0]
 
 ### Added

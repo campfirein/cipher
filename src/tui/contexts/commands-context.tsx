@@ -18,15 +18,23 @@
 
 import React, {createContext, useContext, useEffect, useMemo, useState} from 'react'
 
-import type {CommandContext, SlashCommand, SlashCommandActionReturn} from '../types.js'
+import type {CommandContext, CommandMessage, PromptRequest, SlashCommand, SlashCommandActionReturn, StreamingMessage} from '../types.js'
 
 import {load} from '../commands/index.js'
-import {useSlashCommandProcessor, useTerminalBreakpoint} from '../hooks/index.js'
+import {useSlashCommandProcessor} from '../hooks/index.js'
 import {useServices} from './services-context.js'
 
 interface CommandsContextValue {
+  activePrompt: null | PromptRequest
   commands: readonly SlashCommand[]
   handleSlashCommand: (input: string) => Promise<SlashCommandActionReturn>
+  isStreaming: boolean
+  messages: CommandMessage[]
+  setActivePrompt: (prompt: null | PromptRequest) => void
+  setIsStreaming: (isStreaming: boolean) => void
+  setMessages: React.Dispatch<React.SetStateAction<CommandMessage[]>>
+  setStreamingMessages: React.Dispatch<React.SetStateAction<StreamingMessage[]>>
+  streamingMessages: StreamingMessage[]
 }
 
 const CommandsContext = createContext<CommandsContextValue | undefined>(undefined)
@@ -37,8 +45,11 @@ interface CommandsProviderProps {
 
 export function CommandsProvider({children}: CommandsProviderProps): React.ReactElement {
   const [commands, setCommands] = useState<readonly SlashCommand[]>([])
+  const [messages, setMessages] = useState<CommandMessage[]>([])
+  const [streamingMessages, setStreamingMessages] = useState<StreamingMessage[]>([])
+  const [activePrompt, setActivePrompt] = useState<null | PromptRequest>(null)
+  const [isStreaming, setIsStreaming] = useState(false)
   const {version} = useServices()
-  const {breakpoint, columns, rows} = useTerminalBreakpoint()
 
   useEffect(() => {
     const abortController = new AbortController()
@@ -58,17 +69,25 @@ export function CommandsProvider({children}: CommandsProviderProps): React.React
     () => ({
       version,
     }),
-    [breakpoint, columns, rows, version],
+    [version],
   )
 
   const {handleSlashCommand} = useSlashCommandProcessor(commandContext, commands)
 
   const contextValue = useMemo(
     () => ({
+      activePrompt,
       commands,
       handleSlashCommand,
+      isStreaming,
+      messages,
+      setActivePrompt,
+      setIsStreaming,
+      setMessages,
+      setStreamingMessages,
+      streamingMessages,
     }),
-    [commands, handleSlashCommand],
+    [activePrompt, commands, handleSlashCommand, isStreaming, messages, streamingMessages],
   )
 
   return <CommandsContext.Provider value={contextValue}>{children}</CommandsContext.Provider>

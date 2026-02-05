@@ -18,19 +18,16 @@
  * - Sends: 'task:started', 'task:chunk', 'task:completed', 'task:error', 'task:toolCall', 'task:toolResult'
  */
 
-import {
-  type AgentStatus,
-  type ITransportClient,
-  type TaskExecute,
-  TransportClient,
-} from '@campfirein/brv-transport-client'
+import {type AgentStatus, type ITransportClient, TransportClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 
 import type {AgentEventMap} from '../../../agent/core/domain/agent-events/types.js'
-import type {TaskCancel} from '../../core/domain/transport/schemas.js'
+import type {TaskCancel, TaskExecute} from '../../core/domain/transport/schemas.js'
 import type {AgentIPCResponse, IPCCommand} from './ipc-types.js'
 
 import {AgentConfig, CipherAgent} from '../../../agent/infra/agent/index.js'
+import {FileSystemService} from '../../../agent/infra/file-system/file-system-service.js'
+import {FolderPackService} from '../../../agent/infra/folder-pack/folder-pack-service.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {
@@ -42,6 +39,7 @@ import {
 import {agentLog} from '../../utils/process-logger.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
+import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
 import {createTaskProcessor, TaskProcessor} from '../executor/task-processor.js'
 import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
@@ -746,9 +744,10 @@ function finalizeAgentInitialization(params: {
   }
   brvConfig: Awaited<ReturnType<ProjectConfigStore['read']>>
   curateExecutor: CurateExecutor
+  folderPackExecutor: FolderPackExecutor
   queryExecutor: QueryExecutor
 }): void {
-  const {agent, authToken, brvConfig, curateExecutor, queryExecutor} = params
+  const {agent, authToken, brvConfig, curateExecutor, folderPackExecutor, queryExecutor} = params
 
   // Setup event forwarding
   setupAgentEventForwarding(agent)
@@ -757,6 +756,7 @@ function finalizeAgentInitialization(params: {
   // Create TaskProcessor
   taskProcessor = createTaskProcessor({
     curateExecutor,
+    folderPackExecutor,
     queryExecutor,
   })
   taskProcessor.setAgent(cipherAgent)
@@ -844,6 +844,13 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
     const curateExecutor = new CurateExecutor()
     const queryExecutor = new QueryExecutor()
 
+    // Create FolderPackExecutor with required dependencies
+    const fileSystemService = new FileSystemService()
+    await fileSystemService.initialize()
+    const folderPackService = new FolderPackService(fileSystemService)
+    await folderPackService.initialize()
+    const folderPackExecutor = new FolderPackExecutor(folderPackService)
+
     // Read provider configuration
     const {modelFromProvider, openRouterApiKey} = await loadProviderConfiguration()
 
@@ -863,6 +870,7 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
       authToken,
       brvConfig,
       curateExecutor,
+      folderPackExecutor,
       queryExecutor,
     })
     pendingAgent = undefined // Clear local ref - cipherAgent now owns it
@@ -900,7 +908,7 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
  * Handle task:execute from Transport.
  */
 async function handleTaskExecute(data: TaskExecute): Promise<void> {
-  const {clientCwd, content, files, taskId, type} = data
+  const {clientCwd, content, files, folderPath, taskId, type} = data
 
   agentLog(`Processing task: ${taskId} (type=${type})`)
 
@@ -927,6 +935,7 @@ async function handleTaskExecute(data: TaskExecute): Promise<void> {
       clientCwd,
       content,
       files,
+      folderPath,
       taskId,
       type,
     })

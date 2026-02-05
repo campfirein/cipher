@@ -1,5 +1,3 @@
-import {randomUUID} from 'node:crypto'
-
 import {isDevelopment} from '../../server/config/environment.js'
 import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
 import {createTokenStore} from '../../server/infra/storage/token-store.js'
@@ -27,8 +25,9 @@ export const curateCommand: SlashCommand = {
   action(context: CommandContext, args: string) {
     return {
       async execute(onMessage, onPrompt) {
-        // Files are pre-extracted by the command processor
+        // Files and folders are pre-extracted by the command processor
         const files = context.invocation?.files ?? []
+        const folders = context.invocation?.folders ?? []
 
         // Parse flags and get context text
         let contextText: string | undefined
@@ -52,16 +51,12 @@ export const curateCommand: SlashCommand = {
         })
 
         // Run the use case - mode determined by whether context is provided
+        // Folder takes precedence over files (triggers folder pack flow)
         await useCase.run({
           context: contextText,
           files: files.length > 0 ? files : undefined,
+          folders: folders.length > 0 ? folders : undefined,
           verbose: flags.verbose,
-        })
-
-        onMessage({
-          content: 'View in Activity tab.             [tab]',
-          id: randomUUID(),
-          type: 'output',
         })
       },
       type: 'streaming' as const,

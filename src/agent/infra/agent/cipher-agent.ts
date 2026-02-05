@@ -163,6 +163,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       this.stateManager.reset()
     }
 
+    // Clean up sandbox service (release VM contexts and pending operations)
+    if (this.services?.sandboxService) {
+      await this.services.sandboxService.cleanup()
+    }
+
     // Close SQLite databases to release file handles and ensure clean shutdown
     if (this.services?.blobStorage) {
       this.services.blobStorage.close()
@@ -429,13 +434,6 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Each agent has exactly 1 session created at start time
     const defaultSession = await this.sessionManager.createSession()
     this._sessionId = defaultSession.id
-
-    // Update ToolProvider with SessionManager getter for TaskTool
-    // This must happen after SessionManager is created since TaskTool needs it for subagent delegation
-    const {sessionManager} = this
-    services.toolProvider.updateServices({
-      getSessionManager: () => sessionManager,
-    })
   }
 
   /**

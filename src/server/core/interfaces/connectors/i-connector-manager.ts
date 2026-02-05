@@ -1,6 +1,11 @@
 import type {Agent} from '../../domain/entities/agent.js'
 import type {ConnectorType} from '../../domain/entities/connector-type.js'
-import type {ConnectorInstallResult, ConnectorStatus, ConnectorSwitchResult} from './connector-types.js'
+import type {
+  ConnectorInstallResult,
+  ConnectorStatus,
+  ConnectorSwitchResult,
+  OrphanedConnectorMigrationResult,
+} from './connector-types.js'
 import type {IConnector} from './i-connector.js'
 
 /**
@@ -57,6 +62,14 @@ export interface IConnectorManager {
    * @returns Installation result
    */
   installDefault(agent: Agent): Promise<ConnectorInstallResult>
+
+  /**
+   * Detect and clean up orphaned connectors for agents that no longer support them.
+   * Returns results only for agents where orphaned configs were found and cleaned.
+   *
+   * @returns Array of migration results for agents that were cleaned up
+   */
+  migrateOrphanedConnectors(): Promise<OrphanedConnectorMigrationResult[]>
 
   /**
    * Get the status of a specific connector type for an agent.

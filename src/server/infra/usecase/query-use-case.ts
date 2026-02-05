@@ -428,6 +428,7 @@ export class QueryUseCase implements IQueryUseCase {
           if (payload.taskId === taskId && payload.content && !resultPrinted) {
             resultPrinted = true
             finalResult = payload.content
+
             if (format === 'text') {
               this.terminal.log('\nResult:')
               this.terminal.log(payload.content)

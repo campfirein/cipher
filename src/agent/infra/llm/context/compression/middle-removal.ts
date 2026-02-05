@@ -69,10 +69,7 @@ export class MiddleRemovalStrategy implements ICompressionStrategy {
         removableIndices.push(i)
       }
     } else {
-      // Not enough messages to apply strategy
-      console.warn(
-        `MiddleRemovalStrategy: Cannot apply - only ${totalMessages} messages (need at least ${this.preserveStart + this.preserveEnd})`,
-      )
+      // Not enough messages to apply strategy - return as-is
       return history
     }
 

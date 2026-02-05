@@ -48,265 +48,138 @@ npm run lint                                     # ESLint
 
 ## Architecture
 
-### REPL + TUI Architecture
+### Source Structure
 
-- `brv` (no args) starts interactive REPL (`src/infra/repl/repl-startup.tsx`)
-- React/Ink-based TUI (`src/tui/`) with streaming, dialogs, prompts
-- Slash commands (`/command`) in `src/infra/repl/commands/` (order in `index.ts` = UI suggestion order)
+```
+src/
+├── agent/           # LLM agent system
+│   ├── core/        # Agent interfaces and domain types
+│   └── infra/       # Tools, LLM services, sessions, storage
+├── server/          # Server-side infrastructure
+│   ├── core/        # Domain entities and interfaces
+│   └── infra/       # Auth, connectors, transport, usecases
+├── tui/             # React/Ink TUI + slash commands
+│   ├── commands/    # Slash command implementations
+│   └── components/  # UI components, dialogs, prompts
+└── oclif/           # Oclif commands and hooks
+```
+
+### REPL + TUI
+
+- `brv` (no args) starts interactive REPL (`src/tui/repl-startup.tsx`)
+- React/Ink-based TUI with streaming, dialogs, prompts
+- Slash commands in `src/tui/commands/` (order in `index.ts` = UI suggestion order)
 - Oclif commands: 7 public (`init`, `login`, `status`, `curate`, `query`, `push`, `pull`) + 3 hidden (`main`, `hook-prompt-submit`, `mcp`). Note: `/logout` is REPL-only
 
-### Architecture v1.0.0 (Multi-Process)
+### Multi-Process Architecture
 
 - Main process spawns Transport and Agent worker processes
 - All task communication via Socket.IO (no direct IPC)
 - Single instance per folder via lock file (`.brv/instance.lock`)
-- `src/infra/process/` - Worker threads, task queue, IPC handlers
-- `src/infra/transport/` - Socket.IO client/server, port utils
-- `src/infra/instance/` - Instance lock management (acquire/release)
+- `src/server/infra/process/` - Worker threads, task queue, IPC handlers
+- `src/server/infra/transport/` - Socket.IO client/server, port utils
+- `src/server/infra/instance/` - Instance lock management
 
-### Headless Execution (v1.6.0)
-
-Enables non-interactive CLI usage for automation/CI pipelines:
+### Headless Execution
 
 - `--headless` flag on: `init`, `status`, `curate`, `query`, `push`, `pull`
-- `InlineAgentExecutor` (`src/infra/process/inline-agent-executor.ts`) - Ephemeral in-process agent, bypasses REPL/Transport; includes `InlineTransportClient` as drop-in `ITransportClient`
-- `HeadlessTerminal` (`src/infra/terminal/headless-terminal.ts`) - Non-interactive output (text/JSON formats)
+- `InlineAgentExecutor` - Ephemeral in-process agent, bypasses REPL/Transport
+- `HeadlessTerminal` - Non-interactive output (text/JSON formats)
 - `HeadlessPromptError` - Thrown when prompts cannot be answered headlessly
 
-### Task Queue Architecture (v1.3.0)
+### Task Queue
 
-**Unified Queue System** (`src/infra/process/task-queue-manager.ts`):
+- `TaskQueueManager` - FIFO queue, sequential execution (max concurrency = 1)
+- Deduplication, cancellation, lifecycle: enqueue → activate → process → complete
 
-- `TaskQueueManager` - FIFO queue for all task types (curate, query)
-- **Sequential execution**: max concurrency = 1 (one task at a time)
-- **Deduplication**: same taskId cannot be queued twice
-- **Cancellation**: remove queued tasks before processing
-- **Task lifecycle**: enqueue → activate → process → complete
-- Extracted from agent-worker for testability
+### Server Core (`src/server/core/`)
 
-**Key behaviors**:
-- Strict FIFO order across all task types
-- Tasks wait in queue until executor is set (`setExecutor`)
-- Active task tracking prevents race conditions
-- `hasActiveTasks()` blocks reinit during execution
+**Interfaces** (`interfaces/`):
 
-### Core Interfaces (`src/core/interfaces/`)
-
-**Auth** (all require `accessToken` + `sessionKey`):
-
-- `IAuthService` - OAuth + PKCE → `AuthorizationContext`
-- `ITokenStore` - Keychain persistence
-- `IHttpClient` - Auto-injects `Authorization: Bearer` + `x-byterover-session-id`
-
-**API Services**:
-
-- `ITeamService.getTeams(accessToken, sessionKey, {fetchAll?, isActive?, limit?, offset?})` → `{teams, total}`
-- `ISpaceService.getSpaces(accessToken, sessionKey, teamId, {fetchAll?, limit?, offset?})` → `{spaces, total}`
-- `IUserService.getCurrentUser(accessToken, sessionKey)` → `User`
-
-**CoGit Services** (context sync):
-
-- `ICogitPushService.pushContexts(...)` - Push context tree to cloud
-- `ICogitPullService.pullSnapshot(...)` - Pull snapshot from cloud
-
-**Context Tree**:
-
-- `IContextTreeService` - Initialize/check context tree existence
-- `IContextTreeSnapshotService` - Snapshot and change tracking
-- `IContextTreeWriterService` - Write/sync context files from pull
-- `IContextFileReader` - Read context files with metadata extraction
-- `IProjectConfigStore` - `.brv/config.json` persistence
-
-**LLM Providers**:
-
-- `IProviderConfigStore` - Store/retrieve provider config (connect, disconnect, active model/provider, favorites, recents)
+- `IProviderConfigStore` - Provider config (connect, disconnect, active model/provider)
 - `IProviderKeychainStore` - Secure API key storage via system keychain
 
-**Storage/Config**:
+**Domain Entities** (`domain/entities/`):
 
-- `IGlobalConfigStore` - User-level config (`~/.config/brv/config.json`), device ID management
-- `IOnboardingPreferenceStore` - Onboarding state persistence
-- `ITrackingService` - Event tracking (Mixpanel implementation)
-- `IMcpConfigWriter` - MCP config file persistence (JSON/TOML formats)
-
-**Connectors**:
-
-- `IConnectorManager` - Factory for connector instances, default/installed connector resolution
-- `IConnector` - Base interface for all connector types (install, uninstall, status)
-
-**Transport** (multi-process communication):
-
-- `ITransportClient` - Connect, disconnect, request/response, room events
-- `ITransportServer` - Broadcast, message handling, room management
-
-**Instance Management**:
-
-- `IInstanceManager` - Acquire/release instance locks (one folder = one server)
-- `IInstanceDiscovery` - Discover running instances by folder
-
-**Executors** (distinct from UseCases - wrap operations with agent injection):
-
-- `ICurateExecutor`, `IQueryExecutor` - Execute with injected agent for long-lived instances
-
-**Pagination**: `{fetchAll: true}` auto-paginates (100/page) or `{limit, offset}` manual
-
-### Domain Entities (`src/core/domain/entities/`)
-
-All have `toJson()`/`fromJson()`, immutable readonly properties
-
-- `AuthToken` - `accessToken`, `refreshToken`, `sessionKey`, `userId`, `userEmail`, `expiresAt`. `fromJson()` returns `undefined` for old tokens (forces re-login)
-- `OAuthTokenData` - OAuth response, no user info. Used before user fetch in login
+- `AuthToken`, `OAuthTokenData` - Auth tokens with session keys
 - `User`, `Team`, `Space` - `getDisplayName()` methods
-- `Agent` - 19 supported agents with connector configs and defaults (Amp, Antigravity, Augment Code, Claude Code, Cline, Codex, Cursor, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Qoder, Qwen Code, Roo Code, Trae.ai, Warp, Windsurf, Zed)
-  - `AGENT_CONNECTOR_CONFIG` maps each agent to default connector and supported types
-  - Antigravity default: `rules` (rules-only)
-  - Claude Code default: `skill`
-  - Cursor default: `skill`
-  - All others default: `mcp`
-- `ConnectorType` - 4 connector types: `'rules' | 'hook' | 'mcp' | 'skill'`
-- `BrvConfig` - `.brv/config.json` with version validation
-- `GlobalConfig` - User-level config with device ID
-- `Event` - Tracking event definitions
-- `CogitSnapshot`, `CogitPushContext` - CoGit sync entities
-- `Playbook` - Knowledge repository with bullets and sections
-- `PresignedUrl` - Blob storage presigned URLs
-- `ProviderConfig` - Provider connection state, active model/provider, favorites/recents. Stored in `.brv/provider-config.json`
-- `ProviderDefinition` (provider-registry) - Provider registry with categories, model discovery, pricing. Supports ByteRover internal + OpenRouter (200+ models)
+- `Agent` - 19 supported agents with connector configs (Amp, Antigravity, Augment Code, Claude Code, Cline, Codex, Cursor, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Qoder, Qwen Code, Roo Code, Trae.ai, Warp, Windsurf, Zed)
+- `ConnectorType` - `'rules' | 'hook' | 'mcp' | 'skill'`
+- `BrvConfig`, `GlobalConfig` - Config persistence
+- `ProviderConfig`, `ProviderDefinition` - LLM provider registry
 
-### Infrastructure (`src/infra/`)
+### Server Infra (`src/server/infra/`)
 
-**REPL** (`src/infra/repl/`):
+- `auth/` - OAuth + PKCE, callback server
+- `cogit/` - Cloud sync (push/pull)
+- `connectors/` - 4 connector types (skill, hook, mcp, rules)
+- `context-tree/` - File-based context tree operations
+- `executor/` - Curate/Query executors
+- `http/` - HTTP client, OpenRouter API
+- `mcp/` - MCP server exposing brv-query/brv-curate tools
+- `storage/` - Provider config, keychain, global config
+- `transport/` - Socket.IO client/server
+- `usecase/` - 12 use cases: `init`, `login`, `logout`, `status`, `curate`, `query`, `push`, `pull`, `reset`, `space-list`, `space-switch`, `connectors`
 
-- `repl-startup.tsx` - Bootstrap REPL with providers
-- `commands/` - Slash command implementations (`/login`, `/push`, `/pull`, etc.)
+### Agent (`src/agent/`)
 
-**Terminal** (`src/infra/terminal/`):
+**LLM** (`infra/llm/`):
 
-- `HeadlessTerminal` - Non-interactive terminal for headless mode (text/JSON output)
-- `ReplTerminal`, `OclifTerminal` - Interactive terminal implementations
+- Multi-provider support (ByteRover internal, OpenRouter)
+- Formatters (Claude/Gemini), tokenizers, context compression
+- Streaming with reasoning/thinking visualization
+- Model capability detection (`native-field`, `think-tags`, `interleaved`, `none`)
 
-**Cipher** (`src/infra/cipher/`) - LLM agent system:
+**Tools** (`infra/tools/implementations/`) - 23 tools:
 
-- `llm/` - Multi-provider support (ByteRover internal API, OpenRouter proxy), formatters (Claude/Gemini), tokenizers, context compression, streaming with reasoning/thinking visualization, model capability detection
-- `llm/generators/` - Content generators per provider (ByteRover, OpenRouter) with logging and retry decorators
-- `llm/transformers/` - Stream transformers: `openrouter-stream-transformer.ts`, `reasoning-extractor.ts`
-- `llm/model-capabilities.ts` - Reasoning format detection per model (`native-field`, `think-tags`, `interleaved`, `none`)
-- `tools/implementations/` - 23 tool implementations:
-  - File: `read-file` (supports PDF text extraction with pagination), `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
-  - Bash: `bash-exec`, `bash-output`, `kill-process`
-  - Memory: `read-memory`, `write-memory`, `edit-memory`, `delete-memory`, `list-memories`
-  - Knowledge: `create-knowledge-topic`, `search-knowledge`
-  - Todos: `read-todos`, `write-todos`
-  - Other: `curate`, `task`, `batch`, `search-history`, `spec-analyze`
-- `file-system/pdf-extractor.ts` - PDF text extraction (100 page default, 200 max)
-- `tools/policy-engine.ts` - Tool execution policy (ALLOW/DENY)
+- File: `read-file` (PDF support), `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
+- Bash: `bash-exec`, `bash-output`, `kill-process`, `code-exec`
+- Memory: `read-memory`, `write-memory`, `edit-memory`, `delete-memory`, `list-memories`
+- Knowledge: `create-knowledge-topic`, `search-knowledge`
+- Todos: `read-todos`, `write-todos`
+- Other: `curate`, `batch`, `search-history`, `spec-analyze`
+
+**Other**:
+
 - `session/` - Chat session management
 - `memory/` - Memory persistence
+- `storage/` - History, message storage
 
-**MCP** (`src/infra/mcp/`) - Model Context Protocol server:
+### TUI (`src/tui/`)
 
-- `mcp-server.ts` - MCP server exposing brv-query/brv-curate tools
-- `tools/` - Tool implementations for MCP clients
+- `commands/` - Slash command implementations
+- `components/` - Execution, prompts, dialogs, reasoning display
+- `hooks/` - Activity logs, slash completion, tab navigation
+- `contexts/` - React contexts for state management
 
-**Auth/HTTP**:
+### Slash Commands
 
-- `OAuthService` - Manages `code_verifier` internally
-- `CallbackServer` - Force-closes keep-alive connections
+Commands in `src/tui/commands/` (order = UI suggestion order):
 
-**Context Tree**:
+- `/status` - Show auth, config, context tree state
+- `/curate` - Add context to context tree
+- `/query` - Query context tree
+- `/connectors` - Manage agent connectors
+- `/push [--branch <name>]`, `/pull [--branch <name>]` - Cloud sync (default: `main`)
+- `/provider`, `/model` - LLM provider/model selection
+- `/space list`, `/space switch` - Space management
+- `/reset` - Reset context tree (destructive)
+- `/new [-y]` - Start fresh session
+- `/init` - Project setup
+- `/login`, `/logout` - Authentication
 
-- `FileContextTreeService` - File-based context tree operations
-- `FileContextTreeSnapshotService` - Git-style snapshot and diff tracking
+### Oclif Hooks (`src/oclif/hooks/`)
 
-**CoGit**:
-
-- `HttpCogitPushService` / `HttpCogitPullService` - Cloud sync
-- `context-tree-to-push-context-mapper.ts` - Maps context tree to push format
-
-**Connectors** (`src/infra/connectors/`) - 4 connector types for agent integration:
-
-- `ConnectorManager` - Factory and orchestration for all connectors
-- `skill/` - Skill-based integration (writes SKILL.md, TROUBLESHOOTING.md, WORKFLOWS.md to agent directories)
-  - Default for: Claude Code, Cursor
-  - Supported: Claude Code, Cursor, Codex, Github Copilot
-  - Scope: project-level (`.claude/skills/byterover/`) or global (`~/.codex/skills/byterover/`)
-- `hook/` - Hook-based integration (Claude Code via settings.local.json)
-  - Legacy connector, replaced by skill as default for Claude Code
-- `rules/` - Rules-based integration (rule files for legacy agents)
-- `mcp/` - MCP-based integration (exposes brv-query/brv-curate tools to MCP clients)
-  - Default for: All agents except Claude Code and Cursor
-
-**Knowledge** (`src/core/domain/knowledge/`):
-
-- `markdown-writer.ts` - Write knowledge to markdown files
-- `directory-manager.ts` - Knowledge directory management
-- `relation-parser.ts` - Parse knowledge relations
-
-**Skill Templates** (`src/templates/skill/`):
-
-- `SKILL.md` - Main skill file (quick reference, when to use, best practices)
-- `TROUBLESHOOTING.md` - Common issues and solutions
-- `WORKFLOWS.md` - Step-by-step workflows (most comprehensive)
-- Loaded by `SkillContentLoader` using import.meta.url pattern
-
-**Storage** (`src/infra/storage/`):
-
-- `FileProviderConfigStore` - Provider config persistence (`.brv/provider-config.json`)
-- `ProviderKeychainStore` - API key storage via system keychain
-
-**HTTP** (`src/infra/http/`):
-
-- `OpenRouterApiClient` - OpenRouter API integration (model discovery, API key validation)
-
-**Tracking**:
-
-- `MixpanelTrackingService` - Analytics implementation
-
-**UseCases** (`src/infra/usecase/`) - Business logic orchestration:
-
-- 12 use cases matching REPL commands: `init`, `login`, `logout`, `status`, `curate`, `query`, `push`, `pull`, `reset`, `space-list`, `space-switch`, `connectors`
-
-### Config
-
-- `environment.ts` - Dev/Prod config. Exports: `getCurrentConfig()`, `isDevelopment()`, `ENV_CONFIG`
-- `auth.config.ts` - OIDC discovery (1h cache, 3 retries, 5s timeout, hardcoded fallback)
-
-### Hooks (`src/oclif/hooks/`)
-
-- `init/welcome.ts` - Node.js version check, ASCII banner on `--help`
-- `init/update-notifier.ts` - Auto-update notification (24h check interval)
+- `init/welcome.ts` - Node.js version check, ASCII banner
+- `init/update-notifier.ts` - Auto-update notification (24h check)
 - `command_not_found/handle-invalid-commands.ts` - Invalid command handler
 - `error/clean-errors.ts` - Error formatting
 - `prerun/validate-brv-config-version.ts` - Config version validation
 
-### TUI (`src/tui/`)
+### Config
 
-React/Ink terminal UI components:
-
-- `components/` - Execution, inline prompts, onboarding dialogs, provider/model dialogs, API key input, reasoning display
-- `hooks/` - Activity logs, consumer, slash completion, tab navigation
-- `contexts/` - React contexts for state management
-- `types/` - Command, dialog, message, prompt type definitions
-
-### Slash Commands (REPL)
-
-Commands prefixed with `/` in the REPL (`src/infra/repl/commands/`):
-
-- `/login`, `/logout` - Authentication
-- `/init` - Project setup (team/space selection, context tree init)
-- `/status` - Show auth, config, context tree state
-- `/curate` - Add context to context tree
-- `/push [--branch <name>]`, `/pull [--branch <name>]` - Cloud sync (default branch: `main`)
-- `/space list`, `/space switch` - Space management
-- `/connectors` - Manage agent connectors (4 types: skill, hook, mcp, rules)
-  - View installed connectors and defaults per agent
-  - Install/switch connector types
-  - Default: skill for Claude Code/Cursor, mcp for others
-- `/provider` - Connect to external LLM providers (aliases: `/providers`, `/connect`)
-- `/model` - Select model from active provider (aliases: `/models`)
-- `/reset` - Reset context tree (destructive)
-- `/new [-y]` - Start fresh session (ends current, clears conversation history, NOT context tree)
-- `/query` - Query context tree
+- `src/server/config/environment.ts` - Dev/Prod config
+- `src/server/config/auth.config.ts` - OIDC discovery
 
 ## Testing
 

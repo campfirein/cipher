@@ -1,9 +1,9 @@
-import { expect } from 'chai'
+import {expect} from 'chai'
 import * as fs from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 
-import { backfillDomainContextFiles, createCurateTool } from '../../../../src/agent/infra/tools/implementations/curate-tool.js'
+import {createCurateTool} from '../../../../src/agent/infra/tools/implementations/curate-tool.js'
 
 interface CurateOutput {
   applied: Array<{
@@ -53,13 +53,13 @@ describe('Curate Tool', () => {
     // Create a unique temp directory for each test
     tmpDir = join(tmpdir(), `curate-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     basePath = join(tmpDir, '.brv/context-tree')
-    await fs.mkdir(basePath, { recursive: true })
+    await fs.mkdir(basePath, {recursive: true})
   })
 
   afterEach(async () => {
     // Cleanup
     try {
-      await fs.rm(tmpDir, { force: true, recursive: true })
+      await fs.rm(tmpDir, {force: true, recursive: true})
     } catch {
       // Ignore cleanup errors
     }
@@ -76,7 +76,7 @@ describe('Curate Tool', () => {
             basePath,
             operations: [
               {
-                content: { snippets: ['test snippet'] },
+                content: {snippets: ['test snippet']},
                 path: `${domain}/test_topic`,
                 reason: 'testing predefined domain',
                 title: 'Test Context',
@@ -105,7 +105,7 @@ describe('Curate Tool', () => {
               basePath,
               operations: [
                 {
-                  content: { snippets: ['test'] },
+                  content: {snippets: ['test']},
                   path: `custom_domain_${i}/topic`,
                   reason: 'testing custom domain',
                   title: 'Test',
@@ -140,7 +140,7 @@ describe('Curate Tool', () => {
               basePath,
               operations: [
                 {
-                  content: { snippets: ['test content'] },
+                  content: {snippets: ['test content']},
                   path: `${domain}/topic`,
                   reason: 'testing semantic domain',
                   title: 'Test',
@@ -175,7 +175,7 @@ describe('Curate Tool', () => {
             basePath,
             operations: [
               {
-                content: { snippets: ['test'] },
+                content: {snippets: ['test']},
                 path: `custom_domain_${i}/topic`,
                 reason: 'testing',
                 title: 'Test',
@@ -191,7 +191,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
-              content: { snippets: ['code style rules'] },
+              content: {snippets: ['code style rules']},
               path: 'code_style/formatting',
               reason: 'testing predefined after custom',
               title: 'Code Style Rules',
@@ -211,7 +211,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
-              content: { snippets: ['test'] },
+              content: {snippets: ['test']},
               path: 'authentication/login',
               reason: 'testing',
               title: 'Login Flow',
@@ -225,7 +225,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
-              content: { snippets: ['logout content'] },
+              content: {snippets: ['logout content']},
               path: 'authentication/logout',
               reason: 'testing additional topic',
               title: 'Logout Flow',
@@ -251,7 +251,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
-              content: { snippets: ['test'] },
+              content: {snippets: ['test']},
               path: 'Code Style/error-handling',
               reason: 'testing normalization',
               title: 'Best Practices',
@@ -276,7 +276,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: { snippets: ['test snippet'] },
+            content: {snippets: ['test snippet']},
             path: 'code_style/formatting',
             reason: 'testing filePath',
             title: 'Formatting Rules',
@@ -300,7 +300,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: { snippets: ['original'] },
+            content: {snippets: ['original']},
             path: 'code_style/formatting',
             reason: 'create',
             title: 'Formatting Rules',
@@ -314,7 +314,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: { snippets: ['updated'] },
+            content: {snippets: ['updated']},
             path: 'code_style/formatting',
             reason: 'update',
             title: 'Formatting Rules',
@@ -335,14 +335,14 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: { snippets: ['source content'] },
+            content: {snippets: ['source content']},
             path: 'code_style/old_topic',
             reason: 'create source',
             title: 'Old Guide',
             type: 'ADD',
           },
           {
-            content: { snippets: ['target content'] },
+            content: {snippets: ['target content']},
             path: 'code_style/new_topic',
             reason: 'create target',
             title: 'New Guide',
@@ -379,7 +379,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: { snippets: ['updated'] },
+            content: {snippets: ['updated']},
             path: 'code_style/nonexistent',
             reason: 'update',
             title: 'Nonexistent',
@@ -401,7 +401,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: { snippets: ['test'] },
+            content: {snippets: ['test']},
             path: 'code_style/error_handling',
             reason: 'testing naming',
             title: 'Best Practices for Errors',
@@ -425,7 +425,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: { snippets: ['test'] },
+            content: {snippets: ['test']},
             path: 'code_style/formatting',
             reason: 'testing special chars',
             title: 'Error-Handling & Best_Practices',
@@ -448,7 +448,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: { snippets: ['subtopic content'] },
+            content: {snippets: ['subtopic content']},
             path: 'code_style/error_handling/logging',
             reason: 'testing subtopic',
             title: 'Logging Best Practices',
@@ -474,7 +474,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: { snippets: ['test'] },
+            content: {snippets: ['test']},
             path: 'code_style/topic',
             reason: 'testing',
             type: 'ADD',
@@ -512,7 +512,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: { snippets: ['test'] },
+            content: {snippets: ['test']},
             path: 'invalid', // Only one segment
             reason: 'testing',
             title: 'Test',
@@ -534,14 +534,14 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: { snippets: ['first'] },
+            content: {snippets: ['first']},
             path: 'code_style/topic1',
             reason: 'add 1',
             title: 'First',
             type: 'ADD',
           },
           {
-            content: { snippets: ['second'] },
+            content: {snippets: ['second']},
             path: 'design/topic2',
             reason: 'add 2',
             title: 'Second',
@@ -571,7 +571,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
-              content: { snippets: ['test content'] },
+              content: {snippets: ['test content']},
               domainContext: {
                 ownership: 'Platform Security Team',
                 purpose: 'Contains all knowledge related to user and service authentication mechanisms.',
@@ -610,16 +610,16 @@ describe('Curate Tool', () => {
         expect(content).to.include('## Usage')
       })
 
-      it('should auto-create minimal domain context.md when domainContext not provided', async () => {
+      it('should NOT create domain context.md when domainContext not provided (ENG-1059)', async () => {
         const tool = createCurateTool()
 
         const result = (await tool.execute({
           basePath,
           operations: [
             {
-              content: { snippets: ['test content'] },
+              content: {snippets: ['test content']},
               path: 'caching/redis',
-              reason: 'testing minimal context creation',
+              reason: 'testing no context creation without domainContext',
               title: 'Redis Setup',
               type: 'ADD',
             },
@@ -628,19 +628,15 @@ describe('Curate Tool', () => {
 
         expect(result.applied[0].status).to.equal('success')
 
-        // Verify domain context.md was created with minimal template
+        // Verify domain context.md was NOT created (no static template)
         const contextMdPath = join(basePath, 'caching/context.md')
         const contextMdExists = await pathExists(contextMdPath)
-        expect(contextMdExists).to.be.true
+        expect(contextMdExists).to.be.false
 
-        // Verify minimal template structure
-        const content = await fs.readFile(contextMdPath, 'utf8')
-        expect(content).to.include('# Domain: caching')
-        expect(content).to.include('## Purpose')
-        expect(content).to.include('Describe what this domain represents')
-        expect(content).to.include('## Scope')
-        expect(content).to.include('## Ownership')
-        expect(content).to.include('## Usage')
+        // Verify the actual content file WAS created
+        const contentFilePath = join(basePath, 'caching/redis/redis_setup.md')
+        const contentFileExists = await pathExists(contentFilePath)
+        expect(contentFileExists).to.be.true
       })
 
       it('should NOT overwrite existing domain context.md', async () => {
@@ -651,7 +647,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
-              content: { snippets: ['first content'] },
+              content: {snippets: ['first content']},
               domainContext: {
                 purpose: 'Original purpose description.',
                 scope: {
@@ -676,7 +672,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
-              content: { snippets: ['second content'] },
+              content: {snippets: ['second content']},
               domainContext: {
                 purpose: 'This should NOT overwrite the original.',
                 scope: {
@@ -707,7 +703,7 @@ describe('Curate Tool', () => {
         // First create a topic without triggering context.md creation
         // by directly creating the file structure
         const topicDir = join(basePath, 'api_design/endpoints')
-        await fs.mkdir(topicDir, { recursive: true })
+        await fs.mkdir(topicDir, {recursive: true})
         await fs.writeFile(join(topicDir, 'rest_api.md'), 'original content')
 
         // Now update it - should trigger context.md creation
@@ -715,7 +711,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
-              content: { snippets: ['updated content'] },
+              content: {snippets: ['updated content']},
               domainContext: {
                 purpose: 'API design patterns and guidelines.',
                 scope: {
@@ -749,8 +745,8 @@ describe('Curate Tool', () => {
         // Create source and target files manually (without context.md)
         const sourceDir = join(basePath, 'old_domain/old_topic')
         const targetDir = join(basePath, 'new_domain/new_topic')
-        await fs.mkdir(sourceDir, { recursive: true })
-        await fs.mkdir(targetDir, { recursive: true })
+        await fs.mkdir(sourceDir, {recursive: true})
+        await fs.mkdir(targetDir, {recursive: true})
         await fs.writeFile(join(sourceDir, 'source_file.md'), 'source content')
         await fs.writeFile(join(targetDir, 'target_file.md'), 'target content')
 
@@ -794,7 +790,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
-              content: { snippets: ['test'] },
+              content: {snippets: ['test']},
               domainContext: {
                 ownership: 'Core Infrastructure Team\nMaintained by DevOps group.',
                 purpose: 'Database connection and query patterns.',
@@ -802,7 +798,8 @@ describe('Curate Tool', () => {
                   excluded: ['Application business logic', 'UI components'],
                   included: ['Connection pooling', 'Query optimization', 'Migration scripts'],
                 },
-                usage: 'Backend engineers should reference this domain when:\n- Setting up new database connections\n- Writing complex queries\n- Creating migrations',
+                usage:
+                  'Backend engineers should reference this domain when:\n- Setting up new database connections\n- Writing complex queries\n- Creating migrations',
               },
               path: 'database/connections',
               reason: 'full domainContext test',
@@ -834,7 +831,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
-              content: { snippets: ['test'] },
+              content: {snippets: ['test']},
               domainContext: {
                 purpose: 'Minimal domain with only required fields.',
                 scope: {
@@ -872,7 +869,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: { snippets: ['test'] },
+            content: {snippets: ['test']},
             path: 'invalid', // Invalid path - only one segment
             reason: 'testing',
             title: 'Test',
@@ -895,7 +892,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: { snippets: ['test'] },
+            content: {snippets: ['test']},
             path: 'code_style/new_topic',
             reason: 'testing',
             type: 'ADD',
@@ -942,7 +939,7 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
-            content: { snippets: ['test'] },
+            content: {snippets: ['test']},
             path: '/topic', // Invalid - empty domain
             reason: 'testing empty domain',
             title: 'Test',
@@ -968,7 +965,7 @@ describe('Curate Tool', () => {
         basePath: freshBasePath,
         operations: [
           {
-            content: { snippets: ['test content'] },
+            content: {snippets: ['test content']},
             path: 'code_style/error_handling/logging',
             reason: 'testing directory creation',
             title: 'Logging Guide',
@@ -987,109 +984,6 @@ describe('Curate Tool', () => {
       // Verify parent directories exist (they should be created along with the file)
       const loggingDirExists = await pathExists(join(freshBasePath, 'code_style/error_handling/logging'))
       expect(loggingDirExists).to.be.true
-    })
-  })
-
-  describe('backfillDomainContextFiles', () => {
-    it('should return empty array when basePath does not exist', async () => {
-      const nonExistentPath = join(tmpDir, 'non-existent')
-      const result = await backfillDomainContextFiles(nonExistentPath)
-      expect(result).to.deep.equal([])
-    })
-
-    it('should return empty array when there are no domains', async () => {
-      const result = await backfillDomainContextFiles(basePath)
-      expect(result).to.deep.equal([])
-    })
-
-    it('should not create context.md for empty domains (no .md files)', async () => {
-      // Create an empty domain directory
-      await fs.mkdir(join(basePath, 'empty_domain'), { recursive: true })
-
-      const result = await backfillDomainContextFiles(basePath)
-      expect(result).to.deep.equal([])
-
-      // Verify no context.md was created
-      const contextMdExists = await pathExists(join(basePath, 'empty_domain/context.md'))
-      expect(contextMdExists).to.be.false
-    })
-
-    it('should create context.md for domains with content but missing context.md', async () => {
-      // Create a domain with content but no context.md
-      const domainPath = join(basePath, 'existing_domain/some_topic')
-      await fs.mkdir(domainPath, { recursive: true })
-      await fs.writeFile(join(domainPath, 'some_knowledge.md'), '# Some Knowledge\n\nContent here')
-
-      const result = await backfillDomainContextFiles(basePath)
-
-      expect(result).to.have.lengthOf(1)
-      expect(result[0]).to.equal(join(basePath, 'existing_domain/context.md'))
-
-      // Verify context.md was created with minimal template
-      const contextMdPath = join(basePath, 'existing_domain/context.md')
-      const contextMdExists = await pathExists(contextMdPath)
-      expect(contextMdExists).to.be.true
-
-      const content = await fs.readFile(contextMdPath, 'utf8')
-      expect(content).to.include('# Domain: existing_domain')
-      expect(content).to.include('## Purpose')
-      expect(content).to.include('## Scope')
-    })
-
-    it('should skip domains that already have context.md', async () => {
-      // Create a domain with existing context.md
-      const domainPath = join(basePath, 'complete_domain')
-      await fs.mkdir(domainPath, { recursive: true })
-      await fs.writeFile(join(domainPath, 'context.md'), '# Existing context')
-      await fs.mkdir(join(domainPath, 'topic'), { recursive: true })
-      await fs.writeFile(join(domainPath, 'topic/knowledge.md'), '# Knowledge')
-
-      const result = await backfillDomainContextFiles(basePath)
-      expect(result).to.deep.equal([])
-
-      // Verify original context.md is unchanged
-      const content = await fs.readFile(join(domainPath, 'context.md'), 'utf8')
-      expect(content).to.equal('# Existing context')
-    })
-
-    it('should backfill multiple domains missing context.md', async () => {
-      // Create multiple domains with content but no context.md
-      const domain1Path = join(basePath, 'domain_one/topic')
-      const domain2Path = join(basePath, 'domain_two/topic')
-      const domain3Path = join(basePath, 'domain_three')
-
-      await fs.mkdir(domain1Path, { recursive: true })
-      await fs.mkdir(domain2Path, { recursive: true })
-      await fs.mkdir(domain3Path, { recursive: true })
-
-      await fs.writeFile(join(domain1Path, 'knowledge.md'), '# Knowledge 1')
-      await fs.writeFile(join(domain2Path, 'knowledge.md'), '# Knowledge 2')
-      // domain_three has no .md files, should be skipped
-
-      const result = await backfillDomainContextFiles(basePath)
-
-      expect(result).to.have.lengthOf(2)
-      expect(result).to.include(join(basePath, 'domain_one/context.md'))
-      expect(result).to.include(join(basePath, 'domain_two/context.md'))
-    })
-
-    it('should handle mixed scenarios (some with context.md, some without)', async () => {
-      // Domain with context.md
-      const withContextPath = join(basePath, 'with_context')
-      await fs.mkdir(withContextPath, { recursive: true })
-      await fs.writeFile(join(withContextPath, 'context.md'), '# Has context')
-      await fs.mkdir(join(withContextPath, 'topic'), { recursive: true })
-      await fs.writeFile(join(withContextPath, 'topic/knowledge.md'), '# Knowledge')
-
-      // Domain without context.md
-      const withoutContextPath = join(basePath, 'without_context/topic')
-      await fs.mkdir(withoutContextPath, { recursive: true })
-      await fs.writeFile(join(withoutContextPath, 'knowledge.md'), '# Knowledge')
-
-      const result = await backfillDomainContextFiles(basePath)
-
-      expect(result).to.have.lengthOf(1)
-      expect(result[0]).to.equal(join(basePath, 'without_context/context.md'))
     })
   })
 })

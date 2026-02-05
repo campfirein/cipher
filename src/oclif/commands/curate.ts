@@ -12,6 +12,7 @@ import {CurateUseCase} from '../../server/infra/usecase/curate-use-case.js'
 /** Parsed flags type */
 type CurateFlags = {
   files?: string[]
+  folder?: string[]
   format?: 'json' | 'text'
   headless?: boolean
   verbose?: boolean
@@ -43,11 +44,22 @@ Bad examples:
     '',
     '# Multiple files',
     '<%= config.bin %> <%= command.id %> "JWT authentication implementation" --files src/auth/jwt.ts --files docs/auth.md',
+    '',
+    '# Folder pack - analyze and curate entire folder',
+    '<%= config.bin %> <%= command.id %> --folder src/auth/',
+    '',
+    '# Folder pack with context',
+    '<%= config.bin %> <%= command.id %> "Analyze authentication module" -d src/auth/',
   ]
   public static flags = {
     files: Flags.string({
       char: 'f',
       description: 'Include specific file paths for critical context (max 5 files)',
+      multiple: true,
+    }),
+    folder: Flags.string({
+      char: 'd',
+      description: 'Folder path to pack and analyze (triggers folder pack flow)',
       multiple: true,
     }),
     format: Flags.string({
@@ -93,6 +105,7 @@ Bad examples:
     return this.createUseCase({format, headless}).run({
       context: args.context,
       files: flags.files,
+      folders: flags.folder,
       format,
       headless,
       verbose: flags.verbose,

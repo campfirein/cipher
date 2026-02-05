@@ -1,6 +1,4 @@
-import type {Dirent} from 'node:fs'
-
-import {readdir} from 'node:fs/promises'
+import {existsSync} from 'node:fs'
 import {join} from 'node:path'
 import {z} from 'zod'
 
@@ -15,7 +13,7 @@ import {ToolName} from '../../../core/domain/tools/constants.js'
  * Operation types for curating knowledge topics.
  * Inspired by ACE Curator patterns.
  */
-const OperationType = z.enum(['ADD', 'UPDATE', 'MERGE', 'DELETE'])
+const OperationType = z.enum(['ADD', 'UPDATE', 'UPSERT', 'MERGE', 'DELETE'])
 type OperationType = z.infer<typeof OperationType>
 
 /**
@@ -161,19 +159,43 @@ type Operation = z.infer<typeof OperationSchema>
 type DomainContext = z.infer<typeof DomainContextSchema>
 type TopicContext = z.infer<typeof TopicContextSchema>
 type SubtopicContext = z.infer<typeof SubtopicContextSchema>
+type Content = z.infer<typeof ContentSchema>
+
+/**
+ * Filter out non-existent files from rawConcept.files.
+ * Returns a new content object with only valid file paths.
+ */
+function filterValidFiles(content: Content): Content {
+  if (!content.rawConcept?.files || content.rawConcept.files.length === 0) {
+    return content
+  }
+
+  const validFiles = content.rawConcept.files.filter((filePath) => existsSync(filePath))
+
+  // Return content with filtered files (empty array if none exist)
+  return {
+    ...content,
+    rawConcept: {
+      ...content.rawConcept,
+      files: validFiles.length > 0 ? validFiles : undefined,
+    },
+  }
+}
 
 /**
  * Input schema for curate tool.
+ * Exported for use by CurateService in sandbox.
  */
-const CurateInputSchema = z.object({
+export const CurateInputSchema = z.object({
   basePath: z.string().default('.brv/context-tree').describe('Base path for knowledge storage'),
   operations: z.array(OperationSchema).describe('Array of curate operations to apply'),
 })
 
 /**
  * Result of a single operation.
+ * Exported for use by CurateService in sandbox.
  */
-interface OperationResult {
+export interface OperationResult {
   /** Full filesystem path to the created/modified file (for ADD/UPDATE/MERGE) */
   filePath?: string
   message?: string
@@ -184,8 +206,9 @@ interface OperationResult {
 
 /**
  * Output type for curate tool.
+ * Exported for use by CurateService in sandbox.
  */
-interface CurateOutput {
+export interface CurateOutput {
   applied: OperationResult[]
   summary: {
     added: number
@@ -218,33 +241,7 @@ function generateDomainContextMarkdown(domainName: string, context: DomainContex
   return sections.join('\n')
 }
 
-function generateMinimalDomainContextMarkdown(domainName: string): string {
-  return `# Domain: ${domainName}
 
-## Purpose
-Describe what this domain represents and why it exists.
-
-## Scope
-Define what belongs in this domain and what does not.
-
-## Ownership
-Which system, team, or layer owns this domain.
-
-## Usage
-How this domain should be used by agents and contributors.
-`
-}
-
-function generateMinimalTopicContextMarkdown(topicName: string): string {
-  return `# Topic: ${topicName}
-
-## Overview
-Describe what this topic covers and its key concepts.
-
-## Related Topics
-List related topics and how they connect to this one.
-`
-}
 
 function generateTopicContextMarkdown(topicName: string, context: TopicContext): string {
   const sections: string[] = [`# Topic: ${topicName}`, '', '## Overview', context.overview, '']
@@ -260,13 +257,6 @@ function generateTopicContextMarkdown(topicName: string, context: TopicContext):
   return sections.join('\n')
 }
 
-function generateMinimalSubtopicContextMarkdown(subtopicName: string): string {
-  return `# Subtopic: ${subtopicName}
-
-## Overview
-Describe what this subtopic covers and its specific focus.
-`
-}
 
 function generateSubtopicContextMarkdown(subtopicName: string, context: SubtopicContext): string {
   const sections: string[] = [`# Subtopic: ${subtopicName}`, '', '## Focus', context.focus, '']
@@ -291,9 +281,11 @@ async function createDomainContextIfMissing(
     return {created: false}
   }
 
-  const content = domainContext
-    ? generateDomainContextMarkdown(normalizedDomain, domainContext)
-    : generateMinimalDomainContextMarkdown(normalizedDomain)
+  if (!domainContext) {
+    return {created: false}
+  }
+
+  const content = generateDomainContextMarkdown(normalizedDomain, domainContext)
 
   await DirectoryManager.writeFileAtomic(contextPath, content)
 
@@ -323,9 +315,11 @@ async function ensureTopicContextMd(
     return {created: false}
   }
 
-  const content = topicContext
-    ? generateTopicContextMarkdown(normalizedTopic, topicContext)
-    : generateMinimalTopicContextMarkdown(normalizedTopic)
+  if (!topicContext) {
+    return {created: false}
+  }
+
+  const content = generateTopicContextMarkdown(normalizedTopic, topicContext)
   await DirectoryManager.writeFileAtomic(contextPath, content)
 
   return {created: true, path: contextPath}
@@ -341,7 +335,7 @@ interface EnsureSubtopicContextMdOptions {
 
 /**
  * Ensure context.md exists at subtopic level.
- * Creates a context.md with LLM-provided content if available, otherwise creates a minimal template.
+ * Only creates context.md if LLM provides subtopicContext - no static templates.
  */
 async function ensureSubtopicContextMd(
   options: EnsureSubtopicContextMdOptions,
@@ -365,9 +359,11 @@ async function ensureSubtopicContextMd(
     return {created: false}
   }
 
-  const content = subtopicContext
-    ? generateSubtopicContextMarkdown(normalizedSubtopic, subtopicContext)
-    : generateMinimalSubtopicContextMarkdown(normalizedSubtopic)
+  if (!subtopicContext) {
+    return {created: false}
+  }
+
+  const content = generateSubtopicContextMarkdown(normalizedSubtopic, subtopicContext)
   await DirectoryManager.writeFileAtomic(contextPath, content)
 
   return {created: true, path: contextPath}
@@ -513,12 +509,15 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
     const topicPath = join(domainPath, toSnakeCase(parsed.topic))
     const finalPath = parsed.subtopic ? join(topicPath, toSnakeCase(parsed.subtopic)) : topicPath
 
+    // Filter out non-existent files from rawConcept.files
+    const filteredContent = filterValidFiles(content)
+
     const contextContent = MarkdownWriter.generateContext({
       name: title,
-      narrative: content.narrative,
-      rawConcept: content.rawConcept,
-      relations: content.relations,
-      snippets: content.snippets ?? [],
+      narrative: filteredContent.narrative,
+      rawConcept: filteredContent.rawConcept,
+      relations: filteredContent.relations,
+      snippets: filteredContent.snippets ?? [],
     })
     const filename = `${toSnakeCase(title)}.md`
     const contextPath = join(finalPath, filename)
@@ -594,12 +593,15 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
 
     await createDomainContextIfMissing(basePath, parsed.domain, domainContext)
 
+    // Filter out non-existent files from rawConcept.files
+    const filteredContent = filterValidFiles(content)
+
     const contextContent = MarkdownWriter.generateContext({
       name: title,
-      narrative: content.narrative,
-      rawConcept: content.rawConcept,
-      relations: content.relations,
-      snippets: content.snippets ?? [],
+      narrative: filteredContent.narrative,
+      rawConcept: filteredContent.rawConcept,
+      relations: filteredContent.relations,
+      snippets: filteredContent.snippets ?? [],
     })
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
 
@@ -618,6 +620,78 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
       path,
       status: 'failed',
       type: 'UPDATE',
+    }
+  }
+}
+
+/**
+ * Execute UPSERT operation - automatically creates or updates based on file existence
+ * This is the recommended operation type as it eliminates the need for pre-checks.
+ */
+async function executeUpsert(basePath: string, operation: Operation): Promise<OperationResult> {
+  const {path, title} = operation
+
+  if (!title) {
+    return {
+      message: 'UPSERT operation requires a title',
+      path,
+      status: 'failed',
+      type: 'UPSERT',
+    }
+  }
+
+  if (!operation.content) {
+    return {
+      message: 'UPSERT operation requires content',
+      path,
+      status: 'failed',
+      type: 'UPSERT',
+    }
+  }
+
+  try {
+    const parsed = parsePath(path)
+    if (!parsed) {
+      return {
+        message: `Invalid path format: ${path}. Expected domain/topic or domain/topic/subtopic`,
+        path,
+        status: 'failed',
+        type: 'UPSERT',
+      }
+    }
+
+    const fullPath = buildFullPath(basePath, path)
+    const filename = `${toSnakeCase(title)}.md`
+    const contextPath = join(fullPath, filename)
+
+    // Check if file exists to determine ADD vs UPDATE
+    const exists = await DirectoryManager.fileExists(contextPath)
+
+    if (exists) {
+      // File exists - delegate to UPDATE logic
+      const result = await executeUpdate(basePath, {...operation, type: 'UPDATE'})
+      // Return with UPSERT type but indicate it was an update
+      return {
+        ...result,
+        message: result.message?.replace('Updated', 'Upserted (updated existing)'),
+        type: 'UPSERT',
+      }
+    }
+
+    // File doesn't exist - delegate to ADD logic
+    const result = await executeAdd(basePath, {...operation, type: 'ADD'})
+    // Return with UPSERT type but indicate it was an add
+    return {
+      ...result,
+      message: result.message?.replace('Created', 'Upserted (created new)'),
+      type: 'UPSERT',
+    }
+  } catch (error) {
+    return {
+      message: error instanceof Error ? error.message : String(error),
+      path,
+      status: 'failed',
+      type: 'UPSERT',
     }
   }
 }
@@ -795,8 +869,9 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
 
 /**
  * Execute curate operations on knowledge topics.
+ * Exported for use by CurateService in sandbox.
  */
-async function executeCurate(input: unknown, _context?: ToolExecutionContext): Promise<CurateOutput> {
+export async function executeCurate(input: unknown, _context?: ToolExecutionContext): Promise<CurateOutput> {
   const parseResult = CurateInputSchema.safeParse(input)
   if (!parseResult.success) {
     return {
@@ -819,23 +894,6 @@ async function executeCurate(input: unknown, _context?: ToolExecutionContext): P
   }
 
   const {basePath, operations} = parseResult.data
-
-  const touchedDomains = new Set<string>()
-  for (const op of operations) {
-    const parsed = parsePath(op.path)
-    if (parsed) {
-      touchedDomains.add(toSnakeCase(parsed.domain))
-    }
-
-    if (op.type === 'MERGE' && op.mergeTarget) {
-      const targetParsed = parsePath(op.mergeTarget)
-      if (targetParsed) {
-        touchedDomains.add(toSnakeCase(targetParsed.domain))
-      }
-    }
-  }
-
-  await backfillDomainContextFiles(basePath, touchedDomains)
 
   const applied: OperationResult[] = []
   const summary = {
@@ -882,6 +940,21 @@ async function executeCurate(input: unknown, _context?: ToolExecutionContext): P
         break
       }
 
+      case 'UPSERT': {
+        result = await executeUpsert(basePath, operation)
+
+        // UPSERT counts as either added or updated based on what happened
+        if (result.status === 'success') {
+          if (result.message?.includes('created new')) {
+            summary.added++
+          } else {
+            summary.updated++
+          }
+        }
+
+        break
+      }
+
       default: {
         // Exhaustive type check - TypeScript will error if any case is missed
         const exhaustiveCheck: never = operation.type
@@ -905,47 +978,6 @@ async function executeCurate(input: unknown, _context?: ToolExecutionContext): P
   return {applied, summary}
 }
 
-export async function backfillDomainContextFiles(
-  basePath: string,
-  excludeDomains: Set<string> = new Set(),
-): Promise<string[]> {
-  const createdPaths: string[] = []
-
-  const baseExists = await DirectoryManager.folderExists(basePath)
-  if (!baseExists) {
-    return createdPaths
-  }
-
-  let entries: Dirent[]
-  try {
-    entries = await readdir(basePath, {withFileTypes: true})
-  } catch {
-    return createdPaths
-  }
-
-  const domains = entries.filter((entry: Dirent) => entry.isDirectory())
-
-  /* eslint-disable no-await-in-loop */
-  for (const domain of domains) {
-    if (excludeDomains.has(domain.name)) {
-      continue
-    }
-
-    const contextPath = join(basePath, domain.name, 'context.md')
-    const exists = await DirectoryManager.fileExists(contextPath)
-
-    if (!exists) {
-      const mdFiles = await DirectoryManager.listMarkdownFiles(join(basePath, domain.name))
-      if (mdFiles.length > 0) {
-        const content = generateMinimalDomainContextMarkdown(domain.name)
-        await DirectoryManager.writeFileAtomic(contextPath, content)
-        createdPaths.push(contextPath)
-      }
-    }
-  }
-
-  return createdPaths
-}
 
 export function createCurateTool(): Tool {
   return {
@@ -1068,7 +1100,7 @@ export function createCurateTool(): Tool {
     },
     reason: "Documenting JWT token handling"
   }
-- If domainContext is not provided for a new domain, a minimal template is created that can be updated later
+- Domain context.md is only created when domainContext is explicitly provided. No automatic template generation.
 
 **Topic Context (context.md at topic level):**
 - When creating content in a NEW topic, provide the \`topicContext\` field to auto-generate topic/context.md
@@ -1089,7 +1121,7 @@ export function createCurateTool(): Tool {
     },
     reason: "Documenting JWT token handling"
   }
-- If topicContext is not provided for a new topic, a minimal template is created that can be updated later
+- Topic context.md is only created when topicContext is explicitly provided. No automatic template generation.
 
 **Subtopic Context (context.md at subtopic level):**
 - When creating content in a NEW subtopic, provide the \`subtopicContext\` field to auto-generate subtopic/context.md
@@ -1108,7 +1140,7 @@ export function createCurateTool(): Tool {
     },
     reason: "Documenting refresh token rotation"
   }
-- If subtopicContext is not provided for a new subtopic, a minimal template is created that can be updated later
+- Subtopic context.md is only created when subtopicContext is explicitly provided. No automatic template generation.
 
 **Backward Compatibility:** Existing context entries using only snippets and relations continue to work.
 

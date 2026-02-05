@@ -29,13 +29,13 @@ export const load: () => SlashCommand[] = () => [
   // Connectors management
   connectorsCommand, // Manage agent connectors (rules/hook)
 
-  // Provider management
-  providerCommand, // Connect to LLM providers
-  modelCommand, // Select model from provider
-
   // Sync operations
   pushCommand, // Push to cloud
   pullCommand, // Pull from cloud
+
+  // Provider management
+  providerCommand, // Connect to LLM providers
+  modelCommand, // Select model from provider
 
   // Space management
   spaceCommand, // Switch/list spaces

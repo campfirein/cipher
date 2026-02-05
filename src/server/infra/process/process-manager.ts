@@ -628,9 +628,14 @@ export class ProcessManager {
       child.on('error', onError)
       child.on('exit', onExit)
 
-      // Forward stdout/stderr
-      child.stdout?.pipe(process.stdout)
-      child.stderr?.pipe(process.stderr)
+      // Redirect child stdout/stderr to file logger (not terminal)
+      // Direct piping to process.stdout breaks Ink TUI layout
+      child.stdout?.on('data', (data: Buffer) => {
+        processManagerLog(`[Agent:stdout] ${data.toString().trimEnd()}`)
+      })
+      child.stderr?.on('data', (data: Buffer) => {
+        processManagerLog(`[Agent:stderr] ${data.toString().trimEnd()}`)
+      })
     })
   }
 
@@ -749,9 +754,14 @@ export class ProcessManager {
       child.on('error', onError)
       child.on('exit', onExit)
 
-      // Forward stdout/stderr
-      child.stdout?.pipe(process.stdout)
-      child.stderr?.pipe(process.stderr)
+      // Redirect child stdout/stderr to file logger (not terminal)
+      // Direct piping to process.stdout breaks Ink TUI layout
+      child.stdout?.on('data', (data: Buffer) => {
+        processManagerLog(`[Transport:stdout] ${data.toString().trimEnd()}`)
+      })
+      child.stderr?.on('data', (data: Buffer) => {
+        processManagerLog(`[Transport:stderr] ${data.toString().trimEnd()}`)
+      })
     })
   }
 

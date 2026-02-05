@@ -146,8 +146,8 @@ export function useSlashCommandProcessor(
         }
       }
 
-      // Extract file references from args
-      const {args: argsWithoutFiles, files} = splitArgs(args)
+      // Extract file and folder references from args
+      const {args: argsWithoutFiles, files, folders} = splitArgs(args)
       const cleanArgs = argsWithoutFiles.join(' ')
 
       // Build execution context with invocation details
@@ -156,6 +156,7 @@ export function useSlashCommandProcessor(
         invocation: {
           args: cleanArgs,
           files,
+          folders,
           name: commandNameForContext,
           raw: input,
         },

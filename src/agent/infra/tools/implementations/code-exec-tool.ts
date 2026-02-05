@@ -1,0 +1,113 @@
+import { z } from 'zod'
+
+import type { Tool, ToolExecutionContext } from '../../../core/domain/tools/types.js'
+import type { ISandboxService } from '../../../core/interfaces/i-sandbox-service.js'
+
+import { DEFAULT_SANDBOX_TIMEOUT, MAX_SANDBOX_TIMEOUT } from '../../../core/domain/sandbox/constants.js'
+import { ToolName } from '../../../core/domain/tools/constants.js'
+
+/**
+ * Input schema for code_exec tool.
+ */
+const CodeExecInputSchema = z
+  .object({
+    /**
+     * JavaScript or TypeScript code to execute.
+     */
+    code: z.string().describe('JavaScript or TypeScript code to execute'),
+
+    /**
+     * Context data available as "context" variable in the sandbox.
+     */
+    context: z
+      .union([z.string(), z.record(z.unknown()), z.array(z.unknown())])
+      .optional()
+      .describe('Context data available as "context" variable'),
+
+    /**
+     * Language: "javascript" or "typescript" (default: auto-detect).
+     */
+    language: z
+      .enum(['javascript', 'typescript'])
+      .optional()
+      .describe('Language: "javascript" or "typescript" (default: auto-detect)'),
+
+    /**
+     * Timeout in milliseconds (max: 300000, default: 30000 = 30 seconds).
+     */
+    timeout: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_SANDBOX_TIMEOUT)
+      .optional()
+      .default(DEFAULT_SANDBOX_TIMEOUT)
+      .describe('Timeout in milliseconds (default: 30 seconds, max: 5 minutes)'),
+  })
+  .strict()
+
+/**
+ * Input type for code_exec tool.
+ */
+type CodeExecInput = z.infer<typeof CodeExecInputSchema>
+
+/**
+ * Create code_exec tool.
+ *
+ * Executes JavaScript/TypeScript code in a sandboxed REPL environment.
+ * Features:
+ * - Auto-detects and transpiles TypeScript
+ * - State persists within the same agent session
+ * - Pre-loaded utility packages (lodash, date-fns, zod, etc.)
+ * - Security: blocks eval, Function, require, process, etc.
+ *
+ * @param sandboxService - Sandbox service for code execution
+ * @returns code_exec tool instance
+ */
+export function createCodeExecTool(sandboxService: ISandboxService): Tool {
+  return {
+    description: 'Execute JavaScript or TypeScript code in a sandboxed REPL environment.',
+
+    async execute(input: unknown, context?: ToolExecutionContext) {
+      const { code, context: contextPayload, language, timeout } = input as CodeExecInput
+
+      // Get sessionId from execution context (automatic - no user input needed)
+      const sessionId = context?.sessionId ?? 'default'
+
+      // Stream initial status via metadata callback if available
+      if (context?.metadata) {
+        context.metadata({
+          description: 'Executing code...',
+          output: '',
+          progress: 0,
+        })
+      }
+
+      const result = await sandboxService.executeCode(code, sessionId, {
+        contextPayload,
+        language,
+        timeout,
+      })
+
+      // Stream completion via metadata callback if available
+      if (context?.metadata) {
+        context.metadata({
+          description: result.stderr ? 'Execution completed with errors' : 'Execution completed',
+          output: result.stdout + (result.stderr ? `\n[stderr]\n${result.stderr}` : ''),
+          progress: 100,
+        })
+      }
+
+      return {
+        executionTime: result.executionTime,
+        locals: result.locals,
+        returnValue: result.returnValue,
+        stderr: result.stderr,
+        stdout: result.stdout,
+      }
+    },
+
+    id: ToolName.CODE_EXEC,
+    inputSchema: CodeExecInputSchema,
+  }
+}

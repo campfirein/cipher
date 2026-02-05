@@ -1,5 +1,4 @@
 import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
-import {FileOnboardingPreferenceStore} from '../../server/infra/storage/file-onboarding-preference-store.js'
 import {createTokenStore} from '../../server/infra/storage/token-store.js'
 import {ReplTerminal} from '../../server/infra/terminal/repl-terminal.js'
 import {MixpanelTrackingService} from '../../server/infra/tracking/mixpanel-tracking-service.js'
@@ -33,7 +32,6 @@ export const logoutCommand: SlashCommand = {
         const tokenStore = createTokenStore()
         const globalConfigStore = new FileGlobalConfigStore()
         const useCase = new LogoutUseCase({
-          onboardingPreferenceStore: new FileOnboardingPreferenceStore(),
           terminal,
           tokenStore,
           trackingService: new MixpanelTrackingService({globalConfigStore, tokenStore}),

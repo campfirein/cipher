@@ -115,6 +115,9 @@ export function normalizeRelation(relation: string): string {
  * generateRelationsSection(['code_style/error-handling/overview.md', 'structure/api/rest.md'])
  * // => '\n## Relations\n@code_style/error-handling/overview.md\n@structure/api/rest.md\n'
  *
+ * generateRelationsSection(['Architecture/Agents/Overview.md', 'Architecture/Agents/Sandbox and Security.md'])
+ * // => '\n## Relations\n@architecture/agents/overview.md\n@architecture/agents/sandbox_and_security.md\n'
+ *
  * generateRelationsSection([])
  * // => ''
  * ```
@@ -129,7 +132,9 @@ export function generateRelationsSection(relations: string[]): string {
       const normalized = normalizeRelation(rel)
       // Ensure .md extension is present
       const withExtension = normalized.endsWith('.md') ? normalized : `${normalized}.md`
-      return `@${withExtension}`
+      // Normalize: lowercase and replace spaces with underscores
+      const normalizedPath = withExtension.toLowerCase().replaceAll(/\s+/g, '_')
+      return `@${normalizedPath}`
     })
     .join('\n')
 

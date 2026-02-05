@@ -416,8 +416,8 @@ describe('Search Knowledge Tool', () => {
       const result = (await tool.execute({query: 'paragraph'})) as SearchKnowledgeOutput
 
       const doc = result.results.find((r) => r.path.includes('very_long'))
-      // Excerpt should be reasonably bounded
-      expect(doc?.excerpt.length).to.be.lessThan(500)
+      // Excerpt should be reasonably bounded (maxLength=800 + "..." = 803)
+      expect(doc?.excerpt.length).to.be.lessThan(804)
     })
   })
 
