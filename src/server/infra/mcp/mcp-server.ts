@@ -192,7 +192,7 @@ export class ByteRoverMcpServer {
         this.isReconnecting = false
 
         // Schedule next reconnection attempt
-        this.attemptReconnect()
+        this.attemptReconnect().catch(() => {})
       }
     }, this.currentReconnectDelay)
   }
@@ -265,7 +265,7 @@ export class ByteRoverMcpServer {
         case 'disconnected': {
           this.log(`[${timestamp}] Socket disconnected from brv instance. Initiating reconnection...`)
           // Trigger auto-reconnect
-          this.attemptReconnect()
+          this.attemptReconnect().catch(() => {})
           break
         }
 

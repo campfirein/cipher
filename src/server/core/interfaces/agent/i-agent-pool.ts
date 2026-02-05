@@ -25,9 +25,9 @@ export type AgentEntryInfo = {
  * Manages up to N forked child process agents, one per active project.
  *
  * Each agent is a separate Node.js process (child_process.fork())
- * associated with a projectPath. When the pool is full, the LRU idle
- * agent is evicted. If all agents are busy and a new project needs one,
- * the task is queued with a timeout before force-evicting the LRU busy agent.
+ * associated with a projectPath. When the pool is full, new projects
+ * are rejected with `pool_full`. Existing agents can still queue tasks.
+ * Idle agents are cleaned up by AgentIdleTimeoutPolicy after inactivity.
  *
  * Pool is pure lifecycle management — zero knowledge of auth, project config,
  * or agent internals. Each child process handles all agent setup independently.
@@ -35,7 +35,7 @@ export type AgentEntryInfo = {
  * Consumed by:
  * - brv-server.ts: instantiation and wiring
  * - TransportHandlers: delegates task submission via submitTask()
- * - ClientManager.onProjectEmpty → markIdle() for LRU eviction
+ * - ClientManager.onProjectEmpty → markIdle() for idle cleanup
  */
 export interface IAgentPool {
   /**
@@ -64,7 +64,7 @@ export interface IAgentPool {
   /**
    * Mark a project's agent as idle (no external clients).
    * Called by wiring code in response to ClientManager.onProjectEmpty.
-   * Idle agents are candidates for LRU eviction when pool is full.
+   * Idle agents are candidates for cleanup by AgentIdleTimeoutPolicy.
    */
   markIdle(projectPath: string): void
 

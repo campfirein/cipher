@@ -21,9 +21,8 @@ function sighupHandler(): void {
  * - SIGHUP → ignore (survive terminal close)
  * - Sleep/wake detection via heartbeat time gap
  *
- * Unlike transport-worker.ts which exits on uncaught exception
- * (workers get restarted by parent), the daemon IS the parent
- * and must keep running.
+ * The daemon is the top-level parent process and must keep running.
+ * Child agent processes are restarted by AgentPool on unexpected exit.
  */
 export class DaemonResilience implements IDaemonResilience {
   private readonly crashLog: (error: Error | string, context: string) => string

@@ -20,12 +20,10 @@ export type AuthExpiredCallback = (token: AuthToken) => void
  * Polls the underlying token store to detect external changes
  * (login, token refresh, logout) and notifies listeners via callbacks.
  *
- * In M2 daemon architecture, this replaces the agent-worker's credential
- * polling. The daemon is the centralized auth state owner. In-process agents
- * call getToken() directly (shared reference, no Socket.IO push needed).
+ * The daemon is the centralized auth state owner and broadcasts
+ * auth:updated / auth:expired events to all connected clients.
  *
- * Consumed by brv-server.ts wiring to broadcast auth:updated and
- * auth:expired events to all connected clients.
+ * Consumed by brv-server.ts wiring.
  */
 export interface IAuthStateStore {
   /**
@@ -47,6 +45,8 @@ export interface IAuthStateStore {
    * Register a callback for auth state changes.
    * Fired when: login (new token), token refresh (changed token), logout (undefined).
    *
+   * Only one callback supported — subsequent calls overwrite previous.
+   *
    * @param callback - Function called with the new token (or undefined on logout)
    */
   onAuthChanged(callback: AuthChangedCallback): void
@@ -55,6 +55,8 @@ export interface IAuthStateStore {
    * Register a callback for token expiry.
    * Fired when a token that was valid transitions to expired.
    * Only fires once per expiry (not on every poll cycle).
+   *
+   * Only one callback supported — subsequent calls overwrite previous.
    *
    * @param callback - Function called with the expired token
    */

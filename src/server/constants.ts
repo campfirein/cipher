@@ -62,20 +62,9 @@ export const HEARTBEAT_FILE = 'heartbeat'
 export const HEARTBEAT_INTERVAL_MS = 5000 // Write every 5s
 
 // === Idle timeout (server daemon shutdown) ===
-// NOTE: Old constants IDLE_TIMEOUT_MS and IDLE_CHECK_INTERVAL_MS are now deprecated.
-// Use SERVER_IDLE_TIMEOUT_MS and SERVER_IDLE_CHECK_INTERVAL_MS instead.
 
 /** Server idle timeout - daemon shuts down after this period of no clients */
 export const SERVER_IDLE_TIMEOUT_MS = 2 * 60 * 1000 // 2 minutes (safer than 1 min)
-
-/** Server idle check interval - how often to check for idle state */
-export const SERVER_IDLE_CHECK_INTERVAL_MS = 5000 // Check every 5s (responsive shutdown)
-
-/** @deprecated Use SERVER_IDLE_TIMEOUT_MS instead */
-export const IDLE_TIMEOUT_MS = SERVER_IDLE_TIMEOUT_MS
-
-/** @deprecated Use SERVER_IDLE_CHECK_INTERVAL_MS instead */
-export const IDLE_CHECK_INTERVAL_MS = SERVER_IDLE_CHECK_INTERVAL_MS
 
 // === Agent idle timeout (agent process cleanup) ===
 
@@ -96,11 +85,10 @@ export const SLEEP_WAKE_THRESHOLD_MULTIPLIER = 3
 export const TRANSPORT_STOP_TIMEOUT_MS = 3000 // 3s max for transport server to stop
 export const SHUTDOWN_FORCE_EXIT_MS = 5000 // 5s safety net before force exit
 
-// Auth state polling (daemon — replaces agent-worker credential polling in M2)
+// Auth state polling (daemon)
 export const AUTH_STATE_POLL_INTERVAL_MS = 5000 // Poll token store every 5s
 
 // Agent Pool (T6)
-export const AGENT_POOL_MAX_SIZE = 5
-export const AGENT_POOL_FORCE_EVICT_TIMEOUT_MS = 30_000 // 30s queue wait before force evict
+export const AGENT_POOL_MAX_SIZE = 10
 export const AGENT_PROCESS_READY_TIMEOUT_MS = 15_000 // 15s max wait for child process to register
 export const AGENT_PROCESS_STOP_TIMEOUT_MS = 5000 // 5s max wait for child process to stop gracefully

@@ -22,19 +22,11 @@
 import type {ChildProcess} from 'node:child_process'
 
 import type {TaskExecute} from '../../core/domain/transport/schemas.js'
-import type {
-  AgentEntryInfo,
-  IAgentPool,
-  SubmitTaskResult,
-} from '../../core/interfaces/agent/i-agent-pool.js'
+import type {AgentEntryInfo, IAgentPool, SubmitTaskResult} from '../../core/interfaces/agent/i-agent-pool.js'
 import type {IAgentIdleTimeoutPolicy} from '../../core/interfaces/daemon/i-agent-idle-timeout-policy.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 
-import {
-  AGENT_POOL_MAX_SIZE,
-  AGENT_PROCESS_READY_TIMEOUT_MS,
-  AGENT_PROCESS_STOP_TIMEOUT_MS,
-} from '../../constants.js'
+import {AGENT_POOL_MAX_SIZE, AGENT_PROCESS_READY_TIMEOUT_MS, AGENT_PROCESS_STOP_TIMEOUT_MS} from '../../constants.js'
 import {ProjectTaskQueue} from './project-task-queue.js'
 
 /**
@@ -90,6 +82,7 @@ export class AgentPool implements IAgentPool {
   private readonly log: (message: string) => void
   private readonly maxSize: number
   private readonly readyTimeoutMs: number
+  private shutdownRequested = false
   private readonly stopTimeoutMs: number
   private readonly taskQueue: ProjectTaskQueue = new ProjectTaskQueue()
   private readonly transportServer: ITransportServer
@@ -170,6 +163,7 @@ export class AgentPool implements IAgentPool {
   }
 
   async shutdown(): Promise<void> {
+    this.shutdownRequested = true
     this.taskQueue.clear()
 
     const stopPromises = [...this.agents.values()].map(async (entry) => {
@@ -231,7 +225,9 @@ export class AgentPool implements IAgentPool {
     }
 
     this.agents.set(projectPath, entry)
-    this.log(`Agent forked for: ${projectPath} (pid=${agent.childProcess.pid}, pool: ${this.agents.size}/${this.maxSize})`)
+    this.log(
+      `Agent forked for: ${projectPath} (pid=${agent.childProcess.pid}, pool: ${this.agents.size}/${this.maxSize})`,
+    )
 
     this.sendTaskToAgent(entry, task)
   }
@@ -290,9 +286,13 @@ export class AgentPool implements IAgentPool {
 
     // Re-fork a new agent to process remaining queued tasks.
     // The new agent will drain further tasks via notifyTaskCompleted → drainQueue.
+    // Skip during shutdown to prevent orphaned child processes.
+    if (this.shutdownRequested) return
     const nextTask = this.taskQueue.dequeue(projectPath)
     if (nextTask) {
-      this.log(`Re-forking agent for queued tasks: ${projectPath} (remaining: ${this.taskQueue.getQueueLength(projectPath)})`)
+      this.log(
+        `Re-forking agent for queued tasks: ${projectPath} (remaining: ${this.taskQueue.getQueueLength(projectPath)})`,
+      )
       this.tryCreateAndExecute(projectPath, nextTask).then((result) => {
         if (!result.success) {
           this.log(`Failed to re-fork agent for ${projectPath}: ${result.message}`)

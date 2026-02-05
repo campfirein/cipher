@@ -86,8 +86,11 @@ export class IdleTimeoutPolicy implements IIdleTimeoutPolicy {
     }
 
     // Safety net: re-schedule in case onIdle's shutdown fails.
-    // Normal shutdown calls stop() which clears this timer.
-    this.timeoutId = setTimeout(() => this.fireIdle(), this.timeoutMs)
+    // If onIdle() triggered shutdown → stop() was called → isRunning is false.
+    // Only re-schedule if still running (i.e. shutdown didn't happen).
+    if (this.isRunning) {
+      this.timeoutId = setTimeout(() => this.fireIdle(), this.timeoutMs)
+    }
   }
 
   private reschedule(): void {

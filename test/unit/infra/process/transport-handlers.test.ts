@@ -113,6 +113,7 @@ describe('TransportHandlers', () => {
     const mockClientManager = {
       associateProject: sandbox.stub(),
       getActiveProjects: sandbox.stub().returns([]),
+      getAllClients: sandbox.stub().returns([]),
       getClient: sandbox.stub(),
       getClientsByProject: sandbox.stub().returns([]),
       onClientConnected: sandbox.stub(),
@@ -1140,6 +1141,7 @@ describe('TransportHandlers', () => {
       const mockClientManager = {
         associateProject: sandbox.stub(),
         getActiveProjects: sandbox.stub().returns([]),
+        getAllClients: sandbox.stub().returns([]),
         getClient: sandbox.stub(),
         getClientsByProject: sandbox.stub().returns([]),
         onClientConnected: sandbox.stub(),
@@ -1166,6 +1168,7 @@ describe('TransportHandlers', () => {
       const mockClientManager = {
         associateProject: sandbox.stub(),
         getActiveProjects: sandbox.stub().returns([]),
+        getAllClients: sandbox.stub().returns([]),
         getClient: sandbox.stub(),
         getClientsByProject: sandbox.stub().returns([]),
         onClientConnected: sandbox.stub(),
@@ -1193,6 +1196,7 @@ describe('TransportHandlers', () => {
       const mockClientManager = {
         associateProject: sandbox.stub(),
         getActiveProjects: sandbox.stub().returns([]),
+        getAllClients: sandbox.stub().returns([]),
         getClient: sandbox.stub(),
         getClientsByProject: sandbox.stub().returns([]),
         onClientConnected: sandbox.stub(),

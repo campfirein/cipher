@@ -253,7 +253,38 @@ async function main(): Promise<void> {
     })
     transportHandlers.setup()
 
-    // 8. Wire events (auth broadcasts, state server, idle timeout)
+    // 8. Create idle timeout policy + shutdown handler
+    //    (must be created before wiring closures that reference them)
+
+    // onIdle captures shutdownHandler via closure; safe because
+    // the callback only fires after start() + timeout, by which
+    // point shutdownHandler is fully assigned below.
+    // eslint-disable-next-line prefer-const
+    let shutdownHandler: ShutdownHandler
+
+    const idleTimeoutPolicy = new IdleTimeoutPolicy({
+      log,
+      onIdle() {
+        log('Idle timeout reached — initiating shutdown')
+        shutdownHandler.shutdown().catch((error: unknown) => {
+          log(`Shutdown error: ${error instanceof Error ? error.message : String(error)}`)
+        })
+      },
+    })
+
+    // 9. Create shutdown handler (agent pool shut down before transport)
+    shutdownHandler = new ShutdownHandler({
+      agentIdleTimeoutPolicy,
+      agentPool,
+      daemonResilience,
+      heartbeatWriter,
+      idleTimeoutPolicy,
+      instanceManager,
+      log,
+      transportServer,
+    })
+
+    // 10. Wire events (auth broadcasts, state server, idle timeout)
 
     // Auth change broadcasting to all connected clients + agent child processes
     authStateStore.onAuthChanged((token) => {
@@ -273,7 +304,7 @@ async function main(): Promise<void> {
     await authStateStore.loadToken()
     authStateStore.startPolling()
 
-    // Wire project empty → mark agent idle for LRU eviction
+    // Wire project empty → mark agent idle for cleanup
     clientManager.onProjectEmpty((projectPath) => {
       agentPool!.markIdle(projectPath)
     })
@@ -287,120 +318,78 @@ async function main(): Promise<void> {
     })
 
     // State server endpoints — agent child processes request config on startup
-    transportServer.onRequest<{projectPath: string}, {brvConfig?: BrvConfig; spaceId: string; storagePath: string; teamId: string}>(
-      'state:getProjectConfig',
-      async (data) => {
-        // Smart invalidation: only invalidate if config file was modified since last load
-        // This prevents unnecessary disk I/O while still catching changes from
-        // init/space-switch commands that write directly to disk
-        const needsInvalidation = await projectStateLoader.shouldInvalidate(data.projectPath)
-        if (needsInvalidation) {
-          projectStateLoader.invalidate(data.projectPath)
-          log(`Config invalidated due to file modification: ${data.projectPath}`)
-        }
+    transportServer.onRequest<
+      {projectPath: string},
+      {brvConfig?: BrvConfig; spaceId: string; storagePath: string; teamId: string}
+    >('state:getProjectConfig', async (data) => {
+      // Smart invalidation: only invalidate if config file was modified since last load
+      // This prevents unnecessary disk I/O while still catching changes from
+      // init/space-switch commands that write directly to disk
+      const needsInvalidation = await projectStateLoader.shouldInvalidate(data.projectPath)
+      if (needsInvalidation) {
+        projectStateLoader.invalidate(data.projectPath)
+        log(`Config invalidated due to file modification: ${data.projectPath}`)
+      }
 
-        const config = await projectStateLoader.getProjectConfig(data.projectPath)
-        // Register project (idempotent) to ensure XDG storage directories exist
-        const projectInfo = projectRegistry.register(data.projectPath)
-        return {
-          brvConfig: config,
-          spaceId: config?.spaceId ?? '',
-          storagePath: projectInfo.storagePath,
-          teamId: config?.teamId ?? '',
-        }
-      },
-    )
+      const config = await projectStateLoader.getProjectConfig(data.projectPath)
+      // Register project (idempotent) to ensure XDG storage directories exist
+      const projectInfo = projectRegistry.register(data.projectPath)
+      return {
+        brvConfig: config,
+        spaceId: config?.spaceId ?? '',
+        storagePath: projectInfo.storagePath,
+        teamId: config?.teamId ?? '',
+      }
+    })
 
-    transportServer.onRequest<void, {isValid: boolean; sessionKey: string}>(
-      'state:getAuth',
-      async () => {
-        const token = await authStateStore!.loadToken()
-        return {
-          isValid: token?.isValid() ?? false,
-          sessionKey: token?.sessionKey ?? '',
-        }
-      },
-    )
+    transportServer.onRequest<void, {isValid: boolean; sessionKey: string}>('state:getAuth', async () => {
+      const token = await authStateStore!.loadToken()
+      return {
+        isValid: token?.isValid() ?? false,
+        sessionKey: token?.sessionKey ?? '',
+      }
+    })
 
     // Auth reload trigger — clients signal after login/logout for immediate propagation.
     // loadToken() reads from keychain, updates cache, and fires onAuthChanged → broadcast.
-    transportServer.onRequest<void, {success: boolean}>(
-      'auth:reload',
-      async () => {
-        await authStateStore!.loadToken()
-        return {success: true}
-      },
-    )
+    transportServer.onRequest<void, {success: boolean}>('auth:reload', async () => {
+      await authStateStore!.loadToken()
+      return {success: true}
+    })
 
     // Debug endpoint — exposes daemon internal state for `brv debug` command
-    transportServer.onRequest<void, unknown>(
-      'daemon:getState',
-      () => ({
-        agentIdleStatus: agentIdleTimeoutPolicy.getIdleStatus(),
-        agentPool: {
-          entries: agentPool!.getEntries(),
-          maxSize: AGENT_POOL_MAX_SIZE,
-          queue: agentPool!.getQueueState(),
-          size: agentPool!.getSize(),
-        },
-        clients: clientManager.getAllClients().map((c) => ({
-          agentName: c.agentName,
-          connectedAt: c.connectedAt,
-          id: c.id,
-          projectPath: c.projectPath,
-          type: c.type,
-        })),
-        daemon: {
-          pid: process.pid,
-          port,
-          startedAt: daemonStartedAt,
-          uptime: Date.now() - daemonStartedAt,
-          version,
-        },
-        daemonIdleStatus: idleTimeoutPolicy.getIdleStatus(),
-        tasks: transportHandlers.getDebugState(),
-        transport: {
-          connectedSockets: transportServer!.getConnectedSocketCount(),
-          port: transportServer!.getPort() ?? port,
-          running: transportServer!.isRunning(),
-        },
-      }),
-    )
-
-    // Idle timeout policy
-    // onIdle captures shutdownHandler via closure; safe because
-    // the callback only fires after start() + timeout, by which
-    // point shutdownHandler is fully assigned.
-    // eslint-disable-next-line prefer-const
-    let shutdownHandler: ShutdownHandler
-
-    const idleTimeoutPolicy = new IdleTimeoutPolicy({
-      log,
-      onIdle() {
-        log('Idle timeout reached — initiating shutdown')
-        shutdownHandler.shutdown().catch((error: unknown) => {
-          log(`Shutdown error: ${error instanceof Error ? error.message : String(error)}`)
-        })
+    transportServer.onRequest<void, unknown>('daemon:getState', () => ({
+      agentIdleStatus: agentIdleTimeoutPolicy.getIdleStatus(),
+      agentPool: {
+        entries: agentPool!.getEntries(),
+        maxSize: AGENT_POOL_MAX_SIZE,
+        queue: agentPool!.getQueueState(),
+        size: agentPool!.getSize(),
       },
-    })
+      clients: clientManager.getAllClients().map((c) => ({
+        agentName: c.agentName,
+        connectedAt: c.connectedAt,
+        id: c.id,
+        projectPath: c.projectPath,
+        type: c.type,
+      })),
+      daemon: {
+        pid: process.pid,
+        port,
+        startedAt: daemonStartedAt,
+        uptime: Date.now() - daemonStartedAt,
+        version,
+      },
+      daemonIdleStatus: idleTimeoutPolicy.getIdleStatus(),
+      tasks: transportHandlers.getDebugState(),
+      transport: {
+        connectedSockets: transportServer!.getConnectedSocketCount(),
+        port: transportServer!.getPort() ?? port,
+        running: transportServer!.isRunning(),
+      },
+    }))
 
-    // Note: Idle timeout now tracks registered clients (via ClientManager),
-    // not raw socket connections. This ensures debug/monitoring commands
-    // don't prevent daemon shutdown.
-
-    // 9. Create shutdown handler (agent pool shut down before transport)
-    shutdownHandler = new ShutdownHandler({
-      agentIdleTimeoutPolicy,
-      agentPool,
-      daemonResilience,
-      heartbeatWriter,
-      idleTimeoutPolicy,
-      instanceManager,
-      log,
-      transportServer,
-    })
-
-    // 10. Start idle timer + register signal handlers
+    // 11. Start idle timer + register signal handlers
     idleTimeoutPolicy.start()
 
     process.once('SIGTERM', () => {

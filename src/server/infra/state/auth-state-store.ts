@@ -30,8 +30,7 @@ type AuthStateStoreOptions = {
  * - Removed token (was present, now undefined): fires onAuthChanged(undefined)
  * - Expired token (was valid, now expired): fires onAuthExpired (once)
  *
- * Follows the same polling pattern as agent-worker credential monitoring,
- * with an isPolling guard to prevent overlapping poll cycles.
+ * Uses an isPolling guard to prevent overlapping poll cycles.
  */
 export class AuthStateStore implements IAuthStateStore {
   private authChangedCallback: AuthChangedCallback | undefined

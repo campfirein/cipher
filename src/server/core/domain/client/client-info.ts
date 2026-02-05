@@ -7,6 +7,7 @@
  * Client types:
  * - 'tui': Terminal UI (the brv REPL) — external client, long-lived
  * - 'cli': CLI headless commands (brv curate --headless, etc.) — external client, short-lived
+ * - 'extension': IDE extension (e.g. VS Code extension) — external client, implemented in separate repo
  * - 'mcp': MCP protocol client (IDEs, external tools) — external client, may be global-scope
  * - 'agent': Agent worker process — NOT an external client (worker, not user)
  *

@@ -49,6 +49,7 @@ import {
 } from '../../core/domain/transport/schemas.js'
 import {transportLog} from '../../utils/process-logger.js'
 import {isValidTaskType} from '../../utils/type-guards.js'
+import {broadcastToProjectRoom} from './broadcast-utils.js'
 
 type LlmEventName = (typeof TransportLlmEventList)[number]
 
@@ -78,7 +79,7 @@ type TaskRouterOptions = {
 }
 
 function hasTaskId(data: unknown): data is {[key: string]: unknown; taskId: string} {
-  return typeof data === 'object' && data !== null && 'taskId' in data && typeof (data as {taskId: unknown}).taskId === 'string'
+  return typeof data === 'object' && data !== null && 'taskId' in data && typeof data.taskId === 'string'
 }
 
 export class TaskRouter {
@@ -117,7 +118,7 @@ export class TaskRouter {
     if (!task) return
 
     this.transport.sendTo(task.clientId, TransportTaskEventNames.ERROR, {error, taskId})
-    this.broadcastToProjectRoom(task.projectPath, TransportTaskEventNames.ERROR, {error, taskId})
+    broadcastToProjectRoom(this.projectRegistry, this.projectRouter,task.projectPath, TransportTaskEventNames.ERROR, {error, taskId})
     this.tasks.delete(taskId)
   }
 
@@ -202,19 +203,6 @@ export class TaskRouter {
     }
   }
 
-  /**
-   * Broadcast an event to the project-scoped room for a given projectPath.
-   * If projectPath is unavailable or project not registered, the event is silently skipped
-   * (the direct sendTo to the requesting client still works).
-   */
-  private broadcastToProjectRoom<T = unknown>(projectPath: string | undefined, event: string, data: T): void {
-    if (!projectPath || !this.projectRouter || !this.projectRegistry) return
-    const projectInfo = this.projectRegistry.get(projectPath)
-    if (projectInfo) {
-      this.projectRouter.broadcastToProject(projectInfo.sanitizedPath, event, data)
-    }
-  }
-
   private handleTaskCancel(data: TaskCancelRequest, _clientId: string): TaskCancelResponse {
     const {taskId} = data
 
@@ -235,7 +223,7 @@ export class TaskRouter {
     // No Agent - cancel task locally and emit terminal event
     transportLog(`No Agent connected, cancelling task locally: ${taskId}`)
     this.transport.sendTo(task.clientId, TransportTaskEventNames.CANCELLED, {taskId})
-    this.broadcastToProjectRoom(task.projectPath, TransportTaskEventNames.CANCELLED, {taskId})
+    broadcastToProjectRoom(this.projectRegistry, this.projectRouter,task.projectPath, TransportTaskEventNames.CANCELLED, {taskId})
     this.tasks.delete(taskId)
 
     return {success: true}
@@ -251,7 +239,7 @@ export class TaskRouter {
       this.transport.sendTo(task.clientId, TransportTaskEventNames.CANCELLED, {taskId})
     }
 
-    this.broadcastToProjectRoom(task?.projectPath, TransportTaskEventNames.CANCELLED, {taskId})
+    broadcastToProjectRoom(this.projectRegistry, this.projectRouter,task?.projectPath, TransportTaskEventNames.CANCELLED, {taskId})
     this.moveToCompleted(taskId)
   }
 
@@ -265,7 +253,7 @@ export class TaskRouter {
       this.transport.sendTo(task.clientId, TransportTaskEventNames.COMPLETED, {result, taskId})
     }
 
-    this.broadcastToProjectRoom(task?.projectPath, TransportTaskEventNames.COMPLETED, {result, taskId})
+    broadcastToProjectRoom(this.projectRegistry, this.projectRouter,task?.projectPath, TransportTaskEventNames.COMPLETED, {result, taskId})
     this.moveToCompleted(taskId)
 
     // Notify pool so it can clear busy flag and drain queued tasks
@@ -302,7 +290,7 @@ export class TaskRouter {
     this.transport.sendTo(clientId, TransportTaskEventNames.ACK, {taskId})
 
     // Broadcast task:created to project room for TUI monitoring
-    this.broadcastToProjectRoom(projectPath, TransportTaskEventNames.CREATED, {
+    broadcastToProjectRoom(this.projectRegistry, this.projectRouter,projectPath, TransportTaskEventNames.CREATED, {
       content: data.content,
       ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
@@ -315,7 +303,7 @@ export class TaskRouter {
       transportLog(`No AgentPool available, cannot process task ${taskId}`)
       const error = serializeTaskError(new AgentNotAvailableError())
       this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
-      this.broadcastToProjectRoom(projectPath, TransportTaskEventNames.ERROR, {error, taskId})
+      broadcastToProjectRoom(this.projectRegistry, this.projectRouter,projectPath, TransportTaskEventNames.ERROR, {error, taskId})
       this.tasks.delete(taskId)
       return {taskId}
     }
@@ -325,7 +313,7 @@ export class TaskRouter {
       transportLog(`Invalid task type: ${data.type}`)
       const error = serializeTaskError(new Error(`Invalid task type: ${data.type}`))
       this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
-      this.broadcastToProjectRoom(projectPath, TransportTaskEventNames.ERROR, {error, taskId})
+      broadcastToProjectRoom(this.projectRegistry, this.projectRouter,projectPath, TransportTaskEventNames.ERROR, {error, taskId})
       this.tasks.delete(taskId)
       return {taskId}
     }
@@ -347,14 +335,14 @@ export class TaskRouter {
         transportLog(`AgentPool rejected task ${taskId}: ${submitResult.reason} — ${submitResult.message}`)
         const error = serializeTaskError(new Error(submitResult.message))
         this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
-        this.broadcastToProjectRoom(projectPath, TransportTaskEventNames.ERROR, {error, taskId})
+        broadcastToProjectRoom(this.projectRegistry, this.projectRouter,projectPath, TransportTaskEventNames.ERROR, {error, taskId})
         this.tasks.delete(taskId)
       }
     }).catch((error_: unknown) => {
       transportLog(`AgentPool.submitTask threw unexpectedly for task ${taskId}: ${error_ instanceof Error ? error_.message : String(error_)}`)
       const error = serializeTaskError(error_ instanceof Error ? error_ : new Error(String(error_)))
       this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
-      this.broadcastToProjectRoom(projectPath, TransportTaskEventNames.ERROR, {error, taskId})
+      broadcastToProjectRoom(this.projectRegistry, this.projectRouter,projectPath, TransportTaskEventNames.ERROR, {error, taskId})
       this.tasks.delete(taskId)
     })
 
@@ -371,7 +359,7 @@ export class TaskRouter {
       this.transport.sendTo(task.clientId, TransportTaskEventNames.ERROR, {error, taskId})
     }
 
-    this.broadcastToProjectRoom(task?.projectPath, TransportTaskEventNames.ERROR, {error, taskId})
+    broadcastToProjectRoom(this.projectRegistry, this.projectRouter,task?.projectPath, TransportTaskEventNames.ERROR, {error, taskId})
     this.moveToCompleted(taskId)
 
     // Notify pool so it can clear busy flag and drain queued tasks
@@ -386,7 +374,7 @@ export class TaskRouter {
     if (task) {
       this.transport.sendTo(task.clientId, TransportTaskEventNames.STARTED, {taskId})
 
-      this.broadcastToProjectRoom(task.projectPath, TransportTaskEventNames.STARTED, {
+      broadcastToProjectRoom(this.projectRegistry, this.projectRouter,task.projectPath, TransportTaskEventNames.STARTED, {
         content: task.content,
         ...(task.clientCwd ? {clientCwd: task.clientCwd} : {}),
         ...(task.files?.length ? {files: task.files} : {}),
@@ -434,6 +422,6 @@ export class TaskRouter {
     }
 
     this.transport.sendTo(task.clientId, eventName, {taskId, ...rest})
-    this.broadcastToProjectRoom(task.projectPath, eventName, {taskId, ...rest})
+    broadcastToProjectRoom(this.projectRegistry, this.projectRouter,task.projectPath, eventName, {taskId, ...rest})
   }
 }

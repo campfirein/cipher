@@ -24,14 +24,15 @@ export interface ShutdownHandlerDeps {
 /**
  * Ordered graceful shutdown handler for the daemon.
  *
- * Shutdown sequence:
- * 1. Stop idle timeout checks
- * 2. Uninstall resilience handlers
- * 3. Stop heartbeat writer (stops writes, file becomes stale naturally)
- * 4. Stop agent pool (SIGTERM child processes, wait for exit)
- * 5. Stop transport server (disconnect sockets, close HTTP server)
- * 6. Release daemon.json
- * 7. Schedule force exit safety net
+ * Shutdown sequence (8 steps):
+ * 1. Stop server idle timeout checks
+ * 2. Stop agent idle timeout checks
+ * 3. Uninstall resilience handlers
+ * 4. Stop heartbeat writer (stops writes, file becomes stale naturally)
+ * 5. Stop agent pool (SIGTERM child processes, wait for exit)
+ * 6. Stop transport server (disconnect sockets, close HTTP server)
+ * 7. Release daemon.json
+ * 8. Schedule force exit safety net
  *
  * Agent pool is stopped BEFORE transport server so agents can use
  * their transport connections for graceful shutdown signaling.
@@ -62,14 +63,14 @@ export class ShutdownHandler implements IShutdownHandler {
 
     log('Shutdown initiated')
 
-    // 1. Stop idle timeout checks (server-level)
+    // Step 1. Stop idle timeout checks (server-level)
     try {
       idleTimeoutPolicy.stop()
     } catch (error) {
       log(`Error stopping idle timeout: ${error instanceof Error ? error.message : String(error)}`)
     }
 
-    // 1b. Stop agent idle timeout checks
+    // Step 2. Stop agent idle timeout checks
     if (agentIdleTimeoutPolicy) {
       try {
         agentIdleTimeoutPolicy.stop()
@@ -78,21 +79,21 @@ export class ShutdownHandler implements IShutdownHandler {
       }
     }
 
-    // 2. Uninstall resilience handlers
+    // Step 3. Uninstall resilience handlers
     try {
       daemonResilience.uninstall()
     } catch (error) {
       log(`Error uninstalling resilience: ${error instanceof Error ? error.message : String(error)}`)
     }
 
-    // 3. Stop heartbeat (file becomes stale naturally)
+    // Step 4. Stop heartbeat (file becomes stale naturally)
     try {
       heartbeatWriter.stop()
     } catch (error) {
       log(`Error stopping heartbeat: ${error instanceof Error ? error.message : String(error)}`)
     }
 
-    // 4. Stop agent pool (SIGTERM all child processes, wait for exit)
+    // Step 5. Stop agent pool (SIGTERM all child processes, wait for exit)
     //    Must happen before transport server stops — agents need the
     //    transport connection for graceful shutdown signaling.
     if (this.deps.agentPool) {
@@ -103,7 +104,7 @@ export class ShutdownHandler implements IShutdownHandler {
       }
     }
 
-    // 5. Stop transport server (disconnect all sockets, close HTTP)
+    // Step 6. Stop transport server (disconnect all sockets, close HTTP)
     //    Wrapped in Promise.race with timeout to prevent hanging — if Socket.IO
     //    blocks (e.g., waiting for in-flight responses), we proceed with remaining
     //    cleanup steps instead of relying solely on the force-exit safety net
@@ -119,7 +120,7 @@ export class ShutdownHandler implements IShutdownHandler {
       log(`Error stopping transport: ${error instanceof Error ? error.message : String(error)}`)
     }
 
-    // 6. Release daemon.json
+    // Step 7. Release daemon.json
     try {
       instanceManager.release()
     } catch (error) {
@@ -128,7 +129,7 @@ export class ShutdownHandler implements IShutdownHandler {
 
     log('Shutdown complete')
 
-    // Safety net: force exit if event loop hasn't drained
+    // Step 8. Safety net: force exit if event loop hasn't drained
     // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
     setTimeout(() => process.exit(0), SHUTDOWN_FORCE_EXIT_MS).unref()
   }

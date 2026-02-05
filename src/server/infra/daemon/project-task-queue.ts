@@ -17,7 +17,7 @@ type ProjectTaskQueueOptions = {
  * Cross-project tasks execute in parallel.
  *
  * The pool coordinates which project queues to drain based on
- * agent availability and LRU eviction policy.
+ * agent availability.
  *
  * Not persisted: daemon restart clears all queues.
  * Clients reconnect and re-submit tasks.

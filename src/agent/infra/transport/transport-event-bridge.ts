@@ -13,9 +13,6 @@
  * Consumed by:
  * - agent-process.ts: creates bridge after CipherAgent.start(), sets up
  *   forwarding for each incoming task:execute
- *
- * Pattern extracted from:
- * - transport-worker.ts setupEventForwarding() (lines 202-238)
  */
 
 import type {ITransportClient} from '@campfirein/brv-transport-client'
