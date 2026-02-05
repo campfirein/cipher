@@ -213,25 +213,6 @@ export class ConnectionCoordinator {
     return {success: true}
   }
 
-  private handleClientUpdateAgentName(
-    clientId: string,
-    data: {agentName: string},
-  ): {error?: string; success: boolean} {
-    if (!this.clientManager) {
-      return {error: 'ClientManager not available', success: false}
-    }
-
-    const client = this.clientManager.getClient(clientId)
-    if (!client) {
-      return {error: 'Client not registered', success: false}
-    }
-
-    this.clientManager.setAgentName(clientId, data.agentName)
-    transportLog(`Client ${clientId} identified as agent: ${data.agentName}`)
-
-    return {success: true}
-  }
-
   private handleClientRegister(
     clientId: string,
     data: {clientType: ClientType; projectPath?: string},
@@ -243,7 +224,9 @@ export class ConnectionCoordinator {
     // Fall back to 'cli' for missing/invalid clientType (backward compat with older clients)
     const clientType = isValidClientType(data.clientType) ? data.clientType : 'cli'
     if (!isValidClientType(data.clientType)) {
-      transportLog(`Client ${clientId} registered with missing/invalid clientType '${String(data.clientType)}', defaulting to 'cli'`)
+      transportLog(
+        `Client ${clientId} registered with missing/invalid clientType '${String(data.clientType)}', defaulting to 'cli'`,
+      )
     }
 
     this.clientManager.register(clientId, clientType, data.projectPath)
@@ -254,6 +237,22 @@ export class ConnectionCoordinator {
     if (data.projectPath) {
       this.addToProjectRoom(clientId, data.projectPath)
     }
+
+    return {success: true}
+  }
+
+  private handleClientUpdateAgentName(clientId: string, data: {agentName: string}): {error?: string; success: boolean} {
+    if (!this.clientManager) {
+      return {error: 'ClientManager not available', success: false}
+    }
+
+    const client = this.clientManager.getClient(clientId)
+    if (!client) {
+      return {error: 'Client not registered', success: false}
+    }
+
+    this.clientManager.setAgentName(clientId, data.agentName)
+    transportLog(`Client ${clientId} identified as agent: ${data.agentName}`)
 
     return {success: true}
   }

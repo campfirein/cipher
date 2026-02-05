@@ -107,46 +107,49 @@ describe('daemon-resilience', () => {
   })
 
   describe('sleep/wake detection', () => {
-    it('should call onWake when time gap exceeds threshold', (done) => {
-      // Stub Date.now to simulate a large time jump (sleep/wake)
-      let fakeTime = Date.now()
-      const dateNowStub = sandbox.stub(Date, 'now').callsFake(() => fakeTime)
+    it('should call onWake when time gap exceeds threshold', () => {
+      const clock = sandbox.useFakeTimers(Date.now())
 
-      const resilience = new DaemonResilience({
-        crashLog: crashLogStub,
-        log: logStub,
-        onWake() {
-          onWakeStub()
-          resilience.uninstall()
-          dateNowStub.restore()
-          done()
-        },
-        sleepWakeCheckIntervalMs: 50, // Fast interval for testing
-      })
-
-      resilience.install()
-
-      // After a small delay, simulate a large time jump (sleep)
-      setTimeout(() => {
-        fakeTime += 30_000 // Jump 30s ahead
-      }, 100)
-    })
-
-    it('should not fire onWake during normal operation', (done) => {
       const resilience = new DaemonResilience({
         crashLog: crashLogStub,
         log: logStub,
         onWake: onWakeStub,
+        sleepWakeCheckIntervalMs: 50,
       })
 
       resilience.install()
 
-      // Wait for a couple check intervals, no wake should fire
-      setTimeout(() => {
-        expect(onWakeStub.called).to.be.false
-        resilience.uninstall()
-        done()
-      }, 200)
+      // First check fires normally — no wake
+      clock.tick(50)
+      expect(onWakeStub.called).to.be.false
+
+      // Simulate sleep: jump Date.now 30s ahead without firing timers
+      clock.setSystemTime(Date.now() + 30_000)
+
+      // Next check fires and detects time gap → onWake
+      clock.tick(50)
+      expect(onWakeStub.calledOnce).to.be.true
+
+      resilience.uninstall()
+    })
+
+    it('should not fire onWake during normal operation', () => {
+      const clock = sandbox.useFakeTimers(Date.now())
+
+      const resilience = new DaemonResilience({
+        crashLog: crashLogStub,
+        log: logStub,
+        onWake: onWakeStub,
+        sleepWakeCheckIntervalMs: 50,
+      })
+
+      resilience.install()
+
+      // Advance through several check intervals — all normal
+      clock.tick(200)
+      expect(onWakeStub.called).to.be.false
+
+      resilience.uninstall()
     })
   })
 

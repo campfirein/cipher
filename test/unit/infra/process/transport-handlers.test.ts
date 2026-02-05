@@ -119,6 +119,7 @@ describe('TransportHandlers', () => {
       onClientDisconnected: sandbox.stub(),
       onProjectEmpty: sandbox.stub(),
       register: sandbox.stub(),
+      setAgentName: sandbox.stub(),
       unregister: sandbox.stub(),
     }
 
@@ -1145,6 +1146,7 @@ describe('TransportHandlers', () => {
         onClientDisconnected: sandbox.stub(),
         onProjectEmpty: sandbox.stub(),
         register: sandbox.stub(),
+        setAgentName: sandbox.stub(),
         unregister: sandbox.stub(),
       }
 
@@ -1170,6 +1172,7 @@ describe('TransportHandlers', () => {
         onClientDisconnected: sandbox.stub(),
         onProjectEmpty: sandbox.stub(),
         register: sandbox.stub(),
+        setAgentName: sandbox.stub(),
         unregister: sandbox.stub(),
       }
 
@@ -1196,6 +1199,7 @@ describe('TransportHandlers', () => {
         onClientDisconnected: sandbox.stub(),
         onProjectEmpty: sandbox.stub(),
         register: sandbox.stub(),
+        setAgentName: sandbox.stub(),
         unregister: sandbox.stub(),
       }
 

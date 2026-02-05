@@ -126,7 +126,8 @@ describe('heartbeat', () => {
       }
     })
 
-    it('should update heartbeat on interval', async () => {
+    it('should update heartbeat on interval', () => {
+      const clock = sandbox.useFakeTimers(Date.now())
       const filePath = join(testDir, 'heartbeat')
       const logStub = sandbox.stub()
       const writer = new HeartbeatWriter({filePath, intervalMs: 50, log: logStub})
@@ -134,16 +135,14 @@ describe('heartbeat', () => {
       writer.start()
       const initial = readFileSync(filePath, 'utf8')
 
-      // Wait for at least one interval
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, 100)
-      })
+      // Advance past one interval
+      clock.tick(50)
 
       const updated = readFileSync(filePath, 'utf8')
       writer.stop()
 
-      // Timestamps should differ (or at least be valid)
-      expect(Number(updated)).to.be.at.least(Number(initial))
+      // Timestamps should differ (fake clock advanced by 50ms)
+      expect(Number(updated)).to.be.greaterThan(Number(initial))
     })
   })
 
