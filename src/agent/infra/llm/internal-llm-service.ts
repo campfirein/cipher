@@ -1,14 +1,14 @@
-import type {MessageParam} from '@anthropic-ai/sdk/resources/messages'
-import type {Content} from '@google/genai'
+import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
+import type { Content } from '@google/genai'
 
-import type {ToolExecutionResult} from '../../core/domain/tools/tool-error.js'
-import type {ToolSet} from '../../core/domain/tools/types.js'
-import type {ExecutionContext} from '../../core/interfaces/i-cipher-agent.js'
-import type {IHistoryStorage} from '../../core/interfaces/i-history-storage.js'
-import type {ILLMService} from '../../core/interfaces/i-llm-service.js'
-import type {ILogger} from '../../core/interfaces/i-logger.js'
-import type {IMessageFormatter} from '../../core/interfaces/i-message-formatter.js'
-import type {ITokenizer} from '../../core/interfaces/i-tokenizer.js'
+import type { ToolExecutionResult } from '../../core/domain/tools/tool-error.js'
+import type { ToolSet } from '../../core/domain/tools/types.js'
+import type { ExecutionContext } from '../../core/interfaces/i-cipher-agent.js'
+import type { IHistoryStorage } from '../../core/interfaces/i-history-storage.js'
+import type { ILLMService } from '../../core/interfaces/i-llm-service.js'
+import type { ILogger } from '../../core/interfaces/i-logger.js'
+import type { IMessageFormatter } from '../../core/interfaces/i-message-formatter.js'
+import type { ITokenizer } from '../../core/interfaces/i-tokenizer.js'
 import type {
   InternalMessage,
   ToolCall,
@@ -16,15 +16,15 @@ import type {
   ToolStateError,
   ToolStateRunning,
 } from '../../core/interfaces/message-types.js'
-import type {MemoryManager} from '../memory/memory-manager.js'
-import type {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
-import type {ToolManager} from '../tools/tool-manager.js'
-import type {CompactionService} from './context/compaction/compaction-service.js'
+import type { MemoryManager } from '../memory/memory-manager.js'
+import type { SystemPromptManager } from '../system-prompt/system-prompt-manager.js'
+import type { ToolManager } from '../tools/tool-manager.js'
+import type { CompactionService } from './context/compaction/compaction-service.js'
 
-import {getErrorMessage} from '../../../server/utils/error-helpers.js'
-import {AgentStateMachine} from '../../core/domain/agent/agent-state-machine.js'
-import {AgentState, TerminationReason} from '../../core/domain/agent/agent-state.js'
-import {LlmGenerationError, LlmMaxIterationsError, LlmResponseParsingError} from '../../core/domain/errors/llm-error.js'
+import { getErrorMessage } from '../../../server/utils/error-helpers.js'
+import { AgentStateMachine } from '../../core/domain/agent/agent-state-machine.js'
+import { AgentState, TerminationReason } from '../../core/domain/agent/agent-state.js'
+import { LlmGenerationError, LlmMaxIterationsError, LlmResponseParsingError } from '../../core/domain/errors/llm-error.js'
 import {
   getEffectiveMaxInputTokens,
   getMaxInputTokensForModel,
@@ -37,19 +37,19 @@ import {
   type IContentGenerator,
   StreamChunkType,
 } from '../../core/interfaces/i-content-generator.js'
-import {NoOpLogger} from '../../core/interfaces/i-logger.js'
-import {SessionEventBus} from '../events/event-emitter.js'
-import {EnvironmentContextBuilder} from '../system-prompt/environment-context-builder.js'
-import {ToolMetadataHandler} from '../tools/streaming/metadata-handler.js'
-import {AsyncMutex} from './context/async-mutex.js'
-import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
-import {LoopDetector} from './context/loop-detector.js'
-import {ClaudeMessageFormatter} from './formatters/claude-formatter.js'
-import {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
-import {type ThinkingConfig, ThoughtParser} from './thought-parser.js'
-import {ClaudeTokenizer} from './tokenizers/claude-tokenizer.js'
-import {GeminiTokenizer} from './tokenizers/gemini-tokenizer.js'
-import {type ProcessedOutput, ToolOutputProcessor, type TruncationConfig} from './tool-output-processor.js'
+import { NoOpLogger } from '../../core/interfaces/i-logger.js'
+import { EnvironmentContextBuilder } from '../environment/environment-context-builder.js'
+import { SessionEventBus } from '../events/event-emitter.js'
+import { ToolMetadataHandler } from '../tools/streaming/metadata-handler.js'
+import { AsyncMutex } from './context/async-mutex.js'
+import { ContextManager, type FileData, type ImageData } from './context/context-manager.js'
+import { LoopDetector } from './context/loop-detector.js'
+import { ClaudeMessageFormatter } from './formatters/claude-formatter.js'
+import { GeminiMessageFormatter } from './formatters/gemini-formatter.js'
+import { type ThinkingConfig, ThoughtParser } from './thought-parser.js'
+import { ClaudeTokenizer } from './tokenizers/claude-tokenizer.js'
+import { GeminiTokenizer } from './tokenizers/gemini-tokenizer.js'
+import { type ProcessedOutput, ToolOutputProcessor, type TruncationConfig } from './tool-output-processor.js'
 
 /** Target utilization ratio for message tokens (leaves headroom for response) */
 const TARGET_MESSAGE_TOKEN_UTILIZATION = 0.7
@@ -285,7 +285,7 @@ export class ByteRoverLLMService implements ILLMService {
     },
   ): Promise<string> {
     // Extract options with defaults
-    const {executionContext, fileData, imageData, signal, stream, taskId} = options ?? {}
+    const { executionContext, fileData, imageData, signal, stream, taskId } = options ?? {}
 
     // Get filtered tools based on command type (e.g., only read-only tools for 'query')
     const toolSet = this.toolManager.getToolsForCommand(options?.executionContext?.commandType)
@@ -415,7 +415,7 @@ export class ByteRoverLLMService implements ILLMService {
    * @param result - Parallel tool result to add
    */
   private async addParallelToolResultToContext(result: ParallelToolResult): Promise<void> {
-    const {toolCall, toolResult} = result
+    const { toolCall, toolResult } = result
 
     if (!toolResult) {
       // This shouldn't happen, but handle gracefully
@@ -767,7 +767,7 @@ export class ByteRoverLLMService implements ILLMService {
     textInput: string
     tools: ToolSet
   }): Promise<null | string> {
-    const {executionContext, fileData, imageData, iterationCount, stream, taskId, textInput, tools} = options
+    const { executionContext, fileData, imageData, iterationCount, stream, taskId, textInput, tools } = options
     // Build system prompt using SystemPromptManager (before compression for correct token accounting)
     // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
     const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
@@ -992,7 +992,7 @@ export class ByteRoverLLMService implements ILLMService {
     } catch (error) {
       // Catch any unexpected errors during execution
       const errorMessage = getErrorMessage(error)
-      this.logger.error('Error executing tool in parallel', {error, toolCallId: toolCall.id, toolName})
+      this.logger.error('Error executing tool in parallel', { error, toolCallId: toolCall.id, toolName })
 
       return {
         error: errorMessage,
@@ -1000,7 +1000,7 @@ export class ByteRoverLLMService implements ILLMService {
         toolResult: {
           errorType: 'EXECUTION_ERROR',
           metadata: {},
-          processedOutput: {content: `Error executing tool: ${errorMessage}`},
+          processedOutput: { content: `Error executing tool: ${errorMessage}` },
           success: false,
         },
       }
@@ -1252,7 +1252,7 @@ export class ByteRoverLLMService implements ILLMService {
             metadata: result.toolResult.metadata,
             output: result.toolResult.processedOutput.content,
             status: 'completed',
-            time: {end: endTime, start: startTime},
+            time: { end: endTime, start: startTime },
             title: result.toolResult.processedOutput.title,
           }
           this.contextManager.updateToolCallState(toolCall.id, completedState)
@@ -1262,7 +1262,7 @@ export class ByteRoverLLMService implements ILLMService {
             error: result.toolResult?.processedOutput.content ?? result.error ?? 'Unknown error',
             input: toolArgs,
             status: 'error',
-            time: {end: endTime, start: startTime},
+            time: { end: endTime, start: startTime },
           }
           this.contextManager.updateToolCallState(toolCall.id, errorState)
         }
@@ -1284,7 +1284,7 @@ export class ByteRoverLLMService implements ILLMService {
           error: errorMessage,
           input: toolArgs,
           status: 'error',
-          time: {end: endTime, start: startTime},
+          time: { end: endTime, start: startTime },
         }
         this.contextManager.updateToolCallState(toolCall.id, errorState)
 

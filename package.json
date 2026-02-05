@@ -38,6 +38,7 @@
     "minisearch": "^7.2.0",
     "mixpanel": "^0.18.1",
     "nanoid": "^5.1.6",
+    "officeparser": "^6.0.4",
     "open": "^10.2.0",
     "openai": "^6.9.1",
     "react": "^19.2.1",

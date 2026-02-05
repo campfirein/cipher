@@ -81,7 +81,7 @@ describe('Curate Command', () => {
 
       await useCase.run({})
 
-      expect(loggedMessages).to.include('Either a context argument or file reference is required.')
+      expect(loggedMessages).to.include('Either a context argument, file reference, or folder reference is required.')
       expect(trackingService.track.calledWith('mem:curate', {status: 'started'})).to.be.true
     })
 
@@ -103,7 +103,7 @@ describe('Curate Command', () => {
 
       await useCase.run({context: '   '})
 
-      expect(loggedMessages).to.include('Either a context argument or file reference is required.')
+      expect(loggedMessages).to.include('Either a context argument, file reference, or folder reference is required.')
     })
 
     it('should send task:create request with context and taskId', async () => {

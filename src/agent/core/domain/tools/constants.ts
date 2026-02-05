@@ -6,6 +6,7 @@ export const ToolName: {
   readonly BASH_EXEC: 'bash_exec'
   readonly BASH_OUTPUT: 'bash_output'
   readonly BATCH: 'batch'
+  readonly CODE_EXEC: 'code_exec'
   readonly CREATE_KNOWLEDGE_TOPIC: 'create_knowledge_topic'
   readonly CURATE: 'curate'
   readonly DELETE_MEMORY: 'delete_memory'
@@ -22,7 +23,6 @@ export const ToolName: {
   readonly SEARCH_HISTORY: 'search_history'
   readonly SEARCH_KNOWLEDGE: 'search_knowledge'
   readonly SPEC_ANALYZE: 'spec_analyze'
-  readonly TASK: 'task'
   readonly WRITE_FILE: 'write_file'
   readonly WRITE_MEMORY: 'write_memory'
   readonly WRITE_TODOS: 'write_todos'
@@ -30,6 +30,7 @@ export const ToolName: {
   BASH_EXEC: 'bash_exec',
   BASH_OUTPUT: 'bash_output',
   BATCH: 'batch',
+  CODE_EXEC: 'code_exec',
   CREATE_KNOWLEDGE_TOPIC: 'create_knowledge_topic',
   CURATE: 'curate',
   DELETE_MEMORY: 'delete_memory',
@@ -46,7 +47,6 @@ export const ToolName: {
   SEARCH_HISTORY: 'search_history',
   SEARCH_KNOWLEDGE: 'search_knowledge',
   SPEC_ANALYZE: 'spec_analyze',
-  TASK: 'task',
   WRITE_FILE: 'write_file',
   WRITE_MEMORY: 'write_memory',
   WRITE_TODOS: 'write_todos',

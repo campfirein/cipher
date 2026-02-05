@@ -90,19 +90,19 @@ describe('arg-parser', () => {
     describe('file references (@filepath)', () => {
       it('should extract single file reference', () => {
         const result = splitArgs('query @src/file.ts')
-        expect(result.args).to.deep.equal(['query', '@src/file.ts'])
+        expect(result.args).to.deep.equal(['query'])
         expect(result.files).to.deep.equal(['src/file.ts'])
       })
 
       it('should extract multiple file references', () => {
         const result = splitArgs('@src/a.ts @src/b.ts')
-        expect(result.args).to.deep.equal(['@src/a.ts', '@src/b.ts'])
+        expect(result.args).to.deep.equal([])
         expect(result.files).to.deep.equal(['src/a.ts', 'src/b.ts'])
       })
 
       it('should handle file references with args', () => {
         const result = splitArgs('context text @src/file.ts more text')
-        expect(result.args).to.deep.equal(['context', 'text', '@src/file.ts', 'more', 'text'])
+        expect(result.args).to.deep.equal(['context', 'text', 'more', 'text'])
         expect(result.files).to.deep.equal(['src/file.ts'])
       })
 
@@ -113,7 +113,7 @@ describe('arg-parser', () => {
 
       it('should handle file reference at the beginning', () => {
         const result = splitArgs('@src/file.ts query')
-        expect(result.args).to.deep.equal(['@src/file.ts', 'query'])
+        expect(result.args).to.deep.equal(['query'])
         expect(result.files).to.deep.equal(['src/file.ts'])
       })
 
@@ -137,35 +137,103 @@ describe('arg-parser', () => {
         expect(result.files).to.deep.equal(['file.ts'])
       })
 
-      it('should handle @ alone as empty file reference', () => {
+      it('should ignore @ alone (empty reference)', () => {
         const result = splitArgs('test @')
-        expect(result.args).to.deep.equal(['test', '@'])
-        expect(result.files).to.deep.equal([''])
+        expect(result.args).to.deep.equal(['test'])
+        expect(result.files).to.deep.equal([])
+        expect(result.folders).to.deep.equal([])
+      })
+
+      it('should ignore @ alone in the middle of input', () => {
+        const result = splitArgs('test @ more')
+        expect(result.args).to.deep.equal(['test', 'more'])
+        expect(result.files).to.deep.equal([])
+        expect(result.folders).to.deep.equal([])
+      })
+    })
+
+    describe('folder references (@folderpath/)', () => {
+      it('should detect folder with trailing slash', () => {
+        const result = splitArgs('context @src/')
+        expect(result.args).to.deep.equal(['context'])
+        expect(result.files).to.deep.equal([])
+        expect(result.folders).to.deep.equal(['src/'])
+      })
+
+      it('should detect @./ as folder reference (current directory)', () => {
+        const result = splitArgs('@./')
+        expect(result.folders).to.deep.equal(['./'])
+        expect(result.files).to.deep.equal([])
+      })
+
+      it('should detect @. as folder reference (current directory)', () => {
+        const result = splitArgs('@.')
+        expect(result.folders).to.deep.equal(['.'])
+        expect(result.files).to.deep.equal([])
+      })
+
+      it('should handle @./ with context text', () => {
+        const result = splitArgs('"curate this folder" @./')
+        expect(result.args).to.deep.equal(['curate this folder'])
+        expect(result.folders).to.deep.equal(['./'])
+        expect(result.files).to.deep.equal([])
+      })
+
+      it('should handle @. with context text', () => {
+        const result = splitArgs('"analyze this" @.')
+        expect(result.args).to.deep.equal(['analyze this'])
+        expect(result.folders).to.deep.equal(['.'])
+        expect(result.files).to.deep.equal([])
+      })
+
+      it('should detect multiple folder references', () => {
+        const result = splitArgs('@src/ @lib/')
+        expect(result.folders).to.deep.equal(['src/', 'lib/'])
+        expect(result.files).to.deep.equal([])
+      })
+
+      it('should separate files and folders', () => {
+        const result = splitArgs('@src/ @README.md @lib/')
+        // README.md will be categorized based on filesystem check
+        // Trailing slash definitely goes to folders
+        expect(result.folders).to.include('src/')
+        expect(result.folders).to.include('lib/')
+      })
+
+      it('should handle folder reference with deep path', () => {
+        const result = splitArgs('@src/components/ui/')
+        expect(result.folders).to.deep.equal(['src/components/ui/'])
+        expect(result.files).to.deep.equal([])
+      })
+
+      it('should return empty folders array when no folders referenced', () => {
+        const result = splitArgs('@file.ts')
+        expect(result.folders).to.deep.equal([])
       })
     })
 
     describe('combined: quotes and file references', () => {
       it('should handle quoted string with file reference', () => {
         const result = splitArgs('"hello world" @src/file.ts')
-        expect(result.args).to.deep.equal(['hello world', '@src/file.ts'])
+        expect(result.args).to.deep.equal(['hello world'])
         expect(result.files).to.deep.equal(['src/file.ts'])
       })
 
       it('should handle multiple files with quoted context', () => {
         const result = splitArgs('"my context" @src/a.ts @src/b.ts')
-        expect(result.args).to.deep.equal(['my context', '@src/a.ts', '@src/b.ts'])
+        expect(result.args).to.deep.equal(['my context'])
         expect(result.files).to.deep.equal(['src/a.ts', 'src/b.ts'])
       })
 
       it('should not treat @ inside quotes as file reference', () => {
         const result = splitArgs('"email@example.com" @src/file.ts')
-        expect(result.args).to.deep.equal(['email@example.com', '@src/file.ts'])
+        expect(result.args).to.deep.equal(['email@example.com'])
         expect(result.files).to.deep.equal(['src/file.ts'])
       })
 
       it('should handle complex mixed input', () => {
         const result = splitArgs('query "what is this" @src/auth.ts --verbose @src/user.ts')
-        expect(result.args).to.deep.equal(['query', 'what is this', '@src/auth.ts', '--verbose', '@src/user.ts'])
+        expect(result.args).to.deep.equal(['query', 'what is this', '--verbose'])
         expect(result.files).to.deep.equal(['src/auth.ts', 'src/user.ts'])
       })
     })
@@ -184,7 +252,7 @@ describe('arg-parser', () => {
 
       it('should handle flags with file references', () => {
         const result = splitArgs('query --verbose @src/file.ts')
-        expect(result.args).to.deep.equal(['query', '--verbose', '@src/file.ts'])
+        expect(result.args).to.deep.equal(['query', '--verbose'])
         expect(result.files).to.deep.equal(['src/file.ts'])
       })
     })
