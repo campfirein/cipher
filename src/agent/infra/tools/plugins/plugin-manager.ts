@@ -78,8 +78,8 @@ export class ToolPluginManager {
       .map(async (plugin) => {
         try {
           await plugin.afterExecute!(ctx, args, result)
-        } catch (error) {
-          console.warn(`Plugin ${plugin.name} afterExecute failed:`, error)
+        } catch {
+          // Plugin afterExecute error silenced to avoid TUI disruption
         }
       })
 
@@ -128,8 +128,8 @@ export class ToolPluginManager {
 
         const nextArgs = result.args ?? currentArgs
         return processPlugin(index + 1, nextArgs)
-      } catch (error) {
-        console.warn(`Plugin ${plugin.name} beforeExecute failed:`, error)
+      } catch {
+        // Plugin beforeExecute error silenced to avoid TUI disruption
         // Continue with next plugin on error
         return processPlugin(index + 1, currentArgs)
       }

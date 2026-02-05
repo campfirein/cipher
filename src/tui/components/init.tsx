@@ -201,14 +201,6 @@ export const Init: React.FC<InitProps> = ({
       try {
         await result.execute(onMessage, onPrompt)
 
-        // Reload auth to detect config change
-        await reloadAuth()
-
-        // Restart agent to pick up new project state
-        if (client) {
-          await client.requestWithAck('agent:restart', {reason: 'Project initialized'})
-        }
-
         // Call completion callback if provided
         if (onInitComplete) {
           onInitComplete()

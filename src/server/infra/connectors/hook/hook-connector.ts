@@ -7,7 +7,7 @@ import type {
   ConnectorStatus,
   ConnectorUninstallResult,
 } from '../../../core/interfaces/connectors/connector-types.js'
-import type {IConnector} from '../../../core/interfaces/connectors/i-connector.js'
+import type {ConnectorOperationOptions, IConnector} from '../../../core/interfaces/connectors/i-connector.js'
 import type {IFileService} from '../../../core/interfaces/services/i-file-service.js'
 
 import {AGENT_CONNECTOR_CONFIG} from '../../../core/domain/entities/agent.js'
@@ -146,8 +146,8 @@ export class HookConnector implements IConnector {
     return AGENT_CONNECTOR_CONFIG[agent].supported.includes(this.connectorType)
   }
 
-  async status(agent: Agent): Promise<ConnectorStatus> {
-    if (!this.isSupported(agent)) {
+  async status(agent: Agent, options?: ConnectorOperationOptions): Promise<ConnectorStatus> {
+    if (!options?.force && !this.isSupported(agent)) {
       return {
         configExists: false,
         configPath: '',
@@ -156,7 +156,15 @@ export class HookConnector implements IConnector {
       }
     }
 
-    const config = HOOK_CONNECTOR_CONFIGS[agent]
+    if (!(agent in HOOK_CONNECTOR_CONFIGS)) {
+      return {
+        configExists: false,
+        configPath: '',
+        installed: false,
+      }
+    }
+
+    const config = HOOK_CONNECTOR_CONFIGS[agent as HookSupportedAgent]
     const fullPath = path.join(this.projectRoot, config.configPath)
 
     try {
@@ -191,8 +199,8 @@ export class HookConnector implements IConnector {
     }
   }
 
-  async uninstall(agent: Agent): Promise<ConnectorUninstallResult> {
-    if (!this.isSupported(agent)) {
+  async uninstall(agent: Agent, options?: ConnectorOperationOptions): Promise<ConnectorUninstallResult> {
+    if (!options?.force && !this.isSupported(agent)) {
       return {
         configPath: '',
         message: `Hook connector does not support agent: ${agent}`,
@@ -201,7 +209,16 @@ export class HookConnector implements IConnector {
       }
     }
 
-    const config = HOOK_CONNECTOR_CONFIGS[agent]
+    if (!(agent in HOOK_CONNECTOR_CONFIGS)) {
+      return {
+        configPath: '',
+        message: `Hook connector has no config for agent: ${agent}`,
+        success: true,
+        wasInstalled: false,
+      }
+    }
+
+    const config = HOOK_CONNECTOR_CONFIGS[agent as HookSupportedAgent]
     const fullPath = path.join(this.projectRoot, config.configPath)
     let wasInstalled = false
 

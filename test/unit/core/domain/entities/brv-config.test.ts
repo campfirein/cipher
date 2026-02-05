@@ -143,7 +143,7 @@ describe('BrvConfig', () => {
 
   describe('fromSpace', () => {
     it('should create config from Space entity with current version', () => {
-      const space = new Space('space-789', 'my-space', 'team-abc', 'my-team')
+      const space = new Space({id: 'space-789', isDefault: false, name: 'my-space', teamId: 'team-abc', teamName: 'my-team'})
 
       const config = BrvConfig.fromSpace({
         chatLogPath: '/path/to/logs',

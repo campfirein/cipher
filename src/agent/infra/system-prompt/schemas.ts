@@ -102,7 +102,14 @@ export const EnvironmentContextOptionsSchema = z
   .describe('Options for building environment context')
 
 /**
- * Validated environment context options type.
+ * Input type for environment context options (before validation/defaults).
+ * Use this for function parameters.
+ */
+export type EnvironmentContextOptionsInput = z.input<typeof EnvironmentContextOptionsSchema>
+
+/**
+ * Validated environment context options type (after validation/defaults).
+ * Use this for the result after parsing.
  */
 export type ValidatedEnvironmentContextOptions = z.infer<typeof EnvironmentContextOptionsSchema>
 

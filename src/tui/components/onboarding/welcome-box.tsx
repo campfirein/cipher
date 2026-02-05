@@ -5,7 +5,7 @@
  */
 
 import {Box, Spacer, Text} from 'ink'
-import React, {useMemo} from 'react'
+import React, {useMemo, useRef} from 'react'
 
 import {useTheme} from '../../hooks/index.js'
 import {formatTime} from '../../utils/time.js'
@@ -33,13 +33,15 @@ export const WelcomeBox: React.FC<WelcomeBoxProps> = ({isCopyActive}) => {
     return welcomeExamplePrompts[randomIndex]
   }, [])
 
+  const timestampRef = useRef(new Date())
+
   return (
     <Box flexDirection="column" marginBottom={1} width="100%">
       {/* Header */}
       <Box>
-        <Text color={colors.dimText}>@agent</Text>
+        <Text color={colors.primary}>· agent</Text>
         <Spacer />
-        <Text color={colors.dimText}>[{formatTime(new Date())}]</Text>
+        <Text color={colors.dimText}>{formatTime(timestampRef.current)}</Text>
       </Box>
       <Box borderColor={colors.border} borderStyle="single" flexDirection="column" gap={1} paddingX={1}>
         <Text bold color={colors.primary}>
@@ -58,12 +60,6 @@ export const WelcomeBox: React.FC<WelcomeBoxProps> = ({isCopyActive}) => {
               <Text bold>"{randomPrompt}"</Text>
               {'    '}
               <CopyablePrompt buttonLabel="[ctrl+y] to copy" isActive={isCopyActive} textToCopy={randomPrompt} />
-            </Text>
-          </Box>
-
-          <Box marginTop={1}>
-            <Text color={colors.text} dimColor>
-              Press [Tab] to switch to Console mode
             </Text>
           </Box>
         </Box>

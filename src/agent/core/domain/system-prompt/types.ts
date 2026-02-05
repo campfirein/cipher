@@ -1,5 +1,5 @@
-import type {MemoryManager} from '../../../infra/memory/memory-manager.js'
-import type {EnvironmentContext} from '../../../infra/system-prompt/environment-context-builder.js'
+import type { MemoryManager } from '../../../infra/memory/memory-manager.js'
+import type { EnvironmentContext } from '../environment/types.js'
 
 /**
  * Conversation metadata for execution context
@@ -48,7 +48,7 @@ export interface ContributorContext {
   commandType?: 'chat' | 'curate' | 'query'
 
   /** Metadata about the current conversation */
-  conversationMetadata?: {conversationId?: string; title?: string}
+  conversationMetadata?: { conversationId?: string; title?: string }
 
   /** Environment context with working directory, git status, file tree, etc. */
   environmentContext?: EnvironmentContext

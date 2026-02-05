@@ -290,10 +290,10 @@ ByteRover integrates with 19 AI coding agents:
 - Claude Code, Cursor
 
 **MCP Connector (Default):**
-- Amp, Augment Code, Cline, Codex, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Qoder, Qwen Code, Roo Code, Trae.ai, Warp, Windsurf, Zed
+- Amp, Codex, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Roo Code, Zed
 
 **Rules Connector (Default):**
-- Antigravity (rules-only integration)
+- Antigravity, Augment Code, Cline, Qoder, Qwen Code, Trae.ai, Warp, Windsurf
 
 **All agents support rules-based integration as a universal fallback option.**
 
@@ -309,15 +309,15 @@ Use `/connectors` to manage integrations with your AI coding agents:
 
 ByteRover supports four connector types:
 
-1. **Skill integration** (Claude Code, Cursor - default): Modern integration that writes 3 markdown files (SKILL.md, TROUBLESHOOTING.md, WORKFLOWS.md) to your agent's skills directory for easy discovery and guidance
-2. **MCP integration** (16 agents - default): Exposes brv-query and brv-curate as Model Context Protocol tools that AI agents can call directly
+1. **Skill integration** (Claude Code, Codex, Cursor, Github Copilot): Modern integration that writes 3 markdown files (SKILL.md, TROUBLESHOOTING.md, WORKFLOWS.md) to your agent's skills directory for easy discovery and guidance
+2. **MCP integration** (11 agents): Exposes brv-query and brv-curate as Model Context Protocol tools that AI agents can call directly
 3. **Rules-based** (all agents): Generates agent-specific rule files (e.g., CLAUDE.md, .cursorrules) with instructions for using ByteRover
 4. **Hook integration** (Claude Code only - legacy): Direct injection via IDE settings, replaced by skill connector
 
 **Defaults by agent:**
 - Claude Code, Cursor: Skill connector
-- Antigravity: Rules connector (only supported type)
-- All others (16 agents): MCP connector
+- Amp, Codex, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Roo Code, Zed: MCP connector
+- Antigravity, Augment Code, Cline, Qoder, Qwen Code, Trae.ai, Warp, Windsurf: Rules connector
 - Rules: Available for all agents as fallback
 
 ## LLM Providers (BETA)
@@ -432,8 +432,8 @@ The model browser shows:
 
 **Defaults:**
 - Claude Code, Cursor: `skill`
-- Antigravity: `rules` (only supported type)
-- All others: `mcp`
+- Amp, Codex, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Roo Code, Zed: `mcp`
+- Antigravity, Augment Code, Cline, Qoder, Qwen Code, Trae.ai, Warp, Windsurf: `rules`
 
 **Reset options:**
 - `-y, --yes`: Skip confirmation prompt
@@ -554,8 +554,8 @@ The context tree is stored in `.brv/context-tree/`:
 
 Connector configurations are stored based on type:
 
-**Skill connectors** (Claude Code, Cursor):
-- **Project-scoped**: `.claude/skills/byterover/`, `.cursor/skills/byterover/`
+**Skill connectors** (Claude Code, Codex, Cursor, Github Copilot):
+- **Project-scoped**: `.claude/skills/byterover/`, `.cursor/skills/byterover/`, `.github/skills/byterover/`
 - **Global-scoped** (Codex): `~/.codex/skills/byterover/`
 - Files: `SKILL.md`, `TROUBLESHOOTING.md`, `WORKFLOWS.md`
 

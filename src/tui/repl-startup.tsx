@@ -3,6 +3,7 @@ import type {ITransportClient} from '@campfirein/brv-transport-client'
 import {render} from 'ink'
 
 import type {ITokenStore} from '../server/core/interfaces/auth/i-token-store.js'
+import type {IConnectorManager} from '../server/core/interfaces/connectors/i-connector-manager.js'
 import type {ITrackingService} from '../server/core/interfaces/services/i-tracking-service.js'
 import type {IOnboardingPreferenceStore} from '../server/core/interfaces/storage/i-onboarding-preference-store.js'
 import type {IProjectConfigStore} from '../server/core/interfaces/storage/i-project-config-store.js'
@@ -22,6 +23,7 @@ let transportBroadcastClient: ITransportClient | null = null
  * - TUI is a Socket.IO client, Transport is the only server
  */
 export interface ReplOptions {
+  connectorManager: IConnectorManager
   onboardingPreferenceStore: IOnboardingPreferenceStore
   projectConfigStore: IProjectConfigStore
   tokenStore: ITokenStore
@@ -33,7 +35,8 @@ export interface ReplOptions {
  * Start the ByteRover REPL
  */
 export async function startRepl(options: ReplOptions): Promise<void> {
-  const {onboardingPreferenceStore, projectConfigStore, tokenStore, trackingService, version} = options
+  const {connectorManager, onboardingPreferenceStore, projectConfigStore, tokenStore, trackingService, version} =
+    options
 
   // Connect broadcast client to monitor all events
   transportBroadcastClient = await connectTransportClient()
@@ -55,6 +58,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
 
   const {waitUntilExit} = render(
     <AppProviders
+      connectorManager={connectorManager}
       initialAuthToken={isAuthorized ? authToken : undefined}
       initialBrvConfig={brvConfig}
       onboardingPreferenceStore={onboardingPreferenceStore}

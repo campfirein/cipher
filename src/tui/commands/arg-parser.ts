@@ -6,6 +6,8 @@
  */
 
 import {type Interfaces, Parser} from '@oclif/core'
+import fs from 'node:fs'
+import path from 'node:path'
 
 import {CommandFlag} from '../types.js'
 
@@ -45,28 +47,70 @@ export function toCommandFlags(flags: FlagInput): CommandFlag[] {
 }
 
 /**
- * Result from splitArgs with file references
+ * Result from splitArgs with file and folder references
  */
 export interface SplitArgsResult {
   /** Regular arguments */
   args: string[]
-  /** File references (tokens starting with @) */
+  /** File references (tokens starting with @ that point to files) */
   files: string[]
+  /** Folder references (tokens starting with @ that point to directories) */
+  folders: string[]
+}
+
+/**
+ * Check if a path refers to a directory.
+ * Handles both explicit trailing slash and actual filesystem check.
+ */
+function isDirectoryPath(refPath: string): boolean {
+  // Empty path is not a directory (edge case for @ alone)
+  if (!refPath) {
+    return false
+  }
+
+  // Handle current directory explicitly (. or ./)
+  if (refPath === '.' || refPath === './') {
+    return true
+  }
+
+  // Explicit trailing slash indicates folder intent
+  if (refPath.endsWith('/') || refPath.endsWith(path.sep)) {
+    return true
+  }
+
+  // Check filesystem
+  try {
+    const fullPath = path.isAbsolute(refPath) ? refPath : path.resolve(process.cwd(), refPath)
+    const stats = fs.statSync(fullPath)
+    return stats.isDirectory()
+  } catch {
+    // If path doesn't exist, default to file
+    return false
+  }
+}
+
+/**
+ * Categorize a @ reference as file or folder.
+ */
+function categorizeReference(refPath: string): 'file' | 'folder' {
+  return isDirectoryPath(refPath) ? 'folder' : 'file'
 }
 
 /**
  * Split a string into args array, respecting quoted strings
- * Handles both single and double quotes, and extracts @file references
+ * Handles both single and double quotes, and extracts @file and @folder references
  *
  * @example
- * splitArgs('"hello world" --force') // { args: ['hello world', '--force'], files: [] }
- * splitArgs("'hello world' -f") // { args: ['hello world', '-f'], files: [] }
- * splitArgs('query @src/file.ts') // { args: ['query'], files: ['src/file.ts'] }
- * splitArgs('"context" @src/a.ts @src/b.ts') // { args: ['context'], files: ['src/a.ts', 'src/b.ts'] }
+ * splitArgs('"hello world" --force') // { args: ['hello world', '--force'], files: [], folders: [] }
+ * splitArgs("'hello world' -f") // { args: ['hello world', '-f'], files: [], folders: [] }
+ * splitArgs('query @src/file.ts') // { args: ['query'], files: ['src/file.ts'], folders: [] }
+ * splitArgs('"context" @src/') // { args: ['context'], files: [], folders: ['src/'] }
+ * splitArgs('text @src/ @README.md') // { args: ['text'], files: ['README.md'], folders: ['src/'] }
  */
 export function splitArgs(input: string): SplitArgsResult {
   const args: string[] = []
   const files: string[] = []
+  const folders: string[] = []
   let current = ''
   let inQuote: "'" | '"' | null = null
 
@@ -86,8 +130,16 @@ export function splitArgs(input: string): SplitArgsResult {
       // Whitespace outside quotes - end current arg
       if (current) {
         if (current.startsWith('@')) {
-          // File reference - strip the @ prefix
-          files.push(current.slice(1))
+          // Reference - strip the @ prefix and categorize
+          const refPath = current.slice(1)
+          // Skip empty @ references (just "@" alone)
+          if (refPath) {
+            if (categorizeReference(refPath) === 'folder') {
+              folders.push(refPath)
+            } else {
+              files.push(refPath)
+            }
+          }
         } else {
           args.push(current)
         }
@@ -102,13 +154,21 @@ export function splitArgs(input: string): SplitArgsResult {
   // Don't forget the last arg
   if (current) {
     if (current.startsWith('@')) {
-      files.push(current.slice(1))
+      const refPath = current.slice(1)
+      // Skip empty @ references (just "@" alone)
+      if (refPath) {
+        if (categorizeReference(refPath) === 'folder') {
+          folders.push(refPath)
+        } else {
+          files.push(refPath)
+        }
+      }
     } else {
       args.push(current)
     }
   }
 
-  return {args, files}
+  return {args, files, folders}
 }
 
 /**
@@ -119,10 +179,12 @@ export interface ParsedReplArgs<TFlags extends FlagInput, TArgs extends ArgInput
   args: {[K in keyof TArgs]: TArgs[K] extends {required: true} ? string : string | undefined}
   /** Remaining unparsed arguments (when strict: false) */
   argv: string[]
-  /** File references extracted from @filepath tokens */
+  /** File references extracted from @filepath tokens (non-directory paths) */
   files: string[]
   /** Parsed flags */
   flags: {[K in keyof TFlags]: TFlags[K] extends {type: 'boolean'} ? boolean : string | undefined}
+  /** Folder references extracted from @folderpath tokens (directory paths) */
+  folders: string[]
 }
 
 /**
@@ -153,7 +215,7 @@ export async function parseReplArgs<TFlags extends FlagInput, TArgs extends ArgI
     strict?: boolean
   },
 ): Promise<ParsedReplArgs<TFlags, TArgs>> {
-  const {args: argv, files} = splitArgs(input)
+  const {args: argv, files, folders} = splitArgs(input)
 
   const result = await Parser.parse(argv, {
     args: options.args ?? ({} as TArgs),
@@ -166,5 +228,6 @@ export async function parseReplArgs<TFlags extends FlagInput, TArgs extends ArgI
     argv: result.argv as string[],
     files,
     flags: result.flags as ParsedReplArgs<TFlags, TArgs>['flags'],
+    folders,
   }
 }

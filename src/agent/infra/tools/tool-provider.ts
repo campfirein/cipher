@@ -319,9 +319,8 @@ export class ToolProvider implements IToolProvider {
       for (const marker of entry.markers) {
         this.toolMarkers.add(marker)
       }
-    } catch (error) {
-      // Log error but don't fail initialization
-      console.error(`Failed to register tool ${toolName}:`, error)
+    } catch {
+      // Silently skip - don't fail initialization or disrupt TUI
     }
   }
 }

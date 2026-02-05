@@ -1,0 +1,126 @@
+Execute JavaScript or TypeScript code in a sandboxed REPL environment.
+
+## Language Support
+
+Supports both JavaScript and TypeScript:
+- **Auto-detection**: TypeScript syntax is automatically detected and transpiled
+- **Explicit**: Use `language: "typescript"` to force TypeScript mode
+
+**TypeScript Example:**
+```typescript
+interface User {
+  name: string;
+  age: number;
+}
+
+const users: User[] = [
+  { name: "Alice", age: 30 },
+  { name: "Bob", age: 25 }
+];
+
+const avgAge: number = users.reduce((sum, u) => sum + u.age, 0) / users.length;
+console.log(`Average age: ${avgAge}`);
+```
+
+## Security Features
+
+- **Isolated execution**: Code runs in a VM sandbox with no access to Node.js internals
+- **No eval/Function**: Dynamic code execution is blocked
+- **No require/import**: Module loading is blocked
+- **No process/global**: System access is blocked
+- **Timeout enforcement**: Default 30s, max 5 minutes
+
+## State Persistence
+
+Variables persist automatically within the same agent chat session. No manual session management needed.
+
+**Example (persistent within session):**
+```javascript
+// First execution
+const data = [1, 2, 3, 4, 5];
+const sum = data.reduce((a, b) => a + b, 0);
+console.log(`Sum: ${sum}`);
+
+// Second execution (same chat session)
+const average = sum / data.length;  // Variables from first execution persist
+console.log(`Average: ${average}`);
+```
+
+## Context Loading
+
+Use the `context` parameter to preload data:
+
+```javascript
+// With context: {"users": [{"name": "Alice"}, {"name": "Bob"}]}
+for (const user of context.users) {
+  console.log(user.name);
+}
+```
+
+## Available Globals
+
+- **Console**: console.log, console.error, console.warn, console.info
+- **Core Types**: Object, Array, String, Number, Boolean, Map, Set, Date, RegExp, Promise
+- **Math/JSON**: Math, JSON, Intl
+- **Utilities**: parseInt, parseFloat, isNaN, isFinite, encodeURI, decodeURI
+
+## Available Packages
+
+Pre-loaded utility packages for computation (no file system access):
+
+**Data Manipulation:**
+- **lodash** - Utilities (`lodash.map()`, `lodash.groupBy()`, `lodash.sortBy()`)
+- **ramda** - Functional programming
+
+**String & Regex:**
+- **changeCase** - Case conversion (`changeCase.camelCase('hello world')`)
+- **pluralize** - Pluralization (`pluralize('word')`)
+- **slugify** - URL slugs (`slugify('Hello World')`)
+
+**Pattern Matching (in-memory):**
+- **minimatch** - Glob matching for strings (`minimatch('file.ts', '*.ts')`)
+- **micromatch** - Advanced glob matching
+
+**Data Validation:**
+- **zod** - Schema validation
+- **validator** - String validation (`validator.isEmail('test@example.com')`)
+- **json5** / **yaml** - Data parsing
+
+**Date/Time:**
+- **dateFns** / **dayjs** - Date manipulation
+
+**Math:**
+- **mathjs** - Advanced math
+- **decimalJs** - Precision decimals
+
+**ID Generation:**
+- **uuid** / **nanoid** - ID generation
+
+**Example:**
+```javascript
+// Pattern matching on strings (not files)
+const files = ['src/index.ts', 'src/utils.js', 'README.md'];
+const tsFiles = files.filter(f => minimatch(f, '**/*.ts'));
+
+// Data transformation
+const users = [{name: 'Alice', role: 'admin'}, {name: 'Bob', role: 'user'}];
+const byRole = lodash.groupBy(users, 'role');
+```
+
+**Note:** For file operations, use existing tools (read_file, glob_files, grep_content).
+
+## Output
+
+- `stdout`: Console output (console.log, console.info)
+- `stderr`: Error output (console.error, console.warn, exceptions)
+- `locals`: Current context state (serialized variables)
+- `returnValue`: Value of the last expression
+- `executionTime`: Execution time in milliseconds
+
+## When to Use
+
+- Data analysis and transformation
+- JSON processing and manipulation
+- Algorithm prototyping with type safety
+- Complex calculations
+- Array/object operations
