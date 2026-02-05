@@ -116,8 +116,13 @@ export const ExpandedLogView: React.FC<ExpandedLogViewProps> = ({
       <Box borderColor={colors.border} borderStyle="single" flexDirection="column" height={availableHeight - 1}>
         <ScrollView height={availableHeight - 4} ref={scrollViewRef}>
           {/* Input */}
-          <Box marginBottom={1} paddingX={1}>
+          <Box flexDirection="column" marginBottom={1} paddingX={1}>
             <Text>{log.input}</Text>
+            {log.files && log.files.length > 0 && (
+              <Text color={colors.dimText}>
+                <Text bold>Files:</Text> {log.files.map((f) => `@${f}`).join(' ')}
+              </Text>
+            )}
           </Box>
 
           {/* Progress */}

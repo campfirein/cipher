@@ -59,7 +59,7 @@ export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpanded, isSel
         />
         <Box borderTop={false} flexDirection="column" flexGrow={1}>
           {/* Input */}
-          <ExecutionInput input={log.input} />
+          <ExecutionInput files={log.files} folders={log.folders} input={log.input} />
 
           {/* Progress */}
           {(log.toolCalls || log.reasoningContents) && log.status === 'running' && (

@@ -46,7 +46,7 @@ function generateFileSuggestions(searchPattern: string): CommandSuggestion[] {
         const isDir = entry.isDirectory()
 
         suggestions.push({
-          description: isDir ? 'folder' : '',
+          description: isDir ? 'folder (will pack contents)' : '',
           label: `${relativePath}${isDir ? '/' : ''}`,
           value: `@${relativePath}${isDir ? '/' : ''}`,
         })
@@ -55,8 +55,8 @@ function generateFileSuggestions(searchPattern: string): CommandSuggestion[] {
 
     // Sort: directories first, then alphabetically
     suggestions.sort((a, b) => {
-      const aIsDir = a.description === 'folder'
-      const bIsDir = b.description === 'folder'
+      const aIsDir = a.label.endsWith('/')
+      const bIsDir = b.label.endsWith('/')
       if (aIsDir !== bIsDir) return aIsDir ? -1 : 1
       return a.label.localeCompare(b.label)
     })

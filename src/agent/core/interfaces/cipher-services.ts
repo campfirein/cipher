@@ -11,6 +11,7 @@ import type {IBlobStorage} from './i-blob-storage.js'
 import type {IHistoryStorage} from './i-history-storage.js'
 import type {ILLMService} from './i-llm-service.js'
 import type {IPolicyEngine} from './i-policy-engine.js'
+import type {ISandboxService} from './i-sandbox-service.js'
 import type {IToolScheduler} from './i-tool-scheduler.js'
 
 /**
@@ -47,6 +48,7 @@ export interface CipherAgentServices {
   messageStorageService?: MessageStorageService
   policyEngine: IPolicyEngine
   processService: ProcessService
+  sandboxService: ISandboxService
   systemPromptManager: SystemPromptManager
   toolManager: ToolManager
   toolProvider: ToolProvider
