@@ -90,19 +90,19 @@ describe('arg-parser', () => {
     describe('file references (@filepath)', () => {
       it('should extract single file reference', () => {
         const result = splitArgs('query @src/file.ts')
-        expect(result.args).to.deep.equal(['query'])
+        expect(result.args).to.deep.equal(['query', '@src/file.ts'])
         expect(result.files).to.deep.equal(['src/file.ts'])
       })
 
       it('should extract multiple file references', () => {
         const result = splitArgs('@src/a.ts @src/b.ts')
-        expect(result.args).to.deep.equal([])
+        expect(result.args).to.deep.equal(['@src/a.ts', '@src/b.ts'])
         expect(result.files).to.deep.equal(['src/a.ts', 'src/b.ts'])
       })
 
       it('should handle file references with args', () => {
         const result = splitArgs('context text @src/file.ts more text')
-        expect(result.args).to.deep.equal(['context', 'text', 'more', 'text'])
+        expect(result.args).to.deep.equal(['context', 'text', '@src/file.ts', 'more', 'text'])
         expect(result.files).to.deep.equal(['src/file.ts'])
       })
 
@@ -113,7 +113,7 @@ describe('arg-parser', () => {
 
       it('should handle file reference at the beginning', () => {
         const result = splitArgs('@src/file.ts query')
-        expect(result.args).to.deep.equal(['query'])
+        expect(result.args).to.deep.equal(['@src/file.ts', 'query'])
         expect(result.files).to.deep.equal(['src/file.ts'])
       })
 
@@ -139,7 +139,7 @@ describe('arg-parser', () => {
 
       it('should handle @ alone as empty file reference', () => {
         const result = splitArgs('test @')
-        expect(result.args).to.deep.equal(['test'])
+        expect(result.args).to.deep.equal(['test', '@'])
         expect(result.files).to.deep.equal([''])
       })
     })
@@ -147,25 +147,25 @@ describe('arg-parser', () => {
     describe('combined: quotes and file references', () => {
       it('should handle quoted string with file reference', () => {
         const result = splitArgs('"hello world" @src/file.ts')
-        expect(result.args).to.deep.equal(['hello world'])
+        expect(result.args).to.deep.equal(['hello world', '@src/file.ts'])
         expect(result.files).to.deep.equal(['src/file.ts'])
       })
 
       it('should handle multiple files with quoted context', () => {
         const result = splitArgs('"my context" @src/a.ts @src/b.ts')
-        expect(result.args).to.deep.equal(['my context'])
+        expect(result.args).to.deep.equal(['my context', '@src/a.ts', '@src/b.ts'])
         expect(result.files).to.deep.equal(['src/a.ts', 'src/b.ts'])
       })
 
       it('should not treat @ inside quotes as file reference', () => {
         const result = splitArgs('"email@example.com" @src/file.ts')
-        expect(result.args).to.deep.equal(['email@example.com'])
+        expect(result.args).to.deep.equal(['email@example.com', '@src/file.ts'])
         expect(result.files).to.deep.equal(['src/file.ts'])
       })
 
       it('should handle complex mixed input', () => {
         const result = splitArgs('query "what is this" @src/auth.ts --verbose @src/user.ts')
-        expect(result.args).to.deep.equal(['query', 'what is this', '--verbose'])
+        expect(result.args).to.deep.equal(['query', 'what is this', '@src/auth.ts', '--verbose', '@src/user.ts'])
         expect(result.files).to.deep.equal(['src/auth.ts', 'src/user.ts'])
       })
     })
@@ -184,7 +184,7 @@ describe('arg-parser', () => {
 
       it('should handle flags with file references', () => {
         const result = splitArgs('query --verbose @src/file.ts')
-        expect(result.args).to.deep.equal(['query', '--verbose'])
+        expect(result.args).to.deep.equal(['query', '--verbose', '@src/file.ts'])
         expect(result.files).to.deep.equal(['src/file.ts'])
       })
     })
