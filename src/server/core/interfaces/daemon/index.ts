@@ -1,6 +1,6 @@
 export type {IDaemonResilience} from './i-daemon-resilience.js'
-export type {DaemonAcquireResult, DaemonInstanceInfo, IGlobalInstanceManager} from './i-global-instance-manager.js'
+// IGlobalInstanceManager, DaemonInstanceInfo, DaemonAcquireResult → @campfirein/brv-transport-client
 export type {IHeartbeatWriter} from './i-heartbeat-writer.js'
 export type {IIdleTimeoutPolicy} from './i-idle-timeout-policy.js'
 export type {IShutdownHandler} from './i-shutdown-handler.js'
-export type {ISpawnLock, SpawnLockAcquireResult} from './i-spawn-lock.js'
+// ISpawnLock, SpawnLockAcquireResult → @campfirein/brv-transport-client

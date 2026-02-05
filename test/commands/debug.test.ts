@@ -1,11 +1,9 @@
-import type {ITransportClient} from '@campfirein/brv-transport-client'
+import type {EnsureDaemonResult,ITransportClient} from '@campfirein/brv-transport-client'
 import type {Config} from '@oclif/core'
 
 import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import {createSandbox, type SinonSandbox, type SinonStub, stub} from 'sinon'
-
-import type {EnsureDaemonResult} from '../../src/server/infra/daemon/daemon-spawner.js'
 
 import Debug from '../../src/oclif/commands/debug.js'
 

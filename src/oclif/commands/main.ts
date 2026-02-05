@@ -1,15 +1,16 @@
+import {ensureDaemonRunning} from '@campfirein/brv-transport-client'
 import {Command} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
 
 import {DEFAULT_SESSION_RETENTION} from '../../agent/core/domain/session/session-metadata.js'
 import {SessionMetadataStore} from '../../agent/infra/session/session-metadata-store.js'
 import {ProjectConfigStore} from '../../server/infra/config/file-config-store.js'
-import {ensureDaemonRunning} from '../../server/infra/daemon/daemon-spawner.js'
 import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
 import {FileOnboardingPreferenceStore} from '../../server/infra/storage/file-onboarding-preference-store.js'
 import {createTokenStore} from '../../server/infra/storage/token-store.js'
 import {MixpanelTrackingService} from '../../server/infra/tracking/mixpanel-tracking-service.js'
 import {initSessionLog, processManagerLog} from '../../server/utils/process-logger.js'
+import {resolveLocalServerMainPath} from '../../server/utils/server-main-resolver.js'
 import {startRepl} from '../../tui/repl-startup.js'
 
 /**
@@ -42,7 +43,7 @@ export default class Main extends Command {
     processManagerLog(`Session ID resolved: ${sessionId}`)
 
     // Ensure daemon is running (spawn if needed, restart on version mismatch)
-    const daemonResult = await ensureDaemonRunning({version: this.config.version})
+    const daemonResult = await ensureDaemonRunning({serverPath: resolveLocalServerMainPath(), version: this.config.version})
     if (!daemonResult.success) {
       const detail = daemonResult.spawnError ? `: ${daemonResult.spawnError}` : ''
       this.error(`Failed to start daemon: timed out waiting for daemon to become ready${detail}`)

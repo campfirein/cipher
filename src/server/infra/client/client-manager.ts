@@ -45,7 +45,7 @@ export class ClientManager implements IClientManager {
 
   /**
    * Returns all registered clients for debugging.
-   * Used by daemon:getState handler in server-main.ts.
+   * Used by daemon:getState handler in brv-server.ts.
    */
   getAllClients(): ClientInfo[] {
     return [...this.clients.values()]

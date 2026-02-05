@@ -1,7 +1,8 @@
+import type {IGlobalInstanceManager} from '@campfirein/brv-transport-client'
+
 import type {IAgentPool} from '../../core/interfaces/agent/i-agent-pool.js'
 import type {IAgentIdleTimeoutPolicy} from '../../core/interfaces/daemon/i-agent-idle-timeout-policy.js'
 import type {IDaemonResilience} from '../../core/interfaces/daemon/i-daemon-resilience.js'
-import type {IGlobalInstanceManager} from '../../core/interfaces/daemon/i-global-instance-manager.js'
 import type {IHeartbeatWriter} from '../../core/interfaces/daemon/i-heartbeat-writer.js'
 import type {IIdleTimeoutPolicy} from '../../core/interfaces/daemon/i-idle-timeout-policy.js'
 import type {IShutdownHandler} from '../../core/interfaces/daemon/i-shutdown-handler.js'

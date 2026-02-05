@@ -2,18 +2,19 @@ import {
   ConnectionError,
   ConnectionFailedError,
   connectToTransport,
+  DAEMON_STOP_BUDGET_MS,
+  DAEMON_STOP_POLL_INTERVAL_MS,
   DaemonInstanceDiscovery,
+  discoverDaemon,
+  type EnsureDaemonResult,
+  ensureDaemonRunning,
   InstanceCrashedError,
+  isProcessAlive,
   type ITransportClient,
   NoInstanceRunningError,
 } from '@campfirein/brv-transport-client'
 import {Command, Flags} from '@oclif/core'
 import chalk from 'chalk'
-
-import {DAEMON_STOP_BUDGET_MS, DAEMON_STOP_POLL_INTERVAL_MS} from '../../server/constants.js'
-import {discoverDaemon} from '../../server/infra/daemon/daemon-discovery.js'
-import {type EnsureDaemonResult, ensureDaemonRunning} from '../../server/infra/daemon/daemon-spawner.js'
-import {isProcessAlive} from '../../server/utils/process-utils.js'
 
 /**
  * Refresh interval for monitor mode (ms).
@@ -116,7 +117,7 @@ export default class Debug extends Command {
     }
   }
 
-  protected connect(): Promise<{client: ITransportClient; projectRoot: string}> {
+  protected connect(): Promise<{client: ITransportClient; projectRoot?: string}> {
     // Debug commands should not register to avoid blocking daemon idle timeout
     return connectToTransport(process.cwd(), {autoRegister: false, discovery: new DaemonInstanceDiscovery()})
   }

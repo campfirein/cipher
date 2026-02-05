@@ -56,6 +56,7 @@ export const LoginView: React.FC = () => {
         clearTasks()
         await reloadAuth()
         if (client) {
+          try { await client.requestWithAck('auth:reload') } catch { /* polling catches up */ }
           await client.requestWithAck('agent:restart', {reason: 'User logged in'})
         }
       }} />}

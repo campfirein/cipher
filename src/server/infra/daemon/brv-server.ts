@@ -21,6 +21,7 @@
  * 10. Start idle timer + register signal handlers
  */
 
+import {GlobalInstanceManager} from '@campfirein/brv-transport-client'
 import {fork} from 'node:child_process'
 import {mkdirSync, readdirSync, readFileSync, unlinkSync} from 'node:fs'
 import {dirname, join} from 'node:path'
@@ -48,7 +49,6 @@ import {SocketIOTransportServer} from '../transport/socket-io-transport-server.j
 import {AgentIdleTimeoutPolicy} from './agent-idle-timeout-policy.js'
 import {AgentPool} from './agent-pool.js'
 import {DaemonResilience} from './daemon-resilience.js'
-import {GlobalInstanceManager} from './global-instance-manager.js'
 import {HeartbeatWriter} from './heartbeat.js'
 import {IdleTimeoutPolicy} from './idle-timeout-policy.js'
 import {selectDaemonPort} from './port-selector.js'
@@ -65,7 +65,7 @@ function log(msg: string): void {
 function readCliVersion(): string {
   try {
     const currentDir = dirname(fileURLToPath(import.meta.url))
-    // Both src/ and dist/ are 4 levels deep: server/infra/daemon/server-main
+    // Both src/ and dist/ are 4 levels deep: server/infra/daemon/brv-server
     const pkgPath = join(currentDir, '..', '..', '..', '..', 'package.json')
     const pkg: unknown = JSON.parse(readFileSync(pkgPath, 'utf8'))
     if (typeof pkg === 'object' && pkg !== null && 'version' in pkg && typeof pkg.version === 'string') {
@@ -313,12 +313,22 @@ async function main(): Promise<void> {
 
     transportServer.onRequest<void, {isValid: boolean; sessionKey: string}>(
       'state:getAuth',
-      () => {
-        const token = authStateStore!.getToken()
+      async () => {
+        const token = await authStateStore!.loadToken()
         return {
           isValid: token?.isValid() ?? false,
           sessionKey: token?.sessionKey ?? '',
         }
+      },
+    )
+
+    // Auth reload trigger — clients signal after login/logout for immediate propagation.
+    // loadToken() reads from keychain, updates cache, and fires onAuthChanged → broadcast.
+    transportServer.onRequest<void, {success: boolean}>(
+      'auth:reload',
+      async () => {
+        await authStateStore!.loadToken()
+        return {success: true}
       },
     )
 

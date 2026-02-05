@@ -1,8 +1,9 @@
+import type {IGlobalInstanceManager} from '@campfirein/brv-transport-client'
+
 import {expect} from 'chai'
 import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {IDaemonResilience} from '../../../../src/server/core/interfaces/daemon/i-daemon-resilience.js'
-import type {IGlobalInstanceManager} from '../../../../src/server/core/interfaces/daemon/i-global-instance-manager.js'
 import type {IHeartbeatWriter} from '../../../../src/server/core/interfaces/daemon/i-heartbeat-writer.js'
 import type {IIdleTimeoutPolicy} from '../../../../src/server/core/interfaces/daemon/i-idle-timeout-policy.js'
 import type {ITransportServer} from '../../../../src/server/core/interfaces/transport/i-transport-server.js'

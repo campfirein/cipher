@@ -1,8 +1,8 @@
-import {connectToTransport, DaemonInstanceDiscovery, type ITransportClient} from '@campfirein/brv-transport-client'
+import {connectToDaemon, type ITransportClient} from '@campfirein/brv-transport-client'
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 
-import {ensureDaemonRunning} from '../daemon/daemon-spawner.js'
+import {resolveLocalServerMainPath} from '../../utils/server-main-resolver.js'
 import {detectMcpMode, type McpMode} from './mcp-mode-detector.js'
 import {registerBrvCurateTool, registerBrvQueryTool} from './tools/index.js'
 
@@ -72,56 +72,21 @@ export class ByteRoverMcpServer {
     this.log(`Working directory: ${this.config.workingDirectory}`)
     this.log(`Mode: ${this.mode}`)
 
-    // Connect to running brv instance
-    // Project mode: auto-registers with projectPath
-    // Global mode: manually registers WITHOUT projectPath (serves multiple projects)
+    // Connect to running brv instance via connectToDaemon (single entry point)
+    // Project mode: registers with projectPath for project-scoped events
+    // Global mode: registers WITHOUT projectPath (serves multiple projects)
     this.log('Connecting to brv instance...')
 
-    let client
-    let projectRoot
-    try {
-      const daemonResult = await ensureDaemonRunning({version: this.config.version})
-      if (!daemonResult.success) {
-        const detail = daemonResult.spawnError ? `: ${daemonResult.spawnError}` : ''
-        throw new Error(`Failed to start daemon: timed out waiting for daemon to become ready${detail}`)
-      }
+    const result = await this.connectMcpClient()
 
-      if (this.mode === 'project') {
-        // Project mode: use default auto-registration but disable it and manually register with projectPath
-        const result = await connectToTransport(this.config.workingDirectory, {
-          autoRegister: false,
-          discovery: new DaemonInstanceDiscovery(),
-        })
-        client = result.client
-        projectRoot = result.projectRoot
+    this.client = result.client
 
-        // Manually register with projectPath for project mode
-        await client.requestWithAck('client:register', {
-          clientType: 'mcp',
-          projectPath: this.projectRoot,
-        })
-      } else {
-        // Global mode: auto-register with clientType only (no projectPath)
-        const result = await connectToTransport(this.config.workingDirectory, {
-          clientType: 'mcp',
-          discovery: new DaemonInstanceDiscovery(),
-        })
-        client = result.client
-        projectRoot = result.projectRoot
-      }
-    } catch (error) {
-      this.log(`Connection failed: ${error instanceof Error ? error.message : String(error)}`)
-      throw error
-    }
-
-    this.client = client
-
-    this.log(`Connected to brv instance at ${projectRoot}`)
-    this.log(`Client ID: ${client.getClientId()}`)
-    this.log(`Initial connection state: ${client.getState()}`)
+    this.log(`Connected to brv instance at ${result.projectRoot}`)
+    this.log(`Client ID: ${result.client.getClientId()}`)
+    this.log(`Initial connection state: ${result.client.getState()}`)
 
     // Monitor connection state changes and handle reconnection
-    this.setupStateChangeHandler(client)
+    this.setupStateChangeHandler(result.client)
 
     // Start MCP server with stdio transport
     this.transport = new StdioServerTransport()
@@ -180,16 +145,8 @@ export class ByteRoverMcpServer {
 
     this.reconnectTimer = setTimeout(async () => {
       try {
-        // Reconnect to daemon (auto-start if needed) with auto-registration
-        const daemonResult = await ensureDaemonRunning({version: this.config.version})
-        if (!daemonResult.success) {
-          throw new Error(`Failed to restart daemon: ${daemonResult.reason}`)
-        }
-
-        const result = await connectToTransport(this.config.workingDirectory, {
-          clientType: 'mcp',
-          discovery: new DaemonInstanceDiscovery(),
-        })
+        // Reconnect with same options as initial connection
+        const result = await this.connectMcpClient()
 
         // Disconnect old client if it exists
         if (this.client) {
@@ -226,6 +183,20 @@ export class ByteRoverMcpServer {
   }
 
   /**
+   * Connects to the daemon with MCP-appropriate options.
+   * Reused by both start() and attemptReconnect() to ensure consistent registration.
+   */
+  private connectMcpClient() {
+    return connectToDaemon({
+      clientType: 'mcp',
+      fromDir: this.config.workingDirectory,
+      serverPath: resolveLocalServerMainPath(),
+      version: this.config.version,
+      ...(this.mode === 'project' && this.projectRoot ? {projectPath: this.projectRoot} : {}),
+    })
+  }
+
+  /**
    * Returns the project root directory for MCP tool calls.
    *
    * In project mode, returns the discovered project root (where .brv/config.json lives).
@@ -234,11 +205,6 @@ export class ByteRoverMcpServer {
   private getWorkingDirectory(): string | undefined {
     return this.mode === 'project' ? this.projectRoot : undefined
   }
-
-  /**
-   * Registers this MCP client with the daemon for project tracking.
-   * Non-fatal: MCP server works without registration in degraded mode.
-   */
 
   /**
    * Log to stderr (stdout is reserved for MCP protocol).

@@ -1,9 +1,9 @@
-import {mkdirSync, readFileSync, writeFileSync} from 'node:fs'
+import {mkdirSync, writeFileSync} from 'node:fs'
 import {dirname} from 'node:path'
 
 import type {IHeartbeatWriter} from '../../core/interfaces/daemon/i-heartbeat-writer.js'
 
-import {HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_THRESHOLD_MS} from '../../constants.js'
+import {HEARTBEAT_INTERVAL_MS} from '../../constants.js'
 
 export interface HeartbeatWriterOptions {
   readonly filePath: string
@@ -89,26 +89,5 @@ export class HeartbeatWriter implements IHeartbeatWriter {
       const message = error instanceof Error ? error.message : String(error)
       this.log(`Heartbeat write failed: ${message}`)
     }
-  }
-}
-
-/**
- * Checks whether the heartbeat file is stale (or missing).
- *
- * Returns true if:
- * - File does not exist
- * - File cannot be read
- * - File content is not a valid timestamp
- * - Timestamp is older than thresholdMs (default 15s)
- */
-export function isHeartbeatStale(filePath: string, thresholdMs?: number): boolean {
-  const threshold = thresholdMs ?? HEARTBEAT_STALE_THRESHOLD_MS
-  try {
-    const content = readFileSync(filePath, 'utf8')
-    const timestamp = Number(content.trim())
-    if (!Number.isFinite(timestamp) || timestamp <= 0) return true
-    return Date.now() - timestamp > threshold
-  } catch {
-    return true
   }
 }

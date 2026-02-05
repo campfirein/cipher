@@ -80,7 +80,7 @@ export class SocketIOTransportServer implements ITransportServer {
 
   /**
    * Returns the number of currently connected sockets.
-   * Used by daemon:getState handler in server-main.ts.
+   * Used by daemon:getState handler in brv-server.ts.
    */
   getConnectedSocketCount(): number {
     return this.sockets.size

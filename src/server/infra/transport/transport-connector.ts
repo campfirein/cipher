@@ -1,6 +1,6 @@
-import {type ConnectionResult, connectToTransport, DaemonInstanceDiscovery} from '@campfirein/brv-transport-client'
+import {type ConnectionResult, connectToDaemon} from '@campfirein/brv-transport-client'
 
-import {ensureDaemonRunning} from '../daemon/daemon-spawner.js'
+import {resolveLocalServerMainPath} from '../../utils/server-main-resolver.js'
 
 /** Function type for transport connection (for DI/testing in use cases). */
 export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
@@ -8,34 +8,17 @@ export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
 /**
  * Creates a transport connector that auto-starts the daemon if needed.
  *
- * Flow: ensureDaemonRunning() → connectToTransport() → auto-register with projectPath
- *
- * This ensures any CLI command (query, curate, status, debug) works
- * without requiring the user to manually start `brv` first.
+ * Thin wrapper around connectToDaemon() for DI compatibility with use cases
+ * (QueryUseCase, CurateUseCase, StatusUseCase).
  *
  * Auto-registers CLI clients with projectPath = fromDir (or cwd if not specified).
  */
 export function createDaemonAwareConnector(): TransportConnector {
-  return async (fromDir?: string) => {
-    const daemonResult = await ensureDaemonRunning()
-    if (!daemonResult.success) {
-      const detail = daemonResult.spawnError ? `: ${daemonResult.spawnError}` : ''
-      throw new Error(`Failed to start daemon: timed out waiting for daemon to become ready${detail}`)
-    }
-
-    // Connect without auto-registration (we'll register manually with projectPath)
-    const result = await connectToTransport(fromDir, {
-      autoRegister: false,
-      discovery: new DaemonInstanceDiscovery(),
-    })
-
-    // Manually register with projectPath = fromDir (or cwd)
-    const projectPath = fromDir ?? process.cwd()
-    await result.client.requestWithAck('client:register', {
+  return (fromDir?: string) =>
+    connectToDaemon({
       clientType: 'cli',
-      projectPath,
+      fromDir,
+      projectPath: fromDir ?? process.cwd(),
+      serverPath: resolveLocalServerMainPath(),
     })
-
-    return result
-  }
 }

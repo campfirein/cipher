@@ -1,5 +1,3 @@
-import type {ITransportClient} from '@campfirein/brv-transport-client'
-
 import {render} from 'ink'
 
 import type {ITokenStore} from '../server/core/interfaces/auth/i-token-store.js'
@@ -9,10 +7,6 @@ import type {IProjectConfigStore} from '../server/core/interfaces/storage/i-proj
 
 import {App} from './app.js'
 import {AppProviders} from './providers/app-providers.js'
-import {connectTransportClient, disconnectTransportClient} from './utils/transport-client-helper.js'
-
-/** Broadcast client - joins broadcast-room to monitor all events */
-let transportBroadcastClient: ITransportClient | null = null
 
 /**
  * Options for starting the REPL
@@ -20,6 +14,8 @@ let transportBroadcastClient: ITransportClient | null = null
  * Architecture v0.5.0:
  * - TUI discovers Transport via TransportClientFactory (same as external CLIs)
  * - TUI is a Socket.IO client, Transport is the only server
+ *
+ * Connection is managed by TransportProvider (single Socket.IO connection as 'tui').
  */
 export interface ReplOptions {
   onboardingPreferenceStore: IOnboardingPreferenceStore
@@ -34,9 +30,6 @@ export interface ReplOptions {
  */
 export async function startRepl(options: ReplOptions): Promise<void> {
   const {onboardingPreferenceStore, projectConfigStore, tokenStore, trackingService, version} = options
-
-  // Connect broadcast client to monitor all events
-  transportBroadcastClient = await connectTransportClient()
 
   // Check initial auth state
   const authToken = await tokenStore.load()
@@ -69,8 +62,5 @@ export async function startRepl(options: ReplOptions): Promise<void> {
 
   await waitUntilExit()
 
-  // Cleanup
-  await disconnectTransportClient(transportBroadcastClient)
-  transportBroadcastClient = null
   await trackingService.track('repl', {status: 'finished'})
 }

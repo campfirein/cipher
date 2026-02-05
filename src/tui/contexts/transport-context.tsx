@@ -1,9 +1,8 @@
-import {type ConnectionState, type ITransportClient} from '@campfirein/brv-transport-client'
+import {type ConnectionState, connectToDaemon, type ITransportClient} from '@campfirein/brv-transport-client'
 import React, {createContext, useContext, useEffect, useState} from 'react'
 
-import {TransportClientEventNames} from '../../server/core/domain/transport/schemas.js'
 import {detectMcpMode} from '../../server/infra/mcp/mcp-mode-detector.js'
-import {createDaemonAwareConnector} from '../../server/infra/transport/transport-connector.js'
+import {resolveLocalServerMainPath} from '../../server/utils/server-main-resolver.js'
 
 /**
  * Context value for transport client state.
@@ -24,24 +23,12 @@ export type TransportContextValue = {
 const TransportContext = createContext<TransportContextValue | undefined>(undefined)
 
 /**
- * Registers the TUI client with the daemon for project tracking.
- * Non-fatal: TUI works without registration in degraded mode.
- */
-async function registerTuiClient(client: ITransportClient): Promise<void> {
-  try {
-    const {projectRoot} = detectMcpMode(process.cwd())
-    await client.requestWithAck(TransportClientEventNames.REGISTER, {
-      projectPath: projectRoot,
-      type: 'tui' as const,
-    })
-  } catch {
-    // Non-fatal: registration failure should not prevent TUI operation
-  }
-}
-
-/**
  * Provider component that manages transport client connection and state.
- * Subscribes to task and LLM events from the transport server.
+ *
+ * Creates a single Socket.IO connection registered as 'tui' with:
+ * - projectPath for server-side project tracking
+ * - broadcast-room for global events (auth:updated, agent connect/disconnect)
+ * - Task/LLM events arrive via the project-scoped room (server adds TUI on registration)
  */
 export function TransportProvider({children}: {children: React.ReactNode}): React.ReactElement {
   const [client, setClient] = useState<ITransportClient | null>(null)
@@ -58,8 +45,15 @@ export function TransportProvider({children}: {children: React.ReactNode}): Reac
       try {
         setConnectionState('connecting')
 
-        // Connect to daemon (auto-start if needed)
-        const {client: newClient} = await createDaemonAwareConnector()()
+        const {projectRoot} = detectMcpMode(process.cwd())
+
+        // Single connection: register as TUI, join broadcast-room, provide projectPath
+        const {client: newClient} = await connectToDaemon({
+          clientType: 'tui',
+          joinRooms: ['broadcast-room'],
+          serverPath: resolveLocalServerMainPath(),
+          ...(projectRoot ? {projectPath: projectRoot} : {}),
+        })
 
         if (!mounted) {
           await newClient.disconnect()
@@ -74,18 +68,7 @@ export function TransportProvider({children}: {children: React.ReactNode}): Reac
           if (state === 'reconnecting') {
             setReconnectCount((prev) => prev + 1)
           }
-
-          // Re-register on reconnect (daemon may have restarted)
-          if (state === 'connected') {
-            registerTuiClient(newClient).catch(() => {})
-          }
         })
-
-        // Join broadcast room to receive all events
-        await newClient.joinRoom('broadcast-room')
-
-        // Register with daemon for project tracking
-        await registerTuiClient(newClient)
 
         // Set client in state
         setClient(newClient)

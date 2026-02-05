@@ -24,7 +24,7 @@ export type AuthExpiredCallback = (token: AuthToken) => void
  * polling. The daemon is the centralized auth state owner. In-process agents
  * call getToken() directly (shared reference, no Socket.IO push needed).
  *
- * Consumed by server-main.ts wiring to broadcast auth:updated and
+ * Consumed by brv-server.ts wiring to broadcast auth:updated and
  * auth:expired events to all connected clients.
  */
 export interface IAuthStateStore {

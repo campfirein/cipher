@@ -6,7 +6,7 @@
  * - ConnectionCoordinator: client/agent connection lifecycle + project rooms
  *
  * This class wires the sub-handlers together, provides the public API
- * consumed by server-main.ts, and exposes debug state for `brv debug`.
+ * consumed by brv-server.ts, and exposes debug state for `brv debug`.
  *
  * Event naming convention:
  * - task:* events are Transport-generated (ack, created, started, completed, error)
@@ -50,7 +50,7 @@ type TransportHandlersOptions = {
  * TransportHandlers - Orchestrator for message routing.
  *
  * Wires TaskRouter and ConnectionCoordinator, provides public API
- * for server-main.ts and debug state for `brv debug`.
+ * for brv-server.ts and debug state for `brv debug`.
  */
 export class TransportHandlers {
   private readonly connectionCoordinator: ConnectionCoordinator
@@ -85,7 +85,7 @@ export class TransportHandlers {
 
   /**
    * Returns a serializable snapshot of internal state for debugging.
-   * Used by the daemon:getState handler in server-main.ts.
+   * Used by the daemon:getState handler in brv-server.ts.
    */
   getDebugState(): {
     activeTasks: Array<{clientId: string; createdAt: number; projectPath?: string; taskId: string; type: string}>

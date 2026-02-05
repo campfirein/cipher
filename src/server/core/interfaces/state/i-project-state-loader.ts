@@ -45,7 +45,7 @@ export type ProjectStateResult =
  *   -> Requests 2-10: find Promise in cache, await same Promise
  *   -> All 10 get same result, only 1 disk read
  *
- * Consumed by server-main.ts to provide project state to clients
+ * Consumed by brv-server.ts to provide project state to clients
  * and agent child processes on demand.
  */
 export interface IProjectStateLoader {

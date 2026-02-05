@@ -229,6 +229,16 @@ async function executeTask(
     agentLog('Failed to refresh config before task execution')
   }
 
+  // Refresh auth from state server to pick up login/logout changes
+  // (state:getAuth loads fresh from keychain and self-heals via broadcast)
+  try {
+    const authResult = await transport.requestWithAck<{isValid?: boolean; sessionKey?: string}>('state:getAuth')
+    if (authResult.sessionKey !== undefined) cachedSessionKey = authResult.sessionKey
+    if (authResult.isValid !== undefined) cachedAuthValid = authResult.isValid
+  } catch {
+    agentLog('Failed to refresh auth before task execution')
+  }
+
   // Pre-flight auth check — fail fast before file validation or LLM calls.
   // Without this, curate's file validation error would mask the 401.
   if (!cachedAuthValid) {

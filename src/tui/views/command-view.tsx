@@ -373,6 +373,11 @@ export const CommandView: React.FC<CommandViewProps> = ({availableHeight}) => {
             if (needReloadAuth) await reloadAuth()
             if (needReloadBrvConfig) await reloadBrvConfig()
 
+            // Signal daemon to reload auth immediately before agent restart
+            if (needReloadAuth && client) {
+              try { await client.requestWithAck('auth:reload') } catch { /* polling catches up */ }
+            }
+
             // Restart agent with appropriate reason
             if (client) {
               const reasonMap: Record<string, string> = {

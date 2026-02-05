@@ -33,7 +33,7 @@ export type AgentEntryInfo = {
  * or agent internals. Each child process handles all agent setup independently.
  *
  * Consumed by:
- * - server-main.ts: instantiation and wiring
+ * - brv-server.ts: instantiation and wiring
  * - TransportHandlers: delegates task submission via submitTask()
  * - ClientManager.onProjectEmpty → markIdle() for LRU eviction
  */

@@ -1,10 +1,10 @@
 import {expect} from 'chai'
-import {existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdtempSync, readFileSync, realpathSync, rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {createSandbox, type SinonSandbox} from 'sinon'
 
-import {HeartbeatWriter, isHeartbeatStale} from '../../../../src/server/infra/daemon/heartbeat.js'
+import {HeartbeatWriter} from '../../../../src/server/infra/daemon/heartbeat.js'
 
 describe('heartbeat', () => {
   let testDir: string
@@ -147,58 +147,5 @@ describe('heartbeat', () => {
     })
   })
 
-  describe('isHeartbeatStale()', () => {
-    it('should return true if file does not exist', () => {
-      expect(isHeartbeatStale(join(testDir, 'nonexistent'))).to.be.true
-    })
-
-    it('should return true if timestamp is older than threshold', () => {
-      const filePath = join(testDir, 'heartbeat')
-      // Write a timestamp 20s in the past
-      writeFileSync(filePath, String(Date.now() - 20_000))
-      expect(isHeartbeatStale(filePath, 15_000)).to.be.true
-    })
-
-    it('should return false if timestamp is within threshold', () => {
-      const filePath = join(testDir, 'heartbeat')
-      writeFileSync(filePath, String(Date.now()))
-      expect(isHeartbeatStale(filePath, 15_000)).to.be.false
-    })
-
-    it('should return true if file contains invalid content', () => {
-      const filePath = join(testDir, 'heartbeat')
-      writeFileSync(filePath, 'not-a-number')
-      expect(isHeartbeatStale(filePath)).to.be.true
-    })
-
-    it('should return true if file is empty', () => {
-      const filePath = join(testDir, 'heartbeat')
-      writeFileSync(filePath, '')
-      expect(isHeartbeatStale(filePath)).to.be.true
-    })
-
-    it('should return true if file contains Infinity', () => {
-      const filePath = join(testDir, 'heartbeat')
-      writeFileSync(filePath, 'Infinity')
-      expect(isHeartbeatStale(filePath)).to.be.true
-    })
-
-    it('should return true if file contains negative Infinity', () => {
-      const filePath = join(testDir, 'heartbeat')
-      writeFileSync(filePath, '-Infinity')
-      expect(isHeartbeatStale(filePath)).to.be.true
-    })
-
-    it('should return true if timestamp is negative', () => {
-      const filePath = join(testDir, 'heartbeat')
-      writeFileSync(filePath, '-1')
-      expect(isHeartbeatStale(filePath)).to.be.true
-    })
-
-    it('should return true if timestamp is zero', () => {
-      const filePath = join(testDir, 'heartbeat')
-      writeFileSync(filePath, '0')
-      expect(isHeartbeatStale(filePath)).to.be.true
-    })
-  })
+  // isHeartbeatStale() tests moved to @campfirein/brv-transport-client
 })

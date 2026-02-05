@@ -57,12 +57,9 @@ export const DYNAMIC_PORT_MIN = 49_152
 export const DYNAMIC_PORT_MAX = 65_535
 export const PORT_BATCH_SIZE = 20
 export const PORT_MAX_ATTEMPTS = 5
-export const DAEMON_INSTANCE_FILE = 'daemon.json'
-
 // Heartbeat
 export const HEARTBEAT_FILE = 'heartbeat'
 export const HEARTBEAT_INTERVAL_MS = 5000 // Write every 5s
-export const HEARTBEAT_STALE_THRESHOLD_MS = 15_000 // Stale if >15s
 
 // === Idle timeout (server daemon shutdown) ===
 // NOTE: Old constants IDLE_TIMEOUT_MS and IDLE_CHECK_INTERVAL_MS are now deprecated.
@@ -92,21 +89,12 @@ export const AGENT_IDLE_CHECK_INTERVAL_MS = 10_000 // Check every 10s (responsiv
 export const SLEEP_WAKE_CHECK_INTERVAL_MS = 5000
 export const SLEEP_WAKE_THRESHOLD_MULTIPLIER = 3
 
-// Spawn lock
-export const SPAWN_LOCK_FILE = 'spawn.lock'
-export const SPAWN_LOCK_STALE_THRESHOLD_MS = 30_000 // 30s
+// Spawn lock, daemon readiness polling, daemon stop budget
+// → moved to @campfirein/brv-transport-client
 
 // Shutdown
 export const TRANSPORT_STOP_TIMEOUT_MS = 3000 // 3s max for transport server to stop
 export const SHUTDOWN_FORCE_EXIT_MS = 5000 // 5s safety net before force exit
-
-// Daemon readiness polling
-export const DAEMON_READY_TIMEOUT_MS = 5000 // 5s max wait
-export const DAEMON_READY_POLL_INTERVAL_MS = 100 // 100ms between polls
-
-// Daemon spawner — budget allocation for stop + poll
-export const DAEMON_STOP_BUDGET_MS = 3000 // 3s max to stop old daemon
-export const DAEMON_STOP_POLL_INTERVAL_MS = 100 // 100ms between death checks
 
 // Auth state polling (daemon — replaces agent-worker credential polling in M2)
 export const AUTH_STATE_POLL_INTERVAL_MS = 5000 // Poll token store every 5s

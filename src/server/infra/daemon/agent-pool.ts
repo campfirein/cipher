@@ -14,7 +14,7 @@
  * all agent setup independently.
  *
  * Consumed by:
- * - server-main.ts: instantiation and wiring
+ * - brv-server.ts: instantiation and wiring
  * - TransportHandlers: delegates task submission via submitTask()
  * - ClientManager.onProjectEmpty → markIdle() for potential cleanup
  */
@@ -48,7 +48,7 @@ type AgentReadyMessage = {
 
 /**
  * Factory function that forks a child process for an agent.
- * Injected by consumer (server-main.ts). Pool has no knowledge
+ * Injected by consumer (brv-server.ts). Pool has no knowledge
  * of CipherAgent, auth, or agent internals.
  *
  * The factory handles fork() invocation with correct module path
@@ -117,7 +117,7 @@ export class AgentPool implements IAgentPool {
 
   /**
    * Returns task queue summary for debugging.
-   * Used by daemon:getState handler in server-main.ts.
+   * Used by daemon:getState handler in brv-server.ts.
    */
   getQueueState(): Array<{projectPath: string; queueLength: number}> {
     return this.taskQueue.getProjectsWithTasks().map((projectPath) => ({
