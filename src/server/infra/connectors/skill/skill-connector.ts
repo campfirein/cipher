@@ -8,7 +8,7 @@ import type {
   ConnectorStatus,
   ConnectorUninstallResult,
 } from '../../../core/interfaces/connectors/connector-types.js'
-import type {IConnector} from '../../../core/interfaces/connectors/i-connector.js'
+import type {ConnectorOperationOptions, IConnector} from '../../../core/interfaces/connectors/i-connector.js'
 import type {IFileService} from '../../../core/interfaces/services/i-file-service.js'
 import type {SkillSupportedAgent} from './skill-connector-config.js'
 
@@ -111,12 +111,20 @@ export class SkillConnector implements IConnector {
     return agent in SKILL_CONNECTOR_CONFIGS && AGENT_CONNECTOR_CONFIG[agent].supported.includes(this.connectorType)
   }
 
-  async status(agent: Agent): Promise<ConnectorStatus> {
-    if (!this.isSupported(agent)) {
+  async status(agent: Agent, options?: ConnectorOperationOptions): Promise<ConnectorStatus> {
+    if (!options?.force && !this.isSupported(agent)) {
       return {
         configExists: false,
         configPath: '',
         error: `Skill connector does not support agent: ${agent}`,
+        installed: false,
+      }
+    }
+
+    if (!(agent in SKILL_CONNECTOR_CONFIGS)) {
+      return {
+        configExists: false,
+        configPath: '',
         installed: false,
       }
     }
@@ -143,12 +151,21 @@ export class SkillConnector implements IConnector {
     }
   }
 
-  async uninstall(agent: Agent): Promise<ConnectorUninstallResult> {
-    if (!this.isSupported(agent)) {
+  async uninstall(agent: Agent, options?: ConnectorOperationOptions): Promise<ConnectorUninstallResult> {
+    if (!options?.force && !this.isSupported(agent)) {
       return {
         configPath: '',
         message: `Skill connector does not support agent: ${agent}`,
         success: false,
+        wasInstalled: false,
+      }
+    }
+
+    if (!(agent in SKILL_CONNECTOR_CONFIGS)) {
+      return {
+        configPath: '',
+        message: `Skill connector has no config for agent: ${agent}`,
+        success: true,
         wasInstalled: false,
       }
     }

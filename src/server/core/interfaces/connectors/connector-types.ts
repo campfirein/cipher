@@ -1,3 +1,4 @@
+import type {Agent} from '../../domain/entities/agent.js'
 import type {ConnectorType} from '../../domain/entities/connector-type.js'
 
 /**
@@ -54,6 +55,19 @@ export type ConnectorStatus = {
   error?: string
   /** Whether the connector is currently installed */
   installed: boolean
+}
+
+/**
+ * Result of migrating an orphaned connector for an agent
+ * that no longer supports the connector type.
+ */
+export type OrphanedConnectorMigrationResult = {
+  /** The agent that had an orphaned connector */
+  agent: Agent
+  /** Path to the configuration that was cleaned up */
+  configPath: string
+  /** Whether the cleanup was successful */
+  success: boolean
 }
 
 /**

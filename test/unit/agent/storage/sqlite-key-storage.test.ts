@@ -160,7 +160,11 @@ describe('SqliteKeyStorage', () => {
         await storage.set(['item', 'b'], 3)
 
         const keys = await storage.list(['item'])
-        expect(keys).to.deep.equal([['item', 'a'], ['item', 'b'], ['item', 'c']])
+        expect(keys).to.deep.equal([
+          ['item', 'a'],
+          ['item', 'b'],
+          ['item', 'c'],
+        ])
       })
     })
 
