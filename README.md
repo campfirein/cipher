@@ -125,7 +125,7 @@ The terminal UI includes:
 - **Activity Log**: Real-time task status and execution progress
 - **Streaming Output**: Live responses with markdown rendering (headings, lists, blockquotes, code blocks)
 - **Reasoning Display**: View agent thinking process with streamed reasoning blocks
-- **File References**: Type `@` in curate mode to browse and attach files
+- **File & Folder References**: Type `@` in curate mode to browse and attach files or entire folders
 - **PDF Support**: Reference and extract text from PDF files using `@` (100 pages default, 200 max)
 - **Dynamic Domains**: Automatically creates new knowledge domains as your context tree grows
 - **Session Persistence**: Sessions auto-resume after restart
@@ -140,9 +140,10 @@ The terminal UI includes:
 | `Ctrl+O` | Expand message or log to full-screen |
 | `j` / `k` | Scroll down/up in expanded view |
 | `g` / `G` | Jump to top/bottom in expanded view |
-| `Esc` or `q` | Exit expanded view |
+| `Esc` | Cancel streaming responses / exit expanded view |
+| `q` | Exit expanded view |
 | `/` | Show command suggestions |
-| `@` | Browse files (in curate mode) |
+| `@` | Browse files and folders (in curate mode) |
 
 ## CLI Commands
 
@@ -193,7 +194,7 @@ Get your API key at [app.byterover.dev/settings/keys](https://app.byterover.dev/
 - `--format <text|json>`: Output format (default: text)
 
 **Curate flags:**
-- `-f, --files <path>`: Include specific files (max 5, can be repeated)
+- `-f, --files <path>`: Include specific files or folders (max 5, can be repeated)
 - `--headless`: Run in headless mode
 - `--format <text|json>`: Output format (default: text)
 
@@ -369,7 +370,7 @@ The model browser shows:
 | Command | Description |
 |---------|-------------|
 | `/status` | Show CLI status and project information |
-| `/curate [context] @files` | Curate context to the context tree |
+| `/curate [context] @files @folders` | Curate context to the context tree |
 | `/query <question>` | Query and retrieve information from the context tree |
 
 **Curate examples:**
@@ -377,6 +378,7 @@ The model browser shows:
 /curate                                    # Interactive mode
 /curate "Auth uses JWT tokens"             # Autonomous mode with text
 /curate "API docs" @src/api.ts @README.md  # With file references (max 5, supports PDF)
+/curate "Project structure" @src/          # With folder reference
 ```
 
 **Query example:**
