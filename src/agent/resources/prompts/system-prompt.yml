@@ -345,16 +345,22 @@ prompt: |
   When using the `curate` tool, use this structured format:
 
   **rawConcept** - Essential metadata and technical footprint:
-  - IMPORTANT: Before proceeding, analyze the input content for any file path references (e.g., "implemented in auth.ts", "see config.json", "refer to src/utils/helper.ts")
-    - **TypeScript ESM Projects**: For TypeScript projects using ES modules, import statements use .js/.jsx extensions even though actual source files are .ts/.tsx
-      - When extracting file paths from imports (e.g., `import {foo} from './bar.js'`), the actual file is `bar.ts`
-      - ALWAYS use the actual source file extension (.ts, .tsx, .d.ts) in the files array, NOT the import extension (.js, .jsx)
-      - When in doubt, check if the .ts/.tsx version of a file exists before assuming .js is correct
+  - IMPORTANT: Before proceeding, analyze the input content for any file path references (e.g., "implemented in auth.ts", "see config.json", "refer to src/utils/helper.h")
+    - **Language-Specific File Path Handling**:
+      - **TypeScript/TSX ESM**: Import statements use `.js/.jsx` but source files are `.ts/.tsx`
+        - Example: `import {foo} from './bar.js'` → actual file is `bar.ts`
+        - ALWAYS use actual source extension (.ts, .tsx, .d.ts) NOT import extension (.js, .jsx)
+        - When in doubt, verify the .ts/.tsx file exists before assuming .js
+      - **Other Languages** (Python, Java, Go, Rust, C/C++, PHP, Ruby, etc.):
+        - Use the actual file paths as they appear in the filesystem
+        - For languages where imports match file paths (C/C++, PHP, JS), use the import path directly
+        - For languages with module systems (Python, Java, Go, Rust), extract the referenced module file
   - `task`: What is being documented (required - always include this)
   - `changes`: Array of changes in the codebase (e.g., ["Added Redis caching", "Created singleton client"])
-  - `files`: Array of related files with ACTUAL source file extensions (e.g., ["services/auth.ts", "utils/cache.ts"])
-    - For TypeScript projects: Use .ts/.tsx extensions even if imports show .js/.jsx
-    - Store the actual source file paths, not the import paths
+  - `files`: Array of actual source file paths (e.g., ["services/auth.ts", "utils/cache.ts", "include/helper.h"])
+    - Use the file extension that exists in the filesystem
+    - TypeScript ESM: Use .ts/.tsx even when imports show .js/.jsx
+    - All other languages: Use the actual file extension (preserve .h, .cpp, .py, .java, .go, .rs, .php, .rb, etc.)
   - `flow`: The execution flow (e.g., "request -> validate -> cache check -> process -> respond")
   - `timestamp`: When created (ISO 8601 format, e.g., "2025-03-18")
 
