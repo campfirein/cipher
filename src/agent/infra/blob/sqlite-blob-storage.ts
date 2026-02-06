@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import * as fs from 'node:fs/promises'
-import {join} from 'node:path'
+import {dirname, join} from 'node:path'
 
 import type {
   BlobLogger,
@@ -56,7 +56,7 @@ export class SqliteBlobStorage implements IBlobStorage {
   constructor(config?: Partial<BlobStorageConfig>) {
     this.inMemory = config?.inMemory ?? false
     this.storageDir = config?.storageDir || join(process.cwd(), '.brv')
-    this.dbPath = this.inMemory ? ':memory:' : join(this.storageDir, 'storage.db')
+    this.dbPath = this.inMemory ? ':memory:' : (config?.dbPath ?? join(this.storageDir, 'storage.db'))
     this.maxBlobSize = config?.maxBlobSize ?? 100 * 1024 * 1024 // 100MB default
     this.maxTotalSize = config?.maxTotalSize ?? 1024 * 1024 * 1024 // 1GB default
     this.logger = config?.logger ?? {
@@ -193,9 +193,9 @@ export class SqliteBlobStorage implements IBlobStorage {
     }
 
     try {
-      // Ensure storage directory exists (skip for in-memory)
+      // Ensure parent directory of database file exists (skip for in-memory)
       if (!this.inMemory) {
-        await fs.mkdir(this.storageDir, {recursive: true})
+        await fs.mkdir(dirname(this.dbPath), {recursive: true})
       }
 
       // Open/create database (':memory:' for in-memory mode)

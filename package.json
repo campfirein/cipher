@@ -10,7 +10,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.70.1",
     "@anthropic-ai/vertex-sdk": "^0.14.0",
-    "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#0.0.8",
+    "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#feat/daemon-spawn",
     "@google/genai": "^1.29.0",
     "@inkjs/ui": "^2.0.0",
     "@inquirer/prompts": "^7.9.0",

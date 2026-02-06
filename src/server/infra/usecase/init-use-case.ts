@@ -1,4 +1,4 @@
-import {access, readFile, rm} from 'node:fs/promises'
+import {access, mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {AuthToken} from '../../core/domain/entities/auth-token.js'
@@ -23,6 +23,7 @@ import {ACE_DIR, BRV_CONFIG_VERSION, BRV_DIR, DEFAULT_BRANCH, PROJECT_CONFIG_FIL
 import {type Agent, AGENT_VALUES} from '../../core/domain/entities/agent.js'
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import {BrvConfigVersionError} from '../../core/domain/errors/brv-config-version-error.js'
+import {getProjectDataDir} from '../../utils/path-utils.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
 import {WorkspaceDetectorService} from '../workspace/workspace-detector-service.js'
 
@@ -467,6 +468,7 @@ export class InitUseCase implements IInitUseCase {
     await rm(acePath, {force: true, recursive: true})
   }
 
+  // eslint-disable-next-line complexity
   public async run(options: InitUseCaseRunOptions): Promise<void> {
     const format = options.format ?? 'text'
     const isHeadless = Boolean(options.teamId && options.spaceId)
@@ -485,7 +487,7 @@ export class InitUseCase implements IInitUseCase {
           if (options.force) {
             await this.cleanupBeforeReInitialization()
           } else {
-            if (format === 'json') {
+            if (format === 'json') { // eslint-disable-line max-depth
               this.outputJsonResult({
                 error: 'Project already initialized. Use --force to re-initialize.',
                 status: 'error',
@@ -503,7 +505,7 @@ export class InitUseCase implements IInitUseCase {
             await this.cleanupBeforeReInitialization()
             this.terminal.log('\n')
           } else {
-            if (format === 'json') {
+            if (format === 'json') { // eslint-disable-line max-depth
               this.outputJsonResult({status: 'cancelled'})
             } else {
               this.terminal.log('\nCancelled. Project configuration unchanged.')
@@ -567,6 +569,15 @@ export class InitUseCase implements IInitUseCase {
         space: selectedSpace,
       })
       await this.projectConfigStore.write(config)
+
+      // Clone config to XDG storage path (pre-create project data directory)
+      const xdgStoragePath = getProjectDataDir(process.cwd())
+      await mkdir(xdgStoragePath, {recursive: true})
+      await writeFile(
+        join(xdgStoragePath, PROJECT_CONFIG_FILE),
+        JSON.stringify(config.toJson(), undefined, 2),
+        'utf8',
+      )
 
       if (!isHeadless) {
         this.terminal.log()

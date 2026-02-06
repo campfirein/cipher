@@ -237,6 +237,7 @@ describe('InitUseCase', () => {
 
     configStore = {
       exists: stub(),
+      getModifiedTime: stub(),
       read: stub(),
       write: stub(),
     }

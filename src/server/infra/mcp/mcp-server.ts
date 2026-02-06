@@ -1,7 +1,10 @@
-import {connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
+import {connectToDaemon, type ITransportClient} from '@campfirein/brv-transport-client'
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 
+import {TransportClientEventNames} from '../../core/domain/transport/schemas.js'
+import {resolveLocalServerMainPath} from '../../utils/server-main-resolver.js'
+import {detectMcpMode, type McpMode} from './mcp-mode-detector.js'
 import {registerBrvCurateTool, registerBrvQueryTool} from './tools/index.js'
 
 export interface McpServerConfig {
@@ -29,16 +32,24 @@ const RECONNECT_BACKOFF_MULTIPLIER = 1.5
  * - Tasks are executed by the existing agent process
  */
 export class ByteRoverMcpServer {
+  /** Cached agent name from MCP initialize handshake, re-sent on reconnect */
+  private _agentName: string | undefined
   private client: ITransportClient | undefined
   private readonly config: McpServerConfig
   private currentReconnectDelay: number = RECONNECT_DELAY_MS
+  private heartbeatInterval: NodeJS.Timeout | undefined
   private isReconnecting: boolean = false
+  private readonly mode: McpMode
+  private readonly projectRoot: string | undefined
   private reconnectTimer: NodeJS.Timeout | undefined
   private readonly server: McpServer
   private transport: StdioServerTransport | undefined
 
   constructor(config: McpServerConfig) {
     this.config = config
+    const {mode, projectRoot} = detectMcpMode(config.workingDirectory)
+    this.mode = mode
+    this.projectRoot = projectRoot
     this.server = new McpServer({
       name: 'byterover',
       version: config.version,
@@ -46,16 +57,8 @@ export class ByteRoverMcpServer {
 
     // Register tools with lazy client getter
     // Client will be set when start() is called
-    registerBrvQueryTool(
-      this.server,
-      () => this.client,
-      () => this.config.workingDirectory,
-    )
-    registerBrvCurateTool(
-      this.server,
-      () => this.client,
-      () => this.config.workingDirectory,
-    )
+    registerBrvQueryTool(this.server, () => this.client, () => this.getWorkingDirectory())
+    registerBrvCurateTool(this.server, () => this.client, () => this.getWorkingDirectory())
   }
 
   /**
@@ -70,29 +73,35 @@ export class ByteRoverMcpServer {
   async start(): Promise<void> {
     this.log('Starting MCP server...')
     this.log(`Working directory: ${this.config.workingDirectory}`)
+    this.log(`Mode: ${this.mode}`)
 
-    // Connect to running brv instance using modern API
+    // Connect to running brv instance via connectToDaemon (single entry point)
+    // Project mode: registers with projectPath for project-scoped events
+    // Global mode: registers WITHOUT projectPath (serves multiple projects)
     this.log('Connecting to brv instance...')
 
-    let client
-    let projectRoot
-    try {
-      const result = await connectToTransport(this.config.workingDirectory)
-      client = result.client
-      projectRoot = result.projectRoot
-    } catch (error) {
-      this.log(`Connection failed: ${error instanceof Error ? error.message : String(error)}`)
-      throw error
-    }
+    const result = await this.connectMcpClient()
 
-    this.client = client
+    this.client = result.client
 
-    this.log(`Connected to brv instance at ${projectRoot}`)
-    this.log(`Client ID: ${client.getClientId()}`)
-    this.log(`Initial connection state: ${client.getState()}`)
+    this.log(`Connected to brv instance at ${result.projectRoot}`)
+    this.log(`Client ID: ${result.client.getClientId()}`)
+    this.log(`Initial connection state: ${result.client.getState()}`)
 
     // Monitor connection state changes and handle reconnection
-    this.setupStateChangeHandler(client)
+    this.setupStateChangeHandler(result.client)
+
+    // Capture the coding agent's identity after MCP initialize handshake
+    this.server.server.oninitialized = () => {
+      const clientVersion = this.server.server.getClientVersion()
+      if (clientVersion?.name && this.client) {
+        this._agentName = clientVersion.name
+        this.log(`MCP client identified: ${clientVersion.name} v${clientVersion.version}`)
+        this.sendAgentName()
+      } else {
+        this.log('MCP client did not provide clientInfo name')
+      }
+    }
 
     // Start MCP server with stdio transport
     this.transport = new StdioServerTransport()
@@ -101,7 +110,7 @@ export class ByteRoverMcpServer {
     this.log('MCP server started and ready for tool calls')
 
     // Log client state periodically to debug connection issues
-    setInterval(() => {
+    this.heartbeatInterval = setInterval(() => {
       if (this.client) {
         this.log(`[heartbeat] Client state: ${this.client.getState()}, ID: ${this.client.getClientId()}`)
       } else {
@@ -120,6 +129,12 @@ export class ByteRoverMcpServer {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = undefined
+    }
+
+    // Clear heartbeat interval
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval)
+      this.heartbeatInterval = undefined
     }
 
     this.isReconnecting = false
@@ -145,8 +160,8 @@ export class ByteRoverMcpServer {
 
     this.reconnectTimer = setTimeout(async () => {
       try {
-        // Use modern connectToTransport API for reconnection
-        const result = await connectToTransport(this.config.workingDirectory)
+        // Reconnect with same options as initial connection
+        const result = await this.connectMcpClient()
 
         // Disconnect old client if it exists
         if (this.client) {
@@ -177,9 +192,33 @@ export class ByteRoverMcpServer {
         this.isReconnecting = false
 
         // Schedule next reconnection attempt
-        this.attemptReconnect()
+        this.attemptReconnect().catch(() => {})
       }
     }, this.currentReconnectDelay)
+  }
+
+  /**
+   * Connects to the daemon with MCP-appropriate options.
+   * Reused by both start() and attemptReconnect() to ensure consistent registration.
+   */
+  private connectMcpClient() {
+    return connectToDaemon({
+      clientType: 'mcp',
+      fromDir: this.config.workingDirectory,
+      serverPath: resolveLocalServerMainPath(),
+      version: this.config.version,
+      ...(this.mode === 'project' && this.projectRoot ? {projectPath: this.projectRoot} : {}),
+    })
+  }
+
+  /**
+   * Returns the project root directory for MCP tool calls.
+   *
+   * In project mode, returns the discovered project root (where .brv/config.json lives).
+   * In global mode, returns undefined — each tool call must provide cwd.
+   */
+  private getWorkingDirectory(): string | undefined {
+    return this.mode === 'project' ? this.projectRoot : undefined
   }
 
   /**
@@ -187,6 +226,20 @@ export class ByteRoverMcpServer {
    */
   private log(msg: string): void {
     process.stderr.write(`[brv-mcp] ${msg}\n`)
+  }
+
+  /**
+   * Sends the cached agent name to the daemon (fire-and-forget).
+   * Called after MCP initialize handshake and on Socket.IO reconnection.
+   */
+  private sendAgentName(): void {
+    if (!this._agentName || !this.client) return
+
+    this.client
+      .requestWithAck(TransportClientEventNames.UPDATE_AGENT_NAME, {agentName: this._agentName})
+      .catch((error: unknown) => {
+        this.log(`Failed to send agent name: ${error instanceof Error ? error.message : String(error)}`)
+      })
   }
 
   /**
@@ -204,13 +257,15 @@ export class ByteRoverMcpServer {
           // Reset backoff delay on successful connection
           this.currentReconnectDelay = RECONNECT_DELAY_MS
           this.isReconnecting = false
+          // Re-send cached agent name after reconnection (new clientId needs it)
+          this.sendAgentName()
           break
         }
 
         case 'disconnected': {
           this.log(`[${timestamp}] Socket disconnected from brv instance. Initiating reconnection...`)
           // Trigger auto-reconnect
-          this.attemptReconnect()
+          this.attemptReconnect().catch(() => {})
           break
         }
 

@@ -105,7 +105,7 @@ function getLogPath(): string {
         ensureLogDir()
       } catch {
         // Directory creation failed - subsequent writes will also fail silently
-        // This prevents crash when getSessionLogPath() is called from process-manager
+        // This prevents crash when getSessionLogPath() is called during early startup
       }
 
       sessionLogPath = join(getLogsDir(), generateSessionLogFilename())

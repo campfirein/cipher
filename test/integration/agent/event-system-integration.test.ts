@@ -48,7 +48,6 @@ describe('Event System Integration', () => {
     })
 
     mockHttpConfig = {
-      accessToken: 'test-token',
       apiBaseUrl: 'http://localhost:3333',
       projectId: 'test-project',
       sessionKey: 'test-session-key',

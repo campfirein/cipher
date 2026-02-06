@@ -4,9 +4,19 @@ import type {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
+import {TransportClientEventNames} from '../../../core/domain/transport/schemas.js'
+import {resolveClientCwd} from './resolve-client-cwd.js'
 import {waitForTaskResult} from './task-result-waiter.js'
 
 export const BrvQueryInputSchema = z.object({
+  cwd: z
+    .string()
+    .optional()
+    .describe(
+      'Working directory of the project (absolute path). ' +
+        'Required when the MCP server runs in global mode (e.g., Windsurf). ' +
+        'Optional in project mode — defaults to the project directory.',
+    ),
   query: z.string().describe('Natural language question about the codebase or project'),
 })
 
@@ -19,7 +29,7 @@ export const BrvQueryInputSchema = z.object({
 export function registerBrvQueryTool(
   server: McpServer,
   getClient: () => ITransportClient | undefined,
-  getWorkingDirectory: () => string,
+  getWorkingDirectory: () => string | undefined,
 ): void {
   server.registerTool(
     'brv-query',
@@ -28,9 +38,17 @@ export function registerBrvQueryTool(
       inputSchema: BrvQueryInputSchema,
       title: 'ByteRover Query',
     },
-    async ({query}: {query: string}) => {
-      const client = getClient()
+    async ({cwd, query}: {cwd?: string; query: string}) => {
+      // Resolve clientCwd: explicit cwd param > server working directory
+      const cwdResult = resolveClientCwd(cwd, getWorkingDirectory)
+      if (!cwdResult.success) {
+        return {
+          content: [{text: cwdResult.error, type: 'text' as const}],
+          isError: true,
+        }
+      }
 
+      const client = getClient()
       if (!client) {
         return {
           content: [{text: 'Error: Not connected to ByteRover instance. Run "brv" first.', type: 'text' as const}],
@@ -40,7 +58,6 @@ export function registerBrvQueryTool(
 
       // Check connection state before making request
       const state = client.getState()
-
       if (state !== 'connected') {
         return {
           content: [
@@ -53,19 +70,33 @@ export function registerBrvQueryTool(
         }
       }
 
+      // In global mode, associate client with the resolved project.
+      // Fire-and-forget: server handler is idempotent.
+      if (!getWorkingDirectory()) {
+        client
+          .requestWithAck(TransportClientEventNames.ASSOCIATE_PROJECT, {
+            projectPath: cwdResult.clientCwd,
+          })
+          .catch(() => {})
+      }
+
       try {
         const taskId = randomUUID()
 
+        // Register event listeners BEFORE sending task:create to avoid race conditions.
+        // If the task completes before listeners are set up, the task:completed event is missed.
+        const resultPromise = waitForTaskResult(client, taskId)
+
         // Create task via transport (same pattern as brv query command)
         await client.requestWithAck('task:create', {
-          clientCwd: getWorkingDirectory(),
+          clientCwd: cwdResult.clientCwd,
           content: query,
           taskId,
           type: 'query',
         })
 
-        // Wait for task completion and return result
-        const result = await waitForTaskResult(client, taskId)
+        // Wait for the already-listening result promise
+        const result = await resultPromise
 
         return {
           content: [{text: result, type: 'text' as const}],

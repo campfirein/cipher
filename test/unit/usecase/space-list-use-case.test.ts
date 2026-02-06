@@ -77,6 +77,7 @@ describe('SpaceListUseCase', () => {
 
     projectConfigStore = {
       exists: sinon.stub(),
+      getModifiedTime: sinon.stub(),
       read: sinon.stub(),
       write: sinon.stub(),
     }

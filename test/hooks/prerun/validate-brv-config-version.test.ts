@@ -34,6 +34,7 @@ describe('validateBrvConfigVersion', () => {
     readStub = stub()
     mockConfigStore = {
       exists: existsStub,
+      getModifiedTime: stub(),
       read: readStub,
       write: stub(),
     }

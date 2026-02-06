@@ -1,8 +1,6 @@
 import {
   ConnectionError,
   ConnectionFailedError,
-  type ConnectionResult,
-  connectToTransport,
   InstanceCrashedError,
   type ITransportClient,
   type LlmResponse,
@@ -26,9 +24,9 @@ import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
 import {InlineAgent} from '../process/inline-agent-executor.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
+import {createDaemonAwareConnector, type TransportConnector} from '../transport/transport-connector.js'
 
-/** Type for transport connection function (for DI/testing) */
-export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
+export type {TransportConnector} from '../transport/transport-connector.js'
 
 /**
  * Structured query result for JSON output.
@@ -55,7 +53,7 @@ export class QueryUseCase implements IQueryUseCase {
   constructor(options: QueryUseCaseOptions) {
     this.terminal = options.terminal
     this.trackingService = options.trackingService
-    this.transportConnector = options.transportConnector ?? connectToTransport
+    this.transportConnector = options.transportConnector ?? createDaemonAwareConnector()
   }
 
   /**
@@ -103,7 +101,7 @@ export class QueryUseCase implements IQueryUseCase {
           this.terminal.log('Discovering running instance...')
         }
 
-        // Use modern connectToTransport API (auto-discovers and connects)
+        // Use modern connectToTransport API (auto-discovers, connects, and registers with projectPath)
         const {client: connectedClient} = await this.transportConnector()
         client = connectedClient
       }
@@ -115,20 +113,24 @@ export class QueryUseCase implements IQueryUseCase {
       // Generate taskId in UseCase (Application layer owns task creation)
       const taskId = randomUUID()
 
+      // Register event listeners BEFORE sending task:create to avoid race conditions.
+      // streamTaskResults registers listeners synchronously in the Promise constructor.
+      const streamPromise = this.streamTaskResults(client, taskId, verbose, format)
+
       // Send task:create request
       await client.requestWithAck<TaskAck>('task:create', {
+        clientCwd: process.cwd(),
         content: options.query,
         taskId,
         type: 'query',
       })
-      // Note: response.taskId confirms what we sent (no longer extracting)
 
       if (verbose) {
         this.terminal.log(`Task created: ${taskId}`)
       }
 
-      // Wait for task completion with streaming
-      await this.streamTaskResults(client, taskId, verbose, format)
+      // Wait for the already-listening stream promise
+      await streamPromise
       await this.trackingService.track('mem:query', {status: 'finished'})
     } catch (error) {
       if (format === 'json') {

@@ -1,10 +1,5 @@
 import type {Agent} from '../../../core/domain/entities/agent.js'
-
-/**
- * MCP server configuration that gets injected into agent config files.
- * Uses Record to allow agent-specific fields (e.g., env, cwd, disabled).
- */
-export type McpServerConfig = Record<string, unknown>
+import type {McpServerConfig} from '../../../core/interfaces/storage/i-mcp-config-writer.js'
 
 /**
  * Supported MCP config file formats.
@@ -97,6 +92,14 @@ export const MCP_CONNECTOR_CONFIGS = {
     scope: 'project',
     serverConfig: DEFAULT_SERVER_CONFIG,
     serverKeyPath: ['amp.mcpServers', 'brv'],
+  },
+  Antigravity: {
+    configPath: '.gemini/antigravity/mcp_config.json',
+    format: 'json',
+    mode: 'auto',
+    scope: 'global',
+    serverConfig: DEFAULT_SERVER_CONFIG,
+    serverKeyPath: STANDARD_KEY_PATH,
   },
   'Augment Code': {
     format: 'json',

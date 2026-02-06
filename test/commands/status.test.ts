@@ -72,6 +72,7 @@ describe('Status Command', () => {
 
     configStore = {
       exists: stub(),
+      getModifiedTime: stub(),
       read: stub(),
       write: stub(),
     }

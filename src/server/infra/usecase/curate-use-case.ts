@@ -1,8 +1,6 @@
 import {
   ConnectionError,
   ConnectionFailedError,
-  type ConnectionResult,
-  connectToTransport,
   InstanceCrashedError,
   type ITransportClient,
   NoInstanceRunningError,
@@ -21,9 +19,9 @@ import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
 import {InlineAgent} from '../process/inline-agent-executor.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
+import {createDaemonAwareConnector, type TransportConnector} from '../transport/transport-connector.js'
 
-/** Type for transport connection function (for DI/testing) */
-export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
+export type {TransportConnector} from '../transport/transport-connector.js'
 
 const CurateOperationSchema = z.object({
   filePath: z.string(),
@@ -45,7 +43,7 @@ type CurateOperation = z.infer<typeof CurateOperationSchema>
 export interface CurateResult {
   message: string
   operations?: CurateOperation[]
-  status: 'completed' | 'error' | 'queued'
+  status: 'completed' | 'error'
   taskId?: string
 }
 
@@ -64,7 +62,7 @@ export class CurateUseCase implements ICurateUseCase {
   constructor(options: CurateUseCaseOptions) {
     this.terminal = options.terminal
     this.trackingService = options.trackingService
-    this.transportConnector = options.transportConnector ?? connectToTransport
+    this.transportConnector = options.transportConnector ?? createDaemonAwareConnector()
   }
 
   public async run({
@@ -83,7 +81,10 @@ export class CurateUseCase implements ICurateUseCase {
 
     if (!hasContext && !hasFiles && !hasFolders) {
       if (format === 'json') {
-        this.outputJsonResult({message: 'Either a context argument, file reference, or folder reference is required.', status: 'error'})
+        this.outputJsonResult({
+          message: 'Either a context argument, file reference, or folder reference is required.',
+          status: 'error',
+        })
       } else {
         this.terminal.log('Either a context argument, file reference, or folder reference is required.')
         this.terminal.log('Usage:')
@@ -110,6 +111,11 @@ export class CurateUseCase implements ICurateUseCase {
       // Generate taskId in UseCase (Application layer owns task creation)
       const taskId = randomUUID()
 
+      // Register event listeners BEFORE sending task:create to avoid race conditions.
+      // If the task errors immediately (e.g., file validation), the error event
+      // may arrive before listeners are set up. waitForTaskCompletion registers
+      // listeners synchronously in the Promise constructor.
+      const completionPromise = this.waitForTaskCompletion(client, taskId, format)
       // Determine task type: folder pack takes precedence over file-based curate
       const taskType = hasFolders ? 'curate-folder' : 'curate'
 
@@ -123,14 +129,8 @@ export class CurateUseCase implements ICurateUseCase {
         type: taskType,
       })
 
-      if (headless) {
-        // In headless mode, wait for the in-process task to complete
-        await this.waitForTaskCompletion(client, taskId, format)
-      } else if (format === 'json') {
-        this.outputJsonResult({message: 'Context queued for processing', status: 'queued', taskId})
-      } else {
-        this.terminal.log('✓ Context queued for processing.')
-      }
+      // Wait for the already-listening completion promise
+      await completionPromise
 
       await this.trackingService.track('mem:curate', {status: 'finished'})
     } catch (error) {
@@ -257,7 +257,7 @@ export class CurateUseCase implements ICurateUseCase {
   }
 
   /**
-   * Wait for task completion in headless mode.
+   * Wait for task completion.
    * Listens for task:completed or task:error events before returning.
    */
   private async waitForTaskCompletion(

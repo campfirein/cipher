@@ -1,5 +1,8 @@
-import {type ConnectionState, connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
+import {type ConnectionState, connectToDaemon, type ITransportClient} from '@campfirein/brv-transport-client'
 import React, {createContext, useContext, useEffect, useState} from 'react'
+
+import {detectMcpMode} from '../../server/infra/mcp/mcp-mode-detector.js'
+import {resolveLocalServerMainPath} from '../../server/utils/server-main-resolver.js'
 
 /**
  * Context value for transport client state.
@@ -21,7 +24,11 @@ const TransportContext = createContext<TransportContextValue | undefined>(undefi
 
 /**
  * Provider component that manages transport client connection and state.
- * Subscribes to task and LLM events from the transport server.
+ *
+ * Creates a single Socket.IO connection registered as 'tui' with:
+ * - projectPath for server-side project tracking
+ * - broadcast-room for global events (auth:updated, agent connect/disconnect)
+ * - Task/LLM events arrive via the project-scoped room (server adds TUI on registration)
  */
 export function TransportProvider({children}: {children: React.ReactNode}): React.ReactElement {
   const [client, setClient] = useState<ITransportClient | null>(null)
@@ -38,8 +45,15 @@ export function TransportProvider({children}: {children: React.ReactNode}): Reac
       try {
         setConnectionState('connecting')
 
-        // Use modern connectToTransport API (auto-discovers and connects)
-        const {client: newClient} = await connectToTransport()
+        const {projectRoot} = detectMcpMode(process.cwd())
+
+        // Single connection: register as TUI, join broadcast-room, provide projectPath
+        const {client: newClient} = await connectToDaemon({
+          clientType: 'tui',
+          joinRooms: ['broadcast-room'],
+          serverPath: resolveLocalServerMainPath(),
+          ...(projectRoot ? {projectPath: projectRoot} : {}),
+        })
 
         if (!mounted) {
           await newClient.disconnect()
@@ -55,9 +69,6 @@ export function TransportProvider({children}: {children: React.ReactNode}): Reac
             setReconnectCount((prev) => prev + 1)
           }
         })
-
-        // Join broadcast room to receive all events
-        await newClient.joinRoom('broadcast-room')
 
         // Set client in state
         setClient(newClient)

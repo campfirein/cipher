@@ -27,8 +27,8 @@ describe('global-config-path', () => {
     })
 
     if (currentPlatform === 'darwin') {
-      it('should return ~/.config/brv on macOS', () => {
-        const expected = join(homedir(), '.config', 'brv')
+      it('should return ~/Library/Application Support/brv on macOS', () => {
+        const expected = join(homedir(), 'Library', 'Application Support', 'brv')
         const result = getGlobalConfigDir()
 
         expect(result).to.equal(expected)
