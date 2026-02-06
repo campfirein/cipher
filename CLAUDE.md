@@ -150,14 +150,24 @@ src/
 
 **Infra Services** (`infra/`):
 
-- `sandbox/` - Sandboxed code execution (local sandbox, ToolsSDK with pre-loaded packages)
-- `folder-pack/` - Pack directories into XML format (`@folder` reference in curate)
+- `agent/` - Agent lifecycle management
+- `blob/` - Blob handling
+- `display/` - Display/rendering utilities
 - `document-parser/` - PDF and Office file (docx, xlsx, pptx) parsing
 - `environment/` - EnvironmentContext builder
-- `system-prompt/` - System prompt manager with contributor pattern (XML-style sections)
-- `session/` - Chat session management
+- `events/` - Event handling
+- `file-system/` - File system utilities
+- `folder-pack/` - Pack directories into XML format (`@folder` reference in curate)
+- `http/` - HTTP client for agent requests
+- `logger/` - Logging infrastructure
 - `memory/` - Memory persistence
+- `process/` - Agent process management
+- `sandbox/` - Sandboxed code execution (local sandbox, ToolsSDK with pre-loaded packages)
+- `session/` - Chat session management
 - `storage/` - History, message storage
+- `system-prompt/` - System prompt manager with contributor pattern (XML-style sections)
+- `todos/` - Todo persistence
+- `validation/` - Input validation
 
 ### TUI (`src/tui/`)
 
