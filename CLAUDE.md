@@ -68,6 +68,8 @@ src/
 
 - `brv` (no args) starts interactive REPL (`src/tui/repl-startup.tsx`)
 - React/Ink-based TUI with streaming, dialogs, prompts
+- Views in `src/tui/views/` (main, init, login)
+- Esc key cancels streaming responses and long-running commands
 - Slash commands in `src/tui/commands/` (order in `index.ts` = UI suggestion order)
 - Oclif commands: 7 public (`init`, `login`, `status`, `curate`, `query`, `push`, `pull`) + 3 hidden (`main`, `hook-prompt-submit`, `mcp`). Note: `/logout` is REPL-only
 
@@ -117,9 +119,15 @@ src/
 - `executor/` - Curate/Query executors
 - `http/` - HTTP client, OpenRouter API
 - `mcp/` - MCP server exposing brv-query/brv-curate tools
+- `memory/` - HTTP memory retrieval/storage services
 - `storage/` - Provider config, keychain, global config
-- `transport/` - Socket.IO client/server
+- `terminal/` - HeadlessTerminal implementation
+- `tracking/` - Mixpanel analytics
+- `transport/` - Socket.IO client/server (`@campfirein/brv-transport-client` bundled dependency)
+- `workspace/` - Workspace detector service
 - `usecase/` - 12 use cases: `init`, `login`, `logout`, `status`, `curate`, `query`, `push`, `pull`, `reset`, `space-list`, `space-switch`, `connectors`
+- HTTP service wrappers: `space/`, `team/`, `user/`
+- Utilities: `browser/`, `file/`, `template/`
 
 ### Agent (`src/agent/`)
 
@@ -133,14 +141,20 @@ src/
 **Tools** (`infra/tools/implementations/`) - 23 tools:
 
 - File: `read-file` (PDF support), `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
-- Bash: `bash-exec`, `bash-output`, `kill-process`, `code-exec`
+- Bash: `bash-exec`, `bash-output`, `kill-process`
+- Sandbox: `code-exec` - Sandboxed JS/TS execution with ToolsSDK (glob, grep, readFile, curate, searchKnowledge)
 - Memory: `read-memory`, `write-memory`, `edit-memory`, `delete-memory`, `list-memories`
 - Knowledge: `create-knowledge-topic`, `search-knowledge`
 - Todos: `read-todos`, `write-todos`
 - Other: `curate`, `batch`, `search-history`, `spec-analyze`
 
-**Other**:
+**Infra Services** (`infra/`):
 
+- `sandbox/` - Sandboxed code execution (local sandbox, ToolsSDK with pre-loaded packages)
+- `folder-pack/` - Pack directories into XML format (`@folder` reference in curate)
+- `document-parser/` - PDF and Office file (docx, xlsx, pptx) parsing
+- `environment/` - EnvironmentContext builder
+- `system-prompt/` - System prompt manager with contributor pattern (XML-style sections)
 - `session/` - Chat session management
 - `memory/` - Memory persistence
 - `storage/` - History, message storage
@@ -157,11 +171,11 @@ src/
 Commands in `src/tui/commands/` (order = UI suggestion order):
 
 - `/status` - Show auth, config, context tree state
-- `/curate` - Add context to context tree
-- `/query` - Query context tree
+- `/curate` - Add context to context tree (supports `@file` and `@folder` references)
+- `/query` (alias: `/q`) - Query context tree
 - `/connectors` - Manage agent connectors
 - `/push [--branch <name>]`, `/pull [--branch <name>]` - Cloud sync (default: `main`)
-- `/provider`, `/model` - LLM provider/model selection
+- `/provider` (aliases: `/providers`, `/connect`), `/model` (alias: `/models`) - LLM provider/model selection
 - `/space list`, `/space switch` - Space management
 - `/reset` - Reset context tree (destructive)
 - `/new [-y]` - Start fresh session
@@ -171,7 +185,7 @@ Commands in `src/tui/commands/` (order = UI suggestion order):
 ### Oclif Hooks (`src/oclif/hooks/`)
 
 - `init/welcome.ts` - Node.js version check, ASCII banner
-- `init/update-notifier.ts` - Auto-update notification (24h check)
+- `init/update-notifier.ts` - Auto-update notification (1h check)
 - `command_not_found/handle-invalid-commands.ts` - Invalid command handler
 - `error/clean-errors.ts` - Error formatting
 - `prerun/validate-brv-config-version.ts` - Config version validation
