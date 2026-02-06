@@ -50,8 +50,16 @@ let esbuildModule: EsbuildModule | undefined
  */
 function transpileTypeScript(code: string): string {
   if (!esbuildModule) {
-    // Use esmRequire to load esbuild - works in both ESM and CJS environments
-    esbuildModule = esmRequire('esbuild') as EsbuildModule
+    try {
+      // Use esmRequire to load esbuild - works in both ESM and CJS environments
+      esbuildModule = esmRequire('esbuild') as EsbuildModule
+    } catch (error) {
+      throw new Error(
+        'TypeScript transpilation is unavailable. The esbuild package is not installed.\n' +
+          'Please run: npm install esbuild\n' +
+          `Original error: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
   }
 
   // Use 'esm' format which produces clean JavaScript without module system wrappers
