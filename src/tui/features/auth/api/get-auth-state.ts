@@ -9,7 +9,9 @@ export const getAuthState = (): Promise<AuthGetStateResponse> => {
   const {apiClient} = useTransportStore.getState()
   if (!apiClient) return Promise.reject(new Error('Not connected'))
 
-  return apiClient.request<AuthGetStateResponse>(AuthEvents.GET_STATE)
+  // Use 500ms timeout to fail fast if handler not ready yet
+  // React Query will retry automatically with exponential backoff
+  return apiClient.request<AuthGetStateResponse>(AuthEvents.GET_STATE, undefined, {timeout: 500})
 }
 
 export const getAuthStateQueryOptions = () =>

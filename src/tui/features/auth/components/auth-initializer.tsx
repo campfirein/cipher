@@ -24,6 +24,9 @@ export function AuthInitializer({children}: {children: React.ReactNode}): React.
   } = useGetAuthState({
     queryConfig: {
       enabled: apiClient !== null,
+      retry: 5,
+      retryDelay: (attemptIndex) => Math.min(500 * 2 ** attemptIndex, 2000),
+      staleTime: Number.POSITIVE_INFINITY,
     },
   })
 
