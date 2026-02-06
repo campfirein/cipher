@@ -13,11 +13,14 @@ import {Box, Text} from 'ink'
 import React, {useCallback, useMemo, useState} from 'react'
 
 import type {AgentDTO, ConnectorDTO} from '../../../../shared/transport/types/dto.js'
+import type {Agent} from '../../../../shared/types/agent.js'
+import type {ConnectorType} from '../../../../shared/types/connector-type.js'
 
 import {useTheme} from '../../../hooks/index.js'
 import {useGetAgents} from '../api/get-agents.js'
 import {useGetConnectors} from '../api/get-connectors.js'
 import {useInstallConnector} from '../api/install-connector.js'
+import {getConnectorName} from '../utils/get-connector-name.js'
 import {AgentSearchStep} from './agent-search-step.js'
 import {ConfirmSwitchStep} from './confirm-switch-step.js'
 import {ConnectorListStep} from './connector-list-step.js'
@@ -30,7 +33,9 @@ type FlowStep = 'confirm_switch' | 'installing' | 'list' | 'search_agent' | 'sel
  * - An existing connector (for switching types)
  * - A new agent (for first-time installation)
  */
-type Selection = {agent: AgentDTO; kind: 'new_agent'} | {connector: ConnectorDTO; kind: 'existing'; newType?: string}
+type Selection =
+  | {agent: AgentDTO; kind: 'new_agent'}
+  | {connector: ConnectorDTO; kind: 'existing'; newType?: ConnectorType}
 
 export interface ConnectorsFlowProps {
   isActive?: boolean
@@ -77,7 +82,7 @@ export const ConnectorsFlow: React.FC<ConnectorsFlowProps> = ({isActive = true, 
   }, [])
 
   const handleSelectType = useCallback(
-    async (connectorType: string) => {
+    async (connectorType: ConnectorType) => {
       if (!selection) return
 
       if (selection.kind === 'existing') {
@@ -107,7 +112,9 @@ export const ConnectorsFlow: React.FC<ConnectorsFlowProps> = ({isActive = true, 
       }
 
       if (!confirmed) {
-        onComplete(`Kept ${selection.connector.agent} connected via ${selection.connector.connectorType}`)
+        onComplete(
+          `Kept ${selection.connector.agent} connected via ${getConnectorName(selection.connector.connectorType)}`,
+        )
         return
       }
 
@@ -133,15 +140,20 @@ export const ConnectorsFlow: React.FC<ConnectorsFlowProps> = ({isActive = true, 
 
   // --- Install Logic ---
 
-  async function installConnector(agentId: string, agentName: string, connectorType: string, fromType?: string) {
+  async function installConnector(
+    agentId: Agent,
+    agentName: Agent,
+    connectorType: ConnectorType,
+    fromType?: ConnectorType,
+  ) {
     setStep('installing')
     try {
       const result = await installMutation.mutateAsync({agentId, connectorType})
 
       if (result.success) {
         const message = fromType
-          ? `${agentName} switched from ${fromType} to ${connectorType}`
-          : `${agentName} connected via ${connectorType}`
+          ? `${agentName} switched from ${getConnectorName(fromType)} to ${getConnectorName(connectorType)}`
+          : `${agentName} connected via ${getConnectorName(connectorType)}`
         onComplete(message)
       } else {
         setError(result.message ?? `Failed to configure ${agentName}`)

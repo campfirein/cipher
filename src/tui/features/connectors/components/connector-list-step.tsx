@@ -5,6 +5,7 @@ import type {ConnectorDTO} from '../../../../shared/transport/types/dto.js'
 
 import {SelectableList} from '../../../components/selectable-list.js'
 import {useTheme} from '../../../hooks/index.js'
+import {getConnectorName} from '../utils/get-connector-name.js'
 
 interface ListItem {
   description: string
@@ -31,14 +32,16 @@ export const ConnectorListStep: React.FC<ConnectorListStepProps> = ({
   onCancel,
   onSelectConnector,
 }) => {
-  const {theme: {colors}} = useTheme()
+  const {
+    theme: {colors},
+  } = useTheme()
 
   const listItems: ListItem[] = useMemo(
     () => [
       ...connectors.map((c) => ({
-        description: `Connected via ${c.connectorType}`,
+        description: '',
         id: c.agent,
-        name: `${c.agent} (${c.connectorType})`,
+        name: `${c.agent} (${getConnectorName(c.connectorType)})`,
       })),
       {description: '', id: CONNECT_NEW_AGENT_ID, name: '+ Connect a new agent'},
     ],

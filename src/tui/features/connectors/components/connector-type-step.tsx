@@ -1,23 +1,26 @@
 import {Box, Text} from 'ink'
 import React from 'react'
 
+import type {ConnectorType} from '../../../../shared/types/connector-type.js'
+
 import {SelectableList} from '../../../components/selectable-list.js'
 import {useTheme} from '../../../hooks/index.js'
+import {getConnectorName} from '../utils/get-connector-name.js'
 
 interface ListItem {
   description: string
-  id: string
+  id: ConnectorType
   name: string
 }
 
 export interface ConnectorTypeStepProps {
   agentName: string
-  currentType?: string
-  defaultType: string
+  currentType?: ConnectorType
+  defaultType: ConnectorType
   isActive: boolean
   onCancel: () => void
-  onSelect: (connectorType: string) => void
-  supportedTypes: string[]
+  onSelect: (connectorType: ConnectorType) => void
+  supportedTypes: ConnectorType[]
 }
 
 export const ConnectorTypeStep: React.FC<ConnectorTypeStepProps> = ({
@@ -29,12 +32,14 @@ export const ConnectorTypeStep: React.FC<ConnectorTypeStepProps> = ({
   onSelect,
   supportedTypes,
 }) => {
-  const {theme: {colors}} = useTheme()
+  const {
+    theme: {colors},
+  } = useTheme()
 
   const items: ListItem[] = supportedTypes.map((t) => ({
     description: t === currentType ? '(current)' : t === defaultType ? '(default)' : '',
     id: t,
-    name: t,
+    name: getConnectorName(t),
   }))
 
   const handleSelect = (item: ListItem) => {

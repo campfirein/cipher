@@ -1,3 +1,5 @@
+import type {Agent} from '../../types/agent.js'
+import type {ConnectorType} from '../../types/connector-type.js'
 import type {AgentDTO, ConnectorDTO} from '../types/dto.js'
 
 export const ConnectorEvents = {
@@ -15,8 +17,8 @@ export interface ConnectorListResponse {
 }
 
 export interface ConnectorInstallRequest {
-  agentId: string
-  connectorType: string
+  agentId: Agent
+  connectorType: ConnectorType
 }
 
 export interface ConnectorInstallResponse {
