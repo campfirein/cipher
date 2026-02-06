@@ -93,6 +93,14 @@ export const MCP_CONNECTOR_CONFIGS = {
     serverConfig: DEFAULT_SERVER_CONFIG,
     serverKeyPath: ['amp.mcpServers', 'brv'],
   },
+  Antigravity: {
+    configPath: '.gemini/antigravity/mcp_config.json',
+    format: 'json',
+    mode: 'auto',
+    scope: 'global',
+    serverConfig: DEFAULT_SERVER_CONFIG,
+    serverKeyPath: STANDARD_KEY_PATH,
+  },
   'Augment Code': {
     format: 'json',
     manualGuide: 'https://docs.augmentcode.com/setup-augment/mcp#import-from-json',

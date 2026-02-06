@@ -44,15 +44,22 @@ describe('TaskId Integration Flow', () => {
 
     // Stub agentPool that forwards tasks to the mock agent via the real transport server
     const stubAgentPool: IAgentPool = {
-      getEntries() { return [] },
-      getSize() { return 0 },
+      getEntries() {
+        return []
+      },
+      getSize() {
+        return 0
+      },
       handleAgentDisconnected() {},
-      hasAgent() { return false },
+      hasAgent() {
+        return false
+      },
       markIdle() {},
       notifyTaskCompleted() {},
       async shutdown() {},
       async submitTask(task) {
-        if (!agentClientId) return {message: 'No agent connected', reason: 'create_failed' as const, success: false as const}
+        if (!agentClientId)
+          return {message: 'No agent connected', reason: 'create_failed' as const, success: false as const}
         server.sendTo(agentClientId, 'task:execute', task)
         return {success: true as const}
       },

@@ -86,14 +86,15 @@ export class JsonMcpConfigWriter implements IMcpConfigWriter {
   }
 
   async write(filePath: string, serverConfig: McpServerConfig): Promise<void> {
-    const fileExists = await this.fileService.exists(filePath)
-    let json: Record<string, unknown>
+    let json: Record<string, unknown> = {}
 
-    if (fileExists) {
-      const content = await this.fileService.read(filePath)
-      json = parseJsonAsRecord(content)
-    } else {
-      json = {}
+    if (await this.fileService.exists(filePath)) {
+      try {
+        const content = await this.fileService.read(filePath)
+        json = parseJsonAsRecord(content)
+      } catch {
+        // File exists but contains invalid/empty JSON — start fresh
+      }
     }
 
     set(json, this.serverKeyPath, {...serverConfig})

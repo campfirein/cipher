@@ -494,13 +494,6 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     const defaultSession = await this.sessionManager.createSession()
     this._sessionId = defaultSession.id
 
-    // Update ToolProvider with SessionManager getter for TaskTool
-    // This must happen after SessionManager is created since TaskTool needs it for subagent delegation
-    const {sessionManager} = this
-    services.toolProvider.updateServices({
-      getSessionManager: () => sessionManager,
-    })
-
     // Create event bridge if transport client is injected (child process mode).
     // The bridge forwards AgentEventBus llmservice:* events to the transport server.
     if (this._transportClient) {
