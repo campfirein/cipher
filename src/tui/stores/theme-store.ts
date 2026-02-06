@@ -9,6 +9,7 @@ import {create} from 'zustand'
 export interface ThemeColors {
   bg1: string
   bg2: string
+  bg3: string
   border: string
   curateCommand: string
   dimPrimary: string
@@ -33,6 +34,7 @@ const defaultTheme: Theme = {
   colors: {
     bg1: '#020202',
     bg2: '#222221',
+    bg3: '#34383D',
     border: '#3D3D3D',
     curateCommand: '#E5C76B',
     dimPrimary: '#067457',

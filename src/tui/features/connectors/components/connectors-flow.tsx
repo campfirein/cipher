@@ -9,6 +9,7 @@
  * 2b. If "add new" selected → search agent list → select connector type → install
  */
 
+import chalk from 'chalk'
 import {Box, Text} from 'ink'
 import React, {useCallback, useMemo, useState} from 'react'
 
@@ -151,9 +152,16 @@ export const ConnectorsFlow: React.FC<ConnectorsFlowProps> = ({isActive = true, 
       const result = await installMutation.mutateAsync({agentId, connectorType})
 
       if (result.success) {
-        const message = fromType
+        const statusMessage = fromType
           ? `${agentName} switched from ${getConnectorName(fromType)} to ${getConnectorName(connectorType)}`
           : `${agentName} connected via ${getConnectorName(connectorType)}`
+        const prompt = chalk.hex('#0AA77D').italic('> "Save our API authentication patterns, use brv curate"')
+        const message = `${statusMessage}
+
+WHAT'S NEXT
+Try this in your next prompt:
+${prompt}
+Docs: https://docs.byterover.dev/common-workflows/curate-context`
         onComplete(message)
       } else {
         setError(result.message ?? `Failed to configure ${agentName}`)

@@ -30,13 +30,13 @@ export const load: () => SlashCommand[] = () => [
   // Connectors management
   connectorsCommand,
 
-  // Provider management
-  providerCommand,
-  modelCommand,
-
   // Sync operations
   pushCommand,
   pullCommand,
+
+  // Provider management
+  providerCommand,
+  modelCommand,
 
   // Space management
   spaceCommand,
