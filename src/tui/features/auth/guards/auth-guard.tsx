@@ -9,7 +9,7 @@ export function AuthGuard(): React.ReactNode {
   const isLoadingInitial = useAuthStore((s) => s.isLoadingInitial)
 
   if (isLoadingInitial) {
-    return <Spinner label="Loading..." />
+    return <Spinner label="Initializing..." />
   }
 
   if (!isAuthorized) {

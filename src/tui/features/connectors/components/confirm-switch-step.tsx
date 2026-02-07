@@ -1,8 +1,11 @@
 import {Box, Text} from 'ink'
 import React from 'react'
 
+import type {ConnectorType} from '../../../../shared/types/connector-type.js'
+
 import {SelectableList} from '../../../components/selectable-list.js'
 import {useTheme} from '../../../hooks/index.js'
+import {getConnectorName} from '../utils/get-connector-name.js'
 
 interface ListItem {
   id: string
@@ -11,10 +14,10 @@ interface ListItem {
 
 export interface ConfirmSwitchStepProps {
   agentName: string
-  fromType: string
+  fromType: ConnectorType
   isActive: boolean
   onConfirm: (confirmed: boolean) => void
-  toType: string
+  toType: ConnectorType
 }
 
 export const ConfirmSwitchStep: React.FC<ConfirmSwitchStepProps> = ({
@@ -24,7 +27,9 @@ export const ConfirmSwitchStep: React.FC<ConfirmSwitchStepProps> = ({
   onConfirm,
   toType,
 }) => {
-  const {theme: {colors}} = useTheme()
+  const {
+    theme: {colors},
+  } = useTheme()
 
   const items: ListItem[] = [
     {id: 'yes', name: 'Yes'},
@@ -35,7 +40,7 @@ export const ConfirmSwitchStep: React.FC<ConfirmSwitchStepProps> = ({
     <Box flexDirection="column">
       <Box marginBottom={1}>
         <Text color={colors.text}>
-          Switch {agentName} from {fromType} to {toType}?
+          Switch {agentName} from {getConnectorName(fromType)} to {getConnectorName(toType)}?
         </Text>
       </Box>
       <SelectableList<ListItem>

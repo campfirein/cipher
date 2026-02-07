@@ -1,3 +1,5 @@
+import type {Agent} from '../../types/agent.js'
+import type {ConnectorType} from '../../types/connector-type.js'
 import type {AgentDTO, BrvConfigDTO, SpaceDTO, TeamDTO} from '../types/dto.js'
 
 export const InitEvents = {
@@ -26,8 +28,8 @@ export interface InitGetAgentsResponse {
 }
 
 export interface InitExecuteRequest {
-  agentId: string
-  connectorType: string
+  agentId: Agent
+  connectorType: ConnectorType
   force?: boolean
   spaceId: string
   teamId: string

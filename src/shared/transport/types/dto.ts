@@ -2,8 +2,11 @@
  * Data Transfer Objects (DTOs)
  *
  * Plain serializable types for data exchanged between TUI and Server.
- * These types have NO imports from server packages — they define the API contract.
  */
+
+import type {Agent} from '../../types/agent.js'
+import type {ConnectorType} from '../../types/connector-type.js'
+import type {ContextTreeChanges} from '../../types/context-tree-changes.js'
 
 // ============================================================================
 // Auth DTOs
@@ -56,17 +59,17 @@ export interface SpaceDTO {
 // ============================================================================
 
 export interface AgentDTO {
-  defaultConnectorType: string
-  id: string
-  name: string
-  supportedConnectorTypes: string[]
+  defaultConnectorType: ConnectorType
+  id: Agent
+  name: Agent
+  supportedConnectorTypes: ConnectorType[]
 }
 
 export interface ConnectorDTO {
-  agent: string
-  connectorType: string
-  defaultType: string
-  supportedTypes: string[]
+  agent: Agent
+  connectorType: ConnectorType
+  defaultType: ConnectorType
+  supportedTypes: ConnectorType[]
 }
 
 // ============================================================================
@@ -98,15 +101,9 @@ export interface ModelDTO {
 // Status DTOs
 // ============================================================================
 
-export interface ContextTreeChangesDTO {
-  added: string[]
-  deleted: string[]
-  modified: string[]
-}
-
 export interface StatusDTO {
   authStatus: 'expired' | 'logged_in' | 'not_logged_in' | 'unknown'
-  contextTreeChanges?: ContextTreeChangesDTO
+  contextTreeChanges?: ContextTreeChanges
   contextTreeStatus: 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
   currentDirectory: string
   projectInitialized: boolean

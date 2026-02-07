@@ -140,7 +140,7 @@ export const InitFlow: React.FC<InitFlowProps> = ({force = false, isActive = tru
       if (!selectedTeam || !selectedSpace) return
 
       const agent = agents.find((a) => a.id === item.id)
-      const connectorType = agent?.defaultConnectorType ?? 'mcp'
+      if (!agent) return
 
       setStep('executing')
       setProgressMessages([])
@@ -153,8 +153,8 @@ export const InitFlow: React.FC<InitFlowProps> = ({force = false, isActive = tru
 
       try {
         await executeInitMutation.mutateAsync({
-          agentId: item.id,
-          connectorType,
+          agentId: agent.id,
+          connectorType: agent.defaultConnectorType,
           force,
           spaceId: selectedSpace.id,
           teamId: selectedTeam.id,
