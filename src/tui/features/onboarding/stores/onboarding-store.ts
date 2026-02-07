@@ -22,10 +22,14 @@ export interface OnboardingState {
   completedInSession: boolean
   /** Current step within onboarding flow */
   flowStep: OnboardingFlowStep
+  /** Map of command names to their recommended text (session-only, set after onboarding completes) */
+  highlightedCommands: Map<string, string>
   /** Whether init was completed in this session (prevents re-showing init view) */
   initCompletedInSession: boolean
   /** Whether the initial async check has completed */
   initialized: boolean
+  /** Pending input to restore after page transition (e.g., "/" typed during explore step) */
+  pendingInput: string
 }
 
 export interface OnboardingActions {
@@ -34,21 +38,31 @@ export interface OnboardingActions {
    * Returns the new step if changed, null otherwise.
    */
   advanceStep: (tasks: Map<string, Task>) => null | OnboardingFlowStep
+  /** Clear pending input after it's been consumed */
+  clearPendingInput: () => void
   /** Mark onboarding as complete */
   complete: () => void
   /** Mark init as complete */
   completeInit: () => void
+  /** Remove a command from highlighted commands */
+  removeHighlightedCommand: (commandName: string) => void
   /** Reset store to initial state */
   reset: () => void
+  /** Set highlighted commands */
+  setHighlightedCommands: (commands: Map<string, string>) => void
   /** Mark initialization as complete */
   setInitialized: () => void
+  /** Set pending input to restore after page transition */
+  setPendingInput: (input: string) => void
 }
 
 const initialState: OnboardingState = {
   completedInSession: false,
   flowStep: 'curate',
+  highlightedCommands: new Map(),
   initCompletedInSession: false,
   initialized: false,
+  pendingInput: '',
 }
 
 export const useOnboardingStore = create<OnboardingActions & OnboardingState>()((set, get) => ({
@@ -65,6 +79,8 @@ export const useOnboardingStore = create<OnboardingActions & OnboardingState>()(
     return null
   },
 
+  clearPendingInput: () => set({pendingInput: ''}),
+
   complete: () =>
     set({
       completedInSession: true,
@@ -73,7 +89,18 @@ export const useOnboardingStore = create<OnboardingActions & OnboardingState>()(
 
   completeInit: () => set({initCompletedInSession: true}),
 
+  removeHighlightedCommand(commandName) {
+    const current = get().highlightedCommands
+    const next = new Map(current)
+    next.delete(commandName)
+    set({highlightedCommands: next})
+  },
+
   reset: () => set(initialState),
 
+  setHighlightedCommands: (commands) => set({highlightedCommands: commands}),
+
   setInitialized: () => set({initialized: true}),
+
+  setPendingInput: (input) => set({pendingInput: input}),
 }))

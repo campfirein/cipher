@@ -105,7 +105,7 @@ export const CommandInput = () => {
   const [activeDialog, setActiveDialog] = useState<ReactNode>(null)
   const ctrlOPressedRef = useRef(false)
   const previousInputRef = useRef('')
-  const {complete, removeHighlightedCommand, viewMode} = useOnboarding()
+  const {clearPendingInput, complete, pendingInput, removeHighlightedCommand, setPendingInput, viewMode} = useOnboarding()
 
   const isOnboarding = viewMode.type === 'onboarding'
   const currentStep = viewMode.type === 'onboarding' ? viewMode.step : null
@@ -132,6 +132,15 @@ export const CommandInput = () => {
     if (isInExplore) return 'Type /'
     return 'Type a command...'
   }, [isStreaming, isOnboarding, currentStep])
+
+  // Restore pending input from onboarding store ("/" typed during explore step)
+  useEffect(() => {
+    if (pendingInput) {
+      setInputValue(pendingInput)
+      setInputKey((prev) => prev + 1)
+      clearPendingInput()
+    }
+  }, [pendingInput, clearPendingInput])
 
   // Filter out "o" character when Ctrl+O is pressed
   useEffect(() => {
@@ -378,6 +387,7 @@ export const CommandInput = () => {
             if (!isInCurate || isInCurating || isInQuery || isInQuerying) setInputValue(value)
 
             if (isInExplore && value.startsWith('/')) {
+              setPendingInput('/')
               complete()
             }
           }}
