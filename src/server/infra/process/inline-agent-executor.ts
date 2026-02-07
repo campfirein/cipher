@@ -24,6 +24,8 @@ import {randomUUID} from 'node:crypto'
 
 import {AgentEventMap} from '../../../agent/core/domain/agent-events/index.js'
 import {CipherAgent} from '../../../agent/infra/agent/index.js'
+import {FileSystemService} from '../../../agent/infra/file-system/file-system-service.js'
+import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {NotAuthenticatedError, serializeTaskError} from '../../core/domain/errors/task-error.js'
@@ -40,8 +42,8 @@ import {createTokenStore} from '../storage/token-store.js'
 export class InlineAgent {
   public readonly transportClient: ITransportClient
 
-  private constructor(agent: CipherAgent) {
-    this.transportClient = new InlineTransportClient(agent)
+  private constructor(agent: CipherAgent, queryExecutor: QueryExecutor) {
+    this.transportClient = new InlineTransportClient(agent, queryExecutor)
   }
 
   /**
@@ -88,7 +90,17 @@ export class InlineAgent {
     const sessionId = `inline-session-${randomUUID()}`
     await agent.createSession(sessionId)
 
-    return new InlineAgent(agent)
+    // Create FileSystemService for smart routing and caching
+    const fileSystemService = new FileSystemService()
+    await fileSystemService.initialize()
+    const searchService = createSearchKnowledgeService(fileSystemService)
+    const queryExecutor = new QueryExecutor({
+      enableCache: true,
+      fileSystem: fileSystemService,
+      searchService,
+    })
+
+    return new InlineAgent(agent, queryExecutor)
   }
 }
 
@@ -106,10 +118,10 @@ class InlineTransportClient implements ITransportClient {
   private readonly handlers = new Map<string, Set<EventHandler>>()
   private readonly queryExecutor: QueryExecutor
 
-  constructor(agent: CipherAgent) {
+  constructor(agent: CipherAgent, queryExecutor: QueryExecutor) {
     this.agent = agent
     this.curateExecutor = new CurateExecutor()
-    this.queryExecutor = new QueryExecutor()
+    this.queryExecutor = queryExecutor
   }
 
   // ===========================================================================
