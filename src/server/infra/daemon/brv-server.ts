@@ -39,6 +39,8 @@ import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
 import {ClientManager} from '../client/client-manager.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
+import {broadcastToProjectRoom} from '../process/broadcast-utils.js'
+import {setupFeatureHandlers} from '../process/feature-handlers.js'
 import {TransportHandlers} from '../process/transport-handlers.js'
 import {ProjectRegistry} from '../project/project-registry.js'
 import {ProjectRouter} from '../routing/project-router.js'
@@ -388,6 +390,18 @@ async function main(): Promise<void> {
         running: transportServer!.isRunning(),
       },
     }))
+
+    // Feature handlers (auth, init, status, push, pull, etc.) require async OIDC discovery.
+    // Placed after daemon:getState so the debug endpoint is available immediately,
+    // without waiting for OIDC discovery (~400ms).
+    await setupFeatureHandlers({
+      broadcastToProject(projectPath, event, data) {
+        broadcastToProjectRoom(projectRegistry, projectRouter, projectPath, event, data)
+      },
+      log,
+      resolveProjectPath: (clientId) => clientManager.getClient(clientId)?.projectPath,
+      transport: transportServer,
+    })
 
     // 11. Start idle timer + register signal handlers
     idleTimeoutPolicy.start()

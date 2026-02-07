@@ -237,4 +237,24 @@ export class BrvConfig {
       version: this.version,
     }
   }
+
+  /**
+   * Creates a new BrvConfig with space fields replaced, preserving all other fields.
+   */
+  public withSpace(space: Space): BrvConfig {
+    return new BrvConfig({
+      chatLogPath: this.chatLogPath,
+      cipherAgentContext: this.cipherAgentContext,
+      cipherAgentModes: this.cipherAgentModes,
+      cipherAgentSystemPrompt: this.cipherAgentSystemPrompt,
+      createdAt: new Date().toISOString(),
+      cwd: this.cwd,
+      ide: this.ide,
+      spaceId: space.id,
+      spaceName: space.name,
+      teamId: space.teamId,
+      teamName: space.teamName,
+      version: this.version,
+    })
+  }
 }

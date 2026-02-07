@@ -1,10 +1,12 @@
 /**
  * Transport Initializer
  *
- * Initializes transport connection and updates the transport store.
+ * Connects to the daemon via connectToDaemon() and manages the transport lifecycle.
+ * The daemon is already running (ensureDaemonRunning() in main.ts).
+ * connectToDaemon() handles: ensure daemon + connect + register + join rooms.
  */
 
-import {type ConnectionState, connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
+import {type ConnectionState, connectToDaemon, type ITransportClient} from '@campfirein/brv-transport-client'
 import React, {useEffect} from 'react'
 
 import {getAllEventValues} from '../../../../shared/transport/events/index.js'
@@ -48,13 +50,19 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
         initTransportLog()
         setConnectionState('connecting')
 
-        // Use modern connectToTransport API (auto-discovers and connects)
-        const {client: newClient} = await connectToTransport()
+        // connectToDaemon = ensureDaemonRunning (no-op, already running) + connect + register + join rooms
+        const {client: newClient} = await connectToDaemon({
+          clientType: 'tui',
+          joinRooms: ['broadcast-room'],
+          projectPath: process.cwd(),
+        })
 
         if (!mounted) {
           await newClient.disconnect()
           return
         }
+
+        logTransportEvent('_room', {room: 'broadcast-room', state: 'joined'})
 
         // Subscribe to connection state changes and re-register event handlers on reconnect
         stateChangeUnsubscribe = newClient.onStateChange((state: ConnectionState) => {
@@ -68,10 +76,6 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
             registerEventHandlers(newClient)
           }
         })
-
-        // Join broadcast room to receive all events
-        await newClient.joinRoom('broadcast-room')
-        logTransportEvent('_room', {room: 'broadcast-room', state: 'joined'})
 
         // Register event handlers for logging
         registerEventHandlers(newClient)

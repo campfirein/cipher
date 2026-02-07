@@ -54,7 +54,7 @@ export const SpaceSwitchFlow: React.FC<SpaceSwitchFlowProps> = ({
     setError(null)
     try {
       const result = await switchMutation.mutateAsync({spaceId: item.id})
-      if (result.success) {
+      if (result.success && result.config) {
         onComplete(`Successfully switched to space: ${result.config.spaceName}\nConfiguration updated in: .brv/config.json`)
       }
     } catch (error_) {

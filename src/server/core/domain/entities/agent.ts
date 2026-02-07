@@ -27,6 +27,12 @@ export const AGENT_VALUES = [
 
 export type Agent = (typeof AGENT_VALUES)[number]
 
+const agentSet: ReadonlySet<string> = new Set(AGENT_VALUES)
+
+export function isAgent(value: string): value is Agent {
+  return agentSet.has(value)
+}
+
 /**
  * Connector availability configuration for an agent.
  */

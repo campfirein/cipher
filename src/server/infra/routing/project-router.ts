@@ -44,9 +44,9 @@ export class ProjectRouter implements IProjectRouter {
     members.add(clientId)
   }
 
-  broadcastToProject<T = unknown>(sanitizedPath: string, event: string, data: T): void {
+  broadcastToProject<T = unknown>(sanitizedPath: string, event: string, data: T, except?: string): void {
     const room = this.buildRoomName(sanitizedPath)
-    this.transport.broadcastTo(room, event, data)
+    this.transport.broadcastTo(room, event, data, except)
   }
 
   getProjectMembers(sanitizedPath: string): string[] {

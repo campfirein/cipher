@@ -55,8 +55,9 @@ export interface ITransportServer {
    * @param room - The room identifier
    * @param event - The event name
    * @param data - The data to send
+   * @param except - Optional client ID to exclude from the broadcast
    */
-  broadcastTo: <T = unknown>(room: string, event: string, data: T) => void
+  broadcastTo: <T = unknown>(room: string, event: string, data: T, except?: string) => void
 
   /**
    * Returns the port the server is listening on.

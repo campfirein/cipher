@@ -1,4 +1,4 @@
-import {access, mkdir} from 'node:fs/promises'
+import {access, mkdir, rm} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {IContextTreeService} from '../../core/interfaces/context-tree/i-context-tree-service.js'
@@ -18,6 +18,12 @@ export class FileContextTreeService implements IContextTreeService {
 
   public constructor(config: ContextTreeServiceConfig = {}) {
     this.config = config
+  }
+
+  public async delete(directory?: string): Promise<void> {
+    const baseDir = directory ?? this.config.baseDirectory ?? process.cwd()
+    const contextTreeDir = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
+    await rm(contextTreeDir, {force: true, recursive: true})
   }
 
   public async exists(directory?: string): Promise<boolean> {

@@ -1,16 +1,14 @@
-import {rm} from 'node:fs/promises'
-import {join} from 'node:path'
-
 import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
+import type {ProjectPathResolver} from './handler-types.js'
 
 import {ResetEvents, type ResetExecuteResponse} from '../../../../shared/transport/events/reset-events.js'
-import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
 
 export interface ResetHandlerDeps {
   contextTreeService: IContextTreeService
   contextTreeSnapshotService: IContextTreeSnapshotService
+  resolveProjectPath: ProjectPathResolver
   transport: ITransportServer
 }
 
@@ -21,29 +19,38 @@ export interface ResetHandlerDeps {
 export class ResetHandler {
   private readonly contextTreeService: IContextTreeService
   private readonly contextTreeSnapshotService: IContextTreeSnapshotService
+  private readonly resolveProjectPath: ProjectPathResolver
   private readonly transport: ITransportServer
 
   constructor(deps: ResetHandlerDeps) {
     this.contextTreeService = deps.contextTreeService
     this.contextTreeSnapshotService = deps.contextTreeSnapshotService
+    this.resolveProjectPath = deps.resolveProjectPath
     this.transport = deps.transport
   }
 
   setup(): void {
-    this.transport.onRequest<void, ResetExecuteResponse>(ResetEvents.EXECUTE, () => this.handleExecute())
+    this.transport.onRequest<void, ResetExecuteResponse>(ResetEvents.EXECUTE, (_data, clientId) =>
+      this.handleExecute(clientId),
+    )
   }
 
-  private async handleExecute(): Promise<ResetExecuteResponse> {
-    const exists = await this.contextTreeService.exists()
+  private async handleExecute(clientId: string): Promise<ResetExecuteResponse> {
+    const projectPath = this.resolveEffectivePath(clientId)
+
+    const exists = await this.contextTreeService.exists(projectPath)
     if (!exists) {
       throw new Error('Context tree not initialized')
     }
 
-    const contextTreePath = join(process.cwd(), BRV_DIR, CONTEXT_TREE_DIR)
-    await rm(contextTreePath, {force: true, recursive: true})
-    await this.contextTreeService.initialize()
-    await this.contextTreeSnapshotService.initEmptySnapshot()
+    await this.contextTreeService.delete(projectPath)
+    await this.contextTreeService.initialize(projectPath)
+    await this.contextTreeSnapshotService.initEmptySnapshot(projectPath)
 
     return {success: true}
+  }
+
+  private resolveEffectivePath(clientId: string): string {
+    return this.resolveProjectPath(clientId) ?? process.cwd()
   }
 }

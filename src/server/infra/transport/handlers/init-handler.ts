@@ -1,6 +1,3 @@
-import type {AgentDTO} from '../../../../shared/transport/types/dto.js'
-import type {Agent} from '../../../core/domain/entities/agent.js'
-import type {ConnectorType} from '../../../core/domain/entities/connector-type.js'
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IConnectorManager} from '../../../core/interfaces/connectors/i-connector-manager.js'
 import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
@@ -12,6 +9,7 @@ import type {ITeamService} from '../../../core/interfaces/services/i-team-servic
 import type {ITrackingService} from '../../../core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
+import type {ProjectBroadcaster, ProjectPathResolver} from './handler-types.js'
 
 import {
   InitEvents,
@@ -22,17 +20,22 @@ import {
   type InitGetSpacesResponse,
   type InitGetTeamsResponse,
 } from '../../../../shared/transport/events/init-events.js'
-import {AGENT_CONNECTOR_CONFIG, AGENT_VALUES} from '../../../core/domain/entities/agent.js'
+import {isAgent} from '../../../core/domain/entities/agent.js'
 import {BrvConfig} from '../../../core/domain/entities/brv-config.js'
+import {isConnectorType} from '../../../core/domain/entities/connector-type.js'
+import {syncConfigToXdg} from '../../../utils/config-xdg-sync.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
+import {mapAgentsToDTOs} from './agent-dto-mapper.js'
 
 export interface InitHandlerDeps {
+  broadcastToProject: ProjectBroadcaster
   cogitPullService: ICogitPullService
-  connectorManager: IConnectorManager
+  connectorManagerFactory: (projectRoot: string) => IConnectorManager
   contextTreeService: IContextTreeService
   contextTreeSnapshotService: IContextTreeSnapshotService
   contextTreeWriterService: IContextTreeWriterService
   projectConfigStore: IProjectConfigStore
+  resolveProjectPath: ProjectPathResolver
   spaceService: ISpaceService
   teamService: ITeamService
   tokenStore: ITokenStore
@@ -46,12 +49,14 @@ export interface InitHandlerDeps {
  * The TUI orchestrates the multi-step UX flow, calling granular events.
  */
 export class InitHandler {
+  private readonly broadcastToProject: ProjectBroadcaster
   private readonly cogitPullService: ICogitPullService
-  private readonly connectorManager: IConnectorManager
+  private readonly connectorManagerFactory: (projectRoot: string) => IConnectorManager
   private readonly contextTreeService: IContextTreeService
   private readonly contextTreeSnapshotService: IContextTreeSnapshotService
   private readonly contextTreeWriterService: IContextTreeWriterService
   private readonly projectConfigStore: IProjectConfigStore
+  private readonly resolveProjectPath: ProjectPathResolver
   private readonly spaceService: ISpaceService
   private readonly teamService: ITeamService
   private readonly tokenStore: ITokenStore
@@ -59,12 +64,14 @@ export class InitHandler {
   private readonly transport: ITransportServer
 
   constructor(deps: InitHandlerDeps) {
+    this.broadcastToProject = deps.broadcastToProject
     this.cogitPullService = deps.cogitPullService
-    this.connectorManager = deps.connectorManager
+    this.connectorManagerFactory = deps.connectorManagerFactory
     this.contextTreeService = deps.contextTreeService
     this.contextTreeSnapshotService = deps.contextTreeSnapshotService
     this.contextTreeWriterService = deps.contextTreeWriterService
     this.projectConfigStore = deps.projectConfigStore
+    this.resolveProjectPath = deps.resolveProjectPath
     this.spaceService = deps.spaceService
     this.teamService = deps.teamService
     this.tokenStore = deps.tokenStore
@@ -81,12 +88,14 @@ export class InitHandler {
 
     this.transport.onRequest<void, InitGetAgentsResponse>(InitEvents.GET_AGENTS, () => this.handleGetAgents())
 
-    this.transport.onRequest<InitExecuteRequest, InitExecuteResponse>(InitEvents.EXECUTE, (data) =>
-      this.handleExecute(data),
+    this.transport.onRequest<InitExecuteRequest, InitExecuteResponse>(InitEvents.EXECUTE, (data, clientId) =>
+      this.handleExecute(data, clientId),
     )
   }
 
-  private async handleExecute(data: InitExecuteRequest): Promise<InitExecuteResponse> {
+  private async handleExecute(data: InitExecuteRequest, clientId: string): Promise<InitExecuteResponse> {
+    const projectPath = this.resolveEffectivePath(clientId)
+
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
       throw new Error('Not authenticated')
@@ -95,11 +104,11 @@ export class InitHandler {
     await this.trackingService.track('space:init', {status: 'started'})
 
     // Check for existing config
-    if ((await this.projectConfigStore.exists()) && !data.force) {
+    if ((await this.projectConfigStore.exists(projectPath)) && !data.force) {
       throw new Error('Project already initialized. Use force to re-initialize.')
     }
 
-    this.transport.broadcast(InitEvents.PROGRESS, {message: 'Fetching space...', step: 'fetch_space'})
+    this.broadcastToProject(projectPath, InitEvents.PROGRESS, {message: 'Fetching space...', step: 'fetch_space'})
 
     // Find space
     const {spaces} = await this.spaceService.getSpaces(token.sessionKey, data.teamId, {fetchAll: true})
@@ -108,7 +117,7 @@ export class InitHandler {
       throw new Error('Space not found')
     }
 
-    this.transport.broadcast(InitEvents.PROGRESS, {message: 'Syncing from cloud...', step: 'sync'})
+    this.broadcastToProject(projectPath, InitEvents.PROGRESS, {message: 'Syncing from cloud...', step: 'sync'})
 
     // Pull from cloud
     try {
@@ -120,39 +129,47 @@ export class InitHandler {
       })
 
       if (snapshot.files.length > 0) {
-        await this.contextTreeWriterService.sync({files: snapshot.files})
-        await this.contextTreeSnapshotService.saveSnapshot()
+        await this.contextTreeWriterService.sync({directory: projectPath, files: snapshot.files})
+        await this.contextTreeSnapshotService.saveSnapshot(projectPath)
       } else {
-        await this.contextTreeService.initialize()
-        await this.contextTreeSnapshotService.initEmptySnapshot()
+        await this.contextTreeService.initialize(projectPath)
+        await this.contextTreeSnapshotService.initEmptySnapshot(projectPath)
       }
     } catch {
       // If pull fails, initialize empty context tree
-      await this.contextTreeService.initialize()
-      await this.contextTreeSnapshotService.initEmptySnapshot()
+      await this.contextTreeService.initialize(projectPath)
+      await this.contextTreeSnapshotService.initEmptySnapshot(projectPath)
     }
 
-    this.transport.broadcast(InitEvents.PROGRESS, {message: 'Creating config...', step: 'config'})
+    this.broadcastToProject(projectPath, InitEvents.PROGRESS, {message: 'Creating config...', step: 'config'})
 
-    // Create and write config
-    const agent = data.agentId as Agent
+    // Create and write config + XDG clone
+    if (!isAgent(data.agentId)) {
+      throw new Error(`Unsupported agent: ${data.agentId}`)
+    }
+
     const brvConfig = BrvConfig.fromSpace({
       chatLogPath: '',
-      cwd: process.cwd(),
-      ide: agent,
+      cwd: projectPath,
+      ide: data.agentId,
       space,
     })
-    await this.projectConfigStore.write(brvConfig)
+    await this.projectConfigStore.write(brvConfig, projectPath)
+    await syncConfigToXdg(brvConfig, projectPath)
 
-    this.transport.broadcast(InitEvents.PROGRESS, {message: 'Installing connector...', step: 'connector'})
+    this.broadcastToProject(projectPath, InitEvents.PROGRESS, {message: 'Installing connector...', step: 'connector'})
 
     // Install connector
     try {
-      const connectorType = data.connectorType as ConnectorType
-      await this.connectorManager.switchConnector(agent, connectorType)
+      if (!isConnectorType(data.connectorType)) {
+        throw new Error(`Unsupported connector type: ${data.connectorType}`)
+      }
+
+      const connectorManager = this.connectorManagerFactory(projectPath)
+      await connectorManager.switchConnector(data.agentId, data.connectorType)
     } catch (error) {
       // Non-fatal: connector installation failure shouldn't block init
-      this.transport.broadcast(InitEvents.PROGRESS, {
+      this.broadcastToProject(projectPath, InitEvents.PROGRESS, {
         message: `Connector warning: ${getErrorMessage(error)}`,
         step: 'connector_warning',
       })
@@ -160,7 +177,7 @@ export class InitHandler {
 
     await this.trackingService.track('space:init', {spaceId: data.spaceId, status: 'finished', teamId: data.teamId})
 
-    this.transport.broadcast(InitEvents.COMPLETED, {
+    this.broadcastToProject(projectPath, InitEvents.COMPLETED, {
       config: {spaceName: brvConfig.spaceName, teamName: brvConfig.teamName},
       success: true,
     })
@@ -169,17 +186,7 @@ export class InitHandler {
   }
 
   private handleGetAgents(): InitGetAgentsResponse {
-    const agents: AgentDTO[] = AGENT_VALUES.map((agentName) => {
-      const config = AGENT_CONNECTOR_CONFIG[agentName]
-      return {
-        defaultConnectorType: config.default,
-        id: agentName,
-        name: agentName,
-        supportedConnectorTypes: [...config.supported],
-      }
-    })
-
-    return {agents}
+    return {agents: mapAgentsToDTOs()}
   }
 
   private async handleGetSpaces(data: InitGetSpacesRequest): Promise<InitGetSpacesResponse> {
@@ -217,5 +224,9 @@ export class InitHandler {
         name: t.name,
       })),
     }
+  }
+
+  private resolveEffectivePath(clientId: string): string {
+    return this.resolveProjectPath(clientId) ?? process.cwd()
   }
 }

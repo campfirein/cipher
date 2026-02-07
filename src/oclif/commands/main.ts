@@ -40,7 +40,7 @@ export default class Main extends Command {
     const sessionId = await this.resolveSessionId()
     processManagerLog(`Session ID resolved: ${sessionId}`)
 
-    // Ensure daemon is running (spawn if needed, restart on version mismatch)
+    // Pre-flight: ensure daemon is running (spawn if needed, restart on version mismatch)
     const daemonResult = await ensureDaemonRunning({
       serverPath: resolveLocalServerMainPath(),
       version: this.config.version,
@@ -58,7 +58,7 @@ export default class Main extends Command {
     const globalConfigStore = new FileGlobalConfigStore()
     const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
 
-    // Start the interactive REPL
+    // Start the interactive REPL (TUI connects via connectToDaemon internally)
     await startRepl({
       trackingService,
       version: this.config.version,
