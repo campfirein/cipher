@@ -2,6 +2,18 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [1.7.2]
+
+### Fixed
+
+- **Sandbox TypeScript execution** - Added `esbuild` as a direct dependency to ensure TypeScript transpilation works reliably in the sandboxed code execution environment.
+
+## [1.7.1]
+
+### Fixed
+
+- **Installation reliability** - Bundled `brv-transport-client` dependency to prevent installation failures when the GitHub-hosted package is unreachable.
+
 ## [1.7.0]
 
 ### Added
