@@ -243,6 +243,7 @@ describe('InitUseCase', () => {
     }
 
     contextTreeService = {
+      delete: stub(),
       exists: stub(),
       initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/context-tree'),
     }

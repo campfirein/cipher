@@ -5,6 +5,7 @@ import type {ITrackingService} from '../../../core/interfaces/services/i-trackin
 import type {IUserService} from '../../../core/interfaces/services/i-user-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
+import type {ProjectPathResolver} from './handler-types.js'
 
 import {
   type OnboardingAutoSetupResponse,
@@ -14,10 +15,12 @@ import {
   type OnboardingGetStateResponse,
 } from '../../../../shared/transport/events/onboarding-events.js'
 import {BrvConfig} from '../../../core/domain/entities/brv-config.js'
+import {syncConfigToXdg} from '../../../utils/config-xdg-sync.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
 
 export interface OnboardingHandlerDeps {
   projectConfigStore: IProjectConfigStore
+  resolveProjectPath: ProjectPathResolver
   spaceService: ISpaceService
   teamService: ITeamService
   tokenStore: ITokenStore
@@ -32,6 +35,7 @@ export interface OnboardingHandlerDeps {
  */
 export class OnboardingHandler {
   private readonly projectConfigStore: IProjectConfigStore
+  private readonly resolveProjectPath: ProjectPathResolver
   private readonly spaceService: ISpaceService
   private readonly teamService: ITeamService
   private readonly tokenStore: ITokenStore
@@ -41,6 +45,7 @@ export class OnboardingHandler {
 
   constructor(deps: OnboardingHandlerDeps) {
     this.projectConfigStore = deps.projectConfigStore
+    this.resolveProjectPath = deps.resolveProjectPath
     this.spaceService = deps.spaceService
     this.teamService = deps.teamService
     this.tokenStore = deps.tokenStore
@@ -55,37 +60,47 @@ export class OnboardingHandler {
     this.setupComplete()
   }
 
+  private resolveEffectivePath(clientId: string): string {
+    return this.resolveProjectPath(clientId) ?? process.cwd()
+  }
+
   private setupAutoSetup(): void {
-    this.transport.onRequest<void, OnboardingAutoSetupResponse>(OnboardingEvents.AUTO_SETUP, async () => {
-      try {
-        const token = await this.tokenStore.load()
-        if (!token || !token.isValid()) {
-          return {error: 'Not authenticated', success: false}
+    this.transport.onRequest<void, OnboardingAutoSetupResponse>(
+      OnboardingEvents.AUTO_SETUP,
+      async (_data, clientId) => {
+        try {
+          const projectPath = this.resolveEffectivePath(clientId)
+
+          const token = await this.tokenStore.load()
+          if (!token || !token.isValid()) {
+            return {error: 'Not authenticated', success: false}
+          }
+
+          // Find default team
+          const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
+          const defaultTeam = teams.find((t) => t.isDefault)
+          if (!defaultTeam) {
+            return {error: 'No default team found', success: false}
+          }
+
+          // Find default space
+          const {spaces} = await this.spaceService.getSpaces(token.sessionKey, defaultTeam.id, {fetchAll: true})
+          const defaultSpace = spaces.find((s) => s.isDefault)
+          if (!defaultSpace) {
+            return {error: 'No default space found', success: false}
+          }
+
+          // Create partial config and write it
+          const brvConfig = BrvConfig.partialFromSpace({space: defaultSpace})
+          await this.projectConfigStore.write(brvConfig, projectPath)
+          await syncConfigToXdg(brvConfig, projectPath)
+
+          return {success: true}
+        } catch (error) {
+          return {error: getErrorMessage(error), success: false}
         }
-
-        // Find default team
-        const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
-        const defaultTeam = teams.find((t) => t.isDefault)
-        if (!defaultTeam) {
-          return {error: 'No default team found', success: false}
-        }
-
-        // Find default space
-        const {spaces} = await this.spaceService.getSpaces(token.sessionKey, defaultTeam.id, {fetchAll: true})
-        const defaultSpace = spaces.find((s) => s.isDefault)
-        if (!defaultSpace) {
-          return {error: 'No default space found', success: false}
-        }
-
-        // Create partial config and write it
-        const brvConfig = BrvConfig.partialFromSpace({space: defaultSpace})
-        await this.projectConfigStore.write(brvConfig)
-
-        return {success: true}
-      } catch (error) {
-        return {error: getErrorMessage(error), success: false}
-      }
-    })
+      },
+    )
   }
 
   private setupComplete(): void {
@@ -113,15 +128,17 @@ export class OnboardingHandler {
   }
 
   private setupGetState(): void {
-    this.transport.onRequest<void, OnboardingGetStateResponse>(OnboardingEvents.GET_STATE, async () => {
+    this.transport.onRequest<void, OnboardingGetStateResponse>(OnboardingEvents.GET_STATE, async (_data, clientId) => {
       try {
+        const projectPath = this.resolveEffectivePath(clientId)
+
         const token = await this.tokenStore.load()
         if (!token || !token.isValid()) {
           return {hasDefaultTeamSpace: false, hasOnboardedCli: false}
         }
 
         const user = await this.userService.getCurrentUser(token.sessionKey)
-        const configExists = await this.projectConfigStore.exists()
+        const configExists = await this.projectConfigStore.exists(projectPath)
 
         return {
           hasDefaultTeamSpace: configExists,

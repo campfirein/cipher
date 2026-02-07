@@ -3,6 +3,7 @@ import type {ISpaceService} from '../../../core/interfaces/services/i-space-serv
 import type {ITeamService} from '../../../core/interfaces/services/i-team-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
+import type {ProjectPathResolver} from './handler-types.js'
 
 import {
   SpaceEvents,
@@ -10,10 +11,11 @@ import {
   type SpaceSwitchRequest,
   type SpaceSwitchResponse,
 } from '../../../../shared/transport/events/space-events.js'
-import {BrvConfig} from '../../../core/domain/entities/brv-config.js'
+import {syncConfigToXdg} from '../../../utils/config-xdg-sync.js'
 
 export interface SpaceHandlerDeps {
   projectConfigStore: IProjectConfigStore
+  resolveProjectPath: ProjectPathResolver
   spaceService: ISpaceService
   teamService: ITeamService
   tokenStore: ITokenStore
@@ -26,6 +28,7 @@ export interface SpaceHandlerDeps {
  */
 export class SpaceHandler {
   private readonly projectConfigStore: IProjectConfigStore
+  private readonly resolveProjectPath: ProjectPathResolver
   private readonly spaceService: ISpaceService
   private readonly teamService: ITeamService
   private readonly tokenStore: ITokenStore
@@ -33,6 +36,7 @@ export class SpaceHandler {
 
   constructor(deps: SpaceHandlerDeps) {
     this.projectConfigStore = deps.projectConfigStore
+    this.resolveProjectPath = deps.resolveProjectPath
     this.spaceService = deps.spaceService
     this.teamService = deps.teamService
     this.tokenStore = deps.tokenStore
@@ -40,20 +44,22 @@ export class SpaceHandler {
   }
 
   setup(): void {
-    this.transport.onRequest<void, SpaceListResponse>(SpaceEvents.LIST, () => this.handleList())
+    this.transport.onRequest<void, SpaceListResponse>(SpaceEvents.LIST, (_data, clientId) => this.handleList(clientId))
 
-    this.transport.onRequest<SpaceSwitchRequest, SpaceSwitchResponse>(SpaceEvents.SWITCH, (data) =>
-      this.handleSwitch(data),
+    this.transport.onRequest<SpaceSwitchRequest, SpaceSwitchResponse>(SpaceEvents.SWITCH, (data, clientId) =>
+      this.handleSwitch(data, clientId),
     )
   }
 
-  private async handleList(): Promise<SpaceListResponse> {
+  private async handleList(clientId: string): Promise<SpaceListResponse> {
+    const projectPath = this.resolveEffectivePath(clientId)
+
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
       throw new Error('Not authenticated')
     }
 
-    const config = await this.projectConfigStore.read()
+    const config = await this.projectConfigStore.read(projectPath)
     if (!config) {
       throw new Error('Project not initialized')
     }
@@ -71,13 +77,15 @@ export class SpaceHandler {
     }
   }
 
-  private async handleSwitch(data: SpaceSwitchRequest): Promise<SpaceSwitchResponse> {
+  private async handleSwitch(data: SpaceSwitchRequest, clientId: string): Promise<SpaceSwitchResponse> {
+    const projectPath = this.resolveEffectivePath(clientId)
+
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
       throw new Error('Not authenticated')
     }
 
-    const existingConfig = await this.projectConfigStore.read()
+    const existingConfig = await this.projectConfigStore.read(projectPath)
     if (!existingConfig) {
       throw new Error('Project not initialized')
     }
@@ -89,23 +97,10 @@ export class SpaceHandler {
       throw new Error('Space not found')
     }
 
-    // Create updated config preserving existing fields
-    const newConfig = new BrvConfig({
-      chatLogPath: existingConfig.chatLogPath,
-      cipherAgentContext: existingConfig.cipherAgentContext,
-      cipherAgentModes: existingConfig.cipherAgentModes,
-      cipherAgentSystemPrompt: existingConfig.cipherAgentSystemPrompt,
-      createdAt: new Date().toISOString(),
-      cwd: existingConfig.cwd,
-      ide: existingConfig.ide,
-      spaceId: targetSpace.id,
-      spaceName: targetSpace.name,
-      teamId: targetSpace.teamId,
-      teamName: targetSpace.teamName,
-      version: existingConfig.version,
-    })
+    const newConfig = existingConfig.withSpace(targetSpace)
 
-    await this.projectConfigStore.write(newConfig)
+    await this.projectConfigStore.write(newConfig, projectPath)
+    await syncConfigToXdg(newConfig, projectPath)
 
     return {
       config: {
@@ -117,5 +112,9 @@ export class SpaceHandler {
       },
       success: true,
     }
+  }
+
+  private resolveEffectivePath(clientId: string): string {
+    return this.resolveProjectPath(clientId) ?? process.cwd()
   }
 }

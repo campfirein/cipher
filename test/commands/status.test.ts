@@ -78,6 +78,7 @@ describe('Status Command', () => {
     }
 
     contextTreeService = {
+      delete: stub(),
       exists: stub(),
       initialize: stub(),
     }

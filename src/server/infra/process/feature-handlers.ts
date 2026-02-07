@@ -5,7 +5,9 @@
  * These handlers implement the TUI ↔ Server event contract.
  */
 
+import type {IConnectorManager} from '../../core/interfaces/connectors/i-connector-manager.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
+import type {ProjectBroadcaster, ProjectPathResolver} from '../transport/handlers/handler-types.js'
 
 import {getAuthConfig} from '../../config/auth.config.js'
 import {getCurrentConfig} from '../../config/environment.js'
@@ -48,7 +50,9 @@ import {
 import {HttpUserService} from '../user/http-user-service.js'
 
 export interface FeatureHandlersOptions {
+  broadcastToProject: ProjectBroadcaster
   log: (msg: string) => void
+  resolveProjectPath: ProjectPathResolver
   transport: ITransportServer
 }
 
@@ -56,7 +60,12 @@ export interface FeatureHandlersOptions {
  * Setup all feature handlers on the transport server.
  * These handlers implement the TUI ↔ Server event contract (auth:*, config:*, status:*, etc.).
  */
-export async function setupFeatureHandlers({log, transport}: FeatureHandlersOptions): Promise<void> {
+export async function setupFeatureHandlers({
+  broadcastToProject,
+  log,
+  resolveProjectPath,
+  transport,
+}: FeatureHandlersOptions): Promise<void> {
   const envConfig = getCurrentConfig()
   const tokenStore = createTokenStore()
   const globalConfigStore = new FileGlobalConfigStore()
@@ -72,32 +81,14 @@ export async function setupFeatureHandlers({log, transport}: FeatureHandlersOpti
   const discoveryService = new OidcDiscoveryService()
   const authConfig = await getAuthConfig(discoveryService)
 
+  // Global handlers (no project context needed)
   new ConfigHandler({transport}).setup()
-
-  new StatusHandler({
-    contextTreeService: new FileContextTreeService(),
-    contextTreeSnapshotService: new FileContextTreeSnapshotService(),
-    projectConfigStore,
-    tokenStore,
-    trackingService,
-    transport,
-  }).setup()
 
   new AuthHandler({
     authService: new OAuthService(authConfig),
     browserLauncher: new SystemBrowserLauncher(),
     callbackHandler: new CallbackHandler(),
     projectConfigStore,
-    tokenStore,
-    trackingService,
-    transport,
-    userService,
-  }).setup()
-
-  new OnboardingHandler({
-    projectConfigStore,
-    spaceService,
-    teamService,
     tokenStore,
     trackingService,
     transport,
@@ -116,7 +107,7 @@ export async function setupFeatureHandlers({log, transport}: FeatureHandlersOpti
     transport,
   }).setup()
 
-  // Shared services for push/pull/reset/space/connectors/init handlers
+  // Shared services for project-scoped handlers
   const contextTreeService = new FileContextTreeService()
   const contextTreeSnapshotService = new FileContextTreeSnapshotService()
   const contextTreeWriterService = new FileContextTreeWriterService({snapshotService: contextTreeSnapshotService})
@@ -124,30 +115,54 @@ export async function setupFeatureHandlers({log, transport}: FeatureHandlersOpti
   const cogitPushService = new HttpCogitPushService({apiBaseUrl: envConfig.apiBaseUrl})
   const cogitPullService = new HttpCogitPullService({apiBaseUrl: envConfig.apiBaseUrl})
 
+  // ConnectorManager factory — creates per-project instances since constructor binds to projectRoot
   const fileService = new FsFileService()
   const templateLoader = new FsTemplateLoader(fileService)
   const templateService = new RuleTemplateService(templateLoader)
-  const connectorManager = new ConnectorManager({
-    fileService,
-    projectRoot: process.cwd(),
-    templateService,
-  })
+  const connectorManagerFactory = (projectRoot: string): IConnectorManager =>
+    new ConnectorManager({fileService, projectRoot, templateService})
+
+  // Project-scoped handlers (receive resolveProjectPath for client → project resolution)
+  new StatusHandler({
+    contextTreeService,
+    contextTreeSnapshotService,
+    projectConfigStore,
+    resolveProjectPath,
+    tokenStore,
+    trackingService,
+    transport,
+  }).setup()
+
+  new OnboardingHandler({
+    projectConfigStore,
+    resolveProjectPath,
+    spaceService,
+    teamService,
+    tokenStore,
+    trackingService,
+    transport,
+    userService,
+  }).setup()
 
   new PushHandler({
+    broadcastToProject,
     cogitPushService,
     contextFileReader,
     contextTreeSnapshotService,
     projectConfigStore,
+    resolveProjectPath,
     tokenStore,
     trackingService,
     transport,
   }).setup()
 
   new PullHandler({
+    broadcastToProject,
     cogitPullService,
     contextTreeSnapshotService,
     contextTreeWriterService,
     projectConfigStore,
+    resolveProjectPath,
     tokenStore,
     trackingService,
     transport,
@@ -156,11 +171,13 @@ export async function setupFeatureHandlers({log, transport}: FeatureHandlersOpti
   new ResetHandler({
     contextTreeService,
     contextTreeSnapshotService,
+    resolveProjectPath,
     transport,
   }).setup()
 
   new SpaceHandler({
     projectConfigStore,
+    resolveProjectPath,
     spaceService,
     teamService,
     tokenStore,
@@ -168,18 +185,21 @@ export async function setupFeatureHandlers({log, transport}: FeatureHandlersOpti
   }).setup()
 
   new ConnectorsHandler({
-    connectorManager,
+    connectorManagerFactory,
+    resolveProjectPath,
     trackingService,
     transport,
   }).setup()
 
   new InitHandler({
+    broadcastToProject,
     cogitPullService,
-    connectorManager,
+    connectorManagerFactory,
     contextTreeService,
     contextTreeSnapshotService,
     contextTreeWriterService,
     projectConfigStore,
+    resolveProjectPath,
     spaceService,
     teamService,
     tokenStore,

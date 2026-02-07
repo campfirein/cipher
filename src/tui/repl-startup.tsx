@@ -10,6 +10,7 @@ export type {TrackingService} from './stores/transport-store.js'
  * Options for starting the REPL
  *
  * - TUI is a Socket.IO client, Transport is the only server
+ * - TransportInitializer connects to daemon via connectToDaemon()
  */
 export interface ReplOptions {
   trackingService: TrackingService

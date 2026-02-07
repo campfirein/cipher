@@ -1,8 +1,8 @@
-import type {AgentDTO, ConnectorDTO} from '../../../../shared/transport/types/dto.js'
-import type {ConnectorType} from '../../../core/domain/entities/connector-type.js'
+import type {ConnectorDTO} from '../../../../shared/transport/types/dto.js'
 import type {IConnectorManager} from '../../../core/interfaces/connectors/i-connector-manager.js'
 import type {ITrackingService} from '../../../core/interfaces/services/i-tracking-service.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
+import type {ProjectPathResolver} from './handler-types.js'
 
 import {
   ConnectorEvents,
@@ -11,10 +11,13 @@ import {
   type ConnectorInstallResponse,
   type ConnectorListResponse,
 } from '../../../../shared/transport/events/connector-events.js'
-import {type Agent, AGENT_CONNECTOR_CONFIG, AGENT_VALUES} from '../../../core/domain/entities/agent.js'
+import {isConnectorType} from '../../../../shared/types/connector-type.js'
+import {isAgent} from '../../../core/domain/entities/agent.js'
+import {mapAgentsToDTOs} from './agent-dto-mapper.js'
 
 export interface ConnectorsHandlerDeps {
-  connectorManager: IConnectorManager
+  connectorManagerFactory: (projectRoot: string) => IConnectorManager
+  resolveProjectPath: ProjectPathResolver
   trackingService: ITrackingService
   transport: ITransportServer
 }
@@ -24,12 +27,14 @@ export interface ConnectorsHandlerDeps {
  * Business logic for connector management — no terminal/UI calls.
  */
 export class ConnectorsHandler {
-  private readonly connectorManager: IConnectorManager
+  private readonly connectorManagerFactory: (projectRoot: string) => IConnectorManager
+  private readonly resolveProjectPath: ProjectPathResolver
   private readonly trackingService: ITrackingService
   private readonly transport: ITransportServer
 
   constructor(deps: ConnectorsHandlerDeps) {
-    this.connectorManager = deps.connectorManager
+    this.connectorManagerFactory = deps.connectorManagerFactory
+    this.resolveProjectPath = deps.resolveProjectPath
     this.trackingService = deps.trackingService
     this.transport = deps.transport
   }
@@ -37,32 +42,33 @@ export class ConnectorsHandler {
   setup(): void {
     this.transport.onRequest<void, ConnectorGetAgentsResponse>(ConnectorEvents.GET_AGENTS, () => this.handleGetAgents())
 
-    this.transport.onRequest<void, ConnectorListResponse>(ConnectorEvents.LIST, () => this.handleList())
+    this.transport.onRequest<void, ConnectorListResponse>(ConnectorEvents.LIST, (_data, clientId) =>
+      this.handleList(clientId),
+    )
 
-    this.transport.onRequest<ConnectorInstallRequest, ConnectorInstallResponse>(ConnectorEvents.INSTALL, (data) =>
-      this.handleInstall(data),
+    this.transport.onRequest<ConnectorInstallRequest, ConnectorInstallResponse>(
+      ConnectorEvents.INSTALL,
+      (data, clientId) => this.handleInstall(data, clientId),
     )
   }
 
   private handleGetAgents(): ConnectorGetAgentsResponse {
-    const agents: AgentDTO[] = AGENT_VALUES.map((agentName) => {
-      const config = AGENT_CONNECTOR_CONFIG[agentName]
-      return {
-        defaultConnectorType: config.default,
-        id: agentName,
-        name: agentName,
-        supportedConnectorTypes: [...config.supported],
-      }
-    })
-
-    return {agents}
+    return {agents: mapAgentsToDTOs()}
   }
 
-  private async handleInstall(data: ConnectorInstallRequest): Promise<ConnectorInstallResponse> {
-    const agent = data.agentId as Agent
-    const connectorType = data.connectorType as ConnectorType
+  private async handleInstall(data: ConnectorInstallRequest, clientId: string): Promise<ConnectorInstallResponse> {
+    const projectPath = this.resolveEffectivePath(clientId)
+    const connectorManager = this.connectorManagerFactory(projectPath)
 
-    const result = await this.connectorManager.switchConnector(agent, connectorType)
+    if (!isAgent(data.agentId)) {
+      return {message: `Unsupported agent: ${data.agentId}`, success: false}
+    }
+
+    if (!isConnectorType(data.connectorType)) {
+      return {message: `Unsupported connector type: ${data.connectorType}`, success: false}
+    }
+
+    const result = await connectorManager.switchConnector(data.agentId, data.connectorType)
 
     await this.trackingService.track('connector:switch', {
       agent: data.agentId,
@@ -80,21 +86,28 @@ export class ConnectorsHandler {
     }
   }
 
-  private async handleList(): Promise<ConnectorListResponse> {
+  private async handleList(clientId: string): Promise<ConnectorListResponse> {
+    const projectPath = this.resolveEffectivePath(clientId)
+    const connectorManager = this.connectorManagerFactory(projectPath)
+
     await this.trackingService.track('connector:list')
 
-    const installedMap = await this.connectorManager.getAllInstalledConnectors()
+    const installedMap = await connectorManager.getAllInstalledConnectors()
     const connectors: ConnectorDTO[] = []
 
     for (const [agent, connectorType] of installedMap) {
       connectors.push({
         agent,
         connectorType,
-        defaultType: this.connectorManager.getDefaultConnectorType(agent),
-        supportedTypes: this.connectorManager.getSupportedConnectorTypes(agent),
+        defaultType: connectorManager.getDefaultConnectorType(agent),
+        supportedTypes: connectorManager.getSupportedConnectorTypes(agent),
       })
     }
 
     return {connectors}
+  }
+
+  private resolveEffectivePath(clientId: string): string {
+    return this.resolveProjectPath(clientId) ?? process.cwd()
   }
 }

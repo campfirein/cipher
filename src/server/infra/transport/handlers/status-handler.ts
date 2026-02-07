@@ -5,6 +5,7 @@ import type {IContextTreeSnapshotService} from '../../../core/interfaces/context
 import type {ITrackingService} from '../../../core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
+import type {ProjectPathResolver} from './handler-types.js'
 
 import {StatusEvents, type StatusGetResponse} from '../../../../shared/transport/events/status-events.js'
 
@@ -12,6 +13,7 @@ export interface StatusHandlerDeps {
   contextTreeService: IContextTreeService
   contextTreeSnapshotService: IContextTreeSnapshotService
   projectConfigStore: IProjectConfigStore
+  resolveProjectPath: ProjectPathResolver
   tokenStore: ITokenStore
   trackingService: ITrackingService
   transport: ITransportServer
@@ -25,6 +27,7 @@ export class StatusHandler {
   private readonly contextTreeService: IContextTreeService
   private readonly contextTreeSnapshotService: IContextTreeSnapshotService
   private readonly projectConfigStore: IProjectConfigStore
+  private readonly resolveProjectPath: ProjectPathResolver
   private readonly tokenStore: ITokenStore
   private readonly trackingService: ITrackingService
   private readonly transport: ITransportServer
@@ -33,24 +36,26 @@ export class StatusHandler {
     this.contextTreeService = deps.contextTreeService
     this.contextTreeSnapshotService = deps.contextTreeSnapshotService
     this.projectConfigStore = deps.projectConfigStore
+    this.resolveProjectPath = deps.resolveProjectPath
     this.tokenStore = deps.tokenStore
     this.trackingService = deps.trackingService
     this.transport = deps.transport
   }
 
   setup(): void {
-    this.transport.onRequest<void, StatusGetResponse>(StatusEvents.GET, async () => {
-      const status = await this.collectStatus()
+    this.transport.onRequest<void, StatusGetResponse>(StatusEvents.GET, async (_data, clientId) => {
+      const projectPath = this.resolveEffectivePath(clientId)
+      const status = await this.collectStatus(projectPath)
       await this.trackingService.track('mem:status')
       return {status}
     })
   }
 
-  private async collectStatus(): Promise<StatusDTO> {
+  private async collectStatus(projectPath: string): Promise<StatusDTO> {
     const result: StatusDTO = {
       authStatus: 'unknown',
       contextTreeStatus: 'unknown',
-      currentDirectory: process.cwd(),
+      currentDirectory: projectPath,
       projectInitialized: false,
     }
 
@@ -71,10 +76,10 @@ export class StatusHandler {
 
     // Project status
     try {
-      const isInitialized = await this.projectConfigStore.exists()
+      const isInitialized = await this.projectConfigStore.exists(projectPath)
       result.projectInitialized = isInitialized
       if (isInitialized) {
-        const config = await this.projectConfigStore.read()
+        const config = await this.projectConfigStore.read(projectPath)
         if (config) {
           result.teamName = config.teamName
           result.spaceName = config.spaceName
@@ -86,14 +91,14 @@ export class StatusHandler {
 
     // Context tree status
     try {
-      const contextTreeExists = await this.contextTreeService.exists()
+      const contextTreeExists = await this.contextTreeService.exists(projectPath)
       if (contextTreeExists) {
-        const hasSnapshot = await this.contextTreeSnapshotService.hasSnapshot()
+        const hasSnapshot = await this.contextTreeSnapshotService.hasSnapshot(projectPath)
         if (!hasSnapshot) {
-          await this.contextTreeSnapshotService.initEmptySnapshot()
+          await this.contextTreeSnapshotService.initEmptySnapshot(projectPath)
         }
 
-        const changes = await this.contextTreeSnapshotService.getChanges()
+        const changes = await this.contextTreeSnapshotService.getChanges(projectPath)
         const hasChanges = changes.added.length > 0 || changes.modified.length > 0 || changes.deleted.length > 0
 
         if (hasChanges) {
@@ -114,5 +119,9 @@ export class StatusHandler {
     }
 
     return result
+  }
+
+  private resolveEffectivePath(clientId: string): string {
+    return this.resolveProjectPath(clientId) ?? process.cwd()
   }
 }

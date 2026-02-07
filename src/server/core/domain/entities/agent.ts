@@ -3,7 +3,13 @@ import type {ConnectorType} from './connector-type.js'
 export {type Agent, AGENT_VALUES} from '../../../../shared/types/agent.js'
 
 // Re-import Agent for use in this file's type definitions
-import type {Agent} from '../../../../shared/types/agent.js'
+import {type Agent, AGENT_VALUES} from '../../../../shared/types/agent.js'
+
+const agentSet: ReadonlySet<string> = new Set(AGENT_VALUES)
+
+export function isAgent(value: string): value is Agent {
+  return agentSet.has(value)
+}
 
 /**
  * Connector availability configuration for an agent.

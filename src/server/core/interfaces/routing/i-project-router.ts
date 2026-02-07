@@ -25,8 +25,9 @@ export interface IProjectRouter {
    * @param sanitizedPath - The sanitized project path
    * @param event - The event name
    * @param data - The event payload
+   * @param except - Optional client ID to exclude from the broadcast
    */
-  broadcastToProject<T = unknown>(sanitizedPath: string, event: string, data: T): void
+  broadcastToProject<T = unknown>(sanitizedPath: string, event: string, data: T, except?: string): void
 
   /**
    * Get the list of client IDs currently in a project's broadcast room.

@@ -34,7 +34,6 @@ import {
 } from '../../core/domain/transport/schemas.js'
 import {eventLog, transportLog} from '../../utils/process-logger.js'
 import {broadcastToProjectRoom} from './broadcast-utils.js'
-import {setupFeatureHandlers} from './feature-handlers.js'
 
 type ConnectionCoordinatorOptions = {
   agentPool?: IAgentPool
@@ -112,10 +111,6 @@ export class ConnectionCoordinator {
     this.setupAgentHandlers()
     this.setupClientLifecycleHandlers()
     this.setupAgentControlHandlers()
-    setupFeatureHandlers({
-      log: transportLog,
-      transport: this.transport,
-    })
   }
 
   /**
