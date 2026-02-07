@@ -2,10 +2,11 @@ import { join } from 'node:path'
 
 import type { ICipherAgent } from '../../../agent/core/interfaces/i-cipher-agent.js'
 import type { IFileSystem } from '../../../agent/core/interfaces/i-file-system.js'
-import type { ISearchKnowledgeService } from '../../../agent/infra/sandbox/tools-sdk.js'
+import type { ISearchKnowledgeService, SearchKnowledgeResult } from '../../../agent/infra/sandbox/tools-sdk.js'
 import type { IQueryExecutor, QueryExecuteOptions } from '../../core/interfaces/executor/i-query-executor.js'
 
 import { BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR } from '../../constants.js'
+import { canRespondDirectly, type DirectSearchResult, formatDirectResponse } from './direct-search-responder.js'
 import { QueryResultCache } from './query-result-cache.js'
 
 /** Minimum MiniSearch score to consider a result high-confidence for pre-fetching */
@@ -39,9 +40,12 @@ export interface QueryExecutorDeps {
  * - Transport handles task lifecycle (task:started, task:completed, task:error)
  * - Executor focuses solely on query execution
  *
- * Optimizations:
- * - Smart routing: pre-fetches context via SearchKnowledgeService to reduce LLM round-trips
- * - Query result caching: caches responses with context tree fingerprint validation
+ * Tiered response strategy (fastest to slowest):
+ * - Tier 0: Exact cache hit (0ms)
+ * - Tier 1: Fuzzy cache match via Jaccard similarity (~50ms)
+ * - Tier 2: Direct search response without LLM (~100-200ms)
+ * - Tier 3: Optimized single LLM call with pre-fetched context (<5s)
+ * - Tier 4: Full agentic loop fallback (8-15s)
  */
 export class QueryExecutor implements IQueryExecutor {
   private readonly cache?: QueryResultCache
@@ -59,7 +63,7 @@ export class QueryExecutor implements IQueryExecutor {
   public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string> {
     const { query, taskId } = options
 
-    // Step 1: Check query result cache (if enabled)
+    // === Tier 0: Exact cache hit (0ms) ===
     let fingerprint: string | undefined
     if (this.cache && this.fileSystem) {
       fingerprint = await this.computeContextTreeFingerprint()
@@ -69,25 +73,81 @@ export class QueryExecutor implements IQueryExecutor {
       }
     }
 
-    // Step 2: Smart routing — pre-fetch context from knowledge base
-    let prefetchedContext: string | undefined
-    if (this.searchService) {
-      prefetchedContext = await this.prefetchContext(query)
+    // === Tier 1: Fuzzy cache match (~50ms) ===
+    if (this.cache && fingerprint) {
+      const fuzzyHit = this.cache.findSimilar(query, fingerprint)
+      if (fuzzyHit) {
+        return fuzzyHit
+      }
     }
 
-    // Step 3: Build prompt and execute with LLM
+    // Single search — reused by Tier 2 (direct response) and Tier 3 (smart routing)
+    let searchResult: SearchKnowledgeResult | undefined
+    if (this.searchService) {
+      try {
+        searchResult = await this.searchService.search(query, { limit: SMART_ROUTING_MAX_DOCS })
+      } catch {
+        // Search failure is non-fatal — fall through to LLM
+      }
+    }
+
+    // === Tier 2: Direct search response (~100-200ms) ===
+    if (searchResult && this.fileSystem) {
+      const directResult = await this.tryDirectSearchResponse(query, searchResult)
+      if (directResult) {
+        if (this.cache && fingerprint) {
+          this.cache.set(query, directResult, fingerprint)
+        }
+
+        return directResult
+      }
+    }
+
+    // === Tier 3: Optimized LLM call with pre-fetched context (<5s) ===
+    let prefetchedContext: string | undefined
+    if (searchResult && this.fileSystem) {
+      prefetchedContext = this.buildPrefetchedContext(searchResult)
+    }
+
     const prompt = this.buildQueryPrompt(query, prefetchedContext)
+
+    // Query-optimized LLM overrides: fewer tokens, iterations, and lower temperature
+    const queryOverrides = prefetchedContext
+      ? { maxIterations: 2, maxTokens: 1024, temperature: 0.3 }
+      : { maxIterations: 3, maxTokens: 2048, temperature: 0.5 }
+
     const response = await agent.execute(prompt, {
-      executionContext: { commandType: 'query' },
+      executionContext: { commandType: 'query', ...queryOverrides },
       taskId,
     })
 
-    // Step 4: Store result in cache (if enabled)
+    // Store in cache for future Tier 0/1 hits
     if (this.cache && fingerprint) {
       this.cache.set(query, response, fingerprint)
     }
 
     return response
+  }
+
+  /**
+   * Build pre-fetched context string from search results for LLM prompt injection.
+   * Synchronous — uses already-fetched search results (no additional I/O for excerpts).
+   * Full document reads happen only for high-confidence results.
+   */
+  private buildPrefetchedContext(searchResult: SearchKnowledgeResult): string | undefined {
+    if (searchResult.totalFound === 0) return undefined
+
+    const highConfidenceResults = searchResult.results.filter(
+      (r) => r.score >= SMART_ROUTING_SCORE_THRESHOLD,
+    )
+
+    if (highConfidenceResults.length === 0) return undefined
+
+    const sections = highConfidenceResults.map(
+      (r) => `### ${r.title}\n**Source**: .brv/context-tree/${r.path}\n\n${r.excerpt}`,
+    )
+
+    return sections.join('\n\n---\n\n')
   }
 
   /**
@@ -161,52 +221,42 @@ Use \`code_exec\` to run a programmatic search with the \`tools.*\` SDK.
   }
 
   /**
-   * Pre-fetch relevant context from the knowledge base before calling the LLM.
-   * Returns formatted context string if high-confidence results are found,
-   * or undefined to fall back to tool-based search.
+   * Attempt to produce a direct response from search results without LLM.
+   * Returns formatted response if high-confidence dominant match found, undefined otherwise.
+   *
+   * Uses higher thresholds than smart routing (score >= 20, 3x dominance)
+   * to ensure only clearly answerable queries bypass the LLM.
    */
-  private async prefetchContext(query: string): Promise<string | undefined> {
+  private async tryDirectSearchResponse(
+    query: string,
+    searchResult: SearchKnowledgeResult,
+  ): Promise<string | undefined> {
     try {
-      const searchResult = await this.searchService!.search(query, { limit: SMART_ROUTING_MAX_DOCS })
+      if (searchResult.totalFound === 0) return undefined
 
-      if (searchResult.totalFound === 0) {
-        return undefined
-      }
-
-      // Filter to high-confidence results only
-      const highConfidenceResults = searchResult.results.filter(
-        (r) => r.score >= SMART_ROUTING_SCORE_THRESHOLD,
-      )
-
-      if (highConfidenceResults.length === 0) {
-        return undefined
-      }
-
-      // Read full content for high-confidence results
-      const fullDocs = await Promise.all(
-        highConfidenceResults.map(async (result) => {
-          if (this.fileSystem) {
+      // Build full results with content
+      const fullResults: DirectSearchResult[] = await Promise.all(
+        searchResult.results
+          .filter((r) => r.score >= SMART_ROUTING_SCORE_THRESHOLD)
+          .slice(0, SMART_ROUTING_MAX_DOCS)
+          .map(async (result) => {
+            let content = result.excerpt
             try {
-              const contextTreePath = join(BRV_DIR, CONTEXT_TREE_DIR, result.path)
-              const { content } = await this.fileSystem.readFile(contextTreePath)
-              return { content, path: result.path, title: result.title }
+              const ctPath = join(BRV_DIR, CONTEXT_TREE_DIR, result.path)
+              const { content: fullContent } = await this.fileSystem!.readFile(ctPath)
+              content = fullContent
             } catch {
-              // Fall back to excerpt if full read fails
-              return { content: result.excerpt, path: result.path, title: result.title }
+              // Use excerpt if full read fails
             }
-          }
 
-          return { content: result.excerpt, path: result.path, title: result.title }
-        }),
+            return { content, path: result.path, score: result.score, title: result.title }
+          }),
       )
 
-      const sections = fullDocs.map(
-        (doc) => `### ${doc.title}\n**Source**: .brv/context-tree/${doc.path}\n\n${doc.content}`,
-      )
+      if (!canRespondDirectly(fullResults)) return undefined
 
-      return sections.join('\n\n---\n\n')
+      return formatDirectResponse(query, fullResults)
     } catch {
-      // If pre-fetch fails for any reason, fall back to normal tool-based search
       return undefined
     }
   }

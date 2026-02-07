@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 
+import { FUZZY_SIMILARITY_THRESHOLD, jaccardSimilarity, type QueryTokens, tokenizeQuery } from './query-similarity.js'
+
 /**
  * Cached query result entry.
  */
@@ -10,6 +12,8 @@ export interface QueryCacheEntry {
   fingerprint: string
   /** Timestamp when cached */
   storedAt: number
+  /** Pre-computed tokens for fuzzy similarity matching */
+  tokens: QueryTokens
 }
 
 /**
@@ -30,6 +34,7 @@ export interface QueryResultCacheOptions {
  * - LRU eviction when at capacity
  * - TTL-based expiration
  * - Fingerprint-based invalidation when the context tree changes
+ * - Fuzzy matching for semantically similar queries via Jaccard similarity
  */
 export class QueryResultCache {
   private readonly cache = new Map<string, QueryCacheEntry>()
@@ -60,6 +65,37 @@ export class QueryResultCache {
   /** Clear all entries. */
   clear(): void {
     this.cache.clear()
+  }
+
+  /**
+   * Find a cached result by fuzzy similarity.
+   * Returns the highest-similarity match above threshold, or undefined.
+   * Called after exact-match `get()` fails.
+   *
+   * @param query - User query string
+   * @param currentFingerprint - Current context tree fingerprint
+   * @returns Cached response content or undefined
+   */
+  findSimilar(query: string, currentFingerprint: string): string | undefined {
+    const queryTokens = tokenizeQuery(query)
+
+    // Skip fuzzy matching if query has very few meaningful tokens
+    if (queryTokens.tokenSet.size < 2) return undefined
+
+    let bestMatch: undefined | { content: string; similarity: number }
+
+    for (const [, entry] of this.cache) {
+      // Check fingerprint + TTL first (cheap filters)
+      if (entry.fingerprint !== currentFingerprint) continue
+      if (Date.now() - entry.storedAt > this.ttlMs) continue
+
+      const similarity = jaccardSimilarity(queryTokens.tokenSet, entry.tokens.tokenSet)
+      if (similarity >= FUZZY_SIMILARITY_THRESHOLD && (!bestMatch || similarity > bestMatch.similarity)) {
+        bestMatch = { content: entry.content, similarity }
+      }
+    }
+
+    return bestMatch?.content
   }
 
   /**
@@ -108,6 +144,7 @@ export class QueryResultCache {
    */
   set(query: string, content: string, fingerprint: string): void {
     const key = this.normalizeQuery(query)
+    const tokens = tokenizeQuery(query)
 
     // Evict oldest entry if at capacity
     if (this.cache.size >= this.maxSize && !this.cache.has(key)) {
@@ -119,6 +156,7 @@ export class QueryResultCache {
       content,
       fingerprint,
       storedAt: Date.now(),
+      tokens,
     })
   }
 

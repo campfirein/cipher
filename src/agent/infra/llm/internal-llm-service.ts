@@ -298,9 +298,10 @@ export class ByteRoverLLMService implements ILLMService {
     // Get filtered tools based on command type (e.g., only read-only tools for 'query')
     const toolSet = this.toolManager.getToolsForCommand(options?.executionContext?.commandType)
 
-    // Create state machine with configured limits
+    // Create state machine with configured limits (per-invocation overrides via ExecutionContext)
+    const effectiveMaxIterations = executionContext?.maxIterations ?? this.config.maxIterations
     const maxTimeMs = this.config.timeout ?? 600_000 // 10 min default
-    const stateMachine = new AgentStateMachine(this.config.maxIterations, maxTimeMs)
+    const stateMachine = new AgentStateMachine(effectiveMaxIterations, maxTimeMs)
     stateMachine.transition(AgentState.EXECUTING)
 
     // Agentic loop with state machine
@@ -462,10 +463,14 @@ export class ByteRoverLLMService implements ILLMService {
     // Get internal messages from context manager
     const messages = this.contextManager.getMessages()
 
+    // Apply per-invocation overrides from ExecutionContext (e.g., query-optimized config)
+    const effectiveMaxTokens = options.executionContext?.maxTokens ?? this.config.maxTokens
+    const effectiveTemperature = options.executionContext?.temperature ?? this.config.temperature
+
     return {
       config: {
-        maxTokens: this.config.maxTokens,
-        temperature: this.config.temperature,
+        maxTokens: effectiveMaxTokens,
+        temperature: effectiveTemperature,
       },
       contents: messages,
       executionContext: options.executionContext,
