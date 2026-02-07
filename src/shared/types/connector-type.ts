@@ -10,3 +10,9 @@
 export const CONNECTOR_TYPES = ['rules', 'hook', 'mcp', 'skill'] as const
 
 export type ConnectorType = (typeof CONNECTOR_TYPES)[number]
+
+const connectorTypeSet: ReadonlySet<string> = new Set(CONNECTOR_TYPES)
+
+export function isConnectorType(value: string): value is ConnectorType {
+  return connectorTypeSet.has(value)
+}

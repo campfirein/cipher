@@ -11,8 +11,8 @@ import {
   type ConnectorInstallResponse,
   type ConnectorListResponse,
 } from '../../../../shared/transport/events/connector-events.js'
+import {isConnectorType} from '../../../../shared/types/connector-type.js'
 import {isAgent} from '../../../core/domain/entities/agent.js'
-import {isConnectorType} from '../../../core/domain/entities/connector-type.js'
 import {mapAgentsToDTOs} from './agent-dto-mapper.js'
 
 export interface ConnectorsHandlerDeps {
