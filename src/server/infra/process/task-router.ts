@@ -289,14 +289,18 @@ export class TaskRouter {
     // Send ack immediately
     this.transport.sendTo(clientId, TransportTaskEventNames.ACK, {taskId})
 
-    // Broadcast task:created to project room for TUI monitoring (exclude creator)
-    broadcastToProjectRoom(this.projectRegistry, this.projectRouter, projectPath, TransportTaskEventNames.CREATED, {
+    // Notify creator directly so TUI store can initialize the task
+    const createdPayload = {
       content: data.content,
       ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
       taskId,
       type: data.type,
-    }, clientId)
+    }
+    this.transport.sendTo(clientId, TransportTaskEventNames.CREATED, createdPayload)
+
+    // Broadcast to other clients in the project room (exclude creator to avoid duplicate)
+    broadcastToProjectRoom(this.projectRegistry, this.projectRouter, projectPath, TransportTaskEventNames.CREATED, createdPayload, clientId)
 
     // All tasks go through AgentPool
     if (!this.agentPool) {
