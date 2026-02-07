@@ -7,7 +7,7 @@
 import {useQueryClient} from '@tanstack/react-query'
 import {Box, Text, useInput} from 'ink'
 import TextInput from 'ink-text-input'
-import React, {ReactNode, useCallback, useEffect, useRef, useState} from 'react'
+import {ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
 import type {OnboardingFlowStep} from '../hooks/index.js'
 import type {CommandSideEffects} from '../types/commands.js'
@@ -105,25 +105,33 @@ export const CommandInput = () => {
   const [activeDialog, setActiveDialog] = useState<ReactNode>(null)
   const ctrlOPressedRef = useRef(false)
   const previousInputRef = useRef('')
-  const {complete, viewMode} = useOnboarding()
+  const {complete, removeHighlightedCommand, viewMode} = useOnboarding()
 
   const isOnboarding = viewMode.type === 'onboarding'
   const currentStep = viewMode.type === 'onboarding' ? viewMode.step : null
 
+  // Check if in prefilled onboarding steps (curate or query)
+  const isInCurate = isOnboarding && currentStep === 'curate'
+  const isInQuery = isOnboarding && currentStep === 'query'
+  const isInCurating = isOnboarding && currentStep === 'curating'
+  const isInQuerying = isOnboarding && currentStep === 'querying'
+  const isInExplore = isOnboarding && currentStep === 'explore'
+
   // Fixed input value for curate onboarding step (only before user has curated and not currently curating)
-  const isInCurateStep = isOnboarding && currentStep === 'curate'
-  const displayInputValue = isInCurateStep ? '/curate Memory is a core component of an agent system.' : inputValue
+  const displayInputValue = useMemo(() => {
+    if (isInCurate) return '/curate Curate the folder structure of this repository.'
+    if (isInCurating) return ''
+    if (isInQuery) return '/query Tell me what you know about the folder structure of this repository?'
+    if (isInQuerying) return ''
+    return inputValue
+  }, [isOnboarding, currentStep, inputValue])
 
   // Placeholder based on onboarding step
-  const getPlaceholder = () => {
-    if (isStreaming) return 'Processing...'
-    if (isOnboarding && currentStep) {
-      if (currentStep === 'query') return 'Try "/query What are the core components of an agent system?"'
-      if (currentStep === 'explore') return 'Type /'
-    }
-
+  const placeholder = useMemo(() => {
+    if (isStreaming || isInCurating || isInQuerying) return 'Processing...'
+    if (isInExplore) return 'Type /'
     return 'Type a command...'
-  }
+  }, [isStreaming, isOnboarding, currentStep])
 
   // Filter out "o" character when Ctrl+O is pressed
   useEffect(() => {
@@ -152,7 +160,7 @@ export const CommandInput = () => {
         complete({skipped: true})
       }
     },
-    {isActive: isOnboarding && (currentStep === 'curate' || currentStep === 'query')},
+    {isActive: isInCurate || isInQuery},
   )
 
   // Cancel streaming command with Esc (only for commands that add to messages, not /curate or /query)
@@ -191,16 +199,19 @@ export const CommandInput = () => {
       const trimmed = value.trim()
       if (!trimmed) return
 
-      // During query onboarding step, only allow /query commands
-      if (isOnboarding && currentStep === 'query' && !trimmed.startsWith('/query ')) return
-
       // Clear command input immediately
       setInputValue('')
+
+      // Remove from highlighted commands if it's a slash command
+      if (trimmed.startsWith('/')) {
+        const commandName = trimmed.slice(1).split(' ')[0]
+        removeHighlightedCommand(commandName)
+      }
 
       // Commands that create tasks (shown as ActivityLog) should not add command messages
       // to avoid duplicates in the activity feed
       const commandName = trimmed.startsWith('/') ? trimmed.slice(1).split(' ')[0] : ''
-      const isTaskCommand = commandName === 'curate' || commandName === 'query'
+      const isTaskCommand = commandName === 'curate' || commandName === 'query' || commandName === 'q'
 
       if (!isTaskCommand) {
         setMessages((prev) => [
@@ -292,7 +303,7 @@ export const CommandInput = () => {
               }
 
               if (sideEffects.restartAgent && client) {
-                await client.request('agent:restart', {reason: sideEffects.restartAgent.reason})
+                await client.requestWithAck('agent:restart', {reason: sideEffects.restartAgent.reason})
               }
             }
           },
@@ -364,15 +375,15 @@ export const CommandInput = () => {
           focus={!activePrompt && (mode === 'main' || mode === 'suggestions')}
           key={inputKey}
           onChange={(value) => {
-            if (!isInCurateStep) setInputValue(value)
+            if (!isInCurate || isInCurating || isInQuery || isInQuerying) setInputValue(value)
 
-            if (isOnboarding && currentStep === 'explore' && value.startsWith('/')) {
+            if (isInExplore && value.startsWith('/')) {
               complete()
             }
           }}
           onSubmit={handleSubmit}
-          placeholder={getPlaceholder()}
-          showCursor={!isInCurateStep}
+          placeholder={placeholder}
+          showCursor={!(isInCurate || isInQuery)}
           value={displayInputValue}
         />
       </Box>
