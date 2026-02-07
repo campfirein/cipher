@@ -22,28 +22,21 @@ describe('cipher/tools', () => {
 
     it('should export KnownTool type', () => {
       // Type-only export, verified in compile-time tests
-      const toolName: KnownTool = 'bash_exec'
+      const toolName: KnownTool = 'code_exec'
       expectTypeOf<KnownTool>(toolName)
     })
   })
 
   describe('Runtime Constants - ToolName', () => {
     it('should have all expected tool name properties', () => {
-      expect(ToolName.BASH_EXEC).to.equal('bash_exec')
-      expect(ToolName.BASH_OUTPUT).to.equal('bash_output')
+      expect(ToolName.CODE_EXEC).to.equal('code_exec')
       expect(ToolName.CURATE).to.equal('curate')
-      expect(ToolName.DELETE_MEMORY).to.equal('delete_memory')
-      expect(ToolName.EDIT_FILE).to.equal('edit_file')
-      expect(ToolName.EDIT_MEMORY).to.equal('edit_memory')
       expect(ToolName.GLOB_FILES).to.equal('glob_files')
       expect(ToolName.GREP_CONTENT).to.equal('grep_content')
-      expect(ToolName.KILL_PROCESS).to.equal('kill_process')
-      expect(ToolName.LIST_MEMORIES).to.equal('list_memories')
+      expect(ToolName.LIST_DIRECTORY).to.equal('list_directory')
       expect(ToolName.READ_FILE).to.equal('read_file')
-      expect(ToolName.READ_MEMORY).to.equal('read_memory')
-      expect(ToolName.SEARCH_HISTORY).to.equal('search_history')
+      expect(ToolName.SEARCH_KNOWLEDGE).to.equal('search_knowledge')
       expect(ToolName.WRITE_FILE).to.equal('write_file')
-      expect(ToolName.WRITE_MEMORY).to.equal('write_memory')
     })
 
     it('should have correct number of tool names', () => {
@@ -58,7 +51,7 @@ describe('cipher/tools', () => {
 
   describe('Type Safety - KnownTool', () => {
     it('should derive union type from ToolName object', () => {
-      const tool1: KnownTool = 'bash_exec'
+      const tool1: KnownTool = 'code_exec'
       const tool2: KnownTool = 'read_file'
       const tool3: KnownTool = 'write_file'
 
@@ -69,21 +62,14 @@ describe('cipher/tools', () => {
 
     it('should include all tool names in union', () => {
       const allTools: KnownTool[] = [
-        'bash_exec',
-        'bash_output',
+        'code_exec',
         'curate',
-        'delete_memory',
-        'edit_file',
-        'edit_memory',
         'glob_files',
         'grep_content',
-        'kill_process',
-        'list_memories',
+        'list_directory',
         'read_file',
-        'read_memory',
-        'search_history',
+        'search_knowledge',
         'write_file',
-        'write_memory',
       ]
 
       for (const tool of allTools) {

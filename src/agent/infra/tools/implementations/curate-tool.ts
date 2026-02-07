@@ -20,9 +20,15 @@ type OperationType = z.infer<typeof OperationType>
  * Raw Concept schema for structured metadata and technical footprint.
  */
 const RawConceptSchema = z.object({
+  author: z.string().optional().describe('Author or source attribution (e.g., "meowso", "Team Security")'),
   changes: z.array(z.string()).optional().describe('What changes in the codebase are induced by this concept'),
   files: z.array(z.string()).optional().describe('Which files are related to this concept'),
   flow: z.string().optional().describe('What is the flow included in this concept'),
+  patterns: z.array(z.object({
+    description: z.string().describe('What this pattern matches or validates'),
+    flags: z.string().optional().describe('Pattern flags (e.g., "gi" for regex)'),
+    pattern: z.string().describe('The exact pattern string (e.g., regex pattern)')
+  })).optional().describe('Regex or validation patterns related to this concept'),
   task: z.string().optional().describe('What is the task related to this concept'),
   timestamp: z
     .string()
@@ -40,12 +46,14 @@ const NarrativeSchema = z.object({
     .describe(
       'Dependency management information (e.g., "Singleton, init when service starts, hard dependency in smoke test")',
     ),
+  examples: z.string().optional().describe('Concrete examples and use cases demonstrating the concept'),
   features: z
     .string()
     .optional()
     .describe(
       'Feature documentation for this concept (e.g., "User permission can be stale for up to 300 seconds due to Redis cache")',
     ),
+  rules: z.string().optional().describe('Exact rules, constraints, or guidelines - preserved verbatim from source'),
   structure: z.string().optional().describe('Code structure documentation (e.g., "clients/redis_client.go")'),
 })
 
