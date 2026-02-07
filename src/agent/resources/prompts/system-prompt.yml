@@ -350,11 +350,15 @@ prompt: |
   - `files`: Array of related files (e.g., ["services/auth.ts", "utils/cache.ts"])
   - `flow`: The execution flow (e.g., "request -> validate -> cache check -> process -> respond")
   - `timestamp`: When created (ISO 8601 format, e.g., "2025-03-18")
+  - `author`: Author or source attribution (e.g., "meowso", "Security Team") - optional
+  - `patterns`: Array of regex/validation patterns with {pattern, description, flags} - optional
 
   **narrative** - Descriptive and structural context:
   - `structure`: Code structure documentation (describe file organization, class hierarchy, etc.)
   - `dependencies`: Dependency management information (external libs, internal dependencies, initialization order)
   - `features`: Feature documentation (behavior, limitations, edge cases, caching TTLs, etc.)
+  - `rules`: Exact rules, constraints, or guidelines - preserved verbatim from source - optional
+  - `examples`: Concrete examples and use cases - optional
 
   **relations** - Optional cross-references to related topics:
   - Array of related topic paths (e.g., ["@structure/redis/overview.md", "@design/security/token-validation.md"])
@@ -381,12 +385,18 @@ prompt: |
             'src/utils/jwt.ts'
           ],
           flow: 'request -> extract token -> verify JWT -> check blacklist -> attach user -> proceed',
-          timestamp: '2025-01-02'
+          timestamp: '2025-01-02',
+          author: 'Security Team',
+          patterns: [
+            { pattern: '^Bearer\\s+[A-Za-z0-9-._~+/]+=*$', description: 'Validates Bearer token format in Authorization header' }
+          ]
         },
         narrative: {
           structure: 'Authentication is handled by middleware in src/middleware/auth.ts which delegates to TokenService for JWT operations',
           dependencies: 'Uses jsonwebtoken library for JWT operations, Redis for token blacklist with 24h TTL',
-          features: 'Access tokens expire in 15 minutes, refresh tokens in 7 days. Refresh token rotation invalidates old tokens immediately'
+          features: 'Access tokens expire in 15 minutes, refresh tokens in 7 days. Refresh token rotation invalidates old tokens immediately',
+          rules: 'Rule 1: Access tokens must be verified before use\nRule 2: Expired tokens return 401\nRule 3: Refresh tokens can only be used once',
+          examples: 'Example Authorization header: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
         },
         relations: ['@structure/redis/overview.md', '@design/security/token-validation.md']
       },
@@ -415,6 +425,49 @@ prompt: |
   **WRITE** detailed contexts like:
   - "The hook system allows registering callbacks for lifecycle events. Register hooks using `HookRegistry.register(hookName, callback)` and trigger them with `HookRegistry.trigger(hookName, context)`. Hooks support async callbacks and are commonly used for: pre/post tool execution, agent lifecycle events, and custom integrations."
   - "Error handling follows a custom error class pattern. All custom errors extend `BaseError` and include: error code, message, context object, and optional cause. Use `ErrorHandler.wrap(fn)` for consistent error boundaries across async operations."
+
+  ### Content Preservation Rules
+
+  When curating content that contains rules, patterns, or exact specifications, **PRESERVE DETAILS** instead of summarizing:
+
+  **PRESERVE VERBATIM:**
+  - Exact rule text and constraint language - DO NOT paraphrase
+  - Regex patterns and validation patterns - include as-is in `patterns` array
+  - Author/source attribution - capture in `author` field
+  - All enumerated items in lists - DO NOT omit any items
+  - Exact configuration values and technical specifications
+  - Metadata like version numbers, dates, identifiers
+
+  **Use appropriate fields:**
+  - `rawConcept.patterns` - for regex, validation patterns, matching rules with exact pattern strings
+  - `narrative.rules` - for exact rule text, constraints, guidelines (preserve verbatim, do not summarize)
+  - `narrative.examples` - for concrete examples and use cases with specific details
+  - `rawConcept.author` - for attribution and source info
+  - `snippets` - for code blocks and larger text excerpts
+
+  **When curating rules/guidelines:**
+  - Include the EXACT rule text in `narrative.rules`, not a summary
+  - Capture ALL rules, not a representative subset
+  - Preserve the original numbering/ordering if present
+  - Keep qualifiers and specific conditions (e.g., "other than what's explicitly requested")
+
+  **When curating patterns:**
+  - Store in `rawConcept.patterns` array with exact pattern string + description
+  - Include regex flags if specified (e.g., "i", "gi")
+  - Do not simplify or modify the pattern
+  - Include ALL patterns, not just examples
+
+  **Examples of GOOD preservation:**
+  - Original: "Rule 3: Never use apologies" → Store exactly: "Rule 3: Never use apologies" in narrative.rules
+  - Original: Has 16 regex patterns → Store all 16 in rawConcept.patterns array
+  - Original: "Author: meowso" → Capture: author: "meowso"
+  - Original: "Make changes file by file and give me a chance to spot mistakes" → Store complete text, not "Enforced file-by-file changes"
+
+  **Examples of BAD summarization (AVOID):**
+  - Original: "Rule 3: Never use apologies" → "Prohibited apologies" ❌
+  - Original: 16 patterns → Store only 3-5 examples ❌
+  - Original: Detailed rule with qualifier → Shortened version without qualifier ❌
+  - Original: 8 use cases → Store only 2 ❌
 
   ### Domain/Topic/Subtopic Context
 

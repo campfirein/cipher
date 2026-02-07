@@ -4,7 +4,6 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import type {
-  EditFileResult,
   GlobFilesResult,
   GrepContentResult,
   ReadFileResult,
@@ -12,7 +11,6 @@ import type {
 } from '../../../shared/tool-result-types.js'
 
 import {FileSystemService} from '../../../../src/agent/infra/file-system/file-system-service.js'
-import {createEditFileTool} from '../../../../src/agent/infra/tools/implementations/edit-file-tool.js'
 import {createGlobFilesTool} from '../../../../src/agent/infra/tools/implementations/glob-files-tool.js'
 import {createGrepContentTool} from '../../../../src/agent/infra/tools/implementations/grep-content-tool.js'
 import {createReadFileTool} from '../../../../src/agent/infra/tools/implementations/read-file-tool.js'
@@ -29,12 +27,6 @@ function assertReadFileResult(result: unknown): asserts result is ReadFileResult
 function assertWriteFileResult(result: unknown): asserts result is WriteFileResult {
   if (typeof result !== 'object' || result === null || !('success' in result)) {
     throw new Error('Expected WriteFileResult')
-  }
-}
-
-function assertEditFileResult(result: unknown): asserts result is EditFileResult {
-  if (typeof result !== 'object' || result === null || !('success' in result) || !('replacements' in result)) {
-    throw new Error('Expected EditFileResult')
   }
 }
 
@@ -107,31 +99,6 @@ describe('File System Tools Integration', () => {
       assertReadFileResult(readResult)
       // Content is now formatted with line numbers
       expect(readResult.content).to.include('New Content')
-    })
-  })
-
-  describe('edit_file', () => {
-    it('should edit file content', async () => {
-      const filePath = join(testDir, 'edit.txt')
-      await writeFile(filePath, 'Hello Old World')
-
-      const tool = createEditFileTool(fileSystemService)
-      const result = await tool.execute({
-        filePath,
-        newString: 'New',
-        oldString: 'Old',
-      })
-      assertEditFileResult(result)
-
-      expect(result.success).to.be.true
-      expect(result.replacements).to.equal(1)
-
-      // Verify content
-      const readTool = createReadFileTool(fileSystemService)
-      const readResult = await readTool.execute({filePath})
-      assertReadFileResult(readResult)
-      // Content is now formatted with line numbers
-      expect(readResult.content).to.include('Hello New World')
     })
   })
 

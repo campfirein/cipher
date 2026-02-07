@@ -1,8 +1,8 @@
 import path from 'node:path'
 
-import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
-import type {IFolderPackService} from '../../../agent/core/interfaces/i-folder-pack-service.js'
-import type {FolderPackExecuteOptions, IFolderPackExecutor} from '../../core/interfaces/executor/i-folder-pack-executor.js'
+import type { ICipherAgent } from '../../../agent/core/interfaces/i-cipher-agent.js'
+import type { IFolderPackService } from '../../../agent/core/interfaces/i-folder-pack-service.js'
+import type { FolderPackExecuteOptions, IFolderPackExecutor } from '../../core/interfaces/executor/i-folder-pack-executor.js'
 
 /**
  * FolderPackExecutor - Executes folder pack + curate tasks with an injected CipherAgent.
@@ -20,10 +20,10 @@ import type {FolderPackExecuteOptions, IFolderPackExecutor} from '../../core/int
  * - Executor focuses solely on folder pack + curate execution
  */
 export class FolderPackExecutor implements IFolderPackExecutor {
-  constructor(private readonly folderPackService: IFolderPackService) {}
+  constructor(private readonly folderPackService: IFolderPackService) { }
 
   public async executeWithAgent(agent: ICipherAgent, options: FolderPackExecuteOptions): Promise<string> {
-    const {clientCwd, content, folderPath, taskId} = options
+    const { clientCwd, content, folderPath, taskId } = options
 
     // Resolve folder path
     const basePath = clientCwd ?? process.cwd()
@@ -44,7 +44,7 @@ export class FolderPackExecutor implements IFolderPackExecutor {
 
     // Execute with curate commandType
     const response = await agent.execute(prompt, {
-      executionContext: {commandType: 'curate'},
+      executionContext: { commandType: 'curate' },
       taskId,
     })
 
@@ -69,25 +69,38 @@ ${xml}
 
 ## Instructions
 
-Analyze this folder and extract knowledge using \`tools.curate()\`. Focus on:
+Analyze this folder and extract knowledge using \`tools.curate()\`. Your goal is to **preserve details**, not summarize.
 
-1. **High-level architecture** - How the codebase is organized
-2. **Key modules and their purposes** - What each major component does
-3. **Configuration patterns** - How the project is configured
-4. **Important dependencies** - Key external libraries and their usage
+**CONTENT PRESERVATION (CRITICAL):**
+- Preserve EXACT wording for rules, constraints, and configuration values - DO NOT paraphrase
+- Capture ALL items in enumerations and lists - do not omit any
+- Store regex patterns, validation patterns verbatim in \`rawConcept.patterns\` array
+- Capture author/source attribution in \`rawConcept.author\` field
+- Use \`narrative.rules\` for exact rule text - preserve verbatim, not summaries
+- Use \`narrative.examples\` for concrete examples and use cases with specific details
+- Completeness over conciseness - err on the side of verbosity
+
+**WHAT TO EXTRACT:**
+1. **Architectural patterns** - How the codebase is organized, key design decisions
+2. **Rules and constraints** - Exact verbatim text from docs, comments, config files (use narrative.rules)
+3. **Validation patterns** - Regex, validation rules with exact patterns (use rawConcept.patterns)
+4. **Configuration** - Settings, constants, feature flags with exact values
 5. **Domain concepts** - Business logic and domain-specific patterns
+6. **Metadata** - Authors, versions, dates, sources (use rawConcept.author)
 
-For each knowledge topic you identify:
-- Use \`tools.curate()\` with appropriate operations (ADD, UPDATE, MERGE)
-- Create clear, hierarchical paths in the context tree (e.g., "architecture/overview", "modules/authentication")
-- Include relevant code references and examples
+**For each knowledge topic:**
+- Use \`tools.curate()\` with UPSERT operations (preferred - auto-detects ADD vs UPDATE)
+- Create clear, hierarchical paths (e.g., "rules/code_quality", "patterns/validation")
+- Include ALL details from the source - if there are 16 patterns, store all 16, not 3-5 examples
+- Preserve exact text for rules - if a rule says "Make changes file by file and give me a chance to spot mistakes", store that exact text in narrative.rules
 - Link related topics using the Relations section
+- Use the new fields (author, patterns, rules, examples) when applicable
 
-**IMPORTANT:**
-- Focus on extractable knowledge, not just file listings
-- Prioritize architectural insights over implementation details
-- Create topics that would help a new developer understand the codebase
-- Use MERGE operations when updating existing topics to preserve existing content
+**PRIORITIZATION:**
+- Completeness over conciseness
+- Exact content over summaries
+- All items over representative samples
+- Preservation over interpretation
 `
   }
 }
