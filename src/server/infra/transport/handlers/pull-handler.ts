@@ -95,11 +95,17 @@ export class PullHandler {
 
     this.broadcastToProject(projectPath, PullEvents.PROGRESS, {message: 'Syncing files...', step: 'syncing'})
 
-    await this.contextTreeWriterService.sync({directory: projectPath, files: snapshot.files})
+    const syncResult = await this.contextTreeWriterService.sync({directory: projectPath, files: snapshot.files})
     await this.contextTreeSnapshotService.saveSnapshot(projectPath)
     await this.trackingService.track('mem:pull')
 
-    return {success: true}
+    return {
+      added: syncResult.added.length,
+      commitSha: snapshot.commitSha,
+      deleted: syncResult.deleted.length,
+      edited: syncResult.edited.length,
+      success: true,
+    }
   }
 
   private async handlePrepare(_data: PullPrepareRequest, clientId: string): Promise<PullPrepareResponse> {

@@ -78,7 +78,7 @@ export class PushHandler {
       throw new Error('Project not initialized')
     }
 
-    this.broadcastToProject(projectPath, PushEvents.PROGRESS, {message: 'Reading files...', step: 'reading'})
+    this.broadcastToProject(projectPath, PushEvents.PROGRESS, {message: 'Reading context files...', step: 'reading'})
 
     const changes = await this.contextTreeSnapshotService.getChanges(projectPath)
     const [addedFiles, modifiedFiles] = await Promise.all([

@@ -112,8 +112,8 @@ export async function setupFeatureHandlers({
   const contextTreeSnapshotService = new FileContextTreeSnapshotService()
   const contextTreeWriterService = new FileContextTreeWriterService({snapshotService: contextTreeSnapshotService})
   const contextFileReader = new FileContextFileReader()
-  const cogitPushService = new HttpCogitPushService({apiBaseUrl: envConfig.apiBaseUrl})
-  const cogitPullService = new HttpCogitPullService({apiBaseUrl: envConfig.apiBaseUrl})
+  const cogitPushService = new HttpCogitPushService({apiBaseUrl: envConfig.cogitApiBaseUrl})
+  const cogitPullService = new HttpCogitPullService({apiBaseUrl: envConfig.cogitApiBaseUrl})
 
   // ConnectorManager factory — creates per-project instances since constructor binds to projectRoot
   const fileService = new FsFileService()
