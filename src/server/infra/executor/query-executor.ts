@@ -6,7 +6,12 @@ import type { ISearchKnowledgeService, SearchKnowledgeResult } from '../../../ag
 import type { IQueryExecutor, QueryExecuteOptions } from '../../core/interfaces/executor/i-query-executor.js'
 
 import { BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR } from '../../constants.js'
-import { canRespondDirectly, type DirectSearchResult, formatDirectResponse } from './direct-search-responder.js'
+import {
+  canRespondDirectly,
+  type DirectSearchResult,
+  formatDirectResponse,
+  formatNotFoundResponse,
+} from './direct-search-responder.js'
 import { QueryResultCache } from './query-result-cache.js'
 
 /** Minimum MiniSearch score to consider a result high-confidence for pre-fetching */
@@ -48,7 +53,9 @@ export interface QueryExecutorDeps {
  * - Tier 4: Full agentic loop fallback (8-15s)
  */
 export class QueryExecutor implements IQueryExecutor {
+  private static readonly FINGERPRINT_CACHE_TTL_MS = 30_000
   private readonly cache?: QueryResultCache
+  private cachedFingerprint?: { expiresAt: number; value: string }
   private readonly fileSystem?: IFileSystem
   private readonly searchService?: ISearchKnowledgeService
 
@@ -62,6 +69,11 @@ export class QueryExecutor implements IQueryExecutor {
 
   public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string> {
     const { query, taskId } = options
+
+    // Start search early — runs in parallel with fingerprint computation (independent operations)
+    const searchPromise = this.searchService?.search(query, { limit: SMART_ROUTING_MAX_DOCS })
+    // Prevent unhandled rejection if we return early (cache hit) while search is still pending
+    searchPromise?.catch(() => {})
 
     // === Tier 0: Exact cache hit (0ms) ===
     let fingerprint: string | undefined
@@ -81,14 +93,22 @@ export class QueryExecutor implements IQueryExecutor {
       }
     }
 
-    // Single search — reused by Tier 2 (direct response) and Tier 3 (smart routing)
+    // Await search result (already started in parallel with fingerprint computation)
     let searchResult: SearchKnowledgeResult | undefined
-    if (this.searchService) {
-      try {
-        searchResult = await this.searchService.search(query, { limit: SMART_ROUTING_MAX_DOCS })
-      } catch {
-        // Search failure is non-fatal — fall through to LLM
+    try {
+      searchResult = await searchPromise
+    } catch {
+      // Search failed, proceed without pre-fetched context
+    }
+
+    // === OOD short-circuit: no results means topic not covered ===
+    if (searchResult && searchResult.results.length === 0) {
+      const response = formatNotFoundResponse(query)
+      if (this.cache && fingerprint) {
+        this.cache.set(query, response, fingerprint)
       }
+
+      return response
     }
 
     // === Tier 2: Direct search response (~100-200ms) ===
@@ -170,7 +190,8 @@ ${prefetchedContext}
 ## Instructions
 
 Answer the user's question using the pre-fetched context above.
-If the context is insufficient, you may use \`code_exec\` with the \`tools.*\` SDK for additional searches.
+If the pre-fetched context does not directly address the user's query topic, respond that the topic is not covered in the knowledge base. Do not attempt to answer from tangentially related content.
+If the context is insufficient but relevant, you may use \`code_exec\` with the \`tools.*\` SDK for additional searches.
 
 ### Response Format
 - **Summary**: Direct answer (2-3 sentences)
@@ -200,6 +221,11 @@ Use \`code_exec\` to run a programmatic search with the \`tools.*\` SDK.
    * the fingerprint changes and cached results are invalidated.
    */
   private async computeContextTreeFingerprint(): Promise<string> {
+    // Fast path: return cached fingerprint if still valid (avoids globFiles I/O)
+    if (this.cachedFingerprint && Date.now() < this.cachedFingerprint.expiresAt) {
+      return this.cachedFingerprint.value
+    }
+
     try {
       const contextTreePath = join(BRV_DIR, CONTEXT_TREE_DIR)
       const globResult = await this.fileSystem!.globFiles(`**/*${CONTEXT_FILE_EXTENSION}`, {
@@ -214,7 +240,12 @@ Use \`code_exec\` to run a programmatic search with the \`tools.*\` SDK.
         path: f.path,
       }))
 
-      return QueryResultCache.computeFingerprint(files)
+      const fingerprint = QueryResultCache.computeFingerprint(files)
+      this.cachedFingerprint = {
+        expiresAt: Date.now() + QueryExecutor.FINGERPRINT_CACHE_TTL_MS,
+        value: fingerprint,
+      }
+      return fingerprint
     } catch {
       return 'unknown'
     }
@@ -224,7 +255,7 @@ Use \`code_exec\` to run a programmatic search with the \`tools.*\` SDK.
    * Attempt to produce a direct response from search results without LLM.
    * Returns formatted response if high-confidence dominant match found, undefined otherwise.
    *
-   * Uses higher thresholds than smart routing (score >= 20, 3x dominance)
+   * Uses higher thresholds than smart routing (score >= 8, 2x dominance)
    * to ensure only clearly answerable queries bypass the LLM.
    */
   private async tryDirectSearchResponse(

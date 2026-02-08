@@ -1,8 +1,11 @@
+/** Score at which the result is so strong that dominance check is skipped */
+export const DIRECT_RESPONSE_HIGH_CONFIDENCE_THRESHOLD = 15
+
 /** Minimum score for the top result to qualify for a direct (no-LLM) response */
-export const DIRECT_RESPONSE_SCORE_THRESHOLD = 20
+export const DIRECT_RESPONSE_SCORE_THRESHOLD = 8
 
 /** Top result must be N times the second result's score to be considered dominant */
-export const DIRECT_RESPONSE_DOMINANCE_RATIO = 3
+export const DIRECT_RESPONSE_DOMINANCE_RATIO = 2
 
 /** Maximum content length per document in the direct response */
 const MAX_CONTENT_LENGTH = 1500
@@ -25,8 +28,9 @@ export interface DirectSearchResult {
  * without involving the LLM.
  *
  * Requires:
- * 1. Top result score >= DIRECT_RESPONSE_SCORE_THRESHOLD (high confidence)
- * 2. Top result dominates other results (score >= 3x the second result)
+ * 1. Top result score >= DIRECT_RESPONSE_SCORE_THRESHOLD (minimum confidence)
+ * 2. Either: top score >= HIGH_CONFIDENCE_THRESHOLD (strong enough to skip dominance check)
+ *    Or: top result dominates other results (score >= 2x the second result)
  *
  * @param results - Sorted search results (highest score first)
  * @returns true if a direct response can be served
@@ -37,8 +41,11 @@ export function canRespondDirectly(results: DirectSearchResult[]): boolean {
   const topResult = results[0]
   if (topResult.score < DIRECT_RESPONSE_SCORE_THRESHOLD) return false
 
-  // Single high-confidence result
+  // Single result that passes threshold
   if (results.length === 1) return true
+
+  // High-confidence path: score so strong that dominance is irrelevant
+  if (topResult.score >= DIRECT_RESPONSE_HIGH_CONFIDENCE_THRESHOLD) return true
 
   const secondScore = results[1].score
   if (secondScore === 0) return true
@@ -82,4 +89,21 @@ ${details}
 ${sources}
 
 **Gaps**: This is a direct match from the context tree. For deeper analysis or cross-topic synthesis, try a more specific question.`
+}
+
+/**
+ * Format a "not found" response when OOD detection determines
+ * the query topic is not covered in the knowledge base.
+ *
+ * @param query - Original user query
+ * @returns Formatted not-found response string
+ */
+export function formatNotFoundResponse(query: string): string {
+  return `**Summary**: No matching knowledge found for "${query}".
+
+**Details**: The topic does not appear to be covered in the context tree. This could mean the topic hasn't been curated yet.
+
+**Sources**: None
+
+**Gaps**: Try rephrasing your query with different terms, or use /curate to add knowledge about this topic.`
 }

@@ -10,11 +10,26 @@ import { BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR } from '../../../../s
 const MAX_CONTEXT_TREE_FILES = 10_000
 const DEFAULT_CACHE_TTL_MS = 5000
 
+/** Bump when MINISEARCH_OPTIONS fields/boost change to invalidate cached indexes */
+const INDEX_SCHEMA_VERSION = 3
+
+/** Only include results whose score is at least this fraction of the top result's score */
+const SCORE_GAP_RATIO = 0.2
+
+/** Minimum absolute score for the top result. Below this, the query is considered out-of-domain */
+const MINIMUM_RELEVANCE_SCORE = 4
+
+/** Score threshold above which results are trusted despite unmatched query terms */
+const UNMATCHED_TERM_SCORE_THRESHOLD = 8
+
+/** Minimum query term length to consider "significant" for OOD term-based detection */
+const UNMATCHED_TERM_MIN_LENGTH = 4
+
 const MINISEARCH_OPTIONS = {
-  fields: ['title', 'content'] as string[],
+  fields: ['title', 'content', 'path'] as string[],
   idField: 'id' as const,
   searchOptions: {
-    boost: { title: 2 },
+    boost: { path: 1.5, title: 3 },
     fuzzy: 0.2,
     prefix: true,
   },
@@ -35,6 +50,7 @@ interface CachedIndex {
   fileMtimes: Map<string, number>
   index: MiniSearch<IndexedDocument>
   lastValidatedAt: number
+  schemaVersion: number
 }
 
 /**
@@ -62,6 +78,29 @@ function filterStopWords(query: string): string {
   const words = query.toLowerCase().split(/\s+/)
   const filtered = removeStopwords(words)
   return filtered.length > 0 ? filtered.join(' ') : query
+}
+
+/**
+ * Checks if any significant query term is completely unmatched across search results.
+ * Uses MiniSearch's queryTerms property to identify which terms actually matched.
+ * A "significant" term is one with length >= UNMATCHED_TERM_MIN_LENGTH (filters out
+ * short generic words that are noisy for OOD detection).
+ */
+function hasUnmatchedSignificantTerms(
+  queryTerms: string[],
+  searchResults: Array<{ queryTerms: string[] }>,
+): boolean {
+  const significantTerms = queryTerms.filter((t) => t.length >= UNMATCHED_TERM_MIN_LENGTH)
+  if (significantTerms.length === 0) return false
+
+  const allMatchedQueryTerms = new Set<string>()
+  for (const result of searchResults.slice(0, 10)) {
+    for (const term of result.queryTerms) {
+      allMatchedQueryTerms.add(term)
+    }
+  }
+
+  return significantTerms.some((t) => !allMatchedQueryTerms.has(t))
 }
 
 function extractTitle(content: string, fallbackTitle: string): string {
@@ -176,6 +215,7 @@ async function buildFreshIndex(
       fileMtimes: new Map(),
       index,
       lastValidatedAt: now,
+      schemaVersion: INDEX_SCHEMA_VERSION,
     }
   }
 
@@ -216,6 +256,7 @@ async function buildFreshIndex(
     fileMtimes,
     index,
     lastValidatedAt: now,
+    schemaVersion: INDEX_SCHEMA_VERSION,
   }
 }
 
@@ -235,6 +276,7 @@ async function acquireIndex(
   if (
     state.cachedIndex &&
     state.cachedIndex.contextTreePath === contextTreePath &&
+    state.cachedIndex.schemaVersion === INDEX_SCHEMA_VERSION &&
     ttlMs > 0 &&
     now - state.cachedIndex.lastValidatedAt < ttlMs
   ) {
@@ -262,6 +304,7 @@ async function acquireIndex(
           fileMtimes: new Map(),
           index: emptyIndex,
           lastValidatedAt: 0,
+          schemaVersion: INDEX_SCHEMA_VERSION,
         }
       }
     }
@@ -272,6 +315,7 @@ async function acquireIndex(
     if (
       state.cachedIndex &&
       state.cachedIndex.contextTreePath === contextTreePath &&
+      state.cachedIndex.schemaVersion === INDEX_SCHEMA_VERSION &&
       isCacheValid(state.cachedIndex, currentFiles)
     ) {
       // Update timestamp atomically by creating a new object
@@ -363,22 +407,74 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     }
 
     const filteredQuery = filterStopWords(query)
-    const searchResults = index.search(filteredQuery, { combineWith: 'OR' })
+    const filteredWords = filteredQuery.split(/\s+/).filter((w) => w.length >= 2)
+
+    // AND-first strategy: for multi-word queries, try AND for concentrated scores.
+    // If AND returns no results, fall back to OR to ensure no regression.
+    let searchResults: Array<{ id: string; queryTerms: string[]; score: number }>
+    let andSearchFailed = false
+    if (filteredWords.length >= 2) {
+      searchResults = index.search(filteredQuery, { combineWith: 'AND' })
+      if (searchResults.length === 0) {
+        andSearchFailed = true
+        searchResults = index.search(filteredQuery, { combineWith: 'OR' })
+      }
+    } else {
+      searchResults = index.search(filteredQuery, { combineWith: 'OR' })
+    }
 
     const results: Array<{ excerpt: string; path: string; score: number; title: string }> = []
-    const resultLimit = Math.min(limit, searchResults.length)
 
-    for (let i = 0; i < resultLimit; i++) {
-      const result = searchResults[i]
-      const document = documentMap.get(result.id)
+    if (searchResults.length > 0) {
+      // OOD detection: if the best result scores below the minimum floor,
+      // the query has no meaningful match in the knowledge base.
+      // Only apply for corpora with enough documents for reliable BM25 scoring.
+      if (documentMap.size >= 50 && searchResults[0].score < MINIMUM_RELEVANCE_SCORE) {
+        return {
+          message:
+            'No matching knowledge found for this query. The topic may not be covered in the context tree.',
+          results: [],
+          totalFound: 0,
+        }
+      }
 
-      if (document) {
-        results.push({
-          excerpt: extractExcerpt(document.content, query),
-          path: document.path,
-          score: Math.round(result.score * 100) / 100,
-          title: document.title,
-        })
+      // Term-based OOD: when AND search failed, check if significant query terms
+      // are completely absent from the corpus. If unmatched terms exist and the
+      // score is below the trusted threshold, the query is about an uncovered topic.
+      if (
+        andSearchFailed &&
+        documentMap.size >= 50 &&
+        searchResults[0].score < UNMATCHED_TERM_SCORE_THRESHOLD &&
+        hasUnmatchedSignificantTerms(filteredWords, searchResults)
+      ) {
+        return {
+          message:
+            'No matching knowledge found for this query. The topic may not be covered in the context tree.',
+          results: [],
+          totalFound: 0,
+        }
+      }
+
+      const topScore = searchResults[0].score
+      const scoreFloor = topScore * SCORE_GAP_RATIO
+      const resultLimit = Math.min(limit, searchResults.length)
+
+      for (let i = 0; i < resultLimit; i++) {
+        const result = searchResults[i]
+
+        // Score-gap filter: skip results too far below the top score
+        if (result.score < scoreFloor) break
+
+        const document = documentMap.get(result.id)
+
+        if (document) {
+          results.push({
+            excerpt: extractExcerpt(document.content, query),
+            path: document.path,
+            score: Math.round(result.score * 100) / 100,
+            title: document.title,
+          })
+        }
       }
     }
 
