@@ -23,6 +23,8 @@ export interface ModelState {
 }
 
 export interface ModelActions {
+  /** Reset store to initial state */
+  reset: () => void
   /** Set active model ID */
   setActiveModel: (modelId: null | string) => void
   /** Set loading state */
@@ -31,12 +33,18 @@ export interface ModelActions {
   setModels: (data: {activeModel?: string; favorites: string[]; models: ModelDTO[]; recent: string[]}) => void
 }
 
-export const useModelStore = create<ModelActions & ModelState>()((set) => ({
+const initialState: ModelState = {
   activeModel: null,
   favorites: [],
   isLoading: false,
   models: [],
   recent: [],
+}
+
+export const useModelStore = create<ModelActions & ModelState>()((set) => ({
+  ...initialState,
+
+  reset: () => set(initialState),
 
   setActiveModel: (modelId) => set({activeModel: modelId}),
 

@@ -19,6 +19,8 @@ export interface ProviderState {
 }
 
 export interface ProviderActions {
+  /** Reset store to initial state */
+  reset: () => void
   /** Set active provider ID */
   setActiveProviderId: (providerId: null | string) => void
   /** Set loading state */
@@ -29,10 +31,16 @@ export interface ProviderActions {
   updateProvider: (providerId: string, update: Partial<ProviderDTO>) => void
 }
 
-export const useProviderStore = create<ProviderActions & ProviderState>()((set) => ({
+const initialState: ProviderState = {
   activeProviderId: null,
   isLoading: false,
   providers: [],
+}
+
+export const useProviderStore = create<ProviderActions & ProviderState>()((set) => ({
+  ...initialState,
+
+  reset: () => set(initialState),
 
   setActiveProviderId: (providerId) => set({activeProviderId: providerId}),
 

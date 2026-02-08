@@ -381,7 +381,7 @@ export const CommandInput = () => {
           focus={!activeDialog && (mode === 'main' || mode === 'suggestions')}
           key={inputKey}
           onChange={(value) => {
-            if (!isInCurate || isInCurating || isInQuery || isInQuerying) setInputValue(value)
+            if (!(isInCurate || isInCurating || isInQuery || isInQuerying)) setInputValue(value)
 
             if (isInExplore && value.startsWith('/')) {
               setPendingInput('/')
