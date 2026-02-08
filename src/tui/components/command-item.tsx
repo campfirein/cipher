@@ -22,13 +22,12 @@ export interface CommandItemProps {
 }
 
 export const CommandItem: React.FC<CommandItemProps> = ({isLastMessage, isSelected, message, terminalWidth}) => {
-  const {activePrompt, isStreaming, streamingMessages} = useCommands()
+  const {isStreaming, streamingMessages} = useCommands()
   const {
     theme: {colors},
   } = useTheme()
   const hasCompletedOutput = message.output && message.output.length > 0
-  const showLiveOutput =
-    isLastMessage && (isStreaming || activePrompt) && (streamingMessages.length > 0 || activePrompt)
+  const showLiveOutput = isLastMessage && isStreaming && streamingMessages.length > 0
 
   if (message.type === 'error') {
     return <MessageItem isSelected={isSelected} message={message} />
@@ -56,7 +55,6 @@ export const CommandItem: React.FC<CommandItemProps> = ({isLastMessage, isSelect
         <Box borderTop={false} flexDirection="column" flexGrow={1}>
           {!hasCompletedOutput && showLiveOutput && (
             <LiveStreamingOutput
-              activePrompt={activePrompt}
               isStreaming={isStreaming}
               streamingMessages={streamingMessages}
               terminalWidth={terminalWidth}

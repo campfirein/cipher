@@ -16,3 +16,17 @@ const connectorTypeSet: ReadonlySet<string> = new Set(CONNECTOR_TYPES)
 export function isConnectorType(value: string): value is ConnectorType {
   return connectorTypeSet.has(value)
 }
+
+/**
+ * Connector types that require an agent restart to take effect.
+ */
+const RESTART_REQUIRED_TYPES: ReadonlySet<ConnectorType> = new Set(['hook', 'mcp', 'skill'])
+
+/**
+ * Whether the connector type requires an agent restart to take effect.
+ * Hook, MCP, and skill connectors need the agent process to pick up new configuration.
+ * Rules connectors are passive (agent reads a file on each prompt).
+ */
+export function requiresAgentRestart(type: ConnectorType): boolean {
+  return RESTART_REQUIRED_TYPES.has(type)
+}

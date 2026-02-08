@@ -35,7 +35,7 @@ export function HomePage(): React.ReactNode {
   const {footer, header, messageItem} = useUIHeights()
   const [expandedIndex, setExpandedIndex] = useState<null | number>(null)
   const {logs: logsMessages} = useActivityLogs()
-  const {activePrompt, messages: commandMessages} = useCommands()
+  const {hasActiveDialog, messages: commandMessages} = useCommands()
   const {mode} = useMode()
 
   const isExpanded = expandedIndex !== null
@@ -66,7 +66,7 @@ export function HomePage(): React.ReactNode {
 
   const {selectedIndex} = useFeedNavigation({
     expandedIndex,
-    isActive: mode === 'main' && feedItems.length > 0 && expandedIndex === null && !activePrompt,
+    isActive: mode === 'main' && feedItems.length > 0 && expandedIndex === null && !hasActiveDialog,
     itemCount: feedItems.length,
     onExpandedIndexChange: setExpandedIndex,
   })

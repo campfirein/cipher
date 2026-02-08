@@ -37,7 +37,7 @@ export const ExpandedCommandView: React.FC<ExpandedCommandViewProps> = ({
   onClose,
   terminalWidth,
 }) => {
-  const {activePrompt, isStreaming, streamingMessages} = useCommands()
+  const {isStreaming, streamingMessages} = useCommands()
   const {
     theme: {colors},
   } = useTheme()
@@ -106,7 +106,7 @@ export const ExpandedCommandView: React.FC<ExpandedCommandViewProps> = ({
 
   const displayTime = message.timestamp ? formatTime(message.timestamp) : ''
   const hasCompletedOutput = message.output && message.output.length > 0
-  const showLiveOutput = (isStreaming || activePrompt) && (streamingMessages.length > 0 || activePrompt)
+  const showLiveOutput = isStreaming && streamingMessages.length > 0
 
   if (message.type === 'error') {
     return <MessageItem isActive={isActive} isExpanded message={message} onClose={onClose} />
@@ -127,7 +127,6 @@ export const ExpandedCommandView: React.FC<ExpandedCommandViewProps> = ({
           <Box flexDirection="column">
             {!hasCompletedOutput && showLiveOutput && (
               <LiveStreamingOutput
-                activePrompt={activePrompt}
                 isExpanded
                 isStreaming={isStreaming}
                 streamingMessages={streamingMessages}

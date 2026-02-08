@@ -2,8 +2,9 @@
  * InitFlow Component
  *
  * Multi-step React wizard for the /init command.
- * State machine: select_team → select_space → select_agent → executing → done
+ * State machine: confirm_reinit → select_team → select_space → select_agent → executing → done
  *
+ * 0. Check if project already initialized → confirm re-init if so
  * 1. Fetch teams → auto-select if only one, otherwise show selection
  * 2. Fetch spaces for selected team → auto-select if only one
  * 3. Show agent search/selection
@@ -17,15 +18,19 @@ import type {InitProgressEvent} from '../../../../shared/transport/events/index.
 import type {SpaceDTO, TeamDTO} from '../../../../shared/transport/types/dto.js'
 
 import {InitEvents} from '../../../../shared/transport/events/index.js'
+import {requiresAgentRestart} from '../../../../shared/types/connector-type.js'
+import {InlineConfirm} from '../../../components/inline-prompts/inline-confirm.js'
 import {SelectableList} from '../../../components/selectable-list.js'
 import {useTheme} from '../../../hooks/index.js'
 import {useTransportStore} from '../../../stores/transport-store.js'
+import {getConnectorName} from '../../connectors/utils/get-connector-name.js'
+import {useGetStatus} from '../../status/api/get-status.js'
 import {useExecuteInit} from '../api/execute-init.js'
 import {useGetAgents} from '../api/get-agents.js'
 import {useGetInitSpaces} from '../api/get-spaces.js'
 import {useGetTeams} from '../api/get-teams.js'
 
-type FlowStep = 'executing' | 'select_agent' | 'select_space' | 'select_team'
+type FlowStep = 'confirm_reinit' | 'executing' | 'select_agent' | 'select_space' | 'select_team'
 
 interface ListItem {
   description: string
@@ -49,11 +54,17 @@ export const InitFlow: React.FC<InitFlowProps> = ({force = false, isActive = tru
   const {
     theme: {colors},
   } = useTheme()
-  const [step, setStep] = useState<FlowStep>('select_team')
+  const [step, setStep] = useState<FlowStep>('confirm_reinit')
+  const [forceInit, setForceInit] = useState(force)
   const [selectedTeam, setSelectedTeam] = useState<null | TeamDTO>(null)
   const [selectedSpace, setSelectedSpace] = useState<null | SpaceDTO>(null)
   const [progressMessages, setProgressMessages] = useState<string[]>([])
   const [error, setError] = useState<null | string>(null)
+
+  // Check if project is already initialized
+  const {data: statusData, isLoading: isLoadingStatus} = useGetStatus({
+    queryConfig: {enabled: step === 'confirm_reinit'},
+  })
 
   // Fetch teams
   const {data: teamData, isLoading: isLoadingTeams} = useGetTeams()
@@ -71,6 +82,15 @@ export const InitFlow: React.FC<InitFlowProps> = ({force = false, isActive = tru
   const agents = agentData?.agents ?? []
 
   const executeInitMutation = useExecuteInit()
+
+  // Skip confirmation if not initialized or force flag is set
+  useEffect(() => {
+    if (step !== 'confirm_reinit' || isLoadingStatus) return
+
+    if (force || !statusData?.status.projectInitialized) {
+      setStep('select_team')
+    }
+  }, [step, isLoadingStatus, statusData, force])
 
   // Auto-select team if only one
   useEffect(() => {
@@ -155,15 +175,20 @@ export const InitFlow: React.FC<InitFlowProps> = ({force = false, isActive = tru
         await executeInitMutation.mutateAsync({
           agentId: agent.id,
           connectorType: agent.defaultConnectorType,
-          force,
+          force: forceInit,
           spaceId: selectedSpace.id,
           teamId: selectedTeam.id,
         })
+
+        const restartAgentRequired = requiresAgentRestart(agent.defaultConnectorType)
 
         const lines = [
           'Project initialized successfully!',
           'Configuration saved to: .brv/config.json',
           "NOTE: It's recommended to add .brv/ to your .gitignore file.",
+          restartAgentRequired
+            ? `\n⚠️  Please restart ${agent.name} to apply the new ${getConnectorName(agent.defaultConnectorType)}.`
+            : '',
         ]
         onComplete(lines.join('\n'))
       } catch (error_) {
@@ -173,11 +198,20 @@ export const InitFlow: React.FC<InitFlowProps> = ({force = false, isActive = tru
         unsubscribe?.()
       }
     },
-    [agents, executeInitMutation, force, onComplete, selectedSpace, selectedTeam],
+    [agents, executeInitMutation, forceInit, onComplete, selectedSpace, selectedTeam],
   )
 
+  // Loading status check
+  if (step === 'confirm_reinit' && isLoadingStatus) {
+    return (
+      <Box>
+        <Text color={colors.dimText}>Checking project status...</Text>
+      </Box>
+    )
+  }
+
   // Loading teams
-  if (isLoadingTeams) {
+  if (isLoadingTeams && step === 'select_team') {
     return (
       <Box>
         <Text color={colors.dimText}>Fetching teams...</Text>
@@ -186,6 +220,23 @@ export const InitFlow: React.FC<InitFlowProps> = ({force = false, isActive = tru
   }
 
   switch (step) {
+    case 'confirm_reinit': {
+      return (
+        <InlineConfirm
+          default={false}
+          message="Project already initialized. Re-initialize?"
+          onConfirm={(confirmed) => {
+            if (confirmed) {
+              setForceInit(true)
+              setStep('select_team')
+            } else {
+              onCancel()
+            }
+          }}
+        />
+      )
+    }
+
     case 'executing': {
       return (
         <Box flexDirection="column">

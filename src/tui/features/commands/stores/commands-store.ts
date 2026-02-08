@@ -1,18 +1,17 @@
 /**
  * Commands Store
  *
- * Zustand store for slash command state: messages, prompts, streaming.
+ * Zustand store for slash command state: messages, streaming, dialogs.
  * Command definitions and execution are handled by useCommandsController hook.
  */
 
 import {create} from 'zustand'
 
 import type {CommandMessage, StreamingMessage} from '../../../types/messages.js'
-import type {PromptRequest} from '../../../types/prompts.js'
 
 export interface CommandsState {
-  /** Active inline prompt request */
-  activePrompt: null | PromptRequest
+  /** Whether a dialog command is currently active (blocks input focus and feed navigation) */
+  hasActiveDialog: boolean
   /** Whether a command is currently streaming output */
   isStreaming: boolean
   /** Command messages for display */
@@ -26,8 +25,8 @@ export interface CommandsActions {
   addMessage: (message: CommandMessage) => void
   /** Clear all messages */
   clearMessages: () => void
-  /** Set the active prompt */
-  setActivePrompt: (prompt: null | PromptRequest) => void
+  /** Set whether a dialog command is active */
+  setHasActiveDialog: (hasActiveDialog: boolean) => void
   /** Set streaming state */
   setIsStreaming: (isStreaming: boolean) => void
   /** Set messages directly */
@@ -37,17 +36,17 @@ export interface CommandsActions {
 }
 
 export const useCommandsStore = create<CommandsActions & CommandsState>()((set) => ({
-  activePrompt: null,
-
   addMessage: (message) => set((state) => ({messages: [...state.messages, message]})),
 
-  clearMessages: () => set({activePrompt: null, isStreaming: false, messages: [], streamingMessages: []}),
+  clearMessages: () => set({hasActiveDialog: false, isStreaming: false, messages: [], streamingMessages: []}),
+
+  hasActiveDialog: false,
 
   isStreaming: false,
 
   messages: [],
 
-  setActivePrompt: (prompt) => set({activePrompt: prompt}),
+  setHasActiveDialog: (hasActiveDialog) => set({hasActiveDialog}),
 
   setIsStreaming: (isStreaming) => set({isStreaming}),
 
