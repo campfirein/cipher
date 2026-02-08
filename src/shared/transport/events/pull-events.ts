@@ -18,6 +18,10 @@ export interface PullExecuteRequest {
 }
 
 export interface PullExecuteResponse {
+  added: number
+  commitSha: string
+  deleted: number
+  edited: number
   success: boolean
 }
 

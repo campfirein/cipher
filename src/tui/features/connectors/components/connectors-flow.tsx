@@ -15,8 +15,8 @@ import React, {useCallback, useMemo, useState} from 'react'
 
 import type {AgentDTO, ConnectorDTO} from '../../../../shared/transport/types/dto.js'
 import type {Agent} from '../../../../shared/types/agent.js'
-import type {ConnectorType} from '../../../../shared/types/connector-type.js'
 
+import {type ConnectorType, requiresAgentRestart} from '../../../../shared/types/connector-type.js'
 import {useTheme} from '../../../hooks/index.js'
 import {useGetAgents} from '../api/get-agents.js'
 import {useGetConnectors} from '../api/get-connectors.js'
@@ -156,7 +156,10 @@ export const ConnectorsFlow: React.FC<ConnectorsFlowProps> = ({isActive = true, 
           ? `${agentName} switched from ${getConnectorName(fromType)} to ${getConnectorName(connectorType)}`
           : `${agentName} connected via ${getConnectorName(connectorType)}`
         const prompt = chalk.hex('#0AA77D').italic('> "Save our API authentication patterns, use brv curate"')
+        const restartAgentRequired = requiresAgentRestart(connectorType)
+
         const message = `${statusMessage}
+${restartAgentRequired ? `\n⚠️  Please restart ${agentName} to apply the new ${getConnectorName(connectorType)}.` : ''}
 
 WHAT'S NEXT
 Try this in your next prompt:

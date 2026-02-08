@@ -18,6 +18,7 @@ import type {ITrackingService} from '../../core/interfaces/services/i-tracking-s
 import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
 import type {IInitUseCase, InitUseCaseRunOptions} from '../../core/interfaces/usecase/i-init-use-case.js'
 
+import {requiresAgentRestart} from '../../../shared/types/connector-type.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {ACE_DIR, BRV_CONFIG_VERSION, BRV_DIR, DEFAULT_BRANCH, PROJECT_CONFIG_FILE} from '../../constants.js'
 import {type Agent, AGENT_VALUES} from '../../core/domain/entities/agent.js'
@@ -366,7 +367,7 @@ export class InitUseCase implements IInitUseCase {
         this.terminal.log(`   Installed: ${result.configPath}`)
 
         // Show restart message for hook connector
-        if (['hook', 'mcp', 'skill'].includes(defaultType)) {
+        if (requiresAgentRestart(defaultType)) {
           this.terminal.warn(`\n⚠️  Please restart ${selectedAgent} to apply the new ${defaultType}.`)
         }
       }
@@ -487,7 +488,8 @@ export class InitUseCase implements IInitUseCase {
           if (options.force) {
             await this.cleanupBeforeReInitialization()
           } else {
-            if (format === 'json') { // eslint-disable-line max-depth
+            if (format === 'json') {
+              // eslint-disable-line max-depth
               this.outputJsonResult({
                 error: 'Project already initialized. Use --force to re-initialize.',
                 status: 'error',
@@ -505,7 +507,8 @@ export class InitUseCase implements IInitUseCase {
             await this.cleanupBeforeReInitialization()
             this.terminal.log('\n')
           } else {
-            if (format === 'json') { // eslint-disable-line max-depth
+            if (format === 'json') {
+              // eslint-disable-line max-depth
               this.outputJsonResult({status: 'cancelled'})
             } else {
               this.terminal.log('\nCancelled. Project configuration unchanged.')
@@ -573,11 +576,7 @@ export class InitUseCase implements IInitUseCase {
       // Clone config to XDG storage path (pre-create project data directory)
       const xdgStoragePath = getProjectDataDir(process.cwd())
       await mkdir(xdgStoragePath, {recursive: true})
-      await writeFile(
-        join(xdgStoragePath, PROJECT_CONFIG_FILE),
-        JSON.stringify(config.toJson(), undefined, 2),
-        'utf8',
-      )
+      await writeFile(join(xdgStoragePath, PROJECT_CONFIG_FILE), JSON.stringify(config.toJson(), undefined, 2), 'utf8')
 
       if (!isHeadless) {
         this.terminal.log()

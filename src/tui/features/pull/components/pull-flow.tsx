@@ -70,7 +70,9 @@ export function PullFlow({branch, onComplete}: PullFlowProps): React.ReactNode {
         onSuccess(result) {
           unsubProgress?.()
           if (result.success) {
-            onComplete(`\nSuccessfully pulled context tree from ByteRover memory storage!\n  Branch: ${branch}`)
+            onComplete(
+              `Successfully pulled context tree from ByteRover memory storage!\n  Branch: ${branch}\n  Commit: ${result.commitSha.slice(0, 7)}\n  Added: ${result.added}, Edited: ${result.edited}, Deleted: ${result.deleted}`,
+            )
           }
         },
       },

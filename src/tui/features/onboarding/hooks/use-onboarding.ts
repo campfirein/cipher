@@ -4,7 +4,7 @@
  * Provides onboarding state and actions with a clean, unified interface.
  */
 
-import {useCallback, useState} from 'react'
+import {useCallback} from 'react'
 
 import type {OnboardingFlowStep} from '../types.js'
 
@@ -17,14 +17,20 @@ export type {OnboardingFlowStep} from '../types.js'
 export type {AppViewMode} from './use-app-view-mode.js'
 
 export interface UseOnboardingReturn {
+  /** Clear pending input after it's been consumed */
+  clearPendingInput: () => void
   /** Complete onboarding (call when user finishes or skips) */
   complete: (options?: {skipped?: boolean}) => void
   /** Complete init (call when init-view finishes) */
   completeInit: () => void
   /** Map of command names to their recommended text (session-only, set after onboarding completes) */
   highlightedCommands: Map<string, string>
-   /** Remove a command from highlighted commands (called after command is executed) */
+  /** Pending input to restore after page transition */
+  pendingInput: string
+  /** Remove a command from highlighted commands (called after command is executed) */
   removeHighlightedCommand: (commandName: string) => void
+  /** Set pending input to restore after page transition */
+  setPendingInput: (input: string) => void
   /** Current application view mode */
   viewMode: AppViewMode
 }
@@ -47,17 +53,6 @@ export function useOnboarding(): UseOnboardingReturn {
   const viewMode = useAppViewMode()
   const store = useOnboardingStore()
 
-  // Highlighted commands with their recommended text (session-only, set after onboarding completes)
-  const [highlightedCommands, setHighlightedCommands] = useState<Map<string, string>>(new Map())
-
-  const removeHighlightedCommand = useCallback((commandName: string) => {
-    setHighlightedCommands((prev) => {
-      const next = new Map(prev)
-      next.delete(commandName)
-      return next
-    })
-  }, [])
-
   const complete = useCallback(
     (options?: {skipped?: boolean}) => {
       const step: OnboardingFlowStep | undefined = viewMode.type === 'onboarding' ? viewMode.step : undefined
@@ -68,9 +63,9 @@ export function useOnboarding(): UseOnboardingReturn {
         trackingService?.track('onboarding:skipped', {step})
       } else {
         trackingService?.track('onboarding:completed')
-        setHighlightedCommands(
+        store.setHighlightedCommands(
           new Map([
-            ['connector', 'Recommend: Connect ByteRover to your agents'],
+            ['connectors', 'Recommend: Connect ByteRover to your agents'],
             ['push', 'Recommend: Sync your local context to the cloud'],
             ['status', 'Recommend: Check your context tree status and project info'],
           ]),
@@ -81,14 +76,17 @@ export function useOnboarding(): UseOnboardingReturn {
         // Silently ignore - non-critical
       })
     },
-    [store, trackingService, viewMode, store.completeInit],
+    [store, trackingService, viewMode],
   )
 
   return {
+    clearPendingInput: store.clearPendingInput,
     complete,
     completeInit: store.completeInit,
-    highlightedCommands,
-    removeHighlightedCommand,
-    viewMode
+    highlightedCommands: store.highlightedCommands,
+    pendingInput: store.pendingInput,
+    removeHighlightedCommand: store.removeHighlightedCommand,
+    setPendingInput: store.setPendingInput,
+    viewMode,
   }
 }
