@@ -100,9 +100,12 @@ export class CurateUseCase implements ICurateUseCase {
     const resolvedContent = context?.trim() ? context : ''
 
     let client: ITransportClient | undefined
+    let projectRoot: string | undefined
 
     try {
-      client = await this.createClient({headless, verbose})
+      const result = await this.createClient({headless, verbose})
+      client = result.client
+      projectRoot = result.projectRoot
 
       if (verbose) {
         this.terminal.log(`Connected to instance (clientId: ${client.getClientId()})`)
@@ -120,11 +123,14 @@ export class CurateUseCase implements ICurateUseCase {
       const taskType = hasFolders ? 'curate-folder' : 'curate'
 
       // Send task:create request
+      // projectPath = walked-up project root (where .brv/ lives), resolved at connection time.
+      // Explicit field ensures correct routing even if daemon runs older code.
       await client.requestWithAck<TaskAck>('task:create', {
         clientCwd: process.cwd(),
         content: resolvedContent,
         ...(files?.length ? {files} : {}),
         ...(hasFolders && folders ? {folderPath: folders[0]} : {}),
+        ...(projectRoot ? {projectPath: projectRoot} : {}),
         taskId,
         type: taskType,
       })
@@ -148,10 +154,10 @@ export class CurateUseCase implements ICurateUseCase {
     }
   }
 
-  private async createClient(options: {headless: boolean; verbose: boolean}): Promise<ITransportClient> {
+  private async createClient(options: {headless: boolean; verbose: boolean}): Promise<{client: ITransportClient; projectRoot?: string}> {
     if (options.headless) {
       const inlineAgent = await InlineAgent.create()
-      return inlineAgent.transportClient
+      return {client: inlineAgent.transportClient}
     }
 
     if (options.verbose) {
@@ -159,8 +165,8 @@ export class CurateUseCase implements ICurateUseCase {
     }
 
     // Use modern connectToTransport API (auto-discovers and connects)
-    const {client: connectedClient} = await this.transportConnector()
-    return connectedClient
+    const {client: connectedClient, projectRoot} = await this.transportConnector()
+    return {client: connectedClient, projectRoot}
   }
 
   private handleConnectionError(error: unknown): void {

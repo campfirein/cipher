@@ -91,6 +91,7 @@ export class QueryUseCase implements IQueryUseCase {
 
     // Connect to running instance or create inline agent
     let client: ITransportClient | undefined
+    let projectRoot: string | undefined
 
     try {
       if (options.headless) {
@@ -102,8 +103,9 @@ export class QueryUseCase implements IQueryUseCase {
         }
 
         // Use modern connectToTransport API (auto-discovers, connects, and registers with projectPath)
-        const {client: connectedClient} = await this.transportConnector()
-        client = connectedClient
+        const result = await this.transportConnector()
+        client = result.client
+        projectRoot = result.projectRoot
       }
 
       if (verbose) {
@@ -118,9 +120,12 @@ export class QueryUseCase implements IQueryUseCase {
       const streamPromise = this.streamTaskResults(client, taskId, verbose, format)
 
       // Send task:create request
+      // projectPath = walked-up project root (where .brv/ lives), resolved at connection time.
+      // Explicit field ensures correct routing even if daemon runs older code.
       await client.requestWithAck<TaskAck>('task:create', {
         clientCwd: process.cwd(),
         content: options.query,
+        ...(projectRoot ? {projectPath: projectRoot} : {}),
         taskId,
         type: 'query',
       })

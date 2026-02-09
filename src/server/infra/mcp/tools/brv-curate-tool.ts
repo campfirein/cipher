@@ -6,6 +6,7 @@ import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
 import {TransportClientEventNames} from '../../../core/domain/transport/schemas.js'
+import {detectMcpMode} from '../mcp-mode-detector.js'
 import {resolveClientCwd} from './resolve-client-cwd.js'
 
 
@@ -90,14 +91,18 @@ export function registerBrvCurateTool(
         }
       }
 
-      // In global mode, associate client with the resolved project.
-      // Fire-and-forget: server handler is idempotent.
+      // In global mode, associate client with the walked-up project root.
+      // Walk up from clientCwd to find .brv/config.json — raw cwd may be a subdirectory.
+      // Fire-and-forget: server handler is idempotent (first association wins).
       if (!getWorkingDirectory()) {
-        client
-          .requestWithAck(TransportClientEventNames.ASSOCIATE_PROJECT, {
-            projectPath: cwdResult.clientCwd,
-          })
-          .catch(() => {})
+        const {projectRoot} = detectMcpMode(cwdResult.clientCwd)
+        if (projectRoot) {
+          client
+            .requestWithAck(TransportClientEventNames.ASSOCIATE_PROJECT, {
+              projectPath: projectRoot,
+            })
+            .catch(() => {})
+        }
       }
 
       try {

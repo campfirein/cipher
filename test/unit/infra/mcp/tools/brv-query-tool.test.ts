@@ -2,6 +2,9 @@ import type {ConnectionState, ConnectionStateHandler, ITransportClient} from '@c
 import type {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 
 import {expect} from 'chai'
+import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import {restore, type SinonFakeTimers, type SinonStub, stub, useFakeTimers} from 'sinon'
 
 import {BrvQueryInputSchema, registerBrvQueryTool} from '../../../../../src/server/infra/mcp/tools/brv-query-tool.js'
@@ -239,29 +242,41 @@ describe('brv-query-tool', () => {
       expect(createCall!.args[1]).to.have.property('clientCwd', '/some/project')
     })
 
-    it('should call client:associateProject in global mode', async () => {
-      const {client, simulateEvent} = createMockClient()
-      const requestStub = client.requestWithAck as SinonStub
-      requestStub.callsFake((event: string, data: {taskId?: string}) => {
-        if (event === 'task:create' && data.taskId) {
-          simulateEvent('task:completed', {result: 'ok', taskId: data.taskId})
-        }
+    it('should call client:associateProject with walked-up project root in global mode', async () => {
+      // Create temp project with .brv/config.json so detectMcpMode finds the root
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-test-'))
+      const subDir = join(projectRoot, 'src', 'modules')
+      mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+      writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
+      mkdirSync(subDir, {recursive: true})
 
-        return Promise.resolve()
-      })
+      try {
+        const {client, simulateEvent} = createMockClient()
+        const requestStub = client.requestWithAck as SinonStub
+        requestStub.callsFake((event: string, data: {taskId?: string}) => {
+          if (event === 'task:create' && data.taskId) {
+            simulateEvent('task:completed', {result: 'ok', taskId: data.taskId})
+          }
 
-      const handler = setupQueryHandler({
-        getClient: () => client,
-        getWorkingDirectory: noWorkingDirectory,
-      })
+          return Promise.resolve()
+        })
 
-      await handler({cwd: '/some/project', query: 'test'})
+        const handler = setupQueryHandler({
+          getClient: () => client,
+          getWorkingDirectory: noWorkingDirectory,
+        })
 
-      const associateCall = requestStub
-        .getCalls()
-        .find((c: {args: unknown[]}) => c.args[0] === 'client:associateProject')
-      expect(associateCall).to.exist
-      expect(associateCall!.args[1]).to.deep.equal({projectPath: '/some/project'})
+        // Pass subdirectory as cwd — associate_project should walk up to project root
+        await handler({cwd: subDir, query: 'test'})
+
+        const associateCall = requestStub
+          .getCalls()
+          .find((c: {args: unknown[]}) => c.args[0] === 'client:associateProject')
+        expect(associateCall).to.exist
+        expect(associateCall!.args[1]).to.deep.equal({projectPath: projectRoot})
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
     })
 
     it('should not call client:associateProject in project mode', async () => {
