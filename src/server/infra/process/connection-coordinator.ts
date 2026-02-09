@@ -149,7 +149,13 @@ export class ConnectionCoordinator {
       this.agentPool?.handleAgentDisconnected(projectPath)
     }
 
-    broadcastToProjectRoom(this.projectRegistry, this.projectRouter,projectPath, TransportAgentEventNames.DISCONNECTED, {})
+    broadcastToProjectRoom(
+      this.projectRegistry,
+      this.projectRouter,
+      projectPath,
+      TransportAgentEventNames.DISCONNECTED,
+      {},
+    )
 
     // Fail only tasks belonging to the disconnected agent's project
     const error = serializeTaskError(new AgentDisconnectedError())
@@ -174,7 +180,13 @@ export class ConnectionCoordinator {
       this.addToProjectRoom(clientId, projectPath)
     }
 
-    broadcastToProjectRoom(this.projectRegistry, this.projectRouter,projectPath, TransportAgentEventNames.CONNECTED, {})
+    broadcastToProjectRoom(
+      this.projectRegistry,
+      this.projectRouter,
+      projectPath,
+      TransportAgentEventNames.CONNECTED,
+      {},
+    )
   }
 
   private handleClientAssociateProject(
@@ -290,7 +302,13 @@ export class ConnectionCoordinator {
         this.transport.sendTo(agentId, TransportAgentEventNames.RESTART, {reason: data.reason})
 
         eventLog('agent:restarting', {reason: data.reason})
-        broadcastToProjectRoom(this.projectRegistry, this.projectRouter,clientProject, TransportAgentEventNames.RESTARTING, {reason: data.reason})
+        broadcastToProjectRoom(
+          this.projectRegistry,
+          this.projectRouter,
+          clientProject,
+          TransportAgentEventNames.RESTARTING,
+          {reason: data.reason},
+        )
 
         return {success: true}
       },
@@ -304,14 +322,26 @@ export class ConnectionCoordinator {
         if (data.success) {
           transportLog('Agent restarted successfully')
           eventLog('agent:restarted', {success: true})
-          broadcastToProjectRoom(this.projectRegistry, this.projectRouter,agentProject, TransportAgentEventNames.RESTARTED, {success: true})
+          broadcastToProjectRoom(
+            this.projectRegistry,
+            this.projectRouter,
+            agentProject,
+            TransportAgentEventNames.RESTARTED,
+            {success: true},
+          )
         } else {
           transportLog(`Agent restart failed: ${data.error}`)
           eventLog('agent:restarted', {error: data.error, success: false})
-          broadcastToProjectRoom(this.projectRegistry, this.projectRouter,agentProject, TransportAgentEventNames.RESTARTED, {
-            error: data.error,
-            success: false,
-          })
+          broadcastToProjectRoom(
+            this.projectRegistry,
+            this.projectRouter,
+            agentProject,
+            TransportAgentEventNames.RESTARTED,
+            {
+              error: data.error,
+              success: false,
+            },
+          )
         }
       },
     )
@@ -342,17 +372,29 @@ export class ConnectionCoordinator {
         if (data.success) {
           transportLog(`New session created: ${data.sessionId}`)
           eventLog('agent:newSessionCreated', {sessionId: data.sessionId, success: true})
-          broadcastToProjectRoom(this.projectRegistry, this.projectRouter,agentProject, TransportAgentEventNames.NEW_SESSION_CREATED, {
-            sessionId: data.sessionId,
-            success: true,
-          })
+          broadcastToProjectRoom(
+            this.projectRegistry,
+            this.projectRouter,
+            agentProject,
+            TransportAgentEventNames.NEW_SESSION_CREATED,
+            {
+              sessionId: data.sessionId,
+              success: true,
+            },
+          )
         } else {
           transportLog(`New session creation failed: ${data.error}`)
           eventLog('agent:newSessionCreated', {error: data.error, success: false})
-          broadcastToProjectRoom(this.projectRegistry, this.projectRouter,agentProject, TransportAgentEventNames.NEW_SESSION_CREATED, {
-            error: data.error,
-            success: false,
-          })
+          broadcastToProjectRoom(
+            this.projectRegistry,
+            this.projectRouter,
+            agentProject,
+            TransportAgentEventNames.NEW_SESSION_CREATED,
+            {
+              error: data.error,
+              success: false,
+            },
+          )
         }
       },
     )
@@ -373,7 +415,13 @@ export class ConnectionCoordinator {
       transportLog(
         `Agent status changed: initialized=${data.isInitialized}, auth=${data.hasAuth}, config=${data.hasConfig}`,
       )
-      broadcastToProjectRoom(this.projectRegistry, this.projectRouter,this.findProjectForAgent(clientId), AgentStatusEventNames.STATUS_CHANGED, data)
+      broadcastToProjectRoom(
+        this.projectRegistry,
+        this.projectRouter,
+        this.findProjectForAgent(clientId),
+        AgentStatusEventNames.STATUS_CHANGED,
+        data,
+      )
     })
   }
 

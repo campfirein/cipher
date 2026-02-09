@@ -4,23 +4,26 @@
  * Handles command input with suggestions and executes slash commands.
  */
 
+import {useQueryClient} from '@tanstack/react-query'
 import {Box, Text, useInput} from 'ink'
 import TextInput from 'ink-text-input'
 import {ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
-import type {OnboardingStep} from '../hooks/index.js'
-import type {PromptRequest, StreamingMessage} from '../types.js'
+import type {OnboardingFlowStep} from '../hooks/index.js'
+import type {CommandSideEffects} from '../types/commands.js'
+import type {StreamingMessage} from '../types/index.js'
 
-import {useCommands} from '../contexts/commands-context.js'
-import {useAuth, useTasks, useTransport} from '../contexts/index.js'
-import {useMode, useOnboarding, useTheme} from '../hooks/index.js'
+import {getAuthStateQueryOptions} from '../features/auth/api/get-auth-state.js'
+import {useTasksStore} from '../features/tasks/stores/tasks-store.js'
+import {useCommands, useMode, useOnboarding, useTheme} from '../hooks/index.js'
+import {useTransportStore} from '../stores/transport-store.js'
 import {Suggestions} from './suggestions.js'
 
 /**
  * Get onboarding instruction based on current step
  */
-function getInstructionText(currentStep: OnboardingStep, highlightColor: string): ReactNode {
-  switch (currentStep) {
+function getInstructionText(step: OnboardingFlowStep, highlightColor: string): ReactNode {
+  switch (step) {
     case 'curate': {
       return (
         <Text>
@@ -55,68 +58,83 @@ function getInstructionText(currentStep: OnboardingStep, highlightColor: string)
  * Get instruction for pressing Enter to run
  */
 function getInstruction({
-  currentStep,
   highlightBgColor,
   highlightTextColor,
+  step,
   textColor,
 }: {
-  currentStep: OnboardingStep
   highlightBgColor: string
   highlightTextColor: string
+  step: OnboardingFlowStep
   textColor: string
 }): ReactNode {
-  if (currentStep === 'explore' || currentStep === 'curating' || currentStep === 'querying') return null
+  if (step === 'explore' || step === 'curating' || step === 'querying') return null
 
   return (
     <Text color={textColor}>
-     {" "}· Press <Text backgroundColor={highlightBgColor} color={highlightTextColor}> Enter </Text> to run (Esc to skip the instruction)
+      {' '}
+      · Press{' '}
+      <Text backgroundColor={highlightBgColor} color={highlightTextColor}>
+        {' '}
+        Enter{' '}
+      </Text>{' '}
+      to run (Esc to skip the instruction)
     </Text>
   )
 }
 
 export const CommandInput = () => {
-  const {reloadAuth, reloadBrvConfig} = useAuth()
-  const {client} = useTransport()
-  const {clearTasks} = useTasks()
-  const {theme: {colors}} = useTheme()
-  const {mode} = useMode()
+  const queryClient = useQueryClient()
+  const client = useTransportStore((s) => s.client)
+  const clearTasks = useTasksStore((s) => s.clearTasks)
   const {
-    activePrompt,
-    handleSlashCommand,
-    isStreaming,
-    setActivePrompt,
-    setIsStreaming,
-    setMessages,
-    setStreamingMessages,
-  } = useCommands()
+    theme: {colors},
+  } = useTheme()
+  const {mode} = useMode()
+  const {handleSlashCommand, isStreaming, setHasActiveDialog, setIsStreaming, setMessages, setStreamingMessages} =
+    useCommands()
   const [inputValue, setInputValue] = useState('')
   const [inputKey, setInputKey] = useState(0)
+  const [activeDialog, setActiveDialog] = useState<ReactNode>(null)
   const ctrlOPressedRef = useRef(false)
   const previousInputRef = useRef('')
-  const {completeOnboarding, currentStep, removeHighlightedCommand, shouldShowOnboarding} = useOnboarding()
+  const {clearPendingInput, complete, pendingInput, removeHighlightedCommand, setPendingInput, viewMode} =
+    useOnboarding()
+
+  const isOnboarding = viewMode.type === 'onboarding'
+  const currentStep = viewMode.type === 'onboarding' ? viewMode.step : null
 
   // Check if in prefilled onboarding steps (curate or query)
-  const isInCurate = shouldShowOnboarding && currentStep === 'curate'
-  const isInQuery = shouldShowOnboarding && currentStep === 'query'
-  const isInCurating = shouldShowOnboarding && currentStep === 'curating'
-  const isInQuerying = shouldShowOnboarding && currentStep === 'querying'
-  const isInExplore = shouldShowOnboarding && currentStep === 'explore'
+  const isInCurate = isOnboarding && currentStep === 'curate'
+  const isInQuery = isOnboarding && currentStep === 'query'
+  const isInCurating = isOnboarding && currentStep === 'curating'
+  const isInQuerying = isOnboarding && currentStep === 'querying'
+  const isInExplore = isOnboarding && currentStep === 'explore'
 
-  // Fixed input value for curate/query onboarding steps
+  // Fixed input value for curate onboarding step (only before user has curated and not currently curating)
   const displayInputValue = useMemo(() => {
     if (isInCurate) return '/curate Curate the folder structure of this repository.'
     if (isInCurating) return ''
     if (isInQuery) return '/query Tell me what you know about the folder structure of this repository?'
     if (isInQuerying) return ''
     return inputValue
-  }, [shouldShowOnboarding, currentStep, inputValue])
+  }, [isOnboarding, currentStep, inputValue])
 
   // Placeholder based on onboarding step
   const placeholder = useMemo(() => {
     if (isStreaming || isInCurating || isInQuerying) return 'Processing...'
     if (isInExplore) return 'Type /'
     return 'Type a command...'
-  }, [isStreaming, shouldShowOnboarding, currentStep])
+  }, [isStreaming, isOnboarding, currentStep])
+
+  // Restore pending input from onboarding store ("/" typed during explore step)
+  useEffect(() => {
+    if (pendingInput) {
+      setInputValue(pendingInput)
+      setInputKey((prev) => prev + 1)
+      clearPendingInput()
+    }
+  }, [pendingInput, clearPendingInput])
 
   // Filter out "o" character when Ctrl+O is pressed
   useEffect(() => {
@@ -142,10 +160,10 @@ export const CommandInput = () => {
   useInput(
     (_input, key) => {
       if (key.escape) {
-        completeOnboarding(true)
+        complete({skipped: true})
       }
     },
-    {isActive: shouldShowOnboarding && (currentStep === 'curate' || currentStep === 'query')},
+    {isActive: isInCurate || isInQuery},
   )
 
   // Cancel streaming command with Esc (only for commands that add to messages, not /curate or /query)
@@ -173,20 +191,16 @@ export const CommandInput = () => {
         // Reset streaming state
         setStreamingMessages([])
         setIsStreaming(false)
-        setActivePrompt(null)
+        setHasActiveDialog(false)
       }
     },
-    {isActive: isStreaming && !shouldShowOnboarding},
+    {isActive: isStreaming && !isOnboarding},
   )
 
-  /* eslint-disable complexity -- Command execution requires handling multiple command types and states */
   const executeCommand = useCallback(
     async (value: string) => {
       const trimmed = value.trim()
       if (!trimmed) return
-
-      // During query onboarding step, only allow /query commands
-      if (shouldShowOnboarding && currentStep === 'query' && !trimmed.startsWith('/query ')) return
 
       // Clear command input immediately
       setInputValue('')
@@ -197,10 +211,12 @@ export const CommandInput = () => {
         removeHighlightedCommand(commandName)
       }
 
-      // Skip adding to messages for commands that are rendered via useActivityLogs
-      const isRenderedByActivityLogs = trimmed.startsWith('/curate') || trimmed.startsWith('/query') || trimmed.startsWith('/q ')
+      // Commands that create tasks (shown as ActivityLog) should not add command messages
+      // to avoid duplicates in the activity feed
+      const commandName = trimmed.startsWith('/') ? trimmed.slice(1).split(' ')[0] : ''
+      const isTaskCommand = commandName === 'curate' || commandName === 'query' || commandName === 'q'
 
-      if (!isRenderedByActivityLogs) {
+      if (!isTaskCommand) {
         setMessages((prev) => [
           ...prev,
           {
@@ -213,7 +229,7 @@ export const CommandInput = () => {
 
       const result = await handleSlashCommand(trimmed)
 
-      if (result && result.type === 'message') {
+      if (result && 'type' in result && result.type === 'message') {
         setMessages((prev) => {
           const last = prev.at(-1)
 
@@ -229,104 +245,92 @@ export const CommandInput = () => {
         })
       }
 
-      if (result && result.type === 'streaming') {
+      if (result && 'render' in result) {
         setIsStreaming(true)
-        setStreamingMessages([])
+        setHasActiveDialog(true)
 
-        const collectedMessages: StreamingMessage[] = []
-
-        const onMessage = (msg: StreamingMessage) => {
-          collectedMessages.push(msg)
-          if (!isRenderedByActivityLogs) {
-            setStreamingMessages((prev) => [...prev, msg])
-          }
-        }
-
-        const onPrompt = (prompt: PromptRequest) => {
-          if (!isRenderedByActivityLogs) {
-            setActivePrompt(prompt)
-          }
-        }
-
-        try {
-          await result.execute(onMessage, onPrompt)
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          const errorMsg: StreamingMessage = {
-            content: `Error: ${errorMessage}`,
-            id: `error-${Date.now()}`,
-            type: 'error',
-          }
-          collectedMessages.push(errorMsg)
-          setStreamingMessages((prev) => [...prev, errorMsg])
-        } finally {
-          // Store output with the command message
-          if (!isRenderedByActivityLogs) {
+        const dialog = result.render({
+          onCancel() {
+            setActiveDialog(null)
+            setIsStreaming(false)
+            setHasActiveDialog(false)
+          },
+          async onComplete(message: string, sideEffects?: CommandSideEffects) {
+            setActiveDialog(null)
+            setIsStreaming(false)
+            setHasActiveDialog(false)
+            // Update command message with result
             setMessages((prev) => {
               const updated = [...prev]
               const lastIndex = updated.length - 1
               if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
-                updated[lastIndex] = { ...updated[lastIndex], output: collectedMessages, timestamp: new Date() }
+                const resultMsg: StreamingMessage = {
+                  content: message,
+                  id: `result-${Date.now()}`,
+                  type: 'output',
+                }
+                const existingOutput = updated[lastIndex].output ?? []
+                updated[lastIndex] = {
+                  ...updated[lastIndex],
+                  output: [...existingOutput, resultMsg],
+                  timestamp: new Date(),
+                }
               }
 
               return updated
             })
-          }
 
-          setStreamingMessages([])
-          setIsStreaming(false)
-          setActivePrompt(null)
-          const needReloadAuth = trimmed.startsWith('/login') || trimmed.startsWith('/logout')
-          const needReloadBrvConfig = trimmed.startsWith('/space switch') || trimmed.startsWith('/init')
-          const needNewSession = trimmed.startsWith('/new')
-
-          // Handle /new command - create new session and clear messages
-          if (needNewSession && client) {
-            try {
-              const response = await client.requestWithAck<{ error?: string; sessionId?: string; success: boolean }>(
-                'agent:newSession',
-                {reason: 'User requested new session'},
-              )
-
-              /* eslint-disable max-depth -- UI state handling requires this nesting level */
-              if (response.success) {
-                // Clear the messages to start fresh
+            // Process side effects declared by the command
+            if (sideEffects) {
+              if (sideEffects.clearSession) {
                 setMessages([])
                 clearTasks()
-              }
-            } catch {
-              // Error handling - the command already showed feedback
-            }
-            /* eslint-enable max-depth */
-          }
-
-          // Refresh state after commands that change auth or project state
-          if (needReloadAuth || needReloadBrvConfig) {
-            clearTasks()
-
-            if (needReloadAuth) await reloadAuth()
-            if (needReloadBrvConfig) await reloadBrvConfig()
-
-            // Restart agent with appropriate reason
-            if (client) {
-              const reasonMap: Record<string, string> = {
-                '/init': 'Project initialized',
-                '/login': 'User logged in',
-                '/logout': 'User logged out',
-                '/space switch': 'Space switched',
+                if (client) {
+                  try {
+                    await client.requestWithAck<{error?: string; sessionId?: string; success: boolean}>(
+                      'agent:newSession',
+                      {reason: 'User requested new session'},
+                    )
+                  } catch {
+                    // Session creation error — command already showed feedback
+                  }
+                }
               }
 
-              const reason = Object.entries(reasonMap).find(([cmd]) => trimmed.startsWith(cmd))?.[1] ?? 'Command executed'
+              if (sideEffects.reloadAuth) {
+                clearTasks()
+                await queryClient.invalidateQueries({queryKey: getAuthStateQueryOptions().queryKey})
+              }
 
-              await client.requestWithAck('agent:restart', {reason})
+              if (sideEffects.reloadConfig) {
+                clearTasks()
+                // Config is part of auth state, so invalidating auth also reloads config
+                await queryClient.invalidateQueries({queryKey: getAuthStateQueryOptions().queryKey})
+              }
+
+              if (sideEffects.restartAgent && client) {
+                await client.requestWithAck('agent:restart', {reason: sideEffects.restartAgent.reason})
+              }
             }
-          }
-        }
+          },
+        })
+
+        setActiveDialog(dialog)
       }
     },
-    [clearTasks, client, currentStep, handleSlashCommand, reloadAuth, reloadBrvConfig, removeHighlightedCommand, setActivePrompt, setIsStreaming, setMessages, setStreamingMessages, shouldShowOnboarding],
+    [
+      clearTasks,
+      client,
+      currentStep,
+      handleSlashCommand,
+      isOnboarding,
+      queryClient,
+      setHasActiveDialog,
+      setIsStreaming,
+      setMessages,
+      setStreamingMessages,
+    ],
   )
-  /* eslint-enable complexity */
 
   const handleSubmit = useCallback(
     async (value: string) => {
@@ -351,21 +355,21 @@ export const CommandInput = () => {
   }, [])
 
   // Hide suggestions during onboarding curate/query steps to focus user on the task
-  const shouldShowSuggestions = !isStreaming && !(shouldShowOnboarding && (currentStep === 'curate' || currentStep === 'query'))
+  const shouldShowSuggestions = !isStreaming && !(isOnboarding && (currentStep === 'curate' || currentStep === 'query'))
 
   return (
     <Box flexDirection="column" flexShrink={0}>
-      {shouldShowSuggestions && (
-        <Suggestions input={inputValue} onInsert={handleInsert} onSelect={handleSelect} />
-      )}
+      {activeDialog}
 
-      {shouldShowOnboarding && (
+      {shouldShowSuggestions && <Suggestions input={inputValue} onInsert={handleInsert} onSelect={handleSelect} />}
+
+      {isOnboarding && currentStep && (
         <Box>
           {getInstructionText(currentStep, colors.warning)}
           {getInstruction({
-            currentStep,
             highlightBgColor: colors.primary,
             highlightTextColor: colors.bg1,
+            step: currentStep,
             textColor: colors.dimText,
           })}
         </Box>
@@ -374,13 +378,14 @@ export const CommandInput = () => {
       <Box borderColor={colors.border} borderLeft={false} borderRight={false} borderStyle="single" paddingX={2}>
         <Text color={colors.primary}>{'> '}</Text>
         <TextInput
-          focus={!activePrompt && (mode === 'main' || mode === 'suggestions')}
+          focus={!activeDialog && (mode === 'main' || mode === 'suggestions')}
           key={inputKey}
           onChange={(value) => {
             if (!(isInCurate || isInCurating || isInQuery || isInQuerying)) setInputValue(value)
 
             if (isInExplore && value.startsWith('/')) {
-              completeOnboarding()
+              setPendingInput('/')
+              complete()
             }
           }}
           onSubmit={handleSubmit}

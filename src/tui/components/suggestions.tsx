@@ -10,10 +10,7 @@
 import {Box, Text, useInput} from 'ink'
 import React, {useEffect, useMemo, useRef} from 'react'
 
-import {useMode} from '../contexts/mode-context.js'
-import {useOnboarding} from '../contexts/onboarding-context.js'
-import {useTheme} from '../contexts/theme-context.js'
-import {useSlashCompletion} from '../hooks/index.js'
+import {useMode, useOnboarding, useSlashCompletion, useTheme} from '../hooks/index.js'
 import {CommandDetails} from './command-details.js'
 
 const MAX_VISIBLE_ITEMS = 7
@@ -209,8 +206,8 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
   const hasMoreBelow = windowStart + visibleSuggestions.length < suggestions.length
 
   return (
-    <Box borderColor={colors.border} borderStyle="single" columnGap={1} height={9} overflowY='hidden' paddingX={1}>
-      <Box flexDirection='column' flexShrink={0}>
+    <Box borderColor={colors.border} borderStyle="single" columnGap={1} height={9} overflowY="hidden" paddingX={1}>
+      <Box flexDirection="column" flexShrink={0}>
         {hasMoreAbove && (
           <Text color={colors.dimText} dimColor>
             ↑ {windowStart} more
@@ -221,7 +218,7 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
           const actualIndex = windowStart + index
           const isActive = actualIndex === activeIndex
 
-          // Extract command name from suggestion value (e.g., "/status" -> "status")
+           // Extract command name from suggestion value (e.g., "/status" -> "status")
           const commandName = suggestion.value.replace(/^\//, '').split(' ')[0]
           const isHighlighted = highlightedCommands.has(commandName)
 
@@ -231,7 +228,7 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
 
           return (
             <Box key={suggestion.value}>
-              <Text backgroundColor={isActive ? colors.bg3: undefined} color={colors.text}>
+              <Text backgroundColor={isActive ? colors.bg3 : undefined} color={colors.text}>
                 {isActive ? '❯ ' : '  '}
                 {isHighlighted ? (
                   <>

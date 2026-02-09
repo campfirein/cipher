@@ -69,13 +69,17 @@ export class SocketIOTransportServer implements ITransportServer {
     io.emit(event, data)
   }
 
-  broadcastTo<T = unknown>(room: string, event: string, data: T): void {
+  broadcastTo<T = unknown>(room: string, event: string, data: T, except?: string): void {
     const {io} = this
     if (!io) {
       throw new TransportServerNotStartedError('broadcastTo')
     }
 
-    io.to(room).emit(event, data)
+    if (except) {
+      io.to(room).except(except).emit(event, data)
+    } else {
+      io.to(room).emit(event, data)
+    }
   }
 
   /**
