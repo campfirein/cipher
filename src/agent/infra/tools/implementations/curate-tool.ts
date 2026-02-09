@@ -46,6 +46,11 @@ const NarrativeSchema = z.object({
     .describe(
       'Dependency management information (e.g., "Singleton, init when service starts, hard dependency in smoke test")',
     ),
+  diagrams: z.array(z.object({
+    content: z.string().describe('The full diagram content (Mermaid code, PlantUML code, or ASCII art) - preserved verbatim'),
+    title: z.string().optional().describe('Optional title or label for the diagram'),
+    type: z.enum(['mermaid', 'plantuml', 'ascii', 'other']).describe('Diagram type for proper rendering'),
+  })).optional().describe('Diagrams found in source content - Mermaid, PlantUML, ASCII art, sequence diagrams. Preserve verbatim.'),
   examples: z.string().optional().describe('Concrete examples and use cases demonstrating the concept'),
   features: z
     .string()
@@ -1002,6 +1007,7 @@ export function createCurateTool(): Tool {
   - structure: Code structure documentation
   - dependencies: Dependency management information
   - features: Feature documentation
+  - diagrams: Array of diagrams with {type: "mermaid"|"plantuml"|"ascii"|"other", content: string, title?: string} - preserve verbatim
 - **snippets**: Code/text snippets (legacy support)
 - **relations**: Related topics using @domain/topic notation
 

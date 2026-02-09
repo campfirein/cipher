@@ -134,6 +134,8 @@ interface BuildGenerateContentRequestOptions {
  * - Handle retry logic (handled by RetryableContentGenerator decorator)
  */
 export class ByteRoverLLMService implements ILLMService {
+  /** Cached base system prompt (everything built by SystemPromptManager) for reuse across iterations */
+  private cachedBasePrompt: null | string = null
   private readonly compactionService?: CompactionService
   private readonly config: {
     maxInputTokens: number
@@ -151,6 +153,8 @@ export class ByteRoverLLMService implements ILLMService {
   private readonly generator: IContentGenerator
   private readonly logger: ILogger
   private readonly loopDetector: LoopDetector
+  /** Flag indicating memory was modified by tools during this task, requiring prompt rebuild */
+  private memoryDirtyFlag = false
   private readonly memoryManager?: MemoryManager
   private readonly metadataHandler: ToolMetadataHandler
   private readonly mutex = new AsyncMutex()
@@ -284,15 +288,20 @@ export class ByteRoverLLMService implements ILLMService {
       taskId?: string
     },
   ): Promise<string> {
+    // Reset per-task prompt cache (each task gets a fresh prompt on its first iteration)
+    this.cachedBasePrompt = null
+    this.memoryDirtyFlag = false
+
     // Extract options with defaults
     const { executionContext, fileData, imageData, signal, stream, taskId } = options ?? {}
 
     // Get filtered tools based on command type (e.g., only read-only tools for 'query')
     const toolSet = this.toolManager.getToolsForCommand(options?.executionContext?.commandType)
 
-    // Create state machine with configured limits
+    // Create state machine with configured limits (per-invocation overrides via ExecutionContext)
+    const effectiveMaxIterations = executionContext?.maxIterations ?? this.config.maxIterations
     const maxTimeMs = this.config.timeout ?? 600_000 // 10 min default
-    const stateMachine = new AgentStateMachine(this.config.maxIterations, maxTimeMs)
+    const stateMachine = new AgentStateMachine(effectiveMaxIterations, maxTimeMs)
     stateMachine.transition(AgentState.EXECUTING)
 
     // Agentic loop with state machine
@@ -454,10 +463,14 @@ export class ByteRoverLLMService implements ILLMService {
     // Get internal messages from context manager
     const messages = this.contextManager.getMessages()
 
+    // Apply per-invocation overrides from ExecutionContext (e.g., query-optimized config)
+    const effectiveMaxTokens = options.executionContext?.maxTokens ?? this.config.maxTokens
+    const effectiveTemperature = options.executionContext?.temperature ?? this.config.temperature
+
     return {
       config: {
-        maxTokens: this.config.maxTokens,
-        temperature: this.config.temperature,
+        maxTokens: effectiveMaxTokens,
+        temperature: effectiveTemperature,
       },
       contents: messages,
       executionContext: options.executionContext,
@@ -778,24 +791,38 @@ export class ByteRoverLLMService implements ILLMService {
       availableMarkers[marker] = marker
     }
 
-    // Build environment context for system prompt
-    const environmentContext = await this.environmentBuilder.build({
-      includeBrvStructure: true,
-      includeFileTree: true,
-      maxFileTreeDepth: 3,
-      maxFileTreeEntries: 100,
-      workingDirectory: this.workingDirectory,
-    })
+    // Build base system prompt (cached across iterations within the same task)
+    const needsFullRebuild = iterationCount === 0 || this.cachedBasePrompt === null || this.memoryDirtyFlag
+    let basePrompt: string
 
-    let systemPrompt = await this.systemPromptManager.build({
-      availableMarkers,
-      availableTools,
-      commandType: executionContext?.commandType,
-      conversationMetadata: executionContext?.conversationMetadata,
-      environmentContext,
-      fileReferenceInstructions: executionContext?.fileReferenceInstructions,
-      memoryManager: this.memoryManager,
-    })
+    if (needsFullRebuild) {
+      // Full rebuild: first iteration, no cache, or memory was modified by tools
+      const environmentContext = await this.environmentBuilder.build({
+        includeBrvStructure: true,
+        includeFileTree: true,
+        maxFileTreeDepth: 3,
+        maxFileTreeEntries: 100,
+        workingDirectory: this.workingDirectory,
+      })
+
+      basePrompt = await this.systemPromptManager.build({
+        availableMarkers,
+        availableTools,
+        commandType: executionContext?.commandType,
+        conversationMetadata: executionContext?.conversationMetadata,
+        environmentContext,
+        fileReferenceInstructions: executionContext?.fileReferenceInstructions,
+        memoryManager: this.memoryManager,
+      })
+
+      this.cachedBasePrompt = basePrompt
+      this.memoryDirtyFlag = false
+    } else {
+      // Cache hit: reuse base prompt, only refresh the DateTime section
+      basePrompt = this.refreshDateTime(this.cachedBasePrompt!)
+    }
+
+    let systemPrompt = basePrompt
 
     // Determine which reflection prompt to add (only highest priority is chosen)
     const reflectionType = this.determineReflectionType(iterationCount, executionContext?.commandType)
@@ -1228,6 +1255,12 @@ export class ByteRoverLLMService implements ILLMService {
       this.contextManager.updateToolCallState(toolCall.id, runningState)
     }
 
+    // Check if any memory-modifying tools are being called (invalidates cached system prompt)
+    const memoryModifyingTools = new Set(['delete_memory', 'edit_memory', 'write_memory'])
+    if (lastMessage.toolCalls.some((tc) => memoryModifyingTools.has(tc.function.name))) {
+      this.memoryDirtyFlag = true
+    }
+
     // Step 3: Execute all tool calls in parallel (pass taskId for subagent billing)
     const parallelResults = await Promise.allSettled(
       lastMessage.toolCalls.map((toolCall) => this.executeToolCallParallel(toolCall, taskId)),
@@ -1296,6 +1329,19 @@ export class ByteRoverLLMService implements ILLMService {
         })
       }
     }
+  }
+
+  /**
+   * Replace the DateTime section in a cached system prompt with a fresh timestamp.
+   * DateTimeContributor wraps its output in <dateTime>...</dateTime> XML tags,
+   * enabling reliable regex replacement without rebuilding the entire prompt.
+   *
+   * @param cachedPrompt - Previously cached system prompt
+   * @returns Updated prompt with fresh DateTime
+   */
+  private refreshDateTime(cachedPrompt: string): string {
+    const freshDateTime = `<dateTime>Current date and time: ${new Date().toISOString()}</dateTime>`
+    return cachedPrompt.replace(/<dateTime>[\S\s]*?<\/dateTime>/, freshDateTime)
   }
 
   /**

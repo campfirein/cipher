@@ -538,6 +538,17 @@ When curating knowledge from source files, you MUST preserve the exact, complete
    - Include ALL patterns found, not just samples
    - Add descriptions explaining what each pattern does
 
+7. **For Diagrams (Mermaid, PlantUML, ASCII art):**
+   - Use \`narrative.diagrams\` array with {type, content, title?}
+   - type: "mermaid" | "plantuml" | "ascii" | "other"
+   - Copy ENTIRE diagram content verbatim - character for character
+   - NEVER describe a diagram in prose instead of storing the actual diagram
+   - Detect: fenced blocks with mermaid/plantuml tags, @startuml/@enduml, box-drawing characters
+
+8. **For Tables:**
+   - Copy complete tables with ALL rows into \`narrative.structure\` or \`narrative.features\`
+   - Preserve column headers and every data row - do not summarize
+
 ### What "Preserve" Means:
 
 ✅ **CORRECT - Verbatim preservation:**
@@ -624,6 +635,9 @@ Extract ALL of the following - COMPLETE and VERBATIM:
 7. **API definitions** - Copy complete interface/type definitions
 8. **Examples** - Copy full example code with all context
 9. **Metadata** - Capture authors, versions, dates from files
+10. **Diagrams** - Mermaid diagrams, PlantUML, ASCII art flow charts, sequence diagrams (use \`narrative.diagrams\` with type and content - preserve verbatim)
+11. **Tables** - Data tables with ALL rows preserved (use \`narrative.structure\` or \`narrative.features\`)
+12. **Procedures** - Step-by-step instructions, numbered workflows (use \`narrative.rules\`)
 
 ## Curation Process
 
