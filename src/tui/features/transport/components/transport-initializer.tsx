@@ -6,7 +6,13 @@
  * connectToDaemon() handles: ensure daemon + connect + register + join rooms.
  */
 
-import {type ConnectionState, connectToDaemon, type ITransportClient} from '@campfirein/brv-transport-client'
+import {
+  type ConnectionState,
+  connectToDaemon,
+  createDaemonReconnector,
+  type DaemonReconnectorHandle,
+  type ITransportClient,
+} from '@campfirein/brv-transport-client'
 import React, {useEffect} from 'react'
 
 import {getAllEventValues} from '../../../../shared/transport/events/index.js'
@@ -22,7 +28,7 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
 
   useEffect(() => {
     let mounted = true
-    let stateChangeUnsubscribe: (() => void) | undefined
+    let reconnectorHandle: DaemonReconnectorHandle | undefined
     const eventUnsubscribes: Array<() => void> = []
 
     function registerEventHandlers(client: ITransportClient): void {
@@ -51,11 +57,13 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
         setConnectionState('connecting')
 
         // connectToDaemon = ensureDaemonRunning (no-op, already running) + connect + register + join rooms
-        const {client: newClient} = await connectToDaemon({
-          clientType: 'tui',
-          joinRooms: ['broadcast-room'],
+        const connectOptions = {
+          clientType: 'tui' as const,
+          joinRooms: ['broadcast-room'] as const,
           projectPath: process.cwd(),
-        })
+        }
+
+        const {client: newClient} = await connectToDaemon(connectOptions)
 
         if (!mounted) {
           await newClient.disconnect()
@@ -64,19 +72,6 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
 
         logTransportEvent('_room', {room: 'broadcast-room', state: 'joined'})
 
-        // Subscribe to connection state changes and re-register event handlers on reconnect
-        stateChangeUnsubscribe = newClient.onStateChange((state: ConnectionState) => {
-          setConnectionState(state)
-          logTransportEvent('_connection', {clientId: newClient.getClientId(), state})
-          if (state === 'reconnecting') {
-            incrementReconnectCount()
-          }
-
-          if (state === 'connected') {
-            registerEventHandlers(newClient)
-          }
-        })
-
         // Register event handlers for logging
         registerEventHandlers(newClient)
 
@@ -84,6 +79,29 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
 
         // Set client in store (this also creates apiClient)
         setClient(newClient)
+
+        // Auto-reconnect on disconnect (shared logic from brv-transport-client)
+        reconnectorHandle = createDaemonReconnector(newClient, {
+          connectOptions,
+          onReconnected(reconnectedClient: ITransportClient) {
+            if (!mounted) return
+            registerEventHandlers(reconnectedClient)
+            setClient(reconnectedClient)
+            logTransportEvent('_reconnect', {clientId: reconnectedClient.getClientId(), state: 'success'})
+          },
+          onStateChange(state: ConnectionState, client: ITransportClient) {
+            if (!mounted) return
+            setConnectionState(state)
+            logTransportEvent('_connection', {clientId: client.getClientId(), state})
+            if (state === 'reconnecting') {
+              incrementReconnectCount()
+            }
+
+            if (state === 'connected') {
+              registerEventHandlers(client)
+            }
+          },
+        })
       } catch (error_) {
         if (mounted) {
           const err = error_ instanceof Error ? error_ : new Error(String(error_))
@@ -97,9 +115,7 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
 
     return () => {
       mounted = false
-      if (stateChangeUnsubscribe) {
-        stateChangeUnsubscribe()
-      }
+      reconnectorHandle?.cancel()
 
       // Clean up all event handlers
       for (const unsub of eventUnsubscribes) {

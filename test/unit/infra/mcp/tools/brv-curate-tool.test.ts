@@ -2,7 +2,7 @@ import type {ConnectionState, ConnectionStateHandler, ITransportClient} from '@c
 import type {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 
 import {expect} from 'chai'
-import {restore, type SinonStub, stub} from 'sinon'
+import {restore, type SinonFakeTimers, type SinonStub, stub, useFakeTimers} from 'sinon'
 
 import {BrvCurateInputSchema, registerBrvCurateTool} from '../../../../../src/server/infra/mcp/tools/brv-curate-tool.js'
 
@@ -310,7 +310,9 @@ describe('brv-curate-tool', () => {
 
       await handler({context: 'Auth pattern', cwd: '/some/project'})
 
-      const associateCall = requestStub.getCalls().find((c: {args: unknown[]}) => c.args[0] === 'client:associateProject')
+      const associateCall = requestStub
+        .getCalls()
+        .find((c: {args: unknown[]}) => c.args[0] === 'client:associateProject')
       expect(associateCall).to.exist
       expect(associateCall!.args[1]).to.deep.equal({projectPath: '/some/project'})
     })
@@ -326,25 +328,40 @@ describe('brv-curate-tool', () => {
 
       await handler({context: 'test'})
 
-      const associateCall = requestStub.getCalls().find((c: {args: unknown[]}) => c.args[0] === 'client:associateProject')
+      const associateCall = requestStub
+        .getCalls()
+        .find((c: {args: unknown[]}) => c.args[0] === 'client:associateProject')
       expect(associateCall).to.be.undefined
     })
   })
 
   describe('handler — client errors', () => {
-    it('should return error when client is undefined', async () => {
+    let clock: SinonFakeTimers
+
+    beforeEach(() => {
+      clock = useFakeTimers()
+    })
+
+    afterEach(() => {
+      clock.restore()
+    })
+
+    it('should return error after timeout when client is undefined', async () => {
       const handler = setupCurateHandler({
         getClient: noClient,
         getWorkingDirectory: () => '/project/root',
       })
 
-      const result = await handler({context: 'test'})
+      const resultPromise = handler({context: 'test'})
+      await clock.tickAsync(61_000)
+      const result = await resultPromise
 
       expect(result.isError).to.be.true
       expect(result.content[0].text).to.include('Not connected')
+      expect(result.content[0].text).to.include('timed out')
     })
 
-    it('should return error when client is disconnected', async () => {
+    it('should return error after timeout when client is disconnected', async () => {
       const {client} = createMockClient({state: 'disconnected'})
 
       const handler = setupCurateHandler({
@@ -352,14 +369,16 @@ describe('brv-curate-tool', () => {
         getWorkingDirectory: () => '/project/root',
       })
 
-      const result = await handler({context: 'test'})
+      const resultPromise = handler({context: 'test'})
+      await clock.tickAsync(61_000)
+      const result = await resultPromise
 
       expect(result.isError).to.be.true
-      expect(result.content[0].text).to.include('Socket not connected')
-      expect(result.content[0].text).to.include('disconnected')
+      expect(result.content[0].text).to.include('Not connected')
+      expect(result.content[0].text).to.include('timed out')
     })
 
-    it('should return error when client is in reconnecting state', async () => {
+    it('should return error after timeout when client is in reconnecting state', async () => {
       const {client} = createMockClient({state: 'reconnecting'})
 
       const handler = setupCurateHandler({
@@ -367,11 +386,35 @@ describe('brv-curate-tool', () => {
         getWorkingDirectory: () => '/project/root',
       })
 
-      const result = await handler({context: 'test'})
+      const resultPromise = handler({context: 'test'})
+      await clock.tickAsync(61_000)
+      const result = await resultPromise
 
       expect(result.isError).to.be.true
-      expect(result.content[0].text).to.include('Socket not connected')
-      expect(result.content[0].text).to.include('reconnecting')
+      expect(result.content[0].text).to.include('Not connected')
+      expect(result.content[0].text).to.include('timed out')
+    })
+
+    it('should resolve immediately when client becomes connected during wait', async () => {
+      const {client} = createMockClient({state: 'reconnecting'})
+      const currentClient = client
+
+      const handler = setupCurateHandler({
+        getClient: () => currentClient,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      const resultPromise = handler({context: 'Auth uses JWT'})
+
+      // After 2s, client reconnects (getState now returns 'connected')
+      await clock.tickAsync(2000)
+      ;(client.getState as SinonStub).returns('connected')
+      await clock.tickAsync(1000)
+
+      const result = await resultPromise
+
+      expect(result.isError).to.be.undefined
+      expect(result.content[0].text).to.include('queued for curation')
     })
   })
 

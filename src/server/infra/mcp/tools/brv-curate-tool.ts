@@ -1,11 +1,13 @@
 import type {ITransportClient} from '@campfirein/brv-transport-client'
 import type {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 
+import {waitForConnectedClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
 import {TransportClientEventNames} from '../../../core/domain/transport/schemas.js'
 import {resolveClientCwd} from './resolve-client-cwd.js'
+
 
 export const BrvCurateInputSchema = z
   .object({
@@ -74,21 +76,13 @@ export function registerBrvCurateTool(
         }
       }
 
-      const client = getClient()
+      // Wait for a connected client (MCP's attemptReconnect() replaces client in background)
+      const client = await waitForConnectedClient(getClient)
       if (!client) {
-        return {
-          content: [{text: 'Error: Not connected to ByteRover instance. Run "brv" first.', type: 'text' as const}],
-          isError: true,
-        }
-      }
-
-      // Check connection state before making request
-      const state = client.getState()
-      if (state !== 'connected') {
         return {
           content: [
             {
-              text: `Error: Socket not connected. Current state: ${state}. Ensure "brv" is running.`,
+              text: 'Error: Not connected to ByteRover instance. Connection timed out. Ensure "brv" is running.',
               type: 'text' as const,
             },
           ],
