@@ -41,10 +41,7 @@ describe('Curate Command', () => {
     } as unknown as sinon.SinonStubbedInstance<ITrackingService>
 
     // Create mock transport client.
-    // The curate use case now waits for task:completed events,
-    // so the mock must fire task:completed after task:create.
-    let capturedTaskId: string | undefined
-
+    // Non-headless curate enqueues and exits immediately (no task:completed wait).
     mockClient = {
       connect: stub().resolves(),
       disconnect: stub().resolves(),
@@ -52,23 +49,11 @@ describe('Curate Command', () => {
       getState: stub().returns('connected'),
       joinRoom: stub().resolves(),
       leaveRoom: stub().resolves(),
-      on: stub().callsFake((event: string, callback: (...args: unknown[]) => void) => {
-        if (event === 'task:completed') {
-          process.nextTick(() => callback({taskId: capturedTaskId}))
-        }
-
-        return () => {}
-      }),
+      on: stub().returns(() => {}),
       once: stub(),
       onStateChange: stub().returns(() => {}),
       request: stub() as unknown as ITransportClient['request'],
-      requestWithAck: stub().callsFake(async (_event: string, payload: unknown) => {
-        if (typeof payload === 'object' && payload !== null && 'taskId' in payload) {
-          capturedTaskId = (payload as {taskId: string}).taskId
-        }
-
-        return {}
-      }),
+      requestWithAck: stub().resolves({}),
     } as unknown as sinon.SinonStubbedInstance<ITransportClient>
 
     // Create mock connector (replaces factory pattern)
@@ -111,7 +96,7 @@ describe('Curate Command', () => {
       expect(payload).to.have.property('content', '')
       expect(payload).to.have.property('files').that.deep.equals(['src/auth.ts', 'src/utils.ts'])
       expect(payload).to.have.property('type', 'curate')
-      expect(loggedMessages).to.include('✓ Context curated successfully.')
+      expect(loggedMessages).to.include('✓ Context queued for processing.')
     })
 
     it('should treat whitespace-only context as no context', async () => {
@@ -133,7 +118,7 @@ describe('Curate Command', () => {
       expect(payload).to.have.property('content', 'test context')
       expect(payload).to.have.property('type', 'curate')
       expect(payload).to.have.property('taskId').that.is.a('string')
-      expect(loggedMessages).to.include('✓ Context curated successfully.')
+      expect(loggedMessages).to.include('✓ Context queued for processing.')
       expect(trackingService.track.calledWith('mem:curate', {status: 'finished'})).to.be.true
     })
 
@@ -200,6 +185,7 @@ describe('Curate Command', () => {
       const errorConnector = stub().rejects(new ConnectionFailedError(37_847, new Error('Connection refused')))
       const useCase = new CurateUseCase(
         createUseCaseOptions({
+          retryDelayMs: 0,
           transportConnector: errorConnector,
         }),
       )

@@ -194,6 +194,7 @@ describe('Query Command', () => {
       const errorConnector = stub().rejects(new ConnectionFailedError(37_847, new Error('Connection refused')))
       const useCase = new QueryUseCase(
         createUseCaseOptions({
+          retryDelayMs: 0,
           transportConnector: errorConnector,
         }),
       )
