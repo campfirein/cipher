@@ -78,6 +78,9 @@ Analyze this folder and extract knowledge using \`tools.curate()\`. Your goal is
 - Capture author/source attribution in \`rawConcept.author\` field
 - Use \`narrative.rules\` for exact rule text - preserve verbatim, not summaries
 - Use \`narrative.examples\` for concrete examples and use cases with specific details
+- Detect and preserve ALL diagrams (Mermaid fenced blocks, PlantUML, ASCII art) in \`narrative.diagrams\` array with correct type
+- Preserve ALL tables with every row - do not summarize table data
+- Store step-by-step procedures verbatim in \`narrative.rules\`
 - Completeness over conciseness - err on the side of verbosity
 
 **WHAT TO EXTRACT:**
@@ -87,6 +90,10 @@ Analyze this folder and extract knowledge using \`tools.curate()\`. Your goal is
 4. **Configuration** - Settings, constants, feature flags with exact values
 5. **Domain concepts** - Business logic and domain-specific patterns
 6. **Metadata** - Authors, versions, dates, sources (use rawConcept.author)
+7. **Diagrams** - Mermaid diagrams, PlantUML, ASCII art flow charts, sequence diagrams (use narrative.diagrams with type and content)
+8. **Tables** - Data tables with all rows preserved (use narrative.structure or narrative.features)
+9. **API signatures** - Function signatures, interface definitions, type declarations (use narrative.structure + snippets)
+10. **Procedures** - Step-by-step instructions, numbered workflows (use narrative.rules)
 
 **For each knowledge topic:**
 - Use \`tools.curate()\` with UPSERT operations (preferred - auto-detects ADD vs UPDATE)

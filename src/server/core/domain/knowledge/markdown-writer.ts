@@ -12,6 +12,7 @@ export interface RawConcept {
 
 export interface Narrative {
   dependencies?: string
+  diagrams?: Array<{content: string; title?: string; type: string}>
   examples?: string
   features?: string
   rules?: string
@@ -96,6 +97,15 @@ function generateNarrativeSection(narrative?: Narrative): string {
 
   if (narrative.examples) {
     parts.push(`### Examples\n${narrative.examples}`)
+  }
+
+  if (narrative.diagrams && narrative.diagrams.length > 0) {
+    const diagramParts = narrative.diagrams.map(d => {
+      const lang = d.type === 'ascii' ? '' : d.type
+      const titleLine = d.title ? `**${d.title}**\n` : ''
+      return `${titleLine}\`\`\`${lang}\n${d.content}\n\`\`\``
+    })
+    parts.push(`### Diagrams\n${diagramParts.join('\n\n')}`)
   }
 
   if (parts.length === 0) {
@@ -217,6 +227,24 @@ function parseNarrativeSection(content: string): Narrative | undefined {
   const examplesMatch = sectionContent.match(/###\s*Examples\s*\n([\s\S]*?)(?=\n###\s|\n##\s|$)/i)
   if (examplesMatch) {
     narrative.examples = examplesMatch[1].trim()
+  }
+
+  const diagramsMatch = sectionContent.match(/###\s*Diagrams\s*\n([\s\S]*?)(?=\n###\s|\n##\s|$)/i)
+  if (diagramsMatch) {
+    const diagrams: Array<{content: string; title?: string; type: string}> = []
+    const blockRegex = /(?:\*\*(.+?)\*\*\n)?```(\w*)\n([\s\S]*?)```/g
+    let match
+    while ((match = blockRegex.exec(diagramsMatch[1])) !== null) {
+      diagrams.push({
+        content: match[3].trimEnd(),
+        ...(match[1] ? {title: match[1]} : {}),
+        type: match[2] || 'ascii',
+      })
+    }
+
+    if (diagrams.length > 0) {
+      narrative.diagrams = diagrams
+    }
   }
 
   if (Object.keys(narrative).length === 0) {
@@ -347,6 +375,16 @@ function mergeNarratives(source?: Narrative, target?: Narrative): Narrative | un
   if (source.examples || target.examples) {
     const parts = [target.examples, source.examples].filter(Boolean)
     merged.examples = parts.join('\n\n')
+  }
+
+  if (source.diagrams || target.diagrams) {
+    const allDiagrams = [...(target.diagrams || []), ...(source.diagrams || [])]
+    const seen = new Set<string>()
+    merged.diagrams = allDiagrams.filter(d => {
+      if (seen.has(d.content)) return false
+      seen.add(d.content)
+      return true
+    })
   }
 
   if (Object.keys(merged).length === 0) {
