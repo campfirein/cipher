@@ -28,6 +28,7 @@ import type {AgentIPCResponse, IPCCommand} from './ipc-types.js'
 import {AgentConfig, CipherAgent} from '../../../agent/infra/agent/index.js'
 import {FileSystemService} from '../../../agent/infra/file-system/file-system-service.js'
 import {FolderPackService} from '../../../agent/infra/folder-pack/folder-pack-service.js'
+import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {
@@ -909,11 +910,18 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
 
     // Create Executors
     const curateExecutor = new CurateExecutor()
-    const queryExecutor = new QueryExecutor()
 
-    // Create FolderPackExecutor with required dependencies
+    // Create shared FileSystemService (used by FolderPackExecutor and QueryExecutor)
     const fileSystemService = new FileSystemService()
     await fileSystemService.initialize()
+
+    // Create QueryExecutor with smart routing and caching dependencies
+    const searchService = createSearchKnowledgeService(fileSystemService)
+    const queryExecutor = new QueryExecutor({
+      enableCache: true,
+      fileSystem: fileSystemService,
+      searchService,
+    })
     const folderPackService = new FolderPackService(fileSystemService)
     await folderPackService.initialize()
     const folderPackExecutor = new FolderPackExecutor(folderPackService)

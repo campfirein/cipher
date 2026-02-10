@@ -126,7 +126,8 @@ The terminal UI includes:
 - **Streaming Output**: Live responses with markdown rendering (headings, lists, blockquotes, code blocks)
 - **Reasoning Display**: View agent thinking process with streamed reasoning blocks
 - **File & Folder References**: Type `@` in curate mode to browse and attach files or entire folders
-- **PDF Support**: Reference and extract text from PDF files using `@` (100 pages default, 200 max)
+- **PDF & Office Support**: Reference and extract text from PDF, Word (.docx), Excel (.xlsx), and PowerPoint (.pptx) files using `@` (PDF: 100 pages default, 200 max)
+- **Structured Content Preservation**: Curated context retains diagrams (Mermaid, PlantUML, ASCII art), tables, procedures, and code examples in full fidelity
 - **Dynamic Domains**: Automatically creates new knowledge domains as your context tree grows
 - **Session Persistence**: Sessions auto-resume after restart
 - **Expandable Views**: Press `Ctrl+O` to expand messages or logs to full-screen with vim-style navigation
@@ -140,7 +141,7 @@ The terminal UI includes:
 | `Ctrl+O` | Expand message or log to full-screen |
 | `j` / `k` | Scroll down/up in expanded view |
 | `g` / `G` | Jump to top/bottom in expanded view |
-| `Esc` | Cancel streaming responses / exit expanded view |
+| `Esc` | Cancel streaming responses and long-running commands / exit expanded view |
 | `q` | Exit expanded view |
 | `/` | Show command suggestions |
 | `@` | Browse files and folders (in curate mode) |
@@ -194,9 +195,17 @@ Get your API key at [app.byterover.dev/settings/keys](https://app.byterover.dev/
 - `--format <text|json>`: Output format (default: text)
 
 **Curate flags:**
-- `-f, --files <path>`: Include specific files or folders (max 5, can be repeated)
+- `-f, --files <path>`: Include specific files (max 5, can be repeated)
+- `-d, --folder <path>`: Folder path to pack and analyze (can be repeated)
 - `--headless`: Run in headless mode
 - `--format <text|json>`: Output format (default: text)
+
+**Curate examples:**
+```bash
+brv curate "Auth uses JWT with 24h expiry" -f src/middleware/auth.ts
+brv curate --folder src/auth/
+brv curate "Analyze auth module" -d src/auth/
+```
 
 ### Cloud Sync
 
@@ -282,6 +291,11 @@ The context tree organizes knowledge into:
 - **Domains**: High-level categories (e.g., Architecture, API, Frontend) — created automatically or manually
 - **Topics**: Specific subjects within domains (e.g., Authentication, Components)
 - **Context Files**: Markdown files containing your actual knowledge
+
+### Query Intelligence
+
+- **Tiered responses**: Queries are answered via a 4-tier system—cached results return instantly, high-confidence matches skip the LLM entirely, and complex queries use an optimized agentic loop
+- **Out-of-domain detection**: When a topic isn't covered in your context tree, ByteRover tells you clearly instead of guessing, and suggests using `/curate` to add the missing knowledge
 
 ## Supported AI Agents
 
