@@ -26,6 +26,7 @@ import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {TaskExecute} from '../../core/domain/transport/schemas.js'
 
 import {CipherAgent} from '../../../agent/infra/agent/index.js'
+import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {NotAuthenticatedError, serializeTaskError} from '../../core/domain/errors/task-error.js'
@@ -134,12 +135,12 @@ async function start(): Promise<void> {
     },
   )
 
-  transport.on<{isValid?: boolean; sessionKey?: string}>('auth:updated', (data) => {
+  transport.on<{isValid?: boolean; sessionKey?: string}>(AuthEvents.UPDATED, (data) => {
     if (data.sessionKey !== undefined) cachedSessionKey = data.sessionKey
     if (data.isValid !== undefined) cachedAuthValid = data.isValid
   })
 
-  transport.on('auth:expired', () => {
+  transport.on(AuthEvents.EXPIRED, () => {
     cachedAuthValid = false
   })
 

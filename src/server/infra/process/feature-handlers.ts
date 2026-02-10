@@ -6,6 +6,7 @@
  */
 
 import type {IConnectorManager} from '../../core/interfaces/connectors/i-connector-manager.js'
+import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 import type {ProjectBroadcaster, ProjectPathResolver} from '../transport/handlers/handler-types.js'
 
@@ -50,6 +51,7 @@ import {
 import {HttpUserService} from '../user/http-user-service.js'
 
 export interface FeatureHandlersOptions {
+  authStateStore: IAuthStateStore
   broadcastToProject: ProjectBroadcaster
   log: (msg: string) => void
   resolveProjectPath: ProjectPathResolver
@@ -61,6 +63,7 @@ export interface FeatureHandlersOptions {
  * These handlers implement the TUI ↔ Server event contract (auth:*, config:*, status:*, etc.).
  */
 export async function setupFeatureHandlers({
+  authStateStore,
   broadcastToProject,
   log,
   resolveProjectPath,
@@ -86,6 +89,7 @@ export async function setupFeatureHandlers({
 
   new AuthHandler({
     authService: new OAuthService(authConfig),
+    authStateStore,
     browserLauncher: new SystemBrowserLauncher(),
     callbackHandler: new CallbackHandler(),
     projectConfigStore,

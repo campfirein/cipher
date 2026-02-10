@@ -17,6 +17,7 @@ import {useNavigate} from 'react-router-dom'
 import {EnterPrompt, Header} from '../../components/index.js'
 import {getAuthStateQueryOptions} from '../../features/auth/api/get-auth-state.js'
 import {login, restartAgent, subscribeToLoginCompleted} from '../../features/auth/api/login.js'
+import {useAuthStore} from '../../features/auth/stores/auth-store.js'
 import {useTasksStore} from '../../features/tasks/stores/tasks-store.js'
 import {useTerminalBreakpoint, useUIHeights} from '../../hooks/index.js'
 
@@ -33,7 +34,23 @@ export function LoginPage(): React.ReactNode {
   const clearTasks = useTasksStore((s) => s.clearTasks)
   const navigate = useNavigate()
 
+  const isAuthorized = useAuthStore((s) => s.isAuthorized)
   const [state, setState] = useState<LoginState>({type: 'idle'})
+
+  // Navigate to home when auth changes externally (e.g., login from another TUI)
+  useEffect(() => {
+    if (isAuthorized && state.type === 'idle') {
+      // Sync React Query cache with zustand auth state so downstream components
+      // (e.g., LogoutFlow) have fresh data without needing a daemon round-trip.
+      const {brvConfig, user} = useAuthStore.getState()
+      queryClient.setQueryData(getAuthStateQueryOptions().queryKey, {
+        brvConfig: brvConfig ?? undefined,
+        isAuthorized: true,
+        user: user ?? undefined,
+      })
+      navigate('/')
+    }
+  }, [isAuthorized, navigate, queryClient, state.type])
 
   const handleStartLogin = useCallback(() => {
     setState({type: 'starting'})
