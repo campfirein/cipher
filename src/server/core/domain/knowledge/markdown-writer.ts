@@ -1,16 +1,21 @@
 import { generateRelationsSection, parseRelations } from './relation-parser.js'
 
 export interface RawConcept {
+  author?: string
   changes?: string[]
   files?: string[]
   flow?: string
+  patterns?: Array<{description: string; flags?: string; pattern: string;}>
   task?: string
   timestamp?: string
 }
 
 export interface Narrative {
   dependencies?: string
+  diagrams?: Array<{content: string; title?: string; type: string}>
+  examples?: string
   features?: string
+  rules?: string
   structure?: string
 }
 
@@ -57,6 +62,17 @@ function generateRawConceptSection(rawConcept?: RawConcept): string {
     parts.push(`**Timestamp:** ${normalizeNewlines(rawConcept.timestamp)}`)
   }
 
+  if (rawConcept.author) {
+    parts.push(`**Author:** ${rawConcept.author}`)
+  }
+
+  if (rawConcept.patterns && rawConcept.patterns.length > 0) {
+    const patternsText = rawConcept.patterns.map(p =>
+      `- \`${p.pattern}\`${p.flags ? ` (flags: ${p.flags})` : ''} - ${p.description}`
+    ).join('\n')
+    parts.push(`**Patterns:**\n${patternsText}`)
+  }
+
   if (parts.length === 0) {
     return ''
   }
@@ -81,6 +97,23 @@ function generateNarrativeSection(narrative?: Narrative): string {
 
   if (narrative.features) {
     parts.push(`### Features\n${normalizeNewlines(narrative.features)}`)
+  }
+
+  if (narrative.rules) {
+    parts.push(`### Rules\n${narrative.rules}`)
+  }
+
+  if (narrative.examples) {
+    parts.push(`### Examples\n${narrative.examples}`)
+  }
+
+  if (narrative.diagrams && narrative.diagrams.length > 0) {
+    const diagramParts = narrative.diagrams.map(d => {
+      const lang = d.type === 'ascii' ? '' : d.type
+      const titleLine = d.title ? `**${d.title}**\n` : ''
+      return `${titleLine}\`\`\`${lang}\n${d.content}\n\`\`\``
+    })
+    parts.push(`### Diagrams\n${diagramParts.join('\n\n')}`)
   }
 
   if (parts.length === 0) {
@@ -133,6 +166,34 @@ function parseRawConceptSection(content: string): RawConcept | undefined {
     rawConcept.timestamp = timestampMatch[1].trim()
   }
 
+  // Author can be inline
+  const authorMatch = sectionContent.match(/\*\*\s*Author\s*:\s*\*\*\s*(.+)/i)
+  if (authorMatch) {
+    rawConcept.author = authorMatch[1].trim()
+  }
+
+  // Patterns is multi-line with list items
+  const patternsMatch = sectionContent.match(/\*\*\s*Patterns\s*:\s*\*\*\s*\n([\s\S]*?)(?=\n\*\*|\n##|$)/i)
+  if (patternsMatch) {
+    const patterns: Array<{description: string; flags?: string; pattern: string;}> = []
+    for (const line of patternsMatch[1]
+      .split('\n')
+      .filter(line => line.trim().startsWith('- `'))) {
+        const match = line.match(/- `(.+?)`(?:\s*\(flags:\s*(.+?)\))?\s*-\s*(.+)/)
+        if (match) {
+          patterns.push({
+            description: match[3].trim(),
+            pattern: match[1],
+            ...(match[2] ? {flags: match[2]} : {})
+          })
+        }
+      }
+
+    if (patterns.length > 0) {
+      rawConcept.patterns = patterns
+    }
+  }
+
   if (Object.keys(rawConcept).length === 0) {
     return undefined
   }
@@ -164,6 +225,34 @@ function parseNarrativeSection(content: string): Narrative | undefined {
   const featuresMatch = sectionContent.match(/###\s*Features\s*\n([\s\S]*?)(?=\n###\s|\n##\s|$)/i)
   if (featuresMatch) {
     narrative.features = featuresMatch[1].trim()
+  }
+
+  const rulesMatch = sectionContent.match(/###\s*Rules\s*\n([\s\S]*?)(?=\n###\s|\n##\s|$)/i)
+  if (rulesMatch) {
+    narrative.rules = rulesMatch[1].trim()
+  }
+
+  const examplesMatch = sectionContent.match(/###\s*Examples\s*\n([\s\S]*?)(?=\n###\s|\n##\s|$)/i)
+  if (examplesMatch) {
+    narrative.examples = examplesMatch[1].trim()
+  }
+
+  const diagramsMatch = sectionContent.match(/###\s*Diagrams\s*\n([\s\S]*?)(?=\n###\s|\n##\s|$)/i)
+  if (diagramsMatch) {
+    const diagrams: Array<{content: string; title?: string; type: string}> = []
+    const blockRegex = /(?:\*\*(.+?)\*\*\n)?```(\w*)\n([\s\S]*?)```/g
+    let match
+    while ((match = blockRegex.exec(diagramsMatch[1])) !== null) {
+      diagrams.push({
+        content: match[3].trimEnd(),
+        ...(match[1] ? {title: match[1]} : {}),
+        type: match[2] || 'ascii',
+      })
+    }
+
+    if (diagrams.length > 0) {
+      narrative.diagrams = diagrams
+    }
   }
 
   if (Object.keys(narrative).length === 0) {
@@ -229,6 +318,7 @@ function mergeRawConcepts(source?: RawConcept, target?: RawConcept): RawConcept 
   merged.task = source.task || target.task
   merged.flow = source.flow || target.flow
   merged.timestamp = source.timestamp || target.timestamp
+  merged.author = source.author || target.author
 
   // Arrays: concatenate and deduplicate (target first, then source)
   const allChanges = [...(target.changes || []), ...(source.changes || [])]
@@ -239,6 +329,18 @@ function mergeRawConcepts(source?: RawConcept, target?: RawConcept): RawConcept 
   const allFiles = [...(target.files || []), ...(source.files || [])]
   if (allFiles.length > 0) {
     merged.files = [...new Set(allFiles)]
+  }
+
+  // Patterns: concatenate and deduplicate by pattern+flags
+  const allPatterns = [...(target.patterns || []), ...(source.patterns || [])]
+  if (allPatterns.length > 0) {
+    const seen = new Set<string>()
+    merged.patterns = allPatterns.filter(p => {
+      const key = p.pattern + (p.flags || '')
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
   }
 
   if (Object.keys(merged).length === 0) {
@@ -271,6 +373,26 @@ function mergeNarratives(source?: Narrative, target?: Narrative): Narrative | un
   if (source.features || target.features) {
     const parts = [target.features, source.features].filter(Boolean)
     merged.features = parts.join('\n\n')
+  }
+
+  if (source.rules || target.rules) {
+    const parts = [target.rules, source.rules].filter(Boolean)
+    merged.rules = parts.join('\n\n')
+  }
+
+  if (source.examples || target.examples) {
+    const parts = [target.examples, source.examples].filter(Boolean)
+    merged.examples = parts.join('\n\n')
+  }
+
+  if (source.diagrams || target.diagrams) {
+    const allDiagrams = [...(target.diagrams || []), ...(source.diagrams || [])]
+    const seen = new Set<string>()
+    merged.diagrams = allDiagrams.filter(d => {
+      if (seen.has(d.content)) return false
+      seen.add(d.content)
+      return true
+    })
   }
 
   if (Object.keys(merged).length === 0) {

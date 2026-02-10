@@ -96,7 +96,12 @@ export class CurateUseCase implements ICurateUseCase {
       return
     }
 
-    const resolvedContent = context?.trim() ? context : ''
+    // Provide default context for folder packing when none is provided
+    const resolvedContent = context?.trim()
+      ? context
+      : hasFolders
+        ? 'Analyze this folder and extract all relevant knowledge, patterns, and documentation.'
+        : ''
 
     let client: ITransportClient | undefined
 

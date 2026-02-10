@@ -19,6 +19,15 @@ export interface ExecutionContext {
 
   /** Whether running in JSON input mode (headless with conversation history) */
   isJsonInputMode?: boolean
+
+  /** Override maxIterations for this execution (e.g., 2 for queries with pre-fetched context) */
+  maxIterations?: number
+
+  /** Override maxTokens for this execution (e.g., 1024 for queries) */
+  maxTokens?: number
+
+  /** Override temperature for this execution (e.g., 0.3 for factual queries) */
+  temperature?: number
 }
 
 /**
