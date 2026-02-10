@@ -7,12 +7,20 @@
  * Raw concept metadata for a knowledge topic.
  */
 export interface CurateRawConcept {
+  /** Author or source attribution */
+  author?: string
   /** What changes in the codebase are induced by this concept */
   changes?: string[]
   /** Which files are related to this concept */
   files?: string[]
   /** What is the flow included in this concept */
   flow?: string
+  /** Regex or validation patterns with descriptions */
+  patterns?: Array<{
+    description: string
+    flags?: string
+    pattern: string
+  }>
   /** What is the task related to this concept */
   task?: string
   /** When the concept was created or modified (ISO 8601 format) */
@@ -25,8 +33,12 @@ export interface CurateRawConcept {
 export interface CurateNarrative {
   /** Dependency management information */
   dependencies?: string
+  /** Examples and use cases */
+  examples?: string
   /** Feature documentation for this concept */
   features?: string
+  /** Exact rules, constraints, or guidelines - preserved verbatim */
+  rules?: string
   /** Code structure documentation */
   structure?: string
 }

@@ -2,7 +2,75 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import {isBinaryFile, isImageFile, isPdfFile} from '../../agent/infra/file-system/binary-utils.js'
+import {isBinaryFile, isImageFile, isOfficeFile, isPdfFile} from '../../agent/infra/file-system/binary-utils.js'
+
+/**
+ * Known text file extensions that should always be treated as text,
+ * bypassing binary content inspection. This prevents false positives
+ * from files with unusual encodings (e.g., UTF-16) or embedded
+ * special characters (e.g., box-drawing characters in .md files).
+ */
+const KNOWN_TEXT_EXTENSIONS = new Set([
+  '.adoc',
+  '.c',
+  '.cfg',
+  '.clj',
+  '.cmake',
+  '.conf',
+  '.cpp',
+  '.cs',
+  '.css',
+  '.csv',
+  '.dart',
+  '.dockerfile',
+  '.env',
+  '.erl',
+  '.ex',
+  '.go',
+  '.graphql',
+  '.groovy',
+  '.h',
+  '.hpp',
+  '.html',
+  '.ini',
+  '.java',
+  '.js',
+  '.json',
+  '.jsonc',
+  '.jsx',
+  '.kt',
+  '.less',
+  '.lua',
+  '.makefile',
+  '.markdown',
+  '.md',
+  '.php',
+  '.pl',
+  '.proto',
+  '.py',
+  '.r',
+  '.rb',
+  '.rs',
+  '.rst',
+  '.sass',
+  '.scala',
+  '.scss',
+  '.sh',
+  '.sql',
+  '.svelte',
+  '.svg',
+  '.swift',
+  '.tf',
+  '.toml',
+  '.ts',
+  '.tsx',
+  '.txt',
+  '.vue',
+  '.xml',
+  '.yaml',
+  '.yml',
+  '.zsh',
+])
 
 /**
  * Normalize file path - handles relative, absolute, tilde, symlinks
@@ -82,6 +150,14 @@ export function validateFileForCurate(
 
   const sampleBuffer = buffer.subarray(0, bytesRead)
 
+  const ext = path.extname(normalized).toLowerCase()
+
+  // Fast path: known text extensions bypass binary content inspection.
+  // This prevents false positives from files with unusual encodings (e.g., UTF-16 .md files)
+  if (KNOWN_TEXT_EXTENSIONS.has(ext)) {
+    return {normalizedPath: normalized, valid: true}
+  }
+
   // Check file type using binary-utils (same logic as read_file tool)
   // Allow image files - read_file returns them as base64 attachments
   if (isImageFile(normalized)) {
@@ -91,6 +167,11 @@ export function validateFileForCurate(
   // Allow PDF files with valid magic bytes - read_file extracts text or returns base64
   // Use buffer validation to reject fake PDFs (e.g., binary files renamed to .pdf)
   if (isPdfFile(normalized, sampleBuffer)) {
+    return {normalizedPath: normalized, valid: true}
+  }
+
+  // Allow Office documents - FileContentReader can parse these for text extraction
+  if (isOfficeFile(normalized)) {
     return {normalizedPath: normalized, valid: true}
   }
 

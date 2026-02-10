@@ -474,6 +474,17 @@ export class QueryUseCase implements IQueryUseCase {
             completed = true
             cleanup()
 
+            // Fallback: use payload.result when llmservice:response wasn't received
+            // (e.g., Tier 2 direct search responses that bypass the LLM)
+            if (!resultPrinted && payload.result) {
+              finalResult = payload.result
+              resultPrinted = true
+              if (format === 'text') {
+                this.terminal.log('\nResult:')
+                this.terminal.log(payload.result)
+              }
+            }
+
             if (format === 'json') {
               this.outputJsonResult({
                 result: finalResult,
