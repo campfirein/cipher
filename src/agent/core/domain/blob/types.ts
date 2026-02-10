@@ -105,8 +105,8 @@ export type BlobStorageConfig = {
   maxTotalSize?: number
 
   /**
-   * Base directory where blobs/database will be stored
-   * @default '.brv/blobs'
+   * Base directory where blobs/database will be stored.
+   * Required when inMemory is false.
    */
   storageDir?: string
 }

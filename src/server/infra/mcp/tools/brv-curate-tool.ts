@@ -5,7 +5,7 @@ import {waitForConnectedClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
-import {TransportClientEventNames} from '../../../core/domain/transport/schemas.js'
+import {TransportClientEventNames, TransportTaskEventNames} from '../../../core/domain/transport/schemas.js'
 import {detectMcpMode} from '../mcp-mode-detector.js'
 import {resolveClientCwd} from './resolve-client-cwd.js'
 
@@ -116,7 +116,7 @@ export function registerBrvCurateTool(
         const hasFolder = Boolean(folder?.trim())
         const taskType = hasFolder ? 'curate-folder' : 'curate'
 
-        await client.requestWithAck('task:create', {
+        await client.requestWithAck(TransportTaskEventNames.CREATE, {
           clientCwd: cwdResult.clientCwd,
           content: resolvedContent,
           taskId,

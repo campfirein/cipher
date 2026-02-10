@@ -5,7 +5,7 @@ import {waitForConnectedClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
-import {TransportClientEventNames} from '../../../core/domain/transport/schemas.js'
+import {TransportClientEventNames, TransportTaskEventNames} from '../../../core/domain/transport/schemas.js'
 import {detectMcpMode} from '../mcp-mode-detector.js'
 import {resolveClientCwd} from './resolve-client-cwd.js'
 import {waitForTaskResult} from './task-result-waiter.js'
@@ -87,7 +87,7 @@ export function registerBrvQueryTool(
         const resultPromise = waitForTaskResult(client, taskId)
 
         // Create task via transport (same pattern as brv query command)
-        await client.requestWithAck('task:create', {
+        await client.requestWithAck(TransportTaskEventNames.CREATE, {
           clientCwd: cwdResult.clientCwd,
           content: query,
           taskId,

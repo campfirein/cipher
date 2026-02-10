@@ -20,6 +20,7 @@ import type {ITrackingService} from '../../core/interfaces/services/i-tracking-s
 import type {IQueryUseCase, QueryUseCaseRunOptions} from '../../core/interfaces/usecase/i-query-use-case.js'
 
 import {TaskErrorCode} from '../../core/domain/errors/task-error.js'
+import {LlmEventNames, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
 import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
@@ -113,7 +114,7 @@ export class QueryUseCase implements IQueryUseCase {
         const taskId = randomUUID()
         const streamPromise = this.streamTaskResults(client, taskId, verbose, format)
 
-        await client.requestWithAck<TaskAck>('task:create', {
+        await client.requestWithAck<TaskAck>(TransportTaskEventNames.CREATE, {
           clientCwd: process.cwd(),
           content: options.query,
           ...(projectRoot ? {projectPath: projectRoot} : {}),
@@ -469,21 +470,21 @@ export class QueryUseCase implements IQueryUseCase {
       // Setup all event handlers
       const unsubscribers = [
         // task:ack - immediate acknowledgment
-        client.on<TaskAck>('task:ack', (payload) => {
+        client.on<TaskAck>(TransportTaskEventNames.ACK, (payload) => {
           if (payload.taskId === taskId && verbose) {
             this.terminal.log('Task acknowledged by server')
           }
         }),
 
         // task:started - task is being processed
-        client.on<TaskStarted>('task:started', (payload) => {
+        client.on<TaskStarted>(TransportTaskEventNames.STARTED, (payload) => {
           if (payload.taskId === taskId && verbose) {
             this.terminal.log('Task started processing...')
           }
         }),
 
         // llmservice:response - final response from LLM (only print once)
-        client.on<LlmResponse>('llmservice:response', (payload) => {
+        client.on<LlmResponse>(LlmEventNames.RESPONSE, (payload) => {
           if (payload.taskId === taskId && payload.content && !resultPrinted) {
             resultPrinted = true
             finalResult = payload.content
@@ -496,7 +497,7 @@ export class QueryUseCase implements IQueryUseCase {
         }),
 
         // llmservice:toolCall - tool invocation (stop showing after response)
-        client.on<LlmToolCall>('llmservice:toolCall', (payload) => {
+        client.on<LlmToolCall>(LlmEventNames.TOOL_CALL, (payload) => {
           if (payload.taskId === taskId && !resultPrinted) {
             const detail = payload.args ? this.formatToolArgs(payload.toolName, payload.args) : ''
             const suffix = detail ? `: ${detail}` : ''
@@ -510,7 +511,7 @@ export class QueryUseCase implements IQueryUseCase {
         }),
 
         // llmservice:toolResult - tool result with summary (stop showing after response)
-        client.on<LlmToolResult>('llmservice:toolResult', (payload) => {
+        client.on<LlmToolResult>(LlmEventNames.TOOL_RESULT, (payload) => {
           if (payload.taskId === taskId && !resultPrinted) {
             const status = payload.success ? '✓' : '✗'
             const resultSummary = this.formatToolResult(payload)
@@ -528,7 +529,7 @@ export class QueryUseCase implements IQueryUseCase {
         }),
 
         // task:completed - task finished (chunks already streamed, just resolve)
-        client.on<TaskCompleted>('task:completed', (payload) => {
+        client.on<TaskCompleted>(TransportTaskEventNames.COMPLETED, (payload) => {
           if (payload.taskId === taskId && !completed) {
             completed = true
             cleanup()
@@ -548,7 +549,7 @@ export class QueryUseCase implements IQueryUseCase {
         }),
 
         // task:error - task failed (preserve error code for retry detection)
-        client.on<TaskError>('task:error', (payload) => {
+        client.on<TaskError>(TransportTaskEventNames.ERROR, (payload) => {
           if (payload.taskId === taskId && !completed) {
             completed = true
             cleanup()

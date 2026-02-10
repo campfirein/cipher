@@ -15,7 +15,7 @@ import type {CurateUseCaseRunOptions, ICurateUseCase} from '../../core/interface
 
 import {ToolName} from '../../../agent/core/domain/tools/constants.js'
 import {TaskErrorCode} from '../../core/domain/errors/task-error.js'
-import {LlmToolResultEvent, TaskCompletedEvent, TaskErrorEvent} from '../../core/domain/transport/index.js'
+import {LlmEventNames, LlmToolResultEvent, TaskCompletedEvent, TaskErrorEvent, TransportTaskEventNames} from '../../core/domain/transport/index.js'
 import {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
@@ -136,7 +136,7 @@ export class CurateUseCase implements ICurateUseCase {
           // then wait for task:completed (in-process agent must finish)
           const completionPromise = this.waitForTaskCompletion(client, taskId, format)
 
-          await client.requestWithAck<TaskAck>('task:create', {
+          await client.requestWithAck<TaskAck>(TransportTaskEventNames.CREATE, {
             clientCwd: process.cwd(),
             content: resolvedContent,
             ...(files?.length ? {files} : {}),
@@ -150,7 +150,7 @@ export class CurateUseCase implements ICurateUseCase {
         } else {
           // Non-headless: enqueue and exit immediately.
           // The daemon runs the task in background — no need to block.
-          await client.requestWithAck<TaskAck>('task:create', {
+          await client.requestWithAck<TaskAck>(TransportTaskEventNames.CREATE, {
             clientCwd: process.cwd(),
             content: resolvedContent,
             ...(files?.length ? {files} : {}),
@@ -388,7 +388,7 @@ export class CurateUseCase implements ICurateUseCase {
       )
 
       const unsubscribers = [
-        client.on<LlmToolResultEvent>('llmservice:toolResult', (payload) => {
+        client.on<LlmToolResultEvent>(LlmEventNames.TOOL_RESULT, (payload) => {
           if (payload.success && payload.toolName === ToolName.CURATE && payload.result) {
             try {
               const parsed = CurateResultSchema.parse(JSON.parse(payload.result as string))
@@ -403,7 +403,7 @@ export class CurateUseCase implements ICurateUseCase {
           }
         }),
 
-        client.on<TaskCompletedEvent>('task:completed', (payload) => {
+        client.on<TaskCompletedEvent>(TransportTaskEventNames.COMPLETED, (payload) => {
           if (payload.taskId === taskId && !completed) {
             completed = true
             cleanup()
@@ -427,7 +427,7 @@ export class CurateUseCase implements ICurateUseCase {
         }),
 
         // task:error - preserve error code for retry detection
-        client.on<TaskErrorEvent>('task:error', (payload) => {
+        client.on<TaskErrorEvent>(TransportTaskEventNames.ERROR, (payload) => {
           if (payload.taskId === taskId && !completed) {
             completed = true
             cleanup()

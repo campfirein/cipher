@@ -17,6 +17,7 @@ import {
 } from '../../../../shared/transport/events/auth-events.js'
 import {AuthToken} from '../../../core/domain/entities/auth-token.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
+import {processLog} from '../../../utils/process-logger.js'
 
 export interface AuthHandlerDeps {
   authService: IAuthService
@@ -165,8 +166,11 @@ export class AuthHandler {
         sessionKey: token?.sessionKey,
       })
 
-      // Build full auth:stateChanged for TUI (fire-and-forget async)
-      this.broadcastAuthStateChanged(token).catch(() => {})
+      // Build full auth:stateChanged for TUI (fire-and-forget async).
+      // On network error, skips broadcast silently — next poll cycle retries in 5s.
+      this.broadcastAuthStateChanged(token).catch((error: unknown) => {
+        processLog(`[Auth] Failed to broadcast auth state change: ${error instanceof Error ? error.message : String(error)}`)
+      })
     })
 
     this.authStateStore.onAuthExpired(() => {

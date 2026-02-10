@@ -35,6 +35,7 @@ import {
   AGENT_POOL_MAX_SIZE,
   HEARTBEAT_FILE,
 } from '../../constants.js'
+import {TransportStateEventNames} from '../../core/domain/transport/schemas.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
 import {ClientManager} from '../client/client-manager.js'
@@ -308,7 +309,7 @@ async function main(): Promise<void> {
     transportServer.onRequest<
       {projectPath: string},
       {brvConfig?: BrvConfig; spaceId: string; storagePath: string; teamId: string}
-    >('state:getProjectConfig', async (data) => {
+    >(TransportStateEventNames.GET_PROJECT_CONFIG, async (data) => {
       // Smart invalidation: only invalidate if config file was modified since last load
       // This prevents unnecessary disk I/O while still catching changes from
       // init/space-switch commands that write directly to disk
@@ -329,7 +330,7 @@ async function main(): Promise<void> {
       }
     })
 
-    transportServer.onRequest<void, {isValid: boolean; sessionKey: string}>('state:getAuth', async () => {
+    transportServer.onRequest<void, {isValid: boolean; sessionKey: string}>(TransportStateEventNames.GET_AUTH, async () => {
       const token = await authStateStore!.loadToken()
       return {
         isValid: token?.isValid() ?? false,

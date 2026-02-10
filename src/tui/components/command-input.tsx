@@ -13,6 +13,7 @@ import type {OnboardingFlowStep} from '../hooks/index.js'
 import type {CommandSideEffects} from '../types/commands.js'
 import type {StreamingMessage} from '../types/index.js'
 
+import {AgentEvents} from '../../shared/transport/events/agent-events.js'
 import {getAuthStateQueryOptions} from '../features/auth/api/get-auth-state.js'
 import {useTasksStore} from '../features/tasks/stores/tasks-store.js'
 import {useCommands, useMode, useOnboarding, useTheme} from '../hooks/index.js'
@@ -309,7 +310,7 @@ export const CommandInput = () => {
               }
 
               if (sideEffects.restartAgent && client) {
-                await client.requestWithAck('agent:restart', {reason: sideEffects.restartAgent.reason})
+                await client.requestWithAck(AgentEvents.RESTART, {reason: sideEffects.restartAgent.reason})
               }
             }
           },

@@ -9,6 +9,7 @@ import {useQueryClient} from '@tanstack/react-query'
 import {Box, Text, useInput} from 'ink'
 import React, {useState} from 'react'
 
+import {AgentEvents} from '../../../../shared/transport/events/agent-events.js'
 import {EnterPrompt, Init} from '../../../components/index.js'
 import {useMode, useTheme} from '../../../hooks/index.js'
 import {useTransportStore} from '../../../stores/transport-store.js'
@@ -59,7 +60,7 @@ export const InitView: React.FC<InitViewProps> = ({availableHeight, onInitComple
 
     // Restart agent to pick up new project state
     if (client) {
-      await client.requestWithAck('agent:restart', {reason: 'Project initialized'})
+      await client.requestWithAck(AgentEvents.RESTART, {reason: 'Project initialized'})
     }
   }
 

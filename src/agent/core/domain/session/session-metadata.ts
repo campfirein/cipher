@@ -2,7 +2,7 @@
  * Session Metadata Types and Schemas
  *
  * Defines the data structures for persistent session management.
- * Sessions are stored in .brv/sessions/ directory as JSON files.
+ * Sessions are stored in the XDG sessions directory as JSON files.
  *
  * Design adapted from gemini-cli's ChatRecordingService pattern.
  */
@@ -15,7 +15,7 @@ import { z } from 'zod'
 export type SessionStatus = 'active' | 'ended' | 'interrupted'
 
 /**
- * Active session pointer stored in .brv/sessions/active.json
+ * Active session pointer stored in active.json within sessions directory
  * Points to the currently active session for auto-resume.
  */
 export interface ActiveSessionPointer {

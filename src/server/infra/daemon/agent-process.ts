@@ -30,7 +30,7 @@ import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {NotAuthenticatedError, serializeTaskError} from '../../core/domain/errors/task-error.js'
-import {TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
+import {TransportStateEventNames, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
 import {createProviderConfigStore} from '../storage/file-provider-config-store.js'
@@ -112,8 +112,8 @@ async function start(): Promise<void> {
   }
 
   const [configResult, authResult] = await Promise.all([
-    transport.requestWithAck<ProjectConfigResponse>('state:getProjectConfig', {projectPath}),
-    transport.requestWithAck<AuthResponse>('state:getAuth'),
+    transport.requestWithAck<ProjectConfigResponse>(TransportStateEventNames.GET_PROJECT_CONFIG, {projectPath}),
+    transport.requestWithAck<AuthResponse>(TransportStateEventNames.GET_AUTH),
   ])
 
   cachedBrvConfig = configResult.brvConfig
@@ -220,7 +220,7 @@ async function executeTask(
   // (they write directly to disk, bypassing the agent's cached state)
   try {
     const configResult = await transport.requestWithAck<{brvConfig?: BrvConfig; spaceId?: string; teamId?: string}>(
-      'state:getProjectConfig',
+      TransportStateEventNames.GET_PROJECT_CONFIG,
       {projectPath},
     )
     if (configResult.brvConfig) cachedBrvConfig = configResult.brvConfig
@@ -233,7 +233,7 @@ async function executeTask(
   // Refresh auth from state server to pick up login/logout changes
   // (state:getAuth loads fresh from keychain and self-heals via broadcast)
   try {
-    const authResult = await transport.requestWithAck<{isValid?: boolean; sessionKey?: string}>('state:getAuth')
+    const authResult = await transport.requestWithAck<{isValid?: boolean; sessionKey?: string}>(TransportStateEventNames.GET_AUTH)
     if (authResult.sessionKey !== undefined) cachedSessionKey = authResult.sessionKey
     if (authResult.isValid !== undefined) cachedAuthValid = authResult.isValid
   } catch {
