@@ -27,6 +27,25 @@ import {ProviderKeychainStore} from '../../server/infra/storage/provider-keychai
 import {CommandKind} from '../../tui/types.js'
 
 /**
+ * API key placeholder hints per provider.
+ * Falls back to 'sk-...' for unlisted providers.
+ */
+const API_KEY_PLACEHOLDERS: Readonly<Record<string, string>> = {
+  anthropic: 'sk-ant-...',
+  cerebras: 'csk-...',
+  cohere: '...',
+  deepinfra: '...',
+  groq: 'gsk_...',
+  mistral: '...',
+  openai: 'sk-...',
+  openrouter: 'sk-or-...',
+  perplexity: 'pplx-...',
+  togetherai: '...',
+  vercel: 'vcp_...',
+  xai: 'xai-...',
+}
+
+/**
  * Determine connection source for a provider.
  */
 type ConnectionSource = 'env' | 'keychain' | 'none'
@@ -239,7 +258,7 @@ export const providerCommand: SlashCommand = {
             onPrompt({
               message: `Enter ${provider.name} API key`,
               onResponse: resolve,
-              placeholder: 'sk-...',
+              placeholder: API_KEY_PLACEHOLDERS[provider.id] ?? 'sk-...',
               type: 'input',
               validate(value: string) {
                 if (!value.trim()) return 'API key is required'

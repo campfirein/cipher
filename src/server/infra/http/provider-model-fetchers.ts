@@ -306,7 +306,7 @@ export class OpenAICompatibleModelFetcher implements IProviderModelFetcher {
       return this.cache.models
     }
 
-    const response = await axios.get<{data: Array<{id: string; object?: string}>}>(
+    const response = await axios.get(
       `${this.baseUrl}/models`,
       {
         headers: {Authorization: `Bearer ${apiKey}`},
@@ -314,14 +314,27 @@ export class OpenAICompatibleModelFetcher implements IProviderModelFetcher {
       },
     )
 
-    const models: ProviderModelInfo[] = response.data.data.map((model) => ({
-      contextLength: 128_000, // Default; most modern models have at least 128k
-      id: model.id,
-      isFree: false,
-      name: model.id,
-      pricing: {inputPerM: 0, outputPerM: 0},
-      provider: this.providerName,
-    }))
+    // Handle different response formats:
+    // - OpenAI/DeepInfra: {data: [{id, ...}, ...]}
+    // - Together AI: [{id, ...}, ...] (top-level array)
+    // - Cohere: {models: [{name, ...}, ...]}
+    const responseData = response.data
+    const modelList: Array<Record<string, unknown>> = Array.isArray(responseData)
+      ? responseData
+      : (responseData.data ?? responseData.models ?? [])
+
+    const models: ProviderModelInfo[] = modelList.map((model) => {
+      const id = String(model.id ?? model.name ?? '')
+
+      return {
+        contextLength: typeof model.context_length === 'number' ? model.context_length : 128_000,
+        id,
+        isFree: false,
+        name: id,
+        pricing: {inputPerM: 0, outputPerM: 0},
+        provider: this.providerName,
+      }
+    })
 
     // Sort by ID
     models.sort((a, b) => a.id.localeCompare(b.id))
@@ -348,6 +361,74 @@ export class OpenAICompatibleModelFetcher implements IProviderModelFetcher {
         }
 
         return {error: `API error: ${error.response?.statusText ?? error.message}`, isValid: false}
+      }
+
+      return {error: error instanceof Error ? error.message : 'Unknown error', isValid: false}
+    }
+  }
+}
+
+// ============================================================================
+// Chat-based Model Fetcher (Perplexity, Vercel, etc.)
+// ============================================================================
+
+/* eslint-disable camelcase */
+/**
+ * Model fetcher for providers that lack a /models endpoint.
+ * Validates API keys by making a minimal chat completion request.
+ * Model listing returns a static list of known models.
+ */
+export class ChatBasedModelFetcher implements IProviderModelFetcher {
+  private readonly baseUrl: string
+  private readonly knownModels: ProviderModelInfo[]
+
+  constructor(baseUrl: string, providerName: string, knownModels: string[]) {
+    this.baseUrl = baseUrl
+    this.knownModels = knownModels.map((id) => ({
+      contextLength: 128_000,
+      id,
+      isFree: false,
+      name: id,
+      pricing: {inputPerM: 0, outputPerM: 0},
+      provider: providerName,
+    }))
+  }
+
+  async fetchModels(_apiKey: string, _forceRefresh = false): Promise<ProviderModelInfo[]> {
+    return this.knownModels
+  }
+
+  async validateApiKey(apiKey: string): Promise<{error?: string; isValid: boolean}> {
+    try {
+      await axios.post(
+        `${this.baseUrl}/chat/completions`,
+        {
+          max_tokens: 1,
+          messages: [{content: 'hi', role: 'user'}],
+          model: this.knownModels[0]?.id ?? 'default',
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 15_000,
+        },
+      )
+
+      return {isValid: true}
+    } catch (error) {
+      if (isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          return {error: 'Invalid API key', isValid: false}
+        }
+
+        if (error.response?.status === 403) {
+          return {error: 'API key does not have required permissions', isValid: false}
+        }
+
+        // Other errors (429, 400, etc.) mean the key was accepted
+        return {isValid: true}
       }
 
       return {error: error instanceof Error ? error.message : 'Unknown error', isValid: false}

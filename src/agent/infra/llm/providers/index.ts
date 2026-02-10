@@ -11,12 +11,18 @@ import type {GeneratorFactoryConfig, ProviderModule} from './types.js'
 
 import {anthropicProvider} from './anthropic.js'
 import {byteroverProvider} from './byterover.js'
+import {cerebrasProvider} from './cerebras.js'
+import {cohereProvider} from './cohere.js'
+import {deepinfraProvider} from './deepinfra.js'
 import {googleVertexProvider} from './google-vertex.js'
 import {googleProvider} from './google.js'
 import {groqProvider} from './groq.js'
 import {mistralProvider} from './mistral.js'
 import {openaiProvider} from './openai.js'
 import {openrouterProvider} from './openrouter.js'
+import {perplexityProvider} from './perplexity.js'
+import {togetheraiProvider} from './togetherai.js'
+import {vercelProvider} from './vercel.js'
 import {xaiProvider} from './xai.js'
 
 /**
@@ -26,12 +32,18 @@ import {xaiProvider} from './xai.js'
 const PROVIDER_MODULES: Readonly<Record<string, ProviderModule>> = {
   anthropic: anthropicProvider,
   byterover: byteroverProvider,
+  cerebras: cerebrasProvider,
+  cohere: cohereProvider,
+  deepinfra: deepinfraProvider,
   google: googleProvider,
   'google-vertex': googleVertexProvider,
   groq: groqProvider,
   mistral: mistralProvider,
   openai: openaiProvider,
   openrouter: openrouterProvider,
+  perplexity: perplexityProvider,
+  togetherai: togetheraiProvider,
+  vercel: vercelProvider,
   xai: xaiProvider,
 }
 

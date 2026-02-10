@@ -10,6 +10,7 @@ import type {IProviderModelFetcher} from '../../core/interfaces/i-provider-model
 import {PROVIDER_REGISTRY} from '../../core/domain/entities/provider-registry.js'
 import {
   AnthropicModelFetcher,
+  ChatBasedModelFetcher,
   GoogleModelFetcher,
   GoogleVertexModelFetcher,
   OpenAICompatibleModelFetcher,
@@ -43,21 +44,16 @@ export function getModelFetcher(providerId: string): IProviderModelFetcher | und
   switch (providerId) {
     case 'anthropic': {
       fetcher = new AnthropicModelFetcher()
+
       break
     }
 
-    case 'google': {
-      fetcher = new GoogleModelFetcher()
-      break
-    }
-
-    case 'google-vertex': {
-      fetcher = new GoogleVertexModelFetcher()
-      break
-    }
-
+    case 'cerebras': // falls through
+    case 'cohere': // falls through
+    case 'deepinfra': // falls through
     case 'groq': // falls through
     case 'mistral': // falls through
+    case 'togetherai': // falls through
     case 'xai': {
       const provider = PROVIDER_REGISTRY[providerId]
       if (provider?.baseUrl) {
@@ -67,13 +63,47 @@ export function getModelFetcher(providerId: string): IProviderModelFetcher | und
       break
     }
 
+    case 'google': {
+      fetcher = new GoogleModelFetcher()
+
+      break
+    }
+
+    case 'google-vertex': {
+      fetcher = new GoogleVertexModelFetcher()
+
+      break
+    }
+
     case 'openai': {
       fetcher = new OpenAIModelFetcher()
+
       break
     }
 
     case 'openrouter': {
       fetcher = new OpenRouterModelFetcher()
+
+      break
+    }
+
+    case 'perplexity': {
+      fetcher = new ChatBasedModelFetcher(
+        'https://api.perplexity.ai',
+        'Perplexity',
+        ['sonar-pro', 'sonar', 'sonar-reasoning-pro', 'sonar-reasoning', 'sonar-deep-research', 'r1-1776'],
+      )
+
+      break
+    }
+
+    case 'vercel': {
+      fetcher = new ChatBasedModelFetcher(
+        'https://api.v0.dev/v1',
+        'Vercel',
+        ['v0-1.0-md', 'v0-1.5-md', 'v0-1.5-lg'],
+      )
+
       break
     }
   }
