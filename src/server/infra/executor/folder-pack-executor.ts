@@ -1,10 +1,13 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-import type { FolderPackResult } from '../../../agent/core/domain/folder-pack/types.js'
-import type { ICipherAgent } from '../../../agent/core/interfaces/i-cipher-agent.js'
-import type { IFolderPackService } from '../../../agent/core/interfaces/i-folder-pack-service.js'
-import type { FolderPackExecuteOptions, IFolderPackExecutor } from '../../core/interfaces/executor/i-folder-pack-executor.js'
+import type {FolderPackResult} from '../../../agent/core/domain/folder-pack/types.js'
+import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
+import type {IFolderPackService} from '../../../agent/core/interfaces/i-folder-pack-service.js'
+import type {
+  FolderPackExecuteOptions,
+  IFolderPackExecutor,
+} from '../../core/interfaces/executor/i-folder-pack-executor.js'
 
 /**
  * FolderPackExecutor - Executes folder pack + curate tasks with an injected CipherAgent.
@@ -23,10 +26,10 @@ import type { FolderPackExecuteOptions, IFolderPackExecutor } from '../../core/i
  * - Uses iterative extraction strategy (inspired by rlm) to avoid token limits
  */
 export class FolderPackExecutor implements IFolderPackExecutor {
-  constructor(private readonly folderPackService: IFolderPackService) { }
+  constructor(private readonly folderPackService: IFolderPackService) {}
 
   public async executeWithAgent(agent: ICipherAgent, options: FolderPackExecuteOptions): Promise<string> {
-    const { clientCwd, content, folderPath, taskId } = options
+    const {clientCwd, content, folderPath, taskId} = options
 
     // Resolve folder path
     const basePath = clientCwd ?? process.cwd()
@@ -43,69 +46,6 @@ export class FolderPackExecutor implements IFolderPackExecutor {
     // Stores packed folder in sandbox environment and lets agent iteratively query/extract
     // This avoids token limits entirely - works for folders of any size
     return this.executeIterative(agent, packResult, content, absoluteFolderPath, taskId)
-  }
-
-
-  /**
-   * Execute folder curation using iterative extraction strategy.
-   * Pre-loads folder data into REPL environment, then guides agent to iterate and curate.
-   * This avoids token limits entirely - data is stored in REPL, not in prompt.
-   */
-  // eslint-disable-next-line max-params
-  private async executeIterative(
-    agent: ICipherAgent,
-    packResult: FolderPackResult,
-    userContext: string | undefined,
-    folderPath: string,
-    taskId: string,
-  ): Promise<string> {
-    // Step 1: Generate repomix-style XML (single string with all file contents)
-    const packedXml = this.folderPackService.generateXml(packResult)
-    const xmlSizeInMB = (packedXml.length / (1024 * 1024)).toFixed(2)
-
-    console.log(`[FolderPackExecutor] Generated XML: ${xmlSizeInMB} MB for ${packResult.fileCount} files`)
-
-    // Step 2: Write XML to temporary file (avoids token limits, works with any agent)
-    // This approach: file path (~50 bytes) sent to LLM, data stays on disk
-    // IMPORTANT: Write to CWD (not /tmp) so sandbox can access it
-    const tmpFilePath = path.join(process.cwd(), `.byterover-curate-${taskId}.xml`)
-
-    console.log(`[FolderPackExecutor] Writing folder data to temp file: ${tmpFilePath}`)
-
-    try {
-      await fs.writeFile(tmpFilePath, packedXml, 'utf-8')
-      console.log(`[FolderPackExecutor] Successfully wrote ${xmlSizeInMB} MB to temp file`)
-    } catch (error) {
-      throw new Error(`Failed to write temp file: ${error instanceof Error ? error.message : String(error)}`)
-    }
-
-    // Step 3: Execute main curation task with file path reference
-    const prompt = this.buildIterativePromptWithFileAccess(
-      userContext,
-      folderPath,
-      tmpFilePath,
-      packResult.fileCount,
-      packResult.totalLines,
-    )
-
-    let response: string
-    try {
-      response = await agent.execute(prompt, {
-        executionContext: { commandType: 'curate' },
-        taskId,
-      })
-    } finally {
-      // Step 4: Clean up - delete temp file
-      console.log(`[FolderPackExecutor] Cleaning up temp file`)
-      try {
-        await fs.unlink(tmpFilePath)
-        console.log(`[FolderPackExecutor] Temp file cleanup successful`)
-      } catch (error) {
-        console.warn(`[FolderPackExecutor] Temp file cleanup warning (non-fatal):`, error)
-      }
-    }
-
-    return response
   }
 
   /**
@@ -811,5 +751,67 @@ await tools.curate([{
 
 **Remember:** Future agents will need COMPLETE information to understand and modify this codebase. Summaries are useless - they need the ACTUAL code and documentation.
 `
+  }
+
+  /**
+   * Execute folder curation using iterative extraction strategy.
+   * Pre-loads folder data into REPL environment, then guides agent to iterate and curate.
+   * This avoids token limits entirely - data is stored in REPL, not in prompt.
+   */
+  // eslint-disable-next-line max-params
+  private async executeIterative(
+    agent: ICipherAgent,
+    packResult: FolderPackResult,
+    userContext: string | undefined,
+    folderPath: string,
+    taskId: string,
+  ): Promise<string> {
+    // Step 1: Generate repomix-style XML (single string with all file contents)
+    const packedXml = this.folderPackService.generateXml(packResult)
+    const xmlSizeInMB = (packedXml.length / (1024 * 1024)).toFixed(2)
+
+    console.log(`[FolderPackExecutor] Generated XML: ${xmlSizeInMB} MB for ${packResult.fileCount} files`)
+
+    // Step 2: Write XML to temporary file (avoids token limits, works with any agent)
+    // This approach: file path (~50 bytes) sent to LLM, data stays on disk
+    // IMPORTANT: Write to CWD (not /tmp) so sandbox can access it
+    const tmpFilePath = path.join(process.cwd(), `.byterover-curate-${taskId}.xml`)
+
+    console.log(`[FolderPackExecutor] Writing folder data to temp file: ${tmpFilePath}`)
+
+    try {
+      await fs.writeFile(tmpFilePath, packedXml, 'utf8')
+      console.log(`[FolderPackExecutor] Successfully wrote ${xmlSizeInMB} MB to temp file`)
+    } catch (error) {
+      throw new Error(`Failed to write temp file: ${error instanceof Error ? error.message : String(error)}`)
+    }
+
+    // Step 3: Execute main curation task with file path reference
+    const prompt = this.buildIterativePromptWithFileAccess(
+      userContext,
+      folderPath,
+      tmpFilePath,
+      packResult.fileCount,
+      packResult.totalLines,
+    )
+
+    let response: string
+    try {
+      response = await agent.execute(prompt, {
+        executionContext: {commandType: 'curate'},
+        taskId,
+      })
+    } finally {
+      // Step 4: Clean up - delete temp file
+      console.log(`[FolderPackExecutor] Cleaning up temp file`)
+      try {
+        await fs.unlink(tmpFilePath)
+        console.log(`[FolderPackExecutor] Temp file cleanup successful`)
+      } catch (error) {
+        console.warn(`[FolderPackExecutor] Temp file cleanup warning (non-fatal):`, error)
+      }
+    }
+
+    return response
   }
 }
