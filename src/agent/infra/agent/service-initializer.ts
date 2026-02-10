@@ -23,11 +23,13 @@ import { createBlobStorage } from '../blob/blob-storage-factory.js'
 import { EnvironmentContextBuilder } from '../environment/environment-context-builder.js'
 import { AgentEventBus, SessionEventBus } from '../events/event-emitter.js'
 import { FileSystemService } from '../file-system/file-system-service.js'
-import { ByteRoverLlmHttpService } from '../http/internal-llm-http-service.js'
+import { AgentLLMService } from '../llm/agent-llm-service.js'
 import { CompactionService } from '../llm/context/compaction/compaction-service.js'
-import { ByteRoverContentGenerator, LoggingContentGenerator, RetryableContentGenerator } from '../llm/generators/index.js'
-import { ByteRoverLLMService } from '../llm/internal-llm-service.js'
-import { OpenRouterLLMService } from '../llm/openrouter-llm-service.js'
+import {
+  LoggingContentGenerator,
+  RetryableContentGenerator,
+} from '../llm/generators/index.js'
+import { createGeneratorForProvider } from '../llm/providers/index.js'
 import { DEFAULT_RETRY_POLICY } from '../llm/retry/retry-policy.js'
 import { GeminiTokenizer } from '../llm/tokenizers/gemini-tokenizer.js'
 import { EventBasedLogger } from '../logger/event-based-logger.js'
@@ -71,6 +73,18 @@ export interface SessionLLMConfig {
   maxTokens?: number
   model: string
   openRouterApiKey?: string
+  /** Provider ID (anthropic, openai, google, google-vertex, xai, groq, mistral, openrouter, byterover) */
+  provider?: string
+  /** API key for the direct provider */
+  providerApiKey?: string
+  /** Base URL for OpenAI-compatible providers */
+  providerBaseUrl?: string
+  /** Custom headers for the provider */
+  providerHeaders?: Record<string, string>
+  /** GCP location for Vertex AI (default: us-central1) */
+  providerLocation?: string
+  /** GCP project ID for Vertex AI */
+  providerProject?: string
   siteName?: string
   temperature?: number
   verbose?: boolean
@@ -274,7 +288,7 @@ export async function createCipherAgentServices(
 /**
  * Creates session-specific services for a ChatSession.
  * Generator composition order (innermost to outermost):
- * 1. Base generator (ByteRoverContentGenerator or OpenRouterContentGenerator)
+ * 1. Base generator (created via provider registry)
  * 2. RetryableContentGenerator - handles transient errors with backoff
  * 3. LoggingContentGenerator - debug logging (if verbose enabled)
  *
@@ -296,60 +310,21 @@ export function createSessionServices(
   // 2. Create session-scoped logger
   const sessionLogger = new EventBasedLogger(sharedServices.agentEventBus, 'LLMService', sessionId)
 
-  // 3. Create LLM service based on configuration
-  // Priority: OpenRouter > ByteRover HTTP
-  let llmService
+  // 3. Create LLM service based on provider configuration
+  // Routing priority: explicit provider > openRouterApiKey > byterover (default)
+  const provider = llmConfig.provider ?? (llmConfig.openRouterApiKey ? 'openrouter' : 'byterover')
 
-  if (llmConfig.openRouterApiKey) {
-    // Use OpenRouter service when OpenRouter API key is provided
-    llmService = new OpenRouterLLMService(
-      sessionId,
-      {
-        apiKey: llmConfig.openRouterApiKey,
-        httpReferer: llmConfig.httpReferer,
-        maxIterations: llmConfig.maxIterations ?? 50,
-        maxTokens: llmConfig.maxTokens ?? 8192,
-        model: llmConfig.model ?? 'google/gemini-3-flash-preview',
-        siteName: llmConfig.siteName,
-        temperature: llmConfig.temperature ?? 0.7,
-        verbose: llmConfig.verbose ?? false,
-      },
-      {
-        logger: sessionLogger,
-        memoryManager: sharedServices.memoryManager, // SHARED
-        sessionEventBus,
-        systemPromptManager: sharedServices.systemPromptManager, // SHARED
-        toolManager: sharedServices.toolManager, // SHARED
-      },
-    )
-  } else {
-    // Use HTTP backend service (default) with generator pattern
+  // Helper: wrap a base generator with retry + logging decorators, then create AgentLLMService
+  const createServiceWithGenerator = (baseGenerator: IContentGenerator): AgentLLMService => {
+    let generator: IContentGenerator = baseGenerator
 
-    // Step 1: Create HTTP service
-    const httpService = new ByteRoverLlmHttpService({
-      apiBaseUrl: httpConfig.apiBaseUrl,
-      projectId: httpConfig.projectId,
-      region: httpConfig.region,
-      sessionKey: httpConfig.sessionKey,
-      spaceId: httpConfig.spaceId,
-      teamId: httpConfig.teamId,
-      timeout: httpConfig.timeout,
-    })
-
-    // Step 2: Create base content generator
-    let generator: IContentGenerator = new ByteRoverContentGenerator(httpService, {
-      maxTokens: llmConfig.maxTokens ?? 8192,
-      model: llmConfig.model ?? 'gemini-3-flash-preview',
-      temperature: llmConfig.temperature ?? 0.7,
-    })
-
-    // Step 3: Wrap with retry decorator
+    // Wrap with retry decorator
     generator = new RetryableContentGenerator(generator, {
       eventBus: sessionEventBus,
       policy: DEFAULT_RETRY_POLICY,
     })
 
-    // Step 4: Wrap with logging decorator (always, for spinner events)
+    // Wrap with logging decorator (always, for spinner events)
     generator = new LoggingContentGenerator(generator, sessionEventBus, {
       logChunks: llmConfig.verbose,
       logRequests: llmConfig.verbose,
@@ -357,28 +332,47 @@ export function createSessionServices(
       verbose: llmConfig.verbose,
     })
 
-    // Step 5: Create LLM service with composed generator
-    llmService = new ByteRoverLLMService(
+    return new AgentLLMService(
       sessionId,
       generator,
       {
         maxIterations: llmConfig.maxIterations ?? 50,
         maxTokens: llmConfig.maxTokens ?? 8192,
         model: llmConfig.model ?? 'gemini-3-flash-preview',
+        provider,
         temperature: llmConfig.temperature ?? 0.7,
         verbose: llmConfig.verbose ?? false,
       },
       {
-        compactionService: sharedServices.compactionService, // SHARED - for context overflow management
-        historyStorage: sharedServices.historyStorage, // SHARED
+        compactionService: sharedServices.compactionService,
+        historyStorage: sharedServices.historyStorage,
         logger: sessionLogger,
-        memoryManager: sharedServices.memoryManager, // SHARED
+        memoryManager: sharedServices.memoryManager,
         sessionEventBus,
-        systemPromptManager: sharedServices.systemPromptManager, // SHARED
-        toolManager: sharedServices.toolManager, // SHARED
+        systemPromptManager: sharedServices.systemPromptManager,
+        toolManager: sharedServices.toolManager,
       },
     )
   }
+
+  // Create base generator via provider registry
+  const baseGenerator = createGeneratorForProvider(provider, {
+    apiKey: provider === 'openrouter'
+      ? (llmConfig.openRouterApiKey ?? llmConfig.providerApiKey)
+      : llmConfig.providerApiKey,
+    baseUrl: llmConfig.providerBaseUrl,
+    headers: llmConfig.providerHeaders,
+    httpConfig: httpConfig as unknown as Record<string, unknown>,
+    httpReferer: llmConfig.httpReferer,
+    location: llmConfig.providerLocation,
+    maxTokens: llmConfig.maxTokens ?? 8192,
+    model: llmConfig.model,
+    project: llmConfig.providerProject,
+    siteName: llmConfig.siteName,
+    temperature: llmConfig.temperature ?? 0.7,
+  })
+
+  const llmService = createServiceWithGenerator(baseGenerator)
 
   // Event forwarding is handled by ChatSession.setupEventForwarding()
   // to ensure proper cleanup when sessions are disposed
