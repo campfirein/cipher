@@ -22,6 +22,14 @@ export interface ContextData {
   snippets: string[]
 }
 
+/**
+ * Normalizes newline characters in text.
+ * Converts literal \n strings to actual newlines.
+ */
+function normalizeNewlines(text: string): string {
+  return text.replaceAll(String.raw`\n`, '\n');
+}
+
 function generateRawConceptSection(rawConcept?: RawConcept): string {
   if (!rawConcept) {
     return ''
@@ -30,23 +38,23 @@ function generateRawConceptSection(rawConcept?: RawConcept): string {
   const parts: string[] = []
 
   if (rawConcept.task) {
-    parts.push(`**Task:**\n${rawConcept.task}`)
+    parts.push(`**Task:**\n${normalizeNewlines(rawConcept.task)}`)
   }
 
   if (rawConcept.changes && rawConcept.changes.length > 0) {
-    parts.push(`**Changes:**\n${rawConcept.changes.map(c => `- ${c}`).join('\n')}`)
+    parts.push(`**Changes:**\n${rawConcept.changes.map(c => `- ${normalizeNewlines(c)}`).join('\n')}`)
   }
 
   if (rawConcept.files && rawConcept.files.length > 0) {
-    parts.push(`**Files:**\n${rawConcept.files.map(f => `- ${f}`).join('\n')}`)
+    parts.push(`**Files:**\n${rawConcept.files.map(f => `- ${normalizeNewlines(f)}`).join('\n')}`)
   }
 
   if (rawConcept.flow) {
-    parts.push(`**Flow:**\n${rawConcept.flow}`)
+    parts.push(`**Flow:**\n${normalizeNewlines(rawConcept.flow)}`)
   }
 
   if (rawConcept.timestamp) {
-    parts.push(`**Timestamp:** ${rawConcept.timestamp}`)
+    parts.push(`**Timestamp:** ${normalizeNewlines(rawConcept.timestamp)}`)
   }
 
   if (parts.length === 0) {
@@ -64,15 +72,15 @@ function generateNarrativeSection(narrative?: Narrative): string {
   const parts: string[] = []
 
   if (narrative.structure) {
-    parts.push(`### Structure\n${narrative.structure}`)
+    parts.push(`### Structure\n${normalizeNewlines(narrative.structure)}`)
   }
 
   if (narrative.dependencies) {
-    parts.push(`### Dependencies\n${narrative.dependencies}`)
+    parts.push(`### Dependencies\n${normalizeNewlines(narrative.dependencies)}`)
   }
 
   if (narrative.features) {
-    parts.push(`### Features\n${narrative.features}`)
+    parts.push(`### Features\n${normalizeNewlines(narrative.features)}`)
   }
 
   if (parts.length === 0) {
