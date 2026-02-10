@@ -2,6 +2,25 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [1.8.0]
+
+### Added
+
+- **Faster query responses** - Three-tiered response system: fuzzy cache matching for repeated queries (~50ms), direct search for high-confidence matches (~100-200ms), and optimized LLM responses with prompt caching and smart routing.
+- **Out-of-domain detection** - Multi-layer detection prevents confidently wrong answers for topics not covered in the context tree, with AND-first search matching and relevance guards.
+- **Diagram and visual content preservation** - Structured diagrams (Mermaid, PlantUML, ASCII art) are preserved verbatim during curation instead of being summarized.
+
+### Changed
+
+- **Improved folder curation** - New iterative extraction strategy for large directories avoids token limits. Default suggestion of `./` added in slash completion for curating current directory.
+- **System prompt improvements** - Updated to be more general purpose and better respect source files instead of suggesting imports.
+
+### Fixed
+
+- **NPM security vulnerability** - Addressed high severity npm security issue.
+- **File validator for text files** - Fixed rejection of known text file extensions (e.g., .md with UTF-16 encoding). Office documents (docx, xlsx, pptx) now pass validation.
+- **Markdown newline formatting** - Fixed literal `\n` strings being rendered instead of actual newlines in generated markdown content.
+
 ## [1.7.2]
 
 ### Fixed
