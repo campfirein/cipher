@@ -8,6 +8,7 @@
 import type {IProviderModelFetcher} from '../../core/interfaces/i-provider-model-fetcher.js'
 
 import {PROVIDER_REGISTRY} from '../../core/domain/entities/provider-registry.js'
+import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
 import {
   AnthropicModelFetcher,
   ChatBasedModelFetcher,
@@ -29,7 +30,7 @@ const fetchers = new Map<string, IProviderModelFetcher>()
  * @param providerId - Provider identifier (e.g., 'anthropic', 'openai', 'google')
  * @returns IProviderModelFetcher instance, or undefined if provider doesn't support model fetching
  */
-export function getModelFetcher(providerId: string): IProviderModelFetcher | undefined {
+export async function getModelFetcher(providerId: string): Promise<IProviderModelFetcher | undefined> {
   // ByteRover internal doesn't support model fetching
   if (providerId === 'byterover') return undefined
 
@@ -77,6 +78,18 @@ export function getModelFetcher(providerId: string): IProviderModelFetcher | und
 
     case 'openai': {
       fetcher = new OpenAIModelFetcher()
+
+      break
+    }
+
+    case 'openai-compatible': {
+      // Base URL is user-configured — read from stored provider config
+      const configStore = new FileProviderConfigStore()
+      const config = await configStore.read()
+      const baseUrl = config.getBaseUrl('openai-compatible')
+      if (baseUrl) {
+        fetcher = new OpenAICompatibleModelFetcher(baseUrl, 'OpenAI Compatible')
+      }
 
       break
     }
@@ -135,7 +148,7 @@ export async function validateApiKey(
   apiKey: string,
   providerId: string,
 ): Promise<{error?: string; isValid: boolean}> {
-  const fetcher = getModelFetcher(providerId)
+  const fetcher = await getModelFetcher(providerId)
   if (!fetcher) {
     return {error: `No model fetcher available for provider: ${providerId}`, isValid: false}
   }

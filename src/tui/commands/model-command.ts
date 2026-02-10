@@ -40,7 +40,7 @@ async function buildModelChoices(
     recent: readonly string[]
   },
 ): Promise<Array<PromptChoice<string>>> {
-  const fetcher = getModelFetcher(providerId)
+  const fetcher = await getModelFetcher(providerId)
   if (!fetcher) return []
 
   const models = await fetcher.fetchModels(apiKey)
@@ -175,7 +175,7 @@ export const modelCommand: SlashCommand = {
       }
 
       // Check if provider has a model fetcher
-      const fetcher = getModelFetcher(activeProviderId)
+      const fetcher = await getModelFetcher(activeProviderId)
       if (!fetcher) {
         onMessage({
           content: `Model listing is not available for ${provider.name}.`,

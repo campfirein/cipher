@@ -18,6 +18,7 @@ import {googleVertexProvider} from './google-vertex.js'
 import {googleProvider} from './google.js'
 import {groqProvider} from './groq.js'
 import {mistralProvider} from './mistral.js'
+import {openaiCompatibleProvider} from './openai-compatible.js'
 import {openaiProvider} from './openai.js'
 import {openrouterProvider} from './openrouter.js'
 import {perplexityProvider} from './perplexity.js'
@@ -40,6 +41,7 @@ const PROVIDER_MODULES: Readonly<Record<string, ProviderModule>> = {
   groq: groqProvider,
   mistral: mistralProvider,
   openai: openaiProvider,
+  'openai-compatible': openaiCompatibleProvider,
   openrouter: openrouterProvider,
   perplexity: perplexityProvider,
   togetherai: togetheraiProvider,

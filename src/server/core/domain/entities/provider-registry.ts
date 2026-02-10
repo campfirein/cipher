@@ -165,6 +165,18 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
     name: 'OpenAI',
     priority: 3,
   },
+  'openai-compatible': {
+    baseUrl: '',
+    category: 'other',
+    defaultModel: 'llama3',
+    description: 'Connect any OpenAI-compatible endpoint (Ollama, LM Studio, etc.)',
+    envVars: ['OPENAI_COMPATIBLE_API_KEY'],
+    headers: {},
+    id: 'openai-compatible',
+    modelsEndpoint: '/models',
+    name: 'OpenAI Compatible',
+    priority: 20,
+  },
   openrouter: {
     apiKeyUrl: 'https://openrouter.ai/keys',
     baseUrl: 'https://openrouter.ai/api/v1',
@@ -271,7 +283,8 @@ export function providerRequiresApiKey(id: string): boolean {
   if (!provider) return false
   // Internal providers (byterover) don't need API keys.
   // Vertex AI uses Application Default Credentials, not API keys.
-  if (id === 'byterover' || id === 'google-vertex') return false
+  // OpenAI Compatible has optional API key (handled in provider-command).
+  if (id === 'byterover' || id === 'google-vertex' || id === 'openai-compatible') return false
 
   return true
 }

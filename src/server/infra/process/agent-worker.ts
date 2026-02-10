@@ -709,6 +709,19 @@ async function loadProviderConfiguration(): Promise<ProviderConfiguration> {
     return result
   }
 
+  // OpenAI Compatible uses a user-configured base URL and optional API key
+  if (activeProviderId === 'openai-compatible') {
+    const customBaseUrl = providerConfig.getBaseUrl(activeProviderId)
+    result.provider = activeProviderId
+    result.providerApiKey = apiKey || undefined
+    result.providerBaseUrl = customBaseUrl || undefined
+    agentLog(
+      `Using external provider: ${activeProviderId} (baseUrl: ${customBaseUrl ?? 'default'})${modelFromProvider ? ` with model: ${modelFromProvider}` : ''}`,
+    )
+
+    return result
+  }
+
   if (!apiKey) {
     agentLog(`No API key found for provider: ${activeProviderId}`)
 

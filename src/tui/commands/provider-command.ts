@@ -13,6 +13,8 @@
  * Usage: /provider
  */
 
+import axios, {isAxiosError} from 'axios'
+
 import type {PromptChoice, PromptRequest, SlashCommand, StreamingMessage} from '../../tui/types.js'
 
 import {
@@ -53,16 +55,27 @@ type ConnectionSource = 'env' | 'keychain' | 'none'
 async function getConnectionSource(
   providerId: string,
   keychainStore: ProviderKeychainStore,
+  configStore?: FileProviderConfigStore,
 ): Promise<ConnectionSource> {
   if (providerId === 'byterover') return 'keychain' // Internal provider, always "connected"
   if (providerId === 'google-vertex') {
     // Vertex AI uses ADC — check if GOOGLE_CLOUD_PROJECT + GOOGLE_APPLICATION_CREDENTIALS are set
     if (process.env.GOOGLE_CLOUD_PROJECT && process.env.GOOGLE_APPLICATION_CREDENTIALS) return 'env'
+
+    return 'none'
+  }
+
+  // OpenAI Compatible: connected if a base URL is stored in config
+  if (providerId === 'openai-compatible' && configStore) {
+    const config = await configStore.read()
+    if (config.getBaseUrl(providerId)) return 'keychain'
+
     return 'none'
   }
 
   if (await keychainStore.hasApiKey(providerId)) return 'keychain'
   if (getProviderApiKeyFromEnv(providerId)) return 'env'
+
   return 'none'
 }
 
@@ -80,7 +93,7 @@ async function buildProviderChoices(): Promise<Array<PromptChoice<string>>> {
   const connectionStatuses = await Promise.all(
     providers.map(async (provider) => ({
       provider,
-      source: await getConnectionSource(provider.id, keychainStore),
+      source: await getConnectionSource(provider.id, keychainStore, configStore),
     })),
   )
 
@@ -140,7 +153,7 @@ export const providerCommand: SlashCommand = {
       }
 
       // Step 2: Check connection source
-      const source = await getConnectionSource(provider.id, keychainStore)
+      const source = await getConnectionSource(provider.id, keychainStore, configStore)
       const isConnected = source !== 'none'
 
       if (isConnected) {
@@ -360,6 +373,105 @@ export const providerCommand: SlashCommand = {
             type: 'error',
           })
         }
+      } else if (provider.id === 'openai-compatible') {
+        // OpenAI Compatible: prompt for base URL, then optional API key
+        onMessage({
+          content: 'Enter the base URL of your OpenAI-compatible endpoint.\nExamples: http://localhost:11434/v1 (Ollama), http://localhost:1234/v1 (LM Studio)',
+          id: `info-${Date.now()}`,
+          type: 'output',
+        })
+
+        const baseUrl = await new Promise<string>((resolve) => {
+          onPrompt({
+            message: 'Base URL',
+            onResponse: resolve,
+            placeholder: 'http://localhost:11434/v1',
+            type: 'input',
+            validate(value: string) {
+              if (!value.trim()) return 'Base URL is required'
+              if (!URL.canParse(value.trim())) return 'Invalid URL format'
+
+              return true
+            },
+          })
+        })
+
+        const trimmedBaseUrl = baseUrl.trim()
+
+        // Ask if API key is needed
+        const needsKey = await new Promise<string>((resolve) => {
+          onPrompt({
+            choices: [
+              {description: 'Most local LLMs do not require a key', name: 'No', value: 'no'},
+              {description: 'Some endpoints require authentication', name: 'Yes', value: 'yes'},
+            ],
+            message: 'Does this endpoint require an API key?',
+            onResponse: (value: unknown) => resolve(value as string),
+            type: 'select',
+          })
+        })
+
+        let apiKey = ''
+        if (needsKey === 'yes') {
+          apiKey = await new Promise<string>((resolve) => {
+            onPrompt({
+              message: 'Enter API key',
+              onResponse: resolve,
+              placeholder: 'sk-...',
+              type: 'input',
+              validate(value: string) {
+                if (!value.trim()) return 'API key is required'
+
+                return true
+              },
+            })
+          })
+        }
+
+        // Validate connectivity by hitting the endpoint
+        onMessage({
+          actionId: 'validate-endpoint',
+          content: 'Validating endpoint...',
+          id: `validating-${Date.now()}`,
+          type: 'action_start',
+        })
+
+        const validationResult = await validateOpenAICompatibleEndpoint(trimmedBaseUrl, apiKey)
+
+        if (validationResult.isValid) {
+          onMessage({
+            actionId: 'validate-endpoint',
+            content: 'Valid',
+            id: `validated-${Date.now()}`,
+            type: 'action_stop',
+          })
+
+          // Store API key if provided
+          if (apiKey) {
+            await keychainStore.setApiKey(provider.id, apiKey)
+          }
+
+          // Connect with the base URL stored in config
+          await configStore.connectProvider(provider.id, {baseUrl: trimmedBaseUrl})
+
+          onMessage({
+            content: `Connected to ${provider.name} at ${trimmedBaseUrl}`,
+            id: `connected-${Date.now()}`,
+            type: 'output',
+          })
+        } else {
+          onMessage({
+            actionId: 'validate-endpoint',
+            content: 'Failed',
+            id: `invalid-${Date.now()}`,
+            type: 'action_stop',
+          })
+          onMessage({
+            content: validationResult.error ?? 'Could not connect to the endpoint. Please check the URL and try again.',
+            id: `error-${Date.now()}`,
+            type: 'error',
+          })
+        }
       } else {
         // Provider doesn't require API key (e.g., byterover)
         await configStore.connectProvider(provider.id)
@@ -377,4 +489,64 @@ export const providerCommand: SlashCommand = {
   description: 'Connect, switch, or disconnect LLM providers',
   kind: CommandKind.BUILT_IN,
   name: 'provider',
+}
+
+/* eslint-disable camelcase */
+/**
+ * Validate an OpenAI-compatible endpoint by trying /models then /chat/completions.
+ */
+async function validateOpenAICompatibleEndpoint(
+  baseUrl: string,
+  apiKey: string,
+): Promise<{error?: string; isValid: boolean}> {
+  const headers: Record<string, string> = {'Content-Type': 'application/json'}
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`
+  }
+
+  // Try GET /models first (works for most OpenAI-compatible servers)
+  try {
+    await axios.get(`${baseUrl}/models`, {headers, timeout: 10_000})
+
+    return {isValid: true}
+  } catch {
+    // /models failed — fall through to chat/completions
+  }
+
+  // Try POST /chat/completions as fallback
+  try {
+    await axios.post(
+      `${baseUrl}/chat/completions`,
+      {
+        max_tokens: 1,
+        messages: [{content: 'hi', role: 'user'}],
+        model: 'test',
+      },
+      {headers, timeout: 10_000},
+    )
+
+    return {isValid: true}
+  } catch (error) {
+    if (isAxiosError(error)) {
+      // 401/403 means the endpoint exists but needs auth
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        return {error: 'Authentication failed. Please check your API key.', isValid: false}
+      }
+
+      // 404 on both endpoints means this isn't an OpenAI-compatible API
+      if (error.response?.status === 404) {
+        return {error: 'Endpoint does not appear to be OpenAI-compatible (404 on /models and /chat/completions).', isValid: false}
+      }
+
+      // Other errors (400, 422, 500, etc.) mean the endpoint is reachable
+      if (error.response) {
+        return {isValid: true}
+      }
+
+      // Network errors
+      return {error: `Could not reach endpoint: ${error.message}`, isValid: false}
+    }
+
+    return {error: error instanceof Error ? error.message : 'Unknown error', isValid: false}
+  }
 }
