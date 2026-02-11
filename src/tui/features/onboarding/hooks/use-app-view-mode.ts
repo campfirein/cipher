@@ -8,6 +8,7 @@
 import type {OnboardingFlowStep} from '../types.js'
 
 import {useAuthStore} from '../../auth/stores/auth-store.js'
+import {useGetOnboardingState} from '../api/get-onboarding-state.js'
 import {useOnboardingStore} from '../stores/onboarding-store.js'
 
 /**
@@ -32,23 +33,18 @@ export type AppViewMode =
 export function useAppViewMode(): AppViewMode {
   const {isLoadingInitial: isLoadingAuth} = useAuthStore()
   const {completedInSession, flowStep, initialized} = useOnboardingStore()
+  const {data, isLoading: isLoadingOnboardingState} = useGetOnboardingState()
+  const hasOnboarded = data?.hasOnboarded ?? false
 
   // Still loading auth or onboarding initialization
-  if (isLoadingAuth || !initialized) {
+  if (isLoadingAuth || !initialized || isLoadingOnboardingState) {
     return {type: 'loading'}
   }
 
   // New user who needs onboarding (hasn't completed CLI onboarding on server)
-  const needsOnboarding = !completedInSession
+  const needsOnboarding = !completedInSession && !hasOnboarded
   if (needsOnboarding) {
     return {step: flowStep, type: 'onboarding'}
-  }
-
-  // Has onboarded but don't have provider configured for some reasons
-  // TODO: implement the condition here
-  const projectNeedsConfig = false
-  if (projectNeedsConfig) {
-    return {type: 'init'}
   }
 
   // Normal app state

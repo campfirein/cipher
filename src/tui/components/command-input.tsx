@@ -41,6 +41,14 @@ function getInstructionText(step: OnboardingFlowStep, highlightColor: string): R
       )
     }
 
+    case 'init-provider': {
+      return (
+        <Text>
+          Set up your provider with <Text color={highlightColor}>/provider</Text>
+        </Text>
+      )
+    }
+
     case 'query': {
       return (
         <Text>
@@ -69,7 +77,21 @@ function getInstruction({
   step: OnboardingFlowStep
   textColor: string
 }): ReactNode {
-  if (step === 'explore' || step === 'curating' || step === 'querying') return null
+  if (step === 'explore' || step === 'curating' || step === 'querying' || step === 'initing-provider') return null
+
+  if (step === 'init-provider') {
+    return (
+      <Text color={textColor}>
+        {' '}
+        · Press{' '}
+        <Text backgroundColor={highlightBgColor} color={highlightTextColor}>
+          {' '}
+          Enter{' '}
+        </Text>{' '}
+        to start
+      </Text>
+    )
+  }
 
   return (
     <Text color={textColor}>
@@ -87,6 +109,7 @@ function getInstruction({
 export const CommandInput = () => {
   const queryClient = useQueryClient()
   const client = useTransportStore((s) => s.client)
+  const trackingService = useTransportStore((s) => s.trackingService)
   const clearTasks = useTasksStore((s) => s.clearTasks)
   const {
     theme: {colors},
@@ -99,13 +122,15 @@ export const CommandInput = () => {
   const [activeDialog, setActiveDialog] = useState<ReactNode>(null)
   const ctrlOPressedRef = useRef(false)
   const previousInputRef = useRef('')
-  const {clearPendingInput, complete, pendingInput, removeHighlightedCommand, setPendingInput, viewMode} =
+  const {clearPendingInput, complete, pendingInput, removeHighlightedCommand, setFlowStep, setPendingInput, viewMode} =
     useOnboarding()
 
   const isOnboarding = viewMode.type === 'onboarding'
   const currentStep = viewMode.type === 'onboarding' ? viewMode.step : null
 
   // Check if in prefilled onboarding steps (curate or query)
+  const isInInitProvider = isOnboarding && currentStep === 'init-provider'
+  const isInInitingProvider = isOnboarding && currentStep === 'initing-provider'
   const isInCurate = isOnboarding && currentStep === 'curate'
   const isInQuery = isOnboarding && currentStep === 'query'
   const isInCurating = isOnboarding && currentStep === 'curating'
@@ -114,6 +139,8 @@ export const CommandInput = () => {
 
   // Fixed input value for curate onboarding step (only before user has curated and not currently curating)
   const displayInputValue = useMemo(() => {
+    if (isInInitProvider) return '/provider'
+    if (isInInitingProvider) return ''
     if (isInCurate) return '/curate Curate the folder structure of this repository.'
     if (isInCurating) return ''
     if (isInQuery) return '/query Tell me what you know about the folder structure of this repository?'
@@ -123,7 +150,7 @@ export const CommandInput = () => {
 
   // Placeholder based on onboarding step
   const placeholder = useMemo(() => {
-    if (isStreaming || isInCurating || isInQuerying) return 'Processing...'
+    if (isStreaming || isInCurating || isInQuerying || isInInitingProvider) return 'Processing...'
     if (isInExplore) return 'Type /'
     return 'Type a command...'
   }, [isStreaming, isOnboarding, currentStep])
@@ -255,6 +282,10 @@ export const CommandInput = () => {
             setActiveDialog(null)
             setIsStreaming(false)
             setHasActiveDialog(false)
+            if (isInInitingProvider) {
+              trackingService?.track('onboarding:init_provider_cancelled')
+              setFlowStep('init-provider')
+            }
           },
           async onComplete(message: string, sideEffects?: CommandSideEffects) {
             setActiveDialog(null)
@@ -298,6 +329,11 @@ export const CommandInput = () => {
                 }
               }
 
+              if (sideEffects.completeInitProvider) {
+                trackingService?.track('onboarding:init_provider_completed')
+                setFlowStep('curate')
+              }
+
               if (sideEffects.reloadAuth) {
                 clearTasks()
                 await queryClient.invalidateQueries({queryKey: getAuthStateQueryOptions().queryKey})
@@ -336,10 +372,15 @@ export const CommandInput = () => {
   const handleSubmit = useCallback(
     async (value: string) => {
       if (mode === 'main' && !isStreaming) {
+        if (isInInitProvider) {
+          setFlowStep('initing-provider')
+          return
+        }
+
         await executeCommand(value)
       }
     },
-    [executeCommand, isStreaming, mode],
+    [executeCommand, isInInitProvider, isStreaming, mode, setFlowStep],
   )
 
   const handleSelect = useCallback(

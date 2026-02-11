@@ -12,8 +12,9 @@ import {Box, Text} from 'ink'
 import React, {useCallback, useState} from 'react'
 
 import type {ProviderDTO} from '../../../../shared/transport/types/dto.js'
+import type {CommandSideEffects} from '../../../types/commands.js'
 
-import {useTheme} from '../../../hooks/index.js'
+import {useOnboarding, useTheme} from '../../../hooks/index.js'
 import {useConnectProvider} from '../api/connect-provider.js'
 import {useGetProviders} from '../api/get-providers.js'
 import {useSetActiveProvider} from '../api/set-active-provider.js'
@@ -29,7 +30,7 @@ export interface ProviderFlowProps {
   /** Called when the flow is cancelled */
   onCancel: () => void
   /** Called when the flow completes (provider connected or switched) */
-  onComplete: (message: string) => void
+  onComplete: (message: string, sideEffects?: CommandSideEffects) => void
 }
 
 export const ProviderFlow: React.FC<ProviderFlowProps> = ({
@@ -38,6 +39,8 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
   onComplete,
 }) => {
   const {theme: {colors}} = useTheme()
+  const {viewMode} = useOnboarding()
+  const isInitingProvider = viewMode.type === 'onboarding' && viewMode.step === 'initing-provider'
   const [step, setStep] = useState<FlowStep>('select')
   const [selectedProvider, setSelectedProvider] = useState<null | ProviderDTO>(null)
   const [error, setError] = useState<null | string>(null)
@@ -49,6 +52,11 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
 
   const providers = data?.providers ?? []
 
+  const completeFlow = useCallback((message: string) => {
+    const sideEffects: CommandSideEffects | undefined = isInitingProvider ? {completeInitProvider: true} : undefined
+    onComplete(message, sideEffects)
+  }, [isInitingProvider, onComplete])
+
   const handleSelect = useCallback(async (provider: ProviderDTO) => {
     setSelectedProvider(provider)
     setError(null)
@@ -58,7 +66,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       setStep('connecting')
       try {
         await setActiveMutation.mutateAsync({providerId: provider.id})
-        onComplete(`Switched to ${provider.name}`)
+        completeFlow(`Switched to ${provider.name}`)
       } catch (error_) {
         setError(error_ instanceof Error ? error_.message : String(error_))
         setStep('select')
@@ -77,12 +85,12 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
     setStep('connecting')
     try {
       await connectMutation.mutateAsync({providerId: provider.id})
-      onComplete(`Connected to ${provider.name}`)
+      completeFlow(`Connected to ${provider.name}`)
     } catch (error_) {
       setError(error_ instanceof Error ? error_.message : String(error_))
       setStep('select')
     }
-  }, [connectMutation, onComplete, setActiveMutation])
+  }, [completeFlow, connectMutation, setActiveMutation])
 
   const handleApiKeySuccess = useCallback(async (apiKey: string) => {
     if (!selectedProvider) return
@@ -90,12 +98,12 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
     setStep('connecting')
     try {
       await connectMutation.mutateAsync({apiKey, providerId: selectedProvider.id})
-      onComplete(`Connected to ${selectedProvider.name}`)
+      completeFlow(`Connected to ${selectedProvider.name}`)
     } catch (error_) {
       setError(error_ instanceof Error ? error_.message : String(error_))
       setStep('api_key')
     }
-  }, [connectMutation, onComplete, selectedProvider])
+  }, [completeFlow, connectMutation, selectedProvider])
 
   const handleApiKeyCancel = useCallback(() => {
     setStep('select')

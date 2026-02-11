@@ -7,11 +7,8 @@
 
 import React, {useEffect, useRef} from 'react'
 
-import {AgentEvents} from '../../../../shared/transport/events/agent-events.js'
 import {useTransportStore} from '../../../stores/transport-store.js'
-import {useAuthStore} from '../../auth/stores/auth-store.js'
 import {useTasksStore} from '../../tasks/stores/tasks-store.js'
-import {autoSetupOnboarding} from '../api/auto-setup-onboarding.js'
 import {useAppViewMode} from '../hooks/use-app-view-mode.js'
 import {useOnboardingStore} from '../stores/onboarding-store.js'
 import {getTransitionEvent} from '../utils.js'
@@ -21,41 +18,14 @@ interface OnboardingInitializerProps {
 }
 
 export function OnboardingInitializer({children}: OnboardingInitializerProps): React.ReactNode {
-  const client = useTransportStore((s) => s.client)
   const trackingService = useTransportStore((s) => s.trackingService)
-  const {isAuthorized, isLoadingInitial, user} = useAuthStore()
   const tasks = useTasksStore((s) => s.tasks)
 
-  const {advanceStep, flowStep, initialized, setInitialized} = useOnboardingStore()
+  const {advanceStep, flowStep} = useOnboardingStore()
   const viewMode = useAppViewMode()
 
   // Track previous step for detecting transitions
   const previousStepRef = useRef(flowStep)
-
-  // Run auto-setup once on mount for new users
-  useEffect(() => {
-    if (isLoadingInitial || initialized) return
-
-    const runAutoSetup = async () => {
-      // Only run auto-setup for users who haven't onboarded
-      if (user && !user.hasOnboardedCli && isAuthorized) {
-        try {
-          const result = await autoSetupOnboarding()
-
-          if (result.success) {
-            // Restart agent to pick up new project state
-            await client?.requestWithAck(AgentEvents.RESTART, {reason: 'Auto select team/space'})
-          }
-        } catch {
-          // Silently ignore - auto-selection is optional
-        }
-      }
-
-      setInitialized()
-    }
-
-    runAutoSetup()
-  }, [client, isAuthorized, isLoadingInitial, initialized, setInitialized, user])
 
   // Watch tasks and advance step machine (only during onboarding)
   useEffect(() => {

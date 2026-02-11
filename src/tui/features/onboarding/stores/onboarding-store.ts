@@ -24,8 +24,6 @@ export interface OnboardingState {
   flowStep: OnboardingFlowStep
   /** Map of command names to their recommended text (session-only, set after onboarding completes) */
   highlightedCommands: Map<string, string>
-  /** Whether init was completed in this session (prevents re-showing init view) */
-  initCompletedInSession: boolean
   /** Whether the initial async check has completed */
   initialized: boolean
   /** Pending input to restore after page transition (e.g., "/" typed during explore step) */
@@ -42,12 +40,12 @@ export interface OnboardingActions {
   clearPendingInput: () => void
   /** Mark onboarding as complete */
   complete: () => void
-  /** Mark init as complete */
-  completeInit: () => void
   /** Remove a command from highlighted commands */
   removeHighlightedCommand: (commandName: string) => void
   /** Reset store to initial state */
   reset: () => void
+  /** Set the flow step directly (for transitions not driven by tasks) */
+  setFlowStep: (step: OnboardingFlowStep) => void
   /** Set highlighted commands */
   setHighlightedCommands: (commands: Map<string, string>) => void
   /** Mark initialization as complete */
@@ -58,9 +56,8 @@ export interface OnboardingActions {
 
 const initialState: OnboardingState = {
   completedInSession: false,
-  flowStep: 'curate',
+  flowStep: 'init-provider',
   highlightedCommands: new Map(),
-  initCompletedInSession: false,
   initialized: false,
   pendingInput: '',
 }
@@ -81,13 +78,7 @@ export const useOnboardingStore = create<OnboardingActions & OnboardingState>()(
 
   clearPendingInput: () => set({pendingInput: ''}),
 
-  complete: () =>
-    set({
-      completedInSession: true,
-      initCompletedInSession: true,
-    }),
-
-  completeInit: () => set({initCompletedInSession: true}),
+  complete: () => set({completedInSession: true}),
 
   removeHighlightedCommand(commandName) {
     const current = get().highlightedCommands
@@ -97,6 +88,8 @@ export const useOnboardingStore = create<OnboardingActions & OnboardingState>()(
   },
 
   reset: () => set(initialState),
+
+  setFlowStep: (step) => set({flowStep: step}),
 
   setHighlightedCommands: (commands) => set({highlightedCommands: commands}),
 
