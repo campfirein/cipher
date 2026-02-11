@@ -19,6 +19,25 @@ import {useTheme} from '../../../hooks/index.js'
 import {stripBracketedPaste} from '../../../utils/index.js'
 
 /**
+ * API key placeholder hints per provider.
+ * Falls back to 'sk-...' for unlisted providers.
+ */
+const API_KEY_PLACEHOLDERS: Readonly<Record<string, string>> = {
+  anthropic: 'sk-ant-...',
+  cerebras: 'csk-...',
+  cohere: '...',
+  deepinfra: '...',
+  groq: 'gsk_...',
+  mistral: '...',
+  openai: 'sk-...',
+  openrouter: 'sk-or-...',
+  perplexity: 'pplx-...',
+  togetherai: '...',
+  vercel: 'vcp_...',
+  xai: 'xai-...',
+}
+
+/**
  * Validation result from API key check.
  */
 export interface ApiKeyValidationResult {
@@ -171,7 +190,7 @@ export const ApiKeyDialog: React.FC<ApiKeyDialogProps> = ({
         paddingX={1}
       >
         <Text color={apiKey ? colors.text : colors.dimText}>
-          {apiKey ? displayValue : 'sk-or-v1-...'}
+          {apiKey ? displayValue : (API_KEY_PLACEHOLDERS[provider.id] ?? 'sk-...')}
         </Text>
         <Text color={colors.primary}>▎</Text>
       </Box>

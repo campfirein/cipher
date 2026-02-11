@@ -35,6 +35,53 @@ const DEFAULT_CACHE_TTL = 60 * 60 * 1000 // 1 hour
 // ============================================================================
 
 /**
+ * Known Anthropic model pricing (per million tokens, USD).
+ * Anthropic API doesn't expose pricing, so we maintain a static lookup.
+ * Falls back to pattern-based matching for unlisted models.
+ */
+interface AnthropicModelMeta {
+  contextLength: number
+  inputPerM: number
+  outputPerM: number
+}
+
+const ANTHROPIC_KNOWN_MODELS: Readonly<Record<string, AnthropicModelMeta>> = {
+  'claude-3-5-haiku-20241022': {contextLength: 200_000, inputPerM: 1, outputPerM: 5},
+  'claude-3-5-sonnet-20240620': {contextLength: 200_000, inputPerM: 3, outputPerM: 15},
+  'claude-3-5-sonnet-20241022': {contextLength: 200_000, inputPerM: 3, outputPerM: 15},
+  'claude-3-haiku-20240307': {contextLength: 200_000, inputPerM: 0.25, outputPerM: 1.25},
+  'claude-3-opus-20240229': {contextLength: 200_000, inputPerM: 15, outputPerM: 75},
+  'claude-3-sonnet-20240229': {contextLength: 200_000, inputPerM: 3, outputPerM: 15},
+}
+
+/**
+ * Get pricing and context length for an Anthropic model.
+ * Checks exact match first, then falls back to tier-based pattern matching.
+ */
+function getAnthropicModelMeta(modelId: string): AnthropicModelMeta {
+  // Exact match
+  const known = ANTHROPIC_KNOWN_MODELS[modelId]
+  if (known) return known
+
+  // Pattern-based fallback by model tier
+  const id = modelId.toLowerCase()
+  if (id.includes('opus')) {
+    return {contextLength: 200_000, inputPerM: 15, outputPerM: 75}
+  }
+
+  if (id.includes('sonnet')) {
+    return {contextLength: 200_000, inputPerM: 3, outputPerM: 15}
+  }
+
+  if (id.includes('haiku')) {
+    return {contextLength: 200_000, inputPerM: 1, outputPerM: 5}
+  }
+
+  // Unknown model tier
+  return {contextLength: 200_000, inputPerM: 0, outputPerM: 0}
+}
+
+/**
  * Fetches models from Anthropic using the official SDK.
  */
 export class AnthropicModelFetcher implements IProviderModelFetcher {
@@ -55,13 +102,14 @@ export class AnthropicModelFetcher implements IProviderModelFetcher {
 
     // Anthropic models.list() returns a paginated list
     for await (const model of client.models.list()) {
+      const meta = getAnthropicModelMeta(model.id)
       models.push({
-        contextLength: 200_000, // Anthropic models typically have 200k context
+        contextLength: meta.contextLength,
         description: model.display_name,
         id: model.id,
         isFree: false,
         name: model.display_name,
-        pricing: {inputPerM: 0, outputPerM: 0}, // Anthropic doesn't expose pricing via API
+        pricing: {inputPerM: meta.inputPerM, outputPerM: meta.outputPerM},
         provider: 'Anthropic',
       })
     }
@@ -121,12 +169,13 @@ export class OpenAIModelFetcher implements IProviderModelFetcher {
         id.startsWith('o4') ||
         id.startsWith('chatgpt')
       ) {
+        const pricing = this.estimatePricing(model.id)
         models.push({
           contextLength: this.estimateContextLength(model.id),
           id: model.id,
           isFree: false,
           name: model.id,
-          pricing: {inputPerM: 0, outputPerM: 0}, // OpenAI doesn't expose pricing via list API
+          pricing,
           provider: 'OpenAI',
         })
       }
@@ -162,7 +211,26 @@ export class OpenAIModelFetcher implements IProviderModelFetcher {
     if (id.includes('gpt-4-turbo')) return 128_000
     if (id.includes('gpt-4')) return 8192
     if (id.includes('o1') || id.includes('o3') || id.includes('o4')) return 200_000
+
     return 128_000
+  }
+
+  private estimatePricing(modelId: string): {inputPerM: number; outputPerM: number} {
+    const id = modelId.toLowerCase()
+    if (id.includes('gpt-4.1-mini')) return {inputPerM: 0.4, outputPerM: 1.6}
+    if (id.includes('gpt-4.1-nano')) return {inputPerM: 0.1, outputPerM: 0.4}
+    if (id.includes('gpt-4.1')) return {inputPerM: 2, outputPerM: 8}
+    if (id.includes('gpt-4o-mini')) return {inputPerM: 0.15, outputPerM: 0.6}
+    if (id.includes('gpt-4o')) return {inputPerM: 2.5, outputPerM: 10}
+    if (id.includes('gpt-4-turbo')) return {inputPerM: 10, outputPerM: 30}
+    if (id.includes('gpt-4')) return {inputPerM: 30, outputPerM: 60}
+    if (id.includes('o4-mini')) return {inputPerM: 1.1, outputPerM: 4.4}
+    if (id.includes('o3-mini')) return {inputPerM: 1.1, outputPerM: 4.4}
+    if (id.includes('o3')) return {inputPerM: 10, outputPerM: 40}
+    if (id.includes('o1-mini')) return {inputPerM: 3, outputPerM: 12}
+    if (id.includes('o1')) return {inputPerM: 15, outputPerM: 60}
+
+    return {inputPerM: 0, outputPerM: 0}
   }
 }
 

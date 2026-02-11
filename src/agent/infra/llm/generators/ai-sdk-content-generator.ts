@@ -70,14 +70,21 @@ export class AiSdkContentGenerator implements IContentGenerator {
     })
 
     // Map AI SDK tool calls to our ToolCall format
-    const toolCalls: ToolCall[] = result.toolCalls.map((tc) => ({
-      function: {
-        arguments: JSON.stringify(tc.input),
-        name: tc.toolName,
-      },
-      id: tc.toolCallId,
-      type: 'function' as const,
-    }))
+    // Preserve thoughtSignature from providerMetadata (required by Gemini 3+ models)
+    const toolCalls: ToolCall[] = result.toolCalls.map((tc) => {
+      const meta = tc.providerMetadata as Record<string, Record<string, unknown>> | undefined
+      const thoughtSig = meta?.google?.thoughtSignature
+
+      return {
+        function: {
+          arguments: JSON.stringify(tc.input),
+          name: tc.toolName,
+        },
+        id: tc.toolCallId,
+        ...(typeof thoughtSig === 'string' && {thoughtSignature: thoughtSig}),
+        type: 'function' as const,
+      }
+    })
 
     return {
       content: result.text,
@@ -157,12 +164,16 @@ export class AiSdkContentGenerator implements IContentGenerator {
         }
 
         case 'tool-call': {
+          // Preserve thoughtSignature from providerMetadata (required by Gemini 3+ models)
+          const meta = event.providerMetadata as Record<string, Record<string, unknown>> | undefined
+          const thoughtSig = meta?.google?.thoughtSignature
           pendingToolCalls.push({
             function: {
               arguments: JSON.stringify(event.input),
               name: event.toolName,
             },
             id: event.toolCallId,
+            ...(typeof thoughtSig === 'string' && {thoughtSignature: thoughtSig}),
             type: 'function',
           })
 

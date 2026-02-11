@@ -21,7 +21,7 @@ import {
   providerRequiresApiKey,
 } from '../../../core/domain/entities/provider-registry.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
-import {createOpenRouterApiClient} from '../../http/openrouter-api-client.js'
+import {validateApiKey as validateApiKeyViaFetcher} from '../../http/provider-model-fetcher-registry.js'
 
 export interface ProviderHandlerDeps {
   providerConfigStore: IProviderConfigStore
@@ -124,13 +124,7 @@ export class ProviderHandler {
       ProviderEvents.VALIDATE_API_KEY,
       async (data) => {
         try {
-          const provider = getProviderById(data.providerId)
-          if (!provider) {
-            return {error: 'Provider not found', isValid: false}
-          }
-
-          const client = createOpenRouterApiClient(provider)
-          const result = await client.validateApiKey(data.apiKey)
+          const result = await validateApiKeyViaFetcher(data.apiKey, data.providerId)
           return result
         } catch (error) {
           return {error: getErrorMessage(error), isValid: false}

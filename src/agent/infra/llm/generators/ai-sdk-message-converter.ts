@@ -13,6 +13,12 @@ import type {ToolSet as InternalToolSet} from '../../../core/domain/tools/types.
 import type {InternalMessage} from '../../../core/interfaces/message-types.js'
 
 /**
+ * Synthetic thought signature that bypasses Gemini 3+ validation.
+ * Used as fallback when real thoughtSignature is not available.
+ */
+const SYNTHETIC_THOUGHT_SIGNATURE = 'skip_thought_signature_validator'
+
+/**
  * Convert internal messages to AI SDK ModelMessage format.
  * System messages are filtered out — they are passed via the `system` param.
  */
@@ -174,7 +180,7 @@ function convertAssistantMessage(msg: InternalMessage): ModelMessage | undefined
 
   // Build mixed content array (text + tool calls)
   type AssistantPart =
-    | {input: unknown; toolCallId: string; toolName: string; type: 'tool-call'}
+    | {input: unknown; providerOptions?: Record<string, Record<string, unknown>>; toolCallId: string; toolName: string; type: 'tool-call'}
     | {text: string; type: 'text'}
 
   const parts: AssistantPart[] = []
@@ -191,8 +197,13 @@ function convertAssistantMessage(msg: InternalMessage): ModelMessage | undefined
       input = {}
     }
 
+    // Gemini 3+ models require thoughtSignature on function call parts.
+    // Use real signature if available, fall back to synthetic validator skip.
+    const thoughtSig = tc.thoughtSignature || SYNTHETIC_THOUGHT_SIGNATURE
+
     parts.push({
       input,
+      providerOptions: {google: {thoughtSignature: thoughtSig}},
       toolCallId: tc.id,
       toolName: tc.function.name,
       type: 'tool-call',
