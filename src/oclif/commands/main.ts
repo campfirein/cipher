@@ -1,12 +1,14 @@
-import {ensureDaemonRunning} from '@campfirein/brv-transport-client'
+import {ensureDaemonRunning, findProjectRoot} from '@campfirein/brv-transport-client'
 import {Command} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
+import {join} from 'node:path'
 
 import {DEFAULT_SESSION_RETENTION} from '../../agent/core/domain/session/session-metadata.js'
 import {SessionMetadataStore} from '../../agent/infra/session/session-metadata-store.js'
 import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
 import {createTokenStore} from '../../server/infra/storage/token-store.js'
 import {MixpanelTrackingService} from '../../server/infra/tracking/mixpanel-tracking-service.js'
+import {getProjectDataDir} from '../../server/utils/path-utils.js'
 import {initSessionLog, processManagerLog} from '../../server/utils/process-logger.js'
 import {resolveLocalServerMainPath} from '../../server/utils/server-main-resolver.js'
 import {startRepl} from '../../tui/repl-startup.js'
@@ -69,16 +71,18 @@ export default class Main extends Command {
    * Resolve session ID for the agent.
    *
    * Strategy:
-   * 1. Check for active session in .brv/sessions/active.json
-   * 2. If active session exists and is valid (not stale), resume it
-   * 3. If stale (process crashed), mark as interrupted and create new
-   * 4. If no active session, create new session
-   * 5. Run session cleanup on startup
+   * 1. Walk up from CWD to find the project root (.brv/config.json)
+   * 2. Store sessions in XDG data dir, not in the project's .brv/ folder
+   * 3. Check for active session, resume if valid, create new if stale/missing
+   * 4. Run session cleanup on startup
    *
    * @returns Session ID to use
    */
   private async resolveSessionId(): Promise<string> {
-    const sessionStore = new SessionMetadataStore()
+    const projectRoot = await findProjectRoot(process.cwd())
+    const effectiveRoot = projectRoot ?? process.cwd()
+    const sessionsDir = join(getProjectDataDir(effectiveRoot), 'sessions')
+    const sessionStore = new SessionMetadataStore({sessionsDir, workingDirectory: effectiveRoot})
 
     // Run cleanup on startup (async, don't wait)
     sessionStore.cleanupSessions(DEFAULT_SESSION_RETENTION).catch((error) => {

@@ -11,14 +11,14 @@ export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
  * Thin wrapper around connectToDaemon() for DI compatibility with use cases
  * (QueryUseCase, CurateUseCase, StatusUseCase).
  *
- * Auto-registers CLI clients with projectPath = fromDir (or cwd if not specified).
+ * projectPath is auto-filled by the transport library from the discovered
+ * project root (walks up from fromDir to find .brv/).
  */
 export function createDaemonAwareConnector(): TransportConnector {
   return (fromDir?: string) =>
     connectToDaemon({
       clientType: 'cli',
       fromDir,
-      projectPath: fromDir ?? process.cwd(),
       serverPath: resolveLocalServerMainPath(),
     })
 }

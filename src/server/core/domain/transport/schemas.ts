@@ -303,6 +303,15 @@ export const TransportAgentEventNames = {
 } as const
 
 /**
+ * Internal state-request events (agent ↔ daemon).
+ * Used by agent child processes to fetch config/auth from the daemon's state server.
+ */
+export const TransportStateEventNames = {
+  GET_AUTH: 'state:getAuth',
+  GET_PROJECT_CONFIG: 'state:getProjectConfig',
+} as const
+
+/**
  * Transport-generated client lifecycle events.
  * Used by external clients (tui/cli/mcp) to register and associate with projects.
  */
@@ -497,6 +506,7 @@ export const TaskCancelledEventSchema = z.object({
  * task:completed - Task finished successfully
  */
 export const TaskCompletedEventSchema = z.object({
+  clientId: z.string().optional(),
   result: z.string(),
   taskId: z.string(),
 })
@@ -516,6 +526,7 @@ export const TaskErrorDataSchema = z.object({
  * task:error - Task failed with error
  */
 export const TaskErrorEventSchema = z.object({
+  clientId: z.string().optional(),
   error: TaskErrorDataSchema,
   taskId: z.string(),
 })

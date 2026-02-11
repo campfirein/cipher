@@ -27,6 +27,7 @@ import type {IAgentIdleTimeoutPolicy} from '../../core/interfaces/daemon/i-agent
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 
 import {AGENT_POOL_MAX_SIZE, AGENT_PROCESS_READY_TIMEOUT_MS, AGENT_PROCESS_STOP_TIMEOUT_MS} from '../../constants.js'
+import {TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
 import {ProjectTaskQueue} from './project-task-queue.js'
 
 /**
@@ -307,7 +308,7 @@ export class AgentPool implements IAgentPool {
     entry.lastUsedAt = Date.now()
     this.agentIdleTimeoutPolicy?.onAgentActivity(entry.projectPath)
 
-    this.transportServer.sendTo(entry.agent.clientId, 'task:execute', task)
+    this.transportServer.sendTo(entry.agent.clientId, TransportTaskEventNames.EXECUTE, task)
   }
 
   private stopChildProcess(childProcess: ChildProcess): Promise<void> {

@@ -1,7 +1,7 @@
 /**
  * SessionMetadataStore - Manages session metadata persistence.
  *
- * Stores session metadata in .brv/sessions/ directory:
+ * Stores session metadata in the XDG sessions directory:
  * - active.json: Current active session pointer
  * - session-*.json: Individual session metadata files
  *
@@ -25,7 +25,6 @@ import {
   type SessionInfo,
   type SessionMetadata,
   SessionMetadataSchema,
-  SESSIONS_DIR,
 } from '../../core/domain/session/session-metadata.js'
 
 /**
@@ -75,18 +74,17 @@ function extractUuidFromSessionId(sessionId: string): string {
  * Configuration for SessionMetadataStore.
  */
 type SessionMetadataStoreOptions = {
-  /** Explicit sessions directory path. Takes precedence over workingDirectory-derived path. */
-  sessionsDir?: string
-  /** Project working directory. Used to derive sessionsDir if not explicitly provided. */
-  workingDirectory?: string
+  /** Sessions directory path (XDG storage path). */
+  sessionsDir: string
+  /** Project working directory. */
+  workingDirectory: string
 }
 
 /**
  * SessionMetadataStore implementation.
  *
- * Manages session metadata stored in a sessions directory.
- * By default, uses .brv/sessions/ under the working directory.
- * When sessionsDir is provided, uses that path directly (for XDG storage).
+ * Manages session metadata stored in the XDG sessions directory.
+ * Callers must provide the explicit sessionsDir path.
  */
 export class SessionMetadataStore implements ISessionPersistence {
   private readonly activeSessionPath: string
@@ -96,11 +94,11 @@ export class SessionMetadataStore implements ISessionPersistence {
   /**
    * Create a new SessionMetadataStore.
    *
-   * @param options - Configuration options (all optional)
+   * @param options - Configuration options (sessionsDir and workingDirectory required)
    */
-  constructor(options?: SessionMetadataStoreOptions) {
-    this.workingDirectory = options?.workingDirectory ?? process.cwd()
-    this.sessionsDir = options?.sessionsDir ?? join(this.workingDirectory, '.brv', SESSIONS_DIR)
+  constructor(options: SessionMetadataStoreOptions) {
+    this.workingDirectory = options.workingDirectory
+    this.sessionsDir = options.sessionsDir
     this.activeSessionPath = join(this.sessionsDir, ACTIVE_SESSION_FILE)
   }
 

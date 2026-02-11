@@ -1,6 +1,7 @@
 import {
   ConnectionError,
   ConnectionFailedError,
+  DaemonSpawnError,
   InstanceCrashedError,
   type ITransportClient,
   NoInstanceRunningError,
@@ -12,12 +13,12 @@ import {z} from 'zod'
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
 import type {CurateUseCaseRunOptions, ICurateUseCase} from '../../core/interfaces/usecase/i-curate-use-case.js'
 
-import {ToolName} from '../../../agent/infra/tools/index.js'
-import {LlmToolResultEvent, TaskCompletedEvent, TaskErrorEvent} from '../../core/domain/transport/index.js'
+import {ToolName} from '../../../agent/core/domain/tools/constants.js'
+import {TaskErrorCode} from '../../core/domain/errors/task-error.js'
+import {LlmEventNames, LlmToolResultEvent, TaskCompletedEvent, TaskErrorEvent, TransportTaskEventNames} from '../../core/domain/transport/index.js'
 import {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
-import {InlineAgent} from '../process/inline-agent-executor.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
 import {createDaemonAwareConnector, type TransportConnector} from '../transport/transport-connector.js'
 
@@ -43,23 +44,34 @@ type CurateOperation = z.infer<typeof CurateOperationSchema>
 export interface CurateResult {
   message: string
   operations?: CurateOperation[]
-  status: 'completed' | 'error'
+  status: 'completed' | 'error' | 'queued'
   taskId?: string
 }
 
 export interface CurateUseCaseOptions {
+  /** Delay between retry attempts (ms). Default: 2000. Set to 0 in tests. */
+  retryDelayMs?: number
   terminal: ITerminal
   trackingService: ITrackingService
   /** Optional transport connector for dependency injection (defaults to connectToTransport) */
   transportConnector?: TransportConnector
 }
 
+/** Max retry attempts when daemon disconnects mid-task */
+const MAX_TASK_RETRIES = 3
+/** Delay between retry attempts (ms) */
+const RETRY_DELAY_MS = 2000
+/** Grace period before treating 'reconnecting' as daemon death (ms) */
+const DISCONNECT_GRACE_MS = 10_000
+
 export class CurateUseCase implements ICurateUseCase {
+  private readonly retryDelayMs: number
   private readonly terminal: ITerminal
   private readonly trackingService: ITrackingService
   private readonly transportConnector: TransportConnector
 
   constructor(options: CurateUseCaseOptions) {
+    this.retryDelayMs = options.retryDelayMs ?? RETRY_DELAY_MS
     this.terminal = options.terminal
     this.trackingService = options.trackingService
     this.transportConnector = options.transportConnector ?? createDaemonAwareConnector()
@@ -98,60 +110,119 @@ export class CurateUseCase implements ICurateUseCase {
     }
 
     const resolvedContent = context?.trim() ? context : ''
+    const taskType = hasFolders ? 'curate-folder' : 'curate'
 
-    let client: ITransportClient | undefined
+    // Retry loop: reconnect + resubmit on daemon/agent disconnection
+    let lastError: unknown
 
-    try {
-      client = await this.createClient({headless, verbose})
+    /* eslint-disable no-await-in-loop -- intentional sequential retry loop */
+    for (let attempt = 1; attempt <= MAX_TASK_RETRIES; attempt++) {
+      let client: ITransportClient | undefined
+      let projectRoot: string | undefined
 
-      if (verbose) {
-        this.terminal.log(`Connected to instance (clientId: ${client.getClientId()})`)
+      try {
+        const result = await this.createClient({headless, verbose})
+        client = result.client
+        projectRoot = result.projectRoot
+
+        if (verbose) {
+          this.terminal.log(`Connected to instance (clientId: ${client.getClientId()})`)
+        }
+
+        const taskId = randomUUID()
+
+        if (headless) {
+          // Headless: register listeners BEFORE task:create to avoid race conditions,
+          // then wait for task:completed (in-process agent must finish)
+          const completionPromise = this.waitForTaskCompletion(client, taskId, format)
+
+          await client.requestWithAck<TaskAck>(TransportTaskEventNames.CREATE, {
+            clientCwd: process.cwd(),
+            content: resolvedContent,
+            ...(files?.length ? {files} : {}),
+            ...(hasFolders && folders ? {folderPath: folders[0]} : {}),
+            ...(projectRoot ? {projectPath: projectRoot} : {}),
+            taskId,
+            type: taskType,
+          })
+
+          await completionPromise
+        } else {
+          // Non-headless: enqueue and exit immediately.
+          // The daemon runs the task in background — no need to block.
+          await client.requestWithAck<TaskAck>(TransportTaskEventNames.CREATE, {
+            clientCwd: process.cwd(),
+            content: resolvedContent,
+            ...(files?.length ? {files} : {}),
+            ...(hasFolders && folders ? {folderPath: folders[0]} : {}),
+            ...(projectRoot ? {projectPath: projectRoot} : {}),
+            taskId,
+            type: taskType,
+          })
+
+          if (format === 'json') {
+            this.outputJsonResult({message: 'Context queued for processing', status: 'queued', taskId})
+          } else {
+            this.terminal.log('✓ Context queued for processing.')
+          }
+        }
+
+        await this.trackingService.track('mem:curate', {status: 'finished'})
+
+        // Success: cleanup and return
+        await client.disconnect().catch(() => {})
+        return
+      } catch (error) {
+        if (client) {
+          await client.disconnect().catch(() => {})
+        }
+
+        lastError = error
+
+        // Retry only for daemon/agent infrastructure failures
+        if (!headless && this.isRetryableError(error) && attempt < MAX_TASK_RETRIES) {
+          if (format === 'text') {
+            this.terminal.log(`\nConnection lost. Restarting daemon... (attempt ${attempt + 1}/${MAX_TASK_RETRIES})`)
+          }
+
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, this.retryDelayMs)
+          })
+
+          continue
+        }
+
+        break
       }
+    }
+    /* eslint-enable no-await-in-loop */
 
-      // Generate taskId in UseCase (Application layer owns task creation)
-      const taskId = randomUUID()
+    // All retries exhausted or non-retryable error
+    if (format === 'json') {
+      this.handleConnectionErrorJson(lastError)
+    } else {
+      this.handleConnectionError(lastError)
+    }
 
-      // Register event listeners BEFORE sending task:create to avoid race conditions.
-      // If the task errors immediately (e.g., file validation), the error event
-      // may arrive before listeners are set up. waitForTaskCompletion registers
-      // listeners synchronously in the Promise constructor.
-      const completionPromise = this.waitForTaskCompletion(client, taskId, format)
-      // Determine task type: folder pack takes precedence over file-based curate
-      const taskType = hasFolders ? 'curate-folder' : 'curate'
+    await this.trackingService.track('mem:curate', {message: formatError(lastError), status: 'error'})
 
-      // Send task:create request
-      await client.requestWithAck<TaskAck>('task:create', {
-        clientCwd: process.cwd(),
-        content: resolvedContent,
-        ...(files?.length ? {files} : {}),
-        ...(hasFolders && folders ? {folderPath: folders[0]} : {}),
-        taskId,
-        type: taskType,
-      })
-
-      // Wait for the already-listening completion promise
-      await completionPromise
-
-      await this.trackingService.track('mem:curate', {status: 'finished'})
-    } catch (error) {
-      if (format === 'json') {
-        this.handleConnectionErrorJson(error)
-      } else {
-        this.handleConnectionError(error)
-      }
-
-      await this.trackingService.track('mem:curate', {message: formatError(error), status: 'error'})
-    } finally {
-      if (client) {
-        await client.disconnect()
-      }
+    // Force exit only for task-level disconnects (AGENT_DISCONNECTED) where Socket.IO
+    // handles may leak. Connection errors (DaemonSpawnError, ConnectionFailedError) already
+    // cleaned up their clients — no leaked handles.
+    if (this.hasLeakedHandles(lastError)) {
+      // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+      process.exit(1)
     }
   }
 
-  private async createClient(options: {headless: boolean; verbose: boolean}): Promise<ITransportClient> {
+  private async createClient(options: {
+    headless: boolean
+    verbose: boolean
+  }): Promise<{client: ITransportClient; projectRoot?: string}> {
     if (options.headless) {
+      const {InlineAgent} = await import('../process/inline-agent-executor.js')
       const inlineAgent = await InlineAgent.create()
-      return inlineAgent.transportClient
+      return {client: inlineAgent.transportClient}
     }
 
     if (options.verbose) {
@@ -159,8 +230,8 @@ export class CurateUseCase implements ICurateUseCase {
     }
 
     // Use modern connectToTransport API (auto-discovers and connects)
-    const {client: connectedClient} = await this.transportConnector()
-    return connectedClient
+    const {client: connectedClient, projectRoot} = await this.transportConnector()
+    return {client: connectedClient, projectRoot}
   }
 
   private handleConnectionError(error: unknown): void {
@@ -239,6 +310,29 @@ export class CurateUseCase implements ICurateUseCase {
   }
 
   /**
+   * Checks if an error left leaked Socket.IO handles that prevent Node.js from exiting.
+   * Only task-level disconnects (mid-task daemon death) leak handles.
+   * Connection errors (DaemonSpawnError, ConnectionFailedError) clean up their clients.
+   */
+  private hasLeakedHandles(error: unknown): boolean {
+    if (!(error instanceof Error)) return false
+    if (!('code' in error)) return false
+    return error.code === TaskErrorCode.AGENT_DISCONNECTED || error.code === TaskErrorCode.AGENT_NOT_AVAILABLE
+  }
+
+  /**
+   * Checks if an error is retryable (daemon/agent infrastructure failure).
+   * Retryable: agent disconnected, agent not available, daemon spawn timeout, connection failed.
+   * Non-retryable: auth errors, project not init, LLM errors, file validation, no instance running.
+   */
+  private isRetryableError(error: unknown): boolean {
+    // Connection infrastructure errors — daemon spawned but slow, or connection dropped
+    if (error instanceof DaemonSpawnError || error instanceof ConnectionFailedError) return true
+    // Task-level errors — agent disconnected mid-task
+    return this.hasLeakedHandles(error)
+  }
+
+  /**
    * Output JSON result for headless mode.
    */
   private outputJsonResult(result: CurateResult): void {
@@ -267,7 +361,15 @@ export class CurateUseCase implements ICurateUseCase {
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       let completed = false
+      let disconnectTimer: NodeJS.Timeout | undefined
       const operations: CurateOperation[] = []
+
+      const rejectRetryable = (message: string): void => {
+        if (completed) return
+        completed = true
+        cleanup()
+        reject(Object.assign(new Error(message), {code: TaskErrorCode.AGENT_DISCONNECTED}))
+      }
 
       const timeout = setTimeout(
         () => {
@@ -286,7 +388,7 @@ export class CurateUseCase implements ICurateUseCase {
       )
 
       const unsubscribers = [
-        client.on<LlmToolResultEvent>('llmservice:toolResult', (payload) => {
+        client.on<LlmToolResultEvent>(LlmEventNames.TOOL_RESULT, (payload) => {
           if (payload.success && payload.toolName === ToolName.CURATE && payload.result) {
             try {
               const parsed = CurateResultSchema.parse(JSON.parse(payload.result as string))
@@ -301,7 +403,7 @@ export class CurateUseCase implements ICurateUseCase {
           }
         }),
 
-        client.on<TaskCompletedEvent>('task:completed', (payload) => {
+        client.on<TaskCompletedEvent>(TransportTaskEventNames.COMPLETED, (payload) => {
           if (payload.taskId === taskId && !completed) {
             completed = true
             cleanup()
@@ -324,7 +426,8 @@ export class CurateUseCase implements ICurateUseCase {
           }
         }),
 
-        client.on<TaskErrorEvent>('task:error', (payload) => {
+        // task:error - preserve error code for retry detection
+        client.on<TaskErrorEvent>(TransportTaskEventNames.ERROR, (payload) => {
           if (payload.taskId === taskId && !completed) {
             completed = true
             cleanup()
@@ -332,12 +435,40 @@ export class CurateUseCase implements ICurateUseCase {
               this.outputJsonResult({message: payload.error.message, status: 'error'})
               resolve()
             } else {
-              reject(new Error(payload.error.message))
+              reject(Object.assign(new Error(payload.error.message), {code: payload.error.code}))
             }
           }
         }),
 
+        // Disconnect detection: fast recovery when daemon dies (SIGKILL)
+        client.onStateChange((state) => {
+          if (completed) return
+
+          if (state === 'reconnecting') {
+            disconnectTimer = setTimeout(() => {
+              rejectRetryable('Daemon disconnected')
+            }, DISCONNECT_GRACE_MS)
+          }
+
+          if (state === 'connected' && disconnectTimer) {
+            clearTimeout(disconnectTimer)
+            disconnectTimer = undefined
+          }
+
+          if (state === 'disconnected') {
+            if (disconnectTimer) {
+              clearTimeout(disconnectTimer)
+              disconnectTimer = undefined
+            }
+
+            rejectRetryable('Daemon disconnected')
+          }
+        }),
+
         () => clearTimeout(timeout),
+        () => {
+          if (disconnectTimer) clearTimeout(disconnectTimer)
+        },
       ]
 
       const cleanup = (): void => {

@@ -24,6 +24,19 @@ Exposes tools:
   public static hidden = true // Called by agents, not users directly
 
   public async run(): Promise<void> {
+    // Prevent silent crashes — log to stderr so Windsurf/Cursor/Claude can surface the error
+    const logError = (label: string, error: unknown): void => {
+      const msg = error instanceof Error ? error.stack ?? error.message : String(error)
+      process.stderr.write(`[brv-mcp] ${label}: ${msg}\n`)
+    }
+
+    process.on('uncaughtException', (error) => {
+      logError('Uncaught exception', error)
+    })
+    process.on('unhandledRejection', (reason) => {
+      logError('Unhandled rejection', reason)
+    })
+
     try {
       const server = new ByteRoverMcpServer({
         version: this.config.version,

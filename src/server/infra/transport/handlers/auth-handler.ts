@@ -4,6 +4,7 @@ import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IBrowserLauncher} from '../../../core/interfaces/services/i-browser-launcher.js'
 import type {ITrackingService} from '../../../core/interfaces/services/i-tracking-service.js'
 import type {IUserService} from '../../../core/interfaces/services/i-user-service.js'
+import type {IAuthStateStore} from '../../../core/interfaces/state/i-auth-state-store.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
@@ -16,9 +17,11 @@ import {
 } from '../../../../shared/transport/events/auth-events.js'
 import {AuthToken} from '../../../core/domain/entities/auth-token.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
+import {processLog} from '../../../utils/process-logger.js'
 
 export interface AuthHandlerDeps {
   authService: IAuthService
+  authStateStore: IAuthStateStore
   browserLauncher: IBrowserLauncher
   callbackHandler: ICallbackHandler
   projectConfigStore: IProjectConfigStore
@@ -34,6 +37,7 @@ export interface AuthHandlerDeps {
  */
 export class AuthHandler {
   private readonly authService: IAuthService
+  private readonly authStateStore: IAuthStateStore
   private readonly browserLauncher: IBrowserLauncher
   private readonly callbackHandler: ICallbackHandler
   private readonly projectConfigStore: IProjectConfigStore
@@ -44,6 +48,7 @@ export class AuthHandler {
 
   constructor(deps: AuthHandlerDeps) {
     this.authService = deps.authService
+    this.authStateStore = deps.authStateStore
     this.browserLauncher = deps.browserLauncher
     this.callbackHandler = deps.callbackHandler
     this.projectConfigStore = deps.projectConfigStore
@@ -58,6 +63,45 @@ export class AuthHandler {
     this.setupStartLogin()
     this.setupLogout()
     this.setupRefresh()
+    this.setupExternalAuthSync()
+  }
+
+  /**
+   * Broadcasts full auth:stateChanged payload for TUI when token changes externally.
+   * Mirrors setupGetState() logic — fetches user + brvConfig to build complete payload.
+   * On network error, skips broadcast silently (next poll cycle retries in 5s).
+   */
+  private async broadcastAuthStateChanged(token: AuthToken | undefined): Promise<void> {
+    try {
+      if (!token || !token.isValid()) {
+        this.transport.broadcast(AuthEvents.STATE_CHANGED, {isAuthorized: false})
+        return
+      }
+
+      const [user, brvConfig] = await Promise.all([
+        this.userService.getCurrentUser(token.sessionKey),
+        this.projectConfigStore.read(),
+      ])
+
+      this.transport.broadcast(AuthEvents.STATE_CHANGED, {
+        brvConfig: brvConfig
+          ? {
+              spaceId: brvConfig.spaceId,
+              spaceName: brvConfig.spaceName,
+              teamId: brvConfig.teamId,
+              teamName: brvConfig.teamName,
+              version: brvConfig.version,
+            }
+          : undefined,
+        isAuthorized: true,
+        user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id},
+      })
+    } catch {
+      // Network/API error fetching user info — broadcast authorized state without user details.
+      // TUI auth-guard only checks isAuthorized, so the user proceeds immediately.
+      // Next successful poll cycle (5s) fills in user + brvConfig.
+      this.transport.broadcast(AuthEvents.STATE_CHANGED, {isAuthorized: true})
+    }
   }
 
   private async processLoginCallback(
@@ -103,6 +147,36 @@ export class AuthHandler {
     } finally {
       await this.callbackHandler.stop()
     }
+  }
+
+  /**
+   * Registers callbacks on AuthStateStore to broadcast auth events when
+   * external changes are detected (CLI login, token expiry, token refresh).
+   *
+   * Broadcasts both:
+   * - auth:updated (for agent child processes)
+   * - auth:stateChanged (for TUI — same event TUI already subscribes to)
+   */
+  private setupExternalAuthSync(): void {
+    this.authStateStore.onAuthChanged((token) => {
+      // Broadcast auth:updated for agents (existing behavior, preserved)
+      this.transport.broadcast(AuthEvents.UPDATED, {
+        hasToken: token !== undefined,
+        isValid: token?.isValid() ?? false,
+        sessionKey: token?.sessionKey,
+      })
+
+      // Build full auth:stateChanged for TUI (fire-and-forget async).
+      // On network error, skips broadcast silently — next poll cycle retries in 5s.
+      this.broadcastAuthStateChanged(token).catch((error: unknown) => {
+        processLog(`[Auth] Failed to broadcast auth state change: ${error instanceof Error ? error.message : String(error)}`)
+      })
+    })
+
+    this.authStateStore.onAuthExpired(() => {
+      this.transport.broadcast(AuthEvents.EXPIRED, {})
+      this.transport.broadcast(AuthEvents.STATE_CHANGED, {isAuthorized: false})
+    })
   }
 
   private setupGetState(): void {

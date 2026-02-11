@@ -1,11 +1,14 @@
 import type {ITransportClient} from '@campfirein/brv-transport-client'
 import type {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 
+import {waitForConnectedClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
-import {TransportClientEventNames} from '../../../core/domain/transport/schemas.js'
+import {TransportClientEventNames, TransportTaskEventNames} from '../../../core/domain/transport/schemas.js'
+import {detectMcpMode} from '../mcp-mode-detector.js'
 import {resolveClientCwd} from './resolve-client-cwd.js'
+
 
 export const BrvCurateInputSchema = z
   .object({
@@ -74,21 +77,13 @@ export function registerBrvCurateTool(
         }
       }
 
-      const client = getClient()
+      // Wait for a connected client (MCP's attemptReconnect() replaces client in background)
+      const client = await waitForConnectedClient(getClient)
       if (!client) {
-        return {
-          content: [{text: 'Error: Not connected to ByteRover instance. Run "brv" first.', type: 'text' as const}],
-          isError: true,
-        }
-      }
-
-      // Check connection state before making request
-      const state = client.getState()
-      if (state !== 'connected') {
         return {
           content: [
             {
-              text: `Error: Socket not connected. Current state: ${state}. Ensure "brv" is running.`,
+              text: 'Error: Not connected to ByteRover instance. Connection timed out. Ensure "brv" is running.',
               type: 'text' as const,
             },
           ],
@@ -96,14 +91,18 @@ export function registerBrvCurateTool(
         }
       }
 
-      // In global mode, associate client with the resolved project.
-      // Fire-and-forget: server handler is idempotent.
+      // In global mode, associate client with the walked-up project root.
+      // Walk up from clientCwd to find .brv/config.json — raw cwd may be a subdirectory.
+      // Fire-and-forget: server handler is idempotent (first association wins).
       if (!getWorkingDirectory()) {
-        client
-          .requestWithAck(TransportClientEventNames.ASSOCIATE_PROJECT, {
-            projectPath: cwdResult.clientCwd,
-          })
-          .catch(() => {})
+        const {projectRoot} = detectMcpMode(cwdResult.clientCwd)
+        if (projectRoot) {
+          client
+            .requestWithAck(TransportClientEventNames.ASSOCIATE_PROJECT, {
+              projectPath: projectRoot,
+            })
+            .catch(() => {})
+        }
       }
 
       try {
@@ -117,7 +116,7 @@ export function registerBrvCurateTool(
         const hasFolder = Boolean(folder?.trim())
         const taskType = hasFolder ? 'curate-folder' : 'curate'
 
-        await client.requestWithAck('task:create', {
+        await client.requestWithAck(TransportTaskEventNames.CREATE, {
           clientCwd: cwdResult.clientCwd,
           content: resolvedContent,
           taskId,

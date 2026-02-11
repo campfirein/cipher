@@ -75,6 +75,8 @@ type TaskRouterOptions = {
   getAgentForProject: (projectPath?: string) => string | undefined
   projectRegistry?: IProjectRegistry
   projectRouter?: IProjectRouter
+  /** Resolves the projectPath a client registered with (from client:register). */
+  resolveClientProjectPath?: (clientId: string) => string | undefined
   transport: ITransportServer
 }
 
@@ -92,6 +94,7 @@ export class TaskRouter {
   private readonly getAgentForProject: (projectPath?: string) => string | undefined
   private readonly projectRegistry: IProjectRegistry | undefined
   private readonly projectRouter: IProjectRouter | undefined
+  private readonly resolveClientProjectPath: ((clientId: string) => string | undefined) | undefined
   /** Track active tasks */
   private tasks: Map<string, TaskInfo> = new Map()
   private readonly transport: ITransportServer
@@ -102,6 +105,7 @@ export class TaskRouter {
     this.getAgentForProject = options.getAgentForProject
     this.projectRegistry = options.projectRegistry
     this.projectRouter = options.projectRouter
+    this.resolveClientProjectPath = options.resolveClientProjectPath
   }
 
   clearTasks(): void {
@@ -270,8 +274,10 @@ export class TaskRouter {
       return {taskId}
     }
 
-    // Resolve projectPath: explicit field takes priority, fall back to clientCwd.
-    const projectPath = data.projectPath ?? data.clientCwd
+    // Resolve projectPath: explicit field > client's registered projectPath > clientCwd.
+    // Client's registered projectPath is the walked-up project root (where .brv/ lives),
+    // while clientCwd is the raw working directory (may be a subdirectory).
+    const projectPath = data.projectPath ?? this.resolveClientProjectPath?.(clientId) ?? data.clientCwd
 
     transportLog(`Task accepted: ${taskId} (type=${data.type}, client=${clientId})`)
 

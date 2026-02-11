@@ -488,8 +488,8 @@ export class InitUseCase implements IInitUseCase {
           if (options.force) {
             await this.cleanupBeforeReInitialization()
           } else {
+            // eslint-disable-next-line max-depth
             if (format === 'json') {
-              // eslint-disable-line max-depth
               this.outputJsonResult({
                 error: 'Project already initialized. Use --force to re-initialize.',
                 status: 'error',
@@ -507,8 +507,8 @@ export class InitUseCase implements IInitUseCase {
             await this.cleanupBeforeReInitialization()
             this.terminal.log('\n')
           } else {
+            // eslint-disable-next-line max-depth
             if (format === 'json') {
-              // eslint-disable-line max-depth
               this.outputJsonResult({status: 'cancelled'})
             } else {
               this.terminal.log('\nCancelled. Project configuration unchanged.')

@@ -55,7 +55,11 @@ export class SqliteBlobStorage implements IBlobStorage {
 
   constructor(config?: Partial<BlobStorageConfig>) {
     this.inMemory = config?.inMemory ?? false
-    this.storageDir = config?.storageDir || join(process.cwd(), '.brv')
+    this.storageDir = config?.storageDir ?? ''
+    if (!this.inMemory && !this.storageDir) {
+      throw new Error('SqliteBlobStorage: storageDir is required when inMemory is false')
+    }
+
     this.dbPath = this.inMemory ? ':memory:' : (config?.dbPath ?? join(this.storageDir, 'storage.db'))
     this.maxBlobSize = config?.maxBlobSize ?? 100 * 1024 * 1024 // 100MB default
     this.maxTotalSize = config?.maxTotalSize ?? 1024 * 1024 * 1024 // 1GB default

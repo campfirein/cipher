@@ -7,6 +7,7 @@
 
 import React, {useEffect, useRef} from 'react'
 
+import {AgentEvents} from '../../../../shared/transport/events/agent-events.js'
 import {useTransportStore} from '../../../stores/transport-store.js'
 import {useAuthStore} from '../../auth/stores/auth-store.js'
 import {useTasksStore} from '../../tasks/stores/tasks-store.js'
@@ -43,7 +44,7 @@ export function OnboardingInitializer({children}: OnboardingInitializerProps): R
 
           if (result.success) {
             // Restart agent to pick up new project state
-            await client?.requestWithAck('agent:restart', {reason: 'Auto select team/space'})
+            await client?.requestWithAck(AgentEvents.RESTART, {reason: 'Auto select team/space'})
           }
         } catch {
           // Silently ignore - auto-selection is optional

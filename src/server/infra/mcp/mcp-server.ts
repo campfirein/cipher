@@ -1,4 +1,11 @@
-import {connectToDaemon, type ITransportClient} from '@campfirein/brv-transport-client'
+import {
+  type ConnectionState,
+  connectToDaemon,
+  type ConnectToDaemonOptions,
+  createDaemonReconnector,
+  type DaemonReconnectorHandle,
+  type ITransportClient,
+} from '@campfirein/brv-transport-client'
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 
@@ -13,11 +20,6 @@ export interface McpServerConfig {
   /** Working directory for file operations */
   workingDirectory: string
 }
-
-/** Reconnection configuration */
-const RECONNECT_DELAY_MS = 1000
-const RECONNECT_MAX_DELAY_MS = 30_000
-const RECONNECT_BACKOFF_MULTIPLIER = 1.5
 
 /**
  * ByteRover MCP Server.
@@ -36,12 +38,11 @@ export class ByteRoverMcpServer {
   private _agentName: string | undefined
   private client: ITransportClient | undefined
   private readonly config: McpServerConfig
-  private currentReconnectDelay: number = RECONNECT_DELAY_MS
+  private readonly connectOptions: ConnectToDaemonOptions
   private heartbeatInterval: NodeJS.Timeout | undefined
-  private isReconnecting: boolean = false
   private readonly mode: McpMode
   private readonly projectRoot: string | undefined
-  private reconnectTimer: NodeJS.Timeout | undefined
+  private reconnectorHandle: DaemonReconnectorHandle | undefined
   private readonly server: McpServer
   private transport: StdioServerTransport | undefined
 
@@ -55,10 +56,26 @@ export class ByteRoverMcpServer {
       version: config.version,
     })
 
+    this.connectOptions = {
+      clientType: 'mcp',
+      fromDir: config.workingDirectory,
+      serverPath: resolveLocalServerMainPath(),
+      version: config.version,
+      ...(this.mode === 'project' && this.projectRoot ? {projectPath: this.projectRoot} : {}),
+    }
+
     // Register tools with lazy client getter
     // Client will be set when start() is called
-    registerBrvQueryTool(this.server, () => this.client, () => this.getWorkingDirectory())
-    registerBrvCurateTool(this.server, () => this.client, () => this.getWorkingDirectory())
+    registerBrvQueryTool(
+      this.server,
+      () => this.client,
+      () => this.getWorkingDirectory(),
+    )
+    registerBrvCurateTool(
+      this.server,
+      () => this.client,
+      () => this.getWorkingDirectory(),
+    )
   }
 
   /**
@@ -80,7 +97,7 @@ export class ByteRoverMcpServer {
     // Global mode: registers WITHOUT projectPath (serves multiple projects)
     this.log('Connecting to brv instance...')
 
-    const result = await this.connectMcpClient()
+    const result = await connectToDaemon(this.connectOptions)
 
     this.client = result.client
 
@@ -88,8 +105,23 @@ export class ByteRoverMcpServer {
     this.log(`Client ID: ${result.client.getClientId()}`)
     this.log(`Initial connection state: ${result.client.getState()}`)
 
-    // Monitor connection state changes and handle reconnection
-    this.setupStateChangeHandler(result.client)
+    // Auto-reconnect on disconnect (shared logic from brv-transport-client)
+    this.reconnectorHandle = createDaemonReconnector(result.client, {
+      connectOptions: this.connectOptions,
+      onReconnected: (newClient: ITransportClient) => {
+        this.client = newClient
+        this.log(`Reconnected successfully! Client ID: ${newClient.getClientId()}`)
+        this.sendAgentName()
+      },
+      onStateChange: (state: ConnectionState) => {
+        const timestamp = new Date().toISOString()
+        this.log(`[${timestamp}] Connection state changed: ${state}`)
+        // Socket.IO built-in reconnect: re-send agent name for new server-side clientId
+        if (state === 'connected') {
+          this.sendAgentName()
+        }
+      },
+    })
 
     // Capture the coding agent's identity after MCP initialize handshake
     this.server.server.oninitialized = () => {
@@ -125,11 +157,9 @@ export class ByteRoverMcpServer {
    * Disconnects from the brv instance.
    */
   async stop(): Promise<void> {
-    // Clear any pending reconnection timer
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = undefined
-    }
+    // Cancel auto-reconnection
+    this.reconnectorHandle?.cancel()
+    this.reconnectorHandle = undefined
 
     // Clear heartbeat interval
     if (this.heartbeatInterval) {
@@ -137,78 +167,10 @@ export class ByteRoverMcpServer {
       this.heartbeatInterval = undefined
     }
 
-    this.isReconnecting = false
-
     if (this.client) {
       await this.client.disconnect()
       this.client = undefined
     }
-  }
-
-  /**
-   * Attempts to reconnect to the brv instance.
-   * Uses exponential backoff for retry delays.
-   */
-  private async attemptReconnect(): Promise<void> {
-    if (this.isReconnecting) {
-      this.log('Reconnection already in progress, skipping...')
-      return
-    }
-
-    this.isReconnecting = true
-    this.log(`Attempting to reconnect in ${this.currentReconnectDelay}ms...`)
-
-    this.reconnectTimer = setTimeout(async () => {
-      try {
-        // Reconnect with same options as initial connection
-        const result = await this.connectMcpClient()
-
-        // Disconnect old client if it exists
-        if (this.client) {
-          try {
-            await this.client.disconnect()
-          } catch {
-            // Ignore disconnect errors on old client
-          }
-        }
-
-        this.client = result.client
-        this.log(`Reconnected successfully! Client ID: ${result.client.getClientId()}`)
-
-        // Reset backoff delay on successful connection
-        this.currentReconnectDelay = RECONNECT_DELAY_MS
-        this.isReconnecting = false
-
-        // Set up state change handler for the new client
-        this.setupStateChangeHandler(result.client)
-      } catch (error) {
-        this.log(`Reconnection failed: ${error instanceof Error ? error.message : String(error)}`)
-
-        // Increase delay with exponential backoff (capped at max)
-        this.currentReconnectDelay = Math.min(
-          this.currentReconnectDelay * RECONNECT_BACKOFF_MULTIPLIER,
-          RECONNECT_MAX_DELAY_MS,
-        )
-        this.isReconnecting = false
-
-        // Schedule next reconnection attempt
-        this.attemptReconnect().catch(() => {})
-      }
-    }, this.currentReconnectDelay)
-  }
-
-  /**
-   * Connects to the daemon with MCP-appropriate options.
-   * Reused by both start() and attemptReconnect() to ensure consistent registration.
-   */
-  private connectMcpClient() {
-    return connectToDaemon({
-      clientType: 'mcp',
-      fromDir: this.config.workingDirectory,
-      serverPath: resolveLocalServerMainPath(),
-      version: this.config.version,
-      ...(this.mode === 'project' && this.projectRoot ? {projectPath: this.projectRoot} : {}),
-    })
   }
 
   /**
@@ -240,40 +202,5 @@ export class ByteRoverMcpServer {
       .catch((error: unknown) => {
         this.log(`Failed to send agent name: ${error instanceof Error ? error.message : String(error)}`)
       })
-  }
-
-  /**
-   * Sets up the state change handler for a client.
-   * Handles disconnection by triggering auto-reconnect.
-   */
-  private setupStateChangeHandler(client: ITransportClient): void {
-    client.onStateChange((state) => {
-      const timestamp = new Date().toISOString()
-      this.log(`[${timestamp}] Connection state changed: ${state}`)
-
-      switch (state) {
-        case 'connected': {
-          this.log(`[${timestamp}] Connected to brv instance.`)
-          // Reset backoff delay on successful connection
-          this.currentReconnectDelay = RECONNECT_DELAY_MS
-          this.isReconnecting = false
-          // Re-send cached agent name after reconnection (new clientId needs it)
-          this.sendAgentName()
-          break
-        }
-
-        case 'disconnected': {
-          this.log(`[${timestamp}] Socket disconnected from brv instance. Initiating reconnection...`)
-          // Trigger auto-reconnect
-          this.attemptReconnect().catch(() => {})
-          break
-        }
-
-        case 'reconnecting': {
-          this.log(`[${timestamp}] Socket.IO attempting to reconnect...`)
-          break
-        }
-      }
-    })
   }
 }

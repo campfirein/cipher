@@ -62,6 +62,7 @@ export class TransportHandlers {
       getAgentForProject: (projectPath) => this.connectionCoordinator.getAgentForProject(projectPath),
       projectRegistry: options.projectRegistry,
       projectRouter: options.projectRouter,
+      resolveClientProjectPath: (clientId) => options.clientManager?.getClient(clientId)?.projectPath,
       transport: options.transport,
     })
 
