@@ -28,6 +28,7 @@ import {FsFileService} from '../file/fs-file-service.js'
 import {CallbackHandler} from '../http/callback-handler.js'
 import {HttpSpaceService} from '../space/http-space-service.js'
 import {FileGlobalConfigStore} from '../storage/file-global-config-store.js'
+import {FileOnboardingPreferenceStore} from '../storage/file-onboarding-preference-store.js'
 import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
 import {ProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {createTokenStore} from '../storage/token-store.js'
@@ -138,14 +139,9 @@ export async function setupFeatureHandlers({
   }).setup()
 
   new OnboardingHandler({
-    projectConfigStore,
-    resolveProjectPath,
-    spaceService,
-    teamService,
-    tokenStore,
+    onboardingPreferenceStore: new FileOnboardingPreferenceStore(),
     trackingService,
     transport,
-    userService,
   }).setup()
 
   new PushHandler({

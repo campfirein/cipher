@@ -5,8 +5,7 @@ export const OnboardingEvents = {
 } as const
 
 export interface OnboardingGetStateResponse {
-  hasDefaultTeamSpace: boolean
-  hasOnboardedCli: boolean
+  hasOnboarded: boolean
 }
 
 export interface OnboardingAutoSetupResponse {
