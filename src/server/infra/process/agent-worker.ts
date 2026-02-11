@@ -647,32 +647,107 @@ async function prepareForReinit(): Promise<void> {
 }
 
 /**
- * Load provider configuration and return API key and model if using external provider.
+ * Provider configuration result from loading.
  */
-async function loadProviderConfiguration(): Promise<{
+interface ProviderConfiguration {
   modelFromProvider: string | undefined
   openRouterApiKey: string | undefined
-}> {
+  provider: string | undefined
+  providerApiKey: string | undefined
+  providerBaseUrl: string | undefined
+  providerHeaders: Record<string, string> | undefined
+  providerLocation: string | undefined
+  providerProject: string | undefined
+}
+
+/**
+ * Load provider configuration and return API key, model, and provider-specific config.
+ */
+async function loadProviderConfiguration(): Promise<ProviderConfiguration> {
+  const {getProviderById} = await import('../../core/domain/entities/provider-registry.js')
+  const {getProviderApiKeyFromEnv} = await import('../provider/env-provider-detector.js')
+
   const providerConfigStore = new FileProviderConfigStore()
   const providerKeychainStore = new ProviderKeychainStore()
   const providerConfig = await providerConfigStore.read()
   const activeProviderId = providerConfig.activeProvider
 
-  // Get OpenRouter API key if using external provider
-  let openRouterApiKey: string | undefined
-  let modelFromProvider: string | undefined
-
-  if (activeProviderId !== 'byterover') {
-    openRouterApiKey = await providerKeychainStore.getApiKey(activeProviderId)
-    modelFromProvider = await providerConfigStore.getActiveModel(activeProviderId)
-    if (openRouterApiKey) {
-      agentLog(
-        `Using external provider: ${activeProviderId}${modelFromProvider ? ` with model: ${modelFromProvider}` : ''}`,
-      )
-    }
+  const result: ProviderConfiguration = {
+    modelFromProvider: undefined,
+    openRouterApiKey: undefined,
+    provider: undefined,
+    providerApiKey: undefined,
+    providerBaseUrl: undefined,
+    providerHeaders: undefined,
+    providerLocation: undefined,
+    providerProject: undefined,
   }
 
-  return {modelFromProvider, openRouterApiKey}
+  if (activeProviderId === 'byterover') {
+    return result
+  }
+
+  // Get API key: keychain first, then environment variable
+  let apiKey = await providerKeychainStore.getApiKey(activeProviderId)
+  if (!apiKey) {
+    apiKey = getProviderApiKeyFromEnv(activeProviderId)
+  }
+
+  // Get model from provider config
+  const modelFromProvider = await providerConfigStore.getActiveModel(activeProviderId)
+  result.modelFromProvider = modelFromProvider
+
+  // Vertex AI uses Application Default Credentials, not API keys
+  if (activeProviderId === 'google-vertex') {
+    result.provider = activeProviderId
+    result.providerProject = process.env.GOOGLE_CLOUD_PROJECT || undefined
+    result.providerLocation = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1'
+    agentLog(
+      `Using external provider: ${activeProviderId} (project: ${result.providerProject ?? 'default'}, location: ${result.providerLocation})${modelFromProvider ? ` with model: ${modelFromProvider}` : ''}`,
+    )
+
+    return result
+  }
+
+  // OpenAI Compatible uses a user-configured base URL and optional API key
+  if (activeProviderId === 'openai-compatible') {
+    const customBaseUrl = providerConfig.getBaseUrl(activeProviderId)
+    result.provider = activeProviderId
+    result.providerApiKey = apiKey || undefined
+    result.providerBaseUrl = customBaseUrl || undefined
+    agentLog(
+      `Using external provider: ${activeProviderId} (baseUrl: ${customBaseUrl ?? 'default'})${modelFromProvider ? ` with model: ${modelFromProvider}` : ''}`,
+    )
+
+    return result
+  }
+
+  if (!apiKey) {
+    agentLog(`No API key found for provider: ${activeProviderId}`)
+
+    return result
+  }
+
+  // Route based on provider type
+  const providerDef = getProviderById(activeProviderId)
+
+  if (activeProviderId === 'openrouter') {
+    // Backward compatible: use openRouterApiKey field
+    result.openRouterApiKey = apiKey
+  } else {
+    // Direct provider: pass provider-specific config
+    result.provider = activeProviderId
+    result.providerApiKey = apiKey
+    result.providerBaseUrl = providerDef?.baseUrl || undefined
+    const headers = providerDef?.headers
+    result.providerHeaders = headers && Object.keys(headers).length > 0 ? {...headers} : undefined
+  }
+
+  agentLog(
+    `Using external provider: ${activeProviderId}${modelFromProvider ? ` with model: ${modelFromProvider}` : ''}`,
+  )
+
+  return result
 }
 
 /**
@@ -683,8 +758,7 @@ function buildAgentConfig(
     accessToken: string
     sessionKey: string
   },
-  modelFromProvider: string | undefined,
-  openRouterApiKey: string | undefined,
+  providerConfig: ProviderConfiguration,
 ): AgentConfig {
   const envConfig = getCurrentConfig()
   return {
@@ -699,9 +773,15 @@ function buildAgentConfig(
       topP: 0.95,
       verbose: false,
     },
-    model: modelFromProvider ?? DEFAULT_LLM_MODEL,
-    openRouterApiKey,
+    model: providerConfig.modelFromProvider ?? DEFAULT_LLM_MODEL,
+    openRouterApiKey: providerConfig.openRouterApiKey,
     projectId: PROJECT,
+    provider: providerConfig.provider,
+    providerApiKey: providerConfig.providerApiKey,
+    providerBaseUrl: providerConfig.providerBaseUrl,
+    providerHeaders: providerConfig.providerHeaders,
+    providerLocation: providerConfig.providerLocation,
+    providerProject: providerConfig.providerProject,
     sessionKey: authToken.sessionKey,
   }
 }
@@ -860,10 +940,10 @@ async function tryInitializeAgent(forceReinit = false): Promise<boolean> {
     const folderPackExecutor = new FolderPackExecutor(folderPackService)
 
     // Read provider configuration
-    const {modelFromProvider, openRouterApiKey} = await loadProviderConfiguration()
+    const providerConfig = await loadProviderConfiguration()
 
     // Build agent configuration
-    const agentConfig = buildAgentConfig(authToken, modelFromProvider, openRouterApiKey)
+    const agentConfig = buildAgentConfig(authToken, providerConfig)
 
     // Initialize agent instance
     pendingAgent = new CipherAgent(agentConfig, brvConfig ?? undefined)

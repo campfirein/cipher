@@ -375,7 +375,7 @@ export class GeminiMessageFormatter implements IMessageFormatter<Content> {
  * Required for Gemini 3+ preview models.
  *
  * The "active loop" starts from the last user text message in the conversation.
- * Only the first function call in each model turn needs a thought signature.
+ * All function calls in each model turn need a thought signature.
  *
  * @param contents Array of Content objects formatted for Gemini API
  * @param model The model being used (only applies to Gemini 3+ models)
@@ -415,7 +415,7 @@ export function ensureActiveLoopHasThoughtSignatures(contents: Content[], model:
     }
 
     const newParts = [...content.parts]
-    const updatedContent = addThoughtSignatureToFirstFunctionCall(newParts, content)
+    const updatedContent = addThoughtSignatureToAllFunctionCalls(newParts, content)
 
     if (updatedContent) {
       newContents[i] = updatedContent
@@ -426,10 +426,12 @@ export function ensureActiveLoopHasThoughtSignatures(contents: Content[], model:
 }
 
 /**
- * Adds thought signature to the first function call in parts if missing.
+ * Adds thought signature to ALL function calls in parts that are missing one.
  * Returns updated content or null if no modification needed.
  */
-function addThoughtSignatureToFirstFunctionCall(parts: Part[], content: Content): Content | null {
+function addThoughtSignatureToAllFunctionCalls(parts: Part[], content: Content): Content | null {
+  let modified = false
+
   for (let j = 0; j < parts.length; j++) {
     const part = parts[j]
 
@@ -439,7 +441,7 @@ function addThoughtSignatureToFirstFunctionCall(parts: Part[], content: Content)
 
     // Check if thoughtSignature already exists using type guard
     if (hasThoughtSignature(part) && part.thoughtSignature) {
-      return null // Already has signature, no modification needed
+      continue
     }
 
     // Add synthetic thought signature
@@ -448,12 +450,15 @@ function addThoughtSignatureToFirstFunctionCall(parts: Part[], content: Content)
       thoughtSignature: SYNTHETIC_THOUGHT_SIGNATURE,
     }
     parts[j] = partWithSignature
-
-    return {
-      ...content,
-      parts,
-    }
+    modified = true
   }
 
-  return null // No function call found
+  if (!modified) {
+    return null
+  }
+
+  return {
+    ...content,
+    parts,
+  }
 }

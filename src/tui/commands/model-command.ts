@@ -2,15 +2,17 @@
  * Model Command
  *
  * Interactive command for selecting LLM models from the active provider.
- * Uses the streaming command pattern with inline prompts.
+ * Uses provider-specific model fetchers for all supported providers.
  *
  * Usage: /model
  */
 
+import type {ProviderModelInfo} from '../../server/core/interfaces/i-provider-model-fetcher.js'
 import type {PromptChoice, PromptRequest, SlashCommand, StreamingMessage} from '../../tui/types.js'
 
 import {getProviderById} from '../../server/core/domain/entities/provider-registry.js'
-import {getOpenRouterApiClient} from '../../server/infra/http/openrouter-api-client.js'
+import {getModelFetcher} from '../../server/infra/http/provider-model-fetcher-registry.js'
+import {getProviderApiKeyFromEnv} from '../../server/infra/provider/env-provider-detector.js'
 import {FileProviderConfigStore} from '../../server/infra/storage/file-provider-config-store.js'
 import {ProviderKeychainStore} from '../../server/infra/storage/provider-keychain-store.js'
 import {CommandKind} from '../../tui/types.js'
@@ -27,6 +29,7 @@ function formatPrice(pricePerM: number): string {
 
 /**
  * Build model choices for selection prompt.
+ * Uses provider-specific model fetchers for all providers.
  */
 async function buildModelChoices(
   providerId: string,
@@ -37,77 +40,82 @@ async function buildModelChoices(
     recent: readonly string[]
   },
 ): Promise<Array<PromptChoice<string>>> {
+  const fetcher = await getModelFetcher(providerId)
+  if (!fetcher) return []
+
+  const models = await fetcher.fetchModels(apiKey)
+  return formatModelChoices(models, config)
+}
+
+/**
+ * Format models into prompt choices with sorting and indicators.
+ */
+function formatModelChoices(
+  models: ProviderModelInfo[],
+  config: {
+    activeModel?: string
+    favorites: readonly string[]
+    recent: readonly string[]
+  },
+): Array<PromptChoice<string>> {
   const choices: Array<PromptChoice<string>> = []
 
-  if (providerId === 'openrouter') {
-    const client = getOpenRouterApiClient()
-    const models = await client.fetchModels(apiKey)
+  // Sort models: favorites first, then recent, then by provider/name
+  const sortedModels = [...models].sort((a, b) => {
+    const aIsFavorite = config.favorites.includes(a.id)
+    const bIsFavorite = config.favorites.includes(b.id)
+    const aIsRecent = config.recent.includes(a.id)
+    const bIsRecent = config.recent.includes(b.id)
 
-    // Sort models: favorites first, then recent, then by provider
-    const sortedModels = [...models].sort((a, b) => {
-      const aIsFavorite = config.favorites.includes(a.id)
-      const bIsFavorite = config.favorites.includes(b.id)
-      const aIsRecent = config.recent.includes(a.id)
-      const bIsRecent = config.recent.includes(b.id)
+    // Favorites first
+    if (aIsFavorite && !bIsFavorite) return -1
+    if (!aIsFavorite && bIsFavorite) return 1
 
-      // Favorites first
-      if (aIsFavorite && !bIsFavorite) return -1
-      if (!aIsFavorite && bIsFavorite) return 1
+    // Then recent
+    if (aIsRecent && !bIsRecent) return -1
+    if (!aIsRecent && bIsRecent) return 1
 
-      // Then recent
-      if (aIsRecent && !bIsRecent) return -1
-      if (!aIsRecent && bIsRecent) return 1
+    // Then by provider
+    const providerCompare = a.provider.localeCompare(b.provider)
+    if (providerCompare !== 0) return providerCompare
 
-      // Then by provider
-      const providerCompare = a.provider.localeCompare(b.provider)
-      if (providerCompare !== 0) return providerCompare
+    // Then by name
+    return a.name.localeCompare(b.name)
+  })
 
-      // Then by name
-      return a.name.localeCompare(b.name)
-    })
+  for (const model of sortedModels) {
+    const isCurrent = model.id === config.activeModel
+    const isFavorite = config.favorites.includes(model.id)
 
-    for (const model of sortedModels) {
-      const isCurrent = model.id === config.activeModel
-      const isFavorite = config.favorites.includes(model.id)
+    // Build indicators
+    const indicators: string[] = []
+    if (isCurrent) indicators.push('(Current)')
+    if (isFavorite && !isCurrent) indicators.push('\u2605')
+    if (model.isFree && !isCurrent) indicators.push('[Free]')
 
-      // Build indicators
-      const indicators: string[] = []
-      if (isCurrent) indicators.push('(Current)')
-      if (isFavorite && !isCurrent) indicators.push('★')
-      if (model.isFree && !isCurrent) indicators.push('[Free]')
+    const statusSuffix = indicators.length > 0 ? ` ${indicators.join(' ')}` : ''
 
-      const statusSuffix = indicators.length > 0 ? ` ${indicators.join(' ')}` : ''
-
-      // Build description with pricing and context
-      const descParts: string[] = []
-      if (model.provider) descParts.push(model.provider)
-      if (!model.isFree && model.pricing) {
-        // Show input/output pricing separately for more clarity
-        const inputPrice = formatPrice(model.pricing.inputPerM)
-        const outputPrice = formatPrice(model.pricing.outputPerM)
-        descParts.push(`$${inputPrice}/$${outputPrice}/M`)
-      }
-
-      if (model.contextLength) {
-        if (model.contextLength >= 1_000_000) {
-          descParts.push(`${(model.contextLength / 1_000_000).toFixed(1)}M ctx`)
-        } else if (model.contextLength >= 1000) {
-          descParts.push(`${Math.round(model.contextLength / 1000)}K ctx`)
-        }
-      }
-
-      choices.push({
-        description: descParts.join(' • '),
-        name: `${model.name}${statusSuffix}`,
-        value: model.id,
-      })
+    // Build description with pricing and context
+    const descParts: string[] = []
+    if (model.provider) descParts.push(model.provider)
+    if (!model.isFree && model.pricing && (model.pricing.inputPerM > 0 || model.pricing.outputPerM > 0)) {
+      const inputPrice = formatPrice(model.pricing.inputPerM)
+      const outputPrice = formatPrice(model.pricing.outputPerM)
+      descParts.push(`$${inputPrice}/$${outputPrice}/M`)
     }
-  } else if (providerId === 'byterover') {
-    // ByteRover internal - show a single option
+
+    if (model.contextLength) {
+      if (model.contextLength >= 1_000_000) {
+        descParts.push(`${(model.contextLength / 1_000_000).toFixed(1)}M ctx`)
+      } else if (model.contextLength >= 1000) {
+        descParts.push(`${Math.round(model.contextLength / 1000)}K ctx`)
+      }
+    }
+
     choices.push({
-      description: 'Internal ByteRover model',
-      name: 'ByteRover Default (Current)',
-      value: 'byterover-default',
+      description: descParts.join(' \u2022 '),
+      name: `${model.name}${statusSuffix}`,
+      value: model.id,
     })
   }
 
@@ -151,13 +159,28 @@ export const modelCommand: SlashCommand = {
         return
       }
 
-      // Get API key for the provider
-      const apiKey = await keychainStore.getApiKey(activeProviderId)
+      // Get API key: try keychain first, then env var
+      let apiKey = await keychainStore.getApiKey(activeProviderId)
+      if (!apiKey) {
+        apiKey = getProviderApiKeyFromEnv(activeProviderId)
+      }
+
       if (!apiKey) {
         onMessage({
           content: `No API key found for ${provider.name}. Run /provider to connect.`,
           id: `error-${Date.now()}`,
           type: 'error',
+        })
+        return
+      }
+
+      // Check if provider has a model fetcher
+      const fetcher = await getModelFetcher(activeProviderId)
+      if (!fetcher) {
+        onMessage({
+          content: `Model listing is not available for ${provider.name}.`,
+          id: `info-${Date.now()}`,
+          type: 'output',
         })
         return
       }

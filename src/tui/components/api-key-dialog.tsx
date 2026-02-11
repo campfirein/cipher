@@ -15,6 +15,7 @@ import React, {useCallback, useState} from 'react'
 
 import { ProviderDefinition } from '../../server/core/domain/entities/provider-registry.js'
 import {useTheme} from '../contexts/theme-context.js'
+import {stripBracketedPaste} from '../utils/index.js'
 
 /**
  * Validation result from API key check.
@@ -124,10 +125,13 @@ export const ApiKeyDialog: React.FC<ApiKeyDialogProps> = ({
         return
       }
 
-      // Handle printable characters (type to add to API key)
-      if (input && input.length === 1 && !key.ctrl && !key.meta) {
-        setApiKey((prev) => prev + input)
-        setError(undefined)
+      // Handle printable characters (type or paste to add to API key)
+      if (input && !key.ctrl && !key.meta) {
+        const cleaned = stripBracketedPaste(input)
+        if (cleaned) {
+          setApiKey((prev) => prev + cleaned)
+          setError(undefined)
+        }
       }
     },
     {isActive},
