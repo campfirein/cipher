@@ -25,33 +25,29 @@ export type AppViewMode =
  *
  * View mode decision tree:
  * 1. Loading auth or onboarding check -> 'loading'
- * 2. New user (hasOnboardedCli=false) -> 'onboarding'
- * 3. Existing user, no brvConfig -> 'init'
+ * 2. New user (hasDismissed) -> 'onboarding'
+ * 3. Existing user, no provider config -> provider flow
  * 4. Otherwise -> 'ready'
  */
 export function useAppViewMode(): AppViewMode {
-  const {brvConfig, isLoadingInitial: isLoadingAuth, user} = useAuthStore()
-  const {completedInSession, flowStep, initCompletedInSession, initialized} = useOnboardingStore()
+  const {isLoadingInitial: isLoadingAuth} = useAuthStore()
+  const {completedInSession, flowStep, initialized} = useOnboardingStore()
 
   // Still loading auth or onboarding initialization
   if (isLoadingAuth || !initialized) {
     return {type: 'loading'}
   }
 
-  // User is not logged in - handled by auth guard elsewhere, but provide safe fallback
-  if (!user) {
-    return {type: 'loading'}
-  }
-
   // New user who needs onboarding (hasn't completed CLI onboarding on server)
-  const needsOnboarding = !user.hasOnboardedCli && !completedInSession
+  const needsOnboarding = !completedInSession
   if (needsOnboarding) {
     return {step: flowStep, type: 'onboarding'}
   }
 
-  // Existing user but project needs initialization (no .brv/config.json)
-  const projectNeedsInit = !brvConfig && !initCompletedInSession
-  if (projectNeedsInit) {
+  // Has onboarded but don't have provider configured for some reasons
+  // TODO: implement the condition here
+  const projectNeedsConfig = false
+  if (projectNeedsConfig) {
     return {type: 'init'}
   }
 
