@@ -10,7 +10,7 @@ import {Box, Text, useInput} from 'ink'
 import TextInput from 'ink-text-input'
 import React, {useEffect, useState} from 'react'
 
-import type {PromptChoice} from '../../types.js'
+import type {PromptChoice} from '../../types/index.js'
 
 import {useTheme, useVisibleWindow} from '../../hooks/index.js'
 
@@ -27,7 +27,12 @@ export interface InlineSearchProps<T = unknown> {
   source: (input: string | undefined) => Array<PromptChoice<T>> | Promise<Array<PromptChoice<T>>>
 }
 
-export function InlineSearch<T>({maxVisibleItems = MAX_VISIBLE_ITEMS, message, onSelect, source}: InlineSearchProps<T>): React.ReactElement {
+export function InlineSearch<T>({
+  maxVisibleItems = MAX_VISIBLE_ITEMS,
+  message,
+  onSelect,
+  source,
+}: InlineSearchProps<T>): React.ReactElement {
   const {
     theme: {colors},
   } = useTheme()

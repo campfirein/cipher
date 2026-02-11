@@ -1,8 +1,7 @@
 import {
   ConnectionError,
   ConnectionFailedError,
-  type ConnectionResult,
-  connectToTransport,
+  DaemonSpawnError,
   InstanceCrashedError,
   type ITransportClient,
   type LlmResponse,
@@ -16,19 +15,18 @@ import {
 } from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 
-import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
 import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import type {IQueryUseCase, QueryUseCaseRunOptions} from '../../core/interfaces/usecase/i-query-use-case.js'
 
-import {CipherAgent} from '../../../agent/infra/agent/index.js'
+import {TaskErrorCode} from '../../core/domain/errors/task-error.js'
+import {LlmEventNames, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
 import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
-import {InlineAgent} from '../process/inline-agent-executor.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
+import {createDaemonAwareConnector, type TransportConnector} from '../transport/transport-connector.js'
 
-/** Type for transport connection function (for DI/testing) */
-export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
+export type {TransportConnector} from '../transport/transport-connector.js'
 
 /**
  * Structured query result for JSON output.
@@ -41,37 +39,32 @@ export interface QueryResult {
 }
 
 export interface QueryUseCaseOptions {
+  /** Delay between retry attempts (ms). Default: 2000. Set to 0 in tests. */
+  retryDelayMs?: number
   terminal: ITerminal
   trackingService: ITrackingService
   /** Optional transport connector for dependency injection (defaults to connectToTransport) */
   transportConnector?: TransportConnector
 }
 
+/** Max retry attempts when daemon disconnects mid-task */
+const MAX_TASK_RETRIES = 3
+/** Delay between retry attempts (ms) */
+const RETRY_DELAY_MS = 2000
+/** Grace period before treating 'reconnecting' as daemon death (ms) */
+const DISCONNECT_GRACE_MS = 10_000
+
 export class QueryUseCase implements IQueryUseCase {
+  private readonly retryDelayMs: number
   private readonly terminal: ITerminal
   private readonly trackingService: ITrackingService
   private readonly transportConnector: TransportConnector
 
   constructor(options: QueryUseCaseOptions) {
+    this.retryDelayMs = options.retryDelayMs ?? RETRY_DELAY_MS
     this.terminal = options.terminal
     this.trackingService = options.trackingService
-    this.transportConnector = options.transportConnector ?? connectToTransport
-  }
-
-  /**
-   * Create CipherAgent instance. Protected to allow test overrides.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  protected createCipherAgent(llmConfig: any, brvConfig: BrvConfig): CipherAgent {
-    return new CipherAgent(llmConfig, brvConfig)
-  }
-
-  /**
-   * Generate a unique session ID for the query agent.
-   * Uses crypto.randomUUID() for guaranteed uniqueness (122 bits of entropy).
-   */
-  protected generateSessionId(): string {
-    return randomUUID()
+    this.transportConnector = options.transportConnector ?? createDaemonAwareConnector()
   }
 
   public async run(options: QueryUseCaseRunOptions): Promise<void> {
@@ -91,58 +84,94 @@ export class QueryUseCase implements IQueryUseCase {
 
     const verbose = options.verbose || false
 
-    // Connect to running instance or create inline agent
-    let client: ITransportClient | undefined
+    // Retry loop: reconnect + resubmit on daemon/agent disconnection
+    let lastError: unknown
 
-    try {
-      if (options.headless) {
-        const inlineAgent = await InlineAgent.create()
-        client = inlineAgent.transportClient
-      } else {
-        if (verbose) {
-          this.terminal.log('Discovering running instance...')
+    /* eslint-disable no-await-in-loop -- intentional sequential retry loop */
+    for (let attempt = 1; attempt <= MAX_TASK_RETRIES; attempt++) {
+      let client: ITransportClient | undefined
+      let projectRoot: string | undefined
+
+      try {
+        if (options.headless) {
+          const {InlineAgent} = await import('../process/inline-agent-executor.js')
+          const inlineAgent = await InlineAgent.create()
+          client = inlineAgent.transportClient
+        } else {
+          if (verbose) {
+            this.terminal.log('Discovering running instance...')
+          }
+
+          const result = await this.transportConnector()
+          client = result.client
+          projectRoot = result.projectRoot
         }
 
-        // Use modern connectToTransport API (auto-discovers and connects)
-        const {client: connectedClient} = await this.transportConnector()
-        client = connectedClient
+        if (verbose) {
+          this.terminal.log(`Connected to instance (clientId: ${client.getClientId()})`)
+        }
+
+        const taskId = randomUUID()
+        const streamPromise = this.streamTaskResults(client, taskId, verbose, format)
+
+        await client.requestWithAck<TaskAck>(TransportTaskEventNames.CREATE, {
+          clientCwd: process.cwd(),
+          content: options.query,
+          ...(projectRoot ? {projectPath: projectRoot} : {}),
+          taskId,
+          type: 'query',
+        })
+
+        if (verbose) {
+          this.terminal.log(`Task created: ${taskId}`)
+        }
+
+        await streamPromise
+        await this.trackingService.track('mem:query', {status: 'finished'})
+
+        // Success: cleanup and return
+        await client.disconnect().catch(() => {})
+        return
+      } catch (error) {
+        if (client) {
+          await client.disconnect().catch(() => {})
+        }
+
+        lastError = error
+
+        // Retry only for daemon/agent infrastructure failures
+        if (!options.headless && this.isRetryableError(error) && attempt < MAX_TASK_RETRIES) {
+          if (format === 'text') {
+            this.terminal.log(`\nConnection lost. Restarting daemon... (attempt ${attempt + 1}/${MAX_TASK_RETRIES})`)
+          }
+
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, this.retryDelayMs)
+          })
+
+          continue
+        }
+
+        break
       }
+    }
+    /* eslint-enable no-await-in-loop */
 
-      if (verbose) {
-        this.terminal.log(`Connected to instance (clientId: ${client.getClientId()})`)
-      }
+    // All retries exhausted or non-retryable error
+    if (format === 'json') {
+      this.handleConnectionErrorJson(lastError)
+    } else {
+      this.handleConnectionError(lastError)
+    }
 
-      // Generate taskId in UseCase (Application layer owns task creation)
-      const taskId = randomUUID()
+    await this.trackingService.track('mem:query', {message: formatError(lastError), status: 'error'})
 
-      // Send task:create request
-      await client.requestWithAck<TaskAck>('task:create', {
-        content: options.query,
-        taskId,
-        type: 'query',
-      })
-      // Note: response.taskId confirms what we sent (no longer extracting)
-
-      if (verbose) {
-        this.terminal.log(`Task created: ${taskId}`)
-      }
-
-      // Wait for task completion with streaming
-      await this.streamTaskResults(client, taskId, verbose, format)
-      await this.trackingService.track('mem:query', {status: 'finished'})
-    } catch (error) {
-      if (format === 'json') {
-        this.handleConnectionErrorJson(error)
-      } else {
-        this.handleConnectionError(error)
-      }
-
-      await this.trackingService.track('mem:query', {message: formatError(error), status: 'error'})
-    } finally {
-      // Cleanup
-      if (client) {
-        await client.disconnect()
-      }
+    // Force exit only for task-level disconnects (AGENT_DISCONNECTED) where Socket.IO
+    // handles may leak. Connection errors (DaemonSpawnError, ConnectionFailedError) already
+    // cleaned up their clients — no leaked handles.
+    if (this.hasLeakedHandles(lastError)) {
+      // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+      process.exit(1)
     }
   }
 
@@ -358,6 +387,29 @@ export class QueryUseCase implements IQueryUseCase {
   }
 
   /**
+   * Checks if an error left leaked Socket.IO handles that prevent Node.js from exiting.
+   * Only task-level disconnects (mid-task daemon death) leak handles.
+   * Connection errors (DaemonSpawnError, ConnectionFailedError) clean up their clients.
+   */
+  private hasLeakedHandles(error: unknown): boolean {
+    if (!(error instanceof Error)) return false
+    if (!('code' in error)) return false
+    return error.code === TaskErrorCode.AGENT_DISCONNECTED || error.code === TaskErrorCode.AGENT_NOT_AVAILABLE
+  }
+
+  /**
+   * Checks if an error is retryable (daemon/agent infrastructure failure).
+   * Retryable: agent disconnected, agent not available, daemon spawn timeout, connection failed.
+   * Non-retryable: auth errors, project not init, LLM errors, file validation, no instance running.
+   */
+  private isRetryableError(error: unknown): boolean {
+    // Connection infrastructure errors — daemon spawned but slow, or connection dropped
+    if (error instanceof DaemonSpawnError || error instanceof ConnectionFailedError) return true
+    // Task-level errors — agent disconnected mid-task
+    return this.hasLeakedHandles(error)
+  }
+
+  /**
    * Output JSON result for headless mode.
    */
   private outputJsonResult(result: QueryResult): void {
@@ -388,7 +440,15 @@ export class QueryUseCase implements IQueryUseCase {
       let completed = false
       let resultPrinted = false // Track if we've already printed the result
       let finalResult: string | undefined
+      let disconnectTimer: NodeJS.Timeout | undefined
       const toolCalls: Array<{status: string; summary: string; tool: string}> = []
+
+      const rejectRetryable = (message: string): void => {
+        if (completed) return
+        completed = true
+        cleanup()
+        reject(Object.assign(new Error(message), {code: TaskErrorCode.AGENT_DISCONNECTED}))
+      }
 
       // Timeout after 5 minutes
       const timeout = setTimeout(
@@ -410,21 +470,21 @@ export class QueryUseCase implements IQueryUseCase {
       // Setup all event handlers
       const unsubscribers = [
         // task:ack - immediate acknowledgment
-        client.on<TaskAck>('task:ack', (payload) => {
+        client.on<TaskAck>(TransportTaskEventNames.ACK, (payload) => {
           if (payload.taskId === taskId && verbose) {
             this.terminal.log('Task acknowledged by server')
           }
         }),
 
         // task:started - task is being processed
-        client.on<TaskStarted>('task:started', (payload) => {
+        client.on<TaskStarted>(TransportTaskEventNames.STARTED, (payload) => {
           if (payload.taskId === taskId && verbose) {
             this.terminal.log('Task started processing...')
           }
         }),
 
         // llmservice:response - final response from LLM (only print once)
-        client.on<LlmResponse>('llmservice:response', (payload) => {
+        client.on<LlmResponse>(LlmEventNames.RESPONSE, (payload) => {
           if (payload.taskId === taskId && payload.content && !resultPrinted) {
             resultPrinted = true
             finalResult = payload.content
@@ -437,7 +497,7 @@ export class QueryUseCase implements IQueryUseCase {
         }),
 
         // llmservice:toolCall - tool invocation (stop showing after response)
-        client.on<LlmToolCall>('llmservice:toolCall', (payload) => {
+        client.on<LlmToolCall>(LlmEventNames.TOOL_CALL, (payload) => {
           if (payload.taskId === taskId && !resultPrinted) {
             const detail = payload.args ? this.formatToolArgs(payload.toolName, payload.args) : ''
             const suffix = detail ? `: ${detail}` : ''
@@ -451,7 +511,7 @@ export class QueryUseCase implements IQueryUseCase {
         }),
 
         // llmservice:toolResult - tool result with summary (stop showing after response)
-        client.on<LlmToolResult>('llmservice:toolResult', (payload) => {
+        client.on<LlmToolResult>(LlmEventNames.TOOL_RESULT, (payload) => {
           if (payload.taskId === taskId && !resultPrinted) {
             const status = payload.success ? '✓' : '✗'
             const resultSummary = this.formatToolResult(payload)
@@ -469,7 +529,7 @@ export class QueryUseCase implements IQueryUseCase {
         }),
 
         // task:completed - task finished (chunks already streamed, just resolve)
-        client.on<TaskCompleted>('task:completed', (payload) => {
+        client.on<TaskCompleted>(TransportTaskEventNames.COMPLETED, (payload) => {
           if (payload.taskId === taskId && !completed) {
             completed = true
             cleanup()
@@ -499,8 +559,8 @@ export class QueryUseCase implements IQueryUseCase {
           }
         }),
 
-        // task:error - task failed
-        client.on<TaskError>('task:error', (payload) => {
+        // task:error - task failed (preserve error code for retry detection)
+        client.on<TaskError>(TransportTaskEventNames.ERROR, (payload) => {
           if (payload.taskId === taskId && !completed) {
             completed = true
             cleanup()
@@ -509,13 +569,45 @@ export class QueryUseCase implements IQueryUseCase {
               this.outputJsonResult({error: payload.error.message, status: 'error'})
               resolve()
             } else {
-              reject(new Error(payload.error.message))
+              reject(Object.assign(new Error(payload.error.message), {code: payload.error.code}))
             }
           }
         }),
 
-        // Clear timeout when done
+        // Disconnect detection: fast recovery when daemon dies (SIGKILL)
+        // SIGTERM: task:error arrives first (handled above). SIGKILL: no event, only state change.
+        client.onStateChange((state) => {
+          if (completed) return
+
+          if (state === 'reconnecting') {
+            // Grace period: daemon might recover via Socket.IO built-in reconnect
+            disconnectTimer = setTimeout(() => {
+              rejectRetryable('Daemon disconnected')
+            }, DISCONNECT_GRACE_MS)
+          }
+
+          if (state === 'connected' && disconnectTimer) {
+            // Reconnected within grace period — cancel and continue waiting for task
+            clearTimeout(disconnectTimer)
+            disconnectTimer = undefined
+          }
+
+          if (state === 'disconnected') {
+            // All reconnection tiers exhausted
+            if (disconnectTimer) {
+              clearTimeout(disconnectTimer)
+              disconnectTimer = undefined
+            }
+
+            rejectRetryable('Daemon disconnected')
+          }
+        }),
+
+        // Clear timers
         () => clearTimeout(timeout),
+        () => {
+          if (disconnectTimer) clearTimeout(disconnectTimer)
+        },
       ]
 
       const cleanup = (): void => {

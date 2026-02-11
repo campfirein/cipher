@@ -50,7 +50,7 @@ describe('PushUseCase', () => {
       initEmptySnapshot: stub(),
       saveSnapshot: stub(),
     }
-    configStore = {exists: stub(), read: stub(), write: stub()}
+    configStore = {exists: stub(), getModifiedTime: stub(), read: stub(), write: stub()}
     tokenStore = {clear: stub(), load: stub(), save: stub()}
     trackingService = {
       track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),

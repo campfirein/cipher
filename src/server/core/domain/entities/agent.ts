@@ -1,31 +1,15 @@
 import type {ConnectorType} from './connector-type.js'
 
-/**
- * Array of all supported Agents.
- */
-export const AGENT_VALUES = [
-  'Amp',
-  'Antigravity',
-  'Augment Code',
-  'Claude Code',
-  'Cline',
-  'Codex',
-  'Cursor',
-  'Gemini CLI',
-  'Github Copilot',
-  'Junie',
-  'Kilo Code',
-  'Kiro',
-  'Qoder',
-  'Qwen Code',
-  'Roo Code',
-  'Trae.ai',
-  'Warp',
-  'Windsurf',
-  'Zed',
-] as const
+export {type Agent, AGENT_VALUES} from '../../../../shared/types/agent.js'
 
-export type Agent = (typeof AGENT_VALUES)[number]
+// Re-import Agent for use in this file's type definitions
+import {type Agent, AGENT_VALUES} from '../../../../shared/types/agent.js'
+
+const agentSet: ReadonlySet<string> = new Set(AGENT_VALUES)
+
+export function isAgent(value: string): value is Agent {
+  return agentSet.has(value)
+}
 
 /**
  * Connector availability configuration for an agent.
@@ -48,11 +32,11 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
   },
   Antigravity: {
     default: 'rules',
-    supported: ['rules'],
+    supported: ['rules', 'mcp'],
   },
   'Augment Code': {
     default: 'rules',
-    supported: ['rules'],
+    supported: ['rules', 'mcp'],
   },
   'Claude Code': {
     default: 'skill',
@@ -60,7 +44,7 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
   },
   Cline: {
     default: 'rules',
-    supported: ['rules'],
+    supported: ['rules', 'mcp'],
   },
   Codex: {
     default: 'mcp',
@@ -92,11 +76,11 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
   },
   Qoder: {
     default: 'rules',
-    supported: ['rules'],
+    supported: ['rules', 'mcp'],
   },
   'Qwen Code': {
     default: 'rules',
-    supported: ['rules'],
+    supported: ['rules', 'mcp'],
   },
   'Roo Code': {
     default: 'mcp',
@@ -104,15 +88,15 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
   },
   'Trae.ai': {
     default: 'rules',
-    supported: ['rules'],
+    supported: ['rules', 'mcp'],
   },
   Warp: {
     default: 'rules',
-    supported: ['rules'],
+    supported: ['rules', 'mcp'],
   },
   Windsurf: {
     default: 'rules',
-    supported: ['rules'],
+    supported: ['rules', 'mcp'],
   },
   Zed: {
     default: 'mcp',

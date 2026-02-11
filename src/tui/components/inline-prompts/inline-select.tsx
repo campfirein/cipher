@@ -9,7 +9,7 @@
 import {Box, Text, useInput} from 'ink'
 import React, {useState} from 'react'
 
-import type {PromptChoice} from '../../types.js'
+import type {PromptChoice} from '../../types/index.js'
 
 import {useTheme, useVisibleWindow} from '../../hooks/index.js'
 
@@ -67,9 +67,7 @@ export function InlineSelect<T>({
                 {isSelected ? '❯ ' : '  '}
                 {choice.name}
               </Text>
-              {choice.description && (
-                <Text color={colors.dimText}> · {choice.description}</Text>
-              )}
+              {choice.description && <Text color={colors.dimText}> · {choice.description}</Text>}
             </Box>
           )
         })}

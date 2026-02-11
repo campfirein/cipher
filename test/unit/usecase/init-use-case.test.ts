@@ -237,11 +237,13 @@ describe('InitUseCase', () => {
 
     configStore = {
       exists: stub(),
+      getModifiedTime: stub(),
       read: stub(),
       write: stub(),
     }
 
     contextTreeService = {
+      delete: stub(),
       exists: stub(),
       initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/context-tree'),
     }

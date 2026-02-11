@@ -7,7 +7,7 @@
 import {Box, Spacer, Text, useInput} from 'ink'
 import React from 'react'
 
-import type {CommandMessage} from '../types.js'
+import type {CommandMessage} from '../types/index.js'
 
 import {useTheme} from '../hooks/index.js'
 import {formatTime} from '../utils/index.js'
@@ -21,7 +21,9 @@ interface MessageItemProps {
 }
 
 export const MessageItem: React.FC<MessageItemProps> = ({isActive, isExpanded, isSelected, message, onClose}) => {
-  const {theme: {colors}} = useTheme()
+  const {
+    theme: {colors},
+  } = useTheme()
   const displayTime = message.timestamp ? formatTime(message.timestamp) : ''
 
   useInput(
@@ -30,7 +32,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({isActive, isExpanded, i
         onClose?.()
       }
     },
-    {isActive: isActive && isExpanded}
+    {isActive: isActive && isExpanded},
   )
 
   if (isExpanded) {
@@ -78,11 +80,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({isActive, isExpanded, i
           </Box>
 
           {/* Expand indicator */}
-          {isSelected ? (
-            <Text color={colors.dimText}>Show remaining output • [ctrl+o] to expand</Text>
-          ) : (
-            <Text> </Text>
-          )}
+          {isSelected ? <Text color={colors.dimText}>Show remaining output • [ctrl+o] to expand</Text> : <Text> </Text>}
         </Box>
       </Box>
     </Box>

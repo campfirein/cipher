@@ -1,8 +1,14 @@
 import type {ITransportClient} from '@campfirein/brv-transport-client'
 import type {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 
+import {waitForConnectedClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
+
+import {TransportClientEventNames, TransportTaskEventNames} from '../../../core/domain/transport/schemas.js'
+import {detectMcpMode} from '../mcp-mode-detector.js'
+import {resolveClientCwd} from './resolve-client-cwd.js'
+
 
 export const BrvCurateInputSchema = z
   .object({
@@ -11,6 +17,14 @@ export const BrvCurateInputSchema = z
       .optional()
       .describe(
         'Knowledge to store: patterns, decisions, errors, or insights about the codebase. Required unless files or folder are provided.',
+      ),
+    cwd: z
+      .string()
+      .optional()
+      .describe(
+        'Working directory of the project (absolute path). ' +
+          'Required when the MCP server runs in global mode (e.g., Windsurf). ' +
+          'Optional in project mode — defaults to the project directory.',
       ),
     files: z
       .array(z.string())
@@ -42,35 +56,52 @@ export const BrvCurateInputSchema = z
 export function registerBrvCurateTool(
   server: McpServer,
   getClient: () => ITransportClient | undefined,
-  getWorkingDirectory: () => string,
+  getWorkingDirectory: () => string | undefined,
 ): void {
   server.registerTool(
     'brv-curate',
     {
-      description: 'Store context to the ByteRover context tree. Save patterns, decisions, or insights.',
+      description:
+        'Store context to the ByteRover context tree. Save patterns, decisions, or insights. ' +
+        'Curation is processed asynchronously — the tool returns immediately after queueing.',
       inputSchema: BrvCurateInputSchema,
       title: 'ByteRover Curate',
     },
-    async ({context, files, folder}: {context?: string; files?: string[]; folder?: string}) => {
-      const client = getClient()
-      if (!client) {
+    async ({context, cwd, files, folder}: {context?: string; cwd?: string; files?: string[]; folder?: string}) => {
+      // Resolve clientCwd: explicit cwd param > server working directory
+      const cwdResult = resolveClientCwd(cwd, getWorkingDirectory)
+      if (!cwdResult.success) {
         return {
-          content: [{text: 'Error: Not connected to ByteRover instance. Run "brv" first.', type: 'text' as const}],
+          content: [{text: cwdResult.error, type: 'text' as const}],
           isError: true,
         }
       }
 
-      // Check connection state before making request
-      const state = client.getState()
-      if (state !== 'connected') {
+      // Wait for a connected client (MCP's attemptReconnect() replaces client in background)
+      const client = await waitForConnectedClient(getClient)
+      if (!client) {
         return {
           content: [
             {
-              text: `Error: Socket not connected. Current state: ${state}. Ensure "brv" is running.`,
+              text: 'Error: Not connected to ByteRover instance. Connection timed out. Ensure "brv" is running.',
               type: 'text' as const,
             },
           ],
           isError: true,
+        }
+      }
+
+      // In global mode, associate client with the walked-up project root.
+      // Walk up from clientCwd to find .brv/config.json — raw cwd may be a subdirectory.
+      // Fire-and-forget: server handler is idempotent (first association wins).
+      if (!getWorkingDirectory()) {
+        const {projectRoot} = detectMcpMode(cwdResult.clientCwd)
+        if (projectRoot) {
+          client
+            .requestWithAck(TransportClientEventNames.ASSOCIATE_PROJECT, {
+              projectPath: projectRoot,
+            })
+            .catch(() => {})
         }
       }
 
@@ -85,8 +116,8 @@ export function registerBrvCurateTool(
         const hasFolder = Boolean(folder?.trim())
         const taskType = hasFolder ? 'curate-folder' : 'curate'
 
-        await client.requestWithAck('task:create', {
-          clientCwd: getWorkingDirectory(),
+        await client.requestWithAck(TransportTaskEventNames.CREATE, {
+          clientCwd: cwdResult.clientCwd,
           content: resolvedContent,
           taskId,
           type: taskType,

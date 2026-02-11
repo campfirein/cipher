@@ -15,7 +15,7 @@
 import {Box, Text, useInput} from 'ink'
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
-import {useTheme} from '../contexts/theme-context.js'
+import {useTheme} from '../hooks/index.js'
 
 /**
  * Props for SelectableList component.

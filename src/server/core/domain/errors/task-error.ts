@@ -15,7 +15,6 @@ export const TaskErrorCode = {
   // Auth/Init errors
   NOT_AUTHENTICATED: 'ERR_NOT_AUTHENTICATED',
   // Execution errors
-  PROCESSOR_NOT_INIT: 'ERR_PROCESSOR_NOT_INIT',
   PROJECT_NOT_INIT: 'ERR_PROJECT_NOT_INIT',
   TASK_CANCELLED: 'ERR_TASK_CANCELLED',
 
@@ -131,13 +130,6 @@ export class AgentNotInitializedError extends TaskError {
       TaskErrorCode.AGENT_NOT_INITIALIZED,
     )
     this.name = 'AgentNotInitializedError'
-  }
-}
-
-export class ProcessorNotInitError extends TaskError {
-  public constructor() {
-    super('TaskProcessor not initialized', TaskErrorCode.PROCESSOR_NOT_INIT)
-    this.name = 'ProcessorNotInitError'
   }
 }
 

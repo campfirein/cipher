@@ -1,9 +1,4 @@
-import {
-  type ConnectionResult,
-  connectToTransport,
-  InstanceCrashedError,
-  NoInstanceRunningError,
-} from '@campfirein/brv-transport-client'
+import {InstanceCrashedError, NoInstanceRunningError} from '@campfirein/brv-transport-client'
 import chalk from 'chalk'
 import {join} from 'node:path'
 
@@ -18,9 +13,9 @@ import type {IStatusUseCase} from '../../core/interfaces/usecase/i-status-use-ca
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {getErrorMessage} from '../../utils/error-helpers.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
+import {createDaemonAwareConnector, type TransportConnector} from '../transport/transport-connector.js'
 
-/** Type for transport connection function (for DI/testing) */
-export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
+export type {TransportConnector} from '../transport/transport-connector.js'
 
 /**
  * Structured status data for JSON output.
@@ -69,7 +64,7 @@ export class StatusUseCase implements IStatusUseCase {
     this.terminal = options.terminal
     this.tokenStore = options.tokenStore
     this.trackingService = options.trackingService
-    this.transportConnector = options.transportConnector ?? connectToTransport
+    this.transportConnector = options.transportConnector ?? createDaemonAwareConnector()
   }
 
   public async run(options: {cliVersion: string; format?: 'json' | 'text'}): Promise<void> {

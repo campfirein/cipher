@@ -40,7 +40,8 @@ describe('Curate Command', () => {
       track: stub().resolves(),
     } as unknown as sinon.SinonStubbedInstance<ITrackingService>
 
-    // Create mock transport client
+    // Create mock transport client.
+    // Non-headless curate enqueues and exits immediately (no task:completed wait).
     mockClient = {
       connect: stub().resolves(),
       disconnect: stub().resolves(),
@@ -181,9 +182,10 @@ describe('Curate Command', () => {
     })
 
     it('should handle ConnectionFailedError', async () => {
-      const errorConnector = stub().rejects(new ConnectionFailedError(9847, new Error('Connection refused')))
+      const errorConnector = stub().rejects(new ConnectionFailedError(37_847, new Error('Connection refused')))
       const useCase = new CurateUseCase(
         createUseCaseOptions({
+          retryDelayMs: 0,
           transportConnector: errorConnector,
         }),
       )

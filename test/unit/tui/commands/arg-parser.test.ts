@@ -1,6 +1,12 @@
 import {expect} from 'chai'
 
-import {Args, Flags, parseReplArgs, splitArgs, toCommandFlags} from '../../../../src/tui/commands/arg-parser.js'
+import {
+  Args,
+  Flags,
+  parseReplArgs,
+  splitArgs,
+  toCommandFlags,
+} from '../../../../src/tui/features/commands/utils/arg-parser.js'
 
 describe('arg-parser', () => {
   describe('splitArgs', () => {
