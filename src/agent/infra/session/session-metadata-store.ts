@@ -1,7 +1,7 @@
 /**
  * SessionMetadataStore - Manages session metadata persistence.
  *
- * Stores session metadata in .brv/sessions/ directory:
+ * Stores session metadata in the XDG sessions directory:
  * - active.json: Current active session pointer
  * - session-*.json: Individual session metadata files
  *
@@ -25,7 +25,6 @@ import {
   type SessionInfo,
   type SessionMetadata,
   SessionMetadataSchema,
-  SESSIONS_DIR,
 } from '../../core/domain/session/session-metadata.js'
 
 /**
@@ -72,9 +71,20 @@ function extractUuidFromSessionId(sessionId: string): string {
 }
 
 /**
+ * Configuration for SessionMetadataStore.
+ */
+type SessionMetadataStoreOptions = {
+  /** Sessions directory path (XDG storage path). */
+  sessionsDir: string
+  /** Project working directory. */
+  workingDirectory: string
+}
+
+/**
  * SessionMetadataStore implementation.
  *
- * Manages session metadata stored in .brv/sessions/ directory.
+ * Manages session metadata stored in the XDG sessions directory.
+ * Callers must provide the explicit sessionsDir path.
  */
 export class SessionMetadataStore implements ISessionPersistence {
   private readonly activeSessionPath: string
@@ -84,11 +94,11 @@ export class SessionMetadataStore implements ISessionPersistence {
   /**
    * Create a new SessionMetadataStore.
    *
-   * @param workingDirectory - Project working directory (defaults to process.cwd())
+   * @param options - Configuration options (sessionsDir and workingDirectory required)
    */
-  constructor(workingDirectory?: string) {
-    this.workingDirectory = workingDirectory ?? process.cwd()
-    this.sessionsDir = join(this.workingDirectory, '.brv', SESSIONS_DIR)
+  constructor(options: SessionMetadataStoreOptions) {
+    this.workingDirectory = options.workingDirectory
+    this.sessionsDir = options.sessionsDir
     this.activeSessionPath = join(this.sessionsDir, ACTIVE_SESSION_FILE)
   }
 

@@ -11,7 +11,7 @@ import {SqliteBlobStorage} from './sqlite-blob-storage.js'
  * @returns SQLite blob storage implementation
  *
  * @example
- * const storage = createBlobStorage({ storageDir: '.brv/blobs' });
+ * const storage = createBlobStorage({ storageDir: '/path/to/xdg/storage' });
  */
 export function createBlobStorage(config?: Partial<BlobStorageConfig>): IBlobStorage {
   return new SqliteBlobStorage(config)

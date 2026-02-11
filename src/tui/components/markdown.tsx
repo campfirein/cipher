@@ -28,7 +28,7 @@ import React from 'react'
 import remarkParse from 'remark-parse'
 import {unified} from 'unified'
 
-import type {Theme} from '../contexts/theme-context.js'
+import type {Theme} from '../hooks/index.js'
 
 import {useTheme} from '../hooks/index.js'
 

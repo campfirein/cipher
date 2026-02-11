@@ -29,6 +29,8 @@ import {createSearchKnowledgeService} from '../../../agent/infra/tools/implement
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {NotAuthenticatedError, serializeTaskError} from '../../core/domain/errors/task-error.js'
+import {LlmEventNames, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
+import {getProjectDataDir} from '../../utils/path-utils.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
 import {CurateExecutor, QueryExecutor} from '../executor/index.js'
 import {createTokenStore} from '../storage/token-store.js'
@@ -68,7 +70,6 @@ export class InlineAgent {
 
     const envConfig = getCurrentConfig()
     const agentConfig = {
-      accessToken: authToken.accessToken,
       apiBaseUrl: envConfig.llmApiBaseUrl,
       fileSystem: {workingDirectory: process.cwd()},
       llm: {
@@ -82,6 +83,7 @@ export class InlineAgent {
       model: DEFAULT_LLM_MODEL,
       projectId: PROJECT,
       sessionKey: authToken.sessionKey,
+      storagePath: getProjectDataDir(process.cwd()),
     }
 
     const agent = new CipherAgent(agentConfig, brvConfig)
@@ -176,6 +178,8 @@ class InlineTransportClient implements ITransportClient {
     }
 
     const handlerSet = this.handlers.get(event)!
+    // EventHandler<T> → EventHandler<unknown>: type erasure is standard for event emitter
+    // implementations — the Map is keyed by event name, so handler type is correct at runtime.
     handlerSet.add(handler as EventHandler)
 
     return () => {
@@ -198,11 +202,17 @@ class InlineTransportClient implements ITransportClient {
   request(event: string, data?: unknown): void
   request<T = unknown>(event: string, data: unknown, ack: (response: T) => void): void
   request<T = unknown>(event: string, data?: unknown, ack?: (response: T) => void): void {
+    // requestWithAck should not throw — task errors are emitted as task:error events.
+    // Log unexpected infrastructure failures to stderr for diagnostics.
+    const onError = (error: unknown): void => {
+      process.stderr.write(`[InlineTransportClient] Unexpected error for '${event}': ${error instanceof Error ? error.message : String(error)}\n`)
+    }
+
     const promise = this.requestWithAck(event, data)
     if (ack) {
-      promise.then((response) => ack(response as T)).catch(() => {})
+      promise.then((response) => ack(response as T)).catch(onError)
     } else {
-      promise.catch(() => {})
+      promise.catch(onError)
     }
   }
 
@@ -211,13 +221,14 @@ class InlineTransportClient implements ITransportClient {
     data?: TRequest,
     _options?: RequestOptions,
   ): Promise<TResponse> {
-    if (event === 'task:create') {
-      // Returns immediately with {taskId}; execution runs asynchronously
-      return this.handleTaskCreate(data as Record<string, unknown>) as unknown as TResponse
+    if (event === TransportTaskEventNames.CREATE) {
+      // Returns immediately with {taskId}; execution runs asynchronously.
+      // Single cast: handleTaskCreate returns unknown, caller expects TResponse ({taskId}).
+      return this.handleTaskCreate(data as Record<string, unknown>) as TResponse
     }
 
     // Other events are no-ops for inline execution
-    return undefined as TResponse
+    return undefined as unknown as TResponse
   }
 
   // ===========================================================================
@@ -247,10 +258,10 @@ class InlineTransportClient implements ITransportClient {
     const clientCwd = data.clientCwd as string | undefined
 
     // Emit task:ack
-    this.emit('task:ack', {taskId})
+    this.emit(TransportTaskEventNames.ACK, {taskId})
 
     // Emit task:started
-    this.emit('task:started', {taskId})
+    this.emit(TransportTaskEventNames.STARTED, {taskId})
 
     // Subscribe to agentEventBus and forward events to registered handlers
     const cleanupForwarders = this.setupEventForwarding(taskId)
@@ -269,11 +280,11 @@ class InlineTransportClient implements ITransportClient {
           }))
 
       // Emit task:completed
-      this.emit('task:completed', {result, taskId})
+      this.emit(TransportTaskEventNames.COMPLETED, {result, taskId})
     } catch (error) {
       // Emit task:error
       const errorData = serializeTaskError(error)
-      this.emit('task:error', {error: errorData, taskId})
+      this.emit(TransportTaskEventNames.ERROR, {error: errorData, taskId})
     } finally {
       cleanupForwarders()
     }
@@ -286,7 +297,7 @@ class InlineTransportClient implements ITransportClient {
    * with {taskId} right away, while execution runs in the background emitting events.
    * The use case registers on() handlers after request() returns, before events arrive.
    */
-  private handleTaskCreate(data: Record<string, unknown>): {taskId: string} {
+  private handleTaskCreate(data: Record<string, unknown>): unknown {
     const taskId = data.taskId as string
 
     // Fire execution asynchronously — do not await.
@@ -320,19 +331,19 @@ class InlineTransportClient implements ITransportClient {
       forwarders.push({event: busEvent, handler})
     }
 
-    forward<AgentEventMap['llmservice:toolCall']>('llmservice:toolCall', 'llmservice:toolCall')
+    forward<AgentEventMap['llmservice:toolCall']>('llmservice:toolCall', LlmEventNames.TOOL_CALL)
 
-    forward<AgentEventMap['llmservice:toolResult']>('llmservice:toolResult', 'llmservice:toolResult')
+    forward<AgentEventMap['llmservice:toolResult']>('llmservice:toolResult', LlmEventNames.TOOL_RESULT)
 
-    forward<AgentEventMap['llmservice:response']>('llmservice:response', 'llmservice:response')
+    forward<AgentEventMap['llmservice:response']>('llmservice:response', LlmEventNames.RESPONSE)
 
-    forward<AgentEventMap['llmservice:error']>('llmservice:error', 'llmservice:error')
+    forward<AgentEventMap['llmservice:error']>('llmservice:error', LlmEventNames.ERROR)
 
-    forward<AgentEventMap['llmservice:thinking']>('llmservice:thinking', 'llmservice:thinking')
+    forward<AgentEventMap['llmservice:thinking']>('llmservice:thinking', LlmEventNames.THINKING)
 
-    forward<AgentEventMap['llmservice:chunk']>('llmservice:chunk', 'llmservice:chunk')
+    forward<AgentEventMap['llmservice:chunk']>('llmservice:chunk', LlmEventNames.CHUNK)
 
-    forward<AgentEventMap['llmservice:unsupportedInput']>('llmservice:unsupportedInput', 'llmservice:unsupportedInput')
+    forward<AgentEventMap['llmservice:unsupportedInput']>('llmservice:unsupportedInput', LlmEventNames.UNSUPPORTED_INPUT)
 
     return () => {
       for (const {event, handler} of forwarders) {

@@ -58,7 +58,11 @@ export class SqliteKeyStorage implements IKeyStorage {
 
   constructor(config?: SqliteKeyStorageConfig) {
     this.inMemory = config?.inMemory ?? false
-    this.storageDir = config?.storageDir ?? join(process.cwd(), '.brv', 'blobs')
+    this.storageDir = config?.storageDir ?? ''
+    if (!this.inMemory && !this.storageDir) {
+      throw new Error('SqliteKeyStorage: storageDir is required when inMemory is false')
+    }
+
     this.dbPath = this.inMemory ? ':memory:' : join(this.storageDir, config?.dbPath ?? 'context.db')
   }
 

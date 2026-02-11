@@ -7,7 +7,7 @@
 import {Box, Spacer, Text} from 'ink'
 import React, {useEffect, useState} from 'react'
 
-import type {ActivityLog} from '../types.js'
+import type {ActivityLog} from '../types/index.js'
 
 import {useTheme} from '../hooks/index.js'
 import {formatTime} from '../utils/index.js'
@@ -99,7 +99,6 @@ export const OnboardingItem: React.FC<OnboardingItemProps> = ({isSelected, log, 
             />
           )}
 
-          {/* Expand indicator */}
           {shouldShowExpand && (
             isSelected ? (
               <Text color={colors.dimText}>Show remaining output • [ctrl+o] to expand</Text>

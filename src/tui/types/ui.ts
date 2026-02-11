@@ -4,13 +4,6 @@
 
 export type AuthState = 'authorized' | 'checking' | 'unauthorized'
 
-export type TabId = 'activity' | 'console'
-
-export interface Tab {
-  id: TabId
-  label: string
-}
-
 /**
  * Statistics for task states.
  */

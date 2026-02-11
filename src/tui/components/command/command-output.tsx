@@ -8,7 +8,7 @@ import {Box, Text} from 'ink'
 import Spinner from 'ink-spinner'
 import React from 'react'
 
-import type {StreamingMessage} from '../../types.js'
+import type {StreamingMessage} from '../../types/index.js'
 
 import {useTheme} from '../../hooks/index.js'
 import {getVisualLineCount} from '../../utils/line.js'
@@ -33,9 +33,7 @@ export interface ProcessedMessage extends StreamingMessage {
  * Calculate visual line count for a message
  */
 export function getMessageVisualLineCount(message: StreamingMessage, terminalWidth: number): number {
-  return message.content
-    .split('\n')
-    .reduce((total, line) => total + getVisualLineCount(line, terminalWidth), 0)
+  return message.content.split('\n').reduce((total, line) => total + getVisualLineCount(line, terminalWidth), 0)
 }
 
 /**
@@ -177,7 +175,9 @@ export interface StreamingMessageItemProps {
  * Renders a single streaming message
  */
 export const StreamingMessageItem: React.FC<StreamingMessageItemProps> = ({message}) => {
-  const {theme: {colors}} = useTheme()
+  const {
+    theme: {colors},
+  } = useTheme()
 
   // Handle action messages with spinner
   if (message.type === 'action_start') {
@@ -204,11 +204,7 @@ export const StreamingMessageItem: React.FC<StreamingMessageItemProps> = ({messa
   if (message.type === 'error') color = colors.errorText
   if (message.type === 'warning') color = colors.warning
 
-  return (
-    <Text color={color}>
-      {message.content}
-    </Text>
-  )
+  return <Text color={color}>{message.content}</Text>
 }
 
 export interface CommandOutputProps {
@@ -221,7 +217,9 @@ export interface CommandOutputProps {
  * Renders command output (completed)
  */
 export const CommandOutput: React.FC<CommandOutputProps> = ({isExpanded, output, terminalWidth}) => {
-  const {theme: {colors}} = useTheme()
+  const {
+    theme: {colors},
+  } = useTheme()
   const processedOutput = processMessagesForActions(output)
   const outputLimit = isExpanded ? Number.MAX_SAFE_INTEGER : MAX_OUTPUT_LINES
   const {displayMessages, skippedLines} = getMessagesFromEnd(processedOutput, outputLimit, terminalWidth)
@@ -234,11 +232,7 @@ export const CommandOutput: React.FC<CommandOutputProps> = ({isExpanded, output,
       paddingX={1}
       width="100%"
     >
-      {skippedLines > 0 && (
-        <Text color={colors.dimText}>
-          ↑ {skippedLines} more lines above
-        </Text>
-      )}
+      {skippedLines > 0 && <Text color={colors.dimText}>↑ {skippedLines} more lines above</Text>}
       {displayMessages.map((streamMsg) => (
         <StreamingMessageItem key={streamMsg.id} message={streamMsg} />
       ))}

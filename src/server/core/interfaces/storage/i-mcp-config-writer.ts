@@ -1,4 +1,8 @@
-import type {McpServerConfig} from '../../../infra/connectors/mcp/mcp-connector-config.js'
+/**
+ * MCP server configuration that gets injected into agent config files.
+ * Uses Record to allow agent-specific fields (e.g., env, cwd, disabled).
+ */
+export type McpServerConfig = Record<string, unknown>
 
 /**
  * Result of checking if MCP config exists.

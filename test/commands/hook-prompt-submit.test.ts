@@ -141,6 +141,7 @@ describe('commands/hook-prompt-submit', () => {
   describe('error handling', () => {
     it('should silently fail when template loading throws in production', async () => {
       templateLoader.loadSection.rejects(new Error('Template not found'))
+      sinon.stub(console, 'error') // suppress dev-mode error logging
 
       const command = createTestCommand()
 

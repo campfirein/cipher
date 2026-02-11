@@ -68,7 +68,7 @@ describe('PullUseCase', () => {
       saveSnapshot: sinon.stub(),
     }
     contextTreeWriterService = {sync: sinon.stub()}
-    configStore = {exists: sinon.stub(), read: sinon.stub(), write: sinon.stub()}
+    configStore = {exists: sinon.stub(), getModifiedTime: sinon.stub(), read: sinon.stub(), write: sinon.stub()}
     tokenStore = {clear: sinon.stub(), load: sinon.stub(), save: sinon.stub()}
     trackingService = {
       track: sinon.stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),

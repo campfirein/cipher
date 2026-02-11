@@ -1,6 +1,5 @@
 import type {IFileService} from '../../../core/interfaces/services/i-file-service.js'
-import type {IMcpConfigWriter, McpConfigExistsResult} from '../../../core/interfaces/storage/i-mcp-config-writer.js'
-import type {McpServerConfig} from './mcp-connector-config.js'
+import type {IMcpConfigWriter, McpConfigExistsResult, McpServerConfig} from '../../../core/interfaces/storage/i-mcp-config-writer.js'
 
 /**
  * Boundary markers for managed ByteRover MCP sections in TOML files.

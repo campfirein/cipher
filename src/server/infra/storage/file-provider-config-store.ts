@@ -35,7 +35,7 @@ const defaultDeps: FileProviderConfigStoreDeps = {
 
 /**
  * File-based implementation of IProviderConfigStore.
- * Stores configuration in ~/.config/brv/providers.json (or platform equivalent).
+ * Stores configuration in <global-config-dir>/providers.json (platform-specific path).
  */
 export class FileProviderConfigStore implements IProviderConfigStore {
   private cachedConfig: ProviderConfig | undefined

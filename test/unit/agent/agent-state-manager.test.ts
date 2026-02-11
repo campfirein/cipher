@@ -12,7 +12,6 @@ import {AgentEventBus} from '../../../src/agent/infra/events/event-emitter.js'
  */
 function createTestConfig(overrides?: Partial<ValidatedAgentConfig>): ValidatedAgentConfig {
   return {
-    accessToken: 'test-token',
     apiBaseUrl: 'https://api.test.com',
     llm: {
       maxIterations: 50,

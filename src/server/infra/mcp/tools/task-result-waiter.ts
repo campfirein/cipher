@@ -1,5 +1,7 @@
 import type {ITransportClient} from '@campfirein/brv-transport-client'
 
+import {LlmEventNames, TransportTaskEventNames} from '../../../core/domain/transport/schemas.js'
+
 export interface TaskCompletedPayload {
   result: string
   taskId: string
@@ -67,13 +69,13 @@ export async function waitForTaskResult(
         }
       }),
       // Listen for LLM response content
-      client.on<LlmResponsePayload>('llmservice:response', (payload) => {
+      client.on<LlmResponsePayload>(LlmEventNames.RESPONSE, (payload) => {
         if (payload.taskId === taskId && payload.content) {
           result = payload.content
         }
       }),
       // Listen for task completion
-      client.on<TaskCompletedPayload>('task:completed', (payload) => {
+      client.on<TaskCompletedPayload>(TransportTaskEventNames.COMPLETED, (payload) => {
         if (payload.taskId === taskId && !completed) {
           completed = true
           cleanup()
@@ -82,7 +84,7 @@ export async function waitForTaskResult(
         }
       }),
       // Listen for task error
-      client.on<TaskErrorPayload>('task:error', (payload) => {
+      client.on<TaskErrorPayload>(TransportTaskEventNames.ERROR, (payload) => {
         if (payload.taskId === taskId && !completed) {
           completed = true
           cleanup()
@@ -90,7 +92,7 @@ export async function waitForTaskResult(
         }
       }),
       // Listen for task cancellation
-      client.on<{taskId: string}>('task:cancelled', (payload) => {
+      client.on<{taskId: string}>(TransportTaskEventNames.CANCELLED, (payload) => {
         if (payload.taskId === taskId && !completed) {
           completed = true
           cleanup()
