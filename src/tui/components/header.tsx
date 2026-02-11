@@ -10,7 +10,7 @@
 import {Box} from 'ink'
 import React from 'react'
 
-import {useServices} from '../contexts/index.js'
+import {useTransportStore} from '../stores/transport-store.js'
 import {Logo} from './logo.js'
 
 interface HeaderProps {
@@ -18,7 +18,7 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({compact}) => {
-  const {version} = useServices()
+  const version = useTransportStore((s) => s.version)
 
   return (
     <Box flexDirection="column" marginBottom={1} width="100%">

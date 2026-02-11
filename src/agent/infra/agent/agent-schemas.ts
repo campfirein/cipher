@@ -67,7 +67,6 @@ export type ValidatedBlobStorageConfig = z.output<typeof BlobStorageConfigSchema
  */
 export const AgentConfigSchema = z
   .object({
-    accessToken: z.string().min(1).describe('ByteRover access token'),
     apiBaseUrl: z.string().url().describe('ByteRover API base URL'),
     blobStorage: BlobStorageConfigSchema.optional().describe('Blob storage configuration'),
     fileSystem: FileSystemConfigSchema.optional().describe('File system configuration'),
@@ -83,10 +82,11 @@ export const AgentConfigSchema = z
     providerLocation: z.string().optional().describe('GCP location for Vertex AI (default: us-central1)'),
     providerProject: z.string().optional().describe('GCP project ID for Vertex AI'),
     region: z.string().optional().describe('API region'),
-    sessionKey: z.string().min(1).describe('ByteRover session key'),
+    sessionKey: z.string().default('').describe('ByteRover session key'),
     sessions: SessionConfigSchema.default({}).describe('Session management configuration'),
     siteName: z.string().optional().describe('Site name for OpenRouter rankings'),
     spaceId: z.string().optional().describe('ByteRover space ID'),
+    storagePath: z.string().optional().describe('XDG storage directory for blob, key, and session storage'),
     teamId: z.string().optional().describe('ByteRover team ID'),
     useGranularStorage: z.boolean().default(false).describe('Enable granular history storage'),
   })

@@ -12,7 +12,6 @@ describe('CipherAgent', () => {
 
   beforeEach(() => {
     agentConfig = {
-      accessToken: 'test-access-token',
       apiBaseUrl: 'http://localhost:3333',
       blobStorage: {
         maxBlobSize: 100 * 1024 * 1024,

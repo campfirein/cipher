@@ -27,8 +27,8 @@ describe('global-data-path', () => {
     })
 
     if (currentPlatform === 'darwin') {
-      it('should return ~/.local/share/brv on macOS', () => {
-        const expected = join(homedir(), '.local', 'share', 'brv')
+      it('should return ~/Library/Application Support/brv on macOS', () => {
+        const expected = join(homedir(), 'Library', 'Application Support', 'brv')
         const result = getGlobalDataDir()
 
         expect(result).to.equal(expected)

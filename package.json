@@ -24,7 +24,7 @@
     "@ai-sdk/xai": "^2.0.57",
     "@anthropic-ai/sdk": "^0.70.1",
     "@anthropic-ai/vertex-sdk": "^0.14.0",
-    "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#0.0.8",
+    "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#feat/daemon-spawn",
     "@google/genai": "^1.29.0",
     "@inkjs/ui": "^2.0.0",
     "@inquirer/prompts": "^7.9.0",
@@ -33,6 +33,7 @@
     "@oclif/plugin-help": "^6",
     "@openrouter/ai-sdk-provider": "^1.5.4",
     "@socket.io/admin-ui": "^0.5.1",
+    "@tanstack/react-query": "^5.90.20",
     "ai": "^5.0.129",
     "axios": "^1.12.2",
     "better-sqlite3": "^11.5.0",
@@ -59,6 +60,7 @@
     "open": "^10.2.0",
     "openai": "^6.9.1",
     "react": "^19.2.1",
+    "react-router-dom": "^7.13.0",
     "remark-parse": "^11.0.0",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
@@ -67,7 +69,8 @@
     "unpdf": "^1.4.0",
     "update-notifier": "^7.3.1",
     "zod": "^3.25.76",
-    "zod-to-json-schema": "^3.24.6"
+    "zod-to-json-schema": "^3.24.6",
+    "zustand": "^5.0.11"
   },
   "bundledDependencies": [
     "@campfirein/brv-transport-client"

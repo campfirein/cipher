@@ -1,3 +1,7 @@
+export type {ContextTreeChanges} from '../../../../shared/types/context-tree-changes.js'
+
+import type {ContextTreeChanges} from '../../../../shared/types/context-tree-changes.js'
+
 /**
  * Represents a file's state in the context tree snapshot.
  */
@@ -6,18 +10,6 @@ export interface FileState {
   hash: string
   /** File size in bytes */
   size: number
-}
-
-/**
- * Represents changes detected between current state and snapshot.
- */
-export interface ContextTreeChanges {
-  /** Files that exist now but not in snapshot */
-  added: string[]
-  /** Files that exist in snapshot but not now */
-  deleted: string[]
-  /** Files with different hash than snapshot */
-  modified: string[]
 }
 
 /**

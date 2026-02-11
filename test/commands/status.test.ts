@@ -72,11 +72,13 @@ describe('Status Command', () => {
 
     configStore = {
       exists: stub(),
+      getModifiedTime: stub(),
       read: stub(),
       write: stub(),
     }
 
     contextTreeService = {
+      delete: stub(),
       exists: stub(),
       initialize: stub(),
     }

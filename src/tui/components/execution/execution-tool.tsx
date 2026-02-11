@@ -8,7 +8,8 @@
 import {Box, Text} from 'ink'
 import React, {useEffect, useState} from 'react'
 
-import { ToolCallStatus } from '../../../agent/core/domain/queue/types.js'
+import type {ToolCallStatus} from '../../types/messages.js'
+
 import {useTheme} from '../../hooks/index.js'
 
 /**

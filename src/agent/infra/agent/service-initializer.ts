@@ -11,13 +11,13 @@
  * - Event bus passed in as parameter (created in agent constructor)
  */
 
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import {dirname, join} from 'node:path'
+import {fileURLToPath} from 'node:url'
 
-import type { CipherAgentServices, SessionServices } from '../../core/interfaces/cipher-services.js'
-import type { IContentGenerator } from '../../core/interfaces/i-content-generator.js'
-import type { IHistoryStorage } from '../../core/interfaces/i-history-storage.js'
-import type { ValidatedAgentConfig } from './agent-schemas.js'
+import type {CipherAgentServices, SessionServices} from '../../core/interfaces/cipher-services.js'
+import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
+import type {IHistoryStorage} from '../../core/interfaces/i-history-storage.js'
+import type {ValidatedAgentConfig} from './agent-schemas.js'
 
 import { createBlobStorage } from '../blob/blob-storage-factory.js'
 import { EnvironmentContextBuilder } from '../environment/environment-context-builder.js'
@@ -52,15 +52,18 @@ import { ToolProvider } from '../tools/tool-provider.js'
 
 /**
  * HTTP configuration for ByteRover LLM service.
+ *
+ * projectId, sessionKey, spaceId, teamId accept either a static string or a provider function.
+ * Provider functions are resolved lazily on each HTTP request,
+ * so long-lived agents always get the latest values from the StateServer.
  */
 export interface ByteRoverHttpConfig {
-  accessToken: string
   apiBaseUrl: string
-  projectId: string
+  projectId: (() => string) | string
   region?: string
-  sessionKey: string
-  spaceId: string
-  teamId: string
+  sessionKey: (() => string) | string
+  spaceId: (() => string) | string
+  teamId: (() => string) | string
   timeout?: number
 }
 
@@ -91,7 +94,7 @@ export interface SessionLLMConfig {
 }
 
 // Re-export service types for convenience
-export type { CipherAgentServices, SessionManagerConfig, SessionServices } from '../../core/interfaces/cipher-services.js'
+export type {CipherAgentServices, SessionManagerConfig, SessionServices} from '../../core/interfaces/cipher-services.js'
 
 /**
  * Creates shared services for CipherAgent.
@@ -140,12 +143,15 @@ export async function createCipherAgentServices(
   })
   await processService.initialize()
 
+  // Storage base path: XDG storagePath (daemon mode) or .brv/ fallback (REPL mode)
+  const storageBasePath = config.storagePath ?? join(workingDirectory, '.brv')
+
   // 4. Blob storage (no dependencies)
   const blobStorage = createBlobStorage(
     config.blobStorage ?? {
       maxBlobSize: 100 * 1024 * 1024, // 100MB
       maxTotalSize: 1024 * 1024 * 1024, // 1GB
-      storageDir: join(workingDirectory, '.brv', 'blobs'),
+      storageDir: storageBasePath,
     },
   )
   await blobStorage.initialize()
@@ -178,10 +184,10 @@ export async function createCipherAgentServices(
   })
   // Register default contributors
   systemPromptManager.registerContributors([
-    { enabled: true, filepath: 'system-prompt.yml', id: 'base', priority: 0, type: 'file' },
-    { enabled: true, id: 'env', priority: 10, type: 'environment' },
-    { enabled: true, id: 'memories', priority: 20, type: 'memory' },
-    { enabled: true, id: 'datetime', priority: 30, type: 'dateTime' },
+    {enabled: true, filepath: 'system-prompt.yml', id: 'base', priority: 0, type: 'file'},
+    {enabled: true, id: 'env', priority: 10, type: 'environment'},
+    {enabled: true, id: 'memories', priority: 20, type: 'memory'},
+    {enabled: true, id: 'datetime', priority: 30, type: 'dateTime'},
   ])
 
   // Register context tree structure contributor for query/curate commands
@@ -211,7 +217,7 @@ export async function createCipherAgentServices(
   await toolProvider.initialize()
 
   // 8. Policy engine with default rules for autonomous execution
-  const policyEngine = new PolicyEngine({ defaultDecision: 'ALLOW' })
+  const policyEngine = new PolicyEngine({defaultDecision: 'ALLOW'})
   policyEngine.addRules(DEFAULT_POLICY_RULES)
 
   // 9. Tool scheduler (orchestrates policy check → execution)
@@ -231,7 +237,7 @@ export async function createCipherAgentServices(
   if (config.useGranularStorage) {
     // Create granular storage infrastructure
     const keyStorage = new SqliteKeyStorage({
-      storageDir: join(workingDirectory, '.brv', 'blobs'),
+      storageDir: storageBasePath,
     })
     await keyStorage.initialize()
 

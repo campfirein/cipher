@@ -8,9 +8,9 @@
 import {Box, Text} from 'ink'
 import React from 'react'
 
-import type {CommandArg, CommandFlag, CommandSubcommandInfo, CommandSuggestion} from '../types.js'
+import type {CommandArg, CommandFlag, CommandSubcommandInfo, CommandSuggestion} from '../types/index.js'
 
-import {useTheme} from '../contexts/theme-context.js'
+import {useTheme} from '../hooks/index.js'
 
 interface CommandDetailsProps {
   labelWidth: number

@@ -8,7 +8,7 @@ import {Box, Spacer, Text} from 'ink'
 import React, {memo} from 'react'
 
 import type {MessageItemHeights} from '../../hooks/index.js'
-import type {ActivityLog} from '../../types.js'
+import type {ActivityLog} from '../../types/index.js'
 
 import {useTheme} from '../../hooks/index.js'
 import {formatTime} from '../../utils/index.js'
@@ -63,10 +63,7 @@ export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpanded, isSel
 
           {/* Progress */}
           {(log.toolCalls || log.reasoningContents) && log.status === 'running' && (
-            <ExecutionProgress
-              reasoningContents={log.reasoningContents}
-              toolCalls={log.toolCalls}
-            />
+            <ExecutionProgress reasoningContents={log.reasoningContents} toolCalls={log.toolCalls} />
           )}
 
           {/* Streaming Text Content - Show when available, even during tool execution */}
@@ -101,14 +98,9 @@ export const LogItem: React.FC<LogItemProps> = memo(({heights, isExpanded, isSel
           )}
 
           {/* Expand indicator */}
-          {isSelected ? (
-            <Text color={colors.dimText}>Show remaining output • [ctrl+o] to expand</Text>
-          ) : (
-            <Text> </Text>
-          )}
+          {isSelected ? <Text color={colors.dimText}>Show remaining output • [ctrl+o] to expand</Text> : <Text> </Text>}
         </Box>
       </Box>
     </Box>
   )
 })
-

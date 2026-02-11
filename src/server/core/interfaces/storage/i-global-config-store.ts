@@ -2,7 +2,7 @@ import type {GlobalConfig} from '../../domain/entities/global-config.js'
 
 /**
  * Interface for storing and retrieving global ByteRover CLI configuration.
- * Implementations handle persistence of user-level config (e.g., ~/.config/brv/config.json).
+ * Implementations handle persistence of user-level config (e.g., <global-config-dir>/config.json).
  */
 export interface IGlobalConfigStore {
   /**
