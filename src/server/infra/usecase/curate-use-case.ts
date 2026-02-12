@@ -295,7 +295,20 @@ export class CurateUseCase implements ICurateUseCase {
       return
     }
 
+    // LLM errors — detect auth or API key issues
     const message = error instanceof Error ? error.message : String(error)
+    const lowerMessage = message.toLowerCase()
+
+    if (lowerMessage.includes('401') || lowerMessage.includes('unauthorized') || lowerMessage.includes('authentication token')) {
+      this.terminal.log('LLM authentication required. Run \'brv login\' to authenticate.')
+      return
+    }
+
+    if (lowerMessage.includes('api key') || lowerMessage.includes('invalid key')) {
+      this.terminal.log('LLM provider API key is missing or invalid. Run \'brv\' then \'/provider\' to configure.')
+      return
+    }
+
     this.terminal.log(`Unexpected error: ${message}`)
   }
 
@@ -314,7 +327,14 @@ export class CurateUseCase implements ICurateUseCase {
     } else if (error instanceof ConnectionError) {
       errorMessage = `Connection error: ${error.message}`
     } else if (error instanceof Error) {
-      errorMessage = error.message
+      const lowerMessage = error.message.toLowerCase()
+      if (lowerMessage.includes('401') || lowerMessage.includes('unauthorized') || lowerMessage.includes('authentication token')) {
+        errorMessage = 'LLM authentication required. Run \'brv login\' to authenticate.'
+      } else if (lowerMessage.includes('api key') || lowerMessage.includes('invalid key')) {
+        errorMessage = 'LLM provider API key is missing or invalid. Run \'brv\' then \'/provider\' to configure.'
+      } else {
+        errorMessage = error.message
+      }
     }
 
     this.outputJsonResult({message: errorMessage, status: 'error'})

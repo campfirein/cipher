@@ -129,7 +129,7 @@ describe('PushUseCase', () => {
       expect(errorMessages[0]).to.include('expired')
     })
 
-    it('should error when project not initialized', async () => {
+    it('should error when project config is missing', async () => {
       tokenStore.load.resolves(validToken)
       configStore.read.resolves()
 
@@ -137,7 +137,18 @@ describe('PushUseCase', () => {
 
       await useCase.run({branch: 'main', skipConfirmation: false})
 
-      expect(logMessages.some((msg) => msg.includes('Project not initialized'))).to.be.true
+      expect(logMessages.some((msg) => msg.includes('Not connected to a space'))).to.be.true
+    })
+
+    it('should error when project is local-only (not cloud connected)', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(BrvConfig.createLocal({cwd: '/test/cwd'}))
+
+      const useCase = createUseCase()
+
+      await useCase.run({branch: 'main', skipConfirmation: false})
+
+      expect(logMessages.some((msg) => msg.includes('Not connected to a space'))).to.be.true
     })
   })
 

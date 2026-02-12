@@ -133,14 +133,14 @@ export class PushUseCase implements IPushUseCase {
         branch: options.branch,
         contexts: pushContexts,
         sessionKey: token.sessionKey,
-        spaceId: projectConfig.spaceId,
-        teamId: projectConfig.teamId,
+        spaceId: projectConfig.spaceId!,
+        teamId: projectConfig.teamId!,
       })
 
       // Update snapshot ONLY after successful push
       await this.contextTreeSnapshotService.saveSnapshot()
 
-      const url = this.buildSpaceUrl(projectConfig.teamName, projectConfig.spaceName)
+      const url = this.buildSpaceUrl(projectConfig.teamName!, projectConfig.spaceName!)
 
       if (format === 'json') {
         this.outputJsonResult({
@@ -165,9 +165,9 @@ export class PushUseCase implements IPushUseCase {
       this.terminal.actionStop()
       if (error instanceof WorkspaceNotInitializedError) {
         if (format === 'json') {
-          this.outputJsonResult({error: 'Project not initialized. Run init first.', status: 'error'})
+          this.outputJsonResult({error: 'Not connected to a space. Run login and select a team and space first.', status: 'error'})
         } else {
-          this.terminal.log('Project not initialized. Please run "/init" to select your team and workspace.')
+          this.terminal.log('Not connected to a space. Run "/login" and select a team and space first.')
         }
 
         return
@@ -189,9 +189,9 @@ export class PushUseCase implements IPushUseCase {
 
   private async checkProjectInit(): Promise<BrvConfig> {
     const projectConfig = await this.projectConfigStore.read()
-    if (projectConfig === undefined) {
+    if (projectConfig === undefined || !projectConfig.isCloudConnected()) {
       throw new WorkspaceNotInitializedError(
-        'Project not initialized. Please run "/init" to select your team and workspace.',
+        'Not connected to a space. Run "/login" and select a team and space first.',
         '.brv',
       )
     }

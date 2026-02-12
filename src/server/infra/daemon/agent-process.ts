@@ -29,7 +29,7 @@ import {CipherAgent} from '../../../agent/infra/agent/index.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
-import {NotAuthenticatedError, serializeTaskError} from '../../core/domain/errors/task-error.js'
+import {serializeTaskError} from '../../core/domain/errors/task-error.js'
 import {TransportStateEventNames, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
@@ -67,7 +67,6 @@ function agentLog(message: string): void {
  * Lazy providers on CipherAgent resolve from this cache per HTTP request.
  */
 let cachedSessionKey = ''
-let cachedAuthValid = false
 let cachedBrvConfig: BrvConfig | undefined
 let cachedTeamId = ''
 let cachedSpaceId = ''
@@ -120,7 +119,6 @@ async function start(): Promise<void> {
   cachedTeamId = configResult.teamId ?? ''
   cachedSpaceId = configResult.spaceId ?? ''
   cachedSessionKey = authResult.sessionKey ?? ''
-  cachedAuthValid = authResult.isValid ?? false
 
   agentLog('Initial config loaded from state server')
 
@@ -137,11 +135,6 @@ async function start(): Promise<void> {
 
   transport.on<{isValid?: boolean; sessionKey?: string}>(AuthEvents.UPDATED, (data) => {
     if (data.sessionKey !== undefined) cachedSessionKey = data.sessionKey
-    if (data.isValid !== undefined) cachedAuthValid = data.isValid
-  })
-
-  transport.on(AuthEvents.EXPIRED, () => {
-    cachedAuthValid = false
   })
 
   // 4. Read provider config and API key from global config
@@ -235,17 +228,8 @@ async function executeTask(
   try {
     const authResult = await transport.requestWithAck<{isValid?: boolean; sessionKey?: string}>(TransportStateEventNames.GET_AUTH)
     if (authResult.sessionKey !== undefined) cachedSessionKey = authResult.sessionKey
-    if (authResult.isValid !== undefined) cachedAuthValid = authResult.isValid
   } catch {
     agentLog('Failed to refresh auth before task execution')
-  }
-
-  // Pre-flight auth check — fail fast before file validation or LLM calls.
-  // Without this, curate's file validation error would mask the 401.
-  if (!cachedAuthValid) {
-    const errorData = serializeTaskError(new NotAuthenticatedError())
-    transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, taskId})
-    return
   }
 
   // Setup per-task event forwarding — forwards llmservice:* events to daemon
