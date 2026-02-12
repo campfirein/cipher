@@ -40,7 +40,7 @@ import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
 import {getProviderApiKeyFromEnv} from '../provider/env-provider-detector.js'
 import {createProviderConfigStore} from '../storage/file-provider-config-store.js'
-import {ProviderKeychainStore} from '../storage/provider-keychain-store.js'
+import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 
 // ============================================================================
@@ -104,7 +104,7 @@ async function loadProviderConfiguration(activeProvider: string, providerConfig:
   }
 
   // Get API key: keychain first, then environment variable
-  const providerKeychainStore = new ProviderKeychainStore()
+  const providerKeychainStore = createProviderKeychainStore()
   let apiKey = await providerKeychainStore.getApiKey(activeProvider)
   if (!apiKey) {
     apiKey = getProviderApiKeyFromEnv(activeProvider)
