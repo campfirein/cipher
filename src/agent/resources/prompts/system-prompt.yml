@@ -72,9 +72,11 @@ prompt: |
   </PATH_TITLE_CLARIFICATION>
 
   <SANDBOX_PROGRAMMING>
-  **code_exec runs in a sandboxed JavaScript environment with these rules:**
+  **code_exec runs in a sandboxed JavaScript environment. The `code` parameter MUST always be valid JavaScript code, never raw JSON objects.**
 
   **DO NOT use:**
+  - Raw JSON as code (e.g., `{"type": "UPSERT", ...}` — this is NOT valid JavaScript)
+  - Top-level `await` (causes SyntaxError — wrap in async IIFE instead)
   - `import` or `require` statements (blocked for security)
   - `fetch`, `XMLHttpRequest`, or network calls
   - `process`, `__dirname`, `__filename`
@@ -82,35 +84,55 @@ prompt: |
 
   **DO use:**
   - `tools.*` methods for file and curate operations (pre-injected)
-  - Direct function definitions and expressions
-  - `async/await` for handling promises
+  - Async IIFE wrapper: `(async () => { ... })()`  for ALL async/tools.* calls
+  - `console.log()` to output results
   - Pre-injected packages: `lodash`, `dateFns`, `zod`, `yaml`, `uuid`, etc.
 
   **Code Documentation (REQUIRED):**
-  - ALWAYS start code with a brief, specific comment describing the operation
-  - This comment is displayed to users as a summary - be specific!
-  - Include actual file names, topic names, or search terms
-  - Keep comments concise (under 60 characters)
+  - ALWAYS start code with a `//` comment describing the operation (under 60 chars)
   - BAD: `// Read the file` or `// Curate content`
   - GOOD: `// Read src/auth.ts` or `// Curate JWT auth to design/auth`
 
-  **Correct pattern:**
+  **Correct pattern — read a file:**
   ```javascript
   // Read src/auth/config.ts for auth patterns
-  const file = await tools.readFile('src/auth/config.ts');
-
-  // Curate JWT auth to design/authentication
-  const result = await tools.curate([...]);
-
-  // Pre-injected packages are also available directly
-  const grouped = lodash.groupBy(items, 'category');
-  const id = uuid.v4();
+  (async () => {
+    const file = await tools.readFile('src/auth/config.ts');
+    console.log(file);
+  })()
   ```
 
-  **Wrong pattern (will fail):**
+  **Correct pattern — curate to context tree:**
   ```javascript
-  import { readFile } from 'tools';  // ERROR: import not allowed
-  const fs = require('fs');          // ERROR: require not allowed
+  // Curate alert engine to design/alert_engine
+  (async () => {
+    const result = await tools.curate([{
+      type: 'UPSERT',
+      path: 'design/alert_engine',
+      title: 'Alert Engine',
+      reason: 'Document alert engine architecture',
+      content: {
+        rawConcept: { task: 'Document Alert Engine', flow: 'Events -> Router -> Routing' },
+        narrative: { structure: 'Consumes events and routes alerts.', features: 'Deduplication, SLAs' }
+      },
+      topicContext: { overview: 'Alert routing and lifecycle', keyConcepts: ['Routing', 'SLAs'] }
+    }]);
+    console.log(result);
+  })()
+  ```
+
+  **Correct pattern — sync (no wrapper needed):**
+  ```javascript
+  // Group items by category
+  const grouped = lodash.groupBy(items, 'category');
+  console.log(grouped);
+  ```
+
+  **Wrong patterns (will fail):**
+  ```javascript
+  {"type": "UPSERT", "path": "design/auth"}  // ERROR: raw JSON is not JavaScript code
+  const file = await tools.readFile('f.ts');  // ERROR: top-level await not allowed
+  import { readFile } from 'tools';           // ERROR: import not allowed
   ```
   </SANDBOX_PROGRAMMING>
 
