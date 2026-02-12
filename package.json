@@ -17,6 +17,7 @@
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
+    "@oclif/plugin-update": "^4.7.19",
     "@socket.io/admin-ui": "^0.5.1",
     "@tanstack/react-query": "^5.90.20",
     "axios": "^1.12.2",
@@ -119,12 +120,21 @@
       "prerun": "./dist/oclif/hooks/prerun/validate-brv-config-version"
     },
     "plugins": [
-      "@oclif/plugin-help"
+      "@oclif/plugin-help",
+      "@oclif/plugin-update"
     ],
     "topicSeparator": " ",
     "topics": {
       "space": {
         "description": "Manage ByteRover spaces"
+      }
+    },
+    "update": {
+      "s3": {
+        "host": "https://storage.googleapis.com/brv-releases"
+      },
+      "node": {
+        "version": "24.13.1"
       }
     }
   },
@@ -138,5 +148,8 @@
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",
     "version": "git add README.md"
   },
-  "types": "dist/index.d.ts"
+  "types": "dist/index.d.ts",
+  "bundleDependencies": [
+    "@campfirein/brv-transport-client"
+  ]
 }
