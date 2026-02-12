@@ -28,7 +28,7 @@ export const mapToPushContexts = (params: MapToPushContextsParams): CogitPushCon
         content: file.content,
         operation: 'add',
         path: file.path,
-        tags: [],
+        tags: file.tags,
         title: file.title,
       }),
   )
@@ -39,7 +39,7 @@ export const mapToPushContexts = (params: MapToPushContextsParams): CogitPushCon
         content: file.content,
         operation: 'edit',
         path: file.path,
-        tags: [],
+        tags: file.tags,
         title: file.title,
       }),
   )

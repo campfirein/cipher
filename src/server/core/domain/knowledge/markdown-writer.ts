@@ -1,4 +1,6 @@
-import { generateRelationsSection, parseRelations } from './relation-parser.js'
+import {dump as yamlDump, load as yamlLoad} from 'js-yaml'
+
+import { normalizeRelationPath, parseRelations } from './relation-parser.js'
 
 export interface RawConcept {
   author?: string
@@ -20,11 +22,96 @@ export interface Narrative {
 }
 
 export interface ContextData {
+  keywords: string[]
   name: string
   narrative?: Narrative
   rawConcept?: RawConcept
   relations?: string[]
   snippets: string[]
+  tags: string[]
+}
+
+interface Frontmatter {
+  keywords: string[]
+  related: string[]
+  tags: string[]
+  title?: string
+}
+
+interface ParsedFrontmatter {
+  body: string
+  frontmatter: Frontmatter
+}
+
+/**
+ * Generate YAML frontmatter block from context data.
+ * Only includes fields that have values.
+ */
+function generateFrontmatter(title: string, relations?: string[], tags: string[] = [], keywords: string[] = []): string {
+  const normalizedRelations = (relations || []).map(rel => normalizeRelationPath(rel))
+
+  const fm: Record<string, string | string[]> = {}
+
+  if (title) {
+    fm.title = title
+  }
+
+  fm.tags = tags
+
+  if (normalizedRelations.length > 0) {
+    fm.related = normalizedRelations
+  }
+
+  fm.keywords = keywords
+
+  // Always generate frontmatter since tags and keywords are required
+  const yamlContent = yamlDump(fm, { flowLevel: 1, lineWidth: -1, sortKeys: false }).trimEnd()
+
+  return `---\n${yamlContent}\n---\n`
+}
+
+/**
+ * Parse YAML frontmatter from markdown content.
+ * Returns null if no frontmatter is found (backward compat with old format).
+ */
+function parseFrontmatter(content: string): null | ParsedFrontmatter {
+  if (!content.startsWith('---\n') && !content.startsWith('---\r\n')) {
+    return null
+  }
+
+  const endIndex = content.indexOf('\n---\n', 4)
+  const endIndexCrlf = content.indexOf('\r\n---\r\n', 5)
+  const actualEnd = endIndex === -1 ? endIndexCrlf : endIndex
+
+  if (actualEnd < 0) {
+    return null
+  }
+
+  const yamlBlock = content.slice(4, actualEnd)
+  const bodyStart = content.indexOf('\n', actualEnd + 1) + 1
+  const body = content.slice(bodyStart)
+
+  try {
+    const parsed = yamlLoad(yamlBlock) as null | Record<string, unknown>
+
+    if (!parsed || typeof parsed !== 'object') {
+      return null
+    }
+
+    const frontmatter: Frontmatter = {
+      keywords: Array.isArray(parsed.keywords) ? parsed.keywords.filter((k): k is string => typeof k === 'string') : [],
+      related: Array.isArray(parsed.related) ? parsed.related.filter((r): r is string => typeof r === 'string') : [],
+      tags: Array.isArray(parsed.tags) ? parsed.tags.filter((t): t is string => typeof t === 'string') : [],
+    }
+
+    if (typeof parsed.title === 'string') {
+      frontmatter.title = parsed.title
+    }
+
+    return { body, frontmatter }
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -282,7 +369,7 @@ function extractSnippetsFromContent(content: string): string[] {
   }
 
   const snippets = snippetContent
-    .split(/\n---\n/)
+    .split(/(?:^|\n)---\n/)
     .map(s => s.trim())
     .filter(s => s && s !== 'No context available.')
 
@@ -402,12 +489,44 @@ function mergeNarratives(source?: Narrative, target?: Narrative): Narrative | un
   return merged
 }
 
+/**
+ * Parse content extracting relations from either frontmatter or legacy @ format.
+ * Returns parsed frontmatter metadata and the body content for further parsing.
+ */
+function parseContentWithFrontmatter(content: string): {
+  body: string
+  keywords: string[]
+  relations: string[]
+  tags: string[]
+  title?: string
+} {
+  const parsed = parseFrontmatter(content)
+
+  if (parsed) {
+    return {
+      body: parsed.body,
+      keywords: parsed.frontmatter.keywords,
+      relations: parsed.frontmatter.related,
+      tags: parsed.frontmatter.tags,
+      title: parsed.frontmatter.title,
+    }
+  }
+
+  // Legacy format: parse @ relations from body
+  return {
+    body: content,
+    keywords: [],
+    relations: parseRelations(content),
+    tags: [],
+  }
+}
+
 export const MarkdownWriter = {
   generateContext(data: ContextData): string {
     const snippets = (data.snippets || []).filter(s => s && s.trim())
     const relations = data.relations || []
 
-    const relationsSection = generateRelationsSection(relations)
+    const frontmatter = generateFrontmatter(data.name, relations, data.tags, data.keywords)
     const rawConceptSection = generateRawConceptSection(data.rawConcept)
     const narrativeSection = generateNarrativeSection(data.narrative)
 
@@ -416,8 +535,8 @@ export const MarkdownWriter = {
     // Build the content parts
     const parts: string[] = []
 
-    // Add sections (relations, rawConcept, narrative)
-    const sectionsContent = `${relationsSection}${rawConceptSection}${narrativeSection}`.trim()
+    // Add sections (rawConcept, narrative) — relations are now in frontmatter
+    const sectionsContent = `${rawConceptSection}${narrativeSection}`.trim()
     if (sectionsContent) {
       parts.push(sectionsContent)
     }
@@ -429,29 +548,34 @@ export const MarkdownWriter = {
     }
 
     // If nothing at all, return empty (should not happen in practice)
-    if (parts.length === 0) {
+    if (parts.length === 0 && !frontmatter) {
       return ''
     }
 
     // Join parts with separator only if we have both sections and snippets
-    return parts.join('\n\n---\n\n') + '\n'
+    const body = parts.length > 0 ? parts.join('\n\n---\n\n') + '\n' : ''
+
+    return `${frontmatter}${body}`
   },
 
   mergeContexts(sourceContent: string, targetContent: string): string {
-    const sourceRelations = parseRelations(sourceContent)
-    const targetRelations = parseRelations(targetContent)
-    const mergedRelations = [...new Set([...sourceRelations, ...targetRelations])]
+    const sourceParsed = parseContentWithFrontmatter(sourceContent)
+    const targetParsed = parseContentWithFrontmatter(targetContent)
+    const mergedRelations = [...new Set([...sourceParsed.relations, ...targetParsed.relations])]
 
-    const sourceRawConcept = parseRawConceptSection(sourceContent)
-    const targetRawConcept = parseRawConceptSection(targetContent)
+    const mergedTags = [...new Set([...sourceParsed.tags, ...targetParsed.tags])]
+    const mergedKeywords = [...new Set([...sourceParsed.keywords, ...targetParsed.keywords])]
+
+    const sourceRawConcept = parseRawConceptSection(sourceParsed.body)
+    const targetRawConcept = parseRawConceptSection(targetParsed.body)
     const mergedRawConcept = mergeRawConcepts(sourceRawConcept, targetRawConcept)
 
-    const sourceNarrative = parseNarrativeSection(sourceContent)
-    const targetNarrative = parseNarrativeSection(targetContent)
+    const sourceNarrative = parseNarrativeSection(sourceParsed.body)
+    const targetNarrative = parseNarrativeSection(targetParsed.body)
     const mergedNarrative = mergeNarratives(sourceNarrative, targetNarrative)
 
-    const sourceSnippets = extractSnippetsFromContent(sourceContent)
-    const targetSnippets = extractSnippetsFromContent(targetContent)
+    const sourceSnippets = extractSnippetsFromContent(sourceParsed.body)
+    const targetSnippets = extractSnippetsFromContent(targetParsed.body)
 
     const seenSnippets = new Set<string>()
     const mergedSnippets: string[] = []
@@ -464,21 +588,27 @@ export const MarkdownWriter = {
     }
 
     return MarkdownWriter.generateContext({
-      name: '',
+      keywords: mergedKeywords,
+      name: sourceParsed.title || targetParsed.title || '',
       narrative: mergedNarrative,
       rawConcept: mergedRawConcept,
       relations: mergedRelations,
       snippets: mergedSnippets,
+      tags: mergedTags,
     })
   },
 
   parseContent(content: string, name: string = ''): ContextData {
+    const { body, keywords, relations, tags, title } = parseContentWithFrontmatter(content)
+
     return {
-      name,
-      narrative: parseNarrativeSection(content),
-      rawConcept: parseRawConceptSection(content),
-      relations: parseRelations(content),
-      snippets: extractSnippetsFromContent(content),
+      keywords,
+      name: title || name,
+      narrative: parseNarrativeSection(body),
+      rawConcept: parseRawConceptSection(body),
+      relations,
+      snippets: extractSnippetsFromContent(body),
+      tags,
     }
   },
 }

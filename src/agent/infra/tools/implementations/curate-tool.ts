@@ -66,6 +66,7 @@ const NarrativeSchema = z.object({
  * Content structure for ADD and UPDATE operations.
  */
 const ContentSchema = z.object({
+  keywords: z.array(z.string()).describe('Keywords for search and discovery (e.g., ["jwt", "refresh_token", "rotation"])'),
   narrative: NarrativeSchema.optional().describe('Narrative section with descriptive and structural context'),
   rawConcept: RawConceptSchema.optional().describe('Raw concept section with metadata and technical footprint'),
   relations: z
@@ -73,6 +74,7 @@ const ContentSchema = z.object({
     .optional()
     .describe('Related topics using domain/topic/title.md or domain/topic/subtopic/title.md notation'),
   snippets: z.array(z.string()).optional().describe('Code/text snippets'),
+  tags: z.array(z.string()).describe('Tags for categorization and filtering (e.g., ["authentication", "security", "jwt"])'),
 })
 
 /**
@@ -538,11 +540,13 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
     const filteredContent = filterValidFiles(content)
 
     const contextContent = MarkdownWriter.generateContext({
+      keywords: filteredContent.keywords,
       name: title,
       narrative: filteredContent.narrative,
       rawConcept: filteredContent.rawConcept,
       relations: filteredContent.relations,
       snippets: filteredContent.snippets ?? [],
+      tags: filteredContent.tags,
     })
     const filename = `${toSnakeCase(title)}.md`
     const contextPath = join(finalPath, filename)
@@ -622,11 +626,13 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
     const filteredContent = filterValidFiles(content)
 
     const contextContent = MarkdownWriter.generateContext({
+      keywords: filteredContent.keywords,
       name: title,
       narrative: filteredContent.narrative,
       rawConcept: filteredContent.rawConcept,
       relations: filteredContent.relations,
       snippets: filteredContent.snippets ?? [],
+      tags: filteredContent.tags,
     })
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
 
