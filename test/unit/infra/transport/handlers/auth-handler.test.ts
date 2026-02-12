@@ -140,6 +140,7 @@ describe('AuthHandler — setupExternalAuthSync', () => {
         waitForCallback: stub().resolves({code: 'test'}),
       } as unknown as ICallbackHandler,
       projectConfigStore,
+      resolveProjectPath: stub().returns('/test/project'),
       tokenStore: {
         clear: stub().resolves(),
         load: stub().resolves(),
