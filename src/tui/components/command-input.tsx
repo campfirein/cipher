@@ -127,6 +127,8 @@ export const CommandInput = () => {
 
   const isOnboarding = viewMode.type === 'onboarding'
   const currentStep = viewMode.type === 'onboarding' ? viewMode.step : null
+  const currentStepRef = useRef(currentStep)
+  currentStepRef.current = currentStep
 
   // Check if in prefilled onboarding steps (curate or query)
   const isInInitProvider = isOnboarding && currentStep === 'init-provider'
@@ -282,7 +284,7 @@ export const CommandInput = () => {
             setActiveDialog(null)
             setIsStreaming(false)
             setHasActiveDialog(false)
-            if (isInInitingProvider) {
+            if (currentStepRef.current === 'initing-provider') {
               trackingService?.track('onboarding:init_provider_cancelled')
               setFlowStep('init-provider')
             }
@@ -374,7 +376,6 @@ export const CommandInput = () => {
       if (mode === 'main' && !isStreaming) {
         if (isInInitProvider) {
           setFlowStep('initing-provider')
-          return
         }
 
         await executeCommand(value)

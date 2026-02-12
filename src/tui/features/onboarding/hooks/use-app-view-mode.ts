@@ -32,12 +32,12 @@ export type AppViewMode =
  */
 export function useAppViewMode(): AppViewMode {
   const {isLoadingInitial: isLoadingAuth} = useAuthStore()
-  const {completedInSession, flowStep, initialized} = useOnboardingStore()
+  const {completedInSession, flowStep} = useOnboardingStore()
   const {data, isLoading: isLoadingOnboardingState} = useGetOnboardingState()
   const hasOnboarded = data?.hasOnboarded ?? false
 
   // Still loading auth or onboarding initialization
-  if (isLoadingAuth || !initialized || isLoadingOnboardingState) {
+  if (isLoadingAuth || isLoadingOnboardingState) {
     return {type: 'loading'}
   }
 
