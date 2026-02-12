@@ -260,26 +260,28 @@ export const CommandInput = () => {
             setActiveDialog(null)
             setIsStreaming(false)
             setHasActiveDialog(false)
-            // Update command message with result
-            setMessages((prev) => {
-              const updated = [...prev]
-              const lastIndex = updated.length - 1
-              if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
-                const resultMsg: StreamingMessage = {
-                  content: message,
-                  id: `result-${Date.now()}`,
-                  type: 'output',
+            // Update command message with result (skip for task commands which don't add command messages)
+            if (!isTaskCommand) {
+              setMessages((prev) => {
+                const updated = [...prev]
+                const lastIndex = updated.length - 1
+                if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
+                  const resultMsg: StreamingMessage = {
+                    content: message,
+                    id: `result-${Date.now()}`,
+                    type: 'output',
+                  }
+                  const existingOutput = updated[lastIndex].output ?? []
+                  updated[lastIndex] = {
+                    ...updated[lastIndex],
+                    output: [...existingOutput, resultMsg],
+                    timestamp: new Date(),
+                  }
                 }
-                const existingOutput = updated[lastIndex].output ?? []
-                updated[lastIndex] = {
-                  ...updated[lastIndex],
-                  output: [...existingOutput, resultMsg],
-                  timestamp: new Date(),
-                }
-              }
 
-              return updated
-            })
+                return updated
+              })
+            }
 
             // Process side effects declared by the command
             if (sideEffects) {
