@@ -1,11 +1,11 @@
 export interface CurateUseCaseRunOptions {
   apiKey?: string
   context?: string
+  detach?: boolean
   files?: string[]
   /** Folder references to pack and analyze (triggers folder pack flow) */
   folders?: string[]
   format?: 'json' | 'text'
-  headless?: boolean
   model?: string
   verbose?: boolean
 }
