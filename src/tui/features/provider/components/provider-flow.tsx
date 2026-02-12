@@ -8,13 +8,15 @@
  * handles API key input, and calls connect/setActive mutations.
  */
 
-import {Box, Text} from 'ink'
+import {Box, Text, useInput} from 'ink'
 import React, {useCallback, useState} from 'react'
 
 import type {ProviderDTO} from '../../../../shared/transport/types/dto.js'
 import type {CommandSideEffects} from '../../../types/commands.js'
 
 import {useOnboarding, useTheme} from '../../../hooks/index.js'
+import {LoginFlow} from '../../auth/components/login-flow.js'
+import {useAuthStore} from '../../auth/stores/auth-store.js'
 import {useConnectProvider} from '../api/connect-provider.js'
 import {useGetProviders} from '../api/get-providers.js'
 import {useSetActiveProvider} from '../api/set-active-provider.js'
@@ -22,7 +24,7 @@ import {useValidateApiKey} from '../api/validate-api-key.js'
 import {ApiKeyDialog} from './api-key-dialog.js'
 import {ProviderDialog} from './provider-dialog.js'
 
-type FlowStep = 'api_key' | 'connecting' | 'done' | 'loading' | 'select'
+type FlowStep = 'api_key' | 'connecting' | 'done' | 'loading' | 'login' | 'login_prompt' | 'select'
 
 export interface ProviderFlowProps {
   /** Whether the flow is active for keyboard input */
@@ -44,6 +46,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
   const [step, setStep] = useState<FlowStep>('select')
   const [selectedProvider, setSelectedProvider] = useState<null | ProviderDTO>(null)
   const [error, setError] = useState<null | string>(null)
+  const isAuthorized = useAuthStore((s) => s.isAuthorized)
 
   const {data, isLoading} = useGetProviders()
   const connectMutation = useConnectProvider()
@@ -57,7 +60,30 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
     onComplete(message, sideEffects)
   }, [isInitingProvider, onComplete])
 
+  const handleLoginComplete = useCallback(async () => {
+    if (!useAuthStore.getState().isAuthorized) {
+      setError('Authentication failed. Please try again.')
+      setStep('select')
+      return
+    }
+
+    setStep('connecting')
+    try {
+      await connectMutation.mutateAsync({providerId: 'byterover'})
+      completeFlow('Connected to ByteRover')
+    } catch (error_) {
+      setError(error_ instanceof Error ? error_.message : String(error_))
+      setStep('select')
+    }
+  }, [completeFlow, connectMutation])
+
   const handleSelect = useCallback(async (provider: ProviderDTO) => {
+    if (provider.id === 'byterover' && !isAuthorized) {
+      setSelectedProvider(provider)
+      setStep('login_prompt')
+      return
+    }
+
     setSelectedProvider(provider)
     setError(null)
 
@@ -90,7 +116,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       setError(error_ instanceof Error ? error_.message : String(error_))
       setStep('select')
     }
-  }, [completeFlow, connectMutation, setActiveMutation])
+  }, [connectMutation, isAuthorized, completeFlow, setActiveMutation])
 
   const handleApiKeySuccess = useCallback(async (apiKey: string) => {
     if (!selectedProvider) return
@@ -120,6 +146,12 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       return {error: error_ instanceof Error ? error_.message : String(error_), isValid: false}
     }
   }, [selectedProvider, validateMutation])
+
+  // Handle Enter/Esc on login prompt step
+  useInput((_input, key) => {
+    if (key.return) setStep('login')
+    if (key.escape) setStep('select')
+  }, {isActive: isActive && step === 'login_prompt'})
 
   // Loading state
   if (isLoading) {
@@ -159,6 +191,34 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
           <Text color={colors.primary}>
             Connecting to {selectedProvider?.name}...
           </Text>
+        </Box>
+      )
+    }
+
+    case 'login': {
+      return <LoginFlow onCancel={() => setStep('select')} onComplete={handleLoginComplete} />
+    }
+
+    case 'login_prompt': {
+      return (
+        <Box borderColor={colors.border} borderStyle="single" flexDirection="column" paddingX={1}>
+          <Box marginBottom={1}>
+            <Text bold color={colors.text}>ByteRover provider requires authentication to use.</Text>
+          </Box>
+          <Box flexDirection="column" marginBottom={1}>
+            <Text color={colors.text}>  · $5 free credit on sign-up (one-time)</Text>
+            <Text color={colors.text}>  · Pay-per-token usage (input & output)</Text>
+            <Text color={colors.text}>  · No monthly reset — credit never expires</Text>
+            <Text color={colors.text}>  · Access pauses when balance reaches $0</Text>
+          </Box>
+          <Box gap={2}>
+            <Text color={colors.dimText}>
+              <Text color={colors.text}>Enter</Text> Log in
+            </Text>
+            <Text color={colors.dimText}>
+              <Text color={colors.text}>Esc</Text> Back
+            </Text>
+          </Box>
         </Box>
       )
     }
