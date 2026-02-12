@@ -89,8 +89,8 @@ export class PullHandler {
     const snapshot = await this.cogitPullService.pull({
       branch: data.branch,
       sessionKey: token.sessionKey,
-      spaceId: config.spaceId,
-      teamId: config.teamId,
+      spaceId: config.spaceId!,
+      teamId: config.teamId!,
     })
 
     this.broadcastToProject(projectPath, PullEvents.PROGRESS, {message: 'Syncing files...', step: 'syncing'})

@@ -28,7 +28,7 @@ import {FileSystemService} from '../../../agent/infra/file-system/file-system-se
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
-import {NotAuthenticatedError, serializeTaskError} from '../../core/domain/errors/task-error.js'
+import {serializeTaskError} from '../../core/domain/errors/task-error.js'
 import {LlmEventNames, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
@@ -51,7 +51,6 @@ export class InlineAgent {
   /**
    * Async factory — loads auth/config, creates and starts CipherAgent.
    *
-   * @throws NotAuthenticatedError if no auth token or token is expired
    * @throws Error if no project config (.brv/config.json) exists
    */
   static async create(): Promise<InlineAgent> {
@@ -59,13 +58,11 @@ export class InlineAgent {
     const configStore = new ProjectConfigStore()
 
     const authToken = await tokenStore.load()
-    if (!authToken || authToken.isExpired()) {
-      throw new NotAuthenticatedError()
-    }
+    const sessionKey = authToken && !authToken.isExpired() ? authToken.sessionKey : ''
 
     const brvConfig = await configStore.read()
     if (!brvConfig) {
-      throw new Error('Project not initialized. Run `brv` then `/init` first.')
+      throw new Error('Project not initialized. Run `brv` first.')
     }
 
     const envConfig = getCurrentConfig()
@@ -82,7 +79,7 @@ export class InlineAgent {
       },
       model: DEFAULT_LLM_MODEL,
       projectId: PROJECT,
-      sessionKey: authToken.sessionKey,
+      sessionKey,
       storagePath: getProjectDataDir(process.cwd()),
     }
 

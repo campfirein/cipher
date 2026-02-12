@@ -165,7 +165,7 @@ export class StatusUseCase implements IStatusUseCase {
       statusData.projectInitialized = isInitialized
       if (isInitialized) {
         const config = await this.projectConfigStore.read()
-        if (config) {
+        if (config?.isCloudConnected()) {
           statusData.teamName = config.teamName
           statusData.spaceName = config.spaceName
         }
@@ -259,8 +259,10 @@ export class StatusUseCase implements IStatusUseCase {
 
       if (isInitialized) {
         const config = await this.projectConfigStore.read()
-        if (config) {
+        if (config?.isCloudConnected()) {
           this.terminal.log(`Project Status: Connected to ${config.teamName}/${config.spaceName}`)
+        } else if (config) {
+          this.terminal.log('Project Status: Initialized (local)')
         } else {
           this.terminal.log('Project Status: Configuration file exists but is invalid')
         }

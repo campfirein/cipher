@@ -99,8 +99,8 @@ export class PushHandler {
       branch: data.branch,
       contexts: pushContexts,
       sessionKey: token.sessionKey,
-      spaceId: config.spaceId,
-      teamId: config.teamId,
+      spaceId: config.spaceId!,
+      teamId: config.teamId!,
     })
 
     await this.contextTreeSnapshotService.saveSnapshot(projectPath)
