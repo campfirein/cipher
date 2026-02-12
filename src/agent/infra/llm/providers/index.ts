@@ -14,10 +14,13 @@ import {byteroverProvider} from './byterover.js'
 import {cerebrasProvider} from './cerebras.js'
 import {cohereProvider} from './cohere.js'
 import {deepinfraProvider} from './deepinfra.js'
+import {glmProvider} from './glm.js'
 import {googleVertexProvider} from './google-vertex.js'
 import {googleProvider} from './google.js'
 import {groqProvider} from './groq.js'
+import {minimaxProvider} from './minimax.js'
 import {mistralProvider} from './mistral.js'
+import {moonshotProvider} from './moonshot.js'
 import {openaiCompatibleProvider} from './openai-compatible.js'
 import {openaiProvider} from './openai.js'
 import {openrouterProvider} from './openrouter.js'
@@ -36,10 +39,13 @@ const PROVIDER_MODULES: Readonly<Record<string, ProviderModule>> = {
   cerebras: cerebrasProvider,
   cohere: cohereProvider,
   deepinfra: deepinfraProvider,
+  glm: glmProvider,
   google: googleProvider,
   'google-vertex': googleVertexProvider,
   groq: groqProvider,
+  minimax: minimaxProvider,
   mistral: mistralProvider,
+  moonshot: moonshotProvider,
   openai: openaiProvider,
   'openai-compatible': openaiCompatibleProvider,
   openrouter: openrouterProvider,

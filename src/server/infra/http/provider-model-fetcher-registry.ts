@@ -64,6 +64,16 @@ export async function getModelFetcher(providerId: string): Promise<IProviderMode
       break
     }
 
+    case 'glm': {
+      fetcher = new ChatBasedModelFetcher(
+        'https://api.z.ai/api/paas/v4',
+        'GLM (Z.AI)',
+        ['glm-4.7', 'glm-4.6', 'glm-4.5', 'glm-4.5-flash'],
+      )
+
+      break
+    }
+
     case 'google': {
       fetcher = new GoogleModelFetcher()
 
@@ -72,6 +82,26 @@ export async function getModelFetcher(providerId: string): Promise<IProviderMode
 
     case 'google-vertex': {
       fetcher = new GoogleVertexModelFetcher()
+
+      break
+    }
+
+    case 'minimax': {
+      fetcher = new ChatBasedModelFetcher(
+        'https://api.minimax.io/v1',
+        'MiniMax',
+        ['MiniMax-M2', 'MiniMax-M2-Stable'],
+      )
+
+      break
+    }
+
+    case 'moonshot': {
+      fetcher = new ChatBasedModelFetcher(
+        'https://api.moonshot.ai/v1',
+        'Moonshot AI (Kimi)',
+        ['kimi-k2.5', 'kimi-k2-thinking', 'kimi-k2-turbo-preview', 'kimi-k2-thinking-turbo'],
+      )
 
       break
     }
