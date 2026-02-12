@@ -31,6 +31,10 @@ export class FolderPackExecutor implements IFolderPackExecutor {
   public async executeWithAgent(agent: ICipherAgent, options: FolderPackExecuteOptions): Promise<string> {
     const {clientCwd, content, folderPath, taskId} = options
 
+    if (!folderPath) {
+      throw new Error('folderPath is required for curate-folder tasks')
+    }
+
     // Resolve folder path
     const basePath = clientCwd ?? process.cwd()
     const absoluteFolderPath = path.isAbsolute(folderPath) ? folderPath : path.resolve(basePath, folderPath)

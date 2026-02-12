@@ -1,13 +1,13 @@
-import {existsSync} from 'node:fs'
-import {join} from 'node:path'
-import {z} from 'zod'
+import { existsSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { z } from 'zod'
 
-import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
+import type { Tool, ToolExecutionContext } from '../../../core/domain/tools/types.js'
 
-import {DirectoryManager} from '../../../../server/core/domain/knowledge/directory-manager.js'
-import {MarkdownWriter} from '../../../../server/core/domain/knowledge/markdown-writer.js'
-import {toSnakeCase} from '../../../../server/utils/file-helpers.js'
-import {ToolName} from '../../../core/domain/tools/constants.js'
+import { DirectoryManager } from '../../../../server/core/domain/knowledge/directory-manager.js'
+import { MarkdownWriter } from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import { toSnakeCase } from '../../../../server/utils/file-helpers.js'
+import { ToolName } from '../../../core/domain/tools/constants.js'
 
 /**
  * Operation types for curating knowledge topics.
@@ -21,9 +21,9 @@ type OperationType = z.infer<typeof OperationType>
  */
 const RawConceptSchema = z.object({
   author: z.string().optional().describe('Author or source attribution (e.g., "meowso", "Team Security")'),
-  changes: z.array(z.string()).optional().describe('What changes in the codebase are induced by this concept'),
-  files: z.array(z.string()).optional().describe('Which files are related to this concept'),
-  flow: z.string().optional().describe('What is the flow included in this concept'),
+  changes: z.array(z.string()).optional().describe('What changes are induced by this concept (e.g., code changes, process updates, market shifts)'),
+  files: z.array(z.string()).optional().describe('Related documents, source files, or resources (e.g., source code paths, reports, data files)'),
+  flow: z.string().optional().describe('The process flow or workflow described by this concept'),
   patterns: z.array(z.object({
     description: z.string().describe('What this pattern matches or validates'),
     flags: z.string().optional().describe('Pattern flags (e.g., "gi" for regex)'),
@@ -44,7 +44,7 @@ const NarrativeSchema = z.object({
     .string()
     .optional()
     .describe(
-      'Dependency management information (e.g., "Singleton, init when service starts, hard dependency in smoke test")',
+      'Dependency or relationship information (e.g., prerequisite systems, required inputs, related components)',
     ),
   diagrams: z.array(z.object({
     content: z.string().describe('The full diagram content (Mermaid code, PlantUML code, or ASCII art) - preserved verbatim'),
@@ -59,7 +59,7 @@ const NarrativeSchema = z.object({
       'Feature documentation for this concept (e.g., "User permission can be stale for up to 300 seconds due to Redis cache")',
     ),
   rules: z.string().optional().describe('Exact rules, constraints, or guidelines - preserved verbatim from source'),
-  structure: z.string().optional().describe('Code structure documentation (e.g., "clients/redis_client.go")'),
+  structure: z.string().optional().describe('Structural or organizational documentation (e.g., file layout, data schema, process hierarchy)'),
 })
 
 /**
@@ -285,24 +285,24 @@ async function createDomainContextIfMissing(
   basePath: string,
   domain: string,
   domainContext?: DomainContext,
-): Promise<{created: boolean; path?: string}> {
+): Promise<{ created: boolean; path?: string }> {
   const normalizedDomain = toSnakeCase(domain)
   const contextPath = join(basePath, normalizedDomain, 'context.md')
 
   const exists = await DirectoryManager.fileExists(contextPath)
   if (exists) {
-    return {created: false}
+    return { created: false }
   }
 
   if (!domainContext) {
-    return {created: false}
+    return { created: false }
   }
 
   const content = generateDomainContextMarkdown(normalizedDomain, domainContext)
 
   await DirectoryManager.writeFileAtomic(contextPath, content)
 
-  return {created: true, path: contextPath}
+  return { created: true, path: contextPath }
 }
 
 async function ensureTopicContextMd(
@@ -310,7 +310,7 @@ async function ensureTopicContextMd(
   domain: string,
   topic: string,
   topicContext?: TopicContext,
-): Promise<{created: boolean; path?: string}> {
+): Promise<{ created: boolean; path?: string }> {
   const normalizedDomain = toSnakeCase(domain)
   const normalizedTopic = toSnakeCase(topic)
   const topicPath = join(basePath, normalizedDomain, normalizedTopic)
@@ -319,23 +319,23 @@ async function ensureTopicContextMd(
   // Check if topic folder exists first
   const folderExists = await DirectoryManager.folderExists(topicPath)
   if (!folderExists) {
-    return {created: false}
+    return { created: false }
   }
 
   // Check if context.md already exists
   const exists = await DirectoryManager.fileExists(contextPath)
   if (exists) {
-    return {created: false}
+    return { created: false }
   }
 
   if (!topicContext) {
-    return {created: false}
+    return { created: false }
   }
 
   const content = generateTopicContextMarkdown(normalizedTopic, topicContext)
   await DirectoryManager.writeFileAtomic(contextPath, content)
 
-  return {created: true, path: contextPath}
+  return { created: true, path: contextPath }
 }
 
 interface EnsureSubtopicContextMdOptions {
@@ -352,8 +352,8 @@ interface EnsureSubtopicContextMdOptions {
  */
 async function ensureSubtopicContextMd(
   options: EnsureSubtopicContextMdOptions,
-): Promise<{created: boolean; path?: string}> {
-  const {basePath, domain, subtopic, subtopicContext, topic} = options
+): Promise<{ created: boolean; path?: string }> {
+  const { basePath, domain, subtopic, subtopicContext, topic } = options
   const normalizedDomain = toSnakeCase(domain)
   const normalizedTopic = toSnakeCase(topic)
   const normalizedSubtopic = toSnakeCase(subtopic)
@@ -363,23 +363,23 @@ async function ensureSubtopicContextMd(
   // Check if subtopic folder exists first
   const folderExists = await DirectoryManager.folderExists(subtopicPath)
   if (!folderExists) {
-    return {created: false}
+    return { created: false }
   }
 
   // Check if context.md already exists
   const exists = await DirectoryManager.fileExists(contextPath)
   if (exists) {
-    return {created: false}
+    return { created: false }
   }
 
   if (!subtopicContext) {
-    return {created: false}
+    return { created: false }
   }
 
   const content = generateSubtopicContextMarkdown(normalizedSubtopic, subtopicContext)
   await DirectoryManager.writeFileAtomic(contextPath, content)
 
-  return {created: true, path: contextPath}
+  return { created: true, path: contextPath }
 }
 
 /**
@@ -388,7 +388,7 @@ async function ensureSubtopicContextMd(
  */
 async function ensureContextMd(
   basePath: string,
-  parsed: {domain: string; subtopic?: string; topic: string},
+  parsed: { domain: string; subtopic?: string; topic: string },
   topicContext?: TopicContext,
   subtopicContext?: SubtopicContext,
 ): Promise<void> {
@@ -410,7 +410,7 @@ async function ensureContextMd(
 /**
  * Parse a path into domain, topic, and optional subtopic.
  */
-function parsePath(path: string): null | {domain: string; subtopic?: string; topic: string} {
+function parsePath(path: string): null | { domain: string; subtopic?: string; topic: string } {
   const parts = path.split('/')
   if (parts.length < 2 || parts.length > 3) {
     return null
@@ -428,7 +428,7 @@ function parsePath(path: string): null | {domain: string; subtopic?: string; top
  * Dynamic domains are allowed - no predefined list or limits.
  * The agent is responsible for creating semantically meaningful domains.
  */
-function validateDomain(domainName: string): {allowed: boolean; reason?: string} {
+function validateDomain(domainName: string): { allowed: boolean; reason?: string } {
   const normalizedDomain = toSnakeCase(domainName)
 
   // Validate domain name format (must be non-empty and valid for filesystem)
@@ -448,7 +448,7 @@ function validateDomain(domainName: string): {allowed: boolean; reason?: string}
   }
 
   // All valid domain names are allowed - dynamic domain creation enabled
-  return {allowed: true}
+  return { allowed: true }
 }
 
 /**
@@ -475,7 +475,7 @@ function buildFullPath(basePath: string, knowledgePath: string): string {
  * Execute ADD operation - create new domain/topic/subtopic with {title}.md
  */
 async function executeAdd(basePath: string, operation: Operation): Promise<OperationResult> {
-  const {content, domainContext, path, reason, subtopicContext, title, topicContext} = operation
+  const { content, domainContext, path, reason, subtopicContext, title, topicContext } = operation
 
   if (!title) {
     return {
@@ -559,7 +559,7 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
  * Execute UPDATE operation - modify existing {title}.md
  */
 async function executeUpdate(basePath: string, operation: Operation): Promise<OperationResult> {
-  const {content, domainContext, path, reason, subtopicContext, title, topicContext} = operation
+  const { content, domainContext, path, reason, subtopicContext, title, topicContext } = operation
 
   if (!title) {
     return {
@@ -642,7 +642,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
  * This is the recommended operation type as it eliminates the need for pre-checks.
  */
 async function executeUpsert(basePath: string, operation: Operation): Promise<OperationResult> {
-  const {path, title} = operation
+  const { path, title } = operation
 
   if (!title) {
     return {
@@ -682,7 +682,7 @@ async function executeUpsert(basePath: string, operation: Operation): Promise<Op
 
     if (exists) {
       // File exists - delegate to UPDATE logic
-      const result = await executeUpdate(basePath, {...operation, type: 'UPDATE'})
+      const result = await executeUpdate(basePath, { ...operation, type: 'UPDATE' })
       // Return with UPSERT type but indicate it was an update
       return {
         ...result,
@@ -692,7 +692,7 @@ async function executeUpsert(basePath: string, operation: Operation): Promise<Op
     }
 
     // File doesn't exist - delegate to ADD logic
-    const result = await executeAdd(basePath, {...operation, type: 'ADD'})
+    const result = await executeAdd(basePath, { ...operation, type: 'ADD' })
     // Return with UPSERT type but indicate it was an add
     return {
       ...result,
@@ -713,7 +713,7 @@ async function executeUpsert(basePath: string, operation: Operation): Promise<Op
  * Execute MERGE operation - combine source file into target file, delete source file
  */
 async function executeMerge(basePath: string, operation: Operation): Promise<OperationResult> {
-  const {domainContext, mergeTarget, mergeTargetTitle, path, reason, subtopicContext, title, topicContext} = operation
+  const { domainContext, mergeTarget, mergeTargetTitle, path, reason, subtopicContext, title, topicContext } = operation
 
   if (!title) {
     return {
@@ -821,7 +821,7 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
  * If title is provided, deletes specific file; if omitted, deletes entire folder
  */
 async function executeDelete(basePath: string, operation: Operation): Promise<OperationResult> {
-  const {path, reason, title} = operation
+  const { path, reason, title } = operation
 
   try {
     const fullPath = buildFullPath(basePath, path)
@@ -906,7 +906,7 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
     }
   }
 
-  const {basePath, operations} = parseResult.data
+  const { basePath, operations } = parseResult.data
 
   const applied: OperationResult[] = []
   const summary = {
@@ -988,24 +988,24 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
   }
   /* eslint-enable no-await-in-loop */
 
-  return {applied, summary}
+  return { applied, summary }
 }
 
 
-export function createCurateTool(): Tool {
+export function createCurateTool(workingDirectory?: string): Tool {
   return {
     description: `Curate knowledge topics with atomic operations. This tool manages the knowledge structure using four operation types and supports a two-part context model: Raw Concept + Narrative.
 
 **Content Structure (Two-Part Model):**
-- **rawConcept**: Captures essential metadata and technical footprint
-  - task: What is the task related to this concept
-  - changes: Array of changes induced in the codebase
-  - files: Array of related files
-  - flow: The execution flow of this concept
+- **rawConcept**: Captures essential metadata and context footprint
+  - task: What is being documented
+  - changes: Array of changes or updates (e.g., code changes, process updates, market shifts)
+  - files: Related documents, source files, or resources
+  - flow: The process flow or workflow
   - timestamp: When created/modified (ISO 8601 format)
 - **narrative**: Captures descriptive and structural context
-  - structure: Code structure documentation
-  - dependencies: Dependency management information
+  - structure: Structural or organizational documentation
+  - dependencies: Dependency or relationship information
   - features: Feature documentation
   - diagrams: Array of diagrams with {type: "mermaid"|"plantuml"|"ascii"|"other", content: string, title?: string} - preserve verbatim
 - **snippets**: Code/text snippets (legacy support)
@@ -1078,7 +1078,7 @@ export function createCurateTool(): Tool {
 - Domains are created dynamically based on the context being curated
 - Choose domain names that are semantically meaningful and descriptive
 - Domain names should be concise (1-3 words), use snake_case format
-- Examples of good domain names: authentication, api_design, data_models, error_handling, ui_components
+- Examples of good domain names: architecture, market_trends, risk_analysis, portfolio_management, error_handling
 - Before creating a new domain, check if existing domains could be reused
 - Group related topics under the same domain for better organization
 
@@ -1160,7 +1160,19 @@ export function createCurateTool(): Tool {
 
 **Output:** Returns applied operations with status (success/failed), filePath (for created/modified files), and a summary of counts.`,
 
-    execute: executeCurate,
+    async execute(input: unknown, context?: ToolExecutionContext): Promise<CurateOutput> {
+      if (workingDirectory) {
+        // Resolve relative basePath against working directory before executing
+        const parseResult = CurateInputSchema.safeParse(input)
+        if (parseResult.success) {
+          parseResult.data.basePath = resolve(workingDirectory, parseResult.data.basePath)
+
+          return executeCurate(parseResult.data, context)
+        }
+      }
+
+      return executeCurate(input, context)
+    },
 
     id: ToolName.CURATE,
     inputSchema: CurateInputSchema,

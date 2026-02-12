@@ -57,10 +57,13 @@ Curate knowledge topics with atomic operations. This tool manages the knowledge 
 **Path format:** domain/topic or domain/topic/subtopic (uses snake_case automatically)
 **File naming:** Titles are converted to snake_case (e.g., "Best Practices" -> "best_practices.md")
 
-**Domain constraints:**
-- Predefined domains: code_style, design, structure, compliance, testing, bug_fixes
-- Up to 3 additional custom domains are allowed
-- Always prefer predefined domains when possible
+**Domain creation guidelines:**
+- Domains are created dynamically based on the content being curated
+- Choose domain names that represent broad knowledge categories relevant to the content
+- Domain names should be concise (1-3 words), use snake_case format
+- Consolidate related concepts under the same domain for better organization
+- Before creating a new domain, check if existing domains could accommodate the content
+- Avoid generic names like `misc`, `other`, `general`
 
 **Backward Compatibility:** Existing context entries using only snippets and relations continue to work.
 

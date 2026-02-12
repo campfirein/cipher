@@ -333,6 +333,7 @@ export class TaskRouter {
       content: data.content,
       ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
+      ...(data.folderPath ? {folderPath: data.folderPath} : {}),
       ...(projectPath ? {projectPath} : {}),
       taskId,
       type: data.type,

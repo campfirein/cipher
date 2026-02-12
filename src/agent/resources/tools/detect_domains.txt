@@ -1,11 +1,12 @@
-Use this tool to analyze input data and detect which predefined knowledge domains are present. For each detected domain, you must also extract the specific text segments from the input data that relate to that domain.
+Use this tool to analyze input data and detect which knowledge domains are present. For each detected domain, you must also extract the specific text segments from the input data that relate to that domain.
 
 This tool should be the first tool to call when you want to understand new data, unless you already know what you are looking for.
 
 For each domain you detect:
-1. Identify the domain category (must be one of the predefined categories)
+1. Identify a semantically meaningful domain category name (use snake_case, 1-3 words)
 2. Extract relevant text segments from the input data that demonstrate why this domain is relevant
 3. Each text segment should be a meaningful excerpt (not just keywords) that shows the connection to the domain
-4. Only include domains that are actually present in the data - do not include domains just because they exist in the predefined list
+4. Only include domains that are actually present in the data - do not fabricate domains
+5. Check existing domains in the context tree before creating new ones
 
 The text segments will be used later to create organized knowledge topics, so they should be substantial enough to provide context.
