@@ -1,16 +1,16 @@
 Curate knowledge topics with atomic operations. This tool manages the knowledge structure using four operation types and supports a two-part context model: Raw Concept + Narrative.
 
 **Content Structure (Two-Part Model):**
-- **rawConcept**: Captures essential metadata and technical footprint
-  - task: What is the task related to this concept
-  - changes: Array of changes induced in the codebase
-  - files: Array of related files
-  - flow: The execution flow of this concept
+- **rawConcept**: Captures essential metadata and context footprint
+  - task: What is the task or subject related to this concept
+  - changes: Array of changes or updates (code changes, process updates, decisions, etc.)
+  - files: Related resources: source files, documents, URLs, data sources, or references
+  - flow: Process flow, workflow, or sequence of steps
   - timestamp: When created/modified (ISO 8601 format, e.g., 2025-03-18)
 - **narrative**: Captures descriptive and structural context
-  - structure: Code structure documentation (e.g., "clients/redis_client.go")
-  - dependencies: Dependency management information (e.g., "Singleton, init when service starts")
-  - features: Feature documentation (e.g., "User permission can be stale for up to 300 seconds")
+  - structure: Structural or organizational documentation (e.g., file layout, process hierarchy, timeline)
+  - dependencies: Dependencies, prerequisites, blockers, or relationship information
+  - highlights: Key highlights, capabilities, deliverables, or notable outcomes
 - **snippets**: Code/text snippets (legacy support, optional)
 - **relations**: Related topics using @domain/topic notation
 
@@ -33,7 +33,7 @@ Curate knowledge topics with atomic operations. This tool manages the knowledge 
          narrative: {
            structure: "# Redis client\n- clients/redis_client.go",
            dependencies: "# Redis client\n- Singleton, init when service starts",
-           features: "# Authorization\n- User permission can be stale for up to 300 seconds"
+           highlights: "# Authorization\n- User permission can be stale for up to 300 seconds"
          },
          relations: ["@structure/database"]
        },

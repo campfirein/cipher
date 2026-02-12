@@ -52,11 +52,11 @@ const NarrativeSchema = z.object({
     type: z.enum(['mermaid', 'plantuml', 'ascii', 'other']).describe('Diagram type for proper rendering'),
   })).optional().describe('Diagrams found in source content - Mermaid, PlantUML, ASCII art, sequence diagrams. Preserve verbatim.'),
   examples: z.string().optional().describe('Concrete examples and use cases demonstrating the concept'),
-  features: z
+  highlights: z
     .string()
     .optional()
     .describe(
-      'Feature documentation for this concept (e.g., "User permission can be stale for up to 300 seconds due to Redis cache")',
+      'Key highlights, capabilities, deliverables, or notable outcomes (e.g., "User permission can be stale for up to 300 seconds due to Redis cache")',
     ),
   rules: z.string().optional().describe('Exact rules, constraints, or guidelines - preserved verbatim from source'),
   structure: z.string().optional().describe('Structural or organizational documentation (e.g., file layout, data schema, process hierarchy)'),
@@ -183,7 +183,19 @@ function filterValidFiles(content: Content): Content {
     return content
   }
 
-  const validFiles = content.rawConcept.files.filter((filePath) => existsSync(filePath))
+  const validFiles = content.rawConcept.files.filter((filePath) => {
+    // Skip filesystem validation for URLs and document references
+    if (filePath.includes('://')) {
+      return true
+    }
+
+    // Skip entries that look like document references (no path separators, contain spaces)
+    if (!filePath.includes('/') && !filePath.includes('\\') && filePath.includes(' ')) {
+      return true
+    }
+
+    return existsSync(filePath)
+  })
 
   // Return content with filtered files (empty array if none exist)
   return {
@@ -1006,7 +1018,7 @@ export function createCurateTool(workingDirectory?: string): Tool {
 - **narrative**: Captures descriptive and structural context
   - structure: Structural or organizational documentation
   - dependencies: Dependency or relationship information
-  - features: Feature documentation
+  - highlights: Key highlights, capabilities, deliverables, or notable outcomes
   - diagrams: Array of diagrams with {type: "mermaid"|"plantuml"|"ascii"|"other", content: string, title?: string} - preserve verbatim
 - **snippets**: Code/text snippets (legacy support)
 - **relations**: Related topics using @domain/topic notation
@@ -1031,7 +1043,7 @@ export function createCurateTool(workingDirectory?: string): Tool {
          narrative: {
            structure: "# Redis client\\n- clients/redis_client.go",
            dependencies: "# Redis client\\n- Singleton, init when service starts",
-           features: "# Authorization\\n- User permission can be stale for up to 300 seconds"
+           highlights: "# Authorization\\n- User permission can be stale for up to 300 seconds"
          },
          relations: ["structure/api-endpoints/validation.md", "structure/api-endpoints/error-handling/retry-logic.md"]
        },

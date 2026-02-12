@@ -14,7 +14,7 @@ export interface Narrative {
   dependencies?: string
   diagrams?: Array<{content: string; title?: string; type: string}>
   examples?: string
-  features?: string
+  highlights?: string
   rules?: string
   structure?: string
 }
@@ -95,8 +95,8 @@ function generateNarrativeSection(narrative?: Narrative): string {
     parts.push(`### Dependencies\n${normalizeNewlines(narrative.dependencies)}`)
   }
 
-  if (narrative.features) {
-    parts.push(`### Features\n${normalizeNewlines(narrative.features)}`)
+  if (narrative.highlights) {
+    parts.push(`### Highlights\n${normalizeNewlines(narrative.highlights)}`)
   }
 
   if (narrative.rules) {
@@ -222,9 +222,9 @@ function parseNarrativeSection(content: string): Narrative | undefined {
     narrative.dependencies = dependenciesMatch[1].trim()
   }
 
-  const featuresMatch = sectionContent.match(/###\s*Features\s*\n([\s\S]*?)(?=\n###\s|\n##\s|$)/i)
-  if (featuresMatch) {
-    narrative.features = featuresMatch[1].trim()
+  const highlightsMatch = sectionContent.match(/###\s*(?:Highlights|Features)\s*\n([\s\S]*?)(?=\n###\s|\n##\s|$)/i)
+  if (highlightsMatch) {
+    narrative.highlights = highlightsMatch[1].trim()
   }
 
   const rulesMatch = sectionContent.match(/###\s*Rules\s*\n([\s\S]*?)(?=\n###\s|\n##\s|$)/i)
@@ -370,9 +370,9 @@ function mergeNarratives(source?: Narrative, target?: Narrative): Narrative | un
     merged.dependencies = parts.join('\n\n')
   }
 
-  if (source.features || target.features) {
-    const parts = [target.features, source.features].filter(Boolean)
-    merged.features = parts.join('\n\n')
+  if (source.highlights || target.highlights) {
+    const parts = [target.highlights, source.highlights].filter(Boolean)
+    merged.highlights = parts.join('\n\n')
   }
 
   if (source.rules || target.rules) {

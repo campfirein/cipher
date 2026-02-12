@@ -48,23 +48,23 @@ describe('markdown-writer', () => {
         expect(lines).to.have.lengthOf(3)
       })
 
-      it(String.raw`should convert literal \n to actual newlines in narrative features`, () => {
+      it(String.raw`should convert literal \n to actual newlines in narrative highlights`, () => {
         const result = MarkdownWriter.generateContext({
           name: 'test',
           narrative: {
-            features: String.raw`Feature 1\nFeature 2\nFeature 3`,
+            highlights: String.raw`Highlight 1\nHighlight 2\nHighlight 3`,
           },
           snippets: [],
         })
 
-        expect(result).to.include('### Features')
-        expect(result).to.include('Feature 1')
-        expect(result).to.include('Feature 2')
-        expect(result).to.include('Feature 3')
+        expect(result).to.include('### Highlights')
+        expect(result).to.include('Highlight 1')
+        expect(result).to.include('Highlight 2')
+        expect(result).to.include('Highlight 3')
         // Verify they are on separate lines
         // eslint-disable-next-line prefer-regex-literals
-        const featuresSection = result.match(new RegExp(String.raw`### Features\n([\s\S]*?)(?=\n###|\n##|$)`))?.[1]
-        const lines = featuresSection?.split('\n').filter(line => line.trim())
+        const highlightsSection = result.match(new RegExp(String.raw`### Highlights\n([\s\S]*?)(?=\n###|\n##|$)`))?.[1]
+        const lines = highlightsSection?.split('\n').filter(line => line.trim())
         expect(lines).to.have.lengthOf(3)
       })
 
@@ -185,6 +185,35 @@ describe('markdown-writer', () => {
         const dependenciesSection = result.match(new RegExp(String.raw`### Dependencies\n([\s\S]*?)(?=\n###|\n##|$)`))?.[1]
         const bulletPoints = dependenciesSection?.split('\n').filter(line => line.trim().startsWith('-'))
         expect(bulletPoints).to.have.lengthOf(2)
+      })
+    })
+
+    describe('backward compatibility', () => {
+      it('should parse old ### Features heading into highlights field', () => {
+        const oldMarkdown = `## Narrative\n### Features\nOld feature content here`
+        const parsed = MarkdownWriter.parseContent(oldMarkdown, 'test')
+
+        expect(parsed.narrative?.highlights).to.equal('Old feature content here')
+      })
+
+      it('should parse new ### Highlights heading into highlights field', () => {
+        const newMarkdown = `## Narrative\n### Highlights\nNew highlights content here`
+        const parsed = MarkdownWriter.parseContent(newMarkdown, 'test')
+
+        expect(parsed.narrative?.highlights).to.equal('New highlights content here')
+      })
+
+      it('should generate ### Highlights heading for new content', () => {
+        const result = MarkdownWriter.generateContext({
+          name: 'test',
+          narrative: {
+            highlights: 'Some highlights',
+          },
+          snippets: [],
+        })
+
+        expect(result).to.include('### Highlights')
+        expect(result).not.to.include('### Features')
       })
     })
 

@@ -263,9 +263,9 @@ async function start(): Promise<void> {
   agentLog('CipherAgent started and session created')
 
   // 6. Create FileSystemService + SearchKnowledgeService for smart query routing
-  const fileSystemService = new FileSystemService()
+  const fileSystemService = new FileSystemService({workingDirectory: projectPath})
   await fileSystemService.initialize()
-  const searchService = createSearchKnowledgeService(fileSystemService)
+  const searchService = createSearchKnowledgeService(fileSystemService, {baseDirectory: projectPath})
 
   // 7. Create executors and listen for task:execute from pool
   const curateExecutor = new CurateExecutor()

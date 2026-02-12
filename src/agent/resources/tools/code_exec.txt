@@ -95,7 +95,7 @@ When calling `tools.*` methods, you **MUST** wrap code in an async IIFE:
       },
       narrative: {
         structure: 'The Alert Engine consumes events and routes alerts.',
-        features: 'Deduplication, escalation, SLA tracking',
+        highlights: 'Deduplication, escalation, SLA tracking',
         rules: 'Critical: PagerDuty + Slack. High: Slack + Email.'
       }
     },

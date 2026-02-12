@@ -231,6 +231,7 @@ async function main(): Promise<void> {
       agentIdleTimeoutPolicy,
       agentProcessFactory(projectPath) {
         return fork(agentProcessPath, [], {
+          cwd: projectPath,
           env: {
             ...process.env,
             BRV_AGENT_PORT: String(port),
