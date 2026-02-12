@@ -93,6 +93,7 @@ export async function setupFeatureHandlers({
     browserLauncher: new SystemBrowserLauncher(),
     callbackHandler: new CallbackHandler(),
     projectConfigStore,
+    resolveProjectPath,
     tokenStore,
     trackingService,
     transport,
