@@ -1,4 +1,4 @@
-import {ensureDaemonRunning, findProjectRoot} from '@campfirein/brv-transport-client'
+import {ensureDaemonRunning} from '@campfirein/brv-transport-client'
 import {Command} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
 import {join} from 'node:path'
@@ -71,18 +71,15 @@ export default class Main extends Command {
    * Resolve session ID for the agent.
    *
    * Strategy:
-   * 1. Walk up from CWD to find the project root (.brv/config.json)
-   * 2. Store sessions in XDG data dir, not in the project's .brv/ folder
-   * 3. Check for active session, resume if valid, create new if stale/missing
-   * 4. Run session cleanup on startup
+   * 1. Store sessions in XDG data dir based on CWD
+   * 2. Check for active session, resume if valid, create new if stale/missing
+   * 3. Run session cleanup on startup
    *
    * @returns Session ID to use
    */
   private async resolveSessionId(): Promise<string> {
-    const projectRoot = await findProjectRoot(process.cwd())
-    const effectiveRoot = projectRoot ?? process.cwd()
-    const sessionsDir = join(getProjectDataDir(effectiveRoot), 'sessions')
-    const sessionStore = new SessionMetadataStore({sessionsDir, workingDirectory: effectiveRoot})
+    const sessionsDir = join(getProjectDataDir(process.cwd()), 'sessions')
+    const sessionStore = new SessionMetadataStore({sessionsDir, workingDirectory: process.cwd()})
 
     // Run cleanup on startup (async, don't wait)
     sessionStore.cleanupSessions(DEFAULT_SESSION_RETENTION).catch((error) => {
