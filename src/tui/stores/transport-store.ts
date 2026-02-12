@@ -30,8 +30,6 @@ export interface TransportState {
   error: Error | null
   /** Whether the client is connected */
   isConnected: boolean
-  /** Walked-up project root (where .brv/ lives), resolved at connection time */
-  projectRoot: string | undefined
   /** Number of reconnection attempts */
   reconnectCount: number
   /** Tracking service for analytics */
@@ -46,7 +44,7 @@ export interface TransportActions {
   /** Reset store on disconnect */
   reset: () => void
   /** Set the connected client and create apiClient */
-  setClient: (client: ITransportClient, projectRoot?: string) => void
+  setClient: (client: ITransportClient) => void
   /** Update connection state */
   setConnectionState: (state: ConnectionState) => void
   /** Set connection error */
@@ -63,7 +61,6 @@ const initialState: TransportState = {
   connectionState: 'disconnected',
   error: null,
   isConnected: false,
-  projectRoot: undefined,
   reconnectCount: 0,
   trackingService: null,
   version: '',
@@ -76,14 +73,13 @@ export const useTransportStore = create<TransportActions & TransportState>()((se
 
   reset: () => set(initialState),
 
-  setClient: (client: ITransportClient, projectRoot?: string) =>
+  setClient: (client: ITransportClient) =>
     set({
       apiClient: new BrvApiClient(client),
       client,
       connectionState: client.getState(),
       error: null,
       isConnected: client.getState() === 'connected',
-      projectRoot,
     }),
 
   setConnectionState: (connectionState: ConnectionState) =>

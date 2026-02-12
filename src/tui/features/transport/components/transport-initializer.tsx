@@ -57,14 +57,13 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
         setConnectionState('connecting')
 
         // connectToDaemon = ensureDaemonRunning (no-op, already running) + connect + register + join rooms
-        // projectPath is auto-filled by transport library from discovered project root
-        // (walks up from cwd to find .brv/)
         const connectOptions = {
           clientType: 'tui' as const,
           joinRooms: ['broadcast-room'] as const,
+          projectPath: process.cwd(),
         }
 
-        const {client: newClient, projectRoot} = await connectToDaemon(connectOptions)
+        const {client: newClient} = await connectToDaemon(connectOptions)
 
         if (!mounted) {
           await newClient.disconnect()
@@ -79,7 +78,7 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
         logTransportEvent('_connection', {clientId: newClient.getClientId(), state: 'initialized'})
 
         // Set client in store (this also creates apiClient)
-        setClient(newClient, projectRoot)
+        setClient(newClient)
 
         // Auto-reconnect on disconnect (shared logic from brv-transport-client)
         reconnectorHandle = createDaemonReconnector(newClient, {

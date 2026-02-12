@@ -24,7 +24,7 @@ export interface CreateCurateTaskResult {
  * Returns immediately after task is acknowledged - actual execution is async.
  */
 export const createCurateTask = async ({content, files}: CreateCurateTaskDTO): Promise<CreateCurateTaskResult> => {
-  const {apiClient, projectRoot} = useTransportStore.getState()
+  const {apiClient} = useTransportStore.getState()
   if (!apiClient) {
     throw new Error('Not connected to server')
   }
@@ -35,7 +35,6 @@ export const createCurateTask = async ({content, files}: CreateCurateTaskDTO): P
     clientCwd: process.cwd(),
     content: content ?? '',
     ...(files && files.length > 0 ? {files} : {}),
-    ...(projectRoot ? {projectPath: projectRoot} : {}),
     taskId,
     type: 'curate',
   })

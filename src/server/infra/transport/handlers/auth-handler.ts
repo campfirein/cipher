@@ -7,6 +7,7 @@ import type {IUserService} from '../../../core/interfaces/services/i-user-servic
 import type {IAuthStateStore} from '../../../core/interfaces/state/i-auth-state-store.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
+import type {ProjectPathResolver} from './handler-types.js'
 
 import {
   AuthEvents,
@@ -25,6 +26,7 @@ export interface AuthHandlerDeps {
   browserLauncher: IBrowserLauncher
   callbackHandler: ICallbackHandler
   projectConfigStore: IProjectConfigStore
+  resolveProjectPath: ProjectPathResolver
   tokenStore: ITokenStore
   trackingService: ITrackingService
   transport: ITransportServer
@@ -41,6 +43,7 @@ export class AuthHandler {
   private readonly browserLauncher: IBrowserLauncher
   private readonly callbackHandler: ICallbackHandler
   private readonly projectConfigStore: IProjectConfigStore
+  private readonly resolveProjectPath: ProjectPathResolver
   private readonly tokenStore: ITokenStore
   private readonly trackingService: ITrackingService
   private readonly transport: ITransportServer
@@ -52,6 +55,7 @@ export class AuthHandler {
     this.browserLauncher = deps.browserLauncher
     this.callbackHandler = deps.callbackHandler
     this.projectConfigStore = deps.projectConfigStore
+    this.resolveProjectPath = deps.resolveProjectPath
     this.tokenStore = deps.tokenStore
     this.trackingService = deps.trackingService
     this.transport = deps.transport
@@ -180,7 +184,7 @@ export class AuthHandler {
   }
 
   private setupGetState(): void {
-    this.transport.onRequest<void, AuthGetStateResponse>(AuthEvents.GET_STATE, async () => {
+    this.transport.onRequest<void, AuthGetStateResponse>(AuthEvents.GET_STATE, async (_data, clientId) => {
       try {
         const token = await this.tokenStore.load()
 
@@ -188,9 +192,10 @@ export class AuthHandler {
           return {isAuthorized: false}
         }
 
+        const projectPath = this.resolveProjectPath(clientId)
         const [user, brvConfig] = await Promise.all([
           this.userService.getCurrentUser(token.sessionKey),
-          this.projectConfigStore.read(),
+          this.projectConfigStore.read(projectPath),
         ])
 
         return {
