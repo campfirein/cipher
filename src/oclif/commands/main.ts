@@ -5,9 +5,6 @@ import {join} from 'node:path'
 
 import {DEFAULT_SESSION_RETENTION} from '../../agent/core/domain/session/session-metadata.js'
 import {SessionMetadataStore} from '../../agent/infra/session/session-metadata-store.js'
-import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
-import {createTokenStore} from '../../server/infra/storage/token-store.js'
-import {MixpanelTrackingService} from '../../server/infra/tracking/mixpanel-tracking-service.js'
 import {getProjectDataDir} from '../../server/utils/path-utils.js'
 import {initSessionLog, processManagerLog} from '../../server/utils/process-logger.js'
 import {resolveLocalServerMainPath} from '../../server/utils/server-main-resolver.js'
@@ -56,13 +53,8 @@ export default class Main extends Command {
       `Daemon ready (pid=${daemonResult.info.pid}, port=${daemonResult.info.port}, started=${daemonResult.started})`,
     )
 
-    const tokenStore = createTokenStore()
-    const globalConfigStore = new FileGlobalConfigStore()
-    const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
-
     // Start the interactive REPL (TUI connects via connectToDaemon internally)
     await startRepl({
-      trackingService,
       version: this.config.version,
     })
   }

@@ -38,7 +38,6 @@
     "keytar": "^7.9.0",
     "lodash-es": "^4.17.22",
     "minisearch": "^7.2.0",
-    "mixpanel": "^0.18.1",
     "nanoid": "^5.1.6",
     "officeparser": "^6.0.4",
     "open": "^10.2.0",

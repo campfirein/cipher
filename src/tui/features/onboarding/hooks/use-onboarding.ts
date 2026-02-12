@@ -6,9 +6,6 @@
 
 import {useCallback} from 'react'
 
-import type {OnboardingFlowStep} from '../types.js'
-
-import {useTransportStore} from '../../../stores/transport-store.js'
 import {completeOnboarding as completeOnboardingApi} from '../api/complete-onboarding.js'
 import {useOnboardingStore} from '../stores/onboarding-store.js'
 import {type AppViewMode, useAppViewMode} from './use-app-view-mode.js'
@@ -49,20 +46,14 @@ export interface UseOnboardingReturn {
  * ```
  */
 export function useOnboarding(): UseOnboardingReturn {
-  const trackingService = useTransportStore((s) => s.trackingService)
   const viewMode = useAppViewMode()
   const store = useOnboardingStore()
 
   const complete = useCallback(
     (options?: {skipped?: boolean}) => {
-      const step: OnboardingFlowStep | undefined = viewMode.type === 'onboarding' ? viewMode.step : undefined
-
       store.complete()
 
-      if (options?.skipped && step) {
-        trackingService?.track('onboarding:skipped', {step})
-      } else {
-        trackingService?.track('onboarding:completed')
+      if (!options?.skipped) {
         store.setHighlightedCommands(
           new Map([
             ['connectors', 'Recommend: Connect ByteRover to your agents'],
@@ -76,7 +67,7 @@ export function useOnboarding(): UseOnboardingReturn {
         // Silently ignore - non-critical
       })
     },
-    [store, trackingService, viewMode],
+    [store, viewMode],
   )
 
   return {

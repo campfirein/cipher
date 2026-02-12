@@ -1,7 +1,6 @@
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {ISpaceService} from '../../../core/interfaces/services/i-space-service.js'
 import type {ITeamService} from '../../../core/interfaces/services/i-team-service.js'
-import type {ITrackingService} from '../../../core/interfaces/services/i-tracking-service.js'
 import type {IUserService} from '../../../core/interfaces/services/i-user-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
@@ -24,7 +23,6 @@ export interface OnboardingHandlerDeps {
   spaceService: ISpaceService
   teamService: ITeamService
   tokenStore: ITokenStore
-  trackingService: ITrackingService
   transport: ITransportServer
   userService: IUserService
 }
@@ -39,7 +37,6 @@ export class OnboardingHandler {
   private readonly spaceService: ISpaceService
   private readonly teamService: ITeamService
   private readonly tokenStore: ITokenStore
-  private readonly trackingService: ITrackingService
   private readonly transport: ITransportServer
   private readonly userService: IUserService
 
@@ -49,7 +46,6 @@ export class OnboardingHandler {
     this.spaceService = deps.spaceService
     this.teamService = deps.teamService
     this.tokenStore = deps.tokenStore
-    this.trackingService = deps.trackingService
     this.transport = deps.transport
     this.userService = deps.userService
   }
@@ -106,7 +102,7 @@ export class OnboardingHandler {
   private setupComplete(): void {
     this.transport.onRequest<OnboardingCompleteRequest, OnboardingCompleteResponse>(
       OnboardingEvents.COMPLETE,
-      async (data) => {
+      async (_data) => {
         try {
           const token = await this.tokenStore.load()
           if (!token || !token.isValid()) {
@@ -115,9 +111,6 @@ export class OnboardingHandler {
 
           // Mark user as onboarded on the server
           await this.userService.updateCurrentUser(token.sessionKey, {hasOnboardedCli: true})
-
-          const eventName = data?.skipped ? 'onboarding:skipped' : 'onboarding:completed'
-          await this.trackingService.track(eventName)
 
           return {success: true}
         } catch {

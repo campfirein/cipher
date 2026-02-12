@@ -22,8 +22,6 @@ import {
   TaskErrorEvent,
   TransportTaskEventNames,
 } from '../../core/domain/transport/index.js'
-import {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
-import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
 import {createDaemonAwareConnector, type TransportConnector} from '../transport/transport-connector.js'
@@ -58,7 +56,6 @@ export interface CurateUseCaseOptions {
   /** Delay between retry attempts (ms). Default: 2000. Set to 0 in tests. */
   retryDelayMs?: number
   terminal: ITerminal
-  trackingService: ITrackingService
   /** Optional transport connector for dependency injection (defaults to connectToTransport) */
   transportConnector?: TransportConnector
 }
@@ -73,13 +70,11 @@ const DISCONNECT_GRACE_MS = 10_000
 export class CurateUseCase implements ICurateUseCase {
   private readonly retryDelayMs: number
   private readonly terminal: ITerminal
-  private readonly trackingService: ITrackingService
   private readonly transportConnector: TransportConnector
 
   constructor(options: CurateUseCaseOptions) {
     this.retryDelayMs = options.retryDelayMs ?? RETRY_DELAY_MS
     this.terminal = options.terminal
-    this.trackingService = options.trackingService
     this.transportConnector = options.transportConnector ?? createDaemonAwareConnector()
   }
 
@@ -91,8 +86,6 @@ export class CurateUseCase implements ICurateUseCase {
     headless = false,
     verbose = false,
   }: CurateUseCaseRunOptions): Promise<void> {
-    await this.trackingService.track('mem:curate', {status: 'started'})
-
     const hasContext = Boolean(context?.trim())
     const hasFiles = Boolean(files?.length)
     const hasFolders = Boolean(folders?.length)
@@ -178,8 +171,6 @@ export class CurateUseCase implements ICurateUseCase {
           }
         }
 
-        await this.trackingService.track('mem:curate', {status: 'finished'})
-
         // Success: cleanup and return
         await client.disconnect().catch(() => {})
         return
@@ -214,8 +205,6 @@ export class CurateUseCase implements ICurateUseCase {
     } else {
       this.handleConnectionError(lastError)
     }
-
-    await this.trackingService.track('mem:curate', {message: formatError(lastError), status: 'error'})
 
     // Force exit only for task-level disconnects (AGENT_DISCONNECTED) where Socket.IO
     // handles may leak. Connection errors (DaemonSpawnError, ConnectionFailedError) already
@@ -299,13 +288,17 @@ export class CurateUseCase implements ICurateUseCase {
     const message = error instanceof Error ? error.message : String(error)
     const lowerMessage = message.toLowerCase()
 
-    if (lowerMessage.includes('401') || lowerMessage.includes('unauthorized') || lowerMessage.includes('authentication token')) {
-      this.terminal.log('LLM authentication required. Run \'brv login\' to authenticate.')
+    if (
+      lowerMessage.includes('401') ||
+      lowerMessage.includes('unauthorized') ||
+      lowerMessage.includes('authentication token')
+    ) {
+      this.terminal.log("LLM authentication required. Run 'brv login' to authenticate.")
       return
     }
 
     if (lowerMessage.includes('api key') || lowerMessage.includes('invalid key')) {
-      this.terminal.log('LLM provider API key is missing or invalid. Run \'brv\' then \'/provider\' to configure.')
+      this.terminal.log("LLM provider API key is missing or invalid. Run 'brv' then '/provider' to configure.")
       return
     }
 
@@ -328,10 +321,14 @@ export class CurateUseCase implements ICurateUseCase {
       errorMessage = `Connection error: ${error.message}`
     } else if (error instanceof Error) {
       const lowerMessage = error.message.toLowerCase()
-      if (lowerMessage.includes('401') || lowerMessage.includes('unauthorized') || lowerMessage.includes('authentication token')) {
-        errorMessage = 'LLM authentication required. Run \'brv login\' to authenticate.'
+      if (
+        lowerMessage.includes('401') ||
+        lowerMessage.includes('unauthorized') ||
+        lowerMessage.includes('authentication token')
+      ) {
+        errorMessage = "LLM authentication required. Run 'brv login' to authenticate."
       } else if (lowerMessage.includes('api key') || lowerMessage.includes('invalid key')) {
-        errorMessage = 'LLM provider API key is missing or invalid. Run \'brv\' then \'/provider\' to configure.'
+        errorMessage = "LLM provider API key is missing or invalid. Run 'brv' then '/provider' to configure."
       } else {
         errorMessage = error.message
       }

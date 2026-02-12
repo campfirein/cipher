@@ -6,27 +6,11 @@ import type {GlobalConfig} from '../../domain/entities/global-config.js'
  */
 export interface IGlobalConfigStore {
   /**
-   * Gets the existing device ID or creates a new one if not present.
-   * This is the primary method for obtaining the device ID for tracking.
-   *
-   * @returns The device ID (existing or newly generated)
-   */
-  getOrCreateDeviceId: () => Promise<string>
-
-  /**
    * Reads the global configuration from the user's config directory.
    *
    * @returns The configuration if found and valid, undefined otherwise
    */
   read: () => Promise<GlobalConfig | undefined>
-
-  /**
-   * Regenerates the device ID by creating a new UUID v4 and persisting it.
-   * Called when leaving authenticated state to break tracking continuity.
-   *
-   * @returns The newly generated device ID
-   */
-  regenerateDeviceId: () => Promise<string>
 
   /**
    * Writes the global configuration to the user's config directory.

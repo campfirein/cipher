@@ -7,11 +7,9 @@ import {HttpCogitPushService} from '../../server/infra/cogit/http-cogit-push-ser
 import {ProjectConfigStore} from '../../server/infra/config/file-config-store.js'
 import {FileContextFileReader} from '../../server/infra/context-tree/file-context-file-reader.js'
 import {FileContextTreeSnapshotService} from '../../server/infra/context-tree/file-context-tree-snapshot-service.js'
-import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
 import {createTokenStore} from '../../server/infra/storage/token-store.js'
 import {HeadlessTerminal} from '../../server/infra/terminal/headless-terminal.js'
 import {OclifTerminal} from '../../server/infra/terminal/oclif-terminal.js'
-import {MixpanelTrackingService} from '../../server/infra/tracking/mixpanel-tracking-service.js'
 import {PushUseCase} from '../../server/infra/usecase/push-use-case.js'
 
 /** Parsed flags type */
@@ -64,8 +62,6 @@ Uploads your local context tree changes to the ByteRover cloud.`
   protected createUseCase(options: {format: 'json' | 'text'; headless: boolean}): IPushUseCase {
     const envConfig = getCurrentConfig()
     const tokenStore = createTokenStore()
-    const globalConfigStore = new FileGlobalConfigStore()
-    const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
 
     // Use HeadlessTerminal for headless mode or JSON format
     const terminal =
@@ -82,7 +78,6 @@ Uploads your local context tree changes to the ByteRover cloud.`
       projectConfigStore: new ProjectConfigStore(),
       terminal,
       tokenStore,
-      trackingService,
       webAppUrl: envConfig.webAppUrl,
     })
   }
