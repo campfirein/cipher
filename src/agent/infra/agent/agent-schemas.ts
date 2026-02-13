@@ -86,7 +86,7 @@ export const AgentConfigSchema = z
     sessions: SessionConfigSchema.default({}).describe('Session management configuration'),
     siteName: z.string().optional().describe('Site name for OpenRouter rankings'),
     spaceId: z.string().optional().describe('ByteRover space ID'),
-    storagePath: z.string().optional().describe('XDG storage directory for blob, key, and session storage'),
+    storagePath: z.string().min(1).describe('XDG storage directory for blob, key, and session storage'),
     teamId: z.string().optional().describe('ByteRover team ID'),
     useGranularStorage: z.boolean().default(false).describe('Enable granular history storage'),
   })

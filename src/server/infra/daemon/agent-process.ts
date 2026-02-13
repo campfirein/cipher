@@ -25,16 +25,22 @@ import {randomUUID} from 'node:crypto'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {TaskExecute} from '../../core/domain/transport/schemas.js'
 
+import {SESSIONS_DIR} from '../../../agent/core/domain/session/session-metadata.js'
 import {CipherAgent} from '../../../agent/infra/agent/index.js'
 import {FileSystemService} from '../../../agent/infra/file-system/file-system-service.js'
 import {FolderPackService} from '../../../agent/infra/folder-pack/folder-pack-service.js'
+import {SessionMetadataStore} from '../../../agent/infra/session/session-metadata-store.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {getProviderById} from '../../core/domain/entities/provider-registry.js'
 import {NotAuthenticatedError, serializeTaskError} from '../../core/domain/errors/task-error.js'
-import {TransportStateEventNames, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
+import {
+  TransportAgentEventNames,
+  TransportStateEventNames,
+  TransportTaskEventNames,
+} from '../../core/domain/transport/schemas.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
@@ -42,6 +48,7 @@ import {getProviderApiKeyFromEnv} from '../provider/env-provider-detector.js'
 import {createProviderConfigStore} from '../storage/file-provider-config-store.js'
 import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
+import {resolveSessionId} from './session-resolver.js'
 
 // ============================================================================
 // Environment
@@ -96,7 +103,10 @@ interface ProviderConfiguration {
  * Load provider-specific configuration: API key, base URL, headers, etc.
  * Mirrors the routing logic from the old agent-worker loadProviderConfiguration().
  */
-async function loadProviderConfiguration(activeProvider: string, providerConfig: Awaited<ReturnType<ReturnType<typeof createProviderConfigStore>['read']>>): Promise<ProviderConfiguration> {
+async function loadProviderConfiguration(
+  activeProvider: string,
+  providerConfig: Awaited<ReturnType<ReturnType<typeof createProviderConfigStore>['read']>>,
+): Promise<ProviderConfiguration> {
   const result: ProviderConfiguration = {}
 
   if (activeProvider === 'byterover') {
@@ -154,6 +164,7 @@ async function loadProviderConfiguration(activeProvider: string, providerConfig:
 // ============================================================================
 
 let agent: CipherAgent | undefined
+let metadataStore: SessionMetadataStore
 let transport: ITransportClient | undefined
 
 async function start(): Promise<void> {
@@ -179,7 +190,7 @@ async function start(): Promise<void> {
   type ProjectConfigResponse = {
     brvConfig?: BrvConfig
     spaceId?: string
-    storagePath?: string
+    storagePath: string
     teamId?: string
   }
 
@@ -258,10 +269,86 @@ async function start(): Promise<void> {
   })
 
   await agent.start()
-  await agent.createSession(`daemon-session-${randomUUID()}`)
 
-  agentLog('CipherAgent started and session created')
+  // 5b. Resolve session: resume last active or create new
+  const sessionsDir = `${configResult.storagePath}/${SESSIONS_DIR}`
+  metadataStore = new SessionMetadataStore({sessionsDir, workingDirectory: projectPath})
 
+  const newId = `agent-session-${randomUUID()}`
+  const {isResume, sessionId} = await resolveSessionId(metadataStore, newId, agentLog)
+
+  await agent.createSession(sessionId)
+  agent.switchDefaultSession(sessionId)
+
+  // Persist session metadata (best-effort)
+  try {
+    const metadata = metadataStore.createSessionMetadata(sessionId)
+    if (isResume) metadata.status = 'active'
+    await metadataStore.saveSession(metadata)
+    await metadataStore.setActiveSession(sessionId)
+  } catch (error) {
+    agentLog(`Session metadata persist failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  agentLog(`CipherAgent started (session=${sessionId}, resume=${isResume})`)
+
+  // 6. Handle agent:newSession from /new command (via ConnectionCoordinator)
+  const transportRef = transport
+  transport.on<{reason?: string}>(TransportAgentEventNames.NEW_SESSION, async (data) => {
+    agentLog(`New session requested: ${data.reason ?? 'no reason'}`)
+
+    if (!agent) {
+      await transportRef.requestWithAck(TransportAgentEventNames.NEW_SESSION_CREATED, {
+        error: 'Agent not initialized',
+        success: false,
+      })
+      return
+    }
+
+    try {
+      // Mark current session as ended (best-effort)
+      if (agent.sessionId) {
+        try {
+          const current = await metadataStore.getSession(agent.sessionId)
+          if (current) {
+            current.status = 'ended'
+            current.lastUpdated = new Date().toISOString()
+            await metadataStore.saveSession(current)
+          }
+        } catch {
+          /* best-effort */
+        }
+      }
+
+      const newSessionId = `agent-session-${randomUUID()}`
+      await agent.createSession(newSessionId)
+      agent.switchDefaultSession(newSessionId)
+
+      // Persist new session metadata (best-effort)
+      try {
+        await metadataStore.saveSession(metadataStore.createSessionMetadata(newSessionId))
+        await metadataStore.setActiveSession(newSessionId)
+      } catch {
+        /* best-effort */
+      }
+
+      agentLog(`New session created: ${newSessionId}`)
+
+      await transportRef.requestWithAck(TransportAgentEventNames.NEW_SESSION_CREATED, {
+        sessionId: newSessionId,
+        success: true,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      agentLog(`New session creation error: ${message}`)
+      await transportRef.requestWithAck(TransportAgentEventNames.NEW_SESSION_CREATED, {
+        error: message,
+        success: false,
+      })
+    }
+  })
+
+  // 7. Listen for task:execute from pool
   // 6. Create FileSystemService + SearchKnowledgeService for smart query routing
   const fileSystemService = new FileSystemService({workingDirectory: projectPath})
   await fileSystemService.initialize()
@@ -317,7 +404,9 @@ async function executeTask(
   // Refresh auth from state server to pick up login/logout changes
   // (state:getAuth loads fresh from keychain and self-heals via broadcast)
   try {
-    const authResult = await transport.requestWithAck<{isValid?: boolean; sessionKey?: string}>(TransportStateEventNames.GET_AUTH)
+    const authResult = await transport.requestWithAck<{isValid?: boolean; sessionKey?: string}>(
+      TransportStateEventNames.GET_AUTH,
+    )
     if (authResult.sessionKey !== undefined) cachedSessionKey = authResult.sessionKey
     if (authResult.isValid !== undefined) cachedAuthValid = authResult.isValid
   } catch {
@@ -350,7 +439,10 @@ async function executeTask(
 
       case 'curate-folder': {
         result = await folderPackExecutor.executeWithAgent(agent, {
-          clientCwd, content, folderPath: folderPath!, taskId,
+          clientCwd,
+          content,
+          folderPath: folderPath!,
+          taskId,
         })
 
         break
