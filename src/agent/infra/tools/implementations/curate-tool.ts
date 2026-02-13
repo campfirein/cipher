@@ -63,9 +63,31 @@ const NarrativeSchema = z.object({
 })
 
 /**
+ * Fact schema for structured factual statements extracted during curation.
+ */
+const FactSchema = z.object({
+  category: z
+    .enum(['personal', 'project', 'preference', 'convention', 'team', 'environment', 'other'])
+    .optional()
+    .describe('Category of the fact (e.g., "personal", "project", "preference", "convention", "team", "environment")'),
+  statement: z
+    .string()
+    .describe('The full factual statement (e.g., "My name is Andy", "We use PostgreSQL 15")'),
+  subject: z
+    .string()
+    .optional()
+    .describe('What the fact is about in snake_case (e.g., "user_name", "database", "sprint_duration")'),
+  value: z
+    .string()
+    .optional()
+    .describe('The extracted value (e.g., "Andy", "PostgreSQL 15", "2 weeks")'),
+})
+
+/**
  * Content structure for ADD and UPDATE operations.
  */
 const ContentSchema = z.object({
+  facts: z.array(FactSchema).optional().describe('Factual statements extracted from content (e.g., personal info, project facts, preferences, conventions)'),
   keywords: z.array(z.string()).default([]).describe('Keywords for search and discovery (e.g., ["jwt", "refresh_token", "rotation"])'),
   narrative: NarrativeSchema.optional().describe('Narrative section with descriptive and structural context'),
   rawConcept: RawConceptSchema.optional().describe('Raw concept section with metadata and technical footprint'),
@@ -540,6 +562,7 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
     const filteredContent = filterValidFiles(content)
 
     const contextContent = MarkdownWriter.generateContext({
+      facts: filteredContent.facts,
       keywords: filteredContent.keywords,
       name: title,
       narrative: filteredContent.narrative,
@@ -626,6 +649,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
     const filteredContent = filterValidFiles(content)
 
     const contextContent = MarkdownWriter.generateContext({
+      facts: filteredContent.facts,
       keywords: filteredContent.keywords,
       name: title,
       narrative: filteredContent.narrative,
@@ -1014,7 +1038,7 @@ export function createCurateTool(workingDirectory?: string): Tool {
   return {
     description: `Curate knowledge topics with atomic operations. This tool manages the knowledge structure using four operation types and supports a two-part context model: Raw Concept + Narrative.
 
-**Content Structure (Two-Part Model):**
+**Content Structure (Two-Part Model + Facts):**
 - **rawConcept**: Captures essential metadata and context footprint
   - task: What is being documented
   - changes: Array of changes or updates (e.g., code changes, process updates, market shifts)
@@ -1026,6 +1050,11 @@ export function createCurateTool(workingDirectory?: string): Tool {
   - dependencies: Dependency or relationship information
   - highlights: Key highlights, capabilities, deliverables, or notable outcomes
   - diagrams: Array of diagrams with {type: "mermaid"|"plantuml"|"ascii"|"other", content: string, title?: string} - preserve verbatim
+- **facts**: Array of factual statements extracted from content
+  - statement (required): The full fact text (e.g., "My name is Andy", "We use PostgreSQL 15")
+  - category (optional): "personal", "project", "preference", "convention", "team", "environment", "other"
+  - subject (optional): What the fact is about in snake_case (e.g., "user_name", "database")
+  - value (optional): The extracted value (e.g., "Andy", "PostgreSQL 15")
 - **snippets**: Code/text snippets (legacy support)
 - **relations**: Related topics using @domain/topic notation
 

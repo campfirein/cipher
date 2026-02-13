@@ -44,9 +44,25 @@ export interface CurateNarrative {
 }
 
 /**
+ * A factual statement extracted during curation.
+ */
+export interface CurateFact {
+  /** Category of the fact */
+  category?: 'convention' | 'environment' | 'other' | 'personal' | 'preference' | 'project' | 'team'
+  /** The full factual statement */
+  statement: string
+  /** What the fact is about (e.g., "user_name", "database") */
+  subject?: string
+  /** The extracted value (e.g., "Andy", "PostgreSQL 15") */
+  value?: string
+}
+
+/**
  * Content structure for ADD and UPDATE operations.
  */
 export interface CurateContent {
+  /** Factual statements extracted from content */
+  facts?: CurateFact[]
   /** Narrative section with descriptive and structural context */
   narrative?: CurateNarrative
   /** Raw concept section with metadata and technical footprint */

@@ -70,6 +70,21 @@ prompt: |
   - Metrics and KPIs with exact values - store in narrative.highlights
   - Timeline and milestone information - store in narrative.structure
 
+  ## Factual Statement Preservation
+
+  **Facts (MUST EXTRACT in content.facts array):**
+  - Personal information stated by the user (e.g., "My name is Andy") - store each as a separate fact with category: "personal"
+  - Project configuration values, versions, ports, URLs - preserve exact values with category: "project"
+  - Team conventions and processes - store with category: "convention"
+  - Preferences and opinions expressed as directives - store with category: "preference"
+  - Team structure and roles - store with category: "team"
+  - Environment and infrastructure details - store with category: "environment"
+  - Use `subject` field for the key concept in snake_case (e.g., "user_name", "database_version")
+  - Use `value` field for the extracted value (e.g., "Andy", "PostgreSQL 15")
+  - Do NOT infer facts that were not explicitly stated
+  - Do NOT merge multiple facts into one compound statement
+  - ALWAYS preserve the exact wording of the factual claim in `statement`
+
   ## General Detail Preservation
 
   **Completeness over conciseness:**

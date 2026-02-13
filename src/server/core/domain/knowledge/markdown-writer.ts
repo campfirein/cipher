@@ -21,7 +21,15 @@ export interface Narrative {
   structure?: string
 }
 
+export interface Fact {
+  category?: string
+  statement: string
+  subject?: string
+  value?: string
+}
+
 export interface ContextData {
+  facts?: Fact[]
   keywords: string[]
   name: string
   narrative?: Narrative
@@ -210,6 +218,23 @@ function generateNarrativeSection(narrative?: Narrative): string {
   return `\n## Narrative\n${parts.join('\n\n')}\n`
 }
 
+function generateFactsSection(facts?: Fact[]): string {
+  if (!facts || facts.length === 0) {
+    return ''
+  }
+
+  const lines = facts.map(fact => {
+    const categoryPart = fact.category ? ` [${fact.category}]` : ''
+    if (fact.subject) {
+      return `- **${fact.subject}**: ${fact.statement}${categoryPart}`
+    }
+
+    return `- ${fact.statement}${categoryPart}`
+  })
+
+  return `\n## Facts\n${lines.join('\n')}\n`
+}
+
 function parseRawConceptSection(content: string): RawConcept | undefined {
   // Forgiving regex: allows optional whitespace after "## Raw Concept"
   const rawConceptMatch = content.match(/##\s*Raw Concept\s*\n([\s\S]*?)(?=\n##\s|\n---\n|$)/i)
@@ -349,6 +374,43 @@ function parseNarrativeSection(content: string): Narrative | undefined {
   return narrative
 }
 
+function parseFactsSection(content: string): Fact[] | undefined {
+  const factsMatch = content.match(/##\s*Facts\s*\n([\s\S]*?)(?=\n##\s|\n---\n|$)/i)
+  if (!factsMatch) {
+    return undefined
+  }
+
+  const facts: Fact[] = []
+  const lines = factsMatch[1].split('\n').filter(line => line.trim().startsWith('- '))
+
+  for (const line of lines) {
+    const trimmed = line.trim().slice(2) // remove "- "
+
+    // Try to match "**subject**: statement [category]" pattern
+    const structuredMatch = trimmed.match(/^\*\*(.+?)\*\*:\s*(.+?)(?:\s*\[(\w+)\])?$/)
+    if (structuredMatch) {
+      facts.push({
+        statement: structuredMatch[2].trim(),
+        subject: structuredMatch[1].trim(),
+        ...(structuredMatch[3] ? {category: structuredMatch[3]} : {}),
+      })
+
+      continue
+    }
+
+    // Plain statement, optionally with [category]
+    const plainMatch = trimmed.match(/^(.+?)(?:\s*\[(\w+)\])?$/)
+    if (plainMatch) {
+      facts.push({
+        statement: plainMatch[1].trim(),
+        ...(plainMatch[2] ? {category: plainMatch[2]} : {}),
+      })
+    }
+  }
+
+  return facts.length > 0 ? facts : undefined
+}
+
 function extractSnippetsFromContent(content: string): string[] {
   let snippetContent = content
 
@@ -366,6 +428,11 @@ function extractSnippetsFromContent(content: string): string[] {
   const narrativeMatch = snippetContent.match(/##\s*Narrative[\s\S]*?(?=\n##\s|\n---\n|$)/i)
   if (narrativeMatch) {
     snippetContent = snippetContent.replace(narrativeMatch[0], '').trim()
+  }
+
+  const factsMatch = snippetContent.match(/##\s*Facts[\s\S]*?(?=\n##\s|\n---\n|$)/i)
+  if (factsMatch) {
+    snippetContent = snippetContent.replace(factsMatch[0], '').trim()
   }
 
   const snippets = snippetContent
@@ -489,6 +556,29 @@ function mergeNarratives(source?: Narrative, target?: Narrative): Narrative | un
   return merged
 }
 
+function mergeFacts(source?: Fact[], target?: Fact[]): Fact[] | undefined {
+  if (!source && !target) {
+    return undefined
+  }
+
+  if (!source) return target
+  if (!target) return source
+
+  // Concatenate and deduplicate by statement text (case-insensitive)
+  const seen = new Set<string>()
+  const merged: Fact[] = []
+
+  for (const fact of [...target, ...source]) {
+    const key = fact.statement.toLowerCase().trim()
+    if (!seen.has(key)) {
+      seen.add(key)
+      merged.push(fact)
+    }
+  }
+
+  return merged.length > 0 ? merged : undefined
+}
+
 /**
  * Parse content extracting relations from either frontmatter or legacy @ format.
  * Returns parsed frontmatter metadata and the body content for further parsing.
@@ -529,14 +619,15 @@ export const MarkdownWriter = {
     const frontmatter = generateFrontmatter(data.name, relations, data.tags, data.keywords)
     const rawConceptSection = generateRawConceptSection(data.rawConcept)
     const narrativeSection = generateNarrativeSection(data.narrative)
+    const factsSection = generateFactsSection(data.facts)
 
     const hasSnippets = snippets.length > 0
 
     // Build the content parts
     const parts: string[] = []
 
-    // Add sections (rawConcept, narrative) — relations are now in frontmatter
-    const sectionsContent = `${rawConceptSection}${narrativeSection}`.trim()
+    // Add sections (rawConcept, narrative, facts) — relations are now in frontmatter
+    const sectionsContent = `${rawConceptSection}${narrativeSection}${factsSection}`.trim()
     if (sectionsContent) {
       parts.push(sectionsContent)
     }
@@ -574,6 +665,10 @@ export const MarkdownWriter = {
     const targetNarrative = parseNarrativeSection(targetParsed.body)
     const mergedNarrative = mergeNarratives(sourceNarrative, targetNarrative)
 
+    const sourceFacts = parseFactsSection(sourceParsed.body)
+    const targetFacts = parseFactsSection(targetParsed.body)
+    const mergedFacts = mergeFacts(sourceFacts, targetFacts)
+
     const sourceSnippets = extractSnippetsFromContent(sourceParsed.body)
     const targetSnippets = extractSnippetsFromContent(targetParsed.body)
 
@@ -588,6 +683,7 @@ export const MarkdownWriter = {
     }
 
     return MarkdownWriter.generateContext({
+      facts: mergedFacts,
       keywords: mergedKeywords,
       name: sourceParsed.title || targetParsed.title || '',
       narrative: mergedNarrative,
@@ -602,6 +698,7 @@ export const MarkdownWriter = {
     const { body, keywords, relations, tags, title } = parseContentWithFrontmatter(content)
 
     return {
+      facts: parseFactsSection(body),
       keywords,
       name: title || name,
       narrative: parseNarrativeSection(body),
