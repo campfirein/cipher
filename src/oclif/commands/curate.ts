@@ -5,16 +5,15 @@ import {ICurateUseCase} from '../../server/core/interfaces/usecase/i-curate-use-
 import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
 import {createTokenStore} from '../../server/infra/storage/token-store.js'
 import {HeadlessTerminal} from '../../server/infra/terminal/headless-terminal.js'
-import {OclifTerminal} from '../../server/infra/terminal/oclif-terminal.js'
 import {MixpanelTrackingService} from '../../server/infra/tracking/mixpanel-tracking-service.js'
 import {CurateUseCase} from '../../server/infra/usecase/curate-use-case.js'
 
 /** Parsed flags type */
 type CurateFlags = {
+  detach?: boolean
   files?: string[]
   folder?: string[]
   format?: 'json' | 'text'
-  headless?: boolean
   verbose?: boolean
 }
 
@@ -52,6 +51,10 @@ Bad examples:
     '<%= config.bin %> <%= command.id %> "Analyze authentication module" -d src/auth/',
   ]
   public static flags = {
+    detach: Flags.boolean({
+      default: false,
+      description: 'Queue task and exit without waiting for completion',
+    }),
     files: Flags.string({
       char: 'f',
       description: 'Include specific file paths for critical context (max 5 files)',
@@ -67,10 +70,6 @@ Bad examples:
       description: 'Output format (text or json)',
       options: ['text', 'json'],
     }),
-    headless: Flags.boolean({
-      default: false,
-      description: 'Run in headless mode (no TTY required, suitable for automation)',
-    }),
     ...(isDevelopment()
       ? {
           verbose: Flags.boolean({
@@ -82,16 +81,12 @@ Bad examples:
       : {}),
   }
 
-  protected createUseCase(options: {format: 'json' | 'text'; headless: boolean}): ICurateUseCase {
+  protected createUseCase(options: {format: 'json' | 'text'}): ICurateUseCase {
     const tokenStore = createTokenStore()
     const globalConfigStore = new FileGlobalConfigStore()
     const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
 
-    // Use HeadlessTerminal for headless mode or JSON format
-    const terminal =
-      options.headless || options.format === 'json'
-        ? new HeadlessTerminal({failOnPrompt: true, outputFormat: options.format})
-        : new OclifTerminal(this)
+    const terminal = new HeadlessTerminal({failOnPrompt: true, outputFormat: options.format})
 
     return new CurateUseCase({terminal, trackingService})
   }
@@ -100,14 +95,13 @@ Bad examples:
     const {args, flags: rawFlags} = await this.parse(Curate)
     const flags = rawFlags as CurateFlags
     const format = (flags.format ?? 'text') as 'json' | 'text'
-    const headless = flags.headless ?? false
 
-    return this.createUseCase({format, headless}).run({
+    return this.createUseCase({format}).run({
       context: args.context,
+      detach: flags.detach,
       files: flags.files,
       folders: flags.folder,
       format,
-      headless,
       verbose: flags.verbose,
     })
   }
