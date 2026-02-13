@@ -3,13 +3,11 @@ import {Args, Command, Flags} from '@oclif/core'
 import {isDevelopment} from '../../server/config/environment.js'
 import {IQueryUseCase} from '../../server/core/interfaces/usecase/i-query-use-case.js'
 import {HeadlessTerminal} from '../../server/infra/terminal/headless-terminal.js'
-import {OclifTerminal} from '../../server/infra/terminal/oclif-terminal.js'
 import {QueryUseCase} from '../../server/infra/usecase/query-use-case.js'
 
 /** Parsed flags type */
 type QueryFlags = {
   format?: 'json' | 'text'
-  headless?: boolean
   verbose?: boolean
 }
 
@@ -35,18 +33,14 @@ Bad:
     '<%= config.bin %> <%= command.id %> What are the coding standards?',
     '<%= config.bin %> <%= command.id %> How is authentication implemented?',
     '',
-    '# Headless mode with JSON output (for automation)',
-    '<%= config.bin %> <%= command.id %> "How does auth work?" --headless --format json',
+    '# JSON output (for automation)',
+    '<%= config.bin %> <%= command.id %> "How does auth work?" --format json',
   ]
   public static flags = {
     format: Flags.string({
       default: 'text',
       description: 'Output format (text or json)',
       options: ['text', 'json'],
-    }),
-    headless: Flags.boolean({
-      default: false,
-      description: 'Run in headless mode (no TTY required, suitable for automation)',
     }),
     ...(isDevelopment()
       ? {
@@ -60,12 +54,8 @@ Bad:
   }
   public static strict = false
 
-  protected createUseCase(options: {format: 'json' | 'text'; headless: boolean}): IQueryUseCase {
-    // Use HeadlessTerminal for headless mode or JSON format
-    const terminal =
-      options.headless || options.format === 'json'
-        ? new HeadlessTerminal({failOnPrompt: true, outputFormat: options.format})
-        : new OclifTerminal(this)
+  protected createUseCase(options: {format: 'json' | 'text'}): IQueryUseCase {
+    const terminal = new HeadlessTerminal({failOnPrompt: true, outputFormat: options.format})
 
     return new QueryUseCase({
       terminal,
@@ -76,11 +66,9 @@ Bad:
     const {args, flags: rawFlags} = await this.parse(Query)
     const flags = rawFlags as QueryFlags
     const format = (flags.format ?? 'text') as 'json' | 'text'
-    const headless = flags.headless ?? false
 
-    await this.createUseCase({format, headless}).run({
+    await this.createUseCase({format}).run({
       format,
-      headless,
       query: args.query,
       verbose: flags.verbose,
     })

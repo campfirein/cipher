@@ -3,15 +3,14 @@ import {Args, Command, Flags} from '@oclif/core'
 import {isDevelopment} from '../../server/config/environment.js'
 import {ICurateUseCase} from '../../server/core/interfaces/usecase/i-curate-use-case.js'
 import {HeadlessTerminal} from '../../server/infra/terminal/headless-terminal.js'
-import {OclifTerminal} from '../../server/infra/terminal/oclif-terminal.js'
 import {CurateUseCase} from '../../server/infra/usecase/curate-use-case.js'
 
 /** Parsed flags type */
 type CurateFlags = {
+  detach?: boolean
   files?: string[]
   folder?: string[]
   format?: 'json' | 'text'
-  headless?: boolean
   verbose?: boolean
 }
 
@@ -49,6 +48,10 @@ Bad examples:
     '<%= config.bin %> <%= command.id %> "Analyze authentication module" -d src/auth/',
   ]
   public static flags = {
+    detach: Flags.boolean({
+      default: false,
+      description: 'Queue task and exit without waiting for completion',
+    }),
     files: Flags.string({
       char: 'f',
       description: 'Include specific file paths for critical context (max 5 files)',
@@ -64,10 +67,6 @@ Bad examples:
       description: 'Output format (text or json)',
       options: ['text', 'json'],
     }),
-    headless: Flags.boolean({
-      default: false,
-      description: 'Run in headless mode (no TTY required, suitable for automation)',
-    }),
     ...(isDevelopment()
       ? {
           verbose: Flags.boolean({
@@ -79,12 +78,8 @@ Bad examples:
       : {}),
   }
 
-  protected createUseCase(options: {format: 'json' | 'text'; headless: boolean}): ICurateUseCase {
-    // Use HeadlessTerminal for headless mode or JSON format
-    const terminal =
-      options.headless || options.format === 'json'
-        ? new HeadlessTerminal({failOnPrompt: true, outputFormat: options.format})
-        : new OclifTerminal(this)
+  protected createUseCase(options: {format: 'json' | 'text'}): ICurateUseCase {
+    const terminal = new HeadlessTerminal({failOnPrompt: true, outputFormat: options.format})
 
     return new CurateUseCase({terminal})
   }
@@ -93,14 +88,13 @@ Bad examples:
     const {args, flags: rawFlags} = await this.parse(Curate)
     const flags = rawFlags as CurateFlags
     const format = (flags.format ?? 'text') as 'json' | 'text'
-    const headless = flags.headless ?? false
 
-    return this.createUseCase({format, headless}).run({
+    return this.createUseCase({format}).run({
       context: args.context,
+      detach: flags.detach,
       files: flags.files,
       folders: flags.folder,
       format,
-      headless,
       verbose: flags.verbose,
     })
   }

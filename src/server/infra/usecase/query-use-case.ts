@@ -87,19 +87,13 @@ export class QueryUseCase implements IQueryUseCase {
       let projectRoot: string | undefined
 
       try {
-        if (options.headless) {
-          const {InlineAgent} = await import('../process/inline-agent-executor.js')
-          const inlineAgent = await InlineAgent.create()
-          client = inlineAgent.transportClient
-        } else {
-          if (verbose) {
-            this.terminal.log('Discovering running instance...')
-          }
-
-          const result = await this.transportConnector()
-          client = result.client
-          projectRoot = result.projectRoot
+        if (verbose) {
+          this.terminal.log('Discovering running instance...')
         }
+
+        const result = await this.transportConnector()
+        client = result.client
+        projectRoot = result.projectRoot
 
         if (verbose) {
           this.terminal.log(`Connected to instance (clientId: ${client.getClientId()})`)
@@ -133,7 +127,7 @@ export class QueryUseCase implements IQueryUseCase {
         lastError = error
 
         // Retry only for daemon/agent infrastructure failures
-        if (!options.headless && this.isRetryableError(error) && attempt < MAX_TASK_RETRIES) {
+        if (this.isRetryableError(error) && attempt < MAX_TASK_RETRIES) {
           if (format === 'text') {
             this.terminal.log(`\nConnection lost. Restarting daemon... (attempt ${attempt + 1}/${MAX_TASK_RETRIES})`)
           }
@@ -520,7 +514,7 @@ export class QueryUseCase implements IQueryUseCase {
             const detail = payload.args ? this.formatToolArgs(payload.toolName, payload.args) : ''
             const suffix = detail ? `: ${detail}` : ''
             if (format === 'text') {
-              this.terminal.log(`🔧 ${payload.toolName}${suffix}`)
+              this.terminal.log(`  ${payload.toolName}${suffix}`)
             }
 
             // Track tool call for JSON output

@@ -35,7 +35,7 @@ describe('Curate Command', () => {
     })
 
     // Create mock transport client.
-    // Non-headless curate enqueues and exits immediately (no task:completed wait).
+    // Detached curate enqueues and exits immediately (no task:completed wait).
     mockClient = {
       connect: stub().resolves(),
       disconnect: stub().resolves(),
@@ -81,7 +81,7 @@ describe('Curate Command', () => {
     it('should send task:create with empty content when only files provided', async () => {
       const useCase = new CurateUseCase(createUseCaseOptions())
 
-      await useCase.run({files: ['src/auth.ts', 'src/utils.ts']})
+      await useCase.run({detach: true, files: ['src/auth.ts', 'src/utils.ts']})
       expect(mockClient.requestWithAck.calledOnce).to.be.true
       const [event, payload] = (mockClient.requestWithAck as sinon.SinonStub).firstCall.args
       expect(event).to.equal('task:create')
@@ -102,7 +102,7 @@ describe('Curate Command', () => {
     it('should send task:create request with context and taskId', async () => {
       const useCase = new CurateUseCase(createUseCaseOptions())
 
-      await useCase.run({context: 'test context'})
+      await useCase.run({context: 'test context', detach: true})
 
       expect(mockClient.requestWithAck.calledOnce).to.be.true
       const [event, payload] = (mockClient.requestWithAck as sinon.SinonStub).firstCall.args
@@ -116,7 +116,7 @@ describe('Curate Command', () => {
     it('should send task:create request with context, files, and taskId', async () => {
       const useCase = new CurateUseCase(createUseCaseOptions())
 
-      await useCase.run({context: 'test context', files: ['file1.ts', 'file2.ts']})
+      await useCase.run({context: 'test context', detach: true, files: ['file1.ts', 'file2.ts']})
 
       expect(mockClient.requestWithAck.calledOnce).to.be.true
       const [event, payload] = (mockClient.requestWithAck as sinon.SinonStub).firstCall.args
@@ -130,7 +130,7 @@ describe('Curate Command', () => {
     it('should log verbose messages when verbose is true', async () => {
       const useCase = new CurateUseCase(createUseCaseOptions())
 
-      await useCase.run({context: 'test context', verbose: true})
+      await useCase.run({context: 'test context', detach: true, verbose: true})
 
       expect(loggedMessages.some((m) => m.includes('Discovering running instance'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('Connected to instance'))).to.be.true
@@ -139,7 +139,7 @@ describe('Curate Command', () => {
     it('should disconnect client after successful request', async () => {
       const useCase = new CurateUseCase(createUseCaseOptions())
 
-      await useCase.run({context: 'test context'})
+      await useCase.run({context: 'test context', detach: true})
 
       expect(mockClient.disconnect.calledOnce).to.be.true
     })
@@ -152,7 +152,7 @@ describe('Curate Command', () => {
         }),
       )
 
-      await useCase.run({context: 'test context'})
+      await useCase.run({context: 'test context', detach: true})
 
       expect(loggedMessages.some((m) => m.includes('No ByteRover instance is running'))).to.be.true
     })
@@ -165,7 +165,7 @@ describe('Curate Command', () => {
         }),
       )
 
-      await useCase.run({context: 'test context'})
+      await useCase.run({context: 'test context', detach: true})
 
       expect(loggedMessages.some((m) => m.includes('ByteRover instance has crashed'))).to.be.true
     })
@@ -179,7 +179,7 @@ describe('Curate Command', () => {
         }),
       )
 
-      await useCase.run({context: 'test context'})
+      await useCase.run({context: 'test context', detach: true})
 
       expect(loggedMessages.some((m) => m.includes('Failed to connect'))).to.be.true
     })
@@ -192,7 +192,7 @@ describe('Curate Command', () => {
         }),
       )
 
-      await useCase.run({context: 'test context'})
+      await useCase.run({context: 'test context', detach: true})
 
       expect(loggedMessages.some((m) => m.includes('Unexpected error'))).to.be.true
     })
@@ -202,7 +202,7 @@ describe('Curate Command', () => {
 
       const useCase = new CurateUseCase(createUseCaseOptions())
 
-      await useCase.run({context: 'test context'})
+      await useCase.run({context: 'test context', detach: true})
 
       expect(mockClient.disconnect.calledOnce).to.be.true
     })
