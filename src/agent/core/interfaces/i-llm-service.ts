@@ -1,5 +1,5 @@
+import type {LLMServiceConfig} from '../../infra/llm/agent-llm-service.js'
 import type {ContextManager, FileData, ImageData} from '../../infra/llm/context/context-manager.js'
-import type {LLMServiceConfig} from '../../infra/llm/internal-llm-service.js'
 import type {ToolSet} from '../domain/tools/types.js'
 import type {ExecutionContext} from './i-cipher-agent.js'
 

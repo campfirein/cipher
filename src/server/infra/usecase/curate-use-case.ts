@@ -29,18 +29,22 @@ import {createDaemonAwareConnector, type TransportConnector} from '../transport/
 export type {TransportConnector} from '../transport/transport-connector.js'
 
 const CurateOperationSchema = z.object({
-  filePath: z.string(),
+  filePath: z.string().optional(),
+  message: z.string().optional(),
   path: z.string(),
   status: z.enum(['success', 'failed']),
-  type: z.enum(['ADD', 'UPDATE', 'MERGE', 'DELETE']),
+  type: z.enum(['ADD', 'UPDATE', 'UPSERT', 'MERGE', 'DELETE']),
 })
 
 const CurateResultSchema = z.object({
-  result: z
-    .object({
-      applied: z.array(CurateOperationSchema).optional(),
-    })
-    .optional(),
+  applied: z.array(CurateOperationSchema).optional(),
+  summary: z.object({
+    added: z.number().optional(),
+    deleted: z.number().optional(),
+    failed: z.number().optional(),
+    merged: z.number().optional(),
+    updated: z.number().optional(),
+  }).optional(),
 })
 
 type CurateOperation = z.infer<typeof CurateOperationSchema>
@@ -407,17 +411,27 @@ export class CurateUseCase implements ICurateUseCase {
 
       const unsubscribers = [
         client.on<LlmToolResultEvent>(LlmEventNames.TOOL_RESULT, (payload) => {
-          if (payload.success && payload.toolName === ToolName.CURATE && payload.result) {
-            try {
-              const parsed = CurateResultSchema.parse(JSON.parse(payload.result as string))
-              for (const op of parsed.result?.applied ?? []) {
+          if (!payload.success || !payload.result) {
+            return
+          }
+
+          // Handle both direct curate tool and curate via code_exec
+          if (payload.toolName !== ToolName.CURATE && payload.toolName !== ToolName.CODE_EXEC) {
+            return
+          }
+
+          try {
+            const resultData = JSON.parse(payload.result as string)
+            const parsed = CurateResultSchema.safeParse(resultData)
+            if (parsed.success) {
+              for (const op of parsed.data.applied ?? []) {
                 if (op.status === 'success') {
                   operations.push(op)
                 }
               }
-            } catch {
-              // Ignore parse errors
             }
+          } catch {
+            // Ignore parse errors for non-curate code_exec results
           }
         }),
 

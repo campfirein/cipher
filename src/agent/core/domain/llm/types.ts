@@ -5,14 +5,26 @@
  */
 
 /**
- * Supported LLM providers as a const array for runtime validation.
+ * Provider types for formatter/tokenizer selection.
+ * These represent the underlying API format, NOT provider IDs.
+ * e.g., OpenRouter, xAI, Groq, Mistral all use 'openai' format.
  */
-export const LLM_PROVIDERS = ['claude', 'gemini', 'openrouter'] as const
+export const PROVIDER_TYPES = ['claude', 'gemini', 'openai'] as const
 
 /**
- * Union type of all supported LLM providers.
+ * Union type of provider types.
  */
-export type LLMProvider = (typeof LLM_PROVIDERS)[number]
+export type ProviderType = (typeof PROVIDER_TYPES)[number]
+
+/**
+ * @deprecated Use PROVIDER_TYPES instead. Kept for backward compatibility.
+ */
+export const LLM_PROVIDERS = PROVIDER_TYPES
+
+/**
+ * @deprecated Use ProviderType instead. Kept for backward compatibility.
+ */
+export type LLMProvider = ProviderType
 
 /**
  * Supported file types for multimodal input.
@@ -92,7 +104,7 @@ export interface LLMContext {
   /** Current model name */
   model: string
   /** Current provider */
-  provider: LLMProvider
+  provider: ProviderType
 }
 
 /**

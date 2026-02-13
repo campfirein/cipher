@@ -6,8 +6,8 @@ import type {GenerateContentResponse} from '../../../../src/agent/core/interface
 import {ToolErrorType} from '../../../../src/agent/core/domain/tools/tool-error.js'
 import {SessionEventBus} from '../../../../src/agent/infra/events/event-emitter.js'
 import {ByteRoverLlmHttpService} from '../../../../src/agent/infra/http/internal-llm-http-service.js'
+import {AgentLLMService} from '../../../../src/agent/infra/llm/agent-llm-service.js'
 import {ByteRoverContentGenerator} from '../../../../src/agent/infra/llm/generators/byterover-content-generator.js'
-import {ByteRoverLLMService} from '../../../../src/agent/infra/llm/internal-llm-service.js'
 import {SystemPromptManager} from '../../../../src/agent/infra/system-prompt/system-prompt-manager.js'
 import {ToolManager} from '../../../../src/agent/infra/tools/tool-manager.js'
 import {createMockToolProvider} from '../../../helpers/mock-factories.js'
@@ -28,11 +28,11 @@ function createContentGenerator(model = 'gemini-2.5-flash') {
 }
 
 /**
- * Comprehensive tests for Gemini-specific functionality in ByteRoverLLMService.
+ * Comprehensive tests for Gemini-specific functionality in AgentLLMService.
  * These tests verify that Gemini models are correctly initialized with the
  * appropriate formatter, tokenizer, and configuration.
  */
-describe('ByteRoverLLMService - Gemini Integration', () => {
+describe('AgentLLMService - Gemini Integration', () => {
   let sessionEventBus: SessionEventBus
   let systemPromptManager: SystemPromptManager
   let toolManager: ToolManager
@@ -60,7 +60,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
   describe('Gemini Model Detection', () => {
     it('should detect gemini-2.5-flash as Gemini provider', () => {
       const generator = createContentGenerator('gemini-2.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -80,7 +80,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
 
     it('should detect gemini-2.0-flash as Gemini provider', () => {
       const generator = createContentGenerator('gemini-2.0-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -99,7 +99,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
 
     it('should detect gemini-1.5-flash as Gemini provider', () => {
       const generator = createContentGenerator('gemini-1.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -118,7 +118,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
 
     it('should detect gemini-1.5-pro as Gemini provider', () => {
       const generator = createContentGenerator('gemini-1.5-pro')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -139,7 +139,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
   describe('Gemini Formatter & Tokenizer Initialization', () => {
     it('should use GeminiMessageFormatter for Gemini models', () => {
       const generator = createContentGenerator('gemini-2.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -163,7 +163,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
 
     it('should use GeminiTokenizer for Gemini models', () => {
       const generator = createContentGenerator('gemini-2.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -186,7 +186,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
 
     it('should initialize context manager with correct session ID for Gemini', () => {
       const generator = createContentGenerator('gemini-2.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'gemini-test-session',
         generator,
         {
@@ -205,7 +205,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
 
     it('should initialize context manager with correct max tokens for Gemini', () => {
       const generator = createContentGenerator('gemini-2.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -227,7 +227,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
   describe('Gemini Thinking Configuration', () => {
     it('should support thinking config for Gemini 2.0 models', () => {
       const generator = createContentGenerator('gemini-2.0-flash-thinking')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -250,7 +250,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
 
     it('should support thinking config with custom settings', () => {
       const generator = createContentGenerator('gemini-2.0-flash-thinking')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -272,7 +272,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
 
     it('should work without thinking config for regular Gemini models', () => {
       const generator = createContentGenerator('gemini-2.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -294,7 +294,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
   describe('Gemini Tool Calling', () => {
     it('should handle tool calls with Gemini models', async () => {
       const generator = createContentGenerator('gemini-2.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -357,7 +357,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
 
     it('should handle multiple parallel tool calls with Gemini', async () => {
       const generator = createContentGenerator('gemini-2.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -428,7 +428,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
   describe('Gemini Error Handling', () => {
     it('should handle Gemini generation errors gracefully', async () => {
       const generator = createContentGenerator('gemini-2.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -464,7 +464,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
 
     it('should handle Gemini tool execution errors', async () => {
       const generator = createContentGenerator('gemini-2.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -528,7 +528,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
   describe('Gemini Configuration Edge Cases', () => {
     it('should handle very high max input tokens for Gemini 1.5 Pro', () => {
       const generator = createContentGenerator('gemini-1.5-pro')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -547,7 +547,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
 
     it('should handle custom temperature for Gemini models', () => {
       const generator = createContentGenerator('gemini-2.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -566,7 +566,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
 
     it('should handle custom max iterations for Gemini models', () => {
       const generator = createContentGenerator('gemini-2.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -585,7 +585,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
 
     it('should handle timeout configuration for Gemini models', () => {
       const generator = createContentGenerator('gemini-2.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -606,7 +606,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
   describe('Gemini vs Claude Provider Comparison', () => {
     it('should initialize different formatters for Gemini vs Claude', () => {
       const geminiGenerator = createContentGenerator('gemini-2.5-flash')
-      const geminiService = new ByteRoverLLMService(
+      const geminiService = new AgentLLMService(
         'gemini-session',
         geminiGenerator,
         {
@@ -620,7 +620,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
       )
 
       const claudeGenerator = createContentGenerator('claude-3-5-sonnet')
-      const claudeService = new ByteRoverLLMService(
+      const claudeService = new AgentLLMService(
         'claude-session',
         claudeGenerator,
         {
@@ -642,7 +642,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
 
     it('should use same service class for both Gemini and Claude', () => {
       const geminiGenerator = createContentGenerator('gemini-2.5-flash')
-      const geminiService = new ByteRoverLLMService(
+      const geminiService = new AgentLLMService(
         'test-session',
         geminiGenerator,
         {
@@ -656,7 +656,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
       )
 
       const claudeGenerator = createContentGenerator('claude-3-5-sonnet')
-      const claudeService = new ByteRoverLLMService(
+      const claudeService = new AgentLLMService(
         'test-session',
         claudeGenerator,
         {
@@ -670,15 +670,15 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
       )
 
       // Both should be instances of the same service class
-      expect(geminiService).to.be.instanceOf(ByteRoverLLMService)
-      expect(claudeService).to.be.instanceOf(ByteRoverLLMService)
+      expect(geminiService).to.be.instanceOf(AgentLLMService)
+      expect(claudeService).to.be.instanceOf(AgentLLMService)
     })
   })
 
   describe('Gemini Message Formatting Integration', () => {
     it('should correctly format messages for Gemini API', async () => {
       const generator = createContentGenerator('gemini-2.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -707,7 +707,7 @@ describe('ByteRoverLLMService - Gemini Integration', () => {
 
     it('should handle system messages in Gemini format', async () => {
       const generator = createContentGenerator('gemini-2.5-flash')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {

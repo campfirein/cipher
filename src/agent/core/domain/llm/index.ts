@@ -59,7 +59,9 @@ export {
   MIME_TYPE_TO_FILE_TYPE,
   type ModelCapabilities,
   type ModelInfo,
+  PROVIDER_TYPES,
   type ProviderInfo,
+  type ProviderType,
   SUPPORTED_FILE_TYPES,
   type SupportedFileType,
 } from './types.js'

@@ -26,15 +26,21 @@ import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {TaskExecute} from '../../core/domain/transport/schemas.js'
 
 import {CipherAgent} from '../../../agent/infra/agent/index.js'
+import {FileSystemService} from '../../../agent/infra/file-system/file-system-service.js'
+import {FolderPackService} from '../../../agent/infra/folder-pack/folder-pack-service.js'
+import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
-import {serializeTaskError} from '../../core/domain/errors/task-error.js'
+import {getProviderById} from '../../core/domain/entities/provider-registry.js'
+import {NotAuthenticatedError, serializeTaskError} from '../../core/domain/errors/task-error.js'
 import {TransportStateEventNames, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
+import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
+import {getProviderApiKeyFromEnv} from '../provider/env-provider-detector.js'
 import {createProviderConfigStore} from '../storage/file-provider-config-store.js'
-import {ProviderKeychainStore} from '../storage/provider-keychain-store.js'
+import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 
 // ============================================================================
@@ -67,9 +73,81 @@ function agentLog(message: string): void {
  * Lazy providers on CipherAgent resolve from this cache per HTTP request.
  */
 let cachedSessionKey = ''
+let cachedAuthValid = false
 let cachedBrvConfig: BrvConfig | undefined
 let cachedTeamId = ''
 let cachedSpaceId = ''
+
+// ============================================================================
+// Provider Config
+// ============================================================================
+
+interface ProviderConfiguration {
+  openRouterApiKey?: string
+  provider?: string
+  providerApiKey?: string
+  providerBaseUrl?: string
+  providerHeaders?: Record<string, string>
+  providerLocation?: string
+  providerProject?: string
+}
+
+/**
+ * Load provider-specific configuration: API key, base URL, headers, etc.
+ * Mirrors the routing logic from the old agent-worker loadProviderConfiguration().
+ */
+async function loadProviderConfiguration(activeProvider: string, providerConfig: Awaited<ReturnType<ReturnType<typeof createProviderConfigStore>['read']>>): Promise<ProviderConfiguration> {
+  const result: ProviderConfiguration = {}
+
+  if (activeProvider === 'byterover') {
+    return result
+  }
+
+  // Get API key: keychain first, then environment variable
+  const providerKeychainStore = createProviderKeychainStore()
+  let apiKey = await providerKeychainStore.getApiKey(activeProvider)
+  if (!apiKey) {
+    apiKey = getProviderApiKeyFromEnv(activeProvider)
+  }
+
+  switch (activeProvider) {
+    case 'google-vertex': {
+      result.provider = activeProvider
+      result.providerProject = process.env.GOOGLE_CLOUD_PROJECT || undefined
+      result.providerLocation = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1'
+
+      break
+    }
+
+    case 'openai-compatible': {
+      result.provider = activeProvider
+      result.providerApiKey = apiKey || undefined
+      result.providerBaseUrl = providerConfig.getBaseUrl(activeProvider) || undefined
+
+      break
+    }
+
+    case 'openrouter': {
+      result.openRouterApiKey = apiKey
+
+      break
+    }
+
+    default: {
+      // Direct provider (anthropic, openai, google, xai, groq, mistral, etc.)
+      const providerDef = getProviderById(activeProvider)
+      result.provider = activeProvider
+      result.providerApiKey = apiKey
+      result.providerBaseUrl = providerDef?.baseUrl || undefined
+      const headers = providerDef?.headers
+      result.providerHeaders = headers && Object.keys(headers).length > 0 ? {...headers} : undefined
+
+      break
+    }
+  }
+
+  return result
+}
 
 // ============================================================================
 // Main
@@ -119,6 +197,7 @@ async function start(): Promise<void> {
   cachedTeamId = configResult.teamId ?? ''
   cachedSpaceId = configResult.spaceId ?? ''
   cachedSessionKey = authResult.sessionKey ?? ''
+  cachedAuthValid = authResult.isValid ?? false
 
   agentLog('Initial config loaded from state server')
 
@@ -135,20 +214,19 @@ async function start(): Promise<void> {
 
   transport.on<{isValid?: boolean; sessionKey?: string}>(AuthEvents.UPDATED, (data) => {
     if (data.sessionKey !== undefined) cachedSessionKey = data.sessionKey
+    if (data.isValid !== undefined) cachedAuthValid = data.isValid
+  })
+
+  transport.on(AuthEvents.EXPIRED, () => {
+    cachedAuthValid = false
   })
 
   // 4. Read provider config and API key from global config
   const providerConfigStore = createProviderConfigStore()
-  const providerKeychainStore = new ProviderKeychainStore()
-
   const providerConfig = await providerConfigStore.read()
   const {activeProvider} = providerConfig
   const activeModel = providerConfig.getActiveModel(activeProvider)
-
-  let openRouterApiKey: string | undefined
-  if (activeProvider !== 'byterover') {
-    openRouterApiKey = await providerKeychainStore.getApiKey(activeProvider)
-  }
+  const providerConfiguration = await loadProviderConfiguration(activeProvider, providerConfig)
 
   agentLog(`Provider: ${activeProvider}, Model: ${activeModel ?? 'default'}`)
 
@@ -166,9 +244,9 @@ async function start(): Promise<void> {
       verbose: false,
     },
     model: activeModel ?? DEFAULT_LLM_MODEL,
-    openRouterApiKey,
     projectId: PROJECT,
     storagePath: configResult.storagePath,
+    ...providerConfiguration,
   }
 
   agent = new CipherAgent(agentConfig, cachedBrvConfig, {
@@ -184,19 +262,31 @@ async function start(): Promise<void> {
 
   agentLog('CipherAgent started and session created')
 
-  // 6. Listen for task:execute from pool
+  // 6. Create FileSystemService + SearchKnowledgeService for smart query routing
+  const fileSystemService = new FileSystemService({workingDirectory: projectPath})
+  await fileSystemService.initialize()
+  const searchService = createSearchKnowledgeService(fileSystemService, {baseDirectory: projectPath})
+
+  // 7. Create executors and listen for task:execute from pool
   const curateExecutor = new CurateExecutor()
-  const queryExecutor = new QueryExecutor()
+  const folderPackService = new FolderPackService(fileSystemService)
+  await folderPackService.initialize()
+  const folderPackExecutor = new FolderPackExecutor(folderPackService)
+  const queryExecutor = new QueryExecutor({
+    enableCache: true,
+    fileSystem: fileSystemService,
+    searchService,
+  })
 
   transport.on<TaskExecute>(TransportTaskEventNames.EXECUTE, (task) => {
     // eslint-disable-next-line no-void
-    void executeTask(task, curateExecutor, queryExecutor)
+    void executeTask(task, curateExecutor, folderPackExecutor, queryExecutor)
   })
 
-  // 7. Register with transport server (for TransportHandlers tracking)
+  // 8. Register with transport server (for TransportHandlers tracking)
   await transport.requestWithAck('agent:register', {projectPath})
 
-  // 8. Notify parent that we're ready (IPC — AgentPool captures clientId)
+  // 9. Notify parent that we're ready (IPC — AgentPool captures clientId)
   process.send?.({clientId, type: 'ready'})
   agentLog('Ready — listening for tasks')
 }
@@ -204,9 +294,10 @@ async function start(): Promise<void> {
 async function executeTask(
   task: TaskExecute,
   curateExecutor: CurateExecutor,
+  folderPackExecutor: FolderPackExecutor,
   queryExecutor: QueryExecutor,
 ): Promise<void> {
-  const {clientCwd, clientId, content, files, taskId, type} = task
+  const {clientCwd, clientId, content, files, folderPath, taskId, type} = task
   if (!transport || !agent) return
 
   // Refresh config from state server to pick up changes from init/space-switch
@@ -228,8 +319,18 @@ async function executeTask(
   try {
     const authResult = await transport.requestWithAck<{isValid?: boolean; sessionKey?: string}>(TransportStateEventNames.GET_AUTH)
     if (authResult.sessionKey !== undefined) cachedSessionKey = authResult.sessionKey
+    if (authResult.isValid !== undefined) cachedAuthValid = authResult.isValid
   } catch {
     agentLog('Failed to refresh auth before task execution')
+  }
+
+  // Pre-flight auth check — fail fast before file validation or LLM calls.
+  // Without this, curate's file validation error would mask the 401.
+  if (!cachedAuthValid) {
+    const errorData = serializeTaskError(new NotAuthenticatedError())
+    transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, taskId})
+
+    return
   }
 
   // Setup per-task event forwarding — forwards llmservice:* events to daemon
@@ -239,9 +340,28 @@ async function executeTask(
   transport.request(TransportTaskEventNames.STARTED, {taskId})
 
   try {
-    const result = await (type === 'curate'
-      ? curateExecutor.executeWithAgent(agent, {clientCwd, content, files, taskId})
-      : queryExecutor.executeWithAgent(agent, {query: content, taskId}))
+    let result: string
+    switch (type) {
+      case 'curate': {
+        result = await curateExecutor.executeWithAgent(agent, {clientCwd, content, files, taskId})
+
+        break
+      }
+
+      case 'curate-folder': {
+        result = await folderPackExecutor.executeWithAgent(agent, {
+          clientCwd, content, folderPath: folderPath!, taskId,
+        })
+
+        break
+      }
+
+      case 'query': {
+        result = await queryExecutor.executeWithAgent(agent, {query: content, taskId})
+
+        break
+      }
+    }
 
     // Emit task:completed
     transport.request(TransportTaskEventNames.COMPLETED, {clientId, result, taskId})
