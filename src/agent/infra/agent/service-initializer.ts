@@ -129,8 +129,8 @@ export async function createCipherAgentServices(
   })
   await processService.initialize()
 
-  // Storage base path: XDG storagePath (daemon mode) or .brv/ fallback (REPL mode)
-  const storageBasePath = config.storagePath ?? join(workingDirectory, '.brv')
+  // Storage base path: XDG storagePath (always required, provided by daemon)
+  const storageBasePath = config.storagePath
 
   // 4. Blob storage (no dependencies)
   const blobStorage = createBlobStorage(

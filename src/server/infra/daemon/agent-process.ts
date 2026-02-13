@@ -25,7 +25,9 @@ import {randomUUID} from 'node:crypto'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {TaskExecute} from '../../core/domain/transport/schemas.js'
 
+import {SESSIONS_DIR} from '../../../agent/core/domain/session/session-metadata.js'
 import {CipherAgent} from '../../../agent/infra/agent/index.js'
+import {SessionMetadataStore} from '../../../agent/infra/session/session-metadata-store.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
@@ -40,6 +42,7 @@ import {QueryExecutor} from '../executor/query-executor.js'
 import {createProviderConfigStore} from '../storage/file-provider-config-store.js'
 import {ProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
+import {resolveSessionId} from './session-resolver.js'
 
 // ============================================================================
 // Environment
@@ -80,6 +83,7 @@ let cachedSpaceId = ''
 // ============================================================================
 
 let agent: CipherAgent | undefined
+let metadataStore: SessionMetadataStore
 let transport: ITransportClient | undefined
 
 async function start(): Promise<void> {
@@ -105,7 +109,7 @@ async function start(): Promise<void> {
   type ProjectConfigResponse = {
     brvConfig?: BrvConfig
     spaceId?: string
-    storagePath?: string
+    storagePath: string
     teamId?: string
   }
 
@@ -184,9 +188,28 @@ async function start(): Promise<void> {
   })
 
   await agent.start()
-  await agent.createSession(`agent-session-${randomUUID()}`)
 
-  agentLog('CipherAgent started and session created')
+  // 5b. Resolve session: resume last active or create new
+  const sessionsDir = `${configResult.storagePath}/${SESSIONS_DIR}`
+  metadataStore = new SessionMetadataStore({sessionsDir, workingDirectory: projectPath})
+
+  const newId = `agent-session-${randomUUID()}`
+  const {isResume, sessionId} = await resolveSessionId(metadataStore, newId, agentLog)
+
+  await agent.createSession(sessionId)
+  agent.switchDefaultSession(sessionId)
+
+  // Persist session metadata (best-effort)
+  try {
+    const metadata = metadataStore.createSessionMetadata(sessionId)
+    if (isResume) metadata.status = 'active'
+    await metadataStore.saveSession(metadata)
+    await metadataStore.setActiveSession(sessionId)
+  } catch (error) {
+    agentLog(`Session metadata persist failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  agentLog(`CipherAgent started (session=${sessionId}, resume=${isResume})`)
 
   // 6. Handle agent:newSession from /new command (via ConnectionCoordinator)
   const transportRef = transport
@@ -202,9 +225,28 @@ async function start(): Promise<void> {
     }
 
     try {
+      // Mark current session as ended (best-effort)
+      if (agent.sessionId) {
+        try {
+          const current = await metadataStore.getSession(agent.sessionId)
+          if (current) {
+            current.status = 'ended'
+            current.lastUpdated = new Date().toISOString()
+            await metadataStore.saveSession(current)
+          }
+        } catch { /* best-effort */ }
+      }
+
       const newSessionId = `agent-session-${randomUUID()}`
       await agent.createSession(newSessionId)
       agent.switchDefaultSession(newSessionId)
+
+      // Persist new session metadata (best-effort)
+      try {
+        await metadataStore.saveSession(metadataStore.createSessionMetadata(newSessionId))
+        await metadataStore.setActiveSession(newSessionId)
+      } catch { /* best-effort */ }
+
       agentLog(`New session created: ${newSessionId}`)
 
       await transportRef.requestWithAck(TransportAgentEventNames.NEW_SESSION_CREATED, {

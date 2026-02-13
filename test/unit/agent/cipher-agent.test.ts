@@ -16,7 +16,7 @@ describe('CipherAgent', () => {
       blobStorage: {
         maxBlobSize: 100 * 1024 * 1024,
         maxTotalSize: 1024 * 1024 * 1024,
-        storageDir: '.brv/blobs',
+        storageDir: '/tmp/brv-test-blobs',
       },
       llm: {
         maxIterations: 10,
@@ -26,6 +26,7 @@ describe('CipherAgent', () => {
       model: 'gemini-2.5-flash',
       projectId: 'byterover',
       sessionKey: 'test-session-key',
+      storagePath: '/tmp/brv-test-storage',
     }
     stub(console, 'log')
   })
