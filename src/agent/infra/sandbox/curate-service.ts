@@ -3,6 +3,8 @@
  * Wraps the curate-tool logic for use in the sandbox's tools.* SDK.
  */
 
+import {resolve} from 'node:path'
+
 import type {
   CurateOperation,
   CurateOperationResult,
@@ -94,6 +96,12 @@ function validateOperations(operations: CurateOperation[]): CurateOperationResul
  * Provides curate and domain detection operations for the sandbox.
  */
 export class CurateService implements ICurateService {
+  private readonly workingDirectory: string
+
+  constructor(workingDirectory?: string) {
+    this.workingDirectory = workingDirectory ?? process.cwd()
+  }
+
   /**
    * Execute curate operations on knowledge topics.
    *
@@ -102,7 +110,10 @@ export class CurateService implements ICurateService {
    * @returns Curate result with applied operations and summary
    */
   async curate(operations: CurateOperation[], options?: CurateOptions): Promise<CurateResult> {
-    const basePath = options?.basePath ?? DEFAULT_BASE_PATH
+    const rawBasePath = options?.basePath ?? DEFAULT_BASE_PATH
+    // Resolve relative basePath against the working directory to ensure
+    // files are written to the correct project directory, not process.cwd()
+    const basePath = resolve(this.workingDirectory, rawBasePath)
 
     // Pre-validate operations to catch common mistakes early
     const validationFailures = validateOperations(operations)
@@ -167,8 +178,9 @@ export class CurateService implements ICurateService {
 /**
  * Creates a curate service instance.
  *
+ * @param workingDirectory - Working directory for resolving relative paths
  * @returns CurateService instance
  */
-export function createCurateService(): ICurateService {
-  return new CurateService()
+export function createCurateService(workingDirectory?: string): ICurateService {
+  return new CurateService(workingDirectory)
 }

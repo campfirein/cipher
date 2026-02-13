@@ -192,6 +192,14 @@ export const useTasksStore = create<TasksActions & TasksState>()((set, get) => (
             reasoningContents: updated,
             sessionId: sessionId ?? task.sessionId,
           })
+        } else {
+          // No placeholder from llmservice:thinking — create one from first chunk
+          tasks.set(taskId, {
+            ...task,
+            isStreaming: !isComplete,
+            reasoningContents: [{content, isThinking: false, timestamp: Date.now()}],
+            sessionId: sessionId ?? task.sessionId,
+          })
         }
       } else {
         tasks.set(taskId, {

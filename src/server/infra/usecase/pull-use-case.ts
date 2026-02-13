@@ -5,7 +5,6 @@ import type {IContextTreeSnapshotService} from '../../core/interfaces/context-tr
 import type {IContextTreeWriterService} from '../../core/interfaces/context-tree/i-context-tree-writer-service.js'
 import type {ICogitPullService} from '../../core/interfaces/services/i-cogit-pull-service.js'
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
-import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
 import type {IPullUseCase, PullUseCaseRunOptions} from '../../core/interfaces/usecase/i-pull-use-case.js'
 
@@ -32,7 +31,6 @@ export interface PullUseCaseOptions {
   projectConfigStore: IProjectConfigStore
   terminal: ITerminal
   tokenStore: ITokenStore
-  trackingService: ITrackingService
 }
 
 export class PullUseCase implements IPullUseCase {
@@ -42,7 +40,6 @@ export class PullUseCase implements IPullUseCase {
   private readonly projectConfigStore: IProjectConfigStore
   private readonly terminal: ITerminal
   private readonly tokenStore: ITokenStore
-  private readonly trackingService: ITrackingService
 
   public constructor(options: PullUseCaseOptions) {
     this.cogitPullService = options.cogitPullService
@@ -51,7 +48,6 @@ export class PullUseCase implements IPullUseCase {
     this.projectConfigStore = options.projectConfigStore
     this.terminal = options.terminal
     this.tokenStore = options.tokenStore
-    this.trackingService = options.trackingService
   }
 
   protected async checkLocalChanges(): Promise<boolean> {
@@ -75,8 +71,6 @@ export class PullUseCase implements IPullUseCase {
     const format = options.format ?? 'text'
 
     try {
-      await this.trackingService.track('mem:pull')
-
       const token = await this.validateAuth(format)
       if (!token) return
 
@@ -140,7 +134,10 @@ export class PullUseCase implements IPullUseCase {
       this.terminal.actionStop()
       if (error instanceof WorkspaceNotInitializedError) {
         if (format === 'json') {
-          this.outputJsonResult({error: 'Not connected to a space. Run login and select a team and space first.', status: 'error'})
+          this.outputJsonResult({
+            error: 'Not connected to a space. Run login and select a team and space first.',
+            status: 'error',
+          })
         } else {
           this.terminal.log('Not connected to a space. Run "/login" and select a team and space first.')
         }

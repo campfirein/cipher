@@ -31,6 +31,10 @@ export class FolderPackExecutor implements IFolderPackExecutor {
   public async executeWithAgent(agent: ICipherAgent, options: FolderPackExecuteOptions): Promise<string> {
     const {clientCwd, content, folderPath, taskId} = options
 
+    if (!folderPath) {
+      throw new Error('folderPath is required for curate-folder tasks')
+    }
+
     // Resolve folder path
     const basePath = clientCwd ?? process.cwd()
     const absoluteFolderPath = path.isAbsolute(folderPath) ? folderPath : path.resolve(basePath, folderPath)
@@ -45,7 +49,7 @@ export class FolderPackExecutor implements IFolderPackExecutor {
     // Use iterative extraction strategy (inspired by rlm)
     // Stores packed folder in sandbox environment and lets agent iteratively query/extract
     // This avoids token limits entirely - works for folders of any size
-    return this.executeIterative(agent, packResult, content, absoluteFolderPath, taskId)
+    return this.executeIterative(agent, packResult, content, absoluteFolderPath, taskId, basePath)
   }
 
   /**
@@ -486,7 +490,7 @@ When curating knowledge from source files, you MUST preserve the exact, complete
    - Detect: fenced blocks with mermaid/plantuml tags, @startuml/@enduml, box-drawing characters
 
 8. **For Tables:**
-   - Copy complete tables with ALL rows into \`narrative.structure\` or \`narrative.features\`
+   - Copy complete tables with ALL rows into \`narrative.structure\` or \`narrative.highlights\`
    - Preserve column headers and every data row - do not summarize
 
 ### What "Preserve" Means:
@@ -544,7 +548,7 @@ content: {
 **Secondary fields for structured details:**
 - \`narrative.rules\` - Exact rule/constraint text from docs
 - \`narrative.examples\` - Complete example code with full context
-- \`narrative.features\` - Full feature descriptions with all details
+- \`narrative.highlights\` - Key highlights, capabilities, deliverables, or notable outcomes
 - \`narrative.structure\` - Complete structural documentation
 - \`narrative.dependencies\` - Full dependency information
 - \`rawConcept.patterns\` - All patterns with complete regex/validation strings
@@ -576,7 +580,7 @@ Extract ALL of the following - COMPLETE and VERBATIM:
 8. **Examples** - Copy full example code with all context
 9. **Metadata** - Capture authors, versions, dates from files
 10. **Diagrams** - Mermaid diagrams, PlantUML, ASCII art flow charts, sequence diagrams (use \`narrative.diagrams\` with type and content - preserve verbatim)
-11. **Tables** - Data tables with ALL rows preserved (use \`narrative.structure\` or \`narrative.features\`)
+11. **Tables** - Data tables with ALL rows preserved (use \`narrative.structure\` or \`narrative.highlights\`)
 12. **Procedures** - Step-by-step instructions, numbered workflows (use \`narrative.rules\`)
 
 ## Curation Process
@@ -765,6 +769,7 @@ await tools.curate([{
     userContext: string | undefined,
     folderPath: string,
     taskId: string,
+    projectRoot: string,
   ): Promise<string> {
     // Step 1: Generate repomix-style XML (single string with all file contents)
     const packedXml = this.folderPackService.generateXml(packResult)
@@ -774,8 +779,8 @@ await tools.curate([{
 
     // Step 2: Write XML to temporary file (avoids token limits, works with any agent)
     // This approach: file path (~50 bytes) sent to LLM, data stays on disk
-    // IMPORTANT: Write to CWD (not /tmp) so sandbox can access it
-    const tmpFilePath = path.join(process.cwd(), `.byterover-curate-${taskId}.xml`)
+    // IMPORTANT: Write to project root (not /tmp) so sandbox can access it
+    const tmpFilePath = path.join(projectRoot, `.byterover-curate-${taskId}.xml`)
 
     console.log(`[FolderPackExecutor] Writing folder data to temp file: ${tmpFilePath}`)
 

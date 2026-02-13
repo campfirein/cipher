@@ -6,10 +6,9 @@ import {
   NoInstanceRunningError,
 } from '@campfirein/brv-transport-client'
 import {expect} from 'chai'
-import sinon, {match, restore, stub} from 'sinon'
+import sinon, {restore, stub} from 'sinon'
 
 import type {ITerminal} from '../../src/server/core/interfaces/services/i-terminal.js'
-import type {ITrackingService} from '../../src/server/core/interfaces/services/i-tracking-service.js'
 
 import {
   CurateUseCase,
@@ -21,7 +20,6 @@ import {createMockTerminal} from '../helpers/mock-factories.js'
 describe('Curate Command', () => {
   let loggedMessages: string[]
   let terminal: ITerminal
-  let trackingService: sinon.SinonStubbedInstance<ITrackingService>
   let mockClient: sinon.SinonStubbedInstance<ITransportClient>
   let mockConnector: TransportConnector
 
@@ -35,10 +33,6 @@ describe('Curate Command', () => {
         }
       },
     })
-
-    trackingService = {
-      track: stub().resolves(),
-    } as unknown as sinon.SinonStubbedInstance<ITrackingService>
 
     // Create mock transport client.
     // Detached curate enqueues and exits immediately (no task:completed wait).
@@ -70,7 +64,6 @@ describe('Curate Command', () => {
   function createUseCaseOptions(overrides?: Partial<CurateUseCaseOptions>): CurateUseCaseOptions {
     return {
       terminal,
-      trackingService,
       transportConnector: mockConnector,
       ...overrides,
     }
@@ -83,7 +76,6 @@ describe('Curate Command', () => {
       await useCase.run({})
 
       expect(loggedMessages).to.include('Either a context argument, file reference, or folder reference is required.')
-      expect(trackingService.track.calledWith('mem:curate', {status: 'started'})).to.be.true
     })
 
     it('should send task:create with empty content when only files provided', async () => {
@@ -119,7 +111,6 @@ describe('Curate Command', () => {
       expect(payload).to.have.property('type', 'curate')
       expect(payload).to.have.property('taskId').that.is.a('string')
       expect(loggedMessages).to.include('✓ Context queued for processing.')
-      expect(trackingService.track.calledWith('mem:curate', {status: 'finished'})).to.be.true
     })
 
     it('should send task:create request with context, files, and taskId', async () => {
@@ -164,7 +155,6 @@ describe('Curate Command', () => {
       await useCase.run({context: 'test context', detach: true})
 
       expect(loggedMessages.some((m) => m.includes('No ByteRover instance is running'))).to.be.true
-      expect(trackingService.track.calledWith('mem:curate', match({status: 'error'}))).to.be.true
     })
 
     it('should handle InstanceCrashedError', async () => {
@@ -178,7 +168,6 @@ describe('Curate Command', () => {
       await useCase.run({context: 'test context', detach: true})
 
       expect(loggedMessages.some((m) => m.includes('ByteRover instance has crashed'))).to.be.true
-      expect(trackingService.track.calledWith('mem:curate', match({status: 'error'}))).to.be.true
     })
 
     it('should handle ConnectionFailedError', async () => {
@@ -193,7 +182,6 @@ describe('Curate Command', () => {
       await useCase.run({context: 'test context', detach: true})
 
       expect(loggedMessages.some((m) => m.includes('Failed to connect'))).to.be.true
-      expect(trackingService.track.calledWith('mem:curate', match({status: 'error'}))).to.be.true
     })
 
     it('should handle unexpected errors', async () => {
@@ -207,7 +195,6 @@ describe('Curate Command', () => {
       await useCase.run({context: 'test context', detach: true})
 
       expect(loggedMessages.some((m) => m.includes('Unexpected error'))).to.be.true
-      expect(trackingService.track.calledWith('mem:curate', match({status: 'error'}))).to.be.true
     })
 
     it('should disconnect client even when request fails', async () => {

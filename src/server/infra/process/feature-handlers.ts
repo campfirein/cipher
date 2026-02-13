@@ -27,13 +27,11 @@ import {FileContextTreeWriterService} from '../context-tree/file-context-tree-wr
 import {FsFileService} from '../file/fs-file-service.js'
 import {CallbackHandler} from '../http/callback-handler.js'
 import {HttpSpaceService} from '../space/http-space-service.js'
-import {FileGlobalConfigStore} from '../storage/file-global-config-store.js'
 import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
-import {ProviderKeychainStore} from '../storage/provider-keychain-store.js'
+import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {HttpTeamService} from '../team/http-team-service.js'
 import {FsTemplateLoader} from '../template/fs-template-loader.js'
-import {MixpanelTrackingService} from '../tracking/mixpanel-tracking-service.js'
 import {
   AuthHandler,
   ConfigHandler,
@@ -71,11 +69,9 @@ export async function setupFeatureHandlers({
 }: FeatureHandlersOptions): Promise<void> {
   const envConfig = getCurrentConfig()
   const tokenStore = createTokenStore()
-  const globalConfigStore = new FileGlobalConfigStore()
   const projectConfigStore = new ProjectConfigStore()
-  const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
   const providerConfigStore = new FileProviderConfigStore()
-  const providerKeychainStore = new ProviderKeychainStore()
+  const providerKeychainStore = createProviderKeychainStore()
   const userService = new HttpUserService({apiBaseUrl: envConfig.apiBaseUrl})
   const teamService = new HttpTeamService({apiBaseUrl: envConfig.apiBaseUrl})
   const spaceService = new HttpSpaceService({apiBaseUrl: envConfig.apiBaseUrl})
@@ -95,7 +91,6 @@ export async function setupFeatureHandlers({
     projectConfigStore,
     resolveProjectPath,
     tokenStore,
-    trackingService,
     transport,
     userService,
   }).setup()
@@ -134,7 +129,6 @@ export async function setupFeatureHandlers({
     projectConfigStore,
     resolveProjectPath,
     tokenStore,
-    trackingService,
     transport,
   }).setup()
 
@@ -144,7 +138,6 @@ export async function setupFeatureHandlers({
     spaceService,
     teamService,
     tokenStore,
-    trackingService,
     transport,
     userService,
   }).setup()
@@ -157,7 +150,6 @@ export async function setupFeatureHandlers({
     projectConfigStore,
     resolveProjectPath,
     tokenStore,
-    trackingService,
     transport,
   }).setup()
 
@@ -169,7 +161,6 @@ export async function setupFeatureHandlers({
     projectConfigStore,
     resolveProjectPath,
     tokenStore,
-    trackingService,
     transport,
   }).setup()
 
@@ -192,7 +183,6 @@ export async function setupFeatureHandlers({
   new ConnectorsHandler({
     connectorManagerFactory,
     resolveProjectPath,
-    trackingService,
     transport,
   }).setup()
 
@@ -208,7 +198,6 @@ export async function setupFeatureHandlers({
     spaceService,
     teamService,
     tokenStore,
-    trackingService,
     transport,
   }).setup()
 

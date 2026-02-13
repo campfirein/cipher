@@ -16,6 +16,26 @@ import React, {useCallback, useState} from 'react'
 import type {ProviderDTO} from '../../../../shared/transport/types/dto.js'
 
 import {useTheme} from '../../../hooks/index.js'
+import {stripBracketedPaste} from '../../../utils/index.js'
+
+/**
+ * API key placeholder hints per provider.
+ * Falls back to 'sk-...' for unlisted providers.
+ */
+const API_KEY_PLACEHOLDERS: Readonly<Record<string, string>> = {
+  anthropic: 'sk-ant-...',
+  cerebras: 'csk-...',
+  cohere: '...',
+  deepinfra: '...',
+  groq: 'gsk_...',
+  mistral: '...',
+  openai: 'sk-...',
+  openrouter: 'sk-or-...',
+  perplexity: 'pplx-...',
+  togetherai: '...',
+  vercel: 'vcp_...',
+  xai: 'xai-...',
+}
 
 /**
  * Validation result from API key check.
@@ -125,10 +145,13 @@ export const ApiKeyDialog: React.FC<ApiKeyDialogProps> = ({
         return
       }
 
-      // Handle printable characters (type to add to API key)
-      if (input && input.length === 1 && !key.ctrl && !key.meta) {
-        setApiKey((prev) => prev + input)
-        setError(undefined)
+      // Handle printable characters (type or paste to add to API key)
+      if (input && !key.ctrl && !key.meta) {
+        const cleaned = stripBracketedPaste(input)
+        if (cleaned) {
+          setApiKey((prev) => prev + cleaned)
+          setError(undefined)
+        }
       }
     },
     {isActive},
@@ -167,7 +190,7 @@ export const ApiKeyDialog: React.FC<ApiKeyDialogProps> = ({
         paddingX={1}
       >
         <Text color={apiKey ? colors.text : colors.dimText}>
-          {apiKey ? displayValue : 'sk-or-v1-...'}
+          {apiKey ? displayValue : (API_KEY_PLACEHOLDERS[provider.id] ?? 'sk-...')}
         </Text>
         <Text color={colors.primary}>▎</Text>
       </Box>

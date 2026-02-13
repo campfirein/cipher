@@ -253,7 +253,7 @@ export class ByteRoverLlmHttpService {
 
     // Collect text content (excluding thinking parts)
     const textParts: string[] = []
-    const functionCalls: Array<{args?: Record<string, unknown>; name?: string}> = []
+    const functionCalls: Array<{args?: Record<string, unknown>; name?: string; thoughtSignature?: string}> = []
 
     for (const part of parts) {
       const partRecord = part as Record<string, unknown>
@@ -266,9 +266,12 @@ export class ByteRoverLlmHttpService {
         textParts.push(partRecord.text)
       }
 
-      // Collect function calls
+      // Collect function calls (preserve thoughtSignature for Gemini 3+ models)
       if (partRecord.functionCall) {
-        functionCalls.push(partRecord.functionCall as {args?: Record<string, unknown>; name?: string})
+        functionCalls.push({
+          ...(partRecord.functionCall as {args?: Record<string, unknown>; name?: string}),
+          ...(typeof partRecord.thoughtSignature === 'string' && {thoughtSignature: partRecord.thoughtSignature}),
+        })
       }
     }
 
@@ -285,6 +288,7 @@ export class ByteRoverLlmHttpService {
                 name: fc.name ?? '',
               },
               id: `call_${Date.now()}_${index}`,
+              ...(fc.thoughtSignature && {thoughtSignature: fc.thoughtSignature}),
               type: 'function' as const,
             }))
           : undefined,

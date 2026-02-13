@@ -2,26 +2,35 @@
  * ProviderFlow Component
  *
  * Multi-step React flow for the /provider command.
- * State machine: loading → select → api_key → connecting → done
+ * State machine: loading → select → provider_actions → api_key → connecting → done
  *
  * Owns the UX flow — fetches providers, renders selection,
  * handles API key input, and calls connect/setActive mutations.
+ * For connected providers, shows action menu (set active, replace key, disconnect).
  */
 
 import {Box, Text} from 'ink'
-import React, {useCallback, useState} from 'react'
+import React, {useCallback, useMemo, useState} from 'react'
 
 import type {ProviderDTO} from '../../../../shared/transport/types/dto.js'
 
+import {SelectableList} from '../../../components/selectable-list.js'
 import {useTheme} from '../../../hooks/index.js'
 import {useConnectProvider} from '../api/connect-provider.js'
+import {useDisconnectProvider} from '../api/disconnect-provider.js'
 import {useGetProviders} from '../api/get-providers.js'
 import {useSetActiveProvider} from '../api/set-active-provider.js'
 import {useValidateApiKey} from '../api/validate-api-key.js'
 import {ApiKeyDialog} from './api-key-dialog.js'
 import {ProviderDialog} from './provider-dialog.js'
 
-type FlowStep = 'api_key' | 'connecting' | 'done' | 'loading' | 'select'
+type FlowStep = 'api_key' | 'connecting' | 'done' | 'loading' | 'provider_actions' | 'select'
+
+interface ProviderAction {
+  description: string
+  id: string
+  name: string
+}
 
 export interface ProviderFlowProps {
   /** Whether the flow is active for keyboard input */
@@ -44,25 +53,56 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
 
   const {data, isLoading} = useGetProviders()
   const connectMutation = useConnectProvider()
+  const disconnectMutation = useDisconnectProvider()
   const setActiveMutation = useSetActiveProvider()
   const validateMutation = useValidateApiKey()
 
   const providers = data?.providers ?? []
 
-  const handleSelect = useCallback(async (provider: ProviderDTO) => {
+  // Build action choices for a connected provider
+  const providerActions = useMemo(() => {
+    if (!selectedProvider) return []
+    const actions: ProviderAction[] = []
+
+    if (!selectedProvider.isCurrent) {
+      actions.push({
+        description: 'Make this the active provider',
+        id: 'activate',
+        name: 'Set as active',
+      })
+    }
+
+    if (selectedProvider.requiresApiKey) {
+      actions.push(
+        {
+          description: 'Enter a new API key',
+          id: 'replace',
+          name: 'Replace API key',
+        },
+        {
+          description: 'Remove API key and disconnect',
+          id: 'disconnect',
+          name: 'Disconnect',
+        },
+      )
+    }
+
+    actions.push({
+      description: 'Go back',
+      id: 'cancel',
+      name: 'Cancel',
+    })
+
+    return actions
+  }, [selectedProvider])
+
+  const handleSelect = useCallback((provider: ProviderDTO) => {
     setSelectedProvider(provider)
     setError(null)
 
-    // Already connected — just switch to it
+    // Already connected — show actions menu
     if (provider.isConnected) {
-      setStep('connecting')
-      try {
-        await setActiveMutation.mutateAsync({providerId: provider.id})
-        onComplete(`Switched to ${provider.name}`)
-      } catch (error_) {
-        setError(error_ instanceof Error ? error_.message : String(error_))
-        setStep('select')
-      }
+      setStep('provider_actions')
 
       return
     }
@@ -75,14 +115,59 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
 
     // No API key needed — connect directly
     setStep('connecting')
-    try {
-      await connectMutation.mutateAsync({providerId: provider.id})
-      onComplete(`Connected to ${provider.name}`)
-    } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : String(error_))
-      setStep('select')
+    connectMutation.mutateAsync({providerId: provider.id})
+      .then(() => onComplete(`Connected to ${provider.name}`))
+      .catch((error_: unknown) => {
+        setError(error_ instanceof Error ? error_.message : String(error_))
+        setStep('select')
+      })
+  }, [connectMutation, onComplete])
+
+  const handleAction = useCallback(async (action: ProviderAction) => {
+    if (!selectedProvider) return
+
+    switch (action.id) {
+      case 'activate': {
+        setStep('connecting')
+        try {
+          await setActiveMutation.mutateAsync({providerId: selectedProvider.id})
+          onComplete(`Switched to ${selectedProvider.name}`)
+        } catch (error_) {
+          setError(error_ instanceof Error ? error_.message : String(error_))
+          setStep('select')
+        }
+
+        break
+      }
+
+      case 'disconnect': {
+        setStep('connecting')
+        try {
+          await disconnectMutation.mutateAsync({providerId: selectedProvider.id})
+          onComplete(`Disconnected from ${selectedProvider.name}`)
+        } catch (error_) {
+          setError(error_ instanceof Error ? error_.message : String(error_))
+          setStep('select')
+        }
+
+        break
+      }
+
+      case 'replace': {
+        setStep('api_key')
+
+        break
+      }
+
+      default: {
+        // cancel
+        setStep('select')
+        setSelectedProvider(null)
+
+        break
+      }
     }
-  }, [connectMutation, onComplete, setActiveMutation])
+  }, [disconnectMutation, onComplete, selectedProvider, setActiveMutation])
 
   const handleApiKeySuccess = useCallback(async (apiKey: string) => {
     if (!selectedProvider) return
@@ -153,6 +238,41 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
           </Text>
         </Box>
       )
+    }
+
+    case 'provider_actions': {
+      return selectedProvider ? (
+        <Box flexDirection="column">
+          {error && (
+            <Box marginBottom={1}>
+              <Text color={colors.errorText}>{error}</Text>
+            </Box>
+          )}
+          <SelectableList<ProviderAction>
+            filterKeys={(item) => [item.id, item.name]}
+            isActive={isActive}
+            items={providerActions}
+            keyExtractor={(item) => item.id}
+            onCancel={() => {
+              setStep('select')
+              setSelectedProvider(null)
+            }}
+            onSelect={handleAction}
+            renderItem={(item, isItemActive) => (
+              <Box gap={2}>
+                <Text
+                  backgroundColor={isItemActive ? colors.dimText : undefined}
+                  color={colors.text}
+                >
+                  {item.name.padEnd(20)}
+                </Text>
+                <Text color={colors.dimText}>{item.description}</Text>
+              </Box>
+            )}
+            title={`${selectedProvider.name} — Choose action`}
+          />
+        </Box>
+      ) : null
     }
 
     case 'select': {

@@ -1,5 +1,6 @@
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 import type { Content } from '@google/genai'
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 
 import type { ToolExecutionResult } from '../../core/domain/tools/tool-error.js'
 import type { ToolSet } from '../../core/domain/tools/types.js'
@@ -46,9 +47,11 @@ import { ContextManager, type FileData, type ImageData } from './context/context
 import { LoopDetector } from './context/loop-detector.js'
 import { ClaudeMessageFormatter } from './formatters/claude-formatter.js'
 import { GeminiMessageFormatter } from './formatters/gemini-formatter.js'
+import { OpenRouterMessageFormatter } from './formatters/openrouter-formatter.js'
 import { type ThinkingConfig, ThoughtParser } from './thought-parser.js'
 import { ClaudeTokenizer } from './tokenizers/claude-tokenizer.js'
 import { GeminiTokenizer } from './tokenizers/gemini-tokenizer.js'
+import { OpenRouterTokenizer } from './tokenizers/openrouter-tokenizer.js'
 import { type ProcessedOutput, ToolOutputProcessor, type TruncationConfig } from './tool-output-processor.js'
 
 /** Target utilization ratio for message tokens (leaves headroom for response) */
@@ -75,11 +78,17 @@ interface ParallelToolResult {
 /**
  * Configuration for ByteRover LLM service
  */
-export interface ByteRoverLLMServiceConfig {
+export interface AgentLLMServiceConfig {
   maxInputTokens?: number
   maxIterations?: number
   maxTokens?: number
   model: string
+  /**
+   * Explicit provider ID for formatter/tokenizer selection.
+   * When set, overrides the model-name-based heuristic detection.
+   * Used for direct provider connections (anthropic, openai, google, xai, groq, mistral).
+   */
+  provider?: string
   temperature?: number
   /**
    * Thinking configuration for Gemini models (optional).
@@ -133,7 +142,7 @@ interface BuildGenerateContentRequestOptions {
  * - Format messages for specific providers (handled by generators)
  * - Handle retry logic (handled by RetryableContentGenerator decorator)
  */
-export class ByteRoverLLMService implements ILLMService {
+export class AgentLLMService implements ILLMService {
   /** Cached base system prompt (everything built by SystemPromptManager) for reuse across iterations */
   private cachedBasePrompt: null | string = null
   private readonly compactionService?: CompactionService
@@ -149,7 +158,7 @@ export class ByteRoverLLMService implements ILLMService {
   }
   private readonly contextManager: ContextManager<Content | MessageParam>
   private readonly environmentBuilder: EnvironmentContextBuilder
-  private readonly formatter: IMessageFormatter<Content | MessageParam>
+  private readonly formatter: IMessageFormatter<ChatCompletionMessageParam | Content | MessageParam>
   private readonly generator: IContentGenerator
   private readonly logger: ILogger
   private readonly loopDetector: LoopDetector
@@ -159,7 +168,7 @@ export class ByteRoverLLMService implements ILLMService {
   private readonly metadataHandler: ToolMetadataHandler
   private readonly mutex = new AsyncMutex()
   private readonly outputProcessor: ToolOutputProcessor
-  private readonly providerType: 'claude' | 'gemini'
+  private readonly providerType: 'claude' | 'gemini' | 'openai'
   private readonly sessionEventBus: SessionEventBus
   private readonly sessionId: string
   private readonly systemPromptManager: SystemPromptManager
@@ -194,7 +203,7 @@ export class ByteRoverLLMService implements ILLMService {
   public constructor(
     sessionId: string,
     generator: IContentGenerator,
-    config: ByteRoverLLMServiceConfig,
+    config: AgentLLMServiceConfig,
     options: {
       compactionService?: CompactionService
       historyStorage?: IHistoryStorage
@@ -218,15 +227,17 @@ export class ByteRoverLLMService implements ILLMService {
     this.environmentBuilder = new EnvironmentContextBuilder()
     this.metadataHandler = new ToolMetadataHandler(this.sessionEventBus)
     this.workingDirectory = process.cwd()
-    // Detect provider type from model name (needed for validation)
+    // Detect provider type: explicit provider config takes priority over model name heuristic
     const modelName = config.model ?? 'claude-haiku-4-5@20251001'
-    this.providerType = this.detectProviderType(modelName)
+    this.providerType = this.detectProviderType(modelName, config.provider)
 
     // Validate core LLM config using Zod schema (logs warning if invalid)
     this.validateConfig(modelName, config.maxInputTokens)
 
     // Get effective max input tokens from registry (respects model limits)
-    const effectiveMaxInputTokens = getEffectiveMaxInputTokens(this.providerType, modelName, config.maxInputTokens)
+    // For 'openai' provider type, use 'openai' registry; for others use existing logic
+    const registryProvider = this.providerType === 'openai' ? 'openai' : this.providerType
+    const effectiveMaxInputTokens = getEffectiveMaxInputTokens(registryProvider, modelName, config.maxInputTokens)
 
     this.config = {
       maxInputTokens: effectiveMaxInputTokens,
@@ -240,7 +251,10 @@ export class ByteRoverLLMService implements ILLMService {
     }
 
     // Initialize formatter and tokenizer based on provider type
-    if (this.providerType === 'claude') {
+    if (this.providerType === 'openai') {
+      this.formatter = new OpenRouterMessageFormatter()
+      this.tokenizer = new OpenRouterTokenizer()
+    } else if (this.providerType === 'claude') {
       this.formatter = new ClaudeMessageFormatter()
       this.tokenizer = new ClaudeTokenizer(this.config.model)
     } else {
@@ -691,21 +705,32 @@ export class ByteRoverLLMService implements ILLMService {
   /**
    * Detect provider type from model name using the LLM registry.
    *
-   * Uses the centralized registry to determine provider from model name.
-   * Falls back to string prefix matching if model is not in registry.
+   * Uses explicit provider config first, then the centralized registry,
+   * and falls back to string prefix matching if model is not in registry.
    *
    * @param model - Model identifier
-   * @returns Provider type ('claude' or 'gemini')
+   * @param explicitProvider - Optional explicit provider ID from config
+   * @returns Provider type ('claude', 'gemini', or 'openai')
    */
-  private detectProviderType(model: string): 'claude' | 'gemini' {
-    // Use registry to detect provider
-    const registryProvider = getProviderFromModel(model)
-    if (registryProvider === 'claude' || registryProvider === 'gemini') {
-      return registryProvider
+  private detectProviderType(model: string, explicitProvider?: string): 'claude' | 'gemini' | 'openai' {
+    // 1. Explicit provider mapping takes priority
+    if (explicitProvider) {
+      if (explicitProvider === 'anthropic') return 'claude'
+      if (explicitProvider === 'google') return 'gemini'
+      if (['groq', 'mistral', 'openai', 'xai'].includes(explicitProvider)) return 'openai'
     }
 
-    // Fallback to string prefix matching for unknown models
-    return model.toLowerCase().startsWith('claude') ? 'claude' : 'gemini'
+    // 2. Use registry to detect provider from model name
+    const registryProvider = getProviderFromModel(model)
+    if (registryProvider === 'claude') return 'claude'
+    if (registryProvider === 'gemini') return 'gemini'
+    if (registryProvider === 'openai') return 'openai'
+
+    // 3. Fallback to string prefix matching for unknown models
+    const lowerModel = model.toLowerCase()
+    if (lowerModel.startsWith('claude')) return 'claude'
+    if (lowerModel.startsWith('gpt') || lowerModel.startsWith('o1') || lowerModel.startsWith('o3') || lowerModel.startsWith('o4')) return 'openai'
+    return 'gemini'
   }
 
   /**

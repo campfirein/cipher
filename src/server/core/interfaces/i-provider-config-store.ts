@@ -13,7 +13,7 @@ export interface IProviderConfigStore {
    */
   connectProvider: (
     providerId: string,
-    options?: {activeModel?: string},
+    options?: {activeModel?: string; baseUrl?: string},
   ) => Promise<void>
 
   /**

@@ -22,8 +22,6 @@ import {
   TaskErrorEvent,
   TransportTaskEventNames,
 } from '../../core/domain/transport/index.js'
-import {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
-import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
 import {createDaemonAwareConnector, type TransportConnector} from '../transport/transport-connector.js'
@@ -31,18 +29,22 @@ import {createDaemonAwareConnector, type TransportConnector} from '../transport/
 export type {TransportConnector} from '../transport/transport-connector.js'
 
 const CurateOperationSchema = z.object({
-  filePath: z.string(),
+  filePath: z.string().optional(),
+  message: z.string().optional(),
   path: z.string(),
   status: z.enum(['success', 'failed']),
-  type: z.enum(['ADD', 'UPDATE', 'MERGE', 'DELETE']),
+  type: z.enum(['ADD', 'UPDATE', 'UPSERT', 'MERGE', 'DELETE']),
 })
 
 const CurateResultSchema = z.object({
-  result: z
-    .object({
-      applied: z.array(CurateOperationSchema).optional(),
-    })
-    .optional(),
+  applied: z.array(CurateOperationSchema).optional(),
+  summary: z.object({
+    added: z.number().optional(),
+    deleted: z.number().optional(),
+    failed: z.number().optional(),
+    merged: z.number().optional(),
+    updated: z.number().optional(),
+  }).optional(),
 })
 
 type CurateOperation = z.infer<typeof CurateOperationSchema>
@@ -58,7 +60,6 @@ export interface CurateUseCaseOptions {
   /** Delay between retry attempts (ms). Default: 2000. Set to 0 in tests. */
   retryDelayMs?: number
   terminal: ITerminal
-  trackingService: ITrackingService
   /** Optional transport connector for dependency injection (defaults to connectToTransport) */
   transportConnector?: TransportConnector
 }
@@ -73,13 +74,11 @@ const DISCONNECT_GRACE_MS = 10_000
 export class CurateUseCase implements ICurateUseCase {
   private readonly retryDelayMs: number
   private readonly terminal: ITerminal
-  private readonly trackingService: ITrackingService
   private readonly transportConnector: TransportConnector
 
   constructor(options: CurateUseCaseOptions) {
     this.retryDelayMs = options.retryDelayMs ?? RETRY_DELAY_MS
     this.terminal = options.terminal
-    this.trackingService = options.trackingService
     this.transportConnector = options.transportConnector ?? createDaemonAwareConnector()
   }
 
@@ -91,8 +90,6 @@ export class CurateUseCase implements ICurateUseCase {
     format = 'text',
     verbose = false,
   }: CurateUseCaseRunOptions): Promise<void> {
-    await this.trackingService.track('mem:curate', {status: 'started'})
-
     const hasContext = Boolean(context?.trim())
     const hasFiles = Boolean(files?.length)
     const hasFolders = Boolean(folders?.length)
@@ -178,8 +175,6 @@ export class CurateUseCase implements ICurateUseCase {
           await completionPromise
         }
 
-        await this.trackingService.track('mem:curate', {status: 'finished'})
-
         // Success: cleanup and return
         await client.disconnect().catch(() => {})
         return
@@ -214,8 +209,6 @@ export class CurateUseCase implements ICurateUseCase {
     } else {
       this.handleConnectionError(lastError)
     }
-
-    await this.trackingService.track('mem:curate', {message: formatError(lastError), status: 'error'})
 
     // Force exit only for task-level disconnects (AGENT_DISCONNECTED) where Socket.IO
     // handles may leak. Connection errors (DaemonSpawnError, ConnectionFailedError) already
@@ -418,17 +411,27 @@ export class CurateUseCase implements ICurateUseCase {
 
       const unsubscribers = [
         client.on<LlmToolResultEvent>(LlmEventNames.TOOL_RESULT, (payload) => {
-          if (payload.success && payload.toolName === ToolName.CURATE && payload.result) {
-            try {
-              const parsed = CurateResultSchema.parse(JSON.parse(payload.result as string))
-              for (const op of parsed.result?.applied ?? []) {
+          if (!payload.success || !payload.result) {
+            return
+          }
+
+          // Handle both direct curate tool and curate via code_exec
+          if (payload.toolName !== ToolName.CURATE && payload.toolName !== ToolName.CODE_EXEC) {
+            return
+          }
+
+          try {
+            const resultData = JSON.parse(payload.result as string)
+            const parsed = CurateResultSchema.safeParse(resultData)
+            if (parsed.success) {
+              for (const op of parsed.data.applied ?? []) {
                 if (op.status === 'success') {
                   operations.push(op)
                 }
               }
-            } catch {
-              // Ignore parse errors
             }
+          } catch {
+            // Ignore parse errors for non-curate code_exec results
           }
         }),
 

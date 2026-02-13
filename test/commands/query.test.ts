@@ -6,10 +6,9 @@ import {
   NoInstanceRunningError,
 } from '@campfirein/brv-transport-client'
 import {expect} from 'chai'
-import sinon, {match, restore, stub} from 'sinon'
+import sinon, {restore, stub} from 'sinon'
 
 import type {ITerminal} from '../../src/server/core/interfaces/services/i-terminal.js'
-import type {ITrackingService} from '../../src/server/core/interfaces/services/i-tracking-service.js'
 
 import {
   QueryUseCase,
@@ -21,7 +20,6 @@ import {createMockTerminal} from '../helpers/mock-factories.js'
 describe('Query Command', () => {
   let loggedMessages: string[]
   let terminal: ITerminal
-  let trackingService: sinon.SinonStubbedInstance<ITrackingService>
   let mockClient: sinon.SinonStubbedInstance<ITransportClient>
   let mockConnector: TransportConnector
 
@@ -35,10 +33,6 @@ describe('Query Command', () => {
         }
       },
     })
-
-    trackingService = {
-      track: stub().resolves(),
-    } as unknown as sinon.SinonStubbedInstance<ITrackingService>
 
     // Create mock transport client with event handlers
     const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
@@ -98,7 +92,6 @@ describe('Query Command', () => {
   function createUseCaseOptions(overrides?: Partial<QueryUseCaseOptions>): QueryUseCaseOptions {
     return {
       terminal,
-      trackingService,
       transportConnector: mockConnector,
       ...overrides,
     }
@@ -112,7 +105,6 @@ describe('Query Command', () => {
 
       expect(loggedMessages).to.include('Query argument is required.')
       expect(loggedMessages).to.include('Usage: brv query "your question here"')
-      expect(trackingService.track.calledWith('mem:query', {status: 'started'})).to.be.true
     })
 
     it('should show usage message when query is whitespace only', async () => {
@@ -134,15 +126,6 @@ describe('Query Command', () => {
       expect(payload).to.have.property('content', 'What is the architecture?')
       expect(payload).to.have.property('type', 'query')
       expect(payload).to.have.property('taskId').that.is.a('string')
-    })
-
-    it('should track query after successful execution', async () => {
-      const useCase = new QueryUseCase(createUseCaseOptions())
-
-      await useCase.run({query: 'What is the architecture?', verbose: false})
-
-      expect(trackingService.track.calledWith('mem:query', {status: 'started'})).to.be.true
-      expect(trackingService.track.calledWith('mem:query', {status: 'finished'})).to.be.true
     })
 
     it('should log verbose messages when verbose is true', async () => {
@@ -173,7 +156,6 @@ describe('Query Command', () => {
       await useCase.run({query: 'test query', verbose: false})
 
       expect(loggedMessages.some((m) => m.includes('No ByteRover instance is running'))).to.be.true
-      expect(trackingService.track.calledWith('mem:query', match({status: 'error'}))).to.be.true
     })
 
     it('should handle InstanceCrashedError', async () => {
@@ -187,7 +169,6 @@ describe('Query Command', () => {
       await useCase.run({query: 'test query', verbose: false})
 
       expect(loggedMessages.some((m) => m.includes('ByteRover instance has crashed'))).to.be.true
-      expect(trackingService.track.calledWith('mem:query', match({status: 'error'}))).to.be.true
     })
 
     it('should handle ConnectionFailedError', async () => {
@@ -202,7 +183,6 @@ describe('Query Command', () => {
       await useCase.run({query: 'test query', verbose: false})
 
       expect(loggedMessages.some((m) => m.includes('Failed to connect'))).to.be.true
-      expect(trackingService.track.calledWith('mem:query', match({status: 'error'}))).to.be.true
     })
   })
 })

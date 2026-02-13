@@ -14,7 +14,6 @@ import {useTasksStore} from '../../tasks/stores/tasks-store.js'
 import {autoSetupOnboarding} from '../api/auto-setup-onboarding.js'
 import {useAppViewMode} from '../hooks/use-app-view-mode.js'
 import {useOnboardingStore} from '../stores/onboarding-store.js'
-import {getTransitionEvent} from '../utils.js'
 
 interface OnboardingInitializerProps {
   children: React.ReactNode
@@ -22,7 +21,6 @@ interface OnboardingInitializerProps {
 
 export function OnboardingInitializer({children}: OnboardingInitializerProps): React.ReactNode {
   const client = useTransportStore((s) => s.client)
-  const trackingService = useTransportStore((s) => s.trackingService)
   const {isAuthorized, isLoadingInitial, user} = useAuthStore()
   const tasks = useTasksStore((s) => s.tasks)
 
@@ -61,20 +59,12 @@ export function OnboardingInitializer({children}: OnboardingInitializerProps): R
   useEffect(() => {
     if (viewMode.type !== 'onboarding') return
 
-    const previousStep = previousStepRef.current
     const newStep = advanceStep(tasks)
 
     if (newStep) {
-      // Track step completion events
-      const event = getTransitionEvent(previousStep, newStep)
-
-      if (event) {
-        trackingService?.track(`onboarding:${event}`)
-      }
-
       previousStepRef.current = newStep
     }
-  }, [advanceStep, tasks, trackingService, viewMode.type])
+  }, [advanceStep, tasks, viewMode.type])
 
   // Keep previousStepRef in sync when flowStep changes externally
   useEffect(() => {

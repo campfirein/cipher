@@ -8,7 +8,6 @@ import type {IContextFileReader} from '../../../src/server/core/interfaces/conte
 import type {IContextTreeSnapshotService} from '../../../src/server/core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {ICogitPushService} from '../../../src/server/core/interfaces/services/i-cogit-push-service.js'
 import type {ITerminal} from '../../../src/server/core/interfaces/services/i-terminal.js'
-import type {ITrackingService} from '../../../src/server/core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../../src/server/core/interfaces/storage/i-project-config-store.js'
 
 import {BRV_CONFIG_VERSION} from '../../../src/server/constants.js'
@@ -28,7 +27,6 @@ describe('PushUseCase', () => {
   let projectConfig: BrvConfig
   let terminal: ITerminal
   let tokenStore: SinonStubbedInstance<ITokenStore>
-  let trackingService: SinonStubbedInstance<ITrackingService>
   let validToken: AuthToken
 
   beforeEach(() => {
@@ -52,10 +50,6 @@ describe('PushUseCase', () => {
     }
     configStore = {exists: stub(), getModifiedTime: stub(), read: stub(), write: stub()}
     tokenStore = {clear: stub(), load: stub(), save: stub()}
-    trackingService = {
-      track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
-    }
-
     validToken = new AuthToken({
       accessToken: 'access-token',
       expiresAt: new Date(Date.now() + 3600 * 1000),
@@ -91,7 +85,6 @@ describe('PushUseCase', () => {
       projectConfigStore: configStore,
       terminal,
       tokenStore,
-      trackingService,
       webAppUrl: 'https://app.byterover.com',
     })
   }
@@ -191,7 +184,7 @@ describe('PushUseCase', () => {
       })
       contextFileReader.readMany
         .onFirstCall()
-        .resolves([{content: '# Test\n\nContent', path: 'structure/context.md', title: 'Test'}])
+        .resolves([{content: '# Test\n\nContent', keywords: [], path: 'structure/context.md', tags: [], title: 'Test'}])
         .onSecondCall()
         .resolves([])
       cogitPushService.push.resolves(
@@ -222,7 +215,7 @@ describe('PushUseCase', () => {
       })
       contextFileReader.readMany
         .onFirstCall()
-        .resolves([{content: '# My Title\n\nMy content', path: 'test/context.md', title: 'My Title'}])
+        .resolves([{content: '# My Title\n\nMy content', keywords: [], path: 'test/context.md', tags: [], title: 'My Title'}])
         .onSecondCall()
         .resolves([])
       cogitPushService.push.resolves(
@@ -259,7 +252,7 @@ describe('PushUseCase', () => {
       })
       contextFileReader.readMany
         .onFirstCall()
-        .resolves([{content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'}])
+        .resolves([{content: '# Test\n\nContent', keywords: [], path: 'test/context.md', tags: [], title: 'Test'}])
         .onSecondCall()
         .resolves([])
       cogitPushService.push.resolves(
@@ -288,7 +281,7 @@ describe('PushUseCase', () => {
       })
       contextFileReader.readMany
         .onFirstCall()
-        .resolves([{content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'}])
+        .resolves([{content: '# Test\n\nContent', keywords: [], path: 'test/context.md', tags: [], title: 'Test'}])
         .onSecondCall()
         .resolves([])
       cogitPushService.push.resolves(
@@ -319,7 +312,7 @@ describe('PushUseCase', () => {
       })
       contextFileReader.readMany
         .onFirstCall()
-        .resolves([{content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'}])
+        .resolves([{content: '# Test\n\nContent', keywords: [], path: 'test/context.md', tags: [], title: 'Test'}])
         .onSecondCall()
         .resolves([])
       cogitPushService.push.rejects(new Error('Push failed: Network error'))
@@ -342,7 +335,7 @@ describe('PushUseCase', () => {
       })
       contextFileReader.readMany
         .onFirstCall()
-        .resolves([{content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'}])
+        .resolves([{content: '# Test\n\nContent', keywords: [], path: 'test/context.md', tags: [], title: 'Test'}])
         .onSecondCall()
         .resolves([])
       cogitPushService.push.rejects(new Error('Failed to push to CoGit: Network timeout'))
@@ -383,7 +376,7 @@ describe('PushUseCase', () => {
       })
       contextFileReader.readMany
         .onFirstCall()
-        .resolves([{content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'}])
+        .resolves([{content: '# Test\n\nContent', keywords: [], path: 'test/context.md', tags: [], title: 'Test'}])
         .onSecondCall()
         .resolves([])
       cogitPushService.push.resolves(
@@ -435,7 +428,7 @@ describe('PushUseCase', () => {
       })
       contextFileReader.readMany
         .onFirstCall()
-        .resolves([{content: '# Test\n\nContent', path: 'test/context.md', title: 'Test'}])
+        .resolves([{content: '# Test\n\nContent', keywords: [], path: 'test/context.md', tags: [], title: 'Test'}])
         .onSecondCall()
         .resolves([])
       cogitPushService.push.resolves(
@@ -469,9 +462,9 @@ describe('PushUseCase', () => {
       contextFileReader.readMany
         .onFirstCall()
         .resolves([
-          {content: '# First\n\nContent', path: 'first/context.md', title: 'First'},
-          {content: '# Second\n\nContent', path: 'second/context.md', title: 'Second'},
-          {content: '# Third\n\nContent', path: 'third/context.md', title: 'Third'},
+          {content: '# First\n\nContent', keywords: [], path: 'first/context.md', tags: [], title: 'First'},
+          {content: '# Second\n\nContent', keywords: [], path: 'second/context.md', tags: [], title: 'Second'},
+          {content: '# Third\n\nContent', keywords: [], path: 'third/context.md', tags: [], title: 'Third'},
         ])
         .onSecondCall()
         .resolves([])
@@ -529,7 +522,7 @@ describe('PushUseCase', () => {
         .onFirstCall()
         .resolves([])
         .onSecondCall()
-        .resolves([{content: '# Updated\n\nUpdated content', path: 'existing/context.md', title: 'Updated'}])
+        .resolves([{content: '# Updated\n\nUpdated content', keywords: [], path: 'existing/context.md', tags: [], title: 'Updated'}])
       cogitPushService.push.resolves(
         new CogitPushResponse({
           message: 'Success',
@@ -560,9 +553,9 @@ describe('PushUseCase', () => {
       })
       contextFileReader.readMany
         .onFirstCall()
-        .resolves([{content: '# New\n\nNew content', path: 'new/context.md', title: 'New'}])
+        .resolves([{content: '# New\n\nNew content', keywords: [], path: 'new/context.md', tags: [], title: 'New'}])
         .onSecondCall()
-        .resolves([{content: '# Updated\n\nUpdated content', path: 'existing/context.md', title: 'Updated'}])
+        .resolves([{content: '# Updated\n\nUpdated content', keywords: [], path: 'existing/context.md', tags: [], title: 'Updated'}])
       cogitPushService.push.resolves(
         new CogitPushResponse({
           message: 'Success',
@@ -596,8 +589,8 @@ describe('PushUseCase', () => {
         .resolves([])
         .onSecondCall()
         .resolves([
-          {content: '# File1\n\nContent', path: 'file1/context.md', title: 'File1'},
-          {content: '# File2\n\nContent', path: 'file2/context.md', title: 'File2'},
+          {content: '# File1\n\nContent', keywords: [], path: 'file1/context.md', tags: [], title: 'File1'},
+          {content: '# File2\n\nContent', keywords: [], path: 'file2/context.md', tags: [], title: 'File2'},
         ])
       cogitPushService.push.resolves(
         new CogitPushResponse({
@@ -660,9 +653,9 @@ describe('PushUseCase', () => {
       })
       contextFileReader.readMany
         .onFirstCall()
-        .resolves([{content: '# New\n\nNew content', path: 'new/context.md', title: 'New'}])
+        .resolves([{content: '# New\n\nNew content', keywords: [], path: 'new/context.md', tags: [], title: 'New'}])
         .onSecondCall()
-        .resolves([{content: '# Updated\n\nUpdated content', path: 'existing/context.md', title: 'Updated'}])
+        .resolves([{content: '# Updated\n\nUpdated content', keywords: [], path: 'existing/context.md', tags: [], title: 'Updated'}])
       cogitPushService.push.resolves(
         new CogitPushResponse({
           message: 'Success',
