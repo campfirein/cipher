@@ -1,14 +1,9 @@
 import {ensureDaemonRunning} from '@campfirein/brv-transport-client'
 import {Command} from '@oclif/core'
-import {randomUUID} from 'node:crypto'
-import {join} from 'node:path'
 
-import {DEFAULT_SESSION_RETENTION} from '../../agent/core/domain/session/session-metadata.js'
-import {SessionMetadataStore} from '../../agent/infra/session/session-metadata-store.js'
 import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
 import {createTokenStore} from '../../server/infra/storage/token-store.js'
 import {MixpanelTrackingService} from '../../server/infra/tracking/mixpanel-tracking-service.js'
-import {getProjectDataDir} from '../../server/utils/path-utils.js'
 import {initSessionLog, processManagerLog} from '../../server/utils/process-logger.js'
 import {resolveLocalServerMainPath} from '../../server/utils/server-main-resolver.js'
 import {startRepl} from '../../tui/repl-startup.js'
@@ -38,10 +33,6 @@ export default class Main extends Command {
       return
     }
 
-    // Resolve session ID (auto-resume or create new)
-    const sessionId = await this.resolveSessionId()
-    processManagerLog(`Session ID resolved: ${sessionId}`)
-
     // Pre-flight: ensure daemon is running (spawn if needed, restart on version mismatch)
     const daemonResult = await ensureDaemonRunning({
       serverPath: resolveLocalServerMainPath(),
@@ -65,56 +56,5 @@ export default class Main extends Command {
       trackingService,
       version: this.config.version,
     })
-  }
-
-  /**
-   * Resolve session ID for the agent.
-   *
-   * Strategy:
-   * 1. Store sessions in XDG data dir based on CWD
-   * 2. Check for active session, resume if valid, create new if stale/missing
-   * 3. Run session cleanup on startup
-   *
-   * @returns Session ID to use
-   */
-  private async resolveSessionId(): Promise<string> {
-    const sessionsDir = join(getProjectDataDir(process.cwd()), 'sessions')
-    const sessionStore = new SessionMetadataStore({sessionsDir, workingDirectory: process.cwd()})
-
-    // Run cleanup on startup (async, don't wait)
-    sessionStore.cleanupSessions(DEFAULT_SESSION_RETENTION).catch((error) => {
-      processManagerLog(`Session cleanup failed: ${error}`)
-    })
-
-    // Check for active session
-    const activeSession = await sessionStore.getActiveSession()
-
-    if (activeSession) {
-      // Check if the active session is stale (process not running)
-      const isStale = await sessionStore.isActiveSessionStale()
-
-      if (isStale) {
-        // Mark the old session as interrupted
-        processManagerLog(`Active session ${activeSession.sessionId} is stale, marking as interrupted`)
-        await sessionStore.markSessionInterrupted(activeSession.sessionId)
-      } else {
-        // Valid active session - resume it
-        processManagerLog(`Resuming active session: ${activeSession.sessionId}`)
-        return activeSession.sessionId
-      }
-    }
-
-    // Create new session
-    const newSessionId = `agent-session-${randomUUID()}`
-    processManagerLog(`Creating new session: ${newSessionId}`)
-
-    // Save session metadata
-    const metadata = sessionStore.createSessionMetadata(newSessionId)
-    await sessionStore.saveSession(metadata)
-
-    // Set as active session
-    await sessionStore.setActiveSession(newSessionId)
-
-    return newSessionId
   }
 }

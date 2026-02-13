@@ -30,7 +30,7 @@ import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {NotAuthenticatedError, serializeTaskError} from '../../core/domain/errors/task-error.js'
-import {TransportStateEventNames, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
+import {TransportAgentEventNames, TransportStateEventNames, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
 import {createProviderConfigStore} from '../storage/file-provider-config-store.js'
@@ -187,11 +187,44 @@ async function start(): Promise<void> {
   })
 
   await agent.start()
-  await agent.createSession(`daemon-session-${randomUUID()}`)
+  await agent.createSession(`agent-session-${randomUUID()}`)
 
   agentLog('CipherAgent started and session created')
 
-  // 6. Listen for task:execute from pool
+  // 6. Handle agent:newSession from /new command (via ConnectionCoordinator)
+  const transportRef = transport
+  transport.on<{reason?: string}>(TransportAgentEventNames.NEW_SESSION, async (data) => {
+    agentLog(`New session requested: ${data.reason ?? 'no reason'}`)
+
+    if (!agent) {
+      await transportRef.requestWithAck(TransportAgentEventNames.NEW_SESSION_CREATED, {
+        error: 'Agent not initialized',
+        success: false,
+      })
+      return
+    }
+
+    try {
+      const newSessionId = `agent-session-${randomUUID()}`
+      await agent.createSession(newSessionId)
+      agent.switchDefaultSession(newSessionId)
+      agentLog(`New session created: ${newSessionId}`)
+
+      await transportRef.requestWithAck(TransportAgentEventNames.NEW_SESSION_CREATED, {
+        sessionId: newSessionId,
+        success: true,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      agentLog(`New session creation error: ${message}`)
+      await transportRef.requestWithAck(TransportAgentEventNames.NEW_SESSION_CREATED, {
+        error: message,
+        success: false,
+      })
+    }
+  })
+
+  // 7. Listen for task:execute from pool
   const curateExecutor = new CurateExecutor()
   const queryExecutor = new QueryExecutor()
 
@@ -200,10 +233,10 @@ async function start(): Promise<void> {
     void executeTask(task, curateExecutor, queryExecutor)
   })
 
-  // 7. Register with transport server (for TransportHandlers tracking)
+  // 8. Register with transport server (for TransportHandlers tracking)
   await transport.requestWithAck('agent:register', {projectPath})
 
-  // 8. Notify parent that we're ready (IPC — AgentPool captures clientId)
+  // 9. Notify parent that we're ready (IPC — AgentPool captures clientId)
   process.send?.({clientId, type: 'ready'})
   agentLog('Ready — listening for tasks')
 }

@@ -89,7 +89,7 @@ export class InlineAgent {
     const agent = new CipherAgent(agentConfig, brvConfig)
     await agent.start()
 
-    const sessionId = `inline-session-${randomUUID()}`
+    const sessionId = `agent-session-${randomUUID()}`
     await agent.createSession(sessionId)
 
     // Create FileSystemService for smart routing and caching
