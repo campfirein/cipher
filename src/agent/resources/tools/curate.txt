@@ -1,6 +1,8 @@
 Curate knowledge topics with atomic operations. This tool manages the knowledge structure using four operation types and supports a two-part context model: Raw Concept + Narrative.
 
 **Content Structure (Two-Part Model):**
+- **tags**: Tags for categorization and filtering (e.g., ["authentication", "security", "jwt"])
+- **keywords**: Keywords for search and discovery (e.g., ["jwt", "refresh_token", "rotation"])
 - **rawConcept**: Captures essential metadata and context footprint
   - task: What is the task or subject related to this concept
   - changes: Array of changes or updates (code changes, process updates, decisions, etc.)
@@ -23,6 +25,8 @@ Curate knowledge topics with atomic operations. This tool manages the knowledge 
        path: "structure/caching",
        title: "Redis User Permissions",
        content: {
+         tags: ["caching", "redis", "performance"],
+         keywords: ["redis", "user_permissions", "cache_ttl", "singleton"],
          rawConcept: {
            task: "Introduce Redis cache for getUserPermissions(userId)",
            changes: ["Cached result using remote Redis", "Redis client: singleton"],

@@ -66,7 +66,7 @@ const NarrativeSchema = z.object({
  * Content structure for ADD and UPDATE operations.
  */
 const ContentSchema = z.object({
-  keywords: z.array(z.string()).describe('Keywords for search and discovery (e.g., ["jwt", "refresh_token", "rotation"])'),
+  keywords: z.array(z.string()).default([]).describe('Keywords for search and discovery (e.g., ["jwt", "refresh_token", "rotation"])'),
   narrative: NarrativeSchema.optional().describe('Narrative section with descriptive and structural context'),
   rawConcept: RawConceptSchema.optional().describe('Raw concept section with metadata and technical footprint'),
   relations: z
@@ -74,7 +74,7 @@ const ContentSchema = z.object({
     .optional()
     .describe('Related topics using domain/topic/title.md or domain/topic/subtopic/title.md notation'),
   snippets: z.array(z.string()).optional().describe('Code/text snippets'),
-  tags: z.array(z.string()).describe('Tags for categorization and filtering (e.g., ["authentication", "security", "jwt"])'),
+  tags: z.array(z.string()).default([]).describe('Tags for categorization and filtering (e.g., ["authentication", "security", "jwt"])'),
 })
 
 /**
