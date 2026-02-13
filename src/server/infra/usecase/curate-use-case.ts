@@ -85,10 +85,10 @@ export class CurateUseCase implements ICurateUseCase {
 
   public async run({
     context,
+    detach = false,
     files,
     folders,
     format = 'text',
-    headless = false,
     verbose = false,
   }: CurateUseCaseRunOptions): Promise<void> {
     await this.trackingService.track('mem:curate', {status: 'started'})
@@ -132,7 +132,7 @@ export class CurateUseCase implements ICurateUseCase {
       let projectRoot: string | undefined
 
       try {
-        const result = await this.createClient({headless, verbose})
+        const result = await this.createClient({verbose})
         client = result.client
         projectRoot = result.projectRoot
 
@@ -142,24 +142,8 @@ export class CurateUseCase implements ICurateUseCase {
 
         const taskId = randomUUID()
 
-        if (headless) {
-          // Headless: register listeners BEFORE task:create to avoid race conditions,
-          // then wait for task:completed (in-process agent must finish)
-          const completionPromise = this.waitForTaskCompletion(client, taskId, format)
-
-          await client.requestWithAck<TaskAck>(TransportTaskEventNames.CREATE, {
-            clientCwd: process.cwd(),
-            content: resolvedContent,
-            ...(files?.length ? {files} : {}),
-            ...(hasFolders && folders ? {folderPath: folders[0]} : {}),
-            ...(projectRoot ? {projectPath: projectRoot} : {}),
-            taskId,
-            type: taskType,
-          })
-
-          await completionPromise
-        } else {
-          // Non-headless: enqueue and exit immediately.
+        if (detach) {
+          // Detach: enqueue and exit immediately.
           // The daemon runs the task in background — no need to block.
           await client.requestWithAck<TaskAck>(TransportTaskEventNames.CREATE, {
             clientCwd: process.cwd(),
@@ -176,6 +160,22 @@ export class CurateUseCase implements ICurateUseCase {
           } else {
             this.terminal.log('✓ Context queued for processing.')
           }
+        } else {
+          // Default: register listeners BEFORE task:create to avoid race conditions,
+          // then wait for task:completed
+          const completionPromise = this.waitForTaskCompletion(client, taskId, format)
+
+          await client.requestWithAck<TaskAck>(TransportTaskEventNames.CREATE, {
+            clientCwd: process.cwd(),
+            content: resolvedContent,
+            ...(files?.length ? {files} : {}),
+            ...(hasFolders && folders ? {folderPath: folders[0]} : {}),
+            ...(projectRoot ? {projectPath: projectRoot} : {}),
+            taskId,
+            type: taskType,
+          })
+
+          await completionPromise
         }
 
         await this.trackingService.track('mem:curate', {status: 'finished'})
@@ -191,7 +191,7 @@ export class CurateUseCase implements ICurateUseCase {
         lastError = error
 
         // Retry only for daemon/agent infrastructure failures
-        if (!headless && this.isRetryableError(error) && attempt < MAX_TASK_RETRIES) {
+        if (this.isRetryableError(error) && attempt < MAX_TASK_RETRIES) {
           if (format === 'text') {
             this.terminal.log(`\nConnection lost. Restarting daemon... (attempt ${attempt + 1}/${MAX_TASK_RETRIES})`)
           }
@@ -226,21 +226,11 @@ export class CurateUseCase implements ICurateUseCase {
     }
   }
 
-  private async createClient(options: {
-    headless: boolean
-    verbose: boolean
-  }): Promise<{client: ITransportClient; projectRoot?: string}> {
-    if (options.headless) {
-      const {InlineAgent} = await import('../process/inline-agent-executor.js')
-      const inlineAgent = await InlineAgent.create()
-      return {client: inlineAgent.transportClient}
-    }
-
+  private async createClient(options: {verbose: boolean}): Promise<{client: ITransportClient; projectRoot?: string}> {
     if (options.verbose) {
       this.terminal.log('Discovering running instance...')
     }
 
-    // Use modern connectToTransport API (auto-discovers and connects)
     const {client: connectedClient, projectRoot} = await this.transportConnector()
     return {client: connectedClient, projectRoot}
   }
@@ -299,13 +289,17 @@ export class CurateUseCase implements ICurateUseCase {
     const message = error instanceof Error ? error.message : String(error)
     const lowerMessage = message.toLowerCase()
 
-    if (lowerMessage.includes('401') || lowerMessage.includes('unauthorized') || lowerMessage.includes('authentication token')) {
-      this.terminal.log('LLM authentication required. Run \'brv login\' to authenticate.')
+    if (
+      lowerMessage.includes('401') ||
+      lowerMessage.includes('unauthorized') ||
+      lowerMessage.includes('authentication token')
+    ) {
+      this.terminal.log("LLM authentication required. Run 'brv login' to authenticate.")
       return
     }
 
     if (lowerMessage.includes('api key') || lowerMessage.includes('invalid key')) {
-      this.terminal.log('LLM provider API key is missing or invalid. Run \'brv\' then \'/provider\' to configure.')
+      this.terminal.log("LLM provider API key is missing or invalid. Run 'brv' then '/provider' to configure.")
       return
     }
 
@@ -328,10 +322,14 @@ export class CurateUseCase implements ICurateUseCase {
       errorMessage = `Connection error: ${error.message}`
     } else if (error instanceof Error) {
       const lowerMessage = error.message.toLowerCase()
-      if (lowerMessage.includes('401') || lowerMessage.includes('unauthorized') || lowerMessage.includes('authentication token')) {
-        errorMessage = 'LLM authentication required. Run \'brv login\' to authenticate.'
+      if (
+        lowerMessage.includes('401') ||
+        lowerMessage.includes('unauthorized') ||
+        lowerMessage.includes('authentication token')
+      ) {
+        errorMessage = "LLM authentication required. Run 'brv login' to authenticate."
       } else if (lowerMessage.includes('api key') || lowerMessage.includes('invalid key')) {
-        errorMessage = 'LLM provider API key is missing or invalid. Run \'brv\' then \'/provider\' to configure.'
+        errorMessage = "LLM provider API key is missing or invalid. Run 'brv' then '/provider' to configure."
       } else {
         errorMessage = error.message
       }
