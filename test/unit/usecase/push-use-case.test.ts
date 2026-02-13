@@ -8,7 +8,6 @@ import type {IContextFileReader} from '../../../src/server/core/interfaces/conte
 import type {IContextTreeSnapshotService} from '../../../src/server/core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {ICogitPushService} from '../../../src/server/core/interfaces/services/i-cogit-push-service.js'
 import type {ITerminal} from '../../../src/server/core/interfaces/services/i-terminal.js'
-import type {ITrackingService} from '../../../src/server/core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../../src/server/core/interfaces/storage/i-project-config-store.js'
 
 import {BRV_CONFIG_VERSION} from '../../../src/server/constants.js'
@@ -28,7 +27,6 @@ describe('PushUseCase', () => {
   let projectConfig: BrvConfig
   let terminal: ITerminal
   let tokenStore: SinonStubbedInstance<ITokenStore>
-  let trackingService: SinonStubbedInstance<ITrackingService>
   let validToken: AuthToken
 
   beforeEach(() => {
@@ -52,10 +50,6 @@ describe('PushUseCase', () => {
     }
     configStore = {exists: stub(), getModifiedTime: stub(), read: stub(), write: stub()}
     tokenStore = {clear: stub(), load: stub(), save: stub()}
-    trackingService = {
-      track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
-    }
-
     validToken = new AuthToken({
       accessToken: 'access-token',
       expiresAt: new Date(Date.now() + 3600 * 1000),
@@ -91,7 +85,6 @@ describe('PushUseCase', () => {
       projectConfigStore: configStore,
       terminal,
       tokenStore,
-      trackingService,
       webAppUrl: 'https://app.byterover.com',
     })
   }

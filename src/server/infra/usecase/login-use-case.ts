@@ -3,7 +3,6 @@ import type {ICallbackHandler} from '../../core/interfaces/auth/i-callback-handl
 import type {ITokenStore} from '../../core/interfaces/auth/i-token-store.js'
 import type {IBrowserLauncher} from '../../core/interfaces/services/i-browser-launcher.js'
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
-import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import type {IUserService} from '../../core/interfaces/services/i-user-service.js'
 import type {ILoginUseCase, LoginUseCaseRunOptions} from '../../core/interfaces/usecase/i-login-use-case.js'
 
@@ -16,7 +15,6 @@ export interface LoginUseCaseOptions {
   callbackHandler?: ICallbackHandler
   terminal: ITerminal
   tokenStore: ITokenStore
-  trackingService: ITrackingService
   userService: IUserService
 }
 
@@ -26,7 +24,6 @@ export class LoginUseCase implements ILoginUseCase {
   private readonly callbackHandler?: ICallbackHandler
   private readonly terminal: ITerminal
   private readonly tokenStore: ITokenStore
-  private readonly trackingService: ITrackingService
   private readonly userService: IUserService
 
   constructor(options: LoginUseCaseOptions) {
@@ -35,7 +32,6 @@ export class LoginUseCase implements ILoginUseCase {
     this.callbackHandler = options.callbackHandler
     this.terminal = options.terminal
     this.tokenStore = options.tokenStore
-    this.trackingService = options.trackingService
     this.userService = options.userService
   }
 
@@ -49,7 +45,6 @@ export class LoginUseCase implements ILoginUseCase {
     }
 
     try {
-      await this.trackingService.track('auth:sign_in', {status: 'started'})
       this.terminal.log('Starting authentication process...')
 
       // Start callback server
@@ -58,9 +53,7 @@ export class LoginUseCase implements ILoginUseCase {
       // Get port and build redirect URI
       const port = this.callbackHandler.getPort()
       if (!port) {
-        const getPortFailedErr = 'Failed to get callback server port'
-        await this.trackingService.track('auth:sign_in', {message: getPortFailedErr, status: 'error'})
-        throw new Error(getPortFailedErr)
+        throw new Error('Failed to get callback server port')
       }
 
       const redirectUri = `http://localhost:${port}/callback`
@@ -75,7 +68,6 @@ export class LoginUseCase implements ILoginUseCase {
         browserOpened = true
       } catch {
         // Browser launch failed, will return URL to user
-        await this.trackingService.track('auth:sign_in', {message: 'browser launch failed', status: 'error'})
       }
 
       // If browser failed to open, display the URL for manual copy
@@ -101,12 +93,10 @@ export class LoginUseCase implements ILoginUseCase {
         })
 
         await this.tokenStore.save(authToken)
-        await this.trackingService.track('auth:sign_in', {status: 'finished'})
         this.terminal.log(`Logged in as ${user.email}`)
       } catch (error) {
         // Throw error to let oclif handle display
         const errorMessage = error instanceof Error ? error.message : 'Authentication failed'
-        await this.trackingService.track('auth:sign_in', {message: errorMessage, status: 'error'})
         this.terminal.error(errorMessage)
       }
     } catch (error) {
@@ -114,13 +104,11 @@ export class LoginUseCase implements ILoginUseCase {
         const errorMessage =
           `Failed to configure authentication: ${error.message}\n` +
           'Please check your network connection and try again.'
-        await this.trackingService.track('auth:sign_in', {message: errorMessage, status: 'error'})
         this.terminal.error(errorMessage)
       }
 
       // Throw error to let oclif handle display
       const errorMessage = error instanceof Error ? error.message : 'Authentication failed'
-      await this.trackingService.track('auth:sign_in', {message: errorMessage, status: 'error'})
       this.terminal.error(errorMessage)
     } finally {
       // Always cleanup server
@@ -130,7 +118,6 @@ export class LoginUseCase implements ILoginUseCase {
 
   public async runLoginWithApiKey(apiKey: string): Promise<void> {
     try {
-      await this.trackingService.track('auth:sign_in', {status: 'started'})
       this.terminal.log('Logging in...')
 
       const user = await this.userService.getCurrentUser(apiKey)
@@ -147,12 +134,10 @@ export class LoginUseCase implements ILoginUseCase {
       })
 
       await this.tokenStore.save(authToken)
-      await this.trackingService.track('auth:sign_in', {status: 'finished'})
       this.terminal.log(`Logged in as ${user.email}`)
     } catch (error) {
       // Throw error to let oclif handle display
       const errorMessage = error instanceof Error ? error.message : 'Authentication failed'
-      await this.trackingService.track('auth:sign_in', {message: errorMessage, status: 'error'})
       this.terminal.log(errorMessage)
     }
   }

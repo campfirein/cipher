@@ -16,12 +16,10 @@ import {
 import {randomUUID} from 'node:crypto'
 
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
-import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import type {IQueryUseCase, QueryUseCaseRunOptions} from '../../core/interfaces/usecase/i-query-use-case.js'
 
 import {TaskErrorCode} from '../../core/domain/errors/task-error.js'
 import {LlmEventNames, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
-import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
 import {createDaemonAwareConnector, type TransportConnector} from '../transport/transport-connector.js'
@@ -42,7 +40,6 @@ export interface QueryUseCaseOptions {
   /** Delay between retry attempts (ms). Default: 2000. Set to 0 in tests. */
   retryDelayMs?: number
   terminal: ITerminal
-  trackingService: ITrackingService
   /** Optional transport connector for dependency injection (defaults to connectToTransport) */
   transportConnector?: TransportConnector
 }
@@ -57,18 +54,15 @@ const DISCONNECT_GRACE_MS = 10_000
 export class QueryUseCase implements IQueryUseCase {
   private readonly retryDelayMs: number
   private readonly terminal: ITerminal
-  private readonly trackingService: ITrackingService
   private readonly transportConnector: TransportConnector
 
   constructor(options: QueryUseCaseOptions) {
     this.retryDelayMs = options.retryDelayMs ?? RETRY_DELAY_MS
     this.terminal = options.terminal
-    this.trackingService = options.trackingService
     this.transportConnector = options.transportConnector ?? createDaemonAwareConnector()
   }
 
   public async run(options: QueryUseCaseRunOptions): Promise<void> {
-    await this.trackingService.track('mem:query', {status: 'started'})
     const format = options.format ?? 'text'
 
     if (!options.query.trim()) {
@@ -121,7 +115,6 @@ export class QueryUseCase implements IQueryUseCase {
         }
 
         await streamPromise
-        await this.trackingService.track('mem:query', {status: 'finished'})
 
         // Success: cleanup and return
         await client.disconnect().catch(() => {})
@@ -157,8 +150,6 @@ export class QueryUseCase implements IQueryUseCase {
     } else {
       this.handleConnectionError(lastError)
     }
-
-    await this.trackingService.track('mem:query', {message: formatError(lastError), status: 'error'})
 
     // Force exit only for task-level disconnects (AGENT_DISCONNECTED) where Socket.IO
     // handles may leak. Connection errors (DaemonSpawnError, ConnectionFailedError) already

@@ -1,4 +1,3 @@
-import {randomUUID} from 'node:crypto'
 import {existsSync} from 'node:fs'
 import {mkdir, readFile, writeFile} from 'node:fs/promises'
 
@@ -35,22 +34,6 @@ export class FileGlobalConfigStore implements IGlobalConfigStore {
     this.deps = deps
   }
 
-  public async getOrCreateDeviceId(): Promise<string> {
-    // Try to read existing config
-    const existingConfig = await this.read()
-
-    if (existingConfig !== undefined) {
-      return existingConfig.deviceId
-    }
-
-    // Generate new device ID and persist
-    const deviceId = randomUUID()
-    const newConfig = GlobalConfig.create(deviceId)
-    await this.write(newConfig)
-
-    return deviceId
-  }
-
   public async read(): Promise<GlobalConfig | undefined> {
     const configPath = this.deps.getConfigPath()
 
@@ -69,14 +52,6 @@ export class FileGlobalConfigStore implements IGlobalConfigStore {
     }
   }
 
-  public async regenerateDeviceId(): Promise<string> {
-    const newDeviceId = randomUUID()
-    const newConfig = GlobalConfig.create(newDeviceId)
-    await this.write(newConfig)
-    return newDeviceId
-  }
-
-  
   public async write(config: GlobalConfig): Promise<void> {
     const configDir = this.deps.getConfigDir()
     const configPath = this.deps.getConfigPath()

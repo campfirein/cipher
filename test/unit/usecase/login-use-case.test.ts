@@ -8,7 +8,6 @@ import type {ICallbackHandler} from '../../../src/server/core/interfaces/auth/i-
 import type {ITokenStore} from '../../../src/server/core/interfaces/auth/i-token-store.js'
 import type {IBrowserLauncher} from '../../../src/server/core/interfaces/services/i-browser-launcher.js'
 import type {ITerminal} from '../../../src/server/core/interfaces/services/i-terminal.js'
-import type {ITrackingService} from '../../../src/server/core/interfaces/services/i-tracking-service.js'
 import type {IUserService} from '../../../src/server/core/interfaces/services/i-user-service.js'
 
 import {AuthToken} from '../../../src/server/core/domain/entities/auth-token.js'
@@ -25,7 +24,6 @@ describe('LoginUseCase', () => {
   let logMessages: string[]
   let terminal: ITerminal
   let tokenStore: SinonStubbedInstance<ITokenStore>
-  let trackingService: SinonStubbedInstance<ITrackingService>
   let userService: SinonStubbedInstance<IUserService>
 
   beforeEach(() => {
@@ -60,10 +58,6 @@ describe('LoginUseCase', () => {
       waitForCallback: stub(),
     }
 
-    trackingService = {
-      track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
-    }
-
     userService = {
       getCurrentUser: stub(),
       updateCurrentUser: stub(),
@@ -81,7 +75,6 @@ describe('LoginUseCase', () => {
       callbackHandler,
       terminal,
       tokenStore,
-      trackingService,
       userService,
     })
   }

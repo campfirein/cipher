@@ -6,7 +6,6 @@ import {restore, stub} from 'sinon'
 import type {ITokenStore} from '../../../../../src/server/core/interfaces/auth/i-token-store.js'
 import type {ISpaceService} from '../../../../../src/server/core/interfaces/services/i-space-service.js'
 import type {ITeamService} from '../../../../../src/server/core/interfaces/services/i-team-service.js'
-import type {ITrackingService} from '../../../../../src/server/core/interfaces/services/i-tracking-service.js'
 import type {IUserService} from '../../../../../src/server/core/interfaces/services/i-user-service.js'
 import type {IProjectConfigStore} from '../../../../../src/server/core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../../../src/server/core/interfaces/transport/i-transport-server.js'
@@ -93,7 +92,6 @@ describe('OnboardingHandler', () => {
   let spaceService: SinonStubbedInstance<ISpaceService>
   let teamService: SinonStubbedInstance<ITeamService>
   let tokenStore: SinonStubbedInstance<ITokenStore>
-  let trackingService: SinonStubbedInstance<ITrackingService>
   let transport: ReturnType<typeof createMockTransport>
   let userService: SinonStubbedInstance<IUserService>
 
@@ -113,9 +111,6 @@ describe('OnboardingHandler', () => {
 
     spaceService = {getSpaces: stub()}
     teamService = {getTeams: stub()}
-    trackingService = {
-      track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
-    }
     userService = {
       getCurrentUser: stub(),
       updateCurrentUser: stub(),
@@ -136,7 +131,6 @@ describe('OnboardingHandler', () => {
       spaceService,
       teamService,
       tokenStore,
-      trackingService,
       transport,
       userService,
     })
@@ -357,26 +351,6 @@ describe('OnboardingHandler', () => {
 
       expect(result.success).to.be.true
       expect(userService.updateCurrentUser.calledWith('session-key', {hasOnboardedCli: true})).to.be.true
-    })
-
-    it('should track onboarding:completed event', async () => {
-      createHandler()
-      tokenStore.load.resolves(createMockToken())
-      userService.updateCurrentUser.resolves(createMockUser(true))
-
-      await callCompleteHandler()
-
-      expect(trackingService.track.calledWith('onboarding:completed')).to.be.true
-    })
-
-    it('should track onboarding:skipped when skipped is true', async () => {
-      createHandler()
-      tokenStore.load.resolves(createMockToken())
-      userService.updateCurrentUser.resolves(createMockUser(true))
-
-      await callCompleteHandler({skipped: true})
-
-      expect(trackingService.track.calledWith('onboarding:skipped')).to.be.true
     })
 
     it('should return success=false when not authenticated', async () => {

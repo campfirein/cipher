@@ -2,10 +2,7 @@ import {Args, Command, Flags} from '@oclif/core'
 
 import {isDevelopment} from '../../server/config/environment.js'
 import {ICurateUseCase} from '../../server/core/interfaces/usecase/i-curate-use-case.js'
-import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
-import {createTokenStore} from '../../server/infra/storage/token-store.js'
 import {HeadlessTerminal} from '../../server/infra/terminal/headless-terminal.js'
-import {MixpanelTrackingService} from '../../server/infra/tracking/mixpanel-tracking-service.js'
 import {CurateUseCase} from '../../server/infra/usecase/curate-use-case.js'
 
 /** Parsed flags type */
@@ -82,13 +79,9 @@ Bad examples:
   }
 
   protected createUseCase(options: {format: 'json' | 'text'}): ICurateUseCase {
-    const tokenStore = createTokenStore()
-    const globalConfigStore = new FileGlobalConfigStore()
-    const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
-
     const terminal = new HeadlessTerminal({failOnPrompt: true, outputFormat: options.format})
 
-    return new CurateUseCase({terminal, trackingService})
+    return new CurateUseCase({terminal})
   }
 
   public async run(): Promise<void> {
