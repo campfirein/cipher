@@ -10,8 +10,7 @@ import {
   type ModelSetActiveRequest,
   type ModelSetActiveResponse,
 } from '../../../../shared/transport/events/model-events.js'
-import {getProviderById} from '../../../core/domain/entities/provider-registry.js'
-import {createOpenRouterApiClient} from '../../http/openrouter-api-client.js'
+import {getModelFetcher} from '../../http/provider-model-fetcher-registry.js'
 
 export interface ModelHandlerDeps {
   providerConfigStore: IProviderConfigStore
@@ -42,21 +41,16 @@ export class ModelHandler {
   private setupList(): void {
     this.transport.onRequest<ModelListRequest, ModelListResponse>(ModelEvents.LIST, async (data) => {
       const {providerId} = data
-      const provider = getProviderById(providerId)
-      if (!provider) {
+      const fetcher = await getModelFetcher(providerId)
+      if (!fetcher) {
         return {favorites: [], models: [], recent: []}
       }
 
-      // Fetch models from provider API
+      // Fetch models from provider API using the correct per-provider fetcher
       const apiKey = await this.providerKeychainStore.getApiKey(providerId)
-      if (!apiKey && provider.baseUrl.length > 0) {
-        return {favorites: [], models: [], recent: []}
-      }
+      const fetchedModels = await fetcher.fetchModels(apiKey ?? '')
 
-      const client = createOpenRouterApiClient(provider)
-      const normalizedModels = await client.fetchModels(apiKey ?? '')
-
-      const models: ModelDTO[] = normalizedModels.map((m) => ({
+      const models: ModelDTO[] = fetchedModels.map((m) => ({
         contextLength: m.contextLength,
         description: m.description,
         id: m.id,

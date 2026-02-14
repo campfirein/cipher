@@ -64,7 +64,7 @@ export class SpaceHandler {
       throw new Error('Project not initialized')
     }
 
-    const {spaces} = await this.spaceService.getSpaces(token.sessionKey, config.teamId, {fetchAll: true})
+    const {spaces} = await this.spaceService.getSpaces(token.sessionKey, config.teamId!, {fetchAll: true})
 
     return {
       spaces: spaces.map((s) => ({
@@ -91,7 +91,7 @@ export class SpaceHandler {
     }
 
     // Find the target space
-    const {spaces} = await this.spaceService.getSpaces(token.sessionKey, existingConfig.teamId, {fetchAll: true})
+    const {spaces} = await this.spaceService.getSpaces(token.sessionKey, existingConfig.teamId!, {fetchAll: true})
     const targetSpace = spaces.find((s) => s.id === data.spaceId)
     if (!targetSpace) {
       throw new Error('Space not found')

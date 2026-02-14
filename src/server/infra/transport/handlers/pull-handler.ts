@@ -2,7 +2,6 @@ import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeSnapshotService} from '../../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {IContextTreeWriterService} from '../../../core/interfaces/context-tree/i-context-tree-writer-service.js'
 import type {ICogitPullService} from '../../../core/interfaces/services/i-cogit-pull-service.js'
-import type {ITrackingService} from '../../../core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 import type {ProjectBroadcaster, ProjectPathResolver} from './handler-types.js'
@@ -23,7 +22,6 @@ export interface PullHandlerDeps {
   projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
   tokenStore: ITokenStore
-  trackingService: ITrackingService
   transport: ITransportServer
 }
 
@@ -39,7 +37,6 @@ export class PullHandler {
   private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
   private readonly tokenStore: ITokenStore
-  private readonly trackingService: ITrackingService
   private readonly transport: ITransportServer
 
   constructor(deps: PullHandlerDeps) {
@@ -50,7 +47,6 @@ export class PullHandler {
     this.projectConfigStore = deps.projectConfigStore
     this.resolveProjectPath = deps.resolveProjectPath
     this.tokenStore = deps.tokenStore
-    this.trackingService = deps.trackingService
     this.transport = deps.transport
   }
 
@@ -89,15 +85,14 @@ export class PullHandler {
     const snapshot = await this.cogitPullService.pull({
       branch: data.branch,
       sessionKey: token.sessionKey,
-      spaceId: config.spaceId,
-      teamId: config.teamId,
+      spaceId: config.spaceId!,
+      teamId: config.teamId!,
     })
 
     this.broadcastToProject(projectPath, PullEvents.PROGRESS, {message: 'Syncing files...', step: 'syncing'})
 
     const syncResult = await this.contextTreeWriterService.sync({directory: projectPath, files: snapshot.files})
     await this.contextTreeSnapshotService.saveSnapshot(projectPath)
-    await this.trackingService.track('mem:pull')
 
     return {
       added: syncResult.added.length,

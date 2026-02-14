@@ -3,7 +3,7 @@
  *
  * Global Zustand store for transport connection state and the BrvApiClient instance.
  * This is the foundational store — all feature stores depend on the apiClient from here.
- * Also holds app-level services: trackingService and version.
+ * Also holds app-level metadata like version.
  */
 
 import type {ConnectionState, ITransportClient} from '@campfirein/brv-transport-client'
@@ -11,13 +11,6 @@ import type {ConnectionState, ITransportClient} from '@campfirein/brv-transport-
 import {create} from 'zustand'
 
 import {BrvApiClient} from '../lib/api-client.js'
-
-/**
- * Tracking service interface
- */
-export interface TrackingService {
-  track(event: string, properties?: Record<string, unknown>): Promise<void>
-}
 
 export interface TransportState {
   /** The BrvApiClient instance (typed wrapper around transport client) */
@@ -32,8 +25,6 @@ export interface TransportState {
   isConnected: boolean
   /** Number of reconnection attempts */
   reconnectCount: number
-  /** Tracking service for analytics */
-  trackingService: null | TrackingService
   /** App version */
   version: string
 }
@@ -49,8 +40,6 @@ export interface TransportActions {
   setConnectionState: (state: ConnectionState) => void
   /** Set connection error */
   setError: (error: Error | null) => void
-  /** Set tracking service */
-  setTrackingService: (trackingService: TrackingService) => void
   /** Set app version */
   setVersion: (version: string) => void
 }
@@ -62,7 +51,6 @@ const initialState: TransportState = {
   error: null,
   isConnected: false,
   reconnectCount: 0,
-  trackingService: null,
   version: '',
 }
 
@@ -94,8 +82,6 @@ export const useTransportStore = create<TransportActions & TransportState>()((se
       error,
       isConnected: false,
     }),
-
-  setTrackingService: (trackingService: TrackingService) => set({trackingService}),
 
   setVersion: (version: string) => set({version}),
 }))

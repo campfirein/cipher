@@ -9,8 +9,7 @@ export const loginCommand: SlashCommand = {
     render: ({onCancel, onComplete}) =>
       React.createElement(LoginFlow, {
         onCancel,
-        onComplete: (message: string) =>
-          onComplete(message, {reloadAuth: true, restartAgent: {reason: 'User logged in'}}),
+        onComplete: (message: string) => onComplete(message, {reloadAuth: true}),
       }),
   }),
   description: 'Authenticate with ByteRover using OAuth 2.0 + PKCE',

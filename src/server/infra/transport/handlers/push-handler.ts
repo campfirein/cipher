@@ -2,7 +2,6 @@ import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextFileReader} from '../../../core/interfaces/context-tree/i-context-file-reader.js'
 import type {IContextTreeSnapshotService} from '../../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {ICogitPushService} from '../../../core/interfaces/services/i-cogit-push-service.js'
-import type {ITrackingService} from '../../../core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 import type {ProjectBroadcaster, ProjectPathResolver} from './handler-types.js'
@@ -24,7 +23,6 @@ export interface PushHandlerDeps {
   projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
   tokenStore: ITokenStore
-  trackingService: ITrackingService
   transport: ITransportServer
 }
 
@@ -40,7 +38,6 @@ export class PushHandler {
   private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
   private readonly tokenStore: ITokenStore
-  private readonly trackingService: ITrackingService
   private readonly transport: ITransportServer
 
   constructor(deps: PushHandlerDeps) {
@@ -51,7 +48,6 @@ export class PushHandler {
     this.projectConfigStore = deps.projectConfigStore
     this.resolveProjectPath = deps.resolveProjectPath
     this.tokenStore = deps.tokenStore
-    this.trackingService = deps.trackingService
     this.transport = deps.transport
   }
 
@@ -99,12 +95,11 @@ export class PushHandler {
       branch: data.branch,
       contexts: pushContexts,
       sessionKey: token.sessionKey,
-      spaceId: config.spaceId,
-      teamId: config.teamId,
+      spaceId: config.spaceId!,
+      teamId: config.teamId!,
     })
 
     await this.contextTreeSnapshotService.saveSnapshot(projectPath)
-    await this.trackingService.track('mem:push')
 
     return {success: true}
   }

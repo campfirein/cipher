@@ -22,8 +22,6 @@ import {
   TaskErrorEvent,
   TransportTaskEventNames,
 } from '../../core/domain/transport/index.js'
-import {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
-import {formatError} from '../../utils/error-handler.js'
 import {getSandboxEnvironmentName, isSandboxEnvironment, isSandboxNetworkError} from '../../utils/sandbox-detector.js'
 import {HeadlessTerminal} from '../terminal/headless-terminal.js'
 import {createDaemonAwareConnector, type TransportConnector} from '../transport/transport-connector.js'
@@ -31,18 +29,22 @@ import {createDaemonAwareConnector, type TransportConnector} from '../transport/
 export type {TransportConnector} from '../transport/transport-connector.js'
 
 const CurateOperationSchema = z.object({
-  filePath: z.string(),
+  filePath: z.string().optional(),
+  message: z.string().optional(),
   path: z.string(),
   status: z.enum(['success', 'failed']),
-  type: z.enum(['ADD', 'UPDATE', 'MERGE', 'DELETE']),
+  type: z.enum(['ADD', 'UPDATE', 'UPSERT', 'MERGE', 'DELETE']),
 })
 
 const CurateResultSchema = z.object({
-  result: z
-    .object({
-      applied: z.array(CurateOperationSchema).optional(),
-    })
-    .optional(),
+  applied: z.array(CurateOperationSchema).optional(),
+  summary: z.object({
+    added: z.number().optional(),
+    deleted: z.number().optional(),
+    failed: z.number().optional(),
+    merged: z.number().optional(),
+    updated: z.number().optional(),
+  }).optional(),
 })
 
 type CurateOperation = z.infer<typeof CurateOperationSchema>
@@ -58,7 +60,6 @@ export interface CurateUseCaseOptions {
   /** Delay between retry attempts (ms). Default: 2000. Set to 0 in tests. */
   retryDelayMs?: number
   terminal: ITerminal
-  trackingService: ITrackingService
   /** Optional transport connector for dependency injection (defaults to connectToTransport) */
   transportConnector?: TransportConnector
 }
@@ -73,26 +74,22 @@ const DISCONNECT_GRACE_MS = 10_000
 export class CurateUseCase implements ICurateUseCase {
   private readonly retryDelayMs: number
   private readonly terminal: ITerminal
-  private readonly trackingService: ITrackingService
   private readonly transportConnector: TransportConnector
 
   constructor(options: CurateUseCaseOptions) {
     this.retryDelayMs = options.retryDelayMs ?? RETRY_DELAY_MS
     this.terminal = options.terminal
-    this.trackingService = options.trackingService
     this.transportConnector = options.transportConnector ?? createDaemonAwareConnector()
   }
 
   public async run({
     context,
+    detach = false,
     files,
     folders,
     format = 'text',
-    headless = false,
     verbose = false,
   }: CurateUseCaseRunOptions): Promise<void> {
-    await this.trackingService.track('mem:curate', {status: 'started'})
-
     const hasContext = Boolean(context?.trim())
     const hasFiles = Boolean(files?.length)
     const hasFolders = Boolean(folders?.length)
@@ -132,7 +129,7 @@ export class CurateUseCase implements ICurateUseCase {
       let projectRoot: string | undefined
 
       try {
-        const result = await this.createClient({headless, verbose})
+        const result = await this.createClient({verbose})
         client = result.client
         projectRoot = result.projectRoot
 
@@ -142,24 +139,8 @@ export class CurateUseCase implements ICurateUseCase {
 
         const taskId = randomUUID()
 
-        if (headless) {
-          // Headless: register listeners BEFORE task:create to avoid race conditions,
-          // then wait for task:completed (in-process agent must finish)
-          const completionPromise = this.waitForTaskCompletion(client, taskId, format)
-
-          await client.requestWithAck<TaskAck>(TransportTaskEventNames.CREATE, {
-            clientCwd: process.cwd(),
-            content: resolvedContent,
-            ...(files?.length ? {files} : {}),
-            ...(hasFolders && folders ? {folderPath: folders[0]} : {}),
-            ...(projectRoot ? {projectPath: projectRoot} : {}),
-            taskId,
-            type: taskType,
-          })
-
-          await completionPromise
-        } else {
-          // Non-headless: enqueue and exit immediately.
+        if (detach) {
+          // Detach: enqueue and exit immediately.
           // The daemon runs the task in background — no need to block.
           await client.requestWithAck<TaskAck>(TransportTaskEventNames.CREATE, {
             clientCwd: process.cwd(),
@@ -176,9 +157,23 @@ export class CurateUseCase implements ICurateUseCase {
           } else {
             this.terminal.log('✓ Context queued for processing.')
           }
-        }
+        } else {
+          // Default: register listeners BEFORE task:create to avoid race conditions,
+          // then wait for task:completed
+          const completionPromise = this.waitForTaskCompletion(client, taskId, format)
 
-        await this.trackingService.track('mem:curate', {status: 'finished'})
+          await client.requestWithAck<TaskAck>(TransportTaskEventNames.CREATE, {
+            clientCwd: process.cwd(),
+            content: resolvedContent,
+            ...(files?.length ? {files} : {}),
+            ...(hasFolders && folders ? {folderPath: folders[0]} : {}),
+            ...(projectRoot ? {projectPath: projectRoot} : {}),
+            taskId,
+            type: taskType,
+          })
+
+          await completionPromise
+        }
 
         // Success: cleanup and return
         await client.disconnect().catch(() => {})
@@ -191,7 +186,7 @@ export class CurateUseCase implements ICurateUseCase {
         lastError = error
 
         // Retry only for daemon/agent infrastructure failures
-        if (!headless && this.isRetryableError(error) && attempt < MAX_TASK_RETRIES) {
+        if (this.isRetryableError(error) && attempt < MAX_TASK_RETRIES) {
           if (format === 'text') {
             this.terminal.log(`\nConnection lost. Restarting daemon... (attempt ${attempt + 1}/${MAX_TASK_RETRIES})`)
           }
@@ -215,8 +210,6 @@ export class CurateUseCase implements ICurateUseCase {
       this.handleConnectionError(lastError)
     }
 
-    await this.trackingService.track('mem:curate', {message: formatError(lastError), status: 'error'})
-
     // Force exit only for task-level disconnects (AGENT_DISCONNECTED) where Socket.IO
     // handles may leak. Connection errors (DaemonSpawnError, ConnectionFailedError) already
     // cleaned up their clients — no leaked handles.
@@ -226,21 +219,11 @@ export class CurateUseCase implements ICurateUseCase {
     }
   }
 
-  private async createClient(options: {
-    headless: boolean
-    verbose: boolean
-  }): Promise<{client: ITransportClient; projectRoot?: string}> {
-    if (options.headless) {
-      const {InlineAgent} = await import('../process/inline-agent-executor.js')
-      const inlineAgent = await InlineAgent.create()
-      return {client: inlineAgent.transportClient}
-    }
-
+  private async createClient(options: {verbose: boolean}): Promise<{client: ITransportClient; projectRoot?: string}> {
     if (options.verbose) {
       this.terminal.log('Discovering running instance...')
     }
 
-    // Use modern connectToTransport API (auto-discovers and connects)
     const {client: connectedClient, projectRoot} = await this.transportConnector()
     return {client: connectedClient, projectRoot}
   }
@@ -295,7 +278,24 @@ export class CurateUseCase implements ICurateUseCase {
       return
     }
 
+    // LLM errors — detect auth or API key issues
     const message = error instanceof Error ? error.message : String(error)
+    const lowerMessage = message.toLowerCase()
+
+    if (
+      lowerMessage.includes('401') ||
+      lowerMessage.includes('unauthorized') ||
+      lowerMessage.includes('authentication token')
+    ) {
+      this.terminal.log("LLM authentication required. Run 'brv login' to authenticate.")
+      return
+    }
+
+    if (lowerMessage.includes('api key') || lowerMessage.includes('invalid key')) {
+      this.terminal.log("LLM provider API key is missing or invalid. Run 'brv' then '/provider' to configure.")
+      return
+    }
+
     this.terminal.log(`Unexpected error: ${message}`)
   }
 
@@ -314,7 +314,18 @@ export class CurateUseCase implements ICurateUseCase {
     } else if (error instanceof ConnectionError) {
       errorMessage = `Connection error: ${error.message}`
     } else if (error instanceof Error) {
-      errorMessage = error.message
+      const lowerMessage = error.message.toLowerCase()
+      if (
+        lowerMessage.includes('401') ||
+        lowerMessage.includes('unauthorized') ||
+        lowerMessage.includes('authentication token')
+      ) {
+        errorMessage = "LLM authentication required. Run 'brv login' to authenticate."
+      } else if (lowerMessage.includes('api key') || lowerMessage.includes('invalid key')) {
+        errorMessage = "LLM provider API key is missing or invalid. Run 'brv' then '/provider' to configure."
+      } else {
+        errorMessage = error.message
+      }
     }
 
     this.outputJsonResult({message: errorMessage, status: 'error'})
@@ -400,17 +411,27 @@ export class CurateUseCase implements ICurateUseCase {
 
       const unsubscribers = [
         client.on<LlmToolResultEvent>(LlmEventNames.TOOL_RESULT, (payload) => {
-          if (payload.success && payload.toolName === ToolName.CURATE && payload.result) {
-            try {
-              const parsed = CurateResultSchema.parse(JSON.parse(payload.result as string))
-              for (const op of parsed.result?.applied ?? []) {
+          if (!payload.success || !payload.result) {
+            return
+          }
+
+          // Handle both direct curate tool and curate via code_exec
+          if (payload.toolName !== ToolName.CURATE && payload.toolName !== ToolName.CODE_EXEC) {
+            return
+          }
+
+          try {
+            const resultData = JSON.parse(payload.result as string)
+            const parsed = CurateResultSchema.safeParse(resultData)
+            if (parsed.success) {
+              for (const op of parsed.data.applied ?? []) {
                 if (op.status === 'success') {
                   operations.push(op)
                 }
               }
-            } catch {
-              // Ignore parse errors
             }
+          } catch {
+            // Ignore parse errors for non-curate code_exec results
           }
         }),
 

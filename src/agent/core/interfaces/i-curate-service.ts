@@ -9,11 +9,11 @@
 export interface CurateRawConcept {
   /** Author or source attribution */
   author?: string
-  /** What changes in the codebase are induced by this concept */
+  /** Changes, updates, or modifications relevant to this concept (code changes, process updates, market shifts, etc.) */
   changes?: string[]
-  /** Which files are related to this concept */
+  /** Related resources: source files, documents, URLs, data sources, or references */
   files?: string[]
-  /** What is the flow included in this concept */
+  /** Process flow, workflow, or sequence of steps */
   flow?: string
   /** Regex or validation patterns with descriptions */
   patterns?: Array<{
@@ -31,22 +31,38 @@ export interface CurateRawConcept {
  * Narrative section for descriptive and structural context.
  */
 export interface CurateNarrative {
-  /** Dependency management information */
+  /** Dependencies, prerequisites, blockers, or relationship information */
   dependencies?: string
-  /** Examples and use cases */
+  /** Concrete examples, use cases, or action items */
   examples?: string
-  /** Feature documentation for this concept */
-  features?: string
+  /** Key highlights, capabilities, deliverables, or notable outcomes */
+  highlights?: string
   /** Exact rules, constraints, or guidelines - preserved verbatim */
   rules?: string
-  /** Code structure documentation */
+  /** Structural or organizational documentation (hierarchies, layouts, timelines, schemas) */
   structure?: string
+}
+
+/**
+ * A factual statement extracted during curation.
+ */
+export interface CurateFact {
+  /** Category of the fact */
+  category?: 'convention' | 'environment' | 'other' | 'personal' | 'preference' | 'project' | 'team'
+  /** The full factual statement */
+  statement: string
+  /** What the fact is about (e.g., "user_name", "database") */
+  subject?: string
+  /** The extracted value (e.g., "Andy", "PostgreSQL 15") */
+  value?: string
 }
 
 /**
  * Content structure for ADD and UPDATE operations.
  */
 export interface CurateContent {
+  /** Factual statements extracted from content */
+  facts?: CurateFact[]
   /** Narrative section with descriptive and structural context */
   narrative?: CurateNarrative
   /** Raw concept section with metadata and technical footprint */

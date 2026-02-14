@@ -15,6 +15,7 @@ const devFlags = {
 export const curateCommand: SlashCommand = {
   async action(context, args) {
     const files = context.invocation?.files ?? []
+    const folders = context.invocation?.folders ?? []
 
     let contextText: string | undefined
     let flags: {apiKey?: string; model?: string; verbose?: boolean} = {}
@@ -33,6 +34,7 @@ export const curateCommand: SlashCommand = {
           context: contextText,
           files: files.length > 0 ? files : undefined,
           flags,
+          folders: folders.length > 0 ? folders : undefined,
           onCancel,
           onComplete,
         }),

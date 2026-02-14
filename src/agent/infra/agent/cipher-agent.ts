@@ -420,10 +420,10 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * Reset a specific session's conversation history.
    * @param sessionId - The session ID to reset
    */
-  public resetSession(sessionId: string): void {
+  public async resetSession(sessionId: string): Promise<void> {
     const session = this.getSessionManagerInternal().getSession(sessionId)
     if (session) {
-      session.reset()
+      await session.reset()
     }
 
     // Emit conversation reset event (only if agent is started)
@@ -476,6 +476,12 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       maxTokens: this.config.llm.maxTokens,
       model: this.config.model,
       openRouterApiKey: this.config.openRouterApiKey,
+      provider: this.config.provider,
+      providerApiKey: this.config.providerApiKey,
+      providerBaseUrl: this.config.providerBaseUrl,
+      providerHeaders: this.config.providerHeaders,
+      providerLocation: this.config.providerLocation,
+      providerProject: this.config.providerProject,
       siteName: this.config.siteName,
       temperature: this.config.llm.temperature,
       verbose: this.config.llm.verbose,

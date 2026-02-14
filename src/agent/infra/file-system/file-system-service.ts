@@ -283,7 +283,8 @@ export class FileSystemService implements IFileSystem {
   public async globFiles(pattern: string, options: GlobOptions = {}): Promise<GlobResult> {
     this.ensureInitialized()
 
-    const cwd = options.cwd ?? this.config.workingDirectory
+    const rawCwd = options.cwd ?? this.config.workingDirectory
+    const cwd = path.isAbsolute(rawCwd) ? rawCwd : path.resolve(this.config.workingDirectory, rawCwd)
     const maxResults = options.maxResults ?? 1000
     const includeMetadata = options.includeMetadata ?? true
     const caseSensitive = options.caseSensitive ?? true
@@ -687,7 +688,8 @@ export class FileSystemService implements IFileSystem {
   public async searchContent(pattern: string, options: SearchOptions = {}): Promise<SearchResult> {
     this.ensureInitialized()
 
-    const cwd = options.cwd ?? this.config.workingDirectory
+    const rawCwd = options.cwd ?? this.config.workingDirectory
+    const cwd = path.isAbsolute(rawCwd) ? rawCwd : path.resolve(this.config.workingDirectory, rawCwd)
     const maxResults = options.maxResults ?? 100
     const contextLines = options.contextLines ?? 0
 
@@ -1088,7 +1090,8 @@ export class FileSystemService implements IFileSystem {
    */
   private async searchContentJS(pattern: string, options: SearchOptions = {}): Promise<SearchResult> {
     const globPattern = options.globPattern ?? '**/*'
-    const cwd = options.cwd ?? this.config.workingDirectory
+    const rawCwd = options.cwd ?? this.config.workingDirectory
+    const cwd = path.isAbsolute(rawCwd) ? rawCwd : path.resolve(this.config.workingDirectory, rawCwd)
     const maxResults = options.maxResults ?? 100
     const contextLines = options.contextLines ?? 0
     const caseInsensitive = options.caseInsensitive ?? false

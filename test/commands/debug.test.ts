@@ -261,6 +261,67 @@ describe('Debug Command', () => {
       expect(tree).to.include('socket-789')
     })
 
+    it('should render storage paths section', async () => {
+      const state = makeDaemonState()
+      const mockClient = makeMockClient(state)
+      const connect = stub().resolves({client: mockClient, projectRoot: '/tmp'})
+
+      const cmd = new TestableDebug(ensureRunning, connect, ['--once'], config)
+      const output = captureOutput(cmd)
+      await cmd.run()
+
+      const tree = output.join('\n')
+      expect(tree).to.include('Storage Paths')
+      expect(tree).to.include('Config:')
+      expect(tree).to.include('Data:')
+      expect(tree).to.include('Logs:')
+      expect(tree).to.include('Project:')
+      expect(tree).to.include('Overrides:')
+    })
+
+    it('should wrap storage paths in OSC 8 hyperlinks when stdout is TTY', async () => {
+      const state = makeDaemonState()
+      const mockClient = makeMockClient(state)
+      const connect = stub().resolves({client: mockClient, projectRoot: '/tmp'})
+
+      const originalIsTTY = process.stdout.isTTY
+      try {
+        Object.defineProperty(process.stdout, 'isTTY', {configurable: true, value: true})
+
+        const cmd = new TestableDebug(ensureRunning, connect, ['--once'], config)
+        const output = captureOutput(cmd)
+        await cmd.run()
+
+        const tree = output.join('\n')
+        expect(tree).to.include('\u001B]8;;file://')
+        expect(tree).to.include('\u001B]8;;\u001B\\')
+      } finally {
+        Object.defineProperty(process.stdout, 'isTTY', {configurable: true, value: originalIsTTY})
+      }
+    })
+
+    it('should show plain paths without OSC 8 escape sequences when stdout is not TTY', async () => {
+      const state = makeDaemonState()
+      const mockClient = makeMockClient(state)
+      const connect = stub().resolves({client: mockClient, projectRoot: '/tmp'})
+
+      const originalIsTTY = process.stdout.isTTY
+      try {
+        Object.defineProperty(process.stdout, 'isTTY', {configurable: true, value: false})
+
+        const cmd = new TestableDebug(ensureRunning, connect, ['--once'], config)
+        const output = captureOutput(cmd)
+        await cmd.run()
+
+        const tree = output.join('\n')
+        expect(tree).to.include('Storage Paths')
+        expect(tree).to.include('Config:')
+        expect(tree).to.not.include('\u001B]8;;')
+      } finally {
+        Object.defineProperty(process.stdout, 'isTTY', {configurable: true, value: originalIsTTY})
+      }
+    })
+
     it('should render empty pool and no tasks', async () => {
       const state = makeDaemonState()
       state.agentPool.entries = []
@@ -337,6 +398,53 @@ describe('Debug Command', () => {
       expect(json).to.have.property('transport')
       expect(json).to.have.property('tasks')
       expect(json).to.have.property('clients')
+    })
+
+    it('should include paths in JSON output', async () => {
+      const state = makeDaemonState()
+      const mockClient = makeMockClient(state)
+      const connect = stub().resolves({client: mockClient, projectRoot: '/tmp'})
+
+      const cmd = new TestableDebug(ensureRunning, connect, ['--format', 'json'], config)
+      const output = captureOutput(cmd)
+      await cmd.run()
+
+      const json = JSON.parse(output.join('')) as Record<string, unknown>
+      expect(json).to.have.property('paths')
+
+      const paths = json.paths as Record<string, unknown>
+      expect(paths).to.have.property('config').that.is.a('string')
+      expect(paths).to.have.property('data').that.is.a('string')
+      expect(paths).to.have.property('logs').that.is.a('string')
+      expect(paths).to.have.property('project').that.is.a('string')
+      expect(paths).to.have.property('overrides').that.is.an('array')
+      expect(paths).to.have.property('existence').that.is.an('object')
+    })
+  })
+
+  describe('storage paths overrides', () => {
+    it('should show BRV_DATA_DIR override when set', async () => {
+      const state = makeDaemonState()
+      const mockClient = makeMockClient(state)
+      const connect = stub().resolves({client: mockClient, projectRoot: '/tmp'})
+
+      const original = process.env.BRV_DATA_DIR
+      process.env.BRV_DATA_DIR = '/custom/data/path'
+
+      try {
+        const cmd = new TestableDebug(ensureRunning, connect, ['--once'], config)
+        const output = captureOutput(cmd)
+        await cmd.run()
+
+        const tree = output.join('\n')
+        expect(tree).to.include('BRV_DATA_DIR=/custom/data/path')
+      } finally {
+        if (original === undefined) {
+          delete process.env.BRV_DATA_DIR
+        } else {
+          process.env.BRV_DATA_DIR = original
+        }
+      }
     })
   })
 

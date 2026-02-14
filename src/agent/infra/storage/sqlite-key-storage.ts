@@ -254,6 +254,34 @@ export class SqliteKeyStorage implements IKeyStorage {
   }
 
   /**
+   * List all key-value pairs matching a prefix.
+   * More efficient than list() followed by individual get() calls.
+   */
+  async listWithValues<T>(prefix: StorageKey): Promise<Array<{key: StorageKey; value: T}>> {
+    this.ensureInitialized()
+    const prefixPath = this.serializeKey(prefix)
+    const lockKey = lockKeyFromStorageKey(prefix)
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    using _lock = await RWLock.read(lockKey)
+
+    try {
+      const rows = this.db!.prepare(
+        'SELECT key_path, value FROM key_store WHERE key_path LIKE ? ORDER BY key_path',
+      ).all(`${prefixPath}%`) as Array<{key_path: string; value: Buffer}>
+
+      return rows.map((row) => ({
+        key: this.deserializeKey(row.key_path),
+        value: JSON.parse(row.value.toString('utf8')) as T,
+      }))
+    } catch (error) {
+      throw new Error(
+        `Failed to list keys with values for prefix ${prefixPath}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+
+  /**
    * Set a value at a composite key.
    */
   async set<T>(key: StorageKey, value: T): Promise<void> {

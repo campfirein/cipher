@@ -667,7 +667,7 @@ describe('ConnectionCoordinator', () => {
       )).to.be.true
     })
 
-    it('should return error when no agent connected', () => {
+    it('should clear active session and return success when no agent connected', () => {
       coordinator.clearAgentClients()
 
       const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.NEW_SESSION)
@@ -677,7 +677,7 @@ describe('ConnectionCoordinator', () => {
       )
 
       const result = handler!({reason: 'test'}, 'client-1')
-      expect(result).to.deep.equal({error: 'Agent not connected', success: false})
+      expect(result).to.deep.equal({success: true})
     })
 
     it('should broadcast newSessionCreated on success', () => {

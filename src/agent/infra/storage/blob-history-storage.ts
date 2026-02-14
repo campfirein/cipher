@@ -22,6 +22,21 @@ export class BlobHistoryStorage implements IHistoryStorage {
   public constructor(private readonly blobStorage: IBlobStorage) {}
 
   /**
+   * Append a single message to the session history.
+   * For blob storage, this loads existing history, appends, and re-saves.
+   */
+  public async appendMessage(sessionId: string, message: InternalMessage): Promise<void> {
+    try {
+      const existing = await this.loadHistory(sessionId)
+      const messages = existing ?? []
+      messages.push(message)
+      await this.saveHistory(sessionId, messages)
+    } catch (error) {
+      console.error(`[BlobHistoryStorage] Failed to append message for session ${sessionId}:`, error)
+    }
+  }
+
+  /**
    * Delete all history for a specific session.
    *
    * @param sessionId - Unique session identifier

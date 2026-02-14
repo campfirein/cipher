@@ -9,6 +9,9 @@ import keytar from 'keytar'
 
 import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keychain-store.js'
 
+import {shouldUseFileTokenStore} from '../../utils/environment-detector.js'
+import {FileProviderKeychainStore} from './file-provider-keychain-store.js'
+
 const SERVICE_NAME = 'byterover-cli-providers'
 
 /**
@@ -76,9 +79,16 @@ export class ProviderKeychainStore implements IProviderKeychainStore {
 }
 
 /**
- * Creates a provider keychain store instance.
- * This factory function allows for future platform-specific implementations.
+ * Creates the appropriate provider keychain store for the current platform.
+ *
+ * - WSL: FileProviderKeychainStore (encrypted file-based, keychain not available)
+ * - Headless Linux: FileProviderKeychainStore (no D-Bus/keyring daemon)
+ * - macOS/Windows/Linux with GUI: ProviderKeychainStore (system keychain via keytar)
+ *
+ * @param shouldUseFileFn - Optional function for environment detection (for testing)
  */
-export function createProviderKeychainStore(): IProviderKeychainStore {
-  return new ProviderKeychainStore()
+export function createProviderKeychainStore(
+  shouldUseFileFn: () => boolean = shouldUseFileTokenStore,
+): IProviderKeychainStore {
+  return shouldUseFileFn() ? new FileProviderKeychainStore() : new ProviderKeychainStore()
 }

@@ -59,20 +59,6 @@ export interface ISessionPersistence {
   cleanupSessions(config: SessionRetentionConfig): Promise<SessionCleanupResult>
 
   /**
-   * Clear the active session pointer.
-   * Removes active.json from sessions directory
-   */
-  clearActiveSession(): Promise<void>
-
-  /**
-   * Delete a session and its metadata.
-   *
-   * @param sessionId - Session ID to delete
-   * @returns True if session was deleted, false if not found
-   */
-  deleteSession(sessionId: string): Promise<boolean>
-
-  /**
    * Get the currently active session pointer.
    *
    * @returns Active session pointer or null if no active session
@@ -110,14 +96,6 @@ export interface ISessionPersistence {
   listSessions(): Promise<SessionInfo[]>
 
   /**
-   * Mark a session as ended.
-   * Updates the session status to 'ended' and lastUpdated timestamp.
-   *
-   * @param sessionId - Session ID to mark as ended
-   */
-  markSessionEnded(sessionId: string): Promise<void>
-
-  /**
    * Mark a session as interrupted (e.g., process crashed).
    * Updates the session status to 'interrupted'.
    *
@@ -140,20 +118,4 @@ export interface ISessionPersistence {
    * @param sessionId - Session ID to set as active
    */
   setActiveSession(sessionId: string): Promise<void>
-
-  /**
-   * Set session title from first user message.
-   *
-   * @param sessionId - Session ID to update
-   * @param title - Session title
-   */
-  setSessionTitle(sessionId: string, title: string): Promise<void>
-
-  /**
-   * Update session activity (lastUpdated timestamp and message count).
-   *
-   * @param sessionId - Session ID to update
-   * @param messageCount - Current message count
-   */
-  updateSessionActivity(sessionId: string, messageCount: number): Promise<void>
 }

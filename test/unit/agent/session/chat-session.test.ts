@@ -337,17 +337,17 @@ describe('ChatSession', () => {
   })
 
   describe('reset()', () => {
-    it('should clear history via contextManager', () => {
-      session.reset()
+    it('should clear history via contextManager', async () => {
+      await session.reset()
 
       expect((mockLLMService.getContextManager as SinonStub).calledOnce).to.be.true
       expect((mockContextManager.clearHistory as SinonStub).calledOnce).to.be.true
     })
 
-    it('should emit cipher:conversationReset event with sessionId', () => {
+    it('should emit cipher:conversationReset event with sessionId', async () => {
       const emitStub = sandbox.stub(agentEventBus, 'emit')
 
-      session.reset()
+      await session.reset()
 
       expect(emitStub.calledOnce).to.be.true
       expect(emitStub.firstCall.args[0]).to.equal('cipher:conversationReset')
