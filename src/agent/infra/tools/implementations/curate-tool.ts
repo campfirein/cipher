@@ -5,7 +5,12 @@ import { z } from 'zod'
 import type { Tool, ToolExecutionContext } from '../../../core/domain/tools/types.js'
 
 import { DirectoryManager } from '../../../../server/core/domain/knowledge/directory-manager.js'
-import { MarkdownWriter } from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import { MarkdownWriter, parseFrontmatterScoring } from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import {
+  applyDefaultScoring,
+  determineTier,
+  recordCurateUpdate,
+} from '../../../../server/core/domain/knowledge/memory-scoring.js'
 import { toSnakeCase } from '../../../../server/utils/file-helpers.js'
 import { ToolName } from '../../../core/domain/tools/constants.js'
 
@@ -568,6 +573,7 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
       narrative: filteredContent.narrative,
       rawConcept: filteredContent.rawConcept,
       relations: filteredContent.relations,
+      scoring: applyDefaultScoring(),
       snippets: filteredContent.snippets ?? [],
       tags: filteredContent.tags,
     })
@@ -645,6 +651,16 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
 
     await createDomainContextIfMissing(basePath, parsed.domain, domainContext)
 
+    // Read existing file to preserve and update scoring metadata
+    const existingContent = await DirectoryManager.readFile(contextPath)
+    const existingScoring = existingContent ? parseFrontmatterScoring(existingContent) : undefined
+    const updatedScoring = existingScoring ? recordCurateUpdate(existingScoring) : applyDefaultScoring()
+    const newTier = determineTier(
+      updatedScoring.importance ?? 50,
+      (updatedScoring.maturity ?? 'draft') as 'core' | 'draft' | 'validated',
+    )
+    const finalScoring = { ...updatedScoring, maturity: newTier }
+
     // Filter out non-existent files from rawConcept.files
     const filteredContent = filterValidFiles(content)
 
@@ -655,6 +671,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
       narrative: filteredContent.narrative,
       rawConcept: filteredContent.rawConcept,
       relations: filteredContent.relations,
+      scoring: finalScoring,
       snippets: filteredContent.snippets ?? [],
       tags: filteredContent.tags,
     })

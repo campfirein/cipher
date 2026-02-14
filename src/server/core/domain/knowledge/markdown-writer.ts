@@ -1,5 +1,6 @@
 import {dump as yamlDump, load as yamlLoad} from 'js-yaml'
 
+import { mergeScoring as mergeScoringFn } from './memory-scoring.js'
 import { normalizeRelationPath, parseRelations } from './relation-parser.js'
 
 export interface RawConcept {
@@ -28,6 +29,20 @@ export interface Fact {
   value?: string
 }
 
+/**
+ * Scoring metadata for knowledge lifecycle management (FinMem-inspired).
+ * Stored in YAML frontmatter alongside existing fields.
+ */
+export interface FrontmatterScoring {
+  accessCount?: number
+  createdAt?: string
+  importance?: number
+  maturity?: 'core' | 'draft' | 'validated'
+  recency?: number
+  updateCount?: number
+  updatedAt?: string
+}
+
 export interface ContextData {
   facts?: Fact[]
   keywords: string[]
@@ -35,15 +50,23 @@ export interface ContextData {
   narrative?: Narrative
   rawConcept?: RawConcept
   relations?: string[]
+  scoring?: FrontmatterScoring
   snippets: string[]
   tags: string[]
 }
 
 interface Frontmatter {
+  accessCount?: number
+  createdAt?: string
+  importance?: number
   keywords: string[]
+  maturity?: 'core' | 'draft' | 'validated'
+  recency?: number
   related: string[]
   tags: string[]
   title?: string
+  updateCount?: number
+  updatedAt?: string
 }
 
 interface ParsedFrontmatter {
@@ -55,10 +78,16 @@ interface ParsedFrontmatter {
  * Generate YAML frontmatter block from context data.
  * Only includes fields that have values.
  */
-function generateFrontmatter(title: string, relations?: string[], tags: string[] = [], keywords: string[] = []): string {
+function generateFrontmatter(
+  title: string,
+  relations?: string[],
+  tags: string[] = [],
+  keywords: string[] = [],
+  scoring?: FrontmatterScoring,
+): string {
   const normalizedRelations = (relations || []).map(rel => normalizeRelationPath(rel))
 
-  const fm: Record<string, string | string[]> = {}
+  const fm: Record<string, number | string | string[]> = {}
 
   if (title) {
     fm.title = title
@@ -71,6 +100,37 @@ function generateFrontmatter(title: string, relations?: string[], tags: string[]
   }
 
   fm.keywords = keywords
+
+  // Scoring fields — only emit when present (backward compatible)
+  if (scoring) {
+    if (scoring.importance !== undefined) {
+      fm.importance = Math.round(scoring.importance * 100) / 100
+    }
+
+    if (scoring.recency !== undefined) {
+      fm.recency = Math.round(scoring.recency * 1000) / 1000
+    }
+
+    if (scoring.maturity) {
+      fm.maturity = scoring.maturity
+    }
+
+    if (scoring.accessCount !== undefined && scoring.accessCount > 0) {
+      fm.accessCount = scoring.accessCount
+    }
+
+    if (scoring.updateCount !== undefined && scoring.updateCount > 0) {
+      fm.updateCount = scoring.updateCount
+    }
+
+    if (scoring.createdAt) {
+      fm.createdAt = scoring.createdAt
+    }
+
+    if (scoring.updatedAt) {
+      fm.updatedAt = scoring.updatedAt
+    }
+  }
 
   // Always generate frontmatter since tags and keywords are required
   const yamlContent = yamlDump(fm, { flowLevel: 1, lineWidth: -1, sortKeys: false }).trimEnd()
@@ -114,6 +174,35 @@ function parseFrontmatter(content: string): null | ParsedFrontmatter {
 
     if (typeof parsed.title === 'string') {
       frontmatter.title = parsed.title
+    }
+
+    // Scoring fields (backward compatible — absent in old files)
+    if (typeof parsed.importance === 'number') {
+      frontmatter.importance = parsed.importance
+    }
+
+    if (typeof parsed.recency === 'number') {
+      frontmatter.recency = parsed.recency
+    }
+
+    if (typeof parsed.accessCount === 'number') {
+      frontmatter.accessCount = parsed.accessCount
+    }
+
+    if (typeof parsed.updateCount === 'number') {
+      frontmatter.updateCount = parsed.updateCount
+    }
+
+    if (typeof parsed.createdAt === 'string') {
+      frontmatter.createdAt = parsed.createdAt
+    }
+
+    if (typeof parsed.updatedAt === 'string') {
+      frontmatter.updatedAt = parsed.updatedAt
+    }
+
+    if (parsed.maturity === 'draft' || parsed.maturity === 'validated' || parsed.maturity === 'core') {
+      frontmatter.maturity = parsed.maturity
     }
 
     return { body, frontmatter }
@@ -583,10 +672,63 @@ function mergeFacts(source?: Fact[], target?: Fact[]): Fact[] | undefined {
  * Parse content extracting relations from either frontmatter or legacy @ format.
  * Returns parsed frontmatter metadata and the body content for further parsing.
  */
+/**
+ * Extract scoring metadata from parsed frontmatter.
+ * Returns defaults for missing fields.
+ */
+export function extractScoring(fm: Frontmatter): FrontmatterScoring {
+  return {
+    accessCount: fm.accessCount ?? 0,
+    createdAt: fm.createdAt,
+    importance: fm.importance ?? 50,
+    maturity: fm.maturity ?? 'draft',
+    recency: fm.recency ?? 1,
+    updateCount: fm.updateCount ?? 0,
+    updatedAt: fm.updatedAt,
+  }
+}
+
+/**
+ * Parse frontmatter from raw markdown content and return scoring metadata.
+ * Exported for use by search-knowledge-service to extract scoring without
+ * going through the full parseContent path.
+ */
+export function parseFrontmatterScoring(content: string): FrontmatterScoring | undefined {
+  const parsed = parseFrontmatter(content)
+  if (!parsed) {
+    return undefined
+  }
+
+  return extractScoring(parsed.frontmatter)
+}
+
+/**
+ * Replace scoring fields in existing markdown content without touching the body.
+ * If no frontmatter exists, returns the original content unchanged.
+ */
+export function updateScoringInContent(content: string, scoring: FrontmatterScoring): string {
+  const parsed = parseFrontmatter(content)
+  if (!parsed) {
+    return content
+  }
+
+  const { body, frontmatter } = parsed
+  const updatedFrontmatter = generateFrontmatter(
+    frontmatter.title ?? '',
+    frontmatter.related,
+    frontmatter.tags,
+    frontmatter.keywords,
+    scoring,
+  )
+
+  return updatedFrontmatter + body
+}
+
 function parseContentWithFrontmatter(content: string): {
   body: string
   keywords: string[]
   relations: string[]
+  scoring?: FrontmatterScoring
   tags: string[]
   title?: string
 } {
@@ -597,6 +739,7 @@ function parseContentWithFrontmatter(content: string): {
       body: parsed.body,
       keywords: parsed.frontmatter.keywords,
       relations: parsed.frontmatter.related,
+      scoring: extractScoring(parsed.frontmatter),
       tags: parsed.frontmatter.tags,
       title: parsed.frontmatter.title,
     }
@@ -616,7 +759,7 @@ export const MarkdownWriter = {
     const snippets = (data.snippets || []).filter(s => s && s.trim())
     const relations = data.relations || []
 
-    const frontmatter = generateFrontmatter(data.name, relations, data.tags, data.keywords)
+    const frontmatter = generateFrontmatter(data.name, relations, data.tags, data.keywords, data.scoring)
     const rawConceptSection = generateRawConceptSection(data.rawConcept)
     const narrativeSection = generateNarrativeSection(data.narrative)
     const factsSection = generateFactsSection(data.facts)
@@ -657,6 +800,12 @@ export const MarkdownWriter = {
     const mergedTags = [...new Set([...sourceParsed.tags, ...targetParsed.tags])]
     const mergedKeywords = [...new Set([...sourceParsed.keywords, ...targetParsed.keywords])]
 
+    // Merge scoring metadata (FinMem-inspired lifecycle)
+    const defaultScoring: FrontmatterScoring = { importance: 50, maturity: 'draft', recency: 1 }
+    const mergedScoringData = (sourceParsed.scoring || targetParsed.scoring)
+      ? mergeScoringFn(sourceParsed.scoring ?? defaultScoring, targetParsed.scoring ?? defaultScoring)
+      : undefined
+
     const sourceRawConcept = parseRawConceptSection(sourceParsed.body)
     const targetRawConcept = parseRawConceptSection(targetParsed.body)
     const mergedRawConcept = mergeRawConcepts(sourceRawConcept, targetRawConcept)
@@ -689,13 +838,14 @@ export const MarkdownWriter = {
       narrative: mergedNarrative,
       rawConcept: mergedRawConcept,
       relations: mergedRelations,
+      scoring: mergedScoringData,
       snippets: mergedSnippets,
       tags: mergedTags,
     })
   },
 
   parseContent(content: string, name: string = ''): ContextData {
-    const { body, keywords, relations, tags, title } = parseContentWithFrontmatter(content)
+    const { body, keywords, relations, scoring, tags, title } = parseContentWithFrontmatter(content)
 
     return {
       facts: parseFactsSection(body),
@@ -704,6 +854,7 @@ export const MarkdownWriter = {
       narrative: parseNarrativeSection(body),
       rawConcept: parseRawConceptSection(body),
       relations,
+      scoring,
       snippets: extractSnippetsFromContent(body),
       tags,
     }
