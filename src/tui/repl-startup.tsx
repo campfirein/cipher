@@ -2,9 +2,7 @@ import {render} from 'ink'
 
 import {App} from './app/index.js'
 import {AppProviders} from './providers/app-providers.js'
-import {type TrackingService, useTransportStore} from './stores/transport-store.js'
-
-export type {TrackingService} from './stores/transport-store.js'
+import {useTransportStore} from './stores/transport-store.js'
 
 /**
  * Options for starting the REPL
@@ -13,7 +11,6 @@ export type {TrackingService} from './stores/transport-store.js'
  * - TransportInitializer connects to daemon via connectToDaemon()
  */
 export interface ReplOptions {
-  trackingService: TrackingService
   version: string
 }
 
@@ -21,13 +18,10 @@ export interface ReplOptions {
  * Start the ByteRover REPL
  */
 export async function startRepl(options: ReplOptions): Promise<void> {
-  const {trackingService, version} = options
+  const {version} = options
 
-  // Set tracking service and version in store before rendering
-  useTransportStore.getState().setTrackingService(trackingService)
+  // Set version in store before rendering
   useTransportStore.getState().setVersion(version)
-
-  await trackingService.track('repl', {status: 'started'})
 
   const {waitUntilExit} = render(
     <AppProviders>
@@ -36,5 +30,4 @@ export async function startRepl(options: ReplOptions): Promise<void> {
   )
 
   await waitUntilExit()
-  await trackingService.track('repl', {status: 'finished'})
 }

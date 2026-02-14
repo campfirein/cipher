@@ -38,6 +38,11 @@ class MockTokenizer implements ITokenizer {
 class MockHistoryStorage implements IHistoryStorage {
   private storage: Map<string, InternalMessage[]> = new Map()
 
+  async appendMessage(sessionId: string, message: InternalMessage): Promise<void> {
+    const existing = this.storage.get(sessionId) ?? []
+    this.storage.set(sessionId, [...existing, message])
+  }
+
   async deleteHistory(sessionId: string): Promise<void> {
     this.storage.delete(sessionId)
   }
@@ -635,6 +640,7 @@ describe('ContextManager', () => {
 
     it('should handle initialization errors gracefully', async () => {
       const errorStorage: IHistoryStorage = {
+        appendMessage: sandbox.stub().rejects(new Error('Append failed')),
         deleteHistory: sandbox.stub().rejects(new Error('Delete failed')),
         exists: sandbox.stub().rejects(new Error('Exists failed')),
         getSessionMetadata: sandbox.stub().rejects(new Error('Metadata failed')),
@@ -800,6 +806,7 @@ describe('ContextManager', () => {
   describe('error handling', () => {
     it('should handle persistence errors gracefully on user message', async () => {
       const errorStorage: IHistoryStorage = {
+        appendMessage: sandbox.stub().rejects(new Error('Append failed')),
         deleteHistory: sandbox.stub().rejects(new Error('Delete failed')),
         exists: sandbox.stub().resolves(false),
         getSessionMetadata: sandbox.stub().resolves(),
@@ -835,6 +842,7 @@ describe('ContextManager', () => {
 
     it('should handle persistence errors gracefully on assistant message', async () => {
       const errorStorage: IHistoryStorage = {
+        appendMessage: sandbox.stub().rejects(new Error('Append failed')),
         deleteHistory: sandbox.stub().rejects(new Error('Delete failed')),
         exists: sandbox.stub().resolves(false),
         getSessionMetadata: sandbox.stub().resolves(),

@@ -85,6 +85,8 @@ export function serializeTaskError(error: unknown): TaskErrorData {
     // Check for known error names and map to codes
     const codeMap: Record<string, TaskErrorCodeType> = {
       AuthError: TaskErrorCode.NOT_AUTHENTICATED,
+      LlmGenerationError: TaskErrorCode.LLM_ERROR,
+      LlmRateLimitError: TaskErrorCode.LLM_RATE_LIMIT,
       RateLimitError: TaskErrorCode.LLM_RATE_LIMIT,
       TaskCancelledError: TaskErrorCode.TASK_CANCELLED,
       TimeoutError: TaskErrorCode.TASK_TIMEOUT,
@@ -142,7 +144,7 @@ export class NotAuthenticatedError extends TaskError {
 
 export class ProjectNotInitError extends TaskError {
   public constructor() {
-    super('Project not initialized. Please run "brv init" first.', TaskErrorCode.PROJECT_NOT_INIT)
+    super('Project not initialized. Run "brv" first.', TaskErrorCode.PROJECT_NOT_INIT)
     this.name = 'ProjectNotInitError'
   }
 }

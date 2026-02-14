@@ -193,9 +193,9 @@ export class ChatSession implements IChatSession {
   /**
    * Reset the conversation history.
    */
-  public reset(): void {
+  public async reset(): Promise<void> {
     const contextManager = this.llmService.getContextManager()
-    contextManager.clearHistory()
+    await contextManager.clearHistory()
 
     // Emit conversation reset event
     this.sharedServices.agentEventBus.emit('cipher:conversationReset', {

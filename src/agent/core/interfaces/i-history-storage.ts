@@ -9,6 +9,15 @@ import type {InternalMessage} from './message-types.js'
  */
 export interface IHistoryStorage {
   /**
+   * Append a single message to the session history.
+   * More efficient than saveHistory for incremental updates.
+   *
+   * @param sessionId - Unique session identifier
+   * @param message - Single message to append
+   */
+  appendMessage(sessionId: string, message: InternalMessage): Promise<void>
+
+  /**
    * Delete all history for a specific session.
    *
    * @param sessionId - Unique session identifier

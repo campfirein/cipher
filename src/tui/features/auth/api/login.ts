@@ -1,7 +1,4 @@
 import {
-  AgentEvents,
-  type AgentRestartRequest,
-  type AgentRestartResponse,
   AuthEvents,
   type AuthLoginCompletedEvent,
   type AuthStartLoginResponse,
@@ -20,11 +17,4 @@ export const subscribeToLoginCompleted = (callback: (data: AuthLoginCompletedEve
   if (!apiClient) return () => {}
 
   return apiClient.on<AuthLoginCompletedEvent>(AuthEvents.LOGIN_COMPLETED, callback)
-}
-
-export const restartAgent = (reason: string): Promise<AgentRestartResponse> => {
-  const {client} = useTransportStore.getState()
-  if (!client) return Promise.reject(new Error('Not connected'))
-
-  return client.requestWithAck<AgentRestartResponse, AgentRestartRequest>(AgentEvents.RESTART, {reason})
 }

@@ -5,7 +5,6 @@ import type {IContextFileReader} from '../../core/interfaces/context-tree/i-cont
 import type {IContextTreeSnapshotService} from '../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {ICogitPushService} from '../../core/interfaces/services/i-cogit-push-service.js'
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
-import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
 import type {IPushUseCase, PushUseCaseRunOptions} from '../../core/interfaces/usecase/i-push-use-case.js'
 
@@ -33,7 +32,6 @@ export interface PushUseCaseOptions {
   projectConfigStore: IProjectConfigStore
   terminal: ITerminal
   tokenStore: ITokenStore
-  trackingService: ITrackingService
   webAppUrl: string
 }
 
@@ -44,7 +42,6 @@ export class PushUseCase implements IPushUseCase {
   private readonly projectConfigStore: IProjectConfigStore
   private readonly terminal: ITerminal
   private readonly tokenStore: ITokenStore
-  private readonly trackingService: ITrackingService
   private readonly webAppUrl: string
 
   constructor(options: PushUseCaseOptions) {
@@ -54,7 +51,6 @@ export class PushUseCase implements IPushUseCase {
     this.projectConfigStore = options.projectConfigStore
     this.terminal = options.terminal
     this.tokenStore = options.tokenStore
-    this.trackingService = options.trackingService
     this.webAppUrl = options.webAppUrl
   }
 
@@ -62,8 +58,6 @@ export class PushUseCase implements IPushUseCase {
     const format = options.format ?? 'text'
 
     try {
-      await this.trackingService.track('mem:push')
-
       const token = await this.validateAuth(format)
       if (!token) return
 
@@ -133,14 +127,14 @@ export class PushUseCase implements IPushUseCase {
         branch: options.branch,
         contexts: pushContexts,
         sessionKey: token.sessionKey,
-        spaceId: projectConfig.spaceId,
-        teamId: projectConfig.teamId,
+        spaceId: projectConfig.spaceId!,
+        teamId: projectConfig.teamId!,
       })
 
       // Update snapshot ONLY after successful push
       await this.contextTreeSnapshotService.saveSnapshot()
 
-      const url = this.buildSpaceUrl(projectConfig.teamName, projectConfig.spaceName)
+      const url = this.buildSpaceUrl(projectConfig.teamName!, projectConfig.spaceName!)
 
       if (format === 'json') {
         this.outputJsonResult({
@@ -165,9 +159,12 @@ export class PushUseCase implements IPushUseCase {
       this.terminal.actionStop()
       if (error instanceof WorkspaceNotInitializedError) {
         if (format === 'json') {
-          this.outputJsonResult({error: 'Project not initialized. Run init first.', status: 'error'})
+          this.outputJsonResult({
+            error: 'Not connected to a space. Run login and select a team and space first.',
+            status: 'error',
+          })
         } else {
-          this.terminal.log('Project not initialized. Please run "/init" to select your team and workspace.')
+          this.terminal.log('Not connected to a space. Run "/login" and select a team and space first.')
         }
 
         return
@@ -189,9 +186,9 @@ export class PushUseCase implements IPushUseCase {
 
   private async checkProjectInit(): Promise<BrvConfig> {
     const projectConfig = await this.projectConfigStore.read()
-    if (projectConfig === undefined) {
+    if (projectConfig === undefined || !projectConfig.isCloudConnected()) {
       throw new WorkspaceNotInitializedError(
-        'Project not initialized. Please run "/init" to select your team and workspace.',
+        'Not connected to a space. Run "/login" and select a team and space first.',
         '.brv',
       )
     }

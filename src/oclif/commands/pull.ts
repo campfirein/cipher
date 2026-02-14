@@ -7,11 +7,9 @@ import {HttpCogitPullService} from '../../server/infra/cogit/http-cogit-pull-ser
 import {ProjectConfigStore} from '../../server/infra/config/file-config-store.js'
 import {FileContextTreeSnapshotService} from '../../server/infra/context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeWriterService} from '../../server/infra/context-tree/file-context-tree-writer-service.js'
-import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
 import {createTokenStore} from '../../server/infra/storage/token-store.js'
 import {HeadlessTerminal} from '../../server/infra/terminal/headless-terminal.js'
 import {OclifTerminal} from '../../server/infra/terminal/oclif-terminal.js'
-import {MixpanelTrackingService} from '../../server/infra/tracking/mixpanel-tracking-service.js'
 import {PullUseCase} from '../../server/infra/usecase/pull-use-case.js'
 
 /** Parsed flags type */
@@ -55,8 +53,6 @@ Downloads the context tree from the ByteRover cloud to your local project.`
   protected createUseCase(options: {format: 'json' | 'text'; headless: boolean}): IPullUseCase {
     const envConfig = getCurrentConfig()
     const tokenStore = createTokenStore()
-    const globalConfigStore = new FileGlobalConfigStore()
-    const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
     const contextTreeSnapshotService = new FileContextTreeSnapshotService()
 
     // Use HeadlessTerminal for headless mode or JSON format
@@ -76,7 +72,6 @@ Downloads the context tree from the ByteRover cloud to your local project.`
       projectConfigStore: new ProjectConfigStore(),
       terminal,
       tokenStore,
-      trackingService,
     })
   }
 

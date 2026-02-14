@@ -8,7 +8,6 @@ import type {IContextTreeSnapshotService} from '../../../src/server/core/interfa
 import type {IContextTreeWriterService} from '../../../src/server/core/interfaces/context-tree/i-context-tree-writer-service.js'
 import type {ICogitPullService} from '../../../src/server/core/interfaces/services/i-cogit-pull-service.js'
 import type {ITerminal} from '../../../src/server/core/interfaces/services/i-terminal.js'
-import type {ITrackingService} from '../../../src/server/core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../../src/server/core/interfaces/storage/i-project-config-store.js'
 
 import {BRV_CONFIG_VERSION} from '../../../src/server/constants.js'
@@ -47,7 +46,6 @@ describe('PullUseCase', () => {
   let projectConfig: BrvConfig
   let terminal: ITerminal
   let tokenStore: SinonStubbedInstance<ITokenStore>
-  let trackingService: SinonStubbedInstance<ITrackingService>
   let validToken: AuthToken
 
   beforeEach(() => {
@@ -70,10 +68,6 @@ describe('PullUseCase', () => {
     contextTreeWriterService = {sync: sinon.stub()}
     configStore = {exists: sinon.stub(), getModifiedTime: sinon.stub(), read: sinon.stub(), write: sinon.stub()}
     tokenStore = {clear: sinon.stub(), load: sinon.stub(), save: sinon.stub()}
-    trackingService = {
-      track: sinon.stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
-    }
-
     validToken = new AuthToken({
       accessToken: 'access-token',
       expiresAt: new Date(Date.now() + 3600 * 1000),
@@ -109,7 +103,6 @@ describe('PullUseCase', () => {
       projectConfigStore: configStore,
       terminal,
       tokenStore,
-      trackingService,
     })
   }
 
@@ -146,7 +139,7 @@ describe('PullUseCase', () => {
       expect(errorMessages[0]).to.include('expired')
     })
 
-    it('should error when project not initialized', async () => {
+    it('should error when project config is missing', async () => {
       tokenStore.load.resolves(validToken)
       configStore.read.resolves()
 
@@ -154,7 +147,18 @@ describe('PullUseCase', () => {
 
       await useCase.run({branch: 'main'})
 
-      expect(logMessages.some((msg) => msg.includes('Project not initialized'))).to.be.true
+      expect(logMessages.some((msg) => msg.includes('Not connected to a space'))).to.be.true
+    })
+
+    it('should error when project is local-only (not cloud connected)', async () => {
+      tokenStore.load.resolves(validToken)
+      configStore.read.resolves(BrvConfig.createLocal({cwd: '/test/cwd'}))
+
+      const useCase = createUseCase()
+
+      await useCase.run({branch: 'main'})
+
+      expect(logMessages.some((msg) => msg.includes('Not connected to a space'))).to.be.true
     })
   })
 
@@ -388,23 +392,6 @@ describe('PullUseCase', () => {
       expect(contextTreeWriterService.sync.calledOnce).to.be.true
       expect(contextTreeWriterService.sync.getCall(0).args[0].files).to.deep.equal([])
       expect(contextTreeSnapshotService.saveSnapshot.calledOnce).to.be.true
-    })
-  })
-
-  describe('tracking', () => {
-    it('should track mem:pull event', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.read.resolves(projectConfig)
-      contextTreeSnapshotService.getChanges.resolves({added: [], deleted: [], modified: []})
-      cogitPullService.pull.resolves(createSnapshot())
-      contextTreeWriterService.sync.resolves({added: [], deleted: [], edited: []})
-      contextTreeSnapshotService.saveSnapshot.resolves()
-
-      const useCase = createUseCase()
-
-      await useCase.run({branch: 'main'})
-
-      expect(trackingService.track.calledWith('mem:pull')).to.be.true
     })
   })
 })

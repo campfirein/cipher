@@ -11,19 +11,35 @@ const MAX_CONTEXT_TREE_FILES = 10_000
 const DEFAULT_CACHE_TTL_MS = 5000
 
 /** Bump when MINISEARCH_OPTIONS fields/boost change to invalidate cached indexes */
-const INDEX_SCHEMA_VERSION = 3
+const INDEX_SCHEMA_VERSION = 4
 
-/** Only include results whose score is at least this fraction of the top result's score */
-const SCORE_GAP_RATIO = 0.2
+/** Only include results whose normalized score is at least this fraction of the top result's score */
+const SCORE_GAP_RATIO = 0.75
 
-/** Minimum absolute score for the top result. Below this, the query is considered out-of-domain */
-const MINIMUM_RELEVANCE_SCORE = 4
+/** Minimum normalized score for the top result. Below this, the query is considered out-of-domain */
+const MINIMUM_RELEVANCE_SCORE = 0.6
 
-/** Score threshold above which results are trusted despite unmatched query terms */
-const UNMATCHED_TERM_SCORE_THRESHOLD = 8
+/** Normalized score threshold above which results are trusted despite unmatched query terms */
+const UNMATCHED_TERM_SCORE_THRESHOLD = 0.85
 
 /** Minimum query term length to consider "significant" for OOD term-based detection */
 const UNMATCHED_TERM_MIN_LENGTH = 4
+
+/** Chunk size in characters for smart excerpt extraction (~200 tokens) */
+const CHUNK_SIZE_CHARS = 800
+
+/** Overlap between chunks in characters (15% of chunk size) */
+const CHUNK_OVERLAP_CHARS = 120
+
+/**
+ * Normalize raw MiniSearch BM25 score to [0, 1) range.
+ * Uses the monotonic formula: score / (1 + score)
+ * Maps: strong(15)→0.94, medium(8)→0.89, moderate(4)→0.80, weak(1)→0.50, none(0)→0.
+ * Query-independent — no per-query normalization needed.
+ */
+function normalizeScore(rawScore: number): number {
+  return rawScore / (1 + rawScore)
+}
 
 const MINISEARCH_OPTIONS = {
   fields: ['title', 'content', 'path'] as string[],
@@ -108,7 +124,86 @@ function extractTitle(content: string, fallbackTitle: string): string {
   return match ? match[1].trim() : fallbackTitle
 }
 
+/**
+ * Find the best semantic break point in a chunk slice.
+ * Searches the last 30% of the text for break points with priority:
+ * paragraph (\n\n) > sentence (. ? !) > line (\n).
+ * Returns the character offset to break at, or -1 if no good break found.
+ */
+function findBreakPoint(slice: string): number {
+  const searchStart = Math.floor(slice.length * 0.7)
+  const searchSlice = slice.slice(searchStart)
+
+  const paraBreak = searchSlice.lastIndexOf('\n\n')
+  if (paraBreak !== -1) {
+    return searchStart + paraBreak + 2
+  }
+
+  const sentEnd = Math.max(
+    searchSlice.lastIndexOf('. '),
+    searchSlice.lastIndexOf('.\n'),
+    searchSlice.lastIndexOf('? '),
+    searchSlice.lastIndexOf('?\n'),
+    searchSlice.lastIndexOf('! '),
+    searchSlice.lastIndexOf('!\n'),
+  )
+  if (sentEnd !== -1) {
+    return searchStart + sentEnd + 2
+  }
+
+  const lineBreak = searchSlice.lastIndexOf('\n')
+  if (lineBreak !== -1) {
+    return searchStart + lineBreak + 1
+  }
+
+  return -1
+}
+
+/**
+ * Chunk a document into overlapping pieces with smart break-point detection.
+ * Inspired by QMD's chunking strategy — breaks at semantic boundaries
+ * (paragraph > sentence > line > word) for coherent excerpts.
+ */
+function chunkDocument(content: string): { pos: number; text: string }[] {
+  if (content.length <= CHUNK_SIZE_CHARS) {
+    return [{ pos: 0, text: content }]
+  }
+
+  const chunks: { pos: number; text: string }[] = []
+  let charPos = 0
+
+  while (charPos < content.length) {
+    let endPos = Math.min(charPos + CHUNK_SIZE_CHARS, content.length)
+
+    // Find best break point in last 30% of chunk
+    if (endPos < content.length) {
+      const breakOffset = findBreakPoint(content.slice(charPos, endPos))
+      if (breakOffset !== -1) {
+        endPos = charPos + breakOffset
+      }
+    }
+
+    // Ensure forward progress
+    if (endPos <= charPos) {
+      endPos = Math.min(charPos + CHUNK_SIZE_CHARS, content.length)
+    }
+
+    chunks.push({ pos: charPos, text: content.slice(charPos, endPos) })
+
+    if (endPos >= content.length) break
+
+    // Overlap with previous chunk
+    charPos = endPos - CHUNK_OVERLAP_CHARS
+    if (charPos <= chunks.at(-1)!.pos) {
+      charPos = endPos
+    }
+  }
+
+  return chunks
+}
+
 function extractExcerpt(content: string, query: string, maxLength: number = 800): string {
+  // Strip ## Relations section and title heading
   const relationsMatch = /^## Relations\n([\S\s]*?)(?=\n## |\n# |$)/m.exec(content)
   let cleanContent = content
   if (relationsMatch) {
@@ -117,40 +212,31 @@ function extractExcerpt(content: string, query: string, maxLength: number = 800)
 
   cleanContent = cleanContent.replace(/^# .+$/m, '').trim()
 
+  // Chunk the document into semantically coherent pieces
+  const chunks = chunkDocument(cleanContent)
+
+  // Score each chunk by query term density and pick the best
   const queryTerms = query
     .toLowerCase()
     .split(/\s+/)
     .filter((t) => t.length >= 2)
 
-  const lines = cleanContent.split('\n')
-  let bestStartIndex = 0
-  let bestScore = 0
+  let bestChunk = chunks[0]
+  let bestScore = -1
 
-  for (const [i, line] of lines.entries()) {
-    const lineLower = line.toLowerCase()
-    let score = 0
-    for (const term of queryTerms) {
-      if (lineLower.includes(term)) {
-        score++
-      }
-    }
-
+  for (const chunk of chunks) {
+    const chunkLower = chunk.text.toLowerCase()
+    const score = queryTerms.reduce((acc, term) => acc + (chunkLower.includes(term) ? 1 : 0), 0)
     if (score > bestScore) {
       bestScore = score
-      bestStartIndex = i
+      bestChunk = chunk
     }
   }
 
-  let excerpt = ''
-  for (const line of lines.slice(bestStartIndex)) {
-    if (excerpt.length >= maxLength) break
-    excerpt += line + '\n'
-  }
-
-  excerpt = excerpt.trim()
+  let excerpt = bestChunk.text.trim()
   if (excerpt.length > maxLength) {
     excerpt = excerpt.slice(0, maxLength).trim() + '...'
-  } else if (bestStartIndex > 0 || excerpt.length < cleanContent.length) {
+  } else if (chunks.length > 1) {
     excerpt += '...'
   }
 
@@ -411,17 +497,20 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
     // AND-first strategy: for multi-word queries, try AND for concentrated scores.
     // If AND returns no results, fall back to OR to ensure no regression.
-    let searchResults: Array<{ id: string; queryTerms: string[]; score: number }>
+    let rawResults: Array<{ id: string; queryTerms: string[]; score: number }>
     let andSearchFailed = false
     if (filteredWords.length >= 2) {
-      searchResults = index.search(filteredQuery, { combineWith: 'AND' })
-      if (searchResults.length === 0) {
+      rawResults = index.search(filteredQuery, { combineWith: 'AND' })
+      if (rawResults.length === 0) {
         andSearchFailed = true
-        searchResults = index.search(filteredQuery, { combineWith: 'OR' })
+        rawResults = index.search(filteredQuery, { combineWith: 'OR' })
       }
     } else {
-      searchResults = index.search(filteredQuery, { combineWith: 'OR' })
+      rawResults = index.search(filteredQuery, { combineWith: 'OR' })
     }
+
+    // Normalize scores to [0, 1) early so all downstream logic uses consistent values
+    const searchResults = rawResults.map((r) => ({ ...r, score: normalizeScore(r.score) }))
 
     const results: Array<{ excerpt: string; path: string; score: number; title: string }> = []
 
@@ -471,7 +560,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
           results.push({
             excerpt: extractExcerpt(document.content, query),
             path: document.path,
-            score: Math.round(result.score * 100) / 100,
+            score: Math.round(result.score * 100) / 100, // already normalized to [0, 1)
             title: document.title,
           })
         }

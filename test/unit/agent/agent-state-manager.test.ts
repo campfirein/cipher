@@ -26,6 +26,7 @@ function createTestConfig(overrides?: Partial<ValidatedAgentConfig>): ValidatedA
       maxSessions: 100,
       sessionTTL: 3_600_000,
     },
+    storagePath: '/tmp/brv-test-storage',
     useGranularStorage: false,
     ...overrides,
   }

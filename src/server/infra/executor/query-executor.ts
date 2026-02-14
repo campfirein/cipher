@@ -14,8 +14,8 @@ import {
 } from './direct-search-responder.js'
 import { QueryResultCache } from './query-result-cache.js'
 
-/** Minimum MiniSearch score to consider a result high-confidence for pre-fetching */
-const SMART_ROUTING_SCORE_THRESHOLD = 5
+/** Minimum normalized score to consider a result high-confidence for pre-fetching */
+const SMART_ROUTING_SCORE_THRESHOLD = 0.7
 
 /** Maximum number of documents to pre-fetch and inject into the prompt */
 const SMART_ROUTING_MAX_DOCS = 5
