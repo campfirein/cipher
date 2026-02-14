@@ -9,10 +9,8 @@ import {useQueryClient} from '@tanstack/react-query'
 import {Box, Text, useInput} from 'ink'
 import React, {useState} from 'react'
 
-import {AgentEvents} from '../../../../shared/transport/events/agent-events.js'
 import {EnterPrompt, Init} from '../../../components/index.js'
 import {useMode, useTheme} from '../../../hooks/index.js'
-import {useTransportStore} from '../../../stores/transport-store.js'
 import {getAuthStateQueryOptions} from '../../auth/api/get-auth-state.js'
 
 type InitStep = 'complete' | 'init' | 'prompt'
@@ -35,7 +33,6 @@ export const InitView: React.FC<InitViewProps> = ({availableHeight, onInitComple
   const {mode} = useMode()
   const [step, setStep] = useState<InitStep>('prompt')
   const queryClient = useQueryClient()
-  const client = useTransportStore((s) => s.client)
 
   const maxOutputLines = MIN_OUTPUT_LINES
 
@@ -57,11 +54,6 @@ export const InitView: React.FC<InitViewProps> = ({availableHeight, onInitComple
     onInitComplete?.()
     // Reload auth state (includes config) to detect config change
     await queryClient.invalidateQueries({queryKey: getAuthStateQueryOptions().queryKey})
-
-    // Restart agent to pick up new project state
-    if (client) {
-      await client.requestWithAck(AgentEvents.RESTART, {reason: 'Project initialized'})
-    }
   }
 
   return (

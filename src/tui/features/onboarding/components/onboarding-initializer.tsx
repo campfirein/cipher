@@ -7,8 +7,6 @@
 
 import React, {useEffect, useRef} from 'react'
 
-import {AgentEvents} from '../../../../shared/transport/events/agent-events.js'
-import {useTransportStore} from '../../../stores/transport-store.js'
 import {useAuthStore} from '../../auth/stores/auth-store.js'
 import {useTasksStore} from '../../tasks/stores/tasks-store.js'
 import {autoSetupOnboarding} from '../api/auto-setup-onboarding.js'
@@ -20,7 +18,6 @@ interface OnboardingInitializerProps {
 }
 
 export function OnboardingInitializer({children}: OnboardingInitializerProps): React.ReactNode {
-  const client = useTransportStore((s) => s.client)
   const {isAuthorized, isLoadingInitial, user} = useAuthStore()
   const tasks = useTasksStore((s) => s.tasks)
 
@@ -38,12 +35,7 @@ export function OnboardingInitializer({children}: OnboardingInitializerProps): R
       // Only run auto-setup for users who haven't onboarded
       if (user && !user.hasOnboardedCli && isAuthorized) {
         try {
-          const result = await autoSetupOnboarding()
-
-          if (result.success) {
-            // Restart agent to pick up new project state
-            await client?.requestWithAck(AgentEvents.RESTART, {reason: 'Auto select team/space'})
-          }
+          await autoSetupOnboarding()
         } catch {
           // Silently ignore - auto-selection is optional
         }
@@ -53,7 +45,7 @@ export function OnboardingInitializer({children}: OnboardingInitializerProps): R
     }
 
     runAutoSetup()
-  }, [client, isAuthorized, isLoadingInitial, initialized, setInitialized, user])
+  }, [isAuthorized, isLoadingInitial, initialized, setInitialized, user])
 
   // Watch tasks and advance step machine (only during onboarding)
   useEffect(() => {

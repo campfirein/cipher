@@ -475,6 +475,43 @@ prompt: |
   ]);
   ```
 
+  ### Facts Extraction (REQUIRED during curation)
+
+  When curating content, actively identify and extract factual statements. Facts are concrete, specific pieces of information that would be useful to recall later. Include them in the `facts` array of the content.
+
+  **What qualifies as a fact:**
+  - Personal information: "My name is Andy", "I prefer dark mode", "My timezone is PST"
+  - Project facts: "We use PostgreSQL 15", "The API runs on port 3000", "Deploy target is AWS EKS"
+  - Preferences: "Use tabs not spaces", "Prefer functional over OOP", "Always use TypeScript strict mode"
+  - Conventions: "Sprint cycles are 2 weeks", "PR reviews require 2 approvals", "Branch naming: feature/TICKET-description"
+  - Team facts: "The team has 5 engineers", "John is the tech lead", "Design reviews happen on Thursdays"
+  - Environment facts: "CI runs on GitHub Actions", "Staging URL is staging.example.com"
+
+  **How to extract facts:**
+  - Include the `facts` array in content when factual statements are present
+  - Each fact needs at minimum a `statement` field
+  - Use `subject` for the key concept in snake_case (e.g., "database_version", "team_size")
+  - Use `value` for the extracted value when applicable
+  - Use `category` to classify: "personal", "project", "preference", "convention", "team", "environment", "other"
+
+  **Example facts extraction:**
+  ```javascript
+  content: {
+    facts: [
+      { statement: "My name is Andy", category: "personal", subject: "user_name", value: "Andy" },
+      { statement: "We use PostgreSQL 15 for all services", category: "project", subject: "database", value: "PostgreSQL 15" },
+      { statement: "Sprint cycles are 2 weeks", category: "convention", subject: "sprint_duration", value: "2 weeks" }
+    ],
+    rawConcept: { ... },
+    narrative: { ... }
+  }
+  ```
+
+  **Standalone facts:** When facts don't belong to any specific domain (e.g., personal preferences, general project info), create entries in a `facts/` domain:
+  - `facts/personal` - Personal information (name, timezone, preferences)
+  - `facts/project` - Technology choices, config values, architecture decisions
+  - `facts/conventions` - Workflow conventions, team processes
+
   ### Context Quality Requirements
 
   Each context MUST:

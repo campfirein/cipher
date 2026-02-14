@@ -22,7 +22,7 @@ export const togetheraiProvider: ProviderModule = {
       model: provider(config.model),
     })
   },
-  defaultModel: 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo',
+  defaultModel: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8',
   description: 'Open-source model inference',
   envVars: ['TOGETHER_API_KEY', 'TOGETHERAI_API_KEY'],
   id: 'togetherai',

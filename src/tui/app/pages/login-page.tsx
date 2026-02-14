@@ -16,7 +16,7 @@ import {useNavigate} from 'react-router-dom'
 
 import {EnterPrompt, Header} from '../../components/index.js'
 import {getAuthStateQueryOptions} from '../../features/auth/api/get-auth-state.js'
-import {login, restartAgent, subscribeToLoginCompleted} from '../../features/auth/api/login.js'
+import {login, subscribeToLoginCompleted} from '../../features/auth/api/login.js'
 import {useAuthStore} from '../../features/auth/stores/auth-store.js'
 import {useTasksStore} from '../../features/tasks/stores/tasks-store.js'
 import {useTerminalBreakpoint, useUIHeights} from '../../hooks/index.js'
@@ -62,7 +62,6 @@ export function LoginPage(): React.ReactNode {
     if (state.success) {
       clearTasks()
       await queryClient.invalidateQueries({queryKey: getAuthStateQueryOptions().queryKey})
-      await restartAgent('User logged in')
       navigate('/')
     } else {
       setState({type: 'idle'})

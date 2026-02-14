@@ -13,6 +13,11 @@ Curate knowledge topics with atomic operations. This tool manages the knowledge 
   - structure: Structural or organizational documentation (e.g., file layout, process hierarchy, timeline)
   - dependencies: Dependencies, prerequisites, blockers, or relationship information
   - highlights: Key highlights, capabilities, deliverables, or notable outcomes
+- **facts**: Array of factual statements extracted from content
+  - statement: The full factual text (e.g., "My name is Andy", "We use PostgreSQL 15")
+  - category: Optional categorization - "personal", "project", "preference", "convention", "team", "environment", "other"
+  - subject: Optional subject key in snake_case (e.g., "user_name", "database", "sprint_duration")
+  - value: Optional extracted value (e.g., "Andy", "PostgreSQL 15", "2 weeks")
 - **snippets**: Code/text snippets (legacy support, optional)
 - **relations**: Related topics using @domain/topic notation
 

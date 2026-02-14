@@ -44,6 +44,7 @@ import {SessionEventBus} from '../events/event-emitter.js'
 import {ToolMetadataHandler} from '../tools/streaming/metadata-handler.js'
 import {AsyncMutex} from './context/async-mutex.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
+import {DeferredEffects} from './context/deferred-effects.js'
 import {LoopDetector} from './context/loop-detector.js'
 import {ClaudeMessageFormatter} from './formatters/claude-formatter.js'
 import {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
@@ -658,49 +659,71 @@ export class AgentLLMService implements ILLMService {
       utilizationPercent,
     })
 
-    if (overflowResult.recommendation === 'prune') {
-      // Try pruning tool outputs first
-      const pruneResult = await this.compactionService.pruneToolOutputs(this.sessionId)
+    // Defer event emissions until after DB operations succeed
+    const effects = new DeferredEffects()
 
-      // Emit context pruned event
-      if (pruneResult.compactedCount > 0) {
-        this.sessionEventBus.emit('llmservice:contextPruned', {
-          pruneCount: pruneResult.compactedCount,
-          reason: 'overflow',
-          taskId: taskId || undefined,
-          tokensSaved: pruneResult.tokensSaved,
-        })
+    try {
+      if (overflowResult.recommendation === 'prune') {
+        // Try pruning tool outputs first
+        const pruneResult = await this.compactionService.pruneToolOutputs(this.sessionId)
 
-        // Also emit warning for backward compatibility
-        this.sessionEventBus.emit('llmservice:warning', {
-          message: `Context compaction: pruned ${pruneResult.compactedCount} old tool outputs (~${pruneResult.tokensSaved} tokens)`,
-          taskId: taskId || undefined,
+        // Sync in-memory state with storage (replace compacted tool outputs)
+        if (pruneResult.compactedCount > 0) {
+          this.contextManager.markToolOutputsCompacted()
+
+          effects.defer(() => {
+            this.sessionEventBus.emit('llmservice:contextPruned', {
+              pruneCount: pruneResult.compactedCount,
+              reason: 'overflow',
+              taskId: taskId || undefined,
+              tokensSaved: pruneResult.tokensSaved,
+            })
+
+            this.sessionEventBus.emit('llmservice:warning', {
+              message: `Context compaction: pruned ${pruneResult.compactedCount} old tool outputs (~${pruneResult.tokensSaved} tokens)`,
+              taskId: taskId || undefined,
+            })
+          })
+        }
+      } else if (overflowResult.recommendation === 'compact') {
+        const originalTokens = currentTokens
+
+        // Full compaction needed - generate LLM summary
+        // Use the same taskId from caller for billing tracking
+        const summary = await this.compactionService.generateSummary(
+          this.generator,
+          messages,
+          taskId,
+          this.config.model,
+        )
+
+        await this.compactionService.createCompactionBoundary(this.sessionId, summary)
+
+        // Reload in-memory state to only include post-boundary messages
+        await this.contextManager.reloadFromStorage()
+
+        const compressedTokens = this.generator.estimateTokensSync(summary)
+        effects.defer(() => {
+          this.sessionEventBus.emit('llmservice:contextCompressed', {
+            compressedTokens,
+            originalTokens,
+            strategy: 'summary',
+            taskId: taskId || undefined,
+          })
+
+          this.sessionEventBus.emit('llmservice:warning', {
+            message: 'Context compaction: created summary boundary for conversation history',
+            taskId: taskId || undefined,
+          })
         })
       }
-    } else if (overflowResult.recommendation === 'compact') {
-      const originalTokens = currentTokens
 
-      // Full compaction needed - generate LLM summary
-      // Use the same taskId from caller for billing tracking
-      const summary = await this.compactionService.generateSummary(this.generator, messages, taskId, this.config.model)
-
-      await this.compactionService.createCompactionBoundary(this.sessionId, summary)
-
-      // Emit context compressed event
-      // Estimate compressed tokens (summary is much smaller than original)
-      const compressedTokens = this.generator.estimateTokensSync(summary)
-      this.sessionEventBus.emit('llmservice:contextCompressed', {
-        compressedTokens,
-        originalTokens,
-        strategy: 'summary',
-        taskId: taskId || undefined,
-      })
-
-      // Also emit warning for backward compatibility
-      this.sessionEventBus.emit('llmservice:warning', {
-        message: 'Context compaction: created summary boundary for conversation history',
-        taskId: taskId || undefined,
-      })
+      // All DB ops succeeded — fire events
+      effects.flush()
+    } catch (error) {
+      // DB ops failed — discard pending events
+      effects.discard()
+      throw error
     }
   }
 
@@ -899,16 +922,21 @@ export class AgentLLMService implements ILLMService {
         await this.contextManager.addUserMessage(textInput, imageData, fileData)
       }
 
-      const messages = this.contextManager.getMessages()
-      const messageTokenCounts = messages.map((msg) =>
-        this.generator.estimateTokensSync(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)),
-      )
-
       const maxMessageTokens = this.config.maxInputTokens - systemPromptTokens
       // Target utilization to leave headroom for response
       const targetMessageTokens = Math.floor(maxMessageTokens * TARGET_MESSAGE_TOKEN_UTILIZATION)
 
-      this.contextManager.compressMessage(targetMessageTokens, messageTokenCounts)
+      // Smart pruning: try clearing old tool outputs before destructive compression
+      this.contextManager.markToolOutputsCompacted(2)
+
+      // Get token counts (recalculate if pruning changed content)
+      const currentMessages = this.contextManager.getMessages()
+      const effectiveTokenCounts = currentMessages.map((msg) =>
+        this.generator.estimateTokensSync(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)),
+      )
+
+      // Destructive compression as fallback if still over limit
+      this.contextManager.compressMessage(targetMessageTokens, effectiveTokenCounts)
 
       // Build generation request
       const request = this.buildGenerateContentRequest({
@@ -1275,7 +1303,8 @@ export class AgentLLMService implements ILLMService {
     // Step 1: Create pending tool parts for all tool calls
     for (const toolCall of lastMessage.toolCalls) {
       const toolArgs = JSON.parse(toolCall.function.arguments)
-      this.contextManager.addToolCallPending(toolCall.id, toolCall.function.name, toolArgs)
+      // eslint-disable-next-line no-await-in-loop -- Must add pending parts in order
+      await this.contextManager.addToolCallPending(toolCall.id, toolCall.function.name, toolArgs)
     }
 
     // Step 2: Transition all to running state
@@ -1286,7 +1315,8 @@ export class AgentLLMService implements ILLMService {
         startedAt: startTime,
         status: 'running',
       }
-      this.contextManager.updateToolCallState(toolCall.id, runningState)
+      // eslint-disable-next-line no-await-in-loop -- Must update states in order
+      await this.contextManager.updateToolCallState(toolCall.id, runningState)
     }
 
     // Check if any memory-modifying tools are being called (invalidates cached system prompt)
@@ -1322,7 +1352,8 @@ export class AgentLLMService implements ILLMService {
             time: {end: endTime, start: startTime},
             title: result.toolResult.processedOutput.title,
           }
-          this.contextManager.updateToolCallState(toolCall.id, completedState)
+          // eslint-disable-next-line no-await-in-loop -- Must update states in order
+          await this.contextManager.updateToolCallState(toolCall.id, completedState)
         } else {
           // Transition to error state
           const errorState: ToolStateError = {
@@ -1331,7 +1362,8 @@ export class AgentLLMService implements ILLMService {
             status: 'error',
             time: {end: endTime, start: startTime},
           }
-          this.contextManager.updateToolCallState(toolCall.id, errorState)
+          // eslint-disable-next-line no-await-in-loop -- Must update states in order
+          await this.contextManager.updateToolCallState(toolCall.id, errorState)
         }
 
         // Also add to context as tool result message (for backward compatibility)
@@ -1353,7 +1385,8 @@ export class AgentLLMService implements ILLMService {
           status: 'error',
           time: {end: endTime, start: startTime},
         }
-        this.contextManager.updateToolCallState(toolCall.id, errorState)
+        // eslint-disable-next-line no-await-in-loop -- Must update states in order
+        await this.contextManager.updateToolCallState(toolCall.id, errorState)
 
         // Also add to context as tool result message (for backward compatibility)
         // eslint-disable-next-line no-await-in-loop -- Must add results in order
