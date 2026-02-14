@@ -15,13 +15,6 @@ export {useCommands, useCommandsController} from '../features/commands/hooks/use
 export {useSlashCommandProcessor} from '../features/commands/hooks/use-slash-command-processor.js'
 export {useSlashCompletion} from '../features/commands/hooks/use-slash-completion.js'
 export {useCommandsStore} from '../features/commands/stores/commands-store.js'
-export {useOnboardingLogs} from '../features/onboarding/hooks/use-onboarding-logs.js'
-export type {UseOnboardingLogsReturn} from '../features/onboarding/hooks/use-onboarding-logs.js'
-
-// Feature: Onboarding
-export {useOnboarding} from '../features/onboarding/hooks/use-onboarding.js'
-export type {AppViewMode, OnboardingFlowStep, UseOnboardingReturn} from '../features/onboarding/hooks/use-onboarding.js'
-export {useOnboardingStore} from '../features/onboarding/stores/onboarding-store.js'
 
 // Stores
 export {useMode, useModeStore} from '../stores/mode-store.js'

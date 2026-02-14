@@ -11,7 +11,7 @@ import React, {useMemo} from 'react'
 import type {ProviderDTO} from '../../../../shared/transport/types/dto.js'
 
 import {SelectableList} from '../../../components/selectable-list.js'
-import {useOnboarding, useTheme} from '../../../hooks/index.js'
+import {useTheme} from '../../../hooks/index.js'
 
 /**
  * Props for ProviderDialog.
@@ -37,7 +37,6 @@ export const ProviderDialog: React.FC<ProviderDialogProps> = ({
   providers,
 }) => {
   const {theme: {colors}} = useTheme()
-  const {viewMode} = useOnboarding()
 
   // Find current provider for the list
   const currentProvider = useMemo(
@@ -51,7 +50,6 @@ export const ProviderDialog: React.FC<ProviderDialogProps> = ({
       filterKeys={(item) => [item.id, item.name, item.description]}
       getCurrentKey={(item) => item.id}
       groupBy={(item) => (item.category === 'popular' ? 'Popular' : 'Other')}
-      hideCancelButton={viewMode.type === 'onboarding'}
       isActive={isActive}
       items={providers}
       keyExtractor={(item) => item.id}
