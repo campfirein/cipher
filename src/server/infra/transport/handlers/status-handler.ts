@@ -2,7 +2,6 @@ import type {StatusDTO} from '../../../../shared/transport/types/dto.js'
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
-import type {ITrackingService} from '../../../core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 import type {ProjectPathResolver} from './handler-types.js'
@@ -15,7 +14,6 @@ export interface StatusHandlerDeps {
   projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
   tokenStore: ITokenStore
-  trackingService: ITrackingService
   transport: ITransportServer
 }
 
@@ -29,7 +27,6 @@ export class StatusHandler {
   private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
   private readonly tokenStore: ITokenStore
-  private readonly trackingService: ITrackingService
   private readonly transport: ITransportServer
 
   constructor(deps: StatusHandlerDeps) {
@@ -38,7 +35,6 @@ export class StatusHandler {
     this.projectConfigStore = deps.projectConfigStore
     this.resolveProjectPath = deps.resolveProjectPath
     this.tokenStore = deps.tokenStore
-    this.trackingService = deps.trackingService
     this.transport = deps.transport
   }
 
@@ -46,7 +42,6 @@ export class StatusHandler {
     this.transport.onRequest<void, StatusGetResponse>(StatusEvents.GET, async (_data, clientId) => {
       const projectPath = this.resolveEffectivePath(clientId)
       const status = await this.collectStatus(projectPath)
-      await this.trackingService.track('mem:status')
       return {status}
     })
   }

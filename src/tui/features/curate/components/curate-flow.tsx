@@ -17,9 +17,10 @@ interface CurateFlowProps extends CustomDialogCallbacks {
   context?: string
   files?: string[]
   flags?: {apiKey?: string; model?: string; verbose?: boolean}
+  folders?: string[]
 }
 
-export function CurateFlow({context, files, onComplete}: CurateFlowProps): React.ReactNode {
+export function CurateFlow({context, files, folders, onComplete}: CurateFlowProps): React.ReactNode {
   const [running, setRunning] = useState(true)
   const [error, setError] = useState<string>()
 
@@ -27,6 +28,7 @@ export function CurateFlow({context, files, onComplete}: CurateFlowProps): React
     createCurateTask({
       content: context,
       files: files && files.length > 0 ? files : undefined,
+      folders: folders && folders.length > 0 ? folders : undefined,
     })
       .then(() => {
         setRunning(false)

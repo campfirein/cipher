@@ -6,7 +6,6 @@ import type {ITokenStore} from '../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../core/interfaces/context-tree/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {ITerminal} from '../../core/interfaces/services/i-terminal.js'
-import type {ITrackingService} from '../../core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
 import type {IStatusUseCase} from '../../core/interfaces/usecase/i-status-use-case.js'
 
@@ -43,7 +42,6 @@ export interface StatusUseCaseOptions {
   projectConfigStore: IProjectConfigStore
   terminal: ITerminal
   tokenStore: ITokenStore
-  trackingService: ITrackingService
   /** Optional transport connector for dependency injection (defaults to connectToTransport) */
   transportConnector?: TransportConnector
 }
@@ -54,7 +52,6 @@ export class StatusUseCase implements IStatusUseCase {
   private readonly projectConfigStore: IProjectConfigStore
   private readonly terminal: ITerminal
   private readonly tokenStore: ITokenStore
-  private readonly trackingService: ITrackingService
   private readonly transportConnector: TransportConnector
 
   constructor(options: StatusUseCaseOptions) {
@@ -63,7 +60,6 @@ export class StatusUseCase implements IStatusUseCase {
     this.projectConfigStore = options.projectConfigStore
     this.terminal = options.terminal
     this.tokenStore = options.tokenStore
-    this.trackingService = options.trackingService
     this.transportConnector = options.transportConnector ?? createDaemonAwareConnector()
   }
 
@@ -165,7 +161,7 @@ export class StatusUseCase implements IStatusUseCase {
       statusData.projectInitialized = isInitialized
       if (isInitialized) {
         const config = await this.projectConfigStore.read()
-        if (config) {
+        if (config?.isCloudConnected()) {
           statusData.teamName = config.teamName
           statusData.spaceName = config.spaceName
         }
@@ -206,7 +202,6 @@ export class StatusUseCase implements IStatusUseCase {
       statusData.contextTreeStatus = 'unknown'
     }
 
-    await this.trackingService.track('mem:status')
     return statusData
   }
 
@@ -259,8 +254,10 @@ export class StatusUseCase implements IStatusUseCase {
 
       if (isInitialized) {
         const config = await this.projectConfigStore.read()
-        if (config) {
+        if (config?.isCloudConnected()) {
           this.terminal.log(`Project Status: Connected to ${config.teamName}/${config.spaceName}`)
+        } else if (config) {
+          this.terminal.log('Project Status: Initialized (local)')
         } else {
           this.terminal.log('Project Status: Configuration file exists but is invalid')
         }
@@ -313,9 +310,6 @@ export class StatusUseCase implements IStatusUseCase {
       for (const change of allChanges) {
         this.terminal.log(`   ${change.color(`${change.status.padEnd(10)} ${formatPath(change.path)}`)}`)
       }
-
-      // Track status
-      await this.trackingService.track('mem:status')
     } catch (error) {
       this.terminal.log('Context Tree: Unable to check status')
       this.terminal.warn(`Warning: ${error instanceof Error ? error.message : 'Context Tree unable to check status'}`)

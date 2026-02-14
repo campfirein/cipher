@@ -10,7 +10,9 @@ describe('mapToPushContexts', () => {
       const addedFiles: ContextFileContent[] = [
         {
           content: 'File content here',
+          keywords: [],
           path: 'structure/context.md',
+          tags: [],
           title: 'Structure Context',
         },
       ]
@@ -25,7 +27,9 @@ describe('mapToPushContexts', () => {
       const addedFiles: ContextFileContent[] = [
         {
           content: '# My Title\n\nSome content here',
+          keywords: [],
           path: 'design/patterns/context.md',
+          tags: [],
           title: 'My Title',
         },
       ]
@@ -41,7 +45,9 @@ describe('mapToPushContexts', () => {
       const addedFiles: ContextFileContent[] = [
         {
           content: 'Some content',
+          keywords: [],
           path: 'test/context.md',
+          tags: [],
           title: 'Test',
         },
       ]
@@ -61,9 +67,9 @@ describe('mapToPushContexts', () => {
 
     it('should preserve order of added files', () => {
       const addedFiles: ContextFileContent[] = [
-        {content: 'First', path: 'first/context.md', title: 'First'},
-        {content: 'Second', path: 'second/context.md', title: 'Second'},
-        {content: 'Third', path: 'third/context.md', title: 'Third'},
+        {content: 'First', keywords: [], path: 'first/context.md', tags: [], title: 'First'},
+        {content: 'Second', keywords: [], path: 'second/context.md', tags: [], title: 'Second'},
+        {content: 'Third', keywords: [], path: 'third/context.md', tags: [], title: 'Third'},
       ]
 
       const result = mapToPushContexts({addedFiles, deletedPaths: [], modifiedFiles: []})
@@ -78,8 +84,8 @@ describe('mapToPushContexts', () => {
   describe('multiple files', () => {
     it('should map all added files correctly', () => {
       const addedFiles: ContextFileContent[] = [
-        {content: 'Content A', path: 'a/context.md', title: 'Title A'},
-        {content: 'Content B', path: 'b/context.md', title: 'Title B'},
+        {content: 'Content A', keywords: [], path: 'a/context.md', tags: [], title: 'Title A'},
+        {content: 'Content B', keywords: [], path: 'b/context.md', tags: [], title: 'Title B'},
       ]
 
       const result = mapToPushContexts({addedFiles, deletedPaths: [], modifiedFiles: []})
@@ -105,7 +111,9 @@ describe('mapToPushContexts', () => {
       const modifiedFiles: ContextFileContent[] = [
         {
           content: 'Updated content',
+          keywords: [],
           path: 'structure/context.md',
+          tags: [],
           title: 'Updated Title',
         },
       ]
@@ -122,8 +130,8 @@ describe('mapToPushContexts', () => {
 
     it('should map multiple modified files correctly', () => {
       const modifiedFiles: ContextFileContent[] = [
-        {content: 'Updated A', path: 'a/context.md', title: 'Title A'},
-        {content: 'Updated B', path: 'b/context.md', title: 'Title B'},
+        {content: 'Updated A', keywords: [], path: 'a/context.md', tags: [], title: 'Title A'},
+        {content: 'Updated B', keywords: [], path: 'b/context.md', tags: [], title: 'Title B'},
       ]
 
       const result = mapToPushContexts({addedFiles: [], deletedPaths: [], modifiedFiles})
@@ -137,10 +145,10 @@ describe('mapToPushContexts', () => {
   describe('mixing added and modified files', () => {
     it('should process both added and modified files', () => {
       const addedFiles: ContextFileContent[] = [
-        {content: 'New content', path: 'new/context.md', title: 'New File'},
+        {content: 'New content', keywords: [], path: 'new/context.md', tags: [], title: 'New File'},
       ]
       const modifiedFiles: ContextFileContent[] = [
-        {content: 'Updated content', path: 'existing/context.md', title: 'Updated File'},
+        {content: 'Updated content', keywords: [], path: 'existing/context.md', tags: [], title: 'Updated File'},
       ]
 
       const result = mapToPushContexts({addedFiles, deletedPaths: [], modifiedFiles})
@@ -150,10 +158,10 @@ describe('mapToPushContexts', () => {
 
     it('should place added files before modified files', () => {
       const addedFiles: ContextFileContent[] = [
-        {content: 'New', path: 'new/context.md', title: 'New'},
+        {content: 'New', keywords: [], path: 'new/context.md', tags: [], title: 'New'},
       ]
       const modifiedFiles: ContextFileContent[] = [
-        {content: 'Updated', path: 'existing/context.md', title: 'Updated'},
+        {content: 'Updated', keywords: [], path: 'existing/context.md', tags: [], title: 'Updated'},
       ]
 
       const result = mapToPushContexts({addedFiles, deletedPaths: [], modifiedFiles})
@@ -166,12 +174,12 @@ describe('mapToPushContexts', () => {
 
     it('should handle multiple added and modified files', () => {
       const addedFiles: ContextFileContent[] = [
-        {content: 'New 1', path: 'new1/context.md', title: 'New 1'},
-        {content: 'New 2', path: 'new2/context.md', title: 'New 2'},
+        {content: 'New 1', keywords: [], path: 'new1/context.md', tags: [], title: 'New 1'},
+        {content: 'New 2', keywords: [], path: 'new2/context.md', tags: [], title: 'New 2'},
       ]
       const modifiedFiles: ContextFileContent[] = [
-        {content: 'Updated 1', path: 'existing1/context.md', title: 'Updated 1'},
-        {content: 'Updated 2', path: 'existing2/context.md', title: 'Updated 2'},
+        {content: 'Updated 1', keywords: [], path: 'existing1/context.md', tags: [], title: 'Updated 1'},
+        {content: 'Updated 2', keywords: [], path: 'existing2/context.md', tags: [], title: 'Updated 2'},
       ]
 
       const result = mapToPushContexts({addedFiles, deletedPaths: [], modifiedFiles})
@@ -230,10 +238,10 @@ describe('mapToPushContexts', () => {
   describe('mixing added, modified, and deleted files', () => {
     it('should process all three operation types', () => {
       const addedFiles: ContextFileContent[] = [
-        {content: 'New content', path: 'new/context.md', title: 'New File'},
+        {content: 'New content', keywords: [], path: 'new/context.md', tags: [], title: 'New File'},
       ]
       const modifiedFiles: ContextFileContent[] = [
-        {content: 'Updated content', path: 'existing/context.md', title: 'Updated File'},
+        {content: 'Updated content', keywords: [], path: 'existing/context.md', tags: [], title: 'Updated File'},
       ]
       const deletedPaths = ['obsolete/context.md']
 
@@ -244,10 +252,10 @@ describe('mapToPushContexts', () => {
 
     it('should place operations in order: added, edited, deleted', () => {
       const addedFiles: ContextFileContent[] = [
-        {content: 'New', path: 'new/context.md', title: 'New'},
+        {content: 'New', keywords: [], path: 'new/context.md', tags: [], title: 'New'},
       ]
       const modifiedFiles: ContextFileContent[] = [
-        {content: 'Updated', path: 'existing/context.md', title: 'Updated'},
+        {content: 'Updated', keywords: [], path: 'existing/context.md', tags: [], title: 'Updated'},
       ]
       const deletedPaths = ['obsolete/context.md']
 
@@ -263,11 +271,11 @@ describe('mapToPushContexts', () => {
 
     it('should handle multiple files of each operation type', () => {
       const addedFiles: ContextFileContent[] = [
-        {content: 'New 1', path: 'new1/context.md', title: 'New 1'},
-        {content: 'New 2', path: 'new2/context.md', title: 'New 2'},
+        {content: 'New 1', keywords: [], path: 'new1/context.md', tags: [], title: 'New 1'},
+        {content: 'New 2', keywords: [], path: 'new2/context.md', tags: [], title: 'New 2'},
       ]
       const modifiedFiles: ContextFileContent[] = [
-        {content: 'Updated 1', path: 'existing1/context.md', title: 'Updated 1'},
+        {content: 'Updated 1', keywords: [], path: 'existing1/context.md', tags: [], title: 'Updated 1'},
       ]
       const deletedPaths = ['obsolete1/context.md', 'obsolete2/context.md']
 

@@ -12,7 +12,6 @@ import {ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'reac
 import type {CommandSideEffects} from '../types/commands.js'
 import type {StreamingMessage} from '../types/index.js'
 
-import {AgentEvents} from '../../shared/transport/events/agent-events.js'
 import {getAuthStateQueryOptions} from '../features/auth/api/get-auth-state.js'
 import {useTasksStore} from '../features/tasks/stores/tasks-store.js'
 import {useCommands, useMode, useTheme} from '../hooks/index.js'
@@ -148,26 +147,28 @@ export const CommandInput = () => {
             setActiveDialog(null)
             setIsStreaming(false)
             setHasActiveDialog(false)
-            // Update command message with result
-            setMessages((prev) => {
-              const updated = [...prev]
-              const lastIndex = updated.length - 1
-              if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
-                const resultMsg: StreamingMessage = {
-                  content: message,
-                  id: `result-${Date.now()}`,
-                  type: 'output',
+            // Update command message with result (skip for task commands which don't add command messages)
+            if (!isTaskCommand) {
+              setMessages((prev) => {
+                const updated = [...prev]
+                const lastIndex = updated.length - 1
+                if (lastIndex >= 0 && updated[lastIndex].type === 'command') {
+                  const resultMsg: StreamingMessage = {
+                    content: message,
+                    id: `result-${Date.now()}`,
+                    type: 'output',
+                  }
+                  const existingOutput = updated[lastIndex].output ?? []
+                  updated[lastIndex] = {
+                    ...updated[lastIndex],
+                    output: [...existingOutput, resultMsg],
+                    timestamp: new Date(),
+                  }
                 }
-                const existingOutput = updated[lastIndex].output ?? []
-                updated[lastIndex] = {
-                  ...updated[lastIndex],
-                  output: [...existingOutput, resultMsg],
-                  timestamp: new Date(),
-                }
-              }
 
-              return updated
-            })
+                return updated
+              })
+            }
 
             // Process side effects declared by the command
             if (sideEffects) {
@@ -189,16 +190,6 @@ export const CommandInput = () => {
               if (sideEffects.reloadAuth) {
                 clearTasks()
                 await queryClient.invalidateQueries({queryKey: getAuthStateQueryOptions().queryKey})
-              }
-
-              if (sideEffects.reloadConfig) {
-                clearTasks()
-                // Config is part of auth state, so invalidating auth also reloads config
-                await queryClient.invalidateQueries({queryKey: getAuthStateQueryOptions().queryKey})
-              }
-
-              if (sideEffects.restartAgent && client) {
-                await client.requestWithAck(AgentEvents.RESTART, {reason: sideEffects.restartAgent.reason})
               }
             }
           },

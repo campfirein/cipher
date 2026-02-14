@@ -203,13 +203,14 @@ describe('Search Knowledge Tool', () => {
       expect(apiResult?.excerpt.length).to.be.greaterThan(0)
     })
 
-    it('should include score in results', async () => {
+    it('should include normalized score in [0, 1) range', async () => {
       const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'authentication'})) as SearchKnowledgeOutput
 
       for (const r of result.results) {
         expect(r.score).to.be.a('number')
         expect(r.score).to.be.greaterThan(0)
+        expect(r.score).to.be.lessThan(1)
       }
     })
 

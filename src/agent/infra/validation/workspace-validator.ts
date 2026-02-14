@@ -18,7 +18,7 @@ export class WorkspaceNotInitializedError extends Error {
 /**
  * Validates that the ByteRover workspace is properly initialized.
  *
- * Checks for the existence of the `.brv` directory (created by `brv init`),
+ * Checks for the existence of the `.brv` directory (auto-created on first command),
  * which contains config.json and context-tree/.
  * Blob/key storage resides at XDG paths and is not validated here.
  *

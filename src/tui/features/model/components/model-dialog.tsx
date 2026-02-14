@@ -71,6 +71,7 @@ export interface ModelDialogProps {
 function formatPricing(pricing?: {inputPerM: number; outputPerM: number}): string {
   if (!pricing) return ''
   const avgPrice = (pricing.inputPerM + pricing.outputPerM) / 2
+  if (avgPrice === 0) return '' // No pricing data available
   if (avgPrice < 0.01) return '$<0.01/M'
   return `$${avgPrice.toFixed(2)}/M`
 }

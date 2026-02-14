@@ -16,6 +16,7 @@ export const getStatusQueryOptions = () =>
   queryOptions({
     queryFn: getStatus,
     queryKey: ['status'],
+    staleTime: 0, // Always refetch on triggers
   })
 
 type UseGetStatusOptions = {

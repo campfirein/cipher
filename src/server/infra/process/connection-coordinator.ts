@@ -10,6 +10,9 @@
  * Consumed by TransportHandlers (orchestrator).
  */
 
+import {unlinkSync} from 'node:fs'
+import {join} from 'node:path'
+
 import type {ClientType} from '../../core/domain/client/client-info.js'
 import type {
   AgentNewSessionRequest,
@@ -122,6 +125,23 @@ export class ConnectionCoordinator {
     if (!this.projectRouter || !this.projectRegistry) return
     const projectInfo = this.projectRegistry.register(projectPath)
     this.projectRouter.addToProjectRoom(clientId, projectInfo.sanitizedPath)
+  }
+
+  /**
+   * Clear active.json so the next agent fork creates a fresh session
+   * instead of resuming the old one. Used by /new when no agent is running.
+   */
+  private clearActiveSession(projectPath?: string): void {
+    if (!projectPath || !this.projectRegistry) return
+
+    const projectInfo = this.projectRegistry.get(projectPath)
+    if (!projectInfo) return
+
+    try {
+      unlinkSync(join(projectInfo.storagePath, 'sessions', 'active.json'))
+    } catch {
+      // Best-effort: file may not exist
+    }
   }
 
   private findProjectForAgent(clientId: string): string | undefined {
@@ -355,7 +375,10 @@ export class ConnectionCoordinator {
         const clientProject = this.clientManager?.getClient(clientId)?.projectPath
         const agentId = this.getAgentForProject(clientProject)
         if (!agentId) {
-          return {error: 'Agent not connected', success: false}
+          // No agent running — clear active session so next fork starts fresh
+          this.clearActiveSession(clientProject)
+          transportLog(`No agent running, cleared active session for: ${clientProject ?? 'unknown'}`)
+          return {success: true}
         }
 
         this.transport.sendTo(agentId, TransportAgentEventNames.NEW_SESSION, {reason: data.reason})

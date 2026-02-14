@@ -2,29 +2,36 @@
  * ProviderFlow Component
  *
  * Multi-step React flow for the /provider command.
- * State machine: loading → select → api_key → connecting → done
+ * State machine: loading → select → provider_actions → api_key → connecting → done
  *
  * Owns the UX flow — fetches providers, renders selection,
  * handles API key input, and calls connect/setActive mutations.
+ * For connected providers, shows action menu (set active, replace key, disconnect).
  */
 
-import {Box, Text, useInput} from 'ink'
-import React, {useCallback, useState} from 'react'
+import {Box, Text} from 'ink'
+import React, {useCallback, useMemo, useState} from 'react'
 
 import type {ProviderDTO} from '../../../../shared/transport/types/dto.js'
 import type {CommandSideEffects} from '../../../types/commands.js'
 
-import {useOnboarding, useTheme} from '../../../hooks/index.js'
-import {LoginFlow} from '../../auth/components/login-flow.js'
-import {useAuthStore} from '../../auth/stores/auth-store.js'
+import {SelectableList} from '../../../components/selectable-list.js'
+import {useTheme} from '../../../hooks/index.js'
 import {useConnectProvider} from '../api/connect-provider.js'
+import {useDisconnectProvider} from '../api/disconnect-provider.js'
 import {useGetProviders} from '../api/get-providers.js'
 import {useSetActiveProvider} from '../api/set-active-provider.js'
 import {useValidateApiKey} from '../api/validate-api-key.js'
 import {ApiKeyDialog} from './api-key-dialog.js'
 import {ProviderDialog} from './provider-dialog.js'
 
-type FlowStep = 'api_key' | 'connecting' | 'done' | 'loading' | 'login' | 'login_prompt' | 'select'
+type FlowStep = 'api_key' | 'connecting' | 'done' | 'loading' | 'provider_actions' | 'select'
+
+interface ProviderAction {
+  description: string
+  id: string
+  name: string
+}
 
 export interface ProviderFlowProps {
   /** Whether the flow is active for keyboard input */
@@ -41,62 +48,62 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
   onComplete,
 }) => {
   const {theme: {colors}} = useTheme()
-  const {viewMode} = useOnboarding()
-  const isInitingProvider = viewMode.type === 'onboarding' && viewMode.step === 'initing-provider'
   const [step, setStep] = useState<FlowStep>('select')
   const [selectedProvider, setSelectedProvider] = useState<null | ProviderDTO>(null)
   const [error, setError] = useState<null | string>(null)
-  const isAuthorized = useAuthStore((s) => s.isAuthorized)
 
   const {data, isLoading} = useGetProviders()
   const connectMutation = useConnectProvider()
+  const disconnectMutation = useDisconnectProvider()
   const setActiveMutation = useSetActiveProvider()
   const validateMutation = useValidateApiKey()
 
   const providers = data?.providers ?? []
 
-  const completeFlow = useCallback((message: string) => {
-    const sideEffects: CommandSideEffects | undefined = isInitingProvider ? {completeInitProvider: true} : undefined
-    onComplete(message, sideEffects)
-  }, [isInitingProvider, onComplete])
+  // Build action choices for a connected provider
+  const providerActions = useMemo(() => {
+    if (!selectedProvider) return []
+    const actions: ProviderAction[] = []
 
-  const handleLoginComplete = useCallback(async () => {
-    if (!useAuthStore.getState().isAuthorized) {
-      setError('Authentication failed. Please try again.')
-      setStep('select')
-      return
+    if (!selectedProvider.isCurrent) {
+      actions.push({
+        description: 'Make this the active provider',
+        id: 'activate',
+        name: 'Set as active',
+      })
     }
 
-    setStep('connecting')
-    try {
-      await connectMutation.mutateAsync({providerId: 'byterover'})
-      completeFlow('Connected to ByteRover')
-    } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : String(error_))
-      setStep('select')
-    }
-  }, [completeFlow, connectMutation])
-
-  const handleSelect = useCallback(async (provider: ProviderDTO) => {
-    if (provider.id === 'byterover' && !isAuthorized) {
-      setSelectedProvider(provider)
-      setStep('login_prompt')
-      return
+    if (selectedProvider.requiresApiKey) {
+      actions.push(
+        {
+          description: 'Enter a new API key',
+          id: 'replace',
+          name: 'Replace API key',
+        },
+        {
+          description: 'Remove API key and disconnect',
+          id: 'disconnect',
+          name: 'Disconnect',
+        },
+      )
     }
 
+    actions.push({
+      description: 'Go back',
+      id: 'cancel',
+      name: 'Cancel',
+    })
+
+    return actions
+  }, [selectedProvider])
+
+  const handleSelect = useCallback((provider: ProviderDTO) => {
     setSelectedProvider(provider)
     setError(null)
 
-    // Already connected — just switch to it
+    // Already connected — show actions menu
     if (provider.isConnected) {
-      setStep('connecting')
-      try {
-        await setActiveMutation.mutateAsync({providerId: provider.id})
-        completeFlow(`Switched to ${provider.name}`)
-      } catch (error_) {
-        setError(error_ instanceof Error ? error_.message : String(error_))
-        setStep('select')
-      }
+      setStep('provider_actions')
 
       return
     }
@@ -109,14 +116,59 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
 
     // No API key needed — connect directly
     setStep('connecting')
-    try {
-      await connectMutation.mutateAsync({providerId: provider.id})
-      completeFlow(`Connected to ${provider.name}`)
-    } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : String(error_))
-      setStep('select')
+    connectMutation.mutateAsync({providerId: provider.id})
+      .then(() => onComplete(`Connected to ${provider.name}`))
+      .catch((error_: unknown) => {
+        setError(error_ instanceof Error ? error_.message : String(error_))
+        setStep('select')
+      })
+  }, [connectMutation, onComplete])
+
+  const handleAction = useCallback(async (action: ProviderAction) => {
+    if (!selectedProvider) return
+
+    switch (action.id) {
+      case 'activate': {
+        setStep('connecting')
+        try {
+          await setActiveMutation.mutateAsync({providerId: selectedProvider.id})
+          onComplete(`Switched to ${selectedProvider.name}`)
+        } catch (error_) {
+          setError(error_ instanceof Error ? error_.message : String(error_))
+          setStep('select')
+        }
+
+        break
+      }
+
+      case 'disconnect': {
+        setStep('connecting')
+        try {
+          await disconnectMutation.mutateAsync({providerId: selectedProvider.id})
+          onComplete(`Disconnected from ${selectedProvider.name}`)
+        } catch (error_) {
+          setError(error_ instanceof Error ? error_.message : String(error_))
+          setStep('select')
+        }
+
+        break
+      }
+
+      case 'replace': {
+        setStep('api_key')
+
+        break
+      }
+
+      default: {
+        // cancel
+        setStep('select')
+        setSelectedProvider(null)
+
+        break
+      }
     }
-  }, [connectMutation, isAuthorized, completeFlow, setActiveMutation])
+  }, [disconnectMutation, onComplete, selectedProvider, setActiveMutation])
 
   const handleApiKeySuccess = useCallback(async (apiKey: string) => {
     if (!selectedProvider) return
@@ -124,12 +176,12 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
     setStep('connecting')
     try {
       await connectMutation.mutateAsync({apiKey, providerId: selectedProvider.id})
-      completeFlow(`Connected to ${selectedProvider.name}`)
+      onComplete(`Connected to ${selectedProvider.name}`)
     } catch (error_) {
       setError(error_ instanceof Error ? error_.message : String(error_))
       setStep('api_key')
     }
-  }, [completeFlow, connectMutation, selectedProvider])
+  }, [onComplete, connectMutation, selectedProvider])
 
   const handleApiKeyCancel = useCallback(() => {
     setStep('select')
@@ -146,12 +198,6 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       return {error: error_ instanceof Error ? error_.message : String(error_), isValid: false}
     }
   }, [selectedProvider, validateMutation])
-
-  // Handle Enter/Esc on login prompt step
-  useInput((_input, key) => {
-    if (key.return) setStep('login')
-    if (key.escape) setStep('select')
-  }, {isActive: isActive && step === 'login_prompt'})
 
   // Loading state
   if (isLoading) {
@@ -195,32 +241,39 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       )
     }
 
-    case 'login': {
-      return <LoginFlow onCancel={() => setStep('select')} onComplete={handleLoginComplete} />
-    }
-
-    case 'login_prompt': {
-      return (
-        <Box borderColor={colors.border} borderStyle="single" flexDirection="column" paddingX={1}>
-          <Box marginBottom={1}>
-            <Text bold color={colors.text}>ByteRover provider requires authentication to use.</Text>
-          </Box>
-          <Box flexDirection="column" marginBottom={1}>
-            <Text color={colors.text}>  · $5 free credit on sign-up (one-time)</Text>
-            <Text color={colors.text}>  · Pay-per-token usage (input & output)</Text>
-            <Text color={colors.text}>  · No monthly reset — credit never expires</Text>
-            <Text color={colors.text}>  · Access pauses when balance reaches $0</Text>
-          </Box>
-          <Box gap={2}>
-            <Text color={colors.dimText}>
-              <Text color={colors.text}>Enter</Text> Log in
-            </Text>
-            <Text color={colors.dimText}>
-              <Text color={colors.text}>Esc</Text> Back
-            </Text>
-          </Box>
+    case 'provider_actions': {
+      return selectedProvider ? (
+        <Box flexDirection="column">
+          {error && (
+            <Box marginBottom={1}>
+              <Text color={colors.errorText}>{error}</Text>
+            </Box>
+          )}
+          <SelectableList<ProviderAction>
+            filterKeys={(item) => [item.id, item.name]}
+            isActive={isActive}
+            items={providerActions}
+            keyExtractor={(item) => item.id}
+            onCancel={() => {
+              setStep('select')
+              setSelectedProvider(null)
+            }}
+            onSelect={handleAction}
+            renderItem={(item, isItemActive) => (
+              <Box gap={2}>
+                <Text
+                  backgroundColor={isItemActive ? colors.dimText : undefined}
+                  color={colors.text}
+                >
+                  {item.name.padEnd(20)}
+                </Text>
+                <Text color={colors.dimText}>{item.description}</Text>
+              </Box>
+            )}
+            title={`${selectedProvider.name} — Choose action`}
+          />
         </Box>
-      )
+      ) : null
     }
 
     case 'select': {

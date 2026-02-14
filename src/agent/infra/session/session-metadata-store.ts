@@ -18,7 +18,6 @@ import {
   ACTIVE_SESSION_FILE,
   type ActiveSessionPointer,
   ActiveSessionPointerSchema,
-  cleanMessageForTitle,
   generateSessionFilename,
   parseSessionFilename,
   SESSION_FILE_PREFIX,
@@ -215,17 +214,6 @@ export class SessionMetadataStore implements ISessionPersistence {
     }
   }
 
-  async clearActiveSession(): Promise<void> {
-    try {
-      await fs.unlink(this.activeSessionPath)
-    } catch (error) {
-      // Ignore if file doesn't exist
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error
-      }
-    }
-  }
-
   /**
    * Create a new session metadata object.
    *
@@ -242,52 +230,6 @@ export class SessionMetadataStore implements ISessionPersistence {
       sessionId,
       status: 'active',
       workingDirectory: this.workingDirectory,
-    }
-  }
-
-  async deleteSession(sessionId: string): Promise<boolean> {
-    try {
-      const files = await fs.readdir(this.sessionsDir)
-
-      for (const file of files) {
-        if (!file.startsWith(SESSION_FILE_PREFIX) || !file.endsWith('.json')) {
-          continue
-        }
-
-        const parsed = parseSessionFilename(file)
-        // Extract UUID from sessionId (removes "agent-session-" prefix if present)
-        // then compare with the filename's uuid prefix
-        const uuid = extractUuidFromSessionId(sessionId)
-        if (parsed && uuid.startsWith(parsed.uuidPrefix)) {
-          // eslint-disable-next-line no-await-in-loop
-          await fs.unlink(join(this.sessionsDir, file))
-          return true
-        }
-
-        // Also check by reading the file to match full sessionId
-        try {
-          const filePath = join(this.sessionsDir, file)
-          // eslint-disable-next-line no-await-in-loop
-          const content = await fs.readFile(filePath, 'utf8')
-          const data = JSON.parse(content)
-
-          if (data.sessionId === sessionId) {
-            // eslint-disable-next-line no-await-in-loop
-            await fs.unlink(filePath)
-            return true
-          }
-        } catch {
-          // Continue to next file
-        }
-      }
-
-      return false
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return false
-      }
-
-      throw error
     }
   }
 
@@ -415,16 +357,6 @@ export class SessionMetadataStore implements ISessionPersistence {
   // Session Lifecycle
   // ============================================================================
 
-  async markSessionEnded(sessionId: string): Promise<void> {
-    const session = await this.getSession(sessionId)
-
-    if (session) {
-      session.status = 'ended'
-      session.lastUpdated = new Date().toISOString()
-      await this.saveSession(session)
-    }
-  }
-
   async markSessionInterrupted(sessionId: string): Promise<void> {
     const session = await this.getSession(sessionId)
 
@@ -474,26 +406,6 @@ export class SessionMetadataStore implements ISessionPersistence {
     }
 
     await fs.writeFile(this.activeSessionPath, JSON.stringify(pointer, null, 2), 'utf8')
-  }
-
-  async setSessionTitle(sessionId: string, title: string): Promise<void> {
-    const session = await this.getSession(sessionId)
-
-    if (session && !session.title) {
-      session.title = cleanMessageForTitle(title)
-      session.lastUpdated = new Date().toISOString()
-      await this.saveSession(session)
-    }
-  }
-
-  async updateSessionActivity(sessionId: string, messageCount: number): Promise<void> {
-    const session = await this.getSession(sessionId)
-
-    if (session) {
-      session.lastUpdated = new Date().toISOString()
-      session.messageCount = messageCount
-      await this.saveSession(session)
-    }
   }
 
   /**

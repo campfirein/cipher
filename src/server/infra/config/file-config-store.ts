@@ -6,7 +6,6 @@ import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-
 
 import {BRV_DIR, PROJECT_CONFIG_FILE} from '../../constants.js'
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import {BrvConfigVersionError} from '../../core/domain/errors/brv-config-version-error.js'
 import {getErrorMessage} from '../../utils/error-helpers.js'
 
 /**
@@ -46,10 +45,6 @@ export class ProjectConfigStore implements IProjectConfigStore {
       const json: unknown = JSON.parse(content)
       return BrvConfig.fromJson(json)
     } catch (error) {
-      if (error instanceof BrvConfigVersionError) {
-        throw error
-      }
-
       throw new Error(`Failed to read config from ${configPath}: ${getErrorMessage(error)}`)
     }
   }

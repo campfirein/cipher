@@ -3,7 +3,6 @@ import {expect} from 'chai'
 import {BRV_CONFIG_VERSION} from '../../../../../src/server/constants.js'
 import {BrvConfig, BrvConfigParams} from '../../../../../src/server/core/domain/entities/brv-config.js'
 import {Space} from '../../../../../src/server/core/domain/entities/space.js'
-import {BrvConfigVersionError} from '../../../../../src/server/core/domain/errors/brv-config-version-error.js'
 
 describe('BrvConfig', () => {
   const validConstructorArgs: BrvConfigParams = {
@@ -62,60 +61,29 @@ describe('BrvConfig', () => {
       expect(config.spaceId).to.equal(validConstructorArgs.spaceId)
     })
 
-    it('should throw BrvConfigVersionError when version is missing', () => {
+    it('should return config with empty version when version is missing', () => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const {version: _, ...jsonWithoutVersion} = validConstructorArgs
-      expect(() => BrvConfig.fromJson(jsonWithoutVersion)).to.throw(BrvConfigVersionError)
+      const config = BrvConfig.fromJson(jsonWithoutVersion)
+
+      expect(config.version).to.equal('')
+      expect(config.spaceId).to.equal('space-123')
+      expect(config.teamId).to.equal('team-456')
     })
 
-    it('should throw BrvConfigVersionError with correct properties when version is missing', () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const {version: _, ...jsonWithoutVersion} = validConstructorArgs
+    it('should preserve original version when mismatched', () => {
+      const jsonWithOldVersion = {...validConstructorArgs, version: '0.0.0'}
+      const config = BrvConfig.fromJson(jsonWithOldVersion)
 
-      try {
-        BrvConfig.fromJson(jsonWithoutVersion)
-        expect.fail('Expected BrvConfigVersionError to be thrown')
-      } catch (error) {
-        expect(error).to.be.instanceof(BrvConfigVersionError)
-        const versionError = error as BrvConfigVersionError
-        expect(versionError.currentVersion).to.be.undefined
-        expect(versionError.expectedVersion).to.equal(BRV_CONFIG_VERSION)
-      }
+      expect(config.version).to.equal('0.0.0')
+      expect(config.spaceId).to.equal('space-123')
+      expect(config.teamId).to.equal('team-456')
     })
 
-    it('should throw BrvConfigVersionError when version is mismatched', () => {
-      const jsonWithWrongVersion = {...validConstructorArgs, version: '0.0.0'}
+    it('should throw Error when JSON structure is invalid (missing createdAt)', () => {
+      const invalidJson = {spaceId: 'space-123', version: BRV_CONFIG_VERSION}
 
-      expect(() => BrvConfig.fromJson(jsonWithWrongVersion)).to.throw(BrvConfigVersionError)
-    })
-
-    it('should throw BrvConfigVersionError with correct properties when version is mismatched', () => {
-      const jsonWithWrongVersion = {...validConstructorArgs, version: '0.0.0'}
-
-      try {
-        BrvConfig.fromJson(jsonWithWrongVersion)
-        expect.fail('Expected BrvConfigVersionError to be thrown')
-      } catch (error) {
-        expect(error).to.be.instanceof(BrvConfigVersionError)
-        const versionError = error as BrvConfigVersionError
-        expect(versionError.currentVersion).to.equal('0.0.0')
-        expect(versionError.expectedVersion).to.equal(BRV_CONFIG_VERSION)
-      }
-    })
-
-    it('should throw BrvConfigVersionError when JSON has no version (even if structure is invalid)', () => {
-      // Old configs without version should get a helpful version error
-      // instead of a generic structure error
-      const invalidJson = {spaceId: 'space-123'}
-
-      expect(() => BrvConfig.fromJson(invalidJson)).to.throw(BrvConfigVersionError)
-    })
-
-    it('should throw Error when JSON has current version but invalid structure', () => {
-      // Only configs with current version should be validated for structure
-      const invalidJsonWithCurrentVersion = {spaceId: 'space-123', version: BRV_CONFIG_VERSION}
-
-      expect(() => BrvConfig.fromJson(invalidJsonWithCurrentVersion)).to.throw('Invalid BrvConfig JSON structure')
+      expect(() => BrvConfig.fromJson(invalidJson)).to.throw('Invalid BrvConfig JSON structure')
     })
 
     it('should throw Error when JSON is not an object', () => {
@@ -138,6 +106,82 @@ describe('BrvConfig', () => {
       expect(deserializedConfig.teamId).to.equal(originalConfig.teamId)
       expect(deserializedConfig.teamName).to.equal(originalConfig.teamName)
       expect(deserializedConfig.version).to.equal(originalConfig.version)
+    })
+
+    it('should deserialize local-only config from JSON', () => {
+      const json = {
+        createdAt: '2025-01-01T00:00:00.000Z',
+        cwd: '/path/to/project',
+        version: BRV_CONFIG_VERSION,
+      }
+      const config = BrvConfig.fromJson(json)
+
+      expect(config.version).to.equal(BRV_CONFIG_VERSION)
+      expect(config.cwd).to.equal('/path/to/project')
+      expect(config.spaceId).to.be.undefined
+      expect(config.isCloudConnected()).to.be.false
+    })
+  })
+
+  describe('createLocal', () => {
+    it('should create local-only config with cwd and version', () => {
+      const config = BrvConfig.createLocal({cwd: '/my/project'})
+
+      expect(config.cwd).to.equal('/my/project')
+      expect(config.version).to.equal(BRV_CONFIG_VERSION)
+      expect(config.createdAt).to.be.a('string')
+      expect(config.spaceId).to.be.undefined
+      expect(config.spaceName).to.be.undefined
+      expect(config.teamId).to.be.undefined
+      expect(config.teamName).to.be.undefined
+      expect(config.ide).to.be.undefined
+      expect(config.chatLogPath).to.be.undefined
+    })
+  })
+
+  describe('isCloudConnected', () => {
+    it('should return true when all cloud fields are set', () => {
+      const config = new BrvConfig(validConstructorArgs)
+      expect(config.isCloudConnected()).to.be.true
+    })
+
+    it('should return false for local-only config', () => {
+      const config = BrvConfig.createLocal({cwd: '/my/project'})
+      expect(config.isCloudConnected()).to.be.false
+    })
+
+    it('should return false when some cloud fields are missing', () => {
+      const config = new BrvConfig({
+        createdAt: '2025-01-01T00:00:00.000Z',
+        cwd: '/path/to/project',
+        spaceId: 'space-123',
+        version: BRV_CONFIG_VERSION,
+      })
+      expect(config.isCloudConnected()).to.be.false
+    })
+  })
+
+  describe('withVersion', () => {
+    it('should create new config with updated version preserving all fields', () => {
+      const original = new BrvConfig(validConstructorArgs)
+      const migrated = original.withVersion('9.9.9')
+
+      expect(migrated.version).to.equal('9.9.9')
+      expect(migrated.spaceId).to.equal(original.spaceId)
+      expect(migrated.spaceName).to.equal(original.spaceName)
+      expect(migrated.teamId).to.equal(original.teamId)
+      expect(migrated.teamName).to.equal(original.teamName)
+      expect(migrated.chatLogPath).to.equal(original.chatLogPath)
+      expect(migrated.cwd).to.equal(original.cwd)
+      expect(migrated.ide).to.equal(original.ide)
+      expect(migrated.createdAt).to.equal(original.createdAt)
+    })
+
+    it('should not mutate the original config', () => {
+      const original = new BrvConfig(validConstructorArgs)
+      original.withVersion('9.9.9')
+
+      expect(original.version).to.equal(BRV_CONFIG_VERSION)
     })
   })
 

@@ -23,7 +23,7 @@ export interface CreateQueryTaskResult {
  * Returns immediately after task is acknowledged - actual execution is async.
  */
 export const createQueryTask = async ({query}: CreateQueryTaskDTO): Promise<CreateQueryTaskResult> => {
-  const {apiClient, projectRoot} = useTransportStore.getState()
+  const {apiClient} = useTransportStore.getState()
   if (!apiClient) {
     throw new Error('Not connected to server')
   }
@@ -33,7 +33,6 @@ export const createQueryTask = async ({query}: CreateQueryTaskDTO): Promise<Crea
   await apiClient.request<TaskAckResponse>(TaskEvents.CREATE, {
     clientCwd: process.cwd(),
     content: query,
-    ...(projectRoot ? {projectPath: projectRoot} : {}),
     taskId,
     type: 'query',
   })

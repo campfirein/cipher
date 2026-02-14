@@ -24,7 +24,7 @@ export class OpenRouterTokenizer implements ITokenizer {
   public constructor(model?: string) {
     // Look up model-specific ratio from registry, fallback to default
     this.charsPerToken = model
-      ? (getCharsPerToken('openrouter', model) ?? DEFAULT_CHARS_PER_TOKEN)
+      ? (getCharsPerToken('openai', model) ?? DEFAULT_CHARS_PER_TOKEN)
       : DEFAULT_CHARS_PER_TOKEN
   }
 

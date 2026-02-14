@@ -1,6 +1,5 @@
 import type {ConnectorDTO} from '../../../../shared/transport/types/dto.js'
 import type {IConnectorManager} from '../../../core/interfaces/connectors/i-connector-manager.js'
-import type {ITrackingService} from '../../../core/interfaces/services/i-tracking-service.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 import type {ProjectPathResolver} from './handler-types.js'
 
@@ -18,7 +17,6 @@ import {mapAgentsToDTOs} from './agent-dto-mapper.js'
 export interface ConnectorsHandlerDeps {
   connectorManagerFactory: (projectRoot: string) => IConnectorManager
   resolveProjectPath: ProjectPathResolver
-  trackingService: ITrackingService
   transport: ITransportServer
 }
 
@@ -29,13 +27,11 @@ export interface ConnectorsHandlerDeps {
 export class ConnectorsHandler {
   private readonly connectorManagerFactory: (projectRoot: string) => IConnectorManager
   private readonly resolveProjectPath: ProjectPathResolver
-  private readonly trackingService: ITrackingService
   private readonly transport: ITransportServer
 
   constructor(deps: ConnectorsHandlerDeps) {
     this.connectorManagerFactory = deps.connectorManagerFactory
     this.resolveProjectPath = deps.resolveProjectPath
-    this.trackingService = deps.trackingService
     this.transport = deps.transport
   }
 
@@ -70,13 +66,6 @@ export class ConnectorsHandler {
 
     const result = await connectorManager.switchConnector(data.agentId, data.connectorType)
 
-    await this.trackingService.track('connector:switch', {
-      agent: data.agentId,
-      fromType: result.fromType ?? 'none',
-      success: result.success,
-      toType: data.connectorType,
-    })
-
     return {
       configPath: result.installResult.configPath,
       manualInstructions: result.installResult.manualInstructions,
@@ -89,8 +78,6 @@ export class ConnectorsHandler {
   private async handleList(clientId: string): Promise<ConnectorListResponse> {
     const projectPath = this.resolveEffectivePath(clientId)
     const connectorManager = this.connectorManagerFactory(projectPath)
-
-    await this.trackingService.track('connector:list')
 
     const installedMap = await connectorManager.getAllInstalledConnectors()
     const connectors: ConnectorDTO[] = []

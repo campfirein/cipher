@@ -3,7 +3,7 @@
  *
  * Global Zustand store for transport connection state and the BrvApiClient instance.
  * This is the foundational store — all feature stores depend on the apiClient from here.
- * Also holds app-level services: trackingService and version.
+ * Also holds app-level metadata like version.
  */
 
 import type {ConnectionState, ITransportClient} from '@campfirein/brv-transport-client'
@@ -11,13 +11,6 @@ import type {ConnectionState, ITransportClient} from '@campfirein/brv-transport-
 import {create} from 'zustand'
 
 import {BrvApiClient} from '../lib/api-client.js'
-
-/**
- * Tracking service interface
- */
-export interface TrackingService {
-  track(event: string, properties?: Record<string, unknown>): Promise<void>
-}
 
 export interface TransportState {
   /** The BrvApiClient instance (typed wrapper around transport client) */
@@ -30,12 +23,8 @@ export interface TransportState {
   error: Error | null
   /** Whether the client is connected */
   isConnected: boolean
-  /** Walked-up project root (where .brv/ lives), resolved at connection time */
-  projectRoot: string | undefined
   /** Number of reconnection attempts */
   reconnectCount: number
-  /** Tracking service for analytics */
-  trackingService: null | TrackingService
   /** App version */
   version: string
 }
@@ -46,13 +35,11 @@ export interface TransportActions {
   /** Reset store on disconnect */
   reset: () => void
   /** Set the connected client and create apiClient */
-  setClient: (client: ITransportClient, projectRoot?: string) => void
+  setClient: (client: ITransportClient) => void
   /** Update connection state */
   setConnectionState: (state: ConnectionState) => void
   /** Set connection error */
   setError: (error: Error | null) => void
-  /** Set tracking service */
-  setTrackingService: (trackingService: TrackingService) => void
   /** Set app version */
   setVersion: (version: string) => void
 }
@@ -63,9 +50,7 @@ const initialState: TransportState = {
   connectionState: 'disconnected',
   error: null,
   isConnected: false,
-  projectRoot: undefined,
   reconnectCount: 0,
-  trackingService: null,
   version: '',
 }
 
@@ -76,14 +61,13 @@ export const useTransportStore = create<TransportActions & TransportState>()((se
 
   reset: () => set(initialState),
 
-  setClient: (client: ITransportClient, projectRoot?: string) =>
+  setClient: (client: ITransportClient) =>
     set({
       apiClient: new BrvApiClient(client),
       client,
       connectionState: client.getState(),
       error: null,
       isConnected: client.getState() === 'connected',
-      projectRoot,
     }),
 
   setConnectionState: (connectionState: ConnectionState) =>
@@ -98,8 +82,6 @@ export const useTransportStore = create<TransportActions & TransportState>()((se
       error,
       isConnected: false,
     }),
-
-  setTrackingService: (trackingService: TrackingService) => set({trackingService}),
 
   setVersion: (version: string) => set({version}),
 }))
