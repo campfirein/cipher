@@ -46,12 +46,16 @@ interface AnthropicModelMeta {
 }
 
 const ANTHROPIC_KNOWN_MODELS: Readonly<Record<string, AnthropicModelMeta>> = {
-  'claude-3-5-haiku-20241022': {contextLength: 200_000, inputPerM: 1, outputPerM: 5},
+  'claude-3-5-haiku-20241022': {contextLength: 200_000, inputPerM: 0.8, outputPerM: 4},
   'claude-3-5-sonnet-20240620': {contextLength: 200_000, inputPerM: 3, outputPerM: 15},
   'claude-3-5-sonnet-20241022': {contextLength: 200_000, inputPerM: 3, outputPerM: 15},
   'claude-3-haiku-20240307': {contextLength: 200_000, inputPerM: 0.25, outputPerM: 1.25},
   'claude-3-opus-20240229': {contextLength: 200_000, inputPerM: 15, outputPerM: 75},
   'claude-3-sonnet-20240229': {contextLength: 200_000, inputPerM: 3, outputPerM: 15},
+  'claude-haiku-4-5-20251001': {contextLength: 200_000, inputPerM: 1, outputPerM: 5},
+  'claude-opus-4-5-20251101': {contextLength: 200_000, inputPerM: 5, outputPerM: 25},
+  'claude-opus-4-6': {contextLength: 200_000, inputPerM: 5, outputPerM: 25},
+  'claude-sonnet-4-5-20250929': {contextLength: 200_000, inputPerM: 3, outputPerM: 15},
 }
 
 /**
@@ -125,7 +129,7 @@ export class AnthropicModelFetcher implements IProviderModelFetcher {
         maxOutputTokens: 1,
         maxRetries: 0,
         messages: [{content: 'hi', role: 'user'}],
-        model: provider('claude-3-haiku-20240307'),
+        model: provider('claude-haiku-4-5-20251001'),
       })
 
       return {isValid: true}
