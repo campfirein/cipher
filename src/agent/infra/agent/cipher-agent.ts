@@ -420,10 +420,10 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * Reset a specific session's conversation history.
    * @param sessionId - The session ID to reset
    */
-  public resetSession(sessionId: string): void {
+  public async resetSession(sessionId: string): Promise<void> {
     const session = this.getSessionManagerInternal().getSession(sessionId)
     if (session) {
-      session.reset()
+      await session.reset()
     }
 
     // Emit conversation reset event (only if agent is started)

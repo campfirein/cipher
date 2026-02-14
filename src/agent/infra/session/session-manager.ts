@@ -299,7 +299,7 @@ export class SessionManager {
     }
 
     // Clear session history
-    session.reset()
+    await session.reset()
 
     // Remove from memory
     return this.sessions.delete(id)

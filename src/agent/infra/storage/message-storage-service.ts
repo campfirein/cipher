@@ -11,7 +11,7 @@ import type {
   StoredToolState,
   StreamMessagesOptions,
 } from '../../core/domain/storage/message-storage-types.js'
-import type {IKeyStorage, StorageKey} from '../../core/interfaces/i-key-storage.js'
+import type {BatchOperation, IKeyStorage, StorageKey} from '../../core/interfaces/i-key-storage.js'
 import type {AttachmentPart, InternalMessage, MessagePart, ToolPart} from '../../core/interfaces/message-types.js'
 
 import {COMPACTED_TOOL_OUTPUT_PLACEHOLDER} from '../../core/domain/storage/message-storage-types.js'
@@ -130,25 +130,28 @@ export class MessageStorageService {
       return false
     }
 
-    // Delete all messages and their parts
+    const ops: BatchOperation[] = []
+
+    // Collect all message keys and their part keys
     const messageKeys = await this.keyStorage.list(this.messagePrefix(sessionId))
     for (const messageKey of messageKeys) {
       const messageId = messageKey[2]
-      // Delete all parts for this message
       // eslint-disable-next-line no-await-in-loop
       const partKeys = await this.keyStorage.list(this.partPrefix(messageId))
       for (const partKey of partKeys) {
-        // eslint-disable-next-line no-await-in-loop
-        await this.keyStorage.delete(partKey)
+        ops.push({key: partKey, type: 'delete'})
       }
 
-      // Delete the message
-      // eslint-disable-next-line no-await-in-loop
-      await this.keyStorage.delete(messageKey)
+      ops.push({key: messageKey, type: 'delete'})
     }
 
     // Delete the session record
-    return this.keyStorage.delete(this.sessionKey(sessionId))
+    ops.push({key: this.sessionKey(sessionId), type: 'delete'})
+
+    // Atomic delete of everything
+    await this.keyStorage.batch(ops)
+
+    return true
   }
 
   /**
@@ -255,33 +258,61 @@ export class MessageStorageService {
     }
 
     const stopAtCompaction = options?.stopAtCompaction ?? true
-    const messages: StoredMessageWithParts[] = []
+
+    // Bulk-load all messages for this session in one query
+    const allMessageEntries = await this.keyStorage.listWithValues<StoredMessage>(this.messagePrefix(sessionId))
+    const messageMap = new Map<string, StoredMessage>()
+    for (const entry of allMessageEntries) {
+      messageMap.set(entry.value.id, entry.value)
+    }
+
+    // Traverse linked list in-memory from newest to oldest
+    const orderedMessages: StoredMessage[] = []
     let hitCompactionBoundary = false
-
-    // Traverse from newest to oldest
     let currentMessageId: string | undefined = session.newestMessageId
-    while (currentMessageId) {
-      // eslint-disable-next-line no-await-in-loop
-      const storedMsg: StoredMessage | undefined = await this.keyStorage.get<StoredMessage>(
-        this.messageKey(sessionId, currentMessageId),
-      )
-      if (!storedMsg) break
 
-      // Load parts for this message
-      // eslint-disable-next-line no-await-in-loop
-      const parts = await this.loadParts(storedMsg)
-      const messageWithParts: StoredMessageWithParts = {...storedMsg, parts}
+    while (currentMessageId) {
+      const storedMsg = messageMap.get(currentMessageId)
+      if (!storedMsg) break
 
       // Check for compaction boundary
       if (stopAtCompaction && storedMsg.compactionBoundary) {
-        // Include the compaction boundary message itself
-        messages.unshift(messageWithParts)
+        orderedMessages.unshift(storedMsg)
         hitCompactionBoundary = true
+
         break
       }
 
-      messages.unshift(messageWithParts)
+      orderedMessages.unshift(storedMsg)
       currentMessageId = storedMsg.prevMessageId
+    }
+
+    // Bulk-load parts per message (one query per message instead of one per part)
+    const messages: StoredMessageWithParts[] = []
+    for (const msg of orderedMessages) {
+      if (msg.partIds.length === 0) {
+        messages.push({...msg, parts: []})
+        continue
+      }
+
+      // One query for all parts of this message
+      // eslint-disable-next-line no-await-in-loop
+      const partEntries = await this.keyStorage.listWithValues<StoredPart>(this.partPrefix(msg.id))
+      const partMap = new Map<string, StoredPart>()
+      for (const entry of partEntries) {
+        partMap.set(entry.value.id, entry.value)
+      }
+
+      // Maintain order from partIds
+      const parts: StoredPart[] = []
+      for (const partId of msg.partIds) {
+        const part = partMap.get(partId)
+        if (part) {
+          parts.push(part)
+        }
+      }
+
+      messages.push({...msg, parts})
     }
 
     return {hitCompactionBoundary, messages}
@@ -463,13 +494,113 @@ export class MessageStorageService {
    * More efficient than calling saveMessage multiple times.
    */
   async saveMessages(sessionId: string, messages: InternalMessage[]): Promise<StoredMessage[]> {
+    if (messages.length === 0) return []
+
+    // For single messages, delegate to saveMessage (avoids double-read overhead)
+    if (messages.length === 1) {
+      return [await this.saveMessage(sessionId, messages[0])]
+    }
+
+    const now = Date.now()
+    const ops: BatchOperation[] = []
     const results: StoredMessage[] = []
 
-    for (const message of messages) {
-      // eslint-disable-next-line no-await-in-loop
-      const stored = await this.saveMessage(sessionId, message)
-      results.push(stored)
+    // Get or create session (1 read)
+    let session = await this.getSession(sessionId)
+    if (!session) {
+      session = {
+        createdAt: now,
+        messageCount: 0,
+        sessionId,
+        updatedAt: now,
+      }
     }
+
+    // Read previous newest message to update its nextMessageId (1 read)
+    const originalPrevId = session.newestMessageId
+    if (originalPrevId) {
+      const prevMsg = await this.keyStorage.get<StoredMessage>(this.messageKey(sessionId, originalPrevId))
+      if (prevMsg) {
+        ops.push({
+          key: this.messageKey(sessionId, originalPrevId),
+          type: 'set',
+          value: {...prevMsg, nextMessageId: undefined as string | undefined, updatedAt: now},
+        })
+      }
+    }
+
+    // Build all stored messages and parts in memory
+    let prevId: string | undefined = originalPrevId
+    for (const message of messages) {
+      const messageId = randomUUID()
+      const {content, parts} = this.extractParts(message, messageId, now)
+
+      const storedMessage: StoredMessage = {
+        content,
+        createdAt: now,
+        id: messageId,
+        name: message.name,
+        partIds: parts.map((p) => p.id),
+        prevMessageId: prevId,
+        reasoning: message.reasoning,
+        role: message.role,
+        sessionId,
+        thought: message.thought,
+        thoughtSummary: message.thoughtSummary,
+        toolCallId: message.toolCallId,
+        toolCalls: message.toolCalls,
+        updatedAt: now,
+      }
+
+      // Add part ops
+      for (const part of parts) {
+        ops.push({
+          key: this.partKey(messageId, part.id),
+          type: 'set',
+          value: part,
+        })
+      }
+
+      results.push(storedMessage)
+      prevId = messageId
+    }
+
+    // Chain messages: set nextMessageId pointers between consecutive messages
+    for (let i = 0; i < results.length - 1; i++) {
+      results[i].nextMessageId = results[i + 1].id
+    }
+
+    // Patch the previous newest message to point to the first new message
+    if (originalPrevId && ops.length > 0 && ops[0].type === 'set') {
+      ;(ops[0].value as StoredMessage).nextMessageId = results[0].id
+    }
+
+    // Add all message ops
+    for (const storedMessage of results) {
+      ops.push({
+        key: this.messageKey(sessionId, storedMessage.id),
+        type: 'set',
+        value: storedMessage,
+      })
+    }
+
+    // Update session record
+    session.newestMessageId = results.at(-1)!.id
+    if (!session.oldestMessageId) {
+      session.oldestMessageId = results[0].id
+    }
+
+    session.messageCount += messages.length
+    session.updatedAt = now
+
+    ops.push({
+      key: this.sessionKey(sessionId),
+      type: 'set',
+      value: session,
+    })
+
+    // Execute all ops atomically (1 batch)
+    await this.keyStorage.batch(ops)
 
     return results
   }
