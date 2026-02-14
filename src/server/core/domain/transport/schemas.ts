@@ -309,7 +309,21 @@ export const TransportAgentEventNames = {
 export const TransportStateEventNames = {
   GET_AUTH: 'state:getAuth',
   GET_PROJECT_CONFIG: 'state:getProjectConfig',
+  GET_PROVIDER_CONFIG: 'state:getProviderConfig',
 } as const
+
+/** Response payload for GET_PROVIDER_CONFIG — shared between daemon and agent process. */
+export interface ProviderConfigResponse {
+  activeModel?: string
+  activeProvider: string
+  openRouterApiKey?: string
+  provider?: string
+  providerApiKey?: string
+  providerBaseUrl?: string
+  providerHeaders?: Record<string, string>
+  providerLocation?: string
+  providerProject?: string
+}
 
 /**
  * Transport-generated client lifecycle events.

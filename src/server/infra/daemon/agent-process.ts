@@ -7,8 +7,8 @@
  * Lifecycle:
  * 1. Read BRV_AGENT_PORT and BRV_AGENT_PROJECT_PATH from process.env
  * 2. Create TransportClient, connect to daemon at 127.0.0.1:port
- * 3. Request initial project config from state server
- * 4. Read provider config and API key from global config (XDG path)
+ * 3. Request initial project config + provider config from state server
+ * 4. Listen for provider:updated events (hot-switch without restart)
  * 5. Create CipherAgent with lazy providers (resolved from local cache)
  * 6. Start agent + create session
  * 7. Send IPC { type: 'ready', clientId } to parent (AgentPool)
@@ -34,9 +34,14 @@ import {createSearchKnowledgeService} from '../../../agent/infra/tools/implement
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
-import {getProviderById} from '../../core/domain/entities/provider-registry.js'
-import {NotAuthenticatedError, serializeTaskError} from '../../core/domain/errors/task-error.js'
 import {
+  NotAuthenticatedError,
+  serializeTaskError,
+  TaskError,
+  TaskErrorCode,
+} from '../../core/domain/errors/task-error.js'
+import {
+  type ProviderConfigResponse,
   TransportAgentEventNames,
   TransportStateEventNames,
   TransportTaskEventNames,
@@ -44,9 +49,6 @@ import {
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
-import {getProviderApiKeyFromEnv} from '../provider/env-provider-detector.js'
-import {createProviderConfigStore} from '../storage/file-provider-config-store.js'
-import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {resolveSessionId} from './session-resolver.js'
 
@@ -71,6 +73,21 @@ function agentLog(message: string): void {
   console.log(`[agent-process:${projectPath}] ${message}`)
 }
 
+/**
+ * Persist a new session's metadata and set it as active.
+ * Best-effort — failures are logged but never block the caller.
+ */
+async function persistNewSession(sessionId: string, providerId: string, statusOverride?: 'active'): Promise<void> {
+  try {
+    const metadata = metadataStore.createSessionMetadata(sessionId, providerId)
+    if (statusOverride) metadata.status = statusOverride
+    await metadataStore.saveSession(metadata)
+    await metadataStore.setActiveSession(sessionId)
+  } catch (error) {
+    agentLog(`Session metadata persist failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 // ============================================================================
 // Local Config Cache
 // ============================================================================
@@ -84,80 +101,13 @@ let cachedAuthValid = false
 let cachedBrvConfig: BrvConfig | undefined
 let cachedTeamId = ''
 let cachedSpaceId = ''
+let cachedActiveProvider = ''
 
 // ============================================================================
-// Provider Config
+// Provider Config (resolved by daemon via state:getProviderConfig)
 // ============================================================================
 
-interface ProviderConfiguration {
-  openRouterApiKey?: string
-  provider?: string
-  providerApiKey?: string
-  providerBaseUrl?: string
-  providerHeaders?: Record<string, string>
-  providerLocation?: string
-  providerProject?: string
-}
-
-/**
- * Load provider-specific configuration: API key, base URL, headers, etc.
- * Mirrors the routing logic from the old agent-worker loadProviderConfiguration().
- */
-async function loadProviderConfiguration(
-  activeProvider: string,
-  providerConfig: Awaited<ReturnType<ReturnType<typeof createProviderConfigStore>['read']>>,
-): Promise<ProviderConfiguration> {
-  const result: ProviderConfiguration = {}
-
-  if (activeProvider === 'byterover') {
-    return result
-  }
-
-  // Get API key: keychain first, then environment variable
-  const providerKeychainStore = createProviderKeychainStore()
-  let apiKey = await providerKeychainStore.getApiKey(activeProvider)
-  if (!apiKey) {
-    apiKey = getProviderApiKeyFromEnv(activeProvider)
-  }
-
-  switch (activeProvider) {
-    case 'google-vertex': {
-      result.provider = activeProvider
-      result.providerProject = process.env.GOOGLE_CLOUD_PROJECT || undefined
-      result.providerLocation = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1'
-
-      break
-    }
-
-    case 'openai-compatible': {
-      result.provider = activeProvider
-      result.providerApiKey = apiKey || undefined
-      result.providerBaseUrl = providerConfig.getBaseUrl(activeProvider) || undefined
-
-      break
-    }
-
-    case 'openrouter': {
-      result.openRouterApiKey = apiKey
-
-      break
-    }
-
-    default: {
-      // Direct provider (anthropic, openai, google, xai, groq, mistral, etc.)
-      const providerDef = getProviderById(activeProvider)
-      result.provider = activeProvider
-      result.providerApiKey = apiKey
-      result.providerBaseUrl = providerDef?.baseUrl || undefined
-      const headers = providerDef?.headers
-      result.providerHeaders = headers && Object.keys(headers).length > 0 ? {...headers} : undefined
-
-      break
-    }
-  }
-
-  return result
-}
+let providerConfigDirty = false
 
 // ============================================================================
 // Main
@@ -199,9 +149,10 @@ async function start(): Promise<void> {
     sessionKey?: string
   }
 
-  const [configResult, authResult] = await Promise.all([
+  const [configResult, authResult, providerResult] = await Promise.all([
     transport.requestWithAck<ProjectConfigResponse>(TransportStateEventNames.GET_PROJECT_CONFIG, {projectPath}),
     transport.requestWithAck<AuthResponse>(TransportStateEventNames.GET_AUTH),
+    transport.requestWithAck<ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG),
   ])
 
   cachedBrvConfig = configResult.brvConfig
@@ -212,7 +163,7 @@ async function start(): Promise<void> {
 
   agentLog('Initial config loaded from state server')
 
-  // 3. Listen for config/auth updates from daemon
+  // 3. Listen for config/auth/provider updates from daemon
   transport.on<{brvConfig?: BrvConfig; projectPath: string; spaceId?: string; teamId?: string}>(
     'config:updated',
     (data) => {
@@ -232,12 +183,13 @@ async function start(): Promise<void> {
     cachedAuthValid = false
   })
 
-  // 4. Read provider config and API key from global config
-  const providerConfigStore = createProviderConfigStore()
-  const providerConfig = await providerConfigStore.read()
-  const {activeProvider} = providerConfig
-  const activeModel = providerConfig.getActiveModel(activeProvider)
-  const providerConfiguration = await loadProviderConfiguration(activeProvider, providerConfig)
+  transport.on('provider:updated', () => {
+    providerConfigDirty = true
+  })
+
+  // 4. Provider config resolved by daemon (API key, base URL, headers, etc.)
+  const {activeModel, activeProvider, ...providerConfiguration} = providerResult
+  cachedActiveProvider = activeProvider
 
   agentLog(`Provider: ${activeProvider}, Model: ${activeModel ?? 'default'}`)
 
@@ -275,20 +227,17 @@ async function start(): Promise<void> {
   metadataStore = new SessionMetadataStore({sessionsDir, workingDirectory: projectPath})
 
   const newId = `agent-session-${randomUUID()}`
-  const {isResume, sessionId} = await resolveSessionId(metadataStore, newId, agentLog)
+  const {isResume, sessionId} = await resolveSessionId({
+    currentProviderId: activeProvider,
+    log: agentLog,
+    metadataStore,
+    newSessionId: newId,
+  })
 
   await agent.createSession(sessionId)
   agent.switchDefaultSession(sessionId)
 
-  // Persist session metadata (best-effort)
-  try {
-    const metadata = metadataStore.createSessionMetadata(sessionId)
-    if (isResume) metadata.status = 'active'
-    await metadataStore.saveSession(metadata)
-    await metadataStore.setActiveSession(sessionId)
-  } catch (error) {
-    agentLog(`Session metadata persist failed: ${error instanceof Error ? error.message : String(error)}`)
-  }
+  await persistNewSession(sessionId, activeProvider, isResume ? 'active' : undefined)
 
   agentLog(`CipherAgent started (session=${sessionId}, resume=${isResume})`)
 
@@ -324,13 +273,7 @@ async function start(): Promise<void> {
       await agent.createSession(newSessionId)
       agent.switchDefaultSession(newSessionId)
 
-      // Persist new session metadata (best-effort)
-      try {
-        await metadataStore.saveSession(metadataStore.createSessionMetadata(newSessionId))
-        await metadataStore.setActiveSession(newSessionId)
-      } catch {
-        /* best-effort */
-      }
+      await persistNewSession(newSessionId, cachedActiveProvider)
 
       agentLog(`New session created: ${newSessionId}`)
 
@@ -413,6 +356,15 @@ async function executeTask(
     agentLog('Failed to refresh auth before task execution')
   }
 
+  // Refresh provider config if changed (provider:updated event sets dirty flag)
+  if (providerConfigDirty && agent) {
+    const result = await hotSwapProvider(agent, transport)
+    if (result.error) {
+      transport.request(TransportTaskEventNames.ERROR, {clientId, error: result.error, taskId})
+      return
+    }
+  }
+
   // Pre-flight auth check — fail fast before file validation or LLM calls.
   // Without this, curate's file validation error would mask the 401.
   if (!cachedAuthValid) {
@@ -463,6 +415,62 @@ async function executeTask(
     transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, taskId})
   } finally {
     cleanupForwarding?.()
+  }
+}
+
+// ============================================================================
+// Provider Hot-Swap
+// ============================================================================
+
+/**
+ * Hot-swap provider: fetch new config, replace SessionManager, create session.
+ * Returns error payload if swap fails fatally (caller must abort task).
+ *
+ * After `refreshProviderConfig()`, the old SessionManager is disposed — no rollback.
+ * If session creation then fails, the caller MUST abort the task to prevent
+ * stale sessionId from loading incompatible history into the new SM.
+ */
+async function hotSwapProvider(
+  currentAgent: CipherAgent,
+  transportClient: NonNullable<typeof transport>,
+): Promise<{error?: ReturnType<typeof serializeTaskError>}> {
+  // Phase 1: Fetch config (safe to fail — old provider still intact)
+  let freshProvider: ProviderConfigResponse | undefined
+  try {
+    freshProvider = await transportClient.requestWithAck<ProviderConfigResponse>(
+      TransportStateEventNames.GET_PROVIDER_CONFIG,
+    )
+  } catch (error) {
+    agentLog(`Failed to fetch provider config: ${error instanceof Error ? error.message : String(error)}`)
+    return {}
+  }
+
+  if (!freshProvider) return {}
+
+  // Phase 2: Replace SM + create session (fatal on failure)
+  const {activeModel: am, activeProvider: ap, ...providerConfig} = freshProvider
+  try {
+    currentAgent.refreshProviderConfig({model: am ?? DEFAULT_LLM_MODEL, ...providerConfig})
+
+    const newSessionId = `agent-session-${randomUUID()}`
+    await currentAgent.createSession(newSessionId)
+    currentAgent.switchDefaultSession(newSessionId)
+    providerConfigDirty = false
+    cachedActiveProvider = ap
+
+    await persistNewSession(newSessionId, ap)
+
+    agentLog(`Provider hot-switched: ${ap}, Model: ${am ?? 'default'}`)
+    return {}
+  } catch (error) {
+    return {
+      error: serializeTaskError(
+        new TaskError(
+          `Provider switch failed: ${error instanceof Error ? error.message : String(error)}`,
+          TaskErrorCode.TASK_EXECUTION,
+        ),
+      ),
+    }
   }
 }
 

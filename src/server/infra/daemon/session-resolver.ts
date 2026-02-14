@@ -3,7 +3,9 @@
  *
  * Resolution strategy:
  * 1. Read active session pointer from metadata store
- * 2. If active + stale (PID dead / processToken mismatch): mark interrupted, resume it
+ * 2. If active + stale (PID dead / processToken mismatch):
+ *    a. Check provider compatibility — skip resume if provider changed
+ *    b. Mark interrupted, resume it
  * 3. If active + not stale (another live process): create new
  * 4. If no active or any error: create new (fail-safe)
  *
@@ -15,11 +17,13 @@ import type {SessionMetadataStore} from '../../../agent/infra/session/session-me
 
 export type SessionResolution = {isResume: boolean; sessionId: string}
 
-export async function resolveSessionId(
-  metadataStore: SessionMetadataStore,
-  newSessionId: string,
-  log: (msg: string) => void,
-): Promise<SessionResolution> {
+export async function resolveSessionId(options: {
+  currentProviderId?: string
+  log: (msg: string) => void
+  metadataStore: SessionMetadataStore
+  newSessionId: string
+}): Promise<SessionResolution> {
+  const {currentProviderId, log, metadataStore, newSessionId} = options
   try {
     const active = await metadataStore.getActiveSession()
 
@@ -38,7 +42,13 @@ export async function resolveSessionId(
     }
 
     if (isStale) {
-      // Previous process died — mark as interrupted and resume
+      // Check provider compatibility before resuming
+      if (currentProviderId) {
+        const skip = await shouldSkipResumeForProviderChange(metadataStore, active.sessionId, currentProviderId, log)
+        if (skip) return {isResume: false, sessionId: newSessionId}
+      }
+
+      // Provider matches (or unknown) — mark as interrupted and resume
       try {
         await metadataStore.markSessionInterrupted(active.sessionId)
       } catch {
@@ -57,5 +67,41 @@ export async function resolveSessionId(
     // Top-level catch: any unexpected error falls back to new session
     log(`Session resolve error, creating new: ${error instanceof Error ? error.message : String(error)}`)
     return {isResume: false, sessionId: newSessionId}
+  }
+}
+
+/**
+ * Check if a stale session's provider is compatible with the current provider.
+ * Returns true if resume should be skipped (provider mismatch or read error).
+ *
+ * Loading history from a different provider causes tool_use_id format mismatches
+ * (e.g., ByteRover IDs sent to Anthropic API).
+ */
+async function shouldSkipResumeForProviderChange(
+  metadataStore: SessionMetadataStore,
+  sessionId: string,
+  currentProviderId: string,
+  log: (msg: string) => void,
+): Promise<boolean> {
+  try {
+    const metadata = await metadataStore.getSession(sessionId)
+    if (metadata?.providerId && metadata.providerId !== currentProviderId) {
+      log(
+        `Provider mismatch: session used '${metadata.providerId}', ` +
+        `current is '${currentProviderId}', creating new session`,
+      )
+      try {
+        await metadataStore.markSessionInterrupted(sessionId)
+      } catch {
+        log(`Could not mark session ${sessionId} as interrupted`)
+      }
+
+      return true
+    }
+
+    return false
+  } catch {
+    log('Could not read session metadata for provider check, creating new session')
+    return true
   }
 }

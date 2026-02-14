@@ -66,6 +66,7 @@ export class ProviderHandler {
         activeModel: provider?.defaultModel,
       })
 
+      this.transport.broadcast('provider:updated', {})
       return {success: true}
     })
   }
@@ -82,6 +83,7 @@ export class ProviderHandler {
           await this.providerKeychainStore.deleteApiKey(providerId)
         }
 
+        this.transport.broadcast('provider:updated', {})
         return {success: true}
       },
     )
@@ -114,6 +116,7 @@ export class ProviderHandler {
       ProviderEvents.SET_ACTIVE,
       async (data) => {
         await this.providerConfigStore.setActiveProvider(data.providerId)
+        this.transport.broadcast('provider:updated', {})
         return {success: true}
       },
     )
