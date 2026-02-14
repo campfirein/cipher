@@ -1,6 +1,6 @@
 import {dump as yamlDump, load as yamlLoad} from 'js-yaml'
 
-import { mergeScoring as mergeScoringFn } from './memory-scoring.js'
+import { determineTier, mergeScoring as mergeScoringFn } from './memory-scoring.js'
 import { normalizeRelationPath, parseRelations } from './relation-parser.js'
 
 export interface RawConcept {
@@ -802,9 +802,15 @@ export const MarkdownWriter = {
 
     // Merge scoring metadata (FinMem-inspired lifecycle)
     const defaultScoring: FrontmatterScoring = { importance: 50, maturity: 'draft', recency: 1 }
-    const mergedScoringData = (sourceParsed.scoring || targetParsed.scoring)
-      ? mergeScoringFn(sourceParsed.scoring ?? defaultScoring, targetParsed.scoring ?? defaultScoring)
-      : undefined
+    let mergedScoringData: FrontmatterScoring | undefined
+    if (sourceParsed.scoring || targetParsed.scoring) {
+      const merged = mergeScoringFn(sourceParsed.scoring ?? defaultScoring, targetParsed.scoring ?? defaultScoring)
+      const recalculatedTier = determineTier(
+        merged.importance ?? 50,
+        (merged.maturity ?? 'draft') as 'core' | 'draft' | 'validated',
+      )
+      mergedScoringData = { ...merged, maturity: recalculatedTier }
+    }
 
     const sourceRawConcept = parseRawConceptSection(sourceParsed.body)
     const targetRawConcept = parseRawConceptSection(targetParsed.body)
