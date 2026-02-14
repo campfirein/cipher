@@ -222,10 +222,13 @@ describe('resolveSessionId', () => {
       sessionId: EXISTING_SESSION_ID,
     })
     store.isActiveSessionStale.resolves(true)
+    store.markSessionInterrupted.resolves()
     store.getSession.rejects(new Error('corrupted metadata'))
 
     const result = await resolveSessionId({currentProviderId: 'anthropic', log: noop, metadataStore: store, newSessionId: NEW_SESSION_ID})
 
     expect(result).to.deep.equal({isResume: false, sessionId: NEW_SESSION_ID})
+    // markSessionInterrupted is called by the caller before the provider check
+    expect(store.markSessionInterrupted.calledOnceWith(EXISTING_SESSION_ID)).to.be.true
   })
 })

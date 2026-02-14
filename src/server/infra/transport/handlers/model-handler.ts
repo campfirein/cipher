@@ -10,6 +10,7 @@ import {
   type ModelSetActiveRequest,
   type ModelSetActiveResponse,
 } from '../../../../shared/transport/events/model-events.js'
+import {TransportDaemonEventNames} from '../../../core/domain/transport/schemas.js'
 import {getModelFetcher} from '../../http/provider-model-fetcher-registry.js'
 
 export interface ModelHandlerDeps {
@@ -78,7 +79,7 @@ export class ModelHandler {
   private setupSetActive(): void {
     this.transport.onRequest<ModelSetActiveRequest, ModelSetActiveResponse>(ModelEvents.SET_ACTIVE, async (data) => {
       await this.providerConfigStore.setActiveModel(data.providerId, data.modelId)
-      this.transport.broadcast('provider:updated', {})
+      this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
       return {success: true}
     })
   }

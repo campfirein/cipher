@@ -4,8 +4,9 @@
  * Resolution strategy:
  * 1. Read active session pointer from metadata store
  * 2. If active + stale (PID dead / processToken mismatch):
- *    a. Check provider compatibility — skip resume if provider changed
- *    b. Mark interrupted, resume it
+ *    a. Mark interrupted (best-effort, always)
+ *    b. Check provider compatibility — skip resume if provider changed
+ *    c. Resume it
  * 3. If active + not stale (another live process): create new
  * 4. If no active or any error: create new (fail-safe)
  *
@@ -42,18 +43,22 @@ export async function resolveSessionId(options: {
     }
 
     if (isStale) {
-      // Check provider compatibility before resuming
-      if (currentProviderId) {
-        const skip = await shouldSkipResumeForProviderChange(metadataStore, active.sessionId, currentProviderId, log)
-        if (skip) return {isResume: false, sessionId: newSessionId}
-      }
-
-      // Provider matches (or unknown) — mark as interrupted and resume
+      // Always mark stale session as interrupted (best-effort, regardless of resume decision)
       try {
         await metadataStore.markSessionInterrupted(active.sessionId)
       } catch {
-        // Non-blocking: even if we can't mark it, we still resume
         log(`Could not mark session ${active.sessionId} as interrupted`)
+      }
+
+      // Check provider compatibility before resuming
+      if (currentProviderId) {
+        const skip = await shouldSkipResumeForProviderChange({
+          currentProviderId,
+          log,
+          metadataStore,
+          sessionId: active.sessionId,
+        })
+        if (skip) return {isResume: false, sessionId: newSessionId}
       }
 
       log(`Resuming stale session: ${active.sessionId}`)
@@ -73,29 +78,25 @@ export async function resolveSessionId(options: {
 /**
  * Check if a stale session's provider is compatible with the current provider.
  * Returns true if resume should be skipped (provider mismatch or read error).
+ * Pure check — does NOT modify session state (caller handles markSessionInterrupted).
  *
  * Loading history from a different provider causes tool_use_id format mismatches
  * (e.g., ByteRover IDs sent to Anthropic API).
  */
-async function shouldSkipResumeForProviderChange(
-  metadataStore: SessionMetadataStore,
-  sessionId: string,
-  currentProviderId: string,
-  log: (msg: string) => void,
-): Promise<boolean> {
+async function shouldSkipResumeForProviderChange(options: {
+  currentProviderId: string
+  log: (msg: string) => void
+  metadataStore: SessionMetadataStore
+  sessionId: string
+}): Promise<boolean> {
+  const {currentProviderId, log, metadataStore, sessionId} = options
   try {
     const metadata = await metadataStore.getSession(sessionId)
     if (metadata?.providerId && metadata.providerId !== currentProviderId) {
       log(
         `Provider mismatch: session used '${metadata.providerId}', ` +
-        `current is '${currentProviderId}', creating new session`,
+          `current is '${currentProviderId}', creating new session`,
       )
-      try {
-        await metadataStore.markSessionInterrupted(sessionId)
-      } catch {
-        log(`Could not mark session ${sessionId} as interrupted`)
-      }
-
       return true
     }
 

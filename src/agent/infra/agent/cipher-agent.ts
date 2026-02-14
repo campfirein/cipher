@@ -16,6 +16,7 @@ import type {SystemPromptManager} from '../system-prompt/system-prompt-manager.j
 import type {ToolManager} from '../tools/tool-manager.js'
 import type {ToolProvider} from '../tools/tool-provider.js'
 import type {AgentConfig} from './agent-schemas.js'
+import type {ProviderUpdateConfig} from './provider-update-config.js'
 
 import {STREAMING_EVENT_NAMES} from '../../core/domain/streaming/types.js'
 import {AgentEventBus} from '../events/event-emitter.js'
@@ -407,21 +408,13 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * Hot-swap the provider/model configuration by rebuilding the SessionManager.
    * Called by agent-process when a provider:updated event is received.
    *
-   * In-flight tasks are safe: they use their existing ChatSession which has its own
-   * AgentLLMService instance. Only new sessions created after this call use the new config.
+   * Safety: this is called at the start of executeTask (before LLM calls), and
+   * the task queue is sequential (max concurrency = 1), so no concurrent task
+   * can be using the old SessionManager when this runs.
    *
    * @param providerUpdate - New provider configuration from daemon state server
    */
-  public refreshProviderConfig(providerUpdate: {
-    model: string
-    openRouterApiKey?: string
-    provider?: string
-    providerApiKey?: string
-    providerBaseUrl?: string
-    providerHeaders?: Record<string, string>
-    providerLocation?: string
-    providerProject?: string
-  }): void {
+  public refreshProviderConfig(providerUpdate: ProviderUpdateConfig): void {
     this.ensureStarted()
 
     const services = this.getServices()
@@ -445,18 +438,20 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       verbose: this.config.llm.verbose,
     }
 
-    // Dispose old SessionManager (cleans up timers, event forwarders, sessions)
-    if (this.sessionManager) {
-      this.sessionManager.dispose()
-    }
-
-    // Create new SessionManager with updated LLM config
-    this.sessionManager = new SessionManager(services, httpConfig, sessionLLMConfig, {
+    // Create new SessionManager FIRST — if this throws, old SM remains intact
+    const newSessionManager = new SessionManager(services, httpConfig, sessionLLMConfig, {
       config: {
         maxSessions: this.config.sessions.maxSessions,
         sessionTTL: this.config.sessions.sessionTTL,
       },
     })
+
+    // Success — dispose old and swap
+    if (this.sessionManager) {
+      this.sessionManager.dispose()
+    }
+
+    this.sessionManager = newSessionManager
   }
 
   // === Protected Methods (implement abstract from BaseAgent) ===

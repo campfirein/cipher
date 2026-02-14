@@ -20,6 +20,7 @@ import {
   getProvidersSortedByPriority,
   providerRequiresApiKey,
 } from '../../../core/domain/entities/provider-registry.js'
+import {TransportDaemonEventNames} from '../../../core/domain/transport/schemas.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {validateApiKey as validateApiKeyViaFetcher} from '../../http/provider-model-fetcher-registry.js'
 
@@ -66,7 +67,7 @@ export class ProviderHandler {
         activeModel: provider?.defaultModel,
       })
 
-      this.transport.broadcast('provider:updated', {})
+      this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
       return {success: true}
     })
   }
@@ -83,7 +84,7 @@ export class ProviderHandler {
           await this.providerKeychainStore.deleteApiKey(providerId)
         }
 
-        this.transport.broadcast('provider:updated', {})
+        this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
         return {success: true}
       },
     )
@@ -116,7 +117,7 @@ export class ProviderHandler {
       ProviderEvents.SET_ACTIVE,
       async (data) => {
         await this.providerConfigStore.setActiveProvider(data.providerId)
-        this.transport.broadcast('provider:updated', {})
+        this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
         return {success: true}
       },
     )

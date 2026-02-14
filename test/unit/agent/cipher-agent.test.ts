@@ -326,9 +326,5 @@ describe('CipherAgent', () => {
       expect(newSession.id).to.equal('post-refresh-session')
     })
 
-    it('should have refreshProviderConfig method', () => {
-      const agent = new CipherAgent(agentConfig)
-      expect(agent).to.have.property('refreshProviderConfig').that.is.a('function')
-    })
   })
 })

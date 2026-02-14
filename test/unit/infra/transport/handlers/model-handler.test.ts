@@ -1,72 +1,26 @@
-import type {SinonStubbedInstance} from 'sinon'
-
 import {expect} from 'chai'
-import {restore, stub} from 'sinon'
+import {restore} from 'sinon'
 
-import type {IProviderConfigStore} from '../../../../../src/server/core/interfaces/i-provider-config-store.js'
-import type {IProviderKeychainStore} from '../../../../../src/server/core/interfaces/i-provider-keychain-store.js'
-import type {ITransportServer} from '../../../../../src/server/core/interfaces/transport/i-transport-server.js'
-
+import {TransportDaemonEventNames} from '../../../../../src/server/core/domain/transport/schemas.js'
 import {ModelHandler} from '../../../../../src/server/infra/transport/handlers/model-handler.js'
 import {ModelEvents} from '../../../../../src/shared/transport/events/model-events.js'
-
-// ==================== Test Helpers ====================
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyHandler = (data: any, clientId: string) => any
-
-function createMockTransport(): SinonStubbedInstance<ITransportServer> & {_handlers: Map<string, AnyHandler>} {
-  const handlers = new Map<string, AnyHandler>()
-  return {
-    _handlers: handlers,
-    addToRoom: stub(),
-    broadcast: stub(),
-    broadcastTo: stub(),
-    getPort: stub(),
-    isRunning: stub(),
-    onConnection: stub(),
-    onDisconnection: stub(),
-    onRequest: stub().callsFake((event: string, handler: AnyHandler) => {
-      handlers.set(event, handler)
-    }),
-    removeFromRoom: stub(),
-    sendTo: stub(),
-    start: stub(),
-    stop: stub(),
-  } as unknown as SinonStubbedInstance<ITransportServer> & {_handlers: Map<string, AnyHandler>}
-}
+import {
+  createMockProviderConfigStore,
+  createMockProviderKeychainStore,
+  createMockTransportServer,
+} from '../../../../helpers/mock-factories.js'
 
 // ==================== Tests ====================
 
 describe('ModelHandler', () => {
-  let providerConfigStore: SinonStubbedInstance<IProviderConfigStore>
-  let providerKeychainStore: SinonStubbedInstance<IProviderKeychainStore>
-  let transport: ReturnType<typeof createMockTransport>
+  let providerConfigStore: ReturnType<typeof createMockProviderConfigStore>
+  let providerKeychainStore: ReturnType<typeof createMockProviderKeychainStore>
+  let transport: ReturnType<typeof createMockTransportServer>
 
   beforeEach(() => {
-    providerConfigStore = {
-      connectProvider: stub().resolves(),
-      disconnectProvider: stub().resolves(),
-      getActiveModel: stub().resolves(),
-      getActiveProvider: stub().resolves('byterover'),
-      getFavoriteModels: stub().resolves([]),
-      getRecentModels: stub().resolves([]),
-      isProviderConnected: stub().resolves(false),
-      read: stub().resolves(),
-      setActiveModel: stub().resolves(),
-      setActiveProvider: stub().resolves(),
-      toggleFavorite: stub().resolves(),
-      write: stub().resolves(),
-    } as unknown as SinonStubbedInstance<IProviderConfigStore>
-
-    providerKeychainStore = {
-      deleteApiKey: stub().resolves(),
-      getApiKey: stub().resolves(),
-      hasApiKey: stub().resolves(false),
-      setApiKey: stub().resolves(),
-    } as unknown as SinonStubbedInstance<IProviderKeychainStore>
-
-    transport = createMockTransport()
+    providerConfigStore = createMockProviderConfigStore()
+    providerKeychainStore = createMockProviderKeychainStore()
+    transport = createMockTransportServer()
   })
 
   afterEach(() => {
@@ -101,7 +55,7 @@ describe('ModelHandler', () => {
 
       expect(result).to.deep.equal({success: true})
       expect(transport.broadcast.calledOnce).to.be.true
-      expect(transport.broadcast.calledWith('provider:updated', {})).to.be.true
+      expect(transport.broadcast.calledWith(TransportDaemonEventNames.PROVIDER_UPDATED, {})).to.be.true
     })
 
     it('should set active model before broadcasting', async () => {

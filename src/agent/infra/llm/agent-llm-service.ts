@@ -718,8 +718,9 @@ export class AgentLLMService implements ILLMService {
     // 1. Explicit provider mapping takes priority
     if (explicitProvider) {
       if (explicitProvider === 'anthropic') return 'claude'
-      if (explicitProvider === 'google') return 'gemini'
-      if (['groq', 'mistral', 'openai', 'openrouter', 'xai'].includes(explicitProvider)) return 'openai'
+      if (explicitProvider === 'google' || explicitProvider === 'google-vertex') return 'gemini'
+      if (['groq', 'mistral', 'openai', 'openai-compatible', 'openrouter', 'xai'].includes(explicitProvider))
+        return 'openai'
     }
 
     // 2. Use registry to detect provider from model name

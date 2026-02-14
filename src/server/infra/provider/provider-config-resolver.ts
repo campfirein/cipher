@@ -32,6 +32,17 @@ export async function resolveProviderConfig(
     return {activeModel, activeProvider}
   }
 
+  // google-vertex uses Application Default Credentials, not an API key
+  if (activeProvider === 'google-vertex') {
+    return {
+      activeModel,
+      activeProvider,
+      provider: activeProvider,
+      providerLocation: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
+      providerProject: process.env.GOOGLE_CLOUD_PROJECT || undefined,
+    }
+  }
+
   // Resolve API key: keychain first, then environment variable
   let apiKey = await providerKeychainStore.getApiKey(activeProvider)
   if (!apiKey) {
@@ -39,16 +50,6 @@ export async function resolveProviderConfig(
   }
 
   switch (activeProvider) {
-    case 'google-vertex': {
-      return {
-        activeModel,
-        activeProvider,
-        provider: activeProvider,
-        providerLocation: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
-        providerProject: process.env.GOOGLE_CLOUD_PROJECT || undefined,
-      }
-    }
-
     case 'openai-compatible': {
       return {
         activeModel,
@@ -60,7 +61,7 @@ export async function resolveProviderConfig(
     }
 
     case 'openrouter': {
-      return {activeModel, activeProvider, openRouterApiKey: apiKey, provider: 'openrouter'}
+      return {activeModel, activeProvider, openRouterApiKey: apiKey || undefined, provider: activeProvider}
     }
 
     default: {
@@ -70,7 +71,7 @@ export async function resolveProviderConfig(
         activeModel,
         activeProvider,
         provider: activeProvider,
-        providerApiKey: apiKey,
+        providerApiKey: apiKey || undefined,
         providerBaseUrl: providerDef?.baseUrl || undefined,
         providerHeaders: headers && Object.keys(headers).length > 0 ? {...headers} : undefined,
       }

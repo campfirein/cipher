@@ -23,7 +23,7 @@ import {connectToTransport, type ITransportClient} from '@campfirein/brv-transpo
 import {randomUUID} from 'node:crypto'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import type {TaskExecute} from '../../core/domain/transport/schemas.js'
+import type {ProviderConfigResponse, TaskExecute} from '../../core/domain/transport/schemas.js'
 
 import {SESSIONS_DIR} from '../../../agent/core/domain/session/session-metadata.js'
 import {CipherAgent} from '../../../agent/infra/agent/index.js'
@@ -41,8 +41,8 @@ import {
   TaskErrorCode,
 } from '../../core/domain/errors/task-error.js'
 import {
-  type ProviderConfigResponse,
   TransportAgentEventNames,
+  TransportDaemonEventNames,
   TransportStateEventNames,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
@@ -74,17 +74,41 @@ function agentLog(message: string): void {
 }
 
 /**
- * Persist a new session's metadata and set it as active.
+ * Persist a brand-new session's metadata and set it as active.
  * Best-effort — failures are logged but never block the caller.
  */
-async function persistNewSession(sessionId: string, providerId: string, statusOverride?: 'active'): Promise<void> {
+async function persistNewSession(sessionId: string, providerId: string): Promise<void> {
   try {
     const metadata = metadataStore.createSessionMetadata(sessionId, providerId)
-    if (statusOverride) metadata.status = statusOverride
     await metadataStore.saveSession(metadata)
     await metadataStore.setActiveSession(sessionId)
   } catch (error) {
     agentLog(`Session metadata persist failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+/**
+ * Activate an existing session: load its metadata, update status + providerId, and set as active.
+ * Preserves original createdAt, messageCount, summary, and other fields.
+ * Best-effort — failures are logged but never block the caller.
+ */
+async function activateExistingSession(sessionId: string, providerId: string): Promise<void> {
+  try {
+    const existing = await metadataStore.getSession(sessionId)
+    if (existing) {
+      existing.status = 'active'
+      existing.lastUpdated = new Date().toISOString()
+      if (providerId) existing.providerId = providerId
+      await metadataStore.saveSession(existing)
+    } else {
+      // Metadata file missing — fall back to creating new metadata
+      const metadata = metadataStore.createSessionMetadata(sessionId, providerId)
+      await metadataStore.saveSession(metadata)
+    }
+
+    await metadataStore.setActiveSession(sessionId)
+  } catch (error) {
+    agentLog(`Session metadata activate failed: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
@@ -102,12 +126,15 @@ let cachedBrvConfig: BrvConfig | undefined
 let cachedTeamId = ''
 let cachedSpaceId = ''
 let cachedActiveProvider = ''
+let cachedActiveModel = ''
 
 // ============================================================================
 // Provider Config (resolved by daemon via state:getProviderConfig)
 // ============================================================================
 
 let providerConfigDirty = false
+let providerFetchRetries = 0
+const MAX_PROVIDER_FETCH_RETRIES = 3
 
 // ============================================================================
 // Main
@@ -183,13 +210,15 @@ async function start(): Promise<void> {
     cachedAuthValid = false
   })
 
-  transport.on('provider:updated', () => {
+  transport.on(TransportDaemonEventNames.PROVIDER_UPDATED, () => {
     providerConfigDirty = true
+    providerFetchRetries = 0
   })
 
   // 4. Provider config resolved by daemon (API key, base URL, headers, etc.)
-  const {activeModel, activeProvider, ...providerConfiguration} = providerResult
+  const {activeModel, activeProvider} = providerResult
   cachedActiveProvider = activeProvider
+  cachedActiveModel = activeModel ?? DEFAULT_LLM_MODEL
 
   agentLog(`Provider: ${activeProvider}, Model: ${activeModel ?? 'default'}`)
 
@@ -207,9 +236,15 @@ async function start(): Promise<void> {
       verbose: false,
     },
     model: activeModel ?? DEFAULT_LLM_MODEL,
+    openRouterApiKey: providerResult.openRouterApiKey,
     projectId: PROJECT,
+    provider: providerResult.provider,
+    providerApiKey: providerResult.providerApiKey,
+    providerBaseUrl: providerResult.providerBaseUrl,
+    providerHeaders: providerResult.providerHeaders,
+    providerLocation: providerResult.providerLocation,
+    providerProject: providerResult.providerProject,
     storagePath: configResult.storagePath,
-    ...providerConfiguration,
   }
 
   agent = new CipherAgent(agentConfig, cachedBrvConfig, {
@@ -237,7 +272,7 @@ async function start(): Promise<void> {
   await agent.createSession(sessionId)
   agent.switchDefaultSession(sessionId)
 
-  await persistNewSession(sessionId, activeProvider, isResume ? 'active' : undefined)
+  await (isResume ? activateExistingSession(sessionId, activeProvider) : persistNewSession(sessionId, activeProvider))
 
   agentLog(`CipherAgent started (session=${sessionId}, resume=${isResume})`)
 
@@ -291,7 +326,6 @@ async function start(): Promise<void> {
     }
   })
 
-  // 7. Listen for task:execute from pool
   // 6. Create FileSystemService + SearchKnowledgeService for smart query routing
   const fileSystemService = new FileSystemService({workingDirectory: projectPath})
   await fileSystemService.initialize()
@@ -426,9 +460,9 @@ async function executeTask(
  * Hot-swap provider: fetch new config, replace SessionManager, create session.
  * Returns error payload if swap fails fatally (caller must abort task).
  *
- * After `refreshProviderConfig()`, the old SessionManager is disposed — no rollback.
- * If session creation then fails, the caller MUST abort the task to prevent
- * stale sessionId from loading incompatible history into the new SM.
+ * If only the model changed (same provider), the session ID is reused on the
+ * fresh SessionManager for metadata continuity (in-memory history is not preserved).
+ * If the provider changed, a new session is created (history format is incompatible).
  */
 async function hotSwapProvider(
   currentAgent: CipherAgent,
@@ -442,36 +476,110 @@ async function hotSwapProvider(
     )
   } catch (error) {
     agentLog(`Failed to fetch provider config: ${error instanceof Error ? error.message : String(error)}`)
+    providerFetchRetries++
+    if (providerFetchRetries >= MAX_PROVIDER_FETCH_RETRIES) {
+      agentLog(`Provider config fetch failed ${providerFetchRetries} times, giving up`)
+      providerConfigDirty = false
+      providerFetchRetries = 0
+    }
+
+    // Leave providerConfigDirty=true so the next task retries
     return {}
   }
 
-  if (!freshProvider) return {}
-
-  // Phase 2: Replace SM + create session (fatal on failure)
-  const {activeModel: am, activeProvider: ap, ...providerConfig} = freshProvider
-  try {
-    currentAgent.refreshProviderConfig({model: am ?? DEFAULT_LLM_MODEL, ...providerConfig})
-
-    const newSessionId = `agent-session-${randomUUID()}`
-    await currentAgent.createSession(newSessionId)
-    currentAgent.switchDefaultSession(newSessionId)
+  if (!freshProvider) {
     providerConfigDirty = false
-    cachedActiveProvider = ap
-
-    await persistNewSession(newSessionId, ap)
-
-    agentLog(`Provider hot-switched: ${ap}, Model: ${am ?? 'default'}`)
+    providerFetchRetries = 0
     return {}
+  }
+
+  providerFetchRetries = 0
+  const ap = freshProvider.activeProvider
+  const newModel = freshProvider.activeModel ?? DEFAULT_LLM_MODEL
+  const isProviderChange = ap !== cachedActiveProvider
+  const isModelChange = newModel !== cachedActiveModel
+
+  // Nothing actually changed (duplicate event) — skip
+  if (!isProviderChange && !isModelChange) {
+    providerConfigDirty = false
+    return {}
+  }
+
+  // Phase 2a: Replace SessionManager (if this throws, old SM remains intact)
+  const previousSessionId = currentAgent.sessionId
+  try {
+    // Map fields explicitly to prevent accidental field leakage from ProviderConfigResponse
+    currentAgent.refreshProviderConfig({
+      model: newModel,
+      openRouterApiKey: freshProvider.openRouterApiKey,
+      provider: freshProvider.provider,
+      providerApiKey: freshProvider.providerApiKey,
+      providerBaseUrl: freshProvider.providerBaseUrl,
+      providerHeaders: freshProvider.providerHeaders,
+      providerLocation: freshProvider.providerLocation,
+      providerProject: freshProvider.providerProject,
+    })
   } catch (error) {
+    // Old SM still intact — no recovery needed.
+    // Clear dirty flag to prevent repeated failures with the same broken config.
+    // A new provider:updated event (from any UI action) will re-trigger the swap.
+    providerConfigDirty = false
     return {
       error: serializeTaskError(
         new TaskError(
-          `Provider switch failed: ${error instanceof Error ? error.message : String(error)}`,
+          `Provider switch failed (SessionManager rebuild): ${error instanceof Error ? error.message : String(error)}`,
           TaskErrorCode.TASK_EXECUTION,
         ),
       ),
     }
   }
+
+  // Phase 2b: Create session on the new SM (old SM is disposed at this point)
+  try {
+    if (isProviderChange || !previousSessionId) {
+      // Provider changed: new session (history format incompatible across providers)
+      const newSessionId = `agent-session-${randomUUID()}`
+      await currentAgent.createSession(newSessionId)
+      currentAgent.switchDefaultSession(newSessionId)
+      await persistNewSession(newSessionId, ap)
+    } else {
+      // Model-only change: reuse session ID for metadata continuity.
+      // Note: in-memory conversation history is lost (new SessionManager has no sessions).
+      // Only the session ID and persisted metadata are preserved.
+      await currentAgent.createSession(previousSessionId)
+      currentAgent.switchDefaultSession(previousSessionId)
+      await activateExistingSession(previousSessionId, ap)
+    }
+  } catch (sessionError) {
+    // SM was swapped but preferred session failed — attempt recovery with a fresh session
+    agentLog(
+      `Session creation failed after SM swap: ${sessionError instanceof Error ? sessionError.message : String(sessionError)}`,
+    )
+    try {
+      const recoveryId = `agent-session-${randomUUID()}`
+      await currentAgent.createSession(recoveryId)
+      currentAgent.switchDefaultSession(recoveryId)
+      await persistNewSession(recoveryId, ap)
+      agentLog(`Recovery session created: ${recoveryId}`)
+    } catch (error) {
+      providerConfigDirty = false
+      return {
+        error: serializeTaskError(
+          new TaskError(
+            `Provider switch failed (session recovery): ${error instanceof Error ? error.message : String(error)}`,
+            TaskErrorCode.TASK_EXECUTION,
+          ),
+        ),
+      }
+    }
+  }
+
+  providerConfigDirty = false
+  cachedActiveProvider = ap
+  cachedActiveModel = newModel
+
+  agentLog(`Provider hot-switched: ${ap}, Model: ${newModel}`)
+  return {}
 }
 
 // ============================================================================
