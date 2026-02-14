@@ -144,7 +144,7 @@ export async function getModelFetcher(providerId: string): Promise<IProviderMode
       fetcher = new ChatBasedModelFetcher(
         'https://api.v0.dev/v1',
         'Vercel',
-        ['v0-1.0-md', 'v0-1.5-md', 'v0-1.5-lg'],
+        ['v0-1.5-md', 'v0-1.5-lg', 'v0-1.0-md'],
       )
 
       break

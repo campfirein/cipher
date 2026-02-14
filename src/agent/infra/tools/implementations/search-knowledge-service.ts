@@ -6,6 +6,14 @@ import type { IFileSystem } from '../../../core/interfaces/i-file-system.js'
 import type { ISearchKnowledgeService, SearchKnowledgeResult } from '../../sandbox/tools-sdk.js'
 
 import { BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR } from '../../../../server/constants.js'
+import { type FrontmatterScoring, parseFrontmatterScoring, updateScoringInContent } from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import {
+  applyDecay,
+  applyDefaultScoring,
+  compoundScore,
+  determineTier,
+  recordAccessHits,
+} from '../../../../server/core/domain/knowledge/memory-scoring.js'
 
 const MAX_CONTEXT_TREE_FILES = 10_000
 const DEFAULT_CACHE_TTL_MS = 5000
@@ -57,6 +65,7 @@ interface IndexedDocument {
   id: string
   mtime: number
   path: string
+  scoring: FrontmatterScoring
   title: string
 }
 
@@ -310,12 +319,14 @@ async function buildFreshIndex(
       const fullPath = join(contextTreePath, filePath)
       const { content } = await fileSystem.readFile(fullPath)
       const title = extractTitle(content, filePath.replace(/\.md$/, '').split('/').pop() || filePath)
+      const scoring = parseFrontmatterScoring(content) ?? applyDefaultScoring()
 
       return {
         content,
         id: filePath,
         mtime,
         path: filePath,
+        scoring,
         title,
       }
     } catch {
@@ -355,6 +366,7 @@ async function acquireIndex(
   fileSystem: IFileSystem,
   contextTreePath: string,
   ttlMs: number,
+  onBeforeBuild?: (contextTreePath: string) => Promise<void>,
 ): Promise<CachedIndex | { error: true; result: SearchKnowledgeResult }> {
   const now = Date.now()
 
@@ -413,6 +425,11 @@ async function acquireIndex(
       return updatedCache
     }
 
+    // Flush pending access hits before building so updated scoring is picked up
+    if (onBeforeBuild) {
+      await onBeforeBuild(contextTreePath)
+    }
+
     // Build fresh index
     const freshIndex = await buildFreshIndex(fileSystem, contextTreePath, currentFiles)
     state.cachedIndex = freshIndex
@@ -452,6 +469,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
   private readonly baseDirectory: string
   private readonly cacheTtlMs: number
   private readonly fileSystem: IFileSystem
+  private readonly pendingAccessHits: Map<string, number> = new Map()
   private readonly state: IndexState = {
     buildingPromise: undefined,
     cachedIndex: undefined,
@@ -461,6 +479,39 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     this.fileSystem = fileSystem
     this.baseDirectory = config.baseDirectory ?? process.cwd()
     this.cacheTtlMs = config.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS
+  }
+
+  /**
+   * Flush accumulated access hits to disk by updating frontmatter scoring.
+   * Called during index rebuild to batch writes and avoid write amplification.
+   * Best-effort: errors are swallowed per file.
+   */
+  async flushAccessHits(contextTreePath: string): Promise<void> {
+    if (this.pendingAccessHits.size === 0) {
+      return
+    }
+
+    const hits = new Map(this.pendingAccessHits)
+    this.pendingAccessHits.clear()
+
+    const tasks = [...hits.entries()].map(async ([relPath, count]) => {
+      try {
+        const fullPath = join(contextTreePath, relPath)
+        const { content } = await this.fileSystem.readFile(fullPath)
+        const scoring = parseFrontmatterScoring(content) ?? applyDefaultScoring()
+        const updated = recordAccessHits(scoring, count)
+        const newTier = determineTier(
+          updated.importance ?? 50,
+          (updated.maturity ?? 'draft') as 'core' | 'draft' | 'validated',
+        )
+        const finalScoring: FrontmatterScoring = { ...updated, maturity: newTier }
+        const newContent = updateScoringInContent(content, finalScoring)
+        await this.fileSystem.writeFile(fullPath, newContent)
+      } catch {
+        // Best-effort — swallow per-file errors
+      }
+    })
+    await Promise.allSettled(tasks)
   }
 
   /**
@@ -474,8 +525,14 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     const limit = options?.limit ?? 10
     const contextTreePath = join(this.baseDirectory, BRV_DIR, CONTEXT_TREE_DIR)
 
-    // Acquire index with parallel-safe locking
-    const indexResult = await acquireIndex(this.state, this.fileSystem, contextTreePath, this.cacheTtlMs)
+    // Acquire index with parallel-safe locking; flush pending access hits before any rebuild
+    const indexResult = await acquireIndex(
+      this.state,
+      this.fileSystem,
+      contextTreePath,
+      this.cacheTtlMs,
+      (ctxPath) => this.flushAccessHits(ctxPath),
+    )
 
     // Handle error case (context tree not initialized)
     if ('error' in indexResult) {
@@ -509,8 +566,22 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       rawResults = index.search(filteredQuery, { combineWith: 'OR' })
     }
 
-    // Normalize scores to [0, 1) early so all downstream logic uses consistent values
-    const searchResults = rawResults.map((r) => ({ ...r, score: normalizeScore(r.score) }))
+    // Normalize BM25 scores to [0, 1) then blend with importance + recency via compound scoring.
+    // Decay is computed lazily from file mtime — no disk writes during search.
+    const now = Date.now()
+    const searchResults = rawResults.map((r) => {
+      const doc = documentMap.get(r.id)
+      const scoring = doc?.scoring ?? applyDefaultScoring()
+      const daysSince = doc ? Math.max(0, (now - doc.mtime) / 86_400_000) : 0
+      const decayed = applyDecay(scoring, daysSince)
+      const bm25 = normalizeScore(r.score)
+
+      return {
+        ...r,
+        score: compoundScore(bm25, decayed.importance ?? 50, decayed.recency ?? 1, decayed.maturity ?? 'draft'),
+      }
+    })
+    searchResults.sort((a, b) => b.score - a.score)
 
     const results: Array<{ excerpt: string; path: string; score: number; title: string }> = []
 
@@ -567,6 +638,11 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       }
     }
 
+    // Accumulate access hits for returned results (flushed during next index rebuild)
+    if (results.length > 0) {
+      this.accumulateAccessHits(results.map((r) => r.path))
+    }
+
     return {
       message:
         results.length > 0
@@ -574,6 +650,12 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
           : 'No matching knowledge found. Try different search terms or check available topics with /query.',
       results,
       totalFound: searchResults.length,
+    }
+  }
+
+  private accumulateAccessHits(paths: string[]): void {
+    for (const path of paths) {
+      this.pendingAccessHits.set(path, (this.pendingAccessHits.get(path) ?? 0) + 1)
     }
   }
 }

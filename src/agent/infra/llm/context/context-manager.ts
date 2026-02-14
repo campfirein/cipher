@@ -12,6 +12,7 @@ import type {
 import type {ICompressionStrategy} from './compression/types.js'
 
 import {getErrorMessage} from '../../../../server/utils/error-helpers.js'
+import {COMPACTED_TOOL_OUTPUT_PLACEHOLDER} from '../../../core/domain/storage/message-storage-types.js'
 import {NoOpLogger} from '../../../core/interfaces/i-logger.js'
 import {AsyncMutex} from './async-mutex.js'
 import {MiddleRemovalStrategy, OldestRemovalStrategy} from './compression/index.js'
@@ -128,6 +129,16 @@ export class ContextManager<T> {
   private readonly mutex = new AsyncMutex()
   /** Callback for persistence failure events */
   private readonly onPersistenceFailed?: (event: PersistenceFailedEvent) => void
+  /**
+   * Whether in-memory messages have diverged from storage (e.g. after compression).
+   * When true, the next persist call falls back to full saveHistory().
+   */
+  private persistDirty: boolean = false
+  /**
+   * Number of messages already persisted to storage.
+   * Used to determine whether appendMessage() or saveHistory() should be called.
+   */
+  private persistedCount: number = 0
   /** Retry configuration for persistence operations */
   private readonly persistenceRetry: Required<PersistenceRetryConfig>
   private readonly sessionId: string
@@ -186,7 +197,7 @@ export class ContextManager<T> {
       this.messages.push(message)
 
       try {
-        await this.persistHistory()
+        await this.persistMessage(message)
       } catch (error) {
         this.logger.error('Failed to persist history after assistant message', {error, sessionId: this.sessionId})
       }
@@ -208,7 +219,7 @@ export class ContextManager<T> {
       this.messages.push(message)
 
       try {
-        await this.persistHistory()
+        await this.persistMessage(message)
       } catch (error) {
         this.logger.error('Failed to persist history after system message', {error, sessionId: this.sessionId})
       }
@@ -223,22 +234,25 @@ export class ContextManager<T> {
    * @param toolName - Name of the tool being called
    * @param input - Parsed input arguments
    */
-  public addToolCallPending(callId: string, toolName: string, input: Record<string, unknown>): void {
-    const toolPart: ToolPart = {
-      callId,
-      state: {input, status: 'pending'},
-      toolName,
-      type: 'tool',
-    }
+  public async addToolCallPending(callId: string, toolName: string, input: Record<string, unknown>): Promise<void> {
+    await this.mutex.withLock(async () => {
+      const toolPart: ToolPart = {
+        callId,
+        state: {input, status: 'pending'},
+        toolName,
+        type: 'tool',
+      }
 
-    // Find the last assistant message and add the tool part
-    const lastAssistantIdx = this.findLastAssistantMessageIndex()
-    if (lastAssistantIdx === -1) {
-      this.logger.warn('No assistant message found to add tool call', {callId, sessionId: this.sessionId})
-      return
-    }
+      // Find the last assistant message and add the tool part
+      const lastAssistantIdx = this.findLastAssistantMessageIndex()
+      if (lastAssistantIdx === -1) {
+        this.logger.warn('No assistant message found to add tool call', {callId, sessionId: this.sessionId})
 
-    this.addToolPartToMessage(lastAssistantIdx, toolPart)
+        return
+      }
+
+      this.addToolPartToMessage(lastAssistantIdx, toolPart)
+    })
   }
 
   /**
@@ -301,7 +315,7 @@ export class ContextManager<T> {
 
       // Persist within the lock to ensure ordering consistency
       try {
-        await this.persistHistory()
+        await this.persistMessage(message)
       } catch (error) {
         this.logger.error('Failed to persist history after tool result', {error, sessionId: this.sessionId})
       }
@@ -323,12 +337,14 @@ export class ContextManager<T> {
       role: 'user',
     }
 
-    this.messages.push(message)
-    try {
-      await this.persistHistory()
-    } catch (error) {
-      this.logger.error('Failed to persist history after user message', {error, sessionId: this.sessionId})
-    }
+    await this.mutex.withLock(async () => {
+      this.messages.push(message)
+      try {
+        await this.persistMessage(message)
+      } catch (error) {
+        this.logger.error('Failed to persist history after user message', {error, sessionId: this.sessionId})
+      }
+    })
   }
 
   /**
@@ -336,17 +352,20 @@ export class ContextManager<T> {
    * Also clears persisted history if storage is enabled.
    */
   public async clearHistory(): Promise<void> {
-    this.messages = []
+    await this.mutex.withLock(async () => {
+      this.messages = []
+      this.persistedCount = 0
+      this.persistDirty = false
 
-    // Clear persisted history if storage enabled
-    if (this.historyStorage) {
-      try {
-        await this.historyStorage.deleteHistory(this.sessionId)
-        // Debug logging removed for cleaner user experience
-      } catch (error) {
-        this.logger.error('Failed to clear persisted history', {error, sessionId: this.sessionId})
+      // Clear persisted history if storage enabled
+      if (this.historyStorage) {
+        try {
+          await this.historyStorage.deleteHistory(this.sessionId)
+        } catch (error) {
+          this.logger.error('Failed to clear persisted history', {error, sessionId: this.sessionId})
+        }
       }
-    }
+    })
   }
 
   /**
@@ -365,7 +384,10 @@ export class ContextManager<T> {
       toRemoveIndex += 1
     }
 
-    this.messages = this.messages.slice(toRemoveIndex)
+    if (toRemoveIndex > 0) {
+      this.messages = this.messages.slice(toRemoveIndex)
+      this.persistDirty = true
+    }
   }
 
   /**
@@ -502,13 +524,14 @@ export class ContextManager<T> {
 
       if (history && history.length > 0) {
         this.messages = history
+        this.persistedCount = history.length
         this.isInitialized = true
-        // Debug logging removed for cleaner user experience
+
         return true
       }
 
       this.isInitialized = true
-      // Debug logging removed for cleaner user experience
+
       return false
     } catch (error) {
       this.logger.error('Failed to load history for session', {error, sessionId: this.sessionId})
@@ -518,43 +541,109 @@ export class ContextManager<T> {
   }
 
   /**
+   * Mark old tool outputs as compacted in-memory.
+   * Traverses messages backwards, counting user turns. After `protectedTurns`
+   * user turns, replaces tool message content with a placeholder.
+   *
+   * This is a non-destructive alternative to `compressMessage()` — it reduces
+   * token usage without removing messages from the array.
+   *
+   * @param protectedTurns - Number of recent user turns to protect (default: 2)
+   * @returns Number of tool messages compacted
+   */
+  public markToolOutputsCompacted(protectedTurns: number = 2): number {
+    let userTurnCount = 0
+    let compactedCount = 0
+
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      const message = this.messages[i]
+
+      if (message.role === 'user') {
+        userTurnCount++
+      }
+
+      // Only compact tool messages beyond the protected turns
+      if (message.role === 'tool' && userTurnCount > protectedTurns) {
+        // Skip already-compacted messages
+        if (message.content === COMPACTED_TOOL_OUTPUT_PLACEHOLDER) continue
+
+        this.messages[i] = {
+          ...message,
+          content: COMPACTED_TOOL_OUTPUT_PLACEHOLDER,
+        }
+        compactedCount++
+      }
+    }
+
+    if (compactedCount > 0) {
+      this.persistDirty = true
+    }
+
+    return compactedCount
+  }
+
+  /**
+   * Reload messages from storage, replacing in-memory state.
+   * Used after compaction boundary creation to discard pre-boundary messages.
+   *
+   * GranularHistoryStorage.loadHistory() already stops at compaction boundaries,
+   * so this effectively trims in-memory state to only post-boundary messages.
+   */
+  public async reloadFromStorage(): Promise<void> {
+    if (!this.historyStorage) return
+
+    await this.mutex.withLock(async () => {
+      try {
+        const history = await this.historyStorage!.loadHistory(this.sessionId)
+        this.messages = history ?? []
+        this.persistedCount = this.messages.length
+        this.persistDirty = false
+      } catch (error) {
+        this.logger.error('Failed to reload history from storage', {error, sessionId: this.sessionId})
+      }
+    })
+  }
+
+  /**
    * Update a tool call's state.
    * Used for transitioning through pending → running → completed/error.
    *
    * @param callId - ID of the tool call to update
    * @param stateUpdate - New state
    */
-  public updateToolCallState(callId: string, stateUpdate: ToolState): void {
-    // Find the tool part with this callId
-    for (let msgIdx = this.messages.length - 1; msgIdx >= 0; msgIdx--) {
-      const message = this.messages[msgIdx]
-      if (!Array.isArray(message.content)) continue
+  public async updateToolCallState(callId: string, stateUpdate: ToolState): Promise<void> {
+    await this.mutex.withLock(async () => {
+      // Find the tool part with this callId
+      for (let msgIdx = this.messages.length - 1; msgIdx >= 0; msgIdx--) {
+        const message = this.messages[msgIdx]
+        if (!Array.isArray(message.content)) continue
 
-      for (let partIdx = 0; partIdx < message.content.length; partIdx++) {
-        const part = message.content[partIdx]
-        if (part.type === 'tool' && part.callId === callId) {
-          // Update the tool part state
-          const updatedPart: ToolPart = {
-            ...part,
-            state: stateUpdate,
+        for (let partIdx = 0; partIdx < message.content.length; partIdx++) {
+          const part = message.content[partIdx]
+          if (part.type === 'tool' && part.callId === callId) {
+            // Update the tool part state
+            const updatedPart: ToolPart = {
+              ...part,
+              state: stateUpdate,
+            }
+
+            // Create new content array with updated part
+            const newContent: MessagePart[] = [...message.content]
+            newContent[partIdx] = updatedPart
+
+            // Update the message
+            this.messages[msgIdx] = {
+              ...message,
+              content: newContent,
+            }
+
+            return
           }
-
-          // Create new content array with updated part
-          const newContent: MessagePart[] = [...message.content]
-          newContent[partIdx] = updatedPart
-
-          // Update the message
-          this.messages[msgIdx] = {
-            ...message,
-            content: newContent,
-          }
-
-          return
         }
       }
-    }
 
-    this.logger.warn('Tool call not found for state update', {callId, sessionId: this.sessionId})
+      this.logger.warn('Tool call not found for state update', {callId, sessionId: this.sessionId})
+    })
   }
 
   // ==================== PRIVATE METHODS ====================
@@ -686,6 +775,50 @@ export class ContextManager<T> {
   }
 
   /**
+   * Execute a persistence operation with exponential backoff retry logic.
+   */
+  private async executeWithRetry(operation: () => Promise<void>): Promise<void> {
+    const {baseDelayMs, maxRetries, multiplier} = this.persistenceRetry
+    let lastError: Error | undefined
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await operation()
+
+        return
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+
+        if (attempt < maxRetries) {
+          const delay = baseDelayMs * multiplier ** (attempt - 1)
+
+          this.logger.warn(`Persistence attempt ${attempt}/${maxRetries} failed, retrying in ${delay}ms`, {
+            error: lastError.message,
+            sessionId: this.sessionId,
+          })
+
+          // eslint-disable-next-line no-await-in-loop
+          await this.sleep(delay)
+        }
+      }
+    }
+
+    this.logger.error(`Persistence failed after ${maxRetries} attempts`, {
+      error: lastError?.message,
+      sessionId: this.sessionId,
+    })
+
+    if (this.onPersistenceFailed && lastError) {
+      this.onPersistenceFailed({
+        attempts: maxRetries,
+        error: lastError,
+        sessionId: this.sessionId,
+      })
+    }
+  }
+
+  /**
    * Find the index of the last assistant message.
    *
    * @returns Index of last assistant message, or -1 if not found
@@ -713,7 +846,7 @@ export class ContextManager<T> {
 
   /**
    * Persist current conversation history to storage with retry logic.
-   * This is called automatically after each message is added.
+   * This is the full-save fallback path — saves the entire message array.
    *
    * Uses exponential backoff for retries:
    * - Attempt 1: immediate
@@ -729,48 +862,35 @@ export class ContextManager<T> {
       return
     }
 
-    const {baseDelayMs, maxRetries, multiplier} = this.persistenceRetry
-    let lastError: Error | undefined
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        // Store InternalMessage directly (no conversion needed)
-        // eslint-disable-next-line no-await-in-loop
-        await this.historyStorage.saveHistory(this.sessionId, this.messages)
-        return // Success - exit early
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error))
-
-        if (attempt < maxRetries) {
-          // Calculate exponential backoff delay
-          const delay = baseDelayMs * multiplier ** (attempt - 1)
-
-          this.logger.warn(`Persistence attempt ${attempt}/${maxRetries} failed, retrying in ${delay}ms`, {
-            error: lastError.message,
-            sessionId: this.sessionId,
-          })
-
-          // Wait before next retry
-          // eslint-disable-next-line no-await-in-loop
-          await this.sleep(delay)
-        }
-      }
-    }
-
-    // All retries exhausted
-    this.logger.error(`Persistence failed after ${maxRetries} attempts`, {
-      error: lastError?.message,
-      sessionId: this.sessionId,
+    await this.executeWithRetry(async () => {
+      await this.historyStorage!.saveHistory(this.sessionId, this.messages)
+      this.persistedCount = this.messages.length
+      this.persistDirty = false
     })
+  }
 
-    // Invoke callback if configured
-    if (this.onPersistenceFailed && lastError) {
-      this.onPersistenceFailed({
-        attempts: maxRetries,
-        error: lastError,
-        sessionId: this.sessionId,
-      })
+  /**
+   * Persist a single message incrementally.
+   * Falls back to full saveHistory() if in-memory state has diverged from storage.
+   *
+   * @param message - The single message to persist
+   */
+  private async persistMessage(message: InternalMessage): Promise<void> {
+    if (!this.historyStorage) {
+      return
     }
+
+    if (this.persistDirty) {
+      // In-memory diverged from storage (e.g. after compressMessage) — full sync needed
+      await this.persistHistory()
+
+      return
+    }
+
+    await this.executeWithRetry(async () => {
+      await this.historyStorage!.appendMessage(this.sessionId, message)
+      this.persistedCount++
+    })
   }
 
   /**

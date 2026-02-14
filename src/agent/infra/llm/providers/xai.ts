@@ -22,7 +22,7 @@ export const xaiProvider: ProviderModule = {
       model: provider(config.model),
     })
   },
-  defaultModel: 'grok-3-mini',
+  defaultModel: 'grok-3',
   description: 'Grok models by xAI',
   envVars: ['XAI_API_KEY'],
   id: 'xai',

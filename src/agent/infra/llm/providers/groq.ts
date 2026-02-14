@@ -22,7 +22,7 @@ export const groqProvider: ProviderModule = {
       model: provider(config.model),
     })
   },
-  defaultModel: 'llama-3.3-70b-versatile',
+  defaultModel: 'openai/gpt-oss-120b',
   description: 'Fast inference on open models',
   envVars: ['GROQ_API_KEY'],
   id: 'groq',

@@ -28,7 +28,7 @@ export const vercelProvider: ProviderModule = {
       model: provider(config.model),
     })
   },
-  defaultModel: 'v0-1.0-md',
+  defaultModel: 'v0-1.5-md',
   description: 'Vercel AI-powered models',
   envVars: ['VERCEL_API_KEY'],
   id: 'vercel',

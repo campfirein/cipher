@@ -105,7 +105,7 @@ describe('Session index exports', () => {
           return 0
         },
         id: 'test',
-        reset() {},
+        async reset() {},
         async run() {
           return 'response'
         },
@@ -198,7 +198,7 @@ describe('Session index exports', () => {
           return 0
         },
         id: 'test',
-        reset() {},
+        async reset() {},
         async run() {
           return 'response'
         },

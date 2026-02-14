@@ -22,7 +22,7 @@ export const deepinfraProvider: ProviderModule = {
       model: provider(config.model),
     })
   },
-  defaultModel: 'meta-llama/Meta-Llama-3.1-70B-Instruct',
+  defaultModel: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8',
   description: 'Affordable inference on open models',
   envVars: ['DEEPINFRA_API_KEY'],
   id: 'deepinfra',
