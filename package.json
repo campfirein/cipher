@@ -145,6 +145,8 @@
   "repository": "campfirein/byterover-cli",
   "scripts": {
     "build": "shx rm -rf dist && tsc -b && shx cp -r src/server/templates dist/server/templates && shx cp -r src/agent/resources dist/agent/resources",
+    "dev": "node bin/kill-daemon.js && npm run build && ./bin/dev.js",
+    "dev:kill": "node bin/kill-daemon.js",
     "lint": "eslint",
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "npm run lint",
