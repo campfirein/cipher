@@ -27,7 +27,7 @@ export const cerebrasProvider: ProviderModule = {
       model: provider(config.model),
     })
   },
-  defaultModel: 'llama-3.3-70b',
+  defaultModel: 'gpt-oss-120b',
   description: 'Fast inference on Cerebras hardware',
   envVars: ['CEREBRAS_API_KEY'],
   id: 'cerebras',

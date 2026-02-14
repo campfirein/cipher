@@ -22,7 +22,7 @@ export const cohereProvider: ProviderModule = {
       model: provider(config.model),
     })
   },
-  defaultModel: 'command-r-plus',
+  defaultModel: 'command-a-03-2025',
   description: 'Command models by Cohere',
   envVars: ['COHERE_API_KEY'],
   id: 'cohere',

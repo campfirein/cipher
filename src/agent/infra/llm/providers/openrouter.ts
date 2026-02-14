@@ -22,7 +22,7 @@ export const openrouterProvider: ProviderModule = {
       model: provider.chat(config.model),
     })
   },
-  defaultModel: 'anthropic/claude-3.5-sonnet',
+  defaultModel: 'anthropic/claude-sonnet-4.5',
   description: 'Access 200+ models via aggregator',
   envVars: ['OPENROUTER_API_KEY'],
   id: 'openrouter',
