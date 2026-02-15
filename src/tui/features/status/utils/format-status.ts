@@ -3,12 +3,8 @@
  */
 
 import chalk from 'chalk'
-import {join} from 'node:path'
 
 import type {StatusDTO} from '../../../../shared/transport/types/dto.js'
-
-const BRV_DIR = '.brv'
-const CONTEXT_TREE_DIR = 'context-tree'
 
 export function formatStatus(status: StatusDTO, version?: string): string {
   const lines: string[] = []
@@ -38,22 +34,17 @@ export function formatStatus(status: StatusDTO, version?: string): string {
 
   lines.push(`Current Directory: ${status.currentDirectory}`)
 
-  if (status.projectInitialized) {
-    if (status.teamName && status.spaceName) {
-      lines.push(`Project Status: Connected to ${status.teamName}/${status.spaceName}`)
-    } else {
-      lines.push('Project Status: Configuration file exists but is invalid')
-    }
+  if (status.teamName && status.spaceName) {
+    lines.push(`Project Status: Connected to ${status.teamName}/${status.spaceName}`)
   } else {
-    lines.push('Project Status: Not initialized')
+    lines.push('Project Status: Configuration file exists but is invalid')
   }
 
   switch (status.contextTreeStatus) {
     case 'has_changes': {
-      if (status.contextTreeChanges) {
+      if (status.contextTreeChanges && status.contextTreeRelativeDir) {
         const {added, deleted, modified} = status.contextTreeChanges
-        const contextTreeRelPath = join(BRV_DIR, CONTEXT_TREE_DIR)
-        const formatPath = (file: string) => join(contextTreeRelPath, file)
+        const formatPath = (file: string) => `${status.contextTreeRelativeDir}/${file}`
 
         const allChanges: {color: (s: string) => string; path: string; status: string}[] = [
           ...modified.map((f) => ({color: chalk.red, path: f, status: 'modified:'})),

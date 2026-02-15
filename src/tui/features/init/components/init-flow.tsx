@@ -87,7 +87,7 @@ export const InitFlow: React.FC<InitFlowProps> = ({force = false, isActive = tru
   useEffect(() => {
     if (step !== 'confirm_reinit' || isLoadingStatus) return
 
-    if (force || !statusData?.status.projectInitialized) {
+    if (force) {
       setStep('select_team')
     }
   }, [step, isLoadingStatus, statusData, force])

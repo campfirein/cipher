@@ -104,9 +104,12 @@ export interface ModelDTO {
 export interface StatusDTO {
   authStatus: 'expired' | 'logged_in' | 'not_logged_in' | 'unknown'
   contextTreeChanges?: ContextTreeChanges
+  /** Absolute path to the context tree directory (e.g., '/Users/foo/project/.brv/context-tree') */
+  contextTreeDir?: string
+  /** Relative path to the context tree directory from project root (e.g., '.brv/context-tree') */
+  contextTreeRelativeDir?: string
   contextTreeStatus: 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
   currentDirectory: string
-  projectInitialized: boolean
   spaceName?: string
   teamName?: string
   userEmail?: string
