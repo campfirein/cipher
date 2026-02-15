@@ -5,6 +5,8 @@ import type {ITransportServer} from '../../../core/interfaces/transport/i-transp
 
 import {
   ModelEvents,
+  type ModelListByProvidersRequest,
+  type ModelListByProvidersResponse,
   type ModelListRequest,
   type ModelListResponse,
   type ModelSetActiveRequest,
@@ -36,6 +38,7 @@ export class ModelHandler {
 
   setup(): void {
     this.setupList()
+    this.setupListByProviders()
     this.setupSetActive()
   }
 
@@ -59,6 +62,7 @@ export class ModelHandler {
         name: m.name,
         pricing: m.pricing,
         provider: m.provider,
+        providerId,
       }))
 
       const [activeModel, favorites, recent] = await Promise.all([
@@ -76,8 +80,44 @@ export class ModelHandler {
     })
   }
 
+  private setupListByProviders(): void {
+    this.transport.onRequest<ModelListByProvidersRequest, ModelListByProvidersResponse>(
+      ModelEvents.LIST_BY_PROVIDERS,
+      async (data) => {
+        const {providerIds} = data
+        const models: ModelDTO[] = []
+
+        await Promise.all(
+          providerIds.map(async (providerId) => {
+            const fetcher = await getModelFetcher(providerId)
+            if (!fetcher) return
+
+            const apiKey = await this.providerKeychainStore.getApiKey(providerId)
+            const fetchedModels = await fetcher.fetchModels(apiKey ?? '')
+
+            for (const model of fetchedModels) {
+              models.push({
+                contextLength: model.contextLength,
+                description: model.description,
+                id: model.id,
+                isFree: model.isFree,
+                name: model.name,
+                pricing: model.pricing,
+                provider: model.provider,
+                providerId,
+              })
+            }
+          }),
+        )
+
+        return {models}
+      },
+    )
+  }
+
   private setupSetActive(): void {
     this.transport.onRequest<ModelSetActiveRequest, ModelSetActiveResponse>(ModelEvents.SET_ACTIVE, async (data) => {
+      await this.providerConfigStore.setActiveProvider(data.providerId)
       await this.providerConfigStore.setActiveModel(data.providerId, data.modelId)
       this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
       return {success: true}

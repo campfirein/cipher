@@ -2,6 +2,7 @@ import type {ModelDTO} from '../types/dto.js'
 
 export const ModelEvents = {
   LIST: 'model:list',
+  LIST_BY_PROVIDERS: 'model:listByProviders',
   SET_ACTIVE: 'model:setActive',
 } as const
 
@@ -14,6 +15,14 @@ export interface ModelListResponse {
   favorites: string[]
   models: ModelDTO[]
   recent: string[]
+}
+
+export interface ModelListByProvidersRequest {
+  providerIds: string[]
+}
+
+export interface ModelListByProvidersResponse {
+  models: ModelDTO[]
 }
 
 export interface ModelSetActiveRequest {

@@ -49,7 +49,7 @@ const isProviderConfigJson = (json: unknown): json is ProviderConfigParams => {
  * Default configuration when no providers are connected.
  */
 export const DEFAULT_PROVIDER_CONFIG: ProviderConfigParams = {
-  activeProvider: 'byterover',
+  activeProvider: '',
   providers: {},
 }
 
