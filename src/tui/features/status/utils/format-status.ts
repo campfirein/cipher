@@ -13,31 +13,31 @@ export function formatStatus(status: StatusDTO, version?: string): string {
 
   switch (status.authStatus) {
     case 'expired': {
-      lines.push('Status: Session expired (login required)')
+      lines.push('Account: Session expired')
       break
     }
 
     case 'logged_in': {
-      lines.push(`Status: Logged in as ${status.userEmail}`)
+      lines.push(`Account: ${status.userEmail}`)
       break
     }
 
     case 'not_logged_in': {
-      lines.push('Status: Not logged in')
+      lines.push('Account: Not logged in')
       break
     }
 
     default: {
-      lines.push('Status: Unable to check authentication status')
+      lines.push('Account: Unable to check')
     }
   }
 
   lines.push(`Current Directory: ${status.currentDirectory}`)
 
   if (status.teamName && status.spaceName) {
-    lines.push(`Project Status: Connected to ${status.teamName}/${status.spaceName}`)
+    lines.push(`Space: ${status.teamName}/${status.spaceName}`)
   } else {
-    lines.push('Project Status: Configuration file exists but is invalid')
+    lines.push('Space: Not connected')
   }
 
   switch (status.contextTreeStatus) {

@@ -18,10 +18,6 @@ export default class Status extends Command {
       description: 'Output format',
       options: ['text', 'json'],
     }),
-    headless: Flags.boolean({
-      default: false,
-      description: 'Run in headless mode (no TTY required, suitable for automation)',
-    }),
   }
 
   protected async fetchStatus(options?: DaemonClientOptions): Promise<StatusDTO> {
@@ -66,32 +62,32 @@ export default class Status extends Command {
     // Auth status
     switch (status.authStatus) {
       case 'expired': {
-        this.log('Status: Session expired')
+        this.log('Account: Session expired')
         break
       }
 
       case 'logged_in': {
-        this.log(`Status: Logged in as ${status.userEmail}`)
+        this.log(`Account: ${status.userEmail}`)
         break
       }
 
       case 'not_logged_in': {
-        this.log('Status: Not logged in')
+        this.log('Account: Not logged in')
         break
       }
 
       default: {
-        this.log('Status: Unable to check authentication status')
+        this.log('Account: Unable to check')
       }
     }
 
     this.log(`Current Directory: ${status.currentDirectory}`)
 
-    // Project status
+    // Space
     if (status.teamName && status.spaceName) {
-      this.log(`Project Status: Connected to ${status.teamName}/${status.spaceName}`)
+      this.log(`Space: ${status.teamName}/${status.spaceName}`)
     } else {
-      this.log('Project Status: Initialized (local)')
+      this.log('Space: Not connected')
     }
 
     // Context tree status

@@ -130,7 +130,7 @@ describe('Status Command', () => {
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('Unable to check authentication status'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Unable to check'))).to.be.true
     })
   })
 
@@ -165,7 +165,7 @@ describe('Status Command', () => {
       expect(loggedMessages.some((m) => m.includes('acme-corp/backend-api'))).to.be.true
     })
 
-    it('should display "Initialized (local)" when no team/space', async () => {
+    it('should display "Not connected" when no team/space', async () => {
       mockStatusResponse({
         authStatus: 'logged_in',
         contextTreeStatus: 'no_changes',
@@ -175,7 +175,7 @@ describe('Status Command', () => {
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('Initialized (local)'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Not connected'))).to.be.true
     })
   })
 
