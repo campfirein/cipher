@@ -309,7 +309,36 @@ export const TransportAgentEventNames = {
 export const TransportStateEventNames = {
   GET_AUTH: 'state:getAuth',
   GET_PROJECT_CONFIG: 'state:getProjectConfig',
+  GET_PROVIDER_CONFIG: 'state:getProviderConfig',
 } as const
+
+/**
+ * Daemon → agent broadcast events (fire-and-forget, no ack).
+ * Used to notify agent child processes of global state changes.
+ */
+export const TransportDaemonEventNames = {
+  PROVIDER_UPDATED: 'provider:updated',
+} as const
+
+/**
+ * Response payload for GET_PROVIDER_CONFIG — shared between daemon and agent process.
+ *
+ * `activeProvider` vs `provider`:
+ * - `activeProvider` (always set) — identity used for cache keys, session tracking, and change detection.
+ * - `provider` (optional) — LLM routing hint passed through to the SessionManager's LLM config.
+ *   Undefined for 'byterover' (uses internal routing), set for all external providers.
+ */
+export interface ProviderConfigResponse {
+  activeModel?: string
+  activeProvider: string
+  openRouterApiKey?: string
+  provider?: string
+  providerApiKey?: string
+  providerBaseUrl?: string
+  providerHeaders?: Record<string, string>
+  providerLocation?: string
+  providerProject?: string
+}
 
 /**
  * Transport-generated client lifecycle events.

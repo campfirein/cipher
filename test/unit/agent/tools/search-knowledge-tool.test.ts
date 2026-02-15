@@ -884,7 +884,8 @@ describe('Search Knowledge Tool', () => {
       expect((secondBatch[1] as SearchKnowledgeOutput).results).to.be.an('array')
 
       // Second batch should trigger exactly one more build (not two)
-      expect(readFileStub.callCount).to.equal(2)
+      // +1 readFile from flushAccessHits (updating scoring for files accessed in first batch)
+      expect(readFileStub.callCount).to.equal(3)
     })
 
     it('should not deadlock when multiple tools execute concurrently', async () => {
