@@ -126,14 +126,20 @@ export const ApiKeyDialog: React.FC<ApiKeyDialogProps> = ({
         return
       }
 
-      // Cancel on Escape
+      // Clear input on Escape, cancel if already empty
       if (key.escape) {
-        onCancel()
+        if (apiKey.length > 0) {
+          setApiKey('')
+          setError(undefined)
+        } else {
+          onCancel()
+        }
+
         return
       }
 
-      // Toggle mask with Ctrl+M
-      if (input === 'm' && key.ctrl) {
+      // Toggle mask with Ctrl+R
+      if (input === 'r' && key.ctrl) {
         setShowMasked((prev) => !prev)
         return
       }
@@ -175,24 +181,15 @@ export const ApiKeyDialog: React.FC<ApiKeyDialogProps> = ({
         </Text>
       </Box>
 
-      {/* Description */}
-      <Box marginBottom={1}>
-        <Text color={colors.dimText}>
-          Enter your {provider.name} API key:
-        </Text>
-      </Box>
-
       {/* Input field */}
-      <Box
-        borderColor={error ? colors.errorText : colors.border}
-        borderStyle="single"
-        marginBottom={1}
-        paddingX={1}
-      >
+      <Box marginBottom={1}>
+        <Text color={colors.primary}>
+          Enter your {provider.name} API key:{' '}
+        </Text>
         <Text color={apiKey ? colors.text : colors.dimText}>
           {apiKey ? displayValue : (API_KEY_PLACEHOLDERS[provider.id] ?? 'sk-...')}
         </Text>
-        <Text color={colors.primary}>▎</Text>
+        {apiKey && <Text color={colors.primary}>▎</Text>}
       </Box>
 
       {/* API key link */}
@@ -210,12 +207,12 @@ export const ApiKeyDialog: React.FC<ApiKeyDialogProps> = ({
       {/* Status */}
       <Box marginBottom={1}>
         {isValidating && (
-          <Text color={colors.primary}>
+          <Text color={colors.dimText}>
             ⟳ Validating...
           </Text>
         )}
         {error && !isValidating && (
-          <Text color={colors.errorText}>
+          <Text color={colors.warning}>
             ✗ {error}
           </Text>
         )}
@@ -232,10 +229,10 @@ export const ApiKeyDialog: React.FC<ApiKeyDialogProps> = ({
           <Text color={colors.text}>Enter</Text> Submit
         </Text>
         <Text color={colors.dimText}>
-          <Text color={colors.text}>Esc</Text> Cancel
+          <Text color={colors.text}>Esc</Text> {apiKey.length > 0 ? 'Clear' : 'Cancel'}
         </Text>
         <Text color={colors.dimText}>
-          <Text color={colors.text}>Ctrl+M</Text> {showMasked ? 'Show' : 'Hide'}
+          <Text color={colors.text}>Ctrl+R</Text> {showMasked ? 'Reveal' : 'Hide'}
         </Text>
       </Box>
     </Box>

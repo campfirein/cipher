@@ -17,6 +17,8 @@ import {useTheme} from '../../../hooks/index.js'
  * Props for ProviderDialog.
  */
 export interface ProviderDialogProps {
+  /** Hide the Cancel keybind hint and disable Esc to cancel */
+  hideCancelButton?: boolean
   /** Whether the dialog is active for keyboard input */
   isActive?: boolean
   /** Callback when dialog is cancelled */
@@ -25,16 +27,20 @@ export interface ProviderDialogProps {
   onSelect: (provider: ProviderDTO) => void
   /** All available providers (already includes isConnected/isCurrent) */
   providers: ProviderDTO[]
+  /** Custom title for the dialog */
+  title?: string
 }
 
 /**
  * ProviderDialog displays a list of available providers for selection.
  */
 export const ProviderDialog: React.FC<ProviderDialogProps> = ({
+  hideCancelButton = false,
   isActive = true,
   onCancel,
   onSelect,
   providers,
+  title = 'Connect a Provider',
 }) => {
   const {theme: {colors}} = useTheme()
 
@@ -49,7 +55,7 @@ export const ProviderDialog: React.FC<ProviderDialogProps> = ({
       currentItem={currentProvider}
       filterKeys={(item) => [item.id, item.name, item.description]}
       getCurrentKey={(item) => item.id}
-      groupBy={(item) => (item.category === 'popular' ? 'Popular' : 'Other')}
+      hideCancelButton={hideCancelButton}
       isActive={isActive}
       items={providers}
       keyExtractor={(item) => item.id}
@@ -73,7 +79,7 @@ export const ProviderDialog: React.FC<ProviderDialogProps> = ({
         </Box>
       )}
       searchPlaceholder="Search providers..."
-      title="Connect a Provider"
+      title={title}
     />
   )
 }

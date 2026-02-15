@@ -17,7 +17,7 @@ export const Footer: React.FC = () => {
   } = useTheme()
   const taskStats = useTasksStore((s) => s.stats)
 
-  if (viewMode.type === 'loading') {
+  if (viewMode.type === 'loading' || viewMode.type === 'config-provider') {
     return <Box height={1} paddingX={1} width="100%" />
   }
 

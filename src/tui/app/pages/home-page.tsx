@@ -29,6 +29,7 @@ import {MainLayout} from '../layouts/main-layout.js'
 type ActivityFeedItem =
   | {data: ActivityLog; timestamp: Date; type: 'log'}
   | {data: CommandMessage; timestamp?: Date; type: 'command'}
+  | {type: 'welcome'}
 
 export function HomePage(): React.ReactNode {
   const {columns: terminalWidth, rows: terminalHeight} = useTerminalBreakpoint()
@@ -57,11 +58,15 @@ export function HomePage(): React.ReactNode {
       type: 'command' as const,
     }))
 
-    return [...logItems, ...commandItems].sort((a, b) => {
-      if (!a.timestamp) return 1
-      if (!b.timestamp) return -1
+    const sorted: ActivityFeedItem[] = [...logItems, ...commandItems].sort((a, b) => {
+      if (!('timestamp' in a) || !a.timestamp) return 1
+      if (!('timestamp' in b) || !b.timestamp) return -1
       return a.timestamp.getTime() - b.timestamp.getTime()
     })
+
+    sorted.unshift({type: 'welcome'})
+
+    return sorted
   }, [logsMessages, commandMessages])
 
   const {selectedIndex} = useFeedNavigation({
@@ -73,17 +78,6 @@ export function HomePage(): React.ReactNode {
 
   // Get the expanded item based on expandedIndex
   const expandedItem = expandedIndex === null ? null : feedItems[expandedIndex]
-
-  // Welcome box (empty state)
-  if (feedItems.length === 0) {
-    return (
-      <MainLayout showInput>
-        <Box flexDirection="column" flexGrow={1}>
-          <WelcomeBox isCopyActive />
-        </Box>
-      </MainLayout>
-    )
-  }
 
   // Expanded log view
   if (expandedItem && expandedItem.type === 'log') {
@@ -119,6 +113,14 @@ export function HomePage(): React.ReactNode {
     <MainLayout showInput={!isExpanded}>
       <List height={listHeight} selectedIndex={selectedIndex}>
         {feedItems.map((item, index) => {
+          if (item.type === 'welcome') {
+            return (
+              <Box key="welcome">
+                <WelcomeBox />
+              </Box>
+            )
+          }
+
           const key = (() => {
             const timestamp = item.timestamp?.getTime() ?? 0
             if (item.type === 'command') return `command-${item.data.fromCommand}-${timestamp}-${index}`

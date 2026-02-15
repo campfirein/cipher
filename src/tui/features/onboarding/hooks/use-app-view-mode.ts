@@ -6,7 +6,7 @@
  */
 
 import {useAuthStore} from '../../auth/stores/auth-store.js'
-import {useHasActiveModel} from '../../provider/api/has-active-model.js'
+import {useGetActiveProviderConfig} from '../../provider/api/get-active-provider-config.js'
 
 /**
  * The 5 valid application view modes as a discriminated union.
@@ -28,15 +28,20 @@ export type AppViewMode =
  */
 export function useAppViewMode(): AppViewMode {
   const {isLoadingInitial: isLoadingAuth} = useAuthStore()
-  const {data: activeModelData, isLoading: isLoadingActiveModel} = useHasActiveModel()
+  const {data: activeData, isLoading: isLoadingActive} = useGetActiveProviderConfig()
 
-  // Still loading auth, onboarding, or active model check
-  if (isLoadingAuth || isLoadingActiveModel) {
+  // Still loading auth or active provider check
+  if (isLoadingAuth || isLoadingActive) {
     return {type: 'loading'}
   }
 
-  // No active model configured — need provider setup
-  if (!activeModelData?.hasActiveModel) {
+  // ByteRover is the default provider and doesn't require model config
+  if (activeData?.activeProviderId === 'byterover') {
+    return {type: 'ready'}
+  }
+
+  // No active model configured for non-byterover provider — need provider setup
+  if (!activeData?.activeModel) {
     return {type: 'config-provider'}
   }
 
