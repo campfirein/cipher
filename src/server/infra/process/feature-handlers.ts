@@ -6,6 +6,8 @@
  */
 
 import type {IConnectorManager} from '../../core/interfaces/connectors/i-connector-manager.js'
+import type {IProviderConfigStore} from '../../core/interfaces/i-provider-config-store.js'
+import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keychain-store.js'
 import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 import type {ProjectBroadcaster, ProjectPathResolver} from '../transport/handlers/handler-types.js'
@@ -27,8 +29,6 @@ import {FileContextTreeWriterService} from '../context-tree/file-context-tree-wr
 import {FsFileService} from '../file/fs-file-service.js'
 import {CallbackHandler} from '../http/callback-handler.js'
 import {HttpSpaceService} from '../space/http-space-service.js'
-import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
-import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {HttpTeamService} from '../team/http-team-service.js'
 import {FsTemplateLoader} from '../template/fs-template-loader.js'
@@ -51,6 +51,8 @@ export interface FeatureHandlersOptions {
   authStateStore: IAuthStateStore
   broadcastToProject: ProjectBroadcaster
   log: (msg: string) => void
+  providerConfigStore: IProviderConfigStore
+  providerKeychainStore: IProviderKeychainStore
   resolveProjectPath: ProjectPathResolver
   transport: ITransportServer
 }
@@ -63,14 +65,14 @@ export async function setupFeatureHandlers({
   authStateStore,
   broadcastToProject,
   log,
+  providerConfigStore,
+  providerKeychainStore,
   resolveProjectPath,
   transport,
 }: FeatureHandlersOptions): Promise<void> {
   const envConfig = getCurrentConfig()
   const tokenStore = createTokenStore()
   const projectConfigStore = new ProjectConfigStore()
-  const providerConfigStore = new FileProviderConfigStore()
-  const providerKeychainStore = createProviderKeychainStore()
   const userService = new HttpUserService({apiBaseUrl: envConfig.apiBaseUrl})
   const teamService = new HttpTeamService({apiBaseUrl: envConfig.apiBaseUrl})
   const spaceService = new HttpSpaceService({apiBaseUrl: envConfig.apiBaseUrl})

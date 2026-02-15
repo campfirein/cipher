@@ -1,15 +1,15 @@
-import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
-import type { Content } from '@google/genai'
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import type {MessageParam} from '@anthropic-ai/sdk/resources/messages'
+import type {Content} from '@google/genai'
+import type {ChatCompletionMessageParam} from 'openai/resources/chat/completions'
 
-import type { ToolExecutionResult } from '../../core/domain/tools/tool-error.js'
-import type { ToolSet } from '../../core/domain/tools/types.js'
-import type { ExecutionContext } from '../../core/interfaces/i-cipher-agent.js'
-import type { IHistoryStorage } from '../../core/interfaces/i-history-storage.js'
-import type { ILLMService } from '../../core/interfaces/i-llm-service.js'
-import type { ILogger } from '../../core/interfaces/i-logger.js'
-import type { IMessageFormatter } from '../../core/interfaces/i-message-formatter.js'
-import type { ITokenizer } from '../../core/interfaces/i-tokenizer.js'
+import type {ToolExecutionResult} from '../../core/domain/tools/tool-error.js'
+import type {ToolSet} from '../../core/domain/tools/types.js'
+import type {ExecutionContext} from '../../core/interfaces/i-cipher-agent.js'
+import type {IHistoryStorage} from '../../core/interfaces/i-history-storage.js'
+import type {ILLMService} from '../../core/interfaces/i-llm-service.js'
+import type {ILogger} from '../../core/interfaces/i-logger.js'
+import type {IMessageFormatter} from '../../core/interfaces/i-message-formatter.js'
+import type {ITokenizer} from '../../core/interfaces/i-tokenizer.js'
 import type {
   InternalMessage,
   ToolCall,
@@ -17,15 +17,15 @@ import type {
   ToolStateError,
   ToolStateRunning,
 } from '../../core/interfaces/message-types.js'
-import type { MemoryManager } from '../memory/memory-manager.js'
-import type { SystemPromptManager } from '../system-prompt/system-prompt-manager.js'
-import type { ToolManager } from '../tools/tool-manager.js'
-import type { CompactionService } from './context/compaction/compaction-service.js'
+import type {MemoryManager} from '../memory/memory-manager.js'
+import type {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
+import type {ToolManager} from '../tools/tool-manager.js'
+import type {CompactionService} from './context/compaction/compaction-service.js'
 
-import { getErrorMessage } from '../../../server/utils/error-helpers.js'
-import { AgentStateMachine } from '../../core/domain/agent/agent-state-machine.js'
-import { AgentState, TerminationReason } from '../../core/domain/agent/agent-state.js'
-import { LlmGenerationError, LlmMaxIterationsError, LlmResponseParsingError } from '../../core/domain/errors/llm-error.js'
+import {getErrorMessage} from '../../../server/utils/error-helpers.js'
+import {AgentStateMachine} from '../../core/domain/agent/agent-state-machine.js'
+import {AgentState, TerminationReason} from '../../core/domain/agent/agent-state.js'
+import {LlmGenerationError, LlmMaxIterationsError, LlmResponseParsingError} from '../../core/domain/errors/llm-error.js'
 import {
   getEffectiveMaxInputTokens,
   getMaxInputTokensForModel,
@@ -38,22 +38,22 @@ import {
   type IContentGenerator,
   StreamChunkType,
 } from '../../core/interfaces/i-content-generator.js'
-import { NoOpLogger } from '../../core/interfaces/i-logger.js'
-import { EnvironmentContextBuilder } from '../environment/environment-context-builder.js'
-import { SessionEventBus } from '../events/event-emitter.js'
-import { ToolMetadataHandler } from '../tools/streaming/metadata-handler.js'
-import { AsyncMutex } from './context/async-mutex.js'
-import { ContextManager, type FileData, type ImageData } from './context/context-manager.js'
-import { DeferredEffects } from './context/deferred-effects.js'
-import { LoopDetector } from './context/loop-detector.js'
-import { ClaudeMessageFormatter } from './formatters/claude-formatter.js'
-import { GeminiMessageFormatter } from './formatters/gemini-formatter.js'
-import { OpenRouterMessageFormatter } from './formatters/openrouter-formatter.js'
-import { type ThinkingConfig, ThoughtParser } from './thought-parser.js'
-import { ClaudeTokenizer } from './tokenizers/claude-tokenizer.js'
-import { GeminiTokenizer } from './tokenizers/gemini-tokenizer.js'
-import { OpenRouterTokenizer } from './tokenizers/openrouter-tokenizer.js'
-import { type ProcessedOutput, ToolOutputProcessor, type TruncationConfig } from './tool-output-processor.js'
+import {NoOpLogger} from '../../core/interfaces/i-logger.js'
+import {EnvironmentContextBuilder} from '../environment/environment-context-builder.js'
+import {SessionEventBus} from '../events/event-emitter.js'
+import {ToolMetadataHandler} from '../tools/streaming/metadata-handler.js'
+import {AsyncMutex} from './context/async-mutex.js'
+import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
+import {DeferredEffects} from './context/deferred-effects.js'
+import {LoopDetector} from './context/loop-detector.js'
+import {ClaudeMessageFormatter} from './formatters/claude-formatter.js'
+import {GeminiMessageFormatter} from './formatters/gemini-formatter.js'
+import {OpenRouterMessageFormatter} from './formatters/openrouter-formatter.js'
+import {type ThinkingConfig, ThoughtParser} from './thought-parser.js'
+import {ClaudeTokenizer} from './tokenizers/claude-tokenizer.js'
+import {GeminiTokenizer} from './tokenizers/gemini-tokenizer.js'
+import {OpenRouterTokenizer} from './tokenizers/openrouter-tokenizer.js'
+import {type ProcessedOutput, ToolOutputProcessor, type TruncationConfig} from './tool-output-processor.js'
 
 /** Target utilization ratio for message tokens (leaves headroom for response) */
 const TARGET_MESSAGE_TOKEN_UTILIZATION = 0.7
@@ -169,6 +169,7 @@ export class AgentLLMService implements ILLMService {
   private readonly metadataHandler: ToolMetadataHandler
   private readonly mutex = new AsyncMutex()
   private readonly outputProcessor: ToolOutputProcessor
+  private readonly providerId: string
   private readonly providerType: 'claude' | 'gemini' | 'openai'
   private readonly sessionEventBus: SessionEventBus
   private readonly sessionId: string
@@ -230,6 +231,7 @@ export class AgentLLMService implements ILLMService {
     this.workingDirectory = process.cwd()
     // Detect provider type: explicit provider config takes priority over model name heuristic
     const modelName = config.model ?? 'claude-haiku-4-5@20251001'
+    this.providerId = config.provider ?? 'byterover'
     this.providerType = this.detectProviderType(modelName, config.provider)
 
     // Validate core LLM config using Zod schema (logs warning if invalid)
@@ -308,7 +310,7 @@ export class AgentLLMService implements ILLMService {
     this.memoryDirtyFlag = false
 
     // Extract options with defaults
-    const { executionContext, fileData, imageData, signal, stream, taskId } = options ?? {}
+    const {executionContext, fileData, imageData, signal, stream, taskId} = options ?? {}
 
     // Get filtered tools based on command type (e.g., only read-only tools for 'query')
     const toolSet = this.toolManager.getToolsForCommand(options?.executionContext?.commandType)
@@ -382,7 +384,7 @@ export class AgentLLMService implements ILLMService {
    * Returns metadata about the service including:
    * - Configured and model-specific token limits
    * - Selected LLM model
-   * - Provider name (always 'byterover')
+   * - Provider identity (e.g. 'byterover', 'anthropic', 'openrouter')
    * - Router type (always 'in-built')
    *
    * This is useful for introspecting service capabilities and limits
@@ -398,7 +400,7 @@ export class AgentLLMService implements ILLMService {
       configuredMaxInputTokens: this.config.maxInputTokens,
       model: this.config.model,
       modelMaxInputTokens: modelMaxTokens,
-      provider: 'byterover',
+      provider: this.providerId,
       router: 'in-built',
     }
   }
@@ -439,7 +441,7 @@ export class AgentLLMService implements ILLMService {
    * @param result - Parallel tool result to add
    */
   private async addParallelToolResultToContext(result: ParallelToolResult): Promise<void> {
-    const { toolCall, toolResult } = result
+    const {toolCall, toolResult} = result
 
     if (!toolResult) {
       // This shouldn't happen, but handle gracefully
@@ -688,7 +690,12 @@ export class AgentLLMService implements ILLMService {
 
         // Full compaction needed - generate LLM summary
         // Use the same taskId from caller for billing tracking
-        const summary = await this.compactionService.generateSummary(this.generator, messages, taskId, this.config.model)
+        const summary = await this.compactionService.generateSummary(
+          this.generator,
+          messages,
+          taskId,
+          this.config.model,
+        )
 
         await this.compactionService.createCompactionBoundary(this.sessionId, summary)
 
@@ -734,8 +741,9 @@ export class AgentLLMService implements ILLMService {
     // 1. Explicit provider mapping takes priority
     if (explicitProvider) {
       if (explicitProvider === 'anthropic') return 'claude'
-      if (explicitProvider === 'google') return 'gemini'
-      if (['groq', 'mistral', 'openai', 'xai'].includes(explicitProvider)) return 'openai'
+      if (explicitProvider === 'google' || explicitProvider === 'google-vertex') return 'gemini'
+      if (['groq', 'mistral', 'openai', 'openai-compatible', 'openrouter', 'xai'].includes(explicitProvider))
+        return 'openai'
     }
 
     // 2. Use registry to detect provider from model name
@@ -747,7 +755,13 @@ export class AgentLLMService implements ILLMService {
     // 3. Fallback to string prefix matching for unknown models
     const lowerModel = model.toLowerCase()
     if (lowerModel.startsWith('claude')) return 'claude'
-    if (lowerModel.startsWith('gpt') || lowerModel.startsWith('o1') || lowerModel.startsWith('o3') || lowerModel.startsWith('o4')) return 'openai'
+    if (
+      lowerModel.startsWith('gpt') ||
+      lowerModel.startsWith('o1') ||
+      lowerModel.startsWith('o3') ||
+      lowerModel.startsWith('o4')
+    )
+      return 'openai'
     return 'gemini'
   }
 
@@ -823,7 +837,7 @@ export class AgentLLMService implements ILLMService {
     textInput: string
     tools: ToolSet
   }): Promise<null | string> {
-    const { executionContext, fileData, imageData, iterationCount, stream, taskId, textInput, tools } = options
+    const {executionContext, fileData, imageData, iterationCount, stream, taskId, textInput, tools} = options
     // Build system prompt using SystemPromptManager (before compression for correct token accounting)
     // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
     const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
@@ -1067,7 +1081,7 @@ export class AgentLLMService implements ILLMService {
     } catch (error) {
       // Catch any unexpected errors during execution
       const errorMessage = getErrorMessage(error)
-      this.logger.error('Error executing tool in parallel', { error, toolCallId: toolCall.id, toolName })
+      this.logger.error('Error executing tool in parallel', {error, toolCallId: toolCall.id, toolName})
 
       return {
         error: errorMessage,
@@ -1075,7 +1089,7 @@ export class AgentLLMService implements ILLMService {
         toolResult: {
           errorType: 'EXECUTION_ERROR',
           metadata: {},
-          processedOutput: { content: `Error executing tool: ${errorMessage}` },
+          processedOutput: {content: `Error executing tool: ${errorMessage}`},
           success: false,
         },
       }
@@ -1137,7 +1151,7 @@ export class AgentLLMService implements ILLMService {
     this.sessionEventBus.emit('llmservice:response', {
       content,
       model: this.config.model,
-      provider: 'byterover',
+      provider: this.providerId,
       taskId: taskId || undefined,
     })
 
@@ -1207,7 +1221,7 @@ export class AgentLLMService implements ILLMService {
     this.sessionEventBus.emit('llmservice:warning', {
       message: `Agent terminated: ${reason} after ${context.turnCount} turns`,
       model: this.config.model,
-      provider: 'byterover',
+      provider: this.providerId,
       taskId: taskId || undefined,
     })
 
@@ -1218,7 +1232,7 @@ export class AgentLLMService implements ILLMService {
       content: partialResponse,
       model: this.config.model,
       partial: true,
-      provider: 'byterover',
+      provider: this.providerId,
       taskId: taskId || undefined,
     })
 
@@ -1335,7 +1349,7 @@ export class AgentLLMService implements ILLMService {
             metadata: result.toolResult.metadata,
             output: result.toolResult.processedOutput.content,
             status: 'completed',
-            time: { end: endTime, start: startTime },
+            time: {end: endTime, start: startTime},
             title: result.toolResult.processedOutput.title,
           }
           // eslint-disable-next-line no-await-in-loop -- Must update states in order
@@ -1346,7 +1360,7 @@ export class AgentLLMService implements ILLMService {
             error: result.toolResult?.processedOutput.content ?? result.error ?? 'Unknown error',
             input: toolArgs,
             status: 'error',
-            time: { end: endTime, start: startTime },
+            time: {end: endTime, start: startTime},
           }
           // eslint-disable-next-line no-await-in-loop -- Must update states in order
           await this.contextManager.updateToolCallState(toolCall.id, errorState)
@@ -1369,7 +1383,7 @@ export class AgentLLMService implements ILLMService {
           error: errorMessage,
           input: toolArgs,
           status: 'error',
-          time: { end: endTime, start: startTime },
+          time: {end: endTime, start: startTime},
         }
         // eslint-disable-next-line no-await-in-loop -- Must update states in order
         await this.contextManager.updateToolCallState(toolCall.id, errorState)

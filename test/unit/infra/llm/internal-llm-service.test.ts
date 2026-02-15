@@ -226,13 +226,14 @@ describe('AgentLLMService', () => {
       expect(config.configuredMaxInputTokens).to.equal(500_000)
     })
 
-    it('should default provider to byterover', () => {
+    it('should return explicit provider as provider identity', () => {
       const generator = createContentGenerator()
       const service = new AgentLLMService(
         'test-session',
         generator,
         {
-          model: 'gemini-2.5-flash',
+          model: 'anthropic/claude-3.5-sonnet',
+          provider: 'openrouter',
         },
         {
           sessionEventBus,
@@ -242,7 +243,7 @@ describe('AgentLLMService', () => {
       )
 
       const config = service.getConfig()
-      expect(config.provider).to.equal('byterover')
+      expect(config.provider).to.equal('openrouter')
     })
   })
 

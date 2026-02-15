@@ -8,11 +8,15 @@
  * Design adapted from gemini-cli's ChatRecordingService pattern.
  */
 
-import { randomUUID } from 'node:crypto'
+import {randomUUID} from 'node:crypto'
 import * as fs from 'node:fs/promises'
-import { join } from 'node:path'
+import {join} from 'node:path'
 
-import type { ISessionPersistence, SessionCleanupResult, SessionRetentionConfig } from '../../core/interfaces/i-session-persistence.js'
+import type {
+  ISessionPersistence,
+  SessionCleanupResult,
+  SessionRetentionConfig,
+} from '../../core/interfaces/i-session-persistence.js'
 
 import {
   ACTIVE_SESSION_FILE,
@@ -64,9 +68,7 @@ const PROCESS_TOKEN = randomUUID()
  * @returns The UUID portion without the prefix
  */
 function extractUuidFromSessionId(sessionId: string): string {
-  return sessionId.startsWith(SESSION_ID_PREFIX)
-    ? sessionId.slice(SESSION_ID_PREFIX.length)
-    : sessionId
+  return sessionId.startsWith(SESSION_ID_PREFIX) ? sessionId.slice(SESSION_ID_PREFIX.length) : sessionId
 }
 
 /**
@@ -115,9 +117,7 @@ export class SessionMetadataStore implements ISessionPersistence {
 
     try {
       const files = await fs.readdir(this.sessionsDir)
-      const sessionFiles = files.filter(
-        (f) => f.startsWith(SESSION_FILE_PREFIX) && f.endsWith('.json'),
-      )
+      const sessionFiles = files.filter((f) => f.startsWith(SESSION_FILE_PREFIX) && f.endsWith('.json'))
 
       // IMPORTANT: Capture the active session ID as an immutable primitive BEFORE
       // any file mutations. This prevents race conditions where concurrent cleanup
@@ -127,7 +127,7 @@ export class SessionMetadataStore implements ISessionPersistence {
       const active = await this.getActiveSession()
       const activeSessionId = active?.sessionId
 
-      const validSessions: { file: string; metadata: SessionMetadata }[] = []
+      const validSessions: {file: string; metadata: SessionMetadata}[] = []
 
       // First pass: identify corrupted files and valid sessions
       for (const file of sessionFiles) {
@@ -147,7 +147,7 @@ export class SessionMetadataStore implements ISessionPersistence {
             continue
           }
 
-          validSessions.push({ file, metadata: parseResult.data as SessionMetadata })
+          validSessions.push({file, metadata: parseResult.data as SessionMetadata})
         } catch {
           // Can't read/parse - delete it
           try {
@@ -169,7 +169,7 @@ export class SessionMetadataStore implements ISessionPersistence {
       const maxAgeMs = config.maxAgeDays * 24 * 60 * 60 * 1000
 
       // Second pass: apply retention policies
-      for (const [i, { file, metadata }] of validSessions.entries()) {
+      for (const [i, {file, metadata}] of validSessions.entries()) {
         // Never delete the current active session (uses captured primitive ID)
         if (activeSessionId && metadata.sessionId === activeSessionId) {
           continue
@@ -200,9 +200,7 @@ export class SessionMetadataStore implements ISessionPersistence {
 
       // Count remaining
       const remainingFiles = await fs.readdir(this.sessionsDir)
-      result.remaining = remainingFiles.filter(
-        (f) => f.startsWith(SESSION_FILE_PREFIX) && f.endsWith('.json'),
-      ).length
+      result.remaining = remainingFiles.filter((f) => f.startsWith(SESSION_FILE_PREFIX) && f.endsWith('.json')).length
 
       return result
     } catch (error) {
@@ -218,15 +216,17 @@ export class SessionMetadataStore implements ISessionPersistence {
    * Create a new session metadata object.
    *
    * @param sessionId - Session ID
+   * @param providerId - Optional provider ID for cross-provider resume detection
    * @returns New session metadata with defaults
    */
-  createSessionMetadata(sessionId: string): SessionMetadata {
+  createSessionMetadata(sessionId: string, providerId?: string): SessionMetadata {
     const now = new Date().toISOString()
 
     return {
       createdAt: now,
       lastUpdated: now,
       messageCount: 0,
+      ...(providerId && {providerId}),
       sessionId,
       status: 'active',
       workingDirectory: this.workingDirectory,
@@ -297,9 +297,7 @@ export class SessionMetadataStore implements ISessionPersistence {
       await this.ensureSessionsDir()
       const files = await fs.readdir(this.sessionsDir)
 
-      const sessionFiles = files.filter(
-        (f) => f.startsWith(SESSION_FILE_PREFIX) && f.endsWith('.json'),
-      )
+      const sessionFiles = files.filter((f) => f.startsWith(SESSION_FILE_PREFIX) && f.endsWith('.json'))
 
       const active = await this.getActiveSession()
       const sessions: SessionInfo[] = []
@@ -412,6 +410,6 @@ export class SessionMetadataStore implements ISessionPersistence {
    * Ensure the sessions directory exists.
    */
   private async ensureSessionsDir(): Promise<void> {
-    await fs.mkdir(this.sessionsDir, { recursive: true })
+    await fs.mkdir(this.sessionsDir, {recursive: true})
   }
 }

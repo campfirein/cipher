@@ -291,4 +291,40 @@ describe('CipherAgent', () => {
       expect(agent.agentEventBus).to.have.property('emit')
     })
   })
+
+  describe('refreshProviderConfig', () => {
+    it('should throw error when called before start', () => {
+      const agent = new CipherAgent(agentConfig)
+
+      try {
+        agent.refreshProviderConfig({model: 'gpt-4'})
+        expect.fail('Should have thrown error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(Error)
+        expect((error as Error).message).to.include('must be started')
+      }
+    })
+
+    it('should succeed after start and replace SessionManager', async () => {
+      const agent = new CipherAgent(agentConfig)
+      await agent.start()
+
+      // Create a session on the old SessionManager
+      const oldSessionId = agent.sessionId
+      expect(oldSessionId).to.be.a('string')
+
+      // refreshProviderConfig should not throw
+      agent.refreshProviderConfig({
+        model: 'gpt-4o',
+        provider: 'openrouter',
+        providerApiKey: 'sk-test-key',
+      })
+
+      // Old sessions are gone (SessionManager replaced), so old sessionId is no longer valid
+      // Agent should still be functional - can create new sessions
+      const newSession = await agent.createSession('post-refresh-session')
+      expect(newSession.id).to.equal('post-refresh-session')
+    })
+
+  })
 })
