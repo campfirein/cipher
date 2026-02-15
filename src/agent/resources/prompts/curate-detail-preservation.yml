@@ -1,0 +1,101 @@
+description: "Detail preservation instructions for curate mode"
+prompt: |
+  <CURATE_DETAIL_PRESERVATION>
+  ## Diagram and Visual Content Preservation
+
+  When curating content from files or folders, actively look for and preserve:
+
+  **Diagrams (MUST PRESERVE in narrative.diagrams array):**
+  - Mermaid diagrams (```mermaid ... ```) - store with type: "mermaid"
+  - PlantUML diagrams (@startuml ... @enduml) - store with type: "plantuml"
+  - ASCII art diagrams (box drawings, flow charts using |, -, +, >, arrows) - store with type: "ascii"
+  - Sequence diagrams, state diagrams, class diagrams, ER diagrams - identify the format and store accordingly
+  - ALWAYS preserve diagram content EXACTLY as-is, character for character
+  - NEVER paraphrase or describe a diagram in text instead of storing it
+  - NEVER skip a diagram because "it's too complex" - store it verbatim
+
+  **Tables (MUST PRESERVE):**
+  - Markdown tables - preserve the full table in narrative.structure or narrative.highlights
+  - Include column headers and ALL rows - do not summarize table content
+  - If a table has 20 rows, store all 20 rows
+
+  **Step-by-step Procedures:**
+  - Numbered instructions - store in narrative.rules with original numbering
+  - Decision trees - store as diagrams (ascii type) or in narrative.structure
+  - Workflows - capture in rawConcept.flow AND as diagrams if visual representation exists
+
+  **API Signatures and Interfaces:**
+  - Function signatures with parameter types - store in narrative.structure
+  - Interface definitions - preserve exact TypeScript/language syntax in snippets
+  - Request/response schemas - store complete schema, not summaries
+
+  **Code Examples:**
+  - Inline code examples from documentation - store in narrative.examples with full code
+  - Configuration examples - preserve exact syntax and values
+  - Command-line examples - store complete commands with flags
+
+  **Detection Heuristics:**
+  - Lines containing box-drawing characters (U+2500-U+257F, or ASCII +--+, |  |) = ASCII diagram
+  - Fenced blocks with language tag "mermaid", "plantuml", "dot", "graphviz" = diagram
+  - Content between @startuml/@enduml = PlantUML diagram
+  - Arrow patterns (-->, ==>, ->, =>), combined with indentation = flow/sequence diagram
+
+  **Storage Rules for Diagrams:**
+  - One diagram per entry in the narrative.diagrams array
+  - Always set the `type` field correctly (mermaid, plantuml, ascii, other)
+  - Use `title` field when the diagram has a caption or label nearby
+  - Example:
+    ```javascript
+    narrative: {
+      diagrams: [
+        {
+          type: "mermaid",
+          title: "Authentication Flow",
+          content: "graph TD\n  A[Request] --> B{Has Token?}\n  B -->|Yes| C[Validate]\n  B -->|No| D[Reject]"
+        }
+      ]
+    }
+    ```
+
+  ## Non-Code Content Preservation
+
+  **Meeting Notes and Decisions (MUST PRESERVE):**
+  - Decision text with full rationale - store in narrative.rules or narrative.highlights
+  - Action items with assignees and deadlines - store in narrative.examples
+  - Voting results and priority rankings - preserve exact numbers
+  - Status updates and blockers - store in narrative.dependencies
+
+  **Process Documentation:**
+  - Workflow steps with all conditions - store in rawConcept.flow and narrative.rules
+  - Metrics and KPIs with exact values - store in narrative.highlights
+  - Timeline and milestone information - store in narrative.structure
+
+  ## Factual Statement Preservation
+
+  **Facts (MUST EXTRACT in content.facts array):**
+  - Personal information stated by the user (e.g., "My name is Andy") - store each as a separate fact with category: "personal"
+  - Project configuration values, versions, ports, URLs - preserve exact values with category: "project"
+  - Team conventions and processes - store with category: "convention"
+  - Preferences and opinions expressed as directives - store with category: "preference"
+  - Team structure and roles - store with category: "team"
+  - Environment and infrastructure details - store with category: "environment"
+  - Use `subject` field for the key concept in snake_case (e.g., "user_name", "database_version")
+  - Use `value` field for the extracted value (e.g., "Andy", "PostgreSQL 15")
+  - Do NOT infer facts that were not explicitly stated
+  - Do NOT merge multiple facts into one compound statement
+  - ALWAYS preserve the exact wording of the factual claim in `statement`
+
+  ## General Detail Preservation
+
+  **Completeness over conciseness:**
+  - If a document lists 15 items, store all 15
+  - If a config file has 30 settings, capture all relevant ones
+  - If there are multiple code examples, store each one
+  - Preserve original formatting, indentation, and structure where possible
+
+  **Do NOT:**
+  - Summarize detailed content into brief descriptions
+  - Pick "representative examples" instead of storing all items
+  - Omit sections because they seem "less important"
+  - Flatten hierarchical content into flat descriptions
+  </CURATE_DETAIL_PRESERVATION>

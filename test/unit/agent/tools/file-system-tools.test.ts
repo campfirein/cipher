@@ -4,7 +4,6 @@ import { createSandbox, SinonStub } from 'sinon'
 import type { IFileSystem } from '../../../../src/agent/core/interfaces/i-file-system.js'
 import type { GlobFilesResult, GrepContentResult } from '../../../shared/tool-result-types.js'
 
-import { createEditFileTool } from '../../../../src/agent/infra/tools/implementations/edit-file-tool.js'
 import { createGlobFilesTool } from '../../../../src/agent/infra/tools/implementations/glob-files-tool.js'
 import { createGrepContentTool } from '../../../../src/agent/infra/tools/implementations/grep-content-tool.js'
 import { createReadFileTool } from '../../../../src/agent/infra/tools/implementations/read-file-tool.js'
@@ -26,21 +25,18 @@ function assertGrepContentResult(result: unknown): asserts result is GrepContent
 describe('File System Tools', () => {
   const sandbox = createSandbox()
   let fileSystemMock: IFileSystem
-  let editFileStub: SinonStub
   let globFilesStub: SinonStub
   let readFileStub: SinonStub
   let searchContentStub: SinonStub
   let writeFileStub: SinonStub
 
   beforeEach(() => {
-    editFileStub = sandbox.stub()
     globFilesStub = sandbox.stub()
     readFileStub = sandbox.stub()
     searchContentStub = sandbox.stub()
     writeFileStub = sandbox.stub()
 
     fileSystemMock = {
-      editFile: editFileStub,
       globFiles: globFilesStub,
       readFile: readFileStub,
       searchContent: searchContentStub,
@@ -242,89 +238,6 @@ describe('File System Tools', () => {
         expect(error instanceof Error).to.be.true
         if (error instanceof Error) {
           expect(error.message).to.include('Path blocked')
-        }
-      }
-    })
-  })
-
-  describe('edit_file', () => {
-    it('should edit file content successfully', async () => {
-      const tool = createEditFileTool(fileSystemMock)
-      const mockResult = {
-        bytesWritten: 20,
-        path: '/path/to/file',
-        replacements: 1,
-        success: true,
-      }
-      editFileStub.resolves(mockResult)
-
-      const result = await tool.execute({
-        filePath: '/path/to/file',
-        newString: 'new',
-        oldString: 'old',
-      })
-
-      sandbox.assert.calledWith(
-        editFileStub,
-        '/path/to/file',
-        sandbox.match({ newString: 'new', oldString: 'old', replaceAll: undefined }),
-        sandbox.match({}),
-      )
-      expect(result).to.deep.equal(mockResult)
-    })
-
-    it('should handle replaceAll option', async () => {
-      const tool = createEditFileTool(fileSystemMock)
-      editFileStub.resolves({})
-
-      await tool.execute({
-        filePath: '/path/to/file',
-        newString: 'new',
-        oldString: 'old',
-        replaceAll: true,
-      })
-
-      expect(editFileStub.args[0][1]).to.include({ replaceAll: true })
-    })
-
-    it('should propagate string not found error', async () => {
-      const tool = createEditFileTool(fileSystemMock)
-      const error = new Error('String not found')
-      error.name = 'StringNotFoundError'
-      editFileStub.rejects(error)
-
-      try {
-        await tool.execute({
-          filePath: '/path/file',
-          newString: 'new',
-          oldString: 'missing',
-        })
-        expect.fail('Should have thrown an error')
-      } catch (error: unknown) {
-        expect(error instanceof Error).to.be.true
-        if (error instanceof Error) {
-          expect(error.message).to.include('String not found')
-        }
-      }
-    })
-
-    it('should propagate string not unique error', async () => {
-      const tool = createEditFileTool(fileSystemMock)
-      const error = new Error('String not unique')
-      error.name = 'StringNotUniqueError'
-      editFileStub.rejects(error)
-
-      try {
-        await tool.execute({
-          filePath: '/path/file',
-          newString: 'new',
-          oldString: 'duplicate',
-        })
-        expect.fail('Should have thrown an error')
-      } catch (error: unknown) {
-        expect(error instanceof Error).to.be.true
-        if (error instanceof Error) {
-          expect(error.message).to.include('String not unique')
         }
       }
     })

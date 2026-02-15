@@ -28,10 +28,10 @@ export interface AuthTokenDTO {
 // ============================================================================
 
 export interface BrvConfigDTO {
-  spaceId: string
-  spaceName: string
-  teamId: string
-  teamName: string
+  spaceId?: string
+  spaceName?: string
+  teamId?: string
+  teamName?: string
   version: string
 }
 

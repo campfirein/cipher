@@ -11,10 +11,10 @@
  */
 
 import {
-  LLM_PROVIDERS,
   type LLMProvider,
   type ModelCapabilities,
   type ModelInfo,
+  PROVIDER_TYPES,
   type ProviderInfo,
   type SupportedFileType,
 } from './types.js'
@@ -129,7 +129,7 @@ export const LLM_REGISTRY: Record<LLMProvider, ProviderInfo> = {
     supportedFileTypes: ['image', 'pdf', 'audio'],
   },
 
-  openrouter: {
+  openai: {
     defaultModel: '',
     models: [],
     supportedFileTypes: [],
@@ -167,7 +167,7 @@ export function getModelInfoWithFallback(provider: LLMProvider, model: string): 
   return {
     capabilities: {
       supportsAudio: false,
-      supportsImages: provider !== 'openrouter', // Assume basic image support
+      supportsImages: true, // Assume basic image support
       supportsPdf: provider === 'claude' || provider === 'gemini',
       supportsStreaming: true,
     },
@@ -239,7 +239,7 @@ export function getDefaultModelForProvider(provider: LLMProvider): string {
  */
 export function getProviderFromModel(model: string): LLMProvider | undefined {
   // Check each provider's models
-  for (const provider of LLM_PROVIDERS) {
+  for (const provider of PROVIDER_TYPES) {
     if (getModelInfo(provider, model)) {
       return provider
     }
@@ -249,7 +249,8 @@ export function getProviderFromModel(model: string): LLMProvider | undefined {
   const lowerModel = model.toLowerCase()
   if (lowerModel.startsWith('claude')) return 'claude'
   if (lowerModel.startsWith('gemini')) return 'gemini'
-  if (lowerModel.includes('/')) return 'openrouter' // OpenRouter uses provider/model format
+  if (lowerModel.startsWith('gpt') || lowerModel.startsWith('o1') || lowerModel.startsWith('o3') || lowerModel.startsWith('o4')) return 'openai'
+  if (lowerModel.includes('/')) return 'openai' // OpenRouter uses provider/model format, but underlying API is OpenAI-compatible
 
   return undefined
 }
@@ -323,5 +324,6 @@ export function getEffectiveMaxInputTokens(
  * @returns true if provider accepts arbitrary models
  */
 export function acceptsAnyModel(provider: LLMProvider): boolean {
-  return provider === 'openrouter'
+  // OpenAI provider type accepts arbitrary models (OpenRouter, direct OpenAI, xAI, etc.)
+  return provider === 'openai'
 }

@@ -7,7 +7,6 @@ import type {IAuthService} from '../../../../../src/server/core/interfaces/auth/
 import type {ICallbackHandler} from '../../../../../src/server/core/interfaces/auth/i-callback-handler.js'
 import type {ITokenStore} from '../../../../../src/server/core/interfaces/auth/i-token-store.js'
 import type {IBrowserLauncher} from '../../../../../src/server/core/interfaces/services/i-browser-launcher.js'
-import type {ITrackingService} from '../../../../../src/server/core/interfaces/services/i-tracking-service.js'
 import type {IUserService} from '../../../../../src/server/core/interfaces/services/i-user-service.js'
 import type {IAuthStateStore} from '../../../../../src/server/core/interfaces/state/i-auth-state-store.js'
 import type {IProjectConfigStore} from '../../../../../src/server/core/interfaces/storage/i-project-config-store.js'
@@ -146,9 +145,6 @@ describe('AuthHandler — setupExternalAuthSync', () => {
         load: stub().resolves(),
         save: stub().resolves(),
       } as unknown as ITokenStore,
-      trackingService: {
-        track: stub().resolves(),
-      } as unknown as ITrackingService,
       transport,
       userService,
     }

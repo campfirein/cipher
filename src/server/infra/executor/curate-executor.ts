@@ -99,6 +99,10 @@ export class CurateExecutor implements ICurateExecutor {
       '- Use this content to understand the context and create comprehensive knowledge topics',
       '- DO NOT use read_file tool for the files above - the content is already provided',
       '- Proceed with the normal workflow: detect domains, find existing knowledge, create/update topics',
+      '- PRESERVE all diagrams (Mermaid, PlantUML, ASCII art) verbatim using narrative.diagrams array',
+      '- PRESERVE all tables with every row - do not summarize table data',
+      '- PRESERVE exact code examples, API signatures, and interface definitions',
+      '- PRESERVE step-by-step procedures and numbered instructions in narrative.rules',
       '',
     )
 

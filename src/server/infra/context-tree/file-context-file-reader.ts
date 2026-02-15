@@ -39,15 +39,19 @@ export class FileContextFileReader implements IContextFileReader {
 
     try {
       const content = await readFile(fullPath, 'utf8')
-      const title = extractTitle(content, relativePath)
+      const fallbackTitle = extractTitle(content, relativePath)
 
-      const parsedContent = MarkdownWriter.parseContent(content, title)
+      const parsedContent = MarkdownWriter.parseContent(content, fallbackTitle)
+      // Frontmatter title takes precedence, then H1 heading, then path fallback
+      const title = parsedContent.name || fallbackTitle
 
       return {
         content,
+        keywords: parsedContent.keywords,
         narrative: parsedContent.narrative,
         path: relativePath,
         rawConcept: parsedContent.rawConcept,
+        tags: parsedContent.tags,
         title,
       }
     } catch {

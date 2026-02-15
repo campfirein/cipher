@@ -54,13 +54,18 @@ npm run lint                                     # ESLint
 src/
 ├── agent/           # LLM agent system
 │   ├── core/        # Agent interfaces and domain types
-│   └── infra/       # Tools, LLM services, sessions, storage
+│   ├── infra/       # Tools, LLM services, sessions, storage
+│   └── resources/   # Prompt YAML configs, tool definition .txt files
 ├── server/          # Server-side infrastructure
 │   ├── core/        # Domain entities and interfaces
-│   └── infra/       # Auth, connectors, transport, usecases
+│   ├── infra/       # Auth, connectors, transport, usecases
+│   └── utils/       # Shared utilities (errors, file helpers, type guards)
 ├── tui/             # React/Ink TUI + slash commands
 │   ├── commands/    # Slash command implementations
-│   └── components/  # UI components, dialogs, prompts
+│   ├── components/  # UI components, dialogs, prompts
+│   ├── providers/   # React context providers
+│   ├── types/       # Shared TUI type definitions
+│   └── utils/       # TUI utility functions
 └── oclif/           # Oclif commands and hooks
 ```
 
@@ -100,20 +105,25 @@ src/
 
 - `IProviderConfigStore` - Provider config (connect, disconnect, active model/provider)
 - `IProviderKeychainStore` - Secure API key storage via system keychain
+- Subdirectories: `auth/`, `connectors/`, `context-tree/`, `executor/`, `instance/`, `services/`, `storage/`, `transport/`, `usecase/`
 
-**Domain Entities** (`domain/entities/`):
+**Domain Entities** (`domain/entities/`) - 26 entities:
 
 - `AuthToken`, `OAuthTokenData` - Auth tokens with session keys
 - `User`, `Team`, `Space` - `getDisplayName()` methods
 - `Agent` - 19 supported agents with connector configs (Amp, Antigravity, Augment Code, Claude Code, Cline, Codex, Cursor, Gemini CLI, Github Copilot, Junie, Kilo Code, Kiro, Qoder, Qwen Code, Roo Code, Trae.ai, Warp, Windsurf, Zed)
 - `ConnectorType` - `'rules' | 'hook' | 'mcp' | 'skill'`
 - `BrvConfig`, `GlobalConfig` - Config persistence
-- `ProviderConfig`, `ProviderDefinition` - LLM provider registry
+- `ProviderConfig`, `ProviderDefinition` - LLM provider registry (in `provider-registry.ts`)
+- Cogit sync: `CogitPushContext`, `CogitPushResponse`, `CogitSnapshot`, `CogitSnapshotAuthor`, `CogitSnapshotFile`
+- Context tree: `ContextTreeIndex`, `ContextTreeSnapshot`
+- Other: `Bullet`, `Event`, `Memory`, `Parser`, `Playbook`, `PresignedUrl`, `PresignedUrlsResponse`, `RetrieveResult`
 
 ### Server Infra (`src/server/infra/`)
 
 - `auth/` - OAuth + PKCE, callback server
 - `cogit/` - Cloud sync (push/pull)
+- `config/` - File-based config store
 - `connectors/` - 4 connector types (skill, hook, mcp, rules)
 - `context-tree/` - File-based context tree operations
 - `executor/` - Curate/Query executors
@@ -138,7 +148,7 @@ src/
 - Streaming with reasoning/thinking visualization
 - Model capability detection (`native-field`, `think-tags`, `interleaved`, `none`)
 
-**Tools** (`infra/tools/implementations/`) - 23 tools:
+**Tools** - 23 tools (definitions in `resources/tools/*.txt`, implementations in `infra/tools/implementations/`):
 
 - File: `read-file` (PDF support), `write-file`, `edit-file`, `list-directory`, `glob-files`, `grep-content`
 - Bash: `bash-exec`, `bash-output`, `kill-process`
@@ -146,7 +156,7 @@ src/
 - Memory: `read-memory`, `write-memory`, `edit-memory`, `delete-memory`, `list-memories`
 - Knowledge: `create-knowledge-topic`, `search-knowledge`
 - Todos: `read-todos`, `write-todos`
-- Other: `curate`, `batch`, `search-history`, `spec-analyze`
+- Other: `curate`, `batch`, `search-history`, `detect-domains`
 
 **Infra Services** (`infra/`):
 
@@ -173,8 +183,11 @@ src/
 
 - `commands/` - Slash command implementations
 - `components/` - Execution, prompts, dialogs, reasoning display
-- `hooks/` - Activity logs, slash completion, tab navigation
 - `contexts/` - React contexts for state management
+- `hooks/` - Activity logs, slash completion, tab navigation
+- `providers/` - App-level React context providers
+- `types/` - Shared TUI type definitions (commands, dialogs, messages, prompts, status, ui)
+- `utils/` - TUI utility functions (line, log, time, transport client)
 
 ### Slash Commands
 

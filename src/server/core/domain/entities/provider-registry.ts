@@ -11,7 +11,7 @@
 export interface ProviderDefinition {
   /** URL where users can get an API key */
   readonly apiKeyUrl?: string
-  /** API base URL (empty for internal providers) */
+  /** API base URL (empty for internal providers, SDK-managed for Google) */
   readonly baseUrl: string
   /** Category for grouping in UI */
   readonly category: 'other' | 'popular'
@@ -19,6 +19,8 @@ export interface ProviderDefinition {
   readonly defaultModel?: string
   /** Short description */
   readonly description: string
+  /** Environment variable names to check for API key auto-detection */
+  readonly envVars?: readonly string[]
   /** Default headers for API requests */
   readonly headers: Readonly<Record<string, string>>
   /** Unique provider identifier */
@@ -36,6 +38,19 @@ export interface ProviderDefinition {
  * Order by priority for consistent display.
  */
 export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
+  anthropic: {
+    apiKeyUrl: 'https://console.anthropic.com/settings/keys',
+    baseUrl: 'https://api.anthropic.com',
+    category: 'popular',
+    defaultModel: 'claude-sonnet-4-5-20250929',
+    description: 'Claude models by Anthropic',
+    envVars: ['ANTHROPIC_API_KEY'],
+    headers: {},
+    id: 'anthropic',
+    modelsEndpoint: '/v1/models',
+    name: 'Anthropic',
+    priority: 2,
+  },
   byterover: {
     baseUrl: '',
     category: 'popular',
@@ -46,12 +61,168 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
     name: 'ByteRover',
     priority: 0,
   },
+  cerebras: {
+    apiKeyUrl: 'https://cloud.cerebras.ai/platform',
+    baseUrl: 'https://api.cerebras.ai/v1',
+    category: 'other',
+    defaultModel: 'gpt-oss-120b',
+    description: 'Fast inference on Cerebras hardware',
+    envVars: ['CEREBRAS_API_KEY'],
+    headers: {},
+    id: 'cerebras',
+    modelsEndpoint: '/models',
+    name: 'Cerebras',
+    priority: 14,
+  },
+  cohere: {
+    apiKeyUrl: 'https://dashboard.cohere.com/api-keys',
+    baseUrl: 'https://api.cohere.com/v2',
+    category: 'other',
+    defaultModel: 'command-a-03-2025',
+    description: 'Command models by Cohere',
+    envVars: ['COHERE_API_KEY'],
+    headers: {},
+    id: 'cohere',
+    modelsEndpoint: '/models',
+    name: 'Cohere',
+    priority: 11,
+  },
+  deepinfra: {
+    apiKeyUrl: 'https://deepinfra.com/dash/api_keys',
+    baseUrl: 'https://api.deepinfra.com/v1/openai',
+    category: 'other',
+    defaultModel: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8',
+    description: 'Affordable inference on open models',
+    envVars: ['DEEPINFRA_API_KEY'],
+    headers: {},
+    id: 'deepinfra',
+    modelsEndpoint: '/models',
+    name: 'DeepInfra',
+    priority: 10,
+  },
+  glm: {
+    apiKeyUrl: 'https://open.z.ai',
+    baseUrl: 'https://api.z.ai/api/paas/v4',
+    category: 'other',
+    defaultModel: 'glm-4.7',
+    description: 'GLM models by Zhipu AI',
+    envVars: ['ZHIPU_API_KEY'],
+    headers: {},
+    id: 'glm',
+    modelsEndpoint: '',
+    name: 'GLM (Z.AI)',
+    priority: 17,
+  },
+  google: {
+    apiKeyUrl: 'https://aistudio.google.com/apikey',
+    baseUrl: '',
+    category: 'popular',
+    defaultModel: 'gemini-2.5-flash',
+    description: 'Gemini models by Google',
+    envVars: ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
+    headers: {},
+    id: 'google',
+    modelsEndpoint: '',
+    name: 'Google Gemini',
+    priority: 4,
+  },
+  'google-vertex': {
+    apiKeyUrl: 'https://console.cloud.google.com/iam-admin/serviceaccounts',
+    baseUrl: '',
+    category: 'popular',
+    defaultModel: 'gemini-2.5-flash',
+    description: 'Gemini via Google Cloud Vertex AI',
+    envVars: ['GOOGLE_APPLICATION_CREDENTIALS'],
+    headers: {},
+    id: 'google-vertex',
+    modelsEndpoint: '',
+    name: 'Google Vertex AI',
+    priority: 5,
+  },
+  groq: {
+    apiKeyUrl: 'https://console.groq.com/keys',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    category: 'popular',
+    defaultModel: 'openai/gpt-oss-120b',
+    description: 'Fast inference on open models',
+    envVars: ['GROQ_API_KEY'],
+    headers: {},
+    id: 'groq',
+    modelsEndpoint: '/models',
+    name: 'Groq',
+    priority: 6,
+  },
+  minimax: {
+    apiKeyUrl: 'https://platform.minimax.io',
+    baseUrl: 'https://api.minimax.io/v1',
+    category: 'other',
+    defaultModel: 'MiniMax-M2',
+    description: 'MiniMax AI models',
+    envVars: ['MINIMAX_API_KEY'],
+    headers: {},
+    id: 'minimax',
+    modelsEndpoint: '',
+    name: 'MiniMax',
+    priority: 16,
+  },
+  mistral: {
+    apiKeyUrl: 'https://console.mistral.ai/api-keys',
+    baseUrl: 'https://api.mistral.ai/v1',
+    category: 'popular',
+    defaultModel: 'mistral-large-latest',
+    description: 'Mistral AI models',
+    envVars: ['MISTRAL_API_KEY'],
+    headers: {},
+    id: 'mistral',
+    modelsEndpoint: '/models',
+    name: 'Mistral',
+    priority: 7,
+  },
+  moonshot: {
+    apiKeyUrl: 'https://platform.moonshot.ai/console/api-keys',
+    baseUrl: 'https://api.moonshot.ai/v1',
+    category: 'other',
+    defaultModel: 'kimi-k2.5',
+    description: 'Kimi models by Moonshot AI',
+    envVars: ['MOONSHOT_API_KEY'],
+    headers: {},
+    id: 'moonshot',
+    modelsEndpoint: '',
+    name: 'Moonshot AI (Kimi)',
+    priority: 18,
+  },
+  openai: {
+    apiKeyUrl: 'https://platform.openai.com/api-keys',
+    baseUrl: 'https://api.openai.com/v1',
+    category: 'popular',
+    defaultModel: 'gpt-4.1',
+    description: 'GPT models by OpenAI',
+    envVars: ['OPENAI_API_KEY'],
+    headers: {},
+    id: 'openai',
+    modelsEndpoint: '/models',
+    name: 'OpenAI',
+    priority: 3,
+  },
+  'openai-compatible': {
+    baseUrl: '',
+    category: 'other',
+    defaultModel: 'llama3',
+    description: 'Connect any OpenAI-compatible endpoint (Ollama, LM Studio, etc.)',
+    envVars: ['OPENAI_COMPATIBLE_API_KEY'],
+    headers: {},
+    id: 'openai-compatible',
+    modelsEndpoint: '/models',
+    name: 'OpenAI Compatible',
+    priority: 20,
+  },
   openrouter: {
     apiKeyUrl: 'https://openrouter.ai/keys',
     baseUrl: 'https://openrouter.ai/api/v1',
     category: 'popular',
-    defaultModel: 'anthropic/claude-3.5-sonnet',
-    description: 'Access 200+ models',
+    defaultModel: 'anthropic/claude-sonnet-4.5',
+    description: 'Access 200+ models via aggregator',
+    envVars: ['OPENROUTER_API_KEY'],
     headers: {
       'HTTP-Referer': 'https://byterover.dev',
       'X-Title': 'byterover-cli',
@@ -61,11 +232,58 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
     name: 'OpenRouter',
     priority: 1,
   },
-  // Future providers can be added here:
-  // anthropic: { ... },
-  // openai: { ... },
-  // google: { ... },
-  // groq: { ... },
+  perplexity: {
+    apiKeyUrl: 'https://www.perplexity.ai/settings/api',
+    baseUrl: 'https://api.perplexity.ai',
+    category: 'other',
+    defaultModel: 'sonar-pro',
+    description: 'Web search-augmented inference',
+    envVars: ['PERPLEXITY_API_KEY'],
+    headers: {},
+    id: 'perplexity',
+    modelsEndpoint: '',
+    name: 'Perplexity',
+    priority: 13,
+  },
+  togetherai: {
+    apiKeyUrl: 'https://api.together.ai/settings/api-keys',
+    baseUrl: 'https://api.together.xyz/v1',
+    category: 'other',
+    defaultModel: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8',
+    description: 'Open-source model inference',
+    envVars: ['TOGETHER_API_KEY', 'TOGETHERAI_API_KEY'],
+    headers: {},
+    id: 'togetherai',
+    modelsEndpoint: '/models',
+    name: 'Together AI',
+    priority: 12,
+  },
+  vercel: {
+    apiKeyUrl: 'https://v0.dev/chat/settings/keys',
+    baseUrl: 'https://api.v0.dev/v1',
+    category: 'other',
+    defaultModel: 'v0-1.5-md',
+    description: 'Vercel AI-powered models',
+    envVars: ['VERCEL_API_KEY'],
+    headers: {},
+    id: 'vercel',
+    modelsEndpoint: '/models',
+    name: 'Vercel',
+    priority: 15,
+  },
+  xai: {
+    apiKeyUrl: 'https://console.x.ai',
+    baseUrl: 'https://api.x.ai/v1',
+    category: 'popular',
+    defaultModel: 'grok-3',
+    description: 'Grok models by xAI',
+    envVars: ['XAI_API_KEY'],
+    headers: {},
+    id: 'xai',
+    modelsEndpoint: '/models',
+    name: 'xAI (Grok)',
+    priority: 5,
+  },
 }
 
 /**
@@ -102,6 +320,10 @@ export function getProviderById(id: string): ProviderDefinition | undefined {
 export function providerRequiresApiKey(id: string): boolean {
   const provider = getProviderById(id)
   if (!provider) return false
-  // Internal providers (empty baseUrl) don't need API keys
-  return provider.baseUrl.length > 0
+  // Internal providers (byterover) don't need API keys.
+  // Vertex AI uses Application Default Credentials, not API keys.
+  // OpenAI Compatible has optional API key (handled in provider-command).
+  if (id === 'byterover' || id === 'google-vertex' || id === 'openai-compatible') return false
+
+  return true
 }

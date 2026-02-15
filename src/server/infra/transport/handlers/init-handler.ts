@@ -6,7 +6,6 @@ import type {IContextTreeWriterService} from '../../../core/interfaces/context-t
 import type {ICogitPullService} from '../../../core/interfaces/services/i-cogit-pull-service.js'
 import type {ISpaceService} from '../../../core/interfaces/services/i-space-service.js'
 import type {ITeamService} from '../../../core/interfaces/services/i-team-service.js'
-import type {ITrackingService} from '../../../core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 import type {ProjectBroadcaster, ProjectPathResolver} from './handler-types.js'
@@ -39,7 +38,6 @@ export interface InitHandlerDeps {
   spaceService: ISpaceService
   teamService: ITeamService
   tokenStore: ITokenStore
-  trackingService: ITrackingService
   transport: ITransportServer
 }
 
@@ -60,7 +58,6 @@ export class InitHandler {
   private readonly spaceService: ISpaceService
   private readonly teamService: ITeamService
   private readonly tokenStore: ITokenStore
-  private readonly trackingService: ITrackingService
   private readonly transport: ITransportServer
 
   constructor(deps: InitHandlerDeps) {
@@ -75,7 +72,6 @@ export class InitHandler {
     this.spaceService = deps.spaceService
     this.teamService = deps.teamService
     this.tokenStore = deps.tokenStore
-    this.trackingService = deps.trackingService
     this.transport = deps.transport
   }
 
@@ -100,8 +96,6 @@ export class InitHandler {
     if (!token || !token.isValid()) {
       throw new Error('Not authenticated')
     }
-
-    await this.trackingService.track('space:init', {status: 'started'})
 
     // Check for existing config
     if ((await this.projectConfigStore.exists(projectPath)) && !data.force) {
@@ -174,8 +168,6 @@ export class InitHandler {
         step: 'connector_warning',
       })
     }
-
-    await this.trackingService.track('space:init', {spaceId: data.spaceId, status: 'finished', teamId: data.teamId})
 
     this.broadcastToProject(projectPath, InitEvents.COMPLETED, {
       config: {spaceName: brvConfig.spaceName, teamName: brvConfig.teamName},

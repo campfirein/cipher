@@ -15,6 +15,14 @@ import {
 } from '@campfirein/brv-transport-client'
 import {Command, Flags} from '@oclif/core'
 import chalk from 'chalk'
+import {existsSync} from 'node:fs'
+import {platform} from 'node:os'
+import {pathToFileURL} from 'node:url'
+
+import {getGlobalConfigDir} from '../../server/utils/global-config-path.js'
+import {getGlobalDataDir} from '../../server/utils/global-data-path.js'
+import {getGlobalLogsDir} from '../../server/utils/global-logs-path.js'
+import {getProjectDataDir} from '../../server/utils/path-utils.js'
 
 /**
  * Refresh interval for monitor mode (ms).
@@ -86,6 +94,19 @@ type DaemonState = {
     port: number
     running: boolean
   }
+}
+
+const existsLabel = (exists: boolean): string => (exists ? '' : chalk.yellow(' (not created)'))
+
+/**
+ * Wrap a file path in an OSC 8 terminal hyperlink.
+ * Clicking the path in a supported terminal opens it in the OS file manager.
+ * Unsupported terminals silently ignore the escape sequences.
+ */
+const fileHyperlink = (filePath: string): string => {
+  if (!process.stdout.isTTY) return filePath
+  const url = pathToFileURL(filePath).href
+  return `\u001B]8;;${url}\u001B\\${filePath}\u001B]8;;\u001B\\`
 }
 
 export default class Debug extends Command {
@@ -309,9 +330,68 @@ export default class Debug extends Command {
     const state = await client.requestWithAck<DaemonState>('daemon:getState')
 
     if (format === 'json') {
-      this.log(JSON.stringify(state, null, 2))
+      const paths = this.resolveStoragePaths()
+      this.log(JSON.stringify({...state, paths}, null, 2))
     } else {
       this.renderTree(state)
+    }
+  }
+
+  private renderStoragePaths(lines: string[]): void {
+    const configDir = getGlobalConfigDir()
+    const dataDir = getGlobalDataDir()
+    const logsDir = getGlobalLogsDir()
+
+    let projectDir: string
+    try {
+      projectDir = getProjectDataDir(process.cwd())
+    } catch {
+      projectDir = '(unavailable)'
+    }
+
+    const projectExistsLabel =
+      projectDir === '(unavailable)' ? '' : existsLabel(existsSync(projectDir))
+
+    lines.push(
+      '├── Storage Paths',
+      `│   ├── Config:  ${fileHyperlink(configDir)}${existsLabel(existsSync(configDir))}`,
+      `│   ├── Data:    ${fileHyperlink(dataDir)}${existsLabel(existsSync(dataDir))}`,
+      `│   ├── Logs:    ${fileHyperlink(logsDir)}${existsLabel(existsSync(logsDir))}`,
+      `│   ├── Project: ${projectDir === '(unavailable)' ? projectDir : fileHyperlink(projectDir)}${projectExistsLabel}`,
+    )
+
+    const overrides: Array<{name: string; value: string}> = []
+
+    if (process.env.BRV_DATA_DIR) {
+      overrides.push({name: 'BRV_DATA_DIR', value: process.env.BRV_DATA_DIR})
+    }
+
+    // XDG env vars only affect path resolution on Linux
+    if (platform() === 'linux') {
+      if (process.env.XDG_CONFIG_HOME) {
+        overrides.push({name: 'XDG_CONFIG_HOME', value: process.env.XDG_CONFIG_HOME})
+      }
+
+      if (process.env.XDG_DATA_HOME) {
+        overrides.push({name: 'XDG_DATA_HOME', value: process.env.XDG_DATA_HOME})
+      }
+
+      if (process.env.XDG_STATE_HOME) {
+        overrides.push({name: 'XDG_STATE_HOME', value: process.env.XDG_STATE_HOME})
+      }
+    }
+
+    if (overrides.length === 0) {
+      lines.push(`│   └── Overrides: ${chalk.dim('(none)')}`)
+    } else if (overrides.length === 1) {
+      lines.push(`│   └── Overrides: ${chalk.cyan(`${overrides[0].name}=${overrides[0].value}`)}`)
+    } else {
+      lines.push('│   └── Overrides')
+      for (const [i, override] of overrides.entries()) {
+        const isLast = i === overrides.length - 1
+        const prefix = isLast ? '│       └── ' : '│       ├── '
+        lines.push(`${prefix}${chalk.cyan(`${override.name}=${override.value}`)}`)
+      }
     }
   }
 
@@ -376,6 +456,9 @@ export default class Debug extends Command {
       lines.push(`├── Status: ${chalk.green('Active')} (${clients.length} clients connected)`)
     }
 
+    // Storage Paths
+    this.renderStoragePaths(lines)
+
     // Transport Server
     lines.push(
       '├── Transport Server',
@@ -402,6 +485,60 @@ export default class Debug extends Command {
     this.renderClients(lines, clients)
 
     this.log(lines.join('\n'))
+  }
+
+  private resolveStoragePaths(): {
+    config: string
+    data: string
+    existence: {config: boolean; data: boolean; logs: boolean; project: boolean}
+    logs: string
+    overrides: Array<{name: string; value: string}>
+    project: string
+  } {
+    const configDir = getGlobalConfigDir()
+    const dataDir = getGlobalDataDir()
+    const logsDir = getGlobalLogsDir()
+
+    let projectDir: string
+    try {
+      projectDir = getProjectDataDir(process.cwd())
+    } catch {
+      projectDir = '(unavailable)'
+    }
+
+    const overrides: Array<{name: string; value: string}> = []
+
+    if (process.env.BRV_DATA_DIR) {
+      overrides.push({name: 'BRV_DATA_DIR', value: process.env.BRV_DATA_DIR})
+    }
+
+    if (platform() === 'linux') {
+      if (process.env.XDG_CONFIG_HOME) {
+        overrides.push({name: 'XDG_CONFIG_HOME', value: process.env.XDG_CONFIG_HOME})
+      }
+
+      if (process.env.XDG_DATA_HOME) {
+        overrides.push({name: 'XDG_DATA_HOME', value: process.env.XDG_DATA_HOME})
+      }
+
+      if (process.env.XDG_STATE_HOME) {
+        overrides.push({name: 'XDG_STATE_HOME', value: process.env.XDG_STATE_HOME})
+      }
+    }
+
+    return {
+      config: configDir,
+      data: dataDir,
+      existence: {
+        config: existsSync(configDir),
+        data: existsSync(dataDir),
+        logs: existsSync(logsDir),
+        project: projectDir !== '(unavailable)' && existsSync(projectDir),
+      },
+      logs: logsDir,
+      overrides,
+      project: projectDir,
+    }
   }
 
   private async runMonitor(client: ITransportClient): Promise<void> {

@@ -16,6 +16,7 @@ import type {SystemPromptManager} from '../system-prompt/system-prompt-manager.j
 import type {ToolManager} from '../tools/tool-manager.js'
 import type {ToolProvider} from '../tools/tool-provider.js'
 import type {AgentConfig} from './agent-schemas.js'
+import type {ProviderUpdateConfig} from './provider-update-config.js'
 
 import {STREAMING_EVENT_NAMES} from '../../core/domain/streaming/types.js'
 import {AgentEventBus} from '../events/event-emitter.js'
@@ -404,6 +405,58 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   }
 
   /**
+   * Hot-swap the provider/model configuration by rebuilding the SessionManager.
+   * Called by agent-process when a provider:updated event is received.
+   *
+   * Safety: this is called at the start of executeTask (before LLM calls), and
+   * the task queue is sequential (max concurrency = 1), so no concurrent task
+   * can be using the old SessionManager when this runs.
+   *
+   * @param providerUpdate - New provider configuration from daemon state server
+   */
+  public refreshProviderConfig(providerUpdate: ProviderUpdateConfig): void {
+    this.ensureStarted()
+
+    const services = this.getServices()
+    const httpConfig = this.buildHttpConfig()
+
+    // Build new LLM config with updated provider fields
+    const sessionLLMConfig = {
+      httpReferer: this.config.httpReferer,
+      maxIterations: this.config.llm.maxIterations,
+      maxTokens: this.config.llm.maxTokens,
+      model: providerUpdate.model,
+      openRouterApiKey: providerUpdate.openRouterApiKey,
+      provider: providerUpdate.provider,
+      providerApiKey: providerUpdate.providerApiKey,
+      providerBaseUrl: providerUpdate.providerBaseUrl,
+      providerHeaders: providerUpdate.providerHeaders,
+      providerLocation: providerUpdate.providerLocation,
+      providerProject: providerUpdate.providerProject,
+      siteName: this.config.siteName,
+      temperature: this.config.llm.temperature,
+      verbose: this.config.llm.verbose,
+    }
+
+    // Create new SessionManager FIRST — if this throws, old SM remains intact
+    const newSessionManager = new SessionManager(services, httpConfig, sessionLLMConfig, {
+      config: {
+        maxSessions: this.config.sessions.maxSessions,
+        sessionTTL: this.config.sessions.sessionTTL,
+      },
+    })
+
+    // Success — dispose old and swap
+    if (this.sessionManager) {
+      this.sessionManager.dispose()
+    }
+
+    this.sessionManager = newSessionManager
+  }
+
+  // === Protected Methods (implement abstract from BaseAgent) ===
+
+  /**
    * Reset the agent to initial state.
    * Resets execution state only. To reset sessions, use resetSession(sessionId).
    */
@@ -414,16 +467,14 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     }
   }
 
-  // === Protected Methods (implement abstract from BaseAgent) ===
-
   /**
    * Reset a specific session's conversation history.
    * @param sessionId - The session ID to reset
    */
-  public resetSession(sessionId: string): void {
+  public async resetSession(sessionId: string): Promise<void> {
     const session = this.getSessionManagerInternal().getSession(sessionId)
     if (session) {
-      session.reset()
+      await session.reset()
     }
 
     // Emit conversation reset event (only if agent is started)
@@ -457,17 +508,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Create SessionManager with shared services
     const services = this.getServices()
 
-    // Extract HTTP config
-    // If providers are injected, use them (lazy — resolved per request from StateServer).
-    // Otherwise fall back to the static config/brvConfig values.
-    const httpConfig: ByteRoverHttpConfig = {
-      apiBaseUrl: this.config.apiBaseUrl,
-      projectId: this._projectIdProvider ?? this.config.projectId,
-      region: this.config.region,
-      sessionKey: this._sessionKeyProvider ?? this.config.sessionKey,
-      spaceId: this._spaceIdProvider ?? this.config.spaceId ?? this._brvConfig?.spaceId ?? '',
-      teamId: this._teamIdProvider ?? this.config.teamId ?? this._brvConfig?.teamId ?? '',
-    }
+    const httpConfig = this.buildHttpConfig()
 
     // Extract LLM config for sessions
     const sessionLLMConfig = {
@@ -476,6 +517,12 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       maxTokens: this.config.llm.maxTokens,
       model: this.config.model,
       openRouterApiKey: this.config.openRouterApiKey,
+      provider: this.config.provider,
+      providerApiKey: this.config.providerApiKey,
+      providerBaseUrl: this.config.providerBaseUrl,
+      providerHeaders: this.config.providerHeaders,
+      providerLocation: this.config.providerLocation,
+      providerProject: this.config.providerProject,
       siteName: this.config.siteName,
       temperature: this.config.llm.temperature,
       verbose: this.config.llm.verbose,
@@ -735,6 +782,21 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   }
 
   // === Private Helpers (alphabetical order) ===
+
+  /**
+   * Build HTTP config for ByteRover API calls.
+   * Uses lazy providers when injected (child process mode), otherwise static config.
+   */
+  private buildHttpConfig(): ByteRoverHttpConfig {
+    return {
+      apiBaseUrl: this.config.apiBaseUrl,
+      projectId: this._projectIdProvider ?? this.config.projectId,
+      region: this.config.region,
+      sessionKey: this._sessionKeyProvider ?? this.config.sessionKey,
+      spaceId: this._spaceIdProvider ?? this.config.spaceId ?? this._brvConfig?.spaceId ?? '',
+      teamId: this._teamIdProvider ?? this.config.teamId ?? this._brvConfig?.teamId ?? '',
+    }
+  }
 
   private getHistoryStorageInternal(): IHistoryStorage {
     const storage = this.services?.historyStorage

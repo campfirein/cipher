@@ -56,7 +56,7 @@ export interface IChatSession {
    * Reset the conversation history.
    * Clears all messages except the system prompt (if present).
    */
-  reset(): void
+  reset(): Promise<void>
 
   /**
    * Send a message and get a response.

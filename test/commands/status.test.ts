@@ -9,7 +9,6 @@ import type {ITokenStore} from '../../src/server/core/interfaces/auth/i-token-st
 import type {IContextTreeService} from '../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../src/server/core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {ITerminal} from '../../src/server/core/interfaces/services/i-terminal.js'
-import type {ITrackingService} from '../../src/server/core/interfaces/services/i-tracking-service.js'
 import type {IProjectConfigStore} from '../../src/server/core/interfaces/storage/i-project-config-store.js'
 import type {IStatusUseCase} from '../../src/server/core/interfaces/usecase/i-status-use-case.js'
 
@@ -45,7 +44,6 @@ describe('Status Command', () => {
   let loggedMessages: string[]
   let terminal: ITerminal
   let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
-  let trackingService: sinon.SinonStubbedInstance<ITrackingService>
   let validToken: AuthToken
   let testConfig: BrvConfig
 
@@ -64,10 +62,6 @@ describe('Status Command', () => {
       clear: stub(),
       load: stub(),
       save: stub(),
-    }
-
-    trackingService = {
-      track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
     }
 
     configStore = {
@@ -125,7 +119,6 @@ describe('Status Command', () => {
       projectConfigStore: configStore,
       terminal,
       tokenStore,
-      trackingService,
     })
   }
 

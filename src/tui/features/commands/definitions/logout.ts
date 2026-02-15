@@ -22,8 +22,7 @@ export const logoutCommand: SlashCommand = {
       render: ({onCancel, onComplete}) =>
         React.createElement(LogoutFlow, {
           onCancel,
-          onComplete: (message: string) =>
-            onComplete(message, {reloadAuth: true, restartAgent: {reason: 'User logged out'}}),
+          onComplete: (message: string) => onComplete(message, {reloadAuth: true}),
           skipConfirm,
         }),
     }

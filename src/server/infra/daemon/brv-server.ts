@@ -35,7 +35,7 @@ import {
   AGENT_POOL_MAX_SIZE,
   HEARTBEAT_FILE,
 } from '../../constants.js'
-import {TransportStateEventNames} from '../../core/domain/transport/schemas.js'
+import {type ProviderConfigResponse, TransportStateEventNames} from '../../core/domain/transport/schemas.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
 import {ClientManager} from '../client/client-manager.js'
@@ -44,9 +44,12 @@ import {broadcastToProjectRoom} from '../process/broadcast-utils.js'
 import {setupFeatureHandlers} from '../process/feature-handlers.js'
 import {TransportHandlers} from '../process/transport-handlers.js'
 import {ProjectRegistry} from '../project/project-registry.js'
+import {resolveProviderConfig} from '../provider/provider-config-resolver.js'
 import {ProjectRouter} from '../routing/project-router.js'
 import {AuthStateStore} from '../state/auth-state-store.js'
 import {ProjectStateLoader} from '../state/project-state-loader.js'
+import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
+import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {SocketIOTransportServer} from '../transport/socket-io-transport-server.js'
 import {AgentIdleTimeoutPolicy} from './agent-idle-timeout-policy.js'
@@ -231,6 +234,7 @@ async function main(): Promise<void> {
       agentIdleTimeoutPolicy,
       agentProcessFactory(projectPath) {
         return fork(agentProcessPath, [], {
+          cwd: projectPath,
           env: {
             ...process.env,
             BRV_AGENT_PORT: String(port),
@@ -330,13 +334,16 @@ async function main(): Promise<void> {
       }
     })
 
-    transportServer.onRequest<void, {isValid: boolean; sessionKey: string}>(TransportStateEventNames.GET_AUTH, async () => {
-      const token = await authStateStore!.loadToken()
-      return {
-        isValid: token?.isValid() ?? false,
-        sessionKey: token?.sessionKey ?? '',
-      }
-    })
+    transportServer.onRequest<void, {isValid: boolean; sessionKey: string}>(
+      TransportStateEventNames.GET_AUTH,
+      async () => {
+        const token = await authStateStore!.loadToken()
+        return {
+          isValid: token?.isValid() ?? false,
+          sessionKey: token?.sessionKey ?? '',
+        }
+      },
+    )
 
     // Auth reload trigger — clients signal after login/logout for immediate propagation.
     // loadToken() reads from keychain, updates cache, and fires onAuthChanged → broadcast.
@@ -377,6 +384,16 @@ async function main(): Promise<void> {
       },
     }))
 
+    // Provider config/keychain stores — shared between feature handlers and state endpoint
+    const providerConfigStore = new FileProviderConfigStore()
+    const providerKeychainStore = createProviderKeychainStore()
+
+    // State endpoint: provider config — agents request this on startup and after provider:updated
+    transportServer.onRequest<void, ProviderConfigResponse>(
+      TransportStateEventNames.GET_PROVIDER_CONFIG,
+      async () => resolveProviderConfig(providerConfigStore, providerKeychainStore),
+    )
+
     // Feature handlers (auth, init, status, push, pull, etc.) require async OIDC discovery.
     // Placed after daemon:getState so the debug endpoint is available immediately,
     // without waiting for OIDC discovery (~400ms).
@@ -386,6 +403,8 @@ async function main(): Promise<void> {
         broadcastToProjectRoom(projectRegistry, projectRouter, projectPath, event, data)
       },
       log,
+      providerConfigStore,
+      providerKeychainStore,
       resolveProjectPath: (clientId) => clientManager.getClient(clientId)?.projectPath,
       transport: transportServer,
     })

@@ -13,6 +13,23 @@ import {useCommands} from './use-commands-controller.js'
 function generateFileSuggestions(searchPattern: string): CommandSuggestion[] {
   try {
     const cwd = process.cwd()
+    const suggestions: CommandSuggestion[] = []
+
+    // Special case: Always suggest ./ as the first option when appropriate
+    // This allows users to curate the entire current directory
+    const normalizedPattern = searchPattern.toLowerCase()
+    const shouldShowCurrentDir =
+      !searchPattern ||                          // Just typed @
+      normalizedPattern === '.' ||               // Typing @.
+      './'.startsWith(normalizedPattern)         // Typing @. (partial match)
+
+    if (shouldShowCurrentDir) {
+      suggestions.push({
+        description: 'Current directory (will pack all contents)',
+        label: './',
+        value: '@./',
+      })
+    }
 
     // If pattern ends with /, list contents of that directory
     let searchDir: string
@@ -30,11 +47,10 @@ function generateFileSuggestions(searchPattern: string): CommandSuggestion[] {
 
     // Check if search directory exists and is within cwd
     if (!fs.existsSync(fullSearchDir) || !fullSearchDir.startsWith(cwd)) {
-      return []
+      return suggestions
     }
 
     const entries = fs.readdirSync(fullSearchDir, {withFileTypes: true})
-    const suggestions: CommandSuggestion[] = []
 
     for (const entry of entries) {
       // Skip hidden files
@@ -54,14 +70,24 @@ function generateFileSuggestions(searchPattern: string): CommandSuggestion[] {
     }
 
     // Sort: directories first, then alphabetically
-    suggestions.sort((a, b) => {
+    // Note: ./ is already at the front, so we sort from index 1
+    const hasCurrentDir = suggestions[0]?.label === './'
+    const startIndex = hasCurrentDir ? 1 : 0
+    const toSort = suggestions.slice(startIndex)
+
+    toSort.sort((a, b) => {
       const aIsDir = a.label.endsWith('/')
       const bIsDir = b.label.endsWith('/')
       if (aIsDir !== bIsDir) return aIsDir ? -1 : 1
       return a.label.localeCompare(b.label)
     })
 
-    return suggestions.slice(0, 20) // Limit to 20 suggestions
+    // Recombine: ./ stays at front, rest are sorted
+    const finalSuggestions = hasCurrentDir
+      ? [suggestions[0], ...toSort]
+      : toSort
+
+    return finalSuggestions.slice(0, 20) // Limit to 20 suggestions
   } catch {
     return []
   }

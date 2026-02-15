@@ -108,10 +108,6 @@ export interface CommandSideEffects {
   clearSession?: boolean
   /** Reload auth state from token store */
   reloadAuth?: boolean
-  /** Reload project config (.brv/config.json) */
-  reloadConfig?: boolean
-  /** Restart the agent process with the given reason */
-  restartAgent?: {reason: string}
 }
 
 /**

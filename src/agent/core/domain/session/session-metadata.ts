@@ -7,7 +7,7 @@
  * Design adapted from gemini-cli's ChatRecordingService pattern.
  */
 
-import { z } from 'zod'
+import {z} from 'zod'
 
 /**
  * Session status indicating lifecycle state.
@@ -50,6 +50,9 @@ export interface SessionMetadata {
 
   /** Number of messages in session (cached for quick display) */
   messageCount: number
+
+  /** Provider ID active when session was created (for cross-provider resume detection) */
+  providerId?: string
 
   /** Unique session identifier (UUID) */
   sessionId: string
@@ -109,7 +112,10 @@ export interface SessionSelectionResult {
  * Schema for ActiveSessionPointer validation.
  */
 export const ActiveSessionPointerSchema = z.object({
-  activatedAt: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)),
+  activatedAt: z
+    .string()
+    .datetime({offset: true})
+    .or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)),
   pid: z.number().int().positive(),
   // Optional for backward compatibility with existing session files (treated as stale if missing)
   processToken: z.string().optional(),
@@ -120,9 +126,16 @@ export const ActiveSessionPointerSchema = z.object({
  * Schema for SessionMetadata validation.
  */
 export const SessionMetadataSchema = z.object({
-  createdAt: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)),
-  lastUpdated: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)),
+  createdAt: z
+    .string()
+    .datetime({offset: true})
+    .or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)),
+  lastUpdated: z
+    .string()
+    .datetime({offset: true})
+    .or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)),
   messageCount: z.number().int().nonnegative(),
+  providerId: z.string().optional(),
   sessionId: z.string().min(1),
   status: z.enum(['active', 'ended', 'interrupted']),
   summary: z.string().optional(),
@@ -175,7 +188,7 @@ export function generateSessionFilename(sessionId: string): string {
  * @param filename - The session filename
  * @returns Parsed components or null if invalid format
  */
-export function parseSessionFilename(filename: string): null | { timestamp: string; uuidPrefix: string } {
+export function parseSessionFilename(filename: string): null | {timestamp: string; uuidPrefix: string} {
   if (!filename.startsWith(SESSION_FILE_PREFIX) || !filename.endsWith('.json')) {
     return null
   }
@@ -197,7 +210,7 @@ export function parseSessionFilename(filename: string): null | { timestamp: stri
     return null
   }
 
-  return { timestamp, uuidPrefix }
+  return {timestamp, uuidPrefix}
 }
 
 /**

@@ -203,13 +203,14 @@ describe('Search Knowledge Tool', () => {
       expect(apiResult?.excerpt.length).to.be.greaterThan(0)
     })
 
-    it('should include score in results', async () => {
+    it('should include normalized score in [0, 1) range', async () => {
       const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'authentication'})) as SearchKnowledgeOutput
 
       for (const r of result.results) {
         expect(r.score).to.be.a('number')
         expect(r.score).to.be.greaterThan(0)
+        expect(r.score).to.be.lessThan(1)
       }
     })
 
@@ -883,7 +884,8 @@ describe('Search Knowledge Tool', () => {
       expect((secondBatch[1] as SearchKnowledgeOutput).results).to.be.an('array')
 
       // Second batch should trigger exactly one more build (not two)
-      expect(readFileStub.callCount).to.equal(2)
+      // +1 readFile from flushAccessHits (updating scoring for files accessed in first batch)
+      expect(readFileStub.callCount).to.equal(3)
     })
 
     it('should not deadlock when multiple tools execute concurrently', async () => {

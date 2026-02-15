@@ -11,6 +11,8 @@
 export interface ConnectedProviderConfig {
   /** Currently active model for this provider */
   readonly activeModel?: string
+  /** Custom API base URL (for openai-compatible provider) */
+  readonly baseUrl?: string
   /** When the provider was connected */
   readonly connectedAt: string
   /** User's favorite models (for quick access) */
@@ -93,6 +95,13 @@ export class ProviderConfig {
    */
   public getActiveModel(providerId: string): string | undefined {
     return this.providers[providerId]?.activeModel
+  }
+
+  /**
+   * Get the custom base URL for a provider (e.g., openai-compatible).
+   */
+  public getBaseUrl(providerId: string): string | undefined {
+    return this.providers[providerId]?.baseUrl
   }
 
   /**
@@ -199,11 +208,12 @@ export class ProviderConfig {
    */
   public withProviderConnected(
     providerId: string,
-    options?: {activeModel?: string},
+    options?: {activeModel?: string; baseUrl?: string},
   ): ProviderConfig {
     const existingConfig = this.providers[providerId]
     const newProviderConfig: ConnectedProviderConfig = {
       activeModel: options?.activeModel ?? existingConfig?.activeModel,
+      baseUrl: options?.baseUrl ?? existingConfig?.baseUrl,
       connectedAt: existingConfig?.connectedAt ?? new Date().toISOString(),
       favoriteModels: existingConfig?.favoriteModels ?? [],
       recentModels: existingConfig?.recentModels ?? [],
