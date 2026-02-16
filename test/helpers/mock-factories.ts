@@ -17,7 +17,9 @@
  */
 
 import type {ConnectionResult, ITransportClient} from '@campfirein/brv-transport-client'
-import type {SinonSandbox, SinonStub} from 'sinon'
+import type {SinonSandbox, SinonStub, SinonStubbedInstance} from 'sinon'
+
+import {stub} from 'sinon'
 
 import type {CipherAgentServices} from '../../src/agent/core/interfaces/cipher-services.js'
 import type {IBlobStorage} from '../../src/agent/core/interfaces/i-blob-storage.js'
@@ -35,7 +37,10 @@ import type {ProcessService} from '../../src/agent/infra/process/process-service
 import type {SystemPromptManager} from '../../src/agent/infra/system-prompt/system-prompt-manager.js'
 import type {ToolManager} from '../../src/agent/infra/tools/tool-manager.js'
 import type {ToolProvider} from '../../src/agent/infra/tools/tool-provider.js'
+import type {IProviderConfigStore} from '../../src/server/core/interfaces/i-provider-config-store.js'
+import type {IProviderKeychainStore} from '../../src/server/core/interfaces/i-provider-keychain-store.js'
 import type {ITerminal} from '../../src/server/core/interfaces/services/i-terminal.js'
+import type {ITransportServer} from '../../src/server/core/interfaces/transport/i-transport-server.js'
 
 /**
  * Type aliases for service mocks - balances type safety with readability.
@@ -428,6 +433,114 @@ export function createMockTerminal(overrides: Partial<ITerminal> = {}): ITermina
     ...overrides,
   }
 }
+
+// ============================================================================
+// Provider Store Mocks (for handler tests)
+// ============================================================================
+
+/**
+ * Creates a mock IProviderConfigStore with commonly-used methods stubbed.
+ *
+ * @param overrides - Optional overrides for specific methods
+ * @returns Mock IProviderConfigStore (cast to full type for test usage)
+ */
+export function createMockProviderConfigStore(
+  overrides?: Partial<SinonStubbedInstance<IProviderConfigStore>>,
+): SinonStubbedInstance<IProviderConfigStore> {
+  const mock = {
+    connectProvider: stub().resolves(),
+    disconnectProvider: stub().resolves(),
+    getActiveModel: stub().resolves(),
+    getActiveProvider: stub().resolves('byterover'),
+    getFavoriteModels: stub().resolves([]),
+    getRecentModels: stub().resolves([]),
+    isProviderConnected: stub().resolves(false),
+    read: stub().resolves(),
+    setActiveModel: stub().resolves(),
+    setActiveProvider: stub().resolves(),
+    toggleFavorite: stub().resolves(),
+    write: stub().resolves(),
+    ...overrides,
+  }
+
+  return mock as unknown as SinonStubbedInstance<IProviderConfigStore>
+}
+
+/**
+ * Creates a mock IProviderKeychainStore with commonly-used methods stubbed.
+ *
+ * @param overrides - Optional overrides for specific methods
+ * @returns Mock IProviderKeychainStore (cast to full type for test usage)
+ */
+export function createMockProviderKeychainStore(
+  overrides?: Partial<SinonStubbedInstance<IProviderKeychainStore>>,
+): SinonStubbedInstance<IProviderKeychainStore> {
+  const mock = {
+    deleteApiKey: stub().resolves(),
+    getApiKey: stub().resolves(),
+    hasApiKey: stub().resolves(false),
+    setApiKey: stub().resolves(),
+    ...overrides,
+  }
+
+  return mock as unknown as SinonStubbedInstance<IProviderKeychainStore>
+}
+
+// ============================================================================
+// Transport Server Mock (for handler tests)
+// ============================================================================
+
+/**
+ * Handler type for transport server request handlers.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyRequestHandler = (data: any, clientId: string) => any
+
+/**
+ * Extended mock transport server with handler introspection.
+ */
+export type MockTransportServer = SinonStubbedInstance<ITransportServer> & {
+  _handlers: Map<string, AnyRequestHandler>
+}
+
+/**
+ * Creates a mock ITransportServer with commonly-used methods stubbed.
+ * Captures registered request handlers for test introspection.
+ *
+ * @returns Mock ITransportServer with _handlers map
+ *
+ * @example
+ * ```ts
+ * const transport = createMockTransportServer()
+ * handler.setup() // registers handlers via transport.onRequest
+ * const listHandler = transport._handlers.get('model:list')
+ * const result = await listHandler!({providerId: 'openrouter'}, 'client-1')
+ * ```
+ */
+export function createMockTransportServer(): MockTransportServer {
+  const handlers = new Map<string, AnyRequestHandler>()
+  return {
+    _handlers: handlers,
+    addToRoom: stub(),
+    broadcast: stub(),
+    broadcastTo: stub(),
+    getPort: stub(),
+    isRunning: stub(),
+    onConnection: stub(),
+    onDisconnection: stub(),
+    onRequest: stub().callsFake((event: string, handler: AnyRequestHandler) => {
+      handlers.set(event, handler)
+    }),
+    removeFromRoom: stub(),
+    sendTo: stub(),
+    start: stub(),
+    stop: stub(),
+  } as unknown as MockTransportServer
+}
+
+// ============================================================================
+// Transport Client Mock
+// ============================================================================
 
 /**
  * Event handler storage for mock transport client.
