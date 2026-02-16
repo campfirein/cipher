@@ -22,12 +22,6 @@ import {pathToFileURL} from 'node:url'
 import {getGlobalConfigDir} from '../../server/utils/global-config-path.js'
 import {getGlobalDataDir} from '../../server/utils/global-data-path.js'
 import {getGlobalLogsDir} from '../../server/utils/global-logs-path.js'
-import {getProjectDataDir} from '../../server/utils/path-utils.js'
-
-/**
- * Refresh interval for monitor mode (ms).
- */
-const MONITOR_REFRESH_MS = 2000
 
 /**
  * Shape of daemon:getState response.
@@ -95,6 +89,8 @@ type DaemonState = {
     running: boolean
   }
 }
+
+const MONITOR_REFRESH_MS = 2000
 
 const existsLabel = (exists: boolean): string => (exists ? '' : chalk.yellow(' (not created)'))
 
@@ -285,10 +281,7 @@ export default class Debug extends Command {
           : chalk.green('ready')
 
       const idleInfo = agentIdleStatus.find((s) => s.projectPath === entry.projectPath)
-      const idleCountdown =
-        idleInfo && idleInfo.remainingMs < 60_000
-          ? chalk.yellow(` (will be killed in ${this.formatDuration(idleInfo.remainingMs)})`)
-          : ''
+      const idleCountdown = idleInfo ? chalk.dim(` (kill in ${this.formatDuration(idleInfo.remainingMs)})`) : ''
 
       lines.push(
         `${prefix}${entry.projectPath}`,
@@ -342,22 +335,11 @@ export default class Debug extends Command {
     const dataDir = getGlobalDataDir()
     const logsDir = getGlobalLogsDir()
 
-    let projectDir: string
-    try {
-      projectDir = getProjectDataDir(process.cwd())
-    } catch {
-      projectDir = '(unavailable)'
-    }
-
-    const projectExistsLabel =
-      projectDir === '(unavailable)' ? '' : existsLabel(existsSync(projectDir))
-
     lines.push(
       '├── Storage Paths',
       `│   ├── Config:  ${fileHyperlink(configDir)}${existsLabel(existsSync(configDir))}`,
       `│   ├── Data:    ${fileHyperlink(dataDir)}${existsLabel(existsSync(dataDir))}`,
       `│   ├── Logs:    ${fileHyperlink(logsDir)}${existsLabel(existsSync(logsDir))}`,
-      `│   ├── Project: ${projectDir === '(unavailable)' ? projectDir : fileHyperlink(projectDir)}${projectExistsLabel}`,
     )
 
     const overrides: Array<{name: string; value: string}> = []
@@ -490,21 +472,13 @@ export default class Debug extends Command {
   private resolveStoragePaths(): {
     config: string
     data: string
-    existence: {config: boolean; data: boolean; logs: boolean; project: boolean}
+    existence: {config: boolean; data: boolean; logs: boolean}
     logs: string
     overrides: Array<{name: string; value: string}>
-    project: string
   } {
     const configDir = getGlobalConfigDir()
     const dataDir = getGlobalDataDir()
     const logsDir = getGlobalLogsDir()
-
-    let projectDir: string
-    try {
-      projectDir = getProjectDataDir(process.cwd())
-    } catch {
-      projectDir = '(unavailable)'
-    }
 
     const overrides: Array<{name: string; value: string}> = []
 
@@ -533,11 +507,9 @@ export default class Debug extends Command {
         config: existsSync(configDir),
         data: existsSync(dataDir),
         logs: existsSync(logsDir),
-        project: projectDir !== '(unavailable)' && existsSync(projectDir),
       },
       logs: logsDir,
       overrides,
-      project: projectDir,
     }
   }
 

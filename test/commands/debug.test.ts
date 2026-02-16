@@ -416,7 +416,6 @@ describe('Debug Command', () => {
       expect(paths).to.have.property('config').that.is.a('string')
       expect(paths).to.have.property('data').that.is.a('string')
       expect(paths).to.have.property('logs').that.is.a('string')
-      expect(paths).to.have.property('project').that.is.a('string')
       expect(paths).to.have.property('overrides').that.is.an('array')
       expect(paths).to.have.property('existence').that.is.an('object')
     })
