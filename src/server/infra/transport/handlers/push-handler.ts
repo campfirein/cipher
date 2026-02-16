@@ -29,6 +29,7 @@ export interface PushHandlerDeps {
   resolveProjectPath: ProjectPathResolver
   tokenStore: ITokenStore
   transport: ITransportServer
+  webAppUrl: string
 }
 
 /**
@@ -44,6 +45,7 @@ export class PushHandler {
   private readonly resolveProjectPath: ProjectPathResolver
   private readonly tokenStore: ITokenStore
   private readonly transport: ITransportServer
+  private readonly webAppUrl: string
 
   constructor(deps: PushHandlerDeps) {
     this.broadcastToProject = deps.broadcastToProject
@@ -54,6 +56,7 @@ export class PushHandler {
     this.resolveProjectPath = deps.resolveProjectPath
     this.tokenStore = deps.tokenStore
     this.transport = deps.transport
+    this.webAppUrl = deps.webAppUrl
   }
 
   setup(): void {
@@ -110,7 +113,15 @@ export class PushHandler {
 
     await this.contextTreeSnapshotService.saveSnapshot(projectPath)
 
-    return {success: true}
+    const url = `${this.webAppUrl}/${config.teamName}/${config.spaceName}`
+
+    return {
+      added: addedFiles.length,
+      deleted: changes.deleted.length,
+      edited: modifiedFiles.length,
+      success: true,
+      url,
+    }
   }
 
   private async handlePrepare(_data: PushPrepareRequest, clientId: string): Promise<PushPrepareResponse> {

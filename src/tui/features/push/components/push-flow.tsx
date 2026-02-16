@@ -77,7 +77,7 @@ export function PushFlow({branch, onComplete, skipConfirm}: PushFlowProps): Reac
           unsubProgress?.()
           if (result.success) {
             onComplete(
-              `Successfully pushed context tree to ByteRover memory storage!\n  Branch: ${branch}\n  Changes: ${prepareData?.summary ?? 'unknown'}`,
+              `✓ Successfully pushed context tree to ByteRover memory storage!\n  Branch: ${branch}\n  Changes: ${prepareData?.summary ?? 'unknown'}\n  View: ${result.url}`,
             )
           }
         },

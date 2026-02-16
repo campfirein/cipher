@@ -4,7 +4,7 @@ import type {Config} from '@oclif/core'
 import {ConnectionFailedError, NoInstanceRunningError} from '@campfirein/brv-transport-client'
 import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
-import sinon, {restore, stub} from 'sinon'
+import sinon, {match, restore, stub} from 'sinon'
 
 import type {SpaceSwitchResponse, TeamWithSpacesDTO} from '../../../src/shared/transport/events/space-events.js'
 
@@ -104,7 +104,7 @@ describe('Space Switch Command', () => {
   function mockListAndSwitch(teams: TeamWithSpacesDTO[], switchResponse: SpaceSwitchResponse): void {
     const requestStub = mockClient.requestWithAck as sinon.SinonStub
     requestStub.withArgs(SpaceEvents.LIST).resolves({teams})
-    requestStub.withArgs(SpaceEvents.SWITCH, sinon.match.any).resolves(switchResponse)
+    requestStub.withArgs(SpaceEvents.SWITCH, match.any).resolves(switchResponse)
   }
 
   // ==================== Switch Space ====================

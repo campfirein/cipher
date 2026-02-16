@@ -1,6 +1,5 @@
 import {Command, Flags} from '@oclif/core'
 
-import {DEFAULT_BRANCH} from '../../server/constants.js'
 import {
   PullEvents,
   type PullExecuteResponse,
@@ -26,7 +25,7 @@ Downloads the context tree from the ByteRover cloud to your local project.`
   public static flags = {
     branch: Flags.string({
       char: 'b',
-      default: DEFAULT_BRANCH,
+      default: 'main',
       description: 'ByteRover branch name (not Git branch)',
     }),
     format: Flags.string({
@@ -39,7 +38,7 @@ Downloads the context tree from the ByteRover cloud to your local project.`
   public async run(): Promise<void> {
     const {flags} = await this.parse(Pull)
     const format = (flags.format ?? 'text') as 'json' | 'text'
-    const branch = flags.branch ?? DEFAULT_BRANCH
+    const branch = flags.branch ?? 'main'
 
     try {
       const pullResult = await this.executePull(branch)
