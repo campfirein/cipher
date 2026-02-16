@@ -25,42 +25,46 @@ export interface SpaceSwitchFlowProps {
   onComplete: (message: string) => void
 }
 
-export const SpaceSwitchFlow: React.FC<SpaceSwitchFlowProps> = ({
-  isActive = true,
-  onCancel,
-  onComplete,
-}) => {
-  const {theme: {colors}} = useTheme()
+export const SpaceSwitchFlow: React.FC<SpaceSwitchFlowProps> = ({isActive = true, onCancel, onComplete}) => {
+  const {
+    theme: {colors},
+  } = useTheme()
   const [error, setError] = useState<null | string>(null)
 
   const {data, isLoading} = useGetSpaces()
   const switchMutation = useSwitchSpace()
 
-  const spaces = data?.spaces ?? []
+  const allSpaces = useMemo(() => (data?.teams ?? []).flatMap((t) => t.spaces), [data])
 
   // Auto-complete if no spaces
   useEffect(() => {
-    if (!isLoading && spaces.length === 0 && data) {
+    if (!isLoading && allSpaces.length === 0 && data) {
       onComplete('No spaces found. Please create a space in the ByteRover dashboard first.')
     }
-  }, [data, isLoading, onComplete, spaces.length])
+  }, [allSpaces.length, data, isLoading, onComplete])
 
   const spaceItems: ListItem[] = useMemo(
-    () => spaces.map((s) => ({description: s.isDefault ? '(default)' : '', id: s.id, name: s.name})),
-    [spaces],
+    () =>
+      allSpaces.map((s) => ({description: s.isDefault ? '(default)' : '', id: s.id, name: `${s.teamName}/${s.name}`})),
+    [allSpaces],
   )
 
-  const handleSelect = useCallback(async (item: ListItem) => {
-    setError(null)
-    try {
-      const result = await switchMutation.mutateAsync({spaceId: item.id})
-      if (result.success && result.config) {
-        onComplete(`Successfully switched to space: ${result.config.spaceName}\nConfiguration updated in: .brv/config.json`)
+  const handleSelect = useCallback(
+    async (item: ListItem) => {
+      setError(null)
+      try {
+        const result = await switchMutation.mutateAsync({spaceId: item.id})
+        if (result.success && result.config) {
+          onComplete(
+            `Successfully switched to space: ${result.config.spaceName}\nConfiguration updated in: .brv/config.json`,
+          )
+        }
+      } catch (error_) {
+        setError(error_ instanceof Error ? error_.message : String(error_))
       }
-    } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : String(error_))
-    }
-  }, [onComplete, switchMutation])
+    },
+    [onComplete, switchMutation],
+  )
 
   if (isLoading) {
     return (
@@ -70,7 +74,7 @@ export const SpaceSwitchFlow: React.FC<SpaceSwitchFlowProps> = ({
     )
   }
 
-  if (spaces.length === 0) {
+  if (allSpaces.length === 0) {
     return (
       <Box>
         <Text color={colors.dimText}>Loading...</Text>
@@ -95,15 +99,10 @@ export const SpaceSwitchFlow: React.FC<SpaceSwitchFlowProps> = ({
         onSelect={handleSelect}
         renderItem={(item, isHighlighted) => (
           <Box gap={2}>
-            <Text
-              backgroundColor={isHighlighted ? colors.dimText : undefined}
-              color={colors.text}
-            >
+            <Text backgroundColor={isHighlighted ? colors.dimText : undefined} color={colors.text}>
               {item.name}
             </Text>
-            {item.description && (
-              <Text color={colors.dimText}>{item.description}</Text>
-            )}
+            {item.description && <Text color={colors.dimText}>{item.description}</Text>}
           </Box>
         )}
         title="Select a space"

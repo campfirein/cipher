@@ -6,6 +6,7 @@ import {
   InstanceCrashedError,
   type ITransportClient,
   NoInstanceRunningError,
+  TransportRequestError,
   TransportRequestTimeoutError,
 } from '@campfirein/brv-transport-client'
 
@@ -21,6 +22,16 @@ import {
 const MAX_RETRIES = 3
 /** Delay between retry attempts (ms) */
 const DEFAULT_RETRY_DELAY_MS = 2000
+
+/** Maps handler error codes to user-friendly CLI messages */
+const USER_FRIENDLY_MESSAGES: Record<string, string> = {
+  [TaskErrorCode.CONTEXT_TREE_NOT_INITIALIZED]: 'Context tree not initialized. Run "brv init" first.',
+  [TaskErrorCode.LOCAL_CHANGES_EXIST]: 'You have local changes. Run "brv push" first.',
+  [TaskErrorCode.NOT_AUTHENTICATED]: 'Not authenticated. Run "brv login" first.',
+  [TaskErrorCode.PROJECT_NOT_INIT]: 'Project not initialized. Run "brv init" first.',
+  [TaskErrorCode.SPACE_NOT_CONFIGURED]: 'No space configured. Run "brv space switch" to select a space first.',
+  [TaskErrorCode.SPACE_NOT_FOUND]: 'Space not found. Check your configuration.',
+}
 
 export interface DaemonClientOptions {
   /** Max retry attempts. Default: 3 */
@@ -158,6 +169,15 @@ export function formatConnectionError(error: unknown): string {
 
   if (error instanceof ConnectionError) {
     return `Connection error: ${error.message}`
+  }
+
+  // Business errors from transport handlers (auth, validation, etc.)
+  if (error instanceof TransportRequestError) {
+    if (error.code) {
+      return USER_FRIENDLY_MESSAGES[error.code] ?? error.message
+    }
+
+    return error.message
   }
 
   const message = error instanceof Error ? error.message : String(error)

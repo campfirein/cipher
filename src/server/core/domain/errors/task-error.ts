@@ -8,14 +8,20 @@ export const TaskErrorCode = {
   AGENT_NOT_AVAILABLE: 'ERR_AGENT_NOT_AVAILABLE',
   AGENT_NOT_INITIALIZED: 'ERR_AGENT_NOT_INITIALIZED',
 
+  // Context tree errors
+  CONTEXT_TREE_NOT_INITIALIZED: 'ERR_CONTEXT_TREE_NOT_INIT',
+
   // LLM errors
   LLM_ERROR: 'ERR_LLM_ERROR',
   LLM_RATE_LIMIT: 'ERR_LLM_RATE_LIMIT',
+  LOCAL_CHANGES_EXIST: 'ERR_LOCAL_CHANGES_EXIST',
 
   // Auth/Init errors
   NOT_AUTHENTICATED: 'ERR_NOT_AUTHENTICATED',
   // Execution errors
   PROJECT_NOT_INIT: 'ERR_PROJECT_NOT_INIT',
+  SPACE_NOT_CONFIGURED: 'ERR_SPACE_NOT_CONFIGURED',
+  SPACE_NOT_FOUND: 'ERR_SPACE_NOT_FOUND',
   TASK_CANCELLED: 'ERR_TASK_CANCELLED',
 
   TASK_EXECUTION: 'ERR_TASK_EXECUTION',
@@ -149,9 +155,37 @@ export class ProjectNotInitError extends TaskError {
   }
 }
 
+export class ContextTreeNotInitializedError extends TaskError {
+  public constructor() {
+    super('Context tree not initialized', TaskErrorCode.CONTEXT_TREE_NOT_INITIALIZED)
+    this.name = 'ContextTreeNotInitializedError'
+  }
+}
+
 export class FileValidationError extends Error {
   public constructor(message = 'File validation failed. Please check file paths.') {
     super(message)
     this.name = 'FileValidationError'
+  }
+}
+
+export class LocalChangesExistError extends TaskError {
+  public constructor(message = 'Local changes exist. Push first or reset before pulling.') {
+    super(message, TaskErrorCode.LOCAL_CHANGES_EXIST)
+    this.name = 'LocalChangesExistError'
+  }
+}
+
+export class SpaceNotConfiguredError extends TaskError {
+  public constructor() {
+    super('No space configured. Run "space switch" to select a space first.', TaskErrorCode.SPACE_NOT_CONFIGURED)
+    this.name = 'SpaceNotConfiguredError'
+  }
+}
+
+export class SpaceNotFoundError extends TaskError {
+  public constructor() {
+    super('Space not found', TaskErrorCode.SPACE_NOT_FOUND)
+    this.name = 'SpaceNotFoundError'
   }
 }
