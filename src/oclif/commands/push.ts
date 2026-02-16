@@ -1,6 +1,5 @@
 import {Command, Flags} from '@oclif/core'
 
-import {DEFAULT_BRANCH} from '../../server/constants.js'
 import {
   PushEvents,
   type PushExecuteResponse,
@@ -25,7 +24,7 @@ Uploads your local context tree changes to the ByteRover cloud.`
   public static flags = {
     branch: Flags.string({
       char: 'b',
-      default: DEFAULT_BRANCH,
+      default: 'main',
       description: 'ByteRover branch name (not Git branch)',
     }),
     format: Flags.string({
@@ -38,7 +37,7 @@ Uploads your local context tree changes to the ByteRover cloud.`
   public async run(): Promise<void> {
     const {flags} = await this.parse(Push)
     const format = (flags.format ?? 'text') as 'json' | 'text'
-    const branch = flags.branch ?? DEFAULT_BRANCH
+    const branch = flags.branch ?? 'main'
 
     try {
       const pushResult = await this.executePush(branch)
