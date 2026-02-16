@@ -13,6 +13,8 @@ import {BRV_CONFIG_VERSION} from '../../../../../src/server/constants.js'
 import {AuthToken} from '../../../../../src/server/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../../../../src/server/core/domain/entities/brv-config.js'
 import {Space} from '../../../../../src/server/core/domain/entities/space.js'
+import {Team} from '../../../../../src/server/core/domain/entities/team.js'
+import {NotAuthenticatedError, ProjectNotInitError} from '../../../../../src/server/core/domain/errors/task-error.js'
 import {SpaceHandler} from '../../../../../src/server/infra/transport/handlers/space-handler.js'
 import {SpaceEvents} from '../../../../../src/shared/transport/events/space-events.js'
 
@@ -77,6 +79,38 @@ const createMockConfig = (): BrvConfig =>
     version: BRV_CONFIG_VERSION,
   })
 
+const createLocalOnlyConfig = (): BrvConfig =>
+  new BrvConfig({
+    createdAt: '2024-01-01T00:00:00.000Z',
+    cwd: '/test/cwd',
+    version: BRV_CONFIG_VERSION,
+  })
+
+const createMockTeams = (): Team[] => [
+  new Team({
+    avatarUrl: '',
+    createdAt: new Date(),
+    description: '',
+    displayName: 'Acme Corp',
+    id: 'team-1',
+    isActive: true,
+    isDefault: true,
+    name: 'acme-corp',
+    updatedAt: new Date(),
+  }),
+  new Team({
+    avatarUrl: '',
+    createdAt: new Date(),
+    description: '',
+    displayName: 'Other Team',
+    id: 'team-2',
+    isActive: true,
+    isDefault: false,
+    name: 'other-team',
+    updatedAt: new Date(),
+  }),
+]
+
 const createMockSpaces = (): Space[] => [
   new Space({id: 'space-1', isDefault: true, name: 'frontend-app', teamId: 'team-1', teamName: 'acme-corp'}),
   new Space({id: 'space-2', isDefault: false, name: 'backend-api', teamId: 'team-1', teamName: 'acme-corp'}),
@@ -135,7 +169,9 @@ describe('SpaceHandler', () => {
     return handler
   }
 
-  async function callListHandler(clientId = 'client-1'): Promise<{error?: string; spaces: unknown[]}> {
+  async function callListHandler(
+    clientId = 'client-1',
+  ): Promise<{teams: Array<{spaces: unknown[]; teamId: string; teamName: string}>}> {
     const handler = transport._handlers.get(SpaceEvents.LIST)
     expect(handler, 'space:list handler should be registered').to.exist
     return handler!(undefined, clientId)
@@ -160,17 +196,25 @@ describe('SpaceHandler', () => {
   })
 
   describe('handleList', () => {
-    it('should return spaces when authenticated and initialized', async () => {
+    it('should return teams with spaces when authenticated and initialized', async () => {
       createHandler()
       tokenStore.load.resolves(createMockToken())
       projectConfigStore.read.resolves(createMockConfig())
-      spaceService.getSpaces.resolves({spaces: createMockSpaces(), total: 2})
+      teamService.getTeams.resolves({teams: createMockTeams(), total: 2})
+      spaceService.getSpaces
+        .withArgs('session-key', 'team-1', {fetchAll: true})
+        .resolves({spaces: createMockSpaces(), total: 2})
+      spaceService.getSpaces.withArgs('session-key', 'team-2', {fetchAll: true}).resolves({spaces: [], total: 0})
 
       const result = await callListHandler()
 
-      expect(result.spaces).to.have.lengthOf(2)
-      expect(result.spaces[0]).to.deep.include({id: 'space-1', isDefault: true, name: 'frontend-app'})
-      expect(result.spaces[1]).to.deep.include({id: 'space-2', isDefault: false, name: 'backend-api'})
+      expect(result.teams).to.have.lengthOf(2)
+      expect(result.teams[0].teamId).to.equal('team-1')
+      expect(result.teams[0].teamName).to.equal('acme-corp')
+      expect(result.teams[0].spaces).to.have.lengthOf(2)
+      expect(result.teams[0].spaces[0]).to.deep.include({id: 'space-1', name: 'frontend-app'})
+      expect(result.teams[1].teamId).to.equal('team-2')
+      expect(result.teams[1].spaces).to.have.lengthOf(0)
     })
 
     it('should throw when not authenticated', async () => {
@@ -181,7 +225,7 @@ describe('SpaceHandler', () => {
         await callListHandler()
         expect.fail('should have thrown')
       } catch (error) {
-        expect((error as Error).message).to.equal('Not authenticated')
+        expect(error).to.be.instanceOf(NotAuthenticatedError)
       }
     })
 
@@ -193,7 +237,7 @@ describe('SpaceHandler', () => {
         await callListHandler()
         expect.fail('should have thrown')
       } catch (error) {
-        expect((error as Error).message).to.equal('Not authenticated')
+        expect(error).to.be.instanceOf(NotAuthenticatedError)
       }
     })
 
@@ -206,37 +250,40 @@ describe('SpaceHandler', () => {
         await callListHandler()
         expect.fail('should have thrown')
       } catch (error) {
-        expect((error as Error).message).to.equal('Project not initialized')
+        expect(error).to.be.instanceOf(ProjectNotInitError)
       }
     })
 
-    it('should call spaceService with correct parameters', async () => {
+    it('should fetch spaces for each team', async () => {
       createHandler()
       tokenStore.load.resolves(createMockToken())
       projectConfigStore.read.resolves(createMockConfig())
-      spaceService.getSpaces.resolves({spaces: createMockSpaces(), total: 2})
+      teamService.getTeams.resolves({teams: createMockTeams(), total: 2})
+      spaceService.getSpaces.resolves({spaces: [], total: 0})
 
       await callListHandler()
 
+      expect(teamService.getTeams.calledWith('session-key', {fetchAll: true})).to.be.true
       expect(spaceService.getSpaces.calledWith('session-key', 'team-1', {fetchAll: true})).to.be.true
+      expect(spaceService.getSpaces.calledWith('session-key', 'team-2', {fetchAll: true})).to.be.true
     })
 
-    it('should return empty array when no spaces found', async () => {
+    it('should return empty teams array when no teams found', async () => {
       createHandler()
       tokenStore.load.resolves(createMockToken())
       projectConfigStore.read.resolves(createMockConfig())
-      spaceService.getSpaces.resolves({spaces: [], total: 0})
+      teamService.getTeams.resolves({teams: [], total: 0})
 
       const result = await callListHandler()
 
-      expect(result.spaces).to.have.lengthOf(0)
+      expect(result.teams).to.have.lengthOf(0)
     })
 
     it('should resolve project path from clientId', async () => {
       createHandler()
       tokenStore.load.resolves(createMockToken())
       projectConfigStore.read.resolves(createMockConfig())
-      spaceService.getSpaces.resolves({spaces: [], total: 0})
+      teamService.getTeams.resolves({teams: [], total: 0})
 
       await callListHandler('client-42')
 
@@ -245,13 +292,21 @@ describe('SpaceHandler', () => {
     })
   })
 
+  function setupSwitchMocks(config?: BrvConfig): void {
+    tokenStore.load.resolves(createMockToken())
+    projectConfigStore.read.resolves(config ?? createMockConfig())
+    teamService.getTeams.resolves({teams: createMockTeams(), total: 2})
+    spaceService.getSpaces
+      .withArgs('session-key', 'team-1', {fetchAll: true})
+      .resolves({spaces: createMockSpaces(), total: 2})
+    spaceService.getSpaces.withArgs('session-key', 'team-2', {fetchAll: true}).resolves({spaces: [], total: 0})
+    projectConfigStore.write.resolves()
+  }
+
   describe('handleSwitch', () => {
     it('should switch space successfully', async () => {
       createHandler()
-      tokenStore.load.resolves(createMockToken())
-      projectConfigStore.read.resolves(createMockConfig())
-      spaceService.getSpaces.resolves({spaces: createMockSpaces(), total: 2})
-      projectConfigStore.write.resolves()
+      setupSwitchMocks()
 
       const result = await callSwitchHandler({spaceId: 'space-2'})
 
@@ -264,6 +319,16 @@ describe('SpaceHandler', () => {
       })
     })
 
+    it('should search across all teams to find target space', async () => {
+      createHandler()
+      setupSwitchMocks()
+
+      await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(teamService.getTeams.calledWith('session-key', {fetchAll: true})).to.be.true
+      expect(spaceService.getSpaces.calledWith('session-key', 'team-1', {fetchAll: true})).to.be.true
+    })
+
     it('should throw when not authenticated', async () => {
       createHandler()
       tokenStore.load.resolves()
@@ -272,7 +337,7 @@ describe('SpaceHandler', () => {
         await callSwitchHandler({spaceId: 'space-2'})
         expect.fail('should have thrown')
       } catch (error) {
-        expect((error as Error).message).to.equal('Not authenticated')
+        expect(error).to.be.instanceOf(NotAuthenticatedError)
       }
     })
 
@@ -284,7 +349,7 @@ describe('SpaceHandler', () => {
         await callSwitchHandler({spaceId: 'space-2'})
         expect.fail('should have thrown')
       } catch (error) {
-        expect((error as Error).message).to.equal('Not authenticated')
+        expect(error).to.be.instanceOf(NotAuthenticatedError)
       }
     })
 
@@ -297,15 +362,13 @@ describe('SpaceHandler', () => {
         await callSwitchHandler({spaceId: 'space-2'})
         expect.fail('should have thrown')
       } catch (error) {
-        expect((error as Error).message).to.equal('Project not initialized')
+        expect(error).to.be.instanceOf(ProjectNotInitError)
       }
     })
 
-    it('should throw when target space not found', async () => {
+    it('should throw when target space not found in any team', async () => {
       createHandler()
-      tokenStore.load.resolves(createMockToken())
-      projectConfigStore.read.resolves(createMockConfig())
-      spaceService.getSpaces.resolves({spaces: createMockSpaces(), total: 2})
+      setupSwitchMocks()
 
       try {
         await callSwitchHandler({spaceId: 'nonexistent-space'})
@@ -317,10 +380,7 @@ describe('SpaceHandler', () => {
 
     it('should write new config with updated space fields', async () => {
       createHandler()
-      tokenStore.load.resolves(createMockToken())
-      projectConfigStore.read.resolves(createMockConfig())
-      spaceService.getSpaces.resolves({spaces: createMockSpaces(), total: 2})
-      projectConfigStore.write.resolves()
+      setupSwitchMocks()
 
       await callSwitchHandler({spaceId: 'space-2'})
 
@@ -349,10 +409,7 @@ describe('SpaceHandler', () => {
       })
 
       createHandler()
-      tokenStore.load.resolves(createMockToken())
-      projectConfigStore.read.resolves(existingConfig)
-      spaceService.getSpaces.resolves({spaces: createMockSpaces(), total: 2})
-      projectConfigStore.write.resolves()
+      setupSwitchMocks(existingConfig)
 
       await callSwitchHandler({spaceId: 'space-2'})
 
@@ -367,10 +424,7 @@ describe('SpaceHandler', () => {
 
     it('should resolve project path from clientId', async () => {
       createHandler()
-      tokenStore.load.resolves(createMockToken())
-      projectConfigStore.read.resolves(createMockConfig())
-      spaceService.getSpaces.resolves({spaces: createMockSpaces(), total: 2})
-      projectConfigStore.write.resolves()
+      setupSwitchMocks()
 
       await callSwitchHandler({spaceId: 'space-2'}, 'client-42')
 
@@ -381,14 +435,22 @@ describe('SpaceHandler', () => {
       // eslint-disable-next-line unicorn/no-useless-undefined
       resolveProjectPath.returns(undefined)
       createHandler()
-      tokenStore.load.resolves(createMockToken())
-      projectConfigStore.read.resolves(createMockConfig())
-      spaceService.getSpaces.resolves({spaces: createMockSpaces(), total: 2})
-      projectConfigStore.write.resolves()
+      setupSwitchMocks()
 
       await callSwitchHandler({spaceId: 'space-2'})
 
       expect(projectConfigStore.read.calledWith(process.cwd())).to.be.true
+    })
+
+    it('should work with local-only config (no teamId)', async () => {
+      createHandler()
+      setupSwitchMocks(createLocalOnlyConfig())
+
+      const result = await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(teamService.getTeams.calledWith('session-key', {fetchAll: true})).to.be.true
+      expect(result.success).to.be.true
+      expect(result.config).to.deep.include({spaceId: 'space-2', spaceName: 'backend-api'})
     })
   })
 })

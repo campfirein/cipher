@@ -13,6 +13,11 @@ import {
   type PushPrepareRequest,
   type PushPrepareResponse,
 } from '../../../../shared/transport/events/push-events.js'
+import {
+  NotAuthenticatedError,
+  ProjectNotInitError,
+  SpaceNotConfiguredError,
+} from '../../../core/domain/errors/task-error.js'
 import {mapToPushContexts} from '../../cogit/context-tree-to-push-context-mapper.js'
 
 export interface PushHandlerDeps {
@@ -66,12 +71,16 @@ export class PushHandler {
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
-      throw new Error('Not authenticated')
+      throw new NotAuthenticatedError()
     }
 
     const config = await this.projectConfigStore.read(projectPath)
     if (!config) {
-      throw new Error('Project not initialized')
+      throw new ProjectNotInitError()
+    }
+
+    if (!config.teamId || !config.spaceId) {
+      throw new SpaceNotConfiguredError()
     }
 
     this.broadcastToProject(projectPath, PushEvents.PROGRESS, {message: 'Reading context files...', step: 'reading'})
@@ -95,8 +104,8 @@ export class PushHandler {
       branch: data.branch,
       contexts: pushContexts,
       sessionKey: token.sessionKey,
-      spaceId: config.spaceId!,
-      teamId: config.teamId!,
+      spaceId: config.spaceId,
+      teamId: config.teamId,
     })
 
     await this.contextTreeSnapshotService.saveSnapshot(projectPath)
@@ -109,11 +118,11 @@ export class PushHandler {
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
-      throw new Error('Not authenticated')
+      throw new NotAuthenticatedError()
     }
 
     if (!(await this.projectConfigStore.exists(projectPath))) {
-      throw new Error('Project not initialized')
+      throw new ProjectNotInitError()
     }
 
     const hasSnapshot = await this.contextTreeSnapshotService.hasSnapshot(projectPath)

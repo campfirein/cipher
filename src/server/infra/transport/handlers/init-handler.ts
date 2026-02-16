@@ -22,6 +22,7 @@ import {
 import {isConnectorType} from '../../../../shared/types/connector-type.js'
 import {isAgent} from '../../../core/domain/entities/agent.js'
 import {BrvConfig} from '../../../core/domain/entities/brv-config.js'
+import {NotAuthenticatedError, SpaceNotFoundError} from '../../../core/domain/errors/task-error.js'
 import {syncConfigToXdg} from '../../../utils/config-xdg-sync.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {mapAgentsToDTOs} from './agent-dto-mapper.js'
@@ -94,7 +95,7 @@ export class InitHandler {
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
-      throw new Error('Not authenticated')
+      throw new NotAuthenticatedError()
     }
 
     // Check for existing config
@@ -108,7 +109,7 @@ export class InitHandler {
     const {spaces} = await this.spaceService.getSpaces(token.sessionKey, data.teamId, {fetchAll: true})
     const space = spaces.find((s) => s.id === data.spaceId)
     if (!space) {
-      throw new Error('Space not found')
+      throw new SpaceNotFoundError()
     }
 
     this.broadcastToProject(projectPath, InitEvents.PROGRESS, {message: 'Syncing from cloud...', step: 'sync'})
@@ -184,7 +185,7 @@ export class InitHandler {
   private async handleGetSpaces(data: InitGetSpacesRequest): Promise<InitGetSpacesResponse> {
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
-      throw new Error('Not authenticated')
+      throw new NotAuthenticatedError()
     }
 
     const {spaces} = await this.spaceService.getSpaces(token.sessionKey, data.teamId, {fetchAll: true})
@@ -203,7 +204,7 @@ export class InitHandler {
   private async handleGetTeams(): Promise<InitGetTeamsResponse> {
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
-      throw new Error('Not authenticated')
+      throw new NotAuthenticatedError()
     }
 
     const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
