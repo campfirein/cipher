@@ -548,7 +548,7 @@ export class QueryUseCase implements IQueryUseCase {
 
             // Fallback: use payload.result when llmservice:response wasn't received
             // (e.g., Tier 2 direct search responses that bypass the LLM)
-            if (!resultPrinted && payload.result) {
+            if (!resultPrinted && typeof payload.result === 'string' && payload.result.length > 0) {
               finalResult = payload.result
               resultPrinted = true
               if (format === 'text') {

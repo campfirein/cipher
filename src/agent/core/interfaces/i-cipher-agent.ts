@@ -8,6 +8,9 @@ import type {ConversationMetadata} from '../domain/system-prompt/types.js'
  * Contains runtime information about how the agent is being executed
  */
 export interface ExecutionContext {
+  /** Clear conversation history before execution (RLM mode — prevents accumulation across calls) */
+  clearHistory?: boolean
+
   /** Command type that initiated the execution (for command-specific prompt loading) */
   commandType?: 'chat' | 'curate' | 'query'
 

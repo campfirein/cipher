@@ -53,10 +53,10 @@ prompt: |
   3. Read top matches with `tools.readFile()`
   4. Return consolidated results with file citations
 
-  **For Curation (Single-Pass Pattern):**
-  1. Read source files with `tools.readFile()` if needed
-  2. Use `UPSERT` operation - automatically handles ADD vs UPDATE
-  3. Skip `tools.detectDomains()` unless domain name is uncertain
+  **For Curation (RLM Pattern):**
+  1. If prompt references a context file: read history → read context via code → extract key info → curate → update history
+  2. If prompt contains inline context: use `UPSERT` directly via `tools.curate()`
+  3. NEVER print raw file content to console — only print compact summaries
   4. Verify result with `result.summary.failed === 0`
   </WORKFLOW_SUMMARY>
 
@@ -246,6 +246,100 @@ prompt: |
   ## Curation Workflow (Adding/Updating Context)
 
   When the user wants to curate or add knowledge to the context tree:
+
+  ### RLM Curation Mode (File-Based Context)
+
+  When the prompt references a **"Curate context file:"** and **"History file:"**, follow this pattern.
+  Context and history are in files — process them via code. NEVER ask for content in chat.
+
+  **CRITICAL RULES:**
+  - ALL large data stays inside async IIFE scope — variables do NOT leak to LLM context
+  - Only `console.log()` compact summaries — NEVER print raw file contents
+  - ALWAYS update history file after successful curation
+  - Check history for duplicates before curating
+
+  **Step 1 — Read history and check duplicates:**
+  ```javascript
+  // Check curate history for duplicates and existing domains
+  (async () => {
+    const HISTORY_PATH = '<history-file-path-from-prompt>';
+    let history = { _meta: { totalEntries: 0 }, domains: {} };
+    try {
+      const file = await tools.readFile(HISTORY_PATH);
+      history = JSON.parse(file.content);
+    } catch (e) { /* No history yet */ }
+
+    const domainSummary = Object.entries(history.domains || {}).map(([domain, topics]) => {
+      const topicNames = Object.keys(topics);
+      const entryCount = topicNames.reduce((sum, t) => sum + topics[t].length, 0);
+      return `${domain}: ${topicNames.join(', ')} (${entryCount} entries)`;
+    });
+    console.log('=== Existing Domains ===');
+    console.log(domainSummary.join('\n') || 'None yet');
+    console.log(`Total: ${history._meta?.totalEntries || 0}`);
+  })()
+  ```
+
+  **Step 2 — Read context and extract key information (compact output only):**
+  ```javascript
+  // Extract key info from curate context file
+  (async () => {
+    const file = await tools.readFile('<context-file-path-from-prompt>');
+    const raw = file.content;
+    const lines = raw.split('\n');
+    const sessionId = lines.find(l => l.startsWith('Session ID:'))?.split(': ')[1]?.trim();
+    const date = lines.find(l => l.startsWith('Date:'))?.split(': ')[1]?.trim();
+    // Parse messages — extract summaries, not full content
+    const conversationStart = raw.indexOf('Conversation:');
+    const conversation = conversationStart >= 0 ? raw.substring(conversationStart) : raw;
+    const msgBlocks = conversation.split(/\n\n\[(?:USER|ASSISTANT)\]: /);
+    const summaries = msgBlocks.slice(1).map((b, i) => ({
+      role: i % 2 === 0 ? 'USER' : 'ASSISTANT',
+      preview: b.trim().substring(0, 200)
+    }));
+    console.log(JSON.stringify({ sessionId, date, messageCount: summaries.length,
+      keyPhrases: summaries.filter(m => m.role === 'ASSISTANT').map(m => m.preview).join(' ').substring(0, 500),
+      messageSummaries: summaries.slice(0, 4)
+    }, null, 2));
+  })()
+  ```
+
+  **Step 3 — Curate and update history (all in one code_exec):**
+  ```javascript
+  // Curate extracted content and update history
+  (async () => {
+    const file = await tools.readFile('<context-file-path>');
+    const raw = file.content;
+    // ... extract structured content for rawConcept and narrative ...
+
+    const result = await tools.curate([{
+      type: 'UPSERT', path: '<domain>/<topic>', title: '<title>',
+      content: { rawConcept: { task: '...', /* ... */ }, narrative: { /* ... */ } },
+      reason: 'Curate from RLM context file'
+    }]);
+
+    // Update domain-indexed history
+    const HISTORY_PATH = '<history-file-path>';
+    let history = { _meta: { totalEntries: 0, lastUpdated: '', version: 1 }, domains: {} };
+    try { history = JSON.parse((await tools.readFile(HISTORY_PATH)).content); } catch {}
+    const key = '<domain>/<topic>';
+    if (!history.domains[key]) history.domains[key] = [];
+    history.domains[key].push({
+      sessionId: '<id>', timestamp: new Date().toISOString(), title: '<title>',
+      inputSummary: raw.substring(0, 200),
+      keyFacts: ['fact1', 'fact2'], result: result.summary
+    });
+    history._meta.totalEntries++;
+    history._meta.lastUpdated = new Date().toISOString();
+    await tools.writeFile(HISTORY_PATH, JSON.stringify(history, null, 2), { createDirs: true });
+    console.log(JSON.stringify({ curated: result.summary, historyUpdated: true }));
+  })()
+  ```
+
+  **History retrieval patterns (use within code):**
+  - Duplicate check: `allEntries.some(e => e.sessionId === currentId)`
+  - Related entries: `history.domains['domain/topic'] || []`
+  - Recent entries: sort by timestamp, slice last N
 
   ### Programmatic Curation Strategy
 

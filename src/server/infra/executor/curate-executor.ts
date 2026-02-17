@@ -1,3 +1,5 @@
+import {randomUUID} from 'node:crypto'
+import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
@@ -24,6 +26,8 @@ import {validateFileForCurate} from '../../utils/file-validator.js'
  * - Executor focuses solely on curate execution
  */
 export class CurateExecutor implements ICurateExecutor {
+  /** History file name for RLM domain-indexed curate history */
+  private static readonly HISTORY_FILE = 'curate-history.json'
   /** Maximum content length per file in characters */
   private static readonly MAX_CONTENT_PER_FILE = 40_000
   /** Maximum number of files allowed in --files flag */
@@ -41,21 +45,42 @@ export class CurateExecutor implements ICurateExecutor {
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
     const {clientCwd, content, files, taskId} = options
 
-    // Process file references - now reads file contents directly
+    // Process file references - reads file contents directly
     const fileReferenceInstructions = await this.processFileReferences(files ?? [], clientCwd)
 
-    // Build prompt with optional file reference instructions
-    const prompt = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
+    // Build full context (content + optional file references)
+    const fullContext = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
 
-    // Execute with curate commandType
-    // Agent uses its default session (created during start())
-    // Task lifecycle is managed by Transport (task:started, task:completed, task:error)
-    const response = await agent.execute(prompt, {
-      executionContext: {commandType: 'curate'},
-      taskId,
-    })
+    // RLM Pattern: Write context to temp file instead of passing as LLM prompt.
+    // Agent reads this via code_exec (tools.readFile), keeping the LLM prompt minimal.
+    const tempId = taskId ?? randomUUID()
+    const projectRoot = clientCwd ?? process.cwd()
+    const tmpDir = path.join(projectRoot, '.brv', 'tmp')
+    const tempFile = path.join(tmpDir, `curate-input-${tempId}.txt`)
+    const historyFile = path.join(tmpDir, CurateExecutor.HISTORY_FILE)
 
-    return response
+    await fs.mkdir(tmpDir, {recursive: true})
+    await fs.writeFile(tempFile, fullContext, 'utf8')
+
+    // Minimal prompt: only file paths, no context content in LLM prompt
+    const prompt = [
+      `Curate context file: ${tempFile}`,
+      `History file: ${historyFile}`,
+      'Process using RLM approach.',
+    ].join('\n')
+
+    try {
+      // Execute with curate commandType + clearHistory to prevent accumulation
+      // Agent uses its default session (created during start())
+      // Task lifecycle is managed by Transport (task:started, task:completed, task:error)
+      return await agent.execute(prompt, {
+        executionContext: {clearHistory: true, commandType: 'curate'},
+        taskId,
+      })
+    } finally {
+      // Clean up temp input file (history file persists across curations)
+      await fs.unlink(tempFile).catch(() => {})
+    }
   }
 
   /**

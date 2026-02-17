@@ -133,8 +133,8 @@ export class QueryExecutor implements IQueryExecutor {
 
     // Query-optimized LLM overrides: fewer tokens, iterations, and lower temperature
     const queryOverrides = prefetchedContext
-      ? { maxIterations: 2, maxTokens: 1024, temperature: 0.3 }
-      : { maxIterations: 3, maxTokens: 2048, temperature: 0.5 }
+      ? { maxIterations: 10, maxTokens: 1024, temperature: 0.3 }
+      : { maxIterations: 10, maxTokens: 2048, temperature: 0.5 }
 
     const response = await agent.execute(prompt, {
       executionContext: { commandType: 'query', ...queryOverrides },

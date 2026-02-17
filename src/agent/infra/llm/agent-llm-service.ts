@@ -312,6 +312,12 @@ export class AgentLLMService implements ILLMService {
     // Extract options with defaults
     const {executionContext, fileData, imageData, signal, stream, taskId} = options ?? {}
 
+    // RLM mode: Clear conversation history to prevent accumulation across calls.
+    // Context and history are offloaded to files, accessed via code_exec instead.
+    if (executionContext?.clearHistory) {
+      await this.contextManager.clearHistory()
+    }
+
     // Get filtered tools based on command type (e.g., only read-only tools for 'query')
     const toolSet = this.toolManager.getToolsForCommand(options?.executionContext?.commandType)
 
@@ -338,6 +344,7 @@ export class AgentLLMService implements ILLMService {
       try {
         // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
         const result = await this.executeAgenticIteration({
+          effectiveMaxIterations,
           executionContext,
           fileData,
           imageData,
@@ -782,12 +789,14 @@ export class AgentLLMService implements ILLMService {
   private determineReflectionType(
     iterationCount: number,
     commandType?: 'chat' | 'curate' | 'query',
+    maxIterations?: number,
   ): 'completion_check' | 'final_iteration' | 'mid_point_check' | 'near_max_iterations' | undefined {
+    const effectiveMax = maxIterations ?? this.config.maxIterations
     const isQuery = commandType === 'query'
-    const isLastIteration = iterationCount === this.config.maxIterations - 1
-    const midPoint = Math.floor(this.config.maxIterations / 2)
+    const isLastIteration = iterationCount === effectiveMax - 1
+    const midPoint = Math.floor(effectiveMax / 2)
     const isAtMidPoint = iterationCount === midPoint
-    const isNearMax = iterationCount >= Math.floor(this.config.maxIterations * 0.8)
+    const isNearMax = iterationCount >= Math.floor(effectiveMax * 0.8)
     const isPeriodicCheck = iterationCount > 0 && iterationCount % 3 === 0
 
     // Priority 1: final_iteration (query only, last iteration) - highest priority
@@ -817,6 +826,7 @@ export class AgentLLMService implements ILLMService {
    * Execute a single iteration of the agentic loop.
    *
    * @param options - Iteration options
+   * @param options.effectiveMaxIterations - Effective max iterations (per-invocation override or config default)
    * @param options.executionContext - Optional execution context
    * @param options.fileData - Optional file data (only used on first iteration)
    * @param options.imageData - Optional image data (only used on first iteration)
@@ -828,6 +838,7 @@ export class AgentLLMService implements ILLMService {
    * @returns Final response string if complete, null if more iterations needed
    */
   private async executeAgenticIteration(options: {
+    effectiveMaxIterations: number
     executionContext?: ExecutionContext
     fileData?: FileData
     imageData?: ImageData
@@ -837,7 +848,7 @@ export class AgentLLMService implements ILLMService {
     textInput: string
     tools: ToolSet
   }): Promise<null | string> {
-    const {executionContext, fileData, imageData, iterationCount, stream, taskId, textInput, tools} = options
+    const {effectiveMaxIterations, executionContext, fileData, imageData, iterationCount, stream, taskId, textInput, tools} = options
     // Build system prompt using SystemPromptManager (before compression for correct token accounting)
     // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
     const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
@@ -882,13 +893,13 @@ export class AgentLLMService implements ILLMService {
     let systemPrompt = basePrompt
 
     // Determine which reflection prompt to add (only highest priority is chosen)
-    const reflectionType = this.determineReflectionType(iterationCount, executionContext?.commandType)
+    const reflectionType = this.determineReflectionType(iterationCount, executionContext?.commandType, effectiveMaxIterations)
 
     // Add reflection prompt if eligible (hierarchical: only one reflection per iteration)
     if (reflectionType) {
       const reflectionPrompt = this.systemPromptManager.buildReflectionPrompt({
         currentIteration: iterationCount + 1,
-        maxIterations: this.config.maxIterations,
+        maxIterations: effectiveMaxIterations,
         type: reflectionType,
       })
       systemPrompt = systemPrompt + '\n\n' + reflectionPrompt
@@ -908,7 +919,7 @@ export class AgentLLMService implements ILLMService {
 
     // Final iteration optimization for query: strip tools (reflection already added above)
     let toolsForThisIteration = tools
-    if (executionContext?.commandType === 'query' && iterationCount === this.config.maxIterations - 1) {
+    if (executionContext?.commandType === 'query' && iterationCount === effectiveMaxIterations - 1) {
       toolsForThisIteration = {} // Empty toolset forces text response
     }
 
@@ -1228,26 +1239,29 @@ export class AgentLLMService implements ILLMService {
     // Get accumulated response from context
     const partialResponse = await this.getPartialResponse()
 
+    // Compute final content with fallback BEFORE emitting, so the event
+    // carries the same content that is returned (prevents empty-string mismatch
+    // when the streaming pipeline reads from the emitted event rather than the return value)
+    let finalContent: string
+    if (reason === TerminationReason.MAX_TURNS) {
+      finalContent =
+        partialResponse ||
+        'Maximum iterations reached without completing the task. Please try breaking down the task into smaller steps.'
+    } else if (reason === TerminationReason.TIMEOUT) {
+      finalContent = partialResponse || 'Execution timed out. Please try a simpler task or increase the timeout.'
+    } else {
+      finalContent = partialResponse || 'Agent execution terminated unexpectedly.'
+    }
+
     this.sessionEventBus.emit('llmservice:response', {
-      content: partialResponse,
+      content: finalContent,
       model: this.config.model,
       partial: true,
       provider: this.providerId,
       taskId: taskId || undefined,
     })
 
-    if (reason === TerminationReason.MAX_TURNS) {
-      return (
-        partialResponse ||
-        'Maximum iterations reached without completing the task. Please try breaking down the task into smaller steps.'
-      )
-    }
-
-    if (reason === TerminationReason.TIMEOUT) {
-      return partialResponse || 'Execution timed out. Please try a simpler task or increase the timeout.'
-    }
-
-    return partialResponse || 'Agent execution terminated unexpectedly.'
+    return finalContent
   }
 
   /**
