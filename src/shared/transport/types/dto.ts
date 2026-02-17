@@ -95,6 +95,7 @@ export interface ModelDTO {
   name: string
   pricing: {inputPerM: number; outputPerM: number}
   provider: string
+  providerId: string
 }
 
 // ============================================================================

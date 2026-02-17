@@ -9,6 +9,7 @@ import {
   type ProviderDisconnectRequest,
   type ProviderDisconnectResponse,
   ProviderEvents,
+  type ProviderGetActiveResponse,
   type ProviderListResponse,
   type ProviderSetActiveRequest,
   type ProviderSetActiveResponse,
@@ -46,9 +47,10 @@ export class ProviderHandler {
   }
 
   setup(): void {
-    this.setupList()
     this.setupConnect()
     this.setupDisconnect()
+    this.setupGetActive()
+    this.setupList()
     this.setupSetActive()
     this.setupValidateApiKey()
   }
@@ -86,6 +88,17 @@ export class ProviderHandler {
 
         this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
         return {success: true}
+      },
+    )
+  }
+
+  private setupGetActive(): void {
+    this.transport.onRequest<void, ProviderGetActiveResponse>(
+      ProviderEvents.GET_ACTIVE,
+      async () => {
+        const activeProviderId = await this.providerConfigStore.getActiveProvider()
+        const activeModel = await this.providerConfigStore.getActiveModel(activeProviderId)
+        return {activeModel, activeProviderId}
       },
     )
   }

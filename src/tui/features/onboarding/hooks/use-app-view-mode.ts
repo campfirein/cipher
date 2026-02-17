@@ -5,17 +5,14 @@
  * This is the single source of truth for determining what UI to show.
  */
 
-import type {OnboardingFlowStep} from '../types.js'
-
 import {useAuthStore} from '../../auth/stores/auth-store.js'
-import {useOnboardingStore} from '../stores/onboarding-store.js'
+import {useGetActiveProviderConfig} from '../../provider/api/get-active-provider-config.js'
 
 /**
  * The 5 valid application view modes as a discriminated union.
  */
 export type AppViewMode =
-  | {step: OnboardingFlowStep; type: 'onboarding'}
-  | {type: 'init'}
+  | {type: 'config-provider'}
   | {type: 'loading'}
   | {type: 'ready'}
 
@@ -25,34 +22,27 @@ export type AppViewMode =
  *
  * View mode decision tree:
  * 1. Loading auth or onboarding check -> 'loading'
- * 2. New user (hasOnboardedCli=false) -> 'onboarding'
- * 3. Existing user, no brvConfig -> 'init'
+ * 2. New user (hasDismissed) -> 'onboarding'
+ * 3. Existing user, no provider config -> provider flow
  * 4. Otherwise -> 'ready'
  */
 export function useAppViewMode(): AppViewMode {
-  const {brvConfig, isLoadingInitial: isLoadingAuth, user} = useAuthStore()
-  const {completedInSession, flowStep, initCompletedInSession, initialized} = useOnboardingStore()
+  const {isLoadingInitial: isLoadingAuth} = useAuthStore()
+  const {data: activeData, isLoading: isLoadingActive} = useGetActiveProviderConfig()
 
-  // Still loading auth or onboarding initialization
-  if (isLoadingAuth || !initialized) {
+  // Still loading auth or active provider check
+  if (isLoadingAuth || isLoadingActive) {
     return {type: 'loading'}
   }
 
-  // User is not logged in - handled by auth guard elsewhere, but provide safe fallback
-  if (!user) {
-    return {type: 'loading'}
+  // ByteRover is the default provider and doesn't require model config
+  if (activeData?.activeProviderId === 'byterover') {
+    return {type: 'ready'}
   }
 
-  // New user who needs onboarding (hasn't completed CLI onboarding on server)
-  const needsOnboarding = !user.hasOnboardedCli && !completedInSession
-  if (needsOnboarding) {
-    return {step: flowStep, type: 'onboarding'}
-  }
-
-  // Existing user but project needs initialization (no .brv/config.json)
-  const projectNeedsInit = !brvConfig && !initCompletedInSession
-  if (projectNeedsInit) {
-    return {type: 'init'}
+  // No active model configured for non-byterover provider — need provider setup
+  if (!activeData?.activeModel) {
+    return {type: 'config-provider'}
   }
 
   // Normal app state

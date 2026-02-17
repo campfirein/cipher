@@ -31,6 +31,8 @@ export interface SelectableListProps<T> {
   getCurrentKey?: (item: T) => string
   /** Optional grouping function */
   groupBy?: (item: T) => string
+  /** Hide the Cancel keybind hint and disable Esc to cancel */
+  hideCancelButton?: boolean
   /** Initial search value */
   initialSearch?: string
   /** Whether keyboard input is active */
@@ -83,6 +85,7 @@ export function SelectableList<T>({
   filterKeys,
   getCurrentKey,
   groupBy,
+  hideCancelButton = false,
   initialSearch = '',
   isActive = true,
   items,
@@ -225,7 +228,7 @@ export function SelectableList<T>({
       }
 
       // Cancel
-      if (key.escape) {
+      if (key.escape && !hideCancelButton) {
         onCancel?.()
         return
       }
@@ -380,9 +383,11 @@ export function SelectableList<T>({
         <Text color={colors.dimText}>
           <Text color={colors.text}>Enter</Text> Select
         </Text>
-        <Text color={colors.dimText}>
-          <Text color={colors.text}>Esc</Text> Cancel
-        </Text>
+        {!hideCancelButton && (
+          <Text color={colors.dimText}>
+            <Text color={colors.text}>Esc</Text> Cancel
+          </Text>
+        )}
         {keybinds.map((kb) => (
           <Text color={colors.dimText} key={kb.key}>
             <Text color={colors.text}>{kb.key}</Text> {kb.label}

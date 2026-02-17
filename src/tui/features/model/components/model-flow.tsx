@@ -2,20 +2,18 @@
  * ModelFlow Component
  *
  * Multi-step React flow for the /model command.
- * State machine: loading → select → setting → done
- *
- * 1. Checks for active provider (if none or ByteRover, shows message)
- * 2. Fetches models for the active provider
- * 3. Renders ModelDialog for selection
- * 4. Sets the selected model as active
+ * Fetches models from all connected providers, groups by provider,
+ * and allows the user to select a model.
  */
 
+import {useQueryClient} from '@tanstack/react-query'
 import {Box, Text} from 'ink'
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
 import {useTheme} from '../../../hooks/index.js'
+import {getActiveProviderConfigQueryOptions, useGetActiveProviderConfig} from '../../provider/api/get-active-provider-config.js'
 import {useGetProviders} from '../../provider/api/get-providers.js'
-import {useGetModels} from '../api/get-models.js'
+import {getModelsByProvidersQueryOptions, useGetModelsByProviders} from '../api/get-models-by-providers.js'
 import {useSetActiveModel} from '../api/set-active-model.js'
 import {ModelDialog, type ModelItem} from './model-dialog.js'
 
@@ -33,68 +31,75 @@ export const ModelFlow: React.FC<ModelFlowProps> = ({isActive = true, onCancel, 
     theme: {colors},
   } = useTheme()
   const [error, setError] = useState<null | string>(null)
+  const queryClient = useQueryClient()
 
-  // Fetch providers to find the active one
   const {data: providerData, isLoading: isLoadingProviders} = useGetProviders()
-  const activeProvider = providerData?.providers.find((p) => p.isCurrent)
+  const {data: activeData} = useGetActiveProviderConfig()
 
-  // Fetch models for the active provider (only when we have one that's not ByteRover)
-  const shouldFetchModels = Boolean(activeProvider && activeProvider.id !== 'byterover')
-  const {data: modelData, isLoading: isLoadingModels} = useGetModels({
-    providerId: activeProvider?.id ?? '',
-    queryConfig: {enabled: shouldFetchModels},
+  const connectedProviders = useMemo(
+    () => providerData?.providers.filter((p) => p.isConnected) ?? [],
+    [providerData],
+  )
+
+  const connectedProviderIds = useMemo(
+    () => connectedProviders.map((p) => p.id),
+    [connectedProviders],
+  )
+
+  const isOnlyByteRover = connectedProviders.length === 1 && connectedProviders[0].id === 'byterover'
+
+  const {data: modelsData, isLoading: isLoadingModels} = useGetModelsByProviders({
+    providerIds: connectedProviderIds,
+    queryConfig: {enabled: connectedProviderIds.length > 0 && !isOnlyByteRover},
   })
 
-  const setActiveModelMutation = useSetActiveModel({
-    providerId: activeProvider?.id ?? '',
-  })
+  const setActiveModelMutation = useSetActiveModel()
 
-  // Transform ModelDTO + metadata into ModelItem for the dialog
   const modelItems: ModelItem[] = useMemo(() => {
-    if (!modelData) return []
-    const favSet = new Set(modelData.favorites)
-    const recentSet = new Set(modelData.recent)
+    if (!modelsData) return []
 
-    return modelData.models.map((m) => ({
-      contextLength: m.contextLength,
-      id: m.id,
-      isCurrent: m.id === modelData.activeModel,
-      isFavorite: favSet.has(m.id),
-      isFree: m.isFree,
-      isRecent: recentSet.has(m.id),
-      name: m.name,
-      pricing: m.pricing,
-      provider: m.provider,
+    return modelsData.models.map((model) => ({
+      contextLength: model.contextLength,
+      id: model.id,
+      isCurrent: model.id === activeData?.activeModel,
+      isFavorite: false,
+      isFree: model.isFree,
+      isRecent: false,
+      name: model.name,
+      pricing: model.pricing,
+      provider: model.provider,
+      providerId: model.providerId,
     }))
-  }, [modelData])
+  }, [activeData?.activeModel, modelsData])
 
   const handleSelect = useCallback(
     async (model: ModelItem) => {
-      if (!activeProvider) return
+      if (!model.providerId) return
 
       setError(null)
       try {
         await setActiveModelMutation.mutateAsync({
           modelId: model.id,
-          providerId: activeProvider.id,
+          providerId: model.providerId,
         })
+        queryClient.invalidateQueries({queryKey: getModelsByProvidersQueryOptions(connectedProviderIds).queryKey})
+        queryClient.invalidateQueries({queryKey: getActiveProviderConfigQueryOptions().queryKey})
         onComplete(`Model set to: ${model.name}`)
       } catch (error_) {
         setError(error_ instanceof Error ? error_.message : String(error_))
       }
     },
-    [activeProvider, onComplete, setActiveModelMutation],
+    [connectedProviderIds, onComplete, queryClient, setActiveModelMutation],
   )
 
-  // Auto-complete for cases that don't need UI interaction
   const earlyExitMessage = useMemo(() => {
     if (isLoadingProviders || isLoadingModels) return null
-    if (!activeProvider) return 'No active provider. Run /provider to select one.'
-    if (activeProvider.id === 'byterover')
+    if (connectedProviders.length === 0) return 'No connected providers. Run /provider to connect one.'
+    if (isOnlyByteRover)
       return 'ByteRover uses an internal model. Run /provider to switch to an external provider for model selection.'
-    if (!isLoadingModels && modelItems.length === 0 && modelData) return 'No models available from this provider.'
+    if (!isLoadingModels && modelItems.length === 0 && modelsData) return 'No models available.'
     return null
-  }, [activeProvider, isLoadingModels, isLoadingProviders, modelData, modelItems.length])
+  }, [connectedProviders.length, isLoadingModels, isLoadingProviders, isOnlyByteRover, modelItems.length, modelsData])
 
   useEffect(() => {
     if (earlyExitMessage) {
@@ -102,7 +107,6 @@ export const ModelFlow: React.FC<ModelFlowProps> = ({isActive = true, onCancel, 
     }
   }, [earlyExitMessage, onComplete])
 
-  // Loading states
   if (isLoadingProviders) {
     return (
       <Box>
@@ -111,7 +115,7 @@ export const ModelFlow: React.FC<ModelFlowProps> = ({isActive = true, onCancel, 
     )
   }
 
-  if (isLoadingModels || !activeProvider || activeProvider.id === 'byterover' || modelItems.length === 0) {
+  if (isLoadingModels || connectedProviders.length === 0 || isOnlyByteRover || modelItems.length === 0) {
     return (
       <Box>
         <Text color={colors.dimText}>Loading models...</Text>
@@ -123,16 +127,16 @@ export const ModelFlow: React.FC<ModelFlowProps> = ({isActive = true, onCancel, 
     <Box flexDirection="column">
       {error && (
         <Box marginBottom={1}>
-          <Text color={colors.errorText}>{error}</Text>
+          <Text color={colors.warning}>{error}</Text>
         </Box>
       )}
       <ModelDialog
-        activeModelId={modelData?.activeModel}
+        activeModelId={activeData?.activeModel}
         isActive={isActive}
         models={modelItems}
         onCancel={onCancel}
         onSelect={handleSelect}
-        providerName={activeProvider.name}
+        providerName="All Providers"
       />
     </Box>
   )

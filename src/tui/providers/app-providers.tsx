@@ -9,7 +9,6 @@ import {QueryClient, QueryClientProvider} from '@tanstack/react-query'
 import React from 'react'
 
 import {AuthInitializer} from '../features/auth/components/auth-initializer.js'
-import {OnboardingInitializer} from '../features/onboarding/components/onboarding-initializer.js'
 import {TaskSubscriptionInitializer} from '../features/tasks/components/task-subscription-initializer.js'
 import {TransportInitializer} from '../features/transport/components/transport-initializer.js'
 
@@ -32,7 +31,7 @@ export function AppProviders({children}: AppProvidersProps): React.ReactElement 
       <TransportInitializer>
         <AuthInitializer>
           <TaskSubscriptionInitializer />
-          <OnboardingInitializer>{children}</OnboardingInitializer>
+          {children}
         </AuthInitializer>
       </TransportInitializer>
     </QueryClientProvider>

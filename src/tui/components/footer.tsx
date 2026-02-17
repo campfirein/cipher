@@ -5,18 +5,19 @@
 import {Box, Spacer, Text} from 'ink'
 import React from 'react'
 
+import {useAppViewMode} from '../features/onboarding/hooks/use-app-view-mode.js'
 import {useTasksStore} from '../features/tasks/stores/tasks-store.js'
-import {useMode, useOnboarding, useTheme} from '../hooks/index.js'
+import {useMode, useTheme} from '../hooks/index.js'
 
 export const Footer: React.FC = () => {
   const {shortcuts} = useMode()
-  const {viewMode} = useOnboarding()
+  const viewMode = useAppViewMode()
   const {
     theme: {colors},
   } = useTheme()
   const taskStats = useTasksStore((s) => s.stats)
 
-  if (viewMode.type === 'onboarding' || viewMode.type === 'loading') {
+  if (viewMode.type === 'loading' || viewMode.type === 'config-provider') {
     return <Box height={1} paddingX={1} width="100%" />
   }
 
