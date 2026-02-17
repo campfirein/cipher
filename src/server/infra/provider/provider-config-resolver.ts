@@ -28,9 +28,8 @@ export async function resolveProviderConfig(
   const {activeProvider} = config
   const activeModel = config.getActiveModel(activeProvider)
 
-  // Empty activeProvider (unconfigured) falls back to ByteRover internal API
-  if (!activeProvider || activeProvider === 'byterover') {
-    return {activeModel, activeProvider: activeProvider || 'byterover'}
+  if (activeProvider === 'byterover') {
+    return {activeModel, activeProvider}
   }
 
   // google-vertex uses Application Default Credentials, not an API key

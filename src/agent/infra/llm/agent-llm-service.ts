@@ -231,7 +231,7 @@ export class AgentLLMService implements ILLMService {
     this.workingDirectory = process.cwd()
     // Detect provider type: explicit provider config takes priority over model name heuristic
     const modelName = config.model ?? 'claude-haiku-4-5@20251001'
-    this.providerId = config.provider || 'byterover'
+    this.providerId = config.provider ?? 'byterover'
     this.providerType = this.detectProviderType(modelName, config.provider)
 
     // Validate core LLM config using Zod schema (logs warning if invalid)

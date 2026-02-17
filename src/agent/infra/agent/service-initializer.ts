@@ -318,7 +318,7 @@ export function createSessionServices(
 
   // 3. Create LLM service based on provider configuration
   // Routing priority: explicit provider > openRouterApiKey > byterover (default)
-  const provider = llmConfig.provider || (llmConfig.openRouterApiKey ? 'openrouter' : 'byterover')
+  const provider = llmConfig.provider ?? (llmConfig.openRouterApiKey ? 'openrouter' : 'byterover')
 
   // Helper: wrap a base generator with retry + logging decorators, then create AgentLLMService
   const createServiceWithGenerator = (baseGenerator: IContentGenerator): AgentLLMService => {
