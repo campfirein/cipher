@@ -11,6 +11,7 @@ import React, {useEffect, useState} from 'react'
 
 import type {CustomDialogCallbacks} from '../../../types/commands.js'
 
+import {formatTransportError} from '../../../utils/error-messages.js'
 import {createCurateTask} from '../api/create-curate-task.js'
 
 interface CurateFlowProps extends CustomDialogCallbacks {
@@ -36,7 +37,7 @@ export function CurateFlow({context, files, folders, onComplete}: CurateFlowProp
         onComplete('')
       })
       .catch((error_: unknown) => {
-        const message = error_ instanceof Error ? error_.message : String(error_)
+        const message = error_ instanceof Error ? formatTransportError(error_) : String(error_)
         setRunning(false)
         setError(message)
         onComplete(`Curate failed: ${message}`)

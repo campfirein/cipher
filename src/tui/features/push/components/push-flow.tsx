@@ -14,6 +14,7 @@ import type {CustomDialogCallbacks} from '../../../types/commands.js'
 import {PushEvents} from '../../../../shared/transport/events/index.js'
 import {InlineConfirm} from '../../../components/inline-prompts/inline-confirm.js'
 import {useTransportStore} from '../../../stores/transport-store.js'
+import {formatTransportError} from '../../../utils/error-messages.js'
 import {useExecutePush} from '../api/execute-push.js'
 import {usePreparePush} from '../api/prepare-push.js'
 
@@ -35,7 +36,7 @@ export function PushFlow({branch, onComplete, skipConfirm}: PushFlowProps): Reac
     if (isPreparing || step !== 'preparing') return
 
     if (prepareError) {
-      onComplete(`Failed to push: ${prepareError.message}`)
+      onComplete(`Failed to push: ${formatTransportError(prepareError)}`)
       return
     }
 
@@ -71,7 +72,7 @@ export function PushFlow({branch, onComplete, skipConfirm}: PushFlowProps): Reac
       {
         onError(error) {
           unsubProgress?.()
-          onComplete(`Failed to push: ${error.message}`)
+          onComplete(`Failed to push: ${formatTransportError(error)}`)
         },
         onSuccess(result) {
           unsubProgress?.()
