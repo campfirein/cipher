@@ -2,7 +2,6 @@ import type {SlashCommand} from '../../../types/commands.js'
 
 import {connectorsCommand} from './connectors.js'
 import {curateCommand} from './curate.js'
-import {initCommand} from './init.js'
 import {loginCommand} from './login.js'
 import {logoutCommand} from './logout.js'
 import {modelCommand} from './model.js'
@@ -46,9 +45,6 @@ export const load: () => SlashCommand[] = () => [
 
   // Session management
   newCommand,
-
-  // Setup
-  initCommand,
 
   // Auth
   loginCommand,

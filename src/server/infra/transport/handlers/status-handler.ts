@@ -1,3 +1,5 @@
+import {join} from 'node:path'
+
 import type {StatusDTO} from '../../../../shared/transport/types/dto.js'
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
@@ -7,6 +9,7 @@ import type {ITransportServer} from '../../../core/interfaces/transport/i-transp
 import type {ProjectPathResolver} from './handler-types.js'
 
 import {StatusEvents, type StatusGetResponse} from '../../../../shared/transport/events/status-events.js'
+import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
 
 export interface StatusHandlerDeps {
   contextTreeService: IContextTreeService
@@ -51,7 +54,6 @@ export class StatusHandler {
       authStatus: 'unknown',
       contextTreeStatus: 'unknown',
       currentDirectory: projectPath,
-      projectInitialized: false,
     }
 
     // Auth status
@@ -72,7 +74,6 @@ export class StatusHandler {
     // Project status
     try {
       const isInitialized = await this.projectConfigStore.exists(projectPath)
-      result.projectInitialized = isInitialized
       if (isInitialized) {
         const config = await this.projectConfigStore.read(projectPath)
         if (config) {
@@ -80,14 +81,15 @@ export class StatusHandler {
           result.spaceName = config.spaceName
         }
       }
-    } catch {
-      result.projectInitialized = false
-    }
+    } catch {}
 
     // Context tree status
     try {
       const contextTreeExists = await this.contextTreeService.exists(projectPath)
       if (contextTreeExists) {
+        result.contextTreeDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
+        result.contextTreeRelativeDir = join(BRV_DIR, CONTEXT_TREE_DIR)
+
         const hasSnapshot = await this.contextTreeSnapshotService.hasSnapshot(projectPath)
         if (!hasSnapshot) {
           await this.contextTreeSnapshotService.initEmptySnapshot(projectPath)

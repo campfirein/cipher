@@ -10,7 +10,7 @@
 import {Box, Text, useInput} from 'ink'
 import React, {useEffect, useMemo, useRef} from 'react'
 
-import {useMode, useOnboarding, useSlashCompletion, useTheme} from '../hooks/index.js'
+import {useMode, useSlashCompletion, useTheme} from '../hooks/index.js'
 import {CommandDetails} from './command-details.js'
 
 const MAX_VISIBLE_ITEMS = 7
@@ -26,7 +26,6 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
     theme: {colors},
   } = useTheme()
   const {mode, setMode} = useMode()
-  const {highlightedCommands} = useOnboarding()
   const {
     activeIndex,
     clearSuggestions,
@@ -197,10 +196,6 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
   // Get the selected suggestion
   const selectedSuggestion = activeIndex >= 0 ? suggestions[activeIndex] : null
 
-  // Get recommendedText for selected suggestion (if highlighted)
-  const selectedCommandName = selectedSuggestion?.value.replace(/^\//, '').split(' ')[0]
-  const recommendedText = selectedCommandName ? highlightedCommands.get(selectedCommandName) : undefined
-
   // Calculate if there are more items above/below
   const hasMoreAbove = windowStart > 0
   const hasMoreBelow = windowStart + visibleSuggestions.length < suggestions.length
@@ -218,27 +213,11 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
           const actualIndex = windowStart + index
           const isActive = actualIndex === activeIndex
 
-           // Extract command name from suggestion value (e.g., "/status" -> "status")
-          const commandName = suggestion.value.replace(/^\//, '').split(' ')[0]
-          const isHighlighted = highlightedCommands.has(commandName)
-
-          // Add "*" suffix for highlighted commands, then pad
-          const displayLabel = isHighlighted ? `${suggestion.label}﹡` : suggestion.label
-          const padWidth = labelWidth + (isHighlighted ? 1 : 0)
-
           return (
             <Box key={suggestion.value}>
               <Text backgroundColor={isActive ? colors.bg3 : undefined} color={colors.text}>
                 {isActive ? '❯ ' : '  '}
-                {isHighlighted ? (
-                  <>
-                    {suggestion.label}
-                    <Text color={colors.primary}>﹡</Text>
-                    {' '.repeat(padWidth - displayLabel.length)}
-                  </>
-                ) : (
-                  suggestion.label.padEnd(labelWidth)
-                )}
+                {suggestion.label.padEnd(labelWidth)}
               </Text>
             </Box>
           )
@@ -250,7 +229,7 @@ export const Suggestions: React.FC<SuggestionsProps> = ({input, onInsert, onSele
           </Text>
         )}
       </Box>
-      <CommandDetails labelWidth={labelWidth} recommendedText={recommendedText} selectedSuggestion={selectedSuggestion} />
+      <CommandDetails labelWidth={labelWidth} selectedSuggestion={selectedSuggestion} />
     </Box>
   )
 }

@@ -19,7 +19,11 @@ export interface PushExecuteRequest {
 }
 
 export interface PushExecuteResponse {
+  added: number
+  deleted: number
+  edited: number
   success: boolean
+  url: string
 }
 
 export interface PushProgressEvent {

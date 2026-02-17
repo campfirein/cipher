@@ -9,79 +9,14 @@ import {Box, Text, useInput} from 'ink'
 import TextInput from 'ink-text-input'
 import {ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
-import type {OnboardingFlowStep} from '../hooks/index.js'
 import type {CommandSideEffects} from '../types/commands.js'
 import type {StreamingMessage} from '../types/index.js'
 
 import {getAuthStateQueryOptions} from '../features/auth/api/get-auth-state.js'
 import {useTasksStore} from '../features/tasks/stores/tasks-store.js'
-import {useCommands, useMode, useOnboarding, useTheme} from '../hooks/index.js'
+import {useCommands, useMode, useTheme} from '../hooks/index.js'
 import {useTransportStore} from '../stores/transport-store.js'
 import {Suggestions} from './suggestions.js'
-
-/**
- * Get onboarding instruction based on current step
- */
-function getInstructionText(step: OnboardingFlowStep, highlightColor: string): ReactNode {
-  switch (step) {
-    case 'curate': {
-      return (
-        <Text>
-          Create your first memory with <Text color={highlightColor}>/curate</Text>
-        </Text>
-      )
-    }
-
-    case 'explore': {
-      return (
-        <Text>
-          Next, type <Text color={highlightColor}>/</Text> to explore more commands
-        </Text>
-      )
-    }
-
-    case 'query': {
-      return (
-        <Text>
-          Now retrieve your memory by using <Text color={highlightColor}>/query</Text>
-        </Text>
-      )
-    }
-
-    default: {
-      return null
-    }
-  }
-}
-
-/**
- * Get instruction for pressing Enter to run
- */
-function getInstruction({
-  highlightBgColor,
-  highlightTextColor,
-  step,
-  textColor,
-}: {
-  highlightBgColor: string
-  highlightTextColor: string
-  step: OnboardingFlowStep
-  textColor: string
-}): ReactNode {
-  if (step === 'explore' || step === 'curating' || step === 'querying') return null
-
-  return (
-    <Text color={textColor}>
-      {' '}
-      · Press{' '}
-      <Text backgroundColor={highlightBgColor} color={highlightTextColor}>
-        {' '}
-        Enter{' '}
-      </Text>{' '}
-      to run (Esc to skip the instruction)
-    </Text>
-  )
-}
 
 export const CommandInput = () => {
   const queryClient = useQueryClient()
@@ -98,43 +33,12 @@ export const CommandInput = () => {
   const [activeDialog, setActiveDialog] = useState<ReactNode>(null)
   const ctrlOPressedRef = useRef(false)
   const previousInputRef = useRef('')
-  const {clearPendingInput, complete, pendingInput, removeHighlightedCommand, setPendingInput, viewMode} =
-    useOnboarding()
-
-  const isOnboarding = viewMode.type === 'onboarding'
-  const currentStep = viewMode.type === 'onboarding' ? viewMode.step : null
-
-  // Check if in prefilled onboarding steps (curate or query)
-  const isInCurate = isOnboarding && currentStep === 'curate'
-  const isInQuery = isOnboarding && currentStep === 'query'
-  const isInCurating = isOnboarding && currentStep === 'curating'
-  const isInQuerying = isOnboarding && currentStep === 'querying'
-  const isInExplore = isOnboarding && currentStep === 'explore'
-
-  // Fixed input value for curate onboarding step (only before user has curated and not currently curating)
-  const displayInputValue = useMemo(() => {
-    if (isInCurate) return '/curate Curate the folder structure of this repository.'
-    if (isInCurating) return ''
-    if (isInQuery) return '/query Tell me what you know about the folder structure of this repository?'
-    if (isInQuerying) return ''
-    return inputValue
-  }, [isOnboarding, currentStep, inputValue])
 
   // Placeholder based on onboarding step
   const placeholder = useMemo(() => {
-    if (isStreaming || isInCurating || isInQuerying) return 'Processing...'
-    if (isInExplore) return 'Type /'
+    if (isStreaming) return 'Processing...'
     return 'Type a command...'
-  }, [isStreaming, isOnboarding, currentStep])
-
-  // Restore pending input from onboarding store ("/" typed during explore step)
-  useEffect(() => {
-    if (pendingInput) {
-      setInputValue(pendingInput)
-      setInputKey((prev) => prev + 1)
-      clearPendingInput()
-    }
-  }, [pendingInput, clearPendingInput])
+  }, [isStreaming])
 
   // Filter out "o" character when Ctrl+O is pressed
   useEffect(() => {
@@ -155,16 +59,6 @@ export const CommandInput = () => {
       ctrlOPressedRef.current = true
     }
   })
-
-  // Skip onboarding with Esc
-  useInput(
-    (_input, key) => {
-      if (key.escape) {
-        complete({skipped: true})
-      }
-    },
-    {isActive: isInCurate || isInQuery},
-  )
 
   // Cancel streaming command with Esc (only for commands that add to messages, not /curate or /query)
   useInput(
@@ -194,7 +88,7 @@ export const CommandInput = () => {
         setHasActiveDialog(false)
       }
     },
-    {isActive: isStreaming && !isOnboarding},
+    {isActive: isStreaming},
   )
 
   const executeCommand = useCallback(
@@ -204,12 +98,6 @@ export const CommandInput = () => {
 
       // Clear command input immediately
       setInputValue('')
-
-      // Remove from highlighted commands if it's a slash command
-      if (trimmed.startsWith('/')) {
-        const commandName = trimmed.slice(1).split(' ')[0]
-        removeHighlightedCommand(commandName)
-      }
 
       // Commands that create tasks (shown as ActivityLog) should not add command messages
       // to avoid duplicates in the activity feed
@@ -313,9 +201,7 @@ export const CommandInput = () => {
     [
       clearTasks,
       client,
-      currentStep,
       handleSlashCommand,
-      isOnboarding,
       queryClient,
       setHasActiveDialog,
       setIsStreaming,
@@ -347,7 +233,7 @@ export const CommandInput = () => {
   }, [])
 
   // Hide suggestions during onboarding curate/query steps to focus user on the task
-  const shouldShowSuggestions = !isStreaming && !(isOnboarding && (currentStep === 'curate' || currentStep === 'query'))
+  const shouldShowSuggestions = !isStreaming
 
   return (
     <Box flexDirection="column" flexShrink={0}>
@@ -355,35 +241,15 @@ export const CommandInput = () => {
 
       {shouldShowSuggestions && <Suggestions input={inputValue} onInsert={handleInsert} onSelect={handleSelect} />}
 
-      {isOnboarding && currentStep && (
-        <Box>
-          {getInstructionText(currentStep, colors.warning)}
-          {getInstruction({
-            highlightBgColor: colors.primary,
-            highlightTextColor: colors.bg1,
-            step: currentStep,
-            textColor: colors.dimText,
-          })}
-        </Box>
-      )}
-
       <Box borderColor={colors.border} borderLeft={false} borderRight={false} borderStyle="single" paddingX={2}>
         <Text color={colors.primary}>{'> '}</Text>
         <TextInput
           focus={!activeDialog && (mode === 'main' || mode === 'suggestions')}
           key={inputKey}
-          onChange={(value) => {
-            if (!(isInCurate || isInCurating || isInQuery || isInQuerying)) setInputValue(value)
-
-            if (isInExplore && value.startsWith('/')) {
-              setPendingInput('/')
-              complete()
-            }
-          }}
+          onChange={setInputValue}
           onSubmit={handleSubmit}
           placeholder={placeholder}
-          showCursor={!(isInCurate || isInQuery)}
-          value={displayInputValue}
+          value={inputValue}
         />
       </Box>
     </Box>

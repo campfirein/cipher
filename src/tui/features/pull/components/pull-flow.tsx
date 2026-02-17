@@ -13,6 +13,7 @@ import type {CustomDialogCallbacks} from '../../../types/commands.js'
 
 import {PullEvents} from '../../../../shared/transport/events/index.js'
 import {useTransportStore} from '../../../stores/transport-store.js'
+import {formatTransportError} from '../../../utils/error-messages.js'
 import {useExecutePull} from '../api/execute-pull.js'
 import {usePreparePull} from '../api/prepare-pull.js'
 
@@ -33,7 +34,7 @@ export function PullFlow({branch, onComplete}: PullFlowProps): React.ReactNode {
     if (isPreparing || step !== 'preparing') return
 
     if (prepareError) {
-      onComplete(`Failed to pull: ${prepareError.message}`)
+      onComplete(`Failed to pull: ${formatTransportError(prepareError)}`)
       return
     }
 
@@ -65,7 +66,7 @@ export function PullFlow({branch, onComplete}: PullFlowProps): React.ReactNode {
       {
         onError(error) {
           unsubProgress?.()
-          onComplete(`Failed to pull: ${error.message}`)
+          onComplete(`Failed to pull: ${formatTransportError(error)}`)
         },
         onSuccess(result) {
           unsubProgress?.()

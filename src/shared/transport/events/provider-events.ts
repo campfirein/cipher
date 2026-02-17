@@ -3,6 +3,7 @@ import type {ProviderDTO} from '../types/dto.js'
 export const ProviderEvents = {
   CONNECT: 'provider:connect',
   DISCONNECT: 'provider:disconnect',
+  GET_ACTIVE: 'provider:getActive',
   LIST: 'provider:list',
   SET_ACTIVE: 'provider:setActive',
   VALIDATE_API_KEY: 'provider:validateApiKey',
@@ -37,6 +38,11 @@ export interface ProviderValidateApiKeyRequest {
 export interface ProviderValidateApiKeyResponse {
   error?: string
   isValid: boolean
+}
+
+export interface ProviderGetActiveResponse {
+  activeModel?: string
+  activeProviderId: string
 }
 
 export interface ProviderSetActiveRequest {
