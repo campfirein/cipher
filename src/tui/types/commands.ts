@@ -106,6 +106,8 @@ export interface MessageActionReturn {
 export interface CommandSideEffects {
   /** Clear the current session (messages, tasks) */
   clearSession?: boolean
+  /** Mark init-provider onboarding step as complete (transitions to curate) */
+  completeInitProvider?: boolean
   /** Reload auth state from token store */
   reloadAuth?: boolean
 }

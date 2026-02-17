@@ -43,6 +43,8 @@ export interface ModelItem {
   }
   /** Provider name (e.g., 'Anthropic', 'OpenAI') */
   provider?: string
+  /** Provider ID (e.g., 'anthropic', 'openai') */
+  providerId?: string
 }
 
 /**

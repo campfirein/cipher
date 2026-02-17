@@ -38,7 +38,6 @@ import {
   ConnectorsHandler,
   InitHandler,
   ModelHandler,
-  OnboardingHandler,
   ProviderHandler,
   PullHandler,
   PushHandler,
@@ -132,16 +131,6 @@ export async function setupFeatureHandlers({
     resolveProjectPath,
     tokenStore,
     transport,
-  }).setup()
-
-  new OnboardingHandler({
-    projectConfigStore,
-    resolveProjectPath,
-    spaceService,
-    teamService,
-    tokenStore,
-    transport,
-    userService,
   }).setup()
 
   new PushHandler({

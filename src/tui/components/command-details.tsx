@@ -46,7 +46,7 @@ function formatUsage(
   return usage
 }
 
-export const CommandDetails: React.FC<CommandDetailsProps> = ({labelWidth, recommendedText, selectedSuggestion}) => {
+export const CommandDetails: React.FC<CommandDetailsProps> = ({labelWidth, selectedSuggestion}) => {
   const {
     theme: {colors},
   } = useTheme()
@@ -65,8 +65,6 @@ export const CommandDetails: React.FC<CommandDetailsProps> = ({labelWidth, recom
       flexDirection="column"
       paddingLeft={1}
     >
-      {/* Show recommended text for highlighted commands */}
-      {recommendedText && <Text color={colors.primary}>{recommendedText}</Text>}
       {/* Show args/flags/subcommands for selected command */}
       <Text color={colors.dimText}>{selectedSuggestion?.description || ''}</Text>
       {hasDetails && (
