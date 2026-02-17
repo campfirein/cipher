@@ -22,16 +22,38 @@ export function SpaceListView({json, onComplete}: SpaceListViewProps): React.Rea
   const result = useMemo(() => {
     if (!data) return null
 
-    const {spaces} = data
+    const {teams} = data
 
-    if (spaces.length === 0) return 'No spaces found.'
+    if (teams.length === 0) return 'No teams found.'
 
-    if (json) return JSON.stringify(spaces, undefined, 2)
+    if (json) {
+      return JSON.stringify(
+        teams.map((t) => ({
+          teamId: t.teamId,
+          teamName: t.teamName,
+          // eslint-disable-next-line perfectionist/sort-objects
+          spaces: t.spaces.map((s) => ({
+            isDefault: s.isDefault,
+            spaceId: s.id,
+            spaceName: s.name,
+          })),
+        })),
+        undefined,
+        2,
+      )
+    }
 
-    const lines = [`\nFound ${spaces.length} space(s):\n`]
-    for (const [index, space] of spaces.entries()) {
-      const defaultMarker = space.isDefault ? ' (default)' : ''
-      lines.push(`  ${index + 1}. ${space.name}${defaultMarker}`)
+    const lines: string[] = []
+    for (const [index, team] of teams.entries()) {
+      lines.push(`${index + 1}. ${team.teamName} (team)`)
+      if (team.spaces.length === 0) {
+        lines.push('   No spaces')
+      } else {
+        for (const space of team.spaces) {
+          const defaultMarker = space.isDefault ? ' (default)' : ''
+          lines.push(`   - ${space.name}${defaultMarker} (space)`)
+        }
+      }
     }
 
     return lines.join('\n')

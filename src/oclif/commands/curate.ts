@@ -1,9 +1,18 @@
-import {Args, Command, Flags} from '@oclif/core'
+import type {ITransportClient, TaskAck} from '@campfirein/brv-transport-client'
 
-import {isDevelopment} from '../../server/config/environment.js'
-import {ICurateUseCase} from '../../server/core/interfaces/usecase/i-curate-use-case.js'
-import {HeadlessTerminal} from '../../server/infra/terminal/headless-terminal.js'
-import {CurateUseCase} from '../../server/infra/usecase/curate-use-case.js'
+import {Args, Command, Flags} from '@oclif/core'
+import {randomUUID} from 'node:crypto'
+import {z} from 'zod'
+
+import {TaskEvents} from '../../shared/transport/events/index.js'
+import {
+  type DaemonClientOptions,
+  formatConnectionError,
+  hasLeakedHandles,
+  withDaemonRetry,
+} from '../lib/daemon-client.js'
+import {writeJsonResponse} from '../lib/json-response.js'
+import {type ToolCallRecord, waitForTaskCompletion} from '../lib/task-client.js'
 
 /** Parsed flags type */
 type CurateFlags = {
@@ -11,8 +20,43 @@ type CurateFlags = {
   files?: string[]
   folder?: string[]
   format?: 'json' | 'text'
-  verbose?: boolean
 }
+
+/** Schema for curate operations in tool results (direct curate call) */
+const CurateResultSchema = z.object({
+  result: z
+    .object({
+      applied: z
+        .array(
+          z.object({
+            filePath: z.string().optional(),
+            path: z.string(),
+            status: z.string(),
+            type: z.string(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
+})
+
+/** Schema for curate results from code_exec (via tools.curate()) */
+const CodeExecCurateResultSchema = z.object({
+  returnValue: z
+    .object({
+      applied: z
+        .array(
+          z.object({
+            filePath: z.string().optional(),
+            path: z.string(),
+            status: z.string(),
+            type: z.string(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
+})
 
 export default class Curate extends Command {
   public static args = {
@@ -67,21 +111,10 @@ Bad examples:
       description: 'Output format (text or json)',
       options: ['text', 'json'],
     }),
-    ...(isDevelopment()
-      ? {
-          verbose: Flags.boolean({
-            char: 'v',
-            default: false,
-            description: 'Enable verbose debug output [Development only]',
-          }),
-        }
-      : {}),
   }
 
-  protected createUseCase(options: {format: 'json' | 'text'}): ICurateUseCase {
-    const terminal = new HeadlessTerminal({failOnPrompt: true, outputFormat: options.format})
-
-    return new CurateUseCase({terminal})
+  protected getDaemonClientOptions(): DaemonClientOptions {
+    return {}
   }
 
   public async run(): Promise<void> {
@@ -89,13 +122,216 @@ Bad examples:
     const flags = rawFlags as CurateFlags
     const format = (flags.format ?? 'text') as 'json' | 'text'
 
-    return this.createUseCase({format}).run({
-      context: args.context,
-      detach: flags.detach,
-      files: flags.files,
-      folders: flags.folder,
-      format,
-      verbose: flags.verbose,
-    })
+    if (!this.validateInput(args, flags, format)) return
+
+    const resolvedContent = args.context?.trim()
+      ? args.context
+      : flags.folder?.length
+        ? 'Analyze this folder and extract all relevant knowledge, patterns, and documentation.'
+        : ''
+    const taskType = flags.folder?.length ? 'curate-folder' : 'curate'
+
+    try {
+      await withDaemonRetry(
+        async (client, projectRoot) => {
+          await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType})
+        },
+        {
+          ...this.getDaemonClientOptions(),
+          onRetry:
+            format === 'text'
+              ? (attempt, maxRetries) =>
+                  this.log(`\nConnection lost. Restarting daemon... (attempt ${attempt}/${maxRetries})`)
+              : undefined,
+        },
+      )
+    } catch (error) {
+      this.reportError(error, format)
+    }
+  }
+
+  /**
+   * Extract file changes from collected tool calls (same logic as TUI useActivityLogs).
+   */
+  private composeChangesFromToolCalls(toolCalls: ToolCallRecord[]): {created: string[]; updated: string[]} {
+    const changes: {created: string[]; updated: string[]} = {created: [], updated: []}
+
+    for (const tc of toolCalls) {
+      if (tc.status !== 'completed' || !tc.result) continue
+
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(String(tc.result))
+      } catch {
+        continue
+      }
+
+      if (tc.toolName === 'curate') {
+        const parseResult = CurateResultSchema.safeParse(parsed)
+        if (!parseResult.success) continue
+        this.extractChangesFromApplied(parseResult.data.result?.applied ?? [], changes)
+      } else if (tc.toolName === 'code_exec') {
+        const parseResult = CodeExecCurateResultSchema.safeParse(parsed)
+        if (!parseResult.success) continue
+        if (parseResult.data.returnValue?.applied) {
+          this.extractChangesFromApplied(parseResult.data.returnValue.applied, changes)
+        }
+      }
+    }
+
+    return changes
+  }
+
+  private extractChangesFromApplied(
+    applied: Array<{filePath?: string; path: string; status: string; type: string}>,
+    changes: {created: string[]; updated: string[]},
+  ): void {
+    for (const op of applied) {
+      if (op.status !== 'success' || !op.filePath) continue
+
+      switch (op.type) {
+        case 'ADD': {
+          changes.created.push(op.filePath)
+          break
+        }
+
+        case 'UPDATE':
+        case 'UPSERT': {
+          changes.updated.push(op.filePath)
+          break
+        }
+
+        default: {
+          break
+        }
+      }
+    }
+  }
+
+  private reportError(error: unknown, format: 'json' | 'text'): void {
+    const errorMessage = error instanceof Error ? error.message : 'Curate failed'
+
+    if (format === 'json') {
+      writeJsonResponse({command: 'curate', data: {error: errorMessage, status: 'error'}, success: false})
+    } else {
+      this.log(formatConnectionError(error))
+    }
+
+    if (hasLeakedHandles(error)) {
+      // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+      process.exit(1)
+    }
+  }
+
+  private async submitTask(props: {
+    client: ITransportClient
+    content: string
+    flags: CurateFlags
+    format: 'json' | 'text'
+    projectRoot?: string
+    taskType: string
+  }): Promise<void> {
+    const {client, content, flags, format, projectRoot, taskType} = props
+    const hasFolders = Boolean(flags.folder?.length)
+    const taskId = randomUUID()
+    const taskPayload = {
+      clientCwd: process.cwd(),
+      content,
+      ...(flags.files?.length ? {files: flags.files} : {}),
+      ...(hasFolders && flags.folder ? {folderPath: flags.folder[0]} : {}),
+      ...(projectRoot ? {projectPath: projectRoot} : {}),
+      taskId,
+      type: taskType,
+    }
+
+    if (flags.detach) {
+      await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
+
+      if (format === 'json') {
+        writeJsonResponse({
+          command: 'curate',
+          data: {message: 'Context queued for processing', status: 'queued', taskId},
+          success: true,
+        })
+      } else {
+        this.log('✓ Context queued for processing.')
+      }
+    } else {
+      const completionPromise = waitForTaskCompletion(
+        {
+          client,
+          command: 'curate',
+          format,
+          onCompleted: ({taskId: tid, toolCalls}) => {
+            const changes = this.composeChangesFromToolCalls(toolCalls)
+
+            if (format === 'text') {
+              for (const file of changes.created) {
+                this.log(`  add ${file}`)
+              }
+
+              for (const file of changes.updated) {
+                this.log(`  update ${file}`)
+              }
+
+              this.log('✓ Context curated successfully.')
+            } else {
+              writeJsonResponse({
+                command: 'curate',
+                data: {
+                  changes: changes.created.length > 0 || changes.updated.length > 0 ? changes : undefined,
+                  event: 'completed',
+                  message: 'Context curated successfully',
+                  status: 'completed',
+                  taskId: tid,
+                },
+                success: true,
+              })
+            }
+          },
+          onError({error}) {
+            if (format === 'json') {
+              writeJsonResponse({
+                command: 'curate',
+                data: {event: 'error', message: error.message, status: 'error'},
+                success: false,
+              })
+            }
+          },
+          taskId,
+        },
+        (msg) => this.log(msg),
+      )
+      await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
+      await completionPromise
+    }
+  }
+
+  private validateInput(args: {context?: string}, flags: CurateFlags, format: 'json' | 'text'): boolean {
+    const hasContext = Boolean(args.context?.trim())
+    const hasFiles = Boolean(flags.files?.length)
+    const hasFolders = Boolean(flags.folder?.length)
+
+    if (hasContext || hasFiles || hasFolders) return true
+
+    if (format === 'json') {
+      writeJsonResponse({
+        command: 'curate',
+        data: {
+          message: 'Either a context argument, file reference, or folder reference is required.',
+          status: 'error',
+        },
+        success: false,
+      })
+    } else {
+      this.log('Either a context argument, file reference, or folder reference is required.')
+      this.log('Usage:')
+      this.log('  brv curate "your context here"')
+      this.log('  brv curate @src/file.ts')
+      this.log('  brv curate @src/             # folder pack')
+      this.log('  brv curate "context with files" @src/file.ts')
+    }
+
+    return false
   }
 }

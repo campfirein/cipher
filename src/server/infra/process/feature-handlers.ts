@@ -142,6 +142,7 @@ export async function setupFeatureHandlers({
     resolveProjectPath,
     tokenStore,
     transport,
+    webAppUrl: envConfig.webAppUrl,
   }).setup()
 
   new PullHandler({

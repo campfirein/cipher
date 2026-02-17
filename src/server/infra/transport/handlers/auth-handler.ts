@@ -11,6 +11,8 @@ import type {ProjectPathResolver} from './handler-types.js'
 import {
   AuthEvents,
   type AuthGetStateResponse,
+  type AuthLoginWithApiKeyRequest,
+  type AuthLoginWithApiKeyResponse,
   type AuthLogoutResponse,
   type AuthRefreshResponse,
   type AuthStartLoginResponse,
@@ -60,6 +62,7 @@ export class AuthHandler {
 
   setup(): void {
     this.setupGetState()
+    this.setupLoginWithApiKey()
     this.setupStartLogin()
     this.setupLogout()
     this.setupRefresh()
@@ -215,6 +218,37 @@ export class AuthHandler {
         return {isAuthorized: false}
       }
     })
+  }
+
+  private setupLoginWithApiKey(): void {
+    this.transport.onRequest<AuthLoginWithApiKeyRequest, AuthLoginWithApiKeyResponse>(
+      AuthEvents.LOGIN_WITH_API_KEY,
+      async (data) => {
+        try {
+          const user = await this.userService.getCurrentUser(data.apiKey)
+          const authToken = new AuthToken({
+            accessToken: 'unnecessary',
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+            refreshToken: 'unnecessary',
+            sessionKey: data.apiKey,
+            tokenType: 'unnecessary',
+            userEmail: user.email,
+            userId: user.id,
+          })
+
+          await this.tokenStore.save(authToken)
+
+          this.transport.broadcast(AuthEvents.STATE_CHANGED, {
+            isAuthorized: true,
+            user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id},
+          })
+
+          return {success: true, userEmail: user.email}
+        } catch (error) {
+          return {error: getErrorMessage(error), success: false}
+        }
+      },
+    )
   }
 
   private setupLogout(): void {

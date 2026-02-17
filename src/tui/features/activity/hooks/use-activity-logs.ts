@@ -10,6 +10,7 @@ import {array as zArray, number as zNumber, object as zObject, string as zString
 import type {ActivityLog, ExecutionStatus, ToolCallStatus} from '../../../types/index.js'
 import type {Task, ToolCallEvent} from '../../tasks/stores/tasks-store.js'
 
+import {formatTaskError} from '../../../utils/error-messages.js'
 import {useTasksStore} from '../../tasks/stores/tasks-store.js'
 
 const ExecutionInputSchema = zObject({
@@ -230,7 +231,7 @@ export function useActivityLogs(): UseActivityLogsReturn {
 
         const activityLog: ActivityLog = {
           changes,
-          content: task.status === 'error' ? task.error?.message ?? '' : task.result ?? '',
+          content: task.status === 'error' ? formatTaskError(task.error) : (task.result ?? ''),
           files: task.files,
           folders: task.folders,
           id: task.taskId,
