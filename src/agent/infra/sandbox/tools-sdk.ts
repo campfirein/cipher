@@ -86,9 +86,17 @@ export interface SearchKnowledgeOptions {
 export interface SearchKnowledgeResult {
   message: string
   results: Array<{
+    /** Number of other memories that reference this one */
+    backlinkCount?: number
     excerpt: string
     path: string
+    /** Top backlink source paths (max 3) */
+    relatedPaths?: string[]
     score: number
+    /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' */
+    symbolKind?: string
+    /** Resolved hierarchical path in the symbol tree */
+    symbolPath?: string
     title: string
   }>
   totalFound: number
