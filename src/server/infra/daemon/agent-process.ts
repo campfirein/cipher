@@ -134,6 +134,9 @@ let providerConfigDirty = false
 let providerFetchRetries = 0
 const MAX_PROVIDER_FETCH_RETRIES = 3
 
+// Concurrent task tracking — guards config refresh and provider hot-swap
+let activeTaskCount = 0
+
 // ============================================================================
 // Main
 // ============================================================================
@@ -356,81 +359,99 @@ async function executeTask(
   const {clientCwd, clientId, content, files, folderPath, taskId, type} = task
   if (!transport || !agent) return
 
-  // Refresh config from state server to pick up changes from init/space-switch
-  // (they write directly to disk, bypassing the agent's cached state)
-  try {
-    const configResult = await transport.requestWithAck<{brvConfig?: BrvConfig; spaceId?: string; teamId?: string}>(
-      TransportStateEventNames.GET_PROJECT_CONFIG,
-      {projectPath},
-    )
-    if (configResult.brvConfig) cachedBrvConfig = configResult.brvConfig
-    if (configResult.teamId !== undefined) cachedTeamId = configResult.teamId
-    if (configResult.spaceId !== undefined) cachedSpaceId = configResult.spaceId
-  } catch {
-    agentLog('Failed to refresh config before task execution')
-  }
-
-  // Refresh auth from state server to pick up login/logout changes
-  // (state:getAuth loads fresh from keychain and self-heals via broadcast)
-  try {
-    const authResult = await transport.requestWithAck<{isValid?: boolean; sessionKey?: string}>(
-      TransportStateEventNames.GET_AUTH,
-    )
-    if (authResult.sessionKey !== undefined) cachedSessionKey = authResult.sessionKey
-  } catch {
-    agentLog('Failed to refresh auth before task execution')
-  }
-
-  // Refresh provider config if changed (provider:updated event sets dirty flag)
-  if (providerConfigDirty && agent) {
-    const result = await hotSwapProvider(agent, transport)
-    if (result.error) {
-      transport.request(TransportTaskEventNames.ERROR, {clientId, error: result.error, taskId})
-      return
-    }
-  }
-
-  // Setup per-task event forwarding — forwards llmservice:* events to daemon
-  const cleanupForwarding = agent.setupTaskForwarding(taskId)
-
-  // Emit task:started
-  transport.request(TransportTaskEventNames.STARTED, {taskId})
+  activeTaskCount++
 
   try {
-    let result: string
-    switch (type) {
-      case 'curate': {
-        result = await curateExecutor.executeWithAgent(agent, {clientCwd, content, files, taskId})
-
-        break
+    // Only refresh config and hot-swap provider when this is the first concurrent task.
+    // Subsequent concurrent tasks reuse cached config to avoid race conditions
+    // on provider hot-swap (which replaces SessionManager).
+    if (activeTaskCount === 1) {
+      // Refresh config from state server to pick up changes from init/space-switch
+      // (they write directly to disk, bypassing the agent's cached state)
+      try {
+        const configResult = await transport.requestWithAck<{brvConfig?: BrvConfig; spaceId?: string; teamId?: string}>(
+          TransportStateEventNames.GET_PROJECT_CONFIG,
+          {projectPath},
+        )
+        if (configResult.brvConfig) cachedBrvConfig = configResult.brvConfig
+        if (configResult.teamId !== undefined) cachedTeamId = configResult.teamId
+        if (configResult.spaceId !== undefined) cachedSpaceId = configResult.spaceId
+      } catch {
+        agentLog('Failed to refresh config before task execution')
       }
 
-      case 'curate-folder': {
-        result = await folderPackExecutor.executeWithAgent(agent, {
-          clientCwd,
-          content,
-          folderPath: folderPath!,
-          taskId,
-        })
+      // Refresh provider config if changed (provider:updated event sets dirty flag)
+      if (providerConfigDirty && agent) {
+        const result = await hotSwapProvider(agent, transport)
+        if (result.error) {
+          transport.request(TransportTaskEventNames.ERROR, {clientId, error: result.error, taskId})
 
-        break
-      }
-
-      case 'query': {
-        result = await queryExecutor.executeWithAgent(agent, {query: content, taskId})
-
-        break
+          return
+        }
       }
     }
 
-    // Emit task:completed
-    transport.request(TransportTaskEventNames.COMPLETED, {clientId, result, taskId})
-  } catch (error) {
-    // Emit task:error
-    const errorData = serializeTaskError(error)
-    transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, taskId})
+    // Auth refresh always runs — auth can expire between any two tasks
+    try {
+      const authResult = await transport.requestWithAck<{isValid?: boolean; sessionKey?: string}>(
+        TransportStateEventNames.GET_AUTH,
+      )
+      if (authResult.sessionKey !== undefined) cachedSessionKey = authResult.sessionKey
+    } catch {
+      agentLog('Failed to refresh auth before task execution')
+    }
+
+    // Setup per-task event forwarding — forwards llmservice:* events to daemon
+    const cleanupForwarding = agent.setupTaskForwarding(taskId)
+
+    // Emit task:started
+    transport.request(TransportTaskEventNames.STARTED, {taskId})
+
+    try {
+      let result: string
+      switch (type) {
+        case 'curate': {
+          result = await curateExecutor.executeWithAgent(agent, {clientCwd, content, files, taskId})
+
+          break
+        }
+
+        case 'curate-folder': {
+          result = await folderPackExecutor.executeWithAgent(agent, {
+            clientCwd,
+            content,
+            folderPath: folderPath!,
+            taskId,
+          })
+
+          break
+        }
+
+        case 'query': {
+          result = await queryExecutor.executeWithAgent(agent, {query: content, taskId})
+
+          break
+        }
+      }
+
+      // Emit task:completed
+      transport.request(TransportTaskEventNames.COMPLETED, {clientId, result, taskId})
+    } catch (error) {
+      // Emit task:error
+      const errorData = serializeTaskError(error)
+      transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, taskId})
+    } finally {
+      cleanupForwarding?.()
+    }
   } finally {
-    cleanupForwarding?.()
+    activeTaskCount--
+
+    // Deferred hot-swap: if provider changed while tasks were in-flight,
+    // trigger swap now that all tasks are done
+    if (activeTaskCount === 0 && providerConfigDirty && agent && transport) {
+      // eslint-disable-next-line no-void
+      void hotSwapProvider(agent, transport)
+    }
   }
 }
 

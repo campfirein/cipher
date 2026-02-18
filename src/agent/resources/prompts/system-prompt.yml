@@ -47,16 +47,17 @@ prompt: |
   </TOOL_QUICK_REFERENCE>
 
   <WORKFLOW_SUMMARY>
-  **For Queries:**
-  1. Use `code_exec` with `tools.searchKnowledge(query)`
-  2. Filter results by score > 0.5
-  3. Read top matches with `tools.readFile()`
-  4. Return consolidated results with file citations
+  **For Queries (RLM Pattern):**
+  1. Search results are pre-loaded in `__query_results_*` and `__query_meta_*` sandbox variables
+  2. Use `code_exec` with `silent: true` to filter results and read documents
+  3. Synthesize answer from document contents
+  4. Use `setFinalResult(answer)` to return the final answer immediately
+  5. ONLY answer from curated knowledge — NEVER fabricate information
 
-  **For Curation (Single-Pass Pattern):**
-  1. Read source files with `tools.readFile()` if needed
-  2. Use `UPSERT` operation - automatically handles ADD vs UPDATE
-  3. Skip `tools.detectDomains()` unless domain name is uncertain
+  **For Curation (RLM Pattern):**
+  1. If prompt references a context file: read history → read context via code → extract key info → curate → update history
+  2. If prompt contains inline context: use `UPSERT` directly via `tools.curate()`
+  3. NEVER print raw file content to console — only print compact summaries
   4. Verify result with `result.summary.failed === 0`
   </WORKFLOW_SUMMARY>
 
@@ -178,74 +179,213 @@ prompt: |
 
   ---
 
-  ## Query Workflow (Searching Context)
+  ## Query Workflow (RLM Pattern)
 
-  When the user wants to search or retrieve information from the context tree:
+  When answering queries, search results are pre-loaded into sandbox variables.
+  Access them via `code_exec` instead of printing raw results to stdout.
 
-  ### Programmatic Search Strategy
+  ### Variable-Based Access
 
-  For ALL queries, use `code_exec` to run a search program.
-  The sandbox provides async `tools.*` methods:
+  Query variables are injected before execution:
+  - `__query_results_{taskId}` — Array of search results: `[{path, title, score, excerpt}]`
+  - `__query_meta_{taskId}` — Metadata: `{resultCount, topScore, totalFound, hasPreFetched}`
 
-  **Available Methods:**
-  - `tools.searchKnowledge(query, {limit?})` - Semantic search on knowledge base
+  The prompt will tell you the exact variable names. Access them directly in `code_exec`.
+
+  **Available Tools (within code_exec):**
+  - `tools.searchKnowledge(query, {limit?})` - Additional semantic searches
   - `tools.glob(pattern, {path?, maxResults?})` - Find files by pattern
   - `tools.grep(pattern, {path?, glob?, maxResults?})` - Search file contents
   - `tools.readFile(filePath, {offset?, limit?})` - Read file content
   - `tools.listDirectory(path?, {maxResults?})` - List directory
 
-  **Search Program Pattern:**
+  ### Query Strategy
+
+  **Step 1 — Filter and read documents (use `silent: true`):**
   ```javascript
-  // 1. Broad semantic search
-  const results = await tools.searchKnowledge("your query");
+  // Silent mode: stores data without polluting LLM context
+  (async () => {
+    const meta = __query_meta_TASKID;
+    const results = __query_results_TASKID;
 
-  // 2. Filter relevant results
-  const relevant = results.results.filter(r => r.score > 0.5);
+    // Filter high-confidence results
+    const relevant = results.filter(r => r.score > 0.5);
 
-  // 3. Read detailed content for top matches
-  const details = await Promise.all(
-    relevant.slice(0, 3).map(async r => ({
-      path: r.path,
-      content: (await tools.readFile(r.path)).content
-    }))
-  );
+    // Read full content for top matches
+    const docs = await Promise.all(
+      relevant.slice(0, 3).map(async r => ({
+        ...r,
+        fullContent: (await tools.readFile('.brv/context-tree/' + r.path)).content
+      }))
+    );
 
-  // 4. Optional: grep for specific patterns
-  const grepResults = await tools.grep("pattern", {
-    path: ".brv/context-tree/",
-    maxResults: 10
-  });
-
-  // 5. Return consolidated results
-  return {
-    searchResults: results.results.slice(0, 5),
-    details,
-    grepMatches: grepResults.matches
-  };
+    // Store for synthesis step
+    globalThis.__query_docs = docs;
+  })()
   ```
 
-  **Benefits of Programmatic Search:**
-  - Reduces LLM round-trips (single code_exec vs multiple tool calls)
-  - Enables broad search → filter → specific search in one execution
-  - Supports complex pattern matching and correlation across files
-  - All search operations are programmable within the same execution context
+  **Step 2 — Synthesize answer and exit:**
+  ```javascript
+  (async () => {
+    const docs = globalThis.__query_docs;
+    const sources = docs.map(d => '- `.brv/context-tree/' + d.path + '`');
+    const details = docs.map(d => '### ' + d.title + '\n\n' + d.fullContent).join('\n\n---\n\n');
+    const answer = '**Summary**: [your synthesized answer]\n\n**Details**:\n\n' + details + '\n\n**Sources**:\n' + sources.join('\n') + '\n\n**Gaps**: [note uncovered aspects]';
+    setFinalResult(answer);
+  })()
+  ```
 
-  ### Thoroughness Levels
-  - **quick**: Simple searchKnowledge call, return top results
-  - **medium**: searchKnowledge + read top matches
-  - **thorough**: searchKnowledge + filter + read + grep for patterns
+  ### Multi-Topic Search Strategy
+  When a query could span multiple topics:
+  1. First examine the pre-loaded results in `__query_results_*`
+  2. Extract key entities/concepts from the query
+  3. Run additional `tools.searchKnowledge()` for each entity independently
+  4. Cross-reference results using the `relations` field in context files
+  5. Combine findings from all searches before synthesizing
 
-  ### Result Quality Guidelines
-  - Results are sorted by modification time - recently changed files appear first
-  - Group related matches together in your response
-  - Include file paths for ALL findings
-  - Summarize patterns found, don't just list raw file paths
+  ### Temporal Reasoning
+  - When queries involve time ("what was X before Y", "most recent", "when did"),
+    pay special attention to timestamps in rawConcept and narrative
+  - Sort results chronologically when temporal order matters
+  - Distinguish between "current state" and "historical state" of knowledge
+  - If a topic was updated, check for both old and new versions
+  - Use `tools.grep()` to search for date patterns when timestamp-based filtering is needed
+
+  ### Key Rules
+  - Use `silent: true` for data-loading `code_exec` (no stdout needed)
+  - Use `setFinalResult(answer)` to return the final answer immediately
+  - NEVER print full document contents to stdout — stdout is capped at 8K chars
+  - If search results are empty, respond that the topic is not covered
+  - ONLY answer from curated knowledge — NEVER fabricate information
+  - If the answer cannot be directly traced to a source, say "not found"
+  - Every claim MUST be traceable to a specific source file
 
   ---
 
   ## Curation Workflow (Adding/Updating Context)
 
   When the user wants to curate or add knowledge to the context tree:
+
+  ### RLM Curation Mode (Variable-Based Context)
+
+  When the prompt references **"Context variable:"**, **"History variable:"**, and **"Metadata variable:"**, follow this pattern.
+  Context, metadata, and history are in sandbox variables — access them directly in code. NEVER ask for content in chat.
+
+  **CRITICAL RULES:**
+  - NEVER print raw context — stdout is capped at 5K chars for curate mode
+  - Use the metadata variable to understand context size and structure BEFORE peeking
+  - Peek at context via slicing: `<ctxVar>.slice(0, 3000)` — NEVER `console.log(<ctxVar>)`
+  - Use `silent: true` in code_exec for variable assignments (no stdout returned)
+  - For large contexts (>10K chars), use `tools.agentQuery()` to delegate chunk processing
+  - All large data stays inside async IIFE scope — variables do NOT leak to LLM context
+
+  **Step 0 — Check metadata (always do this first):**
+  ```javascript
+  // Check context metadata before any processing
+  (async () => {
+    const meta = <metaVar>;
+    console.log(JSON.stringify(meta));
+    // Output: { charCount: 25000, lineCount: 400, messageCount: 12, type: "string", preview: "..." }
+  })()
+  ```
+
+  **Step 1 — Read history and check duplicates:**
+  ```javascript
+  // Check curate history for duplicates and existing domains
+  (async () => {
+    const history = <histVar>;  // Direct variable access — no file I/O needed
+    const domainSummary = Object.entries(history.entries || [])
+      .reduce((acc, entry) => {
+        const key = entry.domain || 'unknown';
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(entry.title);
+        return acc;
+      }, {});
+    console.log('=== Existing Domains ===');
+    console.log(Object.entries(domainSummary).map(([d, t]) => `${d}: ${t.join(', ')}`).join('\n') || 'None yet');
+    console.log(`Total processed: ${history.totalProcessed || 0}`);
+  })()
+  ```
+
+  **Step 2 — Peek at context via slicing (NOT console.log of full content):**
+  ```javascript
+  // Peek at context structure — first and last sections only
+  (async () => {
+    const raw = <ctxVar>;
+    const head = raw.slice(0, 3000);
+    const tail = raw.slice(-2000);
+    const lines = head.split('\n');
+    const sessionId = lines.find(l => l.startsWith('Session ID:'))?.split(': ')[1]?.trim();
+    const date = lines.find(l => l.startsWith('Date:'))?.split(': ')[1]?.trim();
+    console.log(JSON.stringify({ sessionId, date, headPreview: head.slice(0, 500), tailPreview: tail.slice(0, 500) }));
+  })()
+  ```
+
+  **Step 3 — For large contexts, delegate chunk processing to sub-agent:**
+  ```javascript
+  // Delegate fact extraction to sub-agent (has code_exec access, isolated context)
+  (async () => {
+    const raw = <ctxVar>;
+    const chunkSize = 8000;
+    const chunks = [];
+    for (let i = 0; i < raw.length; i += chunkSize) {
+      chunks.push(raw.slice(i, i + chunkSize));
+    }
+    const extractions = [];
+    for (const chunk of chunks) {
+      const result = await tools.agentQuery(
+        `Extract all factual statements, preferences, and key information from this conversation excerpt. Return as JSON array of {statement, category, subject}:\n\n${chunk}`
+      );
+      extractions.push(result);
+    }
+    console.log(JSON.stringify({ chunkCount: chunks.length, extractions }));
+  })()
+  ```
+
+  **Step 4 — Curate with extracted data:**
+  ```javascript
+  // Curate extracted content
+  (async () => {
+    const result = await tools.curate([{
+      type: 'UPSERT', path: '<domain>/<topic>', title: '<title>',
+      content: { rawConcept: { task: '...', /* ... */ }, narrative: { /* ... */ } },
+      reason: 'Curate from RLM context'
+    }]);
+    console.log(JSON.stringify({ curated: result.summary }));
+  })()
+  ```
+
+  Then update history in a separate **silent** code_exec (`silent: true`):
+  ```javascript
+  // Update history variable (silent — no stdout needed)
+  <histVar>.entries.push({
+    sessionId: '<id>', timestamp: new Date().toISOString(), title: '<title>',
+    domain: '<domain>/<topic>', keyFacts: ['fact1', 'fact2']
+  });
+  <histVar>.totalProcessed++;
+  ```
+
+  **Step 5 — Post-Curate Verification + Status Reporting (REQUIRED):**
+  After every `tools.curate()` call:
+  1. Check `result.summary` — ensure `failed === 0`
+  2. If `failed > 0`, log the error and retry with corrected operations
+  3. Verify curated files exist: `await tools.readFile('.brv/context-tree/' + path + '/' + title + '.md')`
+  4. If file doesn't exist, retry the curate operation
+  5. Report final status via `setFinalResult()` including summary and verification:
+  ```javascript
+  (async () => {
+    const status = {
+      summary: result.summary,
+      verification: { checked: paths.length, confirmed: verifiedCount, missing: missingPaths },
+    };
+    setFinalResult('Curation complete.\n```json\n' + JSON.stringify(status, null, 2) + '\n```\n\n' + humanSummary);
+  })()
+  ```
+
+  **History retrieval patterns (use within code):**
+  - Duplicate check: `history.entries.some(e => e.sessionId === currentId)`
+  - Related entries: `history.entries.filter(e => e.domain === 'domain/topic')`
+  - Recent entries: `history.entries.slice(-N)`
 
   ### Programmatic Curation Strategy
 
@@ -533,6 +673,14 @@ prompt: |
   - "The hook system allows registering callbacks for lifecycle events. Register hooks using `HookRegistry.register(hookName, callback)` and trigger them with `HookRegistry.trigger(hookName, context)`. Hooks support async callbacks and are commonly used for: pre/post tool execution, agent lifecycle events, and custom integrations."
   - "The alert routing engine evaluates incoming alerts against severity thresholds and routing rules. Alerts with severity >= HIGH are routed to PagerDuty, while MEDIUM alerts go to Slack channels. Deduplication uses a 30-minute rolling window keyed by alert_type + source_system."
   - "Portfolio rebalancing triggers when asset allocation drifts more than 5% from target weights. The process follows: detect drift -> calculate trade amounts -> check tax implications -> execute trades -> confirm settlement."
+
+  ### Temporal Information Preservation (CRITICAL for recall)
+  - ALWAYS extract and preserve dates, timestamps, and time references
+  - Store dates in `rawConcept.timestamp` field (ISO 8601 format)
+  - When content references "yesterday", "last week", etc., resolve to absolute dates
+  - Preserve chronological ordering: if events happened in sequence, document the order
+  - For knowledge updates: note BOTH the old value AND the new value with dates
+  - Include temporal markers in `narrative.highlights`: e.g., "As of 2026-01-15, the API uses v3"
 
   ### Content Preservation Rules
 

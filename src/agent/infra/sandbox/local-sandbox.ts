@@ -115,17 +115,25 @@ function loadAllowedPackages(): Record<string, unknown> {
 export class LocalSandbox {
   private context: vm.Context
   private errorBuffer: string[] = []
+  /** Value set by setFinalResult() — signals early exit */
+  private finalResult?: string
   private outputBuffer: string[] = []
+  /** Current stdout cap in chars (undefined = unlimited) */
+  private stdoutCap?: number
+  /** Running count of chars written to outputBuffer in current execution */
+  private stdoutCharsWritten = 0
+  /** Whether stdout has been truncated in current execution */
+  private stdoutTruncated = false
 
   constructor(options: LocalSandboxOptions = {}) {
     const { environmentContext, initialContext = {}, toolsSDK } = options
 
-    // Create safe console that captures output
+    // Create safe console that captures output (stdout methods respect cap)
     const safeConsole = {
-      debug: (...args: unknown[]) => this.outputBuffer.push(args.map(String).join(' ')),
+      debug: (...args: unknown[]) => this.pushStdout(args.map(String).join(' ')),
       error: (...args: unknown[]) => this.errorBuffer.push(args.map(String).join(' ')),
-      info: (...args: unknown[]) => this.outputBuffer.push(args.map(String).join(' ')),
-      log: (...args: unknown[]) => this.outputBuffer.push(args.map(String).join(' ')),
+      info: (...args: unknown[]) => this.pushStdout(args.map(String).join(' ')),
+      log: (...args: unknown[]) => this.pushStdout(args.map(String).join(' ')),
       warn: (...args: unknown[]) => this.errorBuffer.push(args.map(String).join(' ')),
     }
 
@@ -138,6 +146,11 @@ export class LocalSandbox {
       packages, // Make packages available as `packages.lodash`, etc.
       ...packages, // Also spread at top level for convenience: `lodash`, `dateFns`, etc.
       ...initialContext,
+    }
+
+    // Inject setFinalResult for early exit from agentic loop
+    sandbox.setFinalResult = (result: unknown) => {
+      this.finalResult = typeof result === 'string' ? result : JSON.stringify(result)
     }
 
     // Inject Tools SDK if provided (for file system operations)
@@ -179,6 +192,10 @@ export class LocalSandbox {
   async execute(code: string, config?: SandboxConfig): Promise<REPLResult> {
     this.outputBuffer = []
     this.errorBuffer = []
+    this.finalResult = undefined
+    this.stdoutCap = config?.maxStdoutChars
+    this.stdoutCharsWritten = 0
+    this.stdoutTruncated = false
 
     const timeout = config?.timeout ?? DEFAULT_SANDBOX_TIMEOUT
     const startTime = performance.now()
@@ -252,6 +269,7 @@ export class LocalSandbox {
 
     return {
       executionTime,
+      finalResult: this.finalResult,
       locals,
       returnValue,
       stderr: this.errorBuffer.join('\n'),
@@ -277,5 +295,30 @@ export class LocalSandbox {
     for (const [key, value] of Object.entries(updates)) {
       this.context[key] = value
     }
+  }
+
+  /**
+   * Push a line to stdout, respecting the optional character cap.
+   * When the cap is reached, appends a truncation notice and drops further output.
+   */
+  private pushStdout(line: string): void {
+    if (this.stdoutTruncated) {
+      return
+    }
+
+    if (this.stdoutCap !== undefined && this.stdoutCharsWritten + line.length > this.stdoutCap) {
+      const remaining = this.stdoutCap - this.stdoutCharsWritten
+      if (remaining > 0) {
+        this.outputBuffer.push(line.slice(0, remaining))
+      }
+
+      this.outputBuffer.push(`\n... [stdout truncated at ${this.stdoutCap} chars]`)
+      this.stdoutTruncated = true
+
+      return
+    }
+
+    this.stdoutCharsWritten += line.length + 1 // +1 for join newline
+    this.outputBuffer.push(line)
   }
 }

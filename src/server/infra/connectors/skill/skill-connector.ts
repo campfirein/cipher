@@ -13,7 +13,7 @@ import type {IFileService} from '../../../core/interfaces/services/i-file-servic
 import type {SkillSupportedAgent} from './skill-connector-config.js'
 
 import {AGENT_CONNECTOR_CONFIG} from '../../../core/domain/entities/agent.js'
-import {SKILL_CONNECTOR_CONFIGS, SKILL_FILE_NAMES} from './skill-connector-config.js'
+import {MAIN_SKILL_FILE_NAME, SKILL_CONNECTOR_CONFIGS, SKILL_FILE_NAMES} from './skill-connector-config.js'
 import {SkillContentLoader} from './skill-content-loader.js'
 
 /**
@@ -72,7 +72,7 @@ export class SkillConnector implements IConnector {
 
     try {
       // Check if already installed
-      const skillFilePath = path.join(fullDir, SKILL_FILE_NAMES[0])
+      const skillFilePath = path.join(fullDir, MAIN_SKILL_FILE_NAME)
       if (await this.fileService.exists(skillFilePath)) {
         return {
           alreadyInstalled: true,
@@ -202,6 +202,42 @@ export class SkillConnector implements IConnector {
         wasInstalled: true,
       }
     }
+  }
+
+  /**
+   * Write files to a named skill subdirectory for the given agent.
+   * Used by hub install to write downloaded skill files to e.g. `.claude/skills/{skillName}/`.
+   */
+  async writeSkillFiles(
+    agent: Agent,
+    skillName: string,
+    files: Array<{content: string; name: string}>,
+  ): Promise<{alreadyInstalled: boolean; installedFiles: string[]; relativePath: string}> {
+    if (!this.isSupported(agent)) {
+      throw new Error(`Skill connector does not support agent: ${agent}`)
+    }
+
+    const config = SKILL_CONNECTOR_CONFIGS[agent as SkillSupportedAgent]
+    const relativePath = path.join(path.dirname(config.basePath), skillName)
+    const fullDir = this.getFullPath(relativePath, config.scope)
+
+    if (files.length > 0) {
+      const firstFilePath = path.join(fullDir, files[0].name)
+      if (await this.fileService.exists(firstFilePath)) {
+        return {alreadyInstalled: true, installedFiles: [], relativePath}
+      }
+    }
+
+    const installedFiles: string[] = []
+    await Promise.all(
+      files.map(async (file) => {
+        const filePath = path.join(fullDir, file.name)
+        await this.fileService.write(file.content, filePath, 'overwrite')
+        installedFiles.push(filePath)
+      }),
+    )
+
+    return {alreadyInstalled: false, installedFiles, relativePath}
   }
 
   /**

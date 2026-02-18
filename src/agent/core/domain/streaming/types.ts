@@ -106,6 +106,8 @@ export type StreamingEvent =
 export interface StreamOptions {
   /** Execution context */
   executionContext?: ExecutionContext
+  /** Session ID override — uses default session if not provided (for per-task session isolation) */
+  sessionId?: string
   /** AbortSignal for cancellation */
   signal?: AbortSignal
   /** Task ID for concurrent task isolation (included in all emitted events) */

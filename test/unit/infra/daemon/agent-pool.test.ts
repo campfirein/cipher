@@ -85,6 +85,7 @@ function makeTask(overrides: Partial<TaskExecute> = {}): TaskExecute {
  */
 function createPool(
   options: {
+    maxConcurrentTasks?: number
     maxSize?: number
     readyTimeoutMs?: number
     transportServer?: ReturnType<typeof makeStubTransportServer>
@@ -109,6 +110,7 @@ function createPool(
 
   const pool = new AgentPool({
     agentProcessFactory: stubFactory,
+    maxConcurrentTasks: options.maxConcurrentTasks ?? 3,
     maxSize: options.maxSize ?? 3,
     readyTimeoutMs: options.readyTimeoutMs ?? 2000,
     stopTimeoutMs: 500,
@@ -248,27 +250,38 @@ describe('AgentPool', () => {
   })
 
   describe('submitTask — queuing', () => {
-    it('should queue task when agent is busy', async () => {
-      const {pool} = createPool()
+    it('should queue task when agent is at capacity', async () => {
+      const {pool} = createPool({maxConcurrentTasks: 1})
 
-      // Create agent with first task (marks agent busy)
+      // Create agent with first task (activeTasks=1, at capacity)
       await pool.submitTask(makeTask({projectPath: '/app', taskId: 't1'}))
-      // Agent is busy (isBusy=true after sendTaskToAgent)
 
-      // Submit second task while agent is busy
+      // Submit second task while agent is at capacity → queued
       const result = await pool.submitTask(makeTask({projectPath: '/app', taskId: 't2'}))
 
       expect(result).to.deep.equal({success: true})
       expect(pool.getSize()).to.equal(1) // No new agent forked
     })
 
-    it('should drain queue when notifyTaskCompleted is called', async () => {
+    it('should send task immediately when agent has capacity', async () => {
       const transportServer = makeStubTransportServer()
-      const {pool} = createPool({transportServer})
+      const {pool} = createPool({maxConcurrentTasks: 3, transportServer})
 
       // First task
       await pool.submitTask(makeTask({projectPath: '/app', taskId: 't1'}))
-      // Second task queued (agent busy from first)
+      // Second task — agent has capacity (1/3), sent immediately
+      await pool.submitTask(makeTask({projectPath: '/app', taskId: 't2'}))
+
+      expect(transportServer.sendTo.callCount).to.equal(2)
+    })
+
+    it('should drain queue when notifyTaskCompleted is called', async () => {
+      const transportServer = makeStubTransportServer()
+      const {pool} = createPool({maxConcurrentTasks: 1, transportServer})
+
+      // First task
+      await pool.submitTask(makeTask({projectPath: '/app', taskId: 't1'}))
+      // Second task queued (agent at capacity with maxConcurrentTasks=1)
       await pool.submitTask(makeTask({projectPath: '/app', taskId: 't2'}))
 
       // Only first task sent so far
@@ -450,12 +463,12 @@ describe('AgentPool', () => {
     })
 
     it('should return per-project queue lengths when tasks are queued for busy agents', async () => {
-      const {children, pool} = createPool({maxSize: 1})
+      const {children, pool} = createPool({maxConcurrentTasks: 1, maxSize: 1})
 
       // Submit first task to create agent for /app-a
       await pool.submitTask(makeTask({projectPath: '/app-a', taskId: 't1'}))
 
-      // Agent is now busy — submit more tasks for SAME project (gets queued)
+      // Agent is now at capacity (maxConcurrentTasks=1) — submit more tasks (gets queued)
       await pool.submitTask(makeTask({projectPath: '/app-a', taskId: 't2'}))
       await pool.submitTask(makeTask({projectPath: '/app-a', taskId: 't3'}))
 

@@ -114,6 +114,7 @@ export function HomePage(): React.ReactNode {
       <List height={listHeight} selectedIndex={selectedIndex}>
         {feedItems.map((item, index) => {
           if (item.type === 'welcome') {
+            if (hasActiveDialog) return null
             return (
               <Box key="welcome">
                 <WelcomeBox />
