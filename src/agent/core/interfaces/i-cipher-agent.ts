@@ -8,6 +8,9 @@ import type {ConversationMetadata} from '../domain/system-prompt/types.js'
  * Contains runtime information about how the agent is being executed
  */
 export interface ExecutionContext {
+  /** Clear conversation history before execution (RLM mode — prevents accumulation across calls) */
+  clearHistory?: boolean
+
   /** Command type that initiated the execution (for command-specific prompt loading) */
   commandType?: 'chat' | 'curate' | 'query'
 
@@ -81,11 +84,44 @@ export interface ICipherAgent {
   cancel(): Promise<boolean>
 
   /**
+   * Create a task-scoped child session for parallel execution.
+   * The session gets its own sandbox, context manager, and LLM service.
+   *
+   * @param taskId - Unique task identifier (used as part of session ID)
+   * @param commandType - Command type for agent name tracking ('curate' | 'query')
+   * @returns Session ID of the created task session
+   */
+  createTaskSession(taskId: string, commandType: string): Promise<string>
+
+  /**
+   * Delete a sandbox variable from the agent's default session.
+   *
+   * @param key - Variable name to delete
+   */
+  deleteSandboxVariable(key: string): void
+
+  /**
+   * Delete a sandbox variable from a specific session's sandbox.
+   *
+   * @param sessionId - Target session
+   * @param key - Variable name to delete
+   */
+  deleteSandboxVariableOnSession(sessionId: string, key: string): void
+
+  /**
    * Delete a session completely (memory + history)
    * @param sessionId - Session ID to delete
    * @returns True if session existed and was deleted
    */
   deleteSession(sessionId: string): Promise<boolean>
+
+  /**
+   * Delete a task session and all its resources (sandbox + history).
+   * Use this for cleanup after per-task session execution.
+   *
+   * @param sessionId - Task session ID to delete
+   */
+  deleteTaskSession(sessionId: string): Promise<void>
 
   /**
    * Execute the agent with user input.
@@ -98,6 +134,21 @@ export interface ICipherAgent {
    * @returns Agent response
    */
   execute(
+    input: string,
+    options?: {executionContext?: ExecutionContext; taskId?: string},
+  ): Promise<string>
+
+  /**
+   * Execute the agent on a specific session (not the default session).
+   * Used for per-task session isolation in parallel execution.
+   *
+   * @param sessionId - Session to execute on
+   * @param input - User input string
+   * @param options - Optional execution options
+   * @returns Agent response
+   */
+  executeOnSession(
+    sessionId: string,
     input: string,
     options?: {executionContext?: ExecutionContext; taskId?: string},
   ): Promise<string>
@@ -137,6 +188,26 @@ export interface ICipherAgent {
    * Clears execution history and resets iteration counter
    */
   reset(): void
+
+  /**
+   * Set a variable in the agent's default session sandbox.
+   * If the sandbox doesn't exist yet, the variable is buffered and injected
+   * when the sandbox is created on the first code execution.
+   *
+   * @param key - Variable name
+   * @param value - Variable value
+   */
+  setSandboxVariable(key: string, value: unknown): void
+
+  /**
+   * Set a variable in a specific session's sandbox.
+   * Used for per-task session isolation in parallel execution.
+   *
+   * @param sessionId - Target session
+   * @param key - Variable name
+   * @param value - Variable value
+   */
+  setSandboxVariableOnSession(sessionId: string, key: string, value: unknown): void
 
   /**
    * Start the agent - initializes all services asynchronously

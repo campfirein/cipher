@@ -10,6 +10,9 @@ export interface REPLResult {
   /** Execution time in milliseconds */
   executionTime: number
 
+  /** If set by setFinalResult(), signals early termination of the agentic loop */
+  finalResult?: string
+
   /** Current context state (variable names to values) */
   locals: Record<string, unknown>
 
@@ -32,6 +35,9 @@ export interface SandboxConfig {
 
   /** Language: 'javascript' or 'typescript' (default: auto-detect) */
   language?: 'javascript' | 'typescript'
+
+  /** Cap stdout buffer at this many characters. undefined = unlimited. */
+  maxStdoutChars?: number
 
   /** Timeout in ms (default: 30000, max: 300000) */
   timeout?: number

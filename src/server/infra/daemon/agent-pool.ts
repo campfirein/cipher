@@ -26,7 +26,7 @@ import type {AgentEntryInfo, IAgentPool, SubmitTaskResult} from '../../core/inte
 import type {IAgentIdleTimeoutPolicy} from '../../core/interfaces/daemon/i-agent-idle-timeout-policy.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 
-import {AGENT_POOL_MAX_SIZE, AGENT_PROCESS_READY_TIMEOUT_MS, AGENT_PROCESS_STOP_TIMEOUT_MS} from '../../constants.js'
+import {AGENT_MAX_CONCURRENT_TASKS, AGENT_POOL_MAX_SIZE, AGENT_PROCESS_READY_TIMEOUT_MS, AGENT_PROCESS_STOP_TIMEOUT_MS} from '../../constants.js'
 import {TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
 import {ProjectTaskQueue} from './project-task-queue.js'
 
@@ -52,9 +52,10 @@ type AgentReadyMessage = {
 export type AgentProcessFactory = (projectPath: string) => ChildProcess
 
 type ForkedAgent = {
+  activeTasks: number
   childProcess: ChildProcess
   clientId: string
-  isBusy: boolean
+  maxConcurrentTasks: number
   stop: () => Promise<void>
 }
 
@@ -70,6 +71,7 @@ type AgentPoolOptions = {
   agentIdleTimeoutPolicy?: IAgentIdleTimeoutPolicy
   agentProcessFactory: AgentProcessFactory
   log?: (message: string) => void
+  maxConcurrentTasks?: number
   maxSize?: number
   readyTimeoutMs?: number
   stopTimeoutMs?: number
@@ -81,6 +83,7 @@ export class AgentPool implements IAgentPool {
   private readonly agentProcessFactory: AgentProcessFactory
   private readonly agents: Map<string, ManagedAgent> = new Map()
   private readonly log: (message: string) => void
+  private readonly maxConcurrentTasks: number
   private readonly maxSize: number
   private readonly readyTimeoutMs: number
   private shutdownRequested = false
@@ -91,6 +94,7 @@ export class AgentPool implements IAgentPool {
   constructor(options: AgentPoolOptions) {
     this.agentIdleTimeoutPolicy = options.agentIdleTimeoutPolicy
     this.agentProcessFactory = options.agentProcessFactory
+    this.maxConcurrentTasks = options.maxConcurrentTasks ?? AGENT_MAX_CONCURRENT_TASKS
     this.maxSize = options.maxSize ?? AGENT_POOL_MAX_SIZE
     this.readyTimeoutMs = options.readyTimeoutMs ?? AGENT_PROCESS_READY_TIMEOUT_MS
     this.stopTimeoutMs = options.stopTimeoutMs ?? AGENT_PROCESS_STOP_TIMEOUT_MS
@@ -100,9 +104,10 @@ export class AgentPool implements IAgentPool {
 
   getEntries(): readonly AgentEntryInfo[] {
     return [...this.agents.values()].map((entry) => ({
+      activeTasks: entry.agent.activeTasks,
       childPid: entry.agent.childProcess.pid ?? -1,
       createdAt: entry.createdAt,
-      hasActiveTask: entry.agent.isBusy,
+      hasActiveTask: entry.agent.activeTasks > 0,
       isIdle: entry.isIdle,
       lastUsedAt: entry.lastUsedAt,
       projectPath: entry.projectPath,
@@ -151,13 +156,13 @@ export class AgentPool implements IAgentPool {
 
   /**
    * Called by TransportHandlers when an agent completes or errors a task.
-   * Clears busy flag and drains any queued tasks for the project.
+   * Decrements active task count and drains queued tasks for the project.
    */
   notifyTaskCompleted(projectPath: string): void {
     const entry = this.agents.get(projectPath)
     if (!entry) return
 
-    entry.agent.isBusy = false
+    entry.agent.activeTasks = Math.max(0, entry.agent.activeTasks - 1)
     entry.lastUsedAt = Date.now()
     this.agentIdleTimeoutPolicy?.onAgentActivity(projectPath)
     this.drainQueue(projectPath)
@@ -189,14 +194,16 @@ export class AgentPool implements IAgentPool {
     // Fast path: Agent exists for this project
     const existing = this.agents.get(projectPath)
     if (existing) {
-      if (!existing.agent.isBusy) {
+      if (existing.agent.activeTasks < existing.agent.maxConcurrentTasks) {
         this.sendTaskToAgent(existing, task)
+
         return {success: true}
       }
 
-      // Agent busy → queue
+      // Agent at capacity → queue
       this.taskQueue.enqueue(projectPath, task)
-      this.log(`Task queued for busy agent: ${projectPath} (queue: ${this.taskQueue.getQueueLength(projectPath)})`)
+      this.log(`Task queued for busy agent: ${projectPath} (active: ${existing.agent.activeTasks}/${existing.agent.maxConcurrentTasks}, queue: ${this.taskQueue.getQueueLength(projectPath)})`)
+
       return {success: true}
     }
 
@@ -235,11 +242,14 @@ export class AgentPool implements IAgentPool {
 
   private drainQueue(projectPath: string): void {
     const entry = this.agents.get(projectPath)
-    if (!entry || entry.agent.isBusy) return
+    if (!entry) return
 
-    const nextTask = this.taskQueue.dequeue(projectPath)
-    if (nextTask) {
-      this.log(`Draining queue for: ${projectPath}`)
+    // Drain as many queued tasks as concurrency allows
+    while (entry.agent.activeTasks < entry.agent.maxConcurrentTasks) {
+      const nextTask = this.taskQueue.dequeue(projectPath)
+      if (!nextTask) break
+
+      this.log(`Draining queue for: ${projectPath} (active: ${entry.agent.activeTasks}/${entry.agent.maxConcurrentTasks})`)
       this.sendTaskToAgent(entry, nextTask)
     }
   }
@@ -251,9 +261,10 @@ export class AgentPool implements IAgentPool {
     const clientId = await this.waitForReady(childProcess, projectPath)
 
     const agent: ForkedAgent = {
+      activeTasks: 0,
       childProcess,
       clientId,
-      isBusy: false,
+      maxConcurrentTasks: this.maxConcurrentTasks,
       stop: () => this.stopChildProcess(childProcess),
     }
 
@@ -304,7 +315,7 @@ export class AgentPool implements IAgentPool {
 
   private sendTaskToAgent(entry: ManagedAgent, task: TaskExecute): void {
     entry.isIdle = false
-    entry.agent.isBusy = true
+    entry.agent.activeTasks++
     entry.lastUsedAt = Date.now()
     this.agentIdleTimeoutPolicy?.onAgentActivity(entry.projectPath)
 

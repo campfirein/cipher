@@ -14,6 +14,7 @@ import type {
   ICurateService,
 } from '../../core/interfaces/i-curate-service.js'
 import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
+import type {SessionManager} from '../session/session-manager.js'
 
 /**
  * Options for glob operation in ToolsSDK.
@@ -107,6 +108,17 @@ export interface ISearchKnowledgeService {
  */
 export interface ToolsSDK {
   /**
+   * Spawn a sub-agent to process a prompt with full code_exec access.
+   * The sub-agent runs in an isolated context (does not pollute parent).
+   * Only the final response string flows back.
+   * @param prompt - Prompt for the sub-agent
+   * @param options - Optional limits
+   * @param options.maxIterations - Maximum agentic iterations (default: 5)
+   * @returns Promise resolving to the sub-agent's final response
+   */
+  agentQuery(prompt: string, options?: { maxIterations?: number }): Promise<string>
+
+  /**
    * Execute curate operations on knowledge topics.
    * Operations: ADD, UPDATE, MERGE, DELETE
    * @param operations - Array of curate operations to apply
@@ -174,22 +186,54 @@ export interface ToolsSDK {
 }
 
 /**
+ * Options for creating a Tools SDK instance.
+ */
+export interface CreateToolsSDKOptions {
+  /** Curate service for knowledge curation */
+  curateService?: ICurateService
+  /** File system service for file operations */
+  fileSystem: IFileSystem
+  /** Parent session ID for creating child sessions (required for agentQuery) */
+  parentSessionId?: string
+  /** Search knowledge service */
+  searchKnowledgeService?: ISearchKnowledgeService
+  /** Session manager for sub-agent delegation (required for agentQuery) */
+  sessionManager?: SessionManager
+}
+
+/**
  * Creates a Tools SDK instance for sandbox code execution.
  *
  * The SDK provides async wrapper functions around file system operations,
  * allowing code executed in the sandbox to access file system tools programmatically.
  *
- * @param fileSystem - File system service for file operations
- * @param searchKnowledgeService - Optional search knowledge service
- * @param curateService - Optional curate service for knowledge curation
+ * @param options - Configuration options for the Tools SDK
  * @returns ToolsSDK instance ready to be injected into sandbox context
  */
-export function createToolsSDK(
-  fileSystem: IFileSystem,
-  searchKnowledgeService?: ISearchKnowledgeService,
-  curateService?: ICurateService,
-): ToolsSDK {
+export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
+  const {curateService, fileSystem, parentSessionId, searchKnowledgeService, sessionManager} = options
   return {
+    async agentQuery(prompt: string, options?: { maxIterations?: number }): Promise<string> {
+      if (!sessionManager || !parentSessionId) {
+        throw new Error('agentQuery not available — no session manager configured')
+      }
+
+      const childSession = await sessionManager.createChildSession(parentSessionId, 'sub-query')
+      try {
+        const response = await childSession.run(prompt, {
+          emitTaskId: false,
+          executionContext: {
+            commandType: 'query',
+            maxIterations: options?.maxIterations ?? 5,
+          },
+        })
+
+        return response
+      } finally {
+        await sessionManager.deleteSession(childSession.id)
+      }
+    },
+
     async curate(operations: CurateOperation[], options?: CurateOptions): Promise<CurateResult> {
       if (!curateService) {
         return {

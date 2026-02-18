@@ -228,6 +228,40 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   }
 
   /**
+   * Create a task-scoped child session for parallel execution.
+   * The session gets its own sandbox, context manager, and LLM service.
+   */
+  public async createTaskSession(taskId: string, commandType: string): Promise<string> {
+    this.ensureStarted()
+    const sessionMgr = this.getSessionManagerInternal()
+    const parentSessionId = this.getSessionIdInternal()
+    const childSession = await sessionMgr.createChildSession(
+      parentSessionId,
+      commandType,
+      `task-${commandType}-${taskId}`,
+    )
+
+    return childSession.id
+  }
+
+  /**
+   * Delete a sandbox variable from the agent's default session.
+   */
+  public deleteSandboxVariable(key: string): void {
+    this.ensureStarted()
+    const sessionId = this.getSessionIdInternal()
+    this.services!.sandboxService.deleteSandboxVariable(sessionId, key)
+  }
+
+  /**
+   * Delete a sandbox variable from a specific session's sandbox.
+   */
+  public deleteSandboxVariableOnSession(sessionId: string, key: string): void {
+    this.ensureStarted()
+    this.services!.sandboxService.deleteSandboxVariable(sessionId, key)
+  }
+
+  /**
    * Delete a session completely (memory + history).
    */
   public async deleteSession(sessionId: string): Promise<boolean> {
@@ -239,6 +273,15 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     }
 
     return this.getSessionManagerInternal().deleteSession(sessionId)
+  }
+
+  /**
+   * Delete a task session and all its resources (sandbox + history).
+   */
+  public async deleteTaskSession(sessionId: string): Promise<void> {
+    this.ensureStarted()
+    await this.services!.sandboxService.clearSession(sessionId)
+    await this.getSessionManagerInternal().deleteSession(sessionId)
   }
 
   /**
@@ -260,6 +303,26 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Use generate() internally for single code path
     const response = await this.generate(input, {
       executionContext: options?.executionContext,
+      taskId: options?.taskId,
+    })
+
+    return response.content
+  }
+
+  /**
+   * Execute the agent on a specific session (not the default session).
+   * Used for per-task session isolation in parallel execution.
+   */
+  public async executeOnSession(
+    sessionId: string,
+    input: string,
+    options?: {executionContext?: ExecutionContext; taskId?: string},
+  ): Promise<string> {
+    this.ensureStarted()
+
+    const response = await this.generate(input, {
+      executionContext: options?.executionContext,
+      sessionId,
       taskId: options?.taskId,
     })
 
@@ -452,6 +515,9 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     }
 
     this.sessionManager = newSessionManager
+
+    // Re-wire SessionManager into sandbox for tools.agentQuery()
+    this.services!.sandboxService.setSessionManager?.(this.sessionManager)
   }
 
   // === Protected Methods (implement abstract from BaseAgent) ===
@@ -481,6 +547,23 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     if (this._isStarted && this.services?.agentEventBus) {
       this.services.agentEventBus.emit('cipher:conversationReset', {sessionId})
     }
+  }
+
+  /**
+   * Set a variable in the agent's default session sandbox.
+   */
+  public setSandboxVariable(key: string, value: unknown): void {
+    this.ensureStarted()
+    const sessionId = this.getSessionIdInternal()
+    this.services!.sandboxService.setSandboxVariable(sessionId, key, value)
+  }
+
+  /**
+   * Set a variable in a specific session's sandbox.
+   */
+  public setSandboxVariableOnSession(sessionId: string, key: string, value: unknown): void {
+    this.ensureStarted()
+    this.services!.sandboxService.setSandboxVariable(sessionId, key, value)
   }
 
   /**
@@ -536,6 +619,9 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       },
     })
 
+    // Wire SessionManager into sandbox for tools.agentQuery() sub-agent delegation
+    this.services!.sandboxService.setSessionManager?.(this.sessionManager)
+
     // Create default session (Single-Session pattern)
     // Each agent has exactly 1 session created at start time
     const defaultSession = await this.sessionManager.createSession()
@@ -562,7 +648,8 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   public async stream(input: string, options?: StreamOptions): Promise<AsyncIterableIterator<StreamingEvent>> {
     this.ensureStarted()
 
-    const sessionId = this.getSessionIdInternal()
+    // Use provided sessionId (per-task session) or fall back to default session
+    const sessionId = options?.sessionId ?? this.getSessionIdInternal()
 
     const signal = options?.signal
 
