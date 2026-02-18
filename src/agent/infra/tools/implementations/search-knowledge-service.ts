@@ -14,6 +14,17 @@ import {
   determineTier,
   recordAccessHits,
 } from '../../../../server/core/domain/knowledge/memory-scoring.js'
+import { isPathLikeQuery, matchMemoryPath, parseSymbolicQuery } from './memory-path-matcher.js'
+import {
+  buildReferenceIndex,
+  buildSymbolTree,
+  getSubtreeDocumentIds,
+  getSymbolKindLabel,
+  getSymbolOverview,
+  MemorySymbolKind,
+  type MemorySymbolTree,
+  type ReferenceIndex,
+} from './memory-symbol-tree.js'
 
 const MAX_CONTEXT_TREE_FILES = 10_000
 const DEFAULT_CACHE_TTL_MS = 5000
@@ -75,7 +86,9 @@ interface CachedIndex {
   fileMtimes: Map<string, number>
   index: MiniSearch<IndexedDocument>
   lastValidatedAt: number
+  referenceIndex: ReferenceIndex
   schemaVersion: number
+  symbolTree: MemorySymbolTree
 }
 
 /**
@@ -97,6 +110,26 @@ export interface SearchKnowledgeServiceConfig {
   baseDirectory?: string
   /** Cache TTL in milliseconds (defaults to 5000) */
   cacheTtlMs?: number
+}
+
+/**
+ * Extended search options supporting symbolic filters.
+ */
+export interface SearchOptions {
+  /** Symbol kinds to exclude from results (e.g. ['subtopic']) */
+  excludeKinds?: string[]
+  /** Symbol kinds to include in results (e.g. ['domain', 'context']) */
+  includeKinds?: string[]
+  /** Maximum number of results to return */
+  limit?: number
+  /** Minimum maturity tier for results */
+  minMaturity?: 'core' | 'draft' | 'validated'
+  /** If true, return tree structure overview instead of search results */
+  overview?: boolean
+  /** Depth for overview mode (default: 2) */
+  overviewDepth?: number
+  /** Path prefix to scope search within (e.g. "auth" or "auth/jwt-tokens") */
+  scope?: string
 }
 
 function filterStopWords(query: string): string {
@@ -310,7 +343,9 @@ async function buildFreshIndex(
       fileMtimes: new Map(),
       index,
       lastValidatedAt: now,
+      referenceIndex: { backlinks: new Map(), forwardLinks: new Map() },
       schemaVersion: INDEX_SCHEMA_VERSION,
+      symbolTree: { root: [], symbolMap: new Map() },
     }
   }
 
@@ -347,13 +382,19 @@ async function buildFreshIndex(
   const index = new MiniSearch<IndexedDocument>(MINISEARCH_OPTIONS)
   index.addAll(documents)
 
+  // Build symbolic structures from the document map
+  const symbolTree = buildSymbolTree(documentMap)
+  const referenceIndex = buildReferenceIndex(documentMap)
+
   return {
     contextTreePath,
     documentMap,
     fileMtimes,
     index,
     lastValidatedAt: now,
+    referenceIndex,
     schemaVersion: INDEX_SCHEMA_VERSION,
+    symbolTree,
   }
 }
 
@@ -402,7 +443,9 @@ async function acquireIndex(
           fileMtimes: new Map(),
           index: emptyIndex,
           lastValidatedAt: 0,
+          referenceIndex: { backlinks: new Map(), forwardLinks: new Map() },
           schemaVersion: INDEX_SCHEMA_VERSION,
+          symbolTree: { root: [], symbolMap: new Map() },
         }
       }
     }
@@ -516,12 +559,13 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
   /**
    * Search the knowledge base for relevant topics.
+   * Supports symbolic path queries, scoped search, kind/maturity filtering, and overview mode.
    *
-   * @param query - Natural language query string
-   * @param options - Search options
-   * @returns Search results with matching topics
+   * @param query - Natural language query string or symbolic path (e.g. "auth/jwt")
+   * @param options - Search options including symbolic filters
+   * @returns Search results with matching topics, enriched with symbolic metadata
    */
-  async search(query: string, options?: { limit?: number }): Promise<SearchKnowledgeResult> {
+  async search(query: string, options?: SearchOptions): Promise<SearchKnowledgeResult> {
     const limit = options?.limit ?? 10
     const contextTreePath = join(this.baseDirectory, BRV_DIR, CONTEXT_TREE_DIR)
 
@@ -539,7 +583,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       return indexResult.result
     }
 
-    const { documentMap, index } = indexResult
+    const { documentMap, index, referenceIndex, symbolTree } = indexResult
 
     if (documentMap.size === 0) {
       return {
@@ -549,21 +593,136 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       }
     }
 
+    // Overview mode: return tree structure instead of search results
+    if (options?.overview) {
+      return this.buildOverviewResult(symbolTree, referenceIndex, options.scope, options.overviewDepth)
+    }
+
+    // Symbolic path resolution: try path-based query first
+    if (isPathLikeQuery(query, symbolTree)) {
+      const symbolicResult = this.trySymbolicSearch(
+        query, symbolTree, referenceIndex, documentMap, index, limit, options,
+      )
+
+      if (symbolicResult) {
+        return symbolicResult
+      }
+    }
+
+    // Parse query for potential scope prefix (e.g. "auth jwt refresh" → scope=auth, text="jwt refresh")
+    const parsed = parseSymbolicQuery(query, symbolTree)
+    const effectiveScope = options?.scope ?? parsed.scopePath
+    const effectiveQuery = parsed.scopePath ? parsed.textQuery : query
+
+    // Run text-based MiniSearch (existing pipeline), optionally scoped to a subtree
+    const textResult = this.runTextSearch(
+      effectiveQuery || query, documentMap, index, limit, effectiveScope, symbolTree, referenceIndex, options,
+    )
+
+    // If scoped search returned nothing and we had a scope, fall back to global search
+    if (textResult.results.length === 0 && effectiveScope && effectiveQuery) {
+      return this.runTextSearch(query, documentMap, index, limit, undefined, symbolTree, referenceIndex, options)
+    }
+
+    return textResult
+  }
+
+  private accumulateAccessHits(paths: string[]): void {
+    for (const path of paths) {
+      this.pendingAccessHits.set(path, (this.pendingAccessHits.get(path) ?? 0) + 1)
+    }
+  }
+
+  /**
+   * Build overview result showing the tree structure at configurable depth.
+   */
+  private buildOverviewResult(
+    symbolTree: MemorySymbolTree,
+    referenceIndex: ReferenceIndex,
+    scope?: string,
+    depth?: number,
+  ): SearchKnowledgeResult {
+    const entries = getSymbolOverview(symbolTree, scope, depth ?? 2)
+
+    const results: SearchKnowledgeResult['results'] = entries.map((entry) => ({
+      backlinkCount: referenceIndex.backlinks.get(entry.path)?.length ?? 0,
+      excerpt: `${entry.kind} | ${entry.childCount} children | maturity: ${entry.maturity}`,
+      path: entry.path,
+      score: entry.importance / 100,
+      symbolKind: entry.kind,
+      symbolPath: entry.path,
+      title: entry.name,
+    }))
+
+    const domainCount = entries.filter((e) => e.kind === 'domain').length
+    const topicCount = entries.filter((e) => e.kind === 'topic').length
+
+    return {
+      message: `Knowledge tree overview (${domainCount} domains, ${topicCount} topics).`,
+      results,
+      totalFound: entries.length,
+    }
+  }
+
+  /**
+   * Enrich a search result with symbolic metadata and backlink info.
+   */
+  private enrichResult(
+    result: { excerpt: string; path: string; score: number; title: string },
+    symbolTree: MemorySymbolTree,
+    referenceIndex: ReferenceIndex,
+  ): SearchKnowledgeResult['results'][number] {
+    const symbol = symbolTree.symbolMap.get(result.path)
+    const backlinks = referenceIndex.backlinks.get(result.path)
+
+    return {
+      ...result,
+      backlinkCount: backlinks?.length ?? 0,
+      relatedPaths: backlinks?.slice(0, 3),
+      symbolKind: symbol ? getSymbolKindLabel(symbol.kind) : undefined,
+      symbolPath: symbol?.path,
+    }
+  }
+
+  /**
+   * Run the standard text-based MiniSearch pipeline, optionally scoped to a subtree.
+   */
+  private runTextSearch(
+    query: string,
+    documentMap: Map<string, IndexedDocument>,
+    index: MiniSearch<IndexedDocument>,
+    limit: number,
+    scopePath: string | undefined,
+    symbolTree: MemorySymbolTree,
+    referenceIndex: ReferenceIndex,
+    options?: SearchOptions,
+  ): SearchKnowledgeResult {
     const filteredQuery = filterStopWords(query)
     const filteredWords = filteredQuery.split(/\s+/).filter((w) => w.length >= 2)
+
+    // Build scope filter if a subtree is specified
+    let scopeFilter: ((result: { id: string }) => boolean) | undefined
+    if (scopePath) {
+      const subtreeIds = getSubtreeDocumentIds(symbolTree, scopePath)
+      if (subtreeIds.size > 0) {
+        scopeFilter = (result) => subtreeIds.has(result.id)
+      }
+    }
 
     // AND-first strategy: for multi-word queries, try AND for concentrated scores.
     // If AND returns no results, fall back to OR to ensure no regression.
     let rawResults: Array<{ id: string; queryTerms: string[]; score: number }>
     let andSearchFailed = false
+    const searchOpts = scopeFilter ? { filter: scopeFilter } : {}
+
     if (filteredWords.length >= 2) {
-      rawResults = index.search(filteredQuery, { combineWith: 'AND' })
+      rawResults = index.search(filteredQuery, { combineWith: 'AND', ...searchOpts })
       if (rawResults.length === 0) {
         andSearchFailed = true
-        rawResults = index.search(filteredQuery, { combineWith: 'OR' })
+        rawResults = index.search(filteredQuery, { combineWith: 'OR', ...searchOpts })
       }
     } else {
-      rawResults = index.search(filteredQuery, { combineWith: 'OR' })
+      rawResults = index.search(filteredQuery, { combineWith: 'OR', ...searchOpts })
     }
 
     // Normalize BM25 scores to [0, 1) then blend with importance + recency via compound scoring.
@@ -583,7 +742,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     })
     searchResults.sort((a, b) => b.score - a.score)
 
-    const results: Array<{ excerpt: string; path: string; score: number; title: string }> = []
+    const results: SearchKnowledgeResult['results'] = []
 
     if (searchResults.length > 0) {
       // OOD detection: if the best result scores below the minimum floor,
@@ -628,12 +787,35 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
         const document = documentMap.get(result.id)
 
         if (document) {
-          results.push({
-            excerpt: extractExcerpt(document.content, query),
-            path: document.path,
-            score: Math.round(result.score * 100) / 100, // already normalized to [0, 1)
-            title: document.title,
-          })
+          const enriched = this.enrichResult(
+            {
+              excerpt: extractExcerpt(document.content, query),
+              path: document.path,
+              score: Math.round(result.score * 100) / 100,
+              title: document.title,
+            },
+            symbolTree, referenceIndex,
+          )
+
+          // Apply kind/maturity filters if specified
+          if (options?.includeKinds && enriched.symbolKind && !options.includeKinds.includes(enriched.symbolKind)) {
+            continue
+          }
+
+          if (options?.excludeKinds && enriched.symbolKind && options.excludeKinds.includes(enriched.symbolKind)) {
+            continue
+          }
+
+          if (options?.minMaturity && enriched.symbolKind) {
+            const tierRank: Record<string, number> = { core: 3, draft: 1, validated: 2 }
+            const symbol = symbolTree.symbolMap.get(document.path)
+            const docMaturity = symbol?.metadata.maturity ?? 'draft'
+            if ((tierRank[docMaturity] ?? 1) < (tierRank[options.minMaturity] ?? 1)) {
+              continue
+            }
+          }
+
+          results.push(enriched)
         }
       }
     }
@@ -653,9 +835,81 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     }
   }
 
-  private accumulateAccessHits(paths: string[]): void {
-    for (const path of paths) {
-      this.pendingAccessHits.set(path, (this.pendingAccessHits.get(path) ?? 0) + 1)
+  /**
+   * Try to resolve the query as a symbolic path. Returns null if no path match found.
+   */
+  private trySymbolicSearch(
+    query: string,
+    symbolTree: MemorySymbolTree,
+    referenceIndex: ReferenceIndex,
+    documentMap: Map<string, IndexedDocument>,
+    index: MiniSearch<IndexedDocument>,
+    limit: number,
+    options?: SearchOptions,
+  ): null | SearchKnowledgeResult {
+    const pathMatches = matchMemoryPath(symbolTree, query.split(/\s+/)[0].includes('/') ? query.split(/\s+/)[0] : query)
+
+    if (pathMatches.length === 0) {
+      return null
+    }
+
+    const topMatch = pathMatches[0].matchedSymbol
+
+    // If the matched symbol is a leaf Context, return it directly
+    if (topMatch.kind === MemorySymbolKind.Context) {
+      const doc = documentMap.get(topMatch.path)
+      if (!doc) {
+        return null
+      }
+
+      const result = this.enrichResult(
+        { excerpt: extractExcerpt(doc.content, query), path: doc.path, score: 1, title: doc.title },
+        symbolTree, referenceIndex,
+      )
+
+      this.accumulateAccessHits([doc.path])
+
+      return {
+        message: `Found exact match: ${topMatch.path}`,
+        results: [result],
+        totalFound: 1,
+      }
+    }
+
+    // Matched a folder node (Domain/Topic/Subtopic) — check for remaining text query
+    const queryParts = query.trim().split(/\s+/)
+    const pathPart = queryParts[0].includes('/') ? queryParts[0] : topMatch.name
+    const textPart = query.slice(query.indexOf(pathPart) + pathPart.length).trim()
+
+    if (textPart) {
+      // Scoped search: search text within the matched subtree
+      return this.runTextSearch(textPart, documentMap, index, limit, topMatch.path, symbolTree, referenceIndex, options)
+    }
+
+    // No text part — return all children of the matched node
+    const subtreeIds = getSubtreeDocumentIds(symbolTree, topMatch.path)
+    const results: SearchKnowledgeResult['results'] = []
+
+    for (const docId of subtreeIds) {
+      if (results.length >= limit) break
+
+      const doc = documentMap.get(docId)
+      if (!doc) continue
+
+      results.push(this.enrichResult(
+        { excerpt: extractExcerpt(doc.content, query), path: doc.path, score: 0.9, title: doc.title },
+        symbolTree, referenceIndex,
+      ))
+    }
+
+    if (results.length > 0) {
+      this.accumulateAccessHits(results.map((r) => r.path))
+    }
+
+    return {
+      message: `Found ${results.length} entries under ${topMatch.path}. Use read_file to view full content.`,
+      results,
+      totalFound: results.length,
     }
   }
 }
