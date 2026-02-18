@@ -2,6 +2,7 @@ import type {SlashCommand} from '../../../types/commands.js'
 
 import {connectorsCommand} from './connectors.js'
 import {curateCommand} from './curate.js'
+import {hubCommand} from './hub.js'
 import {loginCommand} from './login.js'
 import {logoutCommand} from './logout.js'
 import {modelCommand} from './model.js'
@@ -28,6 +29,9 @@ export const load: () => SlashCommand[] = () => [
 
   // Connectors management
   connectorsCommand,
+
+  // Hub - community registry
+  hubCommand,
 
   // Sync operations
   pushCommand,

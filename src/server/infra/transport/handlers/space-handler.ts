@@ -11,6 +11,7 @@ import {
   type SpaceSwitchRequest,
   type SpaceSwitchResponse,
 } from '../../../../shared/transport/events/space-events.js'
+import {NotAuthenticatedError, ProjectNotInitError, SpaceNotFoundError} from '../../../core/domain/errors/task-error.js'
 import {syncConfigToXdg} from '../../../utils/config-xdg-sync.js'
 
 export interface SpaceHandlerDeps {
@@ -56,25 +57,34 @@ export class SpaceHandler {
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
-      throw new Error('Not authenticated')
+      throw new NotAuthenticatedError()
     }
 
     const config = await this.projectConfigStore.read(projectPath)
     if (!config) {
-      throw new Error('Project not initialized')
+      throw new ProjectNotInitError()
     }
 
-    const {spaces} = await this.spaceService.getSpaces(token.sessionKey, config.teamId!, {fetchAll: true})
+    const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
 
-    return {
-      spaces: spaces.map((s) => ({
-        id: s.id,
-        isDefault: s.isDefault,
-        name: s.name,
-        teamId: s.teamId,
-        teamName: s.teamName,
-      })),
-    }
+    const teamsWithSpaces = await Promise.all(
+      teams.map(async (team) => {
+        const {spaces} = await this.spaceService.getSpaces(token.sessionKey, team.id, {fetchAll: true})
+        return {
+          spaces: spaces.map((s) => ({
+            id: s.id,
+            isDefault: s.isDefault,
+            name: s.name,
+            teamId: s.teamId,
+            teamName: s.teamName,
+          })),
+          teamId: team.id,
+          teamName: team.name,
+        }
+      }),
+    )
+
+    return {teams: teamsWithSpaces}
   }
 
   private async handleSwitch(data: SpaceSwitchRequest, clientId: string): Promise<SpaceSwitchResponse> {
@@ -82,19 +92,26 @@ export class SpaceHandler {
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
-      throw new Error('Not authenticated')
+      throw new NotAuthenticatedError()
     }
 
     const existingConfig = await this.projectConfigStore.read(projectPath)
     if (!existingConfig) {
-      throw new Error('Project not initialized')
+      throw new ProjectNotInitError()
     }
 
-    // Find the target space
-    const {spaces} = await this.spaceService.getSpaces(token.sessionKey, existingConfig.teamId!, {fetchAll: true})
-    const targetSpace = spaces.find((s) => s.id === data.spaceId)
+    // Find the target space across all teams
+    const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
+    const allSpaces = await Promise.all(
+      teams.map(async (team) => {
+        const {spaces} = await this.spaceService.getSpaces(token.sessionKey, team.id, {fetchAll: true})
+        return spaces
+      }),
+    )
+    const targetSpace = allSpaces.flat().find((s) => s.id === data.spaceId)
+
     if (!targetSpace) {
-      throw new Error('Space not found')
+      throw new SpaceNotFoundError()
     }
 
     const newConfig = existingConfig.withSpace(targetSpace)

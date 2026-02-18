@@ -349,8 +349,7 @@ export default class Debug extends Command {
       projectDir = '(unavailable)'
     }
 
-    const projectExistsLabel =
-      projectDir === '(unavailable)' ? '' : existsLabel(existsSync(projectDir))
+    const projectExistsLabel = projectDir === '(unavailable)' ? '' : existsLabel(existsSync(projectDir))
 
     lines.push(
       '├── Storage Paths',

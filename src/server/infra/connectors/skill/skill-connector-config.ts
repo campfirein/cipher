@@ -46,6 +46,11 @@ export const SKILL_CONNECTOR_CONFIGS = {
 export type SkillSupportedAgent = keyof typeof SKILL_CONNECTOR_CONFIGS
 
 /**
+ * Name of the main skill file.
+ */
+export const MAIN_SKILL_FILE_NAME = 'SKILL.md'
+
+/**
  * Names of the skill files written by the skill connector.
  */
-export const SKILL_FILE_NAMES = ['SKILL.md', 'TROUBLESHOOTING.md', 'WORKFLOWS.md'] as const
+export const SKILL_FILE_NAMES = [MAIN_SKILL_FILE_NAME, 'TROUBLESHOOTING.md', 'WORKFLOWS.md'] as const

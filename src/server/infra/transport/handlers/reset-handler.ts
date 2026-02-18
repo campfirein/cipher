@@ -4,6 +4,7 @@ import type {ITransportServer} from '../../../core/interfaces/transport/i-transp
 import type {ProjectPathResolver} from './handler-types.js'
 
 import {ResetEvents, type ResetExecuteResponse} from '../../../../shared/transport/events/reset-events.js'
+import {ContextTreeNotInitializedError} from '../../../core/domain/errors/task-error.js'
 
 export interface ResetHandlerDeps {
   contextTreeService: IContextTreeService
@@ -40,7 +41,7 @@ export class ResetHandler {
 
     const exists = await this.contextTreeService.exists(projectPath)
     if (!exists) {
-      throw new Error('Context tree not initialized')
+      throw new ContextTreeNotInitializedError()
     }
 
     await this.contextTreeService.delete(projectPath)

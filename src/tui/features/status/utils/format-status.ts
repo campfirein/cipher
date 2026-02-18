@@ -3,12 +3,8 @@
  */
 
 import chalk from 'chalk'
-import {join} from 'node:path'
 
 import type {StatusDTO} from '../../../../shared/transport/types/dto.js'
-
-const BRV_DIR = '.brv'
-const CONTEXT_TREE_DIR = 'context-tree'
 
 export function formatStatus(status: StatusDTO, version?: string): string {
   const lines: string[] = []
@@ -17,43 +13,38 @@ export function formatStatus(status: StatusDTO, version?: string): string {
 
   switch (status.authStatus) {
     case 'expired': {
-      lines.push('Status: Session expired (login required)')
+      lines.push('Account: Session expired')
       break
     }
 
     case 'logged_in': {
-      lines.push(`Status: Logged in as ${status.userEmail}`)
+      lines.push(`Account: ${status.userEmail}`)
       break
     }
 
     case 'not_logged_in': {
-      lines.push('Status: Not logged in')
+      lines.push('Account: Not logged in')
       break
     }
 
     default: {
-      lines.push('Status: Unable to check authentication status')
+      lines.push('Account: Unable to check')
     }
   }
 
   lines.push(`Current Directory: ${status.currentDirectory}`)
 
-  if (status.projectInitialized) {
-    if (status.teamName && status.spaceName) {
-      lines.push(`Project Status: Connected to ${status.teamName}/${status.spaceName}`)
-    } else {
-      lines.push('Project Status: Configuration file exists but is invalid')
-    }
+  if (status.teamName && status.spaceName) {
+    lines.push(`Space: ${status.teamName}/${status.spaceName}`)
   } else {
-    lines.push('Project Status: Not initialized')
+    lines.push('Space: Not connected')
   }
 
   switch (status.contextTreeStatus) {
     case 'has_changes': {
-      if (status.contextTreeChanges) {
+      if (status.contextTreeChanges && status.contextTreeRelativeDir) {
         const {added, deleted, modified} = status.contextTreeChanges
-        const contextTreeRelPath = join(BRV_DIR, CONTEXT_TREE_DIR)
-        const formatPath = (file: string) => join(contextTreeRelPath, file)
+        const formatPath = (file: string) => `${status.contextTreeRelativeDir}/${file}`
 
         const allChanges: {color: (s: string) => string; path: string; status: string}[] = [
           ...modified.map((f) => ({color: chalk.red, path: f, status: 'modified:'})),

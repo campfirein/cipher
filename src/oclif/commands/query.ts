@@ -1,14 +1,21 @@
-import {Args, Command, Flags} from '@oclif/core'
+import type {ITransportClient, TaskAck} from '@campfirein/brv-transport-client'
 
-import {isDevelopment} from '../../server/config/environment.js'
-import {IQueryUseCase} from '../../server/core/interfaces/usecase/i-query-use-case.js'
-import {HeadlessTerminal} from '../../server/infra/terminal/headless-terminal.js'
-import {QueryUseCase} from '../../server/infra/usecase/query-use-case.js'
+import {Args, Command, Flags} from '@oclif/core'
+import {randomUUID} from 'node:crypto'
+
+import {TaskEvents} from '../../shared/transport/events/index.js'
+import {
+  type DaemonClientOptions,
+  formatConnectionError,
+  hasLeakedHandles,
+  withDaemonRetry,
+} from '../lib/daemon-client.js'
+import {writeJsonResponse} from '../lib/json-response.js'
+import {waitForTaskCompletion} from '../lib/task-client.js'
 
 /** Parsed flags type */
 type QueryFlags = {
   format?: 'json' | 'text'
-  verbose?: boolean
 }
 
 export default class Query extends Command {
@@ -42,24 +49,11 @@ Bad:
       description: 'Output format (text or json)',
       options: ['text', 'json'],
     }),
-    ...(isDevelopment()
-      ? {
-          verbose: Flags.boolean({
-            char: 'v',
-            default: false,
-            description: 'Enable verbose debug output [Development only]',
-          }),
-        }
-      : {}),
   }
   public static strict = false
 
-  protected createUseCase(options: {format: 'json' | 'text'}): IQueryUseCase {
-    const terminal = new HeadlessTerminal({failOnPrompt: true, outputFormat: options.format})
-
-    return new QueryUseCase({
-      terminal,
-    })
+  protected getDaemonClientOptions(): DaemonClientOptions {
+    return {}
   }
 
   public async run(): Promise<void> {
@@ -67,10 +61,133 @@ Bad:
     const flags = rawFlags as QueryFlags
     const format = (flags.format ?? 'text') as 'json' | 'text'
 
-    await this.createUseCase({format}).run({
-      format,
-      query: args.query,
-      verbose: flags.verbose,
-    })
+    if (!this.validateInput(args.query, format)) return
+
+    try {
+      await withDaemonRetry(
+        async (client, projectRoot) => {
+          await this.submitTask({client, format, projectRoot, query: args.query})
+        },
+        {
+          ...this.getDaemonClientOptions(),
+          onRetry:
+            format === 'text'
+              ? (attempt, maxRetries) =>
+                  this.log(`\nConnection lost. Restarting daemon... (attempt ${attempt}/${maxRetries})`)
+              : undefined,
+        },
+      )
+    } catch (error) {
+      this.reportError(error, format)
+    }
+  }
+
+  private reportError(error: unknown, format: 'json' | 'text'): void {
+    const errorMessage = error instanceof Error ? error.message : 'Query failed'
+
+    if (format === 'json') {
+      writeJsonResponse({command: 'query', data: {error: errorMessage, status: 'error'}, success: false})
+    } else {
+      this.log(formatConnectionError(error))
+    }
+
+    if (hasLeakedHandles(error)) {
+      // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+      process.exit(1)
+    }
+  }
+
+  private async submitTask(props: {
+    client: ITransportClient
+    format: 'json' | 'text'
+    projectRoot?: string
+    query: string
+  }): Promise<void> {
+    const {client, format, projectRoot, query} = props
+    const taskId = randomUUID()
+    const taskPayload = {
+      clientCwd: process.cwd(),
+      content: query,
+      ...(projectRoot ? {projectPath: projectRoot} : {}),
+      taskId,
+      type: 'query',
+    }
+
+    let finalResult: string | undefined
+
+    const completionPromise = waitForTaskCompletion(
+      {
+        client,
+        command: 'query',
+        format,
+        onCompleted: ({result, taskId: tid}) => {
+          // Fallback: use payload.result when llmservice:response wasn't received
+          // (e.g., Tier 2 direct search responses that bypass the LLM)
+          if (!finalResult && result) {
+            finalResult = result
+            if (format === 'text') {
+              this.log(`\n${result}`)
+            }
+          }
+
+          if (format === 'json') {
+            writeJsonResponse({
+              command: 'query',
+              data: {
+                event: 'completed',
+                result: finalResult,
+                status: 'completed',
+                taskId: tid,
+              },
+              success: true,
+            })
+          } else if (finalResult) {
+            this.log('')
+          }
+        },
+        onError({error}) {
+          if (format === 'json') {
+            writeJsonResponse({
+              command: 'query',
+              data: {event: 'error', message: error.message, status: 'error'},
+              success: false,
+            })
+          }
+        },
+        onResponse: (content) => {
+          finalResult = content
+          if (format === 'text') {
+            this.log(`\n${content}`)
+          } else {
+            writeJsonResponse({
+              command: 'query',
+              data: {content, event: 'response', taskId},
+              success: true,
+            })
+          }
+        },
+        taskId,
+      },
+      (msg) => this.log(msg),
+    )
+    await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
+    await completionPromise
+  }
+
+  private validateInput(query: string, format: 'json' | 'text'): boolean {
+    if (query.trim()) return true
+
+    if (format === 'json') {
+      writeJsonResponse({
+        command: 'query',
+        data: {message: 'Query argument is required.', status: 'error'},
+        success: false,
+      })
+    } else {
+      this.log('Query argument is required.')
+      this.log('Usage: brv query "your question here"')
+    }
+
+    return false
   }
 }

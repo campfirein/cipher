@@ -1,23 +1,14 @@
 import {Command, Flags} from '@oclif/core'
 
-import {getCurrentConfig} from '../../server/config/environment.js'
-import {DEFAULT_BRANCH} from '../../server/constants.js'
-import {IPullUseCase} from '../../server/core/interfaces/usecase/i-pull-use-case.js'
-import {HttpCogitPullService} from '../../server/infra/cogit/http-cogit-pull-service.js'
-import {ProjectConfigStore} from '../../server/infra/config/file-config-store.js'
-import {FileContextTreeSnapshotService} from '../../server/infra/context-tree/file-context-tree-snapshot-service.js'
-import {FileContextTreeWriterService} from '../../server/infra/context-tree/file-context-tree-writer-service.js'
-import {createTokenStore} from '../../server/infra/storage/token-store.js'
-import {HeadlessTerminal} from '../../server/infra/terminal/headless-terminal.js'
-import {OclifTerminal} from '../../server/infra/terminal/oclif-terminal.js'
-import {PullUseCase} from '../../server/infra/usecase/pull-use-case.js'
+import {
+  PullEvents,
+  type PullExecuteResponse,
+  type PullPrepareResponse,
+} from '../../shared/transport/events/pull-events.js'
+import {formatConnectionError, withDaemonRetry} from '../lib/daemon-client.js'
+import {writeJsonResponse} from '../lib/json-response.js'
 
-/** Parsed flags type */
-type PullFlags = {
-  branch?: string
-  format?: 'json' | 'text'
-  headless?: boolean
-}
+type PullResult = {hasChanges: false; result: PullExecuteResponse} | {hasChanges: true; summary: string}
 
 export default class Pull extends Command {
   public static description = `Pull context tree from ByteRover memory storage
@@ -30,13 +21,11 @@ Downloads the context tree from the ByteRover cloud to your local project.`
     '# Pull from specific branch',
     '<%= config.bin %> <%= command.id %> --branch feature-branch',
     '',
-    '# Headless mode with JSON output',
-    '<%= config.bin %> <%= command.id %> --headless --format json',
   ]
   public static flags = {
     branch: Flags.string({
       char: 'b',
-      default: DEFAULT_BRANCH,
+      default: 'main',
       description: 'ByteRover branch name (not Git branch)',
     }),
     format: Flags.string({
@@ -44,46 +33,57 @@ Downloads the context tree from the ByteRover cloud to your local project.`
       description: 'Output format (text or json)',
       options: ['text', 'json'],
     }),
-    headless: Flags.boolean({
-      default: false,
-      description: 'Run in headless mode (no TTY required, suitable for automation)',
-    }),
-  }
-
-  protected createUseCase(options: {format: 'json' | 'text'; headless: boolean}): IPullUseCase {
-    const envConfig = getCurrentConfig()
-    const tokenStore = createTokenStore()
-    const contextTreeSnapshotService = new FileContextTreeSnapshotService()
-
-    // Use HeadlessTerminal for headless mode or JSON format
-    const terminal =
-      options.headless || options.format === 'json'
-        ? new HeadlessTerminal({failOnPrompt: true, outputFormat: options.format})
-        : new OclifTerminal(this)
-
-    return new PullUseCase({
-      cogitPullService: new HttpCogitPullService({
-        apiBaseUrl: envConfig.cogitApiBaseUrl,
-      }),
-      contextTreeSnapshotService,
-      contextTreeWriterService: new FileContextTreeWriterService({
-        snapshotService: contextTreeSnapshotService,
-      }),
-      projectConfigStore: new ProjectConfigStore(),
-      terminal,
-      tokenStore,
-    })
   }
 
   public async run(): Promise<void> {
-    const {flags: rawFlags} = await this.parse(Pull)
-    const flags = rawFlags as PullFlags
+    const {flags} = await this.parse(Pull)
     const format = (flags.format ?? 'text') as 'json' | 'text'
-    const headless = flags.headless ?? false
+    const branch = flags.branch ?? 'main'
 
-    await this.createUseCase({format, headless}).run({
-      branch: flags.branch ?? DEFAULT_BRANCH,
-      format,
+    try {
+      const pullResult = await this.executePull(branch)
+
+      if (pullResult.hasChanges) {
+        if (format === 'json') {
+          writeJsonResponse({command: 'pull', data: {error: pullResult.summary}, success: false})
+        } else {
+          this.log(pullResult.summary)
+        }
+
+        return
+      }
+
+      const {result} = pullResult
+
+      if (format === 'json') {
+        writeJsonResponse({command: 'pull', data: result, success: true})
+      } else {
+        this.log('\n✓ Successfully pulled context tree from ByteRover memory storage!')
+        this.log(`  Branch: ${branch}`)
+        this.log(`  Commit: ${result.commitSha.slice(0, 7)}`)
+        this.log(`  Added: ${result.added}, Edited: ${result.edited}, Deleted: ${result.deleted}`)
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Pull failed'
+
+      if (format === 'json') {
+        writeJsonResponse({command: 'pull', data: {error: errorMessage}, success: false})
+      } else {
+        this.log(formatConnectionError(error))
+      }
+    }
+  }
+
+  private async executePull(branch: string): Promise<PullResult> {
+    return withDaemonRetry(async (client) => {
+      const prepareResponse = await client.requestWithAck<PullPrepareResponse>(PullEvents.PREPARE, {branch})
+
+      if (prepareResponse.hasChanges) {
+        return {hasChanges: true, summary: prepareResponse.summary}
+      }
+
+      const result = await client.requestWithAck<PullExecuteResponse>(PullEvents.EXECUTE, {branch})
+      return {hasChanges: false, result}
     })
   }
 }
