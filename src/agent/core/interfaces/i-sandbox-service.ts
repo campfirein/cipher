@@ -1,4 +1,5 @@
 import type { ISearchKnowledgeService } from '../../infra/sandbox/tools-sdk.js'
+import type { SessionManager } from '../../infra/session/session-manager.js'
 import type { EnvironmentContext } from '../domain/environment/types.js'
 import type { REPLResult, SandboxConfig } from '../domain/sandbox/types.js'
 import type { ICurateService } from './i-curate-service.js'
@@ -20,6 +21,15 @@ export interface ISandboxService {
    * @param sessionId - Session identifier
    */
   clearSession(sessionId: string): Promise<void>
+
+  /**
+   * Delete a variable from a session's sandbox.
+   * If the sandbox doesn't exist yet, cleans up any pending variable with that key.
+   *
+   * @param sessionId - Session identifier
+   * @param key - Variable name to delete
+   */
+  deleteSandboxVariable(sessionId: string, key: string): void
 
   /**
    * Execute JavaScript/TypeScript code in a sandbox.
@@ -56,10 +66,29 @@ export interface ISandboxService {
   setFileSystem?(fileSystem: IFileSystem): void
 
   /**
+   * Set a variable in a session's sandbox.
+   * If the sandbox doesn't exist yet, the variable is buffered and injected
+   * when the sandbox is created on the first executeCode() call.
+   *
+   * @param sessionId - Session identifier
+   * @param key - Variable name
+   * @param value - Variable value (must be JSON-serializable or a plain object)
+   */
+  setSandboxVariable(sessionId: string, key: string, value: unknown): void
+
+  /**
    * Set the search knowledge service for Tools SDK injection.
    * When set, sandboxes will have access to knowledge search via `tools.searchKnowledge()`.
    *
    * @param searchKnowledgeService - Search knowledge service instance
    */
   setSearchKnowledgeService?(searchKnowledgeService: ISearchKnowledgeService): void
+
+  /**
+   * Set the session manager for sub-agent delegation.
+   * When set, sandboxes will have access to `tools.agentQuery()`.
+   *
+   * @param sessionManager - Session manager instance
+   */
+  setSessionManager?(sessionManager: SessionManager): void
 }

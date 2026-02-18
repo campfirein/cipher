@@ -1,24 +1,14 @@
 import {Command, Flags} from '@oclif/core'
 
-import {getCurrentConfig} from '../../server/config/environment.js'
-import {DEFAULT_BRANCH} from '../../server/constants.js'
-import {IPushUseCase} from '../../server/core/interfaces/usecase/i-push-use-case.js'
-import {HttpCogitPushService} from '../../server/infra/cogit/http-cogit-push-service.js'
-import {ProjectConfigStore} from '../../server/infra/config/file-config-store.js'
-import {FileContextFileReader} from '../../server/infra/context-tree/file-context-file-reader.js'
-import {FileContextTreeSnapshotService} from '../../server/infra/context-tree/file-context-tree-snapshot-service.js'
-import {createTokenStore} from '../../server/infra/storage/token-store.js'
-import {HeadlessTerminal} from '../../server/infra/terminal/headless-terminal.js'
-import {OclifTerminal} from '../../server/infra/terminal/oclif-terminal.js'
-import {PushUseCase} from '../../server/infra/usecase/push-use-case.js'
+import {
+  PushEvents,
+  type PushExecuteResponse,
+  type PushPrepareResponse,
+} from '../../shared/transport/events/push-events.js'
+import {formatConnectionError, withDaemonRetry} from '../lib/daemon-client.js'
+import {writeJsonResponse} from '../lib/json-response.js'
 
-/** Parsed flags type */
-type PushFlags = {
-  branch?: string
-  format?: 'json' | 'text'
-  headless?: boolean
-  yes?: boolean
-}
+type PushResult = {cancelled: true} | {noChanges: false; result: PushExecuteResponse} | {noChanges: true}
 
 export default class Push extends Command {
   public static description = `Push context tree to ByteRover memory storage
@@ -30,17 +20,11 @@ Uploads your local context tree changes to the ByteRover cloud.`
     '',
     '# Push to specific branch',
     '<%= config.bin %> <%= command.id %> --branch feature-branch',
-    '',
-    '# Skip confirmation prompt',
-    '<%= config.bin %> <%= command.id %> -y',
-    '',
-    '# Headless mode with JSON output',
-    '<%= config.bin %> <%= command.id %> --headless --format json -y',
   ]
   public static flags = {
     branch: Flags.string({
       char: 'b',
-      default: DEFAULT_BRANCH,
+      default: 'main',
       description: 'ByteRover branch name (not Git branch)',
     }),
     format: Flags.string({
@@ -48,53 +32,78 @@ Uploads your local context tree changes to the ByteRover cloud.`
       description: 'Output format (text or json)',
       options: ['text', 'json'],
     }),
-    headless: Flags.boolean({
-      default: false,
-      description: 'Run in headless mode (no TTY required, suitable for automation)',
-    }),
-    yes: Flags.boolean({
-      char: 'y',
-      default: false,
-      description: 'Skip confirmation prompt',
-    }),
-  }
-
-  protected createUseCase(options: {format: 'json' | 'text'; headless: boolean}): IPushUseCase {
-    const envConfig = getCurrentConfig()
-    const tokenStore = createTokenStore()
-
-    // Use HeadlessTerminal for headless mode or JSON format
-    const terminal =
-      options.headless || options.format === 'json'
-        ? new HeadlessTerminal({failOnPrompt: true, outputFormat: options.format})
-        : new OclifTerminal(this)
-
-    return new PushUseCase({
-      cogitPushService: new HttpCogitPushService({
-        apiBaseUrl: envConfig.cogitApiBaseUrl,
-      }),
-      contextFileReader: new FileContextFileReader(),
-      contextTreeSnapshotService: new FileContextTreeSnapshotService(),
-      projectConfigStore: new ProjectConfigStore(),
-      terminal,
-      tokenStore,
-      webAppUrl: envConfig.webAppUrl,
-    })
   }
 
   public async run(): Promise<void> {
-    const {flags: rawFlags} = await this.parse(Push)
-    const flags = rawFlags as PushFlags
+    const {flags} = await this.parse(Push)
     const format = (flags.format ?? 'text') as 'json' | 'text'
-    const headless = flags.headless ?? false
+    const branch = flags.branch ?? 'main'
 
-    // In headless mode, always skip confirmation
-    const skipConfirmation = headless || flags.yes || false
+    try {
+      const pushResult = await this.executePush(branch)
 
-    await this.createUseCase({format, headless}).run({
-      branch: flags.branch ?? DEFAULT_BRANCH,
-      format,
-      skipConfirmation,
+      if ('cancelled' in pushResult) {
+        if (format === 'json') {
+          writeJsonResponse({command: 'push', data: {status: 'cancelled'}, success: false})
+        } else {
+          this.log('Push cancelled.')
+        }
+
+        return
+      }
+
+      if ('noChanges' in pushResult && pushResult.noChanges) {
+        if (format === 'json') {
+          writeJsonResponse({command: 'push', data: {status: 'no_changes'}, success: true})
+        } else {
+          this.log('No context changes to push.')
+        }
+
+        return
+      }
+
+      const {result} = pushResult
+
+      if (format === 'json') {
+        writeJsonResponse({
+          command: 'push',
+          data: {
+            added: result.added,
+            branch,
+            deleted: result.deleted,
+            edited: result.edited,
+            status: 'success',
+            url: result.url,
+          },
+          success: true,
+        })
+      } else {
+        this.log('\n✓ Successfully pushed context tree to ByteRover memory storage!')
+        this.log(`  Branch: ${branch}`)
+        this.log(`  Added: ${result.added}, Edited: ${result.edited}, Deleted: ${result.deleted}`)
+        this.log(`  View: ${result.url}`)
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Push failed'
+
+      if (format === 'json') {
+        writeJsonResponse({command: 'push', data: {error: errorMessage, status: 'error'}, success: false})
+      } else {
+        this.log(formatConnectionError(error))
+      }
+    }
+  }
+
+  private async executePush(branch: string): Promise<PushResult> {
+    return withDaemonRetry(async (client) => {
+      const prepareResponse = await client.requestWithAck<PushPrepareResponse>(PushEvents.PREPARE, {branch})
+
+      if (!prepareResponse.hasChanges) {
+        return {noChanges: true}
+      }
+
+      const result = await client.requestWithAck<PushExecuteResponse>(PushEvents.EXECUTE, {branch})
+      return {noChanges: false, result}
     })
   }
 }

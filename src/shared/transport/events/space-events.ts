@@ -5,8 +5,14 @@ export const SpaceEvents = {
   SWITCH: 'space:switch',
 } as const
 
-export interface SpaceListResponse {
+export interface TeamWithSpacesDTO {
   spaces: SpaceDTO[]
+  teamId: string
+  teamName: string
+}
+
+export interface SpaceListResponse {
+  teams: TeamWithSpacesDTO[]
 }
 
 export interface SpaceSwitchRequest {

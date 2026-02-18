@@ -126,14 +126,20 @@ export const ApiKeyDialog: React.FC<ApiKeyDialogProps> = ({
         return
       }
 
-      // Cancel on Escape
+      // Clear input on Escape, cancel if already empty
       if (key.escape) {
-        onCancel()
+        if (apiKey.length > 0) {
+          setApiKey('')
+          setError(undefined)
+        } else {
+          onCancel()
+        }
+
         return
       }
 
-      // Toggle mask with Ctrl+M
-      if (input === 'm' && key.ctrl) {
+      // Toggle mask with Ctrl+R
+      if (input === 'r' && key.ctrl) {
         setShowMasked((prev) => !prev)
         return
       }
@@ -175,69 +181,64 @@ export const ApiKeyDialog: React.FC<ApiKeyDialogProps> = ({
         </Text>
       </Box>
 
-      {/* Description */}
-      <Box marginBottom={1}>
-        <Text color={colors.dimText}>
-          Enter your {provider.name} API key:
-        </Text>
-      </Box>
-
-      {/* Input field */}
-      <Box
-        borderColor={error ? colors.errorText : colors.border}
-        borderStyle="single"
-        marginBottom={1}
-        paddingX={1}
-      >
-        <Text color={apiKey ? colors.text : colors.dimText}>
-          {apiKey ? displayValue : (API_KEY_PLACEHOLDERS[provider.id] ?? 'sk-...')}
-        </Text>
-        <Text color={colors.primary}>▎</Text>
-      </Box>
-
       {/* API key link */}
       {provider.apiKeyUrl && (
         <Box marginBottom={1}>
           <Text color={colors.dimText}>
             Get your API key at:{' '}
           </Text>
-          <Text color={colors.primary} underline>
+          <Text color={colors.dimText} underline>
             {provider.apiKeyUrl}
           </Text>
         </Box>
       )}
 
-      {/* Status */}
+      {/* Input field / Validating status */}
       <Box marginBottom={1}>
-        {isValidating && (
-          <Text color={colors.primary}>
-            ⟳ Validating...
-          </Text>
+        {isValidating ? (
+          <Text color={colors.primary}>⟳ Validating...</Text>
+        ) : (
+          <Box>
+            <Box flexShrink={0}>
+              <Text color={colors.primary}>
+                Enter your {provider.name} API key:{' '}
+              </Text>
+            </Box>
+            <Box>
+              <Text>
+                <Text color={apiKey ? colors.text : colors.dimText}>
+                  {apiKey ? displayValue : (API_KEY_PLACEHOLDERS[provider.id] ?? 'sk-...')}
+                </Text>
+                {apiKey && <Text color={colors.primary}>▎</Text>}
+              </Text>
+            </Box>
+          </Box>
         )}
+      </Box>
+
+      {/* Error */}
+      <Box marginBottom={1}>
         {error && !isValidating && (
-          <Text color={colors.errorText}>
+          <Text color={colors.warning}>
             ✗ {error}
-          </Text>
-        )}
-        {!isValidating && !error && apiKey.length > 0 && (
-          <Text color={colors.dimText}>
-            Press Enter to validate
           </Text>
         )}
       </Box>
 
       {/* Keybind hints */}
-      <Box gap={2}>
-        <Text color={colors.dimText}>
-          <Text color={colors.text}>Enter</Text> Submit
-        </Text>
-        <Text color={colors.dimText}>
-          <Text color={colors.text}>Esc</Text> Cancel
-        </Text>
-        <Text color={colors.dimText}>
-          <Text color={colors.text}>Ctrl+M</Text> {showMasked ? 'Show' : 'Hide'}
-        </Text>
-      </Box>
+      {!isValidating && (
+        <Box gap={2}>
+          <Text color={colors.dimText}>
+            <Text color={colors.text}>Enter</Text> Submit
+          </Text>
+          <Text color={colors.dimText}>
+            <Text color={colors.text}>Esc</Text> {apiKey.length > 0 ? 'Clear' : 'Cancel'}
+          </Text>
+          <Text color={colors.dimText}>
+            <Text color={colors.text}>Ctrl+R</Text> {showMasked ? 'Reveal' : 'Hide'}
+          </Text>
+        </Box>
+      )}
     </Box>
   )
 }

@@ -63,6 +63,8 @@ const TARGET_MESSAGE_TOKEN_UTILIZATION = 0.7
  * Contains all information needed to add the result to context in order.
  */
 interface ParallelToolResult {
+  /** If set, signals early exit — the agentic loop should terminate with this value */
+  earlyExitResult?: string
   /** Error message if tool execution failed */
   error?: string
   /** Original tool call for reference */
@@ -312,6 +314,12 @@ export class AgentLLMService implements ILLMService {
     // Extract options with defaults
     const {executionContext, fileData, imageData, signal, stream, taskId} = options ?? {}
 
+    // RLM mode: Clear conversation history to prevent accumulation across calls.
+    // Context and history are offloaded to files, accessed via code_exec instead.
+    if (executionContext?.clearHistory) {
+      await this.contextManager.clearHistory()
+    }
+
     // Get filtered tools based on command type (e.g., only read-only tools for 'query')
     const toolSet = this.toolManager.getToolsForCommand(options?.executionContext?.commandType)
 
@@ -338,6 +346,7 @@ export class AgentLLMService implements ILLMService {
       try {
         // eslint-disable-next-line no-await-in-loop -- Sequential iterations required for agentic loop
         const result = await this.executeAgenticIteration({
+          effectiveMaxIterations,
           executionContext,
           fileData,
           imageData,
@@ -782,12 +791,14 @@ export class AgentLLMService implements ILLMService {
   private determineReflectionType(
     iterationCount: number,
     commandType?: 'chat' | 'curate' | 'query',
+    maxIterations?: number,
   ): 'completion_check' | 'final_iteration' | 'mid_point_check' | 'near_max_iterations' | undefined {
+    const effectiveMax = maxIterations ?? this.config.maxIterations
     const isQuery = commandType === 'query'
-    const isLastIteration = iterationCount === this.config.maxIterations - 1
-    const midPoint = Math.floor(this.config.maxIterations / 2)
+    const isLastIteration = iterationCount === effectiveMax - 1
+    const midPoint = Math.floor(effectiveMax / 2)
     const isAtMidPoint = iterationCount === midPoint
-    const isNearMax = iterationCount >= Math.floor(this.config.maxIterations * 0.8)
+    const isNearMax = iterationCount >= Math.floor(effectiveMax * 0.8)
     const isPeriodicCheck = iterationCount > 0 && iterationCount % 3 === 0
 
     // Priority 1: final_iteration (query only, last iteration) - highest priority
@@ -817,6 +828,7 @@ export class AgentLLMService implements ILLMService {
    * Execute a single iteration of the agentic loop.
    *
    * @param options - Iteration options
+   * @param options.effectiveMaxIterations - Effective max iterations (per-invocation override or config default)
    * @param options.executionContext - Optional execution context
    * @param options.fileData - Optional file data (only used on first iteration)
    * @param options.imageData - Optional image data (only used on first iteration)
@@ -828,6 +840,7 @@ export class AgentLLMService implements ILLMService {
    * @returns Final response string if complete, null if more iterations needed
    */
   private async executeAgenticIteration(options: {
+    effectiveMaxIterations: number
     executionContext?: ExecutionContext
     fileData?: FileData
     imageData?: ImageData
@@ -837,7 +850,7 @@ export class AgentLLMService implements ILLMService {
     textInput: string
     tools: ToolSet
   }): Promise<null | string> {
-    const {executionContext, fileData, imageData, iterationCount, stream, taskId, textInput, tools} = options
+    const {effectiveMaxIterations, executionContext, fileData, imageData, iterationCount, stream, taskId, textInput, tools} = options
     // Build system prompt using SystemPromptManager (before compression for correct token accounting)
     // Use filtered tool names based on command type (e.g., only read-only tools for 'query')
     const availableTools = this.toolManager.getToolNamesForCommand(executionContext?.commandType)
@@ -882,13 +895,13 @@ export class AgentLLMService implements ILLMService {
     let systemPrompt = basePrompt
 
     // Determine which reflection prompt to add (only highest priority is chosen)
-    const reflectionType = this.determineReflectionType(iterationCount, executionContext?.commandType)
+    const reflectionType = this.determineReflectionType(iterationCount, executionContext?.commandType, effectiveMaxIterations)
 
     // Add reflection prompt if eligible (hierarchical: only one reflection per iteration)
     if (reflectionType) {
       const reflectionPrompt = this.systemPromptManager.buildReflectionPrompt({
         currentIteration: iterationCount + 1,
-        maxIterations: this.config.maxIterations,
+        maxIterations: effectiveMaxIterations,
         type: reflectionType,
       })
       systemPrompt = systemPrompt + '\n\n' + reflectionPrompt
@@ -908,7 +921,7 @@ export class AgentLLMService implements ILLMService {
 
     // Final iteration optimization for query: strip tools (reflection already added above)
     let toolsForThisIteration = tools
-    if (executionContext?.commandType === 'query' && iterationCount === this.config.maxIterations - 1) {
+    if (executionContext?.commandType === 'query' && iterationCount === effectiveMaxIterations - 1) {
       toolsForThisIteration = {} // Empty toolset forces text response
     }
 
@@ -962,8 +975,20 @@ export class AgentLLMService implements ILLMService {
         return response
       }
 
-      // Has tool calls - handle them (pass taskId for subagent billing)
-      await this.handleToolCalls(lastMessage, taskId)
+      // Has tool calls - handle them (pass taskId and executionContext for context-aware behavior)
+      const earlyExitResult = await this.handleToolCalls(lastMessage, taskId, executionContext)
+
+      // Check for early exit from setFinalResult()
+      if (earlyExitResult) {
+        this.sessionEventBus.emit('llmservice:response', {
+          content: earlyExitResult,
+          model: this.config.model,
+          provider: this.providerId,
+          taskId,
+        })
+
+        return earlyExitResult
+      }
 
       // Auto-compaction check after tool execution batch
       await this.checkAndTriggerCompaction(taskId ?? '')
@@ -978,9 +1003,10 @@ export class AgentLLMService implements ILLMService {
    *
    * @param toolCall - Tool call to execute
    * @param taskId - Task ID from usecase for billing tracking (passed to subagents)
+   * @param executionContext - Optional execution context for context-aware tool behavior
    * @returns Parallel tool result with all execution data
    */
-  private async executeToolCallParallel(toolCall: ToolCall, taskId?: string): Promise<ParallelToolResult> {
+  private async executeToolCallParallel(toolCall: ToolCall, taskId?: string, executionContext?: ExecutionContext): Promise<ParallelToolResult> {
     const toolName = toolCall.function.name
     const toolArgs = JSON.parse(toolCall.function.arguments)
 
@@ -1032,14 +1058,15 @@ export class AgentLLMService implements ILLMService {
       const metadataCallback = this.metadataHandler.createCallback(toolCall.id, toolName)
 
       // Execute tool via ToolManager (returns structured result)
-      // Pass taskId in context for subagent billing tracking
+      // Pass taskId and commandType in context for subagent billing tracking and context-aware behavior
       const result: ToolExecutionResult = await this.toolManager.executeTool(toolName, toolArgs, this.sessionId, {
+        commandType: executionContext?.commandType,
         metadata: metadataCallback,
         taskId,
       })
 
-      // Process output (truncation and file saving if needed)
-      const processedOutput = await this.outputProcessor.processStructuredOutput(toolName, result.content)
+      // Process output (truncation and file saving if needed, with per-command overrides)
+      const processedOutput = await this.outputProcessor.processStructuredOutput(toolName, result.content, executionContext?.commandType)
 
       // Emit truncation event if output was truncated
       if (processedOutput.metadata?.truncated) {
@@ -1066,7 +1093,12 @@ export class AgentLLMService implements ILLMService {
         toolName,
       })
 
+      // Check for early exit signal from setFinalResult() in sandbox
+      const toolContent = result.content as Record<string, unknown> | undefined
+      const earlyExitResult = typeof toolContent?.finalResult === 'string' ? toolContent.finalResult : undefined
+
       return {
+        earlyExitResult,
         toolCall,
         toolResult: {
           errorType: result.errorType,
@@ -1228,26 +1260,29 @@ export class AgentLLMService implements ILLMService {
     // Get accumulated response from context
     const partialResponse = await this.getPartialResponse()
 
+    // Compute final content with fallback BEFORE emitting, so the event
+    // carries the same content that is returned (prevents empty-string mismatch
+    // when the streaming pipeline reads from the emitted event rather than the return value)
+    let finalContent: string
+    if (reason === TerminationReason.MAX_TURNS) {
+      finalContent =
+        partialResponse ||
+        'Maximum iterations reached without completing the task. Please try breaking down the task into smaller steps.'
+    } else if (reason === TerminationReason.TIMEOUT) {
+      finalContent = partialResponse || 'Execution timed out. Please try a simpler task or increase the timeout.'
+    } else {
+      finalContent = partialResponse || 'Agent execution terminated unexpectedly.'
+    }
+
     this.sessionEventBus.emit('llmservice:response', {
-      content: partialResponse,
+      content: finalContent,
       model: this.config.model,
       partial: true,
       provider: this.providerId,
       taskId: taskId || undefined,
     })
 
-    if (reason === TerminationReason.MAX_TURNS) {
-      return (
-        partialResponse ||
-        'Maximum iterations reached without completing the task. Please try breaking down the task into smaller steps.'
-      )
-    }
-
-    if (reason === TerminationReason.TIMEOUT) {
-      return partialResponse || 'Execution timed out. Please try a simpler task or increase the timeout.'
-    }
-
-    return partialResponse || 'Agent execution terminated unexpectedly.'
+    return finalContent
   }
 
   /**
@@ -1287,8 +1322,10 @@ export class AgentLLMService implements ILLMService {
    *
    * @param lastMessage - Last message containing tool calls
    * @param taskId - Task ID from usecase for billing tracking (passed to subagents)
+   * @param executionContext - Optional execution context for context-aware tool behavior
+   * @returns Early exit result if setFinalResult() was called, undefined otherwise
    */
-  private async handleToolCalls(lastMessage: InternalMessage, taskId?: string): Promise<void> {
+  private async handleToolCalls(lastMessage: InternalMessage, taskId?: string, executionContext?: ExecutionContext): Promise<string | undefined> {
     if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
       return
     }
@@ -1325,9 +1362,9 @@ export class AgentLLMService implements ILLMService {
       this.memoryDirtyFlag = true
     }
 
-    // Step 3: Execute all tool calls in parallel (pass taskId for subagent billing)
+    // Step 3: Execute all tool calls in parallel (pass taskId + commandType for context-aware behavior)
     const parallelResults = await Promise.allSettled(
-      lastMessage.toolCalls.map((toolCall) => this.executeToolCallParallel(toolCall, taskId)),
+      lastMessage.toolCalls.map((toolCall) => this.executeToolCallParallel(toolCall, taskId, executionContext)),
     )
 
     // Step 4: Update tool part states with results (in order)
@@ -1394,6 +1431,13 @@ export class AgentLLMService implements ILLMService {
           errorType: 'UNEXPECTED_ERROR',
           success: false,
         })
+      }
+    }
+
+    // Check for early exit signal from setFinalResult() in any tool result
+    for (const settledResult of parallelResults) {
+      if (settledResult.status === 'fulfilled' && settledResult.value.earlyExitResult) {
+        return settledResult.value.earlyExitResult
       }
     }
   }

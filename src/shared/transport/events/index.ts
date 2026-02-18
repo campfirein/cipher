@@ -6,6 +6,7 @@ export * from './agent-events.js'
 export * from './auth-events.js'
 export * from './config-events.js'
 export * from './connector-events.js'
+export * from './hub-events.js'
 export * from './init-events.js'
 export * from './llm-events.js'
 export * from './model-events.js'
@@ -24,6 +25,7 @@ import {AgentEvents} from './agent-events.js'
 import {AuthEvents} from './auth-events.js'
 import {ConfigEvents} from './config-events.js'
 import {ConnectorEvents} from './connector-events.js'
+import {HubEvents} from './hub-events.js'
 import {InitEvents} from './init-events.js'
 import {LlmEvents} from './llm-events.js'
 import {ModelEvents} from './model-events.js'
@@ -46,6 +48,7 @@ export const AllEventGroups = [
   AuthEvents,
   ConfigEvents,
   ConnectorEvents,
+  HubEvents,
   InitEvents,
   LlmEvents,
   ModelEvents,

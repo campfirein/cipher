@@ -145,10 +145,10 @@ export class ProviderConfig {
     }
 
     // Add to recent models (at the front, deduplicated)
-    const recentModels = [
-      modelId,
-      ...existingConfig.recentModels.filter((m) => m !== modelId),
-    ].slice(0, MAX_RECENT_MODELS)
+    const recentModels = [modelId, ...existingConfig.recentModels.filter((m) => m !== modelId)].slice(
+      0,
+      MAX_RECENT_MODELS,
+    )
 
     const newProviderConfig: ConnectedProviderConfig = {
       ...existingConfig,
@@ -206,10 +206,7 @@ export class ProviderConfig {
   /**
    * Create a new config with a provider connected.
    */
-  public withProviderConnected(
-    providerId: string,
-    options?: {activeModel?: string; baseUrl?: string},
-  ): ProviderConfig {
+  public withProviderConnected(providerId: string, options?: {activeModel?: string; baseUrl?: string}): ProviderConfig {
     const existingConfig = this.providers[providerId]
     const newProviderConfig: ConnectedProviderConfig = {
       activeModel: options?.activeModel ?? existingConfig?.activeModel,
@@ -234,8 +231,7 @@ export class ProviderConfig {
   public withProviderDisconnected(providerId: string): ProviderConfig {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const {[providerId]: _removed, ...remainingProviders} = this.providers
-    const newActiveProvider =
-      this.activeProvider === providerId ? 'byterover' : this.activeProvider
+    const newActiveProvider = this.activeProvider === providerId ? 'byterover' : this.activeProvider
 
     return new ProviderConfig({
       activeProvider: newActiveProvider,

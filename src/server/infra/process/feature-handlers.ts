@@ -22,12 +22,15 @@ import {HttpCogitPushService} from '../cogit/http-cogit-push-service.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
 import {ConnectorManager} from '../connectors/connector-manager.js'
 import {RuleTemplateService} from '../connectors/shared/template-service.js'
+import {SkillConnector} from '../connectors/skill/skill-connector.js'
 import {FileContextFileReader} from '../context-tree/file-context-file-reader.js'
 import {FileContextTreeService} from '../context-tree/file-context-tree-service.js'
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeWriterService} from '../context-tree/file-context-tree-writer-service.js'
 import {FsFileService} from '../file/fs-file-service.js'
 import {CallbackHandler} from '../http/callback-handler.js'
+import {HubInstallService} from '../hub/hub-install-service.js'
+import {HubRegistryService} from '../hub/hub-registry-service.js'
 import {HttpSpaceService} from '../space/http-space-service.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {HttpTeamService} from '../team/http-team-service.js'
@@ -36,9 +39,9 @@ import {
   AuthHandler,
   ConfigHandler,
   ConnectorsHandler,
+  HubHandler,
   InitHandler,
   ModelHandler,
-  OnboardingHandler,
   ProviderHandler,
   PullHandler,
   PushHandler,
@@ -134,16 +137,6 @@ export async function setupFeatureHandlers({
     transport,
   }).setup()
 
-  new OnboardingHandler({
-    projectConfigStore,
-    resolveProjectPath,
-    spaceService,
-    teamService,
-    tokenStore,
-    transport,
-    userService,
-  }).setup()
-
   new PushHandler({
     broadcastToProject,
     cogitPushService,
@@ -153,6 +146,7 @@ export async function setupFeatureHandlers({
     resolveProjectPath,
     tokenStore,
     transport,
+    webAppUrl: envConfig.webAppUrl,
   }).setup()
 
   new PullHandler({
@@ -184,6 +178,17 @@ export async function setupFeatureHandlers({
 
   new ConnectorsHandler({
     connectorManagerFactory,
+    resolveProjectPath,
+    transport,
+  }).setup()
+
+  const hubRegistryService = new HubRegistryService(envConfig.hubRegistryUrl)
+  const skillConnectorFactory = (projectRoot: string): SkillConnector => new SkillConnector({fileService, projectRoot})
+  const hubInstallService = new HubInstallService({fileService, skillConnectorFactory})
+
+  new HubHandler({
+    hubInstallService,
+    hubRegistryService,
     resolveProjectPath,
     transport,
   }).setup()

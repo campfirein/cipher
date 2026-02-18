@@ -13,6 +13,12 @@ import {
   type PullPrepareRequest,
   type PullPrepareResponse,
 } from '../../../../shared/transport/events/pull-events.js'
+import {
+  LocalChangesExistError,
+  NotAuthenticatedError,
+  ProjectNotInitError,
+  SpaceNotConfiguredError,
+} from '../../../core/domain/errors/task-error.js'
 
 export interface PullHandlerDeps {
   broadcastToProject: ProjectBroadcaster
@@ -65,19 +71,23 @@ export class PullHandler {
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
-      throw new Error('Not authenticated')
+      throw new NotAuthenticatedError()
     }
 
     const config = await this.projectConfigStore.read(projectPath)
     if (!config) {
-      throw new Error('Project not initialized')
+      throw new ProjectNotInitError()
+    }
+
+    if (!config.teamId || !config.spaceId) {
+      throw new SpaceNotConfiguredError()
     }
 
     // Check for local changes that would be overwritten
     const changes = await this.contextTreeSnapshotService.getChanges(projectPath)
     const hasLocalChanges = changes.added.length > 0 || changes.modified.length > 0 || changes.deleted.length > 0
     if (hasLocalChanges) {
-      throw new Error('Local changes exist. Push first or reset before pulling.')
+      throw new LocalChangesExistError()
     }
 
     this.broadcastToProject(projectPath, PullEvents.PROGRESS, {message: 'Pulling from cloud...', step: 'pulling'})
@@ -85,8 +95,8 @@ export class PullHandler {
     const snapshot = await this.cogitPullService.pull({
       branch: data.branch,
       sessionKey: token.sessionKey,
-      spaceId: config.spaceId!,
-      teamId: config.teamId!,
+      spaceId: config.spaceId,
+      teamId: config.teamId,
     })
 
     this.broadcastToProject(projectPath, PullEvents.PROGRESS, {message: 'Syncing files...', step: 'syncing'})
@@ -108,11 +118,11 @@ export class PullHandler {
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
-      throw new Error('Not authenticated')
+      throw new NotAuthenticatedError()
     }
 
     if (!(await this.projectConfigStore.exists(projectPath))) {
-      throw new Error('Project not initialized')
+      throw new ProjectNotInitError()
     }
 
     const changes = await this.contextTreeSnapshotService.getChanges(projectPath)

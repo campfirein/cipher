@@ -4,6 +4,7 @@ export const AuthEvents = {
   EXPIRED: 'auth:expired',
   GET_STATE: 'auth:getState',
   LOGIN_COMPLETED: 'auth:loginCompleted',
+  LOGIN_WITH_API_KEY: 'auth:loginWithApiKey',
   LOGOUT: 'auth:logout',
   REFRESH: 'auth:refresh',
   START_LOGIN: 'auth:startLogin',
@@ -26,6 +27,16 @@ export interface AuthLoginCompletedEvent {
   error?: string
   success: boolean
   user?: UserDTO
+}
+
+export interface AuthLoginWithApiKeyRequest {
+  apiKey: string
+}
+
+export interface AuthLoginWithApiKeyResponse {
+  error?: string
+  success: boolean
+  userEmail?: string
 }
 
 export interface AuthLogoutResponse {

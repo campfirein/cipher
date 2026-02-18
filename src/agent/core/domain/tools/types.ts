@@ -98,6 +98,9 @@ export interface Tool {
  * Contains metadata about the execution environment.
  */
 export interface ToolExecutionContext {
+  /** Command type for context-aware tool behavior (e.g., 'curate', 'query') */
+  commandType?: string
+
   /**
    * Callback for streaming metadata updates during execution.
    * Tools can use this to push real-time output (e.g., bash streaming).

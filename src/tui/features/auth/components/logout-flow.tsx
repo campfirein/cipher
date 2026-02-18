@@ -11,6 +11,7 @@ import React, {useEffect, useState} from 'react'
 import type {CustomDialogCallbacks} from '../../../types/commands.js'
 
 import {InlineConfirm} from '../../../components/inline-prompts/inline-confirm.js'
+import {useDisconnectProvider} from '../../provider/api/disconnect-provider.js'
 import {useGetAuthState} from '../api/get-auth-state.js'
 import {useLogout} from '../api/logout.js'
 
@@ -25,6 +26,7 @@ export function LogoutFlow({onComplete, skipConfirm}: LogoutFlowProps): React.Re
   const [userEmail, setUserEmail] = useState<string>()
   const {data: authData, error: authError, isLoading: isCheckingAuth} = useGetAuthState()
   const logoutMutation = useLogout()
+  const disconnectMutation = useDisconnectProvider()
 
   // Check auth state
   useEffect(() => {
@@ -54,18 +56,22 @@ export function LogoutFlow({onComplete, skipConfirm}: LogoutFlowProps): React.Re
   useEffect(() => {
     if (step !== 'executing') return
 
-    logoutMutation.mutate(undefined, {
-      onError(error) {
-        onComplete(`Logout failed: ${error.message}`)
-      },
-      onSuccess(result) {
+    const execute = async () => {
+      try {
+        await disconnectMutation.mutateAsync({providerId: 'byterover'})
+        // eslint-disable-next-line unicorn/no-useless-undefined
+        const result = await logoutMutation.mutateAsync(undefined)
         if (result.success) {
           onComplete("Successfully logged out.\nRun '/login' to authenticate again.")
         } else {
           onComplete('Logout failed')
         }
-      },
-    })
+      } catch (error) {
+        onComplete(`Logout failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      }
+    }
+
+    execute()
   }, [step])
 
   if (step === 'checking' || isCheckingAuth) {

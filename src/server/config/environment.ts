@@ -18,6 +18,7 @@ type EnvironmentConfig = {
   authorizationUrl: string
   clientId: string
   cogitApiBaseUrl: string
+  hubRegistryUrl: string
   issuerUrl: string
   llmApiBaseUrl: string
   memoraApiBaseUrl: string
@@ -36,6 +37,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     authorizationUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/authorize',
     clientId: 'byterover-cli-client',
     cogitApiBaseUrl: 'https://dev-beta-cgit.byterover.dev/api/v1',
+    hubRegistryUrl: 'https://raw.githubusercontent.com/campfirein/brv-hub/refs/heads/main/registry.json',
     issuerUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc',
     llmApiBaseUrl: 'https://dev-beta-llm.byterover.dev',
     memoraApiBaseUrl: 'https://dev-beta-memora-retrieve.byterover.dev/api/v3',
@@ -48,6 +50,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     authorizationUrl: 'https://iam.byterover.dev/api/v1/oidc/authorize',
     clientId: 'byterover-cli-client',
     cogitApiBaseUrl: 'https://v3-cgit.byterover.dev/api/v1',
+    hubRegistryUrl: 'https://raw.githubusercontent.com/campfirein/brv-hub/refs/heads/main/registry.json',
     issuerUrl: 'https://iam.byterover.dev/api/v1/oidc',
     llmApiBaseUrl: 'https://llm.byterover.dev',
     memoraApiBaseUrl: 'https://beta-memora-retrieve.byterover.dev/api/v3',

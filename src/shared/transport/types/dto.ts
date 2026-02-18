@@ -95,6 +95,30 @@ export interface ModelDTO {
   name: string
   pricing: {inputPerM: number; outputPerM: number}
   provider: string
+  providerId: string
+}
+
+// ============================================================================
+// Hub DTOs
+// ============================================================================
+
+export interface HubEntryDTO {
+  author: {name: string; url: string}
+  category: string
+  dependencies: string[]
+  description: string
+  file_tree: Array<{name: string; url: string}>
+  id: string
+  license: string
+  long_description: string
+  manifest_url: string
+  metadata: {use_cases: string[]}
+  name: string
+  path_url: string
+  readme_url: string
+  tags: string[]
+  type: 'agent-skill' | 'bundle'
+  version: string
 }
 
 // ============================================================================
@@ -104,9 +128,12 @@ export interface ModelDTO {
 export interface StatusDTO {
   authStatus: 'expired' | 'logged_in' | 'not_logged_in' | 'unknown'
   contextTreeChanges?: ContextTreeChanges
+  /** Absolute path to the context tree directory (e.g., '/Users/foo/project/.brv/context-tree') */
+  contextTreeDir?: string
+  /** Relative path to the context tree directory from project root (e.g., '.brv/context-tree') */
+  contextTreeRelativeDir?: string
   contextTreeStatus: 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
   currentDirectory: string
-  projectInitialized: boolean
   spaceName?: string
   teamName?: string
   userEmail?: string

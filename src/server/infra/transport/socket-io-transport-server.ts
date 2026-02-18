@@ -3,7 +3,12 @@ import {createServer, Server as HttpServer} from 'node:http'
 import {Server, Socket} from 'socket.io'
 
 import type {TransportServerConfig} from '../../core/domain/transport/types.js'
-import type {ConnectionHandler, ConnectionMetadata, ITransportServer, RequestHandler} from '../../core/interfaces/transport/index.js'
+import type {
+  ConnectionHandler,
+  ConnectionMetadata,
+  ITransportServer,
+  RequestHandler,
+} from '../../core/interfaces/transport/index.js'
 
 import {isDevelopment} from '../../config/environment.js'
 import {TRANSPORT_HOST, TRANSPORT_PING_INTERVAL_MS, TRANSPORT_PING_TIMEOUT_MS} from '../../constants.js'
@@ -267,11 +272,15 @@ export class SocketIOTransportServer implements ITransportServer {
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        const errorCode = error instanceof Error && 'code' in error ? (error.code as string) : undefined
+        const errorPayload = errorCode
+          ? {code: errorCode, error: errorMessage, success: false}
+          : {error: errorMessage, success: false}
 
         if (callback) {
-          callback({error: errorMessage, success: false})
+          callback(errorPayload)
         } else {
-          socket.emit(`${event}${ERROR_EVENT_SUFFIX}`, {error: errorMessage, success: false})
+          socket.emit(`${event}${ERROR_EVENT_SUFFIX}`, errorPayload)
         }
       }
     })

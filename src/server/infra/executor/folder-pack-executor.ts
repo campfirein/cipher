@@ -800,14 +800,20 @@ await tools.curate([{
       packResult.totalLines,
     )
 
+    // Create per-task session for parallel isolation (own sandbox + history + LLM service)
+    const taskSessionId = await agent.createTaskSession(taskId, 'curate')
+
     let response: string
     try {
-      response = await agent.execute(prompt, {
+      response = await agent.executeOnSession(taskSessionId, prompt, {
         executionContext: {commandType: 'curate'},
         taskId,
       })
     } finally {
-      // Step 4: Clean up - delete temp file
+      // Clean up task session (sandbox + history)
+      await agent.deleteTaskSession(taskSessionId)
+
+      // Clean up temp file
       console.log(`[FolderPackExecutor] Cleaning up temp file`)
       try {
         await fs.unlink(tmpFilePath)

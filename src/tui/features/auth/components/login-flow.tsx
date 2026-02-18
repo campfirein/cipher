@@ -14,6 +14,7 @@ import type {CustomDialogCallbacks} from '../../../types/commands.js'
 import {AuthEvents} from '../../../../shared/transport/events/index.js'
 import {useTransportStore} from '../../../stores/transport-store.js'
 import {login} from '../api/login.js'
+import {useAuthStore} from '../stores/auth-store.js'
 
 type LoginStep = 'starting' | 'waiting'
 
@@ -46,6 +47,7 @@ export function LoginFlow({onComplete}: CustomDialogCallbacks): React.ReactNode 
     const unsubscribe = apiClient.on<AuthLoginCompletedEvent>(AuthEvents.LOGIN_COMPLETED, (data) => {
       unsubscribe()
       if (data.success && data.user) {
+        useAuthStore.getState().setState({isAuthorized: true, user: data.user})
         onComplete(`Logged in as ${data.user.email}`)
       } else {
         onComplete(data.error ?? 'Authentication failed')
