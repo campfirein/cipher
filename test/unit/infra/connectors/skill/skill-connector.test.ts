@@ -194,6 +194,60 @@ describe('SkillConnector', () => {
     })
   })
 
+  describe('writeSkillFiles', () => {
+    it('should write files to agent skill directory with custom name', async () => {
+      const files = [
+        {content: '# My Skill', name: 'SKILL.md'},
+        {content: '# Readme', name: 'README.md'},
+      ]
+      const result = await skillConnector.writeSkillFiles('Claude Code', 'my-hub-skill', files)
+
+      expect(result.alreadyInstalled).to.be.false
+      expect(result.relativePath).to.equal('.claude/skills/my-hub-skill')
+      expect(result.installedFiles).to.have.lengthOf(2)
+
+      const skillContent = await readFile(path.join(testDir, '.claude/skills/my-hub-skill/SKILL.md'), 'utf8')
+      expect(skillContent).to.equal('# My Skill')
+
+      const readmeContent = await readFile(path.join(testDir, '.claude/skills/my-hub-skill/README.md'), 'utf8')
+      expect(readmeContent).to.equal('# Readme')
+    })
+
+    it('should return alreadyInstalled if first file exists', async () => {
+      const files = [{content: '# Skill', name: 'SKILL.md'}]
+
+      // First write
+      await skillConnector.writeSkillFiles('Claude Code', 'existing-skill', files)
+
+      // Second write
+      const result = await skillConnector.writeSkillFiles('Claude Code', 'existing-skill', files)
+
+      expect(result.alreadyInstalled).to.be.true
+      expect(result.installedFiles).to.have.lengthOf(0)
+    })
+
+    it('should throw for unsupported agent', async () => {
+      const files = [{content: '# Skill', name: 'SKILL.md'}]
+
+      try {
+        await skillConnector.writeSkillFiles('Amp', 'my-skill', files)
+        expect.fail('Should have thrown')
+      } catch (error) {
+        expect((error as Error).message).to.include('does not support agent')
+      }
+    })
+
+    it('should write to correct directory for Cursor', async () => {
+      const files = [{content: '# Cursor Skill', name: 'SKILL.md'}]
+      const result = await skillConnector.writeSkillFiles('Cursor', 'cursor-skill', files)
+
+      expect(result.relativePath).to.equal('.cursor/skills/cursor-skill')
+
+      const content = await readFile(path.join(testDir, '.cursor/skills/cursor-skill/SKILL.md'), 'utf8')
+      expect(content).to.equal('# Cursor Skill')
+    })
+  })
+
   describe('full lifecycle', () => {
     it('should support install → status → uninstall → status cycle', async () => {
       const agent = 'Claude Code' as const
