@@ -1,8 +1,7 @@
-import {randomUUID} from 'node:crypto'
-import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
+import type {CurationStatus} from '../../core/domain/entities/curation-status.js'
 import type {CurateExecuteOptions, ICurateExecutor} from '../../core/interfaces/executor/i-curate-executor.js'
 
 import {FileValidationError} from '../../core/domain/errors/task-error.js'
@@ -26,8 +25,6 @@ import {validateFileForCurate} from '../../utils/file-validator.js'
  * - Executor focuses solely on curate execution
  */
 export class CurateExecutor implements ICurateExecutor {
-  /** History file name for RLM domain-indexed curate history */
-  private static readonly HISTORY_FILE = 'curate-history.json'
   /** Maximum content length per file in characters */
   private static readonly MAX_CONTENT_PER_FILE = 40_000
   /** Maximum number of files allowed in --files flag */
@@ -36,6 +33,8 @@ export class CurateExecutor implements ICurateExecutor {
   private static readonly MAX_LINES_PER_FILE = 2000
   /** Maximum pages to extract for PDFs */
   private static readonly MAX_PDF_PAGES = 50
+  /** Last curation status — available for future status-check command */
+  public lastStatus?: CurationStatus
   private readonly fileContentReader: FileContentReader
 
   constructor(fileContentReader?: FileContentReader) {
@@ -51,35 +50,55 @@ export class CurateExecutor implements ICurateExecutor {
     // Build full context (content + optional file references)
     const fullContext = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
 
-    // RLM Pattern: Write context to temp file instead of passing as LLM prompt.
-    // Agent reads this via code_exec (tools.readFile), keeping the LLM prompt minimal.
-    const tempId = taskId ?? randomUUID()
-    const projectRoot = clientCwd ?? process.cwd()
-    const tmpDir = path.join(projectRoot, '.brv', 'tmp')
-    const tempFile = path.join(tmpDir, `curate-input-${tempId}.txt`)
-    const historyFile = path.join(tmpDir, CurateExecutor.HISTORY_FILE)
+    // Task-scoped variable names for parallel isolation
+    const ctxVar = `__curate_ctx_${taskId}`
+    const histVar = `__curate_hist_${taskId}`
+    const metaVar = `__curate_meta_${taskId}`
 
-    await fs.mkdir(tmpDir, {recursive: true})
-    await fs.writeFile(tempFile, fullContext, 'utf8')
+    // Compute context metadata (RLM pattern — LM sees metadata, not raw content)
+    const contextLines = fullContext.split('\n')
+    const metadata = {
+      charCount: fullContext.length,
+      lineCount: contextLines.length,
+      messageCount: (fullContext.match(/\n\n\[(USER|ASSISTANT)\]:/g) || []).length,
+      preview: fullContext.slice(0, 500),
+      type: 'string',
+    }
 
-    // Minimal prompt: only file paths, no context content in LLM prompt
+    // Inject context, metadata, and empty history into sandbox BEFORE agent.execute()
+    // (buffered as pending variables — injected when sandbox is created on first code_exec)
+    agent.setSandboxVariable(ctxVar, fullContext)
+    agent.setSandboxVariable(histVar, {entries: [], totalProcessed: 0})
+    agent.setSandboxVariable(metaVar, metadata)
+
+    // Prompt with metadata guidance (RLM pattern: LM sees metadata first, peeks via slicing)
     const prompt = [
-      `Curate context file: ${tempFile}`,
-      `History file: ${historyFile}`,
-      'Process using RLM approach.',
+      `Curate using RLM approach.`,
+      `Context variable: ${ctxVar} (${metadata.charCount} chars, ${metadata.lineCount} lines, ${metadata.messageCount} messages)`,
+      `History variable: ${histVar}`,
+      `Metadata variable: ${metaVar}`,
+      `IMPORTANT: Do NOT print raw context. Use slicing to peek at sections (e.g., ${ctxVar}.slice(0, 3000)).`,
+      `Use silent mode (silent: true) for variable assignments. Use tools.agentQuery() for chunk processing.`,
     ].join('\n')
 
     try {
       // Execute with curate commandType + clearHistory to prevent accumulation
       // Agent uses its default session (created during start())
       // Task lifecycle is managed by Transport (task:started, task:completed, task:error)
-      return await agent.execute(prompt, {
+      const response = await agent.execute(prompt, {
         executionContext: {clearHistory: true, commandType: 'curate'},
         taskId,
       })
+
+      // Parse curation status from agent response for status tracking
+      this.lastStatus = this.parseCurationStatus(taskId, response)
+
+      return response
     } finally {
-      // Clean up temp input file (history file persists across curations)
-      await fs.unlink(tempFile).catch(() => {})
+      // Clean up sandbox variables (success or failure — history is ephemeral)
+      agent.deleteSandboxVariable(ctxVar)
+      agent.deleteSandboxVariable(histVar)
+      agent.deleteSandboxVariable(metaVar)
     }
   }
 
@@ -154,6 +173,42 @@ export class CurateExecutor implements ICurateExecutor {
       default: {
         return fileType
       }
+    }
+  }
+
+  /**
+   * Parse curation status from the agent response.
+   * Extracts JSON status block if present, otherwise infers from response text.
+   */
+  private parseCurationStatus(taskId: string, response: string): CurationStatus {
+    const defaultSummary = { added: 0, deleted: 0, failed: 0, merged: 0, updated: 0 }
+    const defaultVerification = { checked: 0, confirmed: 0, missing: [] as string[] }
+
+    // Try to extract JSON status block from response (agent instructed to include it)
+    try {
+      const jsonMatch = /```json\n([\S\s]*?)\n```/.exec(response)
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[1])
+
+        return {
+          completedAt: new Date().toISOString(),
+          status: parsed.summary?.failed > 0 ? 'partial' : 'success',
+          summary: parsed.summary ?? defaultSummary,
+          taskId,
+          verification: parsed.verification ?? defaultVerification,
+        }
+      }
+    } catch {
+      // Ignore parse errors — fall through to heuristic
+    }
+
+    // Fallback: infer from response text
+    return {
+      completedAt: new Date().toISOString(),
+      status: response.includes('failed') ? 'failed' : 'success',
+      summary: defaultSummary,
+      taskId,
+      verification: defaultVerification,
     }
   }
 

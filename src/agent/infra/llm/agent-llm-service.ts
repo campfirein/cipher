@@ -63,6 +63,8 @@ const TARGET_MESSAGE_TOKEN_UTILIZATION = 0.7
  * Contains all information needed to add the result to context in order.
  */
 interface ParallelToolResult {
+  /** If set, signals early exit — the agentic loop should terminate with this value */
+  earlyExitResult?: string
   /** Error message if tool execution failed */
   error?: string
   /** Original tool call for reference */
@@ -973,8 +975,20 @@ export class AgentLLMService implements ILLMService {
         return response
       }
 
-      // Has tool calls - handle them (pass taskId for subagent billing)
-      await this.handleToolCalls(lastMessage, taskId)
+      // Has tool calls - handle them (pass taskId and executionContext for context-aware behavior)
+      const earlyExitResult = await this.handleToolCalls(lastMessage, taskId, executionContext)
+
+      // Check for early exit from setFinalResult()
+      if (earlyExitResult) {
+        this.sessionEventBus.emit('llmservice:response', {
+          content: earlyExitResult,
+          model: this.config.model,
+          provider: this.providerId,
+          taskId,
+        })
+
+        return earlyExitResult
+      }
 
       // Auto-compaction check after tool execution batch
       await this.checkAndTriggerCompaction(taskId ?? '')
@@ -989,9 +1003,10 @@ export class AgentLLMService implements ILLMService {
    *
    * @param toolCall - Tool call to execute
    * @param taskId - Task ID from usecase for billing tracking (passed to subagents)
+   * @param executionContext - Optional execution context for context-aware tool behavior
    * @returns Parallel tool result with all execution data
    */
-  private async executeToolCallParallel(toolCall: ToolCall, taskId?: string): Promise<ParallelToolResult> {
+  private async executeToolCallParallel(toolCall: ToolCall, taskId?: string, executionContext?: ExecutionContext): Promise<ParallelToolResult> {
     const toolName = toolCall.function.name
     const toolArgs = JSON.parse(toolCall.function.arguments)
 
@@ -1043,14 +1058,15 @@ export class AgentLLMService implements ILLMService {
       const metadataCallback = this.metadataHandler.createCallback(toolCall.id, toolName)
 
       // Execute tool via ToolManager (returns structured result)
-      // Pass taskId in context for subagent billing tracking
+      // Pass taskId and commandType in context for subagent billing tracking and context-aware behavior
       const result: ToolExecutionResult = await this.toolManager.executeTool(toolName, toolArgs, this.sessionId, {
+        commandType: executionContext?.commandType,
         metadata: metadataCallback,
         taskId,
       })
 
-      // Process output (truncation and file saving if needed)
-      const processedOutput = await this.outputProcessor.processStructuredOutput(toolName, result.content)
+      // Process output (truncation and file saving if needed, with per-command overrides)
+      const processedOutput = await this.outputProcessor.processStructuredOutput(toolName, result.content, executionContext?.commandType)
 
       // Emit truncation event if output was truncated
       if (processedOutput.metadata?.truncated) {
@@ -1077,7 +1093,12 @@ export class AgentLLMService implements ILLMService {
         toolName,
       })
 
+      // Check for early exit signal from setFinalResult() in sandbox
+      const toolContent = result.content as Record<string, unknown> | undefined
+      const earlyExitResult = typeof toolContent?.finalResult === 'string' ? toolContent.finalResult : undefined
+
       return {
+        earlyExitResult,
         toolCall,
         toolResult: {
           errorType: result.errorType,
@@ -1301,8 +1322,10 @@ export class AgentLLMService implements ILLMService {
    *
    * @param lastMessage - Last message containing tool calls
    * @param taskId - Task ID from usecase for billing tracking (passed to subagents)
+   * @param executionContext - Optional execution context for context-aware tool behavior
+   * @returns Early exit result if setFinalResult() was called, undefined otherwise
    */
-  private async handleToolCalls(lastMessage: InternalMessage, taskId?: string): Promise<void> {
+  private async handleToolCalls(lastMessage: InternalMessage, taskId?: string, executionContext?: ExecutionContext): Promise<string | undefined> {
     if (!lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
       return
     }
@@ -1339,9 +1362,9 @@ export class AgentLLMService implements ILLMService {
       this.memoryDirtyFlag = true
     }
 
-    // Step 3: Execute all tool calls in parallel (pass taskId for subagent billing)
+    // Step 3: Execute all tool calls in parallel (pass taskId + commandType for context-aware behavior)
     const parallelResults = await Promise.allSettled(
-      lastMessage.toolCalls.map((toolCall) => this.executeToolCallParallel(toolCall, taskId)),
+      lastMessage.toolCalls.map((toolCall) => this.executeToolCallParallel(toolCall, taskId, executionContext)),
     )
 
     // Step 4: Update tool part states with results (in order)
@@ -1408,6 +1431,13 @@ export class AgentLLMService implements ILLMService {
           errorType: 'UNEXPECTED_ERROR',
           success: false,
         })
+      }
+    }
+
+    // Check for early exit signal from setFinalResult() in any tool result
+    for (const settledResult of parallelResults) {
+      if (settledResult.status === 'fulfilled' && settledResult.value.earlyExitResult) {
+        return settledResult.value.earlyExitResult
       }
     }
   }

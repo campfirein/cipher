@@ -101,6 +101,11 @@ export class QueryExecutor implements IQueryExecutor {
       // Search failed, proceed without pre-fetched context
     }
 
+    // Supplementary entity-based searches for better multi-session recall
+    if (this.searchService && searchResult && searchResult.totalFound < 3) {
+      searchResult = await this.supplementEntitySearches(query, searchResult)
+    }
+
     // === OOD short-circuit: no results means topic not covered ===
     if (searchResult && searchResult.results.length === 0) {
       const response = formatNotFoundResponse(query)
@@ -123,30 +128,57 @@ export class QueryExecutor implements IQueryExecutor {
       }
     }
 
-    // === Tier 3: Optimized LLM call with pre-fetched context (<5s) ===
+    // === Tier 3/4: LLM call with RLM pattern (variable-based search results) ===
     let prefetchedContext: string | undefined
     if (searchResult && this.fileSystem) {
       prefetchedContext = this.buildPrefetchedContext(searchResult)
     }
 
-    const prompt = this.buildQueryPrompt(query, prefetchedContext)
+    // Task-scoped variable names for sandbox injection (RLM pattern)
+    const resultsVar = `__query_results_${taskId}`
+    const metaVar = `__query_meta_${taskId}`
+
+    // Compute metadata for LLM guidance
+    const metadata = {
+      hasPreFetched: Boolean(prefetchedContext),
+      resultCount: searchResult?.results.length ?? 0,
+      topScore: searchResult?.results[0]?.score ?? 0,
+      totalFound: searchResult?.totalFound ?? 0,
+    }
+
+    // Inject search results + metadata into sandbox BEFORE agent.execute()
+    agent.setSandboxVariable(resultsVar, searchResult?.results ?? [])
+    agent.setSandboxVariable(metaVar, metadata)
+
+    const prompt = this.buildQueryPrompt(query, {
+      metadata,
+      metaVar,
+      prefetchedContext,
+      resultsVar,
+    })
 
     // Query-optimized LLM overrides: fewer tokens, iterations, and lower temperature
     const queryOverrides = prefetchedContext
       ? { maxIterations: 10, maxTokens: 1024, temperature: 0.3 }
       : { maxIterations: 10, maxTokens: 2048, temperature: 0.5 }
 
-    const response = await agent.execute(prompt, {
-      executionContext: { commandType: 'query', ...queryOverrides },
-      taskId,
-    })
+    try {
+      const response = await agent.execute(prompt, {
+        executionContext: { commandType: 'query', ...queryOverrides },
+        taskId,
+      })
 
-    // Store in cache for future Tier 0/1 hits
-    if (this.cache && fingerprint) {
-      this.cache.set(query, response, fingerprint)
+      // Store in cache for future Tier 0/1 hits
+      if (this.cache && fingerprint) {
+        this.cache.set(query, response, fingerprint)
+      }
+
+      return response
+    } finally {
+      // Clean up sandbox variables (success or failure)
+      agent.deleteSandboxVariable(resultsVar)
+      agent.deleteSandboxVariable(metaVar)
     }
-
-    return response
   }
 
   /**
@@ -171,13 +203,37 @@ export class QueryExecutor implements IQueryExecutor {
   }
 
   /**
-   * Build a streamlined query prompt optimized for fast, accurate responses.
+   * Build a query prompt using RLM pattern (variable references, not embedded data).
    *
-   * When pre-fetched context is available, the prompt instructs the LLM to answer
-   * directly from the provided context (reducing LLM calls from 2+ to 1).
-   * When no context is available, falls back to tool-based search.
+   * Search results are pre-loaded into sandbox variables. The prompt references
+   * variable names so the LLM accesses results via code_exec, not via the prompt.
+   *
+   * @param query - User query
+   * @param options - Prompt options with variable names and metadata
    */
-  private buildQueryPrompt(query: string, prefetchedContext?: string): string {
+  private buildQueryPrompt(
+    query: string,
+    options: {
+      metadata: { hasPreFetched: boolean; resultCount: number; topScore: number; totalFound: number }
+      metaVar: string
+      prefetchedContext?: string
+      resultsVar: string
+    },
+  ): string {
+    const { metadata, metaVar, prefetchedContext, resultsVar } = options
+    const groundingRules = `### Grounding Rules (CRITICAL)
+- ONLY use information from the curated knowledge base (.brv/context-tree/)
+- If no relevant knowledge is found, respond: "This topic is not covered in the knowledge base."
+- Do NOT extrapolate, infer, or generate information beyond what is explicitly stated in sources
+- Every claim MUST be traceable to a specific source file
+- When uncertain, say "Based on available knowledge..." and note the limitation`
+
+    const responseFormat = `### Response Format
+- **Summary**: Direct answer (2-3 sentences)
+- **Details**: Key findings with explanations
+- **Sources**: File paths from .brv/context-tree/
+- **Gaps**: Note any aspects not covered`
+
     if (prefetchedContext) {
       return `## User Query
 ${query}
@@ -187,32 +243,36 @@ The following relevant knowledge was found in the context tree:
 
 ${prefetchedContext}
 
+## Search Results Variable
+Additional search results: \`${resultsVar}\` (${metadata.resultCount} results, top score: ${metadata.topScore.toFixed(2)})
+Metadata: \`${metaVar}\`
+
 ## Instructions
 
 Answer the user's question using the pre-fetched context above.
 If the pre-fetched context does not directly address the user's query topic, respond that the topic is not covered in the knowledge base. Do not attempt to answer from tangentially related content.
-If the context is insufficient but relevant, you may use \`code_exec\` with the \`tools.*\` SDK for additional searches.
+If the context is insufficient but relevant, use \`code_exec\` with \`silent: true\` to read additional documents from the search results variable. Use \`setFinalResult(answer)\` when done.
 
-### Response Format
-- **Summary**: Direct answer (2-3 sentences)
-- **Details**: Key findings with explanations
-- **Sources**: File paths from .brv/context-tree/
-- **Gaps**: Note any aspects not covered`
+${groundingRules}
+
+${responseFormat}`
     }
 
     return `## User Query
 ${query}
 
+## Search Results Variable
+Search results: \`${resultsVar}\` (${metadata.resultCount} results, top score: ${metadata.topScore.toFixed(2)})
+Metadata: \`${metaVar}\`
+
 ## Instructions
 
-Search the context tree (.brv/context-tree/) to answer this question.
-Use \`code_exec\` to run a programmatic search with the \`tools.*\` SDK.
+Use \`code_exec\` to examine the search results in \`${resultsVar}\`, read relevant documents with \`tools.readFile()\`, and synthesize an answer.
+Use \`silent: true\` for data-loading code_exec calls. Use \`setFinalResult(answer)\` to return the final answer immediately.
 
-### Response Format
-- **Summary**: Direct answer (2-3 sentences)
-- **Details**: Key findings with explanations
-- **Sources**: File paths from .brv/context-tree/
-- **Gaps**: Note any aspects not covered`
+${groundingRules}
+
+${responseFormat}`
   }
 
   /**
@@ -248,6 +308,71 @@ Use \`code_exec\` to run a programmatic search with the \`tools.*\` SDK.
       return fingerprint
     } catch {
       return 'unknown'
+    }
+  }
+
+  /**
+   * Extract key entities from a query for supplementary searches.
+   * Simple heuristic: split query, filter stopwords, keep significant terms.
+   */
+  private extractQueryEntities(query: string): string[] {
+    const stopwords = new Set([
+      'a', 'about', 'an', 'and', 'by', 'did', 'do', 'does', 'for', 'from',
+      'how', 'in', 'is', 'my', 'of', 'or', 'our', 'that', 'the', 'their',
+      'this', 'to', 'was', 'were', 'what', 'when', 'where', 'which', 'who', 'with',
+    ])
+    const words = query.toLowerCase().split(/\s+/)
+
+    return words.filter((w) => w.length >= 3 && !stopwords.has(w))
+  }
+
+  /**
+   * Run supplementary entity-based searches to improve recall.
+   * Extracts key entities from the query and searches for each independently,
+   * then merges unique results (by path) into the original search result.
+   *
+   * @param query - Original user query
+   * @param searchResult - Initial search result to supplement
+   * @returns Merged search result with additional entity-based matches
+   */
+  private async supplementEntitySearches(
+    query: string,
+    searchResult: SearchKnowledgeResult,
+  ): Promise<SearchKnowledgeResult> {
+    const entities = this.extractQueryEntities(query)
+    if (entities.length <= 1) return searchResult
+
+    try {
+      const entitySearches = await Promise.allSettled(
+        entities.slice(0, 3).map((entity) =>
+          this.searchService!.search(entity, { limit: 3 }),
+        ),
+      )
+
+      // Collect existing paths to deduplicate
+      const existingPaths = new Set(searchResult.results.map((r) => r.path))
+      const supplementary = []
+
+      for (const settled of entitySearches) {
+        if (settled.status === 'fulfilled' && settled.value.results) {
+          for (const result of settled.value.results) {
+            if (!existingPaths.has(result.path)) {
+              existingPaths.add(result.path)
+              supplementary.push(result)
+            }
+          }
+        }
+      }
+
+      if (supplementary.length === 0) return searchResult
+
+      return {
+        ...searchResult,
+        results: [...searchResult.results, ...supplementary],
+        totalFound: searchResult.totalFound + supplementary.length,
+      }
+    } catch {
+      return searchResult
     }
   }
 

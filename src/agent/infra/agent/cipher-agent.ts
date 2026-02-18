@@ -228,6 +228,15 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   }
 
   /**
+   * Delete a sandbox variable from the agent's default session.
+   */
+  public deleteSandboxVariable(key: string): void {
+    this.ensureStarted()
+    const sessionId = this.getSessionIdInternal()
+    this.services!.sandboxService.deleteSandboxVariable(sessionId, key)
+  }
+
+  /**
    * Delete a session completely (memory + history).
    */
   public async deleteSession(sessionId: string): Promise<boolean> {
@@ -452,6 +461,9 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     }
 
     this.sessionManager = newSessionManager
+
+    // Re-wire SessionManager into sandbox for tools.agentQuery()
+    this.services!.sandboxService.setSessionManager?.(this.sessionManager)
   }
 
   // === Protected Methods (implement abstract from BaseAgent) ===
@@ -481,6 +493,15 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     if (this._isStarted && this.services?.agentEventBus) {
       this.services.agentEventBus.emit('cipher:conversationReset', {sessionId})
     }
+  }
+
+  /**
+   * Set a variable in the agent's default session sandbox.
+   */
+  public setSandboxVariable(key: string, value: unknown): void {
+    this.ensureStarted()
+    const sessionId = this.getSessionIdInternal()
+    this.services!.sandboxService.setSandboxVariable(sessionId, key, value)
   }
 
   /**
@@ -535,6 +556,9 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
         sessionTTL: this.config.sessions.sessionTTL,
       },
     })
+
+    // Wire SessionManager into sandbox for tools.agentQuery() sub-agent delegation
+    this.services!.sandboxService.setSessionManager?.(this.sessionManager)
 
     // Create default session (Single-Session pattern)
     // Each agent has exactly 1 session created at start time

@@ -21,8 +21,6 @@
 
 import {connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
-import fs from 'node:fs/promises'
-import path from 'node:path'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {ProviderConfigResponse, TaskExecute} from '../../core/domain/transport/schemas.js'
@@ -309,10 +307,6 @@ async function start(): Promise<void> {
       const newSessionId = `agent-session-${randomUUID()}`
       await agent.createSession(newSessionId)
       agent.switchDefaultSession(newSessionId)
-
-      // Clean up RLM offload files (.brv/tmp/) on new session
-      const tmpDir = path.join(projectPath, '.brv', 'tmp')
-      await fs.rm(tmpDir, {force: true, recursive: true}).catch(() => {})
 
       await persistNewSession(newSessionId, cachedActiveProvider)
 

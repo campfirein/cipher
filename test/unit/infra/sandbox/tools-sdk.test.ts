@@ -57,7 +57,7 @@ describe('ToolsSDK', () => {
 
   describe('createToolsSDK', () => {
     it('should return an object with all required methods', () => {
-      const sdk = createToolsSDK(mockFileSystem as unknown as IFileSystem)
+      const sdk = createToolsSDK({fileSystem: mockFileSystem as unknown as IFileSystem})
 
       expect(sdk).to.have.property('glob').that.is.a('function')
       expect(sdk).to.have.property('grep').that.is.a('function')
@@ -73,7 +73,7 @@ describe('ToolsSDK', () => {
       const expectedResult = {files: [{path: 'src/index.ts'}], totalFound: 1, truncated: false}
       mockFileSystem.globFiles.resolves(expectedResult)
 
-      const sdk = createToolsSDK(mockFileSystem as unknown as IFileSystem)
+      const sdk = createToolsSDK({fileSystem: mockFileSystem as unknown as IFileSystem})
       const result = await sdk.glob('**/*.ts', {maxResults: 10, path: '/project'})
 
       expect(result).to.deep.equal(expectedResult)
@@ -91,7 +91,7 @@ describe('ToolsSDK', () => {
     it('should use default options when not provided', async () => {
       mockFileSystem.globFiles.resolves({files: [], totalFound: 0, truncated: false})
 
-      const sdk = createToolsSDK(mockFileSystem as unknown as IFileSystem)
+      const sdk = createToolsSDK({fileSystem: mockFileSystem as unknown as IFileSystem})
       await sdk.glob('*.js')
 
       expect(mockFileSystem.globFiles.firstCall.args[1]).to.deep.include({
@@ -104,7 +104,7 @@ describe('ToolsSDK', () => {
     it('should pass caseSensitive option correctly', async () => {
       mockFileSystem.globFiles.resolves({files: [], totalFound: 0, truncated: false})
 
-      const sdk = createToolsSDK(mockFileSystem as unknown as IFileSystem)
+      const sdk = createToolsSDK({fileSystem: mockFileSystem as unknown as IFileSystem})
       await sdk.glob('*.js', {caseSensitive: false})
 
       expect(mockFileSystem.globFiles.firstCall.args[1]).to.deep.include({
@@ -118,7 +118,7 @@ describe('ToolsSDK', () => {
       const expectedResult = {matches: [], totalMatches: 0, truncated: false}
       mockFileSystem.searchContent.resolves(expectedResult)
 
-      const sdk = createToolsSDK(mockFileSystem as unknown as IFileSystem)
+      const sdk = createToolsSDK({fileSystem: mockFileSystem as unknown as IFileSystem})
       const result = await sdk.grep('function', {
         caseInsensitive: true,
         contextLines: 2,
@@ -142,7 +142,7 @@ describe('ToolsSDK', () => {
     it('should use default options when not provided', async () => {
       mockFileSystem.searchContent.resolves({matches: [], totalMatches: 0, truncated: false})
 
-      const sdk = createToolsSDK(mockFileSystem as unknown as IFileSystem)
+      const sdk = createToolsSDK({fileSystem: mockFileSystem as unknown as IFileSystem})
       await sdk.grep('class')
 
       expect(mockFileSystem.searchContent.firstCall.args[1]).to.deep.include({
@@ -158,7 +158,7 @@ describe('ToolsSDK', () => {
       const expectedResult = {files: [], tree: '', truncated: false}
       mockFileSystem.listDirectory.resolves(expectedResult)
 
-      const sdk = createToolsSDK(mockFileSystem as unknown as IFileSystem)
+      const sdk = createToolsSDK({fileSystem: mockFileSystem as unknown as IFileSystem})
       const result = await sdk.listDirectory('/project', {
         ignore: ['node_modules'],
         maxResults: 50,
@@ -176,7 +176,7 @@ describe('ToolsSDK', () => {
     it('should default to current directory when path not provided', async () => {
       mockFileSystem.listDirectory.resolves({files: [], tree: '', truncated: false})
 
-      const sdk = createToolsSDK(mockFileSystem as unknown as IFileSystem)
+      const sdk = createToolsSDK({fileSystem: mockFileSystem as unknown as IFileSystem})
       await sdk.listDirectory()
 
       expect(mockFileSystem.listDirectory.firstCall.args[0]).to.equal('.')
@@ -191,7 +191,7 @@ describe('ToolsSDK', () => {
       const expectedResult = {content: 'file content', exists: true, path: '/file.ts'}
       mockFileSystem.readFile.resolves(expectedResult)
 
-      const sdk = createToolsSDK(mockFileSystem as unknown as IFileSystem)
+      const sdk = createToolsSDK({fileSystem: mockFileSystem as unknown as IFileSystem})
       const result = await sdk.readFile('/project/file.ts', {limit: 100, offset: 10})
 
       expect(result).to.deep.equal(expectedResult)
@@ -206,7 +206,7 @@ describe('ToolsSDK', () => {
     it('should work without options', async () => {
       mockFileSystem.readFile.resolves({content: 'data', exists: true, path: '/file.ts'})
 
-      const sdk = createToolsSDK(mockFileSystem as unknown as IFileSystem)
+      const sdk = createToolsSDK({fileSystem: mockFileSystem as unknown as IFileSystem})
       await sdk.readFile('/file.ts')
 
       expect(mockFileSystem.readFile.calledOnce).to.be.true
@@ -222,7 +222,7 @@ describe('ToolsSDK', () => {
       const expectedResult = {bytesWritten: 12, path: '/output.txt'}
       mockFileSystem.writeFile.resolves(expectedResult)
 
-      const sdk = createToolsSDK(mockFileSystem as unknown as IFileSystem)
+      const sdk = createToolsSDK({fileSystem: mockFileSystem as unknown as IFileSystem})
       const result = await sdk.writeFile('/output.txt', 'file content', {createDirs: true})
 
       expect(result).to.deep.equal(expectedResult)
@@ -237,7 +237,7 @@ describe('ToolsSDK', () => {
     it('should default createDirs to false', async () => {
       mockFileSystem.writeFile.resolves({bytesWritten: 4, path: '/file.txt'})
 
-      const sdk = createToolsSDK(mockFileSystem as unknown as IFileSystem)
+      const sdk = createToolsSDK({fileSystem: mockFileSystem as unknown as IFileSystem})
       await sdk.writeFile('/file.txt', 'data')
 
       expect(mockFileSystem.writeFile.firstCall.args[2]).to.deep.include({
@@ -257,10 +257,10 @@ describe('ToolsSDK', () => {
       }
       mockSearchKnowledgeService.search.resolves(expectedResult)
 
-      const sdk = createToolsSDK(
-        mockFileSystem as unknown as IFileSystem,
-        mockSearchKnowledgeService as ISearchKnowledgeService,
-      )
+      const sdk = createToolsSDK({
+        fileSystem: mockFileSystem as unknown as IFileSystem,
+        searchKnowledgeService: mockSearchKnowledgeService as ISearchKnowledgeService,
+      })
       const result = await sdk.searchKnowledge('authentication', {limit: 5})
 
       expect(result).to.deep.equal(expectedResult)
@@ -270,7 +270,7 @@ describe('ToolsSDK', () => {
     })
 
     it('should return empty result when service not available', async () => {
-      const sdk = createToolsSDK(mockFileSystem as unknown as IFileSystem)
+      const sdk = createToolsSDK({fileSystem: mockFileSystem as unknown as IFileSystem})
       const result = await sdk.searchKnowledge('test query')
 
       expect(result).to.deep.equal({
@@ -287,10 +287,10 @@ describe('ToolsSDK', () => {
         totalFound: 0,
       })
 
-      const sdk = createToolsSDK(
-        mockFileSystem as unknown as IFileSystem,
-        mockSearchKnowledgeService as ISearchKnowledgeService,
-      )
+      const sdk = createToolsSDK({
+        fileSystem: mockFileSystem as unknown as IFileSystem,
+        searchKnowledgeService: mockSearchKnowledgeService as ISearchKnowledgeService,
+      })
       await sdk.searchKnowledge('query')
 
       expect(mockSearchKnowledgeService.search.firstCall.args[1]).to.be.undefined
@@ -302,7 +302,7 @@ describe('ToolsSDK', () => {
       const error = new Error('Permission denied')
       mockFileSystem.globFiles.rejects(error)
 
-      const sdk = createToolsSDK(mockFileSystem as unknown as IFileSystem)
+      const sdk = createToolsSDK({fileSystem: mockFileSystem as unknown as IFileSystem})
 
       try {
         await sdk.glob('**/*')
@@ -316,7 +316,7 @@ describe('ToolsSDK', () => {
       const error = new Error('File not found')
       mockFileSystem.readFile.rejects(error)
 
-      const sdk = createToolsSDK(mockFileSystem as unknown as IFileSystem)
+      const sdk = createToolsSDK({fileSystem: mockFileSystem as unknown as IFileSystem})
 
       try {
         await sdk.readFile('/nonexistent.ts')
@@ -330,10 +330,10 @@ describe('ToolsSDK', () => {
       const error = new Error('Index not initialized')
       mockSearchKnowledgeService.search.rejects(error)
 
-      const sdk = createToolsSDK(
-        mockFileSystem as unknown as IFileSystem,
-        mockSearchKnowledgeService as ISearchKnowledgeService,
-      )
+      const sdk = createToolsSDK({
+        fileSystem: mockFileSystem as unknown as IFileSystem,
+        searchKnowledgeService: mockSearchKnowledgeService as ISearchKnowledgeService,
+      })
 
       try {
         await sdk.searchKnowledge('test')

@@ -84,6 +84,13 @@ export interface ICipherAgent {
   cancel(): Promise<boolean>
 
   /**
+   * Delete a sandbox variable from the agent's default session.
+   *
+   * @param key - Variable name to delete
+   */
+  deleteSandboxVariable(key: string): void
+
+  /**
    * Delete a session completely (memory + history)
    * @param sessionId - Session ID to delete
    * @returns True if session existed and was deleted
@@ -140,6 +147,16 @@ export interface ICipherAgent {
    * Clears execution history and resets iteration counter
    */
   reset(): void
+
+  /**
+   * Set a variable in the agent's default session sandbox.
+   * If the sandbox doesn't exist yet, the variable is buffered and injected
+   * when the sandbox is created on the first code execution.
+   *
+   * @param key - Variable name
+   * @param value - Variable value
+   */
+  setSandboxVariable(key: string, value: unknown): void
 
   /**
    * Start the agent - initializes all services asynchronously
