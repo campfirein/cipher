@@ -64,12 +64,12 @@ export const HEARTBEAT_INTERVAL_MS = 5000 // Write every 5s
 // === Idle timeout (server daemon shutdown) ===
 
 /** Server idle timeout - daemon shuts down after this period of no clients */
-export const SERVER_IDLE_TIMEOUT_MS = 2 * 60 * 1000 // 2 minutes (safer than 1 min)
+export const SERVER_IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 
 // === Agent idle timeout (agent process cleanup) ===
 
 /** Agent idle timeout - kill agent after this period of no task execution */
-export const AGENT_IDLE_TIMEOUT_MS = 60_000 // 1 minute
+export const AGENT_IDLE_TIMEOUT_MS = 15 * 60 * 1000 // 15 minutes
 
 /** Agent idle check interval - how often to check for idle agents */
 export const AGENT_IDLE_CHECK_INTERVAL_MS = 10_000 // Check every 10s (responsive)
