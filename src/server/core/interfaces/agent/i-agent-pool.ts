@@ -12,6 +12,8 @@ export type SubmitTaskResult =
  * Read-only snapshot of a managed agent entry for monitoring.
  */
 export type AgentEntryInfo = {
+  /** Number of currently executing tasks */
+  readonly activeTasks: number
   /** Child process PID (-1 if process hasn't started yet or has exited) */
   readonly childPid: number
   readonly createdAt: number

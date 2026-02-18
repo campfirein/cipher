@@ -44,13 +44,16 @@ export class CurateExecutor implements ICurateExecutor {
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
     const {clientCwd, content, files, taskId} = options
 
+    // Create per-task session for parallel isolation (own sandbox + history + LLM service)
+    const taskSessionId = await agent.createTaskSession(taskId, 'curate')
+
     // Process file references - reads file contents directly
     const fileReferenceInstructions = await this.processFileReferences(files ?? [], clientCwd)
 
     // Build full context (content + optional file references)
     const fullContext = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
 
-    // Task-scoped variable names for parallel isolation
+    // Task-scoped variable names for RLM pattern
     const ctxVar = `__curate_ctx_${taskId}`
     const histVar = `__curate_hist_${taskId}`
     const metaVar = `__curate_meta_${taskId}`
@@ -65,11 +68,10 @@ export class CurateExecutor implements ICurateExecutor {
       type: 'string',
     }
 
-    // Inject context, metadata, and empty history into sandbox BEFORE agent.execute()
-    // (buffered as pending variables — injected when sandbox is created on first code_exec)
-    agent.setSandboxVariable(ctxVar, fullContext)
-    agent.setSandboxVariable(histVar, {entries: [], totalProcessed: 0})
-    agent.setSandboxVariable(metaVar, metadata)
+    // Inject context, metadata, and empty history into the TASK session's sandbox
+    agent.setSandboxVariableOnSession(taskSessionId, ctxVar, fullContext)
+    agent.setSandboxVariableOnSession(taskSessionId, histVar, {entries: [], totalProcessed: 0})
+    agent.setSandboxVariableOnSession(taskSessionId, metaVar, metadata)
 
     // Prompt with metadata guidance (RLM pattern: LM sees metadata first, peeks via slicing)
     const prompt = [
@@ -82,10 +84,9 @@ export class CurateExecutor implements ICurateExecutor {
     ].join('\n')
 
     try {
-      // Execute with curate commandType + clearHistory to prevent accumulation
-      // Agent uses its default session (created during start())
+      // Execute on the task session (isolated sandbox + history)
       // Task lifecycle is managed by Transport (task:started, task:completed, task:error)
-      const response = await agent.execute(prompt, {
+      const response = await agent.executeOnSession(taskSessionId, prompt, {
         executionContext: {clearHistory: true, commandType: 'curate'},
         taskId,
       })
@@ -95,10 +96,8 @@ export class CurateExecutor implements ICurateExecutor {
 
       return response
     } finally {
-      // Clean up sandbox variables (success or failure — history is ephemeral)
-      agent.deleteSandboxVariable(ctxVar)
-      agent.deleteSandboxVariable(histVar)
-      agent.deleteSandboxVariable(metaVar)
+      // Clean up entire task session (sandbox + history) in one call
+      await agent.deleteTaskSession(taskSessionId)
     }
   }
 

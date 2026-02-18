@@ -134,6 +134,9 @@ export class QueryExecutor implements IQueryExecutor {
       prefetchedContext = this.buildPrefetchedContext(searchResult)
     }
 
+    // Create per-task session for parallel isolation (own sandbox + history + LLM service)
+    const taskSessionId = await agent.createTaskSession(taskId, 'query')
+
     // Task-scoped variable names for sandbox injection (RLM pattern)
     const resultsVar = `__query_results_${taskId}`
     const metaVar = `__query_meta_${taskId}`
@@ -146,9 +149,9 @@ export class QueryExecutor implements IQueryExecutor {
       totalFound: searchResult?.totalFound ?? 0,
     }
 
-    // Inject search results + metadata into sandbox BEFORE agent.execute()
-    agent.setSandboxVariable(resultsVar, searchResult?.results ?? [])
-    agent.setSandboxVariable(metaVar, metadata)
+    // Inject search results + metadata into the TASK session's sandbox
+    agent.setSandboxVariableOnSession(taskSessionId, resultsVar, searchResult?.results ?? [])
+    agent.setSandboxVariableOnSession(taskSessionId, metaVar, metadata)
 
     const prompt = this.buildQueryPrompt(query, {
       metadata,
@@ -163,7 +166,7 @@ export class QueryExecutor implements IQueryExecutor {
       : { maxIterations: 10, maxTokens: 2048, temperature: 0.5 }
 
     try {
-      const response = await agent.execute(prompt, {
+      const response = await agent.executeOnSession(taskSessionId, prompt, {
         executionContext: { commandType: 'query', ...queryOverrides },
         taskId,
       })
@@ -175,9 +178,8 @@ export class QueryExecutor implements IQueryExecutor {
 
       return response
     } finally {
-      // Clean up sandbox variables (success or failure)
-      agent.deleteSandboxVariable(resultsVar)
-      agent.deleteSandboxVariable(metaVar)
+      // Clean up entire task session (sandbox + history) in one call
+      await agent.deleteTaskSession(taskSessionId)
     }
   }
 
