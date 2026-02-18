@@ -431,15 +431,18 @@ describe('SpaceHandler', () => {
       expect(resolveProjectPath.calledWith('client-42')).to.be.true
     })
 
-    it('should fall back to process.cwd() when project path is undefined', async () => {
+    it('should throw when project path is undefined', async () => {
       // eslint-disable-next-line unicorn/no-useless-undefined
       resolveProjectPath.returns(undefined)
       createHandler()
-      setupSwitchMocks()
+      tokenStore.load.resolves(createMockToken())
 
-      await callSwitchHandler({spaceId: 'space-2'})
-
-      expect(projectConfigStore.read.calledWith(process.cwd())).to.be.true
+      try {
+        await callSwitchHandler({spaceId: 'space-2'})
+        expect.fail('should have thrown')
+      } catch (error) {
+        expect((error as Error).message).to.include('No project path found for client')
+      }
     })
 
     it('should work with local-only config (no teamId)', async () => {

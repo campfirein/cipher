@@ -275,7 +275,6 @@ describe('Debug Command', () => {
       expect(tree).to.include('Config:')
       expect(tree).to.include('Data:')
       expect(tree).to.include('Logs:')
-      expect(tree).to.include('Project:')
       expect(tree).to.include('Overrides:')
     })
 
@@ -416,7 +415,7 @@ describe('Debug Command', () => {
       expect(paths).to.have.property('config').that.is.a('string')
       expect(paths).to.have.property('data').that.is.a('string')
       expect(paths).to.have.property('logs').that.is.a('string')
-      expect(paths).to.have.property('project').that.is.a('string')
+      expect(paths).to.not.have.property('project')
       expect(paths).to.have.property('overrides').that.is.an('array')
       expect(paths).to.have.property('existence').that.is.an('object')
     })

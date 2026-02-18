@@ -4,7 +4,6 @@ import type {IContextTreeSnapshotService} from '../../../core/interfaces/context
 import type {ICogitPushService} from '../../../core/interfaces/services/i-cogit-push-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
-import type {ProjectBroadcaster, ProjectPathResolver} from './handler-types.js'
 
 import {
   PushEvents,
@@ -19,6 +18,7 @@ import {
   SpaceNotConfiguredError,
 } from '../../../core/domain/errors/task-error.js'
 import {mapToPushContexts} from '../../cogit/context-tree-to-push-context-mapper.js'
+import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 export interface PushHandlerDeps {
   broadcastToProject: ProjectBroadcaster
@@ -70,7 +70,7 @@ export class PushHandler {
   }
 
   private async handleExecute(data: PushExecuteRequest, clientId: string): Promise<PushExecuteResponse> {
-    const projectPath = this.resolveEffectivePath(clientId)
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
@@ -125,7 +125,7 @@ export class PushHandler {
   }
 
   private async handlePrepare(_data: PushPrepareRequest, clientId: string): Promise<PushPrepareResponse> {
-    const projectPath = this.resolveEffectivePath(clientId)
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
@@ -156,7 +156,4 @@ export class PushHandler {
     }
   }
 
-  private resolveEffectivePath(clientId: string): string {
-    return this.resolveProjectPath(clientId) ?? process.cwd()
-  }
 }

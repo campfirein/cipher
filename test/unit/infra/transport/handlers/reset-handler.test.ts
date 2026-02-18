@@ -150,16 +150,20 @@ describe('ResetHandler', () => {
       expect(resolveProjectPath.calledWith('client-42')).to.be.true
     })
 
-    it('should fall back to process.cwd() when project path is undefined', async () => {
+    it('should throw when project path is undefined', async () => {
       // eslint-disable-next-line unicorn/no-useless-undefined
       resolveProjectPath.returns(undefined)
       createHandler()
-      contextTreeService.exists.resolves(true)
 
-      await callExecuteHandler()
+      try {
+        await callExecuteHandler()
+        expect.fail('should have thrown')
+      } catch (error) {
+        expect((error as Error).message).to.include('No project path found for client')
+      }
 
-      expect(contextTreeService.exists.calledWith(process.cwd())).to.be.true
-      expect(contextTreeService.delete.calledWith(process.cwd())).to.be.true
+      expect(contextTreeService.exists.called).to.be.false
+      expect(contextTreeService.delete.called).to.be.false
     })
   })
 })

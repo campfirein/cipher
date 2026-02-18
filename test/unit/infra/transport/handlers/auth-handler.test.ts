@@ -181,7 +181,7 @@ describe('AuthHandler — setupExternalAuthSync', () => {
       })
     })
 
-    it('should broadcast auth:stateChanged with full user info for TUI', async () => {
+    it('should broadcast auth:stateChanged with user info (no brvConfig) for TUI', async () => {
       createHandler()
       const token = createValidToken()
 
@@ -195,20 +195,12 @@ describe('AuthHandler — setupExternalAuthSync', () => {
       const stateChangedCall = transport.broadcast.getCalls().find((c) => c.args[0] === AuthEvents.STATE_CHANGED)
       expect(stateChangedCall, 'auth:stateChanged should be broadcast').to.exist
       expect(stateChangedCall!.args[1]).to.deep.equal({
-        brvConfig: {
-          spaceId: 'space-1',
-          spaceName: 'Test Space',
-          teamId: 'team-1',
-          teamName: 'Test Team',
-          version: '2',
-        },
         isAuthorized: true,
         user: {email: 'test@example.com', hasOnboardedCli: true, id: 'user-123'},
       })
     })
 
-    it('should broadcast auth:stateChanged without brvConfig when not configured', async () => {
-      projectConfigStore.read.resolves() // resolves with undefined
+    it('should not include brvConfig in auth:stateChanged broadcast', async () => {
       createHandler()
       const token = createValidToken()
 
@@ -220,11 +212,7 @@ describe('AuthHandler — setupExternalAuthSync', () => {
 
       const stateChangedCall = transport.broadcast.getCalls().find((c) => c.args[0] === AuthEvents.STATE_CHANGED)
       expect(stateChangedCall).to.exist
-      expect(stateChangedCall!.args[1]).to.deep.equal({
-        brvConfig: undefined,
-        isAuthorized: true,
-        user: {email: 'test@example.com', hasOnboardedCli: true, id: 'user-123'},
-      })
+      expect(stateChangedCall!.args[1]).to.not.have.property('brvConfig')
     })
   })
 
