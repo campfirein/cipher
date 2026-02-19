@@ -1,10 +1,10 @@
 import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
-import type {ProjectPathResolver} from './handler-types.js'
 
 import {ResetEvents, type ResetExecuteResponse} from '../../../../shared/transport/events/reset-events.js'
 import {ContextTreeNotInitializedError} from '../../../core/domain/errors/task-error.js'
+import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 export interface ResetHandlerDeps {
   contextTreeService: IContextTreeService
@@ -37,7 +37,7 @@ export class ResetHandler {
   }
 
   private async handleExecute(clientId: string): Promise<ResetExecuteResponse> {
-    const projectPath = this.resolveEffectivePath(clientId)
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
 
     const exists = await this.contextTreeService.exists(projectPath)
     if (!exists) {
@@ -49,9 +49,5 @@ export class ResetHandler {
     await this.contextTreeSnapshotService.initEmptySnapshot(projectPath)
 
     return {success: true}
-  }
-
-  private resolveEffectivePath(clientId: string): string {
-    return this.resolveProjectPath(clientId) ?? process.cwd()
   }
 }

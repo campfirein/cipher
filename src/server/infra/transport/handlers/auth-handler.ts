@@ -70,8 +70,9 @@ export class AuthHandler {
   }
 
   /**
-   * Broadcasts full auth:stateChanged payload for TUI when token changes externally.
-   * Mirrors setupGetState() logic — fetches user + brvConfig to build complete payload.
+   * Broadcasts auth:stateChanged payload for TUI when token changes externally.
+   * Does NOT include brvConfig — that's project-scoped and can't be resolved in a global broadcast.
+   * TUI preserves its existing brvConfig when the broadcast omits it.
    * On network error, skips broadcast silently (next poll cycle retries in 5s).
    */
   private async broadcastAuthStateChanged(token: AuthToken | undefined): Promise<void> {
@@ -81,28 +82,16 @@ export class AuthHandler {
         return
       }
 
-      const [user, brvConfig] = await Promise.all([
-        this.userService.getCurrentUser(token.sessionKey),
-        this.projectConfigStore.read(),
-      ])
+      const user = await this.userService.getCurrentUser(token.sessionKey)
 
       this.transport.broadcast(AuthEvents.STATE_CHANGED, {
-        brvConfig: brvConfig
-          ? {
-              spaceId: brvConfig.spaceId,
-              spaceName: brvConfig.spaceName,
-              teamId: brvConfig.teamId,
-              teamName: brvConfig.teamName,
-              version: brvConfig.version,
-            }
-          : undefined,
         isAuthorized: true,
         user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id},
       })
     } catch {
       // Network/API error fetching user info — broadcast authorized state without user details.
       // TUI auth-guard only checks isAuthorized, so the user proceeds immediately.
-      // Next successful poll cycle (5s) fills in user + brvConfig.
+      // Next successful poll cycle (5s) fills in user details.
       this.transport.broadcast(AuthEvents.STATE_CHANGED, {isAuthorized: true})
     }
   }
@@ -190,7 +179,7 @@ export class AuthHandler {
         const projectPath = this.resolveProjectPath(clientId)
         const [user, brvConfig] = await Promise.all([
           this.userService.getCurrentUser(token.sessionKey),
-          this.projectConfigStore.read(projectPath),
+          projectPath ? this.projectConfigStore.read(projectPath) : Promise.resolve(),
         ])
 
         return {

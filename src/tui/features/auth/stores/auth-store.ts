@@ -42,10 +42,14 @@ export const useAuthStore = create<AuthActions & AuthState>()((set) => ({
   setLoggingIn: (isLoggingIn: boolean) => set({isLoggingIn}),
 
   setState: (data) =>
-    set({
-      brvConfig: data.brvConfig ?? null,
+    set((state) => ({
+      brvConfig: data.isAuthorized
+        ? (data.brvConfig === undefined ? state.brvConfig : data.brvConfig)
+        : null,
       isAuthorized: data.isAuthorized,
       isLoggingIn: false,
-      user: data.user ?? null,
-    }),
+      user: data.isAuthorized
+        ? (data.user === undefined ? state.user : data.user)
+        : null,
+    })),
 }))

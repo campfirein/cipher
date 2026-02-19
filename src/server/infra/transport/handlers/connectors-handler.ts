@@ -1,7 +1,6 @@
 import type {ConnectorDTO} from '../../../../shared/transport/types/dto.js'
 import type {IConnectorManager} from '../../../core/interfaces/connectors/i-connector-manager.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
-import type {ProjectPathResolver} from './handler-types.js'
 
 import {
   ConnectorEvents,
@@ -13,6 +12,7 @@ import {
 import {isConnectorType} from '../../../../shared/types/connector-type.js'
 import {isAgent} from '../../../core/domain/entities/agent.js'
 import {mapAgentsToDTOs} from './agent-dto-mapper.js'
+import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 export interface ConnectorsHandlerDeps {
   connectorManagerFactory: (projectRoot: string) => IConnectorManager
@@ -53,7 +53,7 @@ export class ConnectorsHandler {
   }
 
   private async handleInstall(data: ConnectorInstallRequest, clientId: string): Promise<ConnectorInstallResponse> {
-    const projectPath = this.resolveEffectivePath(clientId)
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
     const connectorManager = this.connectorManagerFactory(projectPath)
 
     if (!isAgent(data.agentId)) {
@@ -76,7 +76,7 @@ export class ConnectorsHandler {
   }
 
   private async handleList(clientId: string): Promise<ConnectorListResponse> {
-    const projectPath = this.resolveEffectivePath(clientId)
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
     const connectorManager = this.connectorManagerFactory(projectPath)
 
     const installedMap = await connectorManager.getAllInstalledConnectors()
@@ -94,7 +94,4 @@ export class ConnectorsHandler {
     return {connectors}
   }
 
-  private resolveEffectivePath(clientId: string): string {
-    return this.resolveProjectPath(clientId) ?? process.cwd()
-  }
 }

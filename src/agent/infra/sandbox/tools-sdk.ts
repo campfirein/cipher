@@ -14,6 +14,7 @@ import type {
   ICurateService,
 } from '../../core/interfaces/i-curate-service.js'
 import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
+import type {ISandboxService} from '../../core/interfaces/i-sandbox-service.js'
 import type {SessionManager} from '../session/session-manager.js'
 
 /**
@@ -86,9 +87,17 @@ export interface SearchKnowledgeOptions {
 export interface SearchKnowledgeResult {
   message: string
   results: Array<{
+    /** Number of other memories that reference this one */
+    backlinkCount?: number
     excerpt: string
     path: string
+    /** Top backlink source paths (max 3) */
+    relatedPaths?: string[]
     score: number
+    /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' */
+    symbolKind?: string
+    /** Resolved hierarchical path in the symbol tree */
+    symbolPath?: string
     title: string
   }>
   totalFound: number
@@ -116,7 +125,7 @@ export interface ToolsSDK {
    * @param options.maxIterations - Maximum agentic iterations (default: 5)
    * @returns Promise resolving to the sub-agent's final response
    */
-  agentQuery(prompt: string, options?: { maxIterations?: number }): Promise<string>
+  agentQuery(prompt: string, options?: { contextData?: Record<string, unknown>; maxIterations?: number }): Promise<string>
 
   /**
    * Execute curate operations on knowledge topics.
@@ -195,6 +204,8 @@ export interface CreateToolsSDKOptions {
   fileSystem: IFileSystem
   /** Parent session ID for creating child sessions (required for agentQuery) */
   parentSessionId?: string
+  /** Sandbox service for variable injection into child sessions (optional, enables contextData in agentQuery) */
+  sandboxService?: ISandboxService
   /** Search knowledge service */
   searchKnowledgeService?: ISearchKnowledgeService
   /** Session manager for sub-agent delegation (required for agentQuery) */
@@ -211,15 +222,23 @@ export interface CreateToolsSDKOptions {
  * @returns ToolsSDK instance ready to be injected into sandbox context
  */
 export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
-  const {curateService, fileSystem, parentSessionId, searchKnowledgeService, sessionManager} = options
+  const {curateService, fileSystem, parentSessionId, sandboxService, searchKnowledgeService, sessionManager} = options
   return {
-    async agentQuery(prompt: string, options?: { maxIterations?: number }): Promise<string> {
+    async agentQuery(prompt: string, options?: { contextData?: Record<string, unknown>; maxIterations?: number }): Promise<string> {
       if (!sessionManager || !parentSessionId) {
         throw new Error('agentQuery not available — no session manager configured')
       }
 
       const childSession = await sessionManager.createChildSession(parentSessionId, 'sub-query')
       try {
+        // Inject context data as sandbox variables in child session (RLM pattern).
+        // This avoids embedding large data directly in the prompt string.
+        if (options?.contextData && sandboxService) {
+          for (const [key, value] of Object.entries(options.contextData)) {
+            sandboxService.setSandboxVariable(childSession.id, key, value)
+          }
+        }
+
         const response = await childSession.run(prompt, {
           emitTaskId: false,
           executionContext: {

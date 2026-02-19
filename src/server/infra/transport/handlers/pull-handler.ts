@@ -4,7 +4,6 @@ import type {IContextTreeWriterService} from '../../../core/interfaces/context-t
 import type {ICogitPullService} from '../../../core/interfaces/services/i-cogit-pull-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
-import type {ProjectBroadcaster, ProjectPathResolver} from './handler-types.js'
 
 import {
   PullEvents,
@@ -19,6 +18,7 @@ import {
   ProjectNotInitError,
   SpaceNotConfiguredError,
 } from '../../../core/domain/errors/task-error.js'
+import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 export interface PullHandlerDeps {
   broadcastToProject: ProjectBroadcaster
@@ -67,7 +67,7 @@ export class PullHandler {
   }
 
   private async handleExecute(data: PullExecuteRequest, clientId: string): Promise<PullExecuteResponse> {
-    const projectPath = this.resolveEffectivePath(clientId)
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
@@ -114,7 +114,7 @@ export class PullHandler {
   }
 
   private async handlePrepare(_data: PullPrepareRequest, clientId: string): Promise<PullPrepareResponse> {
-    const projectPath = this.resolveEffectivePath(clientId)
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
@@ -134,7 +134,4 @@ export class PullHandler {
     }
   }
 
-  private resolveEffectivePath(clientId: string): string {
-    return this.resolveProjectPath(clientId) ?? process.cwd()
-  }
 }

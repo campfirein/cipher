@@ -3,7 +3,6 @@ import type {ISpaceService} from '../../../core/interfaces/services/i-space-serv
 import type {ITeamService} from '../../../core/interfaces/services/i-team-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
-import type {ProjectPathResolver} from './handler-types.js'
 
 import {
   SpaceEvents,
@@ -13,6 +12,7 @@ import {
 } from '../../../../shared/transport/events/space-events.js'
 import {NotAuthenticatedError, ProjectNotInitError, SpaceNotFoundError} from '../../../core/domain/errors/task-error.js'
 import {syncConfigToXdg} from '../../../utils/config-xdg-sync.js'
+import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 export interface SpaceHandlerDeps {
   projectConfigStore: IProjectConfigStore
@@ -53,7 +53,7 @@ export class SpaceHandler {
   }
 
   private async handleList(clientId: string): Promise<SpaceListResponse> {
-    const projectPath = this.resolveEffectivePath(clientId)
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
@@ -88,7 +88,7 @@ export class SpaceHandler {
   }
 
   private async handleSwitch(data: SpaceSwitchRequest, clientId: string): Promise<SpaceSwitchResponse> {
-    const projectPath = this.resolveEffectivePath(clientId)
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
@@ -129,9 +129,5 @@ export class SpaceHandler {
       },
       success: true,
     }
-  }
-
-  private resolveEffectivePath(clientId: string): string {
-    return this.resolveProjectPath(clientId) ?? process.cwd()
   }
 }

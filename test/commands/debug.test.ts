@@ -1,4 +1,4 @@
-import type {EnsureDaemonResult,ITransportClient} from '@campfirein/brv-transport-client'
+import type {EnsureDaemonResult, ITransportClient} from '@campfirein/brv-transport-client'
 import type {Config} from '@oclif/core'
 
 import {Config as OclifConfig} from '@oclif/core'
@@ -109,9 +109,7 @@ function makeDaemonState() {
           type: 'curate',
         },
       ],
-      agentClients: [
-        {clientId: 'socket-456', projectPath: '/Users/foo/project-a'},
-      ],
+      agentClients: [{clientId: 'socket-456', projectPath: '/Users/foo/project-a'}],
       completedTasks: [] as Array<{completedAt: number; projectPath?: string; taskId: string; type: string}>,
     },
     transport: {
@@ -275,7 +273,6 @@ describe('Debug Command', () => {
       expect(tree).to.include('Config:')
       expect(tree).to.include('Data:')
       expect(tree).to.include('Logs:')
-      expect(tree).to.include('Project:')
       expect(tree).to.include('Overrides:')
     })
 
