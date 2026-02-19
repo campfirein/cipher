@@ -2,7 +2,11 @@ import {queryOptions, useQuery} from '@tanstack/react-query'
 
 import type {QueryConfig} from '../../../lib/react-query.js'
 
-import {PullEvents, type PullPrepareRequest, type PullPrepareResponse} from '../../../../shared/transport/events/index.js'
+import {
+  PullEvents,
+  type PullPrepareRequest,
+  type PullPrepareResponse,
+} from '../../../../shared/transport/events/index.js'
 import {useTransportStore} from '../../../stores/transport-store.js'
 
 export type PreparePullDTO = {
@@ -20,6 +24,7 @@ export const preparePullQueryOptions = (branch: string) =>
   queryOptions({
     queryFn: () => preparePull({branch}),
     queryKey: ['pull', 'prepare', branch],
+    staleTime: 0, // Always refetch on triggers
   })
 
 type UsePreparePullOptions = {
