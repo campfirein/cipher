@@ -20,6 +20,9 @@ import {TaskErrorCode} from '../../server/core/domain/errors/task-error.js'
 import {LlmEvents, TaskEvents} from '../../shared/transport/events/index.js'
 import {writeJsonResponse} from './json-response.js'
 
+/** Extends brv-transport-client's TaskCompleted with logId from ENG-1259 */
+type TaskCompletedWithLogId = TaskCompleted & {logId?: string}
+
 /** Collected tool call with result (mirrors TUI ToolCallEvent) */
 export interface ToolCallRecord {
   args: Record<string, unknown>
@@ -33,6 +36,7 @@ export interface ToolCallRecord {
 
 /** Completion result passed to onCompleted callback */
 export interface TaskCompletionResult {
+  logId?: string
   result?: string
   taskId: string
   toolCalls: ToolCallRecord[]
@@ -250,11 +254,11 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
       }),
 
       // Task completed
-      client.on<TaskCompleted>(TaskEvents.COMPLETED, (payload) => {
+      client.on<TaskCompletedWithLogId>(TaskEvents.COMPLETED, (payload) => {
         if (payload.taskId !== taskId || completed) return
         completed = true
         cleanup()
-        onCompleted({result: payload.result, taskId, toolCalls})
+        onCompleted({logId: payload.logId, result: payload.result, taskId, toolCalls})
         resolve()
       }),
 

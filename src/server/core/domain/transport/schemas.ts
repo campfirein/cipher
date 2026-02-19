@@ -483,6 +483,8 @@ export const LlmUnsupportedInputEventSchema = z.object({
  * task:ack - Transport acknowledges task creation
  */
 export const TaskAckSchema = z.object({
+  /** Log entry ID from CurateLogHandler, if applicable */
+  logId: z.string().optional(),
   taskId: z.string(),
 })
 
@@ -536,6 +538,8 @@ export const TaskCancelledEventSchema = z.object({
  */
 export const TaskCompletedEventSchema = z.object({
   clientId: z.string().optional(),
+  /** Log entry ID from CurateLogHandler, if applicable */
+  logId: z.string().optional(),
   result: z.string(),
   taskId: z.string(),
 })
@@ -643,6 +647,8 @@ export const TaskCreateRequestSchema = z.object({
  * Response after task creation
  */
 export const TaskCreateResponseSchema = z.object({
+  /** Log entry ID from CurateLogHandler, if applicable */
+  logId: z.string().optional(),
   /** Created task ID */
   taskId: z.string(),
 })

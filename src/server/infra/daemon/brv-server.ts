@@ -41,6 +41,7 @@ import {crashLog, processLog} from '../../utils/process-logger.js'
 import {ClientManager} from '../client/client-manager.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
 import {broadcastToProjectRoom} from '../process/broadcast-utils.js'
+import {CurateLogHandler} from '../process/curate-log-handler.js'
 import {setupFeatureHandlers} from '../process/feature-handlers.js'
 import {TransportHandlers} from '../process/transport-handlers.js'
 import {ProjectRegistry} from '../project/project-registry.js'
@@ -251,9 +252,12 @@ async function main(): Promise<void> {
     // Start agent idle timeout policy
     agentIdleTimeoutPolicy.start()
 
+    const curateLogHandler = new CurateLogHandler()
+
     const transportHandlers = new TransportHandlers({
       agentPool,
       clientManager,
+      lifecycleHooks: [curateLogHandler],
       projectRegistry,
       projectRouter,
       transport: transportServer,
@@ -389,9 +393,8 @@ async function main(): Promise<void> {
     const providerKeychainStore = createProviderKeychainStore()
 
     // State endpoint: provider config — agents request this on startup and after provider:updated
-    transportServer.onRequest<void, ProviderConfigResponse>(
-      TransportStateEventNames.GET_PROVIDER_CONFIG,
-      async () => resolveProviderConfig(providerConfigStore, providerKeychainStore),
+    transportServer.onRequest<void, ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG, async () =>
+      resolveProviderConfig(providerConfigStore, providerKeychainStore),
     )
 
     // Feature handlers (auth, init, status, push, pull, etc.) require async OIDC discovery.

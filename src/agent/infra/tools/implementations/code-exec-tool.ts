@@ -115,6 +115,7 @@ export function createCodeExecTool(sandboxService: ISandboxService): Tool {
       }
 
       return {
+        ...(result.curateResults ? {curateResults: result.curateResults} : {}),
         executionTime: result.executionTime,
         finalResult: result.finalResult,
         locals: result.locals,

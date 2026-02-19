@@ -29,6 +29,7 @@
 
 import type {IAgentPool} from '../../core/interfaces/agent/i-agent-pool.js'
 import type {IClientManager} from '../../core/interfaces/client/i-client-manager.js'
+import type {ITaskLifecycleHook} from '../../core/interfaces/process/i-task-lifecycle-hook.js'
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IProjectRouter} from '../../core/interfaces/routing/i-project-router.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
@@ -41,6 +42,8 @@ export type {TaskInfo} from './types.js'
 type TransportHandlersOptions = {
   agentPool?: IAgentPool
   clientManager?: IClientManager
+  /** Lifecycle hooks for task events (e.g. CurateLogHandler). */
+  lifecycleHooks?: ITaskLifecycleHook[]
   projectRegistry?: IProjectRegistry
   projectRouter?: IProjectRouter
   transport: ITransportServer
@@ -60,6 +63,7 @@ export class TransportHandlers {
     this.taskRouter = new TaskRouter({
       agentPool: options.agentPool,
       getAgentForProject: (projectPath) => this.connectionCoordinator.getAgentForProject(projectPath),
+      lifecycleHooks: options.lifecycleHooks,
       projectRegistry: options.projectRegistry,
       projectRouter: options.projectRouter,
       resolveClientProjectPath: (clientId) => options.clientManager?.getClient(clientId)?.projectPath,

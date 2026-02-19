@@ -245,16 +245,18 @@ Bad examples:
     }
 
     if (flags.detach) {
-      await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
+      const ack = await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
+      const {logId} = ack as TaskAck & {logId?: string}
 
       if (format === 'json') {
         writeJsonResponse({
           command: 'curate',
-          data: {message: 'Context queued for processing', status: 'queued', taskId},
+          data: {logId, message: 'Context queued for processing', status: 'queued', taskId},
           success: true,
         })
       } else {
-        this.log('✓ Context queued for processing.')
+        const logSuffix = logId ? ` (Log: ${logId})` : ''
+        this.log(`✓ Context queued for processing.${logSuffix}`)
       }
     } else {
       const completionPromise = waitForTaskCompletion(
@@ -262,7 +264,7 @@ Bad examples:
           client,
           command: 'curate',
           format,
-          onCompleted: ({taskId: tid, toolCalls}) => {
+          onCompleted: ({logId, taskId: tid, toolCalls}) => {
             const changes = this.composeChangesFromToolCalls(toolCalls)
 
             if (format === 'text') {
@@ -274,13 +276,15 @@ Bad examples:
                 this.log(`  update ${file}`)
               }
 
-              this.log('✓ Context curated successfully.')
+              const logSuffix = logId ? ` (Log: ${logId})` : ''
+              this.log(`✓ Context curated successfully.${logSuffix}`)
             } else {
               writeJsonResponse({
                 command: 'curate',
                 data: {
                   changes: changes.created.length > 0 || changes.updated.length > 0 ? changes : undefined,
                   event: 'completed',
+                  logId,
                   message: 'Context curated successfully',
                   status: 'completed',
                   taskId: tid,

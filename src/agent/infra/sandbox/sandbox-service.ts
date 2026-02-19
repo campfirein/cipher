@@ -6,6 +6,7 @@ import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js
 import type { SessionManager } from '../session/session-manager.js'
 import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
 
+import {CurateResultCollector} from './curate-result-collector.js'
 import { LocalSandbox } from './local-sandbox.js'
 import { createToolsSDK } from './tools-sdk.js'
 
@@ -14,6 +15,8 @@ import { createToolsSDK } from './tools-sdk.js'
  * Manages sandbox instances tied to agent sessions.
  */
 export class SandboxService implements ISandboxService {
+  /** Collector wrapping curateService — captures curate() results per executeCode() call */
+  private collector?: CurateResultCollector
   /** Curate service for Tools SDK */
   private curateService?: ICurateService
   /** Environment context for sandbox injection */
@@ -100,6 +103,7 @@ export class SandboxService implements ISandboxService {
         initialContext,
         toolsSDK: sessionToolsSDK,
       })
+
       this.sandboxes.set(sessionId, sandbox)
     }
     else if (config?.contextPayload) {
@@ -107,7 +111,13 @@ export class SandboxService implements ISandboxService {
       sandbox.updateContext({ context: config.contextPayload })
     }
 
-    return sandbox.execute(code, config)
+    const box = sandbox
+    if (this.collector) {
+      const {curateResults, result} = await this.collector.collect(() => box.execute(code, config))
+      return curateResults.length > 0 ? {...result, curateResults} : result
+    }
+
+    return box.execute(code, config)
   }
 
   /**
@@ -117,7 +127,8 @@ export class SandboxService implements ISandboxService {
    * @param curateService - Curate service instance
    */
   setCurateService(curateService: ICurateService): void {
-    this.curateService = curateService
+    this.collector = new CurateResultCollector(curateService)
+    this.curateService = this.collector
     this.invalidateSandboxes()
   }
 
