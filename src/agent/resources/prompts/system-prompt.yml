@@ -323,7 +323,7 @@ prompt: |
 
   **Step 3 — For large contexts, delegate chunk processing to sub-agent:**
   ```javascript
-  // Delegate fact extraction to sub-agent (has code_exec access, isolated context)
+  // Delegate chunk processing with variable injection (RLM pattern — chunk stays out of prompt)
   (async () => {
     const raw = <ctxVar>;
     const chunkSize = 8000;
@@ -332,9 +332,10 @@ prompt: |
       chunks.push(raw.slice(i, i + chunkSize));
     }
     const extractions = [];
-    for (const chunk of chunks) {
+    for (let i = 0; i < chunks.length; i++) {
       const result = await tools.agentQuery(
-        `Extract all factual statements, preferences, and key information from this conversation excerpt. Return as JSON array of {statement, category, subject}:\n\n${chunk}`
+        `Extract all factual statements, preferences, and key information from variable __chunk (${chunks[i].length} chars). Return as JSON array of {statement, category, subject}.`,
+        { contextData: { __chunk: chunks[i] } }
       );
       extractions.push(result);
     }

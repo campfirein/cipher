@@ -791,21 +791,39 @@ await tools.curate([{
       throw new Error(`Failed to write temp file: ${error instanceof Error ? error.message : String(error)}`)
     }
 
-    // Step 3: Execute main curation task with file path reference
-    const prompt = this.buildIterativePromptWithFileAccess(
+    // Create per-task session for parallel isolation (own sandbox + history + LLM service)
+    const taskSessionId = await agent.createTaskSession(taskId, 'curate')
+
+    // Step 3: Store full instructions as sandbox variable (lazy prompt loading).
+    // This saves ~12-15K tokens by keeping the massive instruction set out of the prompt.
+    // The LLM reads instructions on-demand via code_exec.
+    const fullInstructions = this.buildIterativePromptWithFileAccess(
       userContext,
       folderPath,
       tmpFilePath,
       packResult.fileCount,
       packResult.totalLines,
     )
+    const instructionsVar = `__curate_instructions_${taskId}`
+    agent.setSandboxVariableOnSession(taskSessionId, instructionsVar, fullInstructions)
 
-    // Create per-task session for parallel isolation (own sandbox + history + LLM service)
-    const taskSessionId = await agent.createTaskSession(taskId, 'curate')
+    // Compact prompt with variable reference and essential metadata
+    const contextSection = userContext?.trim() ? `\nUser context: ${userContext}\n` : ''
+    const compactPrompt = [
+      `# Folder Curation Task`,
+      ``,
+      `Folder: ${folderPath} (${packResult.fileCount} files, ${packResult.totalLines} lines)`,
+      `Data file: \`${tmpFilePath}\` (repomix-style XML format)`,
+      `Full instructions: variable \`${instructionsVar}\``,
+      contextSection,
+      `**Start by reading instructions**: Use code_exec to read \`${instructionsVar}.slice(0, 5000)\` for the strategy section, then \`${instructionsVar}.slice(5000, 10000)\` for content rules.`,
+      `Use \`tools.readFile()\` and \`tools.grep()\` inside code_exec to process the XML data file.`,
+      `Use \`tools.curate()\` to create knowledge topics. Use \`setFinalResult()\` when done.`,
+    ].filter(Boolean).join('\n')
 
     let response: string
     try {
-      response = await agent.executeOnSession(taskSessionId, prompt, {
+      response = await agent.executeOnSession(taskSessionId, compactPrompt, {
         executionContext: {commandType: 'curate'},
         taskId,
       })
