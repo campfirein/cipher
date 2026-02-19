@@ -105,6 +105,36 @@ export function createCodeExecTool(sandboxService: ISandboxService): Tool {
         timeout,
       })
 
+      // Auto-redirect large outputs to sandbox variable for RLM commands.
+      // This prevents large tool results from bloating conversation history.
+      const AUTO_REDIRECT_THRESHOLD = 2000
+      if (
+        !silent
+        && result.stdout.length > AUTO_REDIRECT_THRESHOLD
+        && (context?.commandType === 'curate' || context?.commandType === 'query')
+      ) {
+        const overflowVar = `__stdout_${Date.now()}`
+        sandboxService.setSandboxVariable(sessionId, overflowVar, result.stdout)
+
+        // Stream completion via metadata callback if available
+        if (context?.metadata) {
+          context.metadata({
+            description: result.stderr ? 'Execution completed with errors' : 'Execution completed (output stored in variable)',
+            output: `[Output stored in ${overflowVar}]` + (result.stderr ? `\n[stderr]\n${result.stderr}` : ''),
+            progress: 100,
+          })
+        }
+
+        return {
+          executionTime: result.executionTime,
+          finalResult: result.finalResult,
+          locals: result.locals,
+          returnValue: result.returnValue,
+          stderr: result.stderr,
+          stdout: `[Output (${result.stdout.length} chars) stored in variable: ${overflowVar}. Access via code_exec.]`,
+        }
+      }
+
       // Stream completion via metadata callback if available
       if (context?.metadata) {
         context.metadata({

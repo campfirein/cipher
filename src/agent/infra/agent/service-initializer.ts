@@ -354,6 +354,7 @@ export function createSessionServices(
         historyStorage: sharedServices.historyStorage,
         logger: sessionLogger,
         memoryManager: sharedServices.memoryManager,
+        sandboxService: sharedServices.sandboxService,
         sessionEventBus,
         systemPromptManager: sharedServices.systemPromptManager,
         toolManager: sharedServices.toolManager,

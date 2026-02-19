@@ -9,6 +9,7 @@ import type {IHistoryStorage} from '../../core/interfaces/i-history-storage.js'
 import type {ILLMService} from '../../core/interfaces/i-llm-service.js'
 import type {ILogger} from '../../core/interfaces/i-logger.js'
 import type {IMessageFormatter} from '../../core/interfaces/i-message-formatter.js'
+import type {ISandboxService} from '../../core/interfaces/i-sandbox-service.js'
 import type {ITokenizer} from '../../core/interfaces/i-tokenizer.js'
 import type {
   InternalMessage,
@@ -173,6 +174,8 @@ export class AgentLLMService implements ILLMService {
   private readonly outputProcessor: ToolOutputProcessor
   private readonly providerId: string
   private readonly providerType: 'claude' | 'gemini' | 'openai'
+  /** Optional sandbox service for rolling checkpoint variable injection (Pattern 1) */
+  private readonly sandboxService?: ISandboxService
   private readonly sessionEventBus: SessionEventBus
   private readonly sessionId: string
   private readonly systemPromptManager: SystemPromptManager
@@ -203,6 +206,7 @@ export class AgentLLMService implements ILLMService {
    * @param options.compactionService - Optional compaction service for context overflow management
    * @param options.historyStorage - Optional history storage for persistence
    * @param options.logger - Optional logger for structured logging
+   * @param options.sandboxService - Optional sandbox service for rolling checkpoint variable injection
    */
   public constructor(
     sessionId: string,
@@ -213,6 +217,8 @@ export class AgentLLMService implements ILLMService {
       historyStorage?: IHistoryStorage
       logger?: ILogger
       memoryManager?: MemoryManager
+      /** Optional sandbox service for rolling checkpoint variable injection */
+      sandboxService?: ISandboxService
       sessionEventBus: SessionEventBus
       systemPromptManager: SystemPromptManager
       toolManager: ToolManager
@@ -221,6 +227,7 @@ export class AgentLLMService implements ILLMService {
     this.sessionId = sessionId
     this.generator = generator
     this.compactionService = options.compactionService
+    this.sandboxService = options.sandboxService
     this.toolManager = options.toolManager
     this.systemPromptManager = options.systemPromptManager
     this.memoryManager = options.memoryManager
@@ -505,6 +512,31 @@ export class AgentLLMService implements ILLMService {
       taskId: options.taskId ?? '',
       tools: options.tools,
     }
+  }
+
+  /**
+   * Build a compact progress summary from current messages.
+   * Used by rolling checkpoint to capture agentic state before clearing history.
+   *
+   * @param messages - Current conversation messages
+   * @returns JSON string summarizing progress
+   */
+  private buildProgressSummary(messages: InternalMessage[]): string {
+    const toolCalls = messages
+      .filter((m) => m.toolCalls && m.toolCalls.length > 0)
+      .flatMap((m) => m.toolCalls!.map((tc) => tc.function.name))
+
+    const assistantMessages = messages
+      .filter((m) => m.role === 'assistant')
+      .map((m) => typeof m.content === 'string' ? m.content.slice(0, 300) : '')
+      .filter(Boolean)
+
+    return JSON.stringify({
+      assistantSummaries: assistantMessages.slice(-3),
+      messageCount: messages.length,
+      toolsUsed: [...new Set(toolCalls)],
+      totalToolCalls: toolCalls.length,
+    })
   }
 
   /**
@@ -935,6 +967,22 @@ export class AgentLLMService implements ILLMService {
         await this.contextManager.addUserMessage(textInput, imageData, fileData)
       }
 
+      // Rolling checkpoint: periodically save progress and clear history for RLM commands.
+      // This prevents unbounded token accumulation during long curation/query tasks.
+      if (iterationCount > 0) {
+        const preCheckpointMessages = this.contextManager.getMessages()
+        const preCheckpointTokens = preCheckpointMessages.reduce(
+          (sum, msg) => sum + this.generator.estimateTokensSync(
+            typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+          ),
+          0,
+        )
+
+        if (this.shouldTriggerCheckpoint(iterationCount, executionContext?.commandType, preCheckpointTokens)) {
+          await this.performRollingCheckpoint(iterationCount, this.sessionId, textInput)
+        }
+      }
+
       const maxMessageTokens = this.config.maxInputTokens - systemPromptTokens
       // Target utilization to leave headroom for response
       const targetMessageTokens = Math.floor(maxMessageTokens * TARGET_MESSAGE_TOKEN_UTILIZATION)
@@ -950,6 +998,39 @@ export class AgentLLMService implements ILLMService {
 
       // Destructive compression as fallback if still over limit
       this.contextManager.compressMessage(targetMessageTokens, effectiveTokenCounts)
+
+      // Emergency guard: if still over 90% after normal compression, force aggressive compaction
+      // This is critical for curate/query commands where there's only 1 user turn,
+      // making the protectedTurns=2 in markToolOutputsCompacted() ineffective.
+      if (executionContext?.commandType === 'curate' || executionContext?.commandType === 'query') {
+        const postCompressionMessages = this.contextManager.getMessages()
+        const postCompressionTokens = postCompressionMessages.reduce(
+          (sum, msg) => sum + this.generator.estimateTokensSync(
+            typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+          ),
+          0,
+        )
+        const totalWithSystem = postCompressionTokens + systemPromptTokens
+
+        if (totalWithSystem > this.config.maxInputTokens * 0.9) {
+          // Aggressive: compact ALL tool outputs (protect 0 turns instead of 2)
+          this.contextManager.markToolOutputsCompacted(0)
+
+          // Recalculate and re-compress
+          const aggressiveMessages = this.contextManager.getMessages()
+          const aggressiveTokens = aggressiveMessages.map((msg) =>
+            this.generator.estimateTokensSync(
+              typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+            ),
+          )
+          this.contextManager.compressMessage(targetMessageTokens, aggressiveTokens)
+
+          this.sessionEventBus.emit('llmservice:warning', {
+            message: `Emergency context compression triggered (${Math.round((totalWithSystem / this.config.maxInputTokens) * 100)}% utilization)`,
+            taskId,
+          })
+        }
+      }
 
       // Build generation request
       const request = this.buildGenerateContentRequest({
@@ -1443,6 +1524,44 @@ export class AgentLLMService implements ILLMService {
   }
 
   /**
+   * Perform a rolling checkpoint: save progress to sandbox variable, clear history, re-inject prompt.
+   * This treats each batch of iterations as a mini-task, preventing unbounded token accumulation.
+   *
+   * @param iterationCount - Current iteration number
+   * @param sessionId - Session ID for sandbox variable injection
+   * @param textInput - Original user input text (for continuation prompt)
+   */
+  private async performRollingCheckpoint(
+    iterationCount: number,
+    sessionId: string,
+    textInput: string,
+  ): Promise<void> {
+    const messages = this.contextManager.getMessages()
+    const progressSummary = this.buildProgressSummary(messages)
+
+    // Store progress in sandbox variable (persists across history clears)
+    const checkpointVar = `__checkpoint_progress`
+    this.sandboxService!.setSandboxVariable(sessionId, checkpointVar, progressSummary)
+
+    // Clear conversation history
+    await this.contextManager.clearHistory()
+
+    // Re-inject continuation prompt with variable reference
+    const continuationPrompt = [
+      `Continue task. Iteration checkpoint at turn ${iterationCount}.`,
+      `Previous progress stored in variable: ${checkpointVar}`,
+      `Original task: ${textInput.slice(0, 200)}${textInput.length > 200 ? '...' : ''}`,
+      `Read ${checkpointVar} via code_exec to understand what was done, then continue.`,
+    ].join('\n')
+
+    await this.contextManager.addUserMessage(continuationPrompt)
+
+    this.sessionEventBus.emit('llmservice:warning', {
+      message: `Rolling checkpoint at iteration ${iterationCount}: history cleared, progress saved to ${checkpointVar}`,
+    })
+  }
+
+  /**
    * Replace the DateTime section in a cached system prompt with a fresh timestamp.
    * DateTimeContributor wraps its output in <dateTime>...</dateTime> XML tags,
    * enabling reliable regex replacement without rebuilding the entire prompt.
@@ -1453,6 +1572,49 @@ export class AgentLLMService implements ILLMService {
   private refreshDateTime(cachedPrompt: string): string {
     const freshDateTime = `<dateTime>Current date and time: ${new Date().toISOString()}</dateTime>`
     return cachedPrompt.replace(/<dateTime>[\S\s]*?<\/dateTime>/, freshDateTime)
+  }
+
+  /**
+   * Check if a rolling checkpoint should trigger.
+   * Triggers every N iterations for curate/query commands, or when token utilization is high.
+   *
+   * @param iterationCount - Current iteration number
+   * @param commandType - Command type (only curate/query trigger checkpoints)
+   * @param currentTokens - Current estimated token count for messages
+   * @returns True if checkpoint should trigger
+   */
+  private shouldTriggerCheckpoint(
+    iterationCount: number,
+    commandType?: string,
+    currentTokens?: number,
+  ): boolean {
+    // Only for curate/query commands (never disrupt chat)
+    if (commandType !== 'curate' && commandType !== 'query') {
+      return false
+    }
+
+    // Never on first iteration
+    if (iterationCount === 0) {
+      return false
+    }
+
+    // Need sandbox service for variable injection
+    if (!this.sandboxService) {
+      return false
+    }
+
+    // Trigger every 5 iterations
+    const CHECKPOINT_INTERVAL = 5
+    if (iterationCount % CHECKPOINT_INTERVAL === 0) {
+      return true
+    }
+
+    // Trigger on high token utilization (> 60%)
+    if (currentTokens && currentTokens > this.config.maxInputTokens * 0.6) {
+      return true
+    }
+
+    return false
   }
 
   /**

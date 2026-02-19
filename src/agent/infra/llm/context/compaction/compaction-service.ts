@@ -199,13 +199,27 @@ export class CompactionService {
   ): Promise<string> {
     const {systemPrompt, userMessage} = this.getSummaryPromptParts()
 
+    // Bound messages to prevent the summary call itself from overflowing.
+    // Keep first 5 messages (initial context) + last 35 messages (recent work).
+    const MAX_MESSAGES_FOR_SUMMARY = 40
+    const boundedMessages = messages.length > MAX_MESSAGES_FOR_SUMMARY
+      ? [
+          ...messages.slice(0, 5),
+          {
+            content: `[${messages.length - MAX_MESSAGES_FOR_SUMMARY} messages omitted for summarization]`,
+            role: 'system' as const,
+          },
+          ...messages.slice(-(MAX_MESSAGES_FOR_SUMMARY - 5)),
+        ]
+      : messages
+
     try {
       const response = await generator.generateContent({
         config: {
           maxTokens: 4096, // Reasonable limit for summaries
           temperature: 0.3, // Lower temperature for more focused summaries
         },
-        contents: [...messages, {content: userMessage, role: 'user'}],
+        contents: [...boundedMessages, {content: userMessage, role: 'user'}],
         model,
         systemPrompt,
         taskId,
