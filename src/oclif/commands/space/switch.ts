@@ -77,6 +77,14 @@ export default class SpaceSwitch extends Command {
         writeJsonResponse({command: 'space switch', data: result, success: true})
       } else {
         this.log(`Successfully switched to space: ${result.config.spaceName}`)
+        if (result.pullResult) {
+          this.log(
+            `Pulled: +${result.pullResult.added} ~${result.pullResult.edited} -${result.pullResult.deleted}`,
+          )
+        } else if (result.pullError) {
+          this.log(`Pull skipped: ${result.pullError}`)
+        }
+
         this.log('Configuration updated in: .brv/config.json')
       }
     } catch (error) {

@@ -168,6 +168,11 @@ export async function setupFeatureHandlers({
   }).setup()
 
   new SpaceHandler({
+    broadcastToProject,
+    cogitPullService,
+    contextTreeService,
+    contextTreeSnapshotService,
+    contextTreeWriterService,
     projectConfigStore,
     resolveProjectPath,
     spaceService,

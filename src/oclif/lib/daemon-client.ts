@@ -26,7 +26,7 @@ const DEFAULT_RETRY_DELAY_MS = 2000
 /** Maps handler error codes to user-friendly CLI messages */
 const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [TaskErrorCode.CONTEXT_TREE_NOT_INITIALIZED]: 'Context tree not initialized. Run "brv init" first.',
-  [TaskErrorCode.LOCAL_CHANGES_EXIST]: 'You have local changes. Run "brv push" first.',
+  [TaskErrorCode.LOCAL_CHANGES_EXIST]: 'You have local changes. Run "brv push" to save or "brv reset" to discard first.',
   [TaskErrorCode.NOT_AUTHENTICATED]: 'Not authenticated. Run "brv login" first.',
   [TaskErrorCode.PROJECT_NOT_INIT]: 'Project not initialized. Run "brv init" first.',
   [TaskErrorCode.SPACE_NOT_CONFIGURED]: 'No space configured. Run "brv space switch" to select a space first.',
