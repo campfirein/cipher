@@ -757,5 +757,594 @@ describe('ConnectionCoordinator', () => {
       const entries = coordinator.getDebugAgentClients()
       expect(entries).to.deep.equal([{clientId: 'agent-1', projectPath: '/app'}])
     })
+
+    it('should return empty array when no agents registered', () => {
+      expect(coordinator.getDebugAgentClients()).to.deep.equal([])
+    })
+  })
+
+  // ==========================================================================
+  // Graceful Degradation — Optional Dependencies Missing
+  // ==========================================================================
+
+  describe('graceful degradation (minimal config)', () => {
+    let minimalHelper: ReturnType<typeof makeStubTransportServer>
+    let minimalTaskRouter: ReturnType<typeof makeStubTaskRouter>
+    let minimalCoordinator: ConnectionCoordinator
+
+    beforeEach(() => {
+      minimalHelper = makeStubTransportServer(sandbox)
+      minimalTaskRouter = makeStubTaskRouter(sandbox)
+      minimalCoordinator = new ConnectionCoordinator({
+        taskRouter: minimalTaskRouter,
+        transport: minimalHelper.transport,
+      })
+      minimalCoordinator.setup()
+    })
+
+    it('should not throw when agentPool is undefined and agent disconnects', () => {
+      const handler = minimalHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      handler!({projectPath: '/app'}, 'agent-1')
+
+      expect(() => minimalHelper.simulateDisconnect('agent-1')).to.not.throw()
+      expect(minimalCoordinator.getAgentForProject('/app')).to.be.undefined
+    })
+
+    it('should still track agent when projectRegistry is undefined', () => {
+      const handler = minimalHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      handler!({projectPath: '/app'}, 'agent-1')
+
+      expect(minimalCoordinator.getAgentForProject('/app')).to.equal('agent-1')
+    })
+
+    it('should still track agent when projectRouter is undefined', () => {
+      // Coordinator with projectRegistry but no projectRouter
+      const helper2 = makeStubTransportServer(sandbox)
+      const coord2 = new ConnectionCoordinator({
+        projectRegistry: makeStubProjectRegistry(sandbox),
+        taskRouter: makeStubTaskRouter(sandbox),
+        transport: helper2.transport,
+      })
+      coord2.setup()
+
+      const handler = helper2.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      handler!({projectPath: '/app'}, 'agent-1')
+
+      expect(coord2.getAgentForProject('/app')).to.equal('agent-1')
+    })
+
+    it('should still clean up internal state on disconnect when projectRegistry is undefined', () => {
+      const handler = minimalHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      handler!({projectPath: '/app'}, 'agent-1')
+
+      minimalHelper.simulateDisconnect('agent-1')
+
+      // Agent removed from tracking despite no projectRegistry/projectRouter
+      expect(minimalCoordinator.getAgentForProject('/app')).to.be.undefined
+      // Tasks still failed
+      expect(minimalTaskRouter.getTasksForProject.called).to.be.true
+    })
+
+    it('should not throw broadcast when projectRouter is undefined', () => {
+      const handler = minimalHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+
+      // Registration triggers broadcastToProjectRoom — should not throw
+      expect(() => handler!({projectPath: '/app'}, 'agent-1')).to.not.throw()
+
+      // Disconnect also triggers broadcast — should not throw
+      expect(() => minimalHelper.simulateDisconnect('agent-1')).to.not.throw()
+    })
+
+    it('should handle full agent lifecycle with no optional deps', () => {
+      const registerHandler = minimalHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+
+      // Register
+      const result = registerHandler!({projectPath: '/app'}, 'agent-1')
+      expect(result).to.deep.equal({success: true})
+      expect(minimalCoordinator.getAgentForProject('/app')).to.equal('agent-1')
+
+      // Disconnect
+      minimalHelper.simulateDisconnect('agent-1')
+      expect(minimalCoordinator.getAgentForProject('/app')).to.be.undefined
+      expect(minimalCoordinator.getDebugAgentClients()).to.deep.equal([])
+    })
+
+    it('should return error when clientManager not available for associateProject', () => {
+      const handler = minimalHelper.requestHandlers.get(TransportClientEventNames.ASSOCIATE_PROJECT)
+      const result = handler!({projectPath: '/app'}, 'client-1')
+
+      expect(result).to.deep.equal({error: 'ClientManager not available', success: false})
+    })
+
+    it('should return error when clientManager not available for updateAgentName', () => {
+      const handler = minimalHelper.requestHandlers.get(TransportClientEventNames.UPDATE_AGENT_NAME)
+      const result = handler!({agentName: 'Windsurf'}, 'client-1')
+
+      expect(result).to.deep.equal({error: 'ClientManager not available', success: false})
+    })
+  })
+
+  // ==========================================================================
+  // Multi-Agent / Multi-Project State Integrity
+  // ==========================================================================
+
+  describe('multi-agent state integrity', () => {
+    it('should replace agent when new agent registers for same project', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+
+      handler!({projectPath: '/app'}, 'agent-1')
+      handler!({projectPath: '/app'}, 'agent-2')
+
+      expect(coordinator.getAgentForProject('/app')).to.equal('agent-2')
+      // Only one entry in debug (Map overwrites)
+      const entries = coordinator.getDebugAgentClients()
+      expect(entries).to.have.lengthOf(1)
+      expect(entries[0]).to.deep.equal({clientId: 'agent-2', projectPath: '/app'})
+    })
+
+    it('should only disconnect specific agent, other project agents remain', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      handler!({projectPath: '/app'}, 'agent-1')
+      handler!({projectPath: '/other'}, 'agent-2')
+
+      transportHelper.simulateDisconnect('agent-1')
+
+      expect(coordinator.getAgentForProject('/app')).to.be.undefined
+      expect(coordinator.getAgentForProject('/other')).to.equal('agent-2')
+    })
+
+    it('should only fail tasks for disconnected agent project, not other projects', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      handler!({projectPath: '/app'}, 'agent-1')
+      handler!({projectPath: '/other'}, 'agent-2')
+
+      const appTasks = [
+        {clientId: 'c1', content: 'test', createdAt: Date.now(), projectPath: '/app', taskId: 'task-app', type: 'curate'},
+      ]
+      const otherTasks = [
+        {clientId: 'c2', content: 'test', createdAt: Date.now(), projectPath: '/other', taskId: 'task-other', type: 'query'},
+      ]
+      taskRouter.getTasksForProject.withArgs('/app').returns(appTasks)
+      taskRouter.getTasksForProject.withArgs('/other').returns(otherTasks)
+
+      transportHelper.simulateDisconnect('agent-1')
+
+      // getTasksForProject called with '/app', not '/other'
+      expect(taskRouter.getTasksForProject.calledWith('/app')).to.be.true
+      expect(taskRouter.getTasksForProject.calledWith('/other')).to.be.false
+      // Only app task failed
+      expect(taskRouter.failTask.calledOnce).to.be.true
+      expect(taskRouter.failTask.firstCall.args[0]).to.equal('task-app')
+    })
+
+    it('should handle register → disconnect → re-register without stale state', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+
+      // Cycle 1
+      handler!({projectPath: '/app'}, 'agent-1')
+      transportHelper.simulateDisconnect('agent-1')
+      expect(coordinator.getAgentForProject('/app')).to.be.undefined
+
+      // Cycle 2 — fresh agent
+      handler!({projectPath: '/app'}, 'agent-2')
+      expect(coordinator.getAgentForProject('/app')).to.equal('agent-2')
+      expect(coordinator.getDebugAgentClients()).to.deep.equal([
+        {clientId: 'agent-2', projectPath: '/app'},
+      ])
+    })
+
+    it('should handle empty-string agent disconnect when project-specific agents also exist', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      handler!({}, 'agent-fallback')        // stored under '' key
+      handler!({projectPath: '/app'}, 'agent-specific')
+
+      transportHelper.simulateDisconnect('agent-fallback')
+
+      // Fallback removed, specific remains
+      expect(coordinator.getAgentForProject('/app')).to.equal('agent-specific')
+      // No '' key fallback anymore
+      expect(coordinator.getAgentForProject('/unknown')).to.be.undefined
+    })
+  })
+
+  // ==========================================================================
+  // getAgentForProject — Lookup Boundary
+  // ==========================================================================
+
+  describe('getAgentForProject — boundary cases', () => {
+    it('should NOT return first available when projectPath provided but no match', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      handler!({projectPath: '/other'}, 'agent-1')
+
+      // Explicit projectPath with no match — should NOT fallback to /other agent
+      expect(coordinator.getAgentForProject('/app')).to.be.undefined
+    })
+
+    it('should treat empty string projectPath as falsy (falls through to fallback)', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      handler!({}, 'agent-fallback') // stored under '' key
+
+      // Empty string is falsy → skips exact match → checks '' key → finds fallback
+      expect(coordinator.getAgentForProject('')).to.equal('agent-fallback')
+    })
+
+    it('should return first available from multiple agents when no projectPath requested', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      handler!({projectPath: '/app'}, 'agent-1')
+      handler!({projectPath: '/other'}, 'agent-2')
+      handler!({projectPath: '/third'}, 'agent-3')
+
+      // No projectPath → first available
+      const result = coordinator.getAgentForProject()
+      expect(result).to.be.a('string')
+      // Should be one of the registered agents
+      expect(['agent-1', 'agent-2', 'agent-3']).to.include(result)
+    })
+  })
+
+  // ==========================================================================
+  // Agent Disconnect — Edge Cases
+  // ==========================================================================
+
+  describe('agent disconnect — edge cases', () => {
+    it('should handle disconnect for agent that was never registered (no-op)', () => {
+      // No agents registered — simulate disconnect for unknown agent
+      expect(() => transportHelper.simulateDisconnect('unknown-agent')).to.not.throw()
+
+      // ClientManager.unregister still called (for cleanup)
+      expect(clientManager.unregister.calledWith('unknown-agent')).to.be.true
+    })
+
+    it('should handle disconnect for agent without projectPath (empty-string key)', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      handler!({}, 'agent-fallback') // stored under '' key
+
+      agentPool.handleAgentDisconnected.resetHistory()
+      ;(projectRouter.removeFromProjectRoom as SinonStub).resetHistory()
+
+      transportHelper.simulateDisconnect('agent-fallback')
+
+      // Agent removed from tracking
+      expect(coordinator.getAgentForProject('/anything')).to.be.undefined
+
+      // findProjectForAgent returns undefined for '' key → no room removal, no pool notify
+      expect(agentPool.handleAgentDisconnected.called).to.be.false
+      expect((projectRouter.removeFromProjectRoom as SinonStub).called).to.be.false
+    })
+
+    it('should fail tasks with undefined projectPath when projectless agent disconnects', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      handler!({}, 'agent-fallback')
+
+      const projectlessTasks = [
+        {clientId: 'c1', content: 'test', createdAt: Date.now(), projectPath: undefined, taskId: 'task-1', type: 'curate'},
+      ]
+      // eslint-disable-next-line unicorn/no-useless-undefined
+      taskRouter.getTasksForProject.withArgs(undefined).returns(projectlessTasks)
+
+      transportHelper.simulateDisconnect('agent-fallback')
+
+      // getTasksForProject called with undefined (since findProjectForAgent returns undefined for '' key)
+      // eslint-disable-next-line unicorn/no-useless-undefined
+      expect(taskRouter.getTasksForProject.calledWith(undefined)).to.be.true
+      expect(taskRouter.failTask.calledOnce).to.be.true
+      expect(taskRouter.failTask.firstCall.args[0]).to.equal('task-1')
+    })
+
+    it('should not call agentPool.handleAgentDisconnected when agent had no projectPath', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      handler!({}, 'agent-fallback')
+
+      agentPool.handleAgentDisconnected.resetHistory()
+
+      transportHelper.simulateDisconnect('agent-fallback')
+
+      expect(agentPool.handleAgentDisconnected.called).to.be.false
+    })
+  })
+
+  // ==========================================================================
+  // Agent Control — Client Project Resolution
+  // ==========================================================================
+
+  describe('agent control — client project resolution', () => {
+    it('should find agent via fallback when restart client has no projectPath', () => {
+      const registerHandler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      registerHandler!({}, 'agent-fallback') // no projectPath → '' key
+
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.RESTART)
+
+      // Client has no projectPath → getClient returns client without projectPath
+      clientManager.getClient.withArgs('client-1').returns(
+        new ClientInfo({connectedAt: Date.now(), id: 'client-1', type: 'mcp'}),
+      )
+
+      const result = handler!({reason: 'test'}, 'client-1')
+      expect(result).to.deep.equal({success: true})
+
+      // Should send to fallback agent
+      expect((transportHelper.transport.sendTo as SinonStub).calledWith(
+        'agent-fallback',
+        TransportAgentEventNames.RESTART,
+        {reason: 'test'},
+      )).to.be.true
+    })
+
+    it('should broadcast agent:restarting event to project room', () => {
+      const registerHandler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      registerHandler!({projectPath: '/app'}, 'agent-1')
+
+      ;(projectRouter.broadcastToProject as SinonStub).resetHistory()
+
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.RESTART)
+      clientManager.getClient.withArgs('client-1').returns(
+        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
+      )
+
+      handler!({reason: 'config changed'}, 'client-1')
+
+      // Should broadcast RESTARTING (not just RESTARTED)
+      expect((projectRouter.broadcastToProject as SinonStub).calledWith(
+        makeProjectInfo('/app').sanitizedPath,
+        TransportAgentEventNames.RESTARTING,
+        {reason: 'config changed'},
+      )).to.be.true
+    })
+
+    it('should not throw when clearActiveSession project is not in registry (newSession)', () => {
+      // No agent → newSession triggers clearActiveSession
+      coordinator.clearAgentClients()
+
+      // projectRegistry.get returns undefined for this path
+      // eslint-disable-next-line unicorn/no-useless-undefined
+      projectRegistry.get.withArgs('/unknown').returns(undefined)
+
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.NEW_SESSION)
+      clientManager.getClient.withArgs('client-1').returns(
+        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/unknown', type: 'tui'}),
+      )
+
+      expect(() => handler!({reason: 'test'}, 'client-1')).to.not.throw()
+    })
+
+    it('should handle newSession when clientManager is undefined', () => {
+      // Create coordinator without clientManager
+      const helper2 = makeStubTransportServer(sandbox)
+      const taskRouter2 = makeStubTaskRouter(sandbox)
+      const coord2 = new ConnectionCoordinator({
+        taskRouter: taskRouter2,
+        transport: helper2.transport,
+      })
+      coord2.setup()
+
+      const handler = helper2.requestHandlers.get(TransportAgentEventNames.NEW_SESSION)
+
+      // No clientManager → clientProject is undefined → getAgentForProject(undefined) → no agent
+      const result = handler!({reason: 'test'}, 'client-1')
+      expect(result).to.deep.equal({success: true})
+    })
+
+    it('should return error when client project has no matching agent (restart)', () => {
+      // Agent for /other, client for /app
+      const registerHandler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      registerHandler!({projectPath: '/other'}, 'agent-1')
+
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.RESTART)
+      clientManager.getClient.withArgs('client-1').returns(
+        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
+      )
+
+      const result = handler!({reason: 'test'}, 'client-1')
+      expect(result).to.deep.equal({error: 'Agent not connected', success: false})
+    })
+  })
+
+  // ==========================================================================
+  // Connection Handler — Edge Cases
+  // ==========================================================================
+
+  describe('connection handler — edge cases', () => {
+    it('should unregister from clientManager even when getClient returns undefined', () => {
+      // getClient returns undefined (default stub behavior)
+      transportHelper.simulateDisconnect('unknown-client')
+
+      expect(clientManager.unregister.calledWith('unknown-client')).to.be.true
+    })
+
+    it('should skip room removal for client without projectPath on disconnect', () => {
+      // Register client without projectPath
+      const registerHandler = transportHelper.requestHandlers.get(TransportClientEventNames.REGISTER)
+      registerHandler!({clientType: 'mcp'}, 'client-1')
+
+      ;(projectRouter.removeFromProjectRoom as SinonStub).resetHistory()
+
+      // Client has no projectPath
+      clientManager.getClient.withArgs('client-1').returns(
+        new ClientInfo({connectedAt: Date.now(), id: 'client-1', type: 'mcp'}),
+      )
+
+      transportHelper.simulateDisconnect('client-1')
+
+      // Should NOT attempt room removal (no projectPath)
+      expect((projectRouter.removeFromProjectRoom as SinonStub).called).to.be.false
+      // But should still unregister
+      expect(clientManager.unregister.calledWith('client-1')).to.be.true
+    })
+
+    it('should invoke onConnection handler on connect', () => {
+      // Verify the handler was registered and fires without error
+      expect(() => transportHelper.simulateConnect('new-client')).to.not.throw()
+    })
+  })
+
+  // ==========================================================================
+  // Broadcast — Silent-Skip Paths
+  // ==========================================================================
+
+  describe('broadcast — silent-skip paths', () => {
+    it('should silently skip broadcast when projectRegistry.get returns undefined', () => {
+      // Override projectRegistry.get to return undefined
+      // eslint-disable-next-line unicorn/no-useless-undefined
+      projectRegistry.get.returns(undefined)
+
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      handler!({projectPath: '/app'}, 'agent-1')
+
+      ;(projectRouter.broadcastToProject as SinonStub).resetHistory()
+
+      // Disconnect triggers broadcastToProjectRoom which calls projectRegistry.get
+      transportHelper.simulateDisconnect('agent-1')
+
+      // broadcastToProject never called because get() returned undefined
+      expect((projectRouter.broadcastToProject as SinonStub).called).to.be.false
+    })
+
+    it('should silently skip agent status broadcast when agent has no project', () => {
+      const registerHandler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      registerHandler!({}, 'agent-fallback') // no projectPath
+
+      ;(projectRouter.broadcastToProject as SinonStub).resetHistory()
+
+      const handler = transportHelper.requestHandlers.get(AgentStatusEventNames.STATUS_CHANGED)
+      const statusData = {activeTasks: 0, hasAuth: true, hasConfig: true, isInitialized: true, queuedTasks: 0}
+
+      expect(() => handler!(statusData, 'agent-fallback')).to.not.throw()
+
+      // findProjectForAgent returns undefined for '' key → broadcastToProjectRoom skips
+      expect((projectRouter.broadcastToProject as SinonStub).called).to.be.false
+    })
+  })
+
+  // ==========================================================================
+  // Setup — Handler Registration Structural
+  // ==========================================================================
+
+  describe('setup — handler registration', () => {
+    it('should register all 9 request event handlers', () => {
+      // Setup already called in beforeEach
+      expect((transportHelper.transport.onRequest as SinonStub).callCount).to.equal(9)
+    })
+
+    it('should register connection and disconnection handlers', () => {
+      expect((transportHelper.transport.onConnection as SinonStub).calledOnce).to.be.true
+      expect((transportHelper.transport.onDisconnection as SinonStub).calledOnce).to.be.true
+    })
+  })
+
+  // ==========================================================================
+  // clearActiveSession Behavior (tested via newSession handler)
+  // ==========================================================================
+
+  describe('clearActiveSession (via newSession handler)', () => {
+    beforeEach(() => {
+      // Ensure no agent is running so newSession triggers clearActiveSession
+      coordinator.clearAgentClients()
+    })
+
+    it('should not attempt deletion when client has no projectPath', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.NEW_SESSION)
+
+      // Client with no projectPath
+      clientManager.getClient.withArgs('client-1').returns(
+        new ClientInfo({connectedAt: Date.now(), id: 'client-1', type: 'mcp'}),
+      )
+
+      // Should succeed without attempting file deletion
+      const result = handler!({reason: 'test'}, 'client-1')
+      expect(result).to.deep.equal({success: true})
+    })
+
+    it('should not throw when active.json does not exist (unlinkSync fails)', () => {
+      // projectRegistry.get returns valid info (file path won't actually exist)
+      projectRegistry.get.withArgs('/app').returns(makeProjectInfo('/app'))
+
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.NEW_SESSION)
+      clientManager.getClient.withArgs('client-1').returns(
+        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
+      )
+
+      // unlinkSync will throw ENOENT since path doesn't exist — should be caught
+      expect(() => handler!({reason: 'test'}, 'client-1')).to.not.throw()
+    })
+
+    it('should not attempt deletion when project not in registry', () => {
+      // eslint-disable-next-line unicorn/no-useless-undefined
+      projectRegistry.get.withArgs('/app').returns(undefined)
+
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.NEW_SESSION)
+      clientManager.getClient.withArgs('client-1').returns(
+        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
+      )
+
+      expect(() => handler!({reason: 'test'}, 'client-1')).to.not.throw()
+    })
+  })
+
+  // ==========================================================================
+  // Agent Re-registration Race Conditions
+  // ==========================================================================
+
+  describe('agent re-registration race', () => {
+    it('should overwrite empty-string key when new projectless agent registers', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+
+      handler!({}, 'agent-old')
+      handler!({}, 'agent-new')
+
+      expect(coordinator.getAgentForProject('/anything')).to.equal('agent-new')
+      expect(coordinator.getDebugAgentClients()).to.deep.equal([
+        {clientId: 'agent-new', projectPath: ''},
+      ])
+    })
+
+    it('should handle old agent disconnect after new agent registers for same project', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+
+      // agent-1 registers, then agent-2 overwrites
+      handler!({projectPath: '/app'}, 'agent-1')
+      handler!({projectPath: '/app'}, 'agent-2')
+
+      // agent-1 disconnects AFTER being overwritten — removeAgentClient scans for agent-1,
+      // finds nothing (map has agent-2), so it's a no-op
+      transportHelper.simulateDisconnect('agent-1')
+
+      // agent-2 should still be intact
+      expect(coordinator.getAgentForProject('/app')).to.equal('agent-2')
+    })
+  })
+
+  // ==========================================================================
+  // Data Payload Forwarding
+  // ==========================================================================
+
+  describe('data payload forwarding', () => {
+    beforeEach(() => {
+      const registerHandler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      registerHandler!({projectPath: '/app'}, 'agent-1')
+    })
+
+    it('should forward only reason field for restart', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.RESTART)
+      clientManager.getClient.withArgs('client-1').returns(
+        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
+      )
+
+      handler!({extraField: 'should-be-ignored', reason: 'config changed'}, 'client-1')
+
+      const sendToCall = (transportHelper.transport.sendTo as SinonStub).lastCall
+      expect(sendToCall.args[2]).to.deep.equal({reason: 'config changed'})
+    })
+
+    it('should forward only reason field for newSession', () => {
+      const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.NEW_SESSION)
+      clientManager.getClient.withArgs('client-1').returns(
+        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
+      )
+
+      handler!({extraField: 'should-be-ignored', reason: 'user requested'}, 'client-1')
+
+      const sendToCall = (transportHelper.transport.sendTo as SinonStub).lastCall
+      expect(sendToCall.args[2]).to.deep.equal({reason: 'user requested'})
+    })
   })
 })

@@ -6,10 +6,10 @@ import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-
 import type {IContextTreeSnapshotService} from '../../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
-import type {ProjectPathResolver} from './handler-types.js'
 
 import {StatusEvents, type StatusGetResponse} from '../../../../shared/transport/events/status-events.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
+import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 export interface StatusHandlerDeps {
   contextTreeService: IContextTreeService
@@ -43,7 +43,7 @@ export class StatusHandler {
 
   setup(): void {
     this.transport.onRequest<void, StatusGetResponse>(StatusEvents.GET, async (_data, clientId) => {
-      const projectPath = this.resolveEffectivePath(clientId)
+      const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
       const status = await this.collectStatus(projectPath)
       return {status}
     })
@@ -116,9 +116,5 @@ export class StatusHandler {
     }
 
     return result
-  }
-
-  private resolveEffectivePath(clientId: string): string {
-    return this.resolveProjectPath(clientId) ?? process.cwd()
   }
 }

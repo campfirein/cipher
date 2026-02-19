@@ -8,7 +8,6 @@ import type {ISpaceService} from '../../../core/interfaces/services/i-space-serv
 import type {ITeamService} from '../../../core/interfaces/services/i-team-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
-import type {ProjectBroadcaster, ProjectPathResolver} from './handler-types.js'
 
 import {
   InitEvents,
@@ -26,6 +25,7 @@ import {NotAuthenticatedError, SpaceNotFoundError} from '../../../core/domain/er
 import {syncConfigToXdg} from '../../../utils/config-xdg-sync.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {mapAgentsToDTOs} from './agent-dto-mapper.js'
+import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 export interface InitHandlerDeps {
   broadcastToProject: ProjectBroadcaster
@@ -91,7 +91,7 @@ export class InitHandler {
   }
 
   private async handleExecute(data: InitExecuteRequest, clientId: string): Promise<InitExecuteResponse> {
-    const projectPath = this.resolveEffectivePath(clientId)
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
@@ -219,7 +219,4 @@ export class InitHandler {
     }
   }
 
-  private resolveEffectivePath(clientId: string): string {
-    return this.resolveProjectPath(clientId) ?? process.cwd()
-  }
 }
