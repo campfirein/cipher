@@ -9,7 +9,7 @@
 
 const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_CONTEXT_TREE_NOT_INIT: 'Context tree not initialized. Run /init first.',
-  ERR_LOCAL_CHANGES_EXIST: 'You have local changes. Run /push first.',
+  ERR_LOCAL_CHANGES_EXIST: 'You have local changes. Run /push to save or /reset to discard first.',
   ERR_NOT_AUTHENTICATED: 'Not authenticated. Run /login first.',
   ERR_PROJECT_NOT_INIT: 'Project not initialized. Run /init first.',
   ERR_SPACE_NOT_CONFIGURED: 'No space configured. Run /space switch to select a space first.',

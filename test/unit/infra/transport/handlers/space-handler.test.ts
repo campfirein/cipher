@@ -4,18 +4,31 @@ import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
 import type {ITokenStore} from '../../../../../src/server/core/interfaces/auth/i-token-store.js'
+import type {IContextTreeService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
+import type {IContextTreeSnapshotService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-snapshot-service.js'
+import type {IContextTreeWriterService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-writer-service.js'
+import type {ICogitPullService} from '../../../../../src/server/core/interfaces/services/i-cogit-pull-service.js'
 import type {ISpaceService} from '../../../../../src/server/core/interfaces/services/i-space-service.js'
 import type {ITeamService} from '../../../../../src/server/core/interfaces/services/i-team-service.js'
 import type {IProjectConfigStore} from '../../../../../src/server/core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../../../src/server/core/interfaces/transport/i-transport-server.js'
+import type {ProjectBroadcaster} from '../../../../../src/server/infra/transport/handlers/handler-types.js'
 
 import {BRV_CONFIG_VERSION} from '../../../../../src/server/constants.js'
 import {AuthToken} from '../../../../../src/server/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../../../../src/server/core/domain/entities/brv-config.js'
+import {CogitSnapshotAuthor} from '../../../../../src/server/core/domain/entities/cogit-snapshot-author.js'
+import {CogitSnapshotFile} from '../../../../../src/server/core/domain/entities/cogit-snapshot-file.js'
+import {CogitSnapshot} from '../../../../../src/server/core/domain/entities/cogit-snapshot.js'
 import {Space} from '../../../../../src/server/core/domain/entities/space.js'
 import {Team} from '../../../../../src/server/core/domain/entities/team.js'
-import {NotAuthenticatedError, ProjectNotInitError} from '../../../../../src/server/core/domain/errors/task-error.js'
+import {
+  LocalChangesExistError,
+  NotAuthenticatedError,
+  ProjectNotInitError,
+} from '../../../../../src/server/core/domain/errors/task-error.js'
 import {SpaceHandler} from '../../../../../src/server/infra/transport/handlers/space-handler.js'
+import {PullEvents} from '../../../../../src/shared/transport/events/pull-events.js'
 import {SpaceEvents} from '../../../../../src/shared/transport/events/space-events.js'
 
 // ==================== Test Helpers ====================
@@ -116,9 +129,26 @@ const createMockSpaces = (): Space[] => [
   new Space({id: 'space-2', isDefault: false, name: 'backend-api', teamId: 'team-1', teamName: 'acme-corp'}),
 ]
 
+const createMockSnapshot = (): CogitSnapshot =>
+  new CogitSnapshot({
+    author: new CogitSnapshotAuthor({email: 'user@example.com', name: 'User', when: '2024-01-01T00:00:00Z'}),
+    branch: 'main',
+    commitSha: 'abc1234567890',
+    files: [new CogitSnapshotFile({content: 'IyBUZXN0', mode: '100644', path: 'test.md', sha: 'abc123', size: 6})],
+    message: 'snapshot',
+  })
+
+const noChanges = () => ({added: [], deleted: [], modified: []})
+const withChanges = () => ({added: ['new-file.md'], deleted: [], modified: []})
+
 // ==================== Tests ====================
 
 describe('SpaceHandler', () => {
+  let broadcastToProject: ReturnType<typeof stub>
+  let cogitPullService: SinonStubbedInstance<ICogitPullService>
+  let contextTreeService: SinonStubbedInstance<IContextTreeService>
+  let contextTreeSnapshotService: SinonStubbedInstance<IContextTreeSnapshotService>
+  let contextTreeWriterService: SinonStubbedInstance<IContextTreeWriterService>
   let projectConfigStore: SinonStubbedInstance<IProjectConfigStore>
   let resolveProjectPath: ReturnType<typeof stub>
   let spaceService: SinonStubbedInstance<ISpaceService>
@@ -127,6 +157,30 @@ describe('SpaceHandler', () => {
   let transport: ReturnType<typeof createMockTransport>
 
   beforeEach(() => {
+    broadcastToProject = stub() as unknown as ProjectBroadcaster & ReturnType<typeof stub>
+
+    cogitPullService = {
+      pull: stub(),
+    }
+
+    contextTreeService = {
+      delete: stub<[directory?: string], Promise<void>>().resolves(),
+      exists: stub<[directory?: string], Promise<boolean>>().resolves(true),
+      initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/context-tree'),
+    }
+
+    contextTreeSnapshotService = {
+      getChanges: stub(),
+      getCurrentState: stub(),
+      hasSnapshot: stub(),
+      initEmptySnapshot: stub(),
+      saveSnapshot: stub(),
+    }
+
+    contextTreeWriterService = {
+      sync: stub(),
+    }
+
     projectConfigStore = {
       exists: stub(),
       getModifiedTime: stub(),
@@ -158,6 +212,11 @@ describe('SpaceHandler', () => {
 
   function createHandler(): SpaceHandler {
     const handler = new SpaceHandler({
+      broadcastToProject,
+      cogitPullService,
+      contextTreeService,
+      contextTreeSnapshotService,
+      contextTreeWriterService,
       projectConfigStore,
       resolveProjectPath,
       spaceService,
@@ -180,7 +239,7 @@ describe('SpaceHandler', () => {
   async function callSwitchHandler(
     data: {spaceId: string},
     clientId = 'client-1',
-  ): Promise<{config?: unknown; error?: string; success: boolean}> {
+  ): Promise<{config?: unknown; error?: string; pullError?: string; pullResult?: unknown; success: boolean}> {
     const handler = transport._handlers.get(SpaceEvents.SWITCH)
     expect(handler, 'space:switch handler should be registered').to.exist
     return handler!(data, clientId)
@@ -295,12 +354,16 @@ describe('SpaceHandler', () => {
   function setupSwitchMocks(config?: BrvConfig): void {
     tokenStore.load.resolves(createMockToken())
     projectConfigStore.read.resolves(config ?? createMockConfig())
+    contextTreeSnapshotService.getChanges.resolves(noChanges())
     teamService.getTeams.resolves({teams: createMockTeams(), total: 2})
     spaceService.getSpaces
       .withArgs('session-key', 'team-1', {fetchAll: true})
       .resolves({spaces: createMockSpaces(), total: 2})
     spaceService.getSpaces.withArgs('session-key', 'team-2', {fetchAll: true}).resolves({spaces: [], total: 0})
     projectConfigStore.write.resolves()
+    cogitPullService.pull.resolves(createMockSnapshot())
+    contextTreeWriterService.sync.resolves({added: ['test.md'], deleted: [], edited: []})
+    contextTreeSnapshotService.saveSnapshot.resolves()
   }
 
   describe('handleSwitch', () => {
@@ -454,6 +517,144 @@ describe('SpaceHandler', () => {
       expect(teamService.getTeams.calledWith('session-key', {fetchAll: true})).to.be.true
       expect(result.success).to.be.true
       expect(result.config).to.deep.include({spaceId: 'space-2', spaceName: 'backend-api'})
+    })
+
+    // ==================== Local Changes Detection ====================
+
+    it('should throw LocalChangesExistError when local changes exist', async () => {
+      createHandler()
+      tokenStore.load.resolves(createMockToken())
+      projectConfigStore.read.resolves(createMockConfig())
+      contextTreeSnapshotService.getChanges.resolves(withChanges())
+
+      try {
+        await callSwitchHandler({spaceId: 'space-2'})
+        expect.fail('should have thrown')
+      } catch (error) {
+        expect(error).to.be.instanceOf(LocalChangesExistError)
+      }
+    })
+
+    it('should not fetch teams when local changes exist', async () => {
+      createHandler()
+      tokenStore.load.resolves(createMockToken())
+      projectConfigStore.read.resolves(createMockConfig())
+      contextTreeSnapshotService.getChanges.resolves(withChanges())
+
+      try {
+        await callSwitchHandler({spaceId: 'space-2'})
+      } catch {
+        // expected
+      }
+
+      expect(teamService.getTeams.called).to.be.false
+    })
+
+    it('should check changes with the correct project path', async () => {
+      createHandler()
+      setupSwitchMocks()
+
+      await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(contextTreeSnapshotService.getChanges.calledWith('/test/project')).to.be.true
+    })
+
+    // ==================== Context Tree Reset Before Pull ====================
+
+    it('should reset context tree before pulling from new space', async () => {
+      createHandler()
+      setupSwitchMocks()
+
+      await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(contextTreeService.delete.calledWith('/test/project')).to.be.true
+      expect(contextTreeService.initialize.calledWith('/test/project')).to.be.true
+      expect(contextTreeSnapshotService.initEmptySnapshot.calledWith('/test/project')).to.be.true
+    })
+
+    it('should reset context tree before calling cogitPullService.pull', async () => {
+      createHandler()
+      setupSwitchMocks()
+
+      await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(contextTreeService.delete.calledBefore(cogitPullService.pull)).to.be.true
+      expect(contextTreeService.initialize.calledBefore(cogitPullService.pull)).to.be.true
+    })
+
+    // ==================== Auto-Pull After Switch ====================
+
+    it('should pull context from new space after switching', async () => {
+      createHandler()
+      setupSwitchMocks()
+
+      await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(cogitPullService.pull.calledOnce).to.be.true
+      const pullArgs = cogitPullService.pull.firstCall.args[0]
+      expect(pullArgs.branch).to.equal('main')
+      expect(pullArgs.sessionKey).to.equal('session-key')
+      expect(pullArgs.spaceId).to.equal('space-2')
+      expect(pullArgs.teamId).to.equal('team-1')
+    })
+
+    it('should sync pulled files and save snapshot', async () => {
+      createHandler()
+      setupSwitchMocks()
+
+      await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(contextTreeWriterService.sync.calledOnce).to.be.true
+      expect(contextTreeSnapshotService.saveSnapshot.calledOnce).to.be.true
+    })
+
+    it('should return pullResult with stats on successful pull', async () => {
+      createHandler()
+      setupSwitchMocks()
+      contextTreeWriterService.sync.resolves({added: ['a.md', 'b.md'], deleted: ['c.md'], edited: ['d.md']})
+
+      const result = await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(result.pullResult).to.deep.equal({
+        added: 2,
+        commitSha: 'abc1234567890',
+        deleted: 1,
+        edited: 1,
+      })
+      expect(result.pullError).to.be.undefined
+    })
+
+    it('should succeed with pullError when pull fails', async () => {
+      createHandler()
+      setupSwitchMocks()
+      cogitPullService.pull.rejects(new Error('Not found'))
+
+      const result = await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(result.success).to.be.true
+      expect(result.pullResult).to.be.undefined
+      expect(result.pullError).to.equal('Not found')
+    })
+
+    it('should still write config even when pull fails', async () => {
+      createHandler()
+      setupSwitchMocks()
+      cogitPullService.pull.rejects(new Error('Network error'))
+
+      await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(projectConfigStore.write.calledOnce).to.be.true
+      const writtenConfig = projectConfigStore.write.firstCall.args[0] as BrvConfig
+      expect(writtenConfig.spaceId).to.equal('space-2')
+    })
+
+    it('should broadcast progress events during pull', async () => {
+      createHandler()
+      setupSwitchMocks()
+
+      await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(broadcastToProject.calledWith('/test/project', PullEvents.PROGRESS)).to.be.true
     })
   })
 })
