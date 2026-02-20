@@ -167,6 +167,19 @@ export class FileCurateLogStore implements ICurateLogStore {
     return join(this.logDir, `${id}.json`)
   }
 
+  private async pruneOldest(): Promise<void> {
+    const entries = await readdir(this.logDir, {withFileTypes: true})
+    const files = entries
+      .filter((e) => e.isFile() && e.name.endsWith('.json') && ID_PATTERN.test(e.name.slice(0, -5)))
+      .map((e) => e.name)
+      .sort() // oldest-first
+
+    if (files.length <= this.maxEntries) return
+
+    const toDelete = files.slice(0, files.length - this.maxEntries)
+    await Promise.all(toDelete.map((f) => rm(join(this.logDir, f), {force: true}).catch(() => {})))
+  }
+
   /**
    * If a "processing" entry is older than STALE_PROCESSING_THRESHOLD_MS, the daemon
    * was killed before it could finalize it. Rewrite it as "error" on disk (best-effort)
@@ -185,18 +198,5 @@ export class FileCurateLogStore implements ICurateLogStore {
 
     this.save(recovered).catch(() => {})
     return recovered
-  }
-
-  private async pruneOldest(): Promise<void> {
-    const entries = await readdir(this.logDir, {withFileTypes: true})
-    const files = entries
-      .filter((e) => e.isFile() && e.name.endsWith('.json') && ID_PATTERN.test(e.name.slice(0, -5)))
-      .map((e) => e.name)
-      .sort() // oldest-first
-
-    if (files.length <= this.maxEntries) return
-
-    const toDelete = files.slice(0, files.length - this.maxEntries)
-    await Promise.all(toDelete.map((f) => rm(join(this.logDir, f), {force: true}).catch(() => {})))
   }
 }

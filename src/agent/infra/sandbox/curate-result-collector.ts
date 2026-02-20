@@ -24,16 +24,6 @@ export class CurateResultCollector implements ICurateService {
 
   constructor(private readonly inner: ICurateService) {}
 
-  async curate(operations: CurateOperation[], options?: CurateOptions): Promise<CurateResult> {
-    const result = await this.inner.curate(operations, options)
-    this.storage.getStore()?.push(result)
-    return result
-  }
-
-  detectDomains(domains: DetectDomainsInput[]): Promise<DetectDomainsResult> {
-    return this.inner.detectDomains(domains)
-  }
-
   /**
    * Run fn in an isolated async context and collect all curate() results
    * triggered within that context. Concurrent collect() calls are fully isolated.
@@ -42,5 +32,15 @@ export class CurateResultCollector implements ICurateService {
     const bucket: unknown[] = []
     const result = await this.storage.run(bucket, fn)
     return {curateResults: bucket, result}
+  }
+
+  async curate(operations: CurateOperation[], options?: CurateOptions): Promise<CurateResult> {
+    const result = await this.inner.curate(operations, options)
+    this.storage.getStore()?.push(result)
+    return result
+  }
+
+  detectDomains(domains: DetectDomainsInput[]): Promise<DetectDomainsResult> {
+    return this.inner.detectDomains(domains)
   }
 }

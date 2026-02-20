@@ -293,6 +293,14 @@ describe('CurateLogHandler', () => {
       expect(completedEntry.summary.failed).to.equal(1)
     })
 
+    it('should be a no-op when getById returns null', async () => {
+      store.getById.resolves(null)
+
+      await handler.onTaskCompleted('task-abc', 'result', makeTask())
+
+      expect(store.save.callCount).to.equal(1) // only the initial processing save
+    })
+
     it('should be a no-op for unknown taskId', async () => {
       await handler.onTaskCompleted('unknown-task', 'result', makeTask())
       // Should not throw; save should not be called again
