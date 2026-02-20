@@ -29,13 +29,13 @@ export const ACCESS_IMPORTANCE_BONUS = 3
 export const UPDATE_IMPORTANCE_BONUS = 5
 
 /** BM25 relevance weight in compound score */
-export const W_RELEVANCE = 0.6
+export const W_RELEVANCE = 1.0
 
 /** Importance weight in compound score */
-export const W_IMPORTANCE = 0.25
+export const W_IMPORTANCE = 0
 
 /** Recency weight in compound score */
-export const W_RECENCY = 0.15
+export const W_RECENCY = 0
 
 /** Importance threshold to promote draft -> validated */
 export const PROMOTE_TO_VALIDATED = 65
@@ -51,9 +51,9 @@ export const DEMOTE_FROM_VALIDATED = 35
 
 /** Search score multiplier per maturity tier */
 export const TIER_BOOST: Record<string, number> = {
-  core: 1.15,
+  core: 1,
   draft: 1,
-  validated: 1.08,
+  validated: 1,
 }
 
 // ---------------------------------------------------------------------------
@@ -72,12 +72,7 @@ export const TIER_BOOST: Record<string, number> = {
  * @param maturity - Maturity tier ('draft' | 'validated' | 'core')
  * @returns Compound score (typically in [0, ~1.15])
  */
-export function compoundScore(
-  bm25Normalized: number,
-  importance: number,
-  recency: number,
-  maturity: string,
-): number {
+export function compoundScore(bm25Normalized: number, importance: number, recency: number, maturity: string): number {
   const normalizedImportance = Math.min(importance, 100) / 100
   const base = W_RELEVANCE * bm25Normalized + W_IMPORTANCE * normalizedImportance + W_RECENCY * recency
   const boost = TIER_BOOST[maturity] ?? TIER_BOOST.draft
@@ -242,16 +237,11 @@ export function applyDefaultScoring(): FrontmatterScoring {
  * - createdAt: earlier date
  * - updatedAt: current time
  */
-export function mergeScoring(
-  source: FrontmatterScoring,
-  target: FrontmatterScoring,
-): FrontmatterScoring {
+export function mergeScoring(source: FrontmatterScoring, target: FrontmatterScoring): FrontmatterScoring {
   const tierRank: Record<string, number> = {core: 3, draft: 1, validated: 2}
   const sourceRank = tierRank[source.maturity ?? 'draft'] ?? 1
   const targetRank = tierRank[target.maturity ?? 'draft'] ?? 1
-  const higherTier = sourceRank >= targetRank
-    ? (source.maturity ?? 'draft')
-    : (target.maturity ?? 'draft')
+  const higherTier = sourceRank >= targetRank ? (source.maturity ?? 'draft') : (target.maturity ?? 'draft')
 
   const sourceCreated = source.createdAt ? new Date(source.createdAt).getTime() : Date.now()
   const targetCreated = target.createdAt ? new Date(target.createdAt).getTime() : Date.now()
