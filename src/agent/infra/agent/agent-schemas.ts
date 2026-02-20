@@ -22,7 +22,7 @@ export type ValidatedLLMConfig = z.output<typeof LLMConfigSchema>
  */
 export const SessionConfigSchema = z
   .object({
-    maxSessions: z.number().positive().default(100).describe('Maximum concurrent sessions'),
+    maxSessions: z.number().positive().default(500).describe('Maximum concurrent sessions'),
     sessionTTL: z.number().positive().default(3_600_000).describe('Session TTL in milliseconds (1 hour default)'),
   })
   .strict()

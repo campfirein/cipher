@@ -21,6 +21,7 @@
 
 import {connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
+import {appendFileSync} from 'node:fs'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {ProviderConfigResponse, TaskExecute} from '../../core/domain/transport/schemas.js'
@@ -34,11 +35,7 @@ import {createSearchKnowledgeService} from '../../../agent/infra/tools/implement
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
-import {
-  serializeTaskError,
-  TaskError,
-  TaskErrorCode,
-} from '../../core/domain/errors/task-error.js'
+import {serializeTaskError, TaskError, TaskErrorCode} from '../../core/domain/errors/task-error.js'
 import {
   TransportAgentEventNames,
   TransportDaemonEventNames,
@@ -59,17 +56,31 @@ const portEnv = process.env.BRV_AGENT_PORT
 const projectPathEnv = process.env.BRV_AGENT_PROJECT_PATH
 
 if (!portEnv || !projectPathEnv) {
-  console.error('agent-process: Missing BRV_AGENT_PORT or BRV_AGENT_PROJECT_PATH')
+  const logPath = process.env.BRV_SESSION_LOG
+  if (logPath) {
+    appendFileSync(
+      logPath,
+      `${new Date().toISOString()} [agent-process] Missing BRV_AGENT_PORT or BRV_AGENT_PROJECT_PATH\n`,
+    )
+  }
+
   // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
   process.exit(1)
 }
 
-// After validation, safe to use as strings
+// After validation (unreachable if env vars are missing), safe to use as strings
 const port = portEnv
 const projectPath = projectPathEnv
 
+const LOG_PATH = process.env.BRV_SESSION_LOG
+
 function agentLog(message: string): void {
-  console.log(`[agent-process:${projectPath}] ${message}`)
+  if (!LOG_PATH) return
+  try {
+    appendFileSync(LOG_PATH, `${new Date().toISOString()} [agent-process:${projectPath}] ${message}\n`)
+  } catch {
+    // ignore — never block on logging
+  }
 }
 
 /**
@@ -163,6 +174,14 @@ async function start(): Promise<void> {
   }
 
   agentLog(`Connected to daemon (clientId=${clientId})`)
+
+  // Log socket disconnect — critical for diagnosing ping-timeout crashes
+  transport.on('disconnect', (reason?: string) => {
+    agentLog(`Transport socket DISCONNECTED reason=${reason ?? 'unknown'} activeTaskCount=${activeTaskCount}`)
+  })
+  transport.on('connect_error', (err?: Error) => {
+    agentLog(`Transport connect_error: ${err?.message ?? 'unknown'}`)
+  })
 
   // 2. Request initial project config from state server
   type ProjectConfigResponse = {
@@ -338,6 +357,7 @@ async function start(): Promise<void> {
   })
 
   transport.on<TaskExecute>(TransportTaskEventNames.EXECUTE, (task) => {
+    agentLog(`task:execute received taskId=${task.taskId} type=${task.type} activeTaskCount=${activeTaskCount + 1}`)
     // eslint-disable-next-line no-void
     void executeTask(task, curateExecutor, folderPackExecutor, queryExecutor)
   })
@@ -384,7 +404,13 @@ async function executeTask(
       if (providerConfigDirty && agent) {
         const result = await hotSwapProvider(agent, transport)
         if (result.error) {
-          transport.request(TransportTaskEventNames.ERROR, {clientId, error: result.error, taskId})
+          try {
+            transport.request(TransportTaskEventNames.ERROR, {clientId, error: result.error, taskId})
+          } catch (error) {
+            agentLog(
+              `task:error send failed (hotSwap) taskId=${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          }
 
           return
         }
@@ -405,7 +431,13 @@ async function executeTask(
     const cleanupForwarding = agent.setupTaskForwarding(taskId)
 
     // Emit task:started
-    transport.request(TransportTaskEventNames.STARTED, {taskId})
+    agentLog(`task:started taskId=${taskId} type=${type}`)
+    try {
+      transport.request(TransportTaskEventNames.STARTED, {taskId})
+    } catch (error) {
+      agentLog(`task:started send failed taskId=${taskId}: ${error instanceof Error ? error.message : String(error)}`)
+      // Socket dropped — continue executing so we can still emit task:completed/error when socket reconnects
+    }
 
     try {
       let result: string
@@ -435,11 +467,25 @@ async function executeTask(
       }
 
       // Emit task:completed
-      transport.request(TransportTaskEventNames.COMPLETED, {clientId, result, taskId})
+      agentLog(`task:completed taskId=${taskId}`)
+      try {
+        transport.request(TransportTaskEventNames.COMPLETED, {clientId, result, taskId})
+      } catch (error) {
+        agentLog(
+          `task:completed send failed taskId=${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
     } catch (error) {
       // Emit task:error
       const errorData = serializeTaskError(error)
-      transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, taskId})
+      agentLog(`task:error taskId=${taskId} error=${errorData.message}`)
+      try {
+        transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, taskId})
+      } catch (error_) {
+        agentLog(
+          `task:error send failed taskId=${taskId}: ${error_ instanceof Error ? error_.message : String(error_)}`,
+        )
+      }
     } finally {
       cleanupForwarding?.()
     }
@@ -449,8 +495,9 @@ async function executeTask(
     // Deferred hot-swap: if provider changed while tasks were in-flight,
     // trigger swap now that all tasks are done
     if (activeTaskCount === 0 && providerConfigDirty && agent && transport) {
-      // eslint-disable-next-line no-void
-      void hotSwapProvider(agent, transport)
+      hotSwapProvider(agent, transport).catch((error) => {
+        agentLog(`deferred hotSwapProvider failed: ${error instanceof Error ? error.message : String(error)}`)
+      })
     }
   }
 }
@@ -628,14 +675,17 @@ process.once('SIGINT', cleanup)
 process.once('disconnect', cleanup)
 
 process.on('uncaughtException', async (error) => {
-  agentLog(`Uncaught exception: ${error}`)
+  // appendFileSync is synchronous — guaranteed to write before process.exit(1)
+  const stack = error instanceof Error ? (error.stack ?? error.message) : String(error)
+  agentLog(`CRASH uncaughtException: ${stack}`)
   await shutdown().catch(() => {})
   // eslint-disable-next-line n/no-process-exit
   process.exit(1)
 })
 
 process.on('unhandledRejection', async (reason) => {
-  agentLog(`Unhandled rejection: ${reason}`)
+  const stack = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)
+  agentLog(`CRASH unhandledRejection: ${stack}`)
   await shutdown().catch(() => {})
   // eslint-disable-next-line n/no-process-exit
   process.exit(1)

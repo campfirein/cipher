@@ -53,10 +53,14 @@ export class CurateExecutor implements ICurateExecutor {
     // Build full context (content + optional file references)
     const fullContext = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
 
-    // Task-scoped variable names for RLM pattern
-    const ctxVar = `__curate_ctx_${taskId}`
-    const histVar = `__curate_hist_${taskId}`
-    const metaVar = `__curate_meta_${taskId}`
+    // Task-scoped variable names for RLM pattern.
+    // Replace hyphens with underscores: UUIDs have hyphens which are invalid in JS identifiers,
+    // so the LLM would naturally use underscores when writing code-exec calls — causing a
+    // ReferenceError if the variable was stored under the hyphen version.
+    const taskIdSafe = taskId.replaceAll('-', '_')
+    const ctxVar = `__curate_ctx_${taskIdSafe}`
+    const histVar = `__curate_hist_${taskIdSafe}`
+    const metaVar = `__curate_meta_${taskIdSafe}`
 
     // Compute context metadata (RLM pattern — LM sees metadata, not raw content)
     const contextLines = fullContext.split('\n')
