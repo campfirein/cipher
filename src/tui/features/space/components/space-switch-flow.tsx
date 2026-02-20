@@ -42,10 +42,17 @@ export const SpaceSwitchFlow: React.FC<SpaceSwitchFlowProps> = ({isActive = true
   const [selectedSpaceId, setSelectedSpaceId] = useState<null | string>(null)
   const [progressMessages, setProgressMessages] = useState<string[]>([])
 
-  const {data, isLoading} = useGetSpaces()
+  const {data, error: fetchError, isLoading} = useGetSpaces()
   const switchMutation = useSwitchSpace()
 
   const allSpaces = useMemo(() => (data?.teams ?? []).flatMap((t) => t.spaces), [data])
+
+  // Handle fetch error (e.g., not authenticated, not initialized)
+  useEffect(() => {
+    if (fetchError) {
+      onComplete(formatTransportError(fetchError))
+    }
+  }, [fetchError, onComplete])
 
   // Auto-complete if no spaces
   useEffect(() => {

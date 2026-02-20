@@ -1,4 +1,14 @@
+import type {AuthScheme} from '../../../../shared/transport/types/auth-scheme.js'
 import type {HubEntryDTO} from '../../../../shared/transport/types/dto.js'
+
+/**
+ * Auth parameters for private registry downloads.
+ */
+export interface HubInstallAuthParams {
+  authScheme?: AuthScheme
+  authToken?: string
+  headerName?: string
+}
 
 /**
  * Result of a hub install operation.
@@ -20,7 +30,8 @@ export interface IHubInstallService {
    * @param entry The hub entry to install.
    * @param projectPath The project root path.
    * @param agent The target agent display name (required for skills).
+   * @param auth Optional auth parameters for private registry downloads.
    * @returns A promise resolving to the install result.
    */
-  install(entry: HubEntryDTO, projectPath: string, agent?: string): Promise<HubInstallResult>
+  install(entry: HubEntryDTO, projectPath: string, agent?: string, auth?: HubInstallAuthParams): Promise<HubInstallResult>
 }

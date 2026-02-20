@@ -30,7 +30,8 @@ import {FileContextTreeWriterService} from '../context-tree/file-context-tree-wr
 import {FsFileService} from '../file/fs-file-service.js'
 import {CallbackHandler} from '../http/callback-handler.js'
 import {HubInstallService} from '../hub/hub-install-service.js'
-import {HubRegistryService} from '../hub/hub-registry-service.js'
+import {createHubKeychainStore} from '../hub/hub-keychain-store.js'
+import {HubRegistryConfigStore} from '../hub/hub-registry-config-store.js'
 import {HttpSpaceService} from '../space/http-space-service.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {HttpTeamService} from '../team/http-team-service.js'
@@ -187,13 +188,16 @@ export async function setupFeatureHandlers({
     transport,
   }).setup()
 
-  const hubRegistryService = new HubRegistryService(envConfig.hubRegistryUrl)
   const skillConnectorFactory = (projectRoot: string): SkillConnector => new SkillConnector({fileService, projectRoot})
   const hubInstallService = new HubInstallService({fileService, skillConnectorFactory})
+  const hubRegistryConfigStore = new HubRegistryConfigStore()
+  const hubKeychainStore = createHubKeychainStore()
 
-  new HubHandler({
+  await new HubHandler({
     hubInstallService,
-    hubRegistryService,
+    hubKeychainStore,
+    hubRegistryConfigStore,
+    officialRegistryUrl: envConfig.hubRegistryUrl,
     resolveProjectPath,
     transport,
   }).setup()

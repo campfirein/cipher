@@ -10,11 +10,13 @@ import {splitArgs} from '../utils/arg-parser.js'
 interface ParseResult {
   /** Remaining arguments after command/subcommand */
   args: string
-  /** Matched command */
+  /** Matched top-level command */
   command?: SlashCommand
+  /** Full command name path (e.g. "hub registry list") */
+  commandPath: string
   /** Whether input is a slash command */
   isCommand: boolean
-  /** Matched subcommand (if any) */
+  /** Deepest matched subcommand (if any) */
   subCommand?: SlashCommand
 }
 
@@ -25,7 +27,7 @@ function parseInput(input: string, commands: readonly SlashCommand[]): ParseResu
   const trimmed = input.trim()
 
   if (!trimmed.startsWith('/')) {
-    return {args: trimmed, isCommand: false}
+    return {args: trimmed, commandPath: '', isCommand: false}
   }
 
   const withoutSlash = trimmed.slice(1)
@@ -33,35 +35,36 @@ function parseInput(input: string, commands: readonly SlashCommand[]): ParseResu
   const commandName = parts[0]?.toLowerCase()
 
   if (!commandName) {
-    return {args: '', isCommand: true}
+    return {args: '', commandPath: '', isCommand: true}
   }
 
   // Find command by name or alias
   const command = commands.find((cmd) => cmd.name === commandName)
 
   if (!command) {
-    return {args: parts.slice(1).join(' '), isCommand: true}
+    return {args: parts.slice(1).join(' '), commandPath: commandName, isCommand: true}
   }
 
-  // Check for subcommand
-  if (command.subCommands?.length && parts.length > 1) {
-    const subCommandName = parts[1]?.toLowerCase()
-    const subCommand = command.subCommands.find((sub) => sub.name === subCommandName)
+  // Recursively resolve subcommands (e.g. /hub registry list)
+  let current = command
+  let depth = 1
 
-    if (subCommand) {
-      return {
-        args: parts.slice(2).join(' '),
-        command,
-        isCommand: true,
-        subCommand,
-      }
-    }
+  while (current.subCommands?.length && depth < parts.length) {
+    const nextName = parts[depth]?.toLowerCase()
+    const match = current.subCommands.find((sub) => sub.name === nextName)
+    if (!match) break
+    current = match
+    depth++
   }
+
+  const commandPath = parts.slice(0, depth).join(' ')
 
   return {
-    args: parts.slice(1).join(' '),
+    args: parts.slice(depth).join(' '),
     command,
+    commandPath,
     isCommand: true,
+    ...(current === command ? {} : {subCommand: current}),
   }
 }
 
@@ -87,7 +90,7 @@ export function useSlashCommandProcessor(
 
   const handleSlashCommand = useCallback(
     async (input: string): Promise<SlashCommandActionReturn> => {
-      const {args, command, isCommand, subCommand} = parseInput(input, commands)
+      const {args, command, commandPath, isCommand, subCommand} = parseInput(input, commands)
 
       if (!isCommand) {
         // Slash command only mode - show warning for non-slash input
@@ -108,22 +111,24 @@ export function useSlashCommandProcessor(
       }
 
       // Determine which action to execute
-      const actionToExecute = subCommand?.action ?? command.action
-      const commandNameForContext = subCommand ? `${command.name} ${subCommand.name}` : command.name
+      const deepest = subCommand ?? command
+      const commandNameForContext = commandPath
+
+      // If the deepest resolved command has no action but has subcommands, show usage
+      if (!deepest.action && deepest.subCommands?.length) {
+        const subNames = deepest.subCommands.map((s) => s.name).join('|')
+        return {
+          content: `Usage: /${commandPath} <${subNames}>`,
+          messageType: 'error',
+          type: 'message',
+        }
+      }
+
+      const actionToExecute = deepest.action ?? command.action
 
       if (!actionToExecute) {
-        // Command has no action and no matching subcommand
-        if (command.subCommands?.length) {
-          const subNames = command.subCommands.map((s) => s.name).join('|')
-          return {
-            content: `Usage: /${command.name} <${subNames}>`,
-            messageType: 'error',
-            type: 'message',
-          }
-        }
-
         return {
-          content: `Command /${command.name} has no action defined.`,
+          content: `Command /${commandPath} has no action defined.`,
           messageType: 'error',
           type: 'message',
         }

@@ -26,7 +26,8 @@ const DEFAULT_RETRY_DELAY_MS = 2000
 /** Maps handler error codes to user-friendly CLI messages */
 const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [TaskErrorCode.CONTEXT_TREE_NOT_INITIALIZED]: 'Context tree not initialized. Run "brv init" first.',
-  [TaskErrorCode.LOCAL_CHANGES_EXIST]: 'You have local changes. Run "brv push" to save or "brv reset" to discard first.',
+  [TaskErrorCode.LOCAL_CHANGES_EXIST]:
+    'You have local changes. Run "brv push" to save or "brv reset" to discard first.',
   [TaskErrorCode.NOT_AUTHENTICATED]: 'Not authenticated. Run "brv login" first.',
   [TaskErrorCode.PROJECT_NOT_INIT]: 'Project not initialized. Run "brv init" first.',
   [TaskErrorCode.SPACE_NOT_CONFIGURED]: 'No space configured. Run "brv space switch" to select a space first.',
@@ -76,10 +77,10 @@ export async function withDaemonRetry<T>(
     let client: ITransportClient | undefined
 
     try {
-      const result = await connector()
-      client = result.client
+      const {client: connectedClient, projectRoot} = await connector()
+      client = connectedClient
 
-      const value = await fn(client, result.projectRoot)
+      const value = await fn(client, projectRoot)
 
       await client.disconnect().catch(() => {})
       return value
@@ -173,9 +174,8 @@ export function formatConnectionError(error: unknown): string {
 
   // Business errors from transport handlers (auth, validation, etc.)
   if (error instanceof TransportRequestError) {
-    const code = (error as unknown as {code?: string}).code
-    if (code) {
-      return USER_FRIENDLY_MESSAGES[code] ?? error.message
+    if (error?.code) {
+      return USER_FRIENDLY_MESSAGES[error.code] ?? error.message
     }
 
     return error.message

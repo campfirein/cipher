@@ -109,6 +109,14 @@ export function HubDetailStep({entry, isActive, onBack, onInstall}: HubDetailSte
           <Text color={colors.text}>{entry.category}</Text>
         </Box>
 
+        {/* Registry */}
+        {entry.registry && (
+          <Box gap={1}>
+            <Text color={colors.dimText}>{'Registry'.padEnd(14)}</Text>
+            <Text color={colors.text}>{entry.registry}</Text>
+          </Box>
+        )}
+
         {/* Author & License */}
         <Box gap={1}>
           <Text color={colors.dimText}>{'Author'.padEnd(14)}</Text>

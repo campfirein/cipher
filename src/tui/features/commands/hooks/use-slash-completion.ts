@@ -19,9 +19,9 @@ function generateFileSuggestions(searchPattern: string): CommandSuggestion[] {
     // This allows users to curate the entire current directory
     const normalizedPattern = searchPattern.toLowerCase()
     const shouldShowCurrentDir =
-      !searchPattern ||                          // Just typed @
-      normalizedPattern === '.' ||               // Typing @.
-      './'.startsWith(normalizedPattern)         // Typing @. (partial match)
+      !searchPattern || // Just typed @
+      normalizedPattern === '.' || // Typing @.
+      './'.startsWith(normalizedPattern) // Typing @. (partial match)
 
     if (shouldShowCurrentDir) {
       suggestions.push({
@@ -83,9 +83,7 @@ function generateFileSuggestions(searchPattern: string): CommandSuggestion[] {
     })
 
     // Recombine: ./ stays at front, rest are sorted
-    const finalSuggestions = hasCurrentDir
-      ? [suggestions[0], ...toSort]
-      : toSort
+    const finalSuggestions = hasCurrentDir ? [suggestions[0], ...toSort] : toSort
 
     return finalSuggestions.slice(0, 20) // Limit to 20 suggestions
   } catch {
@@ -171,17 +169,29 @@ function generateSuggestions(input: string, commands: readonly SlashCommand[]): 
     }))
   }
 
-  // Find the matched command
+  // Recursively resolve to the deepest matched command with subcommands
   const command = commands.find((cmd) => cmd.name === commandPart)
 
   if (!command) {
     return []
   }
 
-  // If command has subcommands, suggest them
-  if (command.subCommands?.length && parts.length === 2) {
-    const subPart = parts[1]?.toLowerCase() ?? ''
-    const matchingSubCommands = command.subCommands
+  let current: SlashCommand = command
+  let depth = 1
+
+  while (current.subCommands?.length && depth < parts.length - 1) {
+    const nextName = parts[depth]?.toLowerCase()
+    const match = current.subCommands.find((sub) => sub.name === nextName)
+    if (!match) break
+    current = match
+    depth++
+  }
+
+  // If the deepest resolved command has subcommands, suggest them
+  if (current.subCommands?.length && parts.length === depth + 1) {
+    const subPart = parts[depth]?.toLowerCase() ?? ''
+    const commandPath = parts.slice(0, depth).join(' ')
+    const matchingSubCommands = current.subCommands
       .filter((sub) => !sub.hidden)
       .filter((sub) => sub.name.toLowerCase().startsWith(subPart))
 
@@ -189,8 +199,14 @@ function generateSuggestions(input: string, commands: readonly SlashCommand[]): 
       args: sub.args,
       description: sub.description,
       flags: sub.flags,
-      label: `/${command.name} ${sub.name}`,
-      value: `/${command.name} ${sub.name}`,
+      label: `/${commandPath} ${sub.name}`,
+      subCommands: sub.subCommands
+        ?.filter((s) => !s.hidden)
+        .map((s) => ({
+          description: s.description,
+          name: s.name,
+        })),
+      value: `/${commandPath} ${sub.name}`,
     }))
   }
 
