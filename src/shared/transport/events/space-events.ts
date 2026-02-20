@@ -19,7 +19,16 @@ export interface SpaceSwitchRequest {
   spaceId: string
 }
 
+export interface SpaceSwitchPullResult {
+  added: number
+  commitSha: string
+  deleted: number
+  edited: number
+}
+
 export interface SpaceSwitchResponse {
   config: BrvConfigDTO
+  pullError?: string
+  pullResult?: SpaceSwitchPullResult
   success: boolean
 }

@@ -2,14 +2,20 @@
  * SpaceSwitchFlow Component
  *
  * React flow for the /space switch command.
- * Fetches spaces → renders selection → switches.
+ * Fetches spaces → renders selection → switches config → pulls context from new space.
  */
 
 import {Box, Text} from 'ink'
+import Spinner from 'ink-spinner'
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
+import type {PullProgressEvent} from '../../../../shared/transport/events/index.js'
+
+import {PullEvents} from '../../../../shared/transport/events/index.js'
 import {SelectableList} from '../../../components/selectable-list.js'
 import {useTheme} from '../../../hooks/index.js'
+import {useTransportStore} from '../../../stores/transport-store.js'
+import {formatTransportError} from '../../../utils/error-messages.js'
 import {useGetSpaces} from '../api/get-spaces.js'
 import {useSwitchSpace} from '../api/switch-space.js'
 
@@ -25,11 +31,16 @@ export interface SpaceSwitchFlowProps {
   onComplete: (message: string) => void
 }
 
+type SwitchStep = 'executing' | 'selecting'
+
 export const SpaceSwitchFlow: React.FC<SpaceSwitchFlowProps> = ({isActive = true, onCancel, onComplete}) => {
   const {
     theme: {colors},
   } = useTheme()
   const [error, setError] = useState<null | string>(null)
+  const [step, setStep] = useState<SwitchStep>('selecting')
+  const [selectedSpaceId, setSelectedSpaceId] = useState<null | string>(null)
+  const [progressMessages, setProgressMessages] = useState<string[]>([])
 
   const {data, isLoading} = useGetSpaces()
   const switchMutation = useSwitchSpace()
@@ -49,22 +60,54 @@ export const SpaceSwitchFlow: React.FC<SpaceSwitchFlowProps> = ({isActive = true
     [allSpaces],
   )
 
-  const handleSelect = useCallback(
-    async (item: ListItem) => {
-      setError(null)
-      try {
-        const result = await switchMutation.mutateAsync({spaceId: item.id})
-        if (result.success && result.config) {
-          onComplete(
-            `Successfully switched to space: ${result.config.spaceName}\nConfiguration updated in: .brv/config.json`,
-          )
-        }
-      } catch (error_) {
-        setError(error_ instanceof Error ? error_.message : String(error_))
-      }
-    },
-    [onComplete, switchMutation],
-  )
+  // Subscribe to pull progress and execute switch
+  useEffect(() => {
+    if (step !== 'executing' || !selectedSpaceId) return
+
+    const {apiClient} = useTransportStore.getState()
+    let unsubProgress: (() => void) | undefined
+
+    if (apiClient) {
+      unsubProgress = apiClient.on<PullProgressEvent>(PullEvents.PROGRESS, (progressData) => {
+        setProgressMessages((prev) => [...prev, progressData.message])
+      })
+    }
+
+    switchMutation.mutate(
+      {spaceId: selectedSpaceId},
+      {
+        onError(error_) {
+          unsubProgress?.()
+          setStep('selecting')
+          setError(formatTransportError(error_))
+        },
+        onSuccess(result) {
+          unsubProgress?.()
+          const spaceLine = `Successfully switched to space: ${result.config.spaceName}`
+          let pullLine: string
+          if (result.pullResult) {
+            pullLine = `Pulled: +${result.pullResult.added} ~${result.pullResult.edited} -${result.pullResult.deleted}`
+          } else if (result.pullError) {
+            pullLine = `Pull skipped: ${result.pullError}`
+          } else {
+            pullLine = 'No remote context found.'
+          }
+
+          onComplete(`${spaceLine}\n${pullLine}\nConfiguration updated in: .brv/config.json`)
+        },
+      },
+    )
+
+    return () => {
+      unsubProgress?.()
+    }
+  }, [step, selectedSpaceId])
+
+  const handleSelect = useCallback((item: ListItem) => {
+    setError(null)
+    setSelectedSpaceId(item.id)
+    setStep('executing')
+  }, [])
 
   if (isLoading) {
     return (
@@ -79,6 +122,19 @@ export const SpaceSwitchFlow: React.FC<SpaceSwitchFlowProps> = ({isActive = true
       <Box>
         <Text color={colors.dimText}>Loading...</Text>
       </Box>
+    )
+  }
+
+  if (step === 'executing') {
+    return (
+      <>
+        {progressMessages.map((msg, i) => (
+          <Text key={i}>{msg}</Text>
+        ))}
+        <Text>
+          <Spinner type="dots" /> Switching space...
+        </Text>
+      </>
     )
   }
 

@@ -16,6 +16,7 @@ export const getActiveProviderConfigQueryOptions = () =>
   queryOptions({
     queryFn: getActiveProviderConfig,
     queryKey: ['getActiveProviderConfig'],
+    staleTime: 0, // Always refetch on triggers
   })
 
 type UseGetActiveProviderConfigOptions = {
