@@ -240,13 +240,7 @@ describe('FileCurateLogStore', () => {
         return id
       }
 
-      const ids = [
-        await saveEntry(),
-        await saveEntry(),
-        await saveEntry(),
-        await saveEntry(),
-        await saveEntry(),
-      ]
+      const ids = [await saveEntry(), await saveEntry(), await saveEntry(), await saveEntry(), await saveEntry()]
 
       // Allow prune to settle
       await new Promise((resolve) => {

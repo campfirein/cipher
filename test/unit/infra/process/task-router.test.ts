@@ -654,6 +654,7 @@ describe('TaskRouter', () => {
     let hookOnCreate: SinonStub
     let hookOnCompleted: SinonStub
     let hookOnError: SinonStub
+    let hookOnCancelled: SinonStub
     let hookOnToolResult: SinonStub
     let hookCleanup: SinonStub
     let routerWithHooks: TaskRouter
@@ -663,6 +664,7 @@ describe('TaskRouter', () => {
       hookOnCreate = sandbox.stub().resolves({logId: 'cur-123'})
       hookOnCompleted = sandbox.stub().resolves()
       hookOnError = sandbox.stub().resolves()
+      hookOnCancelled = sandbox.stub().resolves()
       hookOnToolResult = sandbox.stub()
       hookCleanup = sandbox.stub()
       hookTransportHelper = makeStubTransportServer(sandbox)
@@ -672,6 +674,7 @@ describe('TaskRouter', () => {
         lifecycleHooks: [
           {
             cleanup: hookCleanup,
+            onTaskCancelled: hookOnCancelled,
             onTaskCompleted: hookOnCompleted,
             onTaskCreate: hookOnCreate,
             onTaskError: hookOnError,
@@ -733,7 +736,7 @@ describe('TaskRouter', () => {
       expect(hookCleanup.calledWith(request.taskId)).to.be.true
     })
 
-    it('should call onTaskError and cleanup on task:cancelled from agent', async () => {
+    it('should call onTaskCancelled and cleanup on task:cancelled from agent', async () => {
       const handler = hookTransportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
       const request = makeTaskCreateRequest()
       await handler!(request, 'client-1')
@@ -745,7 +748,8 @@ describe('TaskRouter', () => {
         setTimeout(resolve, 10)
       })
 
-      expect(hookOnError.calledOnce).to.be.true
+      expect(hookOnCancelled.calledOnce).to.be.true
+      expect(hookOnError.called).to.be.false
       expect(hookCleanup.calledWith(request.taskId)).to.be.true
     })
 

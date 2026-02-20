@@ -304,7 +304,7 @@ describe('CurateLogHandler', () => {
       await handler.onTaskCancelled('task-abc', makeTask())
 
       expect(store.save.callCount).to.equal(2)
-      const cancelledEntry = store.save.secondCall.args[0] as {status: string; completedAt: number}
+      const cancelledEntry = store.save.secondCall.args[0] as {completedAt: number; status: string}
       expect(cancelledEntry.status).to.equal('cancelled')
       expect(cancelledEntry.completedAt).to.be.a('number')
     })
@@ -356,6 +356,37 @@ describe('CurateLogHandler', () => {
 
     it('should be safe to call for unknown taskId', () => {
       expect(() => handler.cleanup('nonexistent')).to.not.throw()
+    })
+
+    it('should evict store from cache when last task for a project is cleaned up', async () => {
+      const storeA = makeStore(sandbox)
+      const storeB = makeStore(sandbox)
+      const stores: Record<string, ICurateLogStore> = {'/proj-a': storeA, '/proj-b': storeB}
+      const multiHandler = new CurateLogHandler((p) => stores[p]!)
+
+      await multiHandler.onTaskCreate(makeTask({projectPath: '/proj-a', taskId: 'task-1'}))
+      await multiHandler.onTaskCreate(makeTask({projectPath: '/proj-a', taskId: 'task-2'}))
+      await multiHandler.onTaskCreate(makeTask({projectPath: '/proj-b', taskId: 'task-3'}))
+
+      // Cleanup task-1 — storeA still needed (task-2 active)
+      multiHandler.cleanup('task-1')
+      await multiHandler.onTaskCompleted('task-2', 'done', makeTask({projectPath: '/proj-a', taskId: 'task-2'}))
+      expect(storeA.save.called).to.be.true
+
+      // Cleanup task-2 — storeA should now be evicted
+      multiHandler.cleanup('task-2')
+
+      // Cleanup task-3 — storeB should be evicted
+      multiHandler.cleanup('task-3')
+
+      // After eviction, creating a new task for /proj-a should request a fresh store
+      let freshStoreCalled = false
+      const evictedHandler = new CurateLogHandler((p) => {
+        if (p === '/proj-a') freshStoreCalled = true
+        return stores[p]!
+      })
+      await evictedHandler.onTaskCreate(makeTask({projectPath: '/proj-a', taskId: 'task-new'}))
+      expect(freshStoreCalled).to.be.true
     })
   })
 })

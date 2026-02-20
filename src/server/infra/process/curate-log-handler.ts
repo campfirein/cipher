@@ -72,7 +72,9 @@ export function computeSummary(operations: CurateLogOperation[]): CurateLogSumma
  * must never block or affect curate task execution.
  */
 export class CurateLogHandler implements ITaskLifecycleHook {
-  /** Per-project store cache (one store per projectPath). */
+  /** Active task count per projectPath — used to evict idle stores. */
+  private readonly activeTaskCount = new Map<string, number>()
+  /** Per-project store cache (one store per projectPath). Evicted when no active tasks remain. */
   private readonly stores = new Map<string, ICurateLogStore>()
   /** In-memory state per active task. Cleared on cleanup(). */
   private readonly tasks = new Map<string, TaskState>()
@@ -83,7 +85,18 @@ export class CurateLogHandler implements ITaskLifecycleHook {
   constructor(private readonly createStore?: (projectPath: string) => ICurateLogStore) {}
 
   cleanup(taskId: string): void {
+    const state = this.tasks.get(taskId)
     this.tasks.delete(taskId)
+
+    if (state) {
+      const remaining = (this.activeTaskCount.get(state.projectPath) ?? 1) - 1
+      if (remaining <= 0) {
+        this.activeTaskCount.delete(state.projectPath)
+        this.stores.delete(state.projectPath)
+      } else {
+        this.activeTaskCount.set(state.projectPath, remaining)
+      }
+    }
   }
 
   async onTaskCancelled(taskId: string, _task: TaskInfo): Promise<void> {
@@ -156,6 +169,7 @@ export class CurateLogHandler implements ITaskLifecycleHook {
     // without a getById round-trip — so completion is never lost even if this initial
     // save fails.
     this.tasks.set(task.taskId, {entry, operations: [], projectPath: task.projectPath})
+    this.activeTaskCount.set(task.projectPath, (this.activeTaskCount.get(task.projectPath) ?? 0) + 1)
 
     await store.save(entry).catch((error: unknown) => {
       transportLog(
