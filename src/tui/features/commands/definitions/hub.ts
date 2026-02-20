@@ -1,13 +1,10 @@
-import React from 'react'
-
 import type {SlashCommand} from '../../../types/commands.js'
 
-import {HubFlow} from '../../hub/components/hub-flow.js'
+import {hubListCommand} from './hub-list.js'
+import {hubRegistryCommand} from './hub-registry.js'
 
 export const hubCommand: SlashCommand = {
-  action: () => ({
-    render: ({onCancel, onComplete}) => React.createElement(HubFlow, {onCancel, onComplete}),
-  }),
-  description: 'Browse and install skills & bundles from the community hub',
+  description: 'Browse and manage skills & bundles registry',
   name: 'hub',
+  subCommands: [hubListCommand, hubRegistryCommand],
 }

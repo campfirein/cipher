@@ -38,7 +38,7 @@ export function HubListStep({entries, isActive, onCancel, onSelect}: HubListStep
   return (
     <SelectableList<HubEntryDTO>
       availableHeight={availableHeight}
-      filterKeys={(entry) => [entry.id, entry.name, entry.description, ...entry.tags, entry.author.name]}
+      filterKeys={(entry) => [entry.id, entry.name, entry.description, ...entry.tags, entry.author.name, ...(entry.registry ? [entry.registry] : [])]}
       isActive={isActive}
       items={entries}
       keyExtractor={(entry) => entry.id}
@@ -50,7 +50,7 @@ export function HubListStep({entries, isActive, onCancel, onSelect}: HubListStep
 
         return (
           <Box flexDirection="column" marginBottom={1}>
-            {/* Line 1: id - type - version */}
+            {/* Line 1: id - type - version [- registry] */}
             <Box gap={1}>
               <Text bold color={colors.text}>
                 {entry.id}
@@ -59,6 +59,12 @@ export function HubListStep({entries, isActive, onCancel, onSelect}: HubListStep
               <Text color={typeColor}>{typeLabel}</Text>
               <Text color={colors.dimText}>-</Text>
               <Text color={colors.dimText}>v{entry.version}</Text>
+              {entry.registry && (
+                <>
+                  <Text color={colors.dimText}>-</Text>
+                  <Text color={colors.dimText}>({entry.registry})</Text>
+                </>
+              )}
             </Box>
             {/* Line 2: description */}
             <Text color={colors.dimText}>{entry.description}</Text>
