@@ -30,4 +30,5 @@ type CurateLogBase = {
 export type CurateLogEntry =
   | (CurateLogBase & {completedAt: number; error: string; status: 'error'})
   | (CurateLogBase & {completedAt: number; response?: string; status: 'completed'})
+  | (CurateLogBase & {completedAt: number; status: 'cancelled'})
   | (CurateLogBase & {status: 'processing'})

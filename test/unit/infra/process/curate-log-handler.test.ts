@@ -74,27 +74,15 @@ describe('computeSummary', () => {
     expect(computeSummary(ops).deleted).to.equal(1)
   })
 
-  it('should count UPSERT with "created new" message as added', () => {
+  it('should count UPSERT operations as updated', () => {
     const ops: CurateLogOperation[] = [
       {message: 'created new topic', path: '/a.md', status: 'success', type: 'UPSERT'},
+      {message: 'updated existing', path: '/b.md', status: 'success', type: 'UPSERT'},
+      {path: '/c.md', status: 'success', type: 'UPSERT'},
     ]
     const summary = computeSummary(ops)
-    expect(summary.added).to.equal(1)
-    expect(summary.updated).to.equal(0)
-  })
-
-  it('should count UPSERT without "created new" message as updated', () => {
-    const ops: CurateLogOperation[] = [
-      {message: 'updated existing', path: '/a.md', status: 'success', type: 'UPSERT'},
-    ]
-    const summary = computeSummary(ops)
-    expect(summary.updated).to.equal(1)
+    expect(summary.updated).to.equal(3)
     expect(summary.added).to.equal(0)
-  })
-
-  it('should count UPSERT with no message as updated', () => {
-    const ops: CurateLogOperation[] = [{path: '/a.md', status: 'success', type: 'UPSERT'}]
-    expect(computeSummary(ops).updated).to.equal(1)
   })
 
   it('should count failed operations regardless of type', () => {
@@ -197,6 +185,19 @@ describe('CurateLogHandler', () => {
       // logId is still returned — save failure is best-effort
       expect(result).to.deep.equal({logId: 'cur-1000'})
     })
+
+    it('should still write completed entry even if initial processing save failed', async () => {
+      store.save.onFirstCall().rejects(new Error('disk full'))
+      store.save.onSecondCall().resolves()
+
+      const task = makeTask()
+      await handler.onTaskCreate(task)
+      await handler.onTaskCompleted('task-abc', 'Done!', task)
+
+      expect(store.save.callCount).to.equal(2)
+      const completedEntry = store.save.secondCall.args[0] as {status: string}
+      expect(completedEntry.status).to.equal('completed')
+    })
   })
 
   // ==========================================================================
@@ -244,16 +245,6 @@ describe('CurateLogHandler', () => {
 
   describe('onTaskCompleted', () => {
     beforeEach(async () => {
-      const processingEntry: CurateLogEntry = {
-        id: 'cur-1000',
-        input: {context: 'test context'},
-        operations: [],
-        startedAt: Date.now() - 1000,
-        status: 'processing',
-        summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0},
-        taskId: 'task-abc',
-      }
-      store.getById.resolves(processingEntry)
       await handler.onTaskCreate(makeTask())
 
       // Inject operations via onToolResult
@@ -293,18 +284,34 @@ describe('CurateLogHandler', () => {
       expect(completedEntry.summary.failed).to.equal(1)
     })
 
-    it('should be a no-op when getById returns null', async () => {
-      store.getById.resolves(null)
-
-      await handler.onTaskCompleted('task-abc', 'result', makeTask())
-
-      expect(store.save.callCount).to.equal(1) // only the initial processing save
-    })
-
     it('should be a no-op for unknown taskId', async () => {
       await handler.onTaskCompleted('unknown-task', 'result', makeTask())
       // Should not throw; save should not be called again
       expect(store.save.callCount).to.equal(1) // only the initial processing save
+    })
+  })
+
+  // ==========================================================================
+  // onTaskCancelled
+  // ==========================================================================
+
+  describe('onTaskCancelled', () => {
+    beforeEach(async () => {
+      await handler.onTaskCreate(makeTask())
+    })
+
+    it('should save cancelled entry with correct status', async () => {
+      await handler.onTaskCancelled('task-abc', makeTask())
+
+      expect(store.save.callCount).to.equal(2)
+      const cancelledEntry = store.save.secondCall.args[0] as {status: string; completedAt: number}
+      expect(cancelledEntry.status).to.equal('cancelled')
+      expect(cancelledEntry.completedAt).to.be.a('number')
+    })
+
+    it('should be a no-op for unknown taskId', async () => {
+      await handler.onTaskCancelled('unknown-task', makeTask())
+      expect(store.save.callCount).to.equal(1) // only initial processing save
     })
   })
 
@@ -314,16 +321,6 @@ describe('CurateLogHandler', () => {
 
   describe('onTaskError', () => {
     beforeEach(async () => {
-      const processingEntry: CurateLogEntry = {
-        id: 'cur-1000',
-        input: {},
-        operations: [],
-        startedAt: Date.now() - 500,
-        status: 'processing',
-        summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0},
-        taskId: 'task-abc',
-      }
-      store.getById.resolves(processingEntry)
       await handler.onTaskCreate(makeTask())
     })
 

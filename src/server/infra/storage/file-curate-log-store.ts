@@ -51,6 +51,10 @@ const CurateLogEntryFileSchema = z.discriminatedUnion('status', [
     error: z.string(),
     status: z.literal('error'),
   }),
+  CurateLogEntryBaseSchema.extend({
+    completedAt: z.number(),
+    status: z.literal('cancelled'),
+  }),
 ])
 
 // ── FileCurateLogStore ────────────────────────────────────────────────────────

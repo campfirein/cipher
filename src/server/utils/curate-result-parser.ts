@@ -73,7 +73,7 @@ export function extractCurateResultFromCodeExec(resultData: Record<string, unkno
 
   // Strategy 3: scan locals for CurateOutput-shaped objects (var declarations only)
   const {locals} = resultData
-  if (!locals || typeof locals !== 'object') {
+  if (!locals || typeof locals !== 'object' || Array.isArray(locals)) {
     return undefined
   }
 
@@ -132,6 +132,6 @@ export function extractCurateOperations(
   const parsed = CurateResultSchema.safeParse(rawResult)
   if (!parsed.success || !parsed.data.applied) return []
 
-  const ops: CurateLogOperation[] = parsed.data.applied as CurateLogOperation[]
+  const ops: CurateLogOperation[] = parsed.data.applied
   return filter ? ops.filter((op) => filter(op)) : ops
 }

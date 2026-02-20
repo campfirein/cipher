@@ -561,6 +561,8 @@ export const TaskErrorDataSchema = z.object({
 export const TaskErrorEventSchema = z.object({
   clientId: z.string().optional(),
   error: TaskErrorDataSchema,
+  /** Log entry ID from CurateLogHandler, if applicable */
+  logId: z.string().optional(),
   taskId: z.string(),
 })
 

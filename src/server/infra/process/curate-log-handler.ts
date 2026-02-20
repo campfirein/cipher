@@ -12,7 +12,8 @@ import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 // ── Internal state ────────────────────────────────────────────────────────────
 
 type TaskState = {
-  logId: string
+  /** Cached initial entry — used in onTaskCompleted/onTaskError to avoid a getById round-trip. */
+  entry: CurateLogEntry
   operations: CurateLogOperation[]
   projectPath: string
 }
@@ -52,13 +53,7 @@ export function computeSummary(operations: CurateLogOperation[]): CurateLogSumma
       }
 
       case 'UPSERT': {
-        // Best-effort: check message for 'created new' indicator
-        if (op.message?.includes('created new')) {
-          summary.added++
-        } else {
-          summary.updated++
-        }
-
+        summary.updated++
         break
       }
     }
@@ -91,18 +86,35 @@ export class CurateLogHandler implements ITaskLifecycleHook {
     this.tasks.delete(taskId)
   }
 
+  async onTaskCancelled(taskId: string, _task: TaskInfo): Promise<void> {
+    const state = this.tasks.get(taskId)
+    if (!state) return
+
+    const store = this.getOrCreateStore(state.projectPath)
+
+    const updated: CurateLogEntry = {
+      ...state.entry,
+      completedAt: Date.now(),
+      operations: state.operations,
+      status: 'cancelled',
+      summary: computeSummary(state.operations),
+    }
+
+    await store.save(updated).catch((error: unknown) => {
+      transportLog(
+        `CurateLogHandler: failed to save cancelled entry for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    })
+  }
+
   async onTaskCompleted(taskId: string, result: string, _task: TaskInfo): Promise<void> {
     const state = this.tasks.get(taskId)
     if (!state) return
 
-    const store = this.stores.get(state.projectPath)
-    if (!store) return
-
-    const existing = await store.getById(state.logId).catch(() => null)
-    if (!existing) return
+    const store = this.getOrCreateStore(state.projectPath)
 
     const updated: CurateLogEntry = {
-      ...existing,
+      ...state.entry,
       completedAt: Date.now(),
       operations: state.operations,
       response: result || undefined,
@@ -125,9 +137,6 @@ export class CurateLogHandler implements ITaskLifecycleHook {
     const logId = await store.getNextId().catch(() => {})
     if (!logId) return
 
-    // Set in-memory state BEFORE disk write so onToolResult can see it immediately.
-    this.tasks.set(task.taskId, {logId, operations: [], projectPath: task.projectPath})
-
     const entry: CurateLogEntry = {
       id: logId,
       input: {
@@ -138,9 +147,15 @@ export class CurateLogHandler implements ITaskLifecycleHook {
       operations: [],
       startedAt: task.createdAt,
       status: 'processing',
-      summary: computeSummary([]),
+      summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0},
       taskId: task.taskId,
     }
+
+    // Set in-memory state BEFORE disk write so onToolResult can see it immediately.
+    // Caching `entry` here lets onTaskCompleted/onTaskError rebuild the final entry
+    // without a getById round-trip — so completion is never lost even if this initial
+    // save fails.
+    this.tasks.set(task.taskId, {entry, operations: [], projectPath: task.projectPath})
 
     await store.save(entry).catch((error: unknown) => {
       transportLog(
@@ -155,14 +170,10 @@ export class CurateLogHandler implements ITaskLifecycleHook {
     const state = this.tasks.get(taskId)
     if (!state) return
 
-    const store = this.stores.get(state.projectPath)
-    if (!store) return
-
-    const existing = await store.getById(state.logId).catch(() => null)
-    if (!existing) return
+    const store = this.getOrCreateStore(state.projectPath)
 
     const updated: CurateLogEntry = {
-      ...existing,
+      ...state.entry,
       completedAt: Date.now(),
       error: errorMessage,
       operations: state.operations,

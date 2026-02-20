@@ -2,8 +2,10 @@ import type {ITransportClient, TaskAck} from '@campfirein/brv-transport-client'
 
 import {Args, Command, Flags} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
-import {z} from 'zod'
 
+import type {CurateLogOperation} from '../../server/core/domain/entities/curate-log-entry.js'
+
+import {extractCurateOperations} from '../../server/utils/curate-result-parser.js'
 import {TaskEvents} from '../../shared/transport/events/index.js'
 import {
   type DaemonClientOptions,
@@ -21,42 +23,6 @@ type CurateFlags = {
   folder?: string[]
   format?: 'json' | 'text'
 }
-
-/** Schema for curate operations in tool results (direct curate call) */
-const CurateResultSchema = z.object({
-  result: z
-    .object({
-      applied: z
-        .array(
-          z.object({
-            filePath: z.string().optional(),
-            path: z.string(),
-            status: z.string(),
-            type: z.string(),
-          }),
-        )
-        .optional(),
-    })
-    .optional(),
-})
-
-/** Schema for curate results from code_exec (via tools.curate()) */
-const CodeExecCurateResultSchema = z.object({
-  returnValue: z
-    .object({
-      applied: z
-        .array(
-          z.object({
-            filePath: z.string().optional(),
-            path: z.string(),
-            status: z.string(),
-            type: z.string(),
-          }),
-        )
-        .optional(),
-    })
-    .optional(),
-})
 
 export default class Curate extends Command {
   public static args = {
@@ -157,33 +123,16 @@ Bad examples:
     const changes: {created: string[]; updated: string[]} = {created: [], updated: []}
 
     for (const tc of toolCalls) {
-      if (tc.status !== 'completed' || !tc.result) continue
-
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(String(tc.result))
-      } catch {
-        continue
-      }
-
-      if (tc.toolName === 'curate') {
-        const parseResult = CurateResultSchema.safeParse(parsed)
-        if (!parseResult.success) continue
-        this.extractChangesFromApplied(parseResult.data.result?.applied ?? [], changes)
-      } else if (tc.toolName === 'code_exec') {
-        const parseResult = CodeExecCurateResultSchema.safeParse(parsed)
-        if (!parseResult.success) continue
-        if (parseResult.data.returnValue?.applied) {
-          this.extractChangesFromApplied(parseResult.data.returnValue.applied, changes)
-        }
-      }
+      if (tc.status !== 'completed') continue
+      const ops = extractCurateOperations({result: tc.result, toolName: tc.toolName})
+      this.extractChangesFromApplied(ops, changes)
     }
 
     return changes
   }
 
   private extractChangesFromApplied(
-    applied: Array<{filePath?: string; path: string; status: string; type: string}>,
+    applied: CurateLogOperation[],
     changes: {created: string[]; updated: string[]},
   ): void {
     for (const op of applied) {
@@ -246,7 +195,7 @@ Bad examples:
 
     if (flags.detach) {
       const ack = await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
-      const {logId} = ack as TaskAck & {logId?: string}
+      const {logId} = ack
 
       if (format === 'json') {
         writeJsonResponse({
@@ -293,11 +242,11 @@ Bad examples:
               })
             }
           },
-          onError({error}) {
+          onError({error, logId}) {
             if (format === 'json') {
               writeJsonResponse({
                 command: 'curate',
-                data: {event: 'error', message: error.message, status: 'error'},
+                data: {event: 'error', logId, message: error.message, status: 'error'},
                 success: false,
               })
             }

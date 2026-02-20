@@ -246,6 +246,7 @@ export class TaskRouter {
       task.clientId,
     )
     this.tasks.delete(taskId)
+    this.notifyHooksCancelled(taskId, task).catch(() => {})
 
     return {success: true}
   }
@@ -272,7 +273,7 @@ export class TaskRouter {
 
     // Notify hooks (fire-and-forget)
     if (task) {
-      this.notifyHooksError(taskId, 'Task cancelled', task).catch(() => {})
+      this.notifyHooksCancelled(taskId, task).catch(() => {})
     }
   }
 
@@ -295,7 +296,11 @@ export class TaskRouter {
       this.projectRouter,
       task?.projectPath,
       TransportTaskEventNames.COMPLETED,
-      {result, taskId},
+      {
+        ...(task?.logId ? {logId: task.logId} : {}),
+        result,
+        taskId,
+      },
       task?.clientId,
     )
     this.moveToCompleted(taskId)
@@ -411,7 +416,7 @@ export class TaskRouter {
     const logId = await this.runCreateHooks(taskId)
     const task = this.tasks.get(taskId)
     if (task && logId) {
-      task.logId = logId
+      this.tasks.set(taskId, {...task, logId})
     }
 
     // ── Send task:ack with logId ──────────────────────────────────────────────
@@ -497,7 +502,11 @@ export class TaskRouter {
     transportLog(`Task error: ${taskId} - [${error.code}] ${error.message}`)
 
     if (task) {
-      this.transport.sendTo(task.clientId, TransportTaskEventNames.ERROR, {error, taskId})
+      this.transport.sendTo(task.clientId, TransportTaskEventNames.ERROR, {
+        ...(task.logId ? {logId: task.logId} : {}),
+        error,
+        taskId,
+      })
     }
 
     broadcastToProjectRoom(
@@ -505,7 +514,11 @@ export class TaskRouter {
       this.projectRouter,
       task?.projectPath,
       TransportTaskEventNames.ERROR,
-      {error, taskId},
+      {
+        ...(task?.logId ? {logId: task.logId} : {}),
+        error,
+        taskId,
+      },
       task?.clientId,
     )
     this.moveToCompleted(taskId)
@@ -563,6 +576,27 @@ export class TaskRouter {
   }
 
   /**
+   * Notify all hooks of task cancellation.
+   * Each hook is called independently; errors are caught and logged.
+   * cleanup() is called for each hook after onTaskCancelled.
+   */
+  private async notifyHooksCancelled(taskId: string, task: TaskInfo): Promise<void> {
+    await Promise.allSettled(
+      this.lifecycleHooks.map(async (hook) => {
+        try {
+          await hook.onTaskCancelled?.(taskId, task)
+        } catch (error) {
+          transportLog(
+            `LifecycleHook.onTaskCancelled error for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        } finally {
+          hook.cleanup?.(taskId)
+        }
+      }),
+    )
+  }
+
+  /**
    * Notify all hooks of task completion.
    * Each hook is called independently; errors are caught and logged.
    * cleanup() is called for each hook after onTaskCompleted.
@@ -574,7 +608,7 @@ export class TaskRouter {
           await hook.onTaskCompleted?.(taskId, result, task)
         } catch (error) {
           transportLog(
-            `CurateLogHandler.onTaskCompleted error for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+            `LifecycleHook.onTaskCompleted error for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
           )
         } finally {
           hook.cleanup?.(taskId)
@@ -584,7 +618,7 @@ export class TaskRouter {
   }
 
   /**
-   * Notify all hooks of task error/cancellation.
+   * Notify all hooks of task error.
    * Each hook is called independently; errors are caught and logged.
    * cleanup() is called for each hook after onTaskError.
    */
@@ -595,7 +629,7 @@ export class TaskRouter {
           await hook.onTaskError?.(taskId, errorMessage, task)
         } catch (error) {
           transportLog(
-            `CurateLogHandler.onTaskError error for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+            `LifecycleHook.onTaskError error for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
           )
         } finally {
           hook.cleanup?.(taskId)
@@ -628,7 +662,13 @@ export class TaskRouter {
     // Notify onToolResult hooks only for active tasks
     if (activeTask && eventName === LlmEventNames.TOOL_RESULT) {
       for (const hook of this.lifecycleHooks) {
-        hook.onToolResult?.(taskId, data as unknown as LlmToolResultEvent)
+        try {
+          hook.onToolResult?.(taskId, data as unknown as LlmToolResultEvent)
+        } catch (error) {
+          transportLog(
+            `LifecycleHook.onToolResult error for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
       }
     }
 
@@ -656,20 +696,29 @@ export class TaskRouter {
 
     const TIMEOUT_SENTINEL = Symbol('timeout')
 
-    const results = await Promise.all(
+    const settled = await Promise.allSettled(
       this.lifecycleHooks.map(async (hook) => {
         if (!hook.onTaskCreate) return
-        const result = await Promise.race([
-          hook.onTaskCreate(task),
-          new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
-            setTimeout(() => resolve(TIMEOUT_SENTINEL), LIFECYCLE_HOOK_CREATE_TIMEOUT_MS)
-          }),
-        ])
-        if (result === TIMEOUT_SENTINEL) return
-        return (result as void | {logId?: string})?.logId
+        try {
+          const result = await Promise.race([
+            hook.onTaskCreate(task),
+            new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
+              setTimeout(() => resolve(TIMEOUT_SENTINEL), LIFECYCLE_HOOK_CREATE_TIMEOUT_MS)
+            }),
+          ])
+          if (result === TIMEOUT_SENTINEL) return
+          return (result as void | {logId?: string})?.logId
+        } catch (error) {
+          transportLog(
+            `LifecycleHook.onTaskCreate error for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
       }),
     )
 
-    return results.find((r): r is string => typeof r === 'string')
+    return settled
+      .filter((r): r is PromiseFulfilledResult<string | undefined> => r.status === 'fulfilled')
+      .map((r) => r.value)
+      .find((r): r is string => typeof r === 'string')
   }
 }
