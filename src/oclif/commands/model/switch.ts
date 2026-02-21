@@ -12,23 +12,24 @@ import {
 import {type DaemonClientOptions, withDaemonRetry} from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
 
-export default class ModelSet extends Command {
+export default class ModelSwitch extends Command {
   public static args = {
     model: Args.string({
-      description: 'Model ID to set as active (e.g., claude-sonnet-4-5, gpt-4.1)',
+      description: 'Model ID to switch to (e.g., claude-sonnet-4-5, gpt-4.1)',
       required: true,
     }),
   }
-  public static description = 'Set the active model'
+  public static description = 'Switch the active model'
   public static examples = [
-    '<%= config.bin %> model set claude-sonnet-4-5',
-    '<%= config.bin %> model set gpt-4.1 --provider openai',
-    '<%= config.bin %> model set claude-sonnet-4-5 --json',
+    '<%= config.bin %> model switch claude-sonnet-4-5',
+    '<%= config.bin %> model switch gpt-4.1 --provider openai',
+    '<%= config.bin %> model switch claude-sonnet-4-5 --format json',
   ]
   public static flags = {
-    json: Flags.boolean({
-      default: false,
-      description: 'Output as JSON',
+    format: Flags.string({
+      default: 'text',
+      description: 'Output format (text or json)',
+      options: ['text', 'json'],
     }),
     provider: Flags.string({
       char: 'p',
@@ -37,29 +38,30 @@ export default class ModelSet extends Command {
   }
 
   public async run(): Promise<void> {
-    const {args, flags} = await this.parse(ModelSet)
+    const {args, flags} = await this.parse(ModelSwitch)
     const modelId = args.model
     const providerFlag = flags.provider
+    const format = flags.format as 'json' | 'text'
 
     try {
-      const result = await this.setActiveModel({modelId, providerFlag})
+      const result = await this.switchModel({modelId, providerFlag})
 
-      if (flags.json) {
-        writeJsonResponse({command: 'model set', data: result, success: true})
+      if (format === 'json') {
+        writeJsonResponse({command: 'model switch', data: result, success: true})
       } else {
-        this.log(`Model set to: ${result.modelId} (provider: ${result.providerId})`)
+        this.log(`Model switched to: ${result.modelId} (provider: ${result.providerId})`)
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred while setting the model. Please try again.'
-      if (flags.json) {
-        writeJsonResponse({command: 'model set', data: {error: errorMessage}, success: false})
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred while switching the model. Please try again.'
+      if (format === 'json') {
+        writeJsonResponse({command: 'model switch', data: {error: errorMessage}, success: false})
       } else {
         this.log(errorMessage)
       }
     }
   }
 
-  protected async setActiveModel(
+  protected async switchModel(
     {modelId, providerFlag}: {modelId: string; providerFlag?: string},
     options?: DaemonClientOptions,
   ) {
@@ -83,7 +85,7 @@ export default class ModelSet extends Command {
         providerId = active.activeProviderId
       }
 
-      // 2. Set active model
+      // 2. Switch active model
       await client.requestWithAck<ModelSetActiveResponse>(ModelEvents.SET_ACTIVE, {modelId, providerId})
 
       return {modelId, providerId}

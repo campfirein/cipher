@@ -17,12 +17,13 @@ export default class ModelList extends Command {
   public static description = 'List available models from all connected providers'
   public static examples = [
     '<%= config.bin %> model list',
-    '<%= config.bin %> model list --json',
+    '<%= config.bin %> model list --format json',
   ]
   public static flags = {
-    json: Flags.boolean({
-      default: false,
-      description: 'Output as JSON',
+    format: Flags.string({
+      default: 'text',
+      description: 'Output format (text or json)',
+      options: ['text', 'json'],
     }),
     provider: Flags.string({
       char: 'p',
@@ -62,11 +63,12 @@ export default class ModelList extends Command {
 
   public async run(): Promise<void> {
     const {flags} = await this.parse(ModelList)
+    const format = flags.format as 'json' | 'text'
 
     try {
       const result = await this.fetchModels(flags.provider)
 
-      if (flags.json) {
+      if (format === 'json') {
         writeJsonResponse({command: 'model list', data: result, success: true})
         return
       }
@@ -92,7 +94,7 @@ export default class ModelList extends Command {
         }
       }
     } catch (error) {
-      if (flags.json) {
+      if (format === 'json') {
         writeJsonResponse({command: 'model list', data: {error: formatConnectionError(error)}, success: false})
       } else {
         this.log(formatConnectionError(error))

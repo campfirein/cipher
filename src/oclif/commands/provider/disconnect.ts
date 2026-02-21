@@ -18,12 +18,13 @@ export default class ProviderDisconnect extends Command {
   public static description = 'Disconnect an LLM provider'
   public static examples = [
     '<%= config.bin %> provider disconnect anthropic',
-    '<%= config.bin %> provider disconnect openai --json',
+    '<%= config.bin %> provider disconnect openai --format json',
   ]
   public static flags = {
-    json: Flags.boolean({
-      default: false,
-      description: 'Output as JSON',
+    format: Flags.string({
+      default: 'text',
+      description: 'Output format (text or json)',
+      options: ['text', 'json'],
     }),
   }
 
@@ -48,18 +49,19 @@ export default class ProviderDisconnect extends Command {
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(ProviderDisconnect)
     const providerId = args.provider
+    const format = flags.format as 'json' | 'text'
 
     try {
       await this.disconnectProvider(providerId)
 
-      if (flags.json) {
+      if (format === 'json') {
         writeJsonResponse({command: 'provider disconnect', data: {providerId}, success: true})
       } else {
         this.log(`Disconnected provider: ${providerId}`)
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred while disconnecting the provider. Please try again.'
-      if (flags.json) {
+      if (format === 'json') {
         writeJsonResponse({command: 'provider disconnect', data: {error: errorMessage}, success: false})
       } else {
         this.log(errorMessage)

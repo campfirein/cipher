@@ -77,7 +77,7 @@ describe('Provider List Command', () => {
   }
 
   function createJsonCommand(...argv: string[]): TestableProviderListCommand {
-    const command = new TestableProviderListCommand(['--json', ...argv], mockConnector, config)
+    const command = new TestableProviderListCommand(['--format', 'json', ...argv], mockConnector, config)
     stub(command, 'log').callsFake((msg?: string) => {
       if (msg) loggedMessages.push(msg)
     })

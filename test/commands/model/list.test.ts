@@ -77,7 +77,7 @@ describe('Model List Command', () => {
   }
 
   function createJsonCommand(...argv: string[]): TestableModelListCommand {
-    const command = new TestableModelListCommand(['--json', ...argv], mockConnector, config)
+    const command = new TestableModelListCommand(['--format', 'json', ...argv], mockConnector, config)
     stub(command, 'log').callsFake((msg?: string) => {
       if (msg) loggedMessages.push(msg)
     })

@@ -77,7 +77,7 @@ describe('Provider Connect Command', () => {
   }
 
   function createJsonCommand(...argv: string[]): TestableProviderConnectCommand {
-    const command = new TestableProviderConnectCommand(['--json', ...argv], mockConnector, config)
+    const command = new TestableProviderConnectCommand(['--format', 'json', ...argv], mockConnector, config)
     stub(command, 'log').callsFake((msg?: string) => {
       if (msg) loggedMessages.push(msg)
     })
@@ -136,7 +136,7 @@ describe('Provider Connect Command', () => {
       expect(loggedMessages.some((m) => m.includes('Model set to: claude-sonnet-4-5'))).to.be.true
     })
 
-    it('should re-connect already connected provider without API key', async () => {
+    it('should switch active provider using SET_ACTIVE when already connected without API key', async () => {
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
       requestStub.onFirstCall().resolves({
         providers: [{id: 'anthropic', isConnected: true, name: 'Anthropic', requiresApiKey: true}],
@@ -146,6 +146,21 @@ describe('Provider Connect Command', () => {
       await createCommand('anthropic').run()
 
       expect(loggedMessages.some((m) => m.includes('Connected to Anthropic (anthropic)'))).to.be.true
+      expect(requestStub.secondCall.args[0]).to.equal('provider:setActive')
+    })
+
+    it('should re-connect with CONNECT when already connected and API key is provided', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({
+        providers: [{id: 'anthropic', isConnected: true, name: 'Anthropic', requiresApiKey: true}],
+      })
+      requestStub.onSecondCall().resolves({isValid: true})
+      requestStub.onThirdCall().resolves({success: true})
+
+      await createCommand('anthropic', '--api-key', 'sk-new-key').run()
+
+      expect(loggedMessages.some((m) => m.includes('Connected to Anthropic (anthropic)'))).to.be.true
+      expect(requestStub.thirdCall.args[0]).to.equal('provider:connect')
     })
   })
 

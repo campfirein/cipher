@@ -8,6 +8,7 @@ import {
   type ProviderConnectResponse,
   ProviderEvents,
   type ProviderListResponse,
+  type ProviderSetActiveResponse,
   type ProviderValidateApiKeyResponse,
 } from '../../../shared/transport/events/provider-events.js'
 import {type DaemonClientOptions, withDaemonRetry} from '../../lib/daemon-client.js'
@@ -31,9 +32,10 @@ export default class ProviderConnect extends Command {
       char: 'k',
       description: 'API key for the provider',
     }),
-    json: Flags.boolean({
-      default: false,
-      description: 'Output as JSON',
+    format: Flags.string({
+      default: 'text',
+      description: 'Output format (text or json)',
+      options: ['text', 'json'],
     }),
     model: Flags.string({
       char: 'm',
@@ -69,8 +71,11 @@ export default class ProviderConnect extends Command {
         )
       }
 
-      // 3. Connect provider
-      await client.requestWithAck<ProviderConnectResponse>(ProviderEvents.CONNECT, {apiKey, providerId})
+      // 3. Connect or switch active provider
+      await (provider.isConnected && !apiKey
+        ? client.requestWithAck<ProviderSetActiveResponse>(ProviderEvents.SET_ACTIVE, {providerId})
+        : client.requestWithAck<ProviderConnectResponse>(ProviderEvents.CONNECT, {apiKey, providerId})
+      );
 
       // 4. Set model if specified
       if (model) {
@@ -86,11 +91,12 @@ export default class ProviderConnect extends Command {
     const providerId = args.provider
     const apiKey = flags['api-key']
     const {model} = flags
+    const format = flags.format as 'json' | 'text'
 
     try {
       const result = await this.connectProvider({apiKey, model, providerId})
 
-      if (flags.json) {
+      if (format === 'json') {
         writeJsonResponse({command: 'provider connect', data: result, success: true})
       } else {
         this.log(`Connected to ${result.providerName} (${result.providerId})`)
@@ -100,7 +106,7 @@ export default class ProviderConnect extends Command {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred while connecting the provider. Please try again.'
-      if (flags.json) {
+      if (format === 'json') {
         writeJsonResponse({command: 'provider connect', data: {error: errorMessage}, success: false})
       } else {
         this.log(errorMessage)

@@ -77,7 +77,7 @@ describe('Model Command', () => {
   }
 
   function createJsonCommand(...argv: string[]): TestableModelCommand {
-    const command = new TestableModelCommand(['--json', ...argv], mockConnector, config)
+    const command = new TestableModelCommand(['--format', 'json', ...argv], mockConnector, config)
     stub(command, 'log').callsFake((msg?: string) => {
       if (msg) loggedMessages.push(msg)
     })
@@ -136,7 +136,7 @@ describe('Model Command', () => {
 
       expect(loggedMessages.some((m) => m.includes('No model set for OpenAI (openai)'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('brv model list'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv model set'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv model switch'))).to.be.true
     })
   })
 

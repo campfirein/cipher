@@ -5,11 +5,11 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import ModelSet from '../../../src/oclif/commands/model/set.js'
+import ProviderSwitch from '../../../src/oclif/commands/provider/switch.js'
 
-// ==================== TestableModelSetCommand ====================
+// ==================== TestableProviderSwitchCommand ====================
 
-class TestableModelSetCommand extends ModelSet {
+class TestableProviderSwitchCommand extends ProviderSwitch {
   private readonly mockConnector: () => Promise<ConnectionResult>
 
   constructor(argv: string[], mockConnector: () => Promise<ConnectionResult>, config: Config) {
@@ -17,8 +17,8 @@ class TestableModelSetCommand extends ModelSet {
     this.mockConnector = mockConnector
   }
 
-  protected override async setActiveModel(params: {modelId: string; providerFlag?: string}) {
-    return super.setActiveModel(params, {
+  protected override async switchProvider(providerId: string) {
+    return super.switchProvider(providerId, {
       maxRetries: 1,
       retryDelayMs: 0,
       transportConnector: this.mockConnector,
@@ -28,7 +28,7 @@ class TestableModelSetCommand extends ModelSet {
 
 // ==================== Tests ====================
 
-describe('Model Set Command', () => {
+describe('Provider Switch Command', () => {
   let config: Config
   let loggedMessages: string[]
   let stdoutOutput: string[]
@@ -68,16 +68,16 @@ describe('Model Set Command', () => {
     restore()
   })
 
-  function createCommand(...argv: string[]): TestableModelSetCommand {
-    const command = new TestableModelSetCommand(argv, mockConnector, config)
+  function createCommand(...argv: string[]): TestableProviderSwitchCommand {
+    const command = new TestableProviderSwitchCommand(argv, mockConnector, config)
     stub(command, 'log').callsFake((msg?: string) => {
       if (msg) loggedMessages.push(msg)
     })
     return command
   }
 
-  function createJsonCommand(...argv: string[]): TestableModelSetCommand {
-    const command = new TestableModelSetCommand(['--json', ...argv], mockConnector, config)
+  function createJsonCommand(...argv: string[]): TestableProviderSwitchCommand {
+    const command = new TestableProviderSwitchCommand(['--format', 'json', ...argv], mockConnector, config)
     stub(command, 'log').callsFake((msg?: string) => {
       if (msg) loggedMessages.push(msg)
     })
@@ -93,29 +93,31 @@ describe('Model Set Command', () => {
     return JSON.parse(output.trim())
   }
 
-  // ==================== Successful Set ====================
+  // ==================== Successful Switch ====================
 
-  describe('successful set', () => {
-    it('should set model using active provider', async () => {
-      const requestStub = mockClient.requestWithAck as sinon.SinonStub
-      requestStub.onFirstCall().resolves({activeProviderId: 'anthropic'})
-      requestStub.onSecondCall().resolves({success: true})
-
-      await createCommand('claude-sonnet-4-5').run()
-
-      expect(loggedMessages.some((m) => m.includes('Model set to: claude-sonnet-4-5') && m.includes('anthropic'))).to.be.true
-    })
-
-    it('should set model with explicit --provider flag', async () => {
+  describe('successful switch', () => {
+    it('should switch to a connected provider', async () => {
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
       requestStub.onFirstCall().resolves({
         providers: [{id: 'openai', isConnected: true, name: 'OpenAI'}],
       })
       requestStub.onSecondCall().resolves({success: true})
 
-      await createCommand('gpt-4.1', '--provider', 'openai').run()
+      await createCommand('openai').run()
 
-      expect(loggedMessages.some((m) => m.includes('Model set to: gpt-4.1') && m.includes('openai'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Switched to OpenAI (openai)'))).to.be.true
+    })
+
+    it('should call SET_ACTIVE event', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({
+        providers: [{id: 'anthropic', isConnected: true, name: 'Anthropic'}],
+      })
+      requestStub.onSecondCall().resolves({success: true})
+
+      await createCommand('anthropic').run()
+
+      expect(requestStub.secondCall.args[0]).to.equal('provider:setActive')
     })
   })
 
@@ -125,18 +127,18 @@ describe('Model Set Command', () => {
     it('should error for unknown provider', async () => {
       ;(mockClient.requestWithAck as sinon.SinonStub).resolves({providers: []})
 
-      await createCommand('gpt-4.1', '--provider', 'unknown').run()
+      await createCommand('unknown').run()
 
       expect(loggedMessages.some((m) => m.includes('Unknown provider'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('brv provider list'))).to.be.true
     })
 
-    it('should error for disconnected provider', async () => {
+    it('should error when provider is not connected', async () => {
       ;(mockClient.requestWithAck as sinon.SinonStub).resolves({
         providers: [{id: 'openai', isConnected: false, name: 'OpenAI'}],
       })
 
-      await createCommand('gpt-4.1', '--provider', 'openai').run()
+      await createCommand('openai').run()
 
       expect(loggedMessages.some((m) => m.includes('is not connected'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('brv provider connect openai'))).to.be.true
@@ -146,26 +148,28 @@ describe('Model Set Command', () => {
   // ==================== JSON Output ====================
 
   describe('json output', () => {
-    it('should output JSON on successful set', async () => {
+    it('should output JSON on successful switch', async () => {
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
-      requestStub.onFirstCall().resolves({activeProviderId: 'anthropic'})
+      requestStub.onFirstCall().resolves({
+        providers: [{id: 'anthropic', isConnected: true, name: 'Anthropic'}],
+      })
       requestStub.onSecondCall().resolves({success: true})
 
-      await createJsonCommand('claude-sonnet-4-5').run()
+      await createJsonCommand('anthropic').run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('model set')
+      expect(json.command).to.equal('provider switch')
       expect(json.success).to.be.true
-      expect(json.data).to.deep.include({modelId: 'claude-sonnet-4-5', providerId: 'anthropic'})
+      expect(json.data).to.deep.include({providerId: 'anthropic'})
     })
 
     it('should output JSON on error', async () => {
       ;(mockClient.requestWithAck as sinon.SinonStub).resolves({providers: []})
 
-      await createJsonCommand('gpt-4.1', '--provider', 'unknown').run()
+      await createJsonCommand('unknown').run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('model set')
+      expect(json.command).to.equal('provider switch')
       expect(json.success).to.be.false
       expect(json.data).to.have.property('error')
     })
@@ -177,7 +181,7 @@ describe('Model Set Command', () => {
     it('should handle connection errors gracefully', async () => {
       mockConnector.rejects(new Error('Something went wrong'))
 
-      await createCommand('claude-sonnet-4-5').run()
+      await createCommand('anthropic').run()
 
       expect(loggedMessages.some((m) => m.includes('Something went wrong'))).to.be.true
     })

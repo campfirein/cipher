@@ -5,11 +5,11 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import ProviderDisconnect from '../../../src/oclif/commands/provider/disconnect.js'
+import ModelSwitch from '../../../src/oclif/commands/model/switch.js'
 
-// ==================== TestableProviderDisconnectCommand ====================
+// ==================== TestableModelSwitchCommand ====================
 
-class TestableProviderDisconnectCommand extends ProviderDisconnect {
+class TestableModelSwitchCommand extends ModelSwitch {
   private readonly mockConnector: () => Promise<ConnectionResult>
 
   constructor(argv: string[], mockConnector: () => Promise<ConnectionResult>, config: Config) {
@@ -17,8 +17,8 @@ class TestableProviderDisconnectCommand extends ProviderDisconnect {
     this.mockConnector = mockConnector
   }
 
-  protected override async disconnectProvider(providerId: string) {
-    return super.disconnectProvider(providerId, {
+  protected override async switchModel(params: {modelId: string; providerFlag?: string}) {
+    return super.switchModel(params, {
       maxRetries: 1,
       retryDelayMs: 0,
       transportConnector: this.mockConnector,
@@ -28,7 +28,7 @@ class TestableProviderDisconnectCommand extends ProviderDisconnect {
 
 // ==================== Tests ====================
 
-describe('Provider Disconnect Command', () => {
+describe('Model Switch Command', () => {
   let config: Config
   let loggedMessages: string[]
   let stdoutOutput: string[]
@@ -68,16 +68,16 @@ describe('Provider Disconnect Command', () => {
     restore()
   })
 
-  function createCommand(...argv: string[]): TestableProviderDisconnectCommand {
-    const command = new TestableProviderDisconnectCommand(argv, mockConnector, config)
+  function createCommand(...argv: string[]): TestableModelSwitchCommand {
+    const command = new TestableModelSwitchCommand(argv, mockConnector, config)
     stub(command, 'log').callsFake((msg?: string) => {
       if (msg) loggedMessages.push(msg)
     })
     return command
   }
 
-  function createJsonCommand(...argv: string[]): TestableProviderDisconnectCommand {
-    const command = new TestableProviderDisconnectCommand(['--format', 'json', ...argv], mockConnector, config)
+  function createJsonCommand(...argv: string[]): TestableModelSwitchCommand {
+    const command = new TestableModelSwitchCommand(['--format', 'json', ...argv], mockConnector, config)
     stub(command, 'log').callsFake((msg?: string) => {
       if (msg) loggedMessages.push(msg)
     })
@@ -93,19 +93,29 @@ describe('Provider Disconnect Command', () => {
     return JSON.parse(output.trim())
   }
 
-  // ==================== Successful Disconnect ====================
+  // ==================== Successful Switch ====================
 
-  describe('successful disconnect', () => {
-    it('should disconnect a connected provider', async () => {
+  describe('successful switch', () => {
+    it('should switch model using active provider', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({activeProviderId: 'anthropic'})
+      requestStub.onSecondCall().resolves({success: true})
+
+      await createCommand('claude-sonnet-4-5').run()
+
+      expect(loggedMessages.some((m) => m.includes('Model switched to: claude-sonnet-4-5') && m.includes('anthropic'))).to.be.true
+    })
+
+    it('should switch model with explicit --provider flag', async () => {
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
       requestStub.onFirstCall().resolves({
-        providers: [{id: 'anthropic', isConnected: true, name: 'Anthropic'}],
+        providers: [{id: 'openai', isConnected: true, name: 'OpenAI'}],
       })
       requestStub.onSecondCall().resolves({success: true})
 
-      await createCommand('anthropic').run()
+      await createCommand('gpt-4.1', '--provider', 'openai').run()
 
-      expect(loggedMessages.some((m) => m.includes('Disconnected provider: anthropic'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Model switched to: gpt-4.1') && m.includes('openai'))).to.be.true
     })
   })
 
@@ -115,48 +125,47 @@ describe('Provider Disconnect Command', () => {
     it('should error for unknown provider', async () => {
       ;(mockClient.requestWithAck as sinon.SinonStub).resolves({providers: []})
 
-      await createCommand('unknown').run()
+      await createCommand('gpt-4.1', '--provider', 'unknown').run()
 
       expect(loggedMessages.some((m) => m.includes('Unknown provider'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('brv provider list'))).to.be.true
     })
 
-    it('should error when provider is not connected', async () => {
+    it('should error for disconnected provider', async () => {
       ;(mockClient.requestWithAck as sinon.SinonStub).resolves({
         providers: [{id: 'openai', isConnected: false, name: 'OpenAI'}],
       })
 
-      await createCommand('openai').run()
+      await createCommand('gpt-4.1', '--provider', 'openai').run()
 
       expect(loggedMessages.some((m) => m.includes('is not connected'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv provider connect openai'))).to.be.true
     })
   })
 
   // ==================== JSON Output ====================
 
   describe('json output', () => {
-    it('should output JSON on successful disconnect', async () => {
+    it('should output JSON on successful switch', async () => {
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
-      requestStub.onFirstCall().resolves({
-        providers: [{id: 'anthropic', isConnected: true, name: 'Anthropic'}],
-      })
+      requestStub.onFirstCall().resolves({activeProviderId: 'anthropic'})
       requestStub.onSecondCall().resolves({success: true})
 
-      await createJsonCommand('anthropic').run()
+      await createJsonCommand('claude-sonnet-4-5').run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider disconnect')
+      expect(json.command).to.equal('model switch')
       expect(json.success).to.be.true
-      expect(json.data).to.deep.include({providerId: 'anthropic'})
+      expect(json.data).to.deep.include({modelId: 'claude-sonnet-4-5', providerId: 'anthropic'})
     })
 
     it('should output JSON on error', async () => {
       ;(mockClient.requestWithAck as sinon.SinonStub).resolves({providers: []})
 
-      await createJsonCommand('unknown').run()
+      await createJsonCommand('gpt-4.1', '--provider', 'unknown').run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider disconnect')
+      expect(json.command).to.equal('model switch')
       expect(json.success).to.be.false
       expect(json.data).to.have.property('error')
     })
@@ -168,7 +177,7 @@ describe('Provider Disconnect Command', () => {
     it('should handle connection errors gracefully', async () => {
       mockConnector.rejects(new Error('Something went wrong'))
 
-      await createCommand('anthropic').run()
+      await createCommand('claude-sonnet-4-5').run()
 
       expect(loggedMessages.some((m) => m.includes('Something went wrong'))).to.be.true
     })

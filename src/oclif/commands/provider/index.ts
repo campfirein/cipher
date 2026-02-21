@@ -12,12 +12,13 @@ export default class Provider extends Command {
   public static description = 'Show active provider and model'
   public static examples = [
     '<%= config.bin %> provider',
-    '<%= config.bin %> provider --json',
+    '<%= config.bin %> provider --format json',
   ]
   public static flags = {
-    json: Flags.boolean({
-      default: false,
-      description: 'Output as JSON',
+    format: Flags.string({
+      default: 'text',
+      description: 'Output format (text or json)',
+      options: ['text', 'json'],
     }),
   }
 
@@ -37,11 +38,12 @@ export default class Provider extends Command {
 
   public async run(): Promise<void> {
     const {flags} = await this.parse(Provider)
+    const format = flags.format as 'json' | 'text'
 
     try {
       const info = await this.fetchActiveProvider()
 
-      if (flags.json) {
+      if (format === 'json') {
         writeJsonResponse({command: 'provider', data: info, success: true})
       } else {
         this.log(`Provider: ${info.providerName} (${info.providerId})`)
@@ -49,12 +51,12 @@ export default class Provider extends Command {
           if (info.activeModel) {
             this.log(`Model: ${info.activeModel}`)
           } else {
-            this.log('Model: Not set. Run "brv model list" to see available models, or "brv model set <model>" to set one.')
+            this.log('Model: Not set. Run "brv model list" to see available models, or "brv model switch <model>" to set one.')
           }
         }
       }
     } catch (error) {
-      if (flags.json) {
+      if (format === 'json') {
         writeJsonResponse({command: 'provider', data: {error: formatConnectionError(error)}, success: false})
       } else {
         this.log(formatConnectionError(error))

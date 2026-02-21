@@ -9,12 +9,13 @@ export default class ProviderList extends Command {
   public static description = 'List all available providers and their connection status'
   public static examples = [
     '<%= config.bin %> provider list',
-    '<%= config.bin %> provider list --json',
+    '<%= config.bin %> provider list --format json',
   ]
   public static flags = {
-    json: Flags.boolean({
-      default: false,
-      description: 'Output as JSON',
+    format: Flags.string({
+      default: 'text',
+      description: 'Output format (text or json)',
+      options: ['text', 'json'],
     }),
   }
 
@@ -27,11 +28,12 @@ export default class ProviderList extends Command {
 
   public async run(): Promise<void> {
     const {flags} = await this.parse(ProviderList)
+    const format = flags.format as 'json' | 'text'
 
     try {
       const {providers} = await this.fetchProviders()
 
-      if (flags.json) {
+      if (format === 'json') {
         writeJsonResponse({command: 'provider list', data: {providers}, success: true})
         return
       }
@@ -41,7 +43,7 @@ export default class ProviderList extends Command {
         this.log(`  ${p.name} [${p.id}] ${status}`.trimEnd())
       }
     } catch (error) {
-      if (flags.json) {
+      if (format === 'json') {
         writeJsonResponse({command: 'provider list', data: {error: formatConnectionError(error)}, success: false})
       } else {
         this.log(formatConnectionError(error))
