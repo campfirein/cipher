@@ -302,7 +302,7 @@ export class SessionManager {
     await session.reset()
 
     // Dispose session to remove event listeners (prevents memory leak on repeated task sessions)
-    ;(session as ChatSession).dispose()
+    session.dispose()
 
     // Clean up metadata maps
     this.sessionCreatedAt.delete(id)
@@ -331,8 +331,7 @@ export class SessionManager {
 
     // Dispose all sessions (prevents event forwarder leaks)
     for (const session of this.sessions.values()) {
-      // ChatSession.dispose() removes event forwarders
-      ;(session as ChatSession).dispose()
+      session.dispose()
     }
 
     this.sessions.clear()
@@ -365,7 +364,7 @@ export class SessionManager {
     await contextManager.flush()
 
     // Dispose session to remove event listeners (dispose calls cleanup internally)
-    ;(session as ChatSession).dispose()
+    session.dispose()
 
     // Clean up metadata maps
     this.sessionCreatedAt.delete(id)
