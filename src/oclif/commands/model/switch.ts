@@ -85,6 +85,10 @@ export default class ModelSwitch extends Command {
         providerId = active.activeProviderId
       }
 
+      if (providerId === 'byterover') {
+        throw new Error('ByteRover provider uses its own internal LLM and does not support model switching. Run "brv provider switch <provider>" to switch to a different provider first.')
+      }
+
       // 2. Switch active model
       await client.requestWithAck<ModelSetActiveResponse>(ModelEvents.SET_ACTIVE, {modelId, providerId})
 

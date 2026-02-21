@@ -141,6 +141,26 @@ describe('Model Switch Command', () => {
       expect(loggedMessages.some((m) => m.includes('is not connected'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('brv provider connect openai'))).to.be.true
     })
+
+    it('should error when active provider is byterover', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({activeProviderId: 'byterover'})
+
+      await createCommand('claude-sonnet-4-5').run()
+
+      expect(loggedMessages.some((m) => m.includes('does not support model switching'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv provider switch'))).to.be.true
+    })
+
+    it('should error when --provider flag is byterover', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({
+        providers: [{id: 'byterover', isConnected: true, name: 'ByteRover'}],
+      })
+
+      await createCommand('claude-sonnet-4-5', '--provider', 'byterover').run()
+
+      expect(loggedMessages.some((m) => m.includes('does not support model switching'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv provider switch'))).to.be.true
+    })
   })
 
   // ==================== JSON Output ====================
