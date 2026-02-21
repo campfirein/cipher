@@ -4,7 +4,7 @@ import {join} from 'node:path'
 import {z} from 'zod'
 
 import type {CurateLogEntry} from '../../core/domain/entities/curate-log-entry.js'
-import type {ICurateLogStore} from '../../core/interfaces/storage/i-curate-log-store.js'
+import type {CurateLogStatus, ICurateLogStore} from '../../core/interfaces/storage/i-curate-log-store.js'
 
 import {CURATE_LOG_DIR, CURATE_LOG_ID_PREFIX} from '../../constants.js'
 
@@ -119,9 +119,14 @@ export class FileCurateLogStore implements ICurateLogStore {
 
   /**
    * List entries sorted newest-first (by timestamp embedded in filename).
-   * Applies limit after sorting. Skips corrupt entries silently.
+   * Filters (status, after, before) are applied before limit. Skips corrupt entries silently.
    */
-  async list({limit}: {limit?: number} = {}): Promise<CurateLogEntry[]> {
+  async list({
+    after,
+    before,
+    limit,
+    status,
+  }: {after?: number; before?: number; limit?: number; status?: CurateLogStatus[]} = {}): Promise<CurateLogEntry[]> {
     let files: string[]
     try {
       const entries = await readdir(this.logDir, {withFileTypes: true})
@@ -134,19 +139,35 @@ export class FileCurateLogStore implements ICurateLogStore {
       return []
     }
 
-    const toRead = limit === undefined ? files : files.slice(0, limit)
-    const results: CurateLogEntry[] = []
-
+    // Read all entries (max 100), then filter — small enough that this is fine
+    const allEntries: CurateLogEntry[] = []
     await Promise.all(
-      toRead.map(async (filename) => {
+      files.map(async (filename) => {
         const id = filename.slice(0, -5) // strip .json
         const entry = await this.getById(id)
-        if (entry) results.push(entry)
+        if (entry) allEntries.push(entry)
       }),
     )
 
-    // Re-sort results (Promise.all may reorder due to concurrent reads)
-    return results.sort((a, b) => b.startedAt - a.startedAt)
+    // Re-sort (Promise.all may reorder due to concurrent reads)
+    allEntries.sort((a, b) => b.startedAt - a.startedAt)
+
+    // Apply filters
+    let results = allEntries
+    if (status?.length) {
+      results = results.filter((e) => status.includes(e.status))
+    }
+
+    if (after !== undefined) {
+      results = results.filter((e) => e.startedAt >= after)
+    }
+
+    if (before !== undefined) {
+      results = results.filter((e) => e.startedAt <= before)
+    }
+
+    // Apply limit after filtering
+    return limit === undefined ? results : results.slice(0, limit)
   }
 
   /**

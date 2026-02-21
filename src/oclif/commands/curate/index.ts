@@ -3,18 +3,18 @@ import type {ITransportClient, TaskAck} from '@campfirein/brv-transport-client'
 import {Args, Command, Flags} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
 
-import type {CurateLogOperation} from '../../server/core/domain/entities/curate-log-entry.js'
+import type {CurateLogOperation} from '../../../server/core/domain/entities/curate-log-entry.js'
 
-import {extractCurateOperations} from '../../server/utils/curate-result-parser.js'
-import {TaskEvents} from '../../shared/transport/events/index.js'
+import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
+import {TaskEvents} from '../../../shared/transport/events/index.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
   hasLeakedHandles,
   withDaemonRetry,
-} from '../lib/daemon-client.js'
-import {writeJsonResponse} from '../lib/json-response.js'
-import {type ToolCallRecord, waitForTaskCompletion} from '../lib/task-client.js'
+} from '../../lib/daemon-client.js'
+import {writeJsonResponse} from '../../lib/json-response.js'
+import {type ToolCallRecord, waitForTaskCompletion} from '../../lib/task-client.js'
 
 /** Parsed flags type */
 type CurateFlags = {
@@ -56,6 +56,10 @@ Bad examples:
     '',
     '# Folder pack with context',
     '<%= config.bin %> <%= command.id %> "Analyze authentication module" -d src/auth/',
+    '',
+    '# View curate history',
+    '<%= config.bin %> curate view',
+    '<%= config.bin %> curate view --status completed --since 1h',
   ]
   public static flags = {
     detach: Flags.boolean({

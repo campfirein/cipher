@@ -224,6 +224,102 @@ describe('FileCurateLogStore', () => {
       expect(entries).to.have.lengthOf(1)
       expect(entries[0].id).to.equal(id2)
     })
+
+    it('should filter by status', async () => {
+      const now = Date.now()
+      const idProcessing = await store.getNextId()
+      const idCompleted = await store.getNextId()
+      const idError = await store.getNextId()
+
+      await store.save(makeEntry({id: idProcessing, startedAt: now - 3000, status: 'processing'}))
+      await store.save({
+        completedAt: now - 1000,
+        id: idCompleted,
+        input: {},
+        operations: [],
+        response: 'ok',
+        startedAt: now - 2000,
+        status: 'completed',
+        summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0},
+        taskId: 'task-c',
+      })
+      await store.save({
+        completedAt: now - 500,
+        error: 'oops',
+        id: idError,
+        input: {},
+        operations: [],
+        startedAt: now - 1500,
+        status: 'error',
+        summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0},
+        taskId: 'task-e',
+      })
+
+      const completedOnly = await store.list({status: ['completed']})
+      expect(completedOnly).to.have.lengthOf(1)
+      expect(completedOnly[0].id).to.equal(idCompleted)
+
+      const both = await store.list({status: ['completed', 'error']})
+      expect(both).to.have.lengthOf(2)
+    })
+
+    it('should filter by after (startedAt >= after)', async () => {
+      const base = Date.now()
+      const idOld = await store.getNextId()
+      const idNew = await store.getNextId()
+
+      await store.save(makeEntry({id: idOld, startedAt: base - 5000}))
+      await store.save(makeEntry({id: idNew, startedAt: base - 1000}))
+
+      const entries = await store.list({after: base - 3000})
+      expect(entries).to.have.lengthOf(1)
+      expect(entries[0].id).to.equal(idNew)
+    })
+
+    it('should filter by before (startedAt <= before)', async () => {
+      const base = Date.now()
+      const idOld = await store.getNextId()
+      const idNew = await store.getNextId()
+
+      await store.save(makeEntry({id: idOld, startedAt: base - 5000}))
+      await store.save(makeEntry({id: idNew, startedAt: base - 1000}))
+
+      const entries = await store.list({before: base - 3000})
+      expect(entries).to.have.lengthOf(1)
+      expect(entries[0].id).to.equal(idOld)
+    })
+
+    it('should apply limit after filtering', async () => {
+      const now = Date.now()
+
+      // Save 3 completed entries (sequential to get monotonic IDs)
+      const completedIds = await Promise.all([store.getNextId(), store.getNextId(), store.getNextId()])
+      await Promise.all(
+        completedIds.map((id, i) =>
+          store.save({
+            completedAt: now - i * 1000,
+            id,
+            input: {},
+            operations: [],
+            startedAt: now - i * 1000 - 500,
+            status: 'completed',
+            summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0},
+            taskId: `task-${i}`,
+          }),
+        ),
+      )
+
+      // Also save 1 processing entry
+      const processingId = await store.getNextId()
+      await store.save(makeEntry({id: processingId, startedAt: now - 10_000, status: 'processing'}))
+
+      // Filter by completed, limit 2
+      const entries = await store.list({limit: 2, status: ['completed']})
+      expect(entries).to.have.lengthOf(2)
+      for (const e of entries) {
+        expect(e.status).to.equal('completed')
+      }
+    })
   })
 
   // ==========================================================================

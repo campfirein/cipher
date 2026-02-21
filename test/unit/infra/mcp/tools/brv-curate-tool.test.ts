@@ -480,5 +480,37 @@ describe('brv-curate-tool', () => {
 
       expect(result.content[0].text).to.include('taskId:')
     })
+
+    it('should include logId in the response when ACK returns one', async () => {
+      const {client} = createMockClient()
+      const requestStub = client.requestWithAck as SinonStub
+      requestStub.resolves({logId: 'cur-12345', taskId: 'some-uuid'})
+
+      const handler = setupCurateHandler({
+        getClient: () => client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      const result = await handler({context: 'test'})
+
+      expect(result.isError).to.be.undefined
+      expect(result.content[0].text).to.include('logId: cur-12345')
+    })
+
+    it('should not include logId in the response when ACK returns none', async () => {
+      const {client} = createMockClient()
+      const requestStub = client.requestWithAck as SinonStub
+      requestStub.resolves({taskId: 'some-uuid'})
+
+      const handler = setupCurateHandler({
+        getClient: () => client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      const result = await handler({context: 'test'})
+
+      expect(result.isError).to.be.undefined
+      expect(result.content[0].text).to.not.include('logId:')
+    })
   })
 })

@@ -124,10 +124,44 @@ describe('CurateLogUseCase', () => {
 
       const output = logs.join('\n')
       const parsed = JSON.parse(output)
-      expect(parsed.command).to.equal('curate-log')
+      expect(parsed.command).to.equal('curate view')
       expect(parsed.success).to.be.true
       expect(Array.isArray(parsed.data)).to.be.true
       expect(parsed.timestamp).to.be.a('string')
+    })
+
+    it('should pass status filter to store.list', async () => {
+      await useCase.run({status: ['completed', 'error']})
+      expect(store.list.calledWith({limit: 10, status: ['completed', 'error']})).to.be.true
+    })
+
+    it('should pass after filter to store.list', async () => {
+      const after = 1_700_000_000_000
+      await useCase.run({after})
+      expect(store.list.calledWith({after, limit: 10})).to.be.true
+    })
+
+    it('should pass before filter to store.list', async () => {
+      const before = 1_700_000_000_000
+      await useCase.run({before})
+      expect(store.list.calledWith({before, limit: 10})).to.be.true
+    })
+
+    it('should show operations in detail mode', async () => {
+      store.list.resolves([makeCompletedEntry()])
+      await useCase.run({detail: true})
+
+      const output = logs.join('\n')
+      expect(output).to.include('/topics/auth.md')
+      expect(output).to.include('[ADD]')
+    })
+
+    it('should not show operations when detail is false', async () => {
+      store.list.resolves([makeCompletedEntry()])
+      await useCase.run({detail: false})
+
+      const output = logs.join('\n')
+      expect(output).to.not.include('[ADD]')
     })
   })
 
@@ -191,7 +225,7 @@ describe('CurateLogUseCase', () => {
 
       const output = logs.join('\n')
       const parsed = JSON.parse(output)
-      expect(parsed.command).to.equal('curate-log')
+      expect(parsed.command).to.equal('curate view')
       expect(parsed.success).to.be.true
       expect(parsed.data).to.have.property('id', 'cur-1001')
     })

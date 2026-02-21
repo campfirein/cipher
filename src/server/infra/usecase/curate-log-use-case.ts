@@ -1,5 +1,5 @@
 import type {CurateLogOperation, CurateLogSummary} from '../../core/domain/entities/curate-log-entry.js'
-import type {ICurateLogStore} from '../../core/interfaces/storage/i-curate-log-store.js'
+import type {CurateLogStatus, ICurateLogStore} from '../../core/interfaces/storage/i-curate-log-store.js'
 import type {ICurateLogUseCase} from '../../core/interfaces/usecase/i-curate-log-use-case.js'
 
 type Terminal = {log(msg?: string): void}
@@ -7,6 +7,15 @@ type Terminal = {log(msg?: string): void}
 type CurateLogUseCaseDeps = {
   curateLogStore: ICurateLogStore
   terminal: Terminal
+}
+
+type ListOptions = {
+  after?: number
+  before?: number
+  detail?: boolean
+  format?: 'json' | 'text'
+  limit?: number
+  status?: CurateLogStatus[]
 }
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
@@ -40,8 +49,26 @@ function formatOperationLine(op: CurateLogOperation): string {
 export class CurateLogUseCase implements ICurateLogUseCase {
   constructor(private readonly deps: CurateLogUseCaseDeps) {}
 
-  async run({format = 'text', id, limit = 10}: {format?: 'json' | 'text'; id?: string; limit?: number}): Promise<void> {
-    await (id ? this.showDetail(id, format) : this.showList(limit, format))
+  async run({
+    after,
+    before,
+    detail = false,
+    format = 'text',
+    id,
+    limit = 10,
+    status,
+  }: {
+    after?: number
+    before?: number
+    detail?: boolean
+    format?: 'json' | 'text'
+    id?: string
+    limit?: number
+    status?: CurateLogStatus[]
+  }): Promise<void> {
+    await (id
+      ? this.showDetail(id, format)
+      : this.showList({after, before, detail, format, limit, status}))
   }
 
   // ── Private methods ─────────────────────────────────────────────────────────
@@ -51,7 +78,7 @@ export class CurateLogUseCase implements ICurateLogUseCase {
   }
 
   private logJson(payload: {data: unknown; success: boolean}): void {
-    this.log(JSON.stringify({command: 'curate-log', ...payload, timestamp: new Date().toISOString()}, null, 2))
+    this.log(JSON.stringify({command: 'curate view', ...payload, timestamp: new Date().toISOString()}, null, 2))
   }
 
   private async showDetail(id: string, format: 'json' | 'text'): Promise<void> {
@@ -111,8 +138,14 @@ export class CurateLogUseCase implements ICurateLogUseCase {
     }
   }
 
-  private async showList(limit: number, format: 'json' | 'text'): Promise<void> {
-    const entries = await this.deps.curateLogStore.list({limit})
+  private async showList({after, before, detail, format, limit, status}: ListOptions): Promise<void> {
+    const hasFilters = Boolean(after !== undefined || before !== undefined || status?.length)
+    const entries = await this.deps.curateLogStore.list({
+      ...(after === undefined ? {} : {after}),
+      ...(before === undefined ? {} : {before}),
+      limit,
+      ...(status?.length ? {status} : {}),
+    })
 
     if (format === 'json') {
       this.logJson({data: entries, success: true})
@@ -120,8 +153,13 @@ export class CurateLogUseCase implements ICurateLogUseCase {
     }
 
     if (entries.length === 0) {
-      this.log('No curate log entries found.')
-      this.log('Run "brv curate" to add context — logs are recorded automatically.')
+      if (hasFilters) {
+        this.log('No curate log entries found matching your filters.')
+      } else {
+        this.log('No curate log entries found.')
+        this.log('Run "brv curate" to add context — logs are recorded automatically.')
+      }
+
       return
     }
 
@@ -148,6 +186,12 @@ export class CurateLogUseCase implements ICurateLogUseCase {
         '  ',
       )
       this.log(row)
+
+      if (detail && entry.operations.length > 0) {
+        for (const op of entry.operations) {
+          this.log(formatOperationLine(op))
+        }
+      }
     }
   }
 }
