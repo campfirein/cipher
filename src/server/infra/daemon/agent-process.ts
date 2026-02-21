@@ -56,6 +56,10 @@ const portEnv = process.env.BRV_AGENT_PORT
 const projectPathEnv = process.env.BRV_AGENT_PROJECT_PATH
 
 if (!portEnv || !projectPathEnv) {
+  // Always print to stderr so AgentPool / developers can diagnose boot failures
+  // even when BRV_SESSION_LOG is not configured.
+  console.error('agent-process: Missing BRV_AGENT_PORT or BRV_AGENT_PROJECT_PATH')
+
   const logPath = process.env.BRV_SESSION_LOG
   if (logPath) {
     appendFileSync(
