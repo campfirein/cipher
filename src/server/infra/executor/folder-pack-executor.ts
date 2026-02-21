@@ -816,7 +816,10 @@ await tools.curate([{
       packResult.fileCount,
       packResult.totalLines,
     )
-    const instructionsVar = `__curate_instructions_${taskId}`
+    // Replace hyphens with underscores: UUIDs have hyphens which are invalid in JS identifiers.
+    // The LLM uses underscores when writing code-exec calls — matching curate-executor pattern.
+    const taskIdSafe = taskId.replaceAll('-', '_')
+    const instructionsVar = `__curate_instructions_${taskIdSafe}`
     agent.setSandboxVariableOnSession(taskSessionId, instructionsVar, fullInstructions)
 
     // Compact prompt with variable reference and essential metadata

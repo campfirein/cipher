@@ -46,6 +46,7 @@ import {CurateExecutor} from '../executor/curate-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
+import {createAgentLogger} from './agent-logger.js'
 import {resolveSessionId} from './session-resolver.js'
 
 // ============================================================================
@@ -76,16 +77,7 @@ if (!portEnv || !projectPathEnv) {
 const port = portEnv
 const projectPath = projectPathEnv
 
-const LOG_PATH = process.env.BRV_SESSION_LOG
-
-function agentLog(message: string): void {
-  if (!LOG_PATH) return
-  try {
-    appendFileSync(LOG_PATH, `${new Date().toISOString()} [agent-process:${projectPath}] ${message}\n`)
-  } catch {
-    // ignore — never block on logging
-  }
-}
+const agentLog = createAgentLogger(process.env.BRV_SESSION_LOG, `[agent-process:${projectPath}]`)
 
 /**
  * Persist a brand-new session's metadata and set it as active.
