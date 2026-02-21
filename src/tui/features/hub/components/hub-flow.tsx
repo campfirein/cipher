@@ -1,10 +1,13 @@
 import {Box, Text} from 'ink'
 import Spinner from 'ink-spinner'
-import React, {useCallback, useState} from 'react'
+import React, {useCallback, useEffect, useState} from 'react'
 
+import type {HubProgressEvent} from '../../../../shared/transport/events/hub-events.js'
 import type {HubEntryDTO} from '../../../../shared/transport/types/dto.js'
 
+import {HubEvents} from '../../../../shared/transport/events/hub-events.js'
 import {useTheme} from '../../../hooks/index.js'
+import {useTransportStore} from '../../../stores/transport-store.js'
 import {useGetHubEntries} from '../api/get-hub-entries.js'
 import {useInstallHubEntry} from '../api/install-hub-entry.js'
 import {HubAgentStep} from './hub-agent-step.js'
@@ -26,10 +29,24 @@ export const HubFlow: React.FC<HubFlowProps> = ({isActive = true, onCancel, onCo
   const [step, setStep] = useState<FlowStep>('list')
   const [selectedEntry, setSelectedEntry] = useState<HubEntryDTO | null>(null)
 
+  const [progressMessages, setProgressMessages] = useState<string[]>([])
   const {data, error, isLoading} = useGetHubEntries()
   const installMutation = useInstallHubEntry()
 
   const entries = data?.entries ?? []
+
+  useEffect(() => {
+    const {apiClient} = useTransportStore.getState()
+    if (!apiClient || !isLoading) return
+
+    const unsub = apiClient.on<HubProgressEvent>(HubEvents.LIST_PROGRESS, (progressData) => {
+      setProgressMessages((prev) => [...prev, progressData.message])
+    })
+
+    return () => {
+      unsub()
+    }
+  }, [isLoading])
 
   const handleSelectEntry = useCallback((entry: HubEntryDTO) => {
     setSelectedEntry(entry)
@@ -48,7 +65,7 @@ export const HubFlow: React.FC<HubFlowProps> = ({isActive = true, onCancel, onCo
       } else {
         setStep('installing')
         installMutation
-          .mutateAsync({entryId: entry.id})
+          .mutateAsync({entryId: entry.id, registry: entry.registry})
           .then((result) => onComplete(result.message))
           .catch((error_: unknown) =>
             onComplete(`Install failed: ${error_ instanceof Error ? error_.message : 'Unknown error'}`),
@@ -63,7 +80,7 @@ export const HubFlow: React.FC<HubFlowProps> = ({isActive = true, onCancel, onCo
       if (!selectedEntry) return
       setStep('installing')
       installMutation
-        .mutateAsync({agent: agentDisplayName, entryId: selectedEntry.id})
+        .mutateAsync({agent: agentDisplayName, entryId: selectedEntry.id, registry: selectedEntry.registry})
         .then((result) => onComplete(result.message))
         .catch((error_: unknown) =>
           onComplete(`Install failed: ${error_ instanceof Error ? error_.message : 'Unknown error'}`),
@@ -78,7 +95,10 @@ export const HubFlow: React.FC<HubFlowProps> = ({isActive = true, onCancel, onCo
 
   if (isLoading) {
     return (
-      <Box>
+      <Box flexDirection="column">
+        {progressMessages.map((msg, i) => (
+          <Text color={colors.dimText} key={i}>{msg}</Text>
+        ))}
         <Text>
           <Spinner type="dots" /> Loading hub entries...
         </Text>

@@ -1,3 +1,4 @@
+import {appendFileSync} from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
@@ -8,6 +9,17 @@ import type {
   FolderPackExecuteOptions,
   IFolderPackExecutor,
 } from '../../core/interfaces/executor/i-folder-pack-executor.js'
+
+const LOG_PATH = process.env.BRV_SESSION_LOG
+
+function folderPackLog(message: string): void {
+  if (!LOG_PATH) return
+  try {
+    appendFileSync(LOG_PATH, `${new Date().toISOString()} [folder-pack-executor] ${message}\n`)
+  } catch {
+    // ignore — never block on logging
+  }
+}
 
 /**
  * FolderPackExecutor - Executes folder pack + curate tasks with an injected CipherAgent.
@@ -775,18 +787,18 @@ await tools.curate([{
     const packedXml = this.folderPackService.generateXml(packResult)
     const xmlSizeInMB = (packedXml.length / (1024 * 1024)).toFixed(2)
 
-    console.log(`[FolderPackExecutor] Generated XML: ${xmlSizeInMB} MB for ${packResult.fileCount} files`)
+    folderPackLog(`Generated XML: ${xmlSizeInMB} MB for ${packResult.fileCount} files`)
 
     // Step 2: Write XML to temporary file (avoids token limits, works with any agent)
     // This approach: file path (~50 bytes) sent to LLM, data stays on disk
     // IMPORTANT: Write to project root (not /tmp) so sandbox can access it
     const tmpFilePath = path.join(projectRoot, `.byterover-curate-${taskId}.xml`)
 
-    console.log(`[FolderPackExecutor] Writing folder data to temp file: ${tmpFilePath}`)
+    folderPackLog(`Writing folder data to temp file: ${tmpFilePath}`)
 
     try {
       await fs.writeFile(tmpFilePath, packedXml, 'utf8')
-      console.log(`[FolderPackExecutor] Successfully wrote ${xmlSizeInMB} MB to temp file`)
+      folderPackLog(`Successfully wrote ${xmlSizeInMB} MB to temp file`)
     } catch (error) {
       throw new Error(`Failed to write temp file: ${error instanceof Error ? error.message : String(error)}`)
     }
@@ -804,7 +816,10 @@ await tools.curate([{
       packResult.fileCount,
       packResult.totalLines,
     )
-    const instructionsVar = `__curate_instructions_${taskId}`
+    // Replace hyphens with underscores: UUIDs have hyphens which are invalid in JS identifiers.
+    // The LLM uses underscores when writing code-exec calls — matching curate-executor pattern.
+    const taskIdSafe = taskId.replaceAll('-', '_')
+    const instructionsVar = `__curate_instructions_${taskIdSafe}`
     agent.setSandboxVariableOnSession(taskSessionId, instructionsVar, fullInstructions)
 
     // Compact prompt with variable reference and essential metadata
@@ -819,7 +834,9 @@ await tools.curate([{
       `**Start by reading instructions**: Use code_exec to read \`${instructionsVar}.slice(0, 5000)\` for the strategy section, then \`${instructionsVar}.slice(5000, 10000)\` for content rules.`,
       `Use \`tools.readFile()\` and \`tools.grep()\` inside code_exec to process the XML data file.`,
       `Use \`tools.curate()\` to create knowledge topics. Use \`setFinalResult()\` when done.`,
-    ].filter(Boolean).join('\n')
+    ]
+      .filter(Boolean)
+      .join('\n')
 
     let response: string
     try {
@@ -832,12 +849,14 @@ await tools.curate([{
       await agent.deleteTaskSession(taskSessionId)
 
       // Clean up temp file
-      console.log(`[FolderPackExecutor] Cleaning up temp file`)
+      folderPackLog(`Cleaning up temp file: ${tmpFilePath}`)
       try {
         await fs.unlink(tmpFilePath)
-        console.log(`[FolderPackExecutor] Temp file cleanup successful`)
+        folderPackLog(`Temp file cleanup successful`)
       } catch (error) {
-        console.warn(`[FolderPackExecutor] Temp file cleanup warning (non-fatal):`, error)
+        folderPackLog(
+          `Temp file cleanup warning (non-fatal): ${error instanceof Error ? error.message : String(error)}`,
+        )
       }
     }
 

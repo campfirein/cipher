@@ -116,6 +116,7 @@ export interface HubEntryDTO {
   name: string
   path_url: string
   readme_url: string
+  registry?: string
   tags: string[]
   type: 'agent-skill' | 'bundle'
   version: string

@@ -496,6 +496,39 @@ describe('SessionManager', () => {
 
       expect(resetStub.calledOnce).to.be.true
     })
+
+    it('should call dispose() to remove event listeners (prevents memory leak)', async () => {
+      const sessionIdToDelete = 'dispose-on-delete' as string
+      mockCreateSessionServices.returns({
+        llmService: createMockLLMService(sandbox),
+        sessionEventBus: new SessionEventBus(),
+      })
+
+      const session = await manager.createSession(sessionIdToDelete)
+      const disposeStub = sandbox.stub(session as ChatSession, 'dispose')
+
+      await manager.deleteSession(sessionIdToDelete)
+
+      expect(disposeStub.calledOnce).to.be.true
+    })
+
+    it('should clean up metadata maps when deleting session', async () => {
+      const sessionIdToDelete = 'metadata-cleanup-delete' as string
+      mockCreateSessionServices.returns({
+        llmService: createMockLLMService(sandbox),
+        sessionEventBus: new SessionEventBus(),
+      })
+
+      await manager.createSession(sessionIdToDelete)
+      expect(manager.hasSession(sessionIdToDelete)).to.be.true
+
+      await manager.deleteSession(sessionIdToDelete)
+
+      // Session should be gone and not appear in metadata listing
+      expect(manager.hasSession(sessionIdToDelete)).to.be.false
+      const metadata = manager.listSessionsWithMetadata()
+      expect(metadata.find((m) => m.id === sessionIdToDelete)).to.be.undefined
+    })
   })
 
   describe('endSession()', () => {
@@ -523,6 +556,38 @@ describe('SessionManager', () => {
       const result = await manager.endSession('non-existent')
 
       expect(result).to.be.false
+    })
+
+    it('should call dispose() to remove event listeners (prevents memory leak)', async () => {
+      const sessionIdToEnd = 'dispose-on-end' as string
+      mockCreateSessionServices.returns({
+        llmService: createMockLLMService(sandbox),
+        sessionEventBus: new SessionEventBus(),
+      })
+
+      const session = await manager.createSession(sessionIdToEnd)
+      const disposeStub = sandbox.stub(session as ChatSession, 'dispose')
+
+      await manager.endSession(sessionIdToEnd)
+
+      expect(disposeStub.calledOnce).to.be.true
+    })
+
+    it('should clean up metadata maps when ending session', async () => {
+      const sessionIdToEnd = 'metadata-cleanup-end' as string
+      mockCreateSessionServices.returns({
+        llmService: createMockLLMService(sandbox),
+        sessionEventBus: new SessionEventBus(),
+      })
+
+      await manager.createSession(sessionIdToEnd)
+      expect(manager.hasSession(sessionIdToEnd)).to.be.true
+
+      await manager.endSession(sessionIdToEnd)
+
+      expect(manager.hasSession(sessionIdToEnd)).to.be.false
+      const metadata = manager.listSessionsWithMetadata()
+      expect(metadata.find((m) => m.id === sessionIdToEnd)).to.be.undefined
     })
   })
 

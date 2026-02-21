@@ -9,13 +9,14 @@ import {getHubEntriesQueryOptions} from './get-hub-entries.js'
 export type InstallHubEntryDTO = {
   agent?: string
   entryId: string
+  registry?: string
 }
 
-export const installHubEntry = ({agent, entryId}: InstallHubEntryDTO): Promise<HubInstallResponse> => {
+export const installHubEntry = ({agent, entryId, registry}: InstallHubEntryDTO): Promise<HubInstallResponse> => {
   const {apiClient} = useTransportStore.getState()
   if (!apiClient) return Promise.reject(new Error('Not connected'))
 
-  return apiClient.request<HubInstallResponse, HubInstallRequest>(HubEvents.INSTALL, {agent, entryId})
+  return apiClient.request<HubInstallResponse, HubInstallRequest>(HubEvents.INSTALL, {agent, entryId, registry})
 }
 
 type UseInstallHubEntryOptions = {

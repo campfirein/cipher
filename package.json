@@ -139,6 +139,14 @@
     ],
     "topicSeparator": " ",
     "topics": {
+      "hub": {
+        "description": "Browse and manage skills & bundles registry",
+        "subtopics": {
+          "registry": {
+            "description": "Manage private hub registries"
+          }
+        }
+      },
       "space": {
         "description": "Manage ByteRover spaces"
       }

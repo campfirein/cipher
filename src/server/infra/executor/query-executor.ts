@@ -137,9 +137,12 @@ export class QueryExecutor implements IQueryExecutor {
     // Create per-task session for parallel isolation (own sandbox + history + LLM service)
     const taskSessionId = await agent.createTaskSession(taskId, 'query')
 
-    // Task-scoped variable names for sandbox injection (RLM pattern)
-    const resultsVar = `__query_results_${taskId}`
-    const metaVar = `__query_meta_${taskId}`
+    // Task-scoped variable names for sandbox injection (RLM pattern).
+    // Replace hyphens with underscores: UUIDs have hyphens which are invalid in JS identifiers,
+    // so the LLM uses underscores when writing code-exec calls — matching curate-executor pattern.
+    const taskIdSafe = taskId.replaceAll('-', '_')
+    const resultsVar = `__query_results_${taskIdSafe}`
+    const metaVar = `__query_meta_${taskIdSafe}`
 
     // Compute metadata for LLM guidance
     const metadata = {
@@ -160,10 +163,10 @@ export class QueryExecutor implements IQueryExecutor {
       resultsVar,
     })
 
-    // Query-optimized LLM overrides: fewer tokens, iterations, and lower temperature
+    // Query-optimized LLM overrides: tokens and lower temperature
     const queryOverrides = prefetchedContext
-      ? { maxIterations: 10, maxTokens: 1024, temperature: 0.3 }
-      : { maxIterations: 10, maxTokens: 2048, temperature: 0.5 }
+      ? { maxIterations: 50, maxTokens: 1024, temperature: 0.3 }
+      : { maxIterations: 50, maxTokens: 2048, temperature: 0.5 }
 
     try {
       const response = await agent.executeOnSession(taskSessionId, prompt, {
