@@ -260,4 +260,78 @@ describe('HubInstallService', () => {
       expect(result.installedFiles).to.have.lengthOf(1)
     })
   })
+
+  describe('auth', () => {
+    it('should pass Bearer auth header by default when authToken is provided', async () => {
+      nock(FILE_HOST)
+        .get('/skill.md')
+        .matchHeader('authorization', 'Bearer my-secret')
+        .reply(200, '# Skill')
+
+      const entry = createSkillEntry()
+      const result = await service.install(entry, projectPath, 'Claude Code', {authToken: 'my-secret'})
+
+      expect(result.installedFiles).to.have.lengthOf(1)
+    })
+
+    it('should pass Bearer auth header for bundle downloads', async () => {
+      nock(FILE_HOST)
+        .get('/context.md')
+        .matchHeader('authorization', 'Bearer bundle-token')
+        .reply(200, '# Context')
+
+      const entry = createBundleEntry()
+      const result = await service.install(entry, projectPath, undefined, {authToken: 'bundle-token'})
+
+      expect(result.installedFiles).to.have.lengthOf(1)
+    })
+
+    it('should use token scheme when specified', async () => {
+      nock(FILE_HOST)
+        .get('/skill.md')
+        .matchHeader('authorization', 'token ghp_abc123')
+        .reply(200, '# Skill')
+
+      const entry = createSkillEntry()
+      const result = await service.install(entry, projectPath, 'Claude Code', {
+        authScheme: 'token',
+        authToken: 'ghp_abc123',
+      })
+
+      expect(result.installedFiles).to.have.lengthOf(1)
+    })
+
+    it('should use custom header when specified', async () => {
+      nock(FILE_HOST)
+        .get('/context.md')
+        .matchHeader('PRIVATE-TOKEN', 'glpat-xxx')
+        .reply(200, '# Context')
+
+      const entry = createBundleEntry()
+      const result = await service.install(entry, projectPath, undefined, {
+        authScheme: 'custom-header',
+        authToken: 'glpat-xxx',
+        headerName: 'PRIVATE-TOKEN',
+      })
+
+      expect(result.installedFiles).to.have.lengthOf(1)
+    })
+
+    it('should send no auth header when scheme is none', async () => {
+      nock(FILE_HOST)
+        .get('/skill.md')
+        .reply(function () {
+          expect(this.req.headers.authorization).to.be.undefined
+          return [200, '# Skill']
+        })
+
+      const entry = createSkillEntry()
+      const result = await service.install(entry, projectPath, 'Claude Code', {
+        authScheme: 'none',
+        authToken: 'should-be-ignored',
+      })
+
+      expect(result.installedFiles).to.have.lengthOf(1)
+    })
+  })
 })

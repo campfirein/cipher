@@ -12,6 +12,15 @@ export interface IHubRegistryService {
   getEntries(): Promise<{entries: HubEntryDTO[]; version: string}>
 
   /**
+   * Fetches ALL entries matching the given ID across all registries.
+   * Used for detecting ID collisions across multiple registries.
+   *
+   * @param entryId The ID of the entry to find.
+   * @returns A promise resolving to an array of matching entries (may be empty).
+   */
+  getEntriesById(entryId: string): Promise<HubEntryDTO[]>
+
+  /**
    * Fetches a single entry by its ID.
    *
    * @param entryId The ID of the entry to find.

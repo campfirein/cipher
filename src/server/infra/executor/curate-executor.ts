@@ -91,7 +91,7 @@ export class CurateExecutor implements ICurateExecutor {
       // Execute on the task session (isolated sandbox + history)
       // Task lifecycle is managed by Transport (task:started, task:completed, task:error)
       const response = await agent.executeOnSession(taskSessionId, prompt, {
-        executionContext: {clearHistory: true, commandType: 'curate'},
+        executionContext: {clearHistory: true, commandType: 'curate', maxIterations: 50},
         taskId,
       })
 

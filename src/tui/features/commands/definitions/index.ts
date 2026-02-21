@@ -30,7 +30,7 @@ export const load: () => SlashCommand[] = () => [
   // Connectors management
   connectorsCommand,
 
-  // Hub - community registry
+  // Hub - Registry
   hubCommand,
 
   // Sync operations

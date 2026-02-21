@@ -3,11 +3,12 @@ import {join} from 'node:path'
 
 import type {HubEntryDTO} from '../../../shared/transport/types/dto.js'
 import type {Agent} from '../../core/domain/entities/agent.js'
-import type {IHubInstallService} from '../../core/interfaces/hub/i-hub-install-service.js'
+import type {HubInstallAuthParams, IHubInstallService} from '../../core/interfaces/hub/i-hub-install-service.js'
 import type {IFileService} from '../../core/interfaces/services/i-file-service.js'
 import type {SkillConnector} from '../connectors/skill/skill-connector.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
+import {buildAuthHeaders} from './hub-auth-headers.js'
 
 export interface HubInstallServiceDeps {
   fileService: IFileService
@@ -27,18 +28,23 @@ export class HubInstallService implements IHubInstallService {
     entry: HubEntryDTO,
     projectPath: string,
     agent?: string,
+    auth?: HubInstallAuthParams,
   ): Promise<{installedFiles: string[]; message: string}> {
     return entry.type === 'agent-skill'
-      ? this.installSkill(entry, projectPath, agent)
-      : this.installBundle(entry, projectPath)
+      ? this.installSkill(entry, projectPath, agent, auth)
+      : this.installBundle(entry, projectPath, auth)
   }
 
-  private async downloadAndWrite(files: Array<{name: string; url: string}>, targetDir: string): Promise<string[]> {
+  private async downloadAndWrite(
+    files: Array<{name: string; url: string}>,
+    targetDir: string,
+    auth?: HubInstallAuthParams,
+  ): Promise<string[]> {
     const installedFiles: string[] = []
 
     await Promise.all(
       files.map(async (file) => {
-        const content = await this.downloadFile(file.url)
+        const content = await this.downloadFile(file.url, auth)
         const filePath = join(targetDir, file.name)
         await this.fileService.write(content, filePath, 'overwrite')
         installedFiles.push(filePath)
@@ -48,9 +54,12 @@ export class HubInstallService implements IHubInstallService {
     return installedFiles
   }
 
-  private async downloadFile(url: string): Promise<string> {
+  private async downloadFile(url: string, auth?: HubInstallAuthParams): Promise<string> {
     try {
+      const headers = buildAuthHeaders(auth ?? {})
+
       const response = await axios.get<string>(url, {
+        headers,
         responseType: 'text',
         timeout: 15_000,
       })
@@ -79,6 +88,7 @@ export class HubInstallService implements IHubInstallService {
   private async installBundle(
     entry: HubEntryDTO,
     projectPath: string,
+    auth?: HubInstallAuthParams,
   ): Promise<{installedFiles: string[]; message: string}> {
     const contextTreeDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
     const contentFiles = this.getContentFiles(entry)
@@ -93,7 +103,7 @@ export class HubInstallService implements IHubInstallService {
       }
     }
 
-    const installedFiles = await this.downloadAndWrite(contentFiles, contextTreeDir)
+    const installedFiles = await this.downloadAndWrite(contentFiles, contextTreeDir, auth)
 
     return {
       installedFiles,
@@ -105,6 +115,7 @@ export class HubInstallService implements IHubInstallService {
     entry: HubEntryDTO,
     projectPath: string,
     agent?: string,
+    auth?: HubInstallAuthParams,
   ): Promise<{installedFiles: string[]; message: string}> {
     if (!agent) {
       throw new Error('Agent is required to install a skill')
@@ -115,7 +126,7 @@ export class HubInstallService implements IHubInstallService {
 
     const downloadedFiles = await Promise.all(
       contentFiles.map(async (file) => ({
-        content: await this.downloadFile(file.url),
+        content: await this.downloadFile(file.url, auth),
         name: file.name,
       })),
     )
