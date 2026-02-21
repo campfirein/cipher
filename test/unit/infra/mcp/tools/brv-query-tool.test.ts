@@ -9,6 +9,9 @@ import {restore, type SinonFakeTimers, type SinonStub, stub, useFakeTimers} from
 
 import {BrvQueryInputSchema, registerBrvQueryTool} from '../../../../../src/server/infra/mcp/tools/brv-query-tool.js'
 
+/** Attribution footer appended to successful responses */
+const ATTRIBUTION_FOOTER = '\n\n---\nSource: ByteRover Knowledge Base'
+
 /** Returns undefined — named constant avoids inline `() => undefined` triggering unicorn/no-useless-undefined. */
 const noClient = (): ITransportClient | undefined => undefined
 const noWorkingDirectory = (): string | undefined => undefined
@@ -172,7 +175,7 @@ describe('brv-query-tool', () => {
       const result = await handler({query: 'How does auth work?'})
 
       expect(result.isError).to.be.undefined
-      expect(result.content[0].text).to.equal('Query answer')
+      expect(result.content[0].text).to.equal('Query answer' + ATTRIBUTION_FOOTER)
 
       // Verify task:create payload
       const payload = requestStub.firstCall.args[1]
@@ -235,7 +238,7 @@ describe('brv-query-tool', () => {
       const result = await handler({cwd: '/some/project', query: 'test'})
 
       expect(result.isError).to.be.undefined
-      expect(result.content[0].text).to.equal('answer')
+      expect(result.content[0].text).to.equal('answer' + ATTRIBUTION_FOOTER)
 
       const createCall = requestStub.getCalls().find((c: {args: unknown[]}) => c.args[0] === 'task:create')
       expect(createCall).to.exist
@@ -390,7 +393,7 @@ describe('brv-query-tool', () => {
       const result = await resultPromise
 
       expect(result.isError).to.be.undefined
-      expect(result.content[0].text).to.equal('recovered answer')
+      expect(result.content[0].text).to.equal('recovered answer' + ATTRIBUTION_FOOTER)
     })
   })
 
@@ -434,6 +437,50 @@ describe('brv-query-tool', () => {
     })
   })
 
+  describe('handler — attribution', () => {
+    it('should append ByteRover attribution footer to successful responses', async () => {
+      const {client, simulateEvent} = createMockClient()
+      const requestStub = client.requestWithAck as SinonStub
+      requestStub.callsFake((_event: string, data: {taskId: string}) => {
+        simulateEvent('task:completed', {result: 'Some knowledge content', taskId: data.taskId})
+        return Promise.resolve()
+      })
+
+      const handler = setupQueryHandler({
+        getClient: () => client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      const result = await handler({query: 'test'})
+
+      expect(result.isError).to.be.undefined
+      expect(result.content[0].text).to.include('Source: ByteRover Knowledge Base')
+      expect(result.content[0].text).to.match(/Some knowledge content\n\n---\nSource: ByteRover Knowledge Base$/)
+    })
+
+    it('should not append attribution footer to error responses', async () => {
+      const {client, simulateEvent} = createMockClient()
+      const requestStub = client.requestWithAck as SinonStub
+      requestStub.callsFake((_event: string, data: {taskId: string}) => {
+        simulateEvent('task:error', {
+          error: {message: 'Something failed', name: 'TaskError'},
+          taskId: data.taskId,
+        })
+        return Promise.resolve()
+      })
+
+      const handler = setupQueryHandler({
+        getClient: () => client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      const result = await handler({query: 'test'})
+
+      expect(result.isError).to.be.true
+      expect(result.content[0].text).to.not.include('Source: ByteRover Knowledge Base')
+    })
+  })
+
   describe('handler — event listener ordering', () => {
     it('should register event listeners before sending task:create (race condition prevention)', async () => {
       const {client, simulateEvent} = createMockClient()
@@ -457,7 +504,7 @@ describe('brv-query-tool', () => {
 
       expect(listenersRegisteredBeforeCreate).to.be.true
       expect(result.isError).to.be.undefined
-      expect(result.content[0].text).to.equal('fast result')
+      expect(result.content[0].text).to.equal('fast result' + ATTRIBUTION_FOOTER)
     })
   })
 })
