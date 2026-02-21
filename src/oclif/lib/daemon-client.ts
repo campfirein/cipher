@@ -29,6 +29,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [TaskErrorCode.LOCAL_CHANGES_EXIST]: 'You have local changes. Run "brv push" to save or "brv reset" to discard first.',
   [TaskErrorCode.NOT_AUTHENTICATED]: 'Not authenticated. Run "brv login" first.',
   [TaskErrorCode.PROJECT_NOT_INIT]: 'Project not initialized. Run "brv init" first.',
+  [TaskErrorCode.PROVIDER_NOT_CONFIGURED]: 'No provider connected. Run "brv provider connect <provider>" to configure a provider.',
   [TaskErrorCode.SPACE_NOT_CONFIGURED]: 'No space configured. Run "brv space switch" to select a space first.',
   [TaskErrorCode.SPACE_NOT_FOUND]: 'Space not found. Check your configuration.',
 }
