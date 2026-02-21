@@ -301,6 +301,16 @@ export class SessionManager {
     // Clear session history
     await session.reset()
 
+    // Dispose session to remove event listeners (prevents memory leak on repeated task sessions)
+    session.dispose()
+
+    // Clean up metadata maps
+    this.sessionCreatedAt.delete(id)
+    this.sessionLastActivity.delete(id)
+    this.sessionTitles.delete(id)
+    this.sessionAgentNames.delete(id)
+    this.sessionParentIds.delete(id)
+
     // Remove from memory
     return this.sessions.delete(id)
   }
@@ -321,8 +331,7 @@ export class SessionManager {
 
     // Dispose all sessions (prevents event forwarder leaks)
     for (const session of this.sessions.values()) {
-      // ChatSession.dispose() removes event forwarders
-      ;(session as ChatSession).dispose()
+      session.dispose()
     }
 
     this.sessions.clear()
@@ -354,8 +363,15 @@ export class SessionManager {
     const contextManager = session.getLLMService().getContextManager()
     await contextManager.flush()
 
-    // Cleanup session resources (cancels in-flight ops, preserves history)
-    session.cleanup()
+    // Dispose session to remove event listeners (dispose calls cleanup internally)
+    session.dispose()
+
+    // Clean up metadata maps
+    this.sessionCreatedAt.delete(id)
+    this.sessionLastActivity.delete(id)
+    this.sessionTitles.delete(id)
+    this.sessionAgentNames.delete(id)
+    this.sessionParentIds.delete(id)
 
     // Remove from memory only - history remains in storage
     return this.sessions.delete(id)
