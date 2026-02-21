@@ -14,6 +14,9 @@ import {
 } from './direct-search-responder.js'
 import { QueryResultCache } from './query-result-cache.js'
 
+/** Attribution footer appended to all query responses */
+const ATTRIBUTION_FOOTER = '\n\n---\nSource: ByteRover Knowledge Base'
+
 /** Minimum normalized score to consider a result high-confidence for pre-fetching */
 const SMART_ROUTING_SCORE_THRESHOLD = 0.7
 
@@ -81,7 +84,7 @@ export class QueryExecutor implements IQueryExecutor {
       fingerprint = await this.computeContextTreeFingerprint()
       const cached = this.cache.get(query, fingerprint)
       if (cached) {
-        return cached
+        return cached + ATTRIBUTION_FOOTER
       }
     }
 
@@ -89,7 +92,7 @@ export class QueryExecutor implements IQueryExecutor {
     if (this.cache && fingerprint) {
       const fuzzyHit = this.cache.findSimilar(query, fingerprint)
       if (fuzzyHit) {
-        return fuzzyHit
+        return fuzzyHit + ATTRIBUTION_FOOTER
       }
     }
 
@@ -113,7 +116,7 @@ export class QueryExecutor implements IQueryExecutor {
         this.cache.set(query, response, fingerprint)
       }
 
-      return response
+      return response + ATTRIBUTION_FOOTER
     }
 
     // === Tier 2: Direct search response (~100-200ms) ===
@@ -124,7 +127,7 @@ export class QueryExecutor implements IQueryExecutor {
           this.cache.set(query, directResult, fingerprint)
         }
 
-        return directResult
+        return directResult + ATTRIBUTION_FOOTER
       }
     }
 
@@ -176,7 +179,7 @@ export class QueryExecutor implements IQueryExecutor {
         this.cache.set(query, response, fingerprint)
       }
 
-      return response
+      return response + ATTRIBUTION_FOOTER
     } finally {
       // Clean up entire task session (sandbox + history) in one call
       await agent.deleteTaskSession(taskSessionId)
