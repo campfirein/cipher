@@ -1,0 +1,55 @@
+name: Pack and Release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+env:
+  GCS_BUCKET: brv-releases
+  NODE_VERSION: '24'
+
+jobs:
+  pack:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: macos-latest # TODO: we don't really need a macOS runner (exprensive) to build for macOS. A Ubuntu runner should be fine.
+            target: darwin-arm64
+          - os: ubuntu-latest
+            target: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Validate version matches tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
+            exit 1
+          fi
+      # TODO: might not need this step since libsecret-1-dev is only installed on the runner, not the final tarball.
+      # This should be done in the installation script instead.
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt update && sudo apt install -y libsecret-1-dev
+      - run: npm ci
+      - run: npm run test
+      - run: npm run prepack # TODO: Do we need this step? I think npx oclif pack runs prepack already.
+      - name: Pack tarballs
+        run: npx oclif pack tarballs --targets=${{ matrix.target }} --no-xz
+      - name: Upload tarball artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: tarball-${{ matrix.target }}
+          path: dist/
+          retention-days: 7
