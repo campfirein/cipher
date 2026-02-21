@@ -2,6 +2,14 @@ import {appendFileSync} from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
+import type {FolderPackResult} from '../../../agent/core/domain/folder-pack/types.js'
+import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
+import type {IFolderPackService} from '../../../agent/core/interfaces/i-folder-pack-service.js'
+import type {
+  FolderPackExecuteOptions,
+  IFolderPackExecutor,
+} from '../../core/interfaces/executor/i-folder-pack-executor.js'
+
 const LOG_PATH = process.env.BRV_SESSION_LOG
 
 function folderPackLog(message: string): void {
@@ -12,14 +20,6 @@ function folderPackLog(message: string): void {
     // ignore — never block on logging
   }
 }
-
-import type {FolderPackResult} from '../../../agent/core/domain/folder-pack/types.js'
-import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
-import type {IFolderPackService} from '../../../agent/core/interfaces/i-folder-pack-service.js'
-import type {
-  FolderPackExecuteOptions,
-  IFolderPackExecutor,
-} from '../../core/interfaces/executor/i-folder-pack-executor.js'
 
 /**
  * FolderPackExecutor - Executes folder pack + curate tasks with an injected CipherAgent.

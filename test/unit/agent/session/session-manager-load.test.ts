@@ -7,7 +7,7 @@
  * forwarders (21 listeners) from the SessionEventBus.
  *
  * Without dispose(), after N sequential brv query/curate runs:
- *   N × 21 = dangling listeners accumulate → heap exhaustion → V8 abort
+ *   N × 14 = dangling listeners accumulate → heap exhaustion → V8 abort
  *
  * These tests verify:
  *   1. Listener count on SessionEventBus drops to 0 after each deleteSession() / endSession()
