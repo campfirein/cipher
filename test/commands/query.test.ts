@@ -233,6 +233,82 @@ describe('Query Command', () => {
       expect(loggedMessages.some((m) => m.includes('LLM final answer'))).to.be.true
     })
 
+    it('should surface attribution footer from completed payload when streaming (text)', async () => {
+      const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        if (!eventHandlers.has(event)) eventHandlers.set(event, [])
+        eventHandlers.get(event)!.push(handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
+        if (event === 'provider:getActive') return {activeProviderId: 'anthropic'}
+        setTimeout(() => {
+          // llmservice:response fires first WITHOUT the attribution footer
+          const responseHandlers = eventHandlers.get('llmservice:response')
+          if (responseHandlers) {
+            for (const handler of responseHandlers) {
+              handler({content: 'The answer is 42.', sessionId: 'sess-1', taskId: payload.taskId})
+            }
+          }
+
+          // task:completed fires with the result that NOW includes the attribution footer
+          const completedHandlers = eventHandlers.get('task:completed')
+          if (completedHandlers) {
+            for (const handler of completedHandlers) {
+              handler({
+                result: 'The answer is 42.\n\nSource: ByteRover Knowledge Base',
+                taskId: payload.taskId,
+              })
+            }
+          }
+        }, 10)
+        return {taskId: payload.taskId}
+      })
+
+      await createCommand('test query').run()
+
+      expect(loggedMessages.some((m) => m.includes('The answer is 42.'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Source: ByteRover Knowledge Base'))).to.be.true
+    })
+
+    it('should surface attribution footer from completed payload when streaming (json)', async () => {
+      const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        if (!eventHandlers.has(event)) eventHandlers.set(event, [])
+        eventHandlers.get(event)!.push(handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
+        if (event === 'provider:getActive') return {activeProviderId: 'anthropic'}
+        setTimeout(() => {
+          const responseHandlers = eventHandlers.get('llmservice:response')
+          if (responseHandlers) {
+            for (const handler of responseHandlers) {
+              handler({content: 'The answer is 42.', sessionId: 'sess-1', taskId: payload.taskId})
+            }
+          }
+
+          const completedHandlers = eventHandlers.get('task:completed')
+          if (completedHandlers) {
+            for (const handler of completedHandlers) {
+              handler({
+                result: 'The answer is 42.\n\nSource: ByteRover Knowledge Base',
+                taskId: payload.taskId,
+              })
+            }
+          }
+        }, 10)
+        return {taskId: payload.taskId}
+      })
+
+      await createJsonCommand('test query').run()
+
+      const lines = parseJsonOutput()
+      const completedEvent = lines.find((l) => (l.data as Record<string, unknown>).event === 'completed')
+      expect(completedEvent).to.exist
+      expect(completedEvent!.data).to.have.property('result', 'The answer is 42.\n\nSource: ByteRover Knowledge Base')
+    })
+
     it('should disconnect client after successful request', async () => {
       const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
       ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
