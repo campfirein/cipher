@@ -5,6 +5,7 @@ import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
 import {TaskEvents} from '../../shared/transport/events/index.js'
+import {ProviderEvents, type ProviderGetActiveResponse} from '../../shared/transport/events/provider-events.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -134,6 +135,11 @@ Bad examples:
     try {
       await withDaemonRetry(
         async (client, projectRoot) => {
+          const active = await client.requestWithAck<ProviderGetActiveResponse>(ProviderEvents.GET_ACTIVE)
+          if (!active.activeProviderId) {
+            throw new Error('No provider connected. Run "brv provider connect <provider>" to configure a provider first.')
+          }
+
           await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType})
         },
         {
