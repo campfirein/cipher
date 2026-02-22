@@ -153,7 +153,7 @@
     },
     "update": {
       "s3": {
-        "host": "https://storage.googleapis.com/brv-releases"
+        "host": "https://storage.googleapis.com/upload/storage/v1/b/brv-releases/o"
       },
       "node": {
         "version": "24.13.1"
