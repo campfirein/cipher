@@ -20,4 +20,29 @@ export default [
       },
     },
   },
+  // Prevent TUI from importing server code directly
+  {
+    files: ['src/tui/**/*.ts', 'src/tui/**/*.tsx'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/server/**', '../server/**', '../../server/**', '../../../server/**', '../../../../server/**'],
+              message: 'TUI should not import from server. Use transport events or feature APIs instead.',
+            },
+            {
+              group: ['**/agent/**', '../agent/**', '../../agent/**', '../../../agent/**', '../../../../agent/**'],
+              message: 'TUI should not import from agent. Use transport events or feature APIs instead.',
+            },
+            {
+              group: ['**/oclif/**', '../oclif/**', '../../oclif/**', '../../../oclif/**', '../../../../oclif/**'],
+              message: 'TUI should not import from oclif. Use transport events or feature APIs instead.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]

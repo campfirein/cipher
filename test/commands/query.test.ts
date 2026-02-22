@@ -1,207 +1,320 @@
-import {
-  ConnectionFailedError,
-  type ConnectionResult,
-  InstanceCrashedError,
-  type ITransportClient,
-  NoInstanceRunningError,
-} from '@campfirein/brv-transport-client'
+import type {ConnectionResult, ITransportClient} from '@campfirein/brv-transport-client'
+import type {Config} from '@oclif/core'
+
+import {ConnectionFailedError, InstanceCrashedError, NoInstanceRunningError} from '@campfirein/brv-transport-client'
+import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
-import sinon, {match, restore, stub} from 'sinon'
+import sinon, {restore, stub} from 'sinon'
 
-import type {ITerminal} from '../../src/server/core/interfaces/services/i-terminal.js'
-import type {ITrackingService} from '../../src/server/core/interfaces/services/i-tracking-service.js'
+import Query from '../../src/oclif/commands/query.js'
 
-import {
-  QueryUseCase,
-  type QueryUseCaseOptions,
-  type TransportConnector,
-} from '../../src/server/infra/usecase/query-use-case.js'
-import {createMockTerminal} from '../helpers/mock-factories.js'
+// ==================== TestableQueryCommand ====================
+
+class TestableQueryCommand extends Query {
+  private readonly mockConnector: () => Promise<ConnectionResult>
+
+  constructor(argv: string[], mockConnector: () => Promise<ConnectionResult>, config: Config) {
+    super(argv, config)
+    this.mockConnector = mockConnector
+  }
+
+  protected override getDaemonClientOptions() {
+    return {
+      maxRetries: 1,
+      retryDelayMs: 0,
+      transportConnector: this.mockConnector,
+    }
+  }
+}
+
+// ==================== Tests ====================
 
 describe('Query Command', () => {
+  let config: Config
   let loggedMessages: string[]
-  let terminal: ITerminal
-  let trackingService: sinon.SinonStubbedInstance<ITrackingService>
+  let stdoutOutput: string[]
   let mockClient: sinon.SinonStubbedInstance<ITransportClient>
-  let mockConnector: TransportConnector
+  let mockConnector: sinon.SinonStub<[], Promise<ConnectionResult>>
+
+  before(async () => {
+    config = await OclifConfig.load(import.meta.url)
+  })
 
   beforeEach(() => {
     loggedMessages = []
-
-    terminal = createMockTerminal({
-      log(message?: string) {
-        if (message) {
-          loggedMessages.push(message)
-        }
-      },
-    })
-
-    trackingService = {
-      track: stub().resolves(),
-    } as unknown as sinon.SinonStubbedInstance<ITrackingService>
-
-    // Create mock transport client with event handlers
-    const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+    stdoutOutput = []
 
     mockClient = {
       connect: stub().resolves(),
       disconnect: stub().resolves(),
       getClientId: stub().returns('test-client-id'),
       getState: stub().returns('connected'),
+      isConnected: stub().resolves(true),
       joinRoom: stub().resolves(),
       leaveRoom: stub().resolves(),
-      on: stub().callsFake((event: string, handler: (data: unknown) => void) => {
-        if (!eventHandlers.has(event)) {
-          eventHandlers.set(event, [])
-        }
-
-        eventHandlers.get(event)!.push(handler)
-        return () => {
-          const handlers = eventHandlers.get(event)
-          if (handlers) {
-            const index = handlers.indexOf(handler)
-            if (index !== -1) handlers.splice(index, 1)
-          }
-        }
-      }),
+      on: stub().returns(() => {}),
       once: stub(),
       onStateChange: stub().returns(() => {}),
       request: stub() as unknown as ITransportClient['request'],
-      requestWithAck: stub().resolves({taskId: 'test-task-id'}),
+      requestWithAck: stub().resolves({}),
     } as unknown as sinon.SinonStubbedInstance<ITransportClient>
 
-    // Capture taskId from requestWithAck and simulate task completion
-    ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (_event: string, payload: {taskId: string}) => {
-      // Simulate task completion after a short delay with the client-generated taskId
-      setTimeout(() => {
-        const handlers = eventHandlers.get('task:completed')
-        if (handlers) {
-          for (const handler of handlers) {
-            handler({result: 'Mock query response', taskId: payload.taskId})
-          }
-        }
-      }, 10)
-      return {taskId: payload.taskId}
-    })
-
-    // Create mock connector (replaces factory pattern)
-    mockConnector = stub().resolves({
-      client: mockClient,
+    mockConnector = stub<[], Promise<ConnectionResult>>().resolves({
+      client: mockClient as unknown as ITransportClient,
       projectRoot: '/test/project',
-    } as ConnectionResult)
+    })
   })
 
   afterEach(() => {
     restore()
   })
 
-  function createUseCaseOptions(overrides?: Partial<QueryUseCaseOptions>): QueryUseCaseOptions {
-    return {
-      terminal,
-      trackingService,
-      transportConnector: mockConnector,
-      ...overrides,
-    }
+  function createCommand(...argv: string[]): TestableQueryCommand {
+    const command = new TestableQueryCommand(argv, mockConnector, config)
+    stub(command, 'log').callsFake((msg?: string) => {
+      if (msg) loggedMessages.push(msg)
+    })
+    return command
   }
 
-  describe('run', () => {
-    it('should show usage message when query is empty', async () => {
-      const useCase = new QueryUseCase(createUseCaseOptions())
+  function createJsonCommand(...argv: string[]): TestableQueryCommand {
+    const command = new TestableQueryCommand([...argv, '--format', 'json'], mockConnector, config)
+    stub(command, 'log').callsFake((msg?: string) => {
+      if (msg) loggedMessages.push(msg)
+    })
+    stub(process.stdout, 'write').callsFake((chunk: string | Uint8Array) => {
+      stdoutOutput.push(String(chunk))
+      return true
+    })
+    return command
+  }
 
-      await useCase.run({query: '', verbose: false})
+  function parseJsonOutput(): Array<{command: string; data: Record<string, unknown>; success: boolean}> {
+    const output = stdoutOutput.join('')
+    return output
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+  }
+
+  // ==================== Input Validation ====================
+
+  describe('input validation', () => {
+    it('should show usage message when query is empty', async () => {
+      await createCommand('').run()
 
       expect(loggedMessages).to.include('Query argument is required.')
       expect(loggedMessages).to.include('Usage: brv query "your question here"')
-      expect(trackingService.track.calledWith('mem:query', {status: 'started'})).to.be.true
     })
 
     it('should show usage message when query is whitespace only', async () => {
-      const useCase = new QueryUseCase(createUseCaseOptions())
-
-      await useCase.run({query: '   ', verbose: false})
+      await createCommand('   ').run()
 
       expect(loggedMessages).to.include('Query argument is required.')
     })
 
+    it('should output JSON error when query is empty in json mode', async () => {
+      await createJsonCommand('').run()
+
+      const [json] = parseJsonOutput()
+      expect(json.success).to.be.false
+      expect(json.data).to.have.property('message', 'Query argument is required.')
+    })
+  })
+
+  // ==================== Task Submission ====================
+
+  describe('task submission', () => {
     it('should send task:create request with query and taskId', async () => {
-      const useCase = new QueryUseCase(createUseCaseOptions())
+      // Simulate task:completed via event handler
+      const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        if (!eventHandlers.has(event)) eventHandlers.set(event, [])
+        eventHandlers.get(event)!.push(handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (_event: string, payload: {taskId: string}) => {
+        setTimeout(() => {
+          const handlers = eventHandlers.get('task:completed')
+          if (handlers) {
+            for (const handler of handlers) handler({result: 'Mock response', taskId: payload.taskId})
+          }
+        }, 10)
+        return {taskId: payload.taskId}
+      })
 
-      await useCase.run({query: 'What is the architecture?', verbose: false})
+      await createCommand('What is the architecture?').run()
 
-      expect(mockClient.requestWithAck.calledOnce).to.be.true
+      expect((mockClient.requestWithAck as sinon.SinonStub).calledOnce).to.be.true
       const [event, payload] = (mockClient.requestWithAck as sinon.SinonStub).firstCall.args
       expect(event).to.equal('task:create')
       expect(payload).to.have.property('content', 'What is the architecture?')
       expect(payload).to.have.property('type', 'query')
       expect(payload).to.have.property('taskId').that.is.a('string')
+      expect(payload).to.have.property('projectPath', '/test/project')
     })
 
-    it('should track query after successful execution', async () => {
-      const useCase = new QueryUseCase(createUseCaseOptions())
+    it('should display result from task:completed fallback', async () => {
+      const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        if (!eventHandlers.has(event)) eventHandlers.set(event, [])
+        eventHandlers.get(event)!.push(handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (_event: string, payload: {taskId: string}) => {
+        setTimeout(() => {
+          const handlers = eventHandlers.get('task:completed')
+          if (handlers) {
+            for (const handler of handlers) handler({result: 'Direct search result', taskId: payload.taskId})
+          }
+        }, 10)
+        return {taskId: payload.taskId}
+      })
 
-      await useCase.run({query: 'What is the architecture?', verbose: false})
+      await createCommand('test query').run()
 
-      expect(trackingService.track.calledWith('mem:query', {status: 'started'})).to.be.true
-      expect(trackingService.track.calledWith('mem:query', {status: 'finished'})).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Direct search result'))).to.be.true
     })
 
-    it('should log verbose messages when verbose is true', async () => {
-      const useCase = new QueryUseCase(createUseCaseOptions())
+    it('should display result from llmservice:response', async () => {
+      const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        if (!eventHandlers.has(event)) eventHandlers.set(event, [])
+        eventHandlers.get(event)!.push(handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (_event: string, payload: {taskId: string}) => {
+        setTimeout(() => {
+          // Fire llmservice:response first, then task:completed
+          const responseHandlers = eventHandlers.get('llmservice:response')
+          if (responseHandlers) {
+            for (const handler of responseHandlers) {
+              handler({content: 'LLM final answer', sessionId: 'sess-1', taskId: payload.taskId})
+            }
+          }
 
-      await useCase.run({query: 'test query', verbose: true})
+          const completedHandlers = eventHandlers.get('task:completed')
+          if (completedHandlers) {
+            for (const handler of completedHandlers) handler({taskId: payload.taskId})
+          }
+        }, 10)
+        return {taskId: payload.taskId}
+      })
 
-      expect(loggedMessages.some((m) => m.includes('Discovering running instance'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('Connected to instance'))).to.be.true
+      await createCommand('test query').run()
+
+      expect(loggedMessages.some((m) => m.includes('LLM final answer'))).to.be.true
     })
 
-    it('should disconnect client after request', async () => {
-      const useCase = new QueryUseCase(createUseCaseOptions())
+    it('should disconnect client after successful request', async () => {
+      const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        if (!eventHandlers.has(event)) eventHandlers.set(event, [])
+        eventHandlers.get(event)!.push(handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (_event: string, payload: {taskId: string}) => {
+        setTimeout(() => {
+          const handlers = eventHandlers.get('task:completed')
+          if (handlers) {
+            for (const handler of handlers) handler({result: 'done', taskId: payload.taskId})
+          }
+        }, 10)
+        return {taskId: payload.taskId}
+      })
 
-      await useCase.run({query: 'test query', verbose: false})
+      await createCommand('test query').run()
 
       expect(mockClient.disconnect.calledOnce).to.be.true
     })
+  })
 
+  // ==================== JSON Output ====================
+
+  describe('json output', () => {
+    it('should stream response event and completed event as separate JSON lines', async () => {
+      const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        if (!eventHandlers.has(event)) eventHandlers.set(event, [])
+        eventHandlers.get(event)!.push(handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (_event: string, payload: {taskId: string}) => {
+        setTimeout(() => {
+          const responseHandlers = eventHandlers.get('llmservice:response')
+          if (responseHandlers) {
+            for (const handler of responseHandlers) {
+              handler({content: 'JSON answer', sessionId: 'sess-1', taskId: payload.taskId})
+            }
+          }
+
+          const completedHandlers = eventHandlers.get('task:completed')
+          if (completedHandlers) {
+            for (const handler of completedHandlers) handler({taskId: payload.taskId})
+          }
+        }, 10)
+        return {taskId: payload.taskId}
+      })
+
+      await createJsonCommand('test query').run()
+
+      const lines = parseJsonOutput()
+      expect(lines.length).to.be.at.least(2)
+
+      const responseEvent = lines.find((l) => (l.data as Record<string, unknown>).event === 'response')
+      expect(responseEvent).to.exist
+      expect(responseEvent!.data).to.have.property('content', 'JSON answer')
+
+      const completedEvent = lines.find((l) => (l.data as Record<string, unknown>).event === 'completed')
+      expect(completedEvent).to.exist
+      expect(completedEvent!.data).to.have.property('result', 'JSON answer')
+    })
+  })
+
+  // ==================== Connection Errors ====================
+
+  describe('connection errors', () => {
     it('should handle NoInstanceRunningError', async () => {
-      const errorConnector = stub().rejects(new NoInstanceRunningError())
-      const useCase = new QueryUseCase(
-        createUseCaseOptions({
-          transportConnector: errorConnector,
-        }),
-      )
+      mockConnector.rejects(new NoInstanceRunningError())
 
-      await useCase.run({query: 'test query', verbose: false})
+      await createCommand('test query').run()
 
       expect(loggedMessages.some((m) => m.includes('No ByteRover instance is running'))).to.be.true
-      expect(trackingService.track.calledWith('mem:query', match({status: 'error'}))).to.be.true
     })
 
     it('should handle InstanceCrashedError', async () => {
-      const errorConnector = stub().rejects(new InstanceCrashedError())
-      const useCase = new QueryUseCase(
-        createUseCaseOptions({
-          transportConnector: errorConnector,
-        }),
-      )
+      mockConnector.rejects(new InstanceCrashedError())
 
-      await useCase.run({query: 'test query', verbose: false})
+      await createCommand('test query').run()
 
       expect(loggedMessages.some((m) => m.includes('ByteRover instance has crashed'))).to.be.true
-      expect(trackingService.track.calledWith('mem:query', match({status: 'error'}))).to.be.true
     })
 
     it('should handle ConnectionFailedError', async () => {
-      const errorConnector = stub().rejects(new ConnectionFailedError(9847, new Error('Connection refused')))
-      const useCase = new QueryUseCase(
-        createUseCaseOptions({
-          transportConnector: errorConnector,
-        }),
-      )
+      mockConnector.rejects(new ConnectionFailedError(37_847, new Error('Connection refused')))
 
-      await useCase.run({query: 'test query', verbose: false})
+      await createCommand('test query').run()
 
       expect(loggedMessages.some((m) => m.includes('Failed to connect'))).to.be.true
-      expect(trackingService.track.calledWith('mem:query', match({status: 'error'}))).to.be.true
+    })
+
+    it('should handle unexpected errors', async () => {
+      mockConnector.rejects(new Error('Something went wrong'))
+
+      await createCommand('test query').run()
+
+      expect(loggedMessages.some((m) => m.includes('Something went wrong'))).to.be.true
+    })
+
+    it('should output JSON on connection error', async () => {
+      mockConnector.rejects(new NoInstanceRunningError())
+
+      await createJsonCommand('test query').run()
+
+      const [json] = parseJsonOutput()
+      expect(json.command).to.equal('query')
+      expect(json.success).to.be.false
+      expect(json.data).to.have.property('error')
     })
   })
 })

@@ -1,15 +1,15 @@
 import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
-import {homedir} from 'node:os'
-import {join} from 'node:path'
+import {dirname, join} from 'node:path'
 
 import type {IOnboardingPreferenceStore} from '../../core/interfaces/storage/i-onboarding-preference-store.js'
 
-const BRV_HOME_DIR = join(homedir(), '.brv')
-const ONBOARDING_LOCK_FILE = join(BRV_HOME_DIR, '.onboarding-dismissed')
+import {getGlobalDataDir} from '../../utils/global-data-path.js'
+
+const ONBOARDING_LOCK_FILE = join(getGlobalDataDir(), '.onboarding-dismissed')
 
 /**
  * Onboarding preference store implementation using a lock file.
- * Stores last dismissed timestamp in ~/.brv/.onboarding-dismissed
+ * Stores last dismissed timestamp in XDG data directory.
  */
 export class FileOnboardingPreferenceStore implements IOnboardingPreferenceStore {
   public async clear(): Promise<void> {
@@ -38,9 +38,9 @@ export class FileOnboardingPreferenceStore implements IOnboardingPreferenceStore
 
   public async setLastDismissedAt(timestamp: number): Promise<void> {
     try {
-      // Ensure ~/.brv directory exists
-      if (!existsSync(BRV_HOME_DIR)) {
-        mkdirSync(BRV_HOME_DIR, {recursive: true})
+      const parentDir = dirname(ONBOARDING_LOCK_FILE)
+      if (!existsSync(parentDir)) {
+        mkdirSync(parentDir, {recursive: true})
       }
 
       writeFileSync(ONBOARDING_LOCK_FILE, String(timestamp), 'utf8')

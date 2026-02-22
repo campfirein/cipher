@@ -2,7 +2,7 @@
 
 process.env.BRV_ENV = 'production'
 
-import {execute} from '@oclif/core'
+import { execute } from '@oclif/core'
 
 // Inject default command 'main' (represents logic of a single 'brv' run) when no args provided
 // process.argv = ['node', 'brv', ...userArgs]
@@ -11,4 +11,4 @@ if (userArgs.length === 0) {
   process.argv.push('main')
 }
 
-await execute({dir: import.meta.url})
+await execute({ dir: import.meta.url })

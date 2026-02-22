@@ -8,9 +8,9 @@
 import {Box, Text} from 'ink'
 import React from 'react'
 
-import type {CommandArg, CommandFlag, CommandSubcommandInfo, CommandSuggestion} from '../types.js'
+import type {CommandArg, CommandFlag, CommandSubcommandInfo, CommandSuggestion} from '../types/index.js'
 
-import {useTheme} from '../contexts/theme-context.js'
+import {useTheme} from '../hooks/index.js'
 
 interface CommandDetailsProps {
   labelWidth: number
@@ -46,7 +46,7 @@ function formatUsage(
   return usage
 }
 
-export const CommandDetails: React.FC<CommandDetailsProps> = ({labelWidth, recommendedText, selectedSuggestion}) => {
+export const CommandDetails: React.FC<CommandDetailsProps> = ({labelWidth, selectedSuggestion}) => {
   const {
     theme: {colors},
   } = useTheme()
@@ -65,8 +65,6 @@ export const CommandDetails: React.FC<CommandDetailsProps> = ({labelWidth, recom
       flexDirection="column"
       paddingLeft={1}
     >
-      {/* Show recommended text for highlighted commands */}
-      {recommendedText && <Text color={colors.primary}>{recommendedText}</Text>}
       {/* Show args/flags/subcommands for selected command */}
       <Text color={colors.dimText}>{selectedSuggestion?.description || ''}</Text>
       {hasDetails && (

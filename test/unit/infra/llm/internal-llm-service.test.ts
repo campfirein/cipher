@@ -6,8 +6,8 @@ import type {InternalMessage} from '../../../../src/agent/core/interfaces/messag
 
 import {SessionEventBus} from '../../../../src/agent/infra/events/event-emitter.js'
 import {ByteRoverLlmHttpService} from '../../../../src/agent/infra/http/internal-llm-http-service.js'
+import {AgentLLMService} from '../../../../src/agent/infra/llm/agent-llm-service.js'
 import {ByteRoverContentGenerator} from '../../../../src/agent/infra/llm/generators/byterover-content-generator.js'
-import {ByteRoverLLMService} from '../../../../src/agent/infra/llm/internal-llm-service.js'
 import {SystemPromptManager} from '../../../../src/agent/infra/system-prompt/system-prompt-manager.js'
 import {ToolManager} from '../../../../src/agent/infra/tools/tool-manager.js'
 
@@ -24,7 +24,7 @@ function createContentGenerator(model = 'gemini-2.5-flash') {
   })
 }
 
-describe('ByteRoverLLMService', () => {
+describe('AgentLLMService', () => {
   let sessionEventBus: SessionEventBus
   let systemPromptManager: SystemPromptManager
   let toolManager: ToolManager
@@ -55,7 +55,7 @@ describe('ByteRoverLLMService', () => {
   describe('initialization', () => {
     it('should initialize with default configuration', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -74,7 +74,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should support custom model configuration', () => {
       const generator = createContentGenerator('claude-3-5-sonnet')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -92,7 +92,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should support custom maxTokens configuration', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -111,7 +111,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should support custom maxIterations configuration', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -130,7 +130,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should support custom temperature configuration', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -149,7 +149,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should support projectId configuration', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -167,7 +167,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should support region configuration', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -187,7 +187,7 @@ describe('ByteRoverLLMService', () => {
   describe('getConfig', () => {
     it('should return service configuration', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -208,7 +208,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should include max input tokens in config', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -226,13 +226,14 @@ describe('ByteRoverLLMService', () => {
       expect(config.configuredMaxInputTokens).to.equal(500_000)
     })
 
-    it('should default provider to byterover', () => {
+    it('should return explicit provider as provider identity', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
-          model: 'gemini-2.5-flash',
+          model: 'anthropic/claude-3.5-sonnet',
+          provider: 'openrouter',
         },
         {
           sessionEventBus,
@@ -242,14 +243,14 @@ describe('ByteRoverLLMService', () => {
       )
 
       const config = service.getConfig()
-      expect(config.provider).to.equal('byterover')
+      expect(config.provider).to.equal('openrouter')
     })
   })
 
   describe('getContextManager', () => {
     it('should return context manager', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -280,7 +281,7 @@ describe('ByteRoverLLMService', () => {
       sandbox.stub(toolManager, 'getAllTools').returns(mockTools as any)
 
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -302,7 +303,7 @@ describe('ByteRoverLLMService', () => {
       sandbox.stub(toolManager, 'getAllTools').returns({} as any)
 
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -323,7 +324,7 @@ describe('ByteRoverLLMService', () => {
   describe('event emission', () => {
     it('should have sessionEventBus for event management', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -343,7 +344,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should have promptFactory for building prompts', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -365,7 +366,7 @@ describe('ByteRoverLLMService', () => {
   describe('text content extraction', () => {
     it('should extract string content', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -390,7 +391,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should extract array content with text parts', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -419,7 +420,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should filter out non-text parts', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -448,7 +449,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should handle empty content', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -473,7 +474,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should handle null/undefined content', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -501,7 +502,7 @@ describe('ByteRoverLLMService', () => {
   describe('configuration defaults', () => {
     it('should default maxIterations to 50', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -520,7 +521,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should default maxTokens to 8192', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -538,7 +539,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should default temperature to 0.7', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -556,7 +557,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should default projectId to byterover', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -574,7 +575,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should default region to us-central1', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -594,7 +595,7 @@ describe('ByteRoverLLMService', () => {
   describe('completeTask', () => {
     it('should complete task successfully without tool calls', async () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -637,7 +638,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should require AbortSignal to be checked at iteration start', async () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -670,7 +671,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should support custom model in configuration', () => {
       const generator = createContentGenerator('claude-3-5-sonnet')
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -689,7 +690,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should verify context manager is available', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -709,7 +710,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should provide session event bus for event emission', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -729,7 +730,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should support temperature configuration', () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {
@@ -749,7 +750,7 @@ describe('ByteRoverLLMService', () => {
 
     it('should support image data in completeTask', async () => {
       const generator = createContentGenerator()
-      const service = new ByteRoverLLMService(
+      const service = new AgentLLMService(
         'test-session',
         generator,
         {

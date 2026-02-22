@@ -4,21 +4,6 @@
 
 import type React from 'react'
 
-import type {PromptRequest, StreamingMessage} from './index.js'
-
-/**
- * Command kind indicates the source/type of command
- * Based on Gemini CLI pattern for extensibility
- */
-export enum CommandKind {
-  /** Built-in commands defined in code */
-  BUILT_IN = 'built-in',
-  /** Future: file-based commands */
-  FILE = 'file',
-  /** Commands that dispatch to oclif CLI commands */
-  OCLIF = 'oclif',
-}
-
 /**
  * Command argument definition
  */
@@ -88,8 +73,6 @@ export interface CommandSubcommandInfo {
 export interface CommandSuggestion {
   /** Command arguments */
   args?: CommandArg[]
-  /** Command kind for styling */
-  commandKind?: CommandKind
   /** Optional description */
   description?: string
   /** Command flags */
@@ -107,7 +90,7 @@ export interface CommandSuggestion {
 // ============================================================================
 
 /**
- * Command action return type for displaying a message
+ * Command action return type for displaying a message (used for errors)
  */
 export interface MessageActionReturn {
   content: string
@@ -116,102 +99,44 @@ export interface MessageActionReturn {
 }
 
 /**
- * Command action return type for quitting the REPL
+ * Side effects that a command can request after completion.
+ * The command executor processes these generically instead of
+ * hardcoding behavior per command name.
  */
-export interface QuitActionReturn {
-  type: 'quit'
+export interface CommandSideEffects {
+  /** Clear the current session (messages, tasks) */
+  clearSession?: boolean
+  /** Mark init-provider onboarding step as complete (transitions to curate) */
+  completeInitProvider?: boolean
+  /** Reload auth state from token store */
+  reloadAuth?: boolean
 }
 
 /**
- * Command action return type for rendering a custom dialog component
+ * Callbacks provided to custom dialog components by the command executor.
+ */
+export interface CustomDialogCallbacks {
+  /** Signal that the dialog was cancelled */
+  onCancel: () => void
+  /** Signal that the dialog completed with a result message */
+  onComplete: (message: string, sideEffects?: CommandSideEffects) => void
+}
+
+/**
+ * Command action return type for rendering a custom dialog component.
+ * Uses a render function so the command executor can inject lifecycle callbacks.
  */
 export interface CustomDialogActionReturn {
-  component: React.ReactNode
-  type: 'custom_dialog'
-}
-
-/**
- * Command action return type for clearing the screen
- */
-export interface ClearActionReturn {
-  type: 'clear'
-}
-
-/**
- * Command action return type for streaming output with interactive prompts
- */
-export interface StreamingActionReturn {
-  /**
-   * Async function that executes the command
-   * @param onMessage - Callback for streaming output messages
-   * @param onPrompt - Callback for interactive prompts (search, confirm, select)
-   */
-  execute: (onMessage: (msg: StreamingMessage) => void, onPrompt: (prompt: PromptRequest) => void) => Promise<void>
-  type: 'streaming'
-}
-
-/**
- * Command action return type for confirming an action
- * Uses callback pattern for handling confirmation result (Gemini CLI pattern)
- */
-export interface ConfirmActionReturn {
-  /**
-   * Callback invoked when user makes a choice
-   * @param confirmed - true if user confirmed, false if cancelled
-   * @returns Optional streaming action to execute after confirmation
-   */
-  onConfirm: (confirmed: boolean) => Promise<StreamingActionReturn | void> | StreamingActionReturn | void
-  prompt: string
-  type: 'confirm_action'
-}
-
-/**
- * Command action return type for submitting a prompt
- */
-export interface SubmitPromptReturn {
-  content: string
-  type: 'submit_prompt'
-}
-
-/**
- * Command action return type for showing query input dialog
- */
-export interface QueryDialogActionReturn {
-  type: 'query_dialog'
-}
-
-/**
- * Command action return type for showing curate option dialog
- */
-export interface CurateDialogActionReturn {
-  type: 'curate_dialog'
-}
-
-/**
- * Command action return type for refreshing auth state (after logout/login)
- */
-export interface RefreshAuthActionReturn {
-  type: 'refresh_auth'
+  render: (callbacks: CustomDialogCallbacks) => React.ReactNode
 }
 
 /**
  * Union of all possible command action return types
  */
-export type SlashCommandActionReturn =
-  | ClearActionReturn
-  | ConfirmActionReturn
-  | CurateDialogActionReturn
-  | CustomDialogActionReturn
-  | MessageActionReturn
-  | QueryDialogActionReturn
-  | QuitActionReturn
-  | RefreshAuthActionReturn
-  | StreamingActionReturn
-  | SubmitPromptReturn
-  | void
+export type SlashCommandActionReturn = CustomDialogActionReturn | MessageActionReturn | void
 
 /**
- * Slash command definition (based on Gemini CLI pattern)
+ * Slash command definition
  * Supports nested subcommands, auto-completion, and flexible action returns
  */
 export interface SlashCommand {
@@ -221,17 +146,9 @@ export interface SlashCommand {
    */
   action?: (context: CommandContext, args: string) => Promise<SlashCommandActionReturn> | SlashCommandActionReturn
   /**
-   * Alternative names for the command (e.g., 'q' for 'quit')
-   */
-  aliases?: string[]
-  /**
    * Command arguments definition
    */
   args?: CommandArg[]
-  /**
-   * Auto-execute on Enter when selected in suggestions (vs just autocomplete)
-   */
-  autoExecute?: boolean
   /**
    * Argument completion provider for suggestions
    */
@@ -248,10 +165,6 @@ export interface SlashCommand {
    * Hide from help and suggestions (e.g., for internal commands)
    */
   hidden?: boolean
-  /**
-   * Command kind indicates the source/type of command
-   */
-  kind: CommandKind
   /**
    * Primary command name (without leading slash)
    */

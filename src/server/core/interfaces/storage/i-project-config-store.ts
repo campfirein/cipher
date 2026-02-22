@@ -13,6 +13,13 @@ export interface IProjectConfigStore {
   exists: (directory?: string) => Promise<boolean>
 
   /**
+   * Gets the last modification time of the configuration file.
+   * @param directory The project directory containing .brv folder (defaults to current working directory)
+   * @returns The modification timestamp in milliseconds, or undefined if file doesn't exist
+   */
+  getModifiedTime: (directory?: string) => Promise<number | undefined>
+
+  /**
    * Reads the configuration from the .brv directory.
    * @param directory The project directory containing .brv folder (defaults to current working directory)
    * @returns The configuration if found, undefined otherwise
@@ -23,7 +30,6 @@ export interface IProjectConfigStore {
    * Writes the configuration to the .brv directory.
    * @param config The configuration to write.
    * @param directory The project directory to create .brv folder in (defaults to current working directory)
-   * @returns
    */
   write: (config: BrvConfig, directory?: string) => Promise<void>
 }

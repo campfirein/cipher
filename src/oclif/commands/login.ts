@@ -1,51 +1,71 @@
 import {Command, Flags} from '@oclif/core'
 
-import {getAuthConfig} from '../../server/config/auth.config.js'
-import {getCurrentConfig} from '../../server/config/environment.js'
-import {OAuthService} from '../../server/infra/auth/oauth-service.js'
-import {OidcDiscoveryService} from '../../server/infra/auth/oidc-discovery-service.js'
-import {SystemBrowserLauncher} from '../../server/infra/browser/system-browser-launcher.js'
-import {CallbackHandler} from '../../server/infra/http/callback-handler.js'
-import {FileGlobalConfigStore} from '../../server/infra/storage/file-global-config-store.js'
-import {createTokenStore} from '../../server/infra/storage/token-store.js'
-import {OclifTerminal} from '../../server/infra/terminal/oclif-terminal.js'
-import {MixpanelTrackingService} from '../../server/infra/tracking/mixpanel-tracking-service.js'
-import {LoginUseCase} from '../../server/infra/usecase/login-use-case.js'
-import {HttpUserService} from '../../server/infra/user/http-user-service.js'
+import {AuthEvents, type AuthLoginWithApiKeyResponse} from '../../shared/transport/events/auth-events.js'
+import {type DaemonClientOptions, formatConnectionError, withDaemonRetry} from '../lib/daemon-client.js'
+import {writeJsonResponse} from '../lib/json-response.js'
 
 export default class Login extends Command {
   public static description = 'Authenticate with ByteRover using an API key'
-  public static examples = ['<%= config.bin %> <%= command.id %> --api-key <key>']
+  public static examples = [
+    '<%= config.bin %> <%= command.id %> --api-key <key>',
+    '',
+    '# JSON output (for automation)',
+    '<%= config.bin %> <%= command.id %> --api-key <key> --format json',
+  ]
   public static flags = {
     'api-key': Flags.string({
       char: 'k',
       description: 'API key for authentication (get yours at https://app.byterover.dev/settings/keys)',
       required: true,
     }),
+    format: Flags.string({
+      default: 'text',
+      description: 'Output format (text or json)',
+      options: ['text', 'json'],
+    }),
+  }
+
+  protected async loginWithApiKey(apiKey: string, options?: DaemonClientOptions): Promise<AuthLoginWithApiKeyResponse> {
+    return withDaemonRetry<AuthLoginWithApiKeyResponse>(
+      async (client) => client.requestWithAck<AuthLoginWithApiKeyResponse>(AuthEvents.LOGIN_WITH_API_KEY, {apiKey}),
+      options,
+    )
   }
 
   public async run(): Promise<void> {
     const {flags} = await this.parse(Login)
     const apiKey = flags['api-key']
+    const format = (flags.format ?? 'text') as 'json' | 'text'
 
-    const config = getCurrentConfig()
-    const tokenStore = createTokenStore()
-    const globalConfigStore = new FileGlobalConfigStore()
-    const trackingService = new MixpanelTrackingService({globalConfigStore, tokenStore})
-    const terminal = new OclifTerminal(this)
-    const discoveryService = new OidcDiscoveryService()
-    const authConfig = await getAuthConfig(discoveryService)
+    try {
+      if (format === 'text') {
+        this.log('Logging in...')
+      }
 
-    const useCase = new LoginUseCase({
-      authService: new OAuthService(authConfig),
-      browserLauncher: new SystemBrowserLauncher(),
-      callbackHandler: new CallbackHandler(),
-      terminal,
-      tokenStore,
-      trackingService,
-      userService: new HttpUserService({apiBaseUrl: config.apiBaseUrl}),
-    })
+      const response = await this.loginWithApiKey(apiKey)
 
-    await useCase.run({apiKey})
+      if (response.success) {
+        if (format === 'json') {
+          writeJsonResponse({command: 'login', data: {userEmail: response.userEmail}, success: true})
+        } else {
+          this.log(`Logged in as ${response.userEmail}`)
+        }
+      } else {
+        const errorMessage = response.error ?? 'Authentication failed'
+        if (format === 'json') {
+          writeJsonResponse({command: 'login', data: {error: errorMessage}, success: false})
+        } else {
+          this.log(errorMessage)
+        }
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Login failed'
+
+      if (format === 'json') {
+        writeJsonResponse({command: 'login', data: {error: errorMessage}, success: false})
+      } else {
+        this.log(formatConnectionError(error))
+      }
+    }
   }
 }

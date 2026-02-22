@@ -52,12 +52,13 @@ describe('McpConnector', () => {
   })
 
   describe('getSupportedAgents', () => {
-    it('should return multiple supported agents', () => {
+    it('should return all agents with MCP configs', () => {
       const agents = mcpConnector.getSupportedAgents()
       expect(agents).to.include('Claude Code')
       expect(agents).to.include('Cursor')
-      expect(agents).to.not.include('Windsurf')
-      expect(agents).to.not.include('Cline')
+      expect(agents).to.include('Windsurf')
+      expect(agents).to.include('Cline')
+      expect(agents).to.include('Antigravity')
       expect(agents.length).to.be.greaterThan(3)
     })
   })
@@ -71,12 +72,16 @@ describe('McpConnector', () => {
       expect(mcpConnector.isSupported('Cursor')).to.be.true
     })
 
-    it('should return false for Windsurf (no longer supported)', () => {
-      expect(mcpConnector.isSupported('Windsurf')).to.be.false
+    it('should return true for Windsurf', () => {
+      expect(mcpConnector.isSupported('Windsurf')).to.be.true
     })
 
-    it('should return false for Cline (no longer supported)', () => {
-      expect(mcpConnector.isSupported('Cline')).to.be.false
+    it('should return true for Cline', () => {
+      expect(mcpConnector.isSupported('Cline')).to.be.true
+    })
+
+    it('should return true for Antigravity', () => {
+      expect(mcpConnector.isSupported('Antigravity')).to.be.true
     })
 
     it('should return true for Roo Code', () => {
@@ -101,12 +106,16 @@ describe('McpConnector', () => {
       expect(mcpConnector.getConfigPath('Cursor')).to.equal(path.join(testDir, '.cursor/mcp.json'))
     })
 
-    it('should throw for Windsurf (no longer supported)', () => {
-      expect(() => mcpConnector.getConfigPath('Windsurf')).to.throw('does not support agent')
+    it('should return config path for Windsurf (global scope)', () => {
+      expect(mcpConnector.getConfigPath('Windsurf')).to.equal(
+        path.join(homedir(), '.codeium/windsurf/mcp_config.json'),
+      )
     })
 
-    it('should throw for Cline (no longer supported)', () => {
-      expect(() => mcpConnector.getConfigPath('Cline')).to.throw('does not support agent')
+    it('should return config path for Antigravity (global scope)', () => {
+      expect(mcpConnector.getConfigPath('Antigravity')).to.equal(
+        path.join(homedir(), '.gemini/antigravity/mcp_config.json'),
+      )
     })
 
     it('should return config path for Codex (TOML format)', () => {
@@ -318,14 +327,18 @@ describe('McpConnector', () => {
   })
 
   describe('edge cases', () => {
-    it('should handle malformed JSON gracefully on install', async () => {
+    it('should handle malformed JSON gracefully on install by starting fresh', async () => {
       await mkdir(path.join(testDir, '.cursor'), {recursive: true})
       await writeFile(path.join(testDir, '.cursor/mcp.json'), 'not valid json')
 
       const result = await mcpConnector.install('Cursor')
 
-      expect(result.success).to.be.false
-      expect(result.message).to.include('Failed to install')
+      expect(result.success).to.be.true
+      expect(result.alreadyInstalled).to.be.false
+
+      const content = await fileService.read(path.join(testDir, '.cursor/mcp.json'))
+      const json = JSON.parse(content)
+      expect(json.mcpServers.brv).to.deep.equal(MCP_CONNECTOR_CONFIGS.Cursor.serverConfig)
     })
 
     it('should handle malformed JSON gracefully on status', async () => {
@@ -337,6 +350,20 @@ describe('McpConnector', () => {
       // Malformed JSON is treated as file exists but server not found
       expect(result.configExists).to.be.true
       expect(result.installed).to.be.false
+    })
+
+    it('should handle empty file gracefully on install', async () => {
+      await mkdir(path.join(testDir, '.cursor'), {recursive: true})
+      await writeFile(path.join(testDir, '.cursor/mcp.json'), '')
+
+      const result = await mcpConnector.install('Cursor')
+
+      expect(result.success).to.be.true
+      expect(result.alreadyInstalled).to.be.false
+
+      const content = await fileService.read(path.join(testDir, '.cursor/mcp.json'))
+      const json = JSON.parse(content)
+      expect(json.mcpServers.brv).to.deep.equal(MCP_CONNECTOR_CONFIGS.Cursor.serverConfig)
     })
 
     it('should handle empty mcpServers object', async () => {
@@ -374,20 +401,15 @@ describe('McpConnector', () => {
     })
   })
 
-  describe('formerly manual mode agents (no longer supported)', () => {
-    const unsupportedManualAgents: McpSupportedAgent[] = ['Cline', 'Augment Code', 'Qoder', 'Trae.ai', 'Warp']
+  describe('manual mode agents', () => {
+    const manualAgents: McpSupportedAgent[] = ['Cline', 'Augment Code', 'Qoder', 'Trae.ai', 'Warp']
 
-    for (const agent of unsupportedManualAgents) {
-      it(`should return failure for ${agent} on install`, async () => {
+    for (const agent of manualAgents) {
+      it(`should return manual setup instructions for ${agent}`, async () => {
         const result = await mcpConnector.install(agent)
-        expect(result.success).to.be.false
-        expect(result.message).to.include('does not support agent')
-      })
-
-      it(`should return failure for ${agent} on status`, async () => {
-        const result = await mcpConnector.status(agent)
-        expect(result.installed).to.be.false
-        expect(result.error).to.include('does not support agent')
+        expect(result.success).to.be.true
+        expect(result.requiresManualSetup).to.be.true
+        expect(result.message).to.include('Manual setup required')
       })
     }
   })

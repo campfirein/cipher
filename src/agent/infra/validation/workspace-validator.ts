@@ -18,9 +18,9 @@ export class WorkspaceNotInitializedError extends Error {
 /**
  * Validates that the ByteRover workspace is properly initialized.
  *
- * Checks for the existence of:
- * - `.brv` directory (created by `brv init`)
- * - `.brv/blobs` directory (for blob storage)
+ * Checks for the existence of the `.brv` directory (auto-created on first command),
+ * which contains config.json and context-tree/.
+ * Blob/key storage resides at XDG paths and is not validated here.
  *
  * @param workingDirectory - The working directory to check (defaults to process.cwd())
  * @throws WorkspaceNotInitializedError if workspace is not initialized
@@ -28,21 +28,12 @@ export class WorkspaceNotInitializedError extends Error {
 export function validateWorkspaceInitialized(workingDirectory?: string): void {
   const cwd = workingDirectory ?? process.cwd()
   const brvDir = join(cwd, '.brv')
-  const blobsDir = join(cwd, '.brv', 'blobs')
 
   // Check if .brv directory exists
   if (!existsSync(brvDir)) {
     throw new WorkspaceNotInitializedError(
       'Workspace not initialized',
       brvDir,
-    )
-  }
-
-  // Check if .brv/blobs directory exists
-  if (!existsSync(blobsDir)) {
-    throw new WorkspaceNotInitializedError(
-      'Blob storage directory not found',
-      blobsDir,
     )
   }
 }

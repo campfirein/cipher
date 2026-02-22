@@ -11,6 +11,8 @@
 export interface ConnectedProviderConfig {
   /** Currently active model for this provider */
   readonly activeModel?: string
+  /** Custom API base URL (for openai-compatible provider) */
+  readonly baseUrl?: string
   /** When the provider was connected */
   readonly connectedAt: string
   /** User's favorite models (for quick access) */
@@ -96,6 +98,13 @@ export class ProviderConfig {
   }
 
   /**
+   * Get the custom base URL for a provider (e.g., openai-compatible).
+   */
+  public getBaseUrl(providerId: string): string | undefined {
+    return this.providers[providerId]?.baseUrl
+  }
+
+  /**
    * Get favorite models for a provider.
    */
   public getFavoriteModels(providerId: string): readonly string[] {
@@ -136,10 +145,10 @@ export class ProviderConfig {
     }
 
     // Add to recent models (at the front, deduplicated)
-    const recentModels = [
-      modelId,
-      ...existingConfig.recentModels.filter((m) => m !== modelId),
-    ].slice(0, MAX_RECENT_MODELS)
+    const recentModels = [modelId, ...existingConfig.recentModels.filter((m) => m !== modelId)].slice(
+      0,
+      MAX_RECENT_MODELS,
+    )
 
     const newProviderConfig: ConnectedProviderConfig = {
       ...existingConfig,
@@ -197,13 +206,11 @@ export class ProviderConfig {
   /**
    * Create a new config with a provider connected.
    */
-  public withProviderConnected(
-    providerId: string,
-    options?: {activeModel?: string},
-  ): ProviderConfig {
+  public withProviderConnected(providerId: string, options?: {activeModel?: string; baseUrl?: string}): ProviderConfig {
     const existingConfig = this.providers[providerId]
     const newProviderConfig: ConnectedProviderConfig = {
       activeModel: options?.activeModel ?? existingConfig?.activeModel,
+      baseUrl: options?.baseUrl ?? existingConfig?.baseUrl,
       connectedAt: existingConfig?.connectedAt ?? new Date().toISOString(),
       favoriteModels: existingConfig?.favoriteModels ?? [],
       recentModels: existingConfig?.recentModels ?? [],
@@ -224,8 +231,7 @@ export class ProviderConfig {
   public withProviderDisconnected(providerId: string): ProviderConfig {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const {[providerId]: _removed, ...remainingProviders} = this.providers
-    const newActiveProvider =
-      this.activeProvider === providerId ? 'byterover' : this.activeProvider
+    const newActiveProvider = this.activeProvider === providerId ? 'byterover' : this.activeProvider
 
     return new ProviderConfig({
       activeProvider: newActiveProvider,

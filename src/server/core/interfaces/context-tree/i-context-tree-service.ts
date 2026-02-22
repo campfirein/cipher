@@ -5,6 +5,12 @@
  */
 export interface IContextTreeService {
   /**
+   * Deletes the context tree directory and its contents.
+   * @param directory - Optional base directory (defaults to current working directory)
+   */
+  delete(directory?: string): Promise<void>
+
+  /**
    * Checks if the context tree structure exists in the project.
    * @param directory - Optional base directory (defaults to current working directory)
    * @returns True if context tree directory exists

@@ -6,11 +6,15 @@ import type {Narrative, RawConcept} from '../../domain/knowledge/markdown-writer
 export type ContextFileContent = {
   /** The raw content of the file */
   content: string
+  /** Keywords for search and discovery */
+  keywords: string[]
   narrative?: Narrative
   /** Relative path within the context tree (e.g., "structure/context.md") */
   path: string
   rawConcept?: RawConcept
-  /** Title extracted from the first heading, or the relative path if no heading found */
+  /** Tags for categorization and filtering */
+  tags: string[]
+  /** Title extracted from frontmatter, first heading, or the relative path if no heading found */
   title: string
 }
 

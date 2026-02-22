@@ -3,11 +3,11 @@
 import chalk from 'chalk'
 import readline from 'node:readline'
 
-import type { ICipherAgent } from '../../core/interfaces/i-cipher-agent.js'
-import type { AgentEventBus } from '../events/event-emitter.js'
+import type {ICipherAgent} from '../../core/interfaces/i-cipher-agent.js'
+import type {AgentEventBus} from '../events/event-emitter.js'
 
-import { parseInput } from './command-parser.js'
-import { executeCommand } from './interactive-commands.js'
+import {parseInput} from './command-parser.js'
+import {executeCommand} from './interactive-commands.js'
 
 /**
  * Prompt user for input using readline
@@ -51,7 +51,7 @@ function promptUser(rl: readline.Interface): Promise<string> {
 function displayWelcome(sessionId: string, model: string, eventBus?: AgentEventBus): void {
   if (eventBus) {
     eventBus.emit('cipher:ui', {
-      context: { model, sessionId },
+      context: {model, sessionId},
       type: 'banner',
     })
   }
@@ -110,12 +110,12 @@ function setupEventListeners(
   eventBus: AgentEventBus,
   spinnerState: {
     frames: string[]
-    indexRef: { value: number }
-    isExecutingRef: { value: boolean }
-    ref: { current: NodeJS.Timeout | null }
+    indexRef: {value: number}
+    isExecutingRef: {value: boolean}
+    ref: {current: NodeJS.Timeout | null}
   },
 ): () => void {
-  const { frames: spinnerFrames, indexRef: spinnerIndexRef, isExecutingRef, ref: spinnerRef } = spinnerState
+  const {frames: spinnerFrames, indexRef: spinnerIndexRef, isExecutingRef, ref: spinnerRef} = spinnerState
 
   // Store listener references for cleanup
   const thinkingListener = (): void => {
@@ -144,7 +144,7 @@ function setupEventListeners(
     }
   }
 
-  const errorListener = (payload: { error: string }): void => {
+  const errorListener = (payload: {error: string}): void => {
     if (spinnerRef.current) {
       clearInterval(spinnerRef.current)
       spinnerRef.current = null
@@ -154,13 +154,11 @@ function setupEventListeners(
     process.stdout.write('\n' + chalk.red(payload.error) + '\n\n')
   }
 
-  // eslint-disable-next-line no-warning-comments -- Tracked for v0.5.0 release
-  // TODO(v0.5.0): Move to outer scope for better performance
   // eslint-disable-next-line unicorn/consistent-function-scoping
-  const uiListener = (payload: { context?: unknown; message?: string; type: string }): void => {
+  const uiListener = (payload: {context?: unknown; message?: string; type: string}): void => {
     switch (payload.type) {
       case 'banner': {
-        const { model, sessionId } = payload.context as { model: string; sessionId: string }
+        const {model, sessionId} = payload.context as {model: string; sessionId: string}
         console.log('\n' + chalk.cyan('═'.repeat(60)))
         console.log(chalk.bold.cyan('🤖 CipherAgent Interactive Mode'))
         console.log(chalk.cyan('═'.repeat(60)))
@@ -201,10 +199,8 @@ function setupEventListeners(
     }
   }
 
-  // eslint-disable-next-line no-warning-comments -- Tracked for v0.5.0 release
-  // TODO(v0.5.0): Move to outer scope for better performance
   // eslint-disable-next-line unicorn/consistent-function-scoping
-  const logListener = (payload: { level: string; message: string; source?: string }): void => {
+  const logListener = (payload: {level: string; message: string; source?: string}): void => {
     const prefix = payload.source ? `[${payload.source}] ` : ''
     const message = `${prefix}${payload.message}`
 
@@ -253,7 +249,7 @@ function setupEventListeners(
 /**
  * Stop and clear spinner if running
  */
-function stopSpinner(spinnerRef: { current: NodeJS.Timeout | null }): void {
+function stopSpinner(spinnerRef: {current: NodeJS.Timeout | null}): void {
   if (spinnerRef.current) {
     clearInterval(spinnerRef.current)
     spinnerRef.current = null
@@ -293,12 +289,12 @@ async function executePrompt(
   prompt: string,
   agent: ICipherAgent,
   state: {
-    isExecutingRef: { value: boolean }
-    spinnerRef: { current: NodeJS.Timeout | null }
+    isExecutingRef: {value: boolean}
+    spinnerRef: {current: NodeJS.Timeout | null}
   },
   eventBus?: AgentEventBus,
 ): Promise<void> {
-  const { isExecutingRef, spinnerRef } = state
+  const {isExecutingRef, spinnerRef} = state
   try {
     // Mark execution started - prevents late thinking events from starting spinner
     isExecutingRef.value = true
@@ -344,7 +340,11 @@ export async function startInteractiveLoop(
   },
 ): Promise<void> {
   // Display welcome message
-  displayWelcome(options?.sessionId ?? 'cipher-agent-session', options?.model ?? 'gemini-3-flash-preview', options?.eventBus)
+  displayWelcome(
+    options?.sessionId ?? 'agent-session',
+    options?.model ?? 'gemini-3-flash-preview',
+    options?.eventBus,
+  )
 
   // Create readline interface
   const rl = readline.createInterface({
@@ -353,10 +353,10 @@ export async function startInteractiveLoop(
   })
 
   // Create custom spinner using carriage return for clean output
-  const spinnerRef: { current: NodeJS.Timeout | null } = { current: null }
+  const spinnerRef: {current: NodeJS.Timeout | null} = {current: null}
   const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
-  const spinnerIndexRef = { value: 0 }
-  const isExecutingRef = { value: false }
+  const spinnerIndexRef = {value: 0}
+  const isExecutingRef = {value: false}
 
   // Setup event listeners and get cleanup function
   let cleanupEventListeners: (() => void) | undefined
@@ -369,7 +369,7 @@ export async function startInteractiveLoop(
     })
   }
 
-  const isExitingRef = { value: false }
+  const isExitingRef = {value: false}
   const exitEventHandler = async () => {
     stopSpinner(spinnerRef)
     cleanupEventListeners?.()
@@ -411,7 +411,7 @@ export async function startInteractiveLoop(
 
       // Execute AI prompt (agent uses its default session)
       // eslint-disable-next-line no-await-in-loop -- Sequential agent execution required for interactive loop
-      await executePrompt(parsed.rawInput, agent, { isExecutingRef, spinnerRef }, options?.eventBus)
+      await executePrompt(parsed.rawInput, agent, {isExecutingRef, spinnerRef}, options?.eventBus)
     }
   } finally {
     stopSpinner(spinnerRef)
@@ -432,7 +432,7 @@ export async function startInteractiveLoop(
 const cleanup = async (
   agent: ICipherAgent,
   rl: readline.Interface,
-  isExitingRef: { value: boolean },
+  isExitingRef: {value: boolean},
   eventBus?: AgentEventBus,
 ): Promise<void> => {
   if (isExitingRef.value) return

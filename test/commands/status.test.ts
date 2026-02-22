@@ -1,37 +1,31 @@
+import type {ConnectionResult, ITransportClient} from '@campfirein/brv-transport-client'
 import type {Config} from '@oclif/core'
 
+import {ConnectionFailedError, InstanceCrashedError, NoInstanceRunningError} from '@campfirein/brv-transport-client'
 import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
-import {sep} from 'node:path'
 import sinon, {restore, stub} from 'sinon'
 
-import type {ITokenStore} from '../../src/server/core/interfaces/auth/i-token-store.js'
-import type {IContextTreeService} from '../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
-import type {IContextTreeSnapshotService} from '../../src/server/core/interfaces/context-tree/i-context-tree-snapshot-service.js'
-import type {ITerminal} from '../../src/server/core/interfaces/services/i-terminal.js'
-import type {ITrackingService} from '../../src/server/core/interfaces/services/i-tracking-service.js'
-import type {IProjectConfigStore} from '../../src/server/core/interfaces/storage/i-project-config-store.js'
-import type {IStatusUseCase} from '../../src/server/core/interfaces/usecase/i-status-use-case.js'
+import type {StatusDTO} from '../../src/shared/transport/types/dto.js'
 
 import Status from '../../src/oclif/commands/status.js'
-import {BRV_CONFIG_VERSION} from '../../src/server/constants.js'
-import {AuthToken} from '../../src/server/core/domain/entities/auth-token.js'
-import {BrvConfig} from '../../src/server/core/domain/entities/brv-config.js'
-import {StatusUseCase} from '../../src/server/infra/usecase/status-use-case.js'
-import {createMockTerminal} from '../helpers/mock-factories.js'
 
 // ==================== TestableStatusCommand ====================
 
 class TestableStatusCommand extends Status {
-  constructor(
-    private readonly useCase: IStatusUseCase,
-    config: Config,
-  ) {
+  private readonly mockConnector: () => Promise<ConnectionResult>
+
+  constructor(mockConnector: () => Promise<ConnectionResult>, config: Config) {
     super([], config)
+    this.mockConnector = mockConnector
   }
 
-  protected createUseCase(): IStatusUseCase {
-    return this.useCase
+  protected override async fetchStatus(): Promise<StatusDTO> {
+    return super.fetchStatus({
+      maxRetries: 1,
+      retryDelayMs: 0,
+      transportConnector: this.mockConnector,
+    })
   }
 }
 
@@ -39,15 +33,9 @@ class TestableStatusCommand extends Status {
 
 describe('Status Command', () => {
   let config: Config
-  let configStore: sinon.SinonStubbedInstance<IProjectConfigStore>
-  let contextTreeService: sinon.SinonStubbedInstance<IContextTreeService>
-  let contextTreeSnapshotService: sinon.SinonStubbedInstance<IContextTreeSnapshotService>
   let loggedMessages: string[]
-  let terminal: ITerminal
-  let tokenStore: sinon.SinonStubbedInstance<ITokenStore>
-  let trackingService: sinon.SinonStubbedInstance<ITrackingService>
-  let validToken: AuthToken
-  let testConfig: BrvConfig
+  let mockClient: sinon.SinonStubbedInstance<ITransportClient>
+  let mockConnector: sinon.SinonStub<[], Promise<ConnectionResult>>
 
   before(async () => {
     config = await OclifConfig.load(import.meta.url)
@@ -56,59 +44,24 @@ describe('Status Command', () => {
   beforeEach(() => {
     loggedMessages = []
 
-    terminal = createMockTerminal({
-      log: (msg) => msg && loggedMessages.push(msg),
-    })
+    mockClient = {
+      connect: stub().resolves(),
+      disconnect: stub().resolves(),
+      getClientId: stub().returns('test-client-id'),
+      getState: stub().returns('connected'),
+      isConnected: stub().resolves(true),
+      joinRoom: stub().resolves(),
+      leaveRoom: stub().resolves(),
+      on: stub().returns(() => {}),
+      once: stub(),
+      onStateChange: stub().returns(() => {}),
+      request: stub() as unknown as ITransportClient['request'],
+      requestWithAck: stub().resolves({}),
+    } as unknown as sinon.SinonStubbedInstance<ITransportClient>
 
-    tokenStore = {
-      clear: stub(),
-      load: stub(),
-      save: stub(),
-    }
-
-    trackingService = {
-      track: stub<Parameters<ITrackingService['track']>, ReturnType<ITrackingService['track']>>().resolves(),
-    }
-
-    configStore = {
-      exists: stub(),
-      read: stub(),
-      write: stub(),
-    }
-
-    contextTreeService = {
-      exists: stub(),
-      initialize: stub(),
-    }
-
-    contextTreeSnapshotService = {
-      getChanges: stub(),
-      getCurrentState: stub(),
-      hasSnapshot: stub(),
-      initEmptySnapshot: stub(),
-      saveSnapshot: stub(),
-    }
-
-    validToken = new AuthToken({
-      accessToken: 'access-token',
-      expiresAt: new Date(Date.now() + 3600 * 1000),
-      refreshToken: 'refresh-token',
-      sessionKey: 'session-key',
-      tokenType: 'Bearer',
-      userEmail: 'user@example.com',
-      userId: 'user-123',
-    })
-
-    testConfig = new BrvConfig({
-      chatLogPath: 'chat.log',
-      createdAt: new Date().toISOString(),
-      cwd: '/test/cwd',
-      ide: 'Claude Code',
-      spaceId: 'space-1',
-      spaceName: 'backend-api',
-      teamId: 'team-1',
-      teamName: 'acme-corp',
-      version: BRV_CONFIG_VERSION,
+    mockConnector = stub<[], Promise<ConnectionResult>>().resolves({
+      client: mockClient as unknown as ITransportClient,
+      projectRoot: '/test/project',
     })
   })
 
@@ -116,319 +69,275 @@ describe('Status Command', () => {
     restore()
   })
 
-  function createTestUseCase(): StatusUseCase {
-    return new StatusUseCase({
-      contextTreeService,
-      contextTreeSnapshotService,
-      projectConfigStore: configStore,
-      terminal,
-      tokenStore,
-      trackingService,
+  function createCommand(): TestableStatusCommand {
+    const command = new TestableStatusCommand(mockConnector, config)
+    stub(command, 'log').callsFake((msg?: string) => {
+      if (msg) loggedMessages.push(msg)
     })
+    return command
   }
 
-  function createTestCommand(useCase: IStatusUseCase): TestableStatusCommand {
-    return new TestableStatusCommand(useCase, config)
+  function mockStatusResponse(status: StatusDTO): void {
+    ;(mockClient.requestWithAck as sinon.SinonStub).resolves({status})
   }
+
+  // ==================== Auth Status ====================
 
   describe('authentication status', () => {
-    it('should display "Not logged in" when token is undefined', async () => {
-      tokenStore.load.resolves()
-      configStore.exists.resolves(false)
-      contextTreeService.exists.resolves(false)
+    it('should display "Not logged in" when not authenticated', async () => {
+      mockStatusResponse({
+        authStatus: 'not_logged_in',
+        contextTreeStatus: 'not_initialized',
+        currentDirectory: '/test',
+      })
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      await createCommand().run()
 
-      await command.run()
-
-      expect(tokenStore.load.calledOnce).to.be.true
       expect(loggedMessages.some((m) => m.includes('Not logged in'))).to.be.true
     })
 
     it('should display "Session expired" when token is expired', async () => {
-      const expiredToken = new AuthToken({
-        accessToken: 'access-token',
-        expiresAt: new Date(Date.now() - 1000),
-        refreshToken: 'refresh-token',
-        sessionKey: 'session-key',
-        tokenType: 'Bearer',
-        userEmail: 'user@example.com',
-        userId: 'user-expired',
+      mockStatusResponse({
+        authStatus: 'expired',
+        contextTreeStatus: 'not_initialized',
+        currentDirectory: '/test',
       })
 
-      tokenStore.load.resolves(expiredToken)
-      configStore.exists.resolves(false)
-      contextTreeService.exists.resolves(false)
-
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
-
-      await command.run()
+      await createCommand().run()
 
       expect(loggedMessages.some((m) => m.includes('Session expired'))).to.be.true
     })
 
-    it('should display user email when logged in with valid token', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(false)
-      contextTreeService.exists.resolves(false)
+    it('should display user email when logged in', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'not_initialized',
+        currentDirectory: '/test',
+        userEmail: 'user@example.com',
+      })
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
-
-      await command.run()
+      await createCommand().run()
 
       expect(loggedMessages.some((m) => m.includes('user@example.com'))).to.be.true
     })
 
-    it('should handle token store errors gracefully', async () => {
-      tokenStore.load.rejects(new Error('Keychain access denied'))
-      configStore.exists.resolves(false)
-      contextTreeService.exists.resolves(false)
+    it('should display unknown auth status gracefully', async () => {
+      mockStatusResponse({
+        authStatus: 'unknown',
+        contextTreeStatus: 'not_initialized',
+        currentDirectory: '/test',
+      })
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      await createCommand().run()
 
-      // Should not throw
-      await command.run()
-
-      expect(tokenStore.load.calledOnce).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Unable to check'))).to.be.true
     })
   })
 
+  // ==================== Project Status ====================
+
   describe('project status', () => {
     it('should display "Not initialized" when project is not initialized', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(false)
-      contextTreeService.exists.resolves(false)
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'not_initialized',
+        currentDirectory: '/test',
+        userEmail: 'user@example.com',
+      })
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      await createCommand().run()
 
-      await command.run()
-
-      expect(configStore.exists.calledOnce).to.be.true
-      expect(configStore.read.called).to.be.false
       expect(loggedMessages.some((m) => m.includes('Not initialized'))).to.be.true
     })
 
     it('should display connected team/space when project is initialized', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(true)
-      configStore.read.resolves(testConfig)
-      contextTreeService.exists.resolves(false)
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'no_changes',
+        currentDirectory: '/test',
+        spaceName: 'backend-api',
+        teamName: 'acme-corp',
+        userEmail: 'user@example.com',
+      })
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      await createCommand().run()
 
-      await command.run()
-
-      expect(configStore.exists.calledOnce).to.be.true
-      expect(configStore.read.calledOnce).to.be.true
       expect(loggedMessages.some((m) => m.includes('acme-corp/backend-api'))).to.be.true
     })
 
-    it('should handle invalid config file gracefully', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(true)
-      configStore.read.resolves()
-      contextTreeService.exists.resolves(false)
+    it('should display "Not connected" when no team/space', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'no_changes',
+        currentDirectory: '/test',
+        userEmail: 'user@example.com',
+      })
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      await createCommand().run()
 
-      await command.run()
-
-      expect(loggedMessages.some((m) => m.includes('invalid'))).to.be.true
-    })
-
-    it('should handle config store errors gracefully', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.exists.rejects(new Error('File system error'))
-      contextTreeService.exists.resolves(false)
-
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
-
-      // Should not throw
-      await command.run()
-
-      expect(configStore.exists.calledOnce).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Not connected'))).to.be.true
     })
   })
 
+  // ==================== Context Tree Status ====================
+
   describe('context tree status', () => {
     it('should display "Not initialized" when context tree does not exist', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(true)
-      configStore.read.resolves(testConfig)
-      contextTreeService.exists.resolves(false)
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'not_initialized',
+        currentDirectory: '/test',
+        spaceName: 'backend-api',
+        teamName: 'acme-corp',
+        userEmail: 'user@example.com',
+      })
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      await createCommand().run()
 
-      await command.run()
-
-      expect(contextTreeService.exists.calledOnce).to.be.true
       expect(loggedMessages.some((m) => m.includes('Context Tree: Not initialized'))).to.be.true
     })
 
-    it('should create empty snapshot when none exists', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(true)
-      configStore.read.resolves(testConfig)
-      contextTreeService.exists.resolves(true)
-      contextTreeSnapshotService.hasSnapshot.resolves(false)
-      contextTreeSnapshotService.initEmptySnapshot.resolves()
-      contextTreeSnapshotService.getChanges.resolves({added: [], deleted: [], modified: []})
+    it('should display "No changes" when no changes detected', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'no_changes',
+        currentDirectory: '/test',
+        spaceName: 'backend-api',
+        teamName: 'acme-corp',
+        userEmail: 'user@example.com',
+      })
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      await createCommand().run()
 
-      await command.run()
-
-      expect(contextTreeSnapshotService.hasSnapshot.calledOnce).to.be.true
-      expect(contextTreeSnapshotService.initEmptySnapshot.calledOnce).to.be.true
-    })
-
-    it('should display "No changes" when snapshot exists and no changes', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(true)
-      configStore.read.resolves(testConfig)
-      contextTreeService.exists.resolves(true)
-      contextTreeSnapshotService.hasSnapshot.resolves(true)
-      contextTreeSnapshotService.getChanges.resolves({added: [], deleted: [], modified: []})
-
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
-
-      await command.run()
-
-      expect(contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
       expect(loggedMessages.some((m) => m.includes('No changes'))).to.be.true
     })
 
-    it('should display added files', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(true)
-      configStore.read.resolves(testConfig)
-      contextTreeService.exists.resolves(true)
-      contextTreeSnapshotService.hasSnapshot.resolves(true)
-      contextTreeSnapshotService.getChanges.resolves({
-        added: ['design/context.md', 'testing/context.md'],
-        deleted: [],
-        modified: [],
+    it('should display added files with context tree relative path', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeChanges: {
+          added: ['design/context.md', 'testing/context.md'],
+          deleted: [],
+          modified: [],
+        },
+        contextTreeRelativeDir: '.brv/context-tree',
+        contextTreeStatus: 'has_changes',
+        currentDirectory: '/test',
+        spaceName: 'backend-api',
+        teamName: 'acme-corp',
+        userEmail: 'user@example.com',
       })
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
-
-      await command.run()
+      await createCommand().run()
 
       expect(loggedMessages.some((m) => m.includes('Context Tree Changes'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('new file:') && m.includes(`design${sep}context.md`))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('new file:') && m.includes(`testing${sep}context.md`))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('new file:') && m.includes('.brv/context-tree/design/context.md')))
+        .to.be.true
+      expect(loggedMessages.some((m) => m.includes('new file:') && m.includes('.brv/context-tree/testing/context.md')))
+        .to.be.true
     })
 
     it('should display modified files', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(true)
-      configStore.read.resolves(testConfig)
-      contextTreeService.exists.resolves(true)
-      contextTreeSnapshotService.hasSnapshot.resolves(true)
-      contextTreeSnapshotService.getChanges.resolves({
-        added: [],
-        deleted: [],
-        modified: ['structure/context.md'],
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeChanges: {
+          added: [],
+          deleted: [],
+          modified: ['structure/context.md'],
+        },
+        contextTreeRelativeDir: '.brv/context-tree',
+        contextTreeStatus: 'has_changes',
+        currentDirectory: '/test',
+        userEmail: 'user@example.com',
       })
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      await createCommand().run()
 
-      await command.run()
-
-      expect(loggedMessages.some((m) => m.includes('modified:') && m.includes(`structure${sep}context.md`))).to.be.true
+      expect(
+        loggedMessages.some((m) => m.includes('modified:') && m.includes('.brv/context-tree/structure/context.md')),
+      ).to.be.true
     })
 
     it('should display deleted files', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(true)
-      configStore.read.resolves(testConfig)
-      contextTreeService.exists.resolves(true)
-      contextTreeSnapshotService.hasSnapshot.resolves(true)
-      contextTreeSnapshotService.getChanges.resolves({
-        added: [],
-        deleted: ['old/context.md'],
-        modified: [],
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeChanges: {
+          added: [],
+          deleted: ['old/context.md'],
+          modified: [],
+        },
+        contextTreeRelativeDir: '.brv/context-tree',
+        contextTreeStatus: 'has_changes',
+        currentDirectory: '/test',
+        userEmail: 'user@example.com',
       })
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      await createCommand().run()
 
-      await command.run()
-
-      expect(loggedMessages.some((m) => m.includes('deleted:') && m.includes(`old${sep}context.md`))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('deleted:') && m.includes('.brv/context-tree/old/context.md'))).to.be
+        .true
     })
 
     it('should display all change types sorted by path', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(true)
-      configStore.read.resolves(testConfig)
-      contextTreeService.exists.resolves(true)
-      contextTreeSnapshotService.hasSnapshot.resolves(true)
-      contextTreeSnapshotService.getChanges.resolves({
-        added: ['z-new/context.md'],
-        deleted: ['a-deleted/context.md'],
-        modified: ['m-modified/context.md'],
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeChanges: {
+          added: ['z-new/context.md'],
+          deleted: ['a-deleted/context.md'],
+          modified: ['m-modified/context.md'],
+        },
+        contextTreeRelativeDir: '.brv/context-tree',
+        contextTreeStatus: 'has_changes',
+        currentDirectory: '/test',
+        userEmail: 'user@example.com',
       })
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      await createCommand().run()
 
-      await command.run()
-
-      // Find the indices of each change in logged messages
       const changeMessages = loggedMessages.filter(
         (m) => m.includes('new file:') || m.includes('modified:') || m.includes('deleted:'),
       )
 
       expect(changeMessages.length).to.equal(3)
-      // Should be sorted by path: a-deleted, m-modified, z-new
       expect(changeMessages[0]).to.include('a-deleted')
       expect(changeMessages[1]).to.include('m-modified')
       expect(changeMessages[2]).to.include('z-new')
     })
+  })
 
-    it('should handle context tree service errors gracefully', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(true)
-      configStore.read.resolves(testConfig)
-      contextTreeService.exists.rejects(new Error('Permission denied'))
+  // ==================== Connection Errors ====================
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+  describe('connection errors', () => {
+    it('should handle NoInstanceRunningError', async () => {
+      mockConnector.rejects(new NoInstanceRunningError())
 
-      // Should not throw
-      await command.run()
+      await createCommand().run()
 
-      expect(contextTreeService.exists.calledOnce).to.be.true
+      expect(loggedMessages.some((m) => m.includes('No ByteRover instance is running'))).to.be.true
     })
 
-    it('should handle snapshot service errors gracefully', async () => {
-      tokenStore.load.resolves(validToken)
-      configStore.exists.resolves(true)
-      configStore.read.resolves(testConfig)
-      contextTreeService.exists.resolves(true)
-      contextTreeSnapshotService.hasSnapshot.rejects(new Error('IO error'))
+    it('should handle InstanceCrashedError', async () => {
+      mockConnector.rejects(new InstanceCrashedError())
 
-      const useCase = createTestUseCase()
-      const command = createTestCommand(useCase)
+      await createCommand().run()
 
-      // Should not throw
-      await command.run()
+      expect(loggedMessages.some((m) => m.includes('ByteRover instance has crashed'))).to.be.true
+    })
 
-      expect(contextTreeSnapshotService.hasSnapshot.calledOnce).to.be.true
+    it('should handle ConnectionFailedError', async () => {
+      mockConnector.rejects(new ConnectionFailedError(37_847, new Error('Connection refused')))
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Failed to connect'))).to.be.true
+    })
+
+    it('should handle unexpected errors', async () => {
+      mockConnector.rejects(new Error('Something went wrong'))
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Something went wrong'))).to.be.true
     })
   })
 })

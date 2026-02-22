@@ -1,23 +1,41 @@
 {
   "name": "byterover-cli",
   "description": "ByteRover's CLI",
-  "version": "1.7.2",
+  "version": "1.8.0",
   "author": "ByteRover",
   "bin": {
     "brv": "./bin/run.js"
   },
   "bugs": "https://github.com/campfirein/byterover-cli/issues",
   "dependencies": {
+    "@ai-sdk/anthropic": "^2.0.60",
+    "@ai-sdk/cerebras": "^1.0.11",
+    "@ai-sdk/cohere": "^2.0.0",
+    "@ai-sdk/deepinfra": "^1.0.35",
+    "@ai-sdk/google": "^2.0.52",
+    "@ai-sdk/google-vertex": "^3.0.100",
+    "@ai-sdk/groq": "^2.0.34",
+    "@ai-sdk/mistral": "^2.0.27",
+    "@ai-sdk/openai": "^2.0.89",
+    "@ai-sdk/openai-compatible": "^1.0.32",
+    "@ai-sdk/perplexity": "^2.0.0",
+    "@ai-sdk/togetherai": "^1.0.12",
+    "@ai-sdk/vercel": "^1.0.33",
+    "@ai-sdk/xai": "^2.0.57",
     "@anthropic-ai/sdk": "^0.70.1",
     "@anthropic-ai/vertex-sdk": "^0.14.0",
-    "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#0.0.8",
+    "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#release/0.8.1",
     "@google/genai": "^1.29.0",
     "@inkjs/ui": "^2.0.0",
     "@inquirer/prompts": "^7.9.0",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
+    "@oclif/plugin-update": "^4.7.19",
+    "@openrouter/ai-sdk-provider": "^1.5.4",
     "@socket.io/admin-ui": "^0.5.1",
+    "@tanstack/react-query": "^5.90.20",
+    "ai": "^5.0.129",
     "axios": "^1.12.2",
     "better-sqlite3": "^11.5.0",
     "chalk": "^5.6.2",
@@ -37,12 +55,12 @@
     "keytar": "^7.9.0",
     "lodash-es": "^4.17.22",
     "minisearch": "^7.2.0",
-    "mixpanel": "^0.18.1",
     "nanoid": "^5.1.6",
     "officeparser": "^6.0.4",
     "open": "^10.2.0",
     "openai": "^6.9.1",
     "react": "^19.2.1",
+    "react-router-dom": "^7.13.0",
     "remark-parse": "^11.0.0",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
@@ -51,7 +69,8 @@
     "unpdf": "^1.4.0",
     "update-notifier": "^7.3.1",
     "zod": "^3.25.76",
-    "zod-to-json-schema": "^3.24.6"
+    "zod-to-json-schema": "^3.24.6",
+    "zustand": "^5.0.11"
   },
   "bundledDependencies": [
     "@campfirein/brv-transport-client"
@@ -98,7 +117,6 @@
     "./oclif.manifest.json"
   ],
   "homepage": "https://www.byterover.dev/",
-  "keywords": [],
   "license": "UNLICENSED",
   "main": "dist/index.js",
   "type": "module",
@@ -116,18 +134,37 @@
       "prerun": "./dist/oclif/hooks/prerun/validate-brv-config-version"
     },
     "plugins": [
-      "@oclif/plugin-help"
+      "@oclif/plugin-help",
+      "@oclif/plugin-update"
     ],
     "topicSeparator": " ",
     "topics": {
+      "hub": {
+        "description": "Browse and manage skills & bundles registry",
+        "subtopics": {
+          "registry": {
+            "description": "Manage private hub registries"
+          }
+        }
+      },
       "space": {
         "description": "Manage ByteRover spaces"
+      }
+    },
+    "update": {
+      "s3": {
+        "host": "https://storage.googleapis.com/brv-releases"
+      },
+      "node": {
+        "version": "24.13.1"
       }
     }
   },
   "repository": "campfirein/byterover-cli",
   "scripts": {
     "build": "shx rm -rf dist && tsc -b && shx cp -r src/server/templates dist/server/templates && shx cp -r src/agent/resources dist/agent/resources",
+    "dev": "node bin/kill-daemon.js && npm run build && ./bin/dev.js",
+    "dev:kill": "node bin/kill-daemon.js",
     "lint": "eslint",
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "npm run lint",
@@ -135,5 +172,8 @@
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",
     "version": "git add README.md"
   },
-  "types": "dist/index.d.ts"
+  "types": "dist/index.d.ts",
+  "bundleDependencies": [
+    "@campfirein/brv-transport-client"
+  ]
 }

@@ -12,7 +12,6 @@ import {AgentEventBus} from '../../../src/agent/infra/events/event-emitter.js'
  */
 function createTestConfig(overrides?: Partial<ValidatedAgentConfig>): ValidatedAgentConfig {
   return {
-    accessToken: 'test-token',
     apiBaseUrl: 'https://api.test.com',
     llm: {
       maxIterations: 50,
@@ -27,6 +26,7 @@ function createTestConfig(overrides?: Partial<ValidatedAgentConfig>): ValidatedA
       maxSessions: 100,
       sessionTTL: 3_600_000,
     },
+    storagePath: '/tmp/brv-test-storage',
     useGranularStorage: false,
     ...overrides,
   }

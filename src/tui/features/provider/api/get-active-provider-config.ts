@@ -1,0 +1,30 @@
+import {queryOptions, useQuery} from '@tanstack/react-query'
+
+import type {QueryConfig} from '../../../lib/react-query.js'
+
+import {ProviderEvents, type ProviderGetActiveResponse} from '../../../../shared/transport/events/index.js'
+import {useTransportStore} from '../../../stores/transport-store.js'
+
+export const getActiveProviderConfig = (): Promise<ProviderGetActiveResponse> => {
+  const {apiClient} = useTransportStore.getState()
+  if (!apiClient) return Promise.reject(new Error('Not connected'))
+
+  return apiClient.request<ProviderGetActiveResponse>(ProviderEvents.GET_ACTIVE)
+}
+
+export const getActiveProviderConfigQueryOptions = () =>
+  queryOptions({
+    queryFn: getActiveProviderConfig,
+    queryKey: ['getActiveProviderConfig'],
+    staleTime: 0, // Always refetch on triggers
+  })
+
+type UseGetActiveProviderConfigOptions = {
+  queryConfig?: QueryConfig<typeof getActiveProviderConfigQueryOptions>
+}
+
+export const useGetActiveProviderConfig = ({queryConfig}: UseGetActiveProviderConfigOptions = {}) =>
+  useQuery({
+    ...getActiveProviderConfigQueryOptions(),
+    ...queryConfig,
+  })

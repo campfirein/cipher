@@ -57,6 +57,103 @@ for (const user of context.users) {
 }
 ```
 
+## Async Code (CRITICAL)
+
+The `code` parameter MUST always be **valid JavaScript code**, never raw JSON.
+Top-level `await` is **NOT supported** — it throws `SyntaxError`.
+
+When calling `tools.*` methods, you **MUST** wrap code in an async IIFE:
+
+```javascript
+(async () => {
+  // your async code here
+})()
+```
+
+**Example — Read a file:**
+```javascript
+// Read src/config.ts
+(async () => {
+  const content = await tools.readFile('src/config.ts');
+  console.log(content);
+})()
+```
+
+**Example — Curate to context tree:**
+```javascript
+// Curate alert engine to design/alert_engine
+(async () => {
+  const result = await tools.curate([{
+    type: 'UPSERT',
+    path: 'design/alert_engine',
+    title: 'Alert Engine',
+    reason: 'Document alert engine architecture',
+    content: {
+      rawConcept: {
+        task: 'Document the Alert Engine component',
+        flow: 'Events -> Alert Router -> Deduplication -> Routing'
+      },
+      narrative: {
+        structure: 'The Alert Engine consumes events and routes alerts.',
+        highlights: 'Deduplication, escalation, SLA tracking',
+        rules: 'Critical: PagerDuty + Slack. High: Slack + Email.'
+      }
+    },
+    domainContext: {
+      purpose: 'System architecture and design documentation',
+      scope: { included: ['Component architecture', 'Design patterns'] }
+    },
+    topicContext: {
+      overview: 'Alert Engine architecture and routing rules',
+      keyConcepts: ['Alert routing', 'Deduplication', 'SLAs']
+    }
+  }]);
+  console.log(result);
+})()
+```
+
+**Example — Search knowledge:**
+```javascript
+// Search for authentication patterns
+(async () => {
+  const results = await tools.searchKnowledge('authentication');
+  console.log(results);
+})()
+```
+
+**Sync code does NOT need a wrapper:**
+```javascript
+// Transform user data
+const users = [{name: 'Alice'}, {name: 'Bob'}];
+const names = lodash.map(users, 'name');
+console.log(names);
+```
+
+**Wrong patterns (will fail):**
+```javascript
+// WRONG: Raw JSON as code — code must be JavaScript!
+{"type": "UPSERT", "path": "design/auth", ...}
+
+// WRONG: Top-level await
+const file = await tools.readFile('f.ts');
+
+// WRONG: import/require
+import { readFile } from 'tools';
+```
+
+## Available `tools.*` Methods
+
+All methods are async and require the async IIFE wrapper.
+
+- **tools.readFile(path, options?)** — Read file contents
+- **tools.writeFile(path, content, options?)** — Write to a file
+- **tools.glob(pattern, options?)** — Find files by glob pattern
+- **tools.grep(pattern, options?)** — Search file contents by regex
+- **tools.listDirectory(path?, options?)** — List directory tree
+- **tools.curate(operations[], options?)** — Curate knowledge (ADD/UPDATE/UPSERT/MERGE/DELETE)
+- **tools.searchKnowledge(query, options?)** — Search curated knowledge
+- **tools.detectDomains(domains[])** — Detect domains from text
+
 ## Available Globals
 
 - **Console**: console.log, console.error, console.warn, console.info

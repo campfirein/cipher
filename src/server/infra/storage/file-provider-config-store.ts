@@ -35,7 +35,7 @@ const defaultDeps: FileProviderConfigStoreDeps = {
 
 /**
  * File-based implementation of IProviderConfigStore.
- * Stores configuration in ~/.config/brv/providers.json (or platform equivalent).
+ * Stores configuration in <global-config-dir>/providers.json (platform-specific path).
  */
 export class FileProviderConfigStore implements IProviderConfigStore {
   private cachedConfig: ProviderConfig | undefined
@@ -57,7 +57,7 @@ export class FileProviderConfigStore implements IProviderConfigStore {
    */
   public async connectProvider(
     providerId: string,
-    options?: {activeModel?: string},
+    options?: {activeModel?: string; baseUrl?: string},
   ): Promise<void> {
     const config = await this.read()
     const newConfig = config

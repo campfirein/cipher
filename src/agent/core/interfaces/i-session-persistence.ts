@@ -2,7 +2,7 @@
  * Interface for Session Persistence Operations
  *
  * Defines the contract for session metadata storage and retrieval.
- * Implementation uses JSON files in .brv/sessions/ directory.
+ * Implementation uses JSON files in the XDG sessions directory.
  */
 
 import type {ActiveSessionPointer, SessionInfo, SessionMetadata} from '../domain/session/session-metadata.js'
@@ -41,7 +41,7 @@ export interface SessionCleanupResult {
 /**
  * Interface for session metadata persistence.
  *
- * Manages session metadata stored in .brv/sessions/ directory:
+ * Manages session metadata stored in the XDG sessions directory:
  * - active.json: Current active session pointer
  * - session-*.json: Individual session metadata files
  */
@@ -57,20 +57,6 @@ export interface ISessionPersistence {
    * @returns Cleanup result with counts
    */
   cleanupSessions(config: SessionRetentionConfig): Promise<SessionCleanupResult>
-
-  /**
-   * Clear the active session pointer.
-   * Removes .brv/sessions/active.json
-   */
-  clearActiveSession(): Promise<void>
-
-  /**
-   * Delete a session and its metadata.
-   *
-   * @param sessionId - Session ID to delete
-   * @returns True if session was deleted, false if not found
-   */
-  deleteSession(sessionId: string): Promise<boolean>
 
   /**
    * Get the currently active session pointer.
@@ -110,14 +96,6 @@ export interface ISessionPersistence {
   listSessions(): Promise<SessionInfo[]>
 
   /**
-   * Mark a session as ended.
-   * Updates the session status to 'ended' and lastUpdated timestamp.
-   *
-   * @param sessionId - Session ID to mark as ended
-   */
-  markSessionEnded(sessionId: string): Promise<void>
-
-  /**
    * Mark a session as interrupted (e.g., process crashed).
    * Updates the session status to 'interrupted'.
    *
@@ -135,25 +113,9 @@ export interface ISessionPersistence {
 
   /**
    * Set the active session pointer.
-   * Creates or updates .brv/sessions/active.json
+   * Creates or updates active.json in sessions directory
    *
    * @param sessionId - Session ID to set as active
    */
   setActiveSession(sessionId: string): Promise<void>
-
-  /**
-   * Set session title from first user message.
-   *
-   * @param sessionId - Session ID to update
-   * @param title - Session title
-   */
-  setSessionTitle(sessionId: string, title: string): Promise<void>
-
-  /**
-   * Update session activity (lastUpdated timestamp and message count).
-   *
-   * @param sessionId - Session ID to update
-   * @param messageCount - Current message count
-   */
-  updateSessionActivity(sessionId: string, messageCount: number): Promise<void>
 }

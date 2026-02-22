@@ -229,25 +229,36 @@ export class ReactiveOverflowStrategy implements ICompressionStrategy {
    * Format messages for the summary prompt.
    */
   private formatMessagesForSummary(messages: InternalMessage[]): string {
+    const MAX_TOTAL_CHARS = 50_000
+    const MAX_PER_MESSAGE_CHARS = 1000
     const lines: string[] = []
+    let totalChars = 0
 
     for (const message of messages) {
+      if (totalChars >= MAX_TOTAL_CHARS) {
+        lines.push(`[... ${messages.length - lines.length} more messages truncated for summarization]`)
+
+        break
+      }
+
       const role = this.formatRole(message.role)
       const content = this.extractTextContent(message)
 
-      // Truncate very long messages
-      const truncatedContent = content.length > 2000
-        ? `${content.slice(0, 2000)}... [truncated]`
+      // Truncate very long messages (capped at 1K chars to prevent overflow)
+      const truncatedContent = content.length > MAX_PER_MESSAGE_CHARS
+        ? `${content.slice(0, MAX_PER_MESSAGE_CHARS)}... [truncated]`
         : content
 
       if (truncatedContent) {
         lines.push(`${role}: ${truncatedContent}`)
+        totalChars += truncatedContent.length
       }
 
       // Include tool call information
       if (message.toolCalls && message.toolCalls.length > 0) {
         const toolNames = message.toolCalls.map((tc) => tc.function.name).join(', ')
         lines.push(`[Used tools: ${toolNames}]`)
+        totalChars += toolNames.length + 15
       }
     }
 
