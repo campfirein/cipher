@@ -12,6 +12,14 @@ describe('SocketIOTransportServer', () => {
   let server: SocketIOTransportServer
   let clientSocket: ClientSocket | undefined
 
+  before(() => {
+    process.env.BRV_SESSION_LOG = '/dev/null'
+  })
+
+  after(() => {
+    delete process.env.BRV_SESSION_LOG
+  })
+
   beforeEach(() => {
     server = new SocketIOTransportServer()
   })

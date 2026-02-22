@@ -15,13 +15,13 @@ import {
 } from '@campfirein/brv-transport-client'
 import {Command, Flags} from '@oclif/core'
 import chalk from 'chalk'
-import {existsSync} from 'node:fs'
+import {existsSync, readdirSync, statSync} from 'node:fs'
 import {platform} from 'node:os'
+import {join} from 'node:path'
 import {pathToFileURL} from 'node:url'
 
 import {getGlobalConfigDir} from '../../server/utils/global-config-path.js'
 import {getGlobalDataDir} from '../../server/utils/global-data-path.js'
-import {getGlobalLogsDir} from '../../server/utils/global-logs-path.js'
 
 /**
  * Shape of daemon:getState response.
@@ -54,6 +54,7 @@ type DaemonState = {
     type: string
   }>
   daemon: {
+    logPath?: string
     pid: number
     port: number
     startedAt: number
@@ -93,6 +94,25 @@ type DaemonState = {
 const MONITOR_REFRESH_MS = 2000
 
 const existsLabel = (exists: boolean): string => (exists ? '' : chalk.yellow(' (not created)'))
+
+/** Maximum items to show per list section before truncating with "... and N more". */
+const RENDER_LIMIT = 5
+
+/**
+ * Find the most recently modified server-*.log in the daemon logs directory.
+ * Returns undefined if directory doesn't exist or has no matching files.
+ */
+const getCurrentDaemonLog = (logsDir: string): string | undefined => {
+  try {
+    const files = readdirSync(logsDir)
+      .filter((f) => f.startsWith('server-') && f.endsWith('.log'))
+      .map((f) => ({file: f, mtime: statSync(join(logsDir, f)).mtimeMs}))
+      .sort((a, b) => b.mtime - a.mtime)
+    return files.length > 0 ? join(logsDir, files[0].file) : undefined
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * Wrap a file path in an OSC 8 terminal hyperlink.
@@ -270,8 +290,11 @@ export default class Debug extends Command {
       return
     }
 
-    for (const [i, entry] of agentPool.entries.entries()) {
-      const isLast = i === agentPool.entries.length - 1
+    const visible = agentPool.entries.slice(0, RENDER_LIMIT)
+    const hidden = agentPool.entries.length - visible.length
+
+    for (const [i, entry] of visible.entries()) {
+      const isLast = i === visible.length - 1 && hidden === 0
       const prefix = isLast ? '│   └── ' : '│   ├── '
       const childPrefix = isLast ? '│       ' : '│   │   '
       const status = entry.hasActiveTask
@@ -291,6 +314,10 @@ export default class Debug extends Command {
         `${childPrefix}└── Last used: ${this.formatTimeAgo(entry.lastUsedAt)}`,
       )
     }
+
+    if (hidden > 0) {
+      lines.push(`│   └── ${chalk.dim(`... and ${hidden} more`)}`)
+    }
   }
 
   private renderClients(lines: string[], clients: DaemonState['clients']): void {
@@ -300,8 +327,11 @@ export default class Debug extends Command {
       return
     }
 
-    for (const [i, client] of clients.entries()) {
-      const isLast = i === clients.length - 1
+    const visible = clients.slice(0, RENDER_LIMIT)
+    const hidden = clients.length - visible.length
+
+    for (const [i, client] of visible.entries()) {
+      const isLast = i === visible.length - 1 && hidden === 0
       const prefix = isLast ? '    └── ' : '    ├── '
       const childPrefix = isLast ? '        ' : '    │   '
       const typeLabel = client.agentName ? `${client.type} · ${client.agentName}` : client.type
@@ -317,6 +347,10 @@ export default class Debug extends Command {
         `${childPrefix}└── Project: ${client.projectPath ?? chalk.dim('(no project)')}`,
       )
     }
+
+    if (hidden > 0) {
+      lines.push(`    └── ${chalk.dim(`... and ${hidden} more`)}`)
+    }
   }
 
   private async renderOnce(client: ITransportClient, format: string): Promise<void> {
@@ -330,16 +364,24 @@ export default class Debug extends Command {
     }
   }
 
-  private renderStoragePaths(lines: string[]): void {
+  private renderStoragePaths(lines: string[], daemonLogPath?: string): void {
     const configDir = getGlobalConfigDir()
     const dataDir = getGlobalDataDir()
-    const logsDir = getGlobalLogsDir()
+    const logsDir = join(dataDir, 'logs')
+    const projectsDir = join(dataDir, 'projects')
+    const currentLog = daemonLogPath ?? getCurrentDaemonLog(logsDir)
+
+    lines.push('├── Storage Paths')
+
+    if (configDir !== dataDir) {
+      lines.push(`│   ├── Config:   ${fileHyperlink(configDir)}${existsLabel(existsSync(configDir))}`)
+    }
 
     lines.push(
-      '├── Storage Paths',
-      `│   ├── Config:  ${fileHyperlink(configDir)}${existsLabel(existsSync(configDir))}`,
-      `│   ├── Data:    ${fileHyperlink(dataDir)}${existsLabel(existsSync(dataDir))}`,
-      `│   ├── Logs:    ${fileHyperlink(logsDir)}${existsLabel(existsSync(logsDir))}`,
+      `│   ├── Data:     ${fileHyperlink(dataDir)}${existsLabel(existsSync(dataDir))}`,
+      `│   ├── Projects: ${fileHyperlink(projectsDir)}${existsLabel(existsSync(projectsDir))}`,
+      `│   ├── Logs:     ${fileHyperlink(logsDir)}${existsLabel(existsSync(logsDir))}`,
+      `│   ├── Current Log: ${currentLog ? fileHyperlink(currentLog) : chalk.dim('(none)')}`,
     )
 
     const overrides: Array<{name: string; value: string}> = []
@@ -382,8 +424,11 @@ export default class Debug extends Command {
     if (tasks.activeTasks.length === 0) {
       lines.push('│   └── (none)')
     } else {
-      for (const [i, task] of tasks.activeTasks.entries()) {
-        const isLast = i === tasks.activeTasks.length - 1
+      const visible = tasks.activeTasks.slice(0, RENDER_LIMIT)
+      const hidden = tasks.activeTasks.length - visible.length
+
+      for (const [i, task] of visible.entries()) {
+        const isLast = i === visible.length - 1 && hidden === 0
         const prefix = isLast ? '│   └── ' : '│   ├── '
         const childPrefix = isLast ? '│       ' : '│   │   '
 
@@ -394,13 +439,21 @@ export default class Debug extends Command {
           `${childPrefix}└── Project: ${task.projectPath ?? '(none)'}`,
         )
       }
+
+      if (hidden > 0) {
+        lines.push(`│   └── ${chalk.dim(`... and ${hidden} more`)}`)
+      }
     }
 
     const completedTasks = tasks.completedTasks ?? []
     if (completedTasks.length > 0) {
       lines.push(`├── Recently Completed (${completedTasks.length})`)
-      for (const [i, task] of completedTasks.entries()) {
-        const isLast = i === completedTasks.length - 1
+
+      const visible = completedTasks.slice(0, RENDER_LIMIT)
+      const hidden = completedTasks.length - visible.length
+
+      for (const [i, task] of visible.entries()) {
+        const isLast = i === visible.length - 1 && hidden === 0
         const prefix = isLast ? '│   └── ' : '│   ├── '
         const childPrefix = isLast ? '│       ' : '│   │   '
 
@@ -411,11 +464,16 @@ export default class Debug extends Command {
           `${childPrefix}└── Project: ${task.projectPath ?? '(none)'}`,
         )
       }
+
+      if (hidden > 0) {
+        lines.push(`│   └── ${chalk.dim(`... and ${hidden} more`)}`)
+      }
     }
   }
 
   private renderTree(state: DaemonState): void {
     const {agentIdleStatus, agentPool, clients, daemon, daemonIdleStatus, tasks, transport} = state
+
     const lines: string[] = []
 
     // Root
@@ -439,7 +497,7 @@ export default class Debug extends Command {
     }
 
     // Storage Paths
-    this.renderStoragePaths(lines)
+    this.renderStoragePaths(lines, daemon.logPath)
 
     // Transport Server
     lines.push(
@@ -456,10 +514,17 @@ export default class Debug extends Command {
     if (agentPool.queue.length === 0) {
       lines.push('│   └── (empty)')
     } else {
-      for (const [i, q] of agentPool.queue.entries()) {
-        const isLast = i === agentPool.queue.length - 1
+      const visibleQueue = agentPool.queue.slice(0, RENDER_LIMIT)
+      const hiddenQueue = agentPool.queue.length - visibleQueue.length
+
+      for (const [i, q] of visibleQueue.entries()) {
+        const isLast = i === visibleQueue.length - 1 && hiddenQueue === 0
         const prefix = isLast ? '│   └── ' : '│   ├── '
         lines.push(`${prefix}${q.projectPath}: ${q.queueLength} queued`)
+      }
+
+      if (hiddenQueue > 0) {
+        lines.push(`│   └── ${chalk.dim(`... and ${hiddenQueue} more`)}`)
       }
     }
 
@@ -470,15 +535,18 @@ export default class Debug extends Command {
   }
 
   private resolveStoragePaths(): {
-    config: string
+    config: string | undefined
+    currentLog: string | undefined
     data: string
-    existence: {config: boolean; data: boolean; logs: boolean}
+    existence: {config: boolean; data: boolean; logs: boolean; projects: boolean}
     logs: string
     overrides: Array<{name: string; value: string}>
+    projects: string
   } {
     const configDir = getGlobalConfigDir()
     const dataDir = getGlobalDataDir()
-    const logsDir = getGlobalLogsDir()
+    const logsDir = join(dataDir, 'logs')
+    const projectsDir = join(dataDir, 'projects')
 
     const overrides: Array<{name: string; value: string}> = []
 
@@ -501,15 +569,18 @@ export default class Debug extends Command {
     }
 
     return {
-      config: configDir,
+      config: configDir === dataDir ? undefined : configDir,
+      currentLog: getCurrentDaemonLog(logsDir),
       data: dataDir,
       existence: {
         config: existsSync(configDir),
         data: existsSync(dataDir),
         logs: existsSync(logsDir),
+        projects: existsSync(projectsDir),
       },
       logs: logsDir,
       overrides,
+      projects: projectsDir,
     }
   }
 

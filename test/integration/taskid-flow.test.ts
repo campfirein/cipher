@@ -31,6 +31,14 @@ describe('TaskId Integration Flow', () => {
   let client: TransportClient
   const port = 9800
 
+  before(() => {
+    process.env.BRV_SESSION_LOG = '/dev/null'
+  })
+
+  after(() => {
+    delete process.env.BRV_SESSION_LOG
+  })
+
   beforeEach(async () => {
     // Start Transport server
     server = new SocketIOTransportServer()
