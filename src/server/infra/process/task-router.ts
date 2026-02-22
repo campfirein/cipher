@@ -318,9 +318,11 @@ export class TaskRouter {
    *
    * Ordering (critical for correctness):
    * 1. Idempotency check
-   * 2. Early validation (no hooks called on validation failures)
+   * 2. Early validation — on failure: send task:error, return. No task stored, no task:created, no hooks called.
    * 3. Store task + send task:created synchronously (before any await)
    * 4. Await lifecycle hooks → get logId
+   *    Note: task:ack is intentionally delayed until hooks resolve so logId can be included.
+   *    This reverses the old ordering (previously ack preceded created).
    * 5. Send task:ack with logId
    * 6. Submit to agentPool (fire-and-forget)
    */
@@ -408,7 +410,7 @@ export class TaskRouter {
       clientId,
     )
 
-    // ── Await lifecycle hooks (with timeout) ──────────────────────────────────
+    // ── Await lifecycle hooks ─────────────────────────────────────────────────
 
     const logId = await this.runCreateHooks(taskId)
     const task = this.tasks.get(taskId)
@@ -443,15 +445,6 @@ export class TaskRouter {
         if (!submitResult.success) {
           transportLog(`AgentPool rejected task ${taskId}: ${submitResult.reason} — ${submitResult.message}`)
           const error = serializeTaskError(new Error(submitResult.message))
-          this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
-          broadcastToProjectRoom(
-            this.projectRegistry,
-            this.projectRouter,
-            projectPath,
-            TransportTaskEventNames.ERROR,
-            {error, taskId},
-            clientId,
-          )
           const rejectedTask = this.tasks.get(taskId) ?? {
             clientId,
             content: data.content,
@@ -460,6 +453,23 @@ export class TaskRouter {
             type: data.type,
           }
           this.tasks.delete(taskId)
+          this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {
+            ...(rejectedTask.logId ? {logId: rejectedTask.logId} : {}),
+            error,
+            taskId,
+          })
+          broadcastToProjectRoom(
+            this.projectRegistry,
+            this.projectRouter,
+            projectPath,
+            TransportTaskEventNames.ERROR,
+            {
+              ...(rejectedTask.logId ? {logId: rejectedTask.logId} : {}),
+              error,
+              taskId,
+            },
+            clientId,
+          )
           this.notifyHooksError(taskId, submitResult.message, rejectedTask).catch(() => {})
         }
       })
@@ -468,15 +478,6 @@ export class TaskRouter {
           `AgentPool.submitTask threw unexpectedly for task ${taskId}: ${error_ instanceof Error ? error_.message : String(error_)}`,
         )
         const error = serializeTaskError(error_ instanceof Error ? error_ : new Error(String(error_)))
-        this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
-        broadcastToProjectRoom(
-          this.projectRegistry,
-          this.projectRouter,
-          projectPath,
-          TransportTaskEventNames.ERROR,
-          {error, taskId},
-          clientId,
-        )
         const errorMsg = error_ instanceof Error ? error_.message : String(error_)
         const thrownTask = this.tasks.get(taskId) ?? {
           clientId,
@@ -486,6 +487,23 @@ export class TaskRouter {
           type: data.type,
         }
         this.tasks.delete(taskId)
+        this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {
+          ...(thrownTask.logId ? {logId: thrownTask.logId} : {}),
+          error,
+          taskId,
+        })
+        broadcastToProjectRoom(
+          this.projectRegistry,
+          this.projectRouter,
+          projectPath,
+          TransportTaskEventNames.ERROR,
+          {
+            ...(thrownTask.logId ? {logId: thrownTask.logId} : {}),
+            error,
+            taskId,
+          },
+          clientId,
+        )
         this.notifyHooksError(taskId, errorMsg, thrownTask).catch(() => {})
       })
 

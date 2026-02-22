@@ -17,6 +17,10 @@ import type {
  * isolated bucket — curate() calls within a sandbox execution automatically
  * propagate through the async context chain to the correct bucket.
  *
+ * Requirement: LocalSandbox must execute in-process (same Node.js thread).
+ * AsyncLocalStorage does NOT propagate across worker thread or child process
+ * boundaries — if the sandbox ever moves off-thread, this silently stops working.
+ *
  * Usage: const {result, curateResults} = await collector.collect(() => sandbox.execute(...))
  */
 export class CurateResultCollector implements ICurateService {

@@ -111,13 +111,12 @@ export class SandboxService implements ISandboxService {
       sandbox.updateContext({ context: config.contextPayload })
     }
 
-    const box = sandbox
     if (this.collector) {
-      const {curateResults, result} = await this.collector.collect(() => box.execute(code, config))
+      const {curateResults, result} = await this.collector.collect(() => sandbox.execute(code, config))
       return curateResults.length > 0 ? {...result, curateResults} : result
     }
 
-    return box.execute(code, config)
+    return sandbox.execute(code, config)
   }
 
   /**

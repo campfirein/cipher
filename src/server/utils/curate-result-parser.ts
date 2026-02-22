@@ -44,7 +44,8 @@ export const CurateResultSchema = z.object({
  * `applied` are merged, supporting multiple curate() calls in a single code block.
  */
 export function extractCurateResultFromCodeExec(resultData: Record<string, unknown>): unknown {
-  // Strategy 0: SandboxService curate accumulator (most reliable — works for any LLM code pattern)
+  // Strategy 0: SandboxService curate accumulator (most reliable — works for any LLM code pattern).
+  // Only present when SandboxService.setCurateService() has been called (i.e. curate tasks, not query tasks).
   if (Array.isArray(resultData.curateResults) && resultData.curateResults.length > 0) {
     const appliedItems: unknown[] = []
     for (const curateResult of resultData.curateResults) {
