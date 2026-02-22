@@ -58,7 +58,7 @@ export const WelcomeBox: React.FC = () => {
           <Text color={colors.text}>-------------------------------------------------------------</Text>
           <Text color={colors.text}>STORE         <Text color={colors.warning}>/curate</Text>       Save context or knowledge</Text>
           <Text color={colors.text}>RETRIEVE      <Text color={colors.warning}>/query</Text>        Fetch relevant memories</Text>
-          <Text color={colors.text}>CONNECT       <Text color={colors.warning}>/connector</Text>    Connect ByteRover to your agent</Text>
+          <Text color={colors.text}>CONNECT       <Text color={colors.warning}>/connectors</Text>    Connect ByteRover to your agent</Text>
           <Text color={colors.text}>-------------------------------------------------------------</Text>
           <Text color={colors.text}> </Text>
           <Text color={colors.text}>GET STARTED:</Text>
