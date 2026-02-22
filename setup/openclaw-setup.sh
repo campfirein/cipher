@@ -29,21 +29,22 @@ fi
 if command -v brv &> /dev/null; then
     echo -e "${GREEN}[âœ“] brv (ByteRover Skill) is installed${NC}"
 else
-    echo -e "${YELLOW}[!] brv is missing. Installing byterover-headless...${NC}"
-    if clawhub install --force byterover-headless; then
+    echo -e "${YELLOW}[!] brv is missing. Installing byterover...${NC}"
+    if clawhub install --force byterover; then
         echo -e "${GREEN}[âœ“] brv skill installed successfully${NC}"
     else
-        echo -e "${RED}[X] Failed to install byterover-headless.${NC}"
+        echo -e "${RED}[X] Failed to install byterover.${NC}"
         exit 1
     fi
 fi
 
-# Install/Update byterover-cli (Explicit)
-echo -e "${YELLOW}Installing byterover-cli via npm...${NC}"
-if npm install -g byterover-cli; then
-    echo -e "${GREEN}[âœ“] byterover-cli installed successfully${NC}"
+# Check byterover-cli (Must be pre-installed)
+if command -v byterover-cli &> /dev/null; then
+    echo -e "${GREEN}[âœ“] byterover-cli is installed${NC}"
+elif command -v brv &> /dev/null; then
+    echo -e "${GREEN}[âœ“] brv is installed${NC}"
 else
-    echo -e "${RED}[X] Failed to install byterover-cli. Check permissions.${NC}"
+    echo -e "${RED}[X] byterover-cli (brv) is missing.${NC} Please install it first (npm install -g byterover-cli)."
     exit 1
 fi
 
@@ -55,107 +56,34 @@ fi
 
 echo ""
 
-# --- Phase 1.1: Workspace Discovery ---
-echo -e "${BLUE}Phase 1.1: Workspace Discovery${NC}"
+# --- Phase 1.1: ByteRover Storage Location ---
+echo -e "${BLUE}Phase 1.1: ByteRover Storage Location${NC}"
 
-if [ ! -f "$CONFIG_PATH" ]; then
-    echo -e "${RED}Error: OpenClaw config not found at $CONFIG_PATH${NC}"
-    exit 1
+# Default storage is ~/.openclaw to share context across agents
+BRV_STORAGE="$HOME/.openclaw"
+
+echo -e "ByteRover Context Tree will be stored in: ${GREEN}$BRV_STORAGE/.brv${NC}"
+echo "This allows all agents to share the same knowledge base."
+
+if [ ! -d "$BRV_STORAGE" ]; then
+    echo -e "${YELLOW}Directory does not exist. Creating...${NC}"
+    mkdir -p "$BRV_STORAGE"
 fi
 
-# Use node to parse openclaw.json and find workspaces
-WORKSPACES=$(node -e "
-try {
-    const fs = require('fs');
-    const config = JSON.parse(fs.readFileSync('$CONFIG_PATH', 'utf8'));
-    const workspaces = new Set();
-    
-    // Check defaults
-    if (config.agents?.defaults?.workspace) {
-        workspaces.add(config.agents.defaults.workspace);
-    }
-    
-    // Check agent list
-    if (Array.isArray(config.agents?.list)) {
-        config.agents.list.forEach(a => {
-            if (a.workspace) workspaces.add(a.workspace);
-        });
-    }
-    
-    console.log(Array.from(workspaces).join('\n'));
-} catch (e) {
-    console.error(e);
-    process.exit(1);
-}
-")
-
-# Convert to array
-IFS=$'\n' read -rd '' -a WS_ARRAY <<< "$WORKSPACES" || true
-
-echo "Found the following OpenClaw workspaces:"
-i=1
-for ws in "${WS_ARRAY[@]}"; do
-    echo "  [$i] $ws"
-    ((i++))
-done
-
-# Default option ( ~/.openclaw/workspace/.brv is not standard, sticking to discovered or custom)
-echo "  [c] Custom path"
-
-# Force read from /dev/tty to support curl | bash
-if [ -t 0 ]; then
-    read -p "Which workspace should host the .brv Context Tree? [1]: " WS_CHOICE
-else
-    read -p "Which workspace should host the .brv Context Tree? [1]: " WS_CHOICE < /dev/tty
-fi
-
-WS_CHOICE=${WS_CHOICE:-1}
-
-TARGET_WORKSPACE=""
-
-if [[ "$WS_CHOICE" == "c" ]]; then
-    if [ -t 0 ]; then
-        read -p "Enter full path: " TARGET_WORKSPACE
-    else
-        read -p "Enter full path: " TARGET_WORKSPACE < /dev/tty
-    fi
-else
-    # Validate input is a number
-    if ! [[ "$WS_CHOICE" =~ ^[0-9]+$ ]]; then
-        echo -e "${RED}Invalid selection: $WS_CHOICE${NC}"
-        exit 1
-    fi
-    INDEX=$((WS_CHOICE-1))
-    TARGET_WORKSPACE="${WS_ARRAY[$INDEX]}"
-fi
-
-# Expand tilde if present
-TARGET_WORKSPACE="${TARGET_WORKSPACE/#\~/$HOME}"
-
-if [ -z "$TARGET_WORKSPACE" ]; then
-    echo -e "${RED}Invalid workspace selection.${NC}"
-    exit 1
-fi
-
-echo -e "Selected Workspace: ${GREEN}$TARGET_WORKSPACE${NC}"
-
-# Initialize BRV
-if [ ! -d "$TARGET_WORKSPACE" ]; then
-    echo -e "${YELLOW}Workspace does not exist. Creating...${NC}"
-    mkdir -p "$TARGET_WORKSPACE"
-fi
-
-echo "Initializing ByteRover in workspace..."
-cd "$TARGET_WORKSPACE"
-# Try init (ignore error if already initialized)
+# Initialize BRV in storage location
+echo "Initializing ByteRover..."
+cd "$BRV_STORAGE"
 brv init --headless --format json || true
-echo -e "${GREEN}[âœ“] ByteRover initialized in $TARGET_WORKSPACE/.brv${NC}"
+echo -e "${GREEN}[âœ“] ByteRover initialized in $BRV_STORAGE/.brv${NC}"
 echo ""
 
 # --- Phase 2: Configuration ---
 echo -e "${BLUE}Phase 2: Configuration${NC}"
 
-# 2.1 Memory Flush
+# 2.1 Curate Story Options
+echo -e "${BLUE}--- Curate Story Options ---${NC}"
+
+# Automatic Memory Flush
 echo -e "${YELLOW}Feature: Automatic Memory Flush${NC}"
 echo "Automatically curates insights to ByteRover when the context window fills up."
 if [ -t 0 ]; then
@@ -191,14 +119,13 @@ if [[ "$FLUSH_CONFIRM" =~ ^[Yy]$ ]]; then
         process.exit(1);
     }
     "
-    # Trigger reload (optional, but good practice if CLI supports it, otherwise gateway auto-reloads on file change)
     echo -e "${GREEN}[âœ“] openclaw.json updated.${NC}"
 else
     echo "Skipping Memory Flush."
 fi
 echo ""
 
-# 2.2 Cron (Knowledge Mining)
+# Daily Knowledge Mining (Cron)
 echo -e "${YELLOW}Feature: Daily Knowledge Mining (Cron)${NC}"
 echo "Runs a daily agent job to read 'memory/YYYY-MM-DD.md', extract patterns, and sync."
 if [ -t 0 ]; then
@@ -208,37 +135,88 @@ else
 fi
 
 if [[ "$CRON_CONFIRM" =~ ^[Yy]$ ]]; then
-    echo "Scheduling cron job via OpenClaw CLI..."
+    CRON_NAME="ByteRover Knowledge Miner"
     
-    CRON_PROMPT="DAILY KNOWLEDGE MINING:
+    # Check if cron already exists (robust check using JSON)
+    CRON_LIST_TMP=$(mktemp)
+    
+    # 1. Fetch JSON output to temp file
+    if openclaw cron list --json > "$CRON_LIST_TMP" 2>/dev/null; then
+        
+        # 2. Use jq if available for reliable parsing, fallback to python/node/grep
+        EXISTS=false
+        
+        # Try node (most likely available given openclaw environment)
+        if command -v node &> /dev/null; then
+            EXISTS=$(node -e "
+                try {
+                    const fs = require('fs');
+                    const jobs = JSON.parse(fs.readFileSync('$CRON_LIST_TMP', 'utf8')).jobs || [];
+                    const exists = jobs.some(j => j.name === '$CRON_NAME');
+                    console.log(exists ? 'true' : 'false');
+                } catch(e) { console.log('false'); }
+            ")
+        elif grep -Fq "\"name\": \"$CRON_NAME\"" "$CRON_LIST_TMP" || grep -Fq "\"name\":\"$CRON_NAME\"" "$CRON_LIST_TMP"; then
+            # Fallback to grep with/without space
+            EXISTS=true
+        fi
+
+        if [[ "$EXISTS" == "true" ]]; then
+            echo -e "${YELLOW}Cron job '$CRON_NAME' already exists. Skipping creation.${NC}"
+        else
+            echo "Scheduling cron job via OpenClaw CLI..."
+            
+            CRON_PROMPT="DAILY KNOWLEDGE MINING:
 1. Read the latest file in memory/ (e.g. memory/$(date +%Y-%m-%d).md).
 2. Extract architectural decisions, reusable patterns, or critical bug fixes.
 3. If valuable info is found, run 'brv curate \"<summary>\"' to save it to the Context Tree."
 
-    # Use openclaw cron add
-    if openclaw cron add \
-        --name "ByteRover Knowledge Miner" \
-        --cron "0 9 * * *" \
-        --session isolated \
-        --message "$CRON_PROMPT" \
-        --announce < /dev/null; then
-        echo -e "${GREEN}[âœ“] Cron job scheduled successfully.${NC}"
+            # Use openclaw cron add
+            if openclaw cron add \
+                --name "$CRON_NAME" \
+                --cron "0 9 * * *" \
+                --session isolated \
+                --message "$CRON_PROMPT" \
+                --announce < /dev/null > /dev/null 2>&1; then
+                echo -e "${GREEN}[âœ“] Cron job scheduled successfully.${NC}"
+            else
+                echo -e "${RED}[X] Failed to schedule cron job (or it might have been created silently).${NC}"
+            fi
+        fi
     else
-        echo -e "${RED}[X] Failed to schedule cron job.${NC}"
+        echo -e "${RED}[!] Failed to list cron jobs. Skipping check.${NC}"
     fi
+    rm "$CRON_LIST_TMP"
 else
     echo "Skipping Cron setup."
 fi
 echo ""
 
-# 2.3 ByteRover Plugin
-echo -e "${YELLOW}Feature: ByteRover Context Plugin${NC}"
+echo "Debug: Proceeding to Query Story Options..."
+
+# 2.2 Query Story Options
+echo -e "${BLUE}--- Query Story Options ---${NC}"
+
+echo "Debug: Configuring ByteRover Plugin..."
+
+# ByteRover Plugin (Hooks)
+echo -e "${YELLOW}Feature: ByteRover Context Hooks (Plugin)${NC}"
 echo "Installs a custom OpenClaw plugin (byterover) to inject memory context directly into sessions."
+
+echo "Debug: Prompting for plugin installation..."
+
 if [ -t 0 ]; then
-    read -p "Install ByteRover Context Plugin? (y/N): " PLUGIN_CONFIRM
+    echo "Debug: Reading from stdin (TTY)..."
+    read -p "Install ByteRover Context Plugin? (y/N): " PLUGIN_CONFIRM || PLUGIN_CONFIRM="n"
 else
-    read -p "Install ByteRover Context Plugin? (y/N): " PLUGIN_CONFIRM < /dev/tty
+    echo "Debug: Reading from /dev/tty..."
+    # Attempt to read from /dev/tty, default to "n" on failure to prevent script exit
+    if ! read -p "Install ByteRover Context Plugin? (y/N): " PLUGIN_CONFIRM < /dev/tty; then
+         echo -e "${RED}Warning: Could not read input from /dev/tty. Defaulting to No.${NC}"
+         PLUGIN_CONFIRM="n"
+    fi
 fi
+echo "Debug: Plugin confirmation received: '$PLUGIN_CONFIRM'"
 
 if [[ "$PLUGIN_CONFIRM" =~ ^[Yy]$ ]]; then
     PLUGIN_DIR="$HOME/.openclaw/extensions/byterover"
@@ -344,11 +322,94 @@ else
 fi
 echo ""
 
-# --- Phase 3: Update Docs ---
+# --- Phase 3: Docs Update ---
 echo -e "${BLUE}Phase 3: Updating Protocols${NC}"
 
-AGENTS_MD="$TARGET_WORKSPACE/AGENTS.md"
-TOOLS_MD="$TARGET_WORKSPACE/TOOLS.md"
+# 3.1: Agent Workspace Selection
+echo -e "${BLUE}Phase 3.1: Main Agent Workspace Selection${NC}"
+echo "We need to update AGENTS.md and TOOLS.md with ByteRover protocols."
+
+# Use node to parse openclaw.json and find workspaces
+WORKSPACES=$(node -e "
+try {
+    const fs = require('fs');
+    const config = JSON.parse(fs.readFileSync('$CONFIG_PATH', 'utf8'));
+    const workspaces = new Set();
+    
+    // Check defaults
+    if (config.agents?.defaults?.workspace) {
+        workspaces.add(config.agents.defaults.workspace);
+    }
+    
+    // Check agent list
+    if (Array.isArray(config.agents?.list)) {
+        config.agents.list.forEach(a => {
+            if (a.workspace) workspaces.add(a.workspace);
+        });
+    }
+    
+    console.log(Array.from(workspaces).join('\n'));
+} catch (e) {
+    console.error(e);
+    process.exit(1);
+}
+")
+
+# Convert to array
+IFS=$'\n' read -rd '' -a WS_ARRAY <<< "$WORKSPACES" || true
+
+echo "Found the following agent workspaces:"
+i=1
+for ws in "${WS_ARRAY[@]}"; do
+    echo "  [$i] $ws"
+    ((i++))
+done
+
+# Default option
+echo "  [c] Custom path"
+
+if [ -t 0 ]; then
+    read -p "Select the agent workspace to update [1]: " WS_CHOICE
+else
+    # Try reading from /dev/tty, if fail, default to 1 (first workspace)
+    if ! read -p "Select the agent workspace to update [1]: " WS_CHOICE < /dev/tty; then
+         echo -e "${RED}Warning: Could not read input from /dev/tty. Defaulting to 1.${NC}"
+         WS_CHOICE="1"
+    fi
+fi
+
+WS_CHOICE=${WS_CHOICE:-1}
+AGENT_WORKSPACE=""
+
+if [[ "$WS_CHOICE" == "c" ]]; then
+    if [ -t 0 ]; then
+        read -p "Enter full path: " AGENT_WORKSPACE
+    else
+        read -p "Enter full path: " AGENT_WORKSPACE < /dev/tty
+    fi
+else
+    # Validate input is a number
+    if ! [[ "$WS_CHOICE" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}Invalid selection: $WS_CHOICE${NC}"
+        exit 1
+    fi
+    INDEX=$((WS_CHOICE-1))
+    AGENT_WORKSPACE="${WS_ARRAY[$INDEX]}"
+fi
+
+# Expand tilde if present
+AGENT_WORKSPACE="${AGENT_WORKSPACE/#\~/$HOME}"
+
+if [ -z "$AGENT_WORKSPACE" ]; then
+    echo -e "${RED}Invalid workspace selection.${NC}"
+    exit 1
+fi
+
+echo -e "Selected Agent Workspace: ${GREEN}$AGENT_WORKSPACE${NC}"
+echo ""
+
+AGENTS_MD="$AGENT_WORKSPACE/AGENTS.md"
+TOOLS_MD="$AGENT_WORKSPACE/TOOLS.md"
 
 # Update AGENTS.md
 if [ -f "$AGENTS_MD" ]; then
@@ -362,13 +423,16 @@ This agent uses ByteRover (\`brv\`) as its long-term structured memory.
 1.  **Start:** Before answering complex questions, run \`brv query "<topic>"\` to load existing patterns.
 2.  **Finish:** After completing a task, run \`brv curate "<summary>"\` to save knowledge.
 3.  **Don't Guess:** If you don't know the project style, query it first.
+4.  **Response Format:** When using knowledge, optionally cite it or mention storage:
+    - "Based on brv contexts at \`~/.openclaw/.brv/context-trees/...\` and my research..."
+    - "I also stored successfully knowledge to brv context-tree."
 EOF
         echo -e "${GREEN}[âœ“] Updated AGENTS.md${NC}"
     else
         echo "AGENTS.md already contains Knowledge Protocol."
     fi
 else
-    echo -e "${YELLOW}Warning: AGENTS.md not found in workspace.${NC}"
+    echo -e "${YELLOW}Warning: AGENTS.md not found in workspace ($AGENT_WORKSPACE).${NC}"
 fi
 
 # Update TOOLS.md
@@ -387,7 +451,7 @@ EOF
         echo "TOOLS.md already contains Tool Reference."
     fi
 else
-    echo -e "${YELLOW}Warning: TOOLS.md not found in workspace.${NC}"
+    echo -e "${YELLOW}Warning: TOOLS.md not found in workspace ($AGENT_WORKSPACE).${NC}"
 fi
 
 echo ""
@@ -396,8 +460,8 @@ echo "Your agent is now integrated with ByteRover."
 
 # Ensure ByteRover daemon is ready (Sub-process)
 echo ""
-echo -e "${BLUE}Starting ByteRover daemon in ${TARGET_WORKSPACE}...${NC}"
-cd "$TARGET_WORKSPACE"
+echo -e "${BLUE}Starting ByteRover daemon in ${BRV_STORAGE}...${NC}"
+cd "$BRV_STORAGE"
 
 # Run status to wake the daemon (ignore output)
 # This spawns the detached daemon process if not running
