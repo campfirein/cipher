@@ -28,7 +28,7 @@ export async function resolveProviderConfig(
   const {activeProvider} = config
   const activeModel = config.getActiveModel(activeProvider)
 
-  if (activeProvider === 'byterover') {
+  if (!activeProvider || activeProvider === 'byterover') {
     return {activeModel, activeProvider}
   }
 
