@@ -86,7 +86,7 @@ export default class CurateView extends Command {
 
     const after = flags.since ? this.parseTime(flags.since, '--since') : undefined
     const before = flags.before ? this.parseTime(flags.before, '--before') : undefined
-    if (after === null || before === null) return
+    const format: 'json' | 'text' = flags.format === 'json' ? 'json' : 'text'
 
     const projectRoot = (await findProjectRoot(process.cwd())) ?? process.cwd()
     const baseDir = getProjectDataDir(projectRoot)
@@ -100,20 +100,20 @@ export default class CurateView extends Command {
       after,
       before,
       detail: flags.detail,
-      format: flags.format as 'json' | 'text',
+      format,
       id: args.id,
       limit: flags.limit,
       status: flags.status as CurateLogStatus[] | undefined,
     })
   }
 
-  private parseTime(value: string, flagName: string): null | number {
+  private parseTime(value: string, flagName: string): number {
     const ts = parseTimeFilter(value)
     if (ts === null) {
-      this.log(
+      this.error(
         `Invalid time value for ${flagName}: "${value}". Use ISO date (2024-01-15) or relative (1h, 24h, 7d, 2w).`,
+        {exit: 2},
       )
-      return null
     }
 
     return ts

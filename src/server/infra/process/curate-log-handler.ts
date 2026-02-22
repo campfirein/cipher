@@ -171,7 +171,9 @@ export class CurateLogHandler implements ITaskLifecycleHook {
     this.tasks.set(task.taskId, {entry, operations: [], projectPath: task.projectPath})
     this.activeTaskCount.set(task.projectPath, (this.activeTaskCount.get(task.projectPath) ?? 0) + 1)
 
-    await store.save(entry).catch((error: unknown) => {
+    // Fire-and-forget: logId is already known, save is best-effort.
+    // Callers receive logId immediately without waiting for disk I/O.
+    store.save(entry).catch((error: unknown) => {
       transportLog(
         `CurateLogHandler: failed to save processing entry for ${task.taskId}: ${error instanceof Error ? error.message : String(error)}`,
       )

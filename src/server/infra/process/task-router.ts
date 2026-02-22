@@ -64,9 +64,6 @@ type LlmEventPayloadMap = {
  */
 const TASK_CLEANUP_GRACE_PERIOD_MS = 5000
 
-/** Timeout for individual lifecycle hooks in onTaskCreate. */
-const LIFECYCLE_HOOK_CREATE_TIMEOUT_MS = 2000
-
 type TaskRouterOptions = {
   agentPool?: IAgentPool
   /** Function to resolve agent clientId for a given project */
@@ -684,9 +681,8 @@ export class TaskRouter {
   }
 
   /**
-   * Run all onTaskCreate hooks with a per-hook timeout.
-   * Returns the first logId returned by any hook.
-   * Timed-out hooks continue running in the background (their onTaskCompleted/onTaskError will finalize the entry).
+   * Run all onTaskCreate hooks and return the first logId.
+   * Each hook is called independently; errors are caught and logged.
    */
   private async runCreateHooks(taskId: string): Promise<string | undefined> {
     if (this.lifecycleHooks.length === 0) return undefined
@@ -694,20 +690,12 @@ export class TaskRouter {
     const task = this.tasks.get(taskId)
     if (!task) return undefined
 
-    const TIMEOUT_SENTINEL = Symbol('timeout')
-
-    const settled = await Promise.allSettled(
+    const logIds = await Promise.all(
       this.lifecycleHooks.map(async (hook) => {
         if (!hook.onTaskCreate) return
         try {
-          const result = await Promise.race([
-            hook.onTaskCreate(task),
-            new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
-              setTimeout(() => resolve(TIMEOUT_SENTINEL), LIFECYCLE_HOOK_CREATE_TIMEOUT_MS)
-            }),
-          ])
-          if (result === TIMEOUT_SENTINEL) return
-          return (result as void | {logId?: string})?.logId
+          const result = await hook.onTaskCreate(task)
+          return result?.logId
         } catch (error) {
           transportLog(
             `LifecycleHook.onTaskCreate error for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
@@ -716,9 +704,6 @@ export class TaskRouter {
       }),
     )
 
-    return settled
-      .filter((r): r is PromiseFulfilledResult<string | undefined> => r.status === 'fulfilled')
-      .map((r) => r.value)
-      .find((r): r is string => typeof r === 'string')
+    return logIds.find((id): id is string => typeof id === 'string')
   }
 }
