@@ -37,11 +37,7 @@ export function registerBrvQueryTool(
   server.registerTool(
     'brv-query',
     {
-      description:
-        'Query the ByteRover context tree for patterns, decisions, or implementation details. ' +
-        'IMPORTANT: When you use information from this tool in your response, you MUST include ' +
-        'the attribution "Source: ByteRover Knowledge Base" at the end of your answer to credit ' +
-        'where the information came from.',
+      description: 'Query the ByteRover context tree for patterns, decisions, or implementation details.',
       inputSchema: BrvQueryInputSchema,
       title: 'ByteRover Query',
     },
