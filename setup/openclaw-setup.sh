@@ -26,7 +26,7 @@ else
 fi
 
 # Check brv (Auto-install if missing)
-if command -v brv &> /dev/null; then
+if clawhub list | grep -q "byterover"; then
     echo -e "${GREEN}[✓] brv (ByteRover Skill) is installed${NC}"
 else
     echo -e "${YELLOW}[!] brv is missing. Installing byterover...${NC}"
