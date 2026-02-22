@@ -19,7 +19,7 @@ echo -e "${BLUE}Phase 1: Pre-flight Checks${NC}"
 
 # Check clawhub
 if command -v clawhub &> /dev/null; then
-    echo -e "${GREEN}[âœ“] clawhub is installed${NC}"
+    echo -e "${GREEN}[✓] clawhub is installed${NC}"
 else
     echo -e "${RED}[X] clawhub is missing.${NC} Please install it first."
     exit 1
@@ -27,11 +27,11 @@ fi
 
 # Check brv (Auto-install if missing)
 if command -v brv &> /dev/null; then
-    echo -e "${GREEN}[âœ“] brv (ByteRover Skill) is installed${NC}"
+    echo -e "${GREEN}[✓] brv (ByteRover Skill) is installed${NC}"
 else
     echo -e "${YELLOW}[!] brv is missing. Installing byterover...${NC}"
     if clawhub install --force byterover; then
-        echo -e "${GREEN}[âœ“] brv skill installed successfully${NC}"
+        echo -e "${GREEN}[✓] brv skill installed successfully${NC}"
     else
         echo -e "${RED}[X] Failed to install byterover.${NC}"
         exit 1
@@ -40,9 +40,9 @@ fi
 
 # Check byterover-cli (Must be pre-installed)
 if command -v byterover-cli &> /dev/null; then
-    echo -e "${GREEN}[âœ“] byterover-cli is installed${NC}"
+    echo -e "${GREEN}[✓] byterover-cli is installed${NC}"
 elif command -v brv &> /dev/null; then
-    echo -e "${GREEN}[âœ“] brv is installed${NC}"
+    echo -e "${GREEN}[✓] brv is installed${NC}"
 else
     echo -e "${RED}[X] byterover-cli (brv) is missing.${NC} Please install it first (npm install -g byterover-cli)."
     exit 1
@@ -69,13 +69,6 @@ if [ ! -d "$BRV_STORAGE" ]; then
     echo -e "${YELLOW}Directory does not exist. Creating...${NC}"
     mkdir -p "$BRV_STORAGE"
 fi
-
-# Initialize BRV in storage location
-echo "Initializing ByteRover..."
-cd "$BRV_STORAGE"
-brv init --headless --format json || true
-echo -e "${GREEN}[âœ“] ByteRover initialized in $BRV_STORAGE/.brv${NC}"
-echo ""
 
 # --- Phase 2: Configuration ---
 echo -e "${BLUE}Phase 2: Configuration${NC}"
@@ -110,7 +103,7 @@ if [[ "$FLUSH_CONFIRM" =~ ^[Yy]$ ]]; then
         
         // Apply setting
         config.agents.defaults.compaction.memoryFlush.enabled = true;
-        config.agents.defaults.compaction.memoryFlush.prompt = 'Review the session for any architectural decisions, bug fixes, or new patterns. If found, run \'brv curate \"<summary of change>\"\' to update the context tree. Also write personal notes to memory/YYYY-MM-DD.md. Reply NO_REPLY if done.';
+        config.agents.defaults.compaction.memoryFlush.prompt = 'Review the session for any architectural decisions, bug fixes, or new patterns. If found, run \'cd ~/.openclaw && brv curate \"<summary of change>\"\' to update the context tree. Also write personal notes to memory/YYYY-MM-DD.md. Reply NO_REPLY if done.';
         
         fs.writeFileSync(path, JSON.stringify(config, null, 2));
         console.log('Config updated successfully.');
@@ -119,7 +112,7 @@ if [[ "$FLUSH_CONFIRM" =~ ^[Yy]$ ]]; then
         process.exit(1);
     }
     "
-    echo -e "${GREEN}[âœ“] openclaw.json updated.${NC}"
+    echo -e "${GREEN}[✓] openclaw.json updated.${NC}"
 else
     echo "Skipping Memory Flush."
 fi
@@ -141,24 +134,34 @@ if [[ "$CRON_CONFIRM" =~ ^[Yy]$ ]]; then
     CRON_LIST_TMP=$(mktemp)
     
     # 1. Fetch JSON output to temp file
-    if openclaw cron list --json > "$CRON_LIST_TMP" 2>/dev/null; then
+    # We use a || true to ensure the command doesn't trigger set -e if it returns non-zero (though it shouldn't for list)
+    if openclaw cron list --json > "$CRON_LIST_TMP" 2>/dev/null || [ -s "$CRON_LIST_TMP" ]; then
         
         # 2. Use jq if available for reliable parsing, fallback to python/node/grep
         EXISTS=false
         
-        # Try node (most likely available given openclaw environment)
-        if command -v node &> /dev/null; then
-            EXISTS=$(node -e "
-                try {
-                    const fs = require('fs');
-                    const jobs = JSON.parse(fs.readFileSync('$CRON_LIST_TMP', 'utf8')).jobs || [];
-                    const exists = jobs.some(j => j.name === '$CRON_NAME');
-                    console.log(exists ? 'true' : 'false');
-                } catch(e) { console.log('false'); }
-            ")
-        elif grep -Fq "\"name\": \"$CRON_NAME\"" "$CRON_LIST_TMP" || grep -Fq "\"name\":\"$CRON_NAME\"" "$CRON_LIST_TMP"; then
-            # Fallback to grep with/without space
-            EXISTS=true
+        # Check if file is empty or invalid JSON
+        if [ ! -s "$CRON_LIST_TMP" ]; then
+             echo "Debug: Cron list returned empty. Assuming no jobs."
+             EXISTS="false"
+        else
+            # Try node (most likely available given openclaw environment)
+            if command -v node &> /dev/null; then
+                EXISTS=$(node -e "
+                    try {
+                        const fs = require('fs');
+                        const content = fs.readFileSync('$CRON_LIST_TMP', 'utf8').trim();
+                        if (!content) { console.log('false'); process.exit(0); }
+                        const json = JSON.parse(content);
+                        const jobs = json.jobs || [];
+                        const exists = jobs.some(j => j.name === '$CRON_NAME');
+                        console.log(exists ? 'true' : 'false');
+                    } catch(e) { console.log('false'); }
+                ")
+            elif grep -Fq "\"name\": \"$CRON_NAME\"" "$CRON_LIST_TMP" || grep -Fq "\"name\":\"$CRON_NAME\"" "$CRON_LIST_TMP"; then
+                # Fallback to grep with/without space
+                EXISTS=true
+            fi
         fi
 
         if [[ "$EXISTS" == "true" ]]; then
@@ -169,7 +172,7 @@ if [[ "$CRON_CONFIRM" =~ ^[Yy]$ ]]; then
             CRON_PROMPT="DAILY KNOWLEDGE MINING:
 1. Read the latest file in memory/ (e.g. memory/$(date +%Y-%m-%d).md).
 2. Extract architectural decisions, reusable patterns, or critical bug fixes.
-3. If valuable info is found, run 'brv curate \"<summary>\"' to save it to the Context Tree."
+3. If valuable info is found, run 'cd ~/.openclaw && brv curate \"<summary>\"' to save it to the Context Tree."
 
             # Use openclaw cron add
             if openclaw cron add \
@@ -178,13 +181,13 @@ if [[ "$CRON_CONFIRM" =~ ^[Yy]$ ]]; then
                 --session isolated \
                 --message "$CRON_PROMPT" \
                 --announce < /dev/null > /dev/null 2>&1; then
-                echo -e "${GREEN}[âœ“] Cron job scheduled successfully.${NC}"
+                echo -e "${GREEN}[✓] Cron job scheduled successfully.${NC}"
             else
                 echo -e "${RED}[X] Failed to schedule cron job (or it might have been created silently).${NC}"
             fi
         fi
     else
-        echo -e "${RED}[!] Failed to list cron jobs. Skipping check.${NC}"
+        echo -e "${RED}[!] Failed to list cron jobs (command failed). Skipping check.${NC}"
     fi
     rm "$CRON_LIST_TMP"
 else
@@ -257,7 +260,9 @@ export default function (api) {
       api.logger.debug(\`[brv-context] Querying brv for: "\${queryText}"\`);
 
       // Use execFile to safely pass arguments without shell injection risks
-      const { stdout } = await execFileAsync("brv", ["query", queryText], { timeout: 60000 }); // 60s timeout
+      // IMPORTANT: Run from ~/.openclaw as the CWD
+      const brvCwd = process.env.HOME + '/.openclaw';
+      const { stdout } = await execFileAsync("brv", ["query", queryText], { cwd: brvCwd, timeout: 60000 }); // 60s timeout
 
       const brvOutput = stdout.trim();
 
@@ -297,7 +302,7 @@ EOF
 }
 EOF
 
-    echo -e "${GREEN}[âœ“] Plugin files created.${NC}"
+    echo -e "${GREEN}[✓] Plugin files created.${NC}"
 
     # Enable in openclaw.json
     echo "Enabling plugin in $CONFIG_PATH..."
@@ -316,7 +321,7 @@ EOF
         process.exit(1);
     }
     "
-    echo -e "${GREEN}[âœ“] Plugin enabled.${NC}"
+    echo -e "${GREEN}[✓] Plugin enabled.${NC}"
 else
     echo "Skipping Plugin setup."
 fi
@@ -417,17 +422,17 @@ if [ -f "$AGENTS_MD" ]; then
         echo "Appending Knowledge Protocol to AGENTS.md..."
         cat >> "$AGENTS_MD" <<EOF
 
-## ðŸ§  Knowledge Protocol (ByteRover)
+## 🧠 Knowledge Protocol (ByteRover)
 This agent uses ByteRover (\`brv\`) as its long-term structured memory.
-0.  **Initialization** Make sure spawn brv daemon started by \`brv\` command in the current workspace. If "brv" already started, DON'T start again
-1.  **Start:** Before answering complex questions, run \`brv query "<topic>"\` to load existing patterns.
-2.  **Finish:** After completing a task, run \`brv curate "<summary>"\` to save knowledge.
+0.  **Initialization** Make sure spawn brv daemon started by \`brv\` command in the \`~/.openclaw\` workspace. If "brv" already started, DON'T start again.
+1.  **Start:** Before answering complex questions, run \`cd ~/.openclaw && brv query "<topic>"\` to load existing patterns.
+2.  **Finish:** After completing a task, run \`cd ~/.openclaw && brv curate "<summary>"\` to save knowledge.
 3.  **Don't Guess:** If you don't know the project style, query it first.
 4.  **Response Format:** When using knowledge, optionally cite it or mention storage:
     - "Based on brv contexts at \`~/.openclaw/.brv/context-trees/...\` and my research..."
     - "I also stored successfully knowledge to brv context-tree."
 EOF
-        echo -e "${GREEN}[âœ“] Updated AGENTS.md${NC}"
+        echo -e "${GREEN}[✓] Updated AGENTS.md${NC}"
     else
         echo "AGENTS.md already contains Knowledge Protocol."
     fi
@@ -446,7 +451,7 @@ if [ -f "$TOOLS_MD" ]; then
 - **Curate:** \`brv curate "Auth uses JWT in cookies"\` (Save new knowledge)
 - **Sync:** \`brv pull\` / \`brv push\` (Sync with team - requires login)
 EOF
-        echo -e "${GREEN}[âœ“] Updated TOOLS.md${NC}"
+        echo -e "${GREEN}[✓] Updated TOOLS.md${NC}"
     else
         echo "TOOLS.md already contains Tool Reference."
     fi
@@ -457,23 +462,3 @@ fi
 echo ""
 echo -e "${GREEN}=== Installation Complete ===${NC}"
 echo "Your agent is now integrated with ByteRover."
-
-# Ensure ByteRover daemon is ready (Sub-process)
-echo ""
-echo -e "${BLUE}Starting ByteRover daemon in ${BRV_STORAGE}...${NC}"
-cd "$BRV_STORAGE"
-
-# Run status to wake the daemon (ignore output)
-# This spawns the detached daemon process if not running
-if brv status >/dev/null 2>&1; then
-    echo -e "${GREEN}[âœ“] ByteRover daemon is active.${NC}"
-else
-    echo -e "${YELLOW}Starting ByteRover daemon...${NC}"
-    # Just in case status doesn't spawn it (though it should), we run it
-    brv status >/dev/null 2>&1 || true
-    echo -e "${GREEN}[âœ“] ByteRover daemon started.${NC}"
-fi
-
-echo ""
-echo -e "${GREEN}=== Installation Complete ===${NC}"
-echo "ByteRover is ready. Your agent will now manage memory automatically."
