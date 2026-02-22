@@ -5,6 +5,7 @@ import type {IProjectConfigStore} from '../../../server/core/interfaces/storage/
 import {BRV_CONFIG_VERSION} from '../../../server/constants.js'
 import {type AutoInitDeps, ensureProjectInitialized} from '../../../server/infra/config/auto-init.js'
 import {ProjectConfigStore} from '../../../server/infra/config/file-config-store.js'
+import {ensureCurateViewPatched} from '../../../server/infra/connectors/shared/rule-segment-patcher.js'
 import {FileContextTreeService} from '../../../server/infra/context-tree/file-context-tree-service.js'
 import {FileContextTreeSnapshotService} from '../../../server/infra/context-tree/file-context-tree-snapshot-service.js'
 
@@ -49,6 +50,9 @@ export const validateBrvConfigVersion = async (
     // Migrate: preserve all existing fields, only update version
     await configStore.write(config.withVersion(BRV_CONFIG_VERSION))
   }
+
+  // Auto-patch all connector files on disk to add `brv curate view` segment if missing
+  await ensureCurateViewPatched(process.cwd()).catch(() => {})
 }
 
 /**

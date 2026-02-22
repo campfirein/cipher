@@ -212,6 +212,18 @@ brv curate "WebSocket authentication: JWT token passed in connection query param
 brv curate "Notification gotchas: 1) Must call gateway.joinRoom after auth, 2) Unread count cached in Redis (5min TTL) - call invalidateUnreadCount after marking read, 3) Batch notifications throttled to max 10/second per user" -f src/notifications/NotificationService.ts
 ```
 
+## Verifying Curate Results
+
+After `brv curate` completes, it outputs a logId (e.g., `✓ Context curated successfully. (Log: cur-1739700001000)`). Use it to inspect exactly what was stored:
+
+```bash
+brv curate view cur-1739700001000   # Full detail: input, operations, summary
+brv curate view                     # List recent curates with status
+brv curate view --detail            # List with per-entry file operations visible
+```
+
+Useful for large contexts or folder-pack curations to confirm the knowledge was captured as expected.
+
 ## What to Curate
 
 **Do curate:**
