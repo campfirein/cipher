@@ -9,40 +9,36 @@ import {TransportClientEventNames, TransportTaskEventNames} from '../../../core/
 import {detectMcpMode} from '../mcp-mode-detector.js'
 import {resolveClientCwd} from './resolve-client-cwd.js'
 
+export const BrvCurateInputSchema = z.object({
+  context: z
+    .string()
+    .optional()
+    .describe(
+      'Knowledge to store: patterns, decisions, errors, or insights about the codebase. Required unless files or folder are provided.',
+    ),
+  cwd: z
+    .string()
+    .optional()
+    .describe(
+      'Working directory of the project (absolute path). ' +
+        'Required when the MCP server runs in global mode (e.g., Windsurf). ' +
+        'Optional in project mode — defaults to the project directory.',
+    ),
+  files: z
+    .array(z.string())
+    .max(5)
+    .optional()
+    .describe(
+      'Optional file paths with critical context to include (max 5 files). Required if context and folder not provided.',
+    ),
+  folder: z
+    .string()
+    .optional()
+    .describe(
+      'Folder path to pack and analyze (triggers folder pack flow). When provided, the entire folder will be analyzed and curated. Takes precedence over files.',
+    ),
+})
 
-export const BrvCurateInputSchema = z
-  .object({
-    context: z
-      .string()
-      .optional()
-      .describe(
-        'Knowledge to store: patterns, decisions, errors, or insights about the codebase. Required unless files or folder are provided.',
-      ),
-    cwd: z
-      .string()
-      .optional()
-      .describe(
-        'Working directory of the project (absolute path). ' +
-          'Required when the MCP server runs in global mode (e.g., Windsurf). ' +
-          'Optional in project mode — defaults to the project directory.',
-      ),
-    files: z
-      .array(z.string())
-      .max(5)
-      .optional()
-      .describe(
-        'Optional file paths with critical context to include (max 5 files). Required if context and folder not provided.',
-      ),
-    folder: z
-      .string()
-      .optional()
-      .describe(
-        'Folder path to pack and analyze (triggers folder pack flow). When provided, the entire folder will be analyzed and curated. Takes precedence over files.',
-      ),
-  })
-  .refine((data) => Boolean(data.context?.trim()) || Boolean(data.files?.length) || Boolean(data.folder?.trim()), {
-    message: 'Either context, files, or folder must be provided',
-  })
 
 /**
  * Registers the brv-curate tool with the MCP server.
@@ -68,6 +64,14 @@ export function registerBrvCurateTool(
       title: 'ByteRover Curate',
     },
     async ({context, cwd, files, folder}: {context?: string; cwd?: string; files?: string[]; folder?: string}) => {
+      // Validate that at least one input is provided
+      if (!context?.trim() && !files?.length && !folder?.trim()) {
+        return {
+          content: [{text: 'Error: Either context, files, folder, or cwd must be provided', type: 'text' as const}],
+          isError: true,
+        }
+      }
+
       // Resolve clientCwd: explicit cwd param > server working directory
       const cwdResult = resolveClientCwd(cwd, getWorkingDirectory)
       if (!cwdResult.success) {
