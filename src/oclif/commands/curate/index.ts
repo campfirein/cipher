@@ -90,8 +90,13 @@ Bad examples:
 
   public async run(): Promise<void> {
     const {args, flags: rawFlags} = await this.parse(Curate)
-    const flags = rawFlags as CurateFlags
-    const format = (flags.format ?? 'text') as 'json' | 'text'
+    const flags: CurateFlags = {
+      detach: rawFlags.detach,
+      files: rawFlags.files,
+      folder: rawFlags.folder,
+      format: rawFlags.format === 'json' ? 'json' : rawFlags.format === 'text' ? 'text' : undefined,
+    }
+    const format: 'json' | 'text' = flags.format ?? 'text'
 
     if (!this.validateInput(args, flags, format)) return
 

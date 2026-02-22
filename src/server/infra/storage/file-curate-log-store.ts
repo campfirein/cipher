@@ -110,6 +110,10 @@ export class FileCurateLogStore implements ICurateLogStore {
   /**
    * Generate the next monotonic log entry ID in the format `cur-{timestamp_ms}`.
    * Guaranteed to increase even if called multiple times in the same millisecond.
+   *
+   * Note: monotonicity is instance-local. Across store evictions (no active tasks → cache cleared),
+   * a new instance resets lastTimestamp to 0 and relies on wall-clock time.
+   * Collision is practically impossible given the sequential task queue (max concurrency = 1 per project).
    */
   async getNextId(): Promise<string> {
     const now = Date.now()
@@ -139,10 +143,14 @@ export class FileCurateLogStore implements ICurateLogStore {
       return []
     }
 
-    // Read all entries (max 100), then filter — small enough that this is fine
+    // When no filters are active, limit reads up front (files already sorted newest-first).
+    // With filters, read all candidates first so filtering is applied before limit.
+    const hasFilters = Boolean(status?.length || after !== undefined || before !== undefined)
+    const filesToRead = hasFilters ? files : files.slice(0, limit ?? files.length)
+
     const allEntries: CurateLogEntry[] = []
     await Promise.all(
-      files.map(async (filename) => {
+      filesToRead.map(async (filename) => {
         const id = filename.slice(0, -5) // strip .json
         const entry = await this.getById(id)
         if (entry) allEntries.push(entry)
@@ -216,7 +224,9 @@ export class FileCurateLogStore implements ICurateLogStore {
 
     const recovered: CurateLogEntry = {
       ...entry,
-      completedAt: entry.startedAt + STALE_PROCESSING_THRESHOLD_MS,
+      // Use the time of recovery as completedAt — the real termination time is unknown
+      // since the daemon was killed. startedAt + threshold would be misleading.
+      completedAt: Date.now(),
       error: 'Interrupted (daemon terminated)',
       status: 'error',
     }

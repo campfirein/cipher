@@ -168,12 +168,15 @@ export async function patchSkillFile(fullPath: string): Promise<boolean> {
   let current = content
   let didPatch = false
 
-  // Patch 1: Insert row into Quick Reference table if missing
+  // Patch 1: Insert row into Quick Reference table if missing.
+  // If the table anchor is absent (older template without Quick Reference section), skip this
+  // patch only — Patch 2 below runs independently.
   if (!current.includes(CURATE_VIEW_SKILL_TABLE_SENTINEL)) {
     const withTableRow = insertAfterLine(current, CURATE_SKILL_ANCHOR, CURATE_VIEW_SKILL_ROWS)
-    if (!withTableRow) return false // anchor not found — different template format, skip safely
-    current = withTableRow
-    didPatch = true
+    if (withTableRow) {
+      current = withTableRow
+      didPatch = true
+    }
   }
 
   // Patch 2: Insert "View curate history" subsection if missing

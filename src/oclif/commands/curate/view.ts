@@ -103,7 +103,7 @@ export default class CurateView extends Command {
       format,
       id: args.id,
       limit: flags.limit,
-      status: flags.status as CurateLogStatus[] | undefined,
+      status: flags.status?.filter((s): s is CurateLogStatus => (VALID_STATUSES as string[]).includes(s)),
     })
   }
 

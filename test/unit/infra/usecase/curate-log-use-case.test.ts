@@ -127,7 +127,7 @@ describe('CurateLogUseCase', () => {
       expect(parsed.command).to.equal('curate view')
       expect(parsed.success).to.be.true
       expect(Array.isArray(parsed.data)).to.be.true
-      expect(parsed.timestamp).to.be.a('string')
+      expect(parsed.retrievedAt).to.be.a('string')
     })
 
     it('should pass status filter to store.list', async () => {

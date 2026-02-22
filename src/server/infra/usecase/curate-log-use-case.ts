@@ -78,7 +78,7 @@ export class CurateLogUseCase implements ICurateLogUseCase {
   }
 
   private logJson(payload: {data: unknown; success: boolean}): void {
-    this.log(JSON.stringify({command: 'curate view', ...payload, timestamp: new Date().toISOString()}, null, 2))
+    this.log(JSON.stringify({command: 'curate view', ...payload, retrievedAt: new Date().toISOString()}, null, 2))
   }
 
   private async showDetail(id: string, format: 'json' | 'text'): Promise<void> {
