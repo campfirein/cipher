@@ -39,10 +39,9 @@ jobs:
             echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
             exit 1
           fi
-      - name: Configure git for private repos
-        run: |
-          git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "ssh://git@github.com/"
-          git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "git@github.com:"
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.TRANSPORT_CLIENT_DEPLOY_KEY }}
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
         run: sudo apt update && sudo apt install -y libsecret-1-dev
