@@ -148,16 +148,6 @@ describe('brv-curate-tool', () => {
       expect(result.success).to.be.true
     })
 
-    it('should parse when neither context nor files provided (validation is in handler)', () => {
-      const result = BrvCurateInputSchema.safeParse({cwd: '/path'})
-      expect(result.success).to.be.true
-    })
-
-    it('should parse empty context with no files (validation is in handler)', () => {
-      const result = BrvCurateInputSchema.safeParse({context: '   '})
-      expect(result.success).to.be.true
-    })
-
     it('should accept optional cwd as undefined', () => {
       const result = BrvCurateInputSchema.safeParse({context: 'test'})
       expect(result.success).to.be.true
@@ -180,6 +170,34 @@ describe('brv-curate-tool', () => {
       expect(shape).to.have.property('cwd')
       expect(shape).to.have.property('context')
       expect(shape).to.have.property('files')
+    })
+  })
+
+  describe('handler — input validation', () => {
+    it('should return error when neither context, files, nor folder provided', async () => {
+      const {client} = createMockClient()
+      const handler = setupCurateHandler({
+        getClient: () => client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      const result = await handler({cwd: '/some/path'})
+
+      expect(result.isError).to.be.true
+      expect(result.content[0].text).to.include('Either context, files, folder')
+    })
+
+    it('should return error when context is whitespace-only with no files', async () => {
+      const {client} = createMockClient()
+      const handler = setupCurateHandler({
+        getClient: () => client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      const result = await handler({context: '   '})
+
+      expect(result.isError).to.be.true
+      expect(result.content[0].text).to.include('Either context, files, folder')
     })
   })
 
