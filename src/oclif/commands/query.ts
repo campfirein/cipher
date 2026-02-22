@@ -4,6 +4,7 @@ import {Args, Command, Flags} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
 
 import {TaskEvents} from '../../shared/transport/events/index.js'
+import {ProviderEvents, type ProviderGetActiveResponse} from '../../shared/transport/events/provider-events.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -66,6 +67,11 @@ Bad:
     try {
       await withDaemonRetry(
         async (client, projectRoot) => {
+          const active = await client.requestWithAck<ProviderGetActiveResponse>(ProviderEvents.GET_ACTIVE)
+          if (!active.activeProviderId) {
+            throw new Error('No provider connected. Run "brv provider connect <provider>" to configure a provider first.')
+          }
+
           await this.submitTask({client, format, projectRoot, query: args.query})
         },
         {
@@ -121,12 +127,24 @@ Bad:
         command: 'query',
         format,
         onCompleted: ({result, taskId: tid}) => {
-          // Fallback: use payload.result when llmservice:response wasn't received
-          // (e.g., Tier 2 direct search responses that bypass the LLM)
-          if (!finalResult && result) {
+          const previousResult = finalResult
+
+          // Always prefer the completed payload — it carries the attribution footer
+          // that may not be present in the earlier llmservice:response event.
+          if (result) {
             finalResult = result
-            if (format === 'text') {
-              this.log(`\n${result}`)
+          }
+
+          if (format === 'text') {
+            if (!previousResult && finalResult) {
+              // No onResponse was received (e.g., Tier 2 direct search)
+              this.log(`\n${finalResult}`)
+            } else if (previousResult && result && result !== previousResult) {
+              // Completed payload has additional content (attribution footer)
+              const suffix = result.startsWith(previousResult) ? result.slice(previousResult.length) : `\n${result}`
+              if (suffix.trim()) {
+                this.log(suffix)
+              }
             }
           }
 

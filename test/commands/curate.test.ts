@@ -56,7 +56,7 @@ describe('Curate Command', () => {
       once: stub(),
       onStateChange: stub().returns(() => {}),
       request: stub() as unknown as ITransportClient['request'],
-      requestWithAck: stub().resolves({}),
+      requestWithAck: stub().resolves({activeProviderId: 'anthropic'}),
     } as unknown as sinon.SinonStubbedInstance<ITransportClient>
 
     mockConnector = stub<[], Promise<ConnectionResult>>().resolves({
@@ -118,14 +118,39 @@ describe('Curate Command', () => {
     })
   })
 
+  // ==================== Provider Validation ====================
+
+  describe('provider validation', () => {
+    it('should error when no provider is connected', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({activeProviderId: ''})
+
+      await createCommand('test context', '--detach').run()
+
+      expect(loggedMessages.some((m) => m.includes('No provider connected'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv provider connect'))).to.be.true
+    })
+
+    it('should output JSON error when no provider is connected', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({activeProviderId: ''})
+
+      await createJsonCommand('test context', '--detach').run()
+
+      const json = parseJsonOutput()
+      expect(json.success).to.be.false
+      expect(json.data).to.have.property('error').that.includes('No provider connected')
+    })
+  })
+
   // ==================== Detach Mode ====================
 
   describe('detach mode', () => {
     it('should send task:create with context and taskId', async () => {
       await createCommand('test context', '--detach').run()
 
-      expect((mockClient.requestWithAck as sinon.SinonStub).calledOnce).to.be.true
-      const [event, payload] = (mockClient.requestWithAck as sinon.SinonStub).firstCall.args
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      expect(requestStub.calledTwice).to.be.true
+      expect(requestStub.firstCall.args[0]).to.equal('provider:getActive')
+      const [event, payload] = requestStub.secondCall.args
       expect(event).to.equal('task:create')
       expect(payload).to.have.property('content', 'test context')
       expect(payload).to.have.property('type', 'curate')
@@ -136,8 +161,10 @@ describe('Curate Command', () => {
     it('should send task:create with empty content when only files provided', async () => {
       await createCommand('--detach', '-f', 'src/auth.ts', '-f', 'src/utils.ts').run()
 
-      expect((mockClient.requestWithAck as sinon.SinonStub).calledOnce).to.be.true
-      const [event, payload] = (mockClient.requestWithAck as sinon.SinonStub).firstCall.args
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      expect(requestStub.calledTwice).to.be.true
+      expect(requestStub.firstCall.args[0]).to.equal('provider:getActive')
+      const [event, payload] = requestStub.secondCall.args
       expect(event).to.equal('task:create')
       expect(payload).to.have.property('content', '')
       expect(payload).to.have.property('files').that.deep.equals(['src/auth.ts', 'src/utils.ts'])
@@ -147,7 +174,8 @@ describe('Curate Command', () => {
     it('should send task:create with context and files', async () => {
       await createCommand('test context', '--detach', '-f', 'file1.ts', '-f', 'file2.ts').run()
 
-      const [, payload] = (mockClient.requestWithAck as sinon.SinonStub).firstCall.args
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      const [, payload] = requestStub.secondCall.args
       expect(payload).to.have.property('content', 'test context')
       expect(payload).to.have.property('files').that.deep.equals(['file1.ts', 'file2.ts'])
     })
