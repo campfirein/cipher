@@ -175,7 +175,7 @@ export function formatConnectionError(error: unknown): string {
 
   // Business errors from transport handlers (auth, validation, etc.)
   if (error instanceof TransportRequestError) {
-    if (error?.code) {
+    if ('code' in error && typeof error.code === 'string') {
       return USER_FRIENDLY_MESSAGES[error.code] ?? error.message
     }
 
