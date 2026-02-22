@@ -9,6 +9,9 @@ import {restore, type SinonFakeTimers, type SinonStub, stub, useFakeTimers} from
 
 import {BrvQueryInputSchema, registerBrvQueryTool} from '../../../../../src/server/infra/mcp/tools/brv-query-tool.js'
 
+/** Attribution footer produced by QueryExecutor — included in task:completed result */
+const ATTRIBUTION_FOOTER = '\n\n---\nSource: ByteRover Knowledge Base'
+
 /** Returns undefined — named constant avoids inline `() => undefined` triggering unicorn/no-useless-undefined. */
 const noClient = (): ITransportClient | undefined => undefined
 const noWorkingDirectory = (): string | undefined => undefined
@@ -431,6 +434,51 @@ describe('brv-query-tool', () => {
 
       expect(result.isError).to.be.true
       expect(result.content[0].text).to.include('File not found')
+    })
+  })
+
+  describe('handler — attribution', () => {
+    it('should pass through attribution footer produced by executor', async () => {
+      const {client, simulateEvent} = createMockClient()
+      const requestStub = client.requestWithAck as SinonStub
+      // Simulate executor returning result already containing the attribution footer
+      requestStub.callsFake((_event: string, data: {taskId: string}) => {
+        simulateEvent('task:completed', {result: 'Some knowledge content' + ATTRIBUTION_FOOTER, taskId: data.taskId})
+        return Promise.resolve()
+      })
+
+      const handler = setupQueryHandler({
+        getClient: () => client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      const result = await handler({query: 'test'})
+
+      expect(result.isError).to.be.undefined
+      expect(result.content[0].text).to.include('Source: ByteRover Knowledge Base')
+      expect(result.content[0].text).to.match(/Some knowledge content\n\n---\nSource: ByteRover Knowledge Base$/)
+    })
+
+    it('should not append attribution footer to error responses', async () => {
+      const {client, simulateEvent} = createMockClient()
+      const requestStub = client.requestWithAck as SinonStub
+      requestStub.callsFake((_event: string, data: {taskId: string}) => {
+        simulateEvent('task:error', {
+          error: {message: 'Something failed', name: 'TaskError'},
+          taskId: data.taskId,
+        })
+        return Promise.resolve()
+      })
+
+      const handler = setupQueryHandler({
+        getClient: () => client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      const result = await handler({query: 'test'})
+
+      expect(result.isError).to.be.true
+      expect(result.content[0].text).to.not.include('Source: ByteRover Knowledge Base')
     })
   })
 
