@@ -115,6 +115,11 @@ jobs:
             gsutil cp "${GCS_VERSIONED}/${versioned_manifest}" \
               "${GCS_CHANNEL}/${channel_manifest}"
           done
+      - name: Write version file to stable channel
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          echo "$VERSION" | gsutil -h "Content-Type:text/plain" \
+            cp - "gs://${GCS_BUCKET}/channels/stable/version"
       - name: Verify uploads
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
