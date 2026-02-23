@@ -19,8 +19,8 @@ jobs:
       matrix:
         include:
           # we don't really need a macOS runner (exprensive) to build for macOS. A Ubuntu runner should be fine.
-#          - os: macos-latest
-          - os: ubuntu-latest
+          - os: macos-latest
+#          - os: ubuntu-latest
             target: darwin-arm64
           - os: ubuntu-latest
             target: linux-x64
