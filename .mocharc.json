@@ -11,6 +11,7 @@
   "exit": true,
   "node-option": [
     "loader=ts-node/esm",
-    "experimental-specifier-resolution=node"
+    "experimental-specifier-resolution=node",
+    "expose-gc"
   ]
 }

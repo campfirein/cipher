@@ -1,28 +1,23 @@
 /**
  * TokenStore Integration Test
  *
- * This test verifies that token storage works correctly across platforms.
- * TokenStore automatically selects the appropriate backend:
- * - WSL2: FileTokenStore (file-based encryption, keychain not available)
- * - macOS/Linux/Windows: KeychainTokenStore (system keychain via keytar)
+ * Verifies that token storage works correctly using file-based encrypted storage.
+ * createTokenStore() always returns FileTokenStore (AES-256-GCM).
  *
  * HOW TO RUN:
  * 1. Run: npx mocha --forbid-only "test/integration/infra/storage/wsl2-token-store.test.ts"
- *
- * On WSL2, you can also test file-based storage specifically.
  */
 
 import {expect} from 'chai'
 import {existsSync, readFileSync} from 'node:fs'
 import {rm} from 'node:fs/promises'
-import {homedir} from 'node:os'
 import {join} from 'node:path'
 
 import type {ITokenStore} from '../../../../src/server/core/interfaces/auth/i-token-store.js'
 
 import {AuthToken} from '../../../../src/server/core/domain/entities/auth-token'
 import {createTokenStore} from '../../../../src/server/infra/storage/token-store'
-import {isWsl} from '../../../../src/server/utils/environment-detector'
+import {getGlobalDataDir} from '../../../../src/server/utils/global-data-path'
 
 function createTestToken(): AuthToken {
   return new AuthToken({
@@ -36,12 +31,12 @@ function createTestToken(): AuthToken {
   })
 }
 
-const dataDir = join(homedir(), '.local', 'share', 'brv')
+const dataDir = getGlobalDataDir()
 const keyPath = join(dataDir, '.token-key')
 const credentialsPath = join(dataDir, 'credentials')
 
 describe('TokenStore Integration', function () {
-  /** Increase timeout for keychain operations */
+  /** Increase timeout for file operations */
   this.timeout(10_000)
 
   let store: ITokenStore
@@ -53,21 +48,11 @@ describe('TokenStore Integration', function () {
   afterEach(async () => {
     await store.clear()
 
-    /** On WSL, also clean up file-based storage for clean tests */
-    if (isWsl()) {
-      try {
-        await rm(credentialsPath, {force: true})
-      } catch {
-        /** Ignore */
-      }
+    try {
+      await rm(credentialsPath, {force: true})
+    } catch {
+      /** Ignore */
     }
-  })
-
-  describe('environment detection', () => {
-    it('should detect WSL2 environment correctly', () => {
-      const detected = isWsl()
-      expect(typeof detected).to.equal('boolean')
-    })
   })
 
   describe('save and load', () => {
@@ -111,46 +96,43 @@ describe('TokenStore Integration', function () {
     })
   })
 
-  /** WSL2-specific tests */
-  if (isWsl()) {
-    describe('WSL2-specific: file-based storage', () => {
-      it('should create encrypted credentials file', async () => {
-        const token = createTestToken()
+  describe('file-based storage', () => {
+    it('should create encrypted credentials file', async () => {
+      const token = createTestToken()
 
-        await store.save(token)
+      await store.save(token)
 
-        expect(existsSync(credentialsPath)).to.be.true
+      expect(existsSync(credentialsPath)).to.be.true
 
-        /** Read and verify it's encrypted */
-        const encrypted = readFileSync(credentialsPath, 'utf8')
-        expect(encrypted).to.not.include(token.accessToken)
-        expect(encrypted.split(':').length).to.equal(3) /* iv:authTag:data format */
-      })
-
-      it('should create encryption key file', async () => {
-        const token = createTestToken()
-
-        await store.save(token)
-
-        expect(existsSync(keyPath)).to.be.true
-
-        /** Key should be 32 bytes */
-        const key = readFileSync(keyPath)
-        expect(key.length).to.equal(32)
-      })
-
-      it('should rotate key on each save', async () => {
-        const token1 = createTestToken()
-        await store.save(token1)
-        const key1 = readFileSync(keyPath)
-
-        const token2 = createTestToken()
-        await store.save(token2)
-        const key2 = readFileSync(keyPath)
-
-        // Key SHOULD change between saves (rotation)
-        expect(key1.equals(key2)).to.be.false
-      })
+      /** Read and verify it's encrypted */
+      const encrypted = readFileSync(credentialsPath, 'utf8')
+      expect(encrypted).to.not.include(token.accessToken)
+      expect(encrypted.split(':').length).to.equal(3) /* iv:authTag:data format */
     })
-  }
+
+    it('should create encryption key file', async () => {
+      const token = createTestToken()
+
+      await store.save(token)
+
+      expect(existsSync(keyPath)).to.be.true
+
+      /** Key should be 32 bytes */
+      const key = readFileSync(keyPath)
+      expect(key.length).to.equal(32)
+    })
+
+    it('should rotate key on each save', async () => {
+      const token1 = createTestToken()
+      await store.save(token1)
+      const key1 = readFileSync(keyPath)
+
+      const token2 = createTestToken()
+      await store.save(token2)
+      const key2 = readFileSync(keyPath)
+
+      // Key SHOULD change between saves (rotation)
+      expect(key1.equals(key2)).to.be.false
+    })
+  })
 })

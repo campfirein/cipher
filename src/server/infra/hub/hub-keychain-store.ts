@@ -1,55 +1,16 @@
-import keytar from 'keytar'
 import {createCipheriv, createDecipheriv, randomBytes} from 'node:crypto'
 import {existsSync} from 'node:fs'
 import {chmod, mkdir, readFile, writeFile} from 'node:fs/promises'
 
 import type {IHubKeychainStore} from '../../core/interfaces/hub/i-hub-keychain-store.js'
 
-import {shouldUseFileTokenStore} from '../../utils/environment-detector.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 
-const SERVICE_NAME = 'byterover-cli-hub-registries'
 const KEY_FILE = '.hub-registry-keys'
 const CREDENTIALS_FILE = 'hub-registry-credentials'
 const ALGORITHM = 'aes-256-gcm'
 const KEY_LENGTH = 32
 const IV_LENGTH = 16
-
-function getAccountName(registryName: string): string {
-  return `registry:${registryName}`
-}
-
-/**
- * Keychain-based storage for hub registry auth tokens.
- */
-class KeychainHubKeychainStore implements IHubKeychainStore {
-  async deleteToken(registryName: string): Promise<void> {
-    try {
-      await keytar.deletePassword(SERVICE_NAME, getAccountName(registryName))
-    } catch {
-      // Ignore errors
-    }
-  }
-
-  async getToken(registryName: string): Promise<string | undefined> {
-    try {
-      const token = await keytar.getPassword(SERVICE_NAME, getAccountName(registryName))
-      return token ?? undefined
-    } catch {
-      return undefined
-    }
-  }
-
-  async setToken(registryName: string, token: string): Promise<void> {
-    try {
-      await keytar.setPassword(SERVICE_NAME, getAccountName(registryName), token)
-    } catch (error) {
-      throw new Error(
-        `Failed to save registry token to keychain: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      )
-    }
-  }
-}
 
 /**
  * Dependencies for FileHubKeychainStore. Allows injection for testing.
@@ -162,10 +123,9 @@ export class FileHubKeychainStore implements IHubKeychainStore {
 }
 
 /**
- * Creates the appropriate hub keychain store for the current platform.
+ * Creates the hub keychain store.
+ * Uses file-based encrypted storage (AES-256-GCM) on all platforms.
  */
-export function createHubKeychainStore(
-  shouldUseFileFn: () => boolean = shouldUseFileTokenStore,
-): IHubKeychainStore {
-  return shouldUseFileFn() ? new FileHubKeychainStore() : new KeychainHubKeychainStore()
+export function createHubKeychainStore(): IHubKeychainStore {
+  return new FileHubKeychainStore()
 }
