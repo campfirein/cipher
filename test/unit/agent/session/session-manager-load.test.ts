@@ -106,8 +106,8 @@ function heapMB(): number {
  * environments with different GC scheduling (local vs CI runners).
  */
 function forceGC(): void {
-  const g = globalThis as NodeJS.Global & {gc?: () => void}
-  if (typeof g.gc === 'function') g.gc()
+  const {gc} = globalThis as {gc?: () => void}
+  if (typeof gc === 'function') gc()
 }
 
 // ---------------------------------------------------------------------------
@@ -339,6 +339,7 @@ describe('SessionManager – load tests (memory leak prevention)', function () {
   // Heap memory – verify non-linear growth
   // Uses plain objects (not sinon stubs) to avoid sinon's internal tracking
   // accumulating across thousands of cycles and distorting heap measurements.
+  // For accurate GC-forced measurements run with: node --expose-gc ... mocha ...
   // -------------------------------------------------------------------------
 
   describe('heap memory – bounded growth over 3000 cycles', () => {

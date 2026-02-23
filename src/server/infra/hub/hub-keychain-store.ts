@@ -29,16 +29,16 @@ const defaultFileDeps: FileHubKeychainStoreDeps = {
 
 /**
  * File-based encrypted storage for hub registry auth tokens.
- * Used on platforms where system keychain is unavailable.
+ * Used on all platforms.
  */
 export class FileHubKeychainStore implements IHubKeychainStore {
   private readonly deps: FileHubKeychainStoreDeps
 
-  constructor(deps: FileHubKeychainStoreDeps = defaultFileDeps) {
+  public constructor(deps: FileHubKeychainStoreDeps = defaultFileDeps) {
     this.deps = deps
   }
 
-  async deleteToken(registryName: string): Promise<void> {
+  public async deleteToken(registryName: string): Promise<void> {
     try {
       const tokens = await this.loadAllTokens()
       const updated = Object.fromEntries(Object.entries(tokens).filter(([key]) => key !== registryName))
@@ -48,7 +48,7 @@ export class FileHubKeychainStore implements IHubKeychainStore {
     }
   }
 
-  async getToken(registryName: string): Promise<string | undefined> {
+  public async getToken(registryName: string): Promise<string | undefined> {
     try {
       const tokens = await this.loadAllTokens()
       return tokens[registryName] ?? undefined
@@ -57,7 +57,7 @@ export class FileHubKeychainStore implements IHubKeychainStore {
     }
   }
 
-  async setToken(registryName: string, token: string): Promise<void> {
+  public async setToken(registryName: string, token: string): Promise<void> {
     const tokens = await this.loadAllTokens()
     tokens[registryName] = token
     await this.saveAllTokens(tokens)

@@ -5,12 +5,11 @@
  * createTokenStore() always returns FileTokenStore (AES-256-GCM).
  *
  * HOW TO RUN:
- * 1. Run: npx mocha --forbid-only "test/integration/infra/storage/wsl2-token-store.test.ts"
+ * 1. Run: npx mocha --forbid-only "test/integration/infra/storage/token-store.integration.test.ts"
  */
 
 import {expect} from 'chai'
 import {existsSync, readFileSync} from 'node:fs'
-import {rm} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {ITokenStore} from '../../../../src/server/core/interfaces/auth/i-token-store.js'
@@ -47,12 +46,6 @@ describe('TokenStore Integration', function () {
 
   afterEach(async () => {
     await store.clear()
-
-    try {
-      await rm(credentialsPath, {force: true})
-    } catch {
-      /** Ignore */
-    }
   })
 
   describe('save and load', () => {
