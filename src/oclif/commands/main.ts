@@ -1,7 +1,6 @@
 import {ensureDaemonRunning} from '@campfirein/brv-transport-client'
 import {Command} from '@oclif/core'
 
-import {initSessionLog, processManagerLog} from '../../server/utils/process-logger.js'
 import {resolveLocalServerMainPath} from '../../server/utils/server-main-resolver.js'
 import {startRepl} from '../../tui/repl-startup.js'
 
@@ -20,9 +19,6 @@ export default class Main extends Command {
   public static hidden = true
 
   public async run(): Promise<void> {
-    // Initialize session log (creates ~/.brv/logs/brv-{timestamp}.log)
-    initSessionLog()
-
     // Check if running in an interactive terminal
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       this.log('ByteRover REPL requires an interactive terminal.')
@@ -39,10 +35,6 @@ export default class Main extends Command {
       const detail = daemonResult.spawnError ? `: ${daemonResult.spawnError}` : ''
       this.error(`Failed to start daemon: timed out waiting for daemon to become ready${detail}`)
     }
-
-    processManagerLog(
-      `Daemon ready (pid=${daemonResult.info.pid}, port=${daemonResult.info.port}, started=${daemonResult.started})`,
-    )
 
     // Start the interactive REPL (TUI connects via connectToDaemon internally)
     await startRepl({
