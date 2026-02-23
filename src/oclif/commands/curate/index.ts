@@ -2,18 +2,20 @@ import type {ITransportClient, TaskAck} from '@campfirein/brv-transport-client'
 
 import {Args, Command, Flags} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
-import {z} from 'zod'
 
-import {TaskEvents} from '../../shared/transport/events/index.js'
-import {ProviderEvents, type ProviderGetActiveResponse} from '../../shared/transport/events/provider-events.js'
+import type {CurateLogOperation} from '../../../server/core/domain/entities/curate-log-entry.js'
+
+import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
+import {TaskEvents} from '../../../shared/transport/events/index.js'
+import {ProviderEvents, type ProviderGetActiveResponse} from '../../../shared/transport/events/provider-events.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
   hasLeakedHandles,
   withDaemonRetry,
-} from '../lib/daemon-client.js'
-import {writeJsonResponse} from '../lib/json-response.js'
-import {type ToolCallRecord, waitForTaskCompletion} from '../lib/task-client.js'
+} from '../../lib/daemon-client.js'
+import {writeJsonResponse} from '../../lib/json-response.js'
+import {type ToolCallRecord, waitForTaskCompletion} from '../../lib/task-client.js'
 
 /** Parsed flags type */
 type CurateFlags = {
@@ -22,42 +24,6 @@ type CurateFlags = {
   folder?: string[]
   format?: 'json' | 'text'
 }
-
-/** Schema for curate operations in tool results (direct curate call) */
-const CurateResultSchema = z.object({
-  result: z
-    .object({
-      applied: z
-        .array(
-          z.object({
-            filePath: z.string().optional(),
-            path: z.string(),
-            status: z.string(),
-            type: z.string(),
-          }),
-        )
-        .optional(),
-    })
-    .optional(),
-})
-
-/** Schema for curate results from code_exec (via tools.curate()) */
-const CodeExecCurateResultSchema = z.object({
-  returnValue: z
-    .object({
-      applied: z
-        .array(
-          z.object({
-            filePath: z.string().optional(),
-            path: z.string(),
-            status: z.string(),
-            type: z.string(),
-          }),
-        )
-        .optional(),
-    })
-    .optional(),
-})
 
 export default class Curate extends Command {
   public static args = {
@@ -91,6 +57,10 @@ Bad examples:
     '',
     '# Folder pack with context',
     '<%= config.bin %> <%= command.id %> "Analyze authentication module" -d src/auth/',
+    '',
+    '# View curate history',
+    '<%= config.bin %> curate view',
+    '<%= config.bin %> curate view --status completed --since 1h',
   ]
   public static flags = {
     detach: Flags.boolean({
@@ -120,8 +90,13 @@ Bad examples:
 
   public async run(): Promise<void> {
     const {args, flags: rawFlags} = await this.parse(Curate)
-    const flags = rawFlags as CurateFlags
-    const format = (flags.format ?? 'text') as 'json' | 'text'
+    const flags: CurateFlags = {
+      detach: rawFlags.detach,
+      files: rawFlags.files,
+      folder: rawFlags.folder,
+      format: rawFlags.format === 'json' ? 'json' : rawFlags.format === 'text' ? 'text' : undefined,
+    }
+    const format: 'json' | 'text' = flags.format ?? 'text'
 
     if (!this.validateInput(args, flags, format)) return
 
@@ -137,7 +112,9 @@ Bad examples:
         async (client, projectRoot) => {
           const active = await client.requestWithAck<ProviderGetActiveResponse>(ProviderEvents.GET_ACTIVE)
           if (!active.activeProviderId) {
-            throw new Error('No provider connected. Run "brv provider connect <provider>" to configure a provider first.')
+            throw new Error(
+              'No provider connected. Run "brv provider connect <provider>" to configure a provider first.',
+            )
           }
 
           await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType})
@@ -163,33 +140,16 @@ Bad examples:
     const changes: {created: string[]; updated: string[]} = {created: [], updated: []}
 
     for (const tc of toolCalls) {
-      if (tc.status !== 'completed' || !tc.result) continue
-
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(String(tc.result))
-      } catch {
-        continue
-      }
-
-      if (tc.toolName === 'curate') {
-        const parseResult = CurateResultSchema.safeParse(parsed)
-        if (!parseResult.success) continue
-        this.extractChangesFromApplied(parseResult.data.result?.applied ?? [], changes)
-      } else if (tc.toolName === 'code_exec') {
-        const parseResult = CodeExecCurateResultSchema.safeParse(parsed)
-        if (!parseResult.success) continue
-        if (parseResult.data.returnValue?.applied) {
-          this.extractChangesFromApplied(parseResult.data.returnValue.applied, changes)
-        }
-      }
+      if (tc.status !== 'completed') continue
+      const ops = extractCurateOperations({result: tc.result, toolName: tc.toolName})
+      this.extractChangesFromApplied(ops, changes)
     }
 
     return changes
   }
 
   private extractChangesFromApplied(
-    applied: Array<{filePath?: string; path: string; status: string; type: string}>,
+    applied: CurateLogOperation[],
     changes: {created: string[]; updated: string[]},
   ): void {
     for (const op of applied) {
@@ -251,16 +211,18 @@ Bad examples:
     }
 
     if (flags.detach) {
-      await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
+      const ack = await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
+      const {logId} = ack
 
       if (format === 'json') {
         writeJsonResponse({
           command: 'curate',
-          data: {message: 'Context queued for processing', status: 'queued', taskId},
+          data: {logId, message: 'Context queued for processing', status: 'queued', taskId},
           success: true,
         })
       } else {
-        this.log('✓ Context queued for processing.')
+        const logSuffix = logId ? ` (Log: ${logId})` : ''
+        this.log(`✓ Context queued for processing.${logSuffix}`)
       }
     } else {
       const completionPromise = waitForTaskCompletion(
@@ -268,7 +230,7 @@ Bad examples:
           client,
           command: 'curate',
           format,
-          onCompleted: ({taskId: tid, toolCalls}) => {
+          onCompleted: ({logId, taskId: tid, toolCalls}) => {
             const changes = this.composeChangesFromToolCalls(toolCalls)
 
             if (format === 'text') {
@@ -280,13 +242,15 @@ Bad examples:
                 this.log(`  update ${file}`)
               }
 
-              this.log('✓ Context curated successfully.')
+              const logSuffix = logId ? ` (Log: ${logId})` : ''
+              this.log(`✓ Context curated successfully.${logSuffix}`)
             } else {
               writeJsonResponse({
                 command: 'curate',
                 data: {
                   changes: changes.created.length > 0 || changes.updated.length > 0 ? changes : undefined,
                   event: 'completed',
+                  logId,
                   message: 'Context curated successfully',
                   status: 'completed',
                   taskId: tid,
@@ -295,11 +259,11 @@ Bad examples:
               })
             }
           },
-          onError({error}) {
+          onError({error, logId}) {
             if (format === 'json') {
               writeJsonResponse({
                 command: 'curate',
-                data: {event: 'error', message: error.message, status: 'error'},
+                data: {event: 'error', logId, message: error.message, status: 'error'},
                 success: false,
               })
             }

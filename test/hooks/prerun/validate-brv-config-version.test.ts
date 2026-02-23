@@ -3,6 +3,7 @@ import type {SinonStub} from 'sinon'
 import {expect} from 'chai'
 import {stub} from 'sinon'
 
+import type {PatchMarkerDeps} from '../../../src/oclif/hooks/prerun/validate-brv-config-version.js'
 import type {IProjectConfigStore} from '../../../src/server/core/interfaces/storage/i-project-config-store.js'
 import type {AutoInitDeps} from '../../../src/server/infra/config/auto-init.js'
 
@@ -16,6 +17,7 @@ describe('validateBrvConfigVersion', () => {
   let writeStub: SinonStub
   let mockConfigStore: IProjectConfigStore
   let mockAutoInitDeps: AutoInitDeps
+  let mockPatchMarkerDeps: PatchMarkerDeps
 
   const validConfigParams: BrvConfigParams = {
     chatLogPath: '/path/to/chat.log',
@@ -54,12 +56,17 @@ describe('validateBrvConfigVersion', () => {
       },
       projectConfigStore: mockConfigStore,
     }
+    // Default: already patched — keeps existing tests focused on version migration
+    mockPatchMarkerDeps = {
+      isPatched: stub().resolves(true),
+      markPatched: stub().resolves(),
+    }
   })
 
   describe('should skip validation for excluded commands', () => {
     for (const commandId of SKIP_COMMANDS) {
       it(`skips validation for '${commandId}' command`, async () => {
-        await validateBrvConfigVersion(commandId, mockConfigStore)
+        await validateBrvConfigVersion(commandId, mockConfigStore, undefined, mockPatchMarkerDeps)
 
         expect(existsStub.called).to.be.false
         expect(readStub.called).to.be.false
@@ -71,7 +78,7 @@ describe('validateBrvConfigVersion', () => {
     it('calls ensureProjectInitialized when config does not exist', async () => {
       existsStub.resolves(false)
 
-      await validateBrvConfigVersion('status', mockConfigStore, mockAutoInitDeps)
+      await validateBrvConfigVersion('status', mockConfigStore, mockAutoInitDeps, mockPatchMarkerDeps)
 
       expect(existsStub.called).to.be.true
       expect(readStub.called).to.be.false
@@ -85,7 +92,7 @@ describe('validateBrvConfigVersion', () => {
       existsStub.resolves(true)
       readStub.resolves(new BrvConfig(validConfigParams))
 
-      await validateBrvConfigVersion('status', mockConfigStore)
+      await validateBrvConfigVersion('status', mockConfigStore, undefined, mockPatchMarkerDeps)
 
       expect(existsStub.called).to.be.true
       expect(readStub.called).to.be.true
@@ -102,7 +109,7 @@ describe('validateBrvConfigVersion', () => {
       })
       readStub.resolves(oldConfig)
 
-      await validateBrvConfigVersion('status', mockConfigStore)
+      await validateBrvConfigVersion('status', mockConfigStore, undefined, mockPatchMarkerDeps)
 
       expect(writeStub.called).to.be.true
       const writtenConfig = writeStub.firstCall.args[0] as BrvConfig
@@ -122,7 +129,7 @@ describe('validateBrvConfigVersion', () => {
       })
       readStub.resolves(oldConfig)
 
-      await validateBrvConfigVersion('push', mockConfigStore)
+      await validateBrvConfigVersion('push', mockConfigStore, undefined, mockPatchMarkerDeps)
 
       expect(writeStub.called).to.be.true
       const writtenConfig = writeStub.firstCall.args[0] as BrvConfig
@@ -133,13 +140,43 @@ describe('validateBrvConfigVersion', () => {
     })
   })
 
+  describe('should apply curate-view patch when marker is absent', () => {
+    it('calls markPatched after patching when not yet patched', async () => {
+      existsStub.resolves(true)
+      readStub.resolves(new BrvConfig(validConfigParams))
+      const isPatchedStub = stub().resolves(false)
+      const markPatchedStub = stub().resolves()
+
+      await validateBrvConfigVersion('status', mockConfigStore, undefined, {
+        isPatched: isPatchedStub,
+        markPatched: markPatchedStub,
+      })
+
+      expect(isPatchedStub.calledOnce).to.be.true
+      expect(markPatchedStub.calledOnce).to.be.true
+    })
+
+    it('skips patch when marker already exists', async () => {
+      existsStub.resolves(true)
+      readStub.resolves(new BrvConfig(validConfigParams))
+      const markPatchedStub = stub().resolves()
+
+      await validateBrvConfigVersion('status', mockConfigStore, undefined, {
+        isPatched: stub().resolves(true),
+        markPatched: markPatchedStub,
+      })
+
+      expect(markPatchedStub.called).to.be.false
+    })
+  })
+
   describe('should re-throw errors from read', () => {
     it('re-throws errors', async () => {
       existsStub.resolves(true)
       readStub.rejects(new Error('Corrupted JSON'))
 
       try {
-        await validateBrvConfigVersion('status', mockConfigStore)
+        await validateBrvConfigVersion('status', mockConfigStore, undefined, mockPatchMarkerDeps)
         expect.fail('Expected error to be thrown')
       } catch (error) {
         expect(error).to.be.instanceof(Error)

@@ -120,7 +120,7 @@ export function registerBrvCurateTool(
         const hasFolder = Boolean(folder?.trim())
         const taskType = hasFolder ? 'curate-folder' : 'curate'
 
-        await client.requestWithAck(TransportTaskEventNames.CREATE, {
+        const ack = await client.requestWithAck<{logId?: string; taskId: string}>(TransportTaskEventNames.CREATE, {
           clientCwd: cwdResult.clientCwd,
           content: resolvedContent,
           taskId,
@@ -131,11 +131,13 @@ export function registerBrvCurateTool(
 
         // Fire-and-forget: return immediately after task is queued
         // Curation is processed asynchronously by the ByteRover agent
+        const logId = ack?.logId
         const modeDescription = hasFolder ? 'folder pack' : 'curation'
+        const logSuffix = logId ? `, logId: ${logId}` : ''
         return {
           content: [
             {
-              text: `✓ Context queued for ${modeDescription} (taskId: ${taskId}). The curation will be processed asynchronously.`,
+              text: `✓ Context queued for ${modeDescription} (taskId: ${taskId}${logSuffix}). The curation will be processed asynchronously.`,
               type: 'text' as const,
             },
           ],

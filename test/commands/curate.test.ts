@@ -6,7 +6,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import Curate from '../../src/oclif/commands/curate.js'
+import Curate from '../../src/oclif/commands/curate/index.js'
 
 // ==================== TestableCurateCommand ====================
 

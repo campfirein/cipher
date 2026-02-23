@@ -7,6 +7,9 @@
  * Result of code execution in the sandbox.
  */
 export interface REPLResult {
+  /** Accumulated curate() call results from within sandbox execution */
+  curateResults?: unknown[]
+
   /** Execution time in milliseconds */
   executionTime: number
 

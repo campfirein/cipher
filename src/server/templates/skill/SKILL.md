@@ -18,6 +18,7 @@ A project-level knowledge repository that persists across sessions. Use it to av
 |---------|------|---------|
 | `brv query "question"` | Before starting work | `brv query "How is auth implemented?"` |
 | `brv curate "context" -f file` | After completing work | `brv curate "JWT 24h expiry" -f auth.ts` |
+| `brv curate view` | Check curate history | `brv curate view` |
 | `brv status` | To check prerequisites | `brv status` |
 
 ## When to Use
@@ -31,6 +32,13 @@ A project-level knowledge repository that persists across sessions. Use it to av
 - Implemented a feature using specific patterns
 - Fixed a bug and found root cause
 - Made an architecture decision
+
+**View curate history** to check past curations:
+- `brv curate view` — show recent entries (last 10)
+- `brv curate view <logId>` — full detail for a specific entry: all files and operations performed (logId is printed by `brv curate` on completion, e.g. `cur-1739700001000`)
+- `brv curate view --detail` — list entries with file operations visible (no logId needed)
+- `brv curate view --since 1h --status completed` — filter by time and status
+- Run `brv curate view --help` for all filter options
 
 ## Curate Quality
 

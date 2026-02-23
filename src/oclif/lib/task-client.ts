@@ -20,6 +20,12 @@ import {TaskErrorCode} from '../../server/core/domain/errors/task-error.js'
 import {LlmEvents, TaskEvents} from '../../shared/transport/events/index.js'
 import {writeJsonResponse} from './json-response.js'
 
+/** Extends brv-transport-client's TaskCompleted with logId from ENG-1259 */
+type TaskCompletedWithLogId = TaskCompleted & {logId?: string}
+
+/** Extends brv-transport-client's TaskError with logId from ENG-1259 */
+type TaskErrorWithLogId = TaskError & {logId?: string}
+
 /** Collected tool call with result (mirrors TUI ToolCallEvent) */
 export interface ToolCallRecord {
   args: Record<string, unknown>
@@ -33,6 +39,7 @@ export interface ToolCallRecord {
 
 /** Completion result passed to onCompleted callback */
 export interface TaskCompletionResult {
+  logId?: string
   result?: string
   taskId: string
   toolCalls: ToolCallRecord[]
@@ -41,6 +48,7 @@ export interface TaskCompletionResult {
 /** Error result passed to onError callback */
 export interface TaskErrorResult {
   error: {code?: string; message: string}
+  logId?: string
   taskId: string
   toolCalls: ToolCallRecord[]
 }
@@ -250,20 +258,20 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
       }),
 
       // Task completed
-      client.on<TaskCompleted>(TaskEvents.COMPLETED, (payload) => {
+      client.on<TaskCompletedWithLogId>(TaskEvents.COMPLETED, (payload) => {
         if (payload.taskId !== taskId || completed) return
         completed = true
         cleanup()
-        onCompleted({result: payload.result, taskId, toolCalls})
+        onCompleted({logId: payload.logId, result: payload.result, taskId, toolCalls})
         resolve()
       }),
 
       // Task error
-      client.on<TaskError>(TaskEvents.ERROR, (payload) => {
+      client.on<TaskErrorWithLogId>(TaskEvents.ERROR, (payload) => {
         if (payload.taskId !== taskId || completed) return
         completed = true
         cleanup()
-        onError({error: payload.error, taskId, toolCalls})
+        onError({error: payload.error, logId: payload.logId, taskId, toolCalls})
         if (isText) {
           reject(Object.assign(new Error(payload.error.message), {code: payload.error.code}))
         } else {

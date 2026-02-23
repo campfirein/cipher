@@ -93,3 +93,7 @@ export const AGENT_MAX_CONCURRENT_TASKS = 5 // Max parallel curate/query tasks p
 export const AGENT_POOL_MAX_SIZE = 10
 export const AGENT_PROCESS_READY_TIMEOUT_MS = 15_000 // 15s max wait for child process to register
 export const AGENT_PROCESS_STOP_TIMEOUT_MS = 5000 // 5s max wait for child process to stop gracefully
+
+// Curate log
+export const CURATE_LOG_DIR = 'curate-log'
+export const CURATE_LOG_ID_PREFIX = 'cur'
