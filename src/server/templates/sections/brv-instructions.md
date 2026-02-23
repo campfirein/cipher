@@ -70,6 +70,13 @@ brv curate --folder src/auth/  # folder-only mode
 **BAD:** `brv curate "Fixed auth"` (too vague), `brv curate -f file.ts "text"` (wrong order)
 **BAD:** `brv curate -folder src/` (use `-d` or `--folder`, NOT `-folder`)
 
+**After curating**, verify what was stored using the logId printed on completion:
+```bash
+brv curate view <logId>       # Full detail: input, operations, summary
+brv curate view               # List recent curates with status
+brv curate view --help        # All filter options
+```
+
 **⚠️ CRITICAL - LONG CONVERSATIONS:**
 If you modify code 10 times in a conversation, curate 10 times. Do NOT batch or skip. Each code change = immediate curate before moving on.
 
@@ -102,3 +109,4 @@ Non-code task → Just respond normally
 > **⚠️ REMINDER: Don't forget!**
 > - `brv query` → BEFORE starting code task
 > - `brv curate` → AFTER each code change (don't batch!)
+> - `brv curate view` → verify what was stored (use logId printed on completion)

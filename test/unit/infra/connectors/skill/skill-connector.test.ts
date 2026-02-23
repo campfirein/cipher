@@ -124,6 +124,28 @@ describe('SkillConnector', () => {
       const content = await readFile(path.join(testDir, basePath, 'TROUBLESHOOTING.md'), 'utf8')
       expect(content).to.include('ByteRover Troubleshooting')
     })
+
+    it('should create SKILL.md with brv curate view in Quick Reference and When to Use', async () => {
+      const agent = 'Claude Code' as const
+      const {basePath} = SKILL_CONNECTOR_CONFIGS[agent]
+      await skillConnector.install(agent)
+
+      const content = await readFile(path.join(testDir, basePath, 'SKILL.md'), 'utf8')
+      expect(content).to.include('brv curate view')
+      expect(content).to.include('Check curate history')
+      expect(content).to.include('**View curate history** to check past curations:')
+      expect(content).to.include('brv curate view --help')
+    })
+
+    it('should create WORKFLOWS.md with Verifying Curate Results section', async () => {
+      const agent = 'Claude Code' as const
+      const {basePath} = SKILL_CONNECTOR_CONFIGS[agent]
+      await skillConnector.install(agent)
+
+      const content = await readFile(path.join(testDir, basePath, 'WORKFLOWS.md'), 'utf8')
+      expect(content).to.include('## Verifying Curate Results')
+      expect(content).to.include('brv curate view')
+    })
   })
 
   describe('status', () => {

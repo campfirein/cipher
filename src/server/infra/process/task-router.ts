@@ -5,6 +5,7 @@
  * - Task lifecycle: create → ack → started → completed/error/cancelled
  * - LLM event routing: llmservice:* events from agent → client + project room
  * - Grace period: keeps completed tasks briefly for late-arriving LLM events
+ * - Lifecycle hooks: extensible observer hooks (e.g. CurateLogHandler)
  *
  * Broadcasting: Task/LLM events are broadcast to project-scoped rooms
  * (project:<sanitizedPath>:broadcast) so only clients in the same project
@@ -33,20 +34,14 @@ import type {
   TaskStartedEvent,
 } from '../../core/domain/transport/schemas.js'
 import type {IAgentPool} from '../../core/interfaces/agent/i-agent-pool.js'
+import type {ITaskLifecycleHook} from '../../core/interfaces/process/i-task-lifecycle-hook.js'
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IProjectRouter} from '../../core/interfaces/routing/i-project-router.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 import type {TaskInfo} from './types.js'
 
-import {
-  AgentNotAvailableError,
-  serializeTaskError,
-} from '../../core/domain/errors/task-error.js'
-import {
-  LlmEventNames,
-  TransportLlmEventList,
-  TransportTaskEventNames,
-} from '../../core/domain/transport/schemas.js'
+import {AgentNotAvailableError, serializeTaskError} from '../../core/domain/errors/task-error.js'
+import {LlmEventNames, TransportLlmEventList, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
 import {transportLog} from '../../utils/process-logger.js'
 import {isValidTaskType} from '../../utils/type-guards.js'
 import {broadcastToProjectRoom} from './broadcast-utils.js'
@@ -73,6 +68,8 @@ type TaskRouterOptions = {
   agentPool?: IAgentPool
   /** Function to resolve agent clientId for a given project */
   getAgentForProject: (projectPath?: string) => string | undefined
+  /** Lifecycle hooks for task events (e.g. CurateLogHandler). */
+  lifecycleHooks?: ITaskLifecycleHook[]
   projectRegistry?: IProjectRegistry
   projectRouter?: IProjectRouter
   /** Resolves the projectPath a client registered with (from client:register). */
@@ -92,6 +89,7 @@ export class TaskRouter {
    */
   private completedTasks: Map<string, {completedAt: number; task: TaskInfo}> = new Map()
   private readonly getAgentForProject: (projectPath?: string) => string | undefined
+  private readonly lifecycleHooks: ITaskLifecycleHook[]
   private readonly projectRegistry: IProjectRegistry | undefined
   private readonly projectRouter: IProjectRouter | undefined
   private readonly resolveClientProjectPath: ((clientId: string) => string | undefined) | undefined
@@ -103,6 +101,7 @@ export class TaskRouter {
     this.transport = options.transport
     this.agentPool = options.agentPool
     this.getAgentForProject = options.getAgentForProject
+    this.lifecycleHooks = options.lifecycleHooks ?? []
     this.projectRegistry = options.projectRegistry
     this.projectRouter = options.projectRouter
     this.resolveClientProjectPath = options.resolveClientProjectPath
@@ -122,8 +121,18 @@ export class TaskRouter {
     if (!task) return
 
     this.transport.sendTo(task.clientId, TransportTaskEventNames.ERROR, {error, taskId})
-    broadcastToProjectRoom(this.projectRegistry, this.projectRouter, task.projectPath, TransportTaskEventNames.ERROR, {error, taskId}, task.clientId)
+    broadcastToProjectRoom(
+      this.projectRegistry,
+      this.projectRouter,
+      task.projectPath,
+      TransportTaskEventNames.ERROR,
+      {error, taskId},
+      task.clientId,
+    )
     this.tasks.delete(taskId)
+
+    // Notify hooks (fire-and-forget)
+    this.notifyHooksError(taskId, error.message, task).catch(() => {})
   }
 
   getDebugState(): {
@@ -173,15 +182,13 @@ export class TaskRouter {
    */
   setup(): void {
     // Task creation from clients
-    this.transport.onRequest<TaskCreateRequest, TaskCreateResponse>(
-      TransportTaskEventNames.CREATE,
-      (data, clientId) => this.handleTaskCreate(data, clientId),
+    this.transport.onRequest<TaskCreateRequest, TaskCreateResponse>(TransportTaskEventNames.CREATE, (data, clientId) =>
+      this.handleTaskCreate(data, clientId),
     )
 
     // Task cancellation from clients
-    this.transport.onRequest<TaskCancelRequest, TaskCancelResponse>(
-      TransportTaskEventNames.CANCEL,
-      (data, clientId) => this.handleTaskCancel(data, clientId),
+    this.transport.onRequest<TaskCancelRequest, TaskCancelResponse>(TransportTaskEventNames.CANCEL, (data, clientId) =>
+      this.handleTaskCancel(data, clientId),
     )
 
     // Task lifecycle events from agent
@@ -227,8 +234,16 @@ export class TaskRouter {
     // No Agent - cancel task locally and emit terminal event
     transportLog(`No Agent connected, cancelling task locally: ${taskId}`)
     this.transport.sendTo(task.clientId, TransportTaskEventNames.CANCELLED, {taskId})
-    broadcastToProjectRoom(this.projectRegistry, this.projectRouter, task.projectPath, TransportTaskEventNames.CANCELLED, {taskId}, task.clientId)
+    broadcastToProjectRoom(
+      this.projectRegistry,
+      this.projectRouter,
+      task.projectPath,
+      TransportTaskEventNames.CANCELLED,
+      {taskId},
+      task.clientId,
+    )
     this.tasks.delete(taskId)
+    this.notifyHooksCancelled(taskId, task).catch(() => {})
 
     return {success: true}
   }
@@ -243,8 +258,20 @@ export class TaskRouter {
       this.transport.sendTo(task.clientId, TransportTaskEventNames.CANCELLED, {taskId})
     }
 
-    broadcastToProjectRoom(this.projectRegistry, this.projectRouter, task?.projectPath, TransportTaskEventNames.CANCELLED, {taskId}, task?.clientId)
+    broadcastToProjectRoom(
+      this.projectRegistry,
+      this.projectRouter,
+      task?.projectPath,
+      TransportTaskEventNames.CANCELLED,
+      {taskId},
+      task?.clientId,
+    )
     this.moveToCompleted(taskId)
+
+    // Notify hooks (fire-and-forget)
+    if (task) {
+      this.notifyHooksCancelled(taskId, task).catch(() => {})
+    }
   }
 
   private handleTaskCompleted(data: TaskCompletedEvent): void {
@@ -254,25 +281,94 @@ export class TaskRouter {
     transportLog(`Task completed: ${taskId}`)
 
     if (task) {
-      this.transport.sendTo(task.clientId, TransportTaskEventNames.COMPLETED, {result, taskId})
+      this.transport.sendTo(task.clientId, TransportTaskEventNames.COMPLETED, {
+        ...(task.logId ? {logId: task.logId} : {}),
+        result,
+        taskId,
+      })
     }
 
-    broadcastToProjectRoom(this.projectRegistry, this.projectRouter, task?.projectPath, TransportTaskEventNames.COMPLETED, {result, taskId}, task?.clientId)
+    broadcastToProjectRoom(
+      this.projectRegistry,
+      this.projectRouter,
+      task?.projectPath,
+      TransportTaskEventNames.COMPLETED,
+      {
+        ...(task?.logId ? {logId: task.logId} : {}),
+        result,
+        taskId,
+      },
+      task?.clientId,
+    )
     this.moveToCompleted(taskId)
 
     // Notify pool so it can clear busy flag and drain queued tasks
     if (task?.projectPath) {
       this.agentPool?.notifyTaskCompleted(task.projectPath)
     }
+
+    // Notify hooks (fire-and-forget)
+    if (task) {
+      this.notifyHooksCompleted(taskId, result, task).catch(() => {})
+    }
   }
 
-  private handleTaskCreate(data: TaskCreateRequest, clientId: string): TaskCreateResponse {
+  /**
+   * Handle task creation from a client.
+   *
+   * Ordering (critical for correctness):
+   * 1. Idempotency check
+   * 2. Early validation — on failure: send task:error, return. No task stored, no task:created, no hooks called.
+   * 3. Store task + send task:created synchronously (before any await)
+   * 4. Await lifecycle hooks → get logId
+   *    Note: task:ack is intentionally delayed until hooks resolve so logId can be included.
+   *    This reverses the old ordering (previously ack preceded created).
+   * 5. Send task:ack with logId
+   * 6. Submit to agentPool (fire-and-forget)
+   */
+  private async handleTaskCreate(data: TaskCreateRequest, clientId: string): Promise<TaskCreateResponse> {
     const {taskId} = data
 
     if (this.tasks.has(taskId)) {
       // Idempotent — duplicate creation returns existing taskId (e.g. client retry)
       return {taskId}
     }
+
+    // ── Early validation: no hooks called if invalid ──────────────────────────
+
+    if (!this.agentPool) {
+      transportLog(`No AgentPool available, cannot process task ${taskId}`)
+      const error = serializeTaskError(new AgentNotAvailableError())
+      const projectPath = data.projectPath ?? this.resolveClientProjectPath?.(clientId) ?? data.clientCwd
+      this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
+      broadcastToProjectRoom(
+        this.projectRegistry,
+        this.projectRouter,
+        projectPath,
+        TransportTaskEventNames.ERROR,
+        {error, taskId},
+        clientId,
+      )
+      return {taskId}
+    }
+
+    if (!isValidTaskType(data.type)) {
+      transportLog(`Invalid task type: ${data.type}`)
+      const error = serializeTaskError(new Error(`Invalid task type: ${data.type}`))
+      const projectPath = data.projectPath ?? this.resolveClientProjectPath?.(clientId) ?? data.clientCwd
+      this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
+      broadcastToProjectRoom(
+        this.projectRegistry,
+        this.projectRouter,
+        projectPath,
+        TransportTaskEventNames.ERROR,
+        {error, taskId},
+        clientId,
+      )
+      return {taskId}
+    }
+
+    // ── Resolve projectPath & store task synchronously ────────────────────────
 
     // Resolve projectPath: explicit field > client's registered projectPath > clientCwd.
     // Client's registered projectPath is the walked-up project root (where .brv/ lives),
@@ -287,15 +383,14 @@ export class TaskRouter {
       createdAt: Date.now(),
       ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
+      ...(data.folderPath ? {folderPath: data.folderPath} : {}),
       ...(projectPath ? {projectPath} : {}),
       taskId,
       type: data.type,
     })
 
-    // Send ack immediately
-    this.transport.sendTo(clientId, TransportTaskEventNames.ACK, {taskId})
+    // ── Send task:created synchronously (before any await) ────────────────────
 
-    // Notify creator directly so TUI store can initialize the task
     const createdPayload = {
       content: data.content,
       ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
@@ -306,27 +401,31 @@ export class TaskRouter {
     this.transport.sendTo(clientId, TransportTaskEventNames.CREATED, createdPayload)
 
     // Broadcast to other clients in the project room (exclude creator to avoid duplicate)
-    broadcastToProjectRoom(this.projectRegistry, this.projectRouter, projectPath, TransportTaskEventNames.CREATED, createdPayload, clientId)
+    broadcastToProjectRoom(
+      this.projectRegistry,
+      this.projectRouter,
+      projectPath,
+      TransportTaskEventNames.CREATED,
+      createdPayload,
+      clientId,
+    )
 
-    // All tasks go through AgentPool
-    if (!this.agentPool) {
-      transportLog(`No AgentPool available, cannot process task ${taskId}`)
-      const error = serializeTaskError(new AgentNotAvailableError())
-      this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
-      broadcastToProjectRoom(this.projectRegistry, this.projectRouter, projectPath, TransportTaskEventNames.ERROR, {error, taskId}, clientId)
-      this.tasks.delete(taskId)
-      return {taskId}
+    // ── Await lifecycle hooks ─────────────────────────────────────────────────
+
+    const logId = await this.runCreateHooks(taskId)
+    const task = this.tasks.get(taskId)
+    if (task && logId) {
+      this.tasks.set(taskId, {...task, logId})
     }
 
-    // Validate task type before submitting
-    if (!isValidTaskType(data.type)) {
-      transportLog(`Invalid task type: ${data.type}`)
-      const error = serializeTaskError(new Error(`Invalid task type: ${data.type}`))
-      this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
-      broadcastToProjectRoom(this.projectRegistry, this.projectRouter, projectPath, TransportTaskEventNames.ERROR, {error, taskId}, clientId)
-      this.tasks.delete(taskId)
-      return {taskId}
-    }
+    // ── Send task:ack with logId ──────────────────────────────────────────────
+
+    this.transport.sendTo(clientId, TransportTaskEventNames.ACK, {
+      ...(logId ? {logId} : {}),
+      taskId,
+    })
+
+    // ── Submit to AgentPool (fire-and-forget) ─────────────────────────────────
 
     const executeMsg: TaskExecute = {
       clientId,
@@ -339,25 +438,76 @@ export class TaskRouter {
       type: data.type,
     }
 
-    // Fire-and-forget — agent child process routes events back via transport
     // eslint-disable-next-line no-void
-    void this.agentPool.submitTask(executeMsg).then((submitResult) => {
-      if (!submitResult.success) {
-        transportLog(`AgentPool rejected task ${taskId}: ${submitResult.reason} — ${submitResult.message}`)
-        const error = serializeTaskError(new Error(submitResult.message))
-        this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
-        broadcastToProjectRoom(this.projectRegistry, this.projectRouter, projectPath, TransportTaskEventNames.ERROR, {error, taskId}, clientId)
+    void this.agentPool
+      .submitTask(executeMsg)
+      .then((submitResult) => {
+        if (!submitResult.success) {
+          transportLog(`AgentPool rejected task ${taskId}: ${submitResult.reason} — ${submitResult.message}`)
+          const error = serializeTaskError(new Error(submitResult.message))
+          const rejectedTask = this.tasks.get(taskId) ?? {
+            clientId,
+            content: data.content,
+            createdAt: Date.now(),
+            taskId,
+            type: data.type,
+          }
+          this.tasks.delete(taskId)
+          this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {
+            ...(rejectedTask.logId ? {logId: rejectedTask.logId} : {}),
+            error,
+            taskId,
+          })
+          broadcastToProjectRoom(
+            this.projectRegistry,
+            this.projectRouter,
+            projectPath,
+            TransportTaskEventNames.ERROR,
+            {
+              ...(rejectedTask.logId ? {logId: rejectedTask.logId} : {}),
+              error,
+              taskId,
+            },
+            clientId,
+          )
+          this.notifyHooksError(taskId, submitResult.message, rejectedTask).catch(() => {})
+        }
+      })
+      .catch((error_: unknown) => {
+        transportLog(
+          `AgentPool.submitTask threw unexpectedly for task ${taskId}: ${error_ instanceof Error ? error_.message : String(error_)}`,
+        )
+        const error = serializeTaskError(error_ instanceof Error ? error_ : new Error(String(error_)))
+        const errorMsg = error_ instanceof Error ? error_.message : String(error_)
+        const thrownTask = this.tasks.get(taskId) ?? {
+          clientId,
+          content: data.content,
+          createdAt: Date.now(),
+          taskId,
+          type: data.type,
+        }
         this.tasks.delete(taskId)
-      }
-    }).catch((error_: unknown) => {
-      transportLog(`AgentPool.submitTask threw unexpectedly for task ${taskId}: ${error_ instanceof Error ? error_.message : String(error_)}`)
-      const error = serializeTaskError(error_ instanceof Error ? error_ : new Error(String(error_)))
-      this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
-      broadcastToProjectRoom(this.projectRegistry, this.projectRouter, projectPath, TransportTaskEventNames.ERROR, {error, taskId}, clientId)
-      this.tasks.delete(taskId)
-    })
+        this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {
+          ...(thrownTask.logId ? {logId: thrownTask.logId} : {}),
+          error,
+          taskId,
+        })
+        broadcastToProjectRoom(
+          this.projectRegistry,
+          this.projectRouter,
+          projectPath,
+          TransportTaskEventNames.ERROR,
+          {
+            ...(thrownTask.logId ? {logId: thrownTask.logId} : {}),
+            error,
+            taskId,
+          },
+          clientId,
+        )
+        this.notifyHooksError(taskId, errorMsg, thrownTask).catch(() => {})
+      })
 
-    return {taskId}
+    return {...(logId ? {logId} : {}), taskId}
   }
 
   private handleTaskError(data: TaskErrorEvent): void {
@@ -367,15 +517,35 @@ export class TaskRouter {
     transportLog(`Task error: ${taskId} - [${error.code}] ${error.message}`)
 
     if (task) {
-      this.transport.sendTo(task.clientId, TransportTaskEventNames.ERROR, {error, taskId})
+      this.transport.sendTo(task.clientId, TransportTaskEventNames.ERROR, {
+        ...(task.logId ? {logId: task.logId} : {}),
+        error,
+        taskId,
+      })
     }
 
-    broadcastToProjectRoom(this.projectRegistry, this.projectRouter, task?.projectPath, TransportTaskEventNames.ERROR, {error, taskId}, task?.clientId)
+    broadcastToProjectRoom(
+      this.projectRegistry,
+      this.projectRouter,
+      task?.projectPath,
+      TransportTaskEventNames.ERROR,
+      {
+        ...(task?.logId ? {logId: task.logId} : {}),
+        error,
+        taskId,
+      },
+      task?.clientId,
+    )
     this.moveToCompleted(taskId)
 
     // Notify pool so it can clear busy flag and drain queued tasks
     if (task?.projectPath) {
       this.agentPool?.notifyTaskCompleted(task.projectPath)
+    }
+
+    // Notify hooks (fire-and-forget)
+    if (task) {
+      this.notifyHooksError(taskId, error.message, task).catch(() => {})
     }
   }
 
@@ -385,13 +555,20 @@ export class TaskRouter {
     if (task) {
       this.transport.sendTo(task.clientId, TransportTaskEventNames.STARTED, {taskId})
 
-      broadcastToProjectRoom(this.projectRegistry, this.projectRouter, task.projectPath, TransportTaskEventNames.STARTED, {
-        content: task.content,
-        ...(task.clientCwd ? {clientCwd: task.clientCwd} : {}),
-        ...(task.files?.length ? {files: task.files} : {}),
-        taskId,
-        type: task.type,
-      }, task.clientId)
+      broadcastToProjectRoom(
+        this.projectRegistry,
+        this.projectRouter,
+        task.projectPath,
+        TransportTaskEventNames.STARTED,
+        {
+          content: task.content,
+          ...(task.clientCwd ? {clientCwd: task.clientCwd} : {}),
+          ...(task.files?.length ? {files: task.files} : {}),
+          taskId,
+          type: task.type,
+        },
+        task.clientId,
+      )
     } else {
       // No task context — cannot determine project room, skip broadcast
       transportLog(`Task started but no task context found: ${taskId}`)
@@ -413,6 +590,69 @@ export class TaskRouter {
     }
   }
 
+  /**
+   * Notify all hooks of task cancellation.
+   * Each hook is called independently; errors are caught and logged.
+   * cleanup() is called for each hook after onTaskCancelled.
+   */
+  private async notifyHooksCancelled(taskId: string, task: TaskInfo): Promise<void> {
+    await Promise.allSettled(
+      this.lifecycleHooks.map(async (hook) => {
+        try {
+          await hook.onTaskCancelled?.(taskId, task)
+        } catch (error) {
+          transportLog(
+            `LifecycleHook.onTaskCancelled error for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        } finally {
+          hook.cleanup?.(taskId)
+        }
+      }),
+    )
+  }
+
+  /**
+   * Notify all hooks of task completion.
+   * Each hook is called independently; errors are caught and logged.
+   * cleanup() is called for each hook after onTaskCompleted.
+   */
+  private async notifyHooksCompleted(taskId: string, result: string, task: TaskInfo): Promise<void> {
+    await Promise.allSettled(
+      this.lifecycleHooks.map(async (hook) => {
+        try {
+          await hook.onTaskCompleted?.(taskId, result, task)
+        } catch (error) {
+          transportLog(
+            `LifecycleHook.onTaskCompleted error for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        } finally {
+          hook.cleanup?.(taskId)
+        }
+      }),
+    )
+  }
+
+  /**
+   * Notify all hooks of task error.
+   * Each hook is called independently; errors are caught and logged.
+   * cleanup() is called for each hook after onTaskError.
+   */
+  private async notifyHooksError(taskId: string, errorMessage: string, task: TaskInfo): Promise<void> {
+    await Promise.allSettled(
+      this.lifecycleHooks.map(async (hook) => {
+        try {
+          await hook.onTaskError?.(taskId, errorMessage, task)
+        } catch (error) {
+          transportLog(
+            `LifecycleHook.onTaskError error for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        } finally {
+          hook.cleanup?.(taskId)
+        }
+      }),
+    )
+  }
+
   private registerLlmEvent<E extends LlmEventName>(eventName: E): void {
     this.transport.onRequest<LlmEventPayloadMap[E], void>(eventName, (data) => {
       if (!hasTaskId(data)) return
@@ -423,16 +663,65 @@ export class TaskRouter {
   /**
    * Generic handler for routing LLM events from Agent to clients.
    * Checks both active and recently completed tasks (within grace period).
+   * onToolResult hooks are called only for ACTIVE tasks (not grace-period).
    */
   private routeLlmEvent(eventName: string, data: {[key: string]: unknown; taskId: string}): void {
     const {taskId, ...rest} = data
-    const task = this.tasks.get(taskId) ?? this.completedTasks.get(taskId)?.task
+    const activeTask = this.tasks.get(taskId)
+    const task = activeTask ?? this.completedTasks.get(taskId)?.task
 
     if (!task) {
       return
     }
 
+    // Notify onToolResult hooks only for active tasks
+    if (activeTask && eventName === LlmEventNames.TOOL_RESULT) {
+      for (const hook of this.lifecycleHooks) {
+        try {
+          hook.onToolResult?.(taskId, data as unknown as LlmToolResultEvent)
+        } catch (error) {
+          transportLog(
+            `LifecycleHook.onToolResult error for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
+      }
+    }
+
     this.transport.sendTo(task.clientId, eventName, {taskId, ...rest})
-    broadcastToProjectRoom(this.projectRegistry, this.projectRouter, task.projectPath, eventName, {taskId, ...rest}, task.clientId)
+    broadcastToProjectRoom(
+      this.projectRegistry,
+      this.projectRouter,
+      task.projectPath,
+      eventName,
+      {taskId, ...rest},
+      task.clientId,
+    )
+  }
+
+  /**
+   * Run all onTaskCreate hooks and return the first logId.
+   * Each hook is called independently; errors are caught and logged.
+   */
+  private async runCreateHooks(taskId: string): Promise<string | undefined> {
+    if (this.lifecycleHooks.length === 0) return undefined
+
+    const task = this.tasks.get(taskId)
+    if (!task) return undefined
+
+    const logIds = await Promise.all(
+      this.lifecycleHooks.map(async (hook) => {
+        if (!hook.onTaskCreate) return
+        try {
+          const result = await hook.onTaskCreate(task)
+          return result?.logId
+        } catch (error) {
+          transportLog(
+            `LifecycleHook.onTaskCreate error for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
+      }),
+    )
+
+    return logIds.find((id): id is string => typeof id === 'string')
   }
 }

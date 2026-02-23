@@ -156,21 +156,21 @@ describe('TaskRouter', () => {
   // ==========================================================================
 
   describe('task:create', () => {
-    it('should accept task and return taskId', () => {
+    it('should accept task and return taskId', async () => {
       const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
       expect(handler).to.exist
 
       const request = makeTaskCreateRequest()
-      const result = handler!(request, 'client-1')
+      const result = await handler!(request, 'client-1')
 
       expect(result).to.deep.equal({taskId: request.taskId})
     })
 
-    it('should send ACK to client immediately', () => {
+    it('should send ACK to client after hooks resolve', async () => {
       const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
       const request = makeTaskCreateRequest()
 
-      handler!(request, 'client-1')
+      await handler!(request, 'client-1')
 
       expect((transportHelper.transport.sendTo as SinonStub).calledWith(
         'client-1',
@@ -213,12 +213,12 @@ describe('TaskRouter', () => {
       expect(submittedTask).to.have.property('type', 'curate')
     })
 
-    it('should return same taskId for duplicate create (idempotent)', () => {
+    it('should return same taskId for duplicate create (idempotent)', async () => {
       const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
       const request = makeTaskCreateRequest()
 
-      const result1 = handler!(request, 'client-1')
-      const result2 = handler!(request, 'client-1')
+      const result1 = await handler!(request, 'client-1')
+      const result2 = await handler!(request, 'client-1')
 
       expect(result1).to.deep.equal(result2)
       // Only submitted once
@@ -315,11 +315,11 @@ describe('TaskRouter', () => {
   describe('task lifecycle', () => {
     let taskId: string
 
-    beforeEach(() => {
+    beforeEach(async () => {
       const createHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
       const request = makeTaskCreateRequest()
       taskId = request.taskId
-      createHandler!(request, 'client-1')
+      await createHandler!(request, 'client-1')
       // Reset sendTo history to only track lifecycle events
       ;(transportHelper.transport.sendTo as SinonStub).resetHistory()
       projectRouter.broadcastToProject.resetHistory()
@@ -422,11 +422,11 @@ describe('TaskRouter', () => {
   describe('task cancellation', () => {
     let taskId: string
 
-    beforeEach(() => {
+    beforeEach(async () => {
       const createHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
       const request = makeTaskCreateRequest()
       taskId = request.taskId
-      createHandler!(request, 'client-1')
+      await createHandler!(request, 'client-1')
       ;(transportHelper.transport.sendTo as SinonStub).resetHistory()
     })
 
@@ -479,11 +479,11 @@ describe('TaskRouter', () => {
   describe('LLM event routing', () => {
     let taskId: string
 
-    beforeEach(() => {
+    beforeEach(async () => {
       const createHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
       const request = makeTaskCreateRequest()
       taskId = request.taskId
-      createHandler!(request, 'client-1')
+      await createHandler!(request, 'client-1')
       ;(transportHelper.transport.sendTo as SinonStub).resetHistory()
       projectRouter.broadcastToProject.resetHistory()
     })
@@ -605,11 +605,11 @@ describe('TaskRouter', () => {
   describe('failTask', () => {
     let taskId: string
 
-    beforeEach(() => {
+    beforeEach(async () => {
       const createHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
       const request = makeTaskCreateRequest()
       taskId = request.taskId
-      createHandler!(request, 'client-1')
+      await createHandler!(request, 'client-1')
       ;(transportHelper.transport.sendTo as SinonStub).resetHistory()
       projectRouter.broadcastToProject.resetHistory()
     })
@@ -643,6 +643,198 @@ describe('TaskRouter', () => {
       router.failTask('nonexistent', {message: 'test', name: 'Error'})
 
       expect((transportHelper.transport.sendTo as SinonStub).called).to.be.false
+    })
+  })
+
+  // ==========================================================================
+  // Lifecycle hooks
+  // ==========================================================================
+
+  describe('lifecycle hooks', () => {
+    let hookOnCreate: SinonStub
+    let hookOnCompleted: SinonStub
+    let hookOnError: SinonStub
+    let hookOnCancelled: SinonStub
+    let hookOnToolResult: SinonStub
+    let hookCleanup: SinonStub
+    let routerWithHooks: TaskRouter
+    let hookTransportHelper: ReturnType<typeof makeStubTransportServer>
+
+    beforeEach(() => {
+      hookOnCreate = sandbox.stub().resolves({logId: 'cur-123'})
+      hookOnCompleted = sandbox.stub().resolves()
+      hookOnError = sandbox.stub().resolves()
+      hookOnCancelled = sandbox.stub().resolves()
+      hookOnToolResult = sandbox.stub()
+      hookCleanup = sandbox.stub()
+      hookTransportHelper = makeStubTransportServer(sandbox)
+      routerWithHooks = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        lifecycleHooks: [
+          {
+            cleanup: hookCleanup,
+            onTaskCancelled: hookOnCancelled,
+            onTaskCompleted: hookOnCompleted,
+            onTaskCreate: hookOnCreate,
+            onTaskError: hookOnError,
+            onToolResult: hookOnToolResult,
+          },
+        ],
+        projectRegistry,
+        projectRouter,
+        transport: hookTransportHelper.transport,
+      })
+      routerWithHooks.setup()
+    })
+
+    it('should include logId in task:ack when hook returns one', async () => {
+      const handler = hookTransportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest()
+      await handler!(request, 'client-1')
+
+      expect(
+        (hookTransportHelper.transport.sendTo as SinonStub).calledWith(
+          'client-1',
+          TransportTaskEventNames.ACK,
+          {logId: 'cur-123', taskId: request.taskId},
+        ),
+      ).to.be.true
+    })
+
+    it('should include logId in task:completed when hook set it', async () => {
+      const handler = hookTransportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest()
+      await handler!(request, 'client-1')
+
+      const completedHandler = hookTransportHelper.requestHandlers.get(TransportTaskEventNames.COMPLETED)
+      completedHandler!({result: 'done', taskId: request.taskId}, 'agent-1')
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10)
+      })
+
+      const completedCall = (hookTransportHelper.transport.sendTo as SinonStub).getCalls().find(
+        (c) => c.args[1] === TransportTaskEventNames.COMPLETED,
+      )
+      expect(completedCall).to.exist
+      expect(completedCall!.args[2]).to.have.property('logId', 'cur-123')
+    })
+
+    it('should call onTaskError and cleanup when failTask is called', async () => {
+      const handler = hookTransportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest()
+      await handler!(request, 'client-1')
+
+      routerWithHooks.failTask(request.taskId, {message: 'fail', name: 'Error'})
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10)
+      })
+
+      expect(hookOnError.calledOnce).to.be.true
+      expect(hookCleanup.calledWith(request.taskId)).to.be.true
+    })
+
+    it('should call onTaskCancelled and cleanup on task:cancelled from agent', async () => {
+      const handler = hookTransportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest()
+      await handler!(request, 'client-1')
+
+      const cancelledHandler = hookTransportHelper.requestHandlers.get(TransportTaskEventNames.CANCELLED)
+      cancelledHandler!({taskId: request.taskId}, 'agent-1')
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10)
+      })
+
+      expect(hookOnCancelled.calledOnce).to.be.true
+      expect(hookOnError.called).to.be.false
+      expect(hookCleanup.calledWith(request.taskId)).to.be.true
+    })
+
+    it('should call onTaskError and cleanup on task:error from agent', async () => {
+      const handler = hookTransportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest()
+      await handler!(request, 'client-1')
+
+      const errorHandler = hookTransportHelper.requestHandlers.get(TransportTaskEventNames.ERROR)
+      errorHandler!({error: {message: 'fail', name: 'Error'}, taskId: request.taskId}, 'agent-1')
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10)
+      })
+
+      expect(hookOnError.calledOnce).to.be.true
+      expect(hookCleanup.calledWith(request.taskId)).to.be.true
+    })
+
+    it('should NOT call onTaskCreate when no agentPool available', async () => {
+      const helper = makeStubTransportServer(sandbox)
+      const routerNoPool = new TaskRouter({
+        getAgentForProject: sandbox.stub(),
+        lifecycleHooks: [{cleanup: hookCleanup, onTaskCreate: hookOnCreate}],
+        projectRegistry,
+        projectRouter,
+        transport: helper.transport,
+      })
+      routerNoPool.setup()
+
+      const handler = helper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      await handler!(makeTaskCreateRequest(), 'client-1')
+
+      expect(hookOnCreate.called).to.be.false
+    })
+
+    it('should NOT call onTaskCreate when invalid task type', async () => {
+      const handler = hookTransportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      await handler!(makeTaskCreateRequest({type: 'invalid_type'}), 'client-1')
+
+      expect(hookOnCreate.called).to.be.false
+    })
+
+    it('should call onTaskError when pool rejects task', async () => {
+      agentPool.submitTask.resolves({
+        message: 'Pool is full',
+        reason: 'pool_full',
+        success: false,
+      } as SubmitTaskResult)
+
+      const handler = hookTransportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest()
+      await handler!(request, 'client-1')
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10)
+      })
+
+      expect(hookOnError.calledOnce).to.be.true
+      expect(hookCleanup.calledWith(request.taskId)).to.be.true
+    })
+
+    it('should NOT call onToolResult for grace-period completed tasks', async () => {
+      const handler = hookTransportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest()
+      await handler!(request, 'client-1')
+
+      // Complete the task (moves to grace period)
+      const completedHandler = hookTransportHelper.requestHandlers.get(TransportTaskEventNames.COMPLETED)
+      completedHandler!({result: 'done', taskId: request.taskId}, 'agent-1')
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10)
+      })
+
+      hookOnToolResult.resetHistory()
+
+      // Tool result arrives during grace period (task is in completedTasks, NOT tasks)
+      const toolResultHandler = hookTransportHelper.requestHandlers.get(LlmEventNames.TOOL_RESULT)
+      toolResultHandler!(
+        {result: 'file', sessionId: 'sess-1', success: true, taskId: request.taskId, toolName: 'curate'},
+        'agent-1',
+      )
+
+      expect(hookOnToolResult.called).to.be.false
     })
   })
 

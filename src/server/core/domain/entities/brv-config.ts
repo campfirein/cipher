@@ -67,9 +67,7 @@ const isCodingAgent = (value: unknown): value is Agent => {
 const isBrvConfigJson = (json: unknown): json is BrvConfigFromJson => {
   if (typeof json !== 'object' || json === null) return false
 
-  const requiredInputJsonKeys = [
-    'createdAt',
-  ] as const satisfies readonly (keyof BrvConfigFromJson)[]
+  const requiredInputJsonKeys = ['createdAt'] as const satisfies readonly (keyof BrvConfigFromJson)[]
 
   for (const key of requiredInputJsonKeys) {
     if (!(key in json) || typeof (json as Record<string, unknown>)[key] !== 'string') {
