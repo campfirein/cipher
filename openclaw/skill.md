@@ -7,6 +7,7 @@ metadata: {"moltbot":{"emoji":"🧠","requires":{"bins":["brv"]},"install":[{"id
 # ByteRover Knowledge Management
 
 Use the `brv` CLI to manage your project's long-term memory.
+Install: `npm install -g byterover-cli`
 Knowledge is stored in `.brv/context-tree/` as human-readable Markdown files.
 
 ## Workflow
