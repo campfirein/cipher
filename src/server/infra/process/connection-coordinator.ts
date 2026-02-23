@@ -255,6 +255,10 @@ export class ConnectionCoordinator {
       `Client registered: ${clientId} (type=${clientType}${data.projectPath ? `, project=${data.projectPath}` : ''})`,
     )
 
+    if (clientType === 'tui' && data.projectPath) {
+      transportLog(`[TUI] Session started from: ${data.projectPath}`)
+    }
+
     if (data.projectPath) {
       this.addToProjectRoom(clientId, data.projectPath)
     }

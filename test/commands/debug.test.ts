@@ -270,8 +270,8 @@ describe('Debug Command', () => {
 
       const tree = output.join('\n')
       expect(tree).to.include('Storage Paths')
-      expect(tree).to.include('Config:')
       expect(tree).to.include('Data:')
+      expect(tree).to.include('Projects:')
       expect(tree).to.include('Logs:')
       expect(tree).to.include('Overrides:')
     })
@@ -312,7 +312,7 @@ describe('Debug Command', () => {
 
         const tree = output.join('\n')
         expect(tree).to.include('Storage Paths')
-        expect(tree).to.include('Config:')
+        expect(tree).to.include('Data:')
         expect(tree).to.not.include('\u001B]8;;')
       } finally {
         Object.defineProperty(process.stdout, 'isTTY', {configurable: true, value: originalIsTTY})
@@ -410,8 +410,8 @@ describe('Debug Command', () => {
       expect(json).to.have.property('paths')
 
       const paths = json.paths as Record<string, unknown>
-      expect(paths).to.have.property('config').that.is.a('string')
       expect(paths).to.have.property('data').that.is.a('string')
+      expect(paths).to.have.property('projects').that.is.a('string')
       expect(paths).to.have.property('logs').that.is.a('string')
       expect(paths).to.have.property('overrides').that.is.an('array')
       expect(paths).to.have.property('existence').that.is.an('object')

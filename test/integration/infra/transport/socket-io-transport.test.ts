@@ -14,6 +14,14 @@ describe('Socket.IO Transport Integration', () => {
   const clients: TransportClient[] = []
   const port = 9700
 
+  before(() => {
+    process.env.BRV_SESSION_LOG = '/dev/null'
+  })
+
+  after(() => {
+    delete process.env.BRV_SESSION_LOG
+  })
+
   beforeEach(async () => {
     server = new SocketIOTransportServer()
     await server.start(port)

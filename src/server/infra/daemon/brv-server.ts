@@ -373,6 +373,7 @@ async function main(): Promise<void> {
         type: c.type,
       })),
       daemon: {
+        logPath: process.env.BRV_SESSION_LOG,
         pid: process.pid,
         port,
         startedAt: daemonStartedAt,
