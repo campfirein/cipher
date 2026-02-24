@@ -125,6 +125,33 @@ check_linux_deps() {
   fi
 }
 
+# ─── npm Cleanup ────────────────────────────────────────────────────────────
+
+remove_npm_installation() {
+  # Skip if npm is not installed
+  if ! command -v npm >/dev/null 2>&1; then
+    return
+  fi
+
+  # Skip if byterover-cli is not globally installed via npm
+  if ! npm list -g byterover-cli --depth=0 >/dev/null 2>&1; then
+    return
+  fi
+
+  info "Detected existing npm installation of byterover-cli."
+
+  info "Removing npm global package (byterover-cli)..."
+  if npm uninstall -g byterover-cli >/dev/null 2>&1; then
+    success "  Removed npm package byterover-cli."
+    printf "\n"
+  else
+    warn "Could not remove npm package byterover-cli."
+    warn "You may need to run manually: npm uninstall -g byterover-cli"
+    warn "Or with elevated permissions: sudo npm uninstall -g byterover-cli"
+    printf "\n"
+  fi
+}
+
 # ─── Install ─────────────────────────────────────────────────────────────────
 
 install_brv() {
@@ -255,6 +282,7 @@ main() {
   build_target
   check_dependencies
   check_linux_deps
+  remove_npm_installation
   install_brv
   setup_path
   print_success
