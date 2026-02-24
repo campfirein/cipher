@@ -30,10 +30,7 @@ const defaultDeps: FileTokenStoreDeps = {
 }
 
 /**
- * File-based token store for WSL2 environments.
- *
- * Note: This class should not be used directly. Use createTokenStore() instead,
- * which handles platform detection and selects the appropriate backend.
+ * File-based encrypted token store. Used on all platforms.
  *
  * Security:
  * - Random 32-byte key stored in <global-data-dir>/.token-key (rotated on each save)
