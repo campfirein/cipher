@@ -34,6 +34,11 @@ const MOCK_AGENTS = [
   {defaultConnectorType: 'rules', id: 'Windsurf', name: 'Windsurf', supportedConnectorTypes: ['rules', 'mcp']},
 ]
 
+const MOCK_CONNECTORS = [
+  {agent: 'Claude Code', connectorType: 'hook', defaultType: 'skill', supportedTypes: ['rules', 'hook', 'mcp', 'skill']},
+  {agent: 'Windsurf', connectorType: 'rules', defaultType: 'rules', supportedTypes: ['rules', 'mcp']},
+]
+
 // ==================== Tests ====================
 
 describe('Connectors Install Command', () => {
@@ -174,6 +179,74 @@ describe('Connectors Install Command', () => {
     })
   })
 
+  // ==================== Switch (Already Connected) ====================
+
+  describe('switch connector type', () => {
+    it('should switch when already connected with different type', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
+      requestStub.onSecondCall().resolves({connectors: MOCK_CONNECTORS})
+      requestStub.onThirdCall().resolves({configPath: '/test/path', message: 'Switched', success: true})
+
+      await createCommand('Claude Code', '--type', 'mcp').run()
+
+      expect(loggedMessages.some((m) => m.includes('Claude Code switched from Hook to MCP'))).to.be.true
+    })
+
+    it('should show restart warning when switching to type that requires restart', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
+      requestStub.onSecondCall().resolves({connectors: MOCK_CONNECTORS})
+      requestStub.onThirdCall().resolves({configPath: '/test/path', message: 'Switched', success: true})
+
+      await createCommand('Claude Code', '--type', 'mcp').run()
+
+      expect(loggedMessages.some((m) => m.includes('Please restart Claude Code'))).to.be.true
+    })
+
+    it('should not show restart warning when switching to rules', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
+      requestStub.onSecondCall().resolves({connectors: MOCK_CONNECTORS})
+      requestStub.onThirdCall().resolves({configPath: '/test/path', message: 'Switched', success: true})
+
+      await createCommand('Claude Code', '--type', 'rules').run()
+
+      expect(loggedMessages.some((m) => m.includes('Claude Code switched from Hook to Rules'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('restart'))).to.be.false
+    })
+
+    it('should show already using message when same type', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
+      requestStub.onSecondCall().resolves({connectors: MOCK_CONNECTORS})
+
+      await createCommand('Claude Code', '--type', 'hook').run()
+
+      expect(loggedMessages.some((m) => m.includes('"Claude Code" is already using Hook'))).to.be.true
+    })
+
+    it('should not call install when same type', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
+      requestStub.onSecondCall().resolves({connectors: MOCK_CONNECTORS})
+
+      await createCommand('Claude Code', '--type', 'hook').run()
+
+      expect(requestStub.calledTwice).to.be.true
+    })
+
+    it('should show already using message when no --type flag and already connected', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
+      requestStub.onSecondCall().resolves({connectors: MOCK_CONNECTORS})
+
+      await createCommand('Claude Code').run()
+
+      expect(loggedMessages.some((m) => m.includes('"Claude Code" is already using Hook'))).to.be.true
+    })
+  })
+
   // ==================== Error Cases ====================
 
   describe('error cases', () => {
@@ -183,22 +256,7 @@ describe('Connectors Install Command', () => {
       await createCommand('Unknown Agent').run()
 
       expect(loggedMessages.some((m) => m.includes('Unknown agent "Unknown Agent"'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('Available agents:'))).to.be.true
-    })
-
-    it('should error when agent is already connected', async () => {
-      const requestStub = mockClient.requestWithAck as sinon.SinonStub
-      requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
-      requestStub.onSecondCall().resolves({
-        connectors: [
-          {agent: 'Claude Code', connectorType: 'hook', defaultType: 'skill', supportedTypes: ['rules', 'hook', 'mcp', 'skill']},
-        ],
-      })
-
-      await createCommand('Claude Code').run()
-
-      expect(loggedMessages.some((m) => m.includes('already connected via Hook'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv connectors switch'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv connectors install --help'))).to.be.true
     })
 
     it('should error for unsupported connector type', async () => {
@@ -243,6 +301,19 @@ describe('Connectors Install Command', () => {
       expect(json.data).to.have.property('configPath', '/test/path')
     })
 
+    it('should output JSON with message when same type', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
+      requestStub.onSecondCall().resolves({connectors: MOCK_CONNECTORS})
+
+      await createJsonCommand('Claude Code', '--type', 'hook').run()
+
+      const json = parseJsonOutput()
+      expect(json.command).to.equal('connectors install')
+      expect(json.success).to.be.true
+      expect(json.data).to.have.property('message', 'Already using this connector type')
+    })
+
     it('should output JSON on error', async () => {
       ;(mockClient.requestWithAck as sinon.SinonStub).resolves({agents: MOCK_AGENTS})
 
@@ -254,5 +325,4 @@ describe('Connectors Install Command', () => {
       expect(json.data).to.have.property('error').that.includes('Unknown agent')
     })
   })
-
 })

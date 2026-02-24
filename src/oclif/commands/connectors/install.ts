@@ -1,5 +1,6 @@
 import {Args, Command, Flags} from '@oclif/core'
 
+import {AGENT_CONNECTOR_CONFIG} from '../../../server/core/domain/entities/agent.js'
 import {
   ConnectorEvents,
   type ConnectorGetAgentsResponse,
@@ -12,7 +13,11 @@ import {getConnectorName} from '../../../tui/features/connectors/utils/get-conne
 import {type DaemonClientOptions, withDaemonRetry} from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
 
-const agentList = AGENT_VALUES.join(', ')
+const agentTable = AGENT_VALUES.map((agent) => {
+  const config = AGENT_CONNECTOR_CONFIG[agent]
+  const supported = config.supported.map((type) => getConnectorName(type)).join(', ')
+  return `  ${agent.padEnd(20)} ${getConnectorName(config.default).padEnd(15)} ${supported}`
+}).join('\n')
 
 export default class ConnectorsInstall extends Command {
   public static args = {
@@ -21,11 +26,11 @@ export default class ConnectorsInstall extends Command {
       required: true,
     }),
   }
-  public static description = `Install a connector for an agent
+  public static description = `Install or switch a connector for an agent
 
-Available agents: ${agentList}
-
-Connector types: rules, hook, mcp, skill (not all agents support all types)`
+  ${'Available agents:'.padEnd(20)} ${'Default'.padEnd(15)} Supported Types
+  ${'─'.repeat(20)} ${'─'.repeat(15)} ${'─'.repeat(25)}
+${agentTable}`
   public static examples = [
     '<%= config.bin %> connectors install "Claude Code"',
     '<%= config.bin %> connectors install "Claude Code" --type mcp',
@@ -54,23 +59,15 @@ Connector types: rules, hook, mcp, skill (not all agents support all types)`
       const matchedAgent = agents.find((agent) => agent.id.toLowerCase() === agentId.toLowerCase())
 
       if (!matchedAgent) {
-        const available = agents.map((agent) => agent.id).join(', ')
-        throw new Error(`Unknown agent "${agentId}". Available agents: ${available}`)
+        throw new Error(`Unknown agent "${agentId}". Run "brv connectors install --help" to see available agents.`)
       }
 
-      // 2. Check agent not already connected
+      // 2. Check if already connected
       const {connectors} = await client.requestWithAck<ConnectorListResponse>(ConnectorEvents.LIST)
       const existing = connectors.find((connector) => connector.agent.toLowerCase() === matchedAgent.id.toLowerCase())
 
-      if (existing) {
-        throw new Error(
-          `"${matchedAgent.id}" is already connected via ${getConnectorName(existing.connectorType)}.`
-          + ` Use "brv connectors switch ${matchedAgent.id} --type <type>" to change the connector type.`,
-        )
-      }
-
       // 3. Resolve and validate connector type
-      const resolvedType = connectorType ?? matchedAgent.defaultConnectorType
+      const resolvedType = connectorType ?? existing?.connectorType ?? matchedAgent.defaultConnectorType
       const supported = matchedAgent.supportedConnectorTypes.map((type) => getConnectorName(type)).join(', ')
 
       if (!isConnectorType(resolvedType) || !matchedAgent.supportedConnectorTypes.includes(resolvedType)) {
@@ -79,7 +76,12 @@ Connector types: rules, hook, mcp, skill (not all agents support all types)`
         )
       }
 
-      // 4. Install
+      // 4. If already connected with same type, no action needed
+      if (existing && existing.connectorType === resolvedType) {
+        return {agentId: matchedAgent.id, alreadySameType: true, connectorType: resolvedType}
+      }
+
+      // 5. Install or switch
       const result = await client.requestWithAck<ConnectorInstallResponse>(
         ConnectorEvents.INSTALL,
         {agentId: matchedAgent.id, connectorType: resolvedType},
@@ -89,7 +91,13 @@ Connector types: rules, hook, mcp, skill (not all agents support all types)`
         throw new Error(result.message)
       }
 
-      return {agentId: matchedAgent.id, connectorType: resolvedType, result}
+      return {
+        agentId: matchedAgent.id,
+        alreadySameType: false,
+        connectorType: resolvedType,
+        fromType: existing?.connectorType,
+        result,
+      }
     }, options)
   }
 
@@ -98,7 +106,7 @@ Connector types: rules, hook, mcp, skill (not all agents support all types)`
     const format = flags.format as 'json' | 'text'
 
     try {
-      const {agentId, connectorType, result} = await this.installConnector({
+      const installResult = await this.installConnector({
         agentId: args.agent,
         connectorType: flags.type,
       })
@@ -106,14 +114,32 @@ Connector types: rules, hook, mcp, skill (not all agents support all types)`
       if (format === 'json') {
         writeJsonResponse({
           command: 'connectors install',
-          data: {agentId, configPath: result.configPath, connectorType},
+          data: {
+            agentId: installResult.agentId,
+            configPath: installResult.result?.configPath,
+            connectorType: installResult.connectorType,
+            ...(installResult.alreadySameType ? {message: 'Already using this connector type'} : {}),
+          },
           success: true,
         })
+        return
+      }
+
+      if (installResult.alreadySameType) {
+        this.log(`"${installResult.agentId}" is already using ${getConnectorName(installResult.connectorType)}.`)
+        return
+      }
+
+      if (installResult.fromType) {
+        this.log(
+          `${installResult.agentId} switched from ${getConnectorName(installResult.fromType)} to ${getConnectorName(installResult.connectorType)}.`,
+        )
       } else {
-        this.log(`${agentId} connected via ${getConnectorName(connectorType)}.`)
-        if (requiresAgentRestart(connectorType)) {
-          this.log(`\nPlease restart ${agentId} to apply the new ${getConnectorName(connectorType)}.`)
-        }
+        this.log(`${installResult.agentId} connected via ${getConnectorName(installResult.connectorType)}.`)
+      }
+
+      if (requiresAgentRestart(installResult.connectorType)) {
+        this.log(`\nPlease restart ${installResult.agentId} to apply the new ${getConnectorName(installResult.connectorType)}.`)
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to install connector.'
