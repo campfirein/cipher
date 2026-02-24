@@ -20,6 +20,14 @@ export interface IContextTreeSnapshotService {
   getCurrentState(directory?: string): Promise<Map<string, FileState>>
 
   /**
+   * Gets the saved snapshot state (the last committed baseline).
+   * Returns an empty map if no snapshot exists.
+   * @param directory - Optional base directory (defaults to current working directory)
+   * @returns Map of relative file paths to their snapshotted state (hash and size)
+   */
+  getSnapshotState(directory?: string): Promise<Map<string, FileState>>
+
+  /**
    * Checks if a snapshot file exists.
    * @param directory - Optional base directory (defaults to current working directory)
    * @returns True if snapshot exists
@@ -38,4 +46,13 @@ export interface IContextTreeSnapshotService {
    * @param directory - Optional base directory (defaults to current working directory)
    */
   saveSnapshot(directory?: string): Promise<void>
+
+  /**
+   * Saves a snapshot from a pre-computed file state map.
+   * Use this after a merge to record only the remote files, so that
+   * locally preserved/renamed files appear as "added" on next getChanges().
+   * @param state - Map of relative file paths to their file states
+   * @param directory - Optional base directory (defaults to current working directory)
+   */
+  saveSnapshotFromState(state: Map<string, FileState>, directory?: string): Promise<void>
 }

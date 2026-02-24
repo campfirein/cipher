@@ -40,9 +40,11 @@ describe('ensureProjectInitialized', () => {
     mockContextTreeSnapshotService = {
       getChanges: stub().resolves({added: [], deleted: [], modified: []}),
       getCurrentState: stub().resolves(new Map()),
+      getSnapshotState: stub().resolves(new Map()),
       hasSnapshot: stub().resolves(false),
       initEmptySnapshot: initEmptySnapshotStub,
       saveSnapshot: stub().resolves(),
+      saveSnapshotFromState: stub().resolves(),
     }
   })
 

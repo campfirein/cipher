@@ -1,4 +1,3 @@
-import {createHash} from 'node:crypto'
 import {readdir, readFile, stat, writeFile} from 'node:fs/promises'
 import {join, relative} from 'node:path'
 
@@ -11,6 +10,7 @@ import {
   ContextTreeSnapshotJson,
   FileState,
 } from '../../core/domain/entities/context-tree-snapshot.js'
+import {computeContentHash} from './hash-utils.js'
 import {toUnixPath} from './path-utils.js'
 
 export type ContextTreeSnapshotServiceConfig = {
@@ -58,6 +58,14 @@ export class FileContextTreeSnapshotService implements IContextTreeSnapshotServi
     return files
   }
 
+  public async getSnapshotState(directory?: string): Promise<Map<string, FileState>> {
+    const baseDir = directory ?? this.config.baseDirectory ?? process.cwd()
+    const contextTreeDir = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
+    const snapshot = await this.loadSnapshot(contextTreeDir)
+    if (!snapshot) return new Map()
+    return new Map(snapshot.files)
+  }
+
   public async hasSnapshot(directory?: string): Promise<boolean> {
     const baseDir = directory ?? this.config.baseDirectory ?? process.cwd()
     const snapshotPath = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR, SNAPSHOT_FILE)
@@ -90,11 +98,13 @@ export class FileContextTreeSnapshotService implements IContextTreeSnapshotServi
     await writeFile(snapshotPath, JSON.stringify(snapshot.toJson(), null, 2), 'utf8')
   }
 
-  /**
-   * Computes SHA-256 hash of file content.
-   */
-  private computeHash(content: Buffer): string {
-    return createHash('sha256').update(content).digest('hex')
+  public async saveSnapshotFromState(state: Map<string, FileState>, directory?: string): Promise<void> {
+    const baseDir = directory ?? this.config.baseDirectory ?? process.cwd()
+    const contextTreeDir = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
+    const snapshotPath = join(contextTreeDir, SNAPSHOT_FILE)
+
+    const snapshot = ContextTreeSnapshot.create(state)
+    await writeFile(snapshotPath, JSON.stringify(snapshot.toJson(), null, 2), 'utf8')
   }
 
   /**
@@ -120,7 +130,7 @@ export class FileContextTreeSnapshotService implements IContextTreeSnapshotServi
     const [content, fileStat] = await Promise.all([readFile(fullPath), stat(fullPath)])
 
     files.set(relativePath, {
-      hash: this.computeHash(content),
+      hash: computeContentHash(content),
       size: fileStat.size,
     })
   }

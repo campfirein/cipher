@@ -1,3 +1,5 @@
+import type {ContextTreeChanges} from '../../../../shared/types/context-tree-changes.js'
+
 /**
  * Resolves a transport client ID to its associated project path.
  * Returns undefined for global-scope clients that haven't been associated with a project.
@@ -28,3 +30,10 @@ export function resolveRequiredProjectPath(resolver: ProjectPathResolver, client
  * Silently skips if the project is not registered or routing is unavailable.
  */
 export type ProjectBroadcaster = <T = unknown>(projectPath: string, event: string, data: T) => void
+
+/**
+ * Returns true if the changes object has any additions, modifications, or deletions.
+ */
+export function hasAnyChanges(changes: ContextTreeChanges): boolean {
+  return changes.added.length > 0 || changes.modified.length > 0 || changes.deleted.length > 0
+}

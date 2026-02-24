@@ -1,5 +1,7 @@
+import {rm} from 'node:fs/promises'
+
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
-import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
+import type {IContextTreeMerger} from '../../../core/interfaces/context-tree/i-context-tree-merger.js'
 import type {IContextTreeSnapshotService} from '../../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {IContextTreeWriterService} from '../../../core/interfaces/context-tree/i-context-tree-writer-service.js'
 import type {ICogitPullService} from '../../../core/interfaces/services/i-cogit-pull-service.js'
@@ -23,12 +25,12 @@ import {
   SpaceNotFoundError,
 } from '../../../core/domain/errors/task-error.js'
 import {syncConfigToXdg} from '../../../utils/config-xdg-sync.js'
-import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
+import {hasAnyChanges, type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 export interface SpaceHandlerDeps {
   broadcastToProject: ProjectBroadcaster
   cogitPullService: ICogitPullService
-  contextTreeService: IContextTreeService
+  contextTreeMerger: IContextTreeMerger
   contextTreeSnapshotService: IContextTreeSnapshotService
   contextTreeWriterService: IContextTreeWriterService
   projectConfigStore: IProjectConfigStore
@@ -46,7 +48,7 @@ export interface SpaceHandlerDeps {
 export class SpaceHandler {
   private readonly broadcastToProject: ProjectBroadcaster
   private readonly cogitPullService: ICogitPullService
-  private readonly contextTreeService: IContextTreeService
+  private readonly contextTreeMerger: IContextTreeMerger
   private readonly contextTreeSnapshotService: IContextTreeSnapshotService
   private readonly contextTreeWriterService: IContextTreeWriterService
   private readonly projectConfigStore: IProjectConfigStore
@@ -59,7 +61,7 @@ export class SpaceHandler {
   constructor(deps: SpaceHandlerDeps) {
     this.broadcastToProject = deps.broadcastToProject
     this.cogitPullService = deps.cogitPullService
-    this.contextTreeService = deps.contextTreeService
+    this.contextTreeMerger = deps.contextTreeMerger
     this.contextTreeSnapshotService = deps.contextTreeSnapshotService
     this.contextTreeWriterService = deps.contextTreeWriterService
     this.projectConfigStore = deps.projectConfigStore
@@ -126,10 +128,11 @@ export class SpaceHandler {
       throw new ProjectNotInitError()
     }
 
-    // Block switch if local context tree has unsaved changes
-    const changes = await this.contextTreeSnapshotService.getChanges(projectPath)
-    const hasLocalChanges = changes.added.length > 0 || changes.modified.length > 0 || changes.deleted.length > 0
-    if (hasLocalChanges) {
+    const localChanges = await this.contextTreeSnapshotService.getChanges(projectPath)
+    const hasLocalChanges = hasAnyChanges(localChanges)
+
+    // Already connected to a space — must push before switching
+    if (existingConfig.spaceId && hasLocalChanges) {
       throw new LocalChangesExistError()
     }
 
@@ -152,21 +155,13 @@ export class SpaceHandler {
     await this.projectConfigStore.write(newConfig, projectPath)
     await syncConfigToXdg(newConfig, projectPath)
 
-    // Reset context tree and pull from the new space (non-fatal — switch succeeds even if pull fails)
+    // Pull from the new space (non-fatal — switch succeeds even if pull fails)
+    // When connecting for the first time (no prior spaceId), local files are preserved via _N.md renaming
     let pullResult: SpaceSwitchPullResult | undefined
     let pullError: string | undefined
 
     if (newConfig.spaceId && newConfig.teamId) {
       try {
-        // Reset the old space's context tree before pulling
-        this.broadcastToProject(projectPath, PullEvents.PROGRESS, {
-          message: 'Resetting context tree...',
-          step: 'resetting',
-        })
-        await this.contextTreeService.delete(projectPath)
-        await this.contextTreeService.initialize(projectPath)
-        await this.contextTreeSnapshotService.initEmptySnapshot(projectPath)
-
         this.broadcastToProject(projectPath, PullEvents.PROGRESS, {
           message: 'Pulling context from new space...',
           step: 'pulling',
@@ -181,17 +176,60 @@ export class SpaceHandler {
 
         this.broadcastToProject(projectPath, PullEvents.PROGRESS, {message: 'Syncing files...', step: 'syncing'})
 
-        const syncResult = await this.contextTreeWriterService.sync({directory: projectPath, files: snapshot.files})
-        await this.contextTreeSnapshotService.saveSnapshot(projectPath)
+        if (hasLocalChanges) {
+          // Merge remote files with local changes — preserves local work via _N.md renaming
+          const mergeResult = await this.contextTreeMerger.merge({
+            directory: projectPath,
+            files: snapshot.files,
+            localChanges,
+          })
 
-        pullResult = {
-          added: syncResult.added.length,
-          commitSha: snapshot.commitSha,
-          deleted: syncResult.deleted.length,
-          edited: syncResult.edited.length,
+          await this.contextTreeSnapshotService.saveSnapshotFromState(mergeResult.remoteFileStates, projectPath)
+          await rm(mergeResult.backupDir, {force: true, recursive: true})
+
+          pullResult = {
+            added: mergeResult.added.length,
+            commitSha: snapshot.commitSha,
+            deleted: mergeResult.deleted.length,
+            edited: mergeResult.edited.length,
+          }
+        } else {
+          // No local changes — regular overwrite sync
+          const syncResult = await this.contextTreeWriterService.sync({directory: projectPath, files: snapshot.files})
+          await this.contextTreeSnapshotService.saveSnapshot(projectPath)
+
+          pullResult = {
+            added: syncResult.added.length,
+            commitSha: snapshot.commitSha,
+            deleted: syncResult.deleted.length,
+            edited: syncResult.edited.length,
+          }
         }
       } catch (error) {
+        // Roll back config to prevent the user from being stuck on retry
+        try {
+          await this.projectConfigStore.write(existingConfig, projectPath)
+          await syncConfigToXdg(existingConfig, projectPath)
+        } catch {
+          // Ignore rollback error — still report the pull failure to the user
+        }
+
         pullError = error instanceof Error ? error.message : String(error)
+      }
+    }
+
+    // Pull failed and config was rolled back — return the old config with success: false
+    if (pullError) {
+      return {
+        config: {
+          spaceId: existingConfig.spaceId,
+          spaceName: existingConfig.spaceName,
+          teamId: existingConfig.teamId,
+          teamName: existingConfig.teamName,
+          version: existingConfig.version,
+        },
+        pullError,
+        success: false,
       }
     }
 
@@ -203,7 +241,6 @@ export class SpaceHandler {
         teamName: newConfig.teamName,
         version: newConfig.version,
       },
-      pullError,
       pullResult,
       success: true,
     }
