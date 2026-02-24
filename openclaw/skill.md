@@ -50,18 +50,18 @@ To use a different provider (e.g., OpenAI, Anthropic, Google), list available op
 
 ```bash
 brv provider list
-brv provider connect anthropic --api-key sk-xxx
+brv provider connect openai --api-key sk-xxx --model gpt-4.1
 ```
 
 ### 4. Cloud Sync (Optional)
-**Only** if the user has explicitly logged in (`brv login`) to share knowledge with a team:
+Requires authentication via `brv login`. Used to share knowledge with a team:
 
 ```bash
 # Pull team updates
 brv pull
 
 # Push local changes
-brv push -y
+brv push
 ```
 
 ## Data Handling
@@ -70,9 +70,9 @@ brv push -y
 
 **File access**: The `-f` flag on `brv curate` reads files from the current project directory only. Paths outside the project root are rejected. Maximum 5 files per command, text and document formats only.
 
-**LLM usage**: `brv query` and `brv curate` send context to a configured LLM provider for processing. The LLM sees the query/curate text and any included file contents. No data is sent to ByteRover servers unless you explicitly run `brv push`.
+**LLM usage**: `brv query` and `brv curate` send context to a configured LLM provider for processing. The LLM sees the query or curate text and any included file contents. No data is sent to ByteRover servers unless you explicitly run `brv push`.
 
 **Cloud sync**: `brv push` and `brv pull` require authentication (`brv login`) and send knowledge to ByteRover's cloud service. All other commands operate without ByteRover authentication.
 
 ## Error Handling
-- **"Not authenticated"**: You are trying to `push` or `pull`. These require `brv login`. Use `brv query` or `brv curate` instead; they do not require ByteRover authentication (but do require a configured LLM provider).
+- **"Not authenticated"**: This means `push` or `pull` was attempted. These commands require `brv login`. Use `brv query` or `brv curate` instead; they do not require ByteRover authentication (but do require a configured LLM provider).
