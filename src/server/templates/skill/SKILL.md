@@ -19,7 +19,6 @@ A project-level knowledge repository that persists across sessions. Use it to av
 | `brv query "question"` | Before starting work | `brv query "How is auth implemented?"` |
 | `brv curate "context" -f file` | After completing work | `brv curate "JWT 24h expiry" -f auth.ts` |
 | `brv curate view` | Check curate history | `brv curate view` |
-| `brv status` | To check prerequisites | `brv status` |
 
 ## When to Use
 
@@ -89,10 +88,6 @@ brv curate "Fixed auth"
    # Specify detail level
    brv curate "Document the error handling patterns in detail (at least 30 lines covering all error types)" -f src/errors/
    ```
-
-## Prerequisites
-
-Run `brv status` first. If errors occur, the agent cannot fix them—instruct the user to take action in their brv terminal. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for details.
 
 ---
 
