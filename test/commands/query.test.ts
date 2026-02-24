@@ -241,7 +241,7 @@ describe('Query Command', () => {
         return () => {}
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
-        if (event === 'provider:getActive') return {activeProviderId: 'anthropic'}
+        if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
         setTimeout(() => {
           // llmservice:response fires first WITHOUT the attribution footer
           const responseHandlers = eventHandlers.get('llmservice:response')
@@ -279,7 +279,7 @@ describe('Query Command', () => {
         return () => {}
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
-        if (event === 'provider:getActive') return {activeProviderId: 'anthropic'}
+        if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
         setTimeout(() => {
           const responseHandlers = eventHandlers.get('llmservice:response')
           if (responseHandlers) {
