@@ -110,21 +110,6 @@ check_dependencies() {
   fi
 }
 
-check_linux_deps() {
-  if [ "$PLATFORM" != "linux" ]; then
-    return
-  fi
-
-  # Check for libsecret (needed by keytar for keychain access)
-  if ! ldconfig -p 2>/dev/null | grep -q libsecret; then
-    warn "libsecret not found. Keychain features require libsecret-1-dev (Debian/Ubuntu) or libsecret-devel (Fedora/RHEL)."
-    warn "Install it with:"
-    warn "  Debian/Ubuntu: sudo apt install -y libsecret-1-dev"
-    warn "  Fedora/RHEL:   sudo dnf install -y libsecret-devel"
-    printf "\n"
-  fi
-}
-
 # ─── npm Cleanup ────────────────────────────────────────────────────────────
 
 remove_npm_installation() {
@@ -281,7 +266,6 @@ main() {
   detect_arch
   build_target
   check_dependencies
-  check_linux_deps
   remove_npm_installation
   install_brv
   setup_path

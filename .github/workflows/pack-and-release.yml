@@ -40,9 +40,6 @@ jobs:
       - uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.TRANSPORT_CLIENT_DEPLOY_KEY }}
-      - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt update && sudo apt install -y libsecret-1-dev
       - run: npm ci
       - run: npm run prepack
       - name: Pack tarballs
