@@ -2,21 +2,21 @@
  * TokenStore Integration Test
  *
  * Verifies that token storage works correctly using file-based encrypted storage.
- * createTokenStore() always returns FileTokenStore (AES-256-GCM).
+ * FileTokenStore uses AES-256-GCM encryption.
  *
  * HOW TO RUN:
  * 1. Run: npx mocha --forbid-only "test/integration/infra/storage/token-store.integration.test.ts"
  */
 
 import {expect} from 'chai'
-import {existsSync, readFileSync} from 'node:fs'
+import {existsSync, mkdtempSync, readFileSync, rmSync} from 'node:fs'
+import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import type {ITokenStore} from '../../../../src/server/core/interfaces/auth/i-token-store.js'
 
 import {AuthToken} from '../../../../src/server/core/domain/entities/auth-token'
-import {createTokenStore} from '../../../../src/server/infra/storage/token-store'
-import {getGlobalDataDir} from '../../../../src/server/utils/global-data-path'
+import {FileTokenStore} from '../../../../src/server/infra/storage/file-token-store'
 
 function createTestToken(): AuthToken {
   return new AuthToken({
@@ -30,18 +30,35 @@ function createTestToken(): AuthToken {
   })
 }
 
-const dataDir = getGlobalDataDir()
-const keyPath = join(dataDir, '.token-key')
-const credentialsPath = join(dataDir, 'credentials')
-
 describe('TokenStore Integration', function () {
   /** Increase timeout for file operations */
   this.timeout(10_000)
 
+  let tmpDir: string
+  let keyPath: string
+  let credentialsPath: string
   let store: ITokenStore
 
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'token-store-test-'))
+    keyPath = join(tmpDir, '.token-key')
+    credentialsPath = join(tmpDir, 'credentials')
+  })
+
+  after(() => {
+    rmSync(tmpDir, {force: true, recursive: true})
+  })
+
+  function makeStore(): FileTokenStore {
+    return new FileTokenStore({
+      getCredentialsPath: () => credentialsPath,
+      getDataDir: () => tmpDir,
+      getKeyPath: () => keyPath,
+    })
+  }
+
   beforeEach(() => {
-    store = createTokenStore()
+    store = makeStore()
   })
 
   afterEach(async () => {
@@ -68,8 +85,8 @@ describe('TokenStore Integration', function () {
 
       await store.save(token)
 
-      /** Create new store instance */
-      const newStore = createTokenStore()
+      /** Create new store instance pointing at the same temp dir */
+      const newStore = makeStore()
       const loaded = await newStore.load()
 
       expect(loaded).to.not.be.undefined
