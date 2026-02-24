@@ -88,8 +88,8 @@ export default class ModelList extends Command {
       for (const [providerId, models] of grouped) {
         this.log(`${providerId}:`)
         for (const model of models) {
-          const isActive = model.id === result.activeModel && model.providerId === result.activeProviderId
-          const status = isActive ? chalk.green('(active)') : ''
+          const isCurrent = model.id === result.activeModel && model.providerId === result.activeProviderId
+          const status = isCurrent ? chalk.green('(current)') : ''
           this.log(`    ${model.name} [${model.id}] ${status}`.trimEnd())
         }
       }

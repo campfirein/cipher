@@ -39,7 +39,7 @@ export default class ProviderList extends Command {
       }
 
       for (const p of providers) {
-        const status = p.isCurrent ? chalk.green('(active)') : p.isConnected ? chalk.yellow('(connected)') : ''
+        const status = p.isCurrent ? chalk.green('(current)') : p.isConnected ? chalk.yellow('(connected)') : ''
         this.log(`  ${p.name} [${p.id}] ${status}`.trimEnd())
       }
     } catch (error) {
