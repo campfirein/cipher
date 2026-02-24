@@ -38,10 +38,17 @@ export function HubListStep({entries, isActive, onCancel, onSelect}: HubListStep
   return (
     <SelectableList<HubEntryDTO>
       availableHeight={availableHeight}
-      filterKeys={(entry) => [entry.id, entry.name, entry.description, ...entry.tags, entry.author.name, ...(entry.registry ? [entry.registry] : [])]}
+      filterKeys={(entry) => [
+        entry.id,
+        entry.name,
+        entry.description,
+        ...entry.tags,
+        entry.author.name,
+        ...(entry.registry ? [entry.registry] : []),
+      ]}
       isActive={isActive}
       items={entries}
-      keyExtractor={(entry) => entry.id}
+      keyExtractor={(entry) => `${entry.id}-${entry.registry}`}
       onCancel={onCancel}
       onSelect={onSelect}
       renderItem={(entry) => {
