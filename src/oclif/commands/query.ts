@@ -3,8 +3,8 @@ import type {ITransportClient, TaskAck} from '@campfirein/brv-transport-client'
 import {Args, Command, Flags} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
 
+import {type ProviderConfigResponse, TransportStateEventNames} from '../../server/core/domain/transport/schemas.js'
 import {TaskEvents} from '../../shared/transport/events/index.js'
-import {ProviderEvents, type ProviderGetActiveResponse} from '../../shared/transport/events/provider-events.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -67,8 +67,8 @@ Bad:
     try {
       await withDaemonRetry(
         async (client, projectRoot) => {
-          const active = await client.requestWithAck<ProviderGetActiveResponse>(ProviderEvents.GET_ACTIVE)
-          if (!active.activeProviderId) {
+          const active = await client.requestWithAck<ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG)
+          if (!active.activeProvider) {
             throw new Error('No provider connected. Run "brv provider connect <provider>" to configure a provider first.')
           }
 

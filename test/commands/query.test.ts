@@ -126,7 +126,7 @@ describe('Query Command', () => {
 
   describe('provider validation', () => {
     it('should error when no provider is connected', async () => {
-      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({activeProviderId: ''})
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({activeProvider: ''})
 
       await createCommand('test query').run()
 
@@ -135,7 +135,7 @@ describe('Query Command', () => {
     })
 
     it('should output JSON error when no provider is connected', async () => {
-      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({activeProviderId: ''})
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({activeProvider: ''})
 
       await createJsonCommand('test query').run()
 
@@ -157,7 +157,7 @@ describe('Query Command', () => {
         return () => {}
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
-        if (event === 'provider:getActive') return {activeProviderId: 'anthropic'}
+        if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
         setTimeout(() => {
           const handlers = eventHandlers.get('task:completed')
           if (handlers) {
@@ -187,7 +187,7 @@ describe('Query Command', () => {
         return () => {}
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
-        if (event === 'provider:getActive') return {activeProviderId: 'anthropic'}
+        if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
         setTimeout(() => {
           const handlers = eventHandlers.get('task:completed')
           if (handlers) {
@@ -210,7 +210,7 @@ describe('Query Command', () => {
         return () => {}
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
-        if (event === 'provider:getActive') return {activeProviderId: 'anthropic'}
+        if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
         setTimeout(() => {
           // Fire llmservice:response first, then task:completed
           const responseHandlers = eventHandlers.get('llmservice:response')
@@ -317,7 +317,7 @@ describe('Query Command', () => {
         return () => {}
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
-        if (event === 'provider:getActive') return {activeProviderId: 'anthropic'}
+        if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
         setTimeout(() => {
           const handlers = eventHandlers.get('task:completed')
           if (handlers) {
@@ -344,7 +344,7 @@ describe('Query Command', () => {
         return () => {}
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
-        if (event === 'provider:getActive') return {activeProviderId: 'anthropic'}
+        if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
         setTimeout(() => {
           const responseHandlers = eventHandlers.get('llmservice:response')
           if (responseHandlers) {
