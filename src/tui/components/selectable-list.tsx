@@ -186,11 +186,6 @@ export function SelectableList<T>({
         return true
       }
 
-      if (!key.ctrl && !key.meta) {
-        setSelectedIndex(0)
-        return true
-      }
-
       return false
     },
     [flatItems.length, moveDown, moveUp],
