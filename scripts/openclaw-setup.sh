@@ -165,7 +165,7 @@ patch_memory_flush_config() {
         config.agents.defaults = config.agents.defaults || {};
         config.agents.defaults.compaction = config.agents.defaults.compaction || {};
 
-        config.agents.defaults.compaction.reserveTokensFloor = 20000;
+        config.agents.defaults.compaction.reserveTokensFloor = 50000;
         config.agents.defaults.compaction.memoryFlush = {
             enabled: true,
             softThresholdTokens: 4000,
