@@ -152,6 +152,7 @@ describe('validateBrvConfigVersion', () => {
       await validateBrvConfigVersion('status', mockConfigStore, undefined, {
         isPatched: isPatchedStub,
         markPatched: markPatchedStub,
+        patchFn: stub().resolves(),
       })
 
       expect(isPatchedStub.calledOnce).to.be.true
