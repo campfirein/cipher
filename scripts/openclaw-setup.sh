@@ -459,8 +459,7 @@ export default function (api) {
     // If still empty, nothing to query
     if (!userPrompt) return;
 
-    // Truncate to 100 chars for query efficiency
-    const queryText = userPrompt.slice(0, 100);
+    const queryText = userPrompt;
 
     try {
       api.logger.debug(`[byterover] Querying brv for: "${queryText}"`);
@@ -468,7 +467,7 @@ export default function (api) {
       // Use execFile to safely pass arguments without shell injection risks
       // IMPORTANT: Run from ~/.openclaw as the CWD
       const brvCwd = process.env.HOME + '/.openclaw';
-      const { stdout } = await execFileAsync("brv", ["query", queryText], { cwd: brvCwd, timeout: 60000 }); // 60s timeout
+      const { stdout } = await execFileAsync("brv", ["query", queryText], { cwd: brvCwd, timeout: 300000 }); // 300s timeout
 
       const brvOutput = stdout.trim();
 
