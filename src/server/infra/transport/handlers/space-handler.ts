@@ -16,6 +16,7 @@ import {
   type SpaceSwitchRequest,
   type SpaceSwitchResponse,
 } from '../../../../shared/transport/events/space-events.js'
+import {BRV_DIR, CONTEXT_TREE_CONFLICT_DIR, DEFAULT_BRANCH} from '../../../constants.js'
 import {
   LocalChangesExistError,
   NotAuthenticatedError,
@@ -23,7 +24,12 @@ import {
   SpaceNotFoundError,
 } from '../../../core/domain/errors/task-error.js'
 import {syncConfigToXdg} from '../../../utils/config-xdg-sync.js'
-import {hasAnyChanges, type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
+import {
+  hasAnyChanges,
+  type ProjectBroadcaster,
+  type ProjectPathResolver,
+  resolveRequiredProjectPath,
+} from './handler-types.js'
 
 export interface SpaceHandlerDeps {
   broadcastToProject: ProjectBroadcaster
@@ -126,6 +132,20 @@ export class SpaceHandler {
       throw new ProjectNotInitError()
     }
 
+    // No-op: switching to the currently active space
+    if (existingConfig.spaceId === data.spaceId) {
+      return {
+        config: {
+          spaceId: existingConfig.spaceId,
+          spaceName: existingConfig.spaceName,
+          teamId: existingConfig.teamId,
+          teamName: existingConfig.teamName,
+          version: existingConfig.version,
+        },
+        success: true,
+      }
+    }
+
     const localChanges = await this.contextTreeSnapshotService.getChanges(projectPath)
     const hasLocalChanges = hasAnyChanges(localChanges)
 
@@ -150,11 +170,7 @@ export class SpaceHandler {
 
     const newConfig = existingConfig.withSpace(targetSpace)
 
-    await this.projectConfigStore.write(newConfig, projectPath)
-    await syncConfigToXdg(newConfig, projectPath)
-
-    // Pull from the new space (non-fatal — switch succeeds even if pull fails)
-    // When connecting for the first time (no prior spaceId), local files are preserved via _N.md renaming
+    // Config is written only after pull + merge succeed, so failure leaves config unchanged.
     let pullResult: SpaceSwitchPullResult | undefined
     let pullError: string | undefined
 
@@ -166,7 +182,7 @@ export class SpaceHandler {
         })
 
         const snapshot = await this.cogitPullService.pull({
-          branch: 'main',
+          branch: DEFAULT_BRANCH,
           sessionKey: token.sessionKey,
           spaceId: newConfig.spaceId,
           teamId: newConfig.teamId,
@@ -174,11 +190,22 @@ export class SpaceHandler {
 
         this.broadcastToProject(projectPath, PullEvents.PROGRESS, {message: 'Syncing files...', step: 'syncing'})
 
-        if (hasLocalChanges) {
-          // Merge remote files with local changes — preserves local work via _N.md renaming.
-          // preserveLocalFiles: true because this is first-time connect (no prior spaceId):
-          // the local context tree has no shared history with the target space, so clean local
-          // files absent from remote are new additions, not files that remote deleted.
+        if (existingConfig.spaceId) {
+          // Space-to-space switch (local changes were blocked above) — regular overwrite sync
+          const syncResult = await this.contextTreeWriterService.sync({directory: projectPath, files: snapshot.files})
+          await this.contextTreeSnapshotService.saveSnapshot(projectPath)
+
+          pullResult = {
+            added: syncResult.added.length,
+            commitSha: snapshot.commitSha,
+            deleted: syncResult.deleted.length,
+            edited: syncResult.edited.length,
+          }
+        } else {
+          // First-time connect: always merge with preserveLocalFiles=true.
+          // The local context tree has no shared history with the target space, so any
+          // local files absent from remote are new additions (not remote deletions).
+          // This applies to tracked+clean files too, not just actively changed files.
           const mergeResult = await this.contextTreeMerger.merge({
             directory: projectPath,
             files: snapshot.files,
@@ -188,7 +215,14 @@ export class SpaceHandler {
 
           if (mergeResult.conflicted.length > 0) {
             this.broadcastToProject(projectPath, PullEvents.PROGRESS, {
-              message: `Auto-merged ${mergeResult.conflicted.length} conflict(s) — review .brv/context-tree-conflict/ for original files.`,
+              message: `Auto-merged ${mergeResult.conflicted.length} conflict(s) — review ${BRV_DIR}/${CONTEXT_TREE_CONFLICT_DIR}/ for original files.`,
+              step: 'syncing',
+            })
+          }
+
+          if (mergeResult.restoredFromRemote.length > 0) {
+            this.broadcastToProject(projectPath, PullEvents.PROGRESS, {
+              message: `${mergeResult.restoredFromRemote.length} file(s) you had deleted were restored from remote because remote had a newer version: ${mergeResult.restoredFromRemote.join(', ')}`,
               step: 'syncing',
             })
           }
@@ -199,30 +233,21 @@ export class SpaceHandler {
             deleted: mergeResult.deleted.length,
             edited: mergeResult.edited.length,
             ...(mergeResult.conflicted.length > 0 && {conflicted: mergeResult.conflicted.length}),
-          }
-        } else {
-          // No local changes — regular overwrite sync
-          const syncResult = await this.contextTreeWriterService.sync({directory: projectPath, files: snapshot.files})
-          await this.contextTreeSnapshotService.saveSnapshot(projectPath)
-
-          pullResult = {
-            added: syncResult.added.length,
-            commitSha: snapshot.commitSha,
-            deleted: syncResult.deleted.length,
-            edited: syncResult.edited.length,
+            ...(mergeResult.restoredFromRemote.length > 0 && {restoredFromRemote: mergeResult.restoredFromRemote.length}),
           }
         }
+
+        // Pull and merge succeeded — persist the new space config
+        await this.projectConfigStore.write(newConfig, projectPath)
+        await syncConfigToXdg(newConfig, projectPath)
       } catch (error) {
-        // Roll back config to prevent the user from being stuck on retry
-        try {
-          await this.projectConfigStore.write(existingConfig, projectPath)
-          await syncConfigToXdg(existingConfig, projectPath)
-        } catch {
-          // Ignore rollback error — still report the pull failure to the user
-        }
-
+        // Config was never written — no rollback needed, state remains unchanged
         pullError = error instanceof Error ? error.message : String(error)
       }
+    } else {
+      // No pull required — write config directly
+      await this.projectConfigStore.write(newConfig, projectPath)
+      await syncConfigToXdg(newConfig, projectPath)
     }
 
     // Pull failed and config was rolled back — return the old config with success: false

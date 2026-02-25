@@ -1,5 +1,5 @@
 import type {CogitSnapshotFile} from '../../domain/entities/cogit-snapshot-file.js'
-import type {ContextTreeChanges, FileState} from '../../domain/entities/context-tree-snapshot.js'
+import type {ContextTreeChanges} from '../../domain/entities/context-tree-snapshot.js'
 
 /**
  * Parameters for a merge operation.
@@ -9,17 +9,28 @@ export interface MergeParams {
   directory: string
   /** Remote snapshot files from CoGit pull */
   files: readonly CogitSnapshotFile[]
-  /** Local changes detected before the merge */
+  /**
+   * Local changes detected before the merge.
+   * Note: locally-deleted files (localChanges.deleted) are absent from disk and excluded
+   * from conflict detection. If the remote has the file, remote wins and re-creates it locally.
+   */
   localChanges: ContextTreeChanges
   /**
-   * When true, clean local files that are absent from remote are preserved instead of deleted.
-   * Use this for first-time space connect where the local context tree has no shared history
-   * with the target space — "file not in remote" means "remote has never seen it", not
-   * "remote deleted it". Preserved files will appear as "added" on the next getChanges() call,
-   * prompting the user to push their local work to the new space.
+   * When true, applies first-time-connect semantics: the local context tree has no shared
+   * history with the target space, so local always wins unless both sides have independently
+   * changed the same file.
    *
-   * When false (default), clean local files absent from remote are deleted, which is the correct
-   * behaviour for a regular pull where the remote is the source of truth.
+   * Concretely:
+   * - Clean local files absent from remote are preserved (not deleted).
+   * - Clean local files that exist in remote with different content are treated as conflicts
+   *   (local copy saved as _N.md, remote written to original path) rather than silently overwritten.
+   *
+   * Preserved files will appear as "added" on the next getChanges() call, prompting the user
+   * to push their local work to the new space.
+   *
+   * When false (default), clean local files absent from remote are deleted, and clean local
+   * files are silently overwritten by remote — the correct behaviour for a regular pull where
+   * the remote is the source of truth.
    */
   preserveLocalFiles?: boolean
 }
@@ -28,14 +39,11 @@ export interface MergeParams {
  * Result of a merge operation.
  */
 export interface MergeResult {
-  /** Remote files added to the context tree */
-  added: string[]
   /**
-   * Path to the conflict review directory (.brv/context-tree-conflict/).
-   * Only present when conflicted.length > 0. Contains the original local versions
-   * of conflicted files for user review. Cleared automatically at the start of the next merge.
+   * Files added to the context tree. Includes both remote-originated new files and
+   * local files renamed with a _N.md suffix due to conflicts.
    */
-  conflictDir?: string
+  added: string[]
   /**
    * Original paths that had true conflicts (both local and remote changed the same file).
    * For each path in this list, the local version was renamed to a _N.md suffix while
@@ -44,13 +52,18 @@ export interface MergeResult {
   conflicted: string[]
   /** Local clean files removed because remote deleted them */
   deleted: string[]
-  /** Remote files that overwrote clean local files */
+  /**
+   * Files updated with remote content. Includes clean local files overwritten by remote
+   * (regular pull) and paths where both sides independently changed to the same content
+   * (convergence — no conflict).
+   */
   edited: string[]
   /**
-   * File states for remote files only — pass to saveSnapshotFromState()
-   * so that preserved/renamed local files appear as "added" on next getChanges().
+   * Files the user had deleted locally but which remote re-created because remote had a
+   * newer version. These paths are present in the context tree again after the merge.
+   * Callers should notify the user so they can decide whether to keep or delete them.
    */
-  remoteFileStates: Map<string, FileState>
+  restoredFromRemote: string[]
 }
 
 /**
@@ -59,12 +72,11 @@ export interface MergeResult {
  * numeric suffix (_1.md, _2.md, …) before remote content takes the original path.
  *
  * When conflicts occur, the original local versions of conflicted files are copied
- * to .brv/context-tree-conflict/ for review. This folder is cleared automatically
+ * to .brv/context-tree-conflicts/ for review. This folder is cleared automatically
  * at the start of the next merge.
  *
  * On failure, the context tree is automatically restored to its pre-merge state
- * and the temporary backup is removed. The caller is responsible for rolling back
- * any config changes (space ID, team ID).
+ * and the temporary backup is removed.
  */
 export interface IContextTreeMerger {
   merge(params: MergeParams): Promise<MergeResult>

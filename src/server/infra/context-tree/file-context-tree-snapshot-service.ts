@@ -1,5 +1,5 @@
-import {readdir, readFile, stat, writeFile} from 'node:fs/promises'
-import {join, relative} from 'node:path'
+import {mkdir, readdir, readFile, stat, writeFile} from 'node:fs/promises'
+import {dirname, join, relative} from 'node:path'
 
 import type {IContextTreeSnapshotService} from '../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 
@@ -103,6 +103,7 @@ export class FileContextTreeSnapshotService implements IContextTreeSnapshotServi
     const contextTreeDir = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
     const snapshotPath = join(contextTreeDir, SNAPSHOT_FILE)
 
+    await mkdir(dirname(snapshotPath), {recursive: true})
     const snapshot = ContextTreeSnapshot.create(state)
     await writeFile(snapshotPath, JSON.stringify(snapshot.toJson(), null, 2), 'utf8')
   }

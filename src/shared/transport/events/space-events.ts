@@ -25,6 +25,7 @@ export interface SpaceSwitchPullResult {
   conflicted?: number
   deleted: number
   edited: number
+  restoredFromRemote?: number
 }
 
 export interface SpaceSwitchResponse {

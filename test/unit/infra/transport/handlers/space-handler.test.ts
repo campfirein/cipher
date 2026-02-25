@@ -169,7 +169,7 @@ describe('SpaceHandler', () => {
         conflicted: [],
         deleted: [],
         edited: [],
-        remoteFileStates: new Map(),
+        restoredFromRemote: [],
       }),
     }
 
@@ -615,6 +615,31 @@ describe('SpaceHandler', () => {
       expect(contextTreeWriterService.sync.called).to.be.false
     })
 
+    it('should use merger with preserveLocalFiles=true on first-time connect even when no local changes', async () => {
+      createHandler()
+      tokenStore.load.resolves(createMockToken())
+      projectConfigStore.read.resolves(createLocalOnlyConfig()) // no spaceId — first-time connect
+      contextTreeSnapshotService.getChanges.resolves(noChanges()) // no added/modified/deleted
+      teamService.getTeams.resolves({teams: createMockTeams(), total: 2})
+      spaceService.getSpaces
+        .withArgs('session-key', 'team-1', {fetchAll: true})
+        .resolves({spaces: createMockSpaces(), total: 2})
+      spaceService.getSpaces.withArgs('session-key', 'team-2', {fetchAll: true}).resolves({spaces: [], total: 0})
+      projectConfigStore.write.resolves()
+      cogitPullService.pull.resolves(createMockSnapshot())
+      contextTreeSnapshotService.saveSnapshotFromState.resolves()
+
+      await callSwitchHandler({spaceId: 'space-2'})
+
+      // Merger must be called even with no local changes — tracked+clean files in the local
+      // context tree must not be deleted when connecting to a space for the first time.
+      expect(contextTreeMerger.merge.calledOnce).to.be.true
+      const mergeCall = contextTreeMerger.merge.firstCall.args[0]
+      expect(mergeCall.preserveLocalFiles).to.be.true
+      // Regular sync must NOT be called — it would silently delete all local tracked files
+      expect(contextTreeWriterService.sync.called).to.be.false
+    })
+
     it('should check changes with the correct project path', async () => {
       createHandler()
       setupSwitchMocks()
@@ -678,21 +703,30 @@ describe('SpaceHandler', () => {
       expect(result.pullError).to.equal('Not found')
     })
 
-    it('should rollback config to old spaceId when pull fails', async () => {
+    it('should not write config when pull fails — config stays on old spaceId', async () => {
       createHandler()
       setupSwitchMocks() // config starts with spaceId: 'space-1'
       cogitPullService.pull.rejects(new Error('Network error'))
 
       const result = await callSwitchHandler({spaceId: 'space-2'})
 
-      // Write called twice: once for new config, once for rollback
-      expect(projectConfigStore.write.calledTwice).to.be.true
-      const firstWrite = projectConfigStore.write.firstCall.args[0] as BrvConfig
-      expect(firstWrite.spaceId).to.equal('space-2') // attempted new config
-      const rollbackWrite = projectConfigStore.write.secondCall.args[0] as BrvConfig
-      expect(rollbackWrite.spaceId).to.equal('space-1') // rolled back to original
+      // Config must NOT be written at all — disk state is unchanged
+      expect(projectConfigStore.write.called).to.be.false
       // Response returns old config
       expect(result.config).to.deep.include({spaceId: 'space-1'})
+    })
+
+    it('should write config with new spaceId only after pull succeeds', async () => {
+      createHandler()
+      setupSwitchMocks() // config starts with spaceId: 'space-1'
+
+      const result = await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(result.success).to.be.true
+      // Write called exactly once, with new spaceId (not before pull)
+      expect(projectConfigStore.write.calledOnce).to.be.true
+      const writtenConfig = projectConfigStore.write.firstCall.args[0] as BrvConfig
+      expect(writtenConfig.spaceId).to.equal('space-2')
     })
 
     it('should broadcast progress events during pull', async () => {
@@ -721,7 +755,7 @@ describe('SpaceHandler', () => {
         conflicted: [],
         deleted: [],
         edited: [],
-        remoteFileStates: new Map(),
+        restoredFromRemote: [],
       })
       contextTreeSnapshotService.saveSnapshotFromState.resolves()
 
@@ -751,11 +785,10 @@ describe('SpaceHandler', () => {
       cogitPullService.pull.resolves(createMockSnapshot())
       contextTreeMerger.merge.resolves({
         added: ['topic_1.md'],
-        conflictDir: '/test/project/.brv/context-tree-conflict',
         conflicted: ['topic.md'],
         deleted: [],
         edited: [],
-        remoteFileStates: new Map(),
+        restoredFromRemote: [],
       })
       contextTreeSnapshotService.saveSnapshotFromState.resolves()
 
@@ -765,12 +798,10 @@ describe('SpaceHandler', () => {
       expect(result.pullResult).to.deep.include({conflicted: 1})
 
       // Handler must broadcast the conflict review message
-      const conflictBroadcast = broadcastToProject
-        .getCalls()
-        .find((call: {args: unknown[]}) => {
-          const data = call.args[2] as undefined | {message?: string}
-          return call.args[1] === PullEvents.PROGRESS && data?.message?.includes('context-tree-conflict')
-        })
+      const conflictBroadcast = broadcastToProject.getCalls().find((call: {args: unknown[]}) => {
+        const data = call.args[2] as undefined | {message?: string}
+        return call.args[1] === PullEvents.PROGRESS && data?.message?.includes('context-tree-conflicts')
+      })
       expect(conflictBroadcast, 'conflict message should be broadcast').to.exist
     })
 
@@ -791,7 +822,7 @@ describe('SpaceHandler', () => {
         conflicted: [],
         deleted: [],
         edited: [],
-        remoteFileStates: new Map(),
+        restoredFromRemote: [],
       })
       contextTreeSnapshotService.saveSnapshotFromState.resolves()
 
@@ -819,6 +850,99 @@ describe('SpaceHandler', () => {
 
       expect(contextTreeMerger.merge.calledOnce).to.be.true
       expect(contextTreeWriterService.sync.called).to.be.false
+    })
+
+    // ==================== restoredFromRemote ====================
+
+    it('should include restoredFromRemote count in pullResult and broadcast restore message', async () => {
+      createHandler()
+      tokenStore.load.resolves(createMockToken())
+      projectConfigStore.read.resolves(createLocalOnlyConfig()) // no spaceId
+      contextTreeSnapshotService.getChanges.resolves(withChanges())
+      teamService.getTeams.resolves({teams: createMockTeams(), total: 2})
+      spaceService.getSpaces
+        .withArgs('session-key', 'team-1', {fetchAll: true})
+        .resolves({spaces: createMockSpaces(), total: 2})
+      spaceService.getSpaces.withArgs('session-key', 'team-2', {fetchAll: true}).resolves({spaces: [], total: 0})
+      projectConfigStore.write.resolves()
+      cogitPullService.pull.resolves(createMockSnapshot())
+      contextTreeMerger.merge.resolves({
+        added: ['deleted.md'],
+        conflicted: [],
+        deleted: [],
+        edited: [],
+        restoredFromRemote: ['deleted.md'],
+      })
+      contextTreeSnapshotService.saveSnapshotFromState.resolves()
+
+      const result = await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(result.success).to.be.true
+      expect(result.pullResult).to.deep.include({restoredFromRemote: 1})
+
+      const restoreBroadcast = broadcastToProject.getCalls().find((call: {args: unknown[]}) => {
+        const data = call.args[2] as undefined | {message?: string}
+        return call.args[1] === PullEvents.PROGRESS && data?.message?.includes('deleted')
+      })
+      expect(restoreBroadcast, 'restore message should be broadcast').to.exist
+    })
+
+    it('should not set restoredFromRemote in pullResult when merger returns none', async () => {
+      createHandler()
+      tokenStore.load.resolves(createMockToken())
+      projectConfigStore.read.resolves(createLocalOnlyConfig())
+      contextTreeSnapshotService.getChanges.resolves(withChanges())
+      teamService.getTeams.resolves({teams: createMockTeams(), total: 2})
+      spaceService.getSpaces
+        .withArgs('session-key', 'team-1', {fetchAll: true})
+        .resolves({spaces: createMockSpaces(), total: 2})
+      spaceService.getSpaces.withArgs('session-key', 'team-2', {fetchAll: true}).resolves({spaces: [], total: 0})
+      projectConfigStore.write.resolves()
+      cogitPullService.pull.resolves(createMockSnapshot())
+      contextTreeMerger.merge.resolves({
+        added: [],
+        conflicted: [],
+        deleted: [],
+        edited: [],
+        restoredFromRemote: [],
+      })
+      contextTreeSnapshotService.saveSnapshotFromState.resolves()
+
+      const result = await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(result.success).to.be.true
+      expect(result.pullResult).to.not.have.property('restoredFromRemote')
+    })
+
+    // ==================== Same-space no-op ====================
+
+    it('should return success immediately without any API calls when switching to the current space', async () => {
+      createHandler()
+      tokenStore.load.resolves(createMockToken())
+      projectConfigStore.read.resolves(createMockConfig()) // spaceId: 'space-1'
+
+      const result = await callSwitchHandler({spaceId: 'space-1'})
+
+      expect(result.success).to.be.true
+      expect(result.config).to.deep.include({spaceId: 'space-1', spaceName: 'frontend-app'})
+      expect(result.pullResult).to.be.undefined
+      // No teams/spaces fetch, no pull, no sync, no config write
+      expect(teamService.getTeams.called).to.be.false
+      expect(cogitPullService.pull.called).to.be.false
+      expect(contextTreeWriterService.sync.called).to.be.false
+      expect(projectConfigStore.write.called).to.be.false
+    })
+
+    it('should not throw LocalChangesExistError when switching to the current space with local changes', async () => {
+      createHandler()
+      tokenStore.load.resolves(createMockToken())
+      projectConfigStore.read.resolves(createMockConfig()) // spaceId: 'space-1'
+
+      // Same space — early return happens BEFORE getChanges is called
+      const result = await callSwitchHandler({spaceId: 'space-1'})
+
+      expect(result.success).to.be.true
+      expect(contextTreeSnapshotService.getChanges.called).to.be.false
     })
   })
 })
