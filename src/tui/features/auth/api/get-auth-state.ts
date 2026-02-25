@@ -16,8 +16,10 @@ export const getAuthState = (): Promise<AuthGetStateResponse> => {
 
 export const getAuthStateQueryOptions = () =>
   queryOptions({
+    gcTime: 5 * 60 * 1000,
     queryFn: getAuthState,
     queryKey: ['auth', 'state'],
+    staleTime: 60 * 1000,
   })
 
 type UseGetAuthStateOptions = {
