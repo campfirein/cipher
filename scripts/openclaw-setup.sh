@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/bin/sh
 # openclaw-setup.sh — ByteRover Integration Installer for OpenClaw
-# Usage: bash scripts/openclaw-setup.sh
+# Usage: curl -fsSL https://storage.googleapis.com/brv-releases/openclaw-setup.sh | sh
 #
 # Configures ByteRover as long-term memory for OpenClaw agents:
 #   - Automatic Memory Flush (context compaction)
@@ -104,9 +104,9 @@ check_brv_skill() {
 
 check_brv_cli() {
   if command -v brv &> /dev/null; then
-    success "ByteRover-cli npm is installed"
+    success "ByteRover-cli is installed"
   else
-    error "ByteRover-cli npm is missing. Please install it first (npm install -g byterover-cli)."
+    error "ByteRover-cli is missing. Please install it first (https://docs.byterover.dev)."
   fi
 }
 
