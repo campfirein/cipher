@@ -114,14 +114,14 @@ describe('Provider List Command', () => {
       expect(loggedMessages.some((m) => m.includes('Groq') && m.includes('[groq]'))).to.be.true
     })
 
-    it('should show "(active)" for the current provider', async () => {
+    it('should show "(current)" for the current provider', async () => {
       mockListResponse([
         {id: 'anthropic', isConnected: true, isCurrent: true, name: 'Anthropic'},
       ])
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('(active)'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('(current)'))).to.be.true
     })
 
     it('should show "(connected)" for connected non-active providers', async () => {
@@ -141,7 +141,7 @@ describe('Provider List Command', () => {
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('(active)'))).to.be.false
+      expect(loggedMessages.some((m) => m.includes('(current)'))).to.be.false
       expect(loggedMessages.some((m) => m.includes('(connected)'))).to.be.false
       expect(loggedMessages.some((m) => m.includes('Groq') && m.includes('[groq]'))).to.be.true
     })

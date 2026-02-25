@@ -5,9 +5,9 @@ import {randomUUID} from 'node:crypto'
 
 import type {CurateLogOperation} from '../../../server/core/domain/entities/curate-log-entry.js'
 
+import { ProviderConfigResponse, TransportStateEventNames } from '../../../server/core/domain/transport/index.js'
 import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
-import {TaskEvents} from '../../../shared/transport/events/index.js'
-import {ProviderEvents, type ProviderGetActiveResponse} from '../../../shared/transport/events/provider-events.js'
+import { TaskEvents } from '../../../shared/transport/events/index.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -110,11 +110,9 @@ Bad examples:
     try {
       await withDaemonRetry(
         async (client, projectRoot) => {
-          const active = await client.requestWithAck<ProviderGetActiveResponse>(ProviderEvents.GET_ACTIVE)
-          if (!active.activeProviderId) {
-            throw new Error(
-              'No provider connected. Run "brv provider connect <provider>" to configure a provider first.',
-            )
+          const active = await client.requestWithAck<ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG)
+          if (!active.activeProvider) {
+            throw new Error('No provider connected. Run "brv provider connect <provider>" to configure a provider first.')
           }
 
           await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType})

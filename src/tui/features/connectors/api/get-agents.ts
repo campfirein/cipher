@@ -14,6 +14,7 @@ export const getAgents = (): Promise<ConnectorGetAgentsResponse> => {
 
 export const getAgentsQueryOptions = () =>
   queryOptions({
+    gcTime: Infinity,
     queryFn: getAgents,
     queryKey: ['connectors', 'agents'],
     staleTime: Infinity, // Static data - agents don't change during session

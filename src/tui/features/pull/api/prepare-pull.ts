@@ -24,7 +24,6 @@ export const preparePullQueryOptions = (branch: string) =>
   queryOptions({
     queryFn: () => preparePull({branch}),
     queryKey: ['pull', 'prepare', branch],
-    staleTime: 0, // Always refetch on triggers
   })
 
 type UsePreparePullOptions = {

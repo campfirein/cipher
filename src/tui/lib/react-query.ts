@@ -8,9 +8,14 @@ import type {DefaultOptions, UseMutationOptions} from '@tanstack/react-query'
 
 export const queryConfig = {
   queries: {
+    // cached data is garbage collected immediately after unmount,
+    // so no stale data is ever served
+    gcTime: 0,
     refetchOnWindowFocus: false,
     retry: false,
-    staleTime: 1000 * 60,
+    // data is stale immediately,
+    // so React Query will refetch on triggers
+    staleTime: 0,
   },
 } satisfies DefaultOptions
 
