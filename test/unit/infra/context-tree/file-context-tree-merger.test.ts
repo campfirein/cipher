@@ -402,6 +402,84 @@ describe('FileContextTreeMerger', () => {
     })
   })
 
+  describe('merge — preserveLocalFiles: true (first-time space connect)', () => {
+    it('should preserve clean tracked local files that are not in remote', async () => {
+      // User curated two files and they are in the snapshot (clean, no changes since last curate)
+      await writeFile(join(contextTreeDir, 'project-overview.md'), '# Project overview')
+      await writeFile(join(contextTreeDir, 'api-design.md'), '# API design')
+      await snapshotService.saveSnapshot()
+
+      // Remote (new space, never seen these files) only has onboarding.md
+      const result = await merger.merge({
+        directory: testDir,
+        files: [makeFile('onboarding.md', '# Welcome to the space')],
+        localChanges: {added: [], deleted: [], modified: []},
+        preserveLocalFiles: true,
+      })
+
+      // Both clean local files must survive
+      const overview = await readFile(join(contextTreeDir, 'project-overview.md'), 'utf8')
+      expect(overview).to.equal('# Project overview')
+      const api = await readFile(join(contextTreeDir, 'api-design.md'), 'utf8')
+      expect(api).to.equal('# API design')
+
+      // Remote file was added
+      expect(result.added).to.include('onboarding.md')
+      // No clean local files were deleted
+      expect(result.deleted).to.be.empty
+      expect(result.conflicted).to.be.empty
+    })
+
+    it('should preserve clean local files AND locally added files when preserveLocalFiles is true', async () => {
+      // Clean tracked file
+      await writeFile(join(contextTreeDir, 'tracked.md'), '# Tracked clean file')
+      await snapshotService.saveSnapshot()
+      // New local addition (not yet in snapshot)
+      await writeFile(join(contextTreeDir, 'new-idea.md'), '# My new idea')
+
+      // Remote has a completely different file
+      const result = await merger.merge({
+        directory: testDir,
+        files: [makeFile('remote-topic.md', '# From remote')],
+        localChanges: {added: ['new-idea.md'], deleted: [], modified: []},
+        preserveLocalFiles: true,
+      })
+
+      // tracked.md (clean, in snapshot) must survive
+      const trackedContent = await readFile(join(contextTreeDir, 'tracked.md'), 'utf8')
+      expect(trackedContent).to.equal('# Tracked clean file')
+      // new-idea.md (locally added) must survive
+      const newContent = await readFile(join(contextTreeDir, 'new-idea.md'), 'utf8')
+      expect(newContent).to.equal('# My new idea')
+      // remote-topic.md was added
+      expect(result.added).to.include('remote-topic.md')
+      expect(result.deleted).to.be.empty
+    })
+
+    it('should still delete clean local files when preserveLocalFiles is false (regular pull)', async () => {
+      await writeFile(join(contextTreeDir, 'keep.md'), '# Keep this')
+      await writeFile(join(contextTreeDir, 'remote-deleted.md'), '# Remote deleted this')
+      await snapshotService.saveSnapshot()
+
+      // Same space regular pull — remote deleted 'remote-deleted.md'
+      const result = await merger.merge({
+        directory: testDir,
+        files: [makeFile('keep.md', '# Keep this')],
+        localChanges: {added: [], deleted: [], modified: []},
+        preserveLocalFiles: false,
+      })
+
+      try {
+        await access(join(contextTreeDir, 'remote-deleted.md'))
+        expect.fail('File should have been deleted')
+      } catch {
+        // expected
+      }
+
+      expect(result.deleted).to.include('remote-deleted.md')
+    })
+  })
+
   describe('merge — locally deleted file not in remote', () => {
     it('should leave file absent when local deleted and remote also does not have it', async () => {
       // File was in snapshot but deleted locally; remote also dropped it

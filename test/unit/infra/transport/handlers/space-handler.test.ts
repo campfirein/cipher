@@ -608,6 +608,9 @@ describe('SpaceHandler', () => {
       await callSwitchHandler({spaceId: 'space-2'})
 
       expect(contextTreeMerger.merge.calledOnce).to.be.true
+      // preserveLocalFiles must be true for first-time connect
+      const mergeCall = contextTreeMerger.merge.firstCall.args[0]
+      expect(mergeCall.preserveLocalFiles).to.be.true
       // Regular sync should NOT be called
       expect(contextTreeWriterService.sync.called).to.be.false
     })

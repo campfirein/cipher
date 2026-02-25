@@ -11,6 +11,17 @@ export interface MergeParams {
   files: readonly CogitSnapshotFile[]
   /** Local changes detected before the merge */
   localChanges: ContextTreeChanges
+  /**
+   * When true, clean local files that are absent from remote are preserved instead of deleted.
+   * Use this for first-time space connect where the local context tree has no shared history
+   * with the target space — "file not in remote" means "remote has never seen it", not
+   * "remote deleted it". Preserved files will appear as "added" on the next getChanges() call,
+   * prompting the user to push their local work to the new space.
+   *
+   * When false (default), clean local files absent from remote are deleted, which is the correct
+   * behaviour for a regular pull where the remote is the source of truth.
+   */
+  preserveLocalFiles?: boolean
 }
 
 /**

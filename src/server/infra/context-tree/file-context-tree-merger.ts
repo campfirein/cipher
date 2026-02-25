@@ -48,7 +48,7 @@ export class FileContextTreeMerger implements IContextTreeMerger {
   }
 
   public async merge(params: MergeParams): Promise<MergeResult> {
-    const {directory, files, localChanges} = params
+    const {directory, files, localChanges, preserveLocalFiles = false} = params
     const contextTreeDir = join(directory, BRV_DIR, CONTEXT_TREE_DIR)
     const backupDir = join(directory, BRV_DIR, CONTEXT_TREE_BACKUP_DIR)
     const conflictDir = join(directory, BRV_DIR, CONTEXT_TREE_CONFLICT_DIR)
@@ -82,6 +82,7 @@ export class FileContextTreeMerger implements IContextTreeMerger {
         conflictPaths,
         contextTreeDir,
         localState,
+        preserveLocalFiles,
         remoteFilesMap,
         snapshotState,
       })
@@ -173,10 +174,12 @@ export class FileContextTreeMerger implements IContextTreeMerger {
     conflictPaths: Set<string>
     contextTreeDir: string
     localState: Map<string, FileState>
+    preserveLocalFiles: boolean
     remoteFilesMap: Map<string, {decodedContent: string}>
     snapshotState: Map<string, FileState>
   }): Promise<Omit<MergeResult, 'conflictDir'>> {
-    const {conflictDir, conflictPaths, contextTreeDir, localState, remoteFilesMap, snapshotState} = params
+    const {conflictDir, conflictPaths, contextTreeDir, localState, preserveLocalFiles, remoteFilesMap, snapshotState} =
+      params
 
     const added: string[] = []
     const edited: string[] = []
@@ -242,14 +245,20 @@ export class FileContextTreeMerger implements IContextTreeMerger {
       }
     }
 
-    // Delete clean local files that are not in remote (remote deleted them)
-    for (const localPath of localState.keys()) {
-      const isLocallyChanged = conflictPaths.has(localPath)
-      const isInRemote = remoteFilesMap.has(localPath)
+    // Delete clean local files that are not in remote.
+    // When preserveLocalFiles is true (first-time space connect), skip this step: the local
+    // context tree has no shared history with the target space, so "file not in remote" means
+    // "remote has never seen it", not "remote deleted it". Preserved files will appear as
+    // "added" on the next getChanges() call, prompting the user to push them to the new space.
+    if (!preserveLocalFiles) {
+      for (const localPath of localState.keys()) {
+        const isLocallyChanged = conflictPaths.has(localPath)
+        const isInRemote = remoteFilesMap.has(localPath)
 
-      if (!isLocallyChanged && !isInRemote) {
-        await unlink(join(contextTreeDir, localPath))
-        deleted.push(localPath)
+        if (!isLocallyChanged && !isInRemote) {
+          await unlink(join(contextTreeDir, localPath))
+          deleted.push(localPath)
+        }
       }
     }
     /* eslint-enable no-await-in-loop */

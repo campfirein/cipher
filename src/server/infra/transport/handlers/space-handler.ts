@@ -175,11 +175,15 @@ export class SpaceHandler {
         this.broadcastToProject(projectPath, PullEvents.PROGRESS, {message: 'Syncing files...', step: 'syncing'})
 
         if (hasLocalChanges) {
-          // Merge remote files with local changes — preserves local work via _N.md renaming
+          // Merge remote files with local changes — preserves local work via _N.md renaming.
+          // preserveLocalFiles: true because this is first-time connect (no prior spaceId):
+          // the local context tree has no shared history with the target space, so clean local
+          // files absent from remote are new additions, not files that remote deleted.
           const mergeResult = await this.contextTreeMerger.merge({
             directory: projectPath,
             files: snapshot.files,
             localChanges,
+            preserveLocalFiles: true,
           })
 
           if (mergeResult.conflicted.length > 0) {
