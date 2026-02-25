@@ -120,8 +120,13 @@ export class PullHandler {
       throw new NotAuthenticatedError()
     }
 
-    if (!(await this.projectConfigStore.exists(projectPath))) {
+    const config = await this.projectConfigStore.read(projectPath)
+    if (!config) {
       throw new ProjectNotInitError()
+    }
+
+    if (!config.teamId || !config.spaceId) {
+      throw new SpaceNotConfiguredError()
     }
 
     const changes = await this.contextTreeSnapshotService.getChanges(projectPath)

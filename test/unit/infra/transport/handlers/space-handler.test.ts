@@ -166,7 +166,7 @@ describe('SpaceHandler', () => {
     contextTreeMerger = {
       merge: stub<Parameters<IContextTreeMerger['merge']>, ReturnType<IContextTreeMerger['merge']>>().resolves({
         added: [],
-        backupDir: '/tmp/brv-merge-backup-test',
+        conflicted: [],
         deleted: [],
         edited: [],
         remoteFileStates: new Map(),
@@ -608,7 +608,6 @@ describe('SpaceHandler', () => {
       await callSwitchHandler({spaceId: 'space-2'})
 
       expect(contextTreeMerger.merge.calledOnce).to.be.true
-      expect(contextTreeSnapshotService.saveSnapshotFromState.calledOnce).to.be.true
       // Regular sync should NOT be called
       expect(contextTreeWriterService.sync.called).to.be.false
     })
@@ -716,7 +715,7 @@ describe('SpaceHandler', () => {
       cogitPullService.pull.resolves(createMockSnapshot())
       contextTreeMerger.merge.resolves({
         added: ['new.md', 'conflict_1.md'],
-        backupDir: '/tmp/brv-merge-backup-test',
+        conflicted: [],
         deleted: [],
         edited: [],
         remoteFileStates: new Map(),
@@ -733,6 +732,70 @@ describe('SpaceHandler', () => {
         deleted: 0,
         edited: 0,
       })
+    })
+
+    it('should include conflicted count in pullResult and broadcast conflict message when conflicts exist', async () => {
+      createHandler()
+      tokenStore.load.resolves(createMockToken())
+      projectConfigStore.read.resolves(createLocalOnlyConfig()) // no spaceId
+      contextTreeSnapshotService.getChanges.resolves(withChanges())
+      teamService.getTeams.resolves({teams: createMockTeams(), total: 2})
+      spaceService.getSpaces
+        .withArgs('session-key', 'team-1', {fetchAll: true})
+        .resolves({spaces: createMockSpaces(), total: 2})
+      spaceService.getSpaces.withArgs('session-key', 'team-2', {fetchAll: true}).resolves({spaces: [], total: 0})
+      projectConfigStore.write.resolves()
+      cogitPullService.pull.resolves(createMockSnapshot())
+      contextTreeMerger.merge.resolves({
+        added: ['topic_1.md'],
+        conflictDir: '/test/project/.brv/context-tree-conflict',
+        conflicted: ['topic.md'],
+        deleted: [],
+        edited: [],
+        remoteFileStates: new Map(),
+      })
+      contextTreeSnapshotService.saveSnapshotFromState.resolves()
+
+      const result = await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(result.success).to.be.true
+      expect(result.pullResult).to.deep.include({conflicted: 1})
+
+      // Handler must broadcast the conflict review message
+      const conflictBroadcast = broadcastToProject
+        .getCalls()
+        .find((call: {args: unknown[]}) => {
+          const data = call.args[2] as undefined | {message?: string}
+          return call.args[1] === PullEvents.PROGRESS && data?.message?.includes('context-tree-conflict')
+        })
+      expect(conflictBroadcast, 'conflict message should be broadcast').to.exist
+    })
+
+    it('should not set conflicted in pullResult when merger returns no conflicts', async () => {
+      createHandler()
+      tokenStore.load.resolves(createMockToken())
+      projectConfigStore.read.resolves(createLocalOnlyConfig())
+      contextTreeSnapshotService.getChanges.resolves(withChanges())
+      teamService.getTeams.resolves({teams: createMockTeams(), total: 2})
+      spaceService.getSpaces
+        .withArgs('session-key', 'team-1', {fetchAll: true})
+        .resolves({spaces: createMockSpaces(), total: 2})
+      spaceService.getSpaces.withArgs('session-key', 'team-2', {fetchAll: true}).resolves({spaces: [], total: 0})
+      projectConfigStore.write.resolves()
+      cogitPullService.pull.resolves(createMockSnapshot())
+      contextTreeMerger.merge.resolves({
+        added: ['new.md'],
+        conflicted: [],
+        deleted: [],
+        edited: [],
+        remoteFileStates: new Map(),
+      })
+      contextTreeSnapshotService.saveSnapshotFromState.resolves()
+
+      const result = await callSwitchHandler({spaceId: 'space-2'})
+
+      expect(result.success).to.be.true
+      expect(result.pullResult).to.not.have.property('conflicted')
     })
 
     it('should use merger when only deleted changes exist on first-time connect', async () => {

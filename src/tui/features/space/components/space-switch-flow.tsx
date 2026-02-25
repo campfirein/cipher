@@ -90,10 +90,18 @@ export const SpaceSwitchFlow: React.FC<SpaceSwitchFlowProps> = ({isActive = true
         },
         onSuccess(result) {
           unsubProgress?.()
+          if (!result.success) {
+            onComplete(`Failed to switch space: ${result.pullError ?? 'Unknown error'}`)
+            return
+          }
+
           const spaceLine = `Successfully switched to space: ${result.config.spaceName}`
           let pullLine: string
           if (result.pullResult) {
             pullLine = `Pulled: +${result.pullResult.added} ~${result.pullResult.edited} -${result.pullResult.deleted}`
+            if (result.pullResult.conflicted) {
+              pullLine += `\n  ${result.pullResult.conflicted} conflict(s) auto-merged — review .brv/context-tree-conflict/ for original files`
+            }
           } else if (result.pullError) {
             pullLine = `Pull skipped: ${result.pullError}`
           } else {

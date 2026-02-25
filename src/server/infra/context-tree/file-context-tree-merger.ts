@@ -1,11 +1,11 @@
-import {copyFile, mkdir, opendir, readFile, rm, stat, unlink, writeFile} from 'node:fs/promises'
+import {copyFile, mkdir, opendir, readFile, rename, rm, stat, unlink, writeFile} from 'node:fs/promises'
 import {dirname, extname, join} from 'node:path'
 
 import type {FileState} from '../../core/domain/entities/context-tree-snapshot.js'
 import type {IContextTreeMerger, MergeParams, MergeResult} from '../../core/interfaces/context-tree/i-context-tree-merger.js'
 import type {IContextTreeSnapshotService} from '../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 
-import {BRV_DIR, CONTEXT_TREE_BACKUP_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
+import {BRV_DIR, CONTEXT_TREE_BACKUP_DIR, CONTEXT_TREE_CONFLICT_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {computeContentHash} from './hash-utils.js'
 import {toUnixPath} from './path-utils.js'
 
@@ -16,14 +16,28 @@ export type FileContextTreeMergerDependencies = {
 /**
  * File-based implementation of IContextTreeMerger.
  *
- * Backs up the local context tree before any destructive operation.
- * Merges remote CoGit snapshot files into the local context tree using the rule:
- *   - Local wins when remote has NOT changed the file (remote hash == snapshot hash).
- *   - Remote wins (with _N.md renaming for safety) when remote HAS changed the file.
+ * Backup semantics (.brv/context-tree-backup/):
+ *   Created at the start of every merge as a full clone of the local context tree.
+ *   Used exclusively as a safety net for automatic rollback on failure.
+ *   Always deleted after a successful merge.
  *
- * Backup at .brv/context-tree-backup/ is returned in MergeResult.backupDir — the caller
- * must delete it after all post-merge operations (e.g. saveSnapshotFromState) complete
- * successfully. On failure, the backup is preserved so the user can recover manually.
+ * Conflict directory semantics (.brv/context-tree-conflict/):
+ *   Created during a merge only when true conflicts occur (both sides changed the same file).
+ *   Contains only the original local versions of conflicted files, mirroring their paths.
+ *   The merged context tree retains the remote version at the original path and saves the
+ *   local version at a _N.md-suffixed path for review.
+ *   Cleared automatically at the start of the next merge.
+ *
+ * Merge rules:
+ *   - Local wins when remote has NOT changed the file (remote hash == snapshot hash).
+ *   - Remote wins (overwrite) when remote has changed a clean local file.
+ *   - Conflict (both changed): local saved as _N.md + original copied to conflict dir,
+ *     remote written to original path.
+ *
+ * On failure:
+ *   The context tree is automatically restored from the backup, and any partial conflict
+ *   directory is removed. The backup is deleted after restoration. The caller (space-handler)
+ *   is responsible for rolling back space/team config.
  */
 export class FileContextTreeMerger implements IContextTreeMerger {
   private static readonly MAX_RENAME_ATTEMPTS = 100
@@ -37,18 +51,24 @@ export class FileContextTreeMerger implements IContextTreeMerger {
     const {directory, files, localChanges} = params
     const contextTreeDir = join(directory, BRV_DIR, CONTEXT_TREE_DIR)
     const backupDir = join(directory, BRV_DIR, CONTEXT_TREE_BACKUP_DIR)
+    const conflictDir = join(directory, BRV_DIR, CONTEXT_TREE_CONFLICT_DIR)
 
     // Capture pre-merge disk state and saved snapshot state for comparison
     const localState = await this.snapshotService.getCurrentState(directory)
     const snapshotState = await this.snapshotService.getSnapshotState(directory)
 
+    // Only added/modified files can conflict — deleted files are absent from disk so they
+    // cannot be read during conflict handling. Locally-deleted + remote-changed falls through
+    // to the "file not on disk" branch in runMerge(), where remote wins by re-creating the file.
     const conflictPaths = new Set([...localChanges.added, ...localChanges.modified])
 
     const remoteFilesMap = this.buildRemoteFilesMap(files)
 
-    // Backup local context tree before any destructive operation.
-    // Left in place on failure so the user can recover manually.
+    // Clear any leftover backup or conflict folder from a previous merge.
     await rm(backupDir, {force: true, recursive: true})
+    await rm(conflictDir, {force: true, recursive: true})
+
+    // Backup local context tree as a safety net for rollback on failure.
     try {
       await this.copyDir(contextTreeDir, backupDir)
     } catch (error) {
@@ -57,12 +77,41 @@ export class FileContextTreeMerger implements IContextTreeMerger {
     }
 
     try {
-      const result = await this.runMerge({conflictPaths, contextTreeDir, localState, remoteFilesMap, snapshotState})
-      // Backup is returned to the caller — it must be deleted after all post-merge operations succeed.
-      return {...result, backupDir}
+      const result = await this.runMerge({
+        conflictDir,
+        conflictPaths,
+        contextTreeDir,
+        localState,
+        remoteFilesMap,
+        snapshotState,
+      })
+
+      // Save snapshot atomically before deleting backup.
+      // If this fails, the catch block will restore the context tree from the backup.
+      await this.snapshotService.saveSnapshotFromState(result.remoteFileStates, directory)
+
+      // Snapshot saved — backup is no longer needed.
+      await rm(backupDir, {force: true, recursive: true})
+
+      if (result.conflicted.length > 0) {
+        return {...result, conflictDir}
+      }
+
+      return result
     } catch (error) {
+      // Failure: automatically restore context tree from backup.
+      await rm(contextTreeDir, {force: true, recursive: true})
+      try {
+        await rename(backupDir, contextTreeDir)
+      } catch {
+        // Backup does not exist (context tree was empty before merge) — context tree is cleanly absent.
+      }
+
+      // Remove any partial conflict directory created before the failure.
+      await rm(conflictDir, {force: true, recursive: true}).catch(() => {})
+
       const message = error instanceof Error ? error.message : String(error)
-      throw new Error(`Merge failed: ${message}. Your original context tree is backed up at: ${backupDir}`)
+      throw new Error(`Merge failed: ${message}. Context tree has been restored to its original state.`)
     }
   }
 
@@ -120,17 +169,19 @@ export class FileContextTreeMerger implements IContextTreeMerger {
   }
 
   private async runMerge(params: {
+    conflictDir: string
     conflictPaths: Set<string>
     contextTreeDir: string
     localState: Map<string, FileState>
     remoteFilesMap: Map<string, {decodedContent: string}>
     snapshotState: Map<string, FileState>
-  }): Promise<Omit<MergeResult, 'backupDir'>> {
-    const {conflictPaths, contextTreeDir, localState, remoteFilesMap, snapshotState} = params
+  }): Promise<Omit<MergeResult, 'conflictDir'>> {
+    const {conflictDir, conflictPaths, contextTreeDir, localState, remoteFilesMap, snapshotState} = params
 
     const added: string[] = []
     const edited: string[] = []
     const deleted: string[] = []
+    const conflicted: string[] = []
     const remoteFileStates: Map<string, FileState> = new Map()
 
     /* eslint-disable no-await-in-loop */
@@ -151,18 +202,34 @@ export class FileContextTreeMerger implements IContextTreeMerger {
 
       // Remote has changed this file (or it is new to remote).
       if (conflictPaths.has(normalPath)) {
-        // Both sides changed — rename local file to _N.md, write remote to original path
-        const newRelPath = await this.findAvailableName(contextTreeDir, normalPath)
-        const newTargetPath = join(contextTreeDir, newRelPath)
-
+        // Both sides changed — check if content is actually different before treating as conflict.
         const localContent = await readFile(targetPath, 'utf8')
-        await mkdir(dirname(newTargetPath), {recursive: true})
-        await writeFile(newTargetPath, localContent, 'utf8')
 
-        await mkdir(dirname(targetPath), {recursive: true})
-        await writeFile(targetPath, file.decodedContent, 'utf8')
+        if (localContent === file.decodedContent) {
+          // Both sides converged on the same content — no real conflict, treat as edited.
+          edited.push(normalPath)
+        } else {
+          // True conflict: preserve original local in conflict dir, rename local to _N.md,
+          // write remote to original path.
 
-        added.push(newRelPath)
+          // Copy original to conflict dir for review
+          const conflictTargetPath = join(conflictDir, normalPath)
+          await mkdir(dirname(conflictTargetPath), {recursive: true})
+          await writeFile(conflictTargetPath, localContent, 'utf8')
+
+          // Save local version at _N.md
+          const newRelPath = await this.findAvailableName(contextTreeDir, normalPath)
+          const newTargetPath = join(contextTreeDir, newRelPath)
+          await mkdir(dirname(newTargetPath), {recursive: true})
+          await writeFile(newTargetPath, localContent, 'utf8')
+
+          // Write remote to original path
+          await mkdir(dirname(targetPath), {recursive: true})
+          await writeFile(targetPath, file.decodedContent, 'utf8')
+
+          added.push(newRelPath)
+          conflicted.push(normalPath)
+        }
       } else if (localState.has(normalPath)) {
         // File exists locally and is clean — overwrite with remote
         await writeFile(targetPath, file.decodedContent, 'utf8')
@@ -187,6 +254,6 @@ export class FileContextTreeMerger implements IContextTreeMerger {
     }
     /* eslint-enable no-await-in-loop */
 
-    return {added, deleted, edited, remoteFileStates}
+    return {added, conflicted, deleted, edited, remoteFileStates}
   }
 }

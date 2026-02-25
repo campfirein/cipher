@@ -4,7 +4,7 @@ import {access, mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {BRV_DIR, CONTEXT_TREE_BACKUP_DIR, CONTEXT_TREE_DIR} from '../../../../src/server/constants.js'
+import {BRV_DIR, CONTEXT_TREE_BACKUP_DIR, CONTEXT_TREE_CONFLICT_DIR, CONTEXT_TREE_DIR} from '../../../../src/server/constants.js'
 import {CogitSnapshotFile} from '../../../../src/server/core/domain/entities/cogit-snapshot-file.js'
 import {FileContextTreeMerger} from '../../../../src/server/infra/context-tree/file-context-tree-merger.js'
 import {FileContextTreeSnapshotService} from '../../../../src/server/infra/context-tree/file-context-tree-snapshot-service.js'
@@ -64,6 +64,7 @@ describe('FileContextTreeMerger', () => {
       expect(result.added).to.deep.equal(['topic/concept.md'])
       expect(result.edited).to.be.empty
       expect(result.deleted).to.be.empty
+      expect(result.conflicted).to.be.empty
     })
 
     it('should include remote file in remoteFileStates with correct hash', async () => {
@@ -98,6 +99,7 @@ describe('FileContextTreeMerger', () => {
       const written = await readFile(join(contextTreeDir, 'topic.md'), 'utf8')
       expect(written).to.equal('# New remote content')
       expect(result.edited).to.deep.equal(['topic.md'])
+      expect(result.conflicted).to.be.empty
     })
 
     it('should skip when remote content matches snapshot (remote unchanged)', async () => {
@@ -113,6 +115,7 @@ describe('FileContextTreeMerger', () => {
 
       expect(result.edited).to.be.empty
       expect(result.added).to.be.empty
+      expect(result.conflicted).to.be.empty
     })
   })
 
@@ -133,6 +136,7 @@ describe('FileContextTreeMerger', () => {
       const onDisk = await readFile(join(contextTreeDir, 'docs.md'), 'utf8')
       expect(onDisk).to.equal('# My modified content')
       expect(result.edited).to.be.empty
+      expect(result.conflicted).to.be.empty
     })
 
     it('should keep locally deleted file absent when remote content matches snapshot', async () => {
@@ -159,11 +163,12 @@ describe('FileContextTreeMerger', () => {
       // File is tracked in remoteFileStates so next getChanges() reports it as deleted
       expect(result.remoteFileStates.has('deleted.md')).to.be.true
       expect(result.added).to.not.include('deleted.md')
+      expect(result.conflicted).to.be.empty
     })
   })
 
   describe('merge — conflict: locally added file at same remote path', () => {
-    it('should rename local added file to _1.md and write remote to original path', async () => {
+    it('should copy original to conflict dir, rename local to _1.md, write remote to original path', async () => {
       // Snapshot is empty but user added a file (not in snapshot = "added")
       await snapshotService.initEmptySnapshot()
       await writeFile(join(contextTreeDir, 'topic.md'), '# My local content')
@@ -178,18 +183,27 @@ describe('FileContextTreeMerger', () => {
       const original = await readFile(join(contextTreeDir, 'topic.md'), 'utf8')
       expect(original).to.equal('# Remote content')
 
-      // Preserved local file is at the new path
+      // Preserved local file is at the _1.md path
       const preserved = await readFile(join(contextTreeDir, 'topic_1.md'), 'utf8')
       expect(preserved).to.equal('# My local content')
 
       // topic_1.md (preserved local) is counted as added
       expect(result.added).to.include('topic_1.md')
       expect(result.edited).to.not.include('topic.md')
+
+      // topic.md is reported as conflicted
+      expect(result.conflicted).to.deep.equal(['topic.md'])
+
+      // Conflict dir contains the original local content at the original path
+      const expectedConflictDir = join(testDir, BRV_DIR, CONTEXT_TREE_CONFLICT_DIR)
+      expect(result.conflictDir).to.equal(expectedConflictDir)
+      const conflictCopy = await readFile(join(expectedConflictDir, 'topic.md'), 'utf8')
+      expect(conflictCopy).to.equal('# My local content')
     })
   })
 
   describe('merge — conflict: locally modified file at same remote path', () => {
-    it('should rename locally modified file to _1.md and write remote to original path', async () => {
+    it('should copy original to conflict dir, rename local to _1.md, write remote to original path', async () => {
       // Write original content, snapshot it, then modify locally and have remote also update
       await writeFile(join(contextTreeDir, 'docs.md'), '# Original content')
       await snapshotService.saveSnapshot()
@@ -210,6 +224,69 @@ describe('FileContextTreeMerger', () => {
       // docs_1.md (preserved local) is counted as added
       expect(result.added).to.include('docs_1.md')
       expect(result.edited).to.not.include('docs.md')
+
+      // docs.md is reported as conflicted
+      expect(result.conflicted).to.deep.equal(['docs.md'])
+
+      // Conflict dir contains the pre-conflict local version
+      const expectedConflictDir = join(testDir, BRV_DIR, CONTEXT_TREE_CONFLICT_DIR)
+      const conflictCopy = await readFile(join(expectedConflictDir, 'docs.md'), 'utf8')
+      expect(conflictCopy).to.equal('# My modified content')
+    })
+  })
+
+  describe('merge — conflict with converged content (both sides made the same change)', () => {
+    it('should treat as edited (not conflict) when local and remote content are identical', async () => {
+      await snapshotService.initEmptySnapshot()
+      const sameContent = '# Same content on both sides'
+      await writeFile(join(contextTreeDir, 'topic.md'), sameContent)
+
+      const result = await merger.merge({
+        directory: testDir,
+        files: [makeFile('topic.md', sameContent)],
+        localChanges: {added: ['topic.md'], deleted: [], modified: []},
+      })
+
+      // Original path still has the shared content
+      const written = await readFile(join(contextTreeDir, 'topic.md'), 'utf8')
+      expect(written).to.equal(sameContent)
+
+      // No conflict — no _1.md file, no conflicted entry
+      expect(result.conflicted).to.be.empty
+      expect(result.edited).to.include('topic.md')
+      expect(result.added).to.not.include('topic_1.md')
+      expect(result.conflictDir).to.be.undefined
+
+      // Conflict dir should not exist
+      const conflictDirPath = join(testDir, BRV_DIR, CONTEXT_TREE_CONFLICT_DIR)
+      try {
+        await access(conflictDirPath)
+        expect.fail('Conflict dir should not exist when content converged')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    })
+
+    it('should treat as edited (not conflict) when locally modified file converges with remote', async () => {
+      const originalContent = '# Original'
+      const convergentContent = '# Same update by both sides'
+
+      await writeFile(join(contextTreeDir, 'docs.md'), originalContent)
+      await snapshotService.saveSnapshot()
+      await writeFile(join(contextTreeDir, 'docs.md'), convergentContent)
+
+      const result = await merger.merge({
+        directory: testDir,
+        files: [makeFile('docs.md', convergentContent)],
+        localChanges: {added: [], deleted: [], modified: ['docs.md']},
+      })
+
+      const written = await readFile(join(contextTreeDir, 'docs.md'), 'utf8')
+      expect(written).to.equal(convergentContent)
+
+      expect(result.conflicted).to.be.empty
+      expect(result.edited).to.include('docs.md')
+      expect(result.conflictDir).to.be.undefined
     })
   })
 
@@ -232,6 +309,7 @@ describe('FileContextTreeMerger', () => {
       const restored = await readFile(join(contextTreeDir, 'deleted.md'), 'utf8')
       expect(restored).to.equal('# Newer remote version')
       expect(result.added).to.include('deleted.md')
+      expect(result.conflicted).to.be.empty
     })
   })
 
@@ -251,6 +329,7 @@ describe('FileContextTreeMerger', () => {
       const preserved = await readFile(join(contextTreeDir, 'topic_2.md'), 'utf8')
       expect(preserved).to.equal('# Local topic')
       expect(result.added).to.include('topic_2.md')
+      expect(result.conflicted).to.deep.equal(['topic.md'])
     })
   })
 
@@ -277,6 +356,7 @@ describe('FileContextTreeMerger', () => {
       }
 
       expect(result.deleted).to.include('remove.md')
+      expect(result.conflicted).to.be.empty
     })
 
     it('should NOT delete locally added files even if not in remote', async () => {
@@ -295,6 +375,7 @@ describe('FileContextTreeMerger', () => {
       const content = await readFile(join(contextTreeDir, 'local-only.md'), 'utf8')
       expect(content).to.equal('# My local work')
       expect(result.deleted).to.not.include('local-only.md')
+      expect(result.conflicted).to.be.empty
     })
 
     it('should NOT delete locally modified files even if not in remote (remote deleted them)', async () => {
@@ -314,6 +395,7 @@ describe('FileContextTreeMerger', () => {
       const content = await readFile(join(contextTreeDir, 'notes.md'), 'utf8')
       expect(content).to.equal('# My modifications')
       expect(result.deleted).to.not.include('notes.md')
+      expect(result.conflicted).to.be.empty
     })
   })
 
@@ -342,11 +424,12 @@ describe('FileContextTreeMerger', () => {
       expect(result.added).to.not.include('gone.md')
       expect(result.edited).to.not.include('gone.md')
       expect(result.deleted).to.not.include('gone.md') // deletion loop only iterates localState (disk), file is not there
+      expect(result.conflicted).to.be.empty
     })
   })
 
   describe('merge — subdirectory paths', () => {
-    it('should rename conflicting files preserving directory structure', async () => {
+    it('should copy original to conflict dir preserving directory structure', async () => {
       await snapshotService.initEmptySnapshot()
       await mkdir(join(contextTreeDir, 'arch/api'), {recursive: true})
       await writeFile(join(contextTreeDir, 'arch/api/design.md'), '# Local design')
@@ -364,11 +447,16 @@ describe('FileContextTreeMerger', () => {
       expect(preserved).to.equal('# Local design')
 
       expect(result.added).to.include('arch/api/design_1.md')
+      expect(result.conflicted).to.deep.equal(['arch/api/design.md'])
+
+      // Conflict dir mirrors the subdirectory structure
+      const conflictCopy = await readFile(join(testDir, BRV_DIR, CONTEXT_TREE_CONFLICT_DIR, 'arch/api/design.md'), 'utf8')
+      expect(conflictCopy).to.equal('# Local design')
     })
   })
 
-  describe('merge — backup safety', () => {
-    it('should return backupDir and leave backup for caller to delete after successful merge', async () => {
+  describe('merge — backup and conflict folder behavior', () => {
+    it('should delete backup and return no conflictDir when there are no conflicts', async () => {
       await snapshotService.initEmptySnapshot()
       await writeFile(join(contextTreeDir, 'existing.md'), '# Local content')
 
@@ -378,22 +466,107 @@ describe('FileContextTreeMerger', () => {
         localChanges: {added: [], deleted: [], modified: []},
       })
 
-      const expectedBackupDir = join(testDir, BRV_DIR, CONTEXT_TREE_BACKUP_DIR)
-      expect(result.backupDir).to.equal(expectedBackupDir)
+      expect(result.conflicted).to.be.empty
+      expect(result.conflictDir).to.be.undefined
 
-      // Backup must still exist — caller (space-handler) deletes it after saveSnapshotFromState succeeds
-      await access(expectedBackupDir) // throws if not found → test fails
-      const backupContent = await readFile(join(expectedBackupDir, 'existing.md'), 'utf8')
-      expect(backupContent).to.equal('# Local content')
+      // Backup must be deleted after a conflict-free merge
+      const backupDir = join(testDir, BRV_DIR, CONTEXT_TREE_BACKUP_DIR)
+      try {
+        await access(backupDir)
+        expect.fail('Backup should have been deleted after a conflict-free merge')
+      } catch {
+        // expected — backup was deleted
+      }
+
+      // Conflict dir must not exist
+      const conflictDir = join(testDir, BRV_DIR, CONTEXT_TREE_CONFLICT_DIR)
+      try {
+        await access(conflictDir)
+        expect.fail('Conflict dir should not exist when there are no conflicts')
+      } catch {
+        // expected
+      }
     })
 
-    it('should preserve backup when merge fails mid-operation', async () => {
+    it('should create conflict dir with only conflicted originals and delete backup on success', async () => {
+      await snapshotService.initEmptySnapshot()
+      await writeFile(join(contextTreeDir, 'conflict.md'), '# My local content')
+      await writeFile(join(contextTreeDir, 'clean.md'), '# Clean content')
+
+      const result = await merger.merge({
+        directory: testDir,
+        files: [
+          makeFile('conflict.md', '# Remote content'),
+          makeFile('clean.md', '# Clean content'), // same as local — no conflict
+        ],
+        localChanges: {added: ['conflict.md'], deleted: [], modified: []},
+      })
+
+      const expectedConflictDir = join(testDir, BRV_DIR, CONTEXT_TREE_CONFLICT_DIR)
+      expect(result.conflicted).to.deep.equal(['conflict.md'])
+      expect(result.conflictDir).to.equal(expectedConflictDir)
+
+      // Conflict dir contains ONLY the conflicted file's original
+      const conflictCopy = await readFile(join(expectedConflictDir, 'conflict.md'), 'utf8')
+      expect(conflictCopy).to.equal('# My local content')
+
+      // Clean file is NOT in conflict dir
+      try {
+        await access(join(expectedConflictDir, 'clean.md'))
+        expect.fail('Non-conflicted file should not be in conflict dir')
+      } catch {
+        // expected
+      }
+
+      // Backup must be deleted after successful merge
+      const backupDir = join(testDir, BRV_DIR, CONTEXT_TREE_BACKUP_DIR)
+      try {
+        await access(backupDir)
+        expect.fail('Backup should have been deleted after successful merge')
+      } catch {
+        // expected
+      }
+    })
+
+    it('should clear old conflict dir at start of next merge', async () => {
+      // First merge — produces a conflict dir
+      await snapshotService.initEmptySnapshot()
+      await writeFile(join(contextTreeDir, 'topic.md'), '# My local content')
+
+      await merger.merge({
+        directory: testDir,
+        files: [makeFile('topic.md', '# Remote content')],
+        localChanges: {added: ['topic.md'], deleted: [], modified: []},
+      })
+
+      const conflictDir = join(testDir, BRV_DIR, CONTEXT_TREE_CONFLICT_DIR)
+      await access(conflictDir) // confirm it exists after first merge
+
+      // Second merge (no new conflicts) — conflict dir from first merge should be cleared
+      await snapshotService.saveSnapshot()
+
+      await merger.merge({
+        directory: testDir,
+        files: [makeFile('topic.md', '# Remote content')],
+        localChanges: {added: [], deleted: [], modified: []},
+      })
+
+      try {
+        await access(conflictDir)
+        expect.fail('Old conflict dir should have been cleared at start of next merge')
+      } catch {
+        // expected — cleared
+      }
+    })
+
+    it('should auto-restore context tree from backup when merge fails', async () => {
       await snapshotService.initEmptySnapshot()
       await writeFile(join(contextTreeDir, 'existing.md'), '# Local content')
 
       // Claim 'missing.md' is locally added, but it doesn't exist on disk.
       // runMerge() will throw ENOENT when trying to read it for conflict handling —
       // AFTER the backup has already been created.
+      let thrownError: Error | undefined
       try {
         await merger.merge({
           directory: testDir,
@@ -401,15 +574,55 @@ describe('FileContextTreeMerger', () => {
           localChanges: {added: ['missing.md'], deleted: [], modified: []},
         })
         expect.fail('Should have thrown')
+      } catch (error) {
+        thrownError = error as Error
+      }
+
+      expect(thrownError!.message).to.include('restored to its original state')
+
+      // Context tree should be restored to pre-merge state
+      const restoredContent = await readFile(join(contextTreeDir, 'existing.md'), 'utf8')
+      expect(restoredContent).to.equal('# Local content')
+
+      // Backup must be gone (was used to restore, then deleted)
+      const backupDir = join(testDir, BRV_DIR, CONTEXT_TREE_BACKUP_DIR)
+      try {
+        await access(backupDir)
+        expect.fail('Backup should have been consumed during restore')
       } catch {
         // expected
       }
 
-      // Backup should still exist for manual recovery
-      const backupDir = join(testDir, BRV_DIR, CONTEXT_TREE_BACKUP_DIR)
-      await access(backupDir) // throws if not found → test fails
-      const backupContent = await readFile(join(backupDir, 'existing.md'), 'utf8')
-      expect(backupContent).to.equal('# Local content')
+      // Conflict dir must not exist (cleaned up on failure)
+      const conflictDir = join(testDir, BRV_DIR, CONTEXT_TREE_CONFLICT_DIR)
+      try {
+        await access(conflictDir)
+        expect.fail('Conflict dir should have been cleaned up on failure')
+      } catch {
+        // expected
+      }
+    })
+  })
+
+  describe('merge — snapshot atomicity', () => {
+    it('should save snapshot from remote states so preserved _N.md files appear as added on next getChanges()', async () => {
+      // Set up: snapshot is empty, user has a local file
+      await snapshotService.initEmptySnapshot()
+      await writeFile(join(contextTreeDir, 'topic.md'), '# My local content')
+
+      // Merge: remote also has topic.md → conflict → local saved as topic_1.md
+      await merger.merge({
+        directory: testDir,
+        files: [makeFile('topic.md', '# Remote content')],
+        localChanges: {added: ['topic.md'], deleted: [], modified: []},
+      })
+
+      // After merge the snapshot should only contain remote files (topic.md, not topic_1.md).
+      // topic_1.md is on disk but absent from snapshot → getChanges() reports it as "added".
+      const changes = await snapshotService.getChanges(testDir)
+      expect(changes.added).to.include('topic_1.md')
+      expect(changes.added).to.not.include('topic.md')
+      expect(changes.modified).to.be.empty
     })
   })
 
@@ -435,6 +648,8 @@ describe('FileContextTreeMerger', () => {
       // conflict_1.md (preserved local) is in added, NOT in remoteFileStates
       expect(result.added).to.include('conflict_1.md')
       expect(result.remoteFileStates.has('conflict_1.md')).to.be.false
+
+      expect(result.conflicted).to.deep.equal(['conflict.md'])
     })
   })
 })

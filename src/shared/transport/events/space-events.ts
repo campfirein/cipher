@@ -22,6 +22,7 @@ export interface SpaceSwitchRequest {
 export interface SpaceSwitchPullResult {
   added: number
   commitSha: string
+  conflicted?: number
   deleted: number
   edited: number
 }

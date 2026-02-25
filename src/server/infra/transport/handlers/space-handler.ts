@@ -1,5 +1,3 @@
-import {rm} from 'node:fs/promises'
-
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeMerger} from '../../../core/interfaces/context-tree/i-context-tree-merger.js'
 import type {IContextTreeSnapshotService} from '../../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
@@ -184,14 +182,19 @@ export class SpaceHandler {
             localChanges,
           })
 
-          await this.contextTreeSnapshotService.saveSnapshotFromState(mergeResult.remoteFileStates, projectPath)
-          await rm(mergeResult.backupDir, {force: true, recursive: true})
+          if (mergeResult.conflicted.length > 0) {
+            this.broadcastToProject(projectPath, PullEvents.PROGRESS, {
+              message: `Auto-merged ${mergeResult.conflicted.length} conflict(s) — review .brv/context-tree-conflict/ for original files.`,
+              step: 'syncing',
+            })
+          }
 
           pullResult = {
             added: mergeResult.added.length,
             commitSha: snapshot.commitSha,
             deleted: mergeResult.deleted.length,
             edited: mergeResult.edited.length,
+            ...(mergeResult.conflicted.length > 0 && {conflicted: mergeResult.conflicted.length}),
           }
         } else {
           // No local changes — regular overwrite sync
