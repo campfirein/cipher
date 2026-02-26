@@ -71,6 +71,7 @@ Exposes tools:
       if (error instanceof Error && error.message.startsWith('Failed to start daemon')) {
         this.logToStderr(`Error: ${error.message}`)
         this.logToStderr(`Check daemon logs at: ${join(getGlobalDataDir(), 'logs')}`)
+        this.logToStderr("Run 'brv restart' to force a clean restart.")
         // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
         process.exit(1)
       }
@@ -79,6 +80,7 @@ Exposes tools:
         this.logToStderr('Error: Daemon was started but connection failed.')
         this.logToStderr('The daemon may have crashed immediately after starting.')
         this.logToStderr(`Check daemon logs at: ${join(getGlobalDataDir(), 'logs')}`)
+        this.logToStderr("Run 'brv restart' to force a clean restart.")
         // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
         process.exit(1)
       }
