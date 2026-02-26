@@ -30,7 +30,8 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
     'You have local changes. Run "brv push" to save or "brv reset" to discard first.',
   [TaskErrorCode.NOT_AUTHENTICATED]: 'Not authenticated. Run "brv login" first.',
   [TaskErrorCode.PROJECT_NOT_INIT]: 'Project not initialized. Run "brv init" first.',
-  [TaskErrorCode.PROVIDER_NOT_CONFIGURED]: 'No provider connected. Run "brv provider connect <provider>" to configure a provider.',
+  [TaskErrorCode.PROVIDER_NOT_CONFIGURED]:
+    'No provider connected. Run "brv provider connect <provider>" to configure a provider.',
   [TaskErrorCode.SPACE_NOT_CONFIGURED]: 'No space configured. Run "brv space switch" to select a space first.',
   [TaskErrorCode.SPACE_NOT_FOUND]: 'Space not found. Check your configuration.',
 }
@@ -128,10 +129,15 @@ export function hasLeakedHandles(error: unknown): boolean {
   return error.code === TaskErrorCode.AGENT_DISCONNECTED || error.code === TaskErrorCode.AGENT_NOT_AVAILABLE
 }
 
+export interface ProviderErrorContext {
+  activeModel?: string
+  activeProvider?: string
+}
+
 /**
  * Formats a connection error into a user-friendly message.
  */
-export function formatConnectionError(error: unknown): string {
+export function formatConnectionError(error: unknown, providerContext?: ProviderErrorContext): string {
   if (error instanceof NoInstanceRunningError) {
     if (isSandboxEnvironment()) {
       const sandboxName = getSandboxEnvironmentName()
@@ -190,7 +196,18 @@ export function formatConnectionError(error: unknown): string {
   }
 
   if (lowerMessage.includes('api key') || lowerMessage.includes('invalid key')) {
-    return "LLM provider API key is missing or invalid. Run 'brv provider' to configure."
+    const provider = providerContext?.activeProvider ?? '<provider>'
+    const model = providerContext?.activeModel
+    const currentInfo = model ? `Provider: ${provider}  Model: ${model}\n\n` : `Provider: ${provider}\n\n`
+
+    return (
+      `LLM provider API key is missing or invalid.\n${currentInfo}` +
+      '  Reconnect with your API key:\n' +
+      `    brv provider connect ${provider} --api-key <key>\n\n` +
+      '  Switch to a different provider:\n' +
+      '    brv provider switch <provider>\n\n' +
+      '  See all options:  brv provider --help'
+    )
   }
 
   return `Unexpected error: ${message}`

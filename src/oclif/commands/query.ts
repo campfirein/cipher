@@ -9,6 +9,7 @@ import {
   type DaemonClientOptions,
   formatConnectionError,
   hasLeakedHandles,
+  type ProviderErrorContext,
   withDaemonRetry,
 } from '../lib/daemon-client.js'
 import {writeJsonResponse} from '../lib/json-response.js'
@@ -64,12 +65,26 @@ Bad:
 
     if (!this.validateInput(args.query, format)) return
 
+    let providerContext: ProviderErrorContext | undefined
+
     try {
       await withDaemonRetry(
         async (client, projectRoot) => {
-          const active = await client.requestWithAck<ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG)
+          const active = await client.requestWithAck<ProviderConfigResponse>(
+            TransportStateEventNames.GET_PROVIDER_CONFIG,
+          )
+          providerContext = {activeModel: active.activeModel, activeProvider: active.activeProvider}
+
           if (!active.activeProvider) {
-            throw new Error('No provider connected. Run "brv provider connect <provider>" to configure a provider first.')
+            throw new Error(
+              'No provider connected. Run "brv provider connect <provider>" to configure a provider first.',
+            )
+          }
+
+          if (active.providerKeyMissing) {
+            throw new Error(
+              `${active.activeProvider} API key is missing from storage.\nPlease reconnect: brv provider connect ${active.activeProvider} --api-key <your-key>`,
+            )
           }
 
           await this.submitTask({client, format, projectRoot, query: args.query})
@@ -84,17 +99,17 @@ Bad:
         },
       )
     } catch (error) {
-      this.reportError(error, format)
+      this.reportError(error, format, providerContext)
     }
   }
 
-  private reportError(error: unknown, format: 'json' | 'text'): void {
+  private reportError(error: unknown, format: 'json' | 'text', providerContext?: ProviderErrorContext): void {
     const errorMessage = error instanceof Error ? error.message : 'Query failed'
 
     if (format === 'json') {
       writeJsonResponse({command: 'query', data: {error: errorMessage, status: 'error'}, success: false})
     } else {
-      this.log(formatConnectionError(error))
+      this.log(formatConnectionError(error, providerContext))
     }
 
     if (hasLeakedHandles(error)) {

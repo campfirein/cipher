@@ -375,11 +375,25 @@ async function executeTask(
   const {clientCwd, clientId, content, files, folderPath, taskId, type} = task
   if (!transport || !agent) return
 
-  const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG)
+  const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
+    TransportStateEventNames.GET_PROVIDER_CONFIG,
+  )
   if (!freshProviderConfig.activeProvider) {
     const error = serializeTaskError(
       new TaskError(
-        'No provider connected. Run "brv provider connect <provider>" to configure a provider.',
+        'No provider connected. Use /provider in the REPL to configure a provider.',
+        TaskErrorCode.PROVIDER_NOT_CONFIGURED,
+      ),
+    )
+    transport.request(TransportTaskEventNames.ERROR, {clientId, error, taskId})
+    return
+  }
+
+  if (freshProviderConfig.providerKeyMissing) {
+    const modelInfo = freshProviderConfig.activeModel ? ` (model: ${freshProviderConfig.activeModel})` : ''
+    const error = serializeTaskError(
+      new TaskError(
+        `${freshProviderConfig.activeProvider} API key is missing${modelInfo}. Use /provider in the REPL to reconnect.`,
         TaskErrorCode.PROVIDER_NOT_CONFIGURED,
       ),
     )

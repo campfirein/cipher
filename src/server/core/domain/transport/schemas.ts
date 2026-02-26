@@ -336,6 +336,7 @@ export interface ProviderConfigResponse {
   providerApiKey?: string
   providerBaseUrl?: string
   providerHeaders?: Record<string, string>
+  providerKeyMissing?: boolean
   providerLocation?: string
   providerProject?: string
 }
