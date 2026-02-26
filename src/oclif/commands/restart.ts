@@ -28,6 +28,47 @@ All open sessions and background processes are stopped before the fresh start.`
   static examples = ['<%= config.bin %> <%= command.id %>']
 
   /**
+   * Builds the list of file-path patterns used to identify brv processes for pattern kill.
+   *
+   * All patterns are absolute paths or specific filenames to avoid false-positive matches
+   * against other oclif CLIs (which also use bin/run.js and bin/dev.js conventions).
+   *
+   * CLI script patterns (covers all installations):
+   *   dev mode (bin/dev.js):       join(brvBinDir, 'dev.js') — absolute path, same installation only
+   *   build/dev (bin/run.js):      join(brvBinDir, 'run.js')
+   *   global install (npm / tgz):  byterover-cli/bin/run.js — package name in node_modules is fixed
+   *   bundled binary (oclif pack): join('bin', 'brv') + argv1
+   *   nvm / system global:         cmdline = node .../bin/brv  ← caught by 'bin/brv' substring
+   *   curl install (/.brv-cli/):   join(brvBinDir, 'run') — entry point named 'run' without .js
+   *
+   * Relative patterns (./bin/run.js, ./bin/dev.js) are intentionally excluded: they would
+   * match any oclif CLI running in dev mode, not just brv.
+   *
+   * Set deduplicates when paths overlap (e.g. process.argv[1] is already run.js).
+   */
+  static buildKillPatterns(brvBinDir: string, argv1: string): string[] {
+    // Patterns ordered from most specific to broadest:
+    //   bin/brv                    — nvm/bundled binary (.../bin/brv)
+    //   byterover-cli/bin/run.js   — npm global/nvm install (package name is always the folder name
+    //                                in node_modules): /usr/local/.../byterover-cli/bin/run.js,
+    //                                .nvm/.../byterover-cli/bin/run.js. NOT used for dev.js because
+    //                                dev clones can have any directory name — covered by brvBinDir.
+    //   exact sibling paths        — current installation's run.js / dev.js / run (any dir name)
+    //   process.argv[1]            — current executable (bundled binary / dev entry)
+    const brvScripts = [
+      ...new Set([
+        argv1,
+        join('bin', 'brv'),
+        join('byterover-cli', 'bin', 'run.js'),
+        join(brvBinDir, 'dev.js'),
+        join(brvBinDir, 'run'), // curl install: entry point named 'run' without .js suffix
+        join(brvBinDir, 'run.js'),
+      ]),
+    ]
+    return ['brv-server.js', 'agent-process.js', ...brvScripts]
+  }
+
+  /**
    * Build a pid→cwd map from `lsof -d cwd -Fn` output.
    *
    * On macOS, `-p <pid>` is ignored and lsof returns ALL processes.
@@ -134,6 +175,10 @@ All open sessions and background processes are stopped before the fresh start.`
    * the path using /proc/<pid>/cwd so absolute-path patterns match correctly
    * without false positives.
    *
+   * When cwd is resolved: check only absolute patterns (precise, no false positives).
+   * When cwd is unavailable: also check relative fallback patterns (./bin/dev.js).
+   * Mirrors the macOS killByMacOsProcScan behavior.
+   *
    * Works on all Linux distros including Alpine — /proc is a kernel feature,
    * no userspace tools required.
    */
@@ -156,17 +201,23 @@ All open sessions and background processes are stopped before the fresh start.`
 
         // Resolve relative .js path using /proc/<pid>/cwd to match against absolute-path patterns.
         // Without this, `./bin/dev.js` would not match `byterover-cli/bin/dev.js`.
+        let cwdResolved = false
         const relativeJs = args.find((a) => a.endsWith('.js') && !a.startsWith('/'))
         if (relativeJs) {
           try {
             const cwd = readlinkSync(join('/proc', entry, 'cwd'))
             cmdline = cmdline.replace(relativeJs, join(cwd, relativeJs))
+            cwdResolved = true
           } catch {
             // cwd unreadable — use original cmdline
           }
         }
 
         for (const pattern of patterns) {
+          // When cwd resolved to absolute path, skip relative fallback patterns (those starting with
+          // './') — the resolved cmdline no longer contains relative paths, so these won't match.
+          // Prevents false positives against other oclif CLIs that also run ./bin/dev.js.
+          if (cwdResolved && pattern.startsWith('./')) continue
           if (cmdline.includes(pattern)) {
             process.kill(pid, 'SIGKILL')
             break // Already killing this PID — no need to check remaining patterns
@@ -182,13 +233,6 @@ All open sessions and background processes are stopped before the fresh start.`
    * Best-effort pattern kill for all brv processes (daemon, agents, TUI sessions, MCP servers,
    * headless commands). Errors are silently ignored.
    *
-   * CLI script patterns (covers all installations):
-   *   dev mode (bin/dev.js):       process.argv[1] = .../bin/dev.js  OR  ./bin/dev.js (relative)
-   *   build/dev (bin/run.js):      process.argv[1] = .../bin/run.js
-   *   global install (npm / tgz):  process.argv[1] = .../node_modules/byterover-cli/bin/run.js
-   *   bundled binary (oclif pack): process.argv[1] = .../bin/brv
-   *   nvm / system global:         cmdline = node .../bin/brv  ← caught by 'bin/brv' substring
-   *
    * Relative paths (e.g. `./bin/dev.js`) are resolved via cwd before pattern matching,
    * ensuring accuracy without false positives from other oclif CLIs.
    *
@@ -201,29 +245,7 @@ All open sessions and background processes are stopped before the fresh start.`
    */
   private static patternKill(): void {
     const brvBinDir = dirname(process.argv[1])
-    // Patterns ordered from most specific to broadest:
-    //   bin/brv                    — nvm/bundled binary (.../bin/brv)
-    //   byterover-cli/bin/run.js   — npm global/nvm install (package name is always the folder name
-    //                                in node_modules): /usr/local/.../byterover-cli/bin/run.js,
-    //                                .nvm/.../byterover-cli/bin/run.js. NOT used for dev.js because
-    //                                dev clones can have any directory name — covered by brvBinDir.
-    //   exact sibling paths        — current installation's run.js / dev.js (any dir name)
-    //   process.argv[1]            — current executable (bundled binary / dev entry)
-    //   ./bin/dev.js               — fallback when cwd resolution fails (lsof unavailable)
-    //   ./bin/run.js
-    // Set deduplicates when paths overlap (e.g. process.argv[1] is already run.js).
-    const brvScripts = [
-      ...new Set([
-        './bin/dev.js',
-        './bin/run.js',
-        join('bin', 'brv'),
-        join('byterover-cli', 'bin', 'run.js'),
-        join(brvBinDir, 'dev.js'),
-        join(brvBinDir, 'run.js'),
-        process.argv[1],
-      ]),
-    ]
-    const allPatterns = ['brv-server.js', 'agent-process.js', ...brvScripts]
+    const allPatterns = Restart.buildKillPatterns(brvBinDir, process.argv[1])
 
     if (process.platform === 'win32') {
       const whereClause = allPatterns.map((p) => `$_.CommandLine -like '*${p}*'`).join(' -or ')

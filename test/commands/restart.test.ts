@@ -165,4 +165,46 @@ describe('Restart Command', () => {
 
     expect(loggedMessages.every((m) => !m.includes('Attempt 1/'))).to.be.true
   })
+
+  describe('buildKillPatterns()', () => {
+    it('always includes daemon and agent filename patterns', () => {
+      const patterns = Restart.buildKillPatterns('/some/bin', '/some/bin/run.js')
+      expect(patterns).to.include('brv-server.js')
+      expect(patterns).to.include('agent-process.js')
+    })
+
+    it('never includes relative path patterns — avoids false positives with other oclif CLIs', () => {
+      const patterns = Restart.buildKillPatterns('/some/bin', '/some/bin/run.js')
+      expect(patterns.some((p) => p.startsWith('./'))).to.be.false
+    })
+
+    it('includes run.js sibling pattern for standard npm/build install', () => {
+      const brvBinDir = '/usr/local/lib/node_modules/byterover-cli/bin'
+      const argv1 = '/usr/local/lib/node_modules/byterover-cli/bin/run.js'
+      const patterns = Restart.buildKillPatterns(brvBinDir, argv1)
+      expect(patterns.some((p) => p.includes('byterover-cli') && p.endsWith('run.js'))).to.be.true
+      expect(patterns).to.include(argv1)
+    })
+
+    it('includes run (no .js) sibling pattern for curl install', () => {
+      const brvBinDir = '/.brv-cli/bin'
+      const argv1 = '/.brv-cli/bin/run'
+      const patterns = Restart.buildKillPatterns(brvBinDir, argv1)
+      expect(patterns).to.include('/.brv-cli/bin/run')
+    })
+
+    it('deduplicates patterns when argv1 matches a computed sibling', () => {
+      const brvBinDir = '/some/bin'
+      const argv1 = '/some/bin/run.js'
+      const patterns = Restart.buildKillPatterns(brvBinDir, argv1)
+      const count = patterns.filter((p) => p === '/some/bin/run.js').length
+      expect(count).to.equal(1)
+    })
+
+    it('includes bin/brv pattern for bundled oclif binary', () => {
+      const patterns = Restart.buildKillPatterns('/any/bin', '/any/bin/brv')
+      // 'bin/brv' — platform-agnostic substring (path.join('bin', 'brv'))
+      expect(patterns.some((p) => p.includes('bin') && p.endsWith('brv'))).to.be.true
+    })
+  })
 })
