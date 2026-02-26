@@ -100,7 +100,7 @@ export class HubRegistryService implements IHubRegistryService {
 
       const response = await axios.get<unknown>(this.registryUrl, {
         headers,
-        timeout: 10_000,
+        timeout: 45_000,
       })
 
       const validated = this.parseRegistryResponse(response.data)

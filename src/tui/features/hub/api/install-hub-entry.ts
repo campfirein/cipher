@@ -16,7 +16,11 @@ export const installHubEntry = ({agent, entryId, registry}: InstallHubEntryDTO):
   const {apiClient} = useTransportStore.getState()
   if (!apiClient) return Promise.reject(new Error('Not connected'))
 
-  return apiClient.request<HubInstallResponse, HubInstallRequest>(HubEvents.INSTALL, {agent, entryId, registry})
+  return apiClient.request<HubInstallResponse, HubInstallRequest>(
+    HubEvents.INSTALL,
+    {agent, entryId, registry},
+    {timeout: 60_000},
+  )
 }
 
 type UseInstallHubEntryOptions = {

@@ -97,10 +97,12 @@ export const HubFlow: React.FC<HubFlowProps> = ({isActive = true, onCancel, onCo
     return (
       <Box flexDirection="column">
         {progressMessages.map((msg, i) => (
-          <Text color={colors.dimText} key={i}>{msg}</Text>
+          <Text color={colors.dimText} key={i}>
+            {msg}
+          </Text>
         ))}
         <Text>
-          <Spinner type="dots" /> Loading hub entries...
+          <Spinner type="dots" />
         </Text>
       </Box>
     )
