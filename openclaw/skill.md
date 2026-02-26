@@ -17,8 +17,7 @@ Knowledge is stored in `.brv/context-tree/` as human-readable Markdown files.
 ## Commands
 
 ### 1. Query Knowledge
-**Overview:** Retrieve relevant context from your project's knowledge base.
-Uses a configured LLM provider to synthesize answers from `.brv/context-tree/` content.
+**Overview:** Retrieve relevant context from your project's knowledge base. Uses a configured LLM provider to synthesize answers from `.brv/context-tree/` content.
 
 **Use this skill when:**
 - The user wants you to recall something
@@ -35,7 +34,7 @@ brv query "How is authentication implemented?"
 ```
 
 ### 2. Curate Context
-**Overview**: Analyze and save knowledge to the local knowledge base, Uses a configured LLM provider to categorize and structure the context you provide.
+**Overview**: Analyze and save knowledge to the local knowledge base. Uses a configured LLM provider to categorize and structure the context you provide.
 
 **Use this skill when:**
 - The user wants you to remember something
