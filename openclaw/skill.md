@@ -11,7 +11,6 @@ Install: `npm install -g byterover-cli`
 Knowledge is stored in `.brv/context-tree/` as human-readable Markdown files.
 
 ## Workflow
-0.  **Important working directory:** Run `cd ~/.openclaw` before using `brv` commands to ensure they operate on the correct knowledge base.
 1.  **Before Thinking:** Run `brv query` to understand existing patterns.
 2.  **After Implementing:** Run `brv curate` to save new patterns/decisions.
 
