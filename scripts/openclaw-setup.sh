@@ -583,6 +583,100 @@ TOOLS_EOF
   success "Updated $tools_md"
 }
 
+update_skill_md() {
+  local skill_md="$1"
+
+  if [ ! -f "$skill_md" ]; then
+    return
+  fi
+
+  if grep -q "Important working directory" "$skill_md"; then
+    echo "SKILL.md already contains working directory instruction: $skill_md"
+    return
+  fi
+
+  if ! grep -q "## Workflow" "$skill_md"; then
+    warn "No '## Workflow' section found in: $skill_md"
+    return
+  fi
+
+  SKILL_MD_PATH="$skill_md" node -e '
+    const fs = require("fs");
+    const filePath = process.env.SKILL_MD_PATH;
+    try {
+        let content = fs.readFileSync(filePath, "utf8");
+        const workflowIdx = content.indexOf("## Workflow");
+        if (workflowIdx === -1) process.exit(0);
+
+        const afterWorkflow = content.substring(workflowIdx);
+        const stepMatch = afterWorkflow.match(/\n(1\.)/);
+        if (!stepMatch) { console.log("No step 1 found after ## Workflow."); process.exit(0); }
+
+        const insertPos = workflowIdx + stepMatch.index;
+        const step0 = "\n0.  **Important working directory:** Run \`cd ~/.openclaw\` before using \`brv\` commands to ensure they operate on the correct knowledge base.";
+        content = content.slice(0, insertPos) + step0 + content.slice(insertPos);
+        fs.writeFileSync(filePath, content);
+    } catch (e) {
+        console.error("Failed to update SKILL.md:", e.message);
+        process.exit(1);
+    }
+  '
+  success "Updated $skill_md"
+}
+
+update_byterover_skills() {
+  info "Updating ByteRover Skill files"
+
+  # 1. Local/shared skills: ~/.openclaw/skills/byterover/
+  local local_skills_dir="$HOME/.openclaw/skills"
+  if [ -d "$local_skills_dir" ]; then
+    find "$local_skills_dir" -maxdepth 3 \( -name "skill.md" -o -name "SKILL.md" \) -path "*/byterover/*" 2>/dev/null | while IFS= read -r skill_file; do
+      printf "Found local skill: ${GREEN}%s${RESET}\n" "$skill_file"
+      update_skill_md "$skill_file"
+    done
+  fi
+
+  # 2. Workspace skills: <workspace>/skills/byterover/
+  local workspaces
+  workspaces=$(list_workspaces)
+
+  while IFS= read -r ws; do
+    [ -z "$ws" ] && continue
+    ws="${ws/#\~/$HOME}"
+    [ ! -d "$ws" ] && continue
+
+    local ws_skills_dir="$ws/skills"
+    if [ -d "$ws_skills_dir" ]; then
+      find "$ws_skills_dir" -maxdepth 3 \( -name "skill.md" -o -name "SKILL.md" \) -path "*/byterover/*" 2>/dev/null | while IFS= read -r skill_file; do
+        printf "Found workspace skill: ${GREEN}%s${RESET}\n" "$skill_file"
+        update_skill_md "$skill_file"
+      done
+    fi
+  done <<< "$workspaces"
+
+  # 3. Extra skill dirs from openclaw.json (skills.load.extraDirs)
+  local extra_dirs
+  extra_dirs=$(CONFIG_PATH="$CONFIG_PATH" node -e '
+    const fs = require("fs");
+    try {
+        const config = JSON.parse(fs.readFileSync(process.env.CONFIG_PATH, "utf8"));
+        const dirs = config.skills?.load?.extraDirs || [];
+        console.log(dirs.join("\n"));
+    } catch (e) { /* silent */ }
+  ')
+
+  while IFS= read -r extra_dir; do
+    [ -z "$extra_dir" ] && continue
+    extra_dir="${extra_dir/#\~/$HOME}"
+    [ ! -d "$extra_dir" ] && continue
+
+    find "$extra_dir" -maxdepth 3 \( -name "skill.md" -o -name "SKILL.md" \) -path "*/byterover/*" 2>/dev/null | while IFS= read -r skill_file; do
+      printf "Found extra skill: ${GREEN}%s${RESET}\n" "$skill_file"
+      update_skill_md "$skill_file"
+    done
+  done <<< "$extra_dirs"
+}
+
 update_workspace_protocols() {
   info "Phase 3: Updating Protocols"
 
@@ -609,6 +703,9 @@ update_workspace_protocols() {
     update_agents_md "$ws/AGENTS.md"
     update_tools_md "$ws/TOOLS.md"
   done <<< "$workspaces"
+
+  # Update ByteRover skill files across all locations
+  update_byterover_skills
 }
 
 # ─── Output ───────────────────────────────────────────────────────────────────
