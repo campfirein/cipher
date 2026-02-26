@@ -67,7 +67,16 @@ confirm() {
 
 setup_cleanup() {
   CLEANUP_FILES=()
-  cleanup() { rm -f "${CLEANUP_FILES[@]}"; }
+  CONFIG_BACKUP=""
+  cleanup() {
+    local exit_code=$?
+    rm -f "${CLEANUP_FILES[@]}"
+    if [ "$exit_code" -ne 0 ] && [ -n "$CONFIG_BACKUP" ] && [ -f "$CONFIG_BACKUP" ]; then
+      printf "${YELLOW}[!] Installation failed. Restoring config from backup...${RESET}\n" >&2
+      cp "$CONFIG_BACKUP" "$CONFIG_PATH"
+      printf "${GREEN}[ok] Config restored from %s${RESET}\n" "$CONFIG_BACKUP" >&2
+    fi
+  }
   trap cleanup EXIT
 }
 
