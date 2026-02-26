@@ -1,7 +1,11 @@
 export type CurateLogOperation = {
+  confidence?: 'high' | 'low'
   filePath?: string
+  impact?: 'high' | 'low' | 'medium'
   message?: string
+  needsReview?: boolean
   path: string
+  reason?: string
   status: 'failed' | 'success'
   type: 'ADD' | 'DELETE' | 'MERGE' | 'UPDATE' | 'UPSERT'
 }

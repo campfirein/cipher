@@ -7,9 +7,17 @@ export type ContextOperation = 'add' | 'delete' | 'edit'
  * Parameters for creating a CogitPushContext instance.
  */
 export type CogitPushContextParams = {
+  /** LLM-assessed confidence in the accuracy and completeness of this context change. */
+  confidence?: 'high' | 'low'
   content: string
+  /** Scope of impact of this change. */
+  impact?: 'high' | 'low' | 'medium'
+  /** Whether this context change should be flagged for human review in the web inbox. */
+  needsReview?: boolean
   operation: ContextOperation
   path: string
+  /** The agent's stated reason for this change, from the curate operation. */
+  reason?: string
   tags: string[]
   title: string
 }
@@ -25,9 +33,13 @@ const isValidOperation = (operation: string): operation is ContextOperation =>
  * Used for adding, editing, or deleting context files.
  */
 export class CogitPushContext {
+  public readonly confidence: 'high' | 'low' | undefined
   public readonly content: string
+  public readonly impact: 'high' | 'low' | 'medium' | undefined
+  public readonly needsReview: boolean | undefined
   public readonly operation: ContextOperation
   public readonly path: string
+  public readonly reason: string | undefined
   public readonly tags: readonly string[]
   public readonly title: string
 
@@ -57,6 +69,10 @@ export class CogitPushContext {
     this.content = params.content
     // Defensive copy to prevent external mutation
     this.tags = [...params.tags]
+    this.confidence = params.confidence
+    this.impact = params.impact
+    this.needsReview = params.needsReview
+    this.reason = params.reason
   }
 
   /**
@@ -114,12 +130,20 @@ export class CogitPushContext {
    * @returns A JSON object for API serialization
    */
   public toJson(): Record<string, unknown> {
-    return {
+    const json: Record<string, unknown> = {
       content: this.content,
       operation: this.operation,
       path: this.path,
       tags: [...this.tags],
       title: this.title,
     }
+
+    if (this.confidence !== undefined) json.confidence = this.confidence
+    if (this.impact !== undefined) json.impact = this.impact
+    // eslint-disable-next-line camelcase
+    if (this.needsReview !== undefined) json.needs_review = this.needsReview
+    if (this.reason !== undefined) json.reason = this.reason
+
+    return json
   }
 }
