@@ -26,6 +26,7 @@ export const SKIP_COMMANDS = new Set<string>(['--help', 'help', 'login', 'logout
 export type PatchMarkerDeps = {
   isPatched(): Promise<boolean>
   markPatched(): Promise<void>
+  patchFn?: (cwd: string) => Promise<void>
 }
 
 const getCurateViewMarkerPath = (cwd: string): string => join(getProjectDataDir(cwd), 'patches', 'curate-view.done')
@@ -92,7 +93,8 @@ export const validateBrvConfigVersion = async (
   const marker = patchMarkerDeps ?? defaultPatchMarkerDeps(cwd)
   const alreadyPatched = await marker.isPatched()
   if (!alreadyPatched) {
-    await ensureCurateViewPatched(cwd).catch(() => {})
+    const patchFn = patchMarkerDeps?.patchFn ?? ensureCurateViewPatched
+    await patchFn(cwd).catch(() => {})
     await marker.markPatched().catch(() => {})
   }
 

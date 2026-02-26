@@ -18,6 +18,8 @@ export const PROJECT = 'byterover'
 
 // Context Tree directory structure constants
 export const CONTEXT_TREE_DIR = 'context-tree'
+export const CONTEXT_TREE_BACKUP_DIR = 'context-tree-backup'
+export const CONTEXT_TREE_CONFLICT_DIR = 'context-tree-conflicts'
 export const CONTEXT_FILE = 'context.md'
 export const CONTEXT_FILE_EXTENSION = '.md'
 export const README_FILE = 'README.md'
@@ -32,6 +34,7 @@ export const DEFAULT_BRANCH = 'main'
 // Transport layer constants (optimized for localhost real-time)
 export const TRANSPORT_HOST = '127.0.0.1' // Use IP address for better sandbox compatibility
 export const TRANSPORT_REQUEST_TIMEOUT_MS = 10_000 // 10s - most operations complete quickly
+export const TRANSPORT_SPACE_SWITCH_TIMEOUT_MS = 60_000 // 60s - includes cogit pull + merge
 export const TRANSPORT_ROOM_TIMEOUT_MS = 2000 // 2s - room ops are instant on localhost
 export const TRANSPORT_CONNECT_TIMEOUT_MS = 3000 // 3s - 127.0.0.1 connects in <10ms
 export const TRANSPORT_RECONNECTION_DELAY_MS = 50 // 50ms - ultra aggressive start

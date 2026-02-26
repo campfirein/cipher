@@ -18,7 +18,7 @@ import {
   ProjectNotInitError,
   SpaceNotConfiguredError,
 } from '../../../core/domain/errors/task-error.js'
-import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
+import {hasAnyChanges, type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 export interface PullHandlerDeps {
   broadcastToProject: ProjectBroadcaster
@@ -85,8 +85,7 @@ export class PullHandler {
 
     // Check for local changes that would be overwritten
     const changes = await this.contextTreeSnapshotService.getChanges(projectPath)
-    const hasLocalChanges = changes.added.length > 0 || changes.modified.length > 0 || changes.deleted.length > 0
-    if (hasLocalChanges) {
+    if (hasAnyChanges(changes)) {
       throw new LocalChangesExistError()
     }
 
@@ -121,17 +120,21 @@ export class PullHandler {
       throw new NotAuthenticatedError()
     }
 
-    if (!(await this.projectConfigStore.exists(projectPath))) {
+    const config = await this.projectConfigStore.read(projectPath)
+    if (!config) {
       throw new ProjectNotInitError()
     }
 
+    if (!config.teamId || !config.spaceId) {
+      throw new SpaceNotConfiguredError()
+    }
+
     const changes = await this.contextTreeSnapshotService.getChanges(projectPath)
-    const hasLocalChanges = changes.added.length > 0 || changes.modified.length > 0 || changes.deleted.length > 0
+    const hasLocalChanges = hasAnyChanges(changes)
 
     return {
       hasChanges: hasLocalChanges,
       summary: hasLocalChanges ? 'Local changes exist. Push first or reset before pulling.' : 'Ready to pull',
     }
   }
-
 }
