@@ -132,18 +132,6 @@ check_config() {
 
 # ─── Storage Setup ────────────────────────────────────────────────────────────
 
-setup_storage_dir() {
-  info "Phase 1.1: ByteRover Storage Location"
-
-  printf "ByteRover Context Tree will be stored in: ${GREEN}%s/.brv${RESET}\n" "$BRV_STORAGE"
-  echo "This allows all OpenClaw agents to share the same knowledge base."
-
-  if [ ! -d "$BRV_STORAGE" ]; then
-    warn "Directory does not exist. Creating..."
-    mkdir -p "$BRV_STORAGE"
-  fi
-}
-
 backup_config() {
   CONFIG_BACKUP="${CONFIG_PATH}.bak.$(date +%Y%m%d%H%M%S)"
   cp "$CONFIG_PATH" "$CONFIG_BACKUP"
@@ -637,7 +625,6 @@ main() {
   echo ""
 
   # Phase 1.1: Storage & Backup
-  setup_storage_dir
   backup_config
   echo ""
 
