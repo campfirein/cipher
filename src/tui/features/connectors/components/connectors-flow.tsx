@@ -152,6 +152,22 @@ export const ConnectorsFlow: React.FC<ConnectorsFlowProps> = ({isActive = true, 
       const result = await installMutation.mutateAsync({agentId, connectorType})
 
       if (result.success) {
+        if (result.requiresManualSetup && result.manualInstructions) {
+          const lines = [
+            `Manual setup required for ${agentName}`,
+            '',
+            'Add this configuration to your MCP settings:',
+            '',
+            result.manualInstructions.configContent,
+          ]
+          if (result.manualInstructions.guide) {
+            lines.push('', `For detailed instructions, see: ${result.manualInstructions.guide}`)
+          }
+
+          onComplete(lines.join('\n'))
+          return
+        }
+
         const statusMessage = fromType
           ? `${agentName} switched from ${getConnectorName(fromType)} to ${getConnectorName(connectorType)}`
           : `${agentName} connected via ${getConnectorName(connectorType)}`

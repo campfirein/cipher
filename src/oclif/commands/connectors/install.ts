@@ -28,7 +28,13 @@ export default class ConnectorsInstall extends Command {
   }
   public static description = `Install or switch a connector for an agent
 
-  ${'Available agents:'.padEnd(20)} ${'Default'.padEnd(15)} Supported Types
+  Connector Types:
+    Rules       Agent reads instructions from rule file
+    Hook        Instructions injected on each prompt
+    MCP         Agent connects via MCP protocol
+    Agent Skill Agent reads skill files from project directory
+
+  ${'Available agents'.padEnd(20)} ${'Default'.padEnd(15)} Supported Types
   ${'─'.repeat(20)} ${'─'.repeat(15)} ${'─'.repeat(25)}
 ${agentTable}`
   public static examples = [
@@ -119,6 +125,10 @@ ${agentTable}`
             configPath: installResult.result?.configPath,
             connectorType: installResult.connectorType,
             ...(installResult.alreadySameType ? {message: 'Already using this connector type'} : {}),
+            ...(installResult.result?.requiresManualSetup ? {
+              manualInstructions: installResult.result.manualInstructions,
+              requiresManualSetup: true,
+            } : {}),
           },
           success: true,
         })
@@ -127,6 +137,20 @@ ${agentTable}`
 
       if (installResult.alreadySameType) {
         this.log(`"${installResult.agentId}" is already using ${getConnectorName(installResult.connectorType)}.`)
+        return
+      }
+
+      if (installResult.result?.requiresManualSetup && installResult.result.manualInstructions) {
+        this.log(`\nManual setup required for ${installResult.agentId}`)
+        this.log('')
+        this.log('Add this configuration to your MCP settings:')
+        this.log('')
+        this.log(installResult.result.manualInstructions.configContent)
+        if (installResult.result.manualInstructions.guide) {
+          this.log('')
+          this.log(`For detailed instructions, see: ${installResult.result.manualInstructions.guide}`)
+        }
+
         return
       }
 
