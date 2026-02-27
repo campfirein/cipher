@@ -113,13 +113,21 @@ export class ModelHandler {
         )
 
         const models: ModelDTO[] = []
-        for (const result of results) {
+        const providerErrors: Record<string, string> = {}
+        for (const [i, result] of results.entries()) {
+          const providerId = providerIds[i]
           if (result.status === 'fulfilled') {
             models.push(...result.value)
+          } else {
+            const raw = result.reason instanceof Error ? result.reason.message : String(result.reason)
+            providerErrors[providerId] = raw.replace(/ for event '[^']+'$/, '')
           }
         }
 
-        return {models}
+        return {
+          models,
+          providerErrors: Object.keys(providerErrors).length > 0 ? providerErrors : undefined,
+        }
       },
     )
   }

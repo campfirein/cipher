@@ -180,7 +180,7 @@ export function formatConnectionError(error: unknown, providerContext?: Provider
   // Business errors from transport handlers (auth, validation, etc.)
   if (error instanceof TransportRequestError) {
     // Strip the " for event '...'" suffix that TransportRequestError appends
-    const baseMessage = error.event ? error.message.replace(` for event '${error.event}'`, '') : error.message
+    const baseMessage = error.message.replace(/ for event '[^']+'$/, '')
 
     if (error.code && typeof error.code === 'string') {
       return USER_FRIENDLY_MESSAGES[error.code] ?? baseMessage

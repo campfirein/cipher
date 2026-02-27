@@ -59,7 +59,7 @@ export const ModelFlow: React.FC<ModelFlowProps> = ({isActive = true, onCancel, 
   const modelItems: ModelItem[] = useMemo(() => {
     if (!modelsData) return []
 
-    return modelsData.models.map((model) => ({
+    const successItems = modelsData.models.map((model) => ({
       contextLength: model.contextLength,
       id: model.id,
       isCurrent: model.id === activeData?.activeModel,
@@ -71,11 +71,27 @@ export const ModelFlow: React.FC<ModelFlowProps> = ({isActive = true, onCancel, 
       provider: model.provider,
       providerId: model.providerId,
     }))
-  }, [activeData?.activeModel, modelsData])
+
+    const errorItems = Object.entries(modelsData.providerErrors ?? {}).map(([providerId, errorMsg]) => {
+      const providerDisplayName = connectedProviders.find((p) => p.id === providerId)?.name ?? providerId
+      return {
+        id: `error-${providerId}`,
+        isCurrent: false,
+        isError: true as const,
+        isFavorite: false,
+        isRecent: false,
+        name: `Failed to load: ${errorMsg}`,
+        provider: providerDisplayName,
+        providerId,
+      }
+    })
+
+    return [...successItems, ...errorItems]
+  }, [activeData?.activeModel, connectedProviders, modelsData])
 
   const handleSelect = useCallback(
     async (model: ModelItem) => {
-      if (!model.providerId) return
+      if (!model.providerId || model.isError) return
 
       setError(null)
       try {
