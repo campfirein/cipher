@@ -202,6 +202,7 @@ describe('retry-policy', () => {
       })
 
       it('should return undefined for undefined', () => {
+        // eslint-disable-next-line unicorn/no-useless-undefined
         expect(extractRateLimitDelay(undefined)).to.be.undefined
       })
 
@@ -222,7 +223,7 @@ describe('retry-policy', () => {
 
       it('should return 2s buffer when retry-after is 0', () => {
         const error = {responseHeaders: {'retry-after': '0'}}
-        expect(extractRateLimitDelay(error)).to.equal(2_000) // (0 + 2) * 1000
+        expect(extractRateLimitDelay(error)).to.equal(2000) // (0 + 2) * 1000
       })
 
       it('should normalize header name to lowercase (e.g. Retry-After)', () => {
@@ -235,14 +236,14 @@ describe('retry-policy', () => {
         const error = {responseHeaders: {'retry-after': futureDate}}
         const delay = extractRateLimitDelay(error)
         // 10s in the future + 2s buffer, with ±1s margin for test execution
-        expect(delay).to.be.at.least(9_000).and.at.most(14_000)
+        expect(delay).to.be.at.least(9000).and.at.most(14_000)
       })
     })
 
     describe('Path 2: retry-after-ms header (Azure OpenAI)', () => {
       it('should parse milliseconds and add 2s buffer', () => {
         const error = {responseHeaders: {'retry-after-ms': '5000'}}
-        expect(extractRateLimitDelay(error)).to.equal(7_000) // 5000 + 2000
+        expect(extractRateLimitDelay(error)).to.equal(7000) // 5000 + 2000
       })
 
       it('retry-after takes priority over retry-after-ms', () => {
@@ -270,8 +271,8 @@ describe('retry-policy', () => {
         const futureTime = new Date(Date.now() + 58_000).toISOString()
         const error = {
           responseHeaders: {
-            'retry-after': '10',
             'anthropic-ratelimit-input-tokens-reset': futureTime,
+            'retry-after': '10',
           },
         }
         expect(extractRateLimitDelay(error)).to.equal(12_000) // retry-after wins
@@ -315,22 +316,22 @@ describe('retry-policy', () => {
       it('should parse "120ms" without treating "m" as minutes', () => {
         // Key regression: "120ms" must NOT parse 120 minutes
         const error = {responseHeaders: {'x-ratelimit-reset-tokens': '120ms'}}
-        expect(extractRateLimitDelay(error)).to.equal(2_120) // 120ms + 2000ms buffer
+        expect(extractRateLimitDelay(error)).to.equal(2120) // 120ms + 2000ms buffer
       })
 
       it('should parse "17ms"', () => {
         const error = {responseHeaders: {'x-ratelimit-reset-tokens': '17ms'}}
-        expect(extractRateLimitDelay(error)).to.equal(2_017) // 17 + 2000
+        expect(extractRateLimitDelay(error)).to.equal(2017) // 17 + 2000
       })
 
       it('should parse "1s"', () => {
         const error = {responseHeaders: {'x-ratelimit-reset-tokens': '1s'}}
-        expect(extractRateLimitDelay(error)).to.equal(3_000) // 1000 + 2000
+        expect(extractRateLimitDelay(error)).to.equal(3000) // 1000 + 2000
       })
 
       it('should parse fractional seconds "7.66s"', () => {
         const error = {responseHeaders: {'x-ratelimit-reset-tokens': '7.66s'}}
-        expect(extractRateLimitDelay(error)).to.equal(9_660) // ceil(7660) + 2000
+        expect(extractRateLimitDelay(error)).to.equal(9660) // ceil(7660) + 2000
       })
 
       it('should fall back to x-ratelimit-reset-requests when tokens header absent', () => {
@@ -341,11 +342,11 @@ describe('retry-policy', () => {
       it('x-ratelimit-reset-tokens takes priority over x-ratelimit-reset-requests', () => {
         const error = {
           responseHeaders: {
-            'x-ratelimit-reset-tokens': '1s',
             'x-ratelimit-reset-requests': '30s',
+            'x-ratelimit-reset-tokens': '1s',
           },
         }
-        expect(extractRateLimitDelay(error)).to.equal(3_000) // tokens header wins
+        expect(extractRateLimitDelay(error)).to.equal(3000) // tokens header wins
       })
     })
 
@@ -382,7 +383,7 @@ describe('retry-policy', () => {
         const error = {
           data: {error: {details: [{'@type': '...RetryInfo', retryDelay: '1.5s'}]}},
         }
-        expect(extractRateLimitDelay(error)).to.equal(3_500) // ceil(1500) + 2000
+        expect(extractRateLimitDelay(error)).to.equal(3500) // ceil(1500) + 2000
       })
 
       it('should return undefined for invalid retryDelay format', () => {
@@ -400,8 +401,8 @@ describe('retry-policy', () => {
     describe('priority: header-based paths beat body-based paths', () => {
       it('retry-after header takes priority over Gemini body retryDelay', () => {
         const error = {
-          responseHeaders: {'retry-after': '30'},
           data: {error: {details: [{'@type': '...RetryInfo', retryDelay: '53s'}]}},
+          responseHeaders: {'retry-after': '30'},
         }
         expect(extractRateLimitDelay(error)).to.equal(32_000) // header wins
       })

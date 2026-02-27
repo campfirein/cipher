@@ -212,7 +212,7 @@ export class RetryableContentGenerator implements IContentGenerator {
   private isRateLimitError(error: unknown): boolean {
     if (!error || typeof error !== 'object') return false
     const e = error as Record<string, unknown>
-    const status = e['status'] ?? e['statusCode']
+    const status = e.status ?? e.statusCode
     if (status === 429) return true
     const msg = (error instanceof Error ? error.message : String(error)).toLowerCase()
     return msg.includes('rate limit') || msg.includes('rate_limit')
