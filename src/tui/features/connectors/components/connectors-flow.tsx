@@ -18,6 +18,7 @@ import type {Agent} from '../../../../shared/types/agent.js'
 
 import {type ConnectorType, requiresAgentRestart} from '../../../../shared/types/connector-type.js'
 import {useTheme} from '../../../hooks/index.js'
+import {useGetAgentConfigPaths} from '../api/get-agent-config-paths.js'
 import {useGetAgents} from '../api/get-agents.js'
 import {useGetConnectors} from '../api/get-connectors.js'
 import {useInstallConnector} from '../api/install-connector.js'
@@ -55,6 +56,12 @@ export const ConnectorsFlow: React.FC<ConnectorsFlowProps> = ({isActive = true, 
   const {data: connectorsData, isLoading: isLoadingConnectors} = useGetConnectors()
   const {data: agentsData, isLoading: isLoadingAgents} = useGetAgents()
   const installMutation = useInstallConnector()
+
+  const selectedAgentId = selection?.kind === 'existing' ? selection.connector.agent : selection?.agent.id
+  const {data: configPathsData} = useGetAgentConfigPaths({
+    agentId: selectedAgentId as Agent,
+    queryConfig: {enabled: Boolean(selectedAgentId)},
+  })
 
   const connectors = connectorsData?.connectors ?? []
   const allAgents = agentsData?.agents ?? []
@@ -206,6 +213,7 @@ Docs: https://docs.byterover.dev/common-workflows/curate-context`
     return (
       <ConnectorTypeStep
         agentName={agentName}
+        configPaths={configPathsData?.configPaths}
         currentType={currentType}
         defaultType={defaultType}
         isActive={isActive}

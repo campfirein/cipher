@@ -16,6 +16,7 @@ interface ListItem {
 
 export interface ConnectorTypeStepProps {
   agentName: string
+  configPaths?: Partial<Record<ConnectorType, string>>
   currentType?: ConnectorType
   defaultType: ConnectorType
   isActive: boolean
@@ -26,6 +27,7 @@ export interface ConnectorTypeStepProps {
 
 export const ConnectorTypeStep: React.FC<ConnectorTypeStepProps> = ({
   agentName,
+  configPaths,
   currentType,
   defaultType,
   isActive,
@@ -38,7 +40,7 @@ export const ConnectorTypeStep: React.FC<ConnectorTypeStepProps> = ({
   } = useTheme()
 
   const items: ListItem[] = supportedTypes.map((t) => ({
-    description: getConnectorDescription(t),
+    description: getConnectorDescription(t, configPaths?.[t]),
     id: t,
     name: getConnectorName(t),
     status: t === currentType ? '(current)' : t === defaultType ? '(default)' : '',

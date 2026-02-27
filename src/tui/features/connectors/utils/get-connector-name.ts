@@ -1,21 +1,22 @@
 import type {ConnectorType} from '../../../../shared/types/connector-type.js'
 
-export const getConnectorDescription = (type: ConnectorType): string => {
+export const getConnectorDescription = (type: ConnectorType, configPath?: string): string => {
+  const path = configPath ? ` (${configPath})` : ''
   switch (type) {
     case 'hook': {
-      return 'Instructions injected on each prompt'
+      return `Instructions injected on each prompt${path}`
     }
 
     case 'mcp': {
-      return 'Agent connects via MCP protocol'
+      return `Agent connects via MCP protocol${path}`
     }
 
     case 'rules': {
-      return 'Agent reads instructions from rule file'
+      return `Agent reads instructions from rule file${path}`
     }
 
     case 'skill': {
-      return 'Agent reads skill files from project directory'
+      return `Agent reads skill files from project directory${path}`
     }
   }
 }
