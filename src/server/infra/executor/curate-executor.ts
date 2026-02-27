@@ -11,6 +11,7 @@ import {
   type FileReadResult,
 } from '../../utils/file-content-reader.js'
 import {validateFileForCurate} from '../../utils/file-validator.js'
+import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
 /**
  * CurateExecutor - Executes curate tasks with an injected CipherAgent.
@@ -36,6 +37,7 @@ export class CurateExecutor implements ICurateExecutor {
   /** Last curation status — available for future status-check command */
   public lastStatus?: CurationStatus
   private readonly fileContentReader: FileContentReader
+  private readonly preCompactionService = new PreCompactionService()
 
   constructor(fileContentReader?: FileContentReader) {
     this.fileContentReader = fileContentReader ?? createFileContentReader()
@@ -44,50 +46,56 @@ export class CurateExecutor implements ICurateExecutor {
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
     const {clientCwd, content, files, taskId} = options
 
-    // Create per-task session for parallel isolation (own sandbox + history + LLM service)
-    const taskSessionId = await agent.createTaskSession(taskId, 'curate')
-
-    // Process file references - reads file contents directly
+    // --- Phase 1: Preprocessing (no sessions created yet — safe to throw) ---
     const fileReferenceInstructions = await this.processFileReferences(files ?? [], clientCwd)
-
-    // Build full context (content + optional file references)
     const fullContext = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
 
-    // Task-scoped variable names for RLM pattern.
-    // Replace hyphens with underscores: UUIDs have hyphens which are invalid in JS identifiers,
-    // so the LLM would naturally use underscores when writing code-exec calls — causing a
-    // ReferenceError if the variable was stored under the hyphen version.
-    const taskIdSafe = taskId.replaceAll('-', '_')
-    const ctxVar = `__curate_ctx_${taskIdSafe}`
-    const histVar = `__curate_hist_${taskIdSafe}`
-    const metaVar = `__curate_meta_${taskIdSafe}`
+    // --- Phase 2: Pre-compaction (fail-open, manages its own session lifecycle) ---
+    const compactionResult = await this.preCompactionService.compact(agent, fullContext, taskId)
+    const effectiveContext = compactionResult.context
 
-    // Compute context metadata (RLM pattern — LM sees metadata, not raw content)
-    const contextLines = fullContext.split('\n')
-    const metadata = {
-      charCount: fullContext.length,
-      lineCount: contextLines.length,
-      messageCount: (fullContext.match(/\n\n\[(USER|ASSISTANT)\]:/g) || []).length,
-      preview: fullContext.slice(0, 500),
-      type: 'string',
-    }
-
-    // Inject context, metadata, and empty history into the TASK session's sandbox
-    agent.setSandboxVariableOnSession(taskSessionId, ctxVar, fullContext)
-    agent.setSandboxVariableOnSession(taskSessionId, histVar, {entries: [], totalProcessed: 0})
-    agent.setSandboxVariableOnSession(taskSessionId, metaVar, metadata)
-
-    // Prompt with metadata guidance (RLM pattern: LM sees metadata first, peeks via slicing)
-    const prompt = [
-      `Curate using RLM approach.`,
-      `Context variable: ${ctxVar} (${metadata.charCount} chars, ${metadata.lineCount} lines, ${metadata.messageCount} messages)`,
-      `History variable: ${histVar}`,
-      `Metadata variable: ${metaVar}`,
-      `IMPORTANT: Do NOT print raw context. Use slicing to peek at sections (e.g., ${ctxVar}.slice(0, 3000)).`,
-      `Use silent mode (silent: true) for variable assignments. Use tools.agentQuery() for chunk processing.`,
-    ].join('\n')
-
+    // --- Phase 3: Curation (session created AFTER preprocessing + compaction) ---
+    const taskSessionId = await agent.createTaskSession(taskId, 'curate')
     try {
+      // Task-scoped variable names for RLM pattern.
+      // Replace hyphens with underscores: UUIDs have hyphens which are invalid in JS identifiers,
+      // so the LLM would naturally use underscores when writing code-exec calls — causing a
+      // ReferenceError if the variable was stored under the hyphen version.
+      const taskIdSafe = taskId.replaceAll('-', '_')
+      const ctxVar = `__curate_ctx_${taskIdSafe}`
+      const histVar = `__curate_hist_${taskIdSafe}`
+      const metaVar = `__curate_meta_${taskIdSafe}`
+
+      // Compute context metadata (RLM pattern — LM sees metadata, not raw content)
+      const contextLines = effectiveContext.split('\n')
+      const metadata = {
+        charCount: effectiveContext.length,
+        lineCount: contextLines.length,
+        messageCount: (effectiveContext.match(/\n\n\[(USER|ASSISTANT)\]:/g) || []).length,
+        ...(compactionResult.preCompacted && {
+          originalCharCount: compactionResult.originalCharCount,
+          preCompacted: true,
+          preCompactionTier: compactionResult.preCompactionTier,
+        }),
+        preview: effectiveContext.slice(0, 500),
+        type: 'string',
+      }
+
+      // Inject context, metadata, and empty history into the TASK session's sandbox
+      agent.setSandboxVariableOnSession(taskSessionId, ctxVar, effectiveContext)
+      agent.setSandboxVariableOnSession(taskSessionId, histVar, {entries: [], totalProcessed: 0})
+      agent.setSandboxVariableOnSession(taskSessionId, metaVar, metadata)
+
+      // Prompt with metadata guidance (RLM pattern: LM sees metadata first, peeks via slicing)
+      const prompt = [
+        `Curate using RLM approach.`,
+        `Context variable: ${ctxVar} (${metadata.charCount} chars, ${metadata.lineCount} lines, ${metadata.messageCount} messages)`,
+        `History variable: ${histVar}`,
+        `Metadata variable: ${metaVar}`,
+        `IMPORTANT: Do NOT print raw context. Use slicing to peek at sections (e.g., ${ctxVar}.slice(0, 3000)).`,
+        `Use silent mode (silent: true) for variable assignments. Use tools.agentQuery() for chunk processing.`,
+      ].join('\n')
+
       // Execute on the task session (isolated sandbox + history)
       // Task lifecycle is managed by Transport (task:started, task:completed, task:error)
       const response = await agent.executeOnSession(taskSessionId, prompt, {
