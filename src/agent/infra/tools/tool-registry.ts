@@ -1,6 +1,8 @@
 import type { EnvironmentContext } from '../../core/domain/environment/types.js'
 import type { KnownTool } from '../../core/domain/tools/constants.js'
 import type { Tool } from '../../core/domain/tools/types.js'
+import type { ICipherAgent } from '../../core/interfaces/i-cipher-agent.js'
+import type { IContentGenerator } from '../../core/interfaces/i-content-generator.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
 import type { IProcessService } from '../../core/interfaces/i-process-service.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
@@ -10,11 +12,13 @@ import type { ToolProviderGetter } from './tool-provider-getter.js'
 
 import { ToolName } from '../../core/domain/tools/constants.js'
 import { createCurateService } from '../sandbox/curate-service.js'
+import { createAgenticMapTool } from './implementations/agentic-map-tool.js'
 import { createCodeExecTool } from './implementations/code-exec-tool.js'
 import { createCurateTool } from './implementations/curate-tool.js'
 import { createGlobFilesTool } from './implementations/glob-files-tool.js'
 import { createGrepContentTool } from './implementations/grep-content-tool.js'
 import { createListDirectoryTool } from './implementations/list-directory-tool.js'
+import { createLlmMapTool } from './implementations/llm-map-tool.js'
 import { createReadFileTool } from './implementations/read-file-tool.js'
 import { createSearchKnowledgeService } from './implementations/search-knowledge-service.js'
 import { createSearchKnowledgeTool } from './implementations/search-knowledge-tool.js'
@@ -26,6 +30,12 @@ import { ToolMarker } from './tool-markers.js'
  * Tools declare which services they need via requiredServices.
  */
 export interface ToolServices {
+  /** Agent instance for creating sub-sessions (used by agentic_map) */
+  agentInstance?: ICipherAgent
+
+  /** Content generator for stateless LLM calls (used by llm_map) */
+  contentGenerator?: IContentGenerator
+
   /** Environment context for sandbox injection */
   environmentContext?: EnvironmentContext
 
@@ -115,6 +125,17 @@ function getRequiredService<T>(service: T | undefined, serviceName: string): T {
  * 3. Add entry to this registry
  */
 export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
+  [ToolName.AGENTIC_MAP]: {
+    factory: ({agentInstance, environmentContext}) => {
+      const agent = getRequiredService(agentInstance, 'agentInstance')
+      const workingDirectory = environmentContext?.workingDirectory ?? process.cwd()
+
+      return createAgenticMapTool(agent, workingDirectory)
+    },
+    markers: [ToolMarker.Execution],
+    requiredServices: ['agentInstance'],
+  },
+
   [ToolName.CODE_EXEC]: {
     descriptionFile: 'code_exec',
     factory({ environmentContext, fileSystemService, sandboxService }) {
@@ -176,6 +197,17 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
       createListDirectoryTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
     markers: [ToolMarker.Discovery],
     requiredServices: ['fileSystemService'],
+  },
+
+  [ToolName.LLM_MAP]: {
+    factory: ({contentGenerator, environmentContext}) => {
+      const generator = getRequiredService(contentGenerator, 'contentGenerator')
+      const workingDirectory = environmentContext?.workingDirectory ?? process.cwd()
+
+      return createLlmMapTool(generator, workingDirectory)
+    },
+    markers: [ToolMarker.Execution],
+    requiredServices: ['contentGenerator'],
   },
 
   [ToolName.READ_FILE]: {

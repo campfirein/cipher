@@ -20,6 +20,7 @@ import type {ProviderUpdateConfig} from './provider-update-config.js'
 
 import {STREAMING_EVENT_NAMES} from '../../core/domain/streaming/types.js'
 import {AgentEventBus} from '../events/event-emitter.js'
+import {createGeneratorForProvider} from '../llm/providers/index.js'
 import {SessionManager} from '../session/session-manager.js'
 import {TransportEventBridge} from '../transport/transport-event-bridge.js'
 import {AgentError} from './agent-error.js'
@@ -626,6 +627,34 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Each agent has exactly 1 session created at start time
     const defaultSession = await this.sessionManager.createSession()
     this._sessionId = defaultSession.id
+
+    // Inject agent instance and content generator into ToolProvider for map tools
+    // (agentic_map, llm_map). These tools require late injection because the agent
+    // and provider config aren't available when ToolProvider is first initialized.
+    const mapProvider = sessionLLMConfig.provider
+      ?? (sessionLLMConfig.openRouterApiKey ? 'openrouter' : 'byterover')
+    const mapGenerator = createGeneratorForProvider(
+      mapProvider,
+      {
+        apiKey: mapProvider === 'openrouter'
+          ? (sessionLLMConfig.openRouterApiKey ?? sessionLLMConfig.providerApiKey)
+          : sessionLLMConfig.providerApiKey,
+        baseUrl: sessionLLMConfig.providerBaseUrl,
+        headers: sessionLLMConfig.providerHeaders,
+        httpConfig: httpConfig as unknown as Record<string, unknown>,
+        httpReferer: sessionLLMConfig.httpReferer,
+        location: sessionLLMConfig.providerLocation,
+        maxTokens: 4096,
+        model: sessionLLMConfig.model,
+        project: sessionLLMConfig.providerProject,
+        siteName: sessionLLMConfig.siteName,
+        temperature: 0,
+      },
+    )
+    services.toolProvider.updateServices({
+      agentInstance: this,
+      contentGenerator: mapGenerator,
+    })
 
     // Create event bridge if transport client is injected (child process mode).
     // The bridge forwards AgentEventBus llmservice:* events to the transport server.

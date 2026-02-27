@@ -37,7 +37,9 @@ export class ToolManager {
    * Uses code_exec only - curate operations available via tools.curate() in sandbox.
    */
   private static readonly CURATE_TOOL_NAMES = [
+    'agentic_map',
     'code_exec',
+    'llm_map',
   ] as const
   /**
    * Tools allowed for query operations - only code_exec for programmatic search

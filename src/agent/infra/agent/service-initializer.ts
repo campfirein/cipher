@@ -42,6 +42,7 @@ import { GranularHistoryStorage } from '../storage/granular-history-storage.js'
 import { MessageStorageService } from '../storage/message-storage-service.js'
 import { SqliteKeyStorage } from '../storage/sqlite-key-storage.js'
 import { ContextTreeStructureContributor } from '../system-prompt/contributors/context-tree-structure-contributor.js'
+import { MapSelectionContributor } from '../system-prompt/contributors/map-selection-contributor.js'
 import { SystemPromptManager } from '../system-prompt/system-prompt-manager.js'
 import { CoreToolScheduler } from '../tools/core-tool-scheduler.js'
 import { DEFAULT_POLICY_RULES } from '../tools/default-policy-rules.js'
@@ -198,6 +199,11 @@ export async function createCipherAgentServices(
     workingDirectory,
   })
   systemPromptManager.registerContributor(contextTreeContributor)
+
+  // Register map selection contributor for curate commands
+  // Priority 16 — right after context tree structure, before memories
+  const mapSelectionContributor = new MapSelectionContributor('mapSelection', 16)
+  systemPromptManager.registerContributor(mapSelectionContributor)
 
   // 7. Tool provider (depends on FileSystemService, ProcessService, MemoryManager, SystemPromptManager)
   const verbose = config.llm.verbose ?? false
