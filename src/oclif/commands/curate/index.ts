@@ -12,6 +12,7 @@ import {
   type DaemonClientOptions,
   formatConnectionError,
   hasLeakedHandles,
+  type ProviderErrorContext,
   withDaemonRetry,
 } from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
@@ -105,15 +106,25 @@ Bad examples:
         : ''
     const taskType = flags.folder?.length ? 'curate-folder' : 'curate'
 
+    let providerContext: ProviderErrorContext | undefined
+
     try {
       await withDaemonRetry(
         async (client, projectRoot) => {
           const active = await client.requestWithAck<ProviderConfigResponse>(
             TransportStateEventNames.GET_PROVIDER_CONFIG,
           )
+          providerContext = {activeModel: active.activeModel, activeProvider: active.activeProvider}
+
           if (!active.activeProvider) {
             throw new Error(
               'No provider connected. Run "brv providers connect byterover" to use the free built-in provider, or connect another provider.',
+            )
+          }
+
+          if (active.providerKeyMissing) {
+            throw new Error(
+              `${active.activeProvider} API key is missing from storage.\nPlease reconnect: brv providers connect ${active.activeProvider} --api-key <your-key>`,
             )
           }
 
@@ -129,7 +140,7 @@ Bad examples:
         },
       )
     } catch (error) {
-      this.reportError(error, format)
+      this.reportError(error, format, providerContext)
     }
   }
 
@@ -174,13 +185,13 @@ Bad examples:
     }
   }
 
-  private reportError(error: unknown, format: 'json' | 'text'): void {
+  private reportError(error: unknown, format: 'json' | 'text', providerContext?: ProviderErrorContext): void {
     const errorMessage = error instanceof Error ? error.message : 'Curate failed'
 
     if (format === 'json') {
       writeJsonResponse({command: 'curate', data: {error: errorMessage, status: 'error'}, success: false})
     } else {
-      this.log(formatConnectionError(error))
+      this.log(formatConnectionError(error, providerContext))
     }
 
     if (hasLeakedHandles(error)) {

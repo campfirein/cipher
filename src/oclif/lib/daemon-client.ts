@@ -131,10 +131,15 @@ export function hasLeakedHandles(error: unknown): boolean {
   return error.code === TaskErrorCode.AGENT_DISCONNECTED || error.code === TaskErrorCode.AGENT_NOT_AVAILABLE
 }
 
+export interface ProviderErrorContext {
+  activeModel?: string
+  activeProvider?: string
+}
+
 /**
  * Formats a connection error into a user-friendly message.
  */
-export function formatConnectionError(error: unknown): string {
+export function formatConnectionError(error: unknown, providerContext?: ProviderErrorContext): string {
   if (error instanceof NoInstanceRunningError) {
     if (isSandboxEnvironment()) {
       const sandboxName = getSandboxEnvironmentName()
@@ -189,7 +194,18 @@ export function formatConnectionError(error: unknown): string {
   }
 
   if (lowerMessage.includes('api key') || lowerMessage.includes('invalid key')) {
-    return "LLM provider API key is missing or invalid. Run 'brv providers list' to see connected providers, or 'brv providers connect <provider-id>' to reconfigure."
+    const provider = providerContext?.activeProvider ?? '<provider>'
+    const model = providerContext?.activeModel
+    const currentInfo = model ? `Provider: ${provider}  Model: ${model}\n\n` : `Provider: ${provider}\n\n`
+
+    return (
+      `LLM provider API key is missing or invalid.\n${currentInfo}` +
+      '  Reconnect with your API key:\n' +
+      `    brv providers connect ${provider} --api-key <key>\n\n` +
+      '  Switch to a different provider:\n' +
+      '    brv providers switch <provider>\n\n' +
+      '  See all options:  brv providers --help'
+    )
   }
 
   return `Unexpected error: ${message}`
