@@ -56,21 +56,27 @@ error() {
 }
 
 confirm() {
-  prompt="$1"
+  printf "%s (y/N): " "$1"
   if [ -t 0 ]; then
-    read -p "$prompt (y/N): " answer
+    read answer
   else
-    read -p "$prompt (y/N): " answer < /dev/tty
+    read answer < /dev/tty
   fi
-  [[ "${answer:-}" =~ ^[Yy]$ ]]
+  case "${answer:-}" in
+    [Yy]) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 setup_cleanup() {
-  CLEANUP_FILES=()
+  CLEANUP_FILES=""
   CONFIG_BACKUP=""
   cleanup() {
     local exit_code=$?
-    rm -f "${CLEANUP_FILES[@]}"
+    if [ -n "$CLEANUP_FILES" ]; then
+      # shellcheck disable=SC2086
+      rm -f $CLEANUP_FILES
+    fi
     if [ "$exit_code" -ne 0 ] && [ -n "$CONFIG_BACKUP" ] && [ -f "$CONFIG_BACKUP" ]; then
       printf "${YELLOW}[!] Installation failed. Restoring config from backup...${RESET}\n" >&2
       cp "$CONFIG_BACKUP" "$CONFIG_PATH"
@@ -83,7 +89,7 @@ setup_cleanup() {
 # ─── Pre-flight Checks ───────────────────────────────────────────────────────
 
 check_node() {
-  if command -v node &> /dev/null; then
+  if command -v node >/dev/null 2>&1; then
     success "Node is installed"
   else
     error "Node is missing. Node.js is required to run this installer."
@@ -91,7 +97,7 @@ check_node() {
 }
 
 check_clawhub() {
-  if command -v clawhub &> /dev/null; then
+  if command -v clawhub >/dev/null 2>&1; then
     success "Clawhub is installed"
   else
     error "Clawhub is missing. Please install it first via OpenClaw's skill."
@@ -99,20 +105,53 @@ check_clawhub() {
 }
 
 check_brv_skill() {
-  if clawhub list | grep -qw "byterover"; then
-    success "ByteRover Skill is installed"
+  local global_skills_dir="$HOME/.openclaw/skills"
+
+  if [ -d "$global_skills_dir/byterover" ] && [ -f "$global_skills_dir/byterover/SKILL.md" ]; then
+    success "ByteRover Skill is installed at $global_skills_dir/byterover"
+    return
+  fi
+
+  warn "ByteRover Skill is missing from $global_skills_dir. Installing byterover..."
+
+  # clawhub always installs to <workspace>/skills/ (ignores cwd).
+  # Resolve the workspace path from openclaw.json, then copy to the global skills dir.
+  local workspace
+  workspace=$(CONFIG_PATH="$CONFIG_PATH" node -e '
+    const fs = require("fs");
+    try {
+      const c = JSON.parse(fs.readFileSync(process.env.CONFIG_PATH, "utf8"));
+      console.log(c.agents?.defaults?.workspace || "");
+    } catch(e) { /* silent */ }
+  ')
+
+  if ! clawhub install --force byterover; then
+    error "Failed to install byterover skill."
+  fi
+
+  # Find where clawhub actually installed it
+  local installed_dir=""
+  if [ -n "$workspace" ] && [ -f "$workspace/skills/byterover/SKILL.md" ]; then
+    installed_dir="$workspace/skills/byterover"
+  fi
+
+  if [ -z "$installed_dir" ]; then
+    error "clawhub installed byterover but could not locate it. Check your workspace at: $workspace"
+  fi
+
+  # Copy to global skills dir
+  mkdir -p "$global_skills_dir"
+  cp -R "$installed_dir" "$global_skills_dir/byterover"
+
+  if [ -f "$global_skills_dir/byterover/SKILL.md" ]; then
+    success "ByteRover skill installed to $global_skills_dir/byterover"
   else
-    warn "ByteRover Skill is missing. Installing byterover..."
-    if clawhub install --force byterover; then
-      success "ByteRover skill installed successfully"
-    else
-      error "Failed to install byterover."
-    fi
+    error "Failed to copy byterover skill to $global_skills_dir"
   fi
 }
 
 check_brv_cli() {
-  if command -v brv &> /dev/null; then
+  if command -v brv >/dev/null 2>&1; then
     success "ByteRover-cli is installed"
   else
     error "ByteRover-cli is missing. Please install it first (https://docs.byterover.dev)."
@@ -120,7 +159,7 @@ check_brv_cli() {
 }
 
 check_openclaw_cli() {
-  if command -v openclaw &> /dev/null; then
+  if command -v openclaw >/dev/null 2>&1; then
     success "OpenClaw CLI is installed"
   else
     error "OpenClaw CLI is missing. Cannot schedule OpenClaw cron jobs."
@@ -261,7 +300,7 @@ remove_cron_job() {
 
   local cron_list_tmp
   cron_list_tmp=$(mktemp)
-  CLEANUP_FILES+=("$cron_list_tmp")
+  CLEANUP_FILES="$CLEANUP_FILES $cron_list_tmp"
 
   local cron_rc=0
   openclaw cron list --json > "$cron_list_tmp" 2>/dev/null || cron_rc=$?
@@ -375,7 +414,7 @@ configure_daily_mining() {
   # Check if cron already exists
   local cron_list_tmp
   cron_list_tmp=$(mktemp)
-  CLEANUP_FILES+=("$cron_list_tmp")
+  CLEANUP_FILES="$CLEANUP_FILES $cron_list_tmp"
 
   local cron_rc=0
   openclaw cron list --json > "$cron_list_tmp" 2>/dev/null || cron_rc=$?
@@ -391,7 +430,7 @@ configure_daily_mining() {
     exists=$(check_cron_exists "$cron_list_tmp" "$cron_name")
   fi
 
-  if [[ "$exists" == "true" ]]; then
+  if [ "$exists" = "true" ]; then
     printf "${YELLOW}Cron job '%s' already exists. Skipping creation.${RESET}\n" "$cron_name"
     echo ""
     return
@@ -406,7 +445,7 @@ configure_daily_mining() {
 
   local cron_err_tmp
   cron_err_tmp=$(mktemp)
-  CLEANUP_FILES+=("$cron_err_tmp")
+  CLEANUP_FILES="$CLEANUP_FILES $cron_err_tmp"
 
   if openclaw cron add \
       --name "$cron_name" \
@@ -589,11 +628,13 @@ update_workspace_protocols() {
     return
   fi
 
-  while IFS= read -r ws; do
+  echo "$workspaces" | while IFS= read -r ws; do
     [ -z "$ws" ] && continue
 
     # Expand tilde if present
-    ws="${ws/#\~/$HOME}"
+    case "$ws" in
+      "~"/*) ws="$HOME${ws#"~"}" ;;
+    esac
 
     if [ ! -d "$ws" ]; then
       warn "Workspace directory not found: $ws. Skipping."
@@ -603,7 +644,7 @@ update_workspace_protocols() {
     printf "Updating workspace: ${GREEN}%s${RESET}\n" "$ws"
     update_agents_md "$ws/AGENTS.md"
     update_tools_md "$ws/TOOLS.md"
-  done <<< "$workspaces"
+  done
 }
 
 # ─── Output ───────────────────────────────────────────────────────────────────
