@@ -3,11 +3,16 @@ import {join} from 'node:path'
 
 import type {HubEntryDTO} from '../../../shared/transport/types/dto.js'
 import type {Agent} from '../../core/domain/entities/agent.js'
-import type {HubInstallAuthParams, IHubInstallService} from '../../core/interfaces/hub/i-hub-install-service.js'
+import type {
+  HubInstallAuthParams,
+  HubInstallParams,
+  IHubInstallService,
+} from '../../core/interfaces/hub/i-hub-install-service.js'
 import type {IFileService} from '../../core/interfaces/services/i-file-service.js'
 import type {SkillConnector} from '../connectors/skill/skill-connector.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
+import {SKILL_CONNECTOR_CONFIGS} from '../connectors/skill/skill-connector-config.js'
 import {buildAuthHeaders} from './hub-auth-headers.js'
 
 export interface HubInstallServiceDeps {
@@ -24,14 +29,10 @@ export class HubInstallService implements IHubInstallService {
     this.skillConnectorFactory = deps.skillConnectorFactory
   }
 
-  async install(
-    entry: HubEntryDTO,
-    projectPath: string,
-    agent?: string,
-    auth?: HubInstallAuthParams,
-  ): Promise<{installedFiles: string[]; message: string}> {
+  async install(params: HubInstallParams): Promise<{installedFiles: string[]; installedPath: string; message: string}> {
+    const {agent, auth, entry, projectPath, scope} = params
     return entry.type === 'agent-skill'
-      ? this.installSkill(entry, projectPath, agent, auth)
+      ? this.installSkill({agent, auth, entry, projectPath, scope})
       : this.installBundle(entry, projectPath, auth)
   }
 
@@ -89,7 +90,7 @@ export class HubInstallService implements IHubInstallService {
     entry: HubEntryDTO,
     projectPath: string,
     auth?: HubInstallAuthParams,
-  ): Promise<{installedFiles: string[]; message: string}> {
+  ): Promise<{installedFiles: string[]; installedPath: string; message: string}> {
     const contextTreeDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
     const contentFiles = this.getContentFiles(entry)
 
@@ -98,6 +99,7 @@ export class HubInstallService implements IHubInstallService {
       if (await this.fileService.exists(firstFilePath)) {
         return {
           installedFiles: [],
+          installedPath: contextTreeDir,
           message: `${entry.name} is already installed in context tree`,
         }
       }
@@ -107,18 +109,22 @@ export class HubInstallService implements IHubInstallService {
 
     return {
       installedFiles,
+      installedPath: contextTreeDir,
       message: `Installed ${entry.name} bundle to context tree.`,
     }
   }
 
-  private async installSkill(
-    entry: HubEntryDTO,
-    projectPath: string,
-    agent?: string,
-    auth?: HubInstallAuthParams,
-  ): Promise<{installedFiles: string[]; message: string}> {
-    if (!agent) {
-      throw new Error('Agent is required to install a skill')
+  private async installSkill(params: {
+    agent?: string
+    auth?: HubInstallAuthParams
+    entry: HubEntryDTO
+    projectPath: string
+    scope?: 'global' | 'project'
+  }): Promise<{installedFiles: string[]; installedPath: string; message: string}> {
+    const {agent, auth, entry, projectPath, scope} = params
+
+    if (!agent || !Object.keys(SKILL_CONNECTOR_CONFIGS).includes(agent)) {
+      throw new Error('Agent does not support skill installation')
     }
 
     const skillConnector = this.skillConnectorFactory(projectPath)
@@ -131,18 +137,20 @@ export class HubInstallService implements IHubInstallService {
       })),
     )
 
-    const result = await skillConnector.writeSkillFiles(agent as Agent, entry.id, downloadedFiles)
+    const result = await skillConnector.writeSkillFiles(agent as Agent, entry.id, downloadedFiles, {scope})
 
     if (result.alreadyInstalled) {
       return {
         installedFiles: [],
+        installedPath: result.absolutePath,
         message: `${entry.name} is already installed for ${agent}`,
       }
     }
 
     return {
       installedFiles: result.installedFiles,
-      message: `Installed ${entry.name} skill for ${agent} at ${result.relativePath}/`,
+      installedPath: result.absolutePath,
+      message: `Installed ${entry.name} skill for ${agent} at ${result.absolutePath}/`,
     }
   }
 }

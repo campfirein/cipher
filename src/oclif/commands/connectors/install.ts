@@ -138,6 +138,10 @@ ${agentTable}`
         this.log(`${installResult.agentId} connected via ${getConnectorName(installResult.connectorType)}.`)
       }
 
+      if (installResult.result?.configPath) {
+        this.log(`Location: ${installResult.result.configPath}`)
+      }
+
       if (requiresAgentRestart(installResult.connectorType)) {
         this.log(`\nPlease restart ${installResult.agentId} to apply the new ${getConnectorName(installResult.connectorType)}.`)
       }

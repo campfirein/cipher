@@ -15,7 +15,24 @@ export interface HubInstallAuthParams {
  */
 export interface HubInstallResult {
   installedFiles: string[]
+  installedPath: string
   message: string
+}
+
+/**
+ * Parameters for installing a hub entry.
+ */
+export interface HubInstallParams {
+  /** The target agent display name (required for skills). */
+  agent?: string
+  /** Optional auth parameters for private registry downloads. */
+  auth?: HubInstallAuthParams
+  /** The hub entry to install. */
+  entry: HubEntryDTO
+  /** The project root path. */
+  projectPath: string
+  /** Optional scope for skill installs ('global' or 'project'). Ignored for bundles. */
+  scope?: 'global' | 'project'
 }
 
 /**
@@ -26,12 +43,6 @@ export interface IHubInstallService {
    * Installs a hub entry.
    * Skills are written to the target agent's skill directory.
    * Bundles are written to the context tree.
-   *
-   * @param entry The hub entry to install.
-   * @param projectPath The project root path.
-   * @param agent The target agent display name (required for skills).
-   * @param auth Optional auth parameters for private registry downloads.
-   * @returns A promise resolving to the install result.
    */
-  install(entry: HubEntryDTO, projectPath: string, agent?: string, auth?: HubInstallAuthParams): Promise<HubInstallResult>
+  install(params: HubInstallParams): Promise<HubInstallResult>
 }

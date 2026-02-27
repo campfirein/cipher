@@ -66,7 +66,9 @@ export const HubFlow: React.FC<HubFlowProps> = ({isActive = true, onCancel, onCo
         setStep('installing')
         installMutation
           .mutateAsync({entryId: entry.id, registry: entry.registry})
-          .then((result) => onComplete(result.message))
+          .then((result) =>
+            onComplete(result.installedPath ? `${result.message}\nLocation: ${result.installedPath}` : result.message),
+          )
           .catch((error_: unknown) =>
             onComplete(`Install failed: ${error_ instanceof Error ? error_.message : 'Unknown error'}`),
           )
@@ -81,7 +83,9 @@ export const HubFlow: React.FC<HubFlowProps> = ({isActive = true, onCancel, onCo
       setStep('installing')
       installMutation
         .mutateAsync({agent: agentDisplayName, entryId: selectedEntry.id, registry: selectedEntry.registry})
-        .then((result) => onComplete(result.message))
+        .then((result) =>
+          onComplete(result.installedPath ? `${result.message}\nLocation: ${result.installedPath}` : result.message),
+        )
         .catch((error_: unknown) =>
           onComplete(`Install failed: ${error_ instanceof Error ? error_.message : 'Unknown error'}`),
         )

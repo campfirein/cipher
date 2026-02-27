@@ -27,12 +27,12 @@ type AgentConnectorConfig = {
  */
 export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
   Amp: {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   Antigravity: {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   'Augment Code': {
     default: 'mcp',
@@ -47,7 +47,7 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
     supported: ['rules', 'mcp'],
   },
   Codex: {
-    default: 'mcp',
+    default: 'skill',
     supported: ['rules', 'mcp', 'skill'],
   },
   Cursor: {
@@ -55,48 +55,48 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
     supported: ['rules', 'mcp', 'skill'],
   },
   'Gemini CLI': {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   'Github Copilot': {
-    default: 'mcp',
+    default: 'skill',
     supported: ['rules', 'mcp', 'skill'],
   },
   Junie: {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   'Kilo Code': {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   Kiro: {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   Qoder: {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   'Qwen Code': {
     default: 'mcp',
     supported: ['rules', 'mcp'],
   },
   'Roo Code': {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   'Trae.ai': {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   Warp: {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   Windsurf: {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   Zed: {
     default: 'mcp',

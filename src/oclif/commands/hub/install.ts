@@ -38,10 +38,16 @@ export default class HubInstall extends Command {
       char: 'r',
       description: 'Registry to install from (when ID exists in multiple registries)',
     }),
+    scope: Flags.string({
+      char: 's',
+      default: 'global',
+      description: 'Install scope for skills (global: home directory, project: current project)',
+      options: ['global', 'project'],
+    }),
   }
 
   protected async executeInstall(
-    params: {agent?: string; entryId: string; registry?: string},
+    params: {agent?: string; entryId: string; registry?: string; scope?: 'global' | 'project'},
     options?: DaemonClientOptions,
   ): Promise<HubInstallResponse> {
     return withDaemonRetry<HubInstallResponse>(
@@ -59,12 +65,16 @@ export default class HubInstall extends Command {
         agent: flags.agent,
         entryId: args.id,
         registry: flags.registry,
+        scope: flags.scope as 'global' | 'project',
       })
 
       if (format === 'json') {
         writeJsonResponse({command: 'hub install', data: result, success: result.success})
       } else {
         this.log(result.message)
+        if (result.installedPath) {
+          this.log(`Location: ${result.installedPath}`)
+        }
       }
     } catch (error) {
       if (format === 'json') {
