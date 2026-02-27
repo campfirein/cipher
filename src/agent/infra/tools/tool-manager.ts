@@ -152,6 +152,8 @@ export class ToolManager {
       // Execute tool via scheduler (with policy check) or directly via provider
       const result = this.scheduler
         ? await this.scheduler.execute(toolName, effectiveArgs, {
+          commandType: effectiveContext.commandType,
+          metadata: effectiveContext.metadata,
           sessionId: sessionId ?? 'default',
           taskId: effectiveContext.taskId,
         })

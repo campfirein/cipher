@@ -1,8 +1,8 @@
-import type {IContentGenerator} from '../../../core/interfaces/i-content-generator.js'
 import type {Tool, ToolExecutionContext, ToolMetadata} from '../../../core/domain/tools/types.js'
+import type {IContentGenerator} from '../../../core/interfaces/i-content-generator.js'
 
-import {LlmMapParametersSchema} from '../../map/map-shared.js'
 import {executeLlmMap} from '../../map/llm-map-service.js'
+import {LlmMapParametersSchema} from '../../map/map-shared.js'
 
 /**
  * Create the llm_map tool.

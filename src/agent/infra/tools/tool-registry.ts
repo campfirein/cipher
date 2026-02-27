@@ -126,7 +126,7 @@ function getRequiredService<T>(service: T | undefined, serviceName: string): T {
  */
 export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   [ToolName.AGENTIC_MAP]: {
-    factory: ({agentInstance, environmentContext}) => {
+    factory({agentInstance, environmentContext}) {
       const agent = getRequiredService(agentInstance, 'agentInstance')
       const workingDirectory = environmentContext?.workingDirectory ?? process.cwd()
 
@@ -200,7 +200,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   },
 
   [ToolName.LLM_MAP]: {
-    factory: ({contentGenerator, environmentContext}) => {
+    factory({contentGenerator, environmentContext}) {
       const generator = getRequiredService(contentGenerator, 'contentGenerator')
       const workingDirectory = environmentContext?.workingDirectory ?? process.cwd()
 

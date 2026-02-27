@@ -198,6 +198,8 @@ export interface ToolsSDK {
  * Options for creating a Tools SDK instance.
  */
 export interface CreateToolsSDKOptions {
+  /** Command type — when 'query', mutating APIs (curate, writeFile) are disabled */
+  commandType?: string
   /** Curate service for knowledge curation */
   curateService?: ICurateService
   /** File system service for file operations */
@@ -222,7 +224,8 @@ export interface CreateToolsSDKOptions {
  * @returns ToolsSDK instance ready to be injected into sandbox context
  */
 export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
-  const {curateService, fileSystem, parentSessionId, sandboxService, searchKnowledgeService, sessionManager} = options
+  const {commandType, curateService, fileSystem, parentSessionId, sandboxService, searchKnowledgeService, sessionManager} = options
+  const isReadOnly = commandType === 'query'
   return {
     async agentQuery(prompt: string, options?: { contextData?: Record<string, unknown>; maxIterations?: number }): Promise<string> {
       if (!sessionManager || !parentSessionId) {
@@ -254,6 +257,10 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
     },
 
     async curate(operations: CurateOperation[], options?: CurateOptions): Promise<CurateResult> {
+      if (isReadOnly) {
+        throw new Error('curate() is disabled in read-only (query) mode')
+      }
+
       if (!curateService) {
         return {
           applied: [{
@@ -332,6 +339,10 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
     },
 
     async writeFile(filePath: string, content: string, options?: WriteFileOptions): Promise<WriteResult> {
+      if (isReadOnly) {
+        throw new Error('writeFile() is disabled in read-only (query) mode')
+      }
+
       return fileSystem.writeFile(filePath, content, {
         createDirs: options?.createDirs ?? false,
       })

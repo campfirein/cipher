@@ -1,17 +1,16 @@
 import {randomUUID} from 'node:crypto'
 import {writeFile} from 'node:fs/promises'
-import {resolve} from 'node:path'
 
 import type {ICipherAgent} from '../../core/interfaces/i-cipher-agent.js'
-import type {MapRunResult} from './worker-pool.js'
 
 import {
+  type AgenticMapParameters,
   buildUserMessage,
   parseJsonlFile,
+  resolveAndValidatePath,
   validateAgainstSchema,
-  type AgenticMapParameters,
 } from './map-shared.js'
-import {runMapWorkerPool, type MapProgress} from './worker-pool.js'
+import {type MapProgress, type MapRunResult, runMapWorkerPool} from './worker-pool.js'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -21,10 +20,10 @@ const DEFAULT_CONCURRENCY = 4
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface AgenticMapServiceOptions {
-  /** The cipher agent instance for creating sub-sessions */
-  agent: ICipherAgent
   /** Abort signal for cancellation */
   abortSignal?: AbortSignal
+  /** The cipher agent instance for creating sub-sessions */
+  agent: ICipherAgent
   /** Progress callback */
   onProgress?: (progress: MapProgress) => void
   /** Tool parameters from the LLM */
@@ -71,9 +70,9 @@ export async function executeAgenticMap(options: AgenticMapServiceOptions): Prom
 
   const concurrency = DEFAULT_CONCURRENCY
 
-  // Resolve paths relative to working directory (project root)
-  const resolvedInputPath = resolve(workingDirectory, inputPath)
-  const resolvedOutputPath = resolve(workingDirectory, outputPath)
+  // Resolve paths relative to working directory and validate they don't escape it
+  const resolvedInputPath = resolveAndValidatePath(workingDirectory, inputPath)
+  const resolvedOutputPath = resolveAndValidatePath(workingDirectory, outputPath)
 
   // 1. Parse input JSONL
   const items = await parseJsonlFile(resolvedInputPath)
@@ -93,8 +92,10 @@ export async function executeAgenticMap(options: AgenticMapServiceOptions): Prom
     // 3. Define per-item processing function
     async function processItem(itemIndex: number, item: unknown): Promise<unknown> {
       // Create a per-item task session
+      // When read_only, use 'query' command type to restrict sub-agent to read-only tools
       const itemTaskId = `map-item-${itemIndex}-${randomUUID().slice(0, 8)}`
-      const sessionId = await agent.createTaskSession(itemTaskId, 'curate')
+      const sessionCommandType = readOnly ? 'query' : 'curate'
+      const sessionId = await agent.createTaskSession(itemTaskId, sessionCommandType)
       sessionIds.push(sessionId)
 
       const userMessageText = buildUserMessage(
@@ -116,14 +117,17 @@ export async function executeAgenticMap(options: AgenticMapServiceOptions): Prom
         let attemptsUsed = 1
 
         // Full agentic prompt (with tool access, multi-step reasoning)
-        let result = await agent.executeOnSession(sessionId, userMessageText, {
-          executionContext: {
-            clearHistory: true,
-            commandType: 'curate',
-            maxIterations: readOnly ? 10 : 20,
-          },
-          taskId: taskId ?? randomUUID(),
-        })
+        let result = await withTimeout(
+          agent.executeOnSession(sessionId, userMessageText, {
+            executionContext: {
+              clearHistory: true,
+              commandType: sessionCommandType,
+              maxIterations: readOnly ? 10 : 20,
+            },
+            taskId: taskId ?? randomUUID(),
+          }),
+          timeoutController.signal,
+        )
 
         // Validation loop with retry
         while (true) {
@@ -140,8 +144,8 @@ export async function executeAgenticMap(options: AgenticMapServiceOptions): Prom
             if (jsonMatch) {
               try {
                 parsed = JSON.parse(jsonMatch[1])
-              } catch (e) {
-                lastError = `JSON parse error from code block: ${e instanceof Error ? e.message : String(e)}`
+              } catch (error) {
+                lastError = `JSON parse error from code block: ${error instanceof Error ? error.message : String(error)}`
               }
             } else {
               // Try to find JSON object/array in the response
@@ -149,8 +153,8 @@ export async function executeAgenticMap(options: AgenticMapServiceOptions): Prom
               if (jsonObjMatch) {
                 try {
                   parsed = JSON.parse(jsonObjMatch[1])
-                } catch (e) {
-                  lastError = `JSON parse error from extraction: ${e instanceof Error ? e.message : String(e)}`
+                } catch (error) {
+                  lastError = `JSON parse error from extraction: ${error instanceof Error ? error.message : String(error)}`
                 }
               } else {
                 lastError = 'No JSON found in response'
@@ -186,10 +190,14 @@ export async function executeAgenticMap(options: AgenticMapServiceOptions): Prom
             'Respond with corrected JSON only. No explanations, no markdown fences.',
           ].join('\n')
 
-          result = await agent.executeOnSession(sessionId, retryPrompt, {
-            executionContext: {commandType: 'curate', maxIterations: 5},
-            taskId: taskId ?? randomUUID(),
-          })
+          // eslint-disable-next-line no-await-in-loop
+          result = await withTimeout(
+            agent.executeOnSession(sessionId, retryPrompt, {
+              executionContext: {commandType: sessionCommandType, maxIterations: 5},
+              taskId: taskId ?? randomUUID(),
+            }),
+            timeoutController.signal,
+          )
         }
       } finally {
         clearTimeout(timeoutHandle)
@@ -220,4 +228,36 @@ export async function executeAgenticMap(options: AgenticMapServiceOptions): Prom
       agent.deleteTaskSession(sid).catch(() => {})
     }
   }
+}
+
+// ── Internal Helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Race a promise against an abort signal.
+ * Since executeOnSession() doesn't accept AbortSignal, this ensures
+ * the per-item timeout actually stops waiting for a hung call.
+ */
+function withTimeout<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(new Error('Timed out'))
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      reject(new Error('Timed out'))
+    }
+
+    signal.addEventListener('abort', onAbort, {once: true})
+
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      },
+    )
+  })
 }

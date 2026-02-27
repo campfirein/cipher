@@ -5,6 +5,16 @@ import {join} from 'node:path'
 
 import {SqliteKeyStorage} from '../../../../src/agent/infra/storage/sqlite-key-storage.js'
 
+const increment = (current: undefined | {value: number}) => ({
+  value: (current?.value ?? 0) + 1,
+})
+
+const addTen = (current: undefined | {value: number}) => ({
+  value: (current?.value ?? 0) + 10,
+})
+
+const returnUndefinedFlag = (current: unknown) => current === undefined ? 'was-undefined' : 'was-defined'
+
 describe('SqliteKeyStorage', () => {
   describe('in-memory mode', () => {
     let storage: SqliteKeyStorage
@@ -171,27 +181,19 @@ describe('SqliteKeyStorage', () => {
     describe('update', () => {
       it('should atomically update existing value', async () => {
         await storage.set(['counter'], {value: 5})
-        const result = await storage.update<{value: number}>(['counter'], (current) => ({
-          value: (current?.value ?? 0) + 1,
-        }))
+        const result = await storage.update<{value: number}>(['counter'], increment)
         expect(result).to.deep.equal({value: 6})
         expect(await storage.get(['counter'])).to.deep.equal({value: 6})
       })
 
       it('should create new value if key does not exist', async () => {
-        const result = await storage.update<{value: number}>(['new-key'], (current) => ({
-          value: (current?.value ?? 0) + 10,
-        }))
+        const result = await storage.update<{value: number}>(['new-key'], addTen)
         expect(result).to.deep.equal({value: 10})
       })
 
       it('should pass undefined to updater for new keys', async () => {
-        let receivedCurrent: unknown = 'not-set'
-        await storage.update(['brand-new'], (current) => {
-          receivedCurrent = current
-          return 'created'
-        })
-        expect(receivedCurrent).to.be.undefined
+        const result = await storage.update(['brand-new'], returnUndefinedFlag)
+        expect(result).to.equal('was-undefined')
       })
     })
 

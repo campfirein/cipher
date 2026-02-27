@@ -1,8 +1,8 @@
-import type {ICipherAgent} from '../../../core/interfaces/i-cipher-agent.js'
 import type {Tool, ToolExecutionContext, ToolMetadata} from '../../../core/domain/tools/types.js'
+import type {ICipherAgent} from '../../../core/interfaces/i-cipher-agent.js'
 
-import {AgenticMapParametersSchema} from '../../map/map-shared.js'
 import {executeAgenticMap} from '../../map/agentic-map-service.js'
+import {AgenticMapParametersSchema} from '../../map/map-shared.js'
 
 /**
  * Create the agentic_map tool.

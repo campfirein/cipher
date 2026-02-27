@@ -1,22 +1,21 @@
 import {randomUUID} from 'node:crypto'
 import {writeFile} from 'node:fs/promises'
-import {resolve} from 'node:path'
 
 import type {
   GenerateContentResponse,
   IContentGenerator,
 } from '../../core/interfaces/i-content-generator.js'
-import type {MapRunResult} from './worker-pool.js'
 
 import {
   buildRetryMessage,
   buildUserMessage,
   LLM_MAP_SYSTEM_MESSAGE,
-  parseJsonlFile,
-  validateAgainstSchema,
   type LlmMapParameters,
+  parseJsonlFile,
+  resolveAndValidatePath,
+  validateAgainstSchema,
 } from './map-shared.js'
-import {runMapWorkerPool, type MapProgress} from './worker-pool.js'
+import {type MapProgress, type MapRunResult, runMapWorkerPool} from './worker-pool.js'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -63,15 +62,15 @@ export async function executeLlmMap(options: LlmMapServiceOptions): Promise<MapR
     concurrency = 8,
     input_path: inputPath,
     max_attempts: maxAttempts = 3,
-    model: modelParam,
     output_path: outputPath,
     output_schema: outputSchema,
     prompt,
+    timeout_seconds: timeoutSeconds = 120,
   } = params
 
-  // Resolve paths relative to working directory (project root)
-  const resolvedInputPath = resolve(workingDirectory, inputPath)
-  const resolvedOutputPath = resolve(workingDirectory, outputPath)
+  // Resolve paths relative to working directory and validate they don't escape it
+  const resolvedInputPath = resolveAndValidatePath(workingDirectory, inputPath)
+  const resolvedOutputPath = resolveAndValidatePath(workingDirectory, outputPath)
 
   // 1. Parse input JSONL
   const items = await parseJsonlFile(resolvedInputPath)
@@ -96,49 +95,67 @@ export async function executeLlmMap(options: LlmMapServiceOptions): Promise<MapR
       outputSchema,
     )
 
-    let attemptsUsed = 1
-    let lastResponse = ''
-    let lastError = ''
+    // Per-item timeout
+    const timeoutController = new AbortController()
+    const timeoutHandle = setTimeout(() => {
+      timeoutController.abort()
+    }, timeoutSeconds * 1000)
 
-    // Initial LLM call (stateless — no tool access)
-    const response = await callLlm(generator, userMessage, modelParam, taskId, abortSignal)
-    lastResponse = response.content
+    try {
+      let attemptsUsed = 1
+      let lastResponse = ''
+      let lastError = ''
 
-    // Validation loop with retry
-    while (true) {
-      // Try to parse JSON
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(lastResponse)
-      } catch (e) {
-        lastError = `JSON parse error: ${e instanceof Error ? e.message : String(e)}`
-      }
+      // Initial LLM call (stateless — no tool access)
+      // Wrap with timeout so a hung generateContent() doesn't block forever
+      const response = await withTimeout(
+        callLlm(generator, userMessage, taskId, abortSignal),
+        timeoutController.signal,
+      )
+      lastResponse = response.content
 
-      // Validate against schema
-      if (parsed !== undefined) {
-        const validation = validateAgainstSchema(parsed, outputSchema)
-        if (validation.valid) {
-          return parsed
+      // Validation loop with retry
+      while (true) {
+        // Try to parse JSON
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(lastResponse)
+        } catch (error) {
+          lastError = `JSON parse error: ${error instanceof Error ? error.message : String(error)}`
         }
 
-        lastError = `Schema validation failed: ${validation.error}`
-      }
+        // Validate against schema
+        if (parsed !== undefined) {
+          const validation = validateAgainstSchema(parsed, outputSchema)
+          if (validation.valid) {
+            return parsed
+          }
 
-      // Check retry budget
-      if (attemptsUsed >= maxAttempts) {
-        throw new Error(`Failed after ${attemptsUsed} attempts. Last error: ${lastError}`)
-      }
+          lastError = `Schema validation failed: ${validation.error}`
+        }
 
-      // Check abort
-      if (abortSignal?.aborted) {
-        throw new Error('Aborted')
-      }
+        // Check retry budget
+        if (attemptsUsed >= maxAttempts) {
+          throw new Error(`Failed after ${attemptsUsed} attempts. Last error: ${lastError}`)
+        }
 
-      // Retry with error context + prior response
-      attemptsUsed++
-      const retryMessage = buildRetryMessage(userMessage, lastError, lastResponse)
-      const retryResponse = await callLlm(generator, retryMessage, modelParam, taskId, abortSignal)
-      lastResponse = retryResponse.content
+        // Check abort or timeout
+        if (abortSignal?.aborted || timeoutController.signal.aborted) {
+          throw new Error('Aborted or timed out')
+        }
+
+        // Retry with error context + prior response
+        attemptsUsed++
+        const retryMessage = buildRetryMessage(userMessage, lastError, lastResponse)
+        // eslint-disable-next-line no-await-in-loop
+        const retryResponse = await withTimeout(
+          callLlm(generator, retryMessage, taskId, abortSignal),
+          timeoutController.signal,
+        )
+        lastResponse = retryResponse.content
+      }
+    } finally {
+      clearTimeout(timeoutHandle)
     }
   }
 
@@ -161,10 +178,39 @@ export async function executeLlmMap(options: LlmMapServiceOptions): Promise<MapR
 
 // ── Internal Helpers ─────────────────────────────────────────────────────────
 
+/**
+ * Race a promise against an abort signal.
+ * Since IContentGenerator.generateContent() doesn't accept AbortSignal,
+ * this ensures the per-item timeout stops waiting for a hung LLM call.
+ */
+function withTimeout<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(new Error('Timed out'))
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      reject(new Error('Timed out'))
+    }
+
+    signal.addEventListener('abort', onAbort, {once: true})
+
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      },
+    )
+  })
+}
+
 async function callLlm(
   generator: IContentGenerator,
   userMessage: string,
-  model?: string,
   taskId?: string,
   abortSignal?: AbortSignal,
 ): Promise<GenerateContentResponse> {
@@ -180,7 +226,7 @@ async function callLlm(
     contents: [
       {content: userMessage, role: 'user'},
     ],
-    model: model ?? 'default',
+    model: 'default',
     systemPrompt: LLM_MAP_SYSTEM_MESSAGE,
     taskId: taskId ?? randomUUID(),
   })

@@ -1,6 +1,56 @@
+/* eslint-disable camelcase */
+import {realpathSync} from 'node:fs'
 import {readFile} from 'node:fs/promises'
-
+import {basename, dirname, join, normalize, resolve, sep} from 'node:path'
 import {z} from 'zod'
+
+// ── Path Safety ─────────────────────────────────────────────────────────────
+
+/**
+ * Canonicalize a path by resolving symlinks.
+ * For existing paths, uses realpathSync.native().
+ * For non-existent paths (e.g., output files), walks up to the nearest
+ * existing ancestor directory, canonicalizes it, then reconstructs the
+ * remaining non-existent segments on top. This catches symlink escapes
+ * at any depth (e.g., workspace/symlink-to-outside/new-dir/file.jsonl).
+ */
+function canonicalize(absolutePath: string): string {
+  try {
+    return realpathSync.native(absolutePath)
+  } catch {
+    // Path doesn't exist — recurse up to the nearest existing ancestor
+    const dir = dirname(absolutePath)
+    const base = basename(absolutePath)
+
+    // Guard: reached filesystem root without finding an existing path
+    if (dir === absolutePath) {
+      return normalize(absolutePath)
+    }
+
+    return join(canonicalize(dir), base)
+  }
+}
+
+/**
+ * Resolve a path relative to the working directory and validate it stays within bounds.
+ * Prevents both path traversal (e.g., `../../etc/passwd`) and symlink escape
+ * (e.g., a symlink under the repo pointing to an external location).
+ *
+ * @throws Error if the resolved path escapes the working directory
+ */
+export function resolveAndValidatePath(workingDirectory: string, filePath: string): string {
+  const resolved = resolve(workingDirectory, filePath)
+
+  // Canonicalize both paths to resolve symlinks before containment check
+  const canonicalRoot = canonicalize(resolve(workingDirectory))
+  const canonicalResolved = canonicalize(resolved)
+
+  if (!canonicalResolved.startsWith(canonicalRoot + sep) && canonicalResolved !== canonicalRoot) {
+    throw new Error(`Path "${filePath}" resolves outside the working directory`)
+  }
+
+  return resolved
+}
 
 // ── Deterministic JSON Serialization ─────────────────────────────────────────
 
@@ -84,16 +134,15 @@ export async function parseJsonlFile(filePath: string): Promise<unknown[]> {
   const lines = rawLines.at(-1) === '' ? rawLines.slice(0, -1) : rawLines
   const items: unknown[] = []
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
+  for (const [i, line] of lines.entries()) {
     if (line.trim() === '') {
       throw new Error(`Line ${i} is empty. Every line must be valid JSON.`)
     }
 
     try {
       items.push(JSON.parse(line))
-    } catch (e) {
-      throw new Error(`Line ${i} is not valid JSON: ${e}`)
+    } catch (error) {
+      throw new Error(`Line ${i} is not valid JSON: ${error}`)
     }
   }
 
@@ -167,10 +216,6 @@ export const LlmMapParametersSchema = z.object({
     .positive()
     .optional()
     .describe('Max LLM calls per item (default: 3)'),
-  model: z
-    .string()
-    .optional()
-    .describe('"small" (default) or "default" to use session model'),
   output_path: z.string().describe('File path where JSONL output will be written'),
   output_schema: z
     .record(z.string(), z.any())
@@ -247,8 +292,7 @@ export function buildAgenticMapSystemMessage(readOnly: boolean): string {
   ]
 
   if (readOnly) {
-    lines.push('')
-    lines.push('Write operations (edit, write, bash) are disabled for this task.')
+    lines.push('', 'Write operations (edit, write, bash) are disabled for this task.')
   }
 
   return lines.join('\n')

@@ -96,7 +96,7 @@ export class SandboxService implements ISandboxService {
       }
 
       // Build per-session ToolsSDK (includes agentQuery bound to this sessionId)
-      const sessionToolsSDK = this.buildToolsSDK(sessionId)
+      const sessionToolsSDK = this.buildToolsSDK(sessionId, config?.commandType)
 
       sandbox = new LocalSandbox({
         environmentContext: this.environmentContext,
@@ -204,12 +204,13 @@ export class SandboxService implements ISandboxService {
    * Build a Tools SDK instance for a specific session.
    * Includes `agentQuery` bound to the session's ID for sub-agent delegation.
    */
-  private buildToolsSDK(sessionId: string): ToolsSDK | undefined {
+  private buildToolsSDK(sessionId: string, commandType?: string): ToolsSDK | undefined {
     if (!this.fileSystem) {
       return undefined
     }
 
     return createToolsSDK({
+      commandType,
       curateService: this.curateService,
       fileSystem: this.fileSystem,
       parentSessionId: sessionId,

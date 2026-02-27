@@ -88,10 +88,11 @@ export async function runMapWorkerPool(options: WorkerPoolOptions): Promise<InMe
       emitProgress()
 
       try {
+        // eslint-disable-next-line no-await-in-loop
         const result = await processItem(idx, items[idx])
         results.set(idx, result)
         succeededCount++
-      } catch (error) {
+      } catch {
         // Store null placeholder so output JSONL maintains 1:1 line mapping with input
         results.set(idx, null)
         failedCount++
