@@ -123,13 +123,10 @@ export class AiSdkContentGenerator implements IContentGenerator {
     for await (const event of result.fullStream) {
       switch (event.type) {
         case 'error': {
-          yield {
-            content: String(event.error),
-            finishReason: 'error',
-            isComplete: true,
-          }
-
-          break
+          // Throw the error so RetryableContentGenerator can catch and retry it.
+          // Yielding it as content would swallow the error and prevent retry logic
+          // from working (e.g., for 429 rate limit errors).
+          throw event.error instanceof Error ? event.error : new Error(String(event.error))
         }
 
         case 'finish-step': {
