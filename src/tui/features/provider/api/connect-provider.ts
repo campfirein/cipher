@@ -8,15 +8,17 @@ import {getProvidersQueryOptions} from './get-providers.js'
 
 export type ConnectProviderDTO = {
   apiKey?: string
+  baseUrl?: string
   providerId: string
 }
 
-export const connectProvider = ({apiKey, providerId}: ConnectProviderDTO): Promise<ProviderConnectResponse> => {
+export const connectProvider = ({apiKey, baseUrl, providerId}: ConnectProviderDTO): Promise<ProviderConnectResponse> => {
   const {apiClient} = useTransportStore.getState()
   if (!apiClient) return Promise.reject(new Error('Not connected'))
 
   return apiClient.request<ProviderConnectResponse, ProviderConnectRequest>(ProviderEvents.CONNECT, {
     apiKey,
+    baseUrl,
     providerId,
   })
 }

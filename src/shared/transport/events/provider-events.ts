@@ -15,6 +15,7 @@ export interface ProviderListResponse {
 
 export interface ProviderConnectRequest {
   apiKey?: string
+  baseUrl?: string
   providerId: string
 }
 

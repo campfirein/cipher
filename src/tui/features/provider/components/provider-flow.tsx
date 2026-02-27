@@ -23,10 +23,11 @@ import {useGetProviders} from '../api/get-providers.js'
 import {useSetActiveProvider} from '../api/set-active-provider.js'
 import {useValidateApiKey} from '../api/validate-api-key.js'
 import {ApiKeyDialog} from './api-key-dialog.js'
+import {BaseUrlDialog} from './base-url-dialog.js'
 import {ModelSelectStep} from './model-select-step.js'
 import {ProviderDialog} from './provider-dialog.js'
 
-type FlowStep = 'api_key' | 'connecting' | 'done' | 'loading' | 'model_select' | 'provider_actions' | 'select'
+type FlowStep = 'api_key' | 'base_url' | 'connecting' | 'done' | 'loading' | 'model_select' | 'provider_actions' | 'select'
 
 interface ProviderAction {
   description: string
@@ -57,6 +58,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
   const {theme: {colors}} = useTheme()
   const [step, setStep] = useState<FlowStep>('select')
   const [selectedProvider, setSelectedProvider] = useState<null | ProviderDTO>(null)
+  const [baseUrl, setBaseUrl] = useState<null | string>(null)
   const [error, setError] = useState<null | string>(null)
 
   const {data, isLoading} = useGetProviders()
@@ -89,6 +91,21 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
         },
         {
           description: 'Remove API key and disconnect',
+          id: 'disconnect',
+          name: 'Disconnect',
+        },
+      )
+    }
+
+    if (selectedProvider.id === 'openai-compatible') {
+      actions.push(
+        {
+          description: 'Change base URL and API key',
+          id: 'reconfigure',
+          name: 'Reconfigure',
+        },
+        {
+          description: 'Remove configuration and disconnect',
           id: 'disconnect',
           name: 'Disconnect',
         },
@@ -131,6 +148,12 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
         setStep('select')
       }
 
+      return
+    }
+
+    // OpenAI Compatible → base_url step
+    if (provider.id === 'openai-compatible') {
+      setStep('base_url')
       return
     }
 
@@ -185,6 +208,12 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
         break
       }
 
+      case 'reconfigure': {
+        setStep('base_url')
+
+        break
+      }
+
       case 'replace': {
         setStep('api_key')
 
@@ -201,26 +230,41 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
     }
   }, [disconnectMutation, onComplete, selectedProvider, setActiveMutation])
 
+  const handleBaseUrlSubmit = useCallback((url: string) => {
+    setBaseUrl(url)
+    setStep('api_key')
+  }, [])
+
   const handleApiKeySuccess = useCallback(async (apiKey: string) => {
     if (!selectedProvider) return
 
     setStep('connecting')
     try {
-      await connectMutation.mutateAsync({apiKey, providerId: selectedProvider.id})
+      await connectMutation.mutateAsync({
+        apiKey: apiKey || undefined,
+        baseUrl: baseUrl || undefined,
+        providerId: selectedProvider.id,
+      })
       setStep('model_select')
     } catch (error_) {
       setError(error_ instanceof Error ? error_.message : String(error_))
       setStep('api_key')
     }
-  }, [connectMutation, selectedProvider])
+  }, [baseUrl, connectMutation, selectedProvider])
 
   const handleApiKeyCancel = useCallback(() => {
     setStep('select')
     setSelectedProvider(null)
+    setBaseUrl(null)
   }, [])
 
   const handleValidateApiKey = useCallback(async (apiKey: string) => {
     if (!selectedProvider) return {error: 'No provider selected', isValid: false}
+
+    // Skip server-side validation for openai-compatible (baseUrl not stored yet)
+    if (selectedProvider.id === 'openai-compatible') {
+      return {isValid: true}
+    }
 
     try {
       const result = await validateMutation.mutateAsync({apiKey, providerId: selectedProvider.id})
@@ -254,12 +298,25 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       return selectedProvider ? (
         <ApiKeyDialog
           isActive={isActive}
+          isOptional={selectedProvider.id === 'openai-compatible'}
           onCancel={handleApiKeyCancel}
           onSuccess={handleApiKeySuccess}
           provider={selectedProvider}
           validateApiKey={handleValidateApiKey}
         />
       ) : null
+    }
+
+    case 'base_url': {
+      return (
+        <BaseUrlDialog
+          description="Enter the base URL of your OpenAI-compatible endpoint (Ollama, LM Studio, etc.)"
+          isActive={isActive}
+          onCancel={handleApiKeyCancel}
+          onSubmit={handleBaseUrlSubmit}
+          title="Connect to OpenAI Compatible"
+        />
+      )
     }
 
     case 'connecting': {

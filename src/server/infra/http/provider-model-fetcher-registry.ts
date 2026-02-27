@@ -34,6 +34,18 @@ export async function getModelFetcher(providerId: string): Promise<IProviderMode
   // ByteRover internal doesn't support model fetching
   if (providerId === 'byterover') return undefined
 
+  // OpenAI Compatible: always read fresh config (baseUrl is user-configured and may change)
+  if (providerId === 'openai-compatible') {
+    const configStore = new FileProviderConfigStore()
+    const config = await configStore.read()
+    const baseUrl = config.getBaseUrl('openai-compatible')
+    if (baseUrl) {
+      return new OpenAICompatibleModelFetcher(baseUrl, 'OpenAI Compatible')
+    }
+
+    return undefined
+  }
+
   // Return cached instance
   if (fetchers.has(providerId)) {
     return fetchers.get(providerId)
@@ -108,18 +120,6 @@ export async function getModelFetcher(providerId: string): Promise<IProviderMode
 
     case 'openai': {
       fetcher = new OpenAIModelFetcher()
-
-      break
-    }
-
-    case 'openai-compatible': {
-      // Base URL is user-configured — read from stored provider config
-      const configStore = new FileProviderConfigStore()
-      const config = await configStore.read()
-      const baseUrl = config.getBaseUrl('openai-compatible')
-      if (baseUrl) {
-        fetcher = new OpenAICompatibleModelFetcher(baseUrl, 'OpenAI Compatible')
-      }
 
       break
     }
