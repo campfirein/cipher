@@ -10,13 +10,14 @@
  */
 
 import {Box, Text} from 'ink'
-import React, {useCallback, useMemo, useState} from 'react'
+import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
 import type {ProviderDTO} from '../../../../shared/transport/types/dto.js'
 import type {CommandSideEffects} from '../../../types/commands.js'
 
 import {SelectableList} from '../../../components/selectable-list.js'
 import {useTheme} from '../../../hooks/index.js'
+import {formatTransportError} from '../../../utils/index.js'
 import {useConnectProvider} from '../api/connect-provider.js'
 import {useDisconnectProvider} from '../api/disconnect-provider.js'
 import {useGetProviders} from '../api/get-providers.js'
@@ -61,13 +62,20 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
   const [baseUrl, setBaseUrl] = useState<null | string>(null)
   const [error, setError] = useState<null | string>(null)
 
-  const {data, isLoading} = useGetProviders()
+  const {data, isError: isProvidersError, isLoading} = useGetProviders()
   const connectMutation = useConnectProvider()
   const disconnectMutation = useDisconnectProvider()
   const setActiveMutation = useSetActiveProvider()
   const validateMutation = useValidateApiKey()
 
   const providers = data?.providers ?? []
+
+  // Exit gracefully when providers query fails — don't leave user stuck
+  useEffect(() => {
+    if (isProvidersError) {
+      onComplete('Failed to load providers. Check your connection and try again.')
+    }
+  }, [isProvidersError, onComplete])
 
   // Build action choices for a connected provider
   const providerActions = useMemo(() => {
@@ -144,7 +152,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
         await connectMutation.mutateAsync({providerId: provider.id})
         onComplete(`Connected to ${provider.name}`)
       } catch (error_) {
-        setError(error_ instanceof Error ? error_.message : String(error_))
+        setError(formatTransportError(error_))
         setStep('select')
       }
 
@@ -169,7 +177,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       await connectMutation.mutateAsync({providerId: provider.id})
       setStep('model_select')
     } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : String(error_))
+      setError(formatTransportError(error_))
       setStep('select')
     }
   }, [connectMutation, onComplete])
@@ -188,7 +196,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
             setStep('model_select')
           }
         } catch (error_) {
-          setError(error_ instanceof Error ? error_.message : String(error_))
+          setError(formatTransportError(error_))
           setStep('select')
         }
 
@@ -201,7 +209,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
           await disconnectMutation.mutateAsync({providerId: selectedProvider.id})
           onComplete(`Disconnected from ${selectedProvider.name}`)
         } catch (error_) {
-          setError(error_ instanceof Error ? error_.message : String(error_))
+          setError(formatTransportError(error_))
           setStep('select')
         }
 
@@ -247,7 +255,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       })
       setStep('model_select')
     } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : String(error_))
+      setError(formatTransportError(error_))
       setStep('api_key')
     }
   }, [baseUrl, connectMutation, selectedProvider])
@@ -270,7 +278,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       const result = await validateMutation.mutateAsync({apiKey, providerId: selectedProvider.id})
       return result
     } catch (error_) {
-      return {error: error_ instanceof Error ? error_.message : String(error_), isValid: false}
+      return {error: formatTransportError(error_), isValid: false}
     }
   }, [selectedProvider, validateMutation])
 

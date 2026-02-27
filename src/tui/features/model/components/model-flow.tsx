@@ -11,6 +11,7 @@ import {Box, Text} from 'ink'
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
 import {useTheme} from '../../../hooks/index.js'
+import {formatTransportError} from '../../../utils/index.js'
 import {getActiveProviderConfigQueryOptions, useGetActiveProviderConfig} from '../../provider/api/get-active-provider-config.js'
 import {useGetProviders} from '../../provider/api/get-providers.js'
 import {getModelsByProvidersQueryOptions, useGetModelsByProviders} from '../api/get-models-by-providers.js'
@@ -48,7 +49,7 @@ export const ModelFlow: React.FC<ModelFlowProps> = ({isActive = true, onCancel, 
 
   const isOnlyByteRover = connectedProviders.length === 1 && connectedProviders[0].id === 'byterover'
 
-  const {data: modelsData, isLoading: isLoadingModels} = useGetModelsByProviders({
+  const {data: modelsData, isError: isModelsError, isLoading: isLoadingModels} = useGetModelsByProviders({
     providerIds: connectedProviderIds,
     queryConfig: {enabled: connectedProviderIds.length > 0 && !isOnlyByteRover},
   })
@@ -86,7 +87,7 @@ export const ModelFlow: React.FC<ModelFlowProps> = ({isActive = true, onCancel, 
         queryClient.invalidateQueries({queryKey: getActiveProviderConfigQueryOptions().queryKey})
         onComplete(`Model set to: ${model.name}`)
       } catch (error_) {
-        setError(error_ instanceof Error ? error_.message : String(error_))
+        setError(formatTransportError(error_))
       }
     },
     [connectedProviderIds, onComplete, queryClient, setActiveModelMutation],
@@ -97,9 +98,10 @@ export const ModelFlow: React.FC<ModelFlowProps> = ({isActive = true, onCancel, 
     if (connectedProviders.length === 0) return 'No connected providers. Run /providers to connect one.'
     if (isOnlyByteRover)
       return 'ByteRover uses an internal model. Run /providers to switch to an external provider for model selection.'
+    if (isModelsError) return 'Failed to load models. Check your provider connection and try again.'
     if (!isLoadingModels && modelItems.length === 0 && modelsData) return 'No models available.'
     return null
-  }, [connectedProviders.length, isLoadingModels, isLoadingProviders, isOnlyByteRover, modelItems.length, modelsData])
+  }, [connectedProviders.length, isLoadingModels, isLoadingProviders, isModelsError, isOnlyByteRover, modelItems.length, modelsData])
 
   useEffect(() => {
     if (earlyExitMessage) {
@@ -114,6 +116,8 @@ export const ModelFlow: React.FC<ModelFlowProps> = ({isActive = true, onCancel, 
       </Box>
     )
   }
+
+  if (isModelsError) return null
 
   if (isLoadingModels || connectedProviders.length === 0 || isOnlyByteRover || modelItems.length === 0) {
     return (

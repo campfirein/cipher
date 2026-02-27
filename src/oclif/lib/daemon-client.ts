@@ -30,7 +30,8 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
     'You have local changes. Run "brv push" to save or "brv reset" to discard first.',
   [TaskErrorCode.NOT_AUTHENTICATED]: 'Not authenticated. Run "brv login" first.',
   [TaskErrorCode.PROJECT_NOT_INIT]: 'Project not initialized. Run "brv init" first.',
-  [TaskErrorCode.PROVIDER_NOT_CONFIGURED]: 'No provider connected. Run "brv providers connect <provider>" to configure a provider.',
+  [TaskErrorCode.PROVIDER_NOT_CONFIGURED]:
+    'No provider connected. Run "brv providers connect <provider>" to configure a provider.',
   [TaskErrorCode.SPACE_NOT_CONFIGURED]: 'No space configured. Run "brv space switch" to select a space first.',
   [TaskErrorCode.SPACE_NOT_FOUND]: 'Space not found. Check your configuration.',
 }
@@ -175,11 +176,14 @@ export function formatConnectionError(error: unknown): string {
 
   // Business errors from transport handlers (auth, validation, etc.)
   if (error instanceof TransportRequestError) {
-    if ('code' in error && typeof error.code === 'string') {
-      return USER_FRIENDLY_MESSAGES[error.code] ?? error.message
+    // Strip the " for event '...'" suffix that TransportRequestError appends
+    const baseMessage = error.event ? error.message.replace(` for event '${error.event}'`, '') : error.message
+
+    if (error.code && typeof error.code === 'string') {
+      return USER_FRIENDLY_MESSAGES[error.code] ?? baseMessage
     }
 
-    return error.message
+    return baseMessage
   }
 
   const message = error instanceof Error ? error.message : String(error)

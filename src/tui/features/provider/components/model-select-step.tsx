@@ -10,6 +10,7 @@ import {Box, Text, useInput} from 'ink'
 import React, {useCallback, useMemo, useState} from 'react'
 
 import {useTheme} from '../../../hooks/index.js'
+import {formatTransportError} from '../../../utils/index.js'
 import {getModelsQueryOptions, useGetModels} from '../../model/api/get-models.js'
 import {useSetActiveModel} from '../../model/api/set-active-model.js'
 import {ModelDialog, type ModelItem} from '../../model/components/model-dialog.js'
@@ -39,7 +40,7 @@ export const ModelSelectStep: React.FC<ModelSelectStepProps> = ({
   const [error, setError] = useState<null | string>(null)
   const queryClient = useQueryClient()
 
-  const {data: modelData, isLoading} = useGetModels({
+  const {data: modelData, isError: isModelsError, isLoading} = useGetModels({
     providerId,
     queryConfig: {enabled: Boolean(providerId)},
   })
@@ -75,7 +76,7 @@ export const ModelSelectStep: React.FC<ModelSelectStepProps> = ({
       queryClient.invalidateQueries({queryKey: getActiveProviderConfigQueryOptions().queryKey})
       onComplete(model.name)
     } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : String(error_))
+      setError(formatTransportError(error_))
     }
   }, [onComplete, providerId, queryClient, setActiveModelMutation])
 
@@ -95,9 +96,10 @@ export const ModelSelectStep: React.FC<ModelSelectStepProps> = ({
   }
 
   if (modelItems.length === 0) {
+    const emptyMessage = isModelsError ? 'Failed to load models.' : 'No models available.'
     return (
       <Box gap={2}>
-        <Text color={colors.dimText}>No models available.</Text>
+        <Text color={colors.dimText}>{emptyMessage}</Text>
         <Text color={colors.dimText}>
           <Text color={colors.text}>Esc</Text> Back
         </Text>
