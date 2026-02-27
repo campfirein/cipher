@@ -9,9 +9,67 @@
 import type {IProviderConfigStore} from '../../core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keychain-store.js'
 
-import {getProviderById} from '../../core/domain/entities/provider-registry.js'
+import {getProviderById, providerRequiresApiKey} from '../../core/domain/entities/provider-registry.js'
 import {type ProviderConfigResponse} from '../../core/domain/transport/schemas.js'
 import {getProviderApiKeyFromEnv} from './env-provider-detector.js'
+
+async function isProviderCredentialAccessible(
+  providerId: string,
+  providerKeychainStore: IProviderKeychainStore,
+): Promise<boolean> {
+  if (!providerRequiresApiKey(providerId)) return true
+  return Boolean((await providerKeychainStore.getApiKey(providerId)) || getProviderApiKeyFromEnv(providerId))
+}
+
+/**
+ * Validate provider config integrity at startup.
+ *
+ * Iterates ALL connected providers and disconnects any whose credentials are no
+ * longer accessible. This handles migration from v1 (system keychain) to v2
+ * (file-based keystore) and other stale credential scenarios.
+ *
+ * If the previously active provider was stale, explicitly sets activeProvider to
+ * empty string so the TUI routes to the provider setup flow — bypassing the
+ * 'byterover' fallback that withProviderDisconnected() would otherwise apply.
+ */
+export async function clearStaleProviderConfig(
+  providerConfigStore: IProviderConfigStore,
+  providerKeychainStore: IProviderKeychainStore,
+): Promise<void> {
+  try {
+    const config = await providerConfigStore.read()
+
+    const results = await Promise.all(
+      Object.keys(config.providers).map(async (providerId) => ({
+        accessible: await isProviderCredentialAccessible(providerId, providerKeychainStore),
+        providerId,
+      })),
+    )
+
+    const staleProviderIds = results.filter(({accessible}) => !accessible).map(({providerId}) => providerId)
+
+    if (staleProviderIds.length === 0) return
+
+    // Build new config in ONE pass — avoids parallel-write race conditions
+    // where multiple disconnectProvider() calls read the same cached config.
+    let newConfig = config
+    for (const providerId of staleProviderIds) {
+      newConfig = newConfig.withProviderDisconnected(providerId)
+    }
+
+    // withProviderDisconnected() falls back to 'byterover' when the active provider is
+    // removed, which causes the TUI to show 'ready' and skip provider setup. Explicitly
+    // set activeProvider to '' so the user is returned to the provider setup flow.
+    if (staleProviderIds.includes(config.activeProvider)) {
+      newConfig = newConfig.withActiveProvider('')
+    }
+
+    await providerConfigStore.write(newConfig)
+  } catch {
+    // Non-critical: if validation fails, daemon continues normally.
+    // The user will encounter a provider error when submitting a task instead.
+  }
+}
 
 /**
  * Resolve the active provider's full configuration.
@@ -57,11 +115,18 @@ export async function resolveProviderConfig(
         provider: activeProvider,
         providerApiKey: apiKey || undefined,
         providerBaseUrl: config.getBaseUrl(activeProvider) || undefined,
+        providerKeyMissing: !apiKey,
       }
     }
 
     case 'openrouter': {
-      return {activeModel, activeProvider, openRouterApiKey: apiKey || undefined, provider: activeProvider}
+      return {
+        activeModel,
+        activeProvider,
+        openRouterApiKey: apiKey || undefined,
+        provider: activeProvider,
+        providerKeyMissing: !apiKey,
+      }
     }
 
     default: {
@@ -74,6 +139,7 @@ export async function resolveProviderConfig(
         providerApiKey: apiKey || undefined,
         providerBaseUrl: providerDef?.baseUrl || undefined,
         providerHeaders: headers && Object.keys(headers).length > 0 ? {...headers} : undefined,
+        providerKeyMissing: !apiKey,
       }
     }
   }

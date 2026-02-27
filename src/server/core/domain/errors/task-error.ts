@@ -135,7 +135,7 @@ export class AgentDisconnectedError extends TaskError {
 export class AgentNotInitializedError extends TaskError {
   public constructor(reason?: string) {
     super(
-      reason ? `Agent not initialized: ${reason}` : 'Agent not initialized. Please complete login and setup first.',
+      reason ? `Agent failed to initialize: ${reason}` : "Agent failed to initialize. Run 'brv restart' to force a clean restart.",
       TaskErrorCode.AGENT_NOT_INITIALIZED,
     )
     this.name = 'AgentNotInitializedError'
@@ -144,14 +144,14 @@ export class AgentNotInitializedError extends TaskError {
 
 export class NotAuthenticatedError extends TaskError {
   public constructor() {
-    super('Not authenticated. Please run "brv login" first.', TaskErrorCode.NOT_AUTHENTICATED)
+    super('Not authenticated. Cloud sync features (push/pull/space) require login — local query and curate work without authentication.', TaskErrorCode.NOT_AUTHENTICATED)
     this.name = 'NotAuthenticatedError'
   }
 }
 
 export class ProjectNotInitError extends TaskError {
   public constructor() {
-    super('Project not initialized. Run "brv" first.', TaskErrorCode.PROJECT_NOT_INIT)
+    super('Project not initialized. Run "brv restart" to reinitialize.', TaskErrorCode.PROJECT_NOT_INIT)
     this.name = 'ProjectNotInitError'
   }
 }
@@ -171,7 +171,7 @@ export class FileValidationError extends Error {
 }
 
 export class LocalChangesExistError extends TaskError {
-  public constructor(message = 'Local changes exist. Push first or reset before pulling.') {
+  public constructor(message = 'Local changes exist. Run "brv push" to save your changes before pulling.') {
     super(message, TaskErrorCode.LOCAL_CHANGES_EXIST)
     this.name = 'LocalChangesExistError'
   }
@@ -179,7 +179,7 @@ export class LocalChangesExistError extends TaskError {
 
 export class SpaceNotConfiguredError extends TaskError {
   public constructor() {
-    super('No space configured. Run "space switch" to select a space first.', TaskErrorCode.SPACE_NOT_CONFIGURED)
+    super('No space configured. Run "brv space list" to see available spaces, then "brv space switch --team <team> --name <space>" to select one.', TaskErrorCode.SPACE_NOT_CONFIGURED)
     this.name = 'SpaceNotConfiguredError'
   }
 }

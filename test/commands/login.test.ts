@@ -197,7 +197,7 @@ describe('Login Command', () => {
 
       await createCommand('--api-key', 'test-key').run()
 
-      expect(loggedMessages.some((m) => m.includes('No ByteRover instance is running'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Daemon failed to start automatically'))).to.be.true
     })
 
     it('should handle InstanceCrashedError', async () => {
@@ -205,7 +205,7 @@ describe('Login Command', () => {
 
       await createCommand('--api-key', 'test-key').run()
 
-      expect(loggedMessages.some((m) => m.includes('ByteRover instance has crashed'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Daemon crashed unexpectedly'))).to.be.true
     })
 
     it('should handle ConnectionFailedError', async () => {

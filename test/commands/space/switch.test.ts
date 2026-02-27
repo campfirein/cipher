@@ -211,7 +211,7 @@ describe('Space Switch Command', () => {
 
       await createCommand(['--team', 'acme', '--name', 'any-space']).run()
 
-      expect(loggedMessages.some((m) => m.includes('No ByteRover instance is running'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Daemon failed to start automatically'))).to.be.true
     })
 
     it('should handle ConnectionFailedError', async () => {

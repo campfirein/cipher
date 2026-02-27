@@ -47,6 +47,7 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
     'ECONNREFUSED',
     'ENOTFOUND',
     'rate_limit',
+    'rate limit',
     'overloaded',
     'capacity',
     'timeout',
@@ -189,4 +190,223 @@ export function calculateRetryDelay(attempt: number, policy: RetryPolicy): numbe
 
   // Ensure delay is at least 0
   return Math.max(0, Math.round(cappedDelay + jitter))
+}
+
+// ─── Rate Limit Delay Extraction ────────────────────────────────────────────
+//
+// When providers return HTTP 429, they embed retry timing in different ways:
+//   - Anthropic, OpenAI, Groq, xAI, Mistral: standard `retry-after` header (seconds)
+//   - OpenAI Azure: `retry-after-ms` header (milliseconds)
+//   - Anthropic backup: `anthropic-ratelimit-*-reset` header (RFC 3339 timestamp)
+//   - OpenRouter: `X-RateLimit-Reset` header (Unix timestamp in milliseconds)
+//   - OpenAI/Groq fallback: `x-ratelimit-reset-tokens` header (Go duration, e.g. "6m0s")
+//   - Gemini: NO headers — uses `retryDelay` inside `google.rpc.RetryInfo` in the body
+//
+// This fallback is used when a 429 fires but no header parsing yields a result:
+export const RATE_LIMIT_FALLBACK_DELAY_MS = 65_000
+
+/**
+ * Normalize raw headers object to lowercase keys for case-insensitive lookup.
+ * Providers like OpenRouter use capitalized header names (e.g. "X-RateLimit-Reset").
+ */
+function normalizeHeaders(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const result: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === 'string') {
+      result[key.toLowerCase()] = value
+    }
+  }
+
+  return result
+}
+
+/**
+ * Parse a Go duration string (used by OpenAI and Groq) into milliseconds.
+ *
+ * Examples: "6m0s" → 360000, "2m59.56s" → 179560, "120ms" → 120, "1s" → 1000
+ *
+ * Key subtlety: must parse "ms" before "m" to avoid matching the "m" inside "ms"
+ * as minutes. Uses negative lookahead on "m" to prevent this.
+ */
+function parseGoDuration(duration: string): number | undefined {
+  let totalMs = 0
+  let matched = false
+
+  // Minutes: "6m", "2m" — use negative lookahead so "m" in "ms" doesn't match
+  const minuteMatch = /(\d+(?:\.\d+)?)m(?!s)/.exec(duration)
+  if (minuteMatch) {
+    totalMs += Number.parseFloat(minuteMatch[1]) * 60 * 1000
+    matched = true
+  }
+
+  // Milliseconds: "120ms", "17ms" — must check before seconds since "ms" ends with "s"
+  const msMatch = /(\d+(?:\.\d+)?)ms/.exec(duration)
+  if (msMatch) {
+    totalMs += Math.ceil(Number.parseFloat(msMatch[1]))
+    matched = true
+  } else {
+    // Seconds (only when no "ms" match): "0s", "1s", "59.56s", "7.66s"
+    const secMatch = /(\d+(?:\.\d+)?)s/.exec(duration)
+    if (secMatch) {
+      totalMs += Math.ceil(Number.parseFloat(secMatch[1]) * 1000)
+      matched = true
+    }
+  }
+
+  return matched ? totalMs : undefined
+}
+
+/**
+ * Extract Gemini's retry delay from the `google.rpc.RetryInfo` details in the body.
+ *
+ * Gemini 429 body shape:
+ * { error: { details: [{ "@type": "...RetryInfo", "retryDelay": "53s" }] } }
+ *
+ * The `retryDelay` is a duration string like "53s" or "1.5s".
+ */
+function extractGeminiRetryDelay(body: unknown): number | undefined {
+  if (!body || typeof body !== 'object') return undefined
+  const b = body as Record<string, unknown>
+  const error = b.error as Record<string, unknown> | undefined
+  const details = error?.details as Array<Record<string, unknown>> | undefined
+
+  if (!Array.isArray(details)) return undefined
+
+  for (const detail of details) {
+    const type = detail['@type']
+    if (typeof type === 'string' && type.includes('RetryInfo')) {
+      const {retryDelay} = detail
+      if (typeof retryDelay === 'string') {
+        const match = /^(\d+(?:\.\d+)?)s$/.exec(retryDelay)
+        if (match) {
+          return Math.ceil(Number.parseFloat(match[1]) * 1000) + 2000
+        }
+      }
+    }
+  }
+
+  return undefined
+}
+
+/**
+ * Try to parse Gemini retry delay from a raw JSON string body.
+ */
+function parseGeminiBodyString(body: unknown): number | undefined {
+  if (typeof body !== 'string') return undefined
+  try {
+    return extractGeminiRetryDelay(JSON.parse(body) as unknown)
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Extract the correct retry delay from an AI provider 429 error.
+ *
+ * Tries all known provider patterns in priority order and returns the
+ * delay in milliseconds (including a +2s buffer), or undefined if none found.
+ *
+ * Caller should fall back to RATE_LIMIT_FALLBACK_DELAY_MS when this returns undefined.
+ *
+ * @param error - The caught error (expected to be AI_APICallError from Vercel AI SDK)
+ * @returns Delay in milliseconds, or undefined
+ */
+/**
+ * Extract retry delay from normalized response headers.
+ * Handles paths 1–5 (all header-based providers).
+ */
+function extractDelayFromHeaders(headers: Record<string, string>): number | undefined {
+  // ── Path 1: Standard retry-after header ──────────────────────────────────
+  // Anthropic, OpenAI, Groq, xAI, Mistral all use this (integer seconds).
+  const retryAfter = headers['retry-after']
+  if (retryAfter !== undefined) {
+    const seconds = Number.parseInt(retryAfter, 10)
+    if (!Number.isNaN(seconds) && seconds >= 0) {
+      return (seconds + 2) * 1000 // +2s buffer
+    }
+
+    // Fallback: some CDN proxies return an HTTP-date string instead of seconds
+    const dateMs = new Date(retryAfter).getTime()
+    if (!Number.isNaN(dateMs)) {
+      const delay = dateMs - Date.now()
+      if (delay > 0) return delay + 2000
+    }
+  }
+
+  // ── Path 2: retry-after-ms (Azure OpenAI, millisecond precision) ─────────
+  const retryAfterMs = headers['retry-after-ms']
+  if (retryAfterMs !== undefined) {
+    const ms = Number.parseFloat(retryAfterMs)
+    if (!Number.isNaN(ms) && ms > 0) {
+      return Math.ceil(ms) + 2000
+    }
+  }
+
+  // ── Path 3: Anthropic reset timestamp backup ──────────────────────────────
+  // anthropic-ratelimit-input-tokens-reset (RFC 3339). retry-after should
+  // always be present for Anthropic, but this handles edge cases.
+  const anthropicReset =
+    headers['anthropic-ratelimit-input-tokens-reset'] ??
+    headers['anthropic-ratelimit-tokens-reset']
+  if (anthropicReset !== undefined) {
+    const resetMs = new Date(anthropicReset).getTime() - Date.now()
+    if (resetMs > 0) return resetMs + 2000
+  }
+
+  // ── Path 4: OpenRouter X-RateLimit-Reset (Unix timestamp in milliseconds) ─
+  // OpenRouter is unique: it uses a Unix ms timestamp, not a duration string.
+  // Heuristic: any numeric value > 1e12 is a Unix ms timestamp (year ≥ 2001).
+  const openrouterReset = headers['x-ratelimit-reset']
+  if (openrouterReset !== undefined) {
+    const value = Number.parseInt(openrouterReset, 10)
+    if (!Number.isNaN(value) && value > 1_000_000_000_000) {
+      const delay = value - Date.now()
+      if (delay > 0) return delay + 2000
+    }
+  }
+
+  // ── Path 5: OpenAI/Groq Go-duration reset headers (fallback) ─────────────
+  // x-ratelimit-reset-tokens / x-ratelimit-reset-requests: "6m0s", "17ms"
+  // Only reached if retry-after is absent (shouldn't happen for these providers,
+  // but acts as a safety net).
+  const goReset =
+    headers['x-ratelimit-reset-tokens'] ??
+    headers['x-ratelimit-reset-requests']
+  if (goReset !== undefined) {
+    const durationMs = parseGoDuration(goReset)
+    if (durationMs !== undefined && durationMs > 0) {
+      return durationMs + 2000
+    }
+  }
+
+  return undefined
+}
+
+/**
+ * Extract the correct retry delay from an AI provider 429 error.
+ *
+ * Tries all known provider patterns in priority order and returns the
+ * delay in milliseconds (including a +2s buffer), or undefined if none found.
+ *
+ * Caller should fall back to RATE_LIMIT_FALLBACK_DELAY_MS when this returns undefined.
+ *
+ * @param error - The caught error (expected to be AI_APICallError from Vercel AI SDK)
+ * @returns Delay in milliseconds, or undefined
+ */
+export function extractRateLimitDelay(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object') return undefined
+  const e = error as Record<string, unknown>
+
+  // Paths 1–5: header-based providers
+  const headers = normalizeHeaders(e.responseHeaders)
+  if (headers) {
+    const headerDelay = extractDelayFromHeaders(headers)
+    if (headerDelay !== undefined) return headerDelay
+  }
+
+  // ── Path 6: Gemini retryDelay in response body (no headers on Gemini) ──────
+  // Gemini embeds timing in google.rpc.RetryInfo inside the JSON body.
+  // Try e.data first (AI SDK may pre-parse the body), then e.responseBody (raw string).
+  return extractGeminiRetryDelay(e.data) ?? parseGeminiBodyString(e.responseBody)
 }
