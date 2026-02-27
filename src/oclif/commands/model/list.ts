@@ -39,7 +39,7 @@ export default class ModelList extends Command {
 
         if (!provider.isConnected) {
           throw new Error(
-            `Provider "${providerFlag}" is not connected. Run "brv provider connect ${providerFlag}" first.`,
+            `Provider "${providerFlag}" is not connected. Run "brv providers connect ${providerFlag}" first.`,
           )
         }
 
@@ -70,7 +70,7 @@ export default class ModelList extends Command {
 
       if (result.models.length === 0) {
         this.log(
-          'No models available. Run "brv provider list" to see available providers, then "brv provider connect <provider-id>" to connect one.',
+          'No models available. Run "brv providers list" to see available providers, then "brv providers connect <provider-id>" to connect one.',
         )
         return
       }

@@ -13,7 +13,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_LOCAL_CHANGES_EXIST: 'You have local changes. Run /push to save your changes before pulling.',
   ERR_NOT_AUTHENTICATED: 'Not authenticated. This is required for cloud sync. Run /login to connect your account.',
   ERR_PROJECT_NOT_INIT: "Project not initialized. Run 'brv restart' to reinitialize.",
-  ERR_PROVIDER_NOT_CONFIGURED: 'No provider connected. Run /provider connect byterover to use the free built-in provider, or connect another provider.',
+  ERR_PROVIDER_NOT_CONFIGURED: 'No provider connected. Run /providers connect byterover to use the free built-in provider, or connect another provider.',
   ERR_SPACE_NOT_CONFIGURED: 'No space configured. Run /space switch to select a space first.',
   ERR_SPACE_NOT_FOUND: 'Space not found. Check your configuration.',
 }

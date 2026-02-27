@@ -32,7 +32,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
     'Not authenticated. Cloud sync features (push/pull/space) require login — local query and curate work without authentication.',
   [TaskErrorCode.PROJECT_NOT_INIT]: 'Project not initialized. Run "brv restart" to reinitialize.',
   [TaskErrorCode.PROVIDER_NOT_CONFIGURED]:
-    'No provider connected. Run "brv provider connect byterover" to use the free built-in provider, or connect another provider.',
+    'No provider connected. Run "brv providers connect byterover" to use the free built-in provider, or connect another provider.',
   [TaskErrorCode.SPACE_NOT_CONFIGURED]:
     'No space configured. Run "brv space list" to see available spaces, then "brv space switch --team <team> --name <space>" to select one.',
   [TaskErrorCode.SPACE_NOT_FOUND]: 'Space not found. Check your configuration.',
@@ -189,7 +189,7 @@ export function formatConnectionError(error: unknown): string {
   }
 
   if (lowerMessage.includes('api key') || lowerMessage.includes('invalid key')) {
-    return "LLM provider API key is missing or invalid. Run 'brv provider list' to see connected providers, or 'brv provider connect <provider-id>' to reconfigure."
+    return "LLM provider API key is missing or invalid. Run 'brv providers list' to see connected providers, or 'brv providers connect <provider-id>' to reconfigure."
   }
 
   return `Unexpected error: ${message}`

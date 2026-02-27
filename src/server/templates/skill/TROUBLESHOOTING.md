@@ -14,7 +14,7 @@ These errors require user intervention (agent cannot fix):
 
 | Error | User Action |
 |-------|-------------|
-| "No provider connected" | Run `brv provider connect byterover` in a terminal |
+| "No provider connected" | Run `brv providers connect byterover` in a terminal |
 | "Daemon failed to start" | Run `brv restart` to force a clean restart |
 | "Connection failed" | Retry the command |
 

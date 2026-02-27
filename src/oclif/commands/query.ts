@@ -70,7 +70,7 @@ Bad:
           )
           if (!active.activeProvider) {
             throw new Error(
-              'No provider connected. Run "brv provider connect byterover" to use the free built-in provider, or connect another provider.',
+              'No provider connected. Run "brv providers connect byterover" to use the free built-in provider, or connect another provider.',
             )
           }
 
