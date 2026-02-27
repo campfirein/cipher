@@ -127,7 +127,7 @@ describe('Curate Command', () => {
       await createCommand('test context', '--detach').run()
 
       expect(loggedMessages.some((m) => m.includes('No provider connected'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv provider connect'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv providers connect'))).to.be.true
     })
 
     it('should output JSON error when no provider is connected', async () => {

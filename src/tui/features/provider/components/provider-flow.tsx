@@ -1,7 +1,7 @@
 /**
  * ProviderFlow Component
  *
- * Multi-step React flow for the /provider command.
+ * Multi-step React flow for the /providers command.
  * State machine: loading → select → provider_actions → api_key → connecting → done
  *
  * Owns the UX flow — fetches providers, renders selection,

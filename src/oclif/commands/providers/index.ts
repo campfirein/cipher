@@ -11,8 +11,8 @@ import {writeJsonResponse} from '../../lib/json-response.js'
 export default class Provider extends Command {
   public static description = 'Show active provider and model'
   public static examples = [
-    '<%= config.bin %> provider',
-    '<%= config.bin %> provider --format json',
+    '<%= config.bin %> providers',
+    '<%= config.bin %> providers --format json',
   ]
   public static flags = {
     format: Flags.string({
@@ -44,7 +44,7 @@ export default class Provider extends Command {
       const info = await this.fetchActiveProvider()
 
       if (format === 'json') {
-        writeJsonResponse({command: 'provider', data: info, success: true})
+        writeJsonResponse({command: 'providers', data: info, success: true})
       } else {
         this.log(`Provider: ${info.providerName} (${info.providerId})`)
         if (info.providerId !== 'byterover') {
@@ -57,7 +57,7 @@ export default class Provider extends Command {
       }
     } catch (error) {
       if (format === 'json') {
-        writeJsonResponse({command: 'provider', data: {error: formatConnectionError(error)}, success: false})
+        writeJsonResponse({command: 'providers', data: {error: formatConnectionError(error)}, success: false})
       } else {
         this.log(formatConnectionError(error))
       }

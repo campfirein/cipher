@@ -72,11 +72,11 @@ export default class ModelSwitch extends Command {
         const {providers} = await client.requestWithAck<ProviderListResponse>(ProviderEvents.LIST)
         const provider = providers.find((p) => p.id === providerFlag)
         if (!provider) {
-          throw new Error(`Unknown provider "${providerFlag}". Run "brv provider list" to see available providers.`)
+          throw new Error(`Unknown provider "${providerFlag}". Run "brv providers list" to see available providers.`)
         }
 
         if (!provider.isConnected) {
-          throw new Error(`Provider "${providerFlag}" is not connected. Run "brv provider connect ${providerFlag}" first.`)
+          throw new Error(`Provider "${providerFlag}" is not connected. Run "brv providers connect ${providerFlag}" first.`)
         }
 
         providerId = providerFlag
@@ -86,7 +86,7 @@ export default class ModelSwitch extends Command {
       }
 
       if (providerId === 'byterover') {
-        throw new Error('ByteRover provider uses its own internal LLM and does not support model switching. Run "brv provider switch <provider>" to switch to a different provider first.')
+        throw new Error('ByteRover provider uses its own internal LLM and does not support model switching. Run "brv providers switch <provider>" to switch to a different provider first.')
       }
 
       // 2. Switch active model

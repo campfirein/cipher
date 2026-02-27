@@ -5,7 +5,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import ProviderConnect from '../../../src/oclif/commands/provider/connect.js'
+import ProviderConnect from '../../../src/oclif/commands/providers/connect.js'
 
 // ==================== TestableProviderConnectCommand ====================
 
@@ -278,7 +278,7 @@ describe('Provider Connect Command', () => {
       await createCommand('unknown-provider').run()
 
       expect(loggedMessages.some((m) => m.includes('Unknown provider'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv provider list'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv providers list'))).to.be.true
     })
 
     it('should error when API key is required but not provided', async () => {
@@ -340,7 +340,7 @@ describe('Provider Connect Command', () => {
       await createJsonCommand('byterover').run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider connect')
+      expect(json.command).to.equal('providers connect')
       expect(json.success).to.be.true
       expect(json.data).to.deep.include({providerId: 'byterover'})
     })
@@ -351,7 +351,7 @@ describe('Provider Connect Command', () => {
       await createJsonCommand('unknown').run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider connect')
+      expect(json.command).to.equal('providers connect')
       expect(json.success).to.be.false
       expect(json.data).to.have.property('error')
     })
