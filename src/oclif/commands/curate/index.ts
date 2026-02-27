@@ -5,13 +5,14 @@ import {randomUUID} from 'node:crypto'
 
 import type {CurateLogOperation} from '../../../server/core/domain/entities/curate-log-entry.js'
 
-import { ProviderConfigResponse, TransportStateEventNames } from '../../../server/core/domain/transport/index.js'
+import {ProviderConfigResponse, TransportStateEventNames} from '../../../server/core/domain/transport/index.js'
 import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
-import { TaskEvents } from '../../../shared/transport/events/index.js'
+import {TaskEvents} from '../../../shared/transport/events/index.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
   hasLeakedHandles,
+  type ProviderErrorContext,
   withDaemonRetry,
 } from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
@@ -32,9 +33,7 @@ export default class Curate extends Command {
       required: false,
     }),
   }
-  public static description = `Curate context to the context tree (connects to running brv instance)
-
-Requires a running brv instance. Start one with: brv
+  public static description = `Curate context to the context tree
 
 Good examples:
 - "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"
@@ -107,12 +106,26 @@ Bad examples:
         : ''
     const taskType = flags.folder?.length ? 'curate-folder' : 'curate'
 
+    let providerContext: ProviderErrorContext | undefined
+
     try {
       await withDaemonRetry(
         async (client, projectRoot) => {
-          const active = await client.requestWithAck<ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG)
+          const active = await client.requestWithAck<ProviderConfigResponse>(
+            TransportStateEventNames.GET_PROVIDER_CONFIG,
+          )
+          providerContext = {activeModel: active.activeModel, activeProvider: active.activeProvider}
+
           if (!active.activeProvider) {
-            throw new Error('No provider connected. Run "brv providers connect <provider>" to configure a provider first.')
+            throw new Error(
+              'No provider connected. Run "brv providers connect byterover" to use the free built-in provider, or connect another provider.',
+            )
+          }
+
+          if (active.providerKeyMissing) {
+            throw new Error(
+              `${active.activeProvider} API key is missing from storage.\nPlease reconnect: brv providers connect ${active.activeProvider} --api-key <your-key>`,
+            )
           }
 
           await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType})
@@ -127,7 +140,7 @@ Bad examples:
         },
       )
     } catch (error) {
-      this.reportError(error, format)
+      this.reportError(error, format, providerContext)
     }
   }
 
@@ -172,13 +185,13 @@ Bad examples:
     }
   }
 
-  private reportError(error: unknown, format: 'json' | 'text'): void {
+  private reportError(error: unknown, format: 'json' | 'text', providerContext?: ProviderErrorContext): void {
     const errorMessage = error instanceof Error ? error.message : 'Curate failed'
 
     if (format === 'json') {
       writeJsonResponse({command: 'curate', data: {error: errorMessage, status: 'error'}, success: false})
     } else {
-      this.log(formatConnectionError(error))
+      this.log(formatConnectionError(error, providerContext))
     }
 
     if (hasLeakedHandles(error)) {
@@ -295,9 +308,9 @@ Bad examples:
       this.log('Either a context argument, file reference, or folder reference is required.')
       this.log('Usage:')
       this.log('  brv curate "your context here"')
-      this.log('  brv curate @src/file.ts')
-      this.log('  brv curate @src/             # folder pack')
-      this.log('  brv curate "context with files" @src/file.ts')
+      this.log('  brv curate "your context" -f src/file.ts')
+      this.log('  brv curate -d src/             # folder pack')
+      this.log('  brv curate "context with files" -f src/file.ts -f src/other.ts')
     }
 
     return false

@@ -45,7 +45,7 @@ import {CurateLogHandler} from '../process/curate-log-handler.js'
 import {setupFeatureHandlers} from '../process/feature-handlers.js'
 import {TransportHandlers} from '../process/transport-handlers.js'
 import {ProjectRegistry} from '../project/project-registry.js'
-import {resolveProviderConfig} from '../provider/provider-config-resolver.js'
+import {clearStaleProviderConfig, resolveProviderConfig} from '../provider/provider-config-resolver.js'
 import {ProjectRouter} from '../routing/project-router.js'
 import {AuthStateStore} from '../state/auth-state-store.js'
 import {ProjectStateLoader} from '../state/project-state-loader.js'
@@ -392,6 +392,11 @@ async function main(): Promise<void> {
     // Provider config/keychain stores — shared between feature handlers and state endpoint
     const providerConfigStore = new FileProviderConfigStore()
     const providerKeychainStore = createProviderKeychainStore()
+
+    // Clear stale provider config on startup (e.g. migration from v1 system keychain to v2 file keystore).
+    // If a provider is configured but its API key is no longer accessible, disconnect it so the user
+    // is returned to the onboarding flow rather than hitting a cryptic API key error mid-task.
+    await clearStaleProviderConfig(providerConfigStore, providerKeychainStore)
 
     // State endpoint: provider config — agents request this on startup and after provider:updated
     transportServer.onRequest<void, ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG, async () =>

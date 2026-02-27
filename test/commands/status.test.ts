@@ -84,7 +84,7 @@ describe('Status Command', () => {
   // ==================== Auth Status ====================
 
   describe('authentication status', () => {
-    it('should display "Not logged in" when not authenticated', async () => {
+    it('should display cloud sync not connected when not authenticated', async () => {
       mockStatusResponse({
         authStatus: 'not_logged_in',
         contextTreeStatus: 'not_initialized',
@@ -93,7 +93,7 @@ describe('Status Command', () => {
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('Not logged in'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Not connected'))).to.be.true
     })
 
     it('should display "Session expired" when token is expired', async () => {
@@ -313,7 +313,7 @@ describe('Status Command', () => {
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('No ByteRover instance is running'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Daemon failed to start automatically'))).to.be.true
     })
 
     it('should handle InstanceCrashedError', async () => {
@@ -321,7 +321,7 @@ describe('Status Command', () => {
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('ByteRover instance has crashed'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Daemon crashed unexpectedly'))).to.be.true
     })
 
     it('should handle ConnectionFailedError', async () => {

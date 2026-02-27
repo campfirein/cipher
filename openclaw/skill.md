@@ -60,14 +60,14 @@ brv curate "Authentication middleware details" -f src/middleware/auth.ts
 `brv query` and `brv curate` require a configured LLM provider. Connect the default ByteRover provider (no API key needed):
 
 ```bash
-brv provider connect byterover
+brv providers connect byterover
 ```
 
 To use a different provider (e.g., OpenAI, Anthropic, Google), list available options and connect with your own API key:
 
 ```bash
-brv provider list
-brv provider connect openai --api-key sk-xxx --model gpt-4.1
+brv providers list
+brv providers connect openai --api-key sk-xxx --model gpt-4.1
 ```
 
 ### 4. Cloud Sync (Optional)
