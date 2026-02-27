@@ -112,7 +112,7 @@ Bad examples:
         async (client, projectRoot) => {
           const active = await client.requestWithAck<ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG)
           if (!active.activeProvider) {
-            throw new Error('No provider connected. Run "brv provider connect <provider>" to configure a provider first.')
+            throw new Error('No provider connected. Run "brv providers connect <provider>" to configure a provider first.')
           }
 
           await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType})

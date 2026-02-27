@@ -5,7 +5,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import Provider from '../../../src/oclif/commands/provider/index.js'
+import Provider from '../../../src/oclif/commands/providers/index.js'
 
 // ==================== TestableProviderCommand ====================
 
@@ -151,7 +151,7 @@ describe('Provider Command', () => {
       await createJsonCommand().run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider')
+      expect(json.command).to.equal('providers')
       expect(json.success).to.be.true
       expect(json.data).to.deep.include({activeModel: 'claude-sonnet-4-5', providerId: 'anthropic'})
     })
@@ -162,7 +162,7 @@ describe('Provider Command', () => {
       await createJsonCommand().run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider')
+      expect(json.command).to.equal('providers')
       expect(json.success).to.be.false
       expect(json.data).to.have.property('error')
     })

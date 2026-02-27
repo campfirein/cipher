@@ -94,9 +94,9 @@ export const ModelFlow: React.FC<ModelFlowProps> = ({isActive = true, onCancel, 
 
   const earlyExitMessage = useMemo(() => {
     if (isLoadingProviders || isLoadingModels) return null
-    if (connectedProviders.length === 0) return 'No connected providers. Run /provider to connect one.'
+    if (connectedProviders.length === 0) return 'No connected providers. Run /providers to connect one.'
     if (isOnlyByteRover)
-      return 'ByteRover uses an internal model. Run /provider to switch to an external provider for model selection.'
+      return 'ByteRover uses an internal model. Run /providers to switch to an external provider for model selection.'
     if (!isLoadingModels && modelItems.length === 0 && modelsData) return 'No models available.'
     return null
   }, [connectedProviders.length, isLoadingModels, isLoadingProviders, isOnlyByteRover, modelItems.length, modelsData])

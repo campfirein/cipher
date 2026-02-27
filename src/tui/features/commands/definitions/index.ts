@@ -7,7 +7,7 @@ import {loginCommand} from './login.js'
 import {logoutCommand} from './logout.js'
 import {modelCommand} from './model.js'
 import {newCommand} from './new.js'
-import {providerCommand} from './provider.js'
+import {providersCommand} from './providers.js'
 import {pullCommand} from './pull.js'
 import {pushCommand} from './push.js'
 import {queryCommand} from './query.js'
@@ -38,7 +38,7 @@ export const load: () => SlashCommand[] = () => [
   pullCommand,
 
   // Provider management
-  providerCommand,
+  providersCommand,
   modelCommand,
 
   // Space management

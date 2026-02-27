@@ -6,7 +6,7 @@
  */
 
 import {useQueryClient} from '@tanstack/react-query'
-import {Box, Text} from 'ink'
+import {Box, Text, useInput} from 'ink'
 import React, {useCallback, useMemo, useState} from 'react'
 
 import {useTheme} from '../../../hooks/index.js'
@@ -79,6 +79,13 @@ export const ModelSelectStep: React.FC<ModelSelectStepProps> = ({
     }
   }, [onComplete, providerId, queryClient, setActiveModelMutation])
 
+  // Allow Esc to go back when no models available
+  useInput((_input, key) => {
+    if (key.escape && modelItems.length === 0) {
+      onCancel()
+    }
+  }, {isActive: isActive && modelItems.length === 0})
+
   if (isLoading) {
     return (
       <Box>
@@ -89,8 +96,11 @@ export const ModelSelectStep: React.FC<ModelSelectStepProps> = ({
 
   if (modelItems.length === 0) {
     return (
-      <Box>
+      <Box gap={2}>
         <Text color={colors.dimText}>No models available.</Text>
+        <Text color={colors.dimText}>
+          <Text color={colors.text}>Esc</Text> Back
+        </Text>
       </Box>
     )
   }
