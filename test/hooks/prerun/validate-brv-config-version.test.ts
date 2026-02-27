@@ -50,9 +50,11 @@ describe('validateBrvConfigVersion', () => {
       contextTreeSnapshotService: {
         getChanges: stub().resolves({added: [], deleted: [], modified: []}),
         getCurrentState: stub().resolves(new Map()),
+        getSnapshotState: stub().resolves(new Map()),
         hasSnapshot: stub().resolves(false),
         initEmptySnapshot: stub().resolves(),
         saveSnapshot: stub().resolves(),
+        saveSnapshotFromState: stub().resolves(),
       },
       projectConfigStore: mockConfigStore,
     }
@@ -150,6 +152,7 @@ describe('validateBrvConfigVersion', () => {
       await validateBrvConfigVersion('status', mockConfigStore, undefined, {
         isPatched: isPatchedStub,
         markPatched: markPatchedStub,
+        patchFn: stub().resolves(),
       })
 
       expect(isPatchedStub.calledOnce).to.be.true

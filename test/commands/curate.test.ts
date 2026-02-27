@@ -56,7 +56,7 @@ describe('Curate Command', () => {
       once: stub(),
       onStateChange: stub().returns(() => {}),
       request: stub() as unknown as ITransportClient['request'],
-      requestWithAck: stub().resolves({activeProviderId: 'anthropic'}),
+      requestWithAck: stub().resolves({activeProvider: 'anthropic'}),
     } as unknown as sinon.SinonStubbedInstance<ITransportClient>
 
     mockConnector = stub<[], Promise<ConnectionResult>>().resolves({
@@ -122,16 +122,16 @@ describe('Curate Command', () => {
 
   describe('provider validation', () => {
     it('should error when no provider is connected', async () => {
-      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({activeProviderId: ''})
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({activeProvider: ''})
 
       await createCommand('test context', '--detach').run()
 
       expect(loggedMessages.some((m) => m.includes('No provider connected'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv provider connect'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv providers connect'))).to.be.true
     })
 
     it('should output JSON error when no provider is connected', async () => {
-      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({activeProviderId: ''})
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({activeProvider: ''})
 
       await createJsonCommand('test context', '--detach').run()
 
@@ -149,7 +149,7 @@ describe('Curate Command', () => {
 
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
       expect(requestStub.calledTwice).to.be.true
-      expect(requestStub.firstCall.args[0]).to.equal('provider:getActive')
+      expect(requestStub.firstCall.args[0]).to.equal('state:getProviderConfig')
       const [event, payload] = requestStub.secondCall.args
       expect(event).to.equal('task:create')
       expect(payload).to.have.property('content', 'test context')
@@ -163,7 +163,7 @@ describe('Curate Command', () => {
 
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
       expect(requestStub.calledTwice).to.be.true
-      expect(requestStub.firstCall.args[0]).to.equal('provider:getActive')
+      expect(requestStub.firstCall.args[0]).to.equal('state:getProviderConfig')
       const [event, payload] = requestStub.secondCall.args
       expect(event).to.equal('task:create')
       expect(payload).to.have.property('content', '')

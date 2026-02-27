@@ -9,7 +9,7 @@ export const getHubEntries = (): Promise<HubListResponse> => {
   const {apiClient} = useTransportStore.getState()
   if (!apiClient) return Promise.reject(new Error('Not connected'))
 
-  return apiClient.request<HubListResponse>(HubEvents.LIST)
+  return apiClient.request<HubListResponse>(HubEvents.LIST, undefined, {timeout: 60_000})
 }
 
 export const getHubEntriesQueryOptions = () =>

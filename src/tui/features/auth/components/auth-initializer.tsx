@@ -32,7 +32,7 @@ export function AuthInitializer({children}: {children: React.ReactNode}): React.
       enabled: apiClient !== null,
       retry: 5,
       retryDelay: (attemptIndex) => Math.min(500 * 2 ** attemptIndex, 2000),
-      staleTime: Number.POSITIVE_INFINITY,
+      staleTime: 2 * 60 * 1000,
     },
   })
 
@@ -73,11 +73,13 @@ export function AuthInitializer({children}: {children: React.ReactNode}): React.
       // Broadcast omits brvConfig (project-scoped, can't resolve in global broadcast),
       // so we re-fetch GET_STATE which resolves brvConfig via clientId.
       if (data.isAuthorized) {
-        queryClient.invalidateQueries({
-          queryKey: getAuthStateQueryOptions().queryKey,
-        }).catch(() => {
-          // Silently ignore — next poll cycle retries
-        })
+        queryClient
+          .invalidateQueries({
+            queryKey: getAuthStateQueryOptions().queryKey,
+          })
+          .catch(() => {
+            // Silently ignore — next poll cycle retries
+          })
       }
     })
 

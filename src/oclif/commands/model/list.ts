@@ -40,11 +40,11 @@ export default class ModelList extends Command {
       if (providerFlag) {
         const provider = providers.find((provider) => provider.id === providerFlag)
         if (!provider) {
-          throw new Error(`Unknown provider "${providerFlag}". Run "brv provider list" to see available providers.`)
+          throw new Error(`Unknown provider "${providerFlag}". Run "brv providers list" to see available providers.`)
         }
 
         if (!provider.isConnected) {
-          throw new Error(`Provider "${providerFlag}" is not connected. Run "brv provider connect ${providerFlag}" first.`)
+          throw new Error(`Provider "${providerFlag}" is not connected. Run "brv providers connect ${providerFlag}" first.`)
         }
 
         providerIds = [providerFlag]
@@ -74,7 +74,7 @@ export default class ModelList extends Command {
       }
 
       if (result.models.length === 0) {
-        this.log('No models available. Connect a provider first with "brv provider connect".')
+        this.log('No models available. Connect a provider first with "brv providers connect".')
         return
       }
 
@@ -88,8 +88,8 @@ export default class ModelList extends Command {
       for (const [providerId, models] of grouped) {
         this.log(`${providerId}:`)
         for (const model of models) {
-          const isActive = model.id === result.activeModel && model.providerId === result.activeProviderId
-          const status = isActive ? chalk.green('(active)') : ''
+          const isCurrent = model.id === result.activeModel && model.providerId === result.activeProviderId
+          const status = isCurrent ? chalk.green('(current)') : ''
           this.log(`    ${model.name} [${model.id}] ${status}`.trimEnd())
         }
       }

@@ -33,7 +33,9 @@ export default class Main extends Command {
     })
     if (!daemonResult.success) {
       const detail = daemonResult.spawnError ? `: ${daemonResult.spawnError}` : ''
-      this.error(`Failed to start daemon: timed out waiting for daemon to become ready${detail}`)
+      this.error(
+        `Failed to start daemon: timed out waiting for daemon to become ready${detail}\n\nRun 'brv restart' to force a clean restart.`,
+      )
     }
 
     // Start the interactive REPL (TUI connects via connectToDaemon internally)

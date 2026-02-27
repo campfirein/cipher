@@ -5,7 +5,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import ProviderConnect from '../../../src/oclif/commands/provider/connect.js'
+import ProviderConnect from '../../../src/oclif/commands/providers/connect.js'
 
 // ==================== TestableProviderConnectCommand ====================
 
@@ -17,7 +17,7 @@ class TestableProviderConnectCommand extends ProviderConnect {
     this.mockConnector = mockConnector
   }
 
-  protected override async connectProvider(params: {apiKey?: string; model?: string; providerId: string}) {
+  protected override async connectProvider(params: {apiKey?: string; baseUrl?: string; model?: string; providerId: string}) {
     return super.connectProvider(params, {
       maxRetries: 1,
       retryDelayMs: 0,
@@ -164,6 +164,111 @@ describe('Provider Connect Command', () => {
     })
   })
 
+  // ==================== OpenAI Compatible ====================
+
+  describe('openai-compatible provider', () => {
+    it('should connect with --base-url and no API key', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({
+        providers: [{id: 'openai-compatible', isConnected: false, name: 'OpenAI Compatible', requiresApiKey: false}],
+      })
+      requestStub.onSecondCall().resolves({success: true})
+
+      await createCommand('openai-compatible', '--base-url', 'http://localhost:11434/v1').run()
+
+      expect(loggedMessages.some((m) => m.includes('Connected to OpenAI Compatible'))).to.be.true
+      expect(requestStub.secondCall.args[0]).to.equal('provider:connect')
+      expect(requestStub.secondCall.args[1]).to.deep.include({baseUrl: 'http://localhost:11434/v1'})
+    })
+
+    it('should connect with --base-url and --api-key', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({
+        providers: [{id: 'openai-compatible', isConnected: false, name: 'OpenAI Compatible', requiresApiKey: false}],
+      })
+      requestStub.onSecondCall().resolves({success: true})
+
+      await createCommand('openai-compatible', '--base-url', 'http://localhost:11434/v1', '--api-key', 'sk-test').run()
+
+      expect(loggedMessages.some((m) => m.includes('Connected to OpenAI Compatible'))).to.be.true
+      expect(requestStub.secondCall.args[1]).to.deep.include({
+        apiKey: 'sk-test',
+        baseUrl: 'http://localhost:11434/v1',
+      })
+    })
+
+    it('should connect with --base-url, --api-key, and --model', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({
+        providers: [{id: 'openai-compatible', isConnected: false, name: 'OpenAI Compatible', requiresApiKey: false}],
+      })
+      requestStub.onSecondCall().resolves({success: true})
+      requestStub.onThirdCall().resolves({success: true})
+
+      await createCommand('openai-compatible', '--base-url', 'http://localhost:11434/v1', '--model', 'llama3').run()
+
+      expect(loggedMessages.some((m) => m.includes('Connected to OpenAI Compatible'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Model set to: llama3'))).to.be.true
+    })
+
+    it('should error when --base-url is missing and not already connected', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({
+        providers: [{id: 'openai-compatible', isConnected: false, name: 'OpenAI Compatible', requiresApiKey: false}],
+      })
+
+      await createCommand('openai-compatible').run()
+
+      expect(loggedMessages.some((m) => m.includes('requires a base URL'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('--base-url'))).to.be.true
+    })
+
+    it('should switch active using SET_ACTIVE when already connected without --base-url', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({
+        providers: [{id: 'openai-compatible', isConnected: true, name: 'OpenAI Compatible', requiresApiKey: false}],
+      })
+      requestStub.onSecondCall().resolves({success: true})
+
+      await createCommand('openai-compatible').run()
+
+      expect(loggedMessages.some((m) => m.includes('Connected to OpenAI Compatible'))).to.be.true
+      expect(requestStub.secondCall.args[0]).to.equal('provider:setActive')
+    })
+
+    it('should re-connect with CONNECT when already connected and --base-url is provided', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({
+        providers: [{id: 'openai-compatible', isConnected: true, name: 'OpenAI Compatible', requiresApiKey: false}],
+      })
+      requestStub.onSecondCall().resolves({success: true})
+
+      await createCommand('openai-compatible', '--base-url', 'http://localhost:8080/v1').run()
+
+      expect(requestStub.secondCall.args[0]).to.equal('provider:connect')
+      expect(requestStub.secondCall.args[1]).to.deep.include({baseUrl: 'http://localhost:8080/v1'})
+    })
+
+    it('should error for invalid base URL format', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({
+        providers: [{id: 'openai-compatible', isConnected: false, name: 'OpenAI Compatible', requiresApiKey: false}],
+      })
+
+      await createCommand('openai-compatible', '--base-url', 'not-a-url').run()
+
+      expect(loggedMessages.some((m) => m.includes('Invalid base URL format'))).to.be.true
+    })
+
+    it('should error for non-http URL', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({
+        providers: [{id: 'openai-compatible', isConnected: false, name: 'OpenAI Compatible', requiresApiKey: false}],
+      })
+
+      await createCommand('openai-compatible', '--base-url', 'ftp://localhost:11434/v1').run()
+
+      expect(loggedMessages.some((m) => m.includes('http://'))).to.be.true
+    })
+  })
+
   // ==================== Error Cases ====================
 
   describe('error cases', () => {
@@ -173,7 +278,7 @@ describe('Provider Connect Command', () => {
       await createCommand('unknown-provider').run()
 
       expect(loggedMessages.some((m) => m.includes('Unknown provider'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv provider list'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv providers list'))).to.be.true
     })
 
     it('should error when API key is required but not provided', async () => {
@@ -235,7 +340,7 @@ describe('Provider Connect Command', () => {
       await createJsonCommand('byterover').run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider connect')
+      expect(json.command).to.equal('providers connect')
       expect(json.success).to.be.true
       expect(json.data).to.deep.include({providerId: 'byterover'})
     })
@@ -246,7 +351,7 @@ describe('Provider Connect Command', () => {
       await createJsonCommand('unknown').run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider connect')
+      expect(json.command).to.equal('providers connect')
       expect(json.success).to.be.false
       expect(json.data).to.have.property('error')
     })

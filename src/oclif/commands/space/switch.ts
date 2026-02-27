@@ -1,5 +1,6 @@
 import {Command, Flags} from '@oclif/core'
 
+import {TRANSPORT_SPACE_SWITCH_TIMEOUT_MS} from '../../../server/constants.js'
 import {
   SpaceEvents,
   type SpaceListResponse,
@@ -60,7 +61,11 @@ export default class SpaceSwitch extends Command {
         )
       }
 
-      return client.requestWithAck<SpaceSwitchResponse>(SpaceEvents.SWITCH, {spaceId: targetSpace.id})
+      return client.requestWithAck<SpaceSwitchResponse>(
+        SpaceEvents.SWITCH,
+        {spaceId: targetSpace.id},
+        {timeout: TRANSPORT_SPACE_SWITCH_TIMEOUT_MS},
+      )
     }, options)
   }
 
@@ -74,18 +79,20 @@ export default class SpaceSwitch extends Command {
       const result = await this.executeSwitch({spaceName, teamName})
 
       if (format === 'json') {
-        writeJsonResponse({command: 'space switch', data: result, success: true})
-      } else {
+        writeJsonResponse({command: 'space switch', data: result, success: result.success})
+      } else if (result.success) {
         this.log(`Successfully switched to space: ${result.config.spaceName}`)
         if (result.pullResult) {
-          this.log(
-            `Pulled: +${result.pullResult.added} ~${result.pullResult.edited} -${result.pullResult.deleted}`,
-          )
-        } else if (result.pullError) {
-          this.log(`Pull skipped: ${result.pullError}`)
+          const {added, conflicted, deleted, edited, restoredFromRemote} = result.pullResult
+          const parts = [`+${added}`, `~${edited}`, `-${deleted}`]
+          if (conflicted) parts.push(`!${conflicted} conflicted`)
+          if (restoredFromRemote) parts.push(`^${restoredFromRemote} restored`)
+          this.log(`Pulled: ${parts.join(' ')}`)
         }
 
         this.log('Configuration updated in: .brv/config.json')
+      } else {
+        this.log(`Failed to switch space: ${result.pullError}`)
       }
     } catch (error) {
       if (format === 'json') {

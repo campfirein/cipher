@@ -24,6 +24,7 @@ import {ConnectorManager} from '../connectors/connector-manager.js'
 import {RuleTemplateService} from '../connectors/shared/template-service.js'
 import {SkillConnector} from '../connectors/skill/skill-connector.js'
 import {FileContextFileReader} from '../context-tree/file-context-file-reader.js'
+import {FileContextTreeMerger} from '../context-tree/file-context-tree-merger.js'
 import {FileContextTreeService} from '../context-tree/file-context-tree-service.js'
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeWriterService} from '../context-tree/file-context-tree-writer-service.js'
@@ -117,6 +118,7 @@ export async function setupFeatureHandlers({
   const contextTreeService = new FileContextTreeService()
   const contextTreeSnapshotService = new FileContextTreeSnapshotService()
   const contextTreeWriterService = new FileContextTreeWriterService({snapshotService: contextTreeSnapshotService})
+  const contextTreeMerger = new FileContextTreeMerger({snapshotService: contextTreeSnapshotService})
   const contextFileReader = new FileContextFileReader()
   const cogitPushService = new HttpCogitPushService({apiBaseUrl: envConfig.cogitApiBaseUrl})
   const cogitPullService = new HttpCogitPullService({apiBaseUrl: envConfig.cogitApiBaseUrl})
@@ -171,7 +173,7 @@ export async function setupFeatureHandlers({
   new SpaceHandler({
     broadcastToProject,
     cogitPullService,
-    contextTreeService,
+    contextTreeMerger,
     contextTreeSnapshotService,
     contextTreeWriterService,
     projectConfigStore,

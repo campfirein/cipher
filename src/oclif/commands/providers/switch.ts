@@ -17,8 +17,8 @@ export default class ProviderSwitch extends Command {
   }
   public static description = 'Switch the active provider'
   public static examples = [
-    '<%= config.bin %> provider switch anthropic',
-    '<%= config.bin %> provider switch openai --format json',
+    '<%= config.bin %> providers switch anthropic',
+    '<%= config.bin %> providers switch openai --format json',
   ]
   public static flags = {
     format: Flags.string({
@@ -37,14 +37,14 @@ export default class ProviderSwitch extends Command {
       const result = await this.switchProvider(providerId)
 
       if (format === 'json') {
-        writeJsonResponse({command: 'provider switch', data: result, success: true})
+        writeJsonResponse({command: 'providers switch', data: result, success: true})
       } else {
         this.log(`Switched to ${result.providerName} (${result.providerId})`)
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred while switching the provider. Please try again.'
       if (format === 'json') {
-        writeJsonResponse({command: 'provider switch', data: {error: errorMessage}, success: false})
+        writeJsonResponse({command: 'providers switch', data: {error: errorMessage}, success: false})
       } else {
         this.log(errorMessage)
       }
@@ -57,11 +57,11 @@ export default class ProviderSwitch extends Command {
       const provider = providers.find((p) => p.id === providerId)
 
       if (!provider) {
-        throw new Error(`Unknown provider "${providerId}". Run "brv provider list" to see available providers.`)
+        throw new Error(`Unknown provider "${providerId}". Run "brv providers list" to see available providers.`)
       }
 
       if (!provider.isConnected) {
-        throw new Error(`Provider "${providerId}" is not connected. Use "brv provider connect ${providerId}" instead.`)
+        throw new Error(`Provider "${providerId}" is not connected. Use "brv providers connect ${providerId}" instead.`)
       }
 
       await client.requestWithAck<ProviderSetActiveResponse>(ProviderEvents.SET_ACTIVE, {providerId})

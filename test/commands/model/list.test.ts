@@ -120,7 +120,7 @@ describe('Model List Command', () => {
       expect(loggedMessages.some((m) => m.includes('GPT-4.1') && m.includes('[gpt-4.1]'))).to.be.true
     })
 
-    it('should mark active model with "(active)"', async () => {
+    it('should mark current model with "(current)"', async () => {
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
       requestStub.onFirstCall().resolves({activeModel: 'claude-sonnet-4-5', activeProviderId: 'anthropic'})
       requestStub.onSecondCall().resolves({
@@ -135,8 +135,8 @@ describe('Model List Command', () => {
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('Claude Sonnet 4.5') && m.includes('(active)'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('Claude Haiku 3.5') && m.includes('(active)'))).to.be.false
+      expect(loggedMessages.some((m) => m.includes('Claude Sonnet 4.5') && m.includes('(current)'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Claude Haiku 3.5') && m.includes('(current)'))).to.be.false
     })
 
     it('should show empty message when no models available', async () => {
@@ -148,7 +148,7 @@ describe('Model List Command', () => {
       await createCommand().run()
 
       expect(loggedMessages.some((m) => m.includes('No models available'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv provider connect'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv providers connect'))).to.be.true
     })
   })
 

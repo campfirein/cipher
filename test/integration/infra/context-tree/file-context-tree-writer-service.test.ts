@@ -34,9 +34,11 @@ describe('FileContextTreeWriterService', () => {
     mockSnapshotService = {
       getChanges: sinon.stub(),
       getCurrentState: sinon.stub(),
+      getSnapshotState: sinon.stub(),
       hasSnapshot: sinon.stub(),
       initEmptySnapshot: sinon.stub(),
       saveSnapshot: sinon.stub(),
+      saveSnapshotFromState: sinon.stub(),
     }
     mockSnapshotService.getCurrentState.resolves(new Map())
 

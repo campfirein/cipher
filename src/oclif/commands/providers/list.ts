@@ -8,8 +8,8 @@ import {writeJsonResponse} from '../../lib/json-response.js'
 export default class ProviderList extends Command {
   public static description = 'List all available providers and their connection status'
   public static examples = [
-    '<%= config.bin %> provider list',
-    '<%= config.bin %> provider list --format json',
+    '<%= config.bin %> providers list',
+    '<%= config.bin %> providers list --format json',
   ]
   public static flags = {
     format: Flags.string({
@@ -34,17 +34,17 @@ export default class ProviderList extends Command {
       const {providers} = await this.fetchProviders()
 
       if (format === 'json') {
-        writeJsonResponse({command: 'provider list', data: {providers}, success: true})
+        writeJsonResponse({command: 'providers list', data: {providers}, success: true})
         return
       }
 
       for (const p of providers) {
-        const status = p.isCurrent ? chalk.green('(active)') : p.isConnected ? chalk.yellow('(connected)') : ''
+        const status = p.isCurrent ? chalk.green('(current)') : p.isConnected ? chalk.yellow('(connected)') : ''
         this.log(`  ${p.name} [${p.id}] ${status}`.trimEnd())
       }
     } catch (error) {
       if (format === 'json') {
-        writeJsonResponse({command: 'provider list', data: {error: formatConnectionError(error)}, success: false})
+        writeJsonResponse({command: 'providers list', data: {error: formatConnectionError(error)}, success: false})
       } else {
         this.log(formatConnectionError(error))
       }

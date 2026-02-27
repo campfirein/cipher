@@ -379,7 +379,7 @@ async function executeTask(
   if (!freshProviderConfig.activeProvider) {
     const error = serializeTaskError(
       new TaskError(
-        'No provider connected. Run "brv provider connect <provider>" to configure a provider.',
+        'No provider connected. Run "brv providers connect <provider>" to configure a provider.',
         TaskErrorCode.PROVIDER_NOT_CONFIGURED,
       ),
     )

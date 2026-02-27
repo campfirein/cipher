@@ -54,9 +54,11 @@ describe('ResetHandler', () => {
     contextTreeSnapshotService = {
       getChanges: stub(),
       getCurrentState: stub(),
+      getSnapshotState: stub(),
       hasSnapshot: stub(),
       initEmptySnapshot: stub(),
       saveSnapshot: stub(),
+      saveSnapshotFromState: stub(),
     }
 
     resolveProjectPath = stub().returns('/test/project')

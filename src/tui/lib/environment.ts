@@ -14,3 +14,8 @@ export const isDevelopment = (): boolean => process.env.BRV_ENV === 'development
  * Project-level ByteRover directory name.
  */
 export const BRV_DIR = '.brv'
+
+/**
+ * Directory for conflict review files created during space switch merge.
+ */
+export const CONTEXT_TREE_CONFLICT_DIR = 'context-tree-conflicts'

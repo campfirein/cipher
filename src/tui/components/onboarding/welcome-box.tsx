@@ -48,7 +48,7 @@ export const WelcomeBox: React.FC = () => {
           )}
           {!isConnected && (
             <Text color={colors.text}>
-              No provider connected. Use <Text color={colors.warning}>/provider</Text> to connect.
+              No provider connected. Use <Text color={colors.warning}>/providers</Text> to connect.
             </Text>
           )}
           <Text color={colors.text}> </Text>

@@ -14,6 +14,7 @@ import type {PullProgressEvent} from '../../../../shared/transport/events/index.
 import {PullEvents} from '../../../../shared/transport/events/index.js'
 import {SelectableList} from '../../../components/selectable-list.js'
 import {useTheme} from '../../../hooks/index.js'
+import {BRV_DIR, CONTEXT_TREE_CONFLICT_DIR} from '../../../lib/environment.js'
 import {useTransportStore} from '../../../stores/transport-store.js'
 import {formatTransportError} from '../../../utils/error-messages.js'
 import {useGetSpaces} from '../api/get-spaces.js'
@@ -90,12 +91,18 @@ export const SpaceSwitchFlow: React.FC<SpaceSwitchFlowProps> = ({isActive = true
         },
         onSuccess(result) {
           unsubProgress?.()
+          if (!result.success) {
+            onComplete(`Failed to switch space: ${result.pullError ?? 'Unknown error'}`)
+            return
+          }
+
           const spaceLine = `Successfully switched to space: ${result.config.spaceName}`
           let pullLine: string
           if (result.pullResult) {
             pullLine = `Pulled: +${result.pullResult.added} ~${result.pullResult.edited} -${result.pullResult.deleted}`
-          } else if (result.pullError) {
-            pullLine = `Pull skipped: ${result.pullError}`
+            if (result.pullResult.conflicted) {
+              pullLine += `\n  ${result.pullResult.conflicted} conflict(s) auto-merged — review ${BRV_DIR}/${CONTEXT_TREE_CONFLICT_DIR}/ for original files`
+            }
           } else {
             pullLine = 'No remote context found.'
           }

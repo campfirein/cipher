@@ -20,6 +20,7 @@ import {platform} from 'node:os'
 import {join} from 'node:path'
 import {pathToFileURL} from 'node:url'
 
+import {isDevelopment} from '../../server/config/environment.js'
 import {getGlobalConfigDir} from '../../server/utils/global-config-path.js'
 import {getGlobalDataDir} from '../../server/utils/global-data-path.js'
 
@@ -126,7 +127,7 @@ const fileHyperlink = (filePath: string): string => {
 }
 
 export default class Debug extends Command {
-  public static description = 'Live monitor for daemon internal state'
+  public static description = 'Live monitor for daemon internal state (development only)'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --format json',
@@ -148,6 +149,7 @@ export default class Debug extends Command {
       description: 'Print once and exit (no live monitoring)',
     }),
   }
+  public static hidden = !isDevelopment()
 
   protected clearScreen(): void {
     if (process.stdout.isTTY) {
@@ -200,6 +202,10 @@ export default class Debug extends Command {
   }
 
   public async run(): Promise<void> {
+    if (!isDevelopment()) {
+      this.error('brv debug is only available in development mode')
+    }
+
     const {flags} = await this.parse(Debug)
     const format = flags.format === 'json' ? 'json' : 'tree'
     // JSON format always implies one-shot (useful for scripting / piping)
@@ -215,6 +221,7 @@ export default class Debug extends Command {
           this.log(JSON.stringify({reason: ensureResult.reason, running: false}, null, 2))
         } else {
           this.log(`Daemon failed to start: ${chalk.red(ensureResult.reason)}`)
+          this.log("Run 'brv restart' to force a clean restart.")
         }
 
         return
@@ -232,9 +239,10 @@ export default class Debug extends Command {
       if (error instanceof NoInstanceRunningError) {
         this.log('No daemon is running. Start one with: brv')
       } else if (error instanceof InstanceCrashedError) {
-        this.log('Daemon has crashed. Restart with: brv')
+        this.log("Daemon has crashed. Run 'brv restart' to force a clean restart.")
       } else if (error instanceof ConnectionFailedError || error instanceof ConnectionError) {
         this.log(`Failed to connect to daemon: ${error.message}`)
+        this.log("Run 'brv restart' if the daemon is unresponsive.")
       } else {
         const message = error instanceof Error ? error.message : String(error)
         this.log(`Error: ${message}`)
@@ -612,6 +620,7 @@ export default class Debug extends Command {
       if (!abortController.signal.aborted) {
         const detail = error instanceof Error ? error.message : String(error)
         this.log(chalk.red(`\nConnection to daemon lost: ${detail}`))
+        this.log("Run 'brv restart' to force a clean restart.")
       }
     } finally {
       process.removeListener('SIGINT', stop)

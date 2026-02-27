@@ -5,7 +5,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import ProviderDisconnect from '../../../src/oclif/commands/provider/disconnect.js'
+import ProviderDisconnect from '../../../src/oclif/commands/providers/disconnect.js'
 
 // ==================== TestableProviderDisconnectCommand ====================
 
@@ -118,7 +118,7 @@ describe('Provider Disconnect Command', () => {
       await createCommand('unknown').run()
 
       expect(loggedMessages.some((m) => m.includes('Unknown provider'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv provider list'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv providers list'))).to.be.true
     })
 
     it('should error when provider is not connected', async () => {
@@ -145,7 +145,7 @@ describe('Provider Disconnect Command', () => {
       await createJsonCommand('anthropic').run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider disconnect')
+      expect(json.command).to.equal('providers disconnect')
       expect(json.success).to.be.true
       expect(json.data).to.deep.include({providerId: 'anthropic'})
     })
@@ -156,7 +156,7 @@ describe('Provider Disconnect Command', () => {
       await createJsonCommand('unknown').run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider disconnect')
+      expect(json.command).to.equal('providers disconnect')
       expect(json.success).to.be.false
       expect(json.data).to.have.property('error')
     })

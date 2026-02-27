@@ -57,16 +57,17 @@ export class ProviderHandler {
 
   private setupConnect(): void {
     this.transport.onRequest<ProviderConnectRequest, ProviderConnectResponse>(ProviderEvents.CONNECT, async (data) => {
-      const {apiKey, providerId} = data
+      const {apiKey, baseUrl, providerId} = data
 
-      // Store API key if provided
-      if (apiKey && providerRequiresApiKey(providerId)) {
+      // Store API key if provided (supports optional keys for openai-compatible)
+      if (apiKey) {
         await this.providerKeychainStore.setApiKey(providerId, apiKey)
       }
 
       const provider = getProviderById(providerId)
       await this.providerConfigStore.connectProvider(providerId, {
         activeModel: provider?.defaultModel,
+        baseUrl,
       })
 
       this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
@@ -81,10 +82,7 @@ export class ProviderHandler {
         const {providerId} = data
 
         await this.providerConfigStore.disconnectProvider(providerId)
-
-        if (providerRequiresApiKey(providerId)) {
-          await this.providerKeychainStore.deleteApiKey(providerId)
-        }
+        await this.providerKeychainStore.deleteApiKey(providerId)
 
         this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
         return {success: true}

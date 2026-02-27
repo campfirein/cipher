@@ -29,10 +29,7 @@ const defaultDeps: FileProviderKeychainStoreDeps = {
 }
 
 /**
- * File-based provider keychain store for environments where system keychain is unavailable.
- *
- * Note: This class should not be used directly. Use createProviderKeychainStore() instead,
- * which handles platform detection and selects the appropriate backend.
+ * File-based encrypted provider keychain store. Used on all platforms.
  *
  * Security:
  * - Random 32-byte key stored in <global-data-dir>/.provider-keys (rotated on each save)

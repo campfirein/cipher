@@ -15,8 +15,13 @@ import {TransportInitializer} from '../features/transport/components/transport-i
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
+      // cached data is garbage collected immediately after unmount,
+      // so no stale data is ever served
+      gcTime: 0,
       refetchOnWindowFocus: false,
-      retry: false,
+      // data is stale immediately,
+      // so React Query will refetch on triggers
+      staleTime: 0,
     },
   },
 })

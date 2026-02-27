@@ -5,7 +5,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import ProviderList from '../../../src/oclif/commands/provider/list.js'
+import ProviderList from '../../../src/oclif/commands/providers/list.js'
 
 // ==================== TestableProviderListCommand ====================
 
@@ -114,14 +114,14 @@ describe('Provider List Command', () => {
       expect(loggedMessages.some((m) => m.includes('Groq') && m.includes('[groq]'))).to.be.true
     })
 
-    it('should show "(active)" for the current provider', async () => {
+    it('should show "(current)" for the current provider', async () => {
       mockListResponse([
         {id: 'anthropic', isConnected: true, isCurrent: true, name: 'Anthropic'},
       ])
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('(active)'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('(current)'))).to.be.true
     })
 
     it('should show "(connected)" for connected non-active providers', async () => {
@@ -141,7 +141,7 @@ describe('Provider List Command', () => {
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('(active)'))).to.be.false
+      expect(loggedMessages.some((m) => m.includes('(current)'))).to.be.false
       expect(loggedMessages.some((m) => m.includes('(connected)'))).to.be.false
       expect(loggedMessages.some((m) => m.includes('Groq') && m.includes('[groq]'))).to.be.true
     })
@@ -158,7 +158,7 @@ describe('Provider List Command', () => {
       await createJsonCommand().run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider list')
+      expect(json.command).to.equal('providers list')
       expect(json.success).to.be.true
       expect(json.data).to.have.property('providers')
     })
@@ -169,7 +169,7 @@ describe('Provider List Command', () => {
       await createJsonCommand().run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider list')
+      expect(json.command).to.equal('providers list')
       expect(json.success).to.be.false
       expect(json.data).to.have.property('error')
     })
