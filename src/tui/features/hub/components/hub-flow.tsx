@@ -65,7 +65,7 @@ export const HubFlow: React.FC<HubFlowProps> = ({isActive = true, onCancel, onCo
       } else {
         setStep('installing')
         installMutation
-          .mutateAsync({entryId: entry.id, registry: entry.registry})
+          .mutateAsync({entryId: entry.id, registry: entry.registry, scope: 'project'})
           .then((result) =>
             onComplete(result.installedPath ? `${result.message}\nLocation: ${result.installedPath}` : result.message),
           )

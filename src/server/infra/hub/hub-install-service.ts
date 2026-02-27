@@ -123,12 +123,12 @@ export class HubInstallService implements IHubInstallService {
   }): Promise<{installedFiles: string[]; installedPath: string; message: string}> {
     const {agent, auth, entry, projectPath, scope} = params
 
-    if (!agent || !Object.keys(SKILL_CONNECTOR_CONFIGS).includes(agent)) {
-      throw new Error('Agent does not support skill installation')
-    }
-
     const skillConnector = this.skillConnectorFactory(projectPath)
     const contentFiles = this.getContentFiles(entry)
+
+    if (!agent || !(agent in SKILL_CONNECTOR_CONFIGS) || !skillConnector.isSupported(agent as Agent)) {
+      throw new Error('Agent does not support skill installation')
+    }
 
     const downloadedFiles = await Promise.all(
       contentFiles.map(async (file) => ({

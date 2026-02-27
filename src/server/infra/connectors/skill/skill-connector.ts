@@ -86,9 +86,8 @@ export class SkillConnector implements IConnector {
     }
 
     const config = this.getConfig(agent)
-    const scope = config.projectPath ? 'project' : 'global'
-    const basePath = config.projectPath || config.globalPath
-    if (!basePath) {
+    // Install the skill connector in the project directory by default
+    if (!config.projectPath) {
       return {
         alreadyInstalled: false,
         configPath: '',
@@ -97,8 +96,8 @@ export class SkillConnector implements IConnector {
       }
     }
 
-    const relativePath = path.join(basePath, BRV_SKILL_NAME)
-    const fullDir = this.resolveFullPath(config, scope, BRV_SKILL_NAME)
+    const relativePath = path.join(config.projectPath, BRV_SKILL_NAME)
+    const fullDir = this.resolveFullPath(config, 'project', BRV_SKILL_NAME)
 
     try {
       const skillFilePath = path.join(fullDir, MAIN_SKILL_FILE_NAME)

@@ -24,17 +24,13 @@ export const SKILL_CONNECTOR_CONFIGS = {
     globalPath: '.gemini/antigravity/skills',
     projectPath: '.agent/skills',
   },
-  'Augment Code': {
+  'Auggie CLI': {
     globalPath: '.augment/skills',
     projectPath: '.augment/skills',
   },
   'Claude Code': {
     globalPath: '.claude/skills',
     projectPath: '.claude/skills',
-  },
-  Cline: {
-    globalPath: '.cline/skills',
-    projectPath: '.cline/skills',
   },
   Codex: {
     globalPath: '.agents/skills',
@@ -63,6 +59,10 @@ export const SKILL_CONNECTOR_CONFIGS = {
   Kiro: {
     globalPath: '.kiro/skills',
     projectPath: '.kiro/skills',
+  },
+  OpenCode: {
+    globalPath: '.config/opencode/skills',
+    projectPath: '.opencode/skills',
   },
   Qoder: {
     globalPath: '.qoder/skills',

@@ -40,7 +40,7 @@ export default class HubInstall extends Command {
     }),
     scope: Flags.string({
       char: 's',
-      default: 'global',
+      default: 'project',
       description: 'Install scope for skills (global: home directory, project: current project)',
       options: ['global', 'project'],
     }),

@@ -55,7 +55,11 @@ export class HubHandler {
     this.resolveProjectPath = deps.resolveProjectPath
     this.transport = deps.transport
     // Will be built during setup
-    this.hubRegistryService = new HubRegistryService({name: OFFICIAL_REGISTRY_NAME, timeoutMs: this.registryTimeoutMs, url: deps.officialRegistryUrl})
+    this.hubRegistryService = new HubRegistryService({
+      name: OFFICIAL_REGISTRY_NAME,
+      timeoutMs: this.registryTimeoutMs,
+      url: deps.officialRegistryUrl,
+    })
   }
 
   async setup(): Promise<void> {
@@ -80,12 +84,12 @@ export class HubHandler {
 
   private async handleInstall(data: HubInstallRequest, clientId: string): Promise<HubInstallResponse> {
     const projectPath = this.resolveEffectivePath(clientId)
-    const scope = data.scope ?? 'global'
+    const scope = data.scope ?? 'project'
 
     const matches = await this.hubRegistryService.getEntriesById(data.entryId).then((entries) => {
       // If a specific registry is requested, filter to that registry
       if (data.registry) {
-        return entries.filter((entry) => entry.id === data.entryId)
+        return entries.filter((entry) => entry.registry === data.registry)
       }
 
       return entries
@@ -258,7 +262,11 @@ export class HubHandler {
   }
 
   private async rebuildRegistryService(): Promise<void> {
-    const officialChild = new HubRegistryService({name: OFFICIAL_REGISTRY_NAME, timeoutMs: this.registryTimeoutMs, url: this.officialRegistryUrl})
+    const officialChild = new HubRegistryService({
+      name: OFFICIAL_REGISTRY_NAME,
+      timeoutMs: this.registryTimeoutMs,
+      url: this.officialRegistryUrl,
+    })
 
     const registries = await this.hubRegistryConfigStore.getRegistries()
     const privateChildren = await Promise.all(

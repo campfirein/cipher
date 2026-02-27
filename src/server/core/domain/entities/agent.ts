@@ -34,6 +34,10 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
     default: 'skill',
     supported: ['rules', 'mcp', 'skill'],
   },
+  'Auggie CLI': {
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
+  },
   'Augment Code': {
     default: 'mcp',
     supported: ['rules', 'mcp'],
@@ -71,6 +75,10 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
     supported: ['rules', 'mcp', 'skill'],
   },
   Kiro: {
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
+  },
+  OpenCode: {
     default: 'skill',
     supported: ['rules', 'mcp', 'skill'],
   },

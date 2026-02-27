@@ -74,6 +74,7 @@ describe('HubInstallService', () => {
     write: SinonStub
   }
   let mockSkillConnector: {
+    isSupported: SinonStub
     writeSkillFiles: SinonStub
   }
   let skillConnectorFactory: SinonStub
@@ -92,6 +93,7 @@ describe('HubInstallService', () => {
       write: sandbox.stub().resolves(),
     }
     mockSkillConnector = {
+      isSupported: sandbox.stub().returns(true),
       writeSkillFiles: sandbox.stub().resolves({
         absolutePath: join(projectPath, '.claude/skills/test-skill'),
         alreadyInstalled: false,
