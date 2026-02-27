@@ -14,6 +14,7 @@
 import {expect} from 'chai'
 import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
+import type {ICurateService} from '../../../../src/agent/core/interfaces/i-curate-service.js'
 import type {IFileSystem} from '../../../../src/agent/core/interfaces/i-file-system.js'
 import type {ISearchKnowledgeService} from '../../../../src/agent/infra/sandbox/tools-sdk.js'
 
@@ -333,6 +334,107 @@ describe('SandboxService', () => {
       } catch (error_) {
         expect((error_ as Error).message).to.equal('File not found')
       }
+    })
+  })
+
+  describe('Command Type Transitions (read-only enforcement)', () => {
+    it('should reject tools.writeFile() when transitioning from curate to query', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      // First run as curate — writeFile should work
+      const curateResult = await service.executeCode(
+        'tools.writeFile("/test.txt", "data")',
+        'session1',
+        {commandType: 'curate'},
+      )
+      const writeResult = await (curateResult.returnValue as Promise<{bytesWritten: number}>)
+      expect(writeResult.bytesWritten).to.equal(4)
+
+      // Same session, now as query — writeFile must throw
+      const queryResult = await service.executeCode(
+        'tools.writeFile("/test.txt", "data")',
+        'session1',
+        {commandType: 'query'},
+      )
+      expect(queryResult.stderr).to.include('writeFile() is disabled in read-only (query) mode')
+    })
+
+    it('should reject tools.curate() when transitioning from curate to query', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+      service.setCurateService({
+        curate: sandbox.stub().resolves({applied: [], summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0}}),
+        detectDomains: sandbox.stub().resolves({domains: []}),
+      } as unknown as ICurateService)
+
+      // First run as curate
+      await service.executeCode('var x = 1', 'session1', {commandType: 'curate'})
+
+      // Same session, now as query — curate must throw
+      const result = await service.executeCode(
+        'tools.curate([])',
+        'session1',
+        {commandType: 'query'},
+      )
+      expect(result.stderr).to.include('curate() is disabled in read-only (query) mode')
+    })
+
+    it('should preserve sandbox variable state across command type transitions', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      // Set a variable in curate mode
+      await service.executeCode('var important = 42', 'session1', {commandType: 'curate'})
+
+      // Transition to query — variable must survive
+      const result = await service.executeCode('important', 'session1', {commandType: 'query'})
+      expect(result.returnValue).to.equal(42)
+    })
+
+    it('should allow write operations when transitioning from query back to curate', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      // Start as query
+      await service.executeCode('var data = "saved"', 'session1', {commandType: 'query'})
+
+      // Transition to curate — writeFile must work
+      const result = await service.executeCode(
+        'tools.writeFile("/out.txt", data)',
+        'session1',
+        {commandType: 'curate'},
+      )
+      const writeResult = await (result.returnValue as Promise<{bytesWritten: number}>)
+      expect(writeResult.bytesWritten).to.equal(4)
+    })
+
+    it('should handle undefined to query transition', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      // First call with no commandType (undefined)
+      await service.executeCode('var x = 1', 'session1')
+
+      // Now call with query — writeFile must be blocked
+      const result = await service.executeCode(
+        'tools.writeFile("/test.txt", "data")',
+        'session1',
+        {commandType: 'query'},
+      )
+      expect(result.stderr).to.include('writeFile() is disabled in read-only (query) mode')
+    })
+
+    it('should not rebuild ToolsSDK when commandType stays the same', async () => {
+      const service = new SandboxService()
+      service.setFileSystem(mockFileSystem as unknown as IFileSystem)
+
+      // Two calls with the same commandType
+      await service.executeCode('var counter = 0', 'session1', {commandType: 'query'})
+      const result = await service.executeCode('counter', 'session1', {commandType: 'query'})
+
+      // Variable persists and no unnecessary rebuild
+      expect(result.returnValue).to.equal(0)
     })
   })
 })

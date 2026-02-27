@@ -25,6 +25,8 @@ export class SandboxService implements ISandboxService {
   private fileSystem?: IFileSystem
   /** Variables buffered before sandbox creation, keyed by sessionId */
   private pendingVariables = new Map<string, Record<string, unknown>>()
+  /** Command type used to build each sandbox's ToolsSDK, keyed by sessionId */
+  private sandboxCommandTypes = new Map<string, string | undefined>()
   /** Map of agent sessionId to LocalSandbox instance */
   private sandboxes = new Map<string, LocalSandbox>()
   /** Search knowledge service for Tools SDK */
@@ -37,6 +39,7 @@ export class SandboxService implements ISandboxService {
    */
   async cleanup(): Promise<void> {
     this.sandboxes.clear()
+    this.sandboxCommandTypes.clear()
     this.pendingVariables.clear()
   }
 
@@ -47,6 +50,7 @@ export class SandboxService implements ISandboxService {
    */
   async clearSession(sessionId: string): Promise<void> {
     this.sandboxes.delete(sessionId)
+    this.sandboxCommandTypes.delete(sessionId)
     this.pendingVariables.delete(sessionId)
   }
 
@@ -81,7 +85,24 @@ export class SandboxService implements ISandboxService {
     // Get or create sandbox for this agent session
     let sandbox = this.sandboxes.get(sessionId)
 
-    if (!sandbox) {
+    if (sandbox) {
+      // Hot-swap ToolsSDK if commandType changed (security: enforce read-only on transition)
+      const previousCommandType = this.sandboxCommandTypes.get(sessionId)
+      if (config?.commandType !== previousCommandType) {
+        const newToolsSDK = this.buildToolsSDK(sessionId, config?.commandType)
+        if (newToolsSDK) {
+          sandbox.updateContext({ tools: newToolsSDK })
+        }
+
+        this.sandboxCommandTypes.set(sessionId, config?.commandType)
+      }
+
+      // Update context if provided
+      if (config?.contextPayload) {
+        sandbox.updateContext({ context: config.contextPayload })
+      }
+    }
+    else {
       // First execution for this session - create new sandbox
       const initialContext: Record<string, unknown> = {}
       if (config?.contextPayload) {
@@ -105,10 +126,7 @@ export class SandboxService implements ISandboxService {
       })
 
       this.sandboxes.set(sessionId, sandbox)
-    }
-    else if (config?.contextPayload) {
-      // Update context if provided
-      sandbox.updateContext({ context: config.contextPayload })
+      this.sandboxCommandTypes.set(sessionId, config?.commandType)
     }
 
     if (this.collector) {
@@ -141,6 +159,7 @@ export class SandboxService implements ISandboxService {
     this.environmentContext = environmentContext
     // Clear existing sandboxes so new ones get the updated environment
     this.sandboxes.clear()
+    this.sandboxCommandTypes.clear()
   }
 
   /**
@@ -227,6 +246,7 @@ export class SandboxService implements ISandboxService {
   private invalidateSandboxes(): void {
     if (this.fileSystem) {
       this.sandboxes.clear()
+      this.sandboxCommandTypes.clear()
     }
   }
 }
