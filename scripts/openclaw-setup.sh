@@ -112,7 +112,7 @@ check_brv_skill() {
     return
   fi
 
-  warn "ByteRover Skill is missing from $global_skills_dir. Installing byterover..."
+  warn "ByteRover Skill is missing from $global_skills_dir. Installing ByteRover Skill..."
 
   # clawhub always installs to <workspace>/skills/ (ignores cwd).
   # Resolve the workspace path from openclaw.json, then copy to the global skills dir.
@@ -126,7 +126,7 @@ check_brv_skill() {
   ')
 
   if ! clawhub install --force byterover; then
-    error "Failed to install byterover skill."
+    error "Failed to install ByteRover Skill."
   fi
 
   # Find where clawhub actually installed it
@@ -144,9 +144,9 @@ check_brv_skill() {
   cp -R "$installed_dir" "$global_skills_dir/byterover"
 
   if [ -f "$global_skills_dir/byterover/SKILL.md" ]; then
-    success "ByteRover skill installed to $global_skills_dir/byterover"
+    success "ByteRover Skill installed to $global_skills_dir/byterover"
   else
-    error "Failed to copy byterover skill to $global_skills_dir"
+    error "Failed to copy ByteRover Skill to $global_skills_dir"
   fi
 }
 
