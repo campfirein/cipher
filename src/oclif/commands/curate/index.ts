@@ -33,9 +33,7 @@ export default class Curate extends Command {
       required: false,
     }),
   }
-  public static description = `Curate context to the context tree (connects to running brv instance)
-
-Requires a running brv instance. Start one with: brv
+  public static description = `Curate context to the context tree
 
 Good examples:
 - "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"
@@ -120,7 +118,7 @@ Bad examples:
 
           if (!active.activeProvider) {
             throw new Error(
-              'No provider connected. Run "brv providers connect <provider>" to configure a provider first.',
+              'No provider connected. Run "brv providers connect byterover" to use the free built-in provider, or connect another provider.',
             )
           }
 
@@ -310,9 +308,9 @@ Bad examples:
       this.log('Either a context argument, file reference, or folder reference is required.')
       this.log('Usage:')
       this.log('  brv curate "your context here"')
-      this.log('  brv curate @src/file.ts')
-      this.log('  brv curate @src/             # folder pack')
-      this.log('  brv curate "context with files" @src/file.ts')
+      this.log('  brv curate "your context" -f src/file.ts')
+      this.log('  brv curate -d src/             # folder pack')
+      this.log('  brv curate "context with files" -f src/file.ts -f src/other.ts')
     }
 
     return false

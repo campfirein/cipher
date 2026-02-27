@@ -3,6 +3,7 @@ import type {IContextTreeSnapshotService} from '../../core/interfaces/context-tr
 import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
 
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
+import {syncConfigToXdg} from '../../utils/config-xdg-sync.js'
 
 export interface AutoInitDeps {
   contextTreeService: IContextTreeService
@@ -22,6 +23,7 @@ export async function ensureProjectInitialized(deps: AutoInitDeps, directory?: s
   const cwd = directory ?? process.cwd()
   const config = BrvConfig.createLocal({cwd})
   await deps.projectConfigStore.write(config, directory)
+  await syncConfigToXdg(config, cwd)
   await deps.contextTreeService.initialize(directory)
   await deps.contextTreeSnapshotService.initEmptySnapshot(directory)
 }

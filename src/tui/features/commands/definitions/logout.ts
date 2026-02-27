@@ -27,7 +27,7 @@ export const logoutCommand: SlashCommand = {
         }),
     }
   },
-  description: 'Log out of ByteRover CLI and clear authentication',
+  description: 'Disconnect from ByteRover cloud and clear credentials',
   flags: toCommandFlags(logoutFlags),
   name: 'logout',
 }
