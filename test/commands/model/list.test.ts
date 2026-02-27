@@ -148,7 +148,7 @@ describe('Model List Command', () => {
       await createCommand().run()
 
       expect(loggedMessages.some((m) => m.includes('No models available'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv provider connect'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv providers connect'))).to.be.true
     })
   })
 

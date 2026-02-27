@@ -31,7 +31,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [TaskErrorCode.NOT_AUTHENTICATED]: 'Not authenticated. Run "brv login" first.',
   [TaskErrorCode.PROJECT_NOT_INIT]: 'Project not initialized. Run "brv init" first.',
   [TaskErrorCode.PROVIDER_NOT_CONFIGURED]:
-    'No provider connected. Run "brv provider connect <provider>" to configure a provider.',
+    'No provider connected. Run "brv providers connect <provider>" to configure a provider.',
   [TaskErrorCode.SPACE_NOT_CONFIGURED]: 'No space configured. Run "brv space switch" to select a space first.',
   [TaskErrorCode.SPACE_NOT_FOUND]: 'Space not found. Check your configuration.',
 }
@@ -203,10 +203,10 @@ export function formatConnectionError(error: unknown, providerContext?: Provider
     return (
       `LLM provider API key is missing or invalid.\n${currentInfo}` +
       '  Reconnect with your API key:\n' +
-      `    brv provider connect ${provider} --api-key <key>\n\n` +
+      `    brv providers connect ${provider} --api-key <key>\n\n` +
       '  Switch to a different provider:\n' +
-      '    brv provider switch <provider>\n\n' +
-      '  See all options:  brv provider --help'
+      '    brv providers switch <provider>\n\n' +
+      '  See all options:  brv providers --help'
     )
   }
 

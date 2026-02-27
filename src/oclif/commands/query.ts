@@ -77,13 +77,13 @@ Bad:
 
           if (!active.activeProvider) {
             throw new Error(
-              'No provider connected. Run "brv provider connect <provider>" to configure a provider first.',
+              'No provider connected. Run "brv providers connect <provider>" to configure a provider first.',
             )
           }
 
           if (active.providerKeyMissing) {
             throw new Error(
-              `${active.activeProvider} API key is missing from storage.\nPlease reconnect: brv provider connect ${active.activeProvider} --api-key <your-key>`,
+              `${active.activeProvider} API key is missing from storage.\nPlease reconnect: brv providers connect ${active.activeProvider} --api-key <your-key>`,
             )
           }
 

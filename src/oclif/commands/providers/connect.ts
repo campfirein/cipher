@@ -23,14 +23,20 @@ export default class ProviderConnect extends Command {
   }
   public static description = 'Connect or switch to an LLM provider'
   public static examples = [
-    '<%= config.bin %> provider connect anthropic --api-key sk-xxx',
-    '<%= config.bin %> provider connect openai --api-key sk-xxx --model gpt-4.1',
-    '<%= config.bin %> provider connect byterover',
+    '<%= config.bin %> providers connect anthropic --api-key sk-xxx',
+    '<%= config.bin %> providers connect openai --api-key sk-xxx --model gpt-4.1',
+    '<%= config.bin %> providers connect byterover',
+    '<%= config.bin %> providers connect openai-compatible --base-url http://localhost:11434/v1',
+    '<%= config.bin %> providers connect openai-compatible --base-url http://localhost:11434/v1 --api-key sk-xxx --model llama3',
   ]
   public static flags = {
     'api-key': Flags.string({
       char: 'k',
       description: 'API key for the provider',
+    }),
+    'base-url': Flags.string({
+      char: 'b',
+      description: 'Base URL for OpenAI-compatible providers (e.g., http://localhost:11434/v1)',
     }),
     format: Flags.string({
       default: 'text',
@@ -44,7 +50,7 @@ export default class ProviderConnect extends Command {
   }
 
   protected async connectProvider(
-    {apiKey, model, providerId}: {apiKey?: string; model?: string; providerId: string},
+    {apiKey, baseUrl, model, providerId}: {apiKey?: string; baseUrl?: string; model?: string; providerId: string},
     options?: DaemonClientOptions,
   ) {
     return withDaemonRetry(async (client) => {
@@ -52,10 +58,33 @@ export default class ProviderConnect extends Command {
       const {providers} = await client.requestWithAck<ProviderListResponse>(ProviderEvents.LIST)
       const provider = providers.find((p) => p.id === providerId)
       if (!provider) {
-        throw new Error(`Unknown provider "${providerId}". Run "brv provider list" to see available providers.`)
+        throw new Error(`Unknown provider "${providerId}". Run "brv providers list" to see available providers.`)
       }
 
-      // 2. Validate API key if provided and required
+      // 2. Validate base URL for openai-compatible
+      if (providerId === 'openai-compatible') {
+        if (!baseUrl && !provider.isConnected) {
+          throw new Error(
+            'Provider "openai-compatible" requires a base URL. Use the --base-url flag to provide one.'
+            + '\nExample: brv providers connect openai-compatible --base-url http://localhost:11434/v1',
+          )
+        }
+
+        if (baseUrl) {
+          let parsed: undefined | URL
+          try {
+            parsed = new URL(baseUrl)
+          } catch {
+            throw new Error(`Invalid base URL format: "${baseUrl}". Must be a valid http:// or https:// URL.`)
+          }
+
+          if (!['http:', 'https:'].includes(parsed.protocol)) {
+            throw new Error('URL must start with http:// or https://')
+          }
+        }
+      }
+
+      // 3. Validate API key if provided and required (skip for openai-compatible)
       if (apiKey && provider.requiresApiKey) {
         const validation = await client.requestWithAck<ProviderValidateApiKeyResponse>(
           ProviderEvents.VALIDATE_API_KEY,
@@ -71,13 +100,14 @@ export default class ProviderConnect extends Command {
         )
       }
 
-      // 3. Connect or switch active provider
-      await (provider.isConnected && !apiKey
+      // 4. Connect or switch active provider
+      const hasNewConfig = apiKey || baseUrl
+      await (provider.isConnected && !hasNewConfig
         ? client.requestWithAck<ProviderSetActiveResponse>(ProviderEvents.SET_ACTIVE, {providerId})
-        : client.requestWithAck<ProviderConnectResponse>(ProviderEvents.CONNECT, {apiKey, providerId})
+        : client.requestWithAck<ProviderConnectResponse>(ProviderEvents.CONNECT, {apiKey, baseUrl, providerId})
       );
 
-      // 4. Set model if specified
+      // 5. Set model if specified
       if (model) {
         await client.requestWithAck<ModelSetActiveResponse>(ModelEvents.SET_ACTIVE, {modelId: model, providerId})
       }
@@ -90,14 +120,15 @@ export default class ProviderConnect extends Command {
     const {args, flags} = await this.parse(ProviderConnect)
     const providerId = args.provider
     const apiKey = flags['api-key']
+    const baseUrl = flags['base-url']
     const {model} = flags
     const format = flags.format as 'json' | 'text'
 
     try {
-      const result = await this.connectProvider({apiKey, model, providerId})
+      const result = await this.connectProvider({apiKey, baseUrl, model, providerId})
 
       if (format === 'json') {
-        writeJsonResponse({command: 'provider connect', data: result, success: true})
+        writeJsonResponse({command: 'providers connect', data: result, success: true})
       } else {
         this.log(`Connected to ${result.providerName} (${result.providerId})`)
         if (result.model) {
@@ -107,7 +138,7 @@ export default class ProviderConnect extends Command {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred while connecting the provider. Please try again.'
       if (format === 'json') {
-        writeJsonResponse({command: 'provider connect', data: {error: errorMessage}, success: false})
+        writeJsonResponse({command: 'providers connect', data: {error: errorMessage}, success: false})
       } else {
         this.log(errorMessage)
       }

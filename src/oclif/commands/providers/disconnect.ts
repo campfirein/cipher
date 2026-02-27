@@ -17,8 +17,8 @@ export default class ProviderDisconnect extends Command {
   }
   public static description = 'Disconnect an LLM provider'
   public static examples = [
-    '<%= config.bin %> provider disconnect anthropic',
-    '<%= config.bin %> provider disconnect openai --format json',
+    '<%= config.bin %> providers disconnect anthropic',
+    '<%= config.bin %> providers disconnect openai --format json',
   ]
   public static flags = {
     format: Flags.string({
@@ -35,7 +35,7 @@ export default class ProviderDisconnect extends Command {
       const provider = providers.find((p) => p.id === providerId)
 
       if (!provider) {
-        throw new Error(`Unknown provider "${providerId}". Run "brv provider list" to see available providers.`)
+        throw new Error(`Unknown provider "${providerId}". Run "brv providers list" to see available providers.`)
       }
 
       if (!provider.isConnected) {
@@ -55,14 +55,14 @@ export default class ProviderDisconnect extends Command {
       await this.disconnectProvider(providerId)
 
       if (format === 'json') {
-        writeJsonResponse({command: 'provider disconnect', data: {providerId}, success: true})
+        writeJsonResponse({command: 'providers disconnect', data: {providerId}, success: true})
       } else {
         this.log(`Disconnected provider: ${providerId}`)
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred while disconnecting the provider. Please try again.'
       if (format === 'json') {
-        writeJsonResponse({command: 'provider disconnect', data: {error: errorMessage}, success: false})
+        writeJsonResponse({command: 'providers disconnect', data: {error: errorMessage}, success: false})
       } else {
         this.log(errorMessage)
       }

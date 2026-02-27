@@ -51,6 +51,8 @@ export interface ApiKeyValidationResult {
 export interface ApiKeyDialogProps {
   /** Whether the dialog is active for keyboard input */
   isActive?: boolean
+  /** Whether the API key is optional (user can skip with Enter) */
+  isOptional?: boolean
   /** Callback when dialog is cancelled */
   onCancel: () => void
   /** Callback when API key is successfully validated */
@@ -83,6 +85,7 @@ const defaultValidateApiKey = async (): Promise<ApiKeyValidationResult> => ({isV
  */
 export const ApiKeyDialog: React.FC<ApiKeyDialogProps> = ({
   isActive = true,
+  isOptional = false,
   onCancel,
   onSuccess,
   provider,
@@ -96,6 +99,11 @@ export const ApiKeyDialog: React.FC<ApiKeyDialogProps> = ({
 
   const handleSubmit = useCallback(async () => {
     if (!apiKey.trim()) {
+      if (isOptional) {
+        onSuccess('')
+        return
+      }
+
       setError('API key is required')
       return
     }
@@ -115,7 +123,7 @@ export const ApiKeyDialog: React.FC<ApiKeyDialogProps> = ({
     } finally {
       setIsValidating(false)
     }
-  }, [apiKey, provider, validateApiKey, onSuccess])
+  }, [apiKey, isOptional, provider, validateApiKey, onSuccess])
 
   // Handle keyboard input for text entry and commands
   useInput(
@@ -201,7 +209,7 @@ export const ApiKeyDialog: React.FC<ApiKeyDialogProps> = ({
           <Box>
             <Box flexShrink={0}>
               <Text color={colors.primary}>
-                Enter your {provider.name} API key:{' '}
+                Enter your {provider.name} API key{isOptional ? ' (optional, Enter to skip)' : ''}:{' '}
               </Text>
             </Box>
             <Box>
@@ -229,7 +237,7 @@ export const ApiKeyDialog: React.FC<ApiKeyDialogProps> = ({
       {!isValidating && (
         <Box gap={2}>
           <Text color={colors.dimText}>
-            <Text color={colors.text}>Enter</Text> Submit
+            <Text color={colors.text}>Enter</Text> {isOptional && !apiKey.trim() ? 'Skip' : 'Submit'}
           </Text>
           <Text color={colors.dimText}>
             <Text color={colors.text}>Esc</Text> {apiKey.length > 0 ? 'Clear' : 'Cancel'}

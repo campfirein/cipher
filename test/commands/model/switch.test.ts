@@ -128,7 +128,7 @@ describe('Model Switch Command', () => {
       await createCommand('gpt-4.1', '--provider', 'unknown').run()
 
       expect(loggedMessages.some((m) => m.includes('Unknown provider'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv provider list'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv providers list'))).to.be.true
     })
 
     it('should error for disconnected provider', async () => {
@@ -139,7 +139,7 @@ describe('Model Switch Command', () => {
       await createCommand('gpt-4.1', '--provider', 'openai').run()
 
       expect(loggedMessages.some((m) => m.includes('is not connected'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv provider connect openai'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv providers connect openai'))).to.be.true
     })
 
     it('should error when active provider is byterover', async () => {
@@ -148,7 +148,7 @@ describe('Model Switch Command', () => {
       await createCommand('claude-sonnet-4-5').run()
 
       expect(loggedMessages.some((m) => m.includes('does not support model switching'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv provider switch'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv providers switch'))).to.be.true
     })
 
     it('should error when --provider flag is byterover', async () => {
@@ -159,7 +159,7 @@ describe('Model Switch Command', () => {
       await createCommand('claude-sonnet-4-5', '--provider', 'byterover').run()
 
       expect(loggedMessages.some((m) => m.includes('does not support model switching'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv provider switch'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv providers switch'))).to.be.true
     })
   })
 
