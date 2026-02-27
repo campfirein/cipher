@@ -294,7 +294,7 @@ Switch to a different space. Interactive mode only - prompts you to select from 
 
 Manage agent connectors for integrating ByteRover with AI coding assistants. Supports four connector types:
 
-- **Skill**: Writes comprehensive documentation files (SKILL.md, TROUBLESHOOTING.md, WORKFLOWS.md) to agent-specific directories. Default for Claude Code and Cursor.
+- **Skill**: Writes comprehensive documentation files (SKILL.md) to agent-specific directories. Default for Claude Code and Cursor.
 - **MCP**: Uses Model Context Protocol for direct tool integration (`brv-query`, `brv-curate`). Default for most other agents.
 - **Rules**: Generates markdown rule files that agents read for instructions. Fallback option for all agents.
 - **Hook**: Uses agent-specific hook systems for tighter integration (Claude Code only, legacy)
@@ -304,8 +304,6 @@ Manage agent connectors for integrating ByteRover with AI coding assistants. Sup
 The skill connector creates comprehensive documentation files for AI coding assistants:
 
 - **SKILL.md**: Quick reference with command examples and best practices
-- **TROUBLESHOOTING.md**: Common errors, required user actions, and diagnostics
-- **WORKFLOWS.md**: Step-by-step patterns for 6 common scenarios (Research, Debug, Multi-file changes, etc.)
 
 Each skill directory contains all three files and is installed in agent-specific locations:
 

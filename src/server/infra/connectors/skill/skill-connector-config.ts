@@ -38,6 +38,10 @@ export const SKILL_CONNECTOR_CONFIGS = {
     basePath: '.github/skills/byterover',
     scope: 'project',
   },
+  OpenClaw: {
+    basePath: '.openclaw/skills/byterover',
+    scope: 'global',
+  },
 } as const satisfies Partial<Record<Agent, SkillConnectorConfig>>
 
 /**
@@ -53,4 +57,4 @@ export const MAIN_SKILL_FILE_NAME = 'SKILL.md'
 /**
  * Names of the skill files written by the skill connector.
  */
-export const SKILL_FILE_NAMES = [MAIN_SKILL_FILE_NAME, 'TROUBLESHOOTING.md', 'WORKFLOWS.md'] as const
+export const SKILL_FILE_NAMES = [MAIN_SKILL_FILE_NAME] as const

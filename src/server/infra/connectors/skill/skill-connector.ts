@@ -26,7 +26,7 @@ type SkillConnectorOptions = {
 
 /**
  * Connector that integrates BRV with coding agents via skill files.
- * Writes static markdown files (SKILL.md, TROUBLESHOOTING.md, WORKFLOWS.md)
+ * Writes static markdown files (SKILL.md)
  * into an agent-specific subdirectory.
  */
 export class SkillConnector implements IConnector {

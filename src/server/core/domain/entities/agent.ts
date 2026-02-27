@@ -74,6 +74,10 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
     default: 'mcp',
     supported: ['rules', 'mcp'],
   },
+  OpenClaw: {
+    default: 'skill',
+    supported: ['skill'],
+  },
   Qoder: {
     default: 'mcp',
     supported: ['rules', 'mcp'],

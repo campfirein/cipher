@@ -324,7 +324,7 @@ Use `/connectors` to manage integrations with your AI coding agents:
 
 ByteRover supports four connector types:
 
-1. **Skill integration** (Claude Code, Codex, Cursor, Github Copilot): Modern integration that writes 3 markdown files (SKILL.md, TROUBLESHOOTING.md, WORKFLOWS.md) to your agent's skills directory for easy discovery and guidance
+1. **Skill integration** (Claude Code, Codex, Cursor, Github Copilot): Modern integration that writes 3 markdown files (SKILL.md) to your agent's skills directory for easy discovery and guidance
 2. **MCP integration** (11 agents): Exposes brv-query and brv-curate as Model Context Protocol tools that AI agents can call directly
 3. **Rules-based** (all agents): Generates agent-specific rule files (e.g., CLAUDE.md, .cursorrules) with instructions for using ByteRover
 4. **Hook integration** (Claude Code only - legacy): Direct injection via IDE settings, replaced by skill connector
@@ -441,7 +441,7 @@ The model browser shows:
 | `/reset [-y] [directory]` | Reset context tree to empty state |
 
 **Connector types:**
-- `skill`: Modern integration with markdown skill files (SKILL.md, TROUBLESHOOTING.md, WORKFLOWS.md)
+- `skill`: Modern integration with markdown skill files (SKILL.md)
 - `mcp`: Model Context Protocol tools (brv-query, brv-curate)
 - `hook`: Legacy IDE settings injection (Claude Code only)
 - `rules`: Agent-specific rule files (universal fallback)
@@ -573,7 +573,7 @@ Connector configurations are stored based on type:
 **Skill connectors** (Claude Code, Codex, Cursor, Github Copilot):
 - **Project-scoped**: `.claude/skills/byterover/`, `.cursor/skills/byterover/`, `.github/skills/byterover/`
 - **Global-scoped** (Codex): `~/.codex/skills/byterover/`
-- Files: `SKILL.md`, `TROUBLESHOOTING.md`, `WORKFLOWS.md`
+- Files: `SKILL.md`
 
 **Hook connectors** (Claude Code legacy):
 - `.claude/settings.local.json` (project-scoped)
