@@ -8,10 +8,12 @@
  */
 
 const USER_FRIENDLY_MESSAGES: Record<string, string> = {
-  ERR_CONTEXT_TREE_NOT_INIT: 'Context tree not initialized. Run /init first.',
-  ERR_LOCAL_CHANGES_EXIST: 'You have local changes. Run /push to save or /reset to discard first.',
-  ERR_NOT_AUTHENTICATED: 'Not authenticated. Run /login first.',
-  ERR_PROJECT_NOT_INIT: 'Project not initialized. Run /init first.',
+  ERR_AGENT_NOT_INITIALIZED: "Agent failed to initialize. Run 'brv restart' to force a clean restart.",
+  ERR_CONTEXT_TREE_NOT_INIT: 'Context tree not initialized.',
+  ERR_LOCAL_CHANGES_EXIST: 'You have local changes. Run /push to save your changes before pulling.',
+  ERR_NOT_AUTHENTICATED: 'Not authenticated. This is required for cloud sync. Run /login to connect your account.',
+  ERR_PROJECT_NOT_INIT: "Project not initialized. Run 'brv restart' to reinitialize.",
+  ERR_PROVIDER_NOT_CONFIGURED: 'No provider connected. Run /providers connect byterover to use the free built-in provider, or connect another provider.',
   ERR_SPACE_NOT_CONFIGURED: 'No space configured. Run /space switch to select a space first.',
   ERR_SPACE_NOT_FOUND: 'Space not found. Check your configuration.',
 }

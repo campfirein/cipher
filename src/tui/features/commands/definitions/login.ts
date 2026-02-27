@@ -12,6 +12,6 @@ export const loginCommand: SlashCommand = {
         onComplete: (message: string) => onComplete(message, {reloadAuth: true}),
       }),
   }),
-  description: 'Authenticate with ByteRover using OAuth 2.0 + PKCE',
+  description: 'Connect to ByteRover cloud for push/pull sync (optional for local usage)',
   name: 'login',
 }

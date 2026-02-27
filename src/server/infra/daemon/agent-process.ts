@@ -375,11 +375,13 @@ async function executeTask(
   const {clientCwd, clientId, content, files, folderPath, taskId, type} = task
   if (!transport || !agent) return
 
-  const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG)
+  const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
+    TransportStateEventNames.GET_PROVIDER_CONFIG,
+  )
   if (!freshProviderConfig.activeProvider) {
     const error = serializeTaskError(
       new TaskError(
-        'No provider connected. Run "brv providers connect <provider>" to configure a provider.',
+        'No provider connected. Run "brv providers connect byterover" to use the free built-in provider, or connect another provider.',
         TaskErrorCode.PROVIDER_NOT_CONFIGURED,
       ),
     )

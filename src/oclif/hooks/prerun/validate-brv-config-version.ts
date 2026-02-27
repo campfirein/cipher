@@ -11,6 +11,7 @@ import {ProjectConfigStore} from '../../../server/infra/config/file-config-store
 import {ensureCurateViewPatched} from '../../../server/infra/connectors/shared/rule-segment-patcher.js'
 import {FileContextTreeService} from '../../../server/infra/context-tree/file-context-tree-service.js'
 import {FileContextTreeSnapshotService} from '../../../server/infra/context-tree/file-context-tree-snapshot-service.js'
+import {syncConfigToXdg} from '../../../server/utils/config-xdg-sync.js'
 import {getProjectDataDir} from '../../../server/utils/path-utils.js'
 
 /**
@@ -99,7 +100,9 @@ export const validateBrvConfigVersion = async (
   }
 
   if (config.version !== BRV_CONFIG_VERSION) {
-    await configStore.write(config.withVersion(BRV_CONFIG_VERSION))
+    const updated = config.withVersion(BRV_CONFIG_VERSION)
+    await configStore.write(updated)
+    await syncConfigToXdg(updated, cwd)
   }
 }
 

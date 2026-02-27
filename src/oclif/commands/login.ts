@@ -5,7 +5,7 @@ import {type DaemonClientOptions, formatConnectionError, withDaemonRetry} from '
 import {writeJsonResponse} from '../lib/json-response.js'
 
 export default class Login extends Command {
-  public static description = 'Authenticate with ByteRover using an API key'
+  public static description = 'Authenticate with ByteRover for cloud sync features (optional for local usage)'
   public static examples = [
     '<%= config.bin %> <%= command.id %> --api-key <key>',
     '',

@@ -7,6 +7,8 @@ description: "Manages project knowledge using ByteRover context tree. Provides t
 
 A project-level knowledge repository that persists across sessions. Use it to avoid re-discovering patterns, conventions, and decisions.
 
+> **No authentication needed.** `brv query` and `brv curate` work out of the box. Login is only required for cloud sync (`push`/`pull`/`space`) — ignore those if you don't need cloud features.
+
 ## Why Use ByteRover
 
 - **Query before working**: Get existing knowledge about patterns, conventions, and past decisions before implementing

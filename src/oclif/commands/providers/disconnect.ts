@@ -39,7 +39,7 @@ export default class ProviderDisconnect extends Command {
       }
 
       if (!provider.isConnected) {
-        throw new Error(`Provider "${providerId}" is not connected.`)
+        throw new Error(`Provider "${providerId}" is not connected. Run "brv providers list" to see connected providers.`)
       }
 
       await client.requestWithAck<ProviderDisconnectResponse>(ProviderEvents.DISCONNECT, {providerId})
