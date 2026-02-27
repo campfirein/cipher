@@ -1,10 +1,7 @@
 import {Command, Flags} from '@oclif/core'
 import chalk from 'chalk'
 
-import {
-  ModelEvents,
-  type ModelListByProvidersResponse,
-} from '../../../shared/transport/events/model-events.js'
+import {ModelEvents, type ModelListByProvidersResponse} from '../../../shared/transport/events/model-events.js'
 import {
   ProviderEvents,
   type ProviderGetActiveResponse,
@@ -15,10 +12,7 @@ import {writeJsonResponse} from '../../lib/json-response.js'
 
 export default class ModelList extends Command {
   public static description = 'List available models from all connected providers'
-  public static examples = [
-    '<%= config.bin %> model list',
-    '<%= config.bin %> model list --format json',
-  ]
+  public static examples = ['<%= config.bin %> model list', '<%= config.bin %> model list --format json']
   public static flags = {
     format: Flags.string({
       default: 'text',
@@ -44,7 +38,9 @@ export default class ModelList extends Command {
         }
 
         if (!provider.isConnected) {
-          throw new Error(`Provider "${providerFlag}" is not connected. Run "brv providers connect ${providerFlag}" first.`)
+          throw new Error(
+            `Provider "${providerFlag}" is not connected. Run "brv provider connect ${providerFlag}" first.`,
+          )
         }
 
         providerIds = [providerFlag]
@@ -52,10 +48,9 @@ export default class ModelList extends Command {
         providerIds = providers.filter((provider) => provider.isConnected).map((provider) => provider.id)
       }
 
-      const {models} = await client.requestWithAck<ModelListByProvidersResponse>(
-        ModelEvents.LIST_BY_PROVIDERS,
-        {providerIds},
-      )
+      const {models} = await client.requestWithAck<ModelListByProvidersResponse>(ModelEvents.LIST_BY_PROVIDERS, {
+        providerIds,
+      })
 
       return {activeModel: active.activeModel, activeProviderId: active.activeProviderId, models}
     }, options)
@@ -74,7 +69,9 @@ export default class ModelList extends Command {
       }
 
       if (result.models.length === 0) {
-        this.log('No models available. Connect a provider first with "brv providers connect".')
+        this.log(
+          'No models available. Run "brv provider list" to see available providers, then "brv provider connect <provider-id>" to connect one.',
+        )
         return
       }
 

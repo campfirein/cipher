@@ -59,7 +59,7 @@ export default class Status extends Command {
   private formatTextOutput(status: StatusDTO): void {
     this.log(`CLI Version: ${this.config.version}`)
 
-    // Auth status
+    // Auth status (cloud sync only — not required for local usage)
     switch (status.authStatus) {
       case 'expired': {
         this.log('Account: Session expired')
@@ -72,7 +72,7 @@ export default class Status extends Command {
       }
 
       case 'not_logged_in': {
-        this.log('Account: Not logged in')
+        this.log('Account: Not connected (optional — login for push/pull sync)')
         break
       }
 

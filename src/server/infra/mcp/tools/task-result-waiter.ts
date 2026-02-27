@@ -65,7 +65,7 @@ export async function waitForTaskResult(
         if (state === 'disconnected' && !completed) {
           completed = true
           cleanup()
-          reject(new Error('Connection lost to ByteRover instance'))
+          reject(new Error('Connection lost to the daemon'))
         }
       }),
       // Listen for LLM response content

@@ -26,9 +26,7 @@ export default class Query extends Command {
       required: true,
     }),
   }
-  public static description = `Query and retrieve information from the context tree (connects to running brv instance)
-
-Requires a running brv instance. Start one with: brv
+  public static description = `Query and retrieve information from the context tree
 
 Good:
 - "How is user authentication implemented?"
@@ -67,9 +65,13 @@ Bad:
     try {
       await withDaemonRetry(
         async (client, projectRoot) => {
-          const active = await client.requestWithAck<ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG)
+          const active = await client.requestWithAck<ProviderConfigResponse>(
+            TransportStateEventNames.GET_PROVIDER_CONFIG,
+          )
           if (!active.activeProvider) {
-            throw new Error('No provider connected. Run "brv providers connect <provider>" to configure a provider first.')
+            throw new Error(
+              'No provider connected. Run "brv provider connect byterover" to use the free built-in provider, or connect another provider.',
+            )
           }
 
           await this.submitTask({client, format, projectRoot, query: args.query})

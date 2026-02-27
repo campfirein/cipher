@@ -57,7 +57,7 @@ export function registerBrvQueryTool(
         return {
           content: [
             {
-              text: 'Error: Not connected to ByteRover instance. Connection timed out. Ensure "brv" is running.',
+              text: 'Error: Not connected to the daemon. Connection timed out. Ensure "brv" is running.',
               type: 'text' as const,
             },
           ],

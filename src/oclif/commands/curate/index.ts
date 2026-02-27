@@ -5,9 +5,9 @@ import {randomUUID} from 'node:crypto'
 
 import type {CurateLogOperation} from '../../../server/core/domain/entities/curate-log-entry.js'
 
-import { ProviderConfigResponse, TransportStateEventNames } from '../../../server/core/domain/transport/index.js'
+import {ProviderConfigResponse, TransportStateEventNames} from '../../../server/core/domain/transport/index.js'
 import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
-import { TaskEvents } from '../../../shared/transport/events/index.js'
+import {TaskEvents} from '../../../shared/transport/events/index.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -32,9 +32,7 @@ export default class Curate extends Command {
       required: false,
     }),
   }
-  public static description = `Curate context to the context tree (connects to running brv instance)
-
-Requires a running brv instance. Start one with: brv
+  public static description = `Curate context to the context tree
 
 Good examples:
 - "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"
@@ -110,9 +108,13 @@ Bad examples:
     try {
       await withDaemonRetry(
         async (client, projectRoot) => {
-          const active = await client.requestWithAck<ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG)
+          const active = await client.requestWithAck<ProviderConfigResponse>(
+            TransportStateEventNames.GET_PROVIDER_CONFIG,
+          )
           if (!active.activeProvider) {
-            throw new Error('No provider connected. Run "brv providers connect <provider>" to configure a provider first.')
+            throw new Error(
+              'No provider connected. Run "brv provider connect byterover" to use the free built-in provider, or connect another provider.',
+            )
           }
 
           await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType})
@@ -295,9 +297,9 @@ Bad examples:
       this.log('Either a context argument, file reference, or folder reference is required.')
       this.log('Usage:')
       this.log('  brv curate "your context here"')
-      this.log('  brv curate @src/file.ts')
-      this.log('  brv curate @src/             # folder pack')
-      this.log('  brv curate "context with files" @src/file.ts')
+      this.log('  brv curate "your context" -f src/file.ts')
+      this.log('  brv curate -d src/             # folder pack')
+      this.log('  brv curate "context with files" -f src/file.ts -f src/other.ts')
     }
 
     return false
