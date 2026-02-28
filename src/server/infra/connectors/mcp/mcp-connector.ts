@@ -22,7 +22,7 @@ import type {
 
 import {AGENT_CONNECTOR_CONFIG} from '../../../core/domain/entities/agent.js'
 import {RULES_CONNECTOR_CONFIGS} from '../rules/rules-connector-config.js'
-import {BRV_RULE_MARKERS} from '../shared/constants.js'
+import {BRV_RULE_MARKERS, hasMcpToolsInBrvSection} from '../shared/constants.js'
 import {RuleFileManager} from '../shared/rule-file-manager.js'
 import {JsonMcpConfigWriter} from './json-mcp-config-writer.js'
 import {MCP_CONNECTOR_CONFIGS} from './mcp-connector-config.js'
@@ -390,7 +390,7 @@ export class McpConnector implements IConnector {
 
     const content = await this.fileService.read(fullPath)
     const hasMarkers = content.includes(BRV_RULE_MARKERS.START) && content.includes(BRV_RULE_MARKERS.END)
-    const hasMcpTools = content.includes('brv-query') || content.includes('brv-curate')
+    const hasMcpTools = hasMcpToolsInBrvSection(content)
 
     return {
       configExists: true,

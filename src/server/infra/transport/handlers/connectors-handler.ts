@@ -1,4 +1,5 @@
 import type {ConnectorDTO} from '../../../../shared/transport/types/dto.js'
+import type {ConnectorType} from '../../../../shared/types/connector-type.js'
 import type {IConnectorManager} from '../../../core/interfaces/connectors/i-connector-manager.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
@@ -11,8 +12,6 @@ import {
   type ConnectorInstallResponse,
   type ConnectorListResponse,
 } from '../../../../shared/transport/events/connector-events.js'
-import type {ConnectorType} from '../../../../shared/types/connector-type.js'
-
 import {isConnectorType} from '../../../../shared/types/connector-type.js'
 import {AGENT_CONNECTOR_CONFIG, isAgent} from '../../../core/domain/entities/agent.js'
 import {mapAgentsToDTOs} from './agent-dto-mapper.js'
