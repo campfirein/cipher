@@ -86,6 +86,16 @@ export class SkillConnector implements IConnector {
     }
 
     const config = this.getConfig(agent)
+
+    // Install the skill connector in the project directory by default
+    if (!config.projectPath && !config.globalPath) {
+      return {
+        alreadyInstalled: false,
+        configPath: '',
+        message: `Skill connector has no configured path for agent: ${agent}`,
+        success: false,
+      }
+    }
     // Install to project directory by default, fall back to global for global-only agents
     const scope = config.projectPath ? 'project' : 'global'
     const fullDir = this.resolveFullPath(config, scope, BRV_SKILL_NAME)
