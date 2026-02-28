@@ -6,15 +6,16 @@ import {ModelEvents, type ModelSetActiveRequest, type ModelSetActiveResponse} fr
 import {useTransportStore} from '../../../stores/transport-store.js'
 
 export type SetActiveModelDTO = {
+  contextLength?: number
   modelId: string
   providerId: string
 }
 
-export const setActiveModel = ({modelId, providerId}: SetActiveModelDTO): Promise<ModelSetActiveResponse> => {
+export const setActiveModel = ({contextLength, modelId, providerId}: SetActiveModelDTO): Promise<ModelSetActiveResponse> => {
   const {apiClient} = useTransportStore.getState()
   if (!apiClient) return Promise.reject(new Error('Not connected'))
 
-  return apiClient.request<ModelSetActiveResponse, ModelSetActiveRequest>(ModelEvents.SET_ACTIVE, {modelId, providerId})
+  return apiClient.request<ModelSetActiveResponse, ModelSetActiveRequest>(ModelEvents.SET_ACTIVE, {contextLength, modelId, providerId})
 }
 
 type UseSetActiveModelOptions = {
