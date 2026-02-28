@@ -18,6 +18,7 @@ import type {Agent} from '../../../../shared/types/agent.js'
 
 import {type ConnectorType, requiresAgentRestart} from '../../../../shared/types/connector-type.js'
 import {useTheme} from '../../../hooks/index.js'
+import {useGetAgentConfigPaths} from '../api/get-agent-config-paths.js'
 import {useGetAgents} from '../api/get-agents.js'
 import {useGetConnectors} from '../api/get-connectors.js'
 import {useInstallConnector} from '../api/install-connector.js'
@@ -55,6 +56,12 @@ export const ConnectorsFlow: React.FC<ConnectorsFlowProps> = ({isActive = true, 
   const {data: connectorsData, isLoading: isLoadingConnectors} = useGetConnectors()
   const {data: agentsData, isLoading: isLoadingAgents} = useGetAgents()
   const installMutation = useInstallConnector()
+
+  const selectedAgentId = selection?.kind === 'existing' ? selection.connector.agent : selection?.agent.id
+  const {data: configPathsData} = useGetAgentConfigPaths({
+    agentId: selectedAgentId as Agent,
+    queryConfig: {enabled: Boolean(selectedAgentId)},
+  })
 
   const connectors = connectorsData?.connectors ?? []
   const allAgents = agentsData?.agents ?? []
@@ -152,13 +159,30 @@ export const ConnectorsFlow: React.FC<ConnectorsFlowProps> = ({isActive = true, 
       const result = await installMutation.mutateAsync({agentId, connectorType})
 
       if (result.success) {
+        if (result.requiresManualSetup && result.manualInstructions) {
+          const lines = [
+            `Manual setup required for ${agentName}`,
+            '',
+            'Add this configuration to your MCP settings:',
+            '',
+            result.manualInstructions.configContent,
+          ]
+          if (result.manualInstructions.guide) {
+            lines.push('', `For detailed instructions, see: ${result.manualInstructions.guide}`)
+          }
+
+          onComplete(lines.join('\n'))
+          return
+        }
+
         const statusMessage = fromType
           ? `${agentName} switched from ${getConnectorName(fromType)} to ${getConnectorName(connectorType)}`
           : `${agentName} connected via ${getConnectorName(connectorType)}`
+        const locationLine = result.configPath ? `\nLocation: ${result.configPath}` : ''
         const prompt = chalk.hex('#0AA77D').italic('> "Save our API authentication patterns, use brv curate"')
         const restartAgentRequired = requiresAgentRestart(connectorType)
 
-        const message = `${statusMessage}
+        const message = `${statusMessage}${locationLine}
 ${restartAgentRequired ? `\n⚠️  Please restart ${agentName} to apply the new ${getConnectorName(connectorType)}.` : ''}
 
 WHAT'S NEXT
@@ -190,6 +214,7 @@ Docs: https://docs.byterover.dev/common-workflows/curate-context`
     return (
       <ConnectorTypeStep
         agentName={agentName}
+        configPaths={configPathsData?.configPaths}
         currentType={currentType}
         defaultType={defaultType}
         isActive={isActive}

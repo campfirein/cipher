@@ -179,11 +179,14 @@ export function formatConnectionError(error: unknown, providerContext?: Provider
 
   // Business errors from transport handlers (auth, validation, etc.)
   if (error instanceof TransportRequestError) {
-    if ('code' in error && typeof error.code === 'string') {
-      return USER_FRIENDLY_MESSAGES[error.code] ?? error.message
+    // Strip the " for event '...'" suffix that TransportRequestError appends
+    const baseMessage = error.message.replace(/ for event '[^']+'$/, '')
+
+    if (error.code && typeof error.code === 'string') {
+      return USER_FRIENDLY_MESSAGES[error.code] ?? baseMessage
     }
 
-    return error.message
+    return baseMessage
   }
 
   const message = error instanceof Error ? error.message : String(error)

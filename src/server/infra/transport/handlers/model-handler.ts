@@ -51,8 +51,13 @@ export class ModelHandler {
       }
 
       // Fetch models from provider API using the correct per-provider fetcher
-      const apiKey = await this.providerKeychainStore.getApiKey(providerId)
-      const fetchedModels = await fetcher.fetchModels(apiKey ?? '')
+      let fetchedModels: Awaited<ReturnType<typeof fetcher.fetchModels>>
+      try {
+        const apiKey = await this.providerKeychainStore.getApiKey(providerId)
+        fetchedModels = await fetcher.fetchModels(apiKey ?? '')
+      } catch {
+        return {favorites: [], models: [], recent: []}
+      }
 
       const models: ModelDTO[] = fetchedModels.map((m) => ({
         contextLength: m.contextLength,
@@ -85,32 +90,44 @@ export class ModelHandler {
       ModelEvents.LIST_BY_PROVIDERS,
       async (data) => {
         const {providerIds} = data
-        const models: ModelDTO[] = []
 
-        await Promise.all(
-          providerIds.map(async (providerId) => {
+        const results = await Promise.allSettled(
+          providerIds.map(async (providerId): Promise<ModelDTO[]> => {
             const fetcher = await getModelFetcher(providerId)
-            if (!fetcher) return
+            if (!fetcher) return []
 
             const apiKey = await this.providerKeychainStore.getApiKey(providerId)
             const fetchedModels = await fetcher.fetchModels(apiKey ?? '')
 
-            for (const model of fetchedModels) {
-              models.push({
-                contextLength: model.contextLength,
-                description: model.description,
-                id: model.id,
-                isFree: model.isFree,
-                name: model.name,
-                pricing: model.pricing,
-                provider: model.provider,
-                providerId,
-              })
-            }
+            return fetchedModels.map((model) => ({
+              contextLength: model.contextLength,
+              description: model.description,
+              id: model.id,
+              isFree: model.isFree,
+              name: model.name,
+              pricing: model.pricing,
+              provider: model.provider,
+              providerId,
+            }))
           }),
         )
 
-        return {models}
+        const models: ModelDTO[] = []
+        const providerErrors: Record<string, string> = {}
+        for (const [i, result] of results.entries()) {
+          const providerId = providerIds[i]
+          if (result.status === 'fulfilled') {
+            models.push(...result.value)
+          } else {
+            const raw = result.reason instanceof Error ? result.reason.message : String(result.reason)
+            providerErrors[providerId] = raw.replace(/ for event '[^']+'$/, '')
+          }
+        }
+
+        return {
+          models,
+          providerErrors: Object.keys(providerErrors).length > 0 ? providerErrors : undefined,
+        }
       },
     )
   }

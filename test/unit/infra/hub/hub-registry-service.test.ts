@@ -106,10 +106,11 @@ describe('HubRegistryService', () => {
     })
 
     it('should throw on timeout', async () => {
-      nock(REGISTRY_BASE).get(REGISTRY_PATH).replyWithError({code: 'ECONNABORTED'})
+      const slowService = new HubRegistryService({name: 'official', timeoutMs: 50, url: REGISTRY_URL})
+      nock(REGISTRY_BASE).get(REGISTRY_PATH).delayConnection(200).reply(200, mockRegistryResponse)
 
       try {
-        await service.getEntries()
+        await slowService.getEntries()
         expect.fail('Should have thrown')
       } catch (error) {
         expect((error as Error).message).to.include('timed out')

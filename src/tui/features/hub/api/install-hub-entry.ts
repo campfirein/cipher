@@ -10,15 +10,16 @@ export type InstallHubEntryDTO = {
   agent?: string
   entryId: string
   registry?: string
+  scope?: 'global' | 'project'
 }
 
-export const installHubEntry = ({agent, entryId, registry}: InstallHubEntryDTO): Promise<HubInstallResponse> => {
+export const installHubEntry = ({agent, entryId, registry, scope}: InstallHubEntryDTO): Promise<HubInstallResponse> => {
   const {apiClient} = useTransportStore.getState()
   if (!apiClient) return Promise.reject(new Error('Not connected'))
 
   return apiClient.request<HubInstallResponse, HubInstallRequest>(
     HubEvents.INSTALL,
-    {agent, entryId, registry},
+    {agent, entryId, registry, scope},
     {timeout: 60_000},
   )
 }

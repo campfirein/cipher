@@ -26,10 +26,12 @@ export interface HubInstallRequest {
   agent?: string
   entryId: string
   registry?: string
+  scope?: 'global' | 'project'
 }
 
 export interface HubInstallResponse {
   installedFiles: string[]
+  installedPath: string
   message: string
   success: boolean
 }

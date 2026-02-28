@@ -34,12 +34,16 @@ export function formatTaskError(error: undefined | {code?: string; message: stri
 /**
  * Format a transport error (from request/response calls) into a user-friendly message.
  * Checks for a `code` property on the error and looks up a friendly message.
+ * Strips the " for event '...'" suffix that TransportRequestError appends automatically.
  */
-export function formatTransportError(error: Error): string {
-  const code = 'code' in error ? (error as {code?: string}).code : undefined
+export function formatTransportError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error)
+
+  const errorRecord = error as unknown as Record<string, unknown>
+  const code = 'code' in error && typeof errorRecord.code === 'string' ? errorRecord.code : undefined
   if (code && code in USER_FRIENDLY_MESSAGES) {
     return USER_FRIENDLY_MESSAGES[code]
   }
 
-  return error.message
+  return error.message.replace(/ for event '[^']+'$/, '')
 }
