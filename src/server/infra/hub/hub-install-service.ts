@@ -142,15 +142,15 @@ export class HubInstallService implements IHubInstallService {
     if (result.alreadyInstalled) {
       return {
         installedFiles: [],
-        installedPath: result.absolutePath,
+        installedPath: result.installedPath,
         message: `${entry.name} is already installed for ${agent}`,
       }
     }
 
     return {
       installedFiles: result.installedFiles,
-      installedPath: result.absolutePath,
-      message: `Installed ${entry.name} skill for ${agent} at ${result.absolutePath}/`,
+      installedPath: result.installedPath,
+      message: `Installed ${entry.name} skill for ${agent} at ${result.installedPath}/`,
     }
   }
 }

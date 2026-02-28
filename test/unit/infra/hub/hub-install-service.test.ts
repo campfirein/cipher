@@ -95,10 +95,9 @@ describe('HubInstallService', () => {
     mockSkillConnector = {
       isSupported: sandbox.stub().returns(true),
       writeSkillFiles: sandbox.stub().resolves({
-        absolutePath: join(projectPath, '.claude/skills/test-skill'),
         alreadyInstalled: false,
         installedFiles: [join(projectPath, '.claude/skills/test-skill/SKILL.md')],
-        relativePath: '.claude/skills/test-skill',
+        installedPath: join(projectPath, '.claude/skills/test-skill'),
       }),
     }
     skillConnectorFactory = sandbox.stub().returns(mockSkillConnector)
@@ -143,10 +142,9 @@ describe('HubInstallService', () => {
       nock(FILE_HOST).get('/skill.md').reply(200, '# Skill')
 
       mockSkillConnector.writeSkillFiles.resolves({
-        absolutePath: join(projectPath, '.claude/skills/test-skill'),
         alreadyInstalled: true,
         installedFiles: [],
-        relativePath: '.claude/skills/test-skill',
+        installedPath: join(projectPath, '.claude/skills/test-skill'),
       })
 
       const entry = createSkillEntry()

@@ -70,7 +70,9 @@ describe('SkillConnector', () => {
     })
 
     it('should throw for unsupported agent', () => {
-      expect(() => skillConnector.getConfigPath('Augment Code')).to.throw('Skill connector does not support agent: Augment Code')
+      expect(() => skillConnector.getConfigPath('Augment Code')).to.throw(
+        'Skill connector does not support agent: Augment Code',
+      )
     })
   })
 
@@ -235,7 +237,7 @@ describe('SkillConnector', () => {
       const result = await skillConnector.writeSkillFiles('Claude Code', 'my-hub-skill', files)
 
       expect(result.alreadyInstalled).to.be.false
-      expect(result.relativePath).to.equal('.claude/skills/my-hub-skill')
+      expect(result.installedPath).to.equal(path.join(testDir, '.claude/skills/my-hub-skill'))
       expect(result.installedFiles).to.have.lengthOf(2)
 
       const skillContent = await readFile(path.join(testDir, '.claude/skills/my-hub-skill/SKILL.md'), 'utf8')
@@ -273,7 +275,7 @@ describe('SkillConnector', () => {
       const files = [{content: '# Cursor Skill', name: 'SKILL.md'}]
       const result = await skillConnector.writeSkillFiles('Cursor', 'cursor-skill', files)
 
-      expect(result.relativePath).to.equal('.cursor/skills/cursor-skill')
+      expect(result.installedPath).to.equal(path.join(testDir, '.cursor/skills/cursor-skill'))
 
       const content = await readFile(path.join(testDir, '.cursor/skills/cursor-skill/SKILL.md'), 'utf8')
       expect(content).to.equal('# Cursor Skill')

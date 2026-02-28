@@ -96,7 +96,6 @@ export class SkillConnector implements IConnector {
       }
     }
 
-    const relativePath = path.join(config.projectPath, BRV_SKILL_NAME)
     const fullDir = this.resolveFullPath(config, 'project', BRV_SKILL_NAME)
 
     try {
@@ -104,7 +103,7 @@ export class SkillConnector implements IConnector {
       if (await this.fileService.exists(skillFilePath)) {
         return {
           alreadyInstalled: true,
-          configPath: relativePath,
+          configPath: fullDir,
           message: `Skill connector is already installed for ${agent}`,
           success: true,
         }
@@ -127,7 +126,7 @@ export class SkillConnector implements IConnector {
     } catch (error) {
       return {
         alreadyInstalled: false,
-        configPath: relativePath,
+        configPath: fullDir,
         message: `Failed to install skill connector for ${agent}: ${error instanceof Error ? error.message : String(error)}`,
         success: false,
       }
@@ -279,7 +278,7 @@ export class SkillConnector implements IConnector {
     skillName: string,
     files: Array<{content: string; name: string}>,
     options?: WriteSkillFilesOptions,
-  ): Promise<{absolutePath: string; alreadyInstalled: boolean; installedFiles: string[]; relativePath: string}> {
+  ): Promise<{alreadyInstalled: boolean; installedFiles: string[]; installedPath: string}> {
     if (!this.isSupported(agent)) {
       throw new Error(`Skill connector does not support agent: ${agent}`)
     }
@@ -291,13 +290,12 @@ export class SkillConnector implements IConnector {
       throw new Error(`Skill connector does not support ${scope} scope for agent: ${agent}`)
     }
 
-    const relativePath = path.join(basePath, skillName)
     const fullDir = this.resolveFullPath(config, scope, skillName)
 
     if (files.length > 0) {
       const firstFilePath = path.join(fullDir, files[0].name)
       if (await this.fileService.exists(firstFilePath)) {
-        return {absolutePath: fullDir, alreadyInstalled: true, installedFiles: [], relativePath}
+        return {alreadyInstalled: true, installedFiles: [], installedPath: fullDir}
       }
     }
 
@@ -310,7 +308,7 @@ export class SkillConnector implements IConnector {
       }),
     )
 
-    return {absolutePath: fullDir, alreadyInstalled: false, installedFiles, relativePath}
+    return {alreadyInstalled: false, installedFiles, installedPath: fullDir}
   }
 
   /**
