@@ -23,19 +23,19 @@ export interface CompactionConfig {
   protectedTurns?: number
 
   /**
-   * Number of tokens to keep in tool outputs after pruning.
-   * Based on OpenCode's PRUNE_PROTECT constant.
-   * Default: 40000
+   * Fraction of the context window to keep in tool outputs after pruning (0.0 - 1.0).
+   * Computed against the actual context limit at prune time so it scales correctly
+   * across different model context window sizes.
+   * Default: 0.20 (20% — equals ~40K tokens on a 200K context model)
    */
-  pruneKeepTokens?: number
+  pruneKeepPercent?: number
 
   /**
-   * Minimum tokens that must be recoverable to perform pruning.
-   * Based on OpenCode's PRUNE_MINIMUM constant.
-   * If pruning would save less than this, skip it.
-   * Default: 20000
+   * Minimum fraction of the context window that must be recoverable to perform pruning (0.0 - 1.0).
+   * If pruning would save less than this fraction, the prune is skipped.
+   * Default: 0.10 (10% — equals ~20K tokens on a 200K context model)
    */
-  pruneMinimumTokens?: number
+  pruneMinimumPercent?: number
 
   /**
    * System prompt for generating compaction summaries.
@@ -106,8 +106,8 @@ export class CompactionService {
     this.config = {
       overflowThreshold: config?.overflowThreshold ?? 0.85,
       protectedTurns: config?.protectedTurns ?? 2,
-      pruneKeepTokens: config?.pruneKeepTokens ?? 40_000,
-      pruneMinimumTokens: config?.pruneMinimumTokens ?? 20_000,
+      pruneKeepPercent: config?.pruneKeepPercent ?? 0.2,
+      pruneMinimumPercent: config?.pruneMinimumPercent ?? 0.1,
       summaryPrompt: config?.summaryPrompt ?? DEFAULT_SUMMARY_PROMPT,
     }
   }
@@ -127,7 +127,7 @@ export class CompactionService {
     }
 
     if (overflowCheck.recommendation === 'prune') {
-      return this.pruneToolOutputs(sessionId)
+      return this.pruneToolOutputs(sessionId, contextLimit)
     }
 
     // For full compaction, we need the caller to generate the summary
@@ -256,16 +256,21 @@ export class CompactionService {
 
   /**
    * Prune old tool outputs to reduce context size.
-   * Keeps the most recent tool outputs up to the configured token limit.
-   * Only executes if minimum token threshold can be recovered.
+   * Keeps the most recent tool outputs up to a fraction of the context window.
+   * Only executes if the minimum recoverable fraction threshold is met.
    *
    * @param sessionId - The session to prune
+   * @param contextLimit - The model's actual context window size in tokens.
+   *   Used to compute absolute keep/minimum thresholds from the configured percentages.
    * @returns CompactionResult with count and tokens saved (or zeros if below threshold)
    */
-  async pruneToolOutputs(sessionId: string): Promise<CompactionResult> {
+  async pruneToolOutputs(sessionId: string, contextLimit: number): Promise<CompactionResult> {
+    const keepTokens = Math.floor(contextLimit * this.config.pruneKeepPercent)
+    const minimumTokens = Math.floor(contextLimit * this.config.pruneMinimumPercent)
+
     const result = await this.messageStorage.pruneToolOutputs({
-      keepTokens: this.config.pruneKeepTokens,
-      minimumTokens: this.config.pruneMinimumTokens,
+      keepTokens,
+      minimumTokens,
       protectedTurns: this.config.protectedTurns,
       sessionId,
     })

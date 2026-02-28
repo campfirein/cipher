@@ -33,8 +33,93 @@ export const DEFAULT_CHARS_PER_TOKEN = 4
 export const LLM_REGISTRY: Record<LLMProvider, ProviderInfo> = {
   claude: {
     defaultModel: '',
-    models: [],
-    supportedFileTypes: [],
+    models: [
+      // Claude 4.x series
+      {
+        capabilities: {supportsAudio: false, supportsImages: true, supportsPdf: true, supportsStreaming: true},
+        charsPerToken: 3.5,
+        displayName: 'Claude Opus 4.6',
+        maxInputTokens: 200_000,
+        maxOutputTokens: 128_000,
+        name: 'claude-opus-4-6',
+        supportedFileTypes: ['image', 'pdf'],
+      },
+      {
+        capabilities: {supportsAudio: false, supportsImages: true, supportsPdf: true, supportsStreaming: true},
+        charsPerToken: 3.5,
+        displayName: 'Claude Sonnet 4.6',
+        maxInputTokens: 200_000,
+        maxOutputTokens: 64_000,
+        name: 'claude-sonnet-4-6',
+        supportedFileTypes: ['image', 'pdf'],
+      },
+      {
+        capabilities: {supportsAudio: false, supportsImages: true, supportsPdf: true, supportsStreaming: true},
+        charsPerToken: 3.5,
+        displayName: 'Claude Haiku 4.5',
+        maxInputTokens: 200_000,
+        maxOutputTokens: 64_000,
+        name: 'claude-haiku-4-5-20251001',
+        supportedFileTypes: ['image', 'pdf'],
+      },
+      // Claude 3.5 series
+      {
+        capabilities: {supportsAudio: false, supportsImages: true, supportsPdf: true, supportsStreaming: true},
+        charsPerToken: 3.5,
+        displayName: 'Claude 3.5 Sonnet (Oct 2024)',
+        maxInputTokens: 200_000,
+        maxOutputTokens: 8192,
+        name: 'claude-3-5-sonnet-20241022',
+        supportedFileTypes: ['image', 'pdf'],
+      },
+      {
+        capabilities: {supportsAudio: false, supportsImages: true, supportsPdf: true, supportsStreaming: true},
+        charsPerToken: 3.5,
+        displayName: 'Claude 3.5 Sonnet (Jun 2024)',
+        maxInputTokens: 200_000,
+        maxOutputTokens: 8192,
+        name: 'claude-3-5-sonnet-20240620',
+        supportedFileTypes: ['image', 'pdf'],
+      },
+      {
+        capabilities: {supportsAudio: false, supportsImages: true, supportsPdf: true, supportsStreaming: true},
+        charsPerToken: 3.5,
+        displayName: 'Claude 3.5 Haiku',
+        maxInputTokens: 200_000,
+        maxOutputTokens: 8192,
+        name: 'claude-3-5-haiku-20241022',
+        supportedFileTypes: ['image', 'pdf'],
+      },
+      // Claude 3 series
+      {
+        capabilities: {supportsAudio: false, supportsImages: true, supportsPdf: true, supportsStreaming: true},
+        charsPerToken: 3.5,
+        displayName: 'Claude 3 Opus',
+        maxInputTokens: 200_000,
+        maxOutputTokens: 4096,
+        name: 'claude-3-opus-20240229',
+        supportedFileTypes: ['image', 'pdf'],
+      },
+      {
+        capabilities: {supportsAudio: false, supportsImages: true, supportsPdf: true, supportsStreaming: true},
+        charsPerToken: 3.5,
+        displayName: 'Claude 3 Sonnet',
+        maxInputTokens: 200_000,
+        maxOutputTokens: 4096,
+        name: 'claude-3-sonnet-20240229',
+        supportedFileTypes: ['image', 'pdf'],
+      },
+      {
+        capabilities: {supportsAudio: false, supportsImages: true, supportsPdf: true, supportsStreaming: true},
+        charsPerToken: 3.5,
+        displayName: 'Claude 3 Haiku',
+        maxInputTokens: 200_000,
+        maxOutputTokens: 4096,
+        name: 'claude-3-haiku-20240307',
+        supportedFileTypes: ['image', 'pdf'],
+      },
+    ],
+    supportedFileTypes: ['image', 'pdf'],
   },
   gemini: {
     defaultModel: 'gemini-3-flash-preview',
@@ -131,8 +216,76 @@ export const LLM_REGISTRY: Record<LLMProvider, ProviderInfo> = {
 
   openai: {
     defaultModel: '',
-    models: [],
-    supportedFileTypes: [],
+    models: [
+      // GPT-4o series
+      {
+        capabilities: {supportsAudio: false, supportsImages: true, supportsPdf: false, supportsStreaming: true},
+        charsPerToken: 4,
+        displayName: 'GPT-4o',
+        maxInputTokens: 128_000,
+        maxOutputTokens: 16_384,
+        name: 'gpt-4o',
+        supportedFileTypes: ['image'],
+      },
+      {
+        capabilities: {supportsAudio: false, supportsImages: true, supportsPdf: false, supportsStreaming: true},
+        charsPerToken: 4,
+        displayName: 'GPT-4o Mini',
+        maxInputTokens: 128_000,
+        maxOutputTokens: 16_384,
+        name: 'gpt-4o-mini',
+        supportedFileTypes: ['image'],
+      },
+      // GPT-4 Turbo
+      {
+        capabilities: {supportsAudio: false, supportsImages: true, supportsPdf: false, supportsStreaming: true},
+        charsPerToken: 4,
+        displayName: 'GPT-4 Turbo',
+        maxInputTokens: 128_000,
+        maxOutputTokens: 4096,
+        name: 'gpt-4-turbo',
+        supportedFileTypes: ['image'],
+      },
+      {
+        capabilities: {supportsAudio: false, supportsImages: true, supportsPdf: false, supportsStreaming: true},
+        charsPerToken: 4,
+        displayName: 'GPT-4 Turbo Preview',
+        maxInputTokens: 128_000,
+        maxOutputTokens: 4096,
+        name: 'gpt-4-turbo-preview',
+        supportedFileTypes: ['image'],
+      },
+      // o1 series (200K context)
+      {
+        capabilities: {supportsAudio: false, supportsImages: false, supportsPdf: false, supportsStreaming: true},
+        charsPerToken: 4,
+        displayName: 'o1',
+        maxInputTokens: 200_000,
+        maxOutputTokens: 100_000,
+        name: 'o1',
+        supportedFileTypes: [],
+      },
+      {
+        capabilities: {supportsAudio: false, supportsImages: false, supportsPdf: false, supportsStreaming: true},
+        charsPerToken: 4,
+        displayName: 'o1 Mini',
+        maxInputTokens: 128_000,
+        maxOutputTokens: 65_536,
+        name: 'o1-mini',
+        supportedFileTypes: [],
+      },
+      // o3 series (200K context)
+      {
+        capabilities: {supportsAudio: false, supportsImages: false, supportsPdf: false, supportsStreaming: true},
+        charsPerToken: 4,
+        displayName: 'o3 Mini',
+        maxInputTokens: 200_000,
+        maxOutputTokens: 100_000,
+        name: 'o3-mini',
+        supportedFileTypes: [],
+      },
+    ],
+    supportedFileTypes: ['image'],
   },
 }
 
@@ -312,9 +465,16 @@ export function getEffectiveMaxInputTokens(
   model: string,
   configuredMax?: number
 ): number {
-  const modelMax = getMaxInputTokensForModel(provider, model)
-  if (configuredMax === undefined) return modelMax
-  return Math.min(modelMax, configuredMax)
+  const modelInfo = getModelInfo(provider, model)
+  if (modelInfo) {
+    // Model is known — registry is authoritative; configuredMax can only reduce it (user-defined cap)
+    if (configuredMax === undefined) return modelInfo.maxInputTokens
+    return Math.min(modelInfo.maxInputTokens, configuredMax)
+  }
+
+  // Model is unknown (e.g. new OpenRouter model not yet in registry).
+  // Trust configuredMax when provided — it comes from an authoritative source like the OpenRouter API.
+  return configuredMax ?? DEFAULT_MAX_INPUT_TOKENS
 }
 
 /**
