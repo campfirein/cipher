@@ -26,6 +26,7 @@ export interface ModelListByProvidersResponse {
 }
 
 export interface ModelSetActiveRequest {
+  contextLength?: number
   modelId: string
   providerId: string
 }

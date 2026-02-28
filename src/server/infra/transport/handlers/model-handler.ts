@@ -118,7 +118,7 @@ export class ModelHandler {
   private setupSetActive(): void {
     this.transport.onRequest<ModelSetActiveRequest, ModelSetActiveResponse>(ModelEvents.SET_ACTIVE, async (data) => {
       await this.providerConfigStore.setActiveProvider(data.providerId)
-      await this.providerConfigStore.setActiveModel(data.providerId, data.modelId)
+      await this.providerConfigStore.setActiveModel(data.providerId, data.modelId, data.contextLength)
       this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
       return {success: true}
     })
