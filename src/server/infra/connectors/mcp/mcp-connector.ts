@@ -329,7 +329,7 @@ export class McpConnector implements IConnector {
    * Install the rule file with MCP-specific content.
    */
   private async installRuleFile(agent: Agent): Promise<void> {
-    const rulesConfig = RULES_CONNECTOR_CONFIGS[agent]
+    const rulesConfig = agent in RULES_CONNECTOR_CONFIGS ? RULES_CONNECTOR_CONFIGS[agent as keyof typeof RULES_CONNECTOR_CONFIGS] : undefined
     if (!rulesConfig) {
       return
     }
@@ -368,7 +368,7 @@ export class McpConnector implements IConnector {
    * Checks for markers AND MCP-specific tool references (brv-query, brv-curate).
    */
   private async statusManual(agent: Agent): Promise<ConnectorStatus> {
-    const rulesConfig = RULES_CONNECTOR_CONFIGS[agent]
+    const rulesConfig = agent in RULES_CONNECTOR_CONFIGS ? RULES_CONNECTOR_CONFIGS[agent as keyof typeof RULES_CONNECTOR_CONFIGS] : undefined
     if (!rulesConfig) {
       return {
         configExists: false,
@@ -403,7 +403,7 @@ export class McpConnector implements IConnector {
    * Uninstall the rule file content.
    */
   private async uninstallRuleFile(agent: Agent): Promise<void> {
-    const rulesConfig = RULES_CONNECTOR_CONFIGS[agent]
+    const rulesConfig = agent in RULES_CONNECTOR_CONFIGS ? RULES_CONNECTOR_CONFIGS[agent as keyof typeof RULES_CONNECTOR_CONFIGS] : undefined
     if (!rulesConfig) {
       return
     }

@@ -38,7 +38,7 @@ export type WriteSkillFilesOptions = {
 
 /**
  * Connector that integrates BRV with coding agents via skill files.
- * Writes static markdown files (SKILL.md, TROUBLESHOOTING.md, WORKFLOWS.md)
+ * Writes static markdown files (SKILL.md)
  * into an agent-specific subdirectory.
  */
 export class SkillConnector implements IConnector {
@@ -86,8 +86,9 @@ export class SkillConnector implements IConnector {
     }
 
     const config = this.getConfig(agent)
+
     // Install the skill connector in the project directory by default
-    if (!config.projectPath) {
+    if (!config.projectPath && !config.globalPath) {
       return {
         alreadyInstalled: false,
         configPath: '',
@@ -95,8 +96,9 @@ export class SkillConnector implements IConnector {
         success: false,
       }
     }
-
-    const fullDir = this.resolveFullPath(config, 'project', BRV_SKILL_NAME)
+    // Install to project directory by default, fall back to global for global-only agents
+    const scope = config.projectPath ? 'project' : 'global'
+    const fullDir = this.resolveFullPath(config, scope, BRV_SKILL_NAME)
 
     try {
       const skillFilePath = path.join(fullDir, MAIN_SKILL_FILE_NAME)
