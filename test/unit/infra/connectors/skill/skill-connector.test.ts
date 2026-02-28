@@ -130,7 +130,8 @@ describe('SkillConnector', () => {
       const {projectPath} = SKILL_CONNECTOR_CONFIGS[agent]
       await skillConnector.install(agent)
 
-      const content = await readFile(path.join(testDir, basePath, 'SKILL.md'), 'utf8')
+      const skillDir = path.join(projectPath, BRV_SKILL_NAME)
+      const content = await readFile(path.join(testDir, skillDir, 'SKILL.md'), 'utf8')
       expect(content).to.include('You MUST use this for gathering contexts before any work')
       expect(content).to.include('Uses a configured LLM provider')
     })

@@ -324,7 +324,7 @@ Use `/connectors` to manage integrations with your AI coding agents:
 
 ByteRover supports four connector types:
 
-1. **Skill integration** (Claude Code, Codex, Cursor, Github Copilot): Modern integration that writes 3 markdown files (SKILL.md) to your agent's skills directory for easy discovery and guidance
+1. **Skill integration** (Claude Code, Codex, Cursor, Github Copilot): Modern integration that writes a markdown skill file (SKILL.md) to your agent's skills directory for easy discovery and guidance
 2. **MCP integration** (11 agents): Exposes brv-query and brv-curate as Model Context Protocol tools that AI agents can call directly
 3. **Rules-based** (all agents): Generates agent-specific rule files (e.g., CLAUDE.md, .cursorrules) with instructions for using ByteRover
 4. **Hook integration** (Claude Code only - legacy): Direct injection via IDE settings, replaced by skill connector

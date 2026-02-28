@@ -8,7 +8,7 @@ export type SkillConnectorConfig = {
   /** Base directory for skill files relative to user home directory */
   globalPath: string
   /** Base directory for skill files relative to project root */
-  projectPath: string
+  projectPath: null | string
 }
 
 /**
@@ -60,6 +60,10 @@ export const SKILL_CONNECTOR_CONFIGS = {
     globalPath: '.kiro/skills',
     projectPath: '.kiro/skills',
   },
+  OpenClaw: {
+    globalPath: '.openclaw/skills',
+    projectPath: null,
+  },
   OpenCode: {
     globalPath: '.config/opencode/skills',
     projectPath: '.opencode/skills',
@@ -83,10 +87,6 @@ export const SKILL_CONNECTOR_CONFIGS = {
   Windsurf: {
     globalPath: '.codeium/windsurf/skills',
     projectPath: '.windsurf/skills',
-  },
-  OpenClaw: {
-    basePath: '.openclaw/skills/byterover',
-    scope: 'global',
   },
 } as const satisfies Partial<Record<Agent, SkillConnectorConfig>>
 

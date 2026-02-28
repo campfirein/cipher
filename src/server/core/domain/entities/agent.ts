@@ -78,13 +78,13 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
     default: 'skill',
     supported: ['rules', 'mcp', 'skill'],
   },
-  OpenCode: {
-    default: 'skill',
-    supported: ['rules', 'mcp', 'skill'],
-  },
   OpenClaw: {
     default: 'skill',
     supported: ['skill'],
+  },
+  OpenCode: {
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   Qoder: {
     default: 'skill',
