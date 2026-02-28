@@ -19,6 +19,7 @@ import {
   type HubRegistryRemoveRequest,
   type HubRegistryRemoveResponse,
 } from '../../../../shared/transport/events/hub-events.js'
+import {type Agent, isAgent} from '../../../core/domain/entities/agent.js'
 import {CompositeHubRegistryService} from '../../hub/composite-hub-registry-service.js'
 import {HubRegistryService} from '../../hub/hub-registry-service.js'
 
@@ -83,6 +84,11 @@ export class HubHandler {
   }
 
   private async handleInstall(data: HubInstallRequest, clientId: string): Promise<HubInstallResponse> {
+    const agent = data.agent && isAgent(data.agent) ? data.agent : undefined
+    if (data.agent && !agent) {
+      return {installedFiles: [], installedPath: '', message: `Invalid agent: ${data.agent}`, success: false}
+    }
+
     const projectPath = this.resolveEffectivePath(clientId)
     const scope = data.scope ?? 'project'
 
@@ -102,7 +108,7 @@ export class HubHandler {
 
       case 1: {
         // Single match: proceed with install
-        return this.performInstall(matches[0], projectPath, data.agent, scope)
+        return this.performInstall(matches[0], projectPath, agent, scope)
       }
 
       default: {
@@ -227,7 +233,7 @@ export class HubHandler {
   private async performInstall(
     entry: HubEntryDTO,
     projectPath: string,
-    agent?: string,
+    agent?: Agent,
     scope?: 'global' | 'project',
   ): Promise<HubInstallResponse> {
     try {

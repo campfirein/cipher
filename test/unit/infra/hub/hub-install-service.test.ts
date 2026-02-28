@@ -165,20 +165,6 @@ describe('HubInstallService', () => {
       }
     })
 
-    it('should throw if SkillConnector throws for unsupported agent', async () => {
-      nock(FILE_HOST).get('/skill.md').reply(200, '# Skill')
-      mockSkillConnector.writeSkillFiles.rejects(new Error('Skill connector does not support agent: Unknown Agent'))
-
-      const entry = createSkillEntry()
-
-      try {
-        await service.install({agent: 'Unknown Agent', entry, projectPath})
-        expect.fail('Should have thrown')
-      } catch (error) {
-        expect((error as Error).message).to.include('does not support skill installation')
-      }
-    })
-
     it('should filter out readme_url and manifest_url files before downloading', async () => {
       nock(FILE_HOST).get('/skill.md').reply(200, '# Skill')
 

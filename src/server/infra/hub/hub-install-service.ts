@@ -12,7 +12,6 @@ import type {IFileService} from '../../core/interfaces/services/i-file-service.j
 import type {SkillConnector} from '../connectors/skill/skill-connector.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
-import {SKILL_CONNECTOR_CONFIGS} from '../connectors/skill/skill-connector-config.js'
 import {buildAuthHeaders} from './hub-auth-headers.js'
 
 export interface HubInstallServiceDeps {
@@ -115,7 +114,7 @@ export class HubInstallService implements IHubInstallService {
   }
 
   private async installSkill(params: {
-    agent?: string
+    agent?: Agent
     auth?: HubInstallAuthParams
     entry: HubEntryDTO
     projectPath: string
@@ -126,7 +125,7 @@ export class HubInstallService implements IHubInstallService {
     const skillConnector = this.skillConnectorFactory(projectPath)
     const contentFiles = this.getContentFiles(entry)
 
-    if (!agent || !(agent in SKILL_CONNECTOR_CONFIGS) || !skillConnector.isSupported(agent as Agent)) {
+    if (!agent || !skillConnector.isSupported(agent)) {
       throw new Error('Agent does not support skill installation')
     }
 
@@ -137,7 +136,7 @@ export class HubInstallService implements IHubInstallService {
       })),
     )
 
-    const result = await skillConnector.writeSkillFiles(agent as Agent, entry.id, downloadedFiles, {scope})
+    const result = await skillConnector.writeSkillFiles(agent, entry.id, downloadedFiles, {scope})
 
     if (result.alreadyInstalled) {
       return {

@@ -1,6 +1,8 @@
 import type {AuthScheme} from '../../../../shared/transport/types/auth-scheme.js'
 import type {HubEntryDTO} from '../../../../shared/transport/types/dto.js'
 
+import {Agent} from '../../domain/entities/agent.js'
+
 /**
  * Auth parameters for private registry downloads.
  */
@@ -24,7 +26,7 @@ export interface HubInstallResult {
  */
 export interface HubInstallParams {
   /** The target agent display name (required for skills). */
-  agent?: string
+  agent?: Agent
   /** Optional auth parameters for private registry downloads. */
   auth?: HubInstallAuthParams
   /** The hub entry to install. */
