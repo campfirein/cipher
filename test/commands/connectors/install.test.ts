@@ -247,6 +247,96 @@ describe('Connectors Install Command', () => {
     })
   })
 
+  // ==================== Manual MCP Setup ====================
+
+  describe('manual MCP setup', () => {
+    it('should display manual instructions when requiresManualSetup is true', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
+      requestStub.onSecondCall().resolves({connectors: []})
+      requestStub.onThirdCall().resolves({
+        manualInstructions: {
+          configContent: '{\n  "mcpServers": {\n    "brv": {\n      "command": "brv",\n      "args": ["mcp"]\n    }\n  }\n}',
+          guide: 'https://docs.example.com/mcp-setup',
+        },
+        message: 'Manual setup required',
+        requiresManualSetup: true,
+        success: true,
+      })
+
+      await createCommand('Windsurf', '--type', 'mcp').run()
+
+      expect(loggedMessages.some((m) => m.includes('Manual setup required for Windsurf'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Add this configuration to your MCP settings'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('"mcpServers"'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('https://docs.example.com/mcp-setup'))).to.be.true
+    })
+
+    it('should not show restart warning when manual setup is required', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
+      requestStub.onSecondCall().resolves({connectors: []})
+      requestStub.onThirdCall().resolves({
+        manualInstructions: {
+          configContent: '{"mcpServers": {}}',
+          guide: 'https://docs.example.com',
+        },
+        message: 'Manual setup required',
+        requiresManualSetup: true,
+        success: true,
+      })
+
+      await createCommand('Windsurf', '--type', 'mcp').run()
+
+      expect(loggedMessages.some((m) => m.includes('restart'))).to.be.false
+    })
+
+    it('should display manual instructions without guide when guide is empty', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
+      requestStub.onSecondCall().resolves({connectors: []})
+      requestStub.onThirdCall().resolves({
+        manualInstructions: {
+          configContent: '{"mcpServers": {}}',
+          guide: '',
+        },
+        message: 'Manual setup required',
+        requiresManualSetup: true,
+        success: true,
+      })
+
+      await createCommand('Windsurf', '--type', 'mcp').run()
+
+      expect(loggedMessages.some((m) => m.includes('Manual setup required for Windsurf'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('detailed instructions'))).to.be.false
+    })
+
+    it('should include manual instructions in JSON output', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
+      requestStub.onSecondCall().resolves({connectors: []})
+      requestStub.onThirdCall().resolves({
+        manualInstructions: {
+          configContent: '{"mcpServers": {}}',
+          guide: 'https://docs.example.com/mcp-setup',
+        },
+        message: 'Manual setup required',
+        requiresManualSetup: true,
+        success: true,
+      })
+
+      await createJsonCommand('Windsurf', '--type', 'mcp').run()
+
+      const json = parseJsonOutput()
+      expect(json.success).to.be.true
+      expect(json.data).to.have.property('requiresManualSetup', true)
+      expect(json.data).to.have.property('manualInstructions').that.deep.equals({
+        configContent: '{"mcpServers": {}}',
+        guide: 'https://docs.example.com/mcp-setup',
+      })
+    })
+  })
+
   // ==================== Error Cases ====================
 
   describe('error cases', () => {

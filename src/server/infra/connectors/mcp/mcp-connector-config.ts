@@ -1,5 +1,5 @@
-import type {Agent} from '../../../core/domain/entities/agent.js'
-import type {McpServerConfig} from '../../../core/interfaces/storage/i-mcp-config-writer.js'
+import type { Agent } from '../../../core/domain/entities/agent.js'
+import type { McpServerConfig } from '../../../core/interfaces/storage/i-mcp-config-writer.js'
 
 /**
  * Supported MCP config file formats.
@@ -195,7 +195,7 @@ export const MCP_CONNECTOR_CONFIGS = {
     serverKeyPath: STANDARD_KEY_PATH,
   },
   'Qwen Code': {
-    configPath:
+    manualGuide:
       'https://qwenlm.github.io/qwen-code-docs/en/developers/tools/mcp-server/#configure-the-mcp-server-in-settingsjson',
     format: 'json',
     mode: 'manual',
