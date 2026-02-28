@@ -146,6 +146,16 @@ describe('ProjectRegistry', () => {
       expect(result).to.not.be.undefined
       expect(result!.projectPath).to.equal(realpathSync(projectDir))
     })
+
+    it('should return undefined (not throw) when path no longer exists on disk', () => {
+      // Register the project while the directory exists
+      registry.register(projectDir)
+      // Simulate E2E test cleanup — delete the temp directory
+      rmSync(projectDir, {force: true, recursive: true})
+      // get() must not throw ENOENT; the deleted project simply cannot be found
+      expect(() => registry.get(projectDir)).to.not.throw()
+      expect(registry.get(projectDir)).to.be.undefined
+    })
   })
 
   describe('getAll()', () => {
