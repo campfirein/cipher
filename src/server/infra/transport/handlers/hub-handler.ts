@@ -19,6 +19,7 @@ import {
   type HubRegistryRemoveRequest,
   type HubRegistryRemoveResponse,
 } from '../../../../shared/transport/events/hub-events.js'
+import {type Agent, isAgent} from '../../../core/domain/entities/agent.js'
 import {CompositeHubRegistryService} from '../../hub/composite-hub-registry-service.js'
 import {HubRegistryService} from '../../hub/hub-registry-service.js'
 
@@ -31,6 +32,7 @@ export interface HubHandlerDeps {
   hubKeychainStore: IHubKeychainStore
   hubRegistryConfigStore: IHubRegistryConfigStore
   officialRegistryUrl: string
+  registryTimeoutMs?: number
   resolveProjectPath: ProjectPathResolver
   transport: ITransportServer
 }
@@ -41,6 +43,7 @@ export class HubHandler {
   private readonly hubRegistryConfigStore: IHubRegistryConfigStore
   private hubRegistryService: IHubRegistryService
   private readonly officialRegistryUrl: string
+  private readonly registryTimeoutMs?: number
   private readonly resolveProjectPath: ProjectPathResolver
   private readonly transport: ITransportServer
 
@@ -49,10 +52,15 @@ export class HubHandler {
     this.hubKeychainStore = deps.hubKeychainStore
     this.hubRegistryConfigStore = deps.hubRegistryConfigStore
     this.officialRegistryUrl = deps.officialRegistryUrl
+    this.registryTimeoutMs = deps.registryTimeoutMs
     this.resolveProjectPath = deps.resolveProjectPath
     this.transport = deps.transport
     // Will be built during setup
-    this.hubRegistryService = new HubRegistryService({name: OFFICIAL_REGISTRY_NAME, url: deps.officialRegistryUrl})
+    this.hubRegistryService = new HubRegistryService({
+      name: OFFICIAL_REGISTRY_NAME,
+      timeoutMs: this.registryTimeoutMs,
+      url: deps.officialRegistryUrl,
+    })
   }
 
   async setup(): Promise<void> {
@@ -76,39 +84,44 @@ export class HubHandler {
   }
 
   private async handleInstall(data: HubInstallRequest, clientId: string): Promise<HubInstallResponse> {
-    const projectPath = this.resolveEffectivePath(clientId)
-
-    const matches = await this.hubRegistryService.getEntriesById(data.entryId)
-
-    if (matches.length === 0) {
-      return {installedFiles: [], message: `Entry not found: ${data.entryId}`, success: false}
+    const agent = data.agent && isAgent(data.agent) ? data.agent : undefined
+    if (data.agent && !agent) {
+      return {installedFiles: [], installedPath: '', message: `Invalid agent: ${data.agent}`, success: false}
     }
 
-    // If a specific registry is requested, filter to that registry
-    if (data.registry) {
-      const entry = matches.find((m) => m.registry === data.registry)
-      if (!entry) {
+    const projectPath = this.resolveEffectivePath(clientId)
+    const scope = data.scope ?? 'project'
+
+    const matches = await this.hubRegistryService.getEntriesById(data.entryId).then((entries) => {
+      // If a specific registry is requested, filter to that registry
+      if (data.registry) {
+        return entries.filter((entry) => entry.registry === data.registry)
+      }
+
+      return entries
+    })
+
+    switch (matches.length) {
+      case 0: {
+        return {installedFiles: [], installedPath: '', message: `Entry not found: ${data.entryId}`, success: false}
+      }
+
+      case 1: {
+        // Single match: proceed with install
+        return this.performInstall(matches[0], projectPath, agent, scope)
+      }
+
+      default: {
+        // Multiple matches: detect duplicates
+        const registryNames = matches.map((m) => m.registry ?? 'unknown').join(', ')
         return {
           installedFiles: [],
-          message: `Entry '${data.entryId}' not found in registry '${data.registry}'`,
+          installedPath: '',
+          message: `'${data.entryId}' exists in multiple registries: ${registryNames}. Specify one with --registry <name>.`,
           success: false,
         }
       }
-
-      return this.performInstall(entry, projectPath, data.agent)
     }
-
-    // No registry specified: detect duplicates
-    if (matches.length > 1) {
-      const registryNames = matches.map((m) => m.registry ?? 'unknown').join(', ')
-      return {
-        installedFiles: [],
-        message: `'${data.entryId}' exists in multiple registries: ${registryNames}. Specify one with --registry <name>.`,
-        success: false,
-      }
-    }
-
-    return this.performInstall(matches[0], projectPath, data.agent)
   }
 
   private async handleList(): Promise<HubListResponse> {
@@ -130,6 +143,7 @@ export class HubHandler {
         authToken: data.token,
         headerName: data.headerName,
         name: data.name,
+        timeoutMs: this.registryTimeoutMs,
         url: data.url,
       })
       await probeService.getEntries()
@@ -181,6 +195,7 @@ export class HubHandler {
             authScheme: config.authScheme,
             authToken,
             name: config.name,
+            timeoutMs: this.registryTimeoutMs,
             url: config.url,
           })
           const {entries} = await probe.getEntries()
@@ -215,7 +230,12 @@ export class HubHandler {
     }
   }
 
-  private async performInstall(entry: HubEntryDTO, projectPath: string, agent?: string): Promise<HubInstallResponse> {
+  private async performInstall(
+    entry: HubEntryDTO,
+    projectPath: string,
+    agent?: Agent,
+    scope?: 'global' | 'project',
+  ): Promise<HubInstallResponse> {
     try {
       let auth: HubInstallAuthParams | undefined
       if (entry.registry && entry.registry !== OFFICIAL_REGISTRY_NAME) {
@@ -229,12 +249,18 @@ export class HubHandler {
         }
       }
 
-      const result = await this.hubInstallService.install(entry, projectPath, agent, auth)
+      const result = await this.hubInstallService.install({agent, auth, entry, projectPath, scope})
       const registryLabel = entry.registry ? ` [${entry.registry}]` : ''
-      return {installedFiles: result.installedFiles, message: `${result.message}${registryLabel}`, success: true}
+      return {
+        installedFiles: result.installedFiles,
+        installedPath: result.installedPath,
+        message: `${result.message}${registryLabel}`,
+        success: true,
+      }
     } catch (error) {
       return {
         installedFiles: [],
+        installedPath: '',
         message: `Install failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         success: false,
       }
@@ -242,7 +268,11 @@ export class HubHandler {
   }
 
   private async rebuildRegistryService(): Promise<void> {
-    const officialChild = new HubRegistryService({name: OFFICIAL_REGISTRY_NAME, url: this.officialRegistryUrl})
+    const officialChild = new HubRegistryService({
+      name: OFFICIAL_REGISTRY_NAME,
+      timeoutMs: this.registryTimeoutMs,
+      url: this.officialRegistryUrl,
+    })
 
     const registries = await this.hubRegistryConfigStore.getRegistries()
     const privateChildren = await Promise.all(
@@ -253,6 +283,7 @@ export class HubHandler {
           authToken,
           headerName: r.headerName,
           name: r.name,
+          timeoutMs: this.registryTimeoutMs,
           url: r.url,
         })
       }),

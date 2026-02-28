@@ -101,6 +101,14 @@ export const MCP_CONNECTOR_CONFIGS = {
     serverConfig: DEFAULT_SERVER_CONFIG,
     serverKeyPath: STANDARD_KEY_PATH,
   },
+  'Auggie CLI': {
+    format: 'json',
+    manualGuide: 'https://docs.augmentcode.com/cli/integrations#configure-mcp-via-settings-json',
+    mode: 'manual',
+    scope: 'global',
+    serverConfig: DEFAULT_SERVER_CONFIG,
+    serverKeyPath: STANDARD_KEY_PATH,
+  },
   'Augment Code': {
     format: 'json',
     manualGuide: 'https://docs.augmentcode.com/setup-augment/mcp#import-from-json',
@@ -185,6 +193,17 @@ export const MCP_CONNECTOR_CONFIGS = {
     scope: 'project',
     serverConfig: DEFAULT_SERVER_CONFIG,
     serverKeyPath: STANDARD_KEY_PATH,
+  },
+  OpenCode: {
+    format: 'json',
+    manualGuide: 'https://opencode.ai/docs/mcp-servers/#manage',
+    mode: 'manual',
+    scope: 'global',
+    serverConfig: {
+      type: 'local',
+      command: ['brv', 'mcp'],
+    },
+    serverKeyPath: ['mcp', 'brv'],
   },
   Qoder: {
     format: 'json',

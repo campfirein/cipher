@@ -178,10 +178,11 @@ export const ConnectorsFlow: React.FC<ConnectorsFlowProps> = ({isActive = true, 
         const statusMessage = fromType
           ? `${agentName} switched from ${getConnectorName(fromType)} to ${getConnectorName(connectorType)}`
           : `${agentName} connected via ${getConnectorName(connectorType)}`
+        const locationLine = result.configPath ? `\nLocation: ${result.configPath}` : ''
         const prompt = chalk.hex('#0AA77D').italic('> "Save our API authentication patterns, use brv curate"')
         const restartAgentRequired = requiresAgentRestart(connectorType)
 
-        const message = `${statusMessage}
+        const message = `${statusMessage}${locationLine}
 ${restartAgentRequired ? `\n⚠️  Please restart ${agentName} to apply the new ${getConnectorName(connectorType)}.` : ''}
 
 WHAT'S NEXT

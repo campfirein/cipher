@@ -208,16 +208,10 @@ export async function ensureCurateViewPatched(projectRoot: string): Promise<void
   }
 
   const skillDirScans = await Promise.all(
-    Object.values(SKILL_CONNECTOR_CONFIGS).map(async (config) => {
-      const scopeRoot = config.scope === 'global' ? os.homedir() : projectRoot
-      const skillsParentDir = path.join(scopeRoot, path.dirname(config.basePath))
-      try {
-        const entries = await readdir(skillsParentDir, {withFileTypes: true})
-        return {entries, skillsParentDir}
-      } catch {
-        return null // skills parent dir doesn't exist — no skills installed for this agent
-      }
-    }),
+    Object.values(SKILL_CONNECTOR_CONFIGS).flatMap((config) => [
+      scanSkillsDir(path.join(projectRoot, config.projectPath)),
+      scanSkillsDir(path.join(os.homedir(), config.globalPath)),
+    ]),
   )
 
   for (const scan of skillDirScans) {
@@ -233,4 +227,15 @@ export async function ensureCurateViewPatched(projectRoot: string): Promise<void
   }
 
   await Promise.all(patches)
+}
+
+const scanSkillsDir = async (dir: string) => {
+  try {
+    if (!dir) return null
+
+    const entries = await readdir(dir, {withFileTypes: true})
+    return {entries, skillsParentDir: dir}
+  } catch {
+    return null // skills parent dir doesn't exist — no skills installed for this agent
+  }
 }

@@ -3,12 +3,18 @@ import {mkdir, readFile, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 
+import {AGENT_CONNECTOR_CONFIG} from '../../../../../src/server/core/domain/entities/agent.js'
 import {
+  BRV_SKILL_NAME,
   SKILL_CONNECTOR_CONFIGS,
   SKILL_FILE_NAMES,
 } from '../../../../../src/server/infra/connectors/skill/skill-connector-config.js'
 import {SkillConnector} from '../../../../../src/server/infra/connectors/skill/skill-connector.js'
 import {FsFileService} from '../../../../../src/server/infra/file/fs-file-service.js'
+
+const EXPECTED_SUPPORTED_AGENTS = Object.entries(AGENT_CONNECTOR_CONFIG)
+  .filter(([agent, config]) => agent in SKILL_CONNECTOR_CONFIGS && config.supported.includes('skill'))
+  .map(([agent]) => agent)
 
 describe('SkillConnector', () => {
   let testDir: string
@@ -42,7 +48,7 @@ describe('SkillConnector', () => {
       expect(agents).to.include('Cursor')
       expect(agents).to.include('Codex')
       expect(agents).to.include('Github Copilot')
-      expect(agents).to.have.lengthOf(4)
+      expect(agents).to.have.lengthOf(EXPECTED_SUPPORTED_AGENTS.length)
     })
   })
 
@@ -52,34 +58,36 @@ describe('SkillConnector', () => {
     })
 
     it('should return false for unsupported agents', () => {
-      expect(skillConnector.isSupported('Amp')).to.be.false
+      expect(skillConnector.isSupported('Augment Code')).to.be.false
       expect(skillConnector.isSupported('Cline')).to.be.false
-      expect(skillConnector.isSupported('Warp')).to.be.false
+      expect(skillConnector.isSupported('Qwen Code')).to.be.false
     })
   })
 
   describe('getConfigPath', () => {
     it('should return base path for Claude Code', () => {
-      expect(skillConnector.getConfigPath('Claude Code')).to.equal('.claude/skills/byterover')
+      expect(skillConnector.getConfigPath('Claude Code')).to.equal(`.claude/skills/${BRV_SKILL_NAME}`)
     })
 
     it('should throw for unsupported agent', () => {
-      expect(() => skillConnector.getConfigPath('Amp')).to.throw('Skill connector does not support agent: Amp')
+      expect(() => skillConnector.getConfigPath('Augment Code')).to.throw(
+        'Skill connector does not support agent: Augment Code',
+      )
     })
   })
 
   describe('install', () => {
     it('should create all three skill files for Claude Code', async () => {
       const agent = 'Claude Code' as const
-      const {basePath} = SKILL_CONNECTOR_CONFIGS[agent]
+      const {projectPath} = SKILL_CONNECTOR_CONFIGS[agent]
       const result = await skillConnector.install(agent)
 
       expect(result.success).to.be.true
       expect(result.alreadyInstalled).to.be.false
-      expect(result.configPath).to.equal(path.join(testDir, basePath))
 
+      const skillDir = path.join(projectPath, BRV_SKILL_NAME)
       const contents = await Promise.all(
-        SKILL_FILE_NAMES.map((fileName) => readFile(path.join(testDir, basePath, fileName), 'utf8')),
+        SKILL_FILE_NAMES.map((fileName) => readFile(path.join(testDir, skillDir, fileName), 'utf8')),
       )
       for (const content of contents) {
         expect(content).to.be.a('string')
@@ -100,7 +108,7 @@ describe('SkillConnector', () => {
     })
 
     it('should return failure for unsupported agent', async () => {
-      const result = await skillConnector.install('Amp')
+      const result = await skillConnector.install('Augment Code')
 
       expect(result.success).to.be.false
       expect(result.message).to.include('does not support agent')
@@ -108,29 +116,32 @@ describe('SkillConnector', () => {
 
     it('should create SKILL.md with frontmatter', async () => {
       const agent = 'Claude Code' as const
-      const {basePath} = SKILL_CONNECTOR_CONFIGS[agent]
+      const {projectPath} = SKILL_CONNECTOR_CONFIGS[agent]
       await skillConnector.install(agent)
 
-      const skillContent = await readFile(path.join(testDir, basePath, 'SKILL.md'), 'utf8')
+      const skillDir = path.join(projectPath, BRV_SKILL_NAME)
+      const skillContent = await readFile(path.join(testDir, skillDir, 'SKILL.md'), 'utf8')
       expect(skillContent).to.include('name: byterover')
       expect(skillContent).to.include('description:')
     })
 
     it('should create TROUBLESHOOTING.md with content', async () => {
       const agent = 'Claude Code' as const
-      const {basePath} = SKILL_CONNECTOR_CONFIGS[agent]
+      const {projectPath} = SKILL_CONNECTOR_CONFIGS[agent]
       await skillConnector.install(agent)
 
-      const content = await readFile(path.join(testDir, basePath, 'TROUBLESHOOTING.md'), 'utf8')
+      const skillDir = path.join(projectPath, BRV_SKILL_NAME)
+      const content = await readFile(path.join(testDir, skillDir, 'TROUBLESHOOTING.md'), 'utf8')
       expect(content).to.include('ByteRover Troubleshooting')
     })
 
     it('should create SKILL.md with brv curate view in Quick Reference and When to Use', async () => {
       const agent = 'Claude Code' as const
-      const {basePath} = SKILL_CONNECTOR_CONFIGS[agent]
+      const {projectPath} = SKILL_CONNECTOR_CONFIGS[agent]
       await skillConnector.install(agent)
 
-      const content = await readFile(path.join(testDir, basePath, 'SKILL.md'), 'utf8')
+      const skillDir = path.join(projectPath, BRV_SKILL_NAME)
+      const content = await readFile(path.join(testDir, skillDir, 'SKILL.md'), 'utf8')
       expect(content).to.include('brv curate view')
       expect(content).to.include('Check curate history')
       expect(content).to.include('**View curate history** to check past curations:')
@@ -139,10 +150,11 @@ describe('SkillConnector', () => {
 
     it('should create WORKFLOWS.md with Verifying Curate Results section', async () => {
       const agent = 'Claude Code' as const
-      const {basePath} = SKILL_CONNECTOR_CONFIGS[agent]
+      const {projectPath} = SKILL_CONNECTOR_CONFIGS[agent]
       await skillConnector.install(agent)
 
-      const content = await readFile(path.join(testDir, basePath, 'WORKFLOWS.md'), 'utf8')
+      const skillDir = path.join(projectPath, BRV_SKILL_NAME)
+      const content = await readFile(path.join(testDir, skillDir, 'WORKFLOWS.md'), 'utf8')
       expect(content).to.include('## Verifying Curate Results')
       expect(content).to.include('brv curate view')
     })
@@ -151,31 +163,30 @@ describe('SkillConnector', () => {
   describe('status', () => {
     it('should return installed false if files do not exist', async () => {
       const agent = 'Claude Code' as const
-      const {basePath} = SKILL_CONNECTOR_CONFIGS[agent]
       const result = await skillConnector.status(agent)
 
       expect(result.installed).to.be.false
       expect(result.configExists).to.be.false
-      expect(result.configPath).to.equal(basePath)
     })
 
     it('should return installed true if SKILL.md exists', async () => {
       const agent = 'Claude Code' as const
-      const {basePath} = SKILL_CONNECTOR_CONFIGS[agent]
+      const {projectPath} = SKILL_CONNECTOR_CONFIGS[agent]
       await skillConnector.install(agent)
 
       const result = await skillConnector.status(agent)
 
       expect(result.installed).to.be.true
       expect(result.configExists).to.be.true
-      expect(result.configPath).to.equal(basePath)
+      expect(result.configPath).to.equal(path.join(projectPath, BRV_SKILL_NAME))
     })
 
     it('should return error status for unsupported agent', async () => {
-      const result = await skillConnector.status('Amp')
+      const result = await skillConnector.status('Augment Code')
 
       expect(result.installed).to.be.false
       expect(result.configExists).to.be.false
+      expect(result.error).to.be.a('string')
       expect(result.error).to.include('does not support agent')
     })
   })
@@ -190,18 +201,19 @@ describe('SkillConnector', () => {
 
     it('should remove skill directory when installed', async () => {
       const agent = 'Claude Code' as const
-      const {basePath} = SKILL_CONNECTOR_CONFIGS[agent]
+      const {projectPath} = SKILL_CONNECTOR_CONFIGS[agent]
       await skillConnector.install(agent)
 
       const result = await skillConnector.uninstall(agent)
 
       expect(result.success).to.be.true
       expect(result.wasInstalled).to.be.true
-      expect(result.configPath).to.equal(basePath)
+      expect(result.configPath).to.equal(path.join(projectPath, BRV_SKILL_NAME))
 
       // Verify files are gone
+      const skillDir = path.join(projectPath, BRV_SKILL_NAME)
       const existResults = await Promise.all(
-        SKILL_FILE_NAMES.map((fileName) => fileService.exists(path.join(testDir, basePath, fileName))),
+        SKILL_FILE_NAMES.map((fileName) => fileService.exists(path.join(testDir, skillDir, fileName))),
       )
       for (const exists of existResults) {
         expect(exists).to.be.false
@@ -209,7 +221,7 @@ describe('SkillConnector', () => {
     })
 
     it('should return failure for unsupported agent', async () => {
-      const result = await skillConnector.uninstall('Amp')
+      const result = await skillConnector.uninstall('Augment Code')
 
       expect(result.success).to.be.false
       expect(result.message).to.include('does not support agent')
@@ -225,7 +237,7 @@ describe('SkillConnector', () => {
       const result = await skillConnector.writeSkillFiles('Claude Code', 'my-hub-skill', files)
 
       expect(result.alreadyInstalled).to.be.false
-      expect(result.relativePath).to.equal('.claude/skills/my-hub-skill')
+      expect(result.installedPath).to.equal(path.join(testDir, '.claude/skills/my-hub-skill'))
       expect(result.installedFiles).to.have.lengthOf(2)
 
       const skillContent = await readFile(path.join(testDir, '.claude/skills/my-hub-skill/SKILL.md'), 'utf8')
@@ -252,7 +264,7 @@ describe('SkillConnector', () => {
       const files = [{content: '# Skill', name: 'SKILL.md'}]
 
       try {
-        await skillConnector.writeSkillFiles('Amp', 'my-skill', files)
+        await skillConnector.writeSkillFiles('Augment Code', 'my-skill', files)
         expect.fail('Should have thrown')
       } catch (error) {
         expect((error as Error).message).to.include('does not support agent')
@@ -263,7 +275,7 @@ describe('SkillConnector', () => {
       const files = [{content: '# Cursor Skill', name: 'SKILL.md'}]
       const result = await skillConnector.writeSkillFiles('Cursor', 'cursor-skill', files)
 
-      expect(result.relativePath).to.equal('.cursor/skills/cursor-skill')
+      expect(result.installedPath).to.equal(path.join(testDir, '.cursor/skills/cursor-skill'))
 
       const content = await readFile(path.join(testDir, '.cursor/skills/cursor-skill/SKILL.md'), 'utf8')
       expect(content).to.equal('# Cursor Skill')

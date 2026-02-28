@@ -1,42 +1,88 @@
 import type {Agent} from '../../../core/domain/entities/agent.js'
 
 /**
- * Scope for skill connector configuration.
- * - 'project': Path relative to project root
- * - 'global': Path relative to user home directory
- */
-export type SkillConfigScope = 'global' | 'project'
-
-/**
  * Configuration for agent-specific skill file directories.
+ * Paths are relative to their respective roots and do NOT include the skill name.
  */
 export type SkillConnectorConfig = {
-  /** Base directory for skill files (relative to scope root) */
-  basePath: string
-  /** Whether path is relative to project root or home dir */
-  scope: SkillConfigScope
+  /** Base directory for skill files relative to user home directory */
+  globalPath: string
+  /** Base directory for skill files relative to project root */
+  projectPath: string
 }
 
 /**
  * Agent-specific skill connector configurations.
- * Maps each supported agent to its skill directory path and scope.
+ * Maps each supported agent to its project and global skill directory paths.
  */
 export const SKILL_CONNECTOR_CONFIGS = {
+  Amp: {
+    globalPath: '.config/agents/skills',
+    projectPath: '.agents/skills',
+  },
+  Antigravity: {
+    globalPath: '.gemini/antigravity/skills',
+    projectPath: '.agent/skills',
+  },
+  'Auggie CLI': {
+    globalPath: '.augment/skills',
+    projectPath: '.augment/skills',
+  },
   'Claude Code': {
-    basePath: '.claude/skills/byterover',
-    scope: 'project',
+    globalPath: '.claude/skills',
+    projectPath: '.claude/skills',
   },
   Codex: {
-    basePath: '.codex/skills/byterover',
-    scope: 'global',
+    globalPath: '.agents/skills',
+    projectPath: '.agents/skills',
   },
   Cursor: {
-    basePath: '.cursor/skills/byterover',
-    scope: 'project',
+    globalPath: '.cursor/skills',
+    projectPath: '.cursor/skills',
+  },
+  'Gemini CLI': {
+    globalPath: '.gemini/skills',
+    projectPath: '.gemini/skills',
   },
   'Github Copilot': {
-    basePath: '.github/skills/byterover',
-    scope: 'project',
+    globalPath: '.copilot/skills',
+    projectPath: '.github/skills',
+  },
+  Junie: {
+    globalPath: '.junie/skills',
+    projectPath: '.junie/skills',
+  },
+  'Kilo Code': {
+    globalPath: '.kilocode/skills',
+    projectPath: '.kilocode/skills',
+  },
+  Kiro: {
+    globalPath: '.kiro/skills',
+    projectPath: '.kiro/skills',
+  },
+  OpenCode: {
+    globalPath: '.config/opencode/skills',
+    projectPath: '.opencode/skills',
+  },
+  Qoder: {
+    globalPath: '.qoder/skills',
+    projectPath: '.qoder/skills',
+  },
+  'Roo Code': {
+    globalPath: '.roo/skills',
+    projectPath: '.roo/skills',
+  },
+  'Trae.ai': {
+    globalPath: '.trae/skills',
+    projectPath: '.trae/skills',
+  },
+  Warp: {
+    globalPath: '.warp/skills',
+    projectPath: '.warp/skills',
+  },
+  Windsurf: {
+    globalPath: '.codeium/windsurf/skills',
+    projectPath: '.windsurf/skills',
   },
 } as const satisfies Partial<Record<Agent, SkillConnectorConfig>>
 
@@ -44,6 +90,11 @@ export const SKILL_CONNECTOR_CONFIGS = {
  * Type representing agents that have skill connector support.
  */
 export type SkillSupportedAgent = keyof typeof SKILL_CONNECTOR_CONFIGS
+
+/**
+ * Name used for the ByteRover connector skill subdirectory.
+ */
+export const BRV_SKILL_NAME = 'byterover'
 
 /**
  * Name of the main skill file.
