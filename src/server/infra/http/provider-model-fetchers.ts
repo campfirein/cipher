@@ -417,17 +417,21 @@ function formatVertexAiError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   const lowerMessage = message.toLowerCase()
 
+  // Invalid credential file (wrong key material, corrupt file, non-service-account JSON)
+  if (lowerMessage.includes('decoder routines') || lowerMessage.includes('unsupported') || lowerMessage.includes('invalid_grant')) {
+    return 'Invalid credential file. Ensure the file is a valid Google Cloud service account JSON key.'
+  }
+
   if (
     lowerMessage.includes('could not load the default credentials') ||
-    lowerMessage.includes('unable to detect a default project') ||
     lowerMessage.includes('default credentials') ||
     lowerMessage.includes('application_default_credentials')
   ) {
     return 'Google Cloud credentials not found. Run `gcloud auth application-default login` or set the GOOGLE_APPLICATION_CREDENTIALS environment variable.'
   }
 
-  if (!process.env.GOOGLE_CLOUD_PROJECT) {
-    return `Google Cloud project not set. Set GOOGLE_CLOUD_PROJECT environment variable.\n${message}`
+  if (lowerMessage.includes('unable to detect a default project')) {
+    return `Google Cloud project not set. Set GOOGLE_CLOUD_PROJECT environment variable or use a service account JSON that contains a project_id.`
   }
 
   if (lowerMessage.includes('401') || lowerMessage.includes('unauthorized') || lowerMessage.includes('authentication')) {
