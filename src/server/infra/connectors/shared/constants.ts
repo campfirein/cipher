@@ -11,3 +11,15 @@ export const BRV_RULE_MARKERS = {
   END: '<!-- END BYTEROVER RULES -->',
   START: '<!-- BEGIN BYTEROVER RULES -->',
 } as const
+
+/**
+ * Checks if the BRV markers section contains MCP tool references (brv-query/brv-curate).
+ * Only checks within the markers section to avoid false positives from user content.
+ */
+export const hasMcpToolsInBrvSection = (content: string): boolean => {
+  const startIdx = content.indexOf(BRV_RULE_MARKERS.START)
+  const endIdx = content.indexOf(BRV_RULE_MARKERS.END)
+  if (startIdx === -1 || endIdx === -1) return false
+  const brvSection = new Set(content.slice(startIdx, endIdx))
+  return brvSection.has('brv-query') || brvSection.has('brv-curate')
+}

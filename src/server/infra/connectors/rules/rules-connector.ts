@@ -12,6 +12,7 @@ import type {IFileService} from '../../../core/interfaces/services/i-file-servic
 import type {IRuleTemplateService} from '../../../core/interfaces/services/i-rule-template-service.js'
 
 import {AGENT_CONNECTOR_CONFIG} from '../../../core/domain/entities/agent.js'
+import {hasMcpToolsInBrvSection} from '../shared/constants.js'
 import {RuleFileManager} from '../shared/rule-file-manager.js'
 import {RULES_CONNECTOR_CONFIGS} from './rules-connector-config.js'
 
@@ -110,10 +111,7 @@ export class RulesConnector implements IConnector {
       }
 
       const content = await this.fileService.read(fullPath)
-      const hasMcpTools = content.includes('brv-query') || content.includes('brv-curate')
-
-      // For overwrite files, any BRV content means installed
-      // For append files, need both markers and agent tag
+      const hasMcpTools = hasMcpToolsInBrvSection(content)
       const installed = hasMarkers && !hasMcpTools
 
       return {
