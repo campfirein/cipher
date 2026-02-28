@@ -28,6 +28,8 @@ export interface ModelItem {
   id: string
   /** Whether this is the current active model */
   isCurrent: boolean
+  /** If true, this item represents a provider load failure and is not selectable */
+  isError?: boolean
   /** Whether this model is a favorite */
   isFavorite: boolean
   /** Whether this model is free */
@@ -159,40 +161,50 @@ export const ModelDialog: React.FC<ModelDialogProps> = ({
       keyExtractor={(item) => item.id}
       onCancel={onCancel}
       onSelect={(item) => onSelect(item)}
-      renderItem={(item, isActive, isCurrent) => (
-        <Box gap={2}>
-          {/* Model name */}
-          <Text
-            backgroundColor={isActive ? colors.dimText : undefined}
-            color={isActive ? colors.text : colors.text}
-          >
-            {item.name.padEnd(30)}
-          </Text>
+      renderItem={(item, isActive, isCurrent) => {
+        if (item.isError) {
+          return (
+            <Box>
+              <Text color={colors.warning}>{item.name}</Text>
+            </Box>
+          )
+        }
 
-          {/* Tags */}
-          <Box gap={1}>
-            {isCurrent && (
-              <Text color={colors.primary}>(Current)</Text>
-            )}
-            {item.isFree && !isCurrent && (
-              <Text color={colors.primary}>[Free]</Text>
-            )}
-            {item.isFavorite && !isCurrent && (
-              <Text color={colors.warning}>★</Text>
-            )}
-          </Box>
+        return (
+          <Box gap={2}>
+            {/* Model name */}
+            <Text
+              backgroundColor={isActive ? colors.dimText : undefined}
+              color={isActive ? colors.text : colors.text}
+            >
+              {item.name.padEnd(30)}
+            </Text>
 
-          {/* Pricing and context */}
-          <Box gap={1}>
-            {item.pricing && !item.isFree && (
-              <Text color={colors.dimText}>{formatPricing(item.pricing)}</Text>
-            )}
-            {item.contextLength && (
-              <Text color={colors.dimText}>{formatContextLength(item.contextLength)}</Text>
-            )}
+            {/* Tags */}
+            <Box gap={1}>
+              {isCurrent && (
+                <Text color={colors.primary}>(Current)</Text>
+              )}
+              {item.isFree && !isCurrent && (
+                <Text color={colors.primary}>[Free]</Text>
+              )}
+              {item.isFavorite && !isCurrent && (
+                <Text color={colors.warning}>★</Text>
+              )}
+            </Box>
+
+            {/* Pricing and context */}
+            <Box gap={1}>
+              {item.pricing && !item.isFree && (
+                <Text color={colors.dimText}>{formatPricing(item.pricing)}</Text>
+              )}
+              {item.contextLength && (
+                <Text color={colors.dimText}>{formatContextLength(item.contextLength)}</Text>
+              )}
+            </Box>
           </Box>
-        </Box>
-      )}
+        )
+      }}
       searchPlaceholder="Search models..."
       title={`Select Model - ${providerName}`}
     />
