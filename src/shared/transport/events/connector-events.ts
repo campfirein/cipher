@@ -3,6 +3,7 @@ import type {ConnectorType} from '../../types/connector-type.js'
 import type {AgentDTO, ConnectorDTO} from '../types/dto.js'
 
 export const ConnectorEvents = {
+  GET_AGENT_CONFIG_PATHS: 'connectors:getAgentConfigPaths',
   GET_AGENTS: 'connectors:getAgents',
   INSTALL: 'connectors:install',
   LIST: 'connectors:list',
@@ -14,6 +15,14 @@ export interface ConnectorGetAgentsResponse {
 
 export interface ConnectorListResponse {
   connectors: ConnectorDTO[]
+}
+
+export interface ConnectorGetAgentConfigPathsRequest {
+  agentId: Agent
+}
+
+export interface ConnectorGetAgentConfigPathsResponse {
+  configPaths: Partial<Record<ConnectorType, string>>
 }
 
 export interface ConnectorInstallRequest {

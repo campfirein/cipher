@@ -5,16 +5,18 @@ import type {ConnectorType} from '../../../../shared/types/connector-type.js'
 
 import {SelectableList} from '../../../components/selectable-list.js'
 import {useTheme} from '../../../hooks/index.js'
-import {getConnectorName} from '../utils/get-connector-name.js'
+import {getConnectorDescription, getConnectorName} from '../utils/get-connector-name.js'
 
 interface ListItem {
   description: string
   id: ConnectorType
   name: string
+  status: string
 }
 
 export interface ConnectorTypeStepProps {
   agentName: string
+  configPaths?: Partial<Record<ConnectorType, string>>
   currentType?: ConnectorType
   defaultType: ConnectorType
   isActive: boolean
@@ -25,6 +27,7 @@ export interface ConnectorTypeStepProps {
 
 export const ConnectorTypeStep: React.FC<ConnectorTypeStepProps> = ({
   agentName,
+  configPaths,
   currentType,
   defaultType,
   isActive,
@@ -37,10 +40,15 @@ export const ConnectorTypeStep: React.FC<ConnectorTypeStepProps> = ({
   } = useTheme()
 
   const items: ListItem[] = supportedTypes.map((t) => ({
-    description: t === currentType ? '(current)' : t === defaultType ? '(default)' : '',
+    description: getConnectorDescription(t, configPaths?.[t]),
     id: t,
     name: getConnectorName(t),
+    status: t === currentType ? '(current)' : t === defaultType ? '(default)' : '',
   }))
+
+  const maxLabelLength = Math.max(
+    ...items.map((item) => item.name.length + (item.status ? 1 + item.status.length : 0)),
+  )
 
   const handleSelect = (item: ListItem) => {
     onSelect(item.id)
@@ -55,14 +63,22 @@ export const ConnectorTypeStep: React.FC<ConnectorTypeStepProps> = ({
       keyExtractor={(item) => item.id}
       onCancel={onCancel}
       onSelect={handleSelect}
-      renderItem={(item, isHighlighted) => (
-        <Box gap={2}>
-          <Text backgroundColor={isHighlighted ? colors.dimText : undefined} color={colors.text}>
-            {item.name}
-          </Text>
-          {item.description && <Text color={colors.dimText}>{item.description}</Text>}
-        </Box>
-      )}
+      renderItem={(item, isHighlighted) => {
+        const labelLength = item.name.length + (item.status ? 1 + item.status.length : 0)
+        const padding = ' '.repeat(maxLabelLength - labelLength)
+        return (
+          <Box gap={2}>
+            <Text>
+              <Text backgroundColor={isHighlighted ? colors.dimText : undefined} color={colors.text}>
+                {item.name}
+              </Text>
+              {item.status && <Text color={colors.primary}>{` ${item.status}`}</Text>}
+              {padding}
+            </Text>
+            <Text color={colors.dimText}>{item.description}</Text>
+          </Box>
+        )
+      }}
       title={`Select connector type for ${agentName}`}
     />
   )
