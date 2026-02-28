@@ -57,6 +57,28 @@ brv curate "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via
 brv curate "Authentication middleware details" -f src/middleware/auth.ts
 ```
 
+**View curate history:** to check past curations
+- Show recent entries (last 10)
+```bash
+brv curate view
+```
+- Full detail for a specific entry: all files and operations performed (logId is printed by `brv curate` on completion, e.g. `cur-1739700001000`)
+```bash
+brv curate view cur-1739700001000
+```
+- List entries with file operations visible (no logId needed)
+```bash
+brv curate view detail
+```
+- Filter by time and status
+```bash
+brv curate view --since 1h --status completed
+```
+- For all filter options
+```bash
+brv curate view --help
+```
+
 ### 3. LLM Provider Setup
 `brv query` and `brv curate` require a configured LLM provider. Connect the default ByteRover provider (no API key needed):
 
@@ -72,8 +94,34 @@ brv providers connect openai --api-key sk-xxx --model gpt-4.1
 ```
 
 ### 4. Cloud Sync (Optional)
-Requires authentication via `brv login`. Used to share knowledge with a team:
+**Overview:** Sync your local knowledge with a team via ByteRover's cloud service. Requires ByteRover authentication.
 
+**Setup steps:**
+1. Log in: Get an API key from your ByteRover account and authenticate:
+```bash
+brv login --api-key sample-key-string
+```
+2. List available spaces:
+```bash
+brv space list
+```
+Sample output:
+```
+brv space list
+1. human-resources-team (team)
+   - a-department (space)
+   - b-department (space)
+2. marketing-team (team)
+   - c-department (space)
+   - d-department (space)
+```
+3. Connect to a space:
+```bash
+brv space switch --team human-resources-team --name a-department
+```
+
+**Cloud sync commands:**
+Once connected, `brv push` and `brv pull` sync with that space.
 ```bash
 # Pull team updates
 brv pull
@@ -81,6 +129,14 @@ brv pull
 # Push local changes
 brv push
 ```
+
+**Switching spaces:**
+- Push local changes first (`brv push`) — switching is blocked if unsaved changes exist.
+- Then switch:
+```bash
+brv space switch --team marketing-team --name d-department
+```
+- The switch automatically pulls context from the new space.
 
 ## Data Handling
 
