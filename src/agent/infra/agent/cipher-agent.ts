@@ -656,6 +656,9 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       contentGenerator: mapGenerator,
     })
 
+    // Wire content generator into sandbox for tools.curation.mapExtract()
+    services.sandboxService.setContentGenerator?.(mapGenerator)
+
     // Create event bridge if transport client is injected (child process mode).
     // The bridge forwards AgentEventBus llmservice:* events to the transport server.
     if (this._transportClient) {

@@ -5,6 +5,7 @@ import type {
   SearchResult,
   WriteResult,
 } from '../../core/domain/file-system/types.js'
+import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
 import type {
   CurateOperation,
   CurateOptions,
@@ -16,6 +17,20 @@ import type {
 import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
 import type {ISandboxService} from '../../core/interfaces/i-sandbox-service.js'
 import type {SessionManager} from '../session/session-manager.js'
+
+import {executeLlmMapMemory} from '../map/llm-map-memory.js'
+import {
+  chunk,
+  type ChunkResult,
+  type CurationFact,
+  dedup,
+  detectMessageBoundaries,
+  groupBySubject,
+  type MessageBoundary,
+  recon,
+  type ReconResult,
+  recordProgress,
+} from './curation-helpers.js'
 
 /**
  * Options for glob operation in ToolsSDK.
@@ -137,6 +152,27 @@ export interface ToolsSDK {
   curate(operations: CurateOperation[], options?: CurateOptions): Promise<CurateResult>
 
   /**
+   * Pre-built curation helpers — reduces LLM iteration overhead.
+   * Stateless functions except recordProgress (intentionally mutating).
+   */
+  readonly curation: {
+    /** Intelligent boundary-aware text splitting */
+    chunk(context: string, options?: {overlap?: number; size?: number}): ChunkResult
+    /** Remove near-duplicate facts using Jaccard word-overlap similarity */
+    dedup(facts: CurationFact[], threshold?: number): CurationFact[]
+    /** Find [USER]: and [ASSISTANT]: markers with offsets */
+    detectMessageBoundaries(context: string): MessageBoundary[]
+    /** Group facts by subject, with fallback to category */
+    groupBySubject(facts: CurationFact[]): Record<string, CurationFact[]>
+    /** Parallel LLM extraction over chunked context. Curate mode only. */
+    mapExtract(context: string, options: {chunkSize?: number; concurrency?: number; prompt: string; taskId?: string}): Promise<{facts: CurationFact[]; failed: number; succeeded: number; total: number}>
+    /** Combine Steps 0-2 into one call: metadata + history + preview + mode recommendation */
+    recon(context: string, meta: Record<string, unknown>, history: Record<string, unknown>): ReconResult
+    /** Push entry into history and increment totalProcessed (intentionally mutating) */
+    recordProgress(history: Record<string, unknown>, entry: {domain: string; keyFacts: string[]; title: string}): void
+  }
+
+  /**
    * Detect and validate domains from input data.
    * Use this to analyze text and categorize it into knowledge domains.
    * @param domains - Array of detected domains with text segments
@@ -200,6 +236,8 @@ export interface ToolsSDK {
 export interface CreateToolsSDKOptions {
   /** Command type — when 'query', mutating APIs (curate, writeFile) are disabled */
   commandType?: string
+  /** Content generator for parallel LLM operations (mapExtract) */
+  contentGenerator?: IContentGenerator
   /** Curate service for knowledge curation */
   curateService?: ICurateService
   /** File system service for file operations */
@@ -224,7 +262,7 @@ export interface CreateToolsSDKOptions {
  * @returns ToolsSDK instance ready to be injected into sandbox context
  */
 export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
-  const {commandType, curateService, fileSystem, parentSessionId, sandboxService, searchKnowledgeService, sessionManager} = options
+  const {commandType, contentGenerator, curateService, fileSystem, parentSessionId, sandboxService, searchKnowledgeService, sessionManager} = options
   const isReadOnly = commandType === 'query'
   return {
     async agentQuery(prompt: string, options?: { contextData?: Record<string, unknown>; maxIterations?: number }): Promise<string> {
@@ -280,6 +318,46 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
       }
 
       return curateService.curate(operations, options)
+    },
+
+    curation: {
+      chunk,
+      dedup,
+      detectMessageBoundaries,
+      groupBySubject,
+      async mapExtract(context: string, options: {chunkSize?: number; concurrency?: number; prompt: string; taskId?: string}): Promise<{facts: CurationFact[]; failed: number; succeeded: number; total: number}> {
+        if (commandType !== 'curate') {
+          throw new Error('mapExtract only available in curate mode')
+        }
+
+        if (!contentGenerator) {
+          throw new Error('mapExtract not available — no content generator configured')
+        }
+
+        const chunks = chunk(context, {size: options.chunkSize ?? 8000})
+        const items = chunks.chunks.map((c, i) => ({chunk: c, index: i, totalChunks: chunks.totalChunks}))
+
+        const result = await executeLlmMapMemory({
+          concurrency: options.concurrency ?? 8,
+          generator: contentGenerator,
+          items,
+          prompt: options.prompt,
+          taskId: options.taskId,
+        })
+
+        // Throw when all chunks fail — no facts to work with
+        if (result.succeeded === 0 && result.total > 0) {
+          throw new Error(`mapExtract failed: all ${result.total} chunks failed extraction`)
+        }
+
+        const facts = result.results
+          .filter((r): r is CurationFact[] => r !== null)
+          .flat()
+
+        return {facts, failed: result.failed, succeeded: result.succeeded, total: result.total}
+      },
+      recon,
+      recordProgress,
     },
 
     async detectDomains(domains: DetectDomainsInput[]): Promise<DetectDomainsResult> {

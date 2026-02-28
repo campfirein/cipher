@@ -9,6 +9,7 @@
 
 import type {ICipherAgent} from '../../../../agent/core/interfaces/i-cipher-agent.js'
 
+import {CURATION_CHAR_THRESHOLD} from '../../../../shared/constants/curation.js'
 import {
   buildDeterministicFallbackCompaction,
   type CompactionEscalationTier,
@@ -20,8 +21,9 @@ import {buildCompactionSystemPrompt, buildCompactionUserMessage} from './prompts
 
 /**
  * Character threshold below which compaction is skipped.
+ * Re-exported from shared constant for backwards compatibility.
  */
-export const PRE_COMPACTION_CHAR_THRESHOLD = 20_000
+export const PRE_COMPACTION_CHAR_THRESHOLD = CURATION_CHAR_THRESHOLD
 
 /**
  * Result of a pre-compaction operation.

@@ -1,5 +1,6 @@
 import type { EnvironmentContext } from '../../core/domain/environment/types.js'
 import type { REPLResult, SandboxConfig } from '../../core/domain/sandbox/types.js'
+import type { IContentGenerator } from '../../core/interfaces/i-content-generator.js'
 import type { ICurateService } from '../../core/interfaces/i-curate-service.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
@@ -17,6 +18,8 @@ import { createToolsSDK } from './tools-sdk.js'
 export class SandboxService implements ISandboxService {
   /** Collector wrapping curateService — captures curate() results per executeCode() call */
   private collector?: CurateResultCollector
+  /** Content generator for parallel LLM operations (mapExtract) */
+  private contentGenerator?: IContentGenerator
   /** Curate service for Tools SDK */
   private curateService?: ICurateService
   /** Environment context for sandbox injection */
@@ -138,6 +141,17 @@ export class SandboxService implements ISandboxService {
   }
 
   /**
+   * Set the content generator for parallel LLM operations (mapExtract).
+   * When set, new sandboxes will have access to `tools.curation.mapExtract()`.
+   *
+   * @param contentGenerator - Content generator instance
+   */
+  setContentGenerator(contentGenerator: IContentGenerator): void {
+    this.contentGenerator = contentGenerator
+    this.invalidateSandboxes()
+  }
+
+  /**
    * Set the curate service for Tools SDK injection.
    * When set, new sandboxes will have access to curate operations via `tools.curate()`.
    *
@@ -230,6 +244,7 @@ export class SandboxService implements ISandboxService {
 
     return createToolsSDK({
       commandType,
+      contentGenerator: this.contentGenerator,
       curateService: this.curateService,
       fileSystem: this.fileSystem,
       parentSessionId: sessionId,

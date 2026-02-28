@@ -81,19 +81,25 @@ export class CurateExecutor implements ICurateExecutor {
         type: 'string',
       }
 
-      // Inject context, metadata, and empty history into the TASK session's sandbox
+      // Inject context, metadata, empty history, and taskId into the TASK session's sandbox
+      const taskIdVar = `__taskId_${taskIdSafe}`
       agent.setSandboxVariableOnSession(taskSessionId, ctxVar, effectiveContext)
       agent.setSandboxVariableOnSession(taskSessionId, histVar, {entries: [], totalProcessed: 0})
       agent.setSandboxVariableOnSession(taskSessionId, metaVar, metadata)
+      agent.setSandboxVariableOnSession(taskSessionId, taskIdVar, taskId)
 
-      // Prompt with metadata guidance (RLM pattern: LM sees metadata first, peeks via slicing)
+      // Prompt with curation helpers guidance (tools.curation.* replaces manual infrastructure code)
       const prompt = [
         `Curate using RLM approach.`,
         `Context variable: ${ctxVar} (${metadata.charCount} chars, ${metadata.lineCount} lines, ${metadata.messageCount} messages)`,
         `History variable: ${histVar}`,
         `Metadata variable: ${metaVar}`,
-        `IMPORTANT: Do NOT print raw context. Use slicing to peek at sections (e.g., ${ctxVar}.slice(0, 3000)).`,
-        `Use silent mode (silent: true) for variable assignments. Use tools.agentQuery() for chunk processing.`,
+        `Task ID variable: ${taskIdVar} (pass as bare variable, not a string)`,
+        `IMPORTANT: Do NOT print raw context. Start with tools.curation.recon(${ctxVar}, ${metaVar}, ${histVar}) to assess.`,
+        `For chunked extraction use tools.curation.mapExtract(). Pass taskId: ${taskIdVar} (bare variable).`,
+        `IMPORTANT: Any code_exec call containing mapExtract MUST use timeout: 300000 on the code_exec tool call itself (not inside mapExtract options).`,
+        `Use tools.curation.groupBySubject() and tools.curation.dedup() to organize extractions.`,
+        `Verify via result.applied[].filePath — do NOT call readFile for verification.`,
       ].join('\n')
 
       // Execute on the task session (isolated sandbox + history)
