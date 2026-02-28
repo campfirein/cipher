@@ -6,17 +6,28 @@
  * agent child processes on startup and after provider hot-swap.
  */
 
+import {existsSync} from 'node:fs'
+import {homedir} from 'node:os'
+import {join} from 'node:path'
+
 import type {IProviderConfigStore} from '../../core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keychain-store.js'
 
 import {getProviderById, providerRequiresApiKey} from '../../core/domain/entities/provider-registry.js'
 import {type ProviderConfigResponse} from '../../core/domain/transport/schemas.js'
 import {getProviderApiKeyFromEnv} from './env-provider-detector.js'
+import {resolveVertexAiProject} from './vertex-ai-utils.js'
 
 async function isProviderCredentialAccessible(
   providerId: string,
   providerKeychainStore: IProviderKeychainStore,
 ): Promise<boolean> {
+  if (providerId === 'google-vertex') {
+    const storedPath = await providerKeychainStore.getApiKey(providerId)
+    if (storedPath) return existsSync(storedPath)
+    return !getVertexAiCredentialError(process.env.GOOGLE_APPLICATION_CREDENTIALS)
+  }
+
   if (!providerRequiresApiKey(providerId)) return true
   return Boolean((await providerKeychainStore.getApiKey(providerId)) || getProviderApiKeyFromEnv(providerId))
 }
@@ -90,15 +101,8 @@ export async function resolveProviderConfig(
     return {activeModel, activeProvider}
   }
 
-  // google-vertex uses Application Default Credentials, not an API key
   if (activeProvider === 'google-vertex') {
-    return {
-      activeModel,
-      activeProvider,
-      provider: activeProvider,
-      providerLocation: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
-      providerProject: process.env.GOOGLE_CLOUD_PROJECT || undefined,
-    }
+    return resolveVertexAiConfig(activeModel, activeProvider, providerKeychainStore)
   }
 
   // Resolve API key: keychain first, then environment variable
@@ -143,4 +147,54 @@ export async function resolveProviderConfig(
       }
     }
   }
+}
+
+/**
+ * Resolve Google Vertex AI provider configuration.
+ * Uses service account JSON from keychain or Application Default Credentials.
+ */
+async function resolveVertexAiConfig(
+  activeModel: string | undefined,
+  activeProvider: string,
+  providerKeychainStore: IProviderKeychainStore,
+): Promise<ProviderConfigResponse> {
+  const storedCredentialPath = await providerKeychainStore.getApiKey(activeProvider)
+  const effectiveCredentialPath = storedCredentialPath || process.env.GOOGLE_APPLICATION_CREDENTIALS || undefined
+  const credentialError = getVertexAiCredentialError(effectiveCredentialPath)
+  return {
+    activeModel,
+    activeProvider,
+    provider: activeProvider,
+    providerCredentialError: credentialError ?? undefined,
+    providerCredentialPath: effectiveCredentialPath,
+    providerKeyMissing: Boolean(credentialError),
+    providerLocation: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
+    providerProject: resolveVertexAiProject(storedCredentialPath),
+  }
+}
+
+/**
+ * Lightweight check for Google Vertex AI credential availability.
+ * Checks the given credential path and the well-known ADC file
+ * without making network calls.
+ *
+ * @param credentialPath - Explicit credential file path (from keychain or env var).
+ * @returns Error message if credentials are not found, null if accessible.
+ */
+function getVertexAiCredentialError(credentialPath: string | undefined): null | string {
+  if (credentialPath) {
+    if (!existsSync(credentialPath)) {
+      return `Credential file not found: ${credentialPath}. Verify the path or run \`gcloud auth application-default login\`.`
+    }
+
+    return null
+  }
+
+  // Check well-known ADC location (created by `gcloud auth application-default login`)
+  const adcPath = join(homedir(), '.config', 'gcloud', 'application_default_credentials.json')
+  if (existsSync(adcPath)) {
+    return null
+  }
+
+  return 'Google Cloud credentials not found. Run `gcloud auth application-default login` or set the GOOGLE_APPLICATION_CREDENTIALS environment variable.'
 }

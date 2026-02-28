@@ -15,9 +15,12 @@ import Anthropic from '@anthropic-ai/sdk'
 import {GoogleGenAI} from '@google/genai'
 import {APICallError, generateText} from 'ai'
 import axios, {isAxiosError} from 'axios'
+import {existsSync, readFileSync} from 'node:fs'
 import OpenAI from 'openai'
 
 import type {IProviderModelFetcher, ProviderModelInfo} from '../../core/interfaces/i-provider-model-fetcher.js'
+
+import {resolveVertexAiProject} from '../provider/vertex-ai-utils.js'
 
 // ============================================================================
 // Cache helper
@@ -299,6 +302,27 @@ export class GoogleModelFetcher implements IProviderModelFetcher {
 // ============================================================================
 
 /**
+ * Known context window sizes for Google models.
+ * The Vertex AI list endpoint does not populate inputTokenLimit,
+ * so we use a static lookup with prefix matching.
+ */
+const GOOGLE_CONTEXT_LENGTHS: ReadonlyArray<[prefix: string, contextLength: number]> = [
+  ['gemini-2.5', 1_048_576],
+  ['gemini-2.0', 1_048_576],
+  ['gemini-1.5', 1_048_576],
+  ['gemini-1.0', 32_768],
+  ['gemma', 8192],
+]
+
+function getGoogleContextLength(modelId: string): number {
+  for (const [prefix, contextLength] of GOOGLE_CONTEXT_LENGTHS) {
+    if (modelId.startsWith(prefix)) return contextLength
+  }
+
+  return 1_048_576
+}
+
+/**
  * Fetches models from Google Vertex AI using the @google/genai SDK with vertexai mode.
  * Uses Application Default Credentials (ADC) instead of API keys.
  */
@@ -310,47 +334,111 @@ export class GoogleVertexModelFetcher implements IProviderModelFetcher {
     this.cacheTtlMs = cacheTtlMs
   }
 
-  async fetchModels(_apiKey: string, forceRefresh = false): Promise<ProviderModelInfo[]> {
+  async fetchModels(apiKey: string, forceRefresh = false): Promise<ProviderModelInfo[]> {
     if (!forceRefresh && this.cache && Date.now() - this.cache.timestamp < this.cacheTtlMs) {
       return this.cache.models
     }
 
-    const project = process.env.GOOGLE_CLOUD_PROJECT
+    // apiKey holds the credential file path for Vertex AI.
+    // Set env var for the GoogleGenAI SDK which reads it internally.
+    if (apiKey) {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = apiKey
+    }
+
+    const project = resolveVertexAiProject(apiKey)
     const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1'
     const client = new GoogleGenAI({location, project, vertexai: true})
     const models: ProviderModelInfo[] = []
 
-    const pager = await client.models.list()
-    for (const model of pager.page) {
-      if (!model.supportedActions?.includes('generateContent')) continue
+    try {
+      const pager = await client.models.list()
+      for (const model of pager.page) {
+        // Vertex AI uses "publishers/google/models/<id>" format
+        const rawName = model.name ?? ''
+        const id = rawName.replace(/^publishers\/google\/models\//, '').replace(/^models\//, '')
 
-      const id = model.name?.replace('models/', '') ?? ''
-      models.push({
-        contextLength: model.inputTokenLimit ?? 1_000_000,
-        description: model.description ?? undefined,
-        id,
-        isFree: false,
-        name: model.displayName ?? id,
-        pricing: {inputPerM: 0, outputPerM: 0},
-        provider: 'Google Vertex AI',
-      })
+        // Only include text generation models.
+        // Vertex AI doesn't populate supportedActions, so use prefix matching as primary filter.
+        // When supportedActions IS available, use it as authoritative.
+        if (model.supportedActions && !model.supportedActions.includes('generateContent')) continue
+        if (!id.startsWith('gemini') && !id.startsWith('gemma')) continue
+        if (id.includes('embedding') || id.includes('image')) continue
+        models.push({
+          contextLength: model.inputTokenLimit ?? getGoogleContextLength(id),
+          description: model.description ?? undefined,
+          id,
+          isFree: false,
+          name: model.displayName ?? id,
+          pricing: {inputPerM: 0, outputPerM: 0},
+          provider: 'Google Vertex AI',
+        })
+      }
+    } catch (error: unknown) {
+      throw new Error(formatVertexAiError(error))
     }
 
     this.cache = {models, timestamp: Date.now()}
     return models
   }
 
-  async validateApiKey(_apiKey: string): Promise<{error?: string; isValid: boolean}> {
+  async validateApiKey(apiKey: string): Promise<{error?: string; isValid: boolean}> {
     try {
-      const project = process.env.GOOGLE_CLOUD_PROJECT
+      // apiKey holds the credential file path for Vertex AI
+      if (apiKey) {
+        if (!existsSync(apiKey)) {
+          return {error: `File not found: ${apiKey}`, isValid: false}
+        }
+
+        try {
+          JSON.parse(readFileSync(apiKey, 'utf8'))
+        } catch {
+          return {error: `Invalid JSON in file: ${apiKey}`, isValid: false}
+        }
+
+        // Set temporarily for the GoogleGenAI SDK to pick up during validation
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = apiKey
+      }
+
+      const project = resolveVertexAiProject(apiKey)
       const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1'
       const client = new GoogleGenAI({location, project, vertexai: true})
       await client.models.list()
       return {isValid: true}
     } catch (error: unknown) {
-      return handleSdkValidationError(error)
+      return {error: formatVertexAiError(error), isValid: false}
     }
   }
+}
+
+/**
+ * Format Vertex AI errors with actionable ADC setup instructions.
+ */
+function formatVertexAiError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const lowerMessage = message.toLowerCase()
+
+  if (
+    lowerMessage.includes('could not load the default credentials') ||
+    lowerMessage.includes('unable to detect a default project') ||
+    lowerMessage.includes('default credentials') ||
+    lowerMessage.includes('application_default_credentials')
+  ) {
+    return 'Google Cloud credentials not found. Run `gcloud auth application-default login` or set the GOOGLE_APPLICATION_CREDENTIALS environment variable.'
+  }
+
+  if (!process.env.GOOGLE_CLOUD_PROJECT) {
+    return `Google Cloud project not set. Set GOOGLE_CLOUD_PROJECT environment variable.\n${message}`
+  }
+
+  if (lowerMessage.includes('401') || lowerMessage.includes('unauthorized') || lowerMessage.includes('authentication')) {
+    return `Google Cloud authentication failed. Run \`gcloud auth application-default login\` or check your GOOGLE_APPLICATION_CREDENTIALS.\n${message}`
+  }
+
+  if (lowerMessage.includes('403') || lowerMessage.includes('forbidden') || lowerMessage.includes('permission')) {
+    return `Google Cloud permission denied. Ensure your account has Vertex AI API access enabled.\n${message}`
+  }
+
+  return `Google Vertex AI error: ${message}`
 }
 
 // ============================================================================

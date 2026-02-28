@@ -81,7 +81,8 @@ Bad:
 
           if (active.providerKeyMissing) {
             throw new Error(
-              `${active.activeProvider} API key is missing from storage.\nPlease reconnect: brv providers connect ${active.activeProvider} --api-key <your-key>`,
+              active.providerCredentialError
+              ?? `${active.activeProvider} API key is missing from storage.\nPlease reconnect: brv providers connect ${active.activeProvider} --api-key <your-key>`,
             )
           }
 
