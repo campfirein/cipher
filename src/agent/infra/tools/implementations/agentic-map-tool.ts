@@ -1,7 +1,11 @@
 import type {Tool, ToolExecutionContext, ToolMetadata} from '../../../core/domain/tools/types.js'
 import type {ICipherAgent} from '../../../core/interfaces/i-cipher-agent.js'
+import type {IContentGenerator} from '../../../core/interfaces/i-content-generator.js'
+import type {ILogger} from '../../../core/interfaces/i-logger.js'
+import type {ITokenizer} from '../../../core/interfaces/i-tokenizer.js'
 
 import {executeAgenticMap} from '../../map/agentic-map-service.js'
+import {ContextTreeStore} from '../../map/context-tree-store.js'
 import {AgenticMapParametersSchema} from '../../map/map-shared.js'
 
 /**
@@ -18,10 +22,17 @@ import {AgenticMapParametersSchema} from '../../map/map-shared.js'
  *
  * @param agent - The cipher agent for creating sub-sessions
  * @param workingDirectory - Project root directory
+ * @param options - Optional dependencies for ContextTreeStore
  */
 export function createAgenticMapTool(
   agent: ICipherAgent,
   workingDirectory: string,
+  options?: {
+    generator?: IContentGenerator
+    logger?: ILogger
+    maxContextTokens?: number
+    tokenizer?: ITokenizer
+  },
 ): Tool {
   return {
     description: [
@@ -39,14 +50,28 @@ export function createAgenticMapTool(
       'Concurrency is capped at 4 parallel sub-agents.',
       'Input: JSONL file (one JSON object per line)',
       'Output: JSONL file with one result per line, ordered by input line.',
+      '',
+      'Results include an optional summaryHandle — a compact summary of processed items.',
+      'The JSONL output file is always the source of truth for per-item results.',
     ].join('\n'),
 
     async execute(input: unknown, context?: ToolExecutionContext): Promise<unknown> {
       const params = AgenticMapParametersSchema.parse(input)
 
+      // Construct ContextTreeStore if both generator+tokenizer available
+      const contextTreeStore = options?.generator && options?.tokenizer
+        ? new ContextTreeStore({
+            generator: options.generator,
+            tauHard: Math.floor((options.maxContextTokens ?? 100_000) * 0.5),
+            tokenizer: options.tokenizer,
+          })
+        : undefined
+
       const result = await executeAgenticMap({
         abortSignal: context?.signal,
         agent,
+        contextTreeStore,
+        logger: options?.logger,
         onProgress: context?.metadata
           ? (progress) => {
               context.metadata!({
@@ -65,6 +90,7 @@ export function createAgenticMapTool(
         mapId: result.mapId,
         outputPath: params.output_path,
         succeeded: result.succeeded,
+        ...(result.summaryHandle && {summaryHandle: result.summaryHandle}),
         total: result.total,
       }
     },

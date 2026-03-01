@@ -9,6 +9,7 @@ import type {CipherAgentServices} from '../../core/interfaces/cipher-services.js
 import type {IChatSession} from '../../core/interfaces/i-chat-session.js'
 import type {AgentState, ExecutionContext, ICipherAgent} from '../../core/interfaces/i-cipher-agent.js'
 import type {IHistoryStorage} from '../../core/interfaces/i-history-storage.js'
+import type {ITokenizer} from '../../core/interfaces/i-tokenizer.js'
 import type {FileSystemService} from '../file-system/file-system-service.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
 import type {ProcessService} from '../process/process-service.js'
@@ -18,14 +19,17 @@ import type {ToolProvider} from '../tools/tool-provider.js'
 import type {AgentConfig} from './agent-schemas.js'
 import type {ProviderUpdateConfig} from './provider-update-config.js'
 
+import {getEffectiveMaxInputTokens, resolveRegistryProvider} from '../../core/domain/llm/index.js'
 import {STREAMING_EVENT_NAMES} from '../../core/domain/streaming/types.js'
+import {ToolName} from '../../core/domain/tools/constants.js'
 import {AgentEventBus} from '../events/event-emitter.js'
 import {createGeneratorForProvider} from '../llm/providers/index.js'
+import {EventBasedLogger} from '../logger/event-based-logger.js'
 import {SessionManager} from '../session/session-manager.js'
 import {TransportEventBridge} from '../transport/transport-event-bridge.js'
 import {AgentError} from './agent-error.js'
 import {BaseAgent} from './base-agent.js'
-import {type ByteRoverHttpConfig, createCipherAgentServices} from './service-initializer.js'
+import {type ByteRoverHttpConfig, createCipherAgentServices, type SessionLLMConfig} from './service-initializer.js'
 
 /**
  * CipherAgent - Main agent implementation extending BaseAgent.
@@ -520,9 +524,10 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
     // Re-wire SessionManager into sandbox for tools.agentQuery()
     this.services!.sandboxService.setSessionManager?.(this.sessionManager)
-  }
 
-  // === Protected Methods (implement abstract from BaseAgent) ===
+    // Rebind map tools with fresh generator/tokenizer/maxContextTokens
+    this.rebindMapTools(services, httpConfig, sessionLLMConfig)
+  }
 
   /**
    * Reset the agent to initial state.
@@ -534,6 +539,8 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       this.stateManager.reset()
     }
   }
+
+  // === Protected Methods (implement abstract from BaseAgent) ===
 
   /**
    * Reset a specific session's conversation history.
@@ -630,36 +637,10 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     const defaultSession = await this.sessionManager.createSession()
     this._sessionId = defaultSession.id
 
-    // Inject agent instance and content generator into ToolProvider for map tools
-    // (agentic_map, llm_map). These tools require late injection because the agent
-    // and provider config aren't available when ToolProvider is first initialized.
-    const mapProvider = sessionLLMConfig.provider
-      ?? (sessionLLMConfig.openRouterApiKey ? 'openrouter' : 'byterover')
-    const mapGenerator = createGeneratorForProvider(
-      mapProvider,
-      {
-        apiKey: mapProvider === 'openrouter'
-          ? (sessionLLMConfig.openRouterApiKey ?? sessionLLMConfig.providerApiKey)
-          : sessionLLMConfig.providerApiKey,
-        baseUrl: sessionLLMConfig.providerBaseUrl,
-        headers: sessionLLMConfig.providerHeaders,
-        httpConfig: httpConfig as unknown as Record<string, unknown>,
-        httpReferer: sessionLLMConfig.httpReferer,
-        location: sessionLLMConfig.providerLocation,
-        maxTokens: 4096,
-        model: sessionLLMConfig.model,
-        project: sessionLLMConfig.providerProject,
-        siteName: sessionLLMConfig.siteName,
-        temperature: 0,
-      },
-    )
-    services.toolProvider.updateServices({
-      agentInstance: this,
-      contentGenerator: mapGenerator,
-    })
-
-    // Wire content generator into sandbox for tools.curation.mapExtract()
-    services.sandboxService.setContentGenerator?.(mapGenerator)
+    // Inject agent instance and content generator into ToolProvider for map tools.
+    // Uses rebindMapTools() which atomically replaces map tools with fresh deps
+    // (generator, tokenizer, maxContextTokens, logger).
+    this.rebindMapTools(services, httpConfig, sessionLLMConfig)
 
     // Create event bridge if transport client is injected (child process mode).
     // The bridge forwards AgentEventBus llmservice:* events to the transport server.
@@ -902,8 +883,6 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     this._sessionId = sessionId
   }
 
-  // === Private Helpers (alphabetical order) ===
-
   /**
    * Build HTTP config for ByteRover API calls.
    * Uses lazy providers when injected (child process mode), otherwise static config.
@@ -918,6 +897,8 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       teamId: this._teamIdProvider ?? this.config.teamId ?? this._brvConfig?.teamId ?? '',
     }
   }
+
+  // === Private Helpers (alphabetical order) ===
 
   private getHistoryStorageInternal(): IHistoryStorage {
     const storage = this.services?.historyStorage
@@ -951,5 +932,63 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     }
 
     return manager
+  }
+
+  /**
+   * Rebuild map tool dependencies and update ToolProvider + SandboxService.
+   * Called from both start() (initial setup) and refreshProviderConfig() (hot-swap).
+   */
+  private rebindMapTools(
+    services: CipherAgentServices,
+    httpConfig: ByteRoverHttpConfig,
+    sessionLLMConfig: SessionLLMConfig,
+  ): void {
+    const mapProvider = sessionLLMConfig.provider
+      ?? (sessionLLMConfig.openRouterApiKey ? 'openrouter' : 'byterover')
+    const mapGenerator = createGeneratorForProvider(mapProvider, {
+      apiKey: mapProvider === 'openrouter'
+        ? (sessionLLMConfig.openRouterApiKey ?? sessionLLMConfig.providerApiKey)
+        : sessionLLMConfig.providerApiKey,
+      baseUrl: sessionLLMConfig.providerBaseUrl,
+      headers: sessionLLMConfig.providerHeaders,
+      httpConfig: httpConfig as unknown as Record<string, unknown>,
+      httpReferer: sessionLLMConfig.httpReferer,
+      location: sessionLLMConfig.providerLocation,
+      maxTokens: 4096,
+      model: sessionLLMConfig.model,
+      project: sessionLLMConfig.providerProject,
+      siteName: sessionLLMConfig.siteName,
+      temperature: 0,
+    })
+
+    // Adapter pattern: wrap mapGenerator.estimateTokensSync() as ITokenizer
+    const mapTokenizer: ITokenizer = {
+      countTokens: (text: string) => mapGenerator.estimateTokensSync(text),
+    }
+
+    // Compute registry-clamped maxContextTokens
+    const mapModel = sessionLLMConfig.model ?? 'gemini-3-flash-preview'
+    const mapRegistryProvider = resolveRegistryProvider(mapModel, mapProvider)
+    const effectiveMaxContextTokens = getEffectiveMaxInputTokens(
+      mapRegistryProvider, mapModel, sessionLLMConfig.maxInputTokens,
+    )
+
+    const mapLogger = new EventBasedLogger(this._agentEventBus, 'MapTools')
+
+    // Atomically replace map tools with fresh generator/tokenizer/maxContextTokens.
+    // replaceTools() is build-then-swap — if build fails, old tools remain intact.
+    services.toolProvider.replaceTools(
+      [ToolName.LLM_MAP, ToolName.AGENTIC_MAP],
+      {
+        agentInstance: this,
+        contentGenerator: mapGenerator,
+        logger: mapLogger,
+        maxContextTokens: effectiveMaxContextTokens,
+        tokenizer: mapTokenizer,
+      },
+    )
+
+    // Update sandbox for tools.curation.mapExtract()
+    services.sandboxService.setContentGenerator?.(mapGenerator)
   }
 }

@@ -14,6 +14,7 @@ export interface MapRunResult {
   failed: number
   mapId: string
   succeeded: number
+  summaryHandle?: string
   total: number
 }
 

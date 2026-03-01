@@ -345,12 +345,17 @@ prompt: |
 
   **Curation helper functions available via `tools.curation.*`:**
   - `tools.curation.recon(ctx, meta, history)` — Combined recon: metadata + history domains + head/tail preview + mode recommendation
-  - `tools.curation.mapExtract(ctx, {prompt, chunkSize?, concurrency?, taskId?})` — Parallel LLM extraction: chunks context, processes in parallel, returns `{facts: CurationFact[], succeeded, failed, total}`. Throws if all chunks fail.
+  - `tools.curation.mapExtract(ctx, {prompt, chunkSize?, concurrency?, maxContextTokens?, taskId?})` — Parallel LLM extraction: chunks context, processes in parallel, returns `{facts: CurationFact[], succeeded, failed, total}`. Throws if all chunks fail.
   - `tools.curation.chunk(ctx, {size?, overlap?})` — Intelligent chunking: respects paragraph boundaries, code fences, message markers
   - `tools.curation.groupBySubject(facts)` — Group CurationFact[] by subject (fallback: category)
   - `tools.curation.dedup(facts, threshold?)` — Deduplicate facts using Jaccard word-overlap similarity
   - `tools.curation.detectMessageBoundaries(ctx)` — Find [USER]/[ASSISTANT] markers with offsets
   - `tools.curation.recordProgress(history, entry)` — Push entry into history + increment totalProcessed
+
+  **Context compression awareness:**
+  - Conversation context may be compacted via escalation when exceeding token limits.
+  - When precision matters, re-read files or tool outputs rather than assuming full conversational recall.
+  - `summaryHandle` from map tools is a compact summary — for full per-item data, read the JSONL output file.
 
   **History retrieval patterns (use within code):**
   - Duplicate check: `history.entries.some(e => e.sessionId === currentId)`

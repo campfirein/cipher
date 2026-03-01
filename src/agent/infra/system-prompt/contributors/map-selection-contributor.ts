@@ -64,6 +64,12 @@ export class MapSelectionContributor implements SystemPromptContributor {
       '- Use map tools for the extraction/classification PHASE, then curate tool for final decisions.',
       '- Two-phase pattern for folder curation: (1) llm_map to extract knowledge from each file, (2) curate to deduplicate and organize.',
       '- Input/output for map tools: JSONL files (one JSON object per line).',
+      '',
+      'Map tool output behavior:',
+      '- Map tools may return a `summaryHandle` field — bounded continuation context summarizing processed items.',
+      '- `summaryHandle` is optional helper context; its absence is non-fatal (fail-open design).',
+      '- The JSONL output file is always the source of truth for per-item results.',
+      '- Cross-item deduplication must happen in the curate phase, not during map processing.',
       '</parallel-processing-guidance>',
     )
 

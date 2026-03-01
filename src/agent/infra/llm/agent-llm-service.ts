@@ -22,6 +22,7 @@ import type {MemoryManager} from '../memory/memory-manager.js'
 import type {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import type {ToolManager} from '../tools/tool-manager.js'
 import type {CompactionService} from './context/compaction/compaction-service.js'
+import type {ICompressionStrategy} from './context/compression/types.js'
 
 import {getErrorMessage} from '../../../server/utils/error-helpers.js'
 import {AgentStateMachine} from '../../core/domain/agent/agent-state-machine.js'
@@ -30,8 +31,8 @@ import {LlmGenerationError, LlmMaxIterationsError, LlmResponseParsingError} from
 import {
   getEffectiveMaxInputTokens,
   getMaxInputTokensForModel,
-  getProviderFromModel,
   isValidProviderModel,
+  resolveRegistryProvider,
   safeParseLLMConfig,
 } from '../../core/domain/llm/index.js'
 import {
@@ -214,6 +215,8 @@ export class AgentLLMService implements ILLMService {
     config: AgentLLMServiceConfig,
     options: {
       compactionService?: CompactionService
+      /** Optional compression strategies for context overflow management */
+      compressionStrategies?: ICompressionStrategy[]
       historyStorage?: IHistoryStorage
       logger?: ILogger
       memoryManager?: MemoryManager
@@ -278,6 +281,7 @@ export class AgentLLMService implements ILLMService {
 
     // Initialize context manager with optional history storage
     this.contextManager = new ContextManager({
+      compressionStrategies: options.compressionStrategies,
       formatter: this.formatter,
       historyStorage: options.historyStorage,
       maxInputTokens: this.config.maxInputTokens,
@@ -781,31 +785,7 @@ export class AgentLLMService implements ILLMService {
    * @returns Provider type ('claude', 'gemini', or 'openai')
    */
   private detectProviderType(model: string, explicitProvider?: string): 'claude' | 'gemini' | 'openai' {
-    // 1. Explicit provider mapping takes priority
-    if (explicitProvider) {
-      if (explicitProvider === 'anthropic') return 'claude'
-      if (explicitProvider === 'google' || explicitProvider === 'google-vertex') return 'gemini'
-      if (['groq', 'mistral', 'openai', 'openai-compatible', 'openrouter', 'xai'].includes(explicitProvider))
-        return 'openai'
-    }
-
-    // 2. Use registry to detect provider from model name
-    const registryProvider = getProviderFromModel(model)
-    if (registryProvider === 'claude') return 'claude'
-    if (registryProvider === 'gemini') return 'gemini'
-    if (registryProvider === 'openai') return 'openai'
-
-    // 3. Fallback to string prefix matching for unknown models
-    const lowerModel = model.toLowerCase()
-    if (lowerModel.startsWith('claude')) return 'claude'
-    if (
-      lowerModel.startsWith('gpt') ||
-      lowerModel.startsWith('o1') ||
-      lowerModel.startsWith('o3') ||
-      lowerModel.startsWith('o4')
-    )
-      return 'openai'
-    return 'gemini'
+    return resolveRegistryProvider(model, explicitProvider)
   }
 
   /**

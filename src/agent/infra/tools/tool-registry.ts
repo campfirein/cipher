@@ -4,9 +4,11 @@ import type { Tool } from '../../core/domain/tools/types.js'
 import type { ICipherAgent } from '../../core/interfaces/i-cipher-agent.js'
 import type { IContentGenerator } from '../../core/interfaces/i-content-generator.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
+import type { ILogger } from '../../core/interfaces/i-logger.js'
 import type { IProcessService } from '../../core/interfaces/i-process-service.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
 import type { ITodoStorage } from '../../core/interfaces/i-todo-storage.js'
+import type { ITokenizer } from '../../core/interfaces/i-tokenizer.js'
 import type { MemoryManager } from '../memory/memory-manager.js'
 import type { ToolProviderGetter } from './tool-provider-getter.js'
 
@@ -49,6 +51,12 @@ export interface ToolServices {
    */
   getToolProvider?: ToolProviderGetter
 
+  /** Logger for fail-open warnings in map tools */
+  logger?: ILogger
+
+  /** Max context tokens for ContextTreeStore τ_hard computation */
+  maxContextTokens?: number
+
   /** Memory manager for agent memory operations */
   memoryManager?: MemoryManager
 
@@ -60,6 +68,9 @@ export interface ToolServices {
 
   /** Todo storage service for session-based todo persistence */
   todoStorage?: ITodoStorage
+
+  /** Tokenizer for ContextTreeStore token counting */
+  tokenizer?: ITokenizer
 }
 
 /**
@@ -127,11 +138,16 @@ function getRequiredService<T>(service: T | undefined, serviceName: string): T {
  */
 export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   [ToolName.AGENTIC_MAP]: {
-    factory({agentInstance, environmentContext}) {
+    factory({agentInstance, contentGenerator, environmentContext, logger, maxContextTokens, tokenizer}) {
       const agent = getRequiredService(agentInstance, 'agentInstance')
       const workingDirectory = environmentContext?.workingDirectory ?? process.cwd()
 
-      return createAgenticMapTool(agent, workingDirectory)
+      return createAgenticMapTool(agent, workingDirectory, {
+        generator: contentGenerator,
+        logger,
+        maxContextTokens,
+        tokenizer,
+      })
     },
     markers: [ToolMarker.Execution],
     requiredServices: ['agentInstance'],
@@ -209,11 +225,11 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   },
 
   [ToolName.LLM_MAP]: {
-    factory({contentGenerator, environmentContext}) {
+    factory({contentGenerator, environmentContext, logger, maxContextTokens, tokenizer}) {
       const generator = getRequiredService(contentGenerator, 'contentGenerator')
       const workingDirectory = environmentContext?.workingDirectory ?? process.cwd()
 
-      return createLlmMapTool(generator, workingDirectory)
+      return createLlmMapTool(generator, workingDirectory, {logger, maxContextTokens, tokenizer})
     },
     markers: [ToolMarker.Execution],
     requiredServices: ['contentGenerator'],

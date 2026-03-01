@@ -18,6 +18,7 @@ import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
 import type {ISandboxService} from '../../core/interfaces/i-sandbox-service.js'
 import type {SessionManager} from '../session/session-manager.js'
 
+import {ContextTreeStore} from '../map/context-tree-store.js'
 import {executeLlmMapMemory} from '../map/llm-map-memory.js'
 import {
   chunk,
@@ -167,7 +168,7 @@ export interface ToolsSDK {
     /** Group facts by subject, with fallback to category */
     groupBySubject(facts: CurationFact[]): Record<string, CurationFact[]>
     /** Parallel LLM extraction over chunked context. Curate mode only. */
-    mapExtract(context: string, options: {chunkSize?: number; concurrency?: number; prompt: string; taskId?: string}): Promise<{facts: CurationFact[]; failed: number; succeeded: number; total: number}>
+    mapExtract(context: string, options: {chunkSize?: number; concurrency?: number; maxContextTokens?: number; prompt: string; taskId?: string}): Promise<{facts: CurationFact[]; failed: number; succeeded: number; total: number}>
     /** Combine Steps 0-2 into one call: metadata + history + preview + mode recommendation */
     recon(context: string, meta: Record<string, unknown>, history: Record<string, unknown>): ReconResult
     /** Push entry into history and increment totalProcessed (intentionally mutating) */
@@ -327,7 +328,7 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
       dedup,
       detectMessageBoundaries,
       groupBySubject,
-      async mapExtract(context: string, options: {chunkSize?: number; concurrency?: number; prompt: string; taskId?: string}): Promise<{facts: CurationFact[]; failed: number; succeeded: number; total: number}> {
+      async mapExtract(context: string, options: {chunkSize?: number; concurrency?: number; maxContextTokens?: number; prompt: string; taskId?: string}): Promise<{facts: CurationFact[]; failed: number; succeeded: number; total: number}> {
         if (commandType !== 'curate') {
           throw new Error('mapExtract only available in curate mode')
         }
@@ -339,8 +340,17 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
         const chunks = chunk(context, {size: options.chunkSize ?? 8000})
         const items = chunks.chunks.map((c, i) => ({chunk: c, index: i, totalChunks: chunks.totalChunks}))
 
+        // Construct ContextTreeStore with adapter tokenizer (zero-divergence)
+        const tauHard = Math.floor((options.maxContextTokens ?? 100_000) * 0.5)
+        const contextTreeStore = new ContextTreeStore({
+          generator: contentGenerator,
+          tauHard,
+          tokenizer: {countTokens: (text: string) => contentGenerator.estimateTokensSync(text)},
+        })
+
         const result = await executeLlmMapMemory({
           concurrency: options.concurrency ?? 8,
+          contextTreeStore,
           generator: contentGenerator,
           items,
           prompt: options.prompt,

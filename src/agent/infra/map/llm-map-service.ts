@@ -5,6 +5,8 @@ import type {
   GenerateContentResponse,
   IContentGenerator,
 } from '../../core/interfaces/i-content-generator.js'
+import type {ILogger} from '../../core/interfaces/i-logger.js'
+import type {ContextTreeStore} from './context-tree-store.js'
 
 import {
   buildRetryMessage,
@@ -22,8 +24,12 @@ import {type MapProgress, type MapRunResult, runMapWorkerPool} from './worker-po
 export interface LlmMapServiceOptions {
   /** Abort signal for cancellation */
   abortSignal?: AbortSignal
+  /** Optional context tree store for result aggregation */
+  contextTreeStore?: ContextTreeStore
   /** Content generator (LLM backend) for making stateless calls */
   generator: IContentGenerator
+  /** Optional logger for fail-open warnings */
+  logger?: ILogger
   /** Progress callback */
   onProgress?: (progress: MapProgress) => void
   /** Tool parameters from the LLM */
@@ -128,6 +134,15 @@ export async function executeLlmMap(options: LlmMapServiceOptions): Promise<MapR
         if (parsed !== undefined) {
           const validation = validateAgainstSchema(parsed, outputSchema)
           if (validation.valid) {
+            // Fail-open: store result in context tree if available
+            if (options.contextTreeStore) {
+              try {
+                options.contextTreeStore.store(itemIndex, JSON.stringify(parsed))
+              } catch (storeError) {
+                options.logger?.warn('Context tree store failed', {error: String(storeError), itemIndex})
+              }
+            }
+
             return parsed
           }
 
@@ -168,7 +183,17 @@ export async function executeLlmMap(options: LlmMapServiceOptions): Promise<MapR
     processItem,
   })
 
-  // 5. Write output JSONL from in-memory results (sorted by index)
+  // 5. Compact context tree and attach summaryHandle (fail-open)
+  if (options.contextTreeStore) {
+    try {
+      await options.contextTreeStore.compact()
+      result.summaryHandle = options.contextTreeStore.getSummaryHandle()
+    } catch (compactError) {
+      options.logger?.warn('Context tree compaction failed', {error: String(compactError)})
+    }
+  }
+
+  // 6. Write output JSONL from in-memory results (sorted by index)
   const sorted = [...result.results.entries()].sort(([a], [b]) => a - b)
   const outputContent = sorted.map(([, r]) => JSON.stringify(r)).join('\n')
   await writeFile(resolvedOutputPath, outputContent, 'utf8')

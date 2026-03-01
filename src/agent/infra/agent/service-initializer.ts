@@ -25,6 +25,9 @@ import { AgentEventBus, SessionEventBus } from '../events/event-emitter.js'
 import { FileSystemService } from '../file-system/file-system-service.js'
 import { AgentLLMService } from '../llm/agent-llm-service.js'
 import { CompactionService } from '../llm/context/compaction/compaction-service.js'
+import { EscalatedCompressionStrategy } from '../llm/context/compression/escalated-compression.js'
+import { MiddleRemovalStrategy } from '../llm/context/compression/middle-removal.js'
+import { OldestRemovalStrategy } from '../llm/context/compression/oldest-removal.js'
 import {
   LoggingContentGenerator,
   RetryableContentGenerator,
@@ -350,6 +353,21 @@ export function createSessionServices(
       verbose: llmConfig.verbose,
     })
 
+    // Create escalated compression strategy with retry-only generator (no UI noise).
+    // Skip LoggingContentGenerator: avoids llmservice:thinking spinner events.
+    // Use a silenced SessionEventBus: RetryableContentGenerator emits
+    // llmservice:warning/error via eventBus on retries. Using a detached
+    // event bus with no listeners ensures these fire into void.
+    const compactionEventBus = new SessionEventBus()
+    const compactionGenerator = new RetryableContentGenerator(baseGenerator, {
+      eventBus: compactionEventBus,
+      policy: DEFAULT_RETRY_POLICY,
+    })
+    const escalatedStrategy = new EscalatedCompressionStrategy({
+      generator: compactionGenerator,
+      model: llmConfig.model ?? 'gemini-3-flash-preview',
+    })
+
     return new AgentLLMService(
       sessionId,
       generator,
@@ -364,6 +382,11 @@ export function createSessionServices(
       },
       {
         compactionService: sharedServices.compactionService,
+        compressionStrategies: [
+          escalatedStrategy,
+          new MiddleRemovalStrategy({preserveEnd: 5, preserveStart: 4}),
+          new OldestRemovalStrategy({minMessagesToKeep: 4}),
+        ],
         historyStorage: sharedServices.historyStorage,
         logger: sessionLogger,
         memoryManager: sharedServices.memoryManager,

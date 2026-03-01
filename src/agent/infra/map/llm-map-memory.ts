@@ -15,6 +15,8 @@ import type {
   GenerateContentResponse,
   IContentGenerator,
 } from '../../core/interfaces/i-content-generator.js'
+import type {ILogger} from '../../core/interfaces/i-logger.js'
+import type {ContextTreeStore} from './context-tree-store.js'
 
 import {type CurationCategory, type CurationFact, VALID_CATEGORIES} from '../sandbox/curation-helpers.js'
 import {
@@ -31,10 +33,14 @@ export interface LlmMapMemoryOptions {
   abortSignal?: AbortSignal
   /** Number of parallel workers (default: 8) */
   concurrency?: number
+  /** Optional context tree store for result aggregation */
+  contextTreeStore?: ContextTreeStore
   /** Content generator for stateless LLM calls */
   generator: IContentGenerator
   /** Items to process (in-memory, not from JSONL) */
   items: unknown[]
+  /** Optional logger for fail-open warnings */
+  logger?: ILogger
   /** Max attempts per item (default: 3) */
   maxAttempts?: number
   /** Progress callback */
@@ -54,6 +60,8 @@ export interface LlmMapMemoryResult {
   results: (CurationFact[] | null)[]
   /** Number of succeeded items */
   succeeded: number
+  /** Compact summary of processed items (from ContextTreeStore) */
+  summaryHandle?: string
   /** Total items processed */
   total: number
 }
@@ -133,6 +141,15 @@ export async function executeLlmMapMemory(options: LlmMapMemoryOptions): Promise
       while (true) {
         const validated = validateAndNormalize(lastResponse)
         if (validated.valid) {
+          // Fail-open: store result in context tree if available
+          if (options.contextTreeStore) {
+            try {
+              options.contextTreeStore.store(itemIndex, JSON.stringify(validated.facts))
+            } catch (storeError) {
+              options.logger?.warn('Context tree store failed', {error: String(storeError), itemIndex})
+            }
+          }
+
           return validated.facts
         }
 
@@ -172,6 +189,16 @@ export async function executeLlmMapMemory(options: LlmMapMemoryOptions): Promise
     processItem,
   })
 
+  // Compact context tree and attach summaryHandle (fail-open)
+  if (options.contextTreeStore) {
+    try {
+      await options.contextTreeStore.compact()
+      result.summaryHandle = options.contextTreeStore.getSummaryHandle()
+    } catch (compactError) {
+      options.logger?.warn('Context tree compaction failed', {error: String(compactError)})
+    }
+  }
+
   // Convert Map<number, unknown> to ordered array with nulls for failures
   const ordered: (CurationFact[] | null)[] = []
   for (let i = 0; i < items.length; i++) {
@@ -183,6 +210,7 @@ export async function executeLlmMapMemory(options: LlmMapMemoryOptions): Promise
     failed: result.failed,
     results: ordered,
     succeeded: result.succeeded,
+    summaryHandle: result.summaryHandle,
     total: result.total,
   }
 }

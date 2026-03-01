@@ -2,6 +2,8 @@ import {randomUUID} from 'node:crypto'
 import {writeFile} from 'node:fs/promises'
 
 import type {ICipherAgent} from '../../core/interfaces/i-cipher-agent.js'
+import type {ILogger} from '../../core/interfaces/i-logger.js'
+import type {ContextTreeStore} from './context-tree-store.js'
 
 import {
   type AgenticMapParameters,
@@ -24,6 +26,10 @@ export interface AgenticMapServiceOptions {
   abortSignal?: AbortSignal
   /** The cipher agent instance for creating sub-sessions */
   agent: ICipherAgent
+  /** Optional context tree store for result aggregation */
+  contextTreeStore?: ContextTreeStore
+  /** Optional logger for fail-open warnings */
+  logger?: ILogger
   /** Progress callback */
   onProgress?: (progress: MapProgress) => void
   /** Tool parameters from the LLM */
@@ -166,6 +172,15 @@ export async function executeAgenticMap(options: AgenticMapServiceOptions): Prom
           if (parsed !== undefined) {
             const validation = validateAgainstSchema(parsed, outputSchema)
             if (validation.valid) {
+              // Fail-open: store result in context tree if available
+              if (options.contextTreeStore) {
+                try {
+                  options.contextTreeStore.store(itemIndex, JSON.stringify(parsed))
+                } catch (storeError) {
+                  options.logger?.warn('Context tree store failed', {error: String(storeError), itemIndex})
+                }
+              }
+
               return parsed
             }
 
@@ -216,7 +231,17 @@ export async function executeAgenticMap(options: AgenticMapServiceOptions): Prom
       processItem,
     })
 
-    // 5. Write output JSONL from in-memory results (sorted by index)
+    // 5. Compact context tree and attach summaryHandle (fail-open)
+    if (options.contextTreeStore) {
+      try {
+        await options.contextTreeStore.compact()
+        result.summaryHandle = options.contextTreeStore.getSummaryHandle()
+      } catch (compactError) {
+        options.logger?.warn('Context tree compaction failed', {error: String(compactError)})
+      }
+    }
+
+    // 6. Write output JSONL from in-memory results (sorted by index)
     const sorted = [...result.results.entries()].sort(([a], [b]) => a - b)
     const outputContent = sorted.map(([, r]) => JSON.stringify(r)).join('\n')
     await writeFile(resolvedOutputPath, outputContent, 'utf8')

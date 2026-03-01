@@ -2,9 +2,21 @@
  * Context compression strategies module
  */
 
+// Compression helpers (shared across strategies)
+export {
+  countHistoryTokens,
+  countMessageTokens,
+  extractTextContent,
+  findTurnBoundaries,
+  formatMessagesForSummary,
+  formatRole,
+} from './compression-helpers.js'
+
 // Compression strategies (alphabetical order)
 export {createEnhancedCompactionStrategy, EnhancedCompactionStrategy} from './enhanced-compaction.js'
 export type {CompactionResult, EnhancedCompactionOptions} from './enhanced-compaction.js'
+export {EscalatedCompressionStrategy} from './escalated-compression.js'
+export type {EscalatedCompressionOptions} from './escalated-compression.js'
 
 // Filter utilities
 export {
