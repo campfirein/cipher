@@ -1,12 +1,16 @@
 import MiniSearch from 'minisearch'
-import { join } from 'node:path'
-import { removeStopwords } from 'stopword'
+import {join} from 'node:path'
+import {removeStopwords} from 'stopword'
 
-import type { IFileSystem } from '../../../core/interfaces/i-file-system.js'
-import type { ISearchKnowledgeService, SearchKnowledgeResult } from '../../sandbox/tools-sdk.js'
+import type {IFileSystem} from '../../../core/interfaces/i-file-system.js'
+import type {ISearchKnowledgeService, SearchKnowledgeResult} from '../../sandbox/tools-sdk.js'
 
-import { BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR, SUMMARY_INDEX_FILE } from '../../../../server/constants.js'
-import { type FrontmatterScoring, parseFrontmatterScoring, updateScoringInContent } from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import {BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR, SUMMARY_INDEX_FILE} from '../../../../server/constants.js'
+import {
+  type FrontmatterScoring,
+  parseFrontmatterScoring,
+  updateScoringInContent,
+} from '../../../../server/core/domain/knowledge/markdown-writer.js'
 import {
   applyDecay,
   applyDefaultScoring,
@@ -67,7 +71,7 @@ const MINISEARCH_OPTIONS = {
   fields: ['title', 'content', 'path'] as string[],
   idField: 'id' as const,
   searchOptions: {
-    boost: { path: 1.5, title: 3 },
+    boost: {path: 1.5, title: 3},
     fuzzy: 0.2,
     prefix: true,
   },
@@ -149,10 +153,7 @@ function filterStopWords(query: string): string {
  * A "significant" term is one with length >= UNMATCHED_TERM_MIN_LENGTH (filters out
  * short generic words that are noisy for OOD detection).
  */
-function hasUnmatchedSignificantTerms(
-  queryTerms: string[],
-  searchResults: Array<{ queryTerms: string[] }>,
-): boolean {
+function hasUnmatchedSignificantTerms(queryTerms: string[], searchResults: Array<{queryTerms: string[]}>): boolean {
   const significantTerms = queryTerms.filter((t) => t.length >= UNMATCHED_TERM_MIN_LENGTH)
   if (significantTerms.length === 0) return false
 
@@ -211,12 +212,12 @@ function findBreakPoint(slice: string): number {
  * Inspired by QMD's chunking strategy — breaks at semantic boundaries
  * (paragraph > sentence > line > word) for coherent excerpts.
  */
-function chunkDocument(content: string): { pos: number; text: string }[] {
+function chunkDocument(content: string): {pos: number; text: string}[] {
   if (content.length <= CHUNK_SIZE_CHARS) {
-    return [{ pos: 0, text: content }]
+    return [{pos: 0, text: content}]
   }
 
-  const chunks: { pos: number; text: string }[] = []
+  const chunks: {pos: number; text: string}[] = []
   let charPos = 0
 
   while (charPos < content.length) {
@@ -235,7 +236,7 @@ function chunkDocument(content: string): { pos: number; text: string }[] {
       endPos = Math.min(charPos + CHUNK_SIZE_CHARS, content.length)
     }
 
-    chunks.push({ pos: charPos, text: content.slice(charPos, endPos) })
+    chunks.push({pos: charPos, text: content.slice(charPos, endPos)})
 
     if (endPos >= content.length) break
 
@@ -293,7 +294,7 @@ function extractExcerpt(content: string, query: string, maxLength: number = 800)
 async function findMarkdownFilesWithMtime(
   fileSystem: IFileSystem,
   contextTreePath: string,
-): Promise<Array<{ mtime: number; path: string }>> {
+): Promise<Array<{mtime: number; path: string}>> {
   try {
     const globResult = await fileSystem.globFiles(`**/*${CONTEXT_FILE_EXTENSION}`, {
       cwd: contextTreePath,
@@ -318,7 +319,7 @@ async function findMarkdownFilesWithMtime(
   }
 }
 
-function isCacheValid(cache: CachedIndex, currentFiles: Array<{ mtime: number; path: string }>): boolean {
+function isCacheValid(cache: CachedIndex, currentFiles: Array<{mtime: number; path: string}>): boolean {
   if (cache.fileMtimes.size !== currentFiles.length) {
     return false
   }
@@ -336,7 +337,7 @@ function isCacheValid(cache: CachedIndex, currentFiles: Array<{ mtime: number; p
 async function buildFreshIndex(
   fileSystem: IFileSystem,
   contextTreePath: string,
-  filesWithMtime: Array<{ mtime: number; path: string }>,
+  filesWithMtime: Array<{mtime: number; path: string}>,
 ): Promise<CachedIndex> {
   const now = Date.now()
 
@@ -356,8 +357,8 @@ async function buildFreshIndex(
   }
 
   // Partition files: _index.md → summaryFiles, derived artifacts → skip, rest → indexable
-  const summaryFiles: Array<{ mtime: number; path: string }> = []
-  const indexableFiles: Array<{ mtime: number; path: string }> = []
+  const summaryFiles: Array<{mtime: number; path: string}> = []
+  const indexableFiles: Array<{mtime: number; path: string}> = []
 
   for (const file of filesWithMtime) {
     const fileName = file.path.split('/').at(-1) ?? ''
@@ -371,10 +372,10 @@ async function buildFreshIndex(
   }
 
   // Read indexable documents for BM25 index
-  const documentPromises = indexableFiles.map(async ({ mtime, path: filePath }) => {
+  const documentPromises = indexableFiles.map(async ({mtime, path: filePath}) => {
     try {
       const fullPath = join(contextTreePath, filePath)
-      const { content } = await fileSystem.readFile(fullPath)
+      const {content} = await fileSystem.readFile(fullPath)
       const title = extractTitle(content, filePath.replace(/\.md$/, '').split('/').pop() || filePath)
       const scoring = parseFrontmatterScoring(content) ?? applyDefaultScoring()
 
@@ -465,7 +466,7 @@ async function acquireIndex(
   contextTreePath: string,
   ttlMs: number,
   onBeforeBuild?: (contextTreePath: string) => Promise<void>,
-): Promise<CachedIndex | { error: true; result: SearchKnowledgeResult }> {
+): Promise<CachedIndex | {error: true; result: SearchKnowledgeResult}> {
   const now = Date.now()
 
   // Fast path: TTL-based cache hit (no I/O needed)
@@ -603,14 +604,14 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     const tasks = [...hits.entries()].map(async ([relPath, count]) => {
       try {
         const fullPath = join(contextTreePath, relPath)
-        const { content } = await this.fileSystem.readFile(fullPath)
+        const {content} = await this.fileSystem.readFile(fullPath)
         const scoring = parseFrontmatterScoring(content) ?? applyDefaultScoring()
         const updated = recordAccessHits(scoring, count)
         const newTier = determineTier(
           updated.importance ?? 50,
           (updated.maturity ?? 'draft') as 'core' | 'draft' | 'validated',
         )
-        const finalScoring: FrontmatterScoring = { ...updated, maturity: newTier }
+        const finalScoring: FrontmatterScoring = {...updated, maturity: newTier}
         const newContent = updateScoringInContent(content, finalScoring)
         await this.fileSystem.writeFile(fullPath, newContent)
       } catch {
@@ -633,12 +634,8 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     const contextTreePath = join(this.baseDirectory, BRV_DIR, CONTEXT_TREE_DIR)
 
     // Acquire index with parallel-safe locking; flush pending access hits before any rebuild
-    const indexResult = await acquireIndex(
-      this.state,
-      this.fileSystem,
-      contextTreePath,
-      this.cacheTtlMs,
-      (ctxPath) => this.flushAccessHits(ctxPath),
+    const indexResult = await acquireIndex(this.state, this.fileSystem, contextTreePath, this.cacheTtlMs, (ctxPath) =>
+      this.flushAccessHits(ctxPath),
     )
 
     // Handle error case (context tree not initialized)
@@ -791,7 +788,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
     // AND-first strategy: for multi-word queries, try AND for concentrated scores.
     // If AND returns no results, fall back to OR to ensure no regression.
-    let rawResults: Array<{ id: string; queryTerms: string[]; score: number }>
+    let rawResults: Array<{id: string; queryTerms: string[]; score: number}>
     let andSearchFailed = false
     const searchOpts = scopeFilter ? { filter: scopeFilter } : {}
 
@@ -830,8 +827,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       // Only apply for corpora with enough documents for reliable BM25 scoring.
       if (documentMap.size >= 50 && searchResults[0].score < MINIMUM_RELEVANCE_SCORE) {
         return {
-          message:
-            'No matching knowledge found for this query. The topic may not be covered in the context tree.',
+          message: 'No matching knowledge found for this query. The topic may not be covered in the context tree.',
           results: [],
           totalFound: 0,
         }
@@ -847,8 +843,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
         hasUnmatchedSignificantTerms(filteredWords, searchResults)
       ) {
         return {
-          message:
-            'No matching knowledge found for this query. The topic may not be covered in the context tree.',
+          message: 'No matching knowledge found for this query. The topic may not be covered in the context tree.',
           results: [],
           totalFound: 0,
         }
@@ -901,9 +896,10 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     }
 
     // Accumulate access hits for returned results (flushed during next index rebuild)
-    if (results.length > 0) {
-      this.accumulateAccessHits(results.map((r) => r.path))
-    }
+    // Disabled for benchmark: prevents feedback loop from distorting scores across queries
+    // if (results.length > 0) {
+    //   this.accumulateAccessHits(results.map((r) => r.path))
+    // }
 
     return {
       message:

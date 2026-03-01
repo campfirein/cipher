@@ -424,14 +424,14 @@ describe('AgentPool', () => {
     })
   })
 
-  describe('force eviction', () => {
-    it('should return pool_full when pool is full and new project needs agent', async () => {
+  describe('idle agent eviction', () => {
+    it('should return pool_full when pool is full and no idle agents to evict', async () => {
       const {pool} = createPool({maxSize: 1})
 
-      // Create first agent
+      // Create first agent with an active task (not idle, not evictable)
       await pool.submitTask(makeTask({projectPath: '/a', taskId: 't1'}))
 
-      // Pool is full (1/1), try to create agent for new project /b
+      // Pool is full (1/1), no idle agent → should still return pool_full
       const result = await pool.submitTask(makeTask({projectPath: '/b', taskId: 't2'}))
 
       expect(result.success).to.be.false
@@ -441,13 +441,94 @@ describe('AgentPool', () => {
       }
     })
 
+    it('should evict oldest idle agent when pool is full and new project needs agent', async () => {
+      const {pool} = createPool({maxSize: 1})
+
+      // Create agent for /a, complete its task, mark it idle
+      await pool.submitTask(makeTask({projectPath: '/a', taskId: 't1'}))
+      pool.notifyTaskCompleted('/a')
+      pool.markIdle('/a')
+
+      // Pool is full (1/1) but /a is idle and evictable
+      const result = await pool.submitTask(makeTask({projectPath: '/b', taskId: 't2'}))
+
+      expect(result.success).to.be.true
+      // /a evicted, /b created
+      expect(pool.hasAgent('/a')).to.be.false
+      expect(pool.hasAgent('/b')).to.be.true
+      expect(pool.getSize()).to.equal(1)
+    })
+
+    it('should evict least-recently-used idle agent when multiple idle agents exist', async () => {
+      const {pool} = createPool({maxSize: 2})
+
+      // Create agents for /a and /b, complete tasks, mark both idle
+      await pool.submitTask(makeTask({projectPath: '/a', taskId: 't1'}))
+      await pool.submitTask(makeTask({projectPath: '/b', taskId: 't2'}))
+
+      pool.notifyTaskCompleted('/a')
+      pool.markIdle('/a')
+      // /b used more recently
+      pool.notifyTaskCompleted('/b')
+      pool.markIdle('/b')
+
+      // /c needs a slot — should evict /a (older lastUsedAt)
+      const result = await pool.submitTask(makeTask({projectPath: '/c', taskId: 't3'}))
+
+      expect(result.success).to.be.true
+      expect(pool.hasAgent('/a')).to.be.false // evicted (LRU)
+      expect(pool.hasAgent('/b')).to.be.true // kept (more recent)
+      expect(pool.hasAgent('/c')).to.be.true // new
+    })
+
+    it('should evict idle agent when pool is full due to a pending fork (not just agents)', async () => {
+      const {pool} = createPool({maxSize: 2})
+
+      // Create /a, complete its task, mark it idle
+      await pool.submitTask(makeTask({projectPath: '/a', taskId: 't1'}))
+      pool.notifyTaskCompleted('/a')
+      pool.markIdle('/a')
+
+      // Start fork for /b without awaiting — agents(1)/a + pending(1)/b = 2 >= maxSize(2)
+      const pB = pool.submitTask(makeTask({projectPath: '/b', taskId: 'tb'}))
+
+      // /c arrives while /b fork is in progress — pool appears full due to pending fork.
+      // Eviction should find idle /a and create room for /c.
+      const pC = pool.submitTask(makeTask({projectPath: '/c', taskId: 'tc'}))
+
+      const [rB, rC] = await Promise.all([pB, pC])
+
+      expect(rB.success).to.be.true
+      expect(rC.success).to.be.true
+      expect(pool.hasAgent('/a')).to.be.false // evicted
+      expect(pool.hasAgent('/b')).to.be.true
+      expect(pool.hasAgent('/c')).to.be.true
+    })
+
+    it('should NOT evict idle agent that still has queued tasks', async () => {
+      const {pool} = createPool({maxConcurrentTasks: 1, maxSize: 1})
+
+      // Create agent /a with 1 active + 1 queued task — mark idle (clients left)
+      await pool.submitTask(makeTask({projectPath: '/a', taskId: 't1'}))
+      await pool.submitTask(makeTask({projectPath: '/a', taskId: 't2'})) // queued
+      pool.markIdle('/a')
+
+      // Pool full, /a is idle but has queued tasks → not evictable → pool_full
+      const result = await pool.submitTask(makeTask({projectPath: '/b', taskId: 't3'}))
+
+      expect(result.success).to.be.false
+      if (!result.success) {
+        expect(result.reason).to.equal('pool_full')
+      }
+    })
+
     it('should allow queuing tasks for existing agents even when pool is full', async () => {
       const {pool} = createPool({maxSize: 1})
 
       // Create first agent for /a
       await pool.submitTask(makeTask({projectPath: '/a', taskId: 't1'}))
 
-      // Queue another task for same project - should succeed even though pool is full
+      // Queue another task for same project — should succeed even though pool is full
       const result = await pool.submitTask(makeTask({projectPath: '/a', taskId: 't2'}))
 
       expect(result.success).to.be.true
@@ -498,6 +579,100 @@ describe('AgentPool', () => {
       // Pool should have removed the entry
       expect(pool.hasAgent('/app')).to.be.false
       expect(pool.getSize()).to.equal(0)
+    })
+  })
+
+  describe('pendingForks — concurrent submit protection', () => {
+    it('should queue concurrent tasks for the same project and drain after fork completes', async () => {
+      const transportServer = makeStubTransportServer()
+      const {pool, stubFactory} = createPool({maxConcurrentTasks: 3, transportServer})
+
+      // Submit both tasks concurrently — second arrives while first fork is still in progress
+      const p1 = pool.submitTask(makeTask({projectPath: '/app', taskId: 't1'}))
+      const p2 = pool.submitTask(makeTask({projectPath: '/app', taskId: 't2'}))
+
+      const [r1, r2] = await Promise.all([p1, p2])
+
+      expect(r1.success).to.be.true
+      expect(r2.success).to.be.true
+      // Only one child process should have been forked
+      expect(stubFactory.callCount).to.equal(1)
+      // Both tasks should have been sent (task2 drained after fork)
+      expect(transportServer.sendTo.callCount).to.equal(2)
+      expect(pool.getSize()).to.equal(1)
+    })
+
+    it('should count pending forks toward pool size limit', async () => {
+      const {pool} = createPool({maxSize: 1})
+
+      // Start fork for '/a' without awaiting — occupies 1 pending slot
+      const p1 = pool.submitTask(makeTask({projectPath: '/a', taskId: 't1'}))
+      // '/b' should see pool full (0 agents + 1 pending = 1 >= maxSize 1)
+      const p2 = pool.submitTask(makeTask({projectPath: '/b', taskId: 't2'}))
+
+      const [r1, r2] = await Promise.all([p1, p2])
+
+      expect(r1.success).to.be.true
+      expect(r2.success).to.be.false
+      if (!r2.success) {
+        expect(r2.reason).to.equal('pool_full')
+      }
+
+      expect(pool.hasAgent('/a')).to.be.true
+      expect(pool.hasAgent('/b')).to.be.false
+    })
+
+    it('should clean up pendingForks on fork failure, allowing retry', async () => {
+      let callCount = 0
+      const factory = stub().callsFake(() => {
+        callCount++
+        const child = new MockChildProcess()
+        if (callCount === 1) {
+          // First fork: child exits before sending ready
+          // eslint-disable-next-line max-nested-callbacks
+          queueMicrotask(() => {
+            child.simulateExit(1)
+          })
+        } else {
+          // Second fork: succeeds
+          // eslint-disable-next-line max-nested-callbacks
+          queueMicrotask(() => {
+            child.sendReady('agent-client-retry')
+          })
+        }
+
+        return child
+      })
+
+      const transportServer = makeStubTransportServer()
+      const pool = new AgentPool({agentProcessFactory: factory, maxSize: 3, readyTimeoutMs: 2000, transportServer})
+
+      // First attempt — fork fails
+      const r1 = await pool.submitTask(makeTask({projectPath: '/app', taskId: 't1'}))
+      expect(r1.success).to.be.false
+
+      // pendingForks should be cleaned up; retry should succeed
+      const r2 = await pool.submitTask(makeTask({projectPath: '/app', taskId: 't2'}))
+      expect(r2.success).to.be.true
+      expect(transportServer.sendTo.calledOnce).to.be.true
+    })
+
+    it('should not create a second fork if three tasks arrive before the first fork completes', async () => {
+      const transportServer = makeStubTransportServer()
+      const {pool, stubFactory} = createPool({maxConcurrentTasks: 5, transportServer})
+
+      const p1 = pool.submitTask(makeTask({projectPath: '/app', taskId: 't1'}))
+      const p2 = pool.submitTask(makeTask({projectPath: '/app', taskId: 't2'}))
+      const p3 = pool.submitTask(makeTask({projectPath: '/app', taskId: 't3'}))
+
+      const results = await Promise.all([p1, p2, p3])
+
+      for (const r of results) expect(r.success).to.be.true
+      // Still only one child process — no duplicate forks
+      expect(stubFactory.callCount).to.equal(1)
+      // All 3 tasks delivered
+      expect(transportServer.sendTo.callCount).to.equal(3)
+      expect(pool.getSize()).to.equal(1)
     })
   })
 })

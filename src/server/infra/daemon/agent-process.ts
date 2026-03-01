@@ -233,6 +233,11 @@ async function start(): Promise<void> {
   agentLog(`Provider: ${activeProvider}, Model: ${activeModel ?? 'default'}`)
 
   // 5. Create CipherAgent with lazy providers + transport client
+  // Set GOOGLE_APPLICATION_CREDENTIALS for Vertex AI before creating agent
+  if (providerResult.providerCredentialPath) {
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = providerResult.providerCredentialPath
+  }
+
   const envConfig = getCurrentConfig()
   const agentConfig = {
     apiBaseUrl: envConfig.llmApiBaseUrl,
@@ -393,11 +398,10 @@ async function executeTask(
 
   if (freshProviderConfig.providerKeyMissing) {
     const modelInfo = freshProviderConfig.activeModel ? ` (model: ${freshProviderConfig.activeModel})` : ''
+    const errorMessage = freshProviderConfig.providerCredentialError
+      ?? `${freshProviderConfig.activeProvider} API key is missing${modelInfo}. Use /provider in the REPL to reconnect.`
     const error = serializeTaskError(
-      new TaskError(
-        `${freshProviderConfig.activeProvider} API key is missing${modelInfo}. Use /provider in the REPL to reconnect.`,
-        TaskErrorCode.PROVIDER_NOT_CONFIGURED,
-      ),
+      new TaskError(errorMessage, TaskErrorCode.PROVIDER_NOT_CONFIGURED),
     )
     transport.request(TransportTaskEventNames.ERROR, {clientId, error, taskId})
     return
@@ -580,6 +584,11 @@ async function hotSwapProvider(
   }
 
   // Phase 2a: Replace SessionManager (if this throws, old SM remains intact)
+  // Update GOOGLE_APPLICATION_CREDENTIALS for Vertex AI hot-swap
+  if (freshProvider.providerCredentialPath) {
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = freshProvider.providerCredentialPath
+  }
+
   const previousSessionId = currentAgent.sessionId
   try {
     // Map fields explicitly to prevent accidental field leakage from ProviderConfigResponse

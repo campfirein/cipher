@@ -845,10 +845,7 @@ describe('Search Knowledge Tool', () => {
       })
 
       // First batch of parallel calls
-      const firstBatch = await Promise.all([
-        tool.execute({query: 'test'}),
-        tool.execute({query: 'test'}),
-      ])
+      const firstBatch = await Promise.all([tool.execute({query: 'test'}), tool.execute({query: 'test'})])
 
       // Both should succeed
       expect((firstBatch[0] as SearchKnowledgeOutput).results).to.be.an('array')
@@ -875,17 +872,13 @@ describe('Search Knowledge Tool', () => {
       })
 
       // Second batch - should rebuild due to changed mtime
-      const secondBatch = await Promise.all([
-        tool.execute({query: 'test'}),
-        tool.execute({query: 'test'}),
-      ])
+      const secondBatch = await Promise.all([tool.execute({query: 'test'}), tool.execute({query: 'test'})])
 
       expect((secondBatch[0] as SearchKnowledgeOutput).results).to.be.an('array')
       expect((secondBatch[1] as SearchKnowledgeOutput).results).to.be.an('array')
 
       // Second batch should trigger exactly one more build (not two)
-      // +1 readFile from flushAccessHits (updating scoring for files accessed in first batch)
-      expect(readFileStub.callCount).to.equal(3)
+      expect(readFileStub.callCount).to.equal(2)
     })
 
     it('should not deadlock when multiple tools execute concurrently', async () => {
@@ -909,9 +902,7 @@ describe('Search Knowledge Tool', () => {
       })
 
       // Run many concurrent executions - should complete without deadlock
-      const manyPromises = Array.from({length: 10}, (_, i) =>
-        tool.execute({query: `query${i}`})
-      )
+      const manyPromises = Array.from({length: 10}, (_, i) => tool.execute({query: `query${i}`}))
 
       // Should complete within reasonable time (not hang)
       const results = await Promise.race([

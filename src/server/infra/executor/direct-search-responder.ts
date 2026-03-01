@@ -8,10 +8,10 @@ export const DIRECT_RESPONSE_SCORE_THRESHOLD = 0.85
 export const DIRECT_RESPONSE_MIN_GAP = 0.08
 
 /** Maximum content length per document in the direct response */
-const MAX_CONTENT_LENGTH = 1500
+const MAX_CONTENT_LENGTH = 5000
 
 /** Maximum number of documents to include in the direct response */
-const MAX_DOCS = 3
+const MAX_DOCS = 5
 
 /**
  * A search result with full document content for direct response formatting.
