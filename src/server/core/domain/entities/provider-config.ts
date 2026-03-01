@@ -11,6 +11,8 @@
 export interface ConnectedProviderConfig {
   /** Currently active model for this provider */
   readonly activeModel?: string
+  /** Context window size of the active model (from provider API, e.g. OpenRouter) */
+  readonly activeModelContextLength?: number
   /** Custom API base URL (for openai-compatible provider) */
   readonly baseUrl?: string
   /** When the provider was connected */
@@ -98,6 +100,13 @@ export class ProviderConfig {
   }
 
   /**
+   * Get the context window size of the active model for a provider.
+   */
+  public getActiveModelContextLength(providerId: string): number | undefined {
+    return this.providers[providerId]?.activeModelContextLength
+  }
+
+  /**
    * Get the custom base URL for a provider (e.g., openai-compatible).
    */
   public getBaseUrl(providerId: string): string | undefined {
@@ -138,7 +147,7 @@ export class ProviderConfig {
   /**
    * Create a new config with the active model changed for a provider.
    */
-  public withActiveModel(providerId: string, modelId: string): ProviderConfig {
+  public withActiveModel(providerId: string, modelId: string, contextLength?: number): ProviderConfig {
     const existingConfig = this.providers[providerId]
     if (!existingConfig) {
       return this
@@ -153,6 +162,7 @@ export class ProviderConfig {
     const newProviderConfig: ConnectedProviderConfig = {
       ...existingConfig,
       activeModel: modelId,
+      activeModelContextLength: contextLength,
       recentModels,
     }
 

@@ -96,13 +96,14 @@ export async function resolveProviderConfig(
   const config = await providerConfigStore.read()
   const {activeProvider} = config
   const activeModel = config.getActiveModel(activeProvider)
+  const maxInputTokens = config.getActiveModelContextLength(activeProvider)
 
   if (!activeProvider || activeProvider === 'byterover') {
-    return {activeModel, activeProvider}
+    return {activeModel, activeProvider, maxInputTokens}
   }
 
   if (activeProvider === 'google-vertex') {
-    return resolveVertexAiConfig(activeModel, activeProvider, providerKeychainStore)
+    return resolveVertexAiConfig(activeModel, activeProvider, maxInputTokens, providerKeychainStore)
   }
 
   // Resolve API key: keychain first, then environment variable
@@ -116,6 +117,7 @@ export async function resolveProviderConfig(
       return {
         activeModel,
         activeProvider,
+        maxInputTokens,
         provider: activeProvider,
         providerApiKey: apiKey || undefined,
         providerBaseUrl: config.getBaseUrl(activeProvider) || undefined,
@@ -127,6 +129,7 @@ export async function resolveProviderConfig(
       return {
         activeModel,
         activeProvider,
+        maxInputTokens,
         openRouterApiKey: apiKey || undefined,
         provider: activeProvider,
         providerKeyMissing: !apiKey,
@@ -139,6 +142,7 @@ export async function resolveProviderConfig(
       return {
         activeModel,
         activeProvider,
+        maxInputTokens,
         provider: activeProvider,
         providerApiKey: apiKey || undefined,
         providerBaseUrl: providerDef?.baseUrl || undefined,
@@ -156,6 +160,7 @@ export async function resolveProviderConfig(
 async function resolveVertexAiConfig(
   activeModel: string | undefined,
   activeProvider: string,
+  maxInputTokens: number | undefined,
   providerKeychainStore: IProviderKeychainStore,
 ): Promise<ProviderConfigResponse> {
   const storedCredentialPath = await providerKeychainStore.getApiKey(activeProvider)
@@ -164,6 +169,7 @@ async function resolveVertexAiConfig(
   return {
     activeModel,
     activeProvider,
+    maxInputTokens,
     provider: activeProvider,
     providerCredentialError: credentialError ?? undefined,
     providerCredentialPath: effectiveCredentialPath,

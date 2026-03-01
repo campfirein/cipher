@@ -8,7 +8,7 @@ export type SkillConnectorConfig = {
   /** Base directory for skill files relative to user home directory */
   globalPath: string
   /** Base directory for skill files relative to project root */
-  projectPath: string
+  projectPath: null | string
 }
 
 /**
@@ -60,6 +60,10 @@ export const SKILL_CONNECTOR_CONFIGS = {
     globalPath: '.kiro/skills',
     projectPath: '.kiro/skills',
   },
+  OpenClaw: {
+    globalPath: '.openclaw/skills',
+    projectPath: null,
+  },
   OpenCode: {
     globalPath: '.config/opencode/skills',
     projectPath: '.opencode/skills',
@@ -104,4 +108,4 @@ export const MAIN_SKILL_FILE_NAME = 'SKILL.md'
 /**
  * Names of the skill files written by the skill connector.
  */
-export const SKILL_FILE_NAMES = [MAIN_SKILL_FILE_NAME, 'TROUBLESHOOTING.md', 'WORKFLOWS.md'] as const
+export const SKILL_FILE_NAMES = [MAIN_SKILL_FILE_NAME] as const

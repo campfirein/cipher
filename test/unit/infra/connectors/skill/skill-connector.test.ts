@@ -125,16 +125,6 @@ describe('SkillConnector', () => {
       expect(skillContent).to.include('description:')
     })
 
-    it('should create TROUBLESHOOTING.md with content', async () => {
-      const agent = 'Claude Code' as const
-      const {projectPath} = SKILL_CONNECTOR_CONFIGS[agent]
-      await skillConnector.install(agent)
-
-      const skillDir = path.join(projectPath, BRV_SKILL_NAME)
-      const content = await readFile(path.join(testDir, skillDir, 'TROUBLESHOOTING.md'), 'utf8')
-      expect(content).to.include('ByteRover Troubleshooting')
-    })
-
     it('should create SKILL.md with brv curate view in Quick Reference and When to Use', async () => {
       const agent = 'Claude Code' as const
       const {projectPath} = SKILL_CONNECTOR_CONFIGS[agent]
@@ -142,21 +132,8 @@ describe('SkillConnector', () => {
 
       const skillDir = path.join(projectPath, BRV_SKILL_NAME)
       const content = await readFile(path.join(testDir, skillDir, 'SKILL.md'), 'utf8')
-      expect(content).to.include('brv curate view')
-      expect(content).to.include('Check curate history')
-      expect(content).to.include('**View curate history** to check past curations:')
-      expect(content).to.include('brv curate view --help')
-    })
-
-    it('should create WORKFLOWS.md with Verifying Curate Results section', async () => {
-      const agent = 'Claude Code' as const
-      const {projectPath} = SKILL_CONNECTOR_CONFIGS[agent]
-      await skillConnector.install(agent)
-
-      const skillDir = path.join(projectPath, BRV_SKILL_NAME)
-      const content = await readFile(path.join(testDir, skillDir, 'WORKFLOWS.md'), 'utf8')
-      expect(content).to.include('## Verifying Curate Results')
-      expect(content).to.include('brv curate view')
+      expect(content).to.include('You MUST use this for gathering contexts before any work')
+      expect(content).to.include('Uses a configured LLM provider')
     })
   })
 

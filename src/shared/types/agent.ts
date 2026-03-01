@@ -15,6 +15,7 @@ export const AGENT_VALUES = [
   'Junie',
   'Kilo Code',
   'Kiro',
+  'OpenClaw',
   'OpenCode',
   'Qoder',
   'Qwen Code',

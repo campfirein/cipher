@@ -145,9 +145,9 @@ export class FileProviderConfigStore implements IProviderConfigStore {
   /**
    * Sets the active model for a provider.
    */
-  public async setActiveModel(providerId: string, modelId: string): Promise<void> {
+  public async setActiveModel(providerId: string, modelId: string, contextLength?: number): Promise<void> {
     const config = await this.read()
-    const newConfig = config.withActiveModel(providerId, modelId)
+    const newConfig = config.withActiveModel(providerId, modelId, contextLength)
     await this.write(newConfig)
   }
 

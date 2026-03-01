@@ -209,7 +209,7 @@ export async function ensureCurateViewPatched(projectRoot: string): Promise<void
 
   const skillDirScans = await Promise.all(
     Object.values(SKILL_CONNECTOR_CONFIGS).flatMap((config) => [
-      scanSkillsDir(path.join(projectRoot, config.projectPath)),
+      config.projectPath ? scanSkillsDir(path.join(projectRoot, config.projectPath)) : null,
       scanSkillsDir(path.join(os.homedir(), config.globalPath)),
     ]),
   )
