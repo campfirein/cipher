@@ -246,11 +246,13 @@ describe('ConnectionCoordinator', () => {
 
       handler!({projectPath: '/app'}, 'agent-1')
 
-      expect((projectRouter.broadcastToProject as SinonStub).calledWith(
-        makeProjectInfo('/app').sanitizedPath,
-        TransportAgentEventNames.CONNECTED,
-        {},
-      )).to.be.true
+      expect(
+        (projectRouter.broadcastToProject as SinonStub).calledWith(
+          makeProjectInfo('/app').sanitizedPath,
+          TransportAgentEventNames.CONNECTED,
+          {},
+        ),
+      ).to.be.true
     })
   })
 
@@ -283,17 +285,33 @@ describe('ConnectionCoordinator', () => {
     it('should broadcast agent:disconnected to project room', () => {
       transportHelper.simulateDisconnect('agent-1')
 
-      expect((projectRouter.broadcastToProject as SinonStub).calledWith(
-        makeProjectInfo('/app').sanitizedPath,
-        TransportAgentEventNames.DISCONNECTED,
-        {},
-      )).to.be.true
+      expect(
+        (projectRouter.broadcastToProject as SinonStub).calledWith(
+          makeProjectInfo('/app').sanitizedPath,
+          TransportAgentEventNames.DISCONNECTED,
+          {},
+        ),
+      ).to.be.true
     })
 
     it('should fail active tasks for disconnected agent project', () => {
       const tasks = [
-        {clientId: 'client-1', content: 'test', createdAt: Date.now(), projectPath: '/app', taskId: 'task-1', type: 'curate'},
-        {clientId: 'client-2', content: 'test2', createdAt: Date.now(), projectPath: '/app', taskId: 'task-2', type: 'query'},
+        {
+          clientId: 'client-1',
+          content: 'test',
+          createdAt: Date.now(),
+          projectPath: '/app',
+          taskId: 'task-1',
+          type: 'curate',
+        },
+        {
+          clientId: 'client-2',
+          content: 'test2',
+          createdAt: Date.now(),
+          projectPath: '/app',
+          taskId: 'task-2',
+          type: 'query',
+        },
       ]
       taskRouter.getTasksForProject.withArgs('/app').returns(tasks)
 
@@ -308,9 +326,9 @@ describe('ConnectionCoordinator', () => {
 
     it('should unregister agent from ClientManager', () => {
       // ClientManager.getClient returns a ClientInfo for agent
-      clientManager.getClient.withArgs('agent-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'agent-1', projectPath: '/app', type: 'agent'}),
-      )
+      clientManager.getClient
+        .withArgs('agent-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'agent-1', projectPath: '/app', type: 'agent'}))
 
       transportHelper.simulateDisconnect('agent-1')
 
@@ -406,9 +424,9 @@ describe('ConnectionCoordinator', () => {
       expect(handler).to.exist
 
       // Client exists but has no project
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', type: 'mcp'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', type: 'mcp'}))
 
       const result = handler!({projectPath: '/app'}, 'client-1')
       expect(result).to.deep.equal({success: true})
@@ -419,9 +437,9 @@ describe('ConnectionCoordinator', () => {
     it('should add client to project room after association', () => {
       const handler = transportHelper.requestHandlers.get(TransportClientEventNames.ASSOCIATE_PROJECT)
 
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', type: 'mcp'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', type: 'mcp'}))
 
       handler!({projectPath: '/app'}, 'client-1')
 
@@ -432,9 +450,9 @@ describe('ConnectionCoordinator', () => {
     it('should return success (no-op) if client already has project', () => {
       const handler = transportHelper.requestHandlers.get(TransportClientEventNames.ASSOCIATE_PROJECT)
 
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/existing', type: 'mcp'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/existing', type: 'mcp'}))
 
       const result = handler!({projectPath: '/app'}, 'client-1')
       expect(result).to.deep.equal({success: true})
@@ -461,9 +479,9 @@ describe('ConnectionCoordinator', () => {
       const handler = transportHelper.requestHandlers.get(TransportClientEventNames.UPDATE_AGENT_NAME)
       expect(handler).to.exist
 
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', type: 'mcp'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', type: 'mcp'}))
 
       const result = handler!({agentName: 'Windsurf'}, 'client-1')
       expect(result).to.deep.equal({success: true})
@@ -533,9 +551,9 @@ describe('ConnectionCoordinator', () => {
       registerHandler!({clientType: 'tui', projectPath: '/app'}, 'client-1')
 
       // Set up getClient to return the client info (for disconnect handling)
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}))
 
       transportHelper.simulateDisconnect('client-1')
 
@@ -549,13 +567,12 @@ describe('ConnectionCoordinator', () => {
       // Register an agent
       const agentHandler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
       agentHandler!({projectPath: '/app'}, 'agent-1')
-
       ;(projectRouter.removeFromProjectRoom as SinonStub).resetHistory()
 
       // Simulate agent disconnect — agent removal is handled by handleAgentDisconnect
-      clientManager.getClient.withArgs('agent-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'agent-1', projectPath: '/app', type: 'agent'}),
-      )
+      clientManager.getClient
+        .withArgs('agent-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'agent-1', projectPath: '/app', type: 'agent'}))
 
       transportHelper.simulateDisconnect('agent-1')
 
@@ -581,19 +598,19 @@ describe('ConnectionCoordinator', () => {
       expect(handler).to.exist
 
       // Client requesting restart is associated with /app
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}))
 
       const result = handler!({reason: 'config changed'}, 'client-1')
       expect(result).to.deep.equal({success: true})
 
       // Should sendTo agent
-      expect((transportHelper.transport.sendTo as SinonStub).calledWith(
-        'agent-1',
-        TransportAgentEventNames.RESTART,
-        {reason: 'config changed'},
-      )).to.be.true
+      expect(
+        (transportHelper.transport.sendTo as SinonStub).calledWith('agent-1', TransportAgentEventNames.RESTART, {
+          reason: 'config changed',
+        }),
+      ).to.be.true
     })
 
     it('should return error when no agent connected', () => {
@@ -602,9 +619,9 @@ describe('ConnectionCoordinator', () => {
 
       const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.RESTART)
 
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}))
 
       const result = handler!({reason: 'test'}, 'client-1')
       expect(result).to.deep.equal({error: 'Agent not connected', success: false})
@@ -617,11 +634,13 @@ describe('ConnectionCoordinator', () => {
 
       handler!({success: true}, 'agent-1')
 
-      expect((projectRouter.broadcastToProject as SinonStub).calledWith(
-        makeProjectInfo('/app').sanitizedPath,
-        TransportAgentEventNames.RESTARTED,
-        {success: true},
-      )).to.be.true
+      expect(
+        (projectRouter.broadcastToProject as SinonStub).calledWith(
+          makeProjectInfo('/app').sanitizedPath,
+          TransportAgentEventNames.RESTARTED,
+          {success: true},
+        ),
+      ).to.be.true
     })
 
     it('should broadcast agent:restarted with error on failure', () => {
@@ -631,11 +650,13 @@ describe('ConnectionCoordinator', () => {
 
       handler!({error: 'init failed', success: false}, 'agent-1')
 
-      expect((projectRouter.broadcastToProject as SinonStub).calledWith(
-        makeProjectInfo('/app').sanitizedPath,
-        TransportAgentEventNames.RESTARTED,
-        {error: 'init failed', success: false},
-      )).to.be.true
+      expect(
+        (projectRouter.broadcastToProject as SinonStub).calledWith(
+          makeProjectInfo('/app').sanitizedPath,
+          TransportAgentEventNames.RESTARTED,
+          {error: 'init failed', success: false},
+        ),
+      ).to.be.true
     })
   })
 
@@ -653,18 +674,18 @@ describe('ConnectionCoordinator', () => {
       const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.NEW_SESSION)
       expect(handler).to.exist
 
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}))
 
       const result = handler!({reason: 'user requested'}, 'client-1')
       expect(result).to.deep.equal({success: true})
 
-      expect((transportHelper.transport.sendTo as SinonStub).calledWith(
-        'agent-1',
-        TransportAgentEventNames.NEW_SESSION,
-        {reason: 'user requested'},
-      )).to.be.true
+      expect(
+        (transportHelper.transport.sendTo as SinonStub).calledWith('agent-1', TransportAgentEventNames.NEW_SESSION, {
+          reason: 'user requested',
+        }),
+      ).to.be.true
     })
 
     it('should clear active session and return success when no agent connected', () => {
@@ -672,9 +693,9 @@ describe('ConnectionCoordinator', () => {
 
       const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.NEW_SESSION)
 
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}))
 
       const result = handler!({reason: 'test'}, 'client-1')
       expect(result).to.deep.equal({success: true})
@@ -687,11 +708,13 @@ describe('ConnectionCoordinator', () => {
 
       handler!({sessionId: 'session-123', success: true}, 'agent-1')
 
-      expect((projectRouter.broadcastToProject as SinonStub).calledWith(
-        makeProjectInfo('/app').sanitizedPath,
-        TransportAgentEventNames.NEW_SESSION_CREATED,
-        {sessionId: 'session-123', success: true},
-      )).to.be.true
+      expect(
+        (projectRouter.broadcastToProject as SinonStub).calledWith(
+          makeProjectInfo('/app').sanitizedPath,
+          TransportAgentEventNames.NEW_SESSION_CREATED,
+          {sessionId: 'session-123', success: true},
+        ),
+      ).to.be.true
     })
 
     it('should broadcast newSessionCreated with error on failure', () => {
@@ -701,11 +724,13 @@ describe('ConnectionCoordinator', () => {
 
       handler!({error: 'session creation failed', success: false}, 'agent-1')
 
-      expect((projectRouter.broadcastToProject as SinonStub).calledWith(
-        makeProjectInfo('/app').sanitizedPath,
-        TransportAgentEventNames.NEW_SESSION_CREATED,
-        {error: 'session creation failed', success: false},
-      )).to.be.true
+      expect(
+        (projectRouter.broadcastToProject as SinonStub).calledWith(
+          makeProjectInfo('/app').sanitizedPath,
+          TransportAgentEventNames.NEW_SESSION_CREATED,
+          {error: 'session creation failed', success: false},
+        ),
+      ).to.be.true
     })
   })
 
@@ -717,7 +742,6 @@ describe('ConnectionCoordinator', () => {
     it('should broadcast agent status changes to project room', () => {
       const registerHandler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({projectPath: '/app'}, 'agent-1')
-
       ;(projectRouter.broadcastToProject as SinonStub).resetHistory()
 
       const handler = transportHelper.requestHandlers.get(AgentStatusEventNames.STATUS_CHANGED)
@@ -726,11 +750,13 @@ describe('ConnectionCoordinator', () => {
       const statusData = {activeTasks: 0, hasAuth: true, hasConfig: true, isInitialized: true, queuedTasks: 0}
       handler!(statusData, 'agent-1')
 
-      expect((projectRouter.broadcastToProject as SinonStub).calledWith(
-        makeProjectInfo('/app').sanitizedPath,
-        AgentStatusEventNames.STATUS_CHANGED,
-        statusData,
-      )).to.be.true
+      expect(
+        (projectRouter.broadcastToProject as SinonStub).calledWith(
+          makeProjectInfo('/app').sanitizedPath,
+          AgentStatusEventNames.STATUS_CHANGED,
+          statusData,
+        ),
+      ).to.be.true
     })
   })
 
@@ -899,10 +925,24 @@ describe('ConnectionCoordinator', () => {
       handler!({projectPath: '/other'}, 'agent-2')
 
       const appTasks = [
-        {clientId: 'c1', content: 'test', createdAt: Date.now(), projectPath: '/app', taskId: 'task-app', type: 'curate'},
+        {
+          clientId: 'c1',
+          content: 'test',
+          createdAt: Date.now(),
+          projectPath: '/app',
+          taskId: 'task-app',
+          type: 'curate',
+        },
       ]
       const otherTasks = [
-        {clientId: 'c2', content: 'test', createdAt: Date.now(), projectPath: '/other', taskId: 'task-other', type: 'query'},
+        {
+          clientId: 'c2',
+          content: 'test',
+          createdAt: Date.now(),
+          projectPath: '/other',
+          taskId: 'task-other',
+          type: 'query',
+        },
       ]
       taskRouter.getTasksForProject.withArgs('/app').returns(appTasks)
       taskRouter.getTasksForProject.withArgs('/other').returns(otherTasks)
@@ -928,14 +968,12 @@ describe('ConnectionCoordinator', () => {
       // Cycle 2 — fresh agent
       handler!({projectPath: '/app'}, 'agent-2')
       expect(coordinator.getAgentForProject('/app')).to.equal('agent-2')
-      expect(coordinator.getDebugAgentClients()).to.deep.equal([
-        {clientId: 'agent-2', projectPath: '/app'},
-      ])
+      expect(coordinator.getDebugAgentClients()).to.deep.equal([{clientId: 'agent-2', projectPath: '/app'}])
     })
 
     it('should handle empty-string agent disconnect when project-specific agents also exist', () => {
       const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
-      handler!({}, 'agent-fallback')        // stored under '' key
+      handler!({}, 'agent-fallback') // stored under '' key
       handler!({projectPath: '/app'}, 'agent-specific')
 
       transportHelper.simulateDisconnect('agent-fallback')
@@ -1017,7 +1055,14 @@ describe('ConnectionCoordinator', () => {
       handler!({}, 'agent-fallback')
 
       const projectlessTasks = [
-        {clientId: 'c1', content: 'test', createdAt: Date.now(), projectPath: undefined, taskId: 'task-1', type: 'curate'},
+        {
+          clientId: 'c1',
+          content: 'test',
+          createdAt: Date.now(),
+          projectPath: undefined,
+          taskId: 'task-1',
+          type: 'curate',
+        },
       ]
       // eslint-disable-next-line unicorn/no-useless-undefined
       taskRouter.getTasksForProject.withArgs(undefined).returns(projectlessTasks)
@@ -1055,40 +1100,41 @@ describe('ConnectionCoordinator', () => {
       const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.RESTART)
 
       // Client has no projectPath → getClient returns client without projectPath
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', type: 'mcp'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', type: 'mcp'}))
 
       const result = handler!({reason: 'test'}, 'client-1')
       expect(result).to.deep.equal({success: true})
 
       // Should send to fallback agent
-      expect((transportHelper.transport.sendTo as SinonStub).calledWith(
-        'agent-fallback',
-        TransportAgentEventNames.RESTART,
-        {reason: 'test'},
-      )).to.be.true
+      expect(
+        (transportHelper.transport.sendTo as SinonStub).calledWith('agent-fallback', TransportAgentEventNames.RESTART, {
+          reason: 'test',
+        }),
+      ).to.be.true
     })
 
     it('should broadcast agent:restarting event to project room', () => {
       const registerHandler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({projectPath: '/app'}, 'agent-1')
-
       ;(projectRouter.broadcastToProject as SinonStub).resetHistory()
 
       const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.RESTART)
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}))
 
       handler!({reason: 'config changed'}, 'client-1')
 
       // Should broadcast RESTARTING (not just RESTARTED)
-      expect((projectRouter.broadcastToProject as SinonStub).calledWith(
-        makeProjectInfo('/app').sanitizedPath,
-        TransportAgentEventNames.RESTARTING,
-        {reason: 'config changed'},
-      )).to.be.true
+      expect(
+        (projectRouter.broadcastToProject as SinonStub).calledWith(
+          makeProjectInfo('/app').sanitizedPath,
+          TransportAgentEventNames.RESTARTING,
+          {reason: 'config changed'},
+        ),
+      ).to.be.true
     })
 
     it('should not throw when clearActiveSession project is not in registry (newSession)', () => {
@@ -1100,9 +1146,9 @@ describe('ConnectionCoordinator', () => {
       projectRegistry.get.withArgs('/unknown').returns(undefined)
 
       const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.NEW_SESSION)
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/unknown', type: 'tui'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/unknown', type: 'tui'}))
 
       expect(() => handler!({reason: 'test'}, 'client-1')).to.not.throw()
     })
@@ -1130,9 +1176,9 @@ describe('ConnectionCoordinator', () => {
       registerHandler!({projectPath: '/other'}, 'agent-1')
 
       const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.RESTART)
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}))
 
       const result = handler!({reason: 'test'}, 'client-1')
       expect(result).to.deep.equal({error: 'Agent not connected', success: false})
@@ -1155,13 +1201,12 @@ describe('ConnectionCoordinator', () => {
       // Register client without projectPath
       const registerHandler = transportHelper.requestHandlers.get(TransportClientEventNames.REGISTER)
       registerHandler!({clientType: 'mcp'}, 'client-1')
-
       ;(projectRouter.removeFromProjectRoom as SinonStub).resetHistory()
 
       // Client has no projectPath
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', type: 'mcp'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', type: 'mcp'}))
 
       transportHelper.simulateDisconnect('client-1')
 
@@ -1174,6 +1219,21 @@ describe('ConnectionCoordinator', () => {
     it('should invoke onConnection handler on connect', () => {
       // Verify the handler was registered and fires without error
       expect(() => transportHelper.simulateConnect('new-client')).to.not.throw()
+    })
+
+    it('should call clientManager.unregister() even when handleAgentDisconnect throws', () => {
+      // Register an agent
+      const agentHandler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
+      agentHandler!({projectPath: '/tmp/brv-e2e-deleted'}, 'agent-del')
+
+      // Simulate the projectRegistry.get() throwing (e.g. temp dir deleted by E2E test cleanup)
+      projectRegistry.get.throws(new Error('ENOENT: no such file or directory'))
+
+      // Disconnect must not propagate the error
+      expect(() => transportHelper.simulateDisconnect('agent-del')).to.not.throw()
+
+      // clientManager.unregister() must always be called regardless of errors in handleAgentDisconnect
+      expect(clientManager.unregister.calledWith('agent-del')).to.be.true
     })
   })
 
@@ -1189,7 +1249,6 @@ describe('ConnectionCoordinator', () => {
 
       const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
       handler!({projectPath: '/app'}, 'agent-1')
-
       ;(projectRouter.broadcastToProject as SinonStub).resetHistory()
 
       // Disconnect triggers broadcastToProjectRoom which calls projectRegistry.get
@@ -1202,7 +1261,6 @@ describe('ConnectionCoordinator', () => {
     it('should silently skip agent status broadcast when agent has no project', () => {
       const registerHandler = transportHelper.requestHandlers.get(TransportAgentEventNames.REGISTER)
       registerHandler!({}, 'agent-fallback') // no projectPath
-
       ;(projectRouter.broadcastToProject as SinonStub).resetHistory()
 
       const handler = transportHelper.requestHandlers.get(AgentStatusEventNames.STATUS_CHANGED)
@@ -1245,9 +1303,9 @@ describe('ConnectionCoordinator', () => {
       const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.NEW_SESSION)
 
       // Client with no projectPath
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', type: 'mcp'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', type: 'mcp'}))
 
       // Should succeed without attempting file deletion
       const result = handler!({reason: 'test'}, 'client-1')
@@ -1259,9 +1317,9 @@ describe('ConnectionCoordinator', () => {
       projectRegistry.get.withArgs('/app').returns(makeProjectInfo('/app'))
 
       const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.NEW_SESSION)
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}))
 
       // unlinkSync will throw ENOENT since path doesn't exist — should be caught
       expect(() => handler!({reason: 'test'}, 'client-1')).to.not.throw()
@@ -1272,9 +1330,9 @@ describe('ConnectionCoordinator', () => {
       projectRegistry.get.withArgs('/app').returns(undefined)
 
       const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.NEW_SESSION)
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}))
 
       expect(() => handler!({reason: 'test'}, 'client-1')).to.not.throw()
     })
@@ -1292,9 +1350,7 @@ describe('ConnectionCoordinator', () => {
       handler!({}, 'agent-new')
 
       expect(coordinator.getAgentForProject('/anything')).to.equal('agent-new')
-      expect(coordinator.getDebugAgentClients()).to.deep.equal([
-        {clientId: 'agent-new', projectPath: ''},
-      ])
+      expect(coordinator.getDebugAgentClients()).to.deep.equal([{clientId: 'agent-new', projectPath: ''}])
     })
 
     it('should handle old agent disconnect after new agent registers for same project', () => {
@@ -1325,9 +1381,9 @@ describe('ConnectionCoordinator', () => {
 
     it('should forward only reason field for restart', () => {
       const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.RESTART)
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}))
 
       handler!({extraField: 'should-be-ignored', reason: 'config changed'}, 'client-1')
 
@@ -1337,9 +1393,9 @@ describe('ConnectionCoordinator', () => {
 
     it('should forward only reason field for newSession', () => {
       const handler = transportHelper.requestHandlers.get(TransportAgentEventNames.NEW_SESSION)
-      clientManager.getClient.withArgs('client-1').returns(
-        new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}),
-      )
+      clientManager.getClient
+        .withArgs('client-1')
+        .returns(new ClientInfo({connectedAt: Date.now(), id: 'client-1', projectPath: '/app', type: 'tui'}))
 
       handler!({extraField: 'should-be-ignored', reason: 'user requested'}, 'client-1')
 

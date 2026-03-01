@@ -479,8 +479,16 @@ export class ConnectionCoordinator {
 
       const isAgent = this.isAgentClient(clientId)
       if (isAgent) {
-        // handleAgentDisconnect already removes from project room
-        this.handleAgentDisconnect(clientId)
+        // handleAgentDisconnect already removes from project room.
+        // Wrapped in try/catch so clientManager.unregister() always runs even if
+        // any step inside handleAgentDisconnect throws unexpectedly.
+        try {
+          this.handleAgentDisconnect(clientId)
+        } catch (error) {
+          transportLog(
+            `Error during agent disconnect cleanup for ${clientId}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
       }
 
       // Unregister from ClientManager (handles onProjectEmpty callback)

@@ -56,7 +56,20 @@ export class ProjectRegistry implements IProjectRegistry {
   }
 
   get(projectPath: string): ProjectInfo | undefined {
-    const resolved = resolvePath(projectPath)
+    let resolved: string
+    try {
+      resolved = resolvePath(projectPath)
+    } catch (error) {
+      // Only swallow ENOENT — the path no longer exists on disk (e.g. temp dir deleted
+      // after agent idle timeout). All other errors (EACCES, ENOTDIR, etc.) are real
+      // infrastructure problems and must propagate.
+      if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return undefined
+      }
+
+      throw error
+    }
+
     return this.projects.get(resolved)
   }
 
@@ -156,7 +169,9 @@ export class ProjectRegistry implements IProjectRegistry {
       writeFileSync(tempPath, JSON.stringify(data, null, 2))
       renameSync(tempPath, this.registryPath)
     } catch (error) {
-      this.log(`Failed to persist registry to ${this.registryPath}: ${error instanceof Error ? error.message : String(error)}`)
+      this.log(
+        `Failed to persist registry to ${this.registryPath}: ${error instanceof Error ? error.message : String(error)}`,
+      )
       // Clean up temp file on failure
       try {
         unlinkSync(tempPath)

@@ -26,7 +26,12 @@ import type {AgentEntryInfo, IAgentPool, SubmitTaskResult} from '../../core/inte
 import type {IAgentIdleTimeoutPolicy} from '../../core/interfaces/daemon/i-agent-idle-timeout-policy.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 
-import {AGENT_MAX_CONCURRENT_TASKS, AGENT_POOL_MAX_SIZE, AGENT_PROCESS_READY_TIMEOUT_MS, AGENT_PROCESS_STOP_TIMEOUT_MS} from '../../constants.js'
+import {
+  AGENT_MAX_CONCURRENT_TASKS,
+  AGENT_POOL_MAX_SIZE,
+  AGENT_PROCESS_READY_TIMEOUT_MS,
+  AGENT_PROCESS_STOP_TIMEOUT_MS,
+} from '../../constants.js'
 import {TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
 import {ProjectTaskQueue} from './project-task-queue.js'
 
@@ -85,6 +90,7 @@ export class AgentPool implements IAgentPool {
   private readonly log: (message: string) => void
   private readonly maxConcurrentTasks: number
   private readonly maxSize: number
+  private readonly pendingForks: Set<string> = new Set()
   private readonly readyTimeoutMs: number
   private shutdownRequested = false
   private readonly stopTimeoutMs: number
@@ -202,15 +208,28 @@ export class AgentPool implements IAgentPool {
 
       // Agent at capacity → queue
       this.taskQueue.enqueue(projectPath, task)
-      this.log(`Task queued for busy agent: ${projectPath} (active: ${existing.agent.activeTasks}/${existing.agent.maxConcurrentTasks}, queue: ${this.taskQueue.getQueueLength(projectPath)})`)
+      this.log(
+        `Task queued for busy agent: ${projectPath} (active: ${existing.agent.activeTasks}/${existing.agent.maxConcurrentTasks}, queue: ${this.taskQueue.getQueueLength(projectPath)})`,
+      )
 
       return {success: true}
     }
 
-    // No agent exists — check if we can fork
-    if (this.agents.size >= this.maxSize) {
-      // Pool full — cannot create agent for new project
-      this.log(`Pool full (${this.maxSize}/${this.maxSize}) - cannot create agent for: ${projectPath}`)
+    // Fork in progress for this project — queue to avoid duplicate forks.
+    // createAgentAndExecute() drains this queue once the fork completes.
+    if (this.pendingForks.has(projectPath)) {
+      this.taskQueue.enqueue(projectPath, task)
+      this.log(`Task queued (fork in progress): ${projectPath} (queue: ${this.taskQueue.getQueueLength(projectPath)})`)
+      return {success: true}
+    }
+
+    // No agent exists — check if we can fork (count pending forks toward the limit).
+    // Pool full: try to evict the LRU idle agent (no active tasks, no queued tasks,
+    // no remaining clients) before giving up with pool_full.
+    if (this.agents.size + this.pendingForks.size >= this.maxSize && !this.evictIdleAgent(projectPath)) {
+      this.log(
+        `Pool full (${this.agents.size + this.pendingForks.size}/${this.maxSize}) - cannot create agent for: ${projectPath}`,
+      )
       return {
         message: `Agent pool is full (${this.maxSize} agents). Cannot create agent for new project. Wait for idle agents to be cleaned up.`,
         reason: 'pool_full',
@@ -238,6 +257,8 @@ export class AgentPool implements IAgentPool {
     )
 
     this.sendTaskToAgent(entry, task)
+    // Drain tasks that were queued while this fork was in progress
+    this.drainQueue(projectPath)
   }
 
   private drainQueue(projectPath: string): void {
@@ -249,9 +270,44 @@ export class AgentPool implements IAgentPool {
       const nextTask = this.taskQueue.dequeue(projectPath)
       if (!nextTask) break
 
-      this.log(`Draining queue for: ${projectPath} (active: ${entry.agent.activeTasks}/${entry.agent.maxConcurrentTasks})`)
+      this.log(
+        `Draining queue for: ${projectPath} (active: ${entry.agent.activeTasks}/${entry.agent.maxConcurrentTasks})`,
+      )
       this.sendTaskToAgent(entry, nextTask)
     }
+  }
+
+  /**
+   * Evict the least-recently-used idle agent to make room for a new project.
+   * Only evicts agents that are idle (no more external clients), have no active
+   * tasks, and have no queued tasks. Returns true if an agent was evicted.
+   *
+   * Invariant: evicted agents always have an empty task queue (enforced by the
+   * `getQueueLength === 0` guard), so `removeAgentAndRetryQueue` will never
+   * trigger a re-fork for the evicted project. This is what keeps eviction safe
+   * without going through `submitTask`'s capacity check.
+   */
+  private evictIdleAgent(incomingProject: string): boolean {
+    let lruEntry: ManagedAgent | undefined
+
+    for (const entry of this.agents.values()) {
+      if (
+        entry.isIdle &&
+        entry.agent.activeTasks === 0 &&
+        this.taskQueue.getQueueLength(entry.projectPath) === 0 &&
+        (!lruEntry || entry.lastUsedAt < lruEntry.lastUsedAt)
+      ) {
+        lruEntry = entry
+      }
+    }
+
+    if (!lruEntry) return false
+
+    this.log(
+      `Evicting idle agent to make room for ${incomingProject}: ${lruEntry.projectPath} (last used: ${new Date(lruEntry.lastUsedAt).toISOString()})`,
+    )
+    this.removeAgentAndRetryQueue(lruEntry.projectPath)
+    return true
   }
 
   private async forkAgent(projectPath: string): Promise<ForkedAgent> {
@@ -344,6 +400,7 @@ export class AgentPool implements IAgentPool {
   }
 
   private async tryCreateAndExecute(projectPath: string, task: TaskExecute): Promise<SubmitTaskResult> {
+    this.pendingForks.add(projectPath)
     try {
       await this.createAgentAndExecute(projectPath, task)
       return {success: true}
@@ -351,6 +408,8 @@ export class AgentPool implements IAgentPool {
       const message = error instanceof Error ? error.message : String(error)
       this.log(`Failed to create agent for ${projectPath}: ${message}`)
       return {message, reason: 'create_failed', success: false}
+    } finally {
+      this.pendingForks.delete(projectPath)
     }
   }
 
