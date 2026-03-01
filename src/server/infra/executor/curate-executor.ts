@@ -11,6 +11,10 @@ import {
   type FileReadResult,
 } from '../../utils/file-content-reader.js'
 import {validateFileForCurate} from '../../utils/file-validator.js'
+import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
+import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
+import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-summary-service.js'
+import {diffStates} from '../context-tree/snapshot-diff.js'
 import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
 /**
@@ -55,6 +59,16 @@ export class CurateExecutor implements ICurateExecutor {
     const effectiveContext = compactionResult.context
 
     // --- Phase 3: Curation (session created AFTER preprocessing + compaction) ---
+    // Capture pre-curation state for snapshot diff (summary propagation)
+    const baseDir = clientCwd ?? process.cwd()
+    const snapshotService = new FileContextTreeSnapshotService({baseDirectory: baseDir})
+    let preState: Map<string, import('../../core/domain/entities/context-tree-snapshot.js').FileState> | undefined
+    try {
+      preState = await snapshotService.getCurrentState(baseDir)
+    } catch {
+      // Fail-open: if snapshot fails, skip summary propagation
+    }
+
     const taskSessionId = await agent.createTaskSession(taskId, 'curate')
     try {
       // Task-scoped variable names for RLM pattern.
@@ -111,6 +125,26 @@ export class CurateExecutor implements ICurateExecutor {
 
       // Parse curation status from agent response for status tracking
       this.lastStatus = this.parseCurationStatus(taskId, response)
+
+      // --- Phase 4: Post-curation summary propagation (fail-open) ---
+      if (preState) {
+        try {
+          const postState = await snapshotService.getCurrentState(baseDir)
+          const changedPaths = diffStates(preState, postState)
+          if (changedPaths.length > 0) {
+            const summaryService = new FileContextTreeSummaryService()
+            const results = await summaryService.propagateStaleness(changedPaths, agent, baseDir)
+
+            // Opportunistic manifest rebuild (pre-warm for next query)
+            if (results.some((r) => r.actionTaken)) {
+              const manifestService = new FileContextTreeManifestService({baseDirectory: baseDir})
+              await manifestService.buildManifest(baseDir)
+            }
+          }
+        } catch {
+          // Fail-open: summary/manifest errors never block curation
+        }
+      }
 
       return response
     } finally {

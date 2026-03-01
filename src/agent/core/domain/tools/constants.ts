@@ -6,6 +6,7 @@ export const ToolName: {
   readonly AGENTIC_MAP: 'agentic_map'
   readonly CODE_EXEC: 'code_exec'
   readonly CURATE: 'curate'
+  readonly EXPAND_KNOWLEDGE: 'expand_knowledge'
   readonly GLOB_FILES: 'glob_files'
   readonly GREP_CONTENT: 'grep_content'
   readonly LIST_DIRECTORY: 'list_directory'
@@ -17,6 +18,7 @@ export const ToolName: {
   AGENTIC_MAP: 'agentic_map',
   CODE_EXEC: 'code_exec',
   CURATE: 'curate',
+  EXPAND_KNOWLEDGE: 'expand_knowledge',
   GLOB_FILES: 'glob_files',
   GREP_CONTENT: 'grep_content',
   LIST_DIRECTORY: 'list_directory',

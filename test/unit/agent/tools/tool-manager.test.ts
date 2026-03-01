@@ -305,8 +305,8 @@ describe('ToolManager', () => {
         },
       }
       ;(mockToolProvider.getAllTools as SinonStub).returns(mockToolsWithCodeExec)
-      // Filter out all curate tools (agentic_map, code_exec, llm_map) to test filtering behavior
-      const curateTools = new Set(['agentic_map', 'code_exec', 'llm_map'])
+      // Filter out all curate tools (agentic_map, code_exec, expand_knowledge, llm_map) to test filtering behavior
+      const curateTools = new Set(['agentic_map', 'code_exec', 'expand_knowledge', 'llm_map'])
       ;(mockToolProvider.hasTool as SinonStub).callsFake((name: string) => !curateTools.has(name))
       toolManager.refresh()
 

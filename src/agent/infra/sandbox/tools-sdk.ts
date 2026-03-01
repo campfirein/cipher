@@ -102,6 +102,8 @@ export interface SearchKnowledgeOptions {
 export interface SearchKnowledgeResult {
   message: string
   results: Array<{
+    /** For archive stubs: path to full content (for expand_knowledge tool) */
+    archiveFullPath?: string
     /** Number of other memories that reference this one */
     backlinkCount?: number
     excerpt: string
@@ -109,7 +111,7 @@ export interface SearchKnowledgeResult {
     /** Top backlink source paths (max 3) */
     relatedPaths?: string[]
     score: number
-    /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' */
+    /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' | 'archive_stub' */
     symbolKind?: string
     /** Resolved hierarchical path in the symbol tree */
     symbolPath?: string

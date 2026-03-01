@@ -39,6 +39,7 @@ export class ToolManager {
   private static readonly CURATE_TOOL_NAMES = [
     'agentic_map',
     'code_exec',
+    'expand_knowledge',
     'llm_map',
   ] as const
   /**
@@ -48,6 +49,7 @@ export class ToolManager {
    */
   private static readonly QUERY_TOOL_NAMES = [
     'code_exec',
+    'expand_knowledge',
   ] as const
   private cacheValid: boolean = false
   private callIdCounter: number = 0

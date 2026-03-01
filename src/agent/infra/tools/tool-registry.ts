@@ -15,6 +15,7 @@ import { createCurateService } from '../sandbox/curate-service.js'
 import { createAgenticMapTool } from './implementations/agentic-map-tool.js'
 import { createCodeExecTool } from './implementations/code-exec-tool.js'
 import { createCurateTool } from './implementations/curate-tool.js'
+import { createExpandKnowledgeTool } from './implementations/expand-knowledge-tool.js'
 import { createGlobFilesTool } from './implementations/glob-files-tool.js'
 import { createGrepContentTool } from './implementations/grep-content-tool.js'
 import { createListDirectoryTool } from './implementations/list-directory-tool.js'
@@ -175,6 +176,14 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     markers: [ToolMarker.ContextBuilding, ToolMarker.Modification],
     outputGuidance: 'curate',
     requiredServices: [], // Uses DirectoryManager and MarkdownWriter for file operations
+  },
+
+  [ToolName.EXPAND_KNOWLEDGE]: {
+    descriptionFile: 'expand_knowledge',
+    factory: ({ environmentContext }) =>
+      createExpandKnowledgeTool({ baseDirectory: environmentContext?.workingDirectory }),
+    markers: [ToolMarker.Discovery],
+    requiredServices: [],
   },
 
   [ToolName.GLOB_FILES]: {
