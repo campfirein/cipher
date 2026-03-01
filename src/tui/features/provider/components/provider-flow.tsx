@@ -1,7 +1,7 @@
 /**
  * ProviderFlow Component
  *
- * Multi-step React flow for the /provider command.
+ * Multi-step React flow for the /providers command.
  * State machine: loading → select → provider_actions → api_key → connecting → done
  *
  * Owns the UX flow — fetches providers, renders selection,
@@ -10,23 +10,25 @@
  */
 
 import {Box, Text} from 'ink'
-import React, {useCallback, useMemo, useState} from 'react'
+import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
 import type {ProviderDTO} from '../../../../shared/transport/types/dto.js'
 import type {CommandSideEffects} from '../../../types/commands.js'
 
 import {SelectableList} from '../../../components/selectable-list.js'
 import {useTheme} from '../../../hooks/index.js'
+import {formatTransportError} from '../../../utils/index.js'
 import {useConnectProvider} from '../api/connect-provider.js'
 import {useDisconnectProvider} from '../api/disconnect-provider.js'
 import {useGetProviders} from '../api/get-providers.js'
 import {useSetActiveProvider} from '../api/set-active-provider.js'
 import {useValidateApiKey} from '../api/validate-api-key.js'
 import {ApiKeyDialog} from './api-key-dialog.js'
+import {BaseUrlDialog} from './base-url-dialog.js'
 import {ModelSelectStep} from './model-select-step.js'
 import {ProviderDialog} from './provider-dialog.js'
 
-type FlowStep = 'api_key' | 'connecting' | 'done' | 'loading' | 'model_select' | 'provider_actions' | 'select'
+type FlowStep = 'api_key' | 'base_url' | 'connecting' | 'done' | 'loading' | 'model_select' | 'provider_actions' | 'select'
 
 interface ProviderAction {
   description: string
@@ -57,15 +59,23 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
   const {theme: {colors}} = useTheme()
   const [step, setStep] = useState<FlowStep>('select')
   const [selectedProvider, setSelectedProvider] = useState<null | ProviderDTO>(null)
+  const [baseUrl, setBaseUrl] = useState<null | string>(null)
   const [error, setError] = useState<null | string>(null)
 
-  const {data, isLoading} = useGetProviders()
+  const {data, isError: isProvidersError, isLoading} = useGetProviders()
   const connectMutation = useConnectProvider()
   const disconnectMutation = useDisconnectProvider()
   const setActiveMutation = useSetActiveProvider()
   const validateMutation = useValidateApiKey()
 
   const providers = data?.providers ?? []
+
+  // Exit gracefully when providers query fails — don't leave user stuck
+  useEffect(() => {
+    if (isProvidersError) {
+      onComplete('Failed to load providers. Check your connection and try again.')
+    }
+  }, [isProvidersError, onComplete])
 
   // Build action choices for a connected provider
   const providerActions = useMemo(() => {
@@ -89,6 +99,21 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
         },
         {
           description: 'Remove API key and disconnect',
+          id: 'disconnect',
+          name: 'Disconnect',
+        },
+      )
+    }
+
+    if (selectedProvider.id === 'openai-compatible') {
+      actions.push(
+        {
+          description: 'Change base URL and API key',
+          id: 'reconfigure',
+          name: 'Reconfigure',
+        },
+        {
+          description: 'Remove configuration and disconnect',
           id: 'disconnect',
           name: 'Disconnect',
         },
@@ -127,10 +152,16 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
         await connectMutation.mutateAsync({providerId: provider.id})
         onComplete(`Connected to ${provider.name}`)
       } catch (error_) {
-        setError(error_ instanceof Error ? error_.message : String(error_))
+        setError(formatTransportError(error_))
         setStep('select')
       }
 
+      return
+    }
+
+    // OpenAI Compatible → base_url step
+    if (provider.id === 'openai-compatible') {
+      setStep('base_url')
       return
     }
 
@@ -146,7 +177,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       await connectMutation.mutateAsync({providerId: provider.id})
       setStep('model_select')
     } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : String(error_))
+      setError(formatTransportError(error_))
       setStep('select')
     }
   }, [connectMutation, onComplete])
@@ -165,7 +196,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
             setStep('model_select')
           }
         } catch (error_) {
-          setError(error_ instanceof Error ? error_.message : String(error_))
+          setError(formatTransportError(error_))
           setStep('select')
         }
 
@@ -178,9 +209,15 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
           await disconnectMutation.mutateAsync({providerId: selectedProvider.id})
           onComplete(`Disconnected from ${selectedProvider.name}`)
         } catch (error_) {
-          setError(error_ instanceof Error ? error_.message : String(error_))
+          setError(formatTransportError(error_))
           setStep('select')
         }
+
+        break
+      }
+
+      case 'reconfigure': {
+        setStep('base_url')
 
         break
       }
@@ -201,32 +238,47 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
     }
   }, [disconnectMutation, onComplete, selectedProvider, setActiveMutation])
 
+  const handleBaseUrlSubmit = useCallback((url: string) => {
+    setBaseUrl(url)
+    setStep('api_key')
+  }, [])
+
   const handleApiKeySuccess = useCallback(async (apiKey: string) => {
     if (!selectedProvider) return
 
     setStep('connecting')
     try {
-      await connectMutation.mutateAsync({apiKey, providerId: selectedProvider.id})
+      await connectMutation.mutateAsync({
+        apiKey: apiKey || undefined,
+        baseUrl: baseUrl || undefined,
+        providerId: selectedProvider.id,
+      })
       setStep('model_select')
     } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : String(error_))
+      setError(formatTransportError(error_))
       setStep('api_key')
     }
-  }, [connectMutation, selectedProvider])
+  }, [baseUrl, connectMutation, selectedProvider])
 
   const handleApiKeyCancel = useCallback(() => {
     setStep('select')
     setSelectedProvider(null)
+    setBaseUrl(null)
   }, [])
 
   const handleValidateApiKey = useCallback(async (apiKey: string) => {
     if (!selectedProvider) return {error: 'No provider selected', isValid: false}
 
+    // Skip server-side validation for openai-compatible (baseUrl not stored yet)
+    if (selectedProvider.id === 'openai-compatible') {
+      return {isValid: true}
+    }
+
     try {
       const result = await validateMutation.mutateAsync({apiKey, providerId: selectedProvider.id})
       return result
     } catch (error_) {
-      return {error: error_ instanceof Error ? error_.message : String(error_), isValid: false}
+      return {error: formatTransportError(error_), isValid: false}
     }
   }, [selectedProvider, validateMutation])
 
@@ -254,12 +306,25 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       return selectedProvider ? (
         <ApiKeyDialog
           isActive={isActive}
+          isOptional={selectedProvider.id === 'openai-compatible'}
           onCancel={handleApiKeyCancel}
           onSuccess={handleApiKeySuccess}
           provider={selectedProvider}
           validateApiKey={handleValidateApiKey}
         />
       ) : null
+    }
+
+    case 'base_url': {
+      return (
+        <BaseUrlDialog
+          description="Enter the base URL of your OpenAI-compatible endpoint (Ollama, LM Studio, etc.)"
+          isActive={isActive}
+          onCancel={handleApiKeyCancel}
+          onSubmit={handleBaseUrlSubmit}
+          title="Connect to OpenAI Compatible"
+        />
+      )
     }
 
     case 'connecting': {

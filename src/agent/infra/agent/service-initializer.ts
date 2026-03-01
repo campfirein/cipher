@@ -73,6 +73,12 @@ export interface ByteRoverHttpConfig {
  */
 export interface SessionLLMConfig {
   httpReferer?: string
+  /**
+   * Override for the model's context window size in tokens.
+   * When provided for an unknown model (e.g. from OpenRouter API), this becomes
+   * the authoritative context limit instead of the 128K registry fallback.
+   */
+  maxInputTokens?: number
   maxIterations?: number
   maxTokens?: number
   model: string
@@ -260,10 +266,10 @@ export async function createCipherAgentServices(
     // Create CompactionService for context overflow management
     const tokenizer = new GeminiTokenizer(config.model ?? 'gemini-3-flash-preview')
     compactionService = new CompactionService(messageStorage, tokenizer, {
-      overflowThreshold: 0.85, // 85% triggers compaction check
-      protectedTurns: 2, // Protect first 2 user turns from pruning
-      pruneKeepTokens: 40_000, // Keep 40k tokens in tool outputs
-      pruneMinimumTokens: 20_000, // Only prune if 20k+ tokens can be saved
+      overflowThreshold: 0.85,    // 85% triggers compaction check
+      protectedTurns: 2,          // Protect last 2 user turns from pruning
+      pruneKeepPercent: 0.2,      // Keep 20% of context window in tool outputs
+      pruneMinimumPercent: 0.1,   // Only prune if 10%+ of context window can be saved
     })
 
     logger.info('Granular history storage enabled for new sessions')
@@ -348,6 +354,7 @@ export function createSessionServices(
       sessionId,
       generator,
       {
+        maxInputTokens: llmConfig.maxInputTokens,
         maxIterations: llmConfig.maxIterations ?? 50,
         maxTokens: llmConfig.maxTokens ?? 8192,
         model: llmConfig.model ?? 'gemini-3-flash-preview',

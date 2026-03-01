@@ -120,25 +120,52 @@ export const DEFAULT_TRUNCATION_CONFIG: Required<TruncationConfig> = {
 }
 
 /**
+ * Percentages used to derive per-command truncation thresholds from the model's context window.
+ * Expressed as a fraction of maxInputTokens. Multiply by charsPerToken (default 4) for char threshold.
+ * Calibrated so values equal the original hardcoded limits on a 200K-token context model:
+ *   default  = 6.25%  → 50,000 chars at 200K  (50K chars / (200K tokens × 4 chars/token) = 6.25%)
+ *   curate   = 1.25%  → 10,000 chars at 200K
+ *   query    = 2.50%  → 20,000 chars at 200K
+ */
+const THRESHOLD_PERCENT_DEFAULT = 0.0625
+const THRESHOLD_PERCENT_CURATE = 0.0125
+const THRESHOLD_PERCENT_QUERY = 0.025
+const DEFAULT_CHARS_PER_TOKEN = 4
+
+/**
  * Tool output processor with truncation and file saving capabilities
  */
 export class ToolOutputProcessor {
-  /** Per-command truncation overrides (stricter limits for context-sensitive commands) */
-  private static readonly COMMAND_TRUNCATION_OVERRIDES: Record<string, Partial<TruncationConfig>> = {
-    curate: { headLines: 50, tailLines: 20, threshold: 10_000 },
-    query: { headLines: 100, tailLines: 50, threshold: 20_000 },
+  /** Fallback per-command overrides when no maxInputTokens is provided */
+  private static readonly DEFAULT_COMMAND_OVERRIDES: Record<string, Partial<TruncationConfig>> = {
+    curate: {headLines: 50, tailLines: 20, threshold: 10_000},
+    query: {headLines: 100, tailLines: 50, threshold: 20_000},
   }
+  private readonly commandOverrides: Record<string, Partial<TruncationConfig>>
   private readonly config: Required<TruncationConfig>
 
   /**
    * Create a new tool output processor
    *
-   * @param config - Truncation configuration
+   * @param maxInputTokens - Model context window size. When provided, truncation thresholds
+   *   are derived as a percentage of the context window so they scale across model sizes.
+   * @param config - Optional explicit overrides (take priority over computed defaults)
    */
-  constructor(config?: TruncationConfig) {
-    this.config = {
-      ...DEFAULT_TRUNCATION_CONFIG,
-      ...config,
+  constructor(maxInputTokens?: number, config?: TruncationConfig) {
+    if (maxInputTokens) {
+      const baseThreshold = Math.floor(maxInputTokens * THRESHOLD_PERCENT_DEFAULT * DEFAULT_CHARS_PER_TOKEN)
+      this.config = {
+        ...DEFAULT_TRUNCATION_CONFIG,
+        threshold: baseThreshold,
+        ...config,
+      }
+      this.commandOverrides = {
+        curate: {headLines: 50, tailLines: 20, threshold: Math.floor(maxInputTokens * THRESHOLD_PERCENT_CURATE * DEFAULT_CHARS_PER_TOKEN)},
+        query: {headLines: 100, tailLines: 50, threshold: Math.floor(maxInputTokens * THRESHOLD_PERCENT_QUERY * DEFAULT_CHARS_PER_TOKEN)},
+      }
+    } else {
+      this.config = {...DEFAULT_TRUNCATION_CONFIG, ...config}
+      this.commandOverrides = {...ToolOutputProcessor.DEFAULT_COMMAND_OVERRIDES}
     }
   }
 
@@ -412,8 +439,8 @@ export class ToolOutputProcessor {
    * Resolve effective truncation config, applying per-command overrides if applicable.
    */
   private resolveConfig(commandType?: string): Required<TruncationConfig> {
-    if (commandType && commandType in ToolOutputProcessor.COMMAND_TRUNCATION_OVERRIDES) {
-      return { ...this.config, ...ToolOutputProcessor.COMMAND_TRUNCATION_OVERRIDES[commandType] }
+    if (commandType && commandType in this.commandOverrides) {
+      return {...this.config, ...this.commandOverrides[commandType]}
     }
 
     return this.config

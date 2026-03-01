@@ -157,7 +157,7 @@ describe('waitForTaskResult', () => {
 
       const error = await resultPromise
       expect(error).to.be.an('error')
-      expect((error as Error).message).to.equal('Connection lost to ByteRover instance')
+      expect((error as Error).message).to.equal('Connection lost to the daemon')
     })
 
     it('should not reject on reconnecting state', async () => {

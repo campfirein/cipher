@@ -92,6 +92,7 @@ describe('HubHandler', () => {
       hubKeychainStore: hubKeychainStore as unknown as IHubKeychainStore,
       hubRegistryConfigStore: hubRegistryConfigStore as unknown as IHubRegistryConfigStore,
       officialRegistryUrl: 'https://example.com/registry.json',
+      registryTimeoutMs: 50,
       resolveProjectPath,
       transport: transport as unknown as ITransportServer,
     })
@@ -364,7 +365,7 @@ describe('HubHandler', () => {
     })
 
     it('should fail when registry request times out', async () => {
-      nock('https://slow.com').get('/registry.json').replyWithError({code: 'ECONNABORTED'})
+      nock('https://slow.com').get('/registry.json').delayConnection(200).reply(200, VALID_REGISTRY_RESPONSE)
 
       const result = (await handlers['hub:registry:add']({
         name: 'slow-reg',

@@ -16,7 +16,9 @@ import type {SessionEventBus} from '../../events/event-emitter.js'
 import {
   calculateRetryDelay,
   DEFAULT_RETRY_POLICY,
+  extractRateLimitDelay,
   isRetryableError,
+  RATE_LIMIT_FALLBACK_DELAY_MS,
   type RetryPolicy,
 } from '../retry/retry-policy.js'
 
@@ -120,8 +122,12 @@ export class RetryableContentGenerator implements IContentGenerator {
         throw error
       }
 
-      // Calculate delay and emit retry event
-      const delayMs = calculateRetryDelay(attempt, this.policy)
+      // For rate-limit errors (429) bypass exponential backoff and use the
+      // delay the provider tells us to wait (Retry-After header, or 65s fallback).
+      // For all other transient errors keep normal exponential backoff.
+      const delayMs = this.isRateLimitError(error)
+        ? (extractRateLimitDelay(error) ?? RATE_LIMIT_FALLBACK_DELAY_MS)
+        : calculateRetryDelay(attempt, this.policy)
       this.emitRetry(attempt, maxAttempts, error, delayMs)
 
       // Wait before retrying
@@ -159,8 +165,12 @@ export class RetryableContentGenerator implements IContentGenerator {
         throw error
       }
 
-      // Calculate delay and emit retry event
-      const delayMs = calculateRetryDelay(attempt, this.policy)
+      // For rate-limit errors (429) bypass exponential backoff and use the
+      // delay the provider tells us to wait (Retry-After header, or 65s fallback).
+      // For all other transient errors keep normal exponential backoff.
+      const delayMs = this.isRateLimitError(error)
+        ? (extractRateLimitDelay(error) ?? RATE_LIMIT_FALLBACK_DELAY_MS)
+        : calculateRetryDelay(attempt, this.policy)
       this.emitRetry(attempt, maxAttempts, error, delayMs)
 
       // Wait before retrying
@@ -191,6 +201,21 @@ export class RetryableContentGenerator implements IContentGenerator {
     this.eventBus?.emit('llmservice:warning', {
       message: `Retry attempt ${attempt}/${maxAttempts} after ${delayMs}ms: ${errorMessage}`,
     })
+  }
+
+  /**
+   * Return true when the error is a rate-limit (HTTP 429) response.
+   *
+   * Checks both the numeric status code (most reliable) and the error
+   * message text as a fallback for providers that surface 429s differently.
+   */
+  private isRateLimitError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false
+    const e = error as Record<string, unknown>
+    const status = e.status ?? e.statusCode
+    if (status === 429) return true
+    const msg = (error instanceof Error ? error.message : String(error)).toLowerCase()
+    return msg.includes('rate limit') || msg.includes('rate_limit')
   }
 
   /**

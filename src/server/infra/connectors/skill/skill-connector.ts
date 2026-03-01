@@ -10,10 +10,15 @@ import type {
 } from '../../../core/interfaces/connectors/connector-types.js'
 import type {ConnectorOperationOptions, IConnector} from '../../../core/interfaces/connectors/i-connector.js'
 import type {IFileService} from '../../../core/interfaces/services/i-file-service.js'
-import type {SkillSupportedAgent} from './skill-connector-config.js'
+import type {SkillConnectorConfig, SkillSupportedAgent} from './skill-connector-config.js'
 
 import {AGENT_CONNECTOR_CONFIG} from '../../../core/domain/entities/agent.js'
-import {MAIN_SKILL_FILE_NAME, SKILL_CONNECTOR_CONFIGS, SKILL_FILE_NAMES} from './skill-connector-config.js'
+import {
+  BRV_SKILL_NAME,
+  MAIN_SKILL_FILE_NAME,
+  SKILL_CONNECTOR_CONFIGS,
+  SKILL_FILE_NAMES,
+} from './skill-connector-config.js'
 import {SkillContentLoader} from './skill-content-loader.js'
 
 /**
@@ -25,8 +30,15 @@ type SkillConnectorOptions = {
 }
 
 /**
+ * Options for writeSkillFiles, allowing scope override.
+ */
+export type WriteSkillFilesOptions = {
+  scope?: 'global' | 'project'
+}
+
+/**
  * Connector that integrates BRV with coding agents via skill files.
- * Writes static markdown files (SKILL.md, TROUBLESHOOTING.md, WORKFLOWS.md)
+ * Writes static markdown files (SKILL.md)
  * into an agent-specific subdirectory.
  */
 export class SkillConnector implements IConnector {
@@ -50,7 +62,13 @@ export class SkillConnector implements IConnector {
       throw new Error(`Skill connector does not support agent: ${agent}`)
     }
 
-    return SKILL_CONNECTOR_CONFIGS[agent as SkillSupportedAgent].basePath
+    const config = this.getConfig(agent)
+    const basePath = config.projectPath || config.globalPath
+    if (!basePath) {
+      throw new Error(`Skill connector has no configured path for agent: ${agent}`)
+    }
+
+    return path.join(basePath, BRV_SKILL_NAME)
   }
 
   getSupportedAgents(): Agent[] {
@@ -67,22 +85,32 @@ export class SkillConnector implements IConnector {
       }
     }
 
-    const config = SKILL_CONNECTOR_CONFIGS[agent as SkillSupportedAgent]
-    const fullDir = this.getFullPath(config.basePath, config.scope)
+    const config = this.getConfig(agent)
+
+    // Install the skill connector in the project directory by default
+    if (!config.projectPath && !config.globalPath) {
+      return {
+        alreadyInstalled: false,
+        configPath: '',
+        message: `Skill connector has no configured path for agent: ${agent}`,
+        success: false,
+      }
+    }
+    // Install to project directory by default, fall back to global for global-only agents
+    const scope = config.projectPath ? 'project' : 'global'
+    const fullDir = this.resolveFullPath(config, scope, BRV_SKILL_NAME)
 
     try {
-      // Check if already installed
       const skillFilePath = path.join(fullDir, MAIN_SKILL_FILE_NAME)
       if (await this.fileService.exists(skillFilePath)) {
         return {
           alreadyInstalled: true,
-          configPath: config.basePath,
+          configPath: fullDir,
           message: `Skill connector is already installed for ${agent}`,
           success: true,
         }
       }
 
-      // Write all skill files
       await Promise.all(
         SKILL_FILE_NAMES.map(async (fileName) => {
           const content = await this.contentLoader.loadSkillFile(fileName)
@@ -100,7 +128,7 @@ export class SkillConnector implements IConnector {
     } catch (error) {
       return {
         alreadyInstalled: false,
-        configPath: config.basePath,
+        configPath: fullDir,
         message: `Failed to install skill connector for ${agent}: ${error instanceof Error ? error.message : String(error)}`,
         success: false,
       }
@@ -129,22 +157,44 @@ export class SkillConnector implements IConnector {
       }
     }
 
-    const config = SKILL_CONNECTOR_CONFIGS[agent as SkillSupportedAgent]
-    const fullDir = this.getFullPath(config.basePath, config.scope)
+    const config = this.getConfig(agent)
 
     try {
-      const skillFilePath = path.join(fullDir, SKILL_FILE_NAMES[0])
-      const exists = await this.fileService.exists(skillFilePath)
+      // Check project scope first
+      if (config.projectPath) {
+        const projectDir = this.resolveFullPath(config, 'project', BRV_SKILL_NAME)
+        const projectSkillFile = path.join(projectDir, SKILL_FILE_NAMES[0])
+        if (await this.fileService.exists(projectSkillFile)) {
+          return {
+            configExists: true,
+            configPath: path.join(config.projectPath, BRV_SKILL_NAME),
+            installed: true,
+          }
+        }
+      }
+
+      // Check global scope
+      if (config.globalPath) {
+        const globalDir = this.resolveFullPath(config, 'global', BRV_SKILL_NAME)
+        const globalSkillFile = path.join(globalDir, SKILL_FILE_NAMES[0])
+        if (await this.fileService.exists(globalSkillFile)) {
+          return {
+            configExists: true,
+            configPath: path.join(config.globalPath, BRV_SKILL_NAME),
+            installed: true,
+          }
+        }
+      }
 
       return {
-        configExists: exists,
-        configPath: config.basePath,
-        installed: exists,
+        configExists: false,
+        configPath: '',
+        installed: false,
       }
     } catch (error) {
       return {
         configExists: false,
-        configPath: config.basePath,
+        configPath: '',
         error: error instanceof Error ? error.message : String(error),
         installed: false,
       }
@@ -170,33 +220,48 @@ export class SkillConnector implements IConnector {
       }
     }
 
-    const config = SKILL_CONNECTOR_CONFIGS[agent as SkillSupportedAgent]
-    const fullDir = this.getFullPath(config.basePath, config.scope)
+    const config = this.getConfig(agent)
 
     try {
-      const skillFilePath = path.join(fullDir, SKILL_FILE_NAMES[0])
-      const exists = await this.fileService.exists(skillFilePath)
-
-      if (!exists) {
-        return {
-          configPath: config.basePath,
-          message: `Skill connector is not installed for ${agent}`,
-          success: true,
-          wasInstalled: false,
+      // Try to uninstall from project scope
+      if (config.projectPath) {
+        const projectDir = this.resolveFullPath(config, 'project', BRV_SKILL_NAME)
+        const projectSkillFile = path.join(projectDir, SKILL_FILE_NAMES[0])
+        if (await this.fileService.exists(projectSkillFile)) {
+          await this.fileService.deleteDirectory(projectDir)
+          return {
+            configPath: path.join(config.projectPath, BRV_SKILL_NAME),
+            message: `Skill connector uninstalled for ${agent}`,
+            success: true,
+            wasInstalled: true,
+          }
         }
       }
 
-      await this.fileService.deleteDirectory(fullDir)
+      // Try to uninstall from global scope
+      if (config.globalPath) {
+        const globalDir = this.resolveFullPath(config, 'global', BRV_SKILL_NAME)
+        const globalSkillFile = path.join(globalDir, SKILL_FILE_NAMES[0])
+        if (await this.fileService.exists(globalSkillFile)) {
+          await this.fileService.deleteDirectory(globalDir)
+          return {
+            configPath: path.join(config.globalPath, BRV_SKILL_NAME),
+            message: `Skill connector uninstalled for ${agent}`,
+            success: true,
+            wasInstalled: true,
+          }
+        }
+      }
 
       return {
-        configPath: config.basePath,
-        message: `Skill connector uninstalled for ${agent}`,
+        configPath: '',
+        message: `Skill connector is not installed for ${agent}`,
         success: true,
-        wasInstalled: true,
+        wasInstalled: false,
       }
     } catch (error) {
       return {
-        configPath: config.basePath,
+        configPath: '',
         message: `Failed to uninstall skill connector for ${agent}: ${error instanceof Error ? error.message : String(error)}`,
         success: false,
         wasInstalled: true,
@@ -207,24 +272,32 @@ export class SkillConnector implements IConnector {
   /**
    * Write files to a named skill subdirectory for the given agent.
    * Used by hub install to write downloaded skill files to e.g. `.claude/skills/{skillName}/`.
+   *
+   * @param options.scope - 'global' writes to home dir, 'project' (default) writes to project root
    */
   async writeSkillFiles(
     agent: Agent,
     skillName: string,
     files: Array<{content: string; name: string}>,
-  ): Promise<{alreadyInstalled: boolean; installedFiles: string[]; relativePath: string}> {
+    options?: WriteSkillFilesOptions,
+  ): Promise<{alreadyInstalled: boolean; installedFiles: string[]; installedPath: string}> {
     if (!this.isSupported(agent)) {
       throw new Error(`Skill connector does not support agent: ${agent}`)
     }
 
-    const config = SKILL_CONNECTOR_CONFIGS[agent as SkillSupportedAgent]
-    const relativePath = path.join(path.dirname(config.basePath), skillName)
-    const fullDir = this.getFullPath(relativePath, config.scope)
+    const scope = options?.scope ?? 'project'
+    const config = this.getConfig(agent)
+    const basePath = scope === 'global' ? config.globalPath : config.projectPath
+    if (!basePath) {
+      throw new Error(`Skill connector does not support ${scope} scope for agent: ${agent}`)
+    }
+
+    const fullDir = this.resolveFullPath(config, scope, skillName)
 
     if (files.length > 0) {
       const firstFilePath = path.join(fullDir, files[0].name)
       if (await this.fileService.exists(firstFilePath)) {
-        return {alreadyInstalled: true, installedFiles: [], relativePath}
+        return {alreadyInstalled: true, installedFiles: [], installedPath: fullDir}
       }
     }
 
@@ -237,19 +310,37 @@ export class SkillConnector implements IConnector {
       }),
     )
 
-    return {alreadyInstalled: false, installedFiles, relativePath}
+    return {alreadyInstalled: false, installedFiles, installedPath: fullDir}
+  }
+
+  /**
+   * Get the skill connector config for an agent, typed as SkillConnectorConfig
+   * to allow safe optional property access on union types from `as const`.
+   */
+  private getConfig(agent: Agent): SkillConnectorConfig {
+    return SKILL_CONNECTOR_CONFIGS[agent as SkillSupportedAgent]
   }
 
   /**
    * Get the full (absolute) path for skill file operations.
-   * - Project scope: relative to project root
-   * - Global scope: relative to os.homedir()
+   * Combines the config base path with the skill name, rooted at either
+   * the project root (project scope) or the user's home directory (global scope).
+   *
+   * @throws Error if the requested scope is not configured for the agent.
    */
-  private getFullPath(basePath: string, scope: 'global' | 'project'): string {
+  private resolveFullPath(config: SkillConnectorConfig, scope: 'global' | 'project', skillName: string): string {
     if (scope === 'global') {
-      return path.join(os.homedir(), basePath)
+      if (!config.globalPath) {
+        throw new Error('Global path is not configured for this agent')
+      }
+
+      return path.join(os.homedir(), config.globalPath, skillName)
     }
 
-    return path.join(this.projectRoot, basePath)
+    if (!config.projectPath) {
+      throw new Error('Project path is not configured for this agent')
+    }
+
+    return path.join(this.projectRoot, config.projectPath, skillName)
   }
 }

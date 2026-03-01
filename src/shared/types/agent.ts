@@ -4,6 +4,7 @@
 export const AGENT_VALUES = [
   'Amp',
   'Antigravity',
+  'Auggie CLI',
   'Augment Code',
   'Claude Code',
   'Cline',
@@ -14,6 +15,8 @@ export const AGENT_VALUES = [
   'Junie',
   'Kilo Code',
   'Kiro',
+  'OpenClaw',
+  'OpenCode',
   'Qoder',
   'Qwen Code',
   'Roo Code',

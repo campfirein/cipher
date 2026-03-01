@@ -71,7 +71,15 @@ export class FileProviderKeychainStore implements IProviderKeychainStore {
   }
 
   public async setApiKey(providerId: string, apiKey: string): Promise<void> {
-    const keys = await this.loadAllKeys()
+    let keys: Record<string, string>
+    try {
+      keys = await this.loadAllKeys()
+    } catch {
+      // Credentials file is corrupt or unreadable — start fresh.
+      // Existing keys are unrecoverable; overwriting is the only path forward.
+      keys = {}
+    }
+
     keys[providerId] = apiKey
     await this.saveAllKeys(keys)
   }

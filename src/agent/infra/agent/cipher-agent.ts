@@ -487,6 +487,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Build new LLM config with updated provider fields
     const sessionLLMConfig = {
       httpReferer: this.config.httpReferer,
+      maxInputTokens: providerUpdate.maxInputTokens,
       maxIterations: this.config.llm.maxIterations,
       maxTokens: this.config.llm.maxTokens,
       model: providerUpdate.model,
@@ -597,6 +598,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Extract LLM config for sessions
     const sessionLLMConfig = {
       httpReferer: this.config.httpReferer,
+      maxInputTokens: this.config.maxInputTokens,
       maxIterations: this.config.llm.maxIterations,
       maxTokens: this.config.llm.maxTokens,
       model: this.config.model,

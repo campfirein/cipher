@@ -331,11 +331,13 @@ export const TransportDaemonEventNames = {
 export interface ProviderConfigResponse {
   activeModel?: string
   activeProvider: string
+  maxInputTokens?: number
   openRouterApiKey?: string
   provider?: string
   providerApiKey?: string
   providerBaseUrl?: string
   providerHeaders?: Record<string, string>
+  providerKeyMissing?: boolean
   providerLocation?: string
   providerProject?: string
 }

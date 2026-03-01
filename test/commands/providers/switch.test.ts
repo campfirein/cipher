@@ -5,7 +5,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import ProviderSwitch from '../../../src/oclif/commands/provider/switch.js'
+import ProviderSwitch from '../../../src/oclif/commands/providers/switch.js'
 
 // ==================== TestableProviderSwitchCommand ====================
 
@@ -130,7 +130,7 @@ describe('Provider Switch Command', () => {
       await createCommand('unknown').run()
 
       expect(loggedMessages.some((m) => m.includes('Unknown provider'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv provider list'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv providers list'))).to.be.true
     })
 
     it('should error when provider is not connected', async () => {
@@ -141,7 +141,7 @@ describe('Provider Switch Command', () => {
       await createCommand('openai').run()
 
       expect(loggedMessages.some((m) => m.includes('is not connected'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv provider connect openai'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv providers connect openai'))).to.be.true
     })
   })
 
@@ -158,7 +158,7 @@ describe('Provider Switch Command', () => {
       await createJsonCommand('anthropic').run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider switch')
+      expect(json.command).to.equal('providers switch')
       expect(json.success).to.be.true
       expect(json.data).to.deep.include({providerId: 'anthropic'})
     })
@@ -169,7 +169,7 @@ describe('Provider Switch Command', () => {
       await createJsonCommand('unknown').run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider switch')
+      expect(json.command).to.equal('providers switch')
       expect(json.success).to.be.false
       expect(json.data).to.have.property('error')
     })

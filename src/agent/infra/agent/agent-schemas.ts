@@ -72,6 +72,7 @@ export const AgentConfigSchema = z
     fileSystem: FileSystemConfigSchema.optional().describe('File system configuration'),
     httpReferer: z.string().optional().describe('HTTP Referer for OpenRouter rankings'),
     llm: LLMConfigSchema.default({}).describe('LLM configuration'),
+    maxInputTokens: z.number().positive().optional().describe('Context window size from provider API'),
     model: z.string().min(1).describe('LLM model identifier'),
     openRouterApiKey: z.string().optional().describe('OpenRouter API key (backward compat)'),
     projectId: z.string().min(1).describe('ByteRover project ID'),

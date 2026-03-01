@@ -23,6 +23,7 @@ import {
 } from '../../../core/domain/entities/provider-registry.js'
 import {TransportDaemonEventNames} from '../../../core/domain/transport/schemas.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
+import {processLog} from '../../../utils/process-logger.js'
 import {validateApiKey as validateApiKeyViaFetcher} from '../../http/provider-model-fetcher-registry.js'
 
 export interface ProviderHandlerDeps {
@@ -57,16 +58,17 @@ export class ProviderHandler {
 
   private setupConnect(): void {
     this.transport.onRequest<ProviderConnectRequest, ProviderConnectResponse>(ProviderEvents.CONNECT, async (data) => {
-      const {apiKey, providerId} = data
+      const {apiKey, baseUrl, providerId} = data
 
-      // Store API key if provided
-      if (apiKey && providerRequiresApiKey(providerId)) {
+      // Store API key if provided (supports optional keys for openai-compatible)
+      if (apiKey) {
         await this.providerKeychainStore.setApiKey(providerId, apiKey)
       }
 
       const provider = getProviderById(providerId)
       await this.providerConfigStore.connectProvider(providerId, {
         activeModel: provider?.defaultModel,
+        baseUrl,
       })
 
       this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
@@ -81,10 +83,7 @@ export class ProviderHandler {
         const {providerId} = data
 
         await this.providerConfigStore.disconnectProvider(providerId)
-
-        if (providerRequiresApiKey(providerId)) {
-          await this.providerKeychainStore.deleteApiKey(providerId)
-        }
+        await this.providerKeychainStore.deleteApiKey(providerId)
 
         this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
         return {success: true}
@@ -93,20 +92,22 @@ export class ProviderHandler {
   }
 
   private setupGetActive(): void {
-    this.transport.onRequest<void, ProviderGetActiveResponse>(
-      ProviderEvents.GET_ACTIVE,
-      async () => {
-        const activeProviderId = await this.providerConfigStore.getActiveProvider()
-        const activeModel = await this.providerConfigStore.getActiveModel(activeProviderId)
-        return {activeModel, activeProviderId}
-      },
-    )
+    this.transport.onRequest<void, ProviderGetActiveResponse>(ProviderEvents.GET_ACTIVE, async () => {
+      const activeProviderId = await this.providerConfigStore.getActiveProvider()
+      const activeModel = await this.providerConfigStore.getActiveModel(activeProviderId)
+      return {activeModel, activeProviderId}
+    })
   }
 
   private setupList(): void {
     this.transport.onRequest<void, ProviderListResponse>(ProviderEvents.LIST, async () => {
       const definitions = getProvidersSortedByPriority()
-      const activeProviderId = await this.providerConfigStore.getActiveProvider()
+      const activeProviderId = await this.providerConfigStore.getActiveProvider().catch((error: unknown) => {
+        processLog(
+          `[ProviderHandler] getActiveProvider failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        return ''
+      })
 
       const providers: ProviderDTO[] = await Promise.all(
         definitions.map(async (def) => ({
@@ -114,7 +115,12 @@ export class ProviderHandler {
           category: def.category,
           description: def.description,
           id: def.id,
-          isConnected: await this.providerConfigStore.isProviderConnected(def.id),
+          isConnected: await this.providerConfigStore.isProviderConnected(def.id).catch((error: unknown) => {
+            processLog(
+              `[ProviderHandler] isProviderConnected failed for ${def.id}: ${error instanceof Error ? error.message : String(error)}`,
+            )
+            return false
+          }),
           isCurrent: def.id === activeProviderId,
           name: def.name,
           requiresApiKey: providerRequiresApiKey(def.id),

@@ -23,9 +23,11 @@ export interface ModelListByProvidersRequest {
 
 export interface ModelListByProvidersResponse {
   models: ModelDTO[]
+  providerErrors?: Record<string, string>
 }
 
 export interface ModelSetActiveRequest {
+  contextLength?: number
   modelId: string
   providerId: string
 }

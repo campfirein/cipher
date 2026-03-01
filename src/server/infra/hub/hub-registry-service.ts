@@ -49,6 +49,7 @@ export interface HubRegistryServiceParams {
   authToken?: string
   headerName?: string
   name: string
+  timeoutMs?: number
   url: string
 }
 
@@ -59,6 +60,7 @@ export class HubRegistryService implements IHubRegistryService {
   private readonly headerName?: string
   private readonly registryName: string
   private readonly registryUrl: string
+  private readonly timeoutMs: number
 
   constructor(params: HubRegistryServiceParams) {
     this.authScheme = params.authScheme
@@ -66,6 +68,7 @@ export class HubRegistryService implements IHubRegistryService {
     this.headerName = params.headerName
     this.registryName = params.name
     this.registryUrl = params.url
+    this.timeoutMs = params.timeoutMs ?? 30_000
   }
 
   async getEntries(): Promise<{entries: HubEntryDTO[]; version: string}> {
@@ -100,7 +103,7 @@ export class HubRegistryService implements IHubRegistryService {
 
       const response = await axios.get<unknown>(this.registryUrl, {
         headers,
-        timeout: 45_000,
+        timeout: this.timeoutMs,
       })
 
       const validated = this.parseRegistryResponse(response.data)

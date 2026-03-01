@@ -22,7 +22,7 @@ import type {
 
 import {AGENT_CONNECTOR_CONFIG} from '../../../core/domain/entities/agent.js'
 import {RULES_CONNECTOR_CONFIGS} from '../rules/rules-connector-config.js'
-import {BRV_RULE_MARKERS} from '../shared/constants.js'
+import {BRV_RULE_MARKERS, hasMcpToolsInBrvSection} from '../shared/constants.js'
 import {RuleFileManager} from '../shared/rule-file-manager.js'
 import {JsonMcpConfigWriter} from './json-mcp-config-writer.js'
 import {MCP_CONNECTOR_CONFIGS} from './mcp-connector-config.js'
@@ -329,7 +329,7 @@ export class McpConnector implements IConnector {
    * Install the rule file with MCP-specific content.
    */
   private async installRuleFile(agent: Agent): Promise<void> {
-    const rulesConfig = RULES_CONNECTOR_CONFIGS[agent]
+    const rulesConfig = agent in RULES_CONNECTOR_CONFIGS ? RULES_CONNECTOR_CONFIGS[agent as keyof typeof RULES_CONNECTOR_CONFIGS] : undefined
     if (!rulesConfig) {
       return
     }
@@ -368,7 +368,7 @@ export class McpConnector implements IConnector {
    * Checks for markers AND MCP-specific tool references (brv-query, brv-curate).
    */
   private async statusManual(agent: Agent): Promise<ConnectorStatus> {
-    const rulesConfig = RULES_CONNECTOR_CONFIGS[agent]
+    const rulesConfig = agent in RULES_CONNECTOR_CONFIGS ? RULES_CONNECTOR_CONFIGS[agent as keyof typeof RULES_CONNECTOR_CONFIGS] : undefined
     if (!rulesConfig) {
       return {
         configExists: false,
@@ -390,7 +390,7 @@ export class McpConnector implements IConnector {
 
     const content = await this.fileService.read(fullPath)
     const hasMarkers = content.includes(BRV_RULE_MARKERS.START) && content.includes(BRV_RULE_MARKERS.END)
-    const hasMcpTools = content.includes('brv-query') || content.includes('brv-curate')
+    const hasMcpTools = hasMcpToolsInBrvSection(content)
 
     return {
       configExists: true,
@@ -403,7 +403,7 @@ export class McpConnector implements IConnector {
    * Uninstall the rule file content.
    */
   private async uninstallRuleFile(agent: Agent): Promise<void> {
-    const rulesConfig = RULES_CONNECTOR_CONFIGS[agent]
+    const rulesConfig = agent in RULES_CONNECTOR_CONFIGS ? RULES_CONNECTOR_CONFIGS[agent as keyof typeof RULES_CONNECTOR_CONFIGS] : undefined
     if (!rulesConfig) {
       return
     }

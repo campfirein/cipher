@@ -5,7 +5,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import ProviderList from '../../../src/oclif/commands/provider/list.js'
+import ProviderList from '../../../src/oclif/commands/providers/list.js'
 
 // ==================== TestableProviderListCommand ====================
 
@@ -158,7 +158,7 @@ describe('Provider List Command', () => {
       await createJsonCommand().run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider list')
+      expect(json.command).to.equal('providers list')
       expect(json.success).to.be.true
       expect(json.data).to.have.property('providers')
     })
@@ -169,7 +169,7 @@ describe('Provider List Command', () => {
       await createJsonCommand().run()
 
       const json = parseJsonOutput()
-      expect(json.command).to.equal('provider list')
+      expect(json.command).to.equal('providers list')
       expect(json.success).to.be.false
       expect(json.data).to.have.property('error')
     })

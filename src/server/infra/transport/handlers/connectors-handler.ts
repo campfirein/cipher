@@ -1,16 +1,19 @@
 import type {ConnectorDTO} from '../../../../shared/transport/types/dto.js'
+import type {ConnectorType} from '../../../../shared/types/connector-type.js'
 import type {IConnectorManager} from '../../../core/interfaces/connectors/i-connector-manager.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
 import {
   ConnectorEvents,
+  type ConnectorGetAgentConfigPathsRequest,
+  type ConnectorGetAgentConfigPathsResponse,
   type ConnectorGetAgentsResponse,
   type ConnectorInstallRequest,
   type ConnectorInstallResponse,
   type ConnectorListResponse,
 } from '../../../../shared/transport/events/connector-events.js'
 import {isConnectorType} from '../../../../shared/types/connector-type.js'
-import {isAgent} from '../../../core/domain/entities/agent.js'
+import {AGENT_CONNECTOR_CONFIG, isAgent} from '../../../core/domain/entities/agent.js'
 import {mapAgentsToDTOs} from './agent-dto-mapper.js'
 import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
@@ -38,6 +41,11 @@ export class ConnectorsHandler {
   setup(): void {
     this.transport.onRequest<void, ConnectorGetAgentsResponse>(ConnectorEvents.GET_AGENTS, () => this.handleGetAgents())
 
+    this.transport.onRequest<ConnectorGetAgentConfigPathsRequest, ConnectorGetAgentConfigPathsResponse>(
+      ConnectorEvents.GET_AGENT_CONFIG_PATHS,
+      (data, clientId) => this.handleGetAgentConfigPaths(data, clientId),
+    )
+
     this.transport.onRequest<void, ConnectorListResponse>(ConnectorEvents.LIST, (_data, clientId) =>
       this.handleList(clientId),
     )
@@ -46,6 +54,24 @@ export class ConnectorsHandler {
       ConnectorEvents.INSTALL,
       (data, clientId) => this.handleInstall(data, clientId),
     )
+  }
+
+  private handleGetAgentConfigPaths(
+    data: ConnectorGetAgentConfigPathsRequest,
+    clientId: string,
+  ): ConnectorGetAgentConfigPathsResponse {
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const connectorManager = this.connectorManagerFactory(projectPath)
+
+    const configPaths: Partial<Record<ConnectorType, string>> = {}
+    if (isAgent(data.agentId)) {
+      const supportedTypes = AGENT_CONNECTOR_CONFIG[data.agentId].supported
+      for (const type of supportedTypes) {
+        configPaths[type] = connectorManager.getConnector(type).getConfigPath(data.agentId)
+      }
+    }
+
+    return {configPaths}
   }
 
   private handleGetAgents(): ConnectorGetAgentsResponse {

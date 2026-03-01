@@ -74,6 +74,7 @@ describe('HubInstallService', () => {
     write: SinonStub
   }
   let mockSkillConnector: {
+    isSupported: SinonStub
     writeSkillFiles: SinonStub
   }
   let skillConnectorFactory: SinonStub
@@ -92,10 +93,11 @@ describe('HubInstallService', () => {
       write: sandbox.stub().resolves(),
     }
     mockSkillConnector = {
+      isSupported: sandbox.stub().returns(true),
       writeSkillFiles: sandbox.stub().resolves({
         alreadyInstalled: false,
         installedFiles: [join(projectPath, '.claude/skills/test-skill/SKILL.md')],
-        relativePath: '.claude/skills/test-skill',
+        installedPath: join(projectPath, '.claude/skills/test-skill'),
       }),
     }
     skillConnectorFactory = sandbox.stub().returns(mockSkillConnector)
@@ -115,7 +117,7 @@ describe('HubInstallService', () => {
       nock(FILE_HOST).get('/skill.md').reply(200, '# Skill')
 
       const entry = createSkillEntry()
-      const result = await service.install(entry, projectPath, 'Claude Code')
+      const result = await service.install({agent: 'Claude Code', entry, projectPath})
 
       expect(skillConnectorFactory.calledWith(projectPath)).to.be.true
       expect(mockSkillConnector.writeSkillFiles.calledOnce).to.be.true
@@ -142,11 +144,11 @@ describe('HubInstallService', () => {
       mockSkillConnector.writeSkillFiles.resolves({
         alreadyInstalled: true,
         installedFiles: [],
-        relativePath: '.claude/skills/test-skill',
+        installedPath: join(projectPath, '.claude/skills/test-skill'),
       })
 
       const entry = createSkillEntry()
-      const result = await service.install(entry, projectPath, 'Claude Code')
+      const result = await service.install({agent: 'Claude Code', entry, projectPath})
 
       expect(result.installedFiles).to.have.lengthOf(0)
       expect(result.message).to.include('already installed')
@@ -156,24 +158,10 @@ describe('HubInstallService', () => {
       const entry = createSkillEntry()
 
       try {
-        await service.install(entry, projectPath)
+        await service.install({entry, projectPath})
         expect.fail('Should have thrown')
       } catch (error) {
-        expect((error as Error).message).to.equal('Agent is required to install a skill')
-      }
-    })
-
-    it('should throw if SkillConnector throws for unsupported agent', async () => {
-      nock(FILE_HOST).get('/skill.md').reply(200, '# Skill')
-      mockSkillConnector.writeSkillFiles.rejects(new Error('Skill connector does not support agent: Unknown Agent'))
-
-      const entry = createSkillEntry()
-
-      try {
-        await service.install(entry, projectPath, 'Unknown Agent')
-        expect.fail('Should have thrown')
-      } catch (error) {
-        expect((error as Error).message).to.include('does not support agent')
+        expect((error as Error).message).to.equal('Agent does not support skill installation')
       }
     })
 
@@ -181,11 +169,31 @@ describe('HubInstallService', () => {
       nock(FILE_HOST).get('/skill.md').reply(200, '# Skill')
 
       const entry = createSkillEntry()
-      await service.install(entry, projectPath, 'Claude Code')
+      await service.install({agent: 'Claude Code', entry, projectPath})
 
       const files = mockSkillConnector.writeSkillFiles.firstCall.args[2] as Array<{content: string; name: string}>
       expect(files).to.have.lengthOf(1)
       expect(files[0].name).to.equal('SKILL.md')
+    })
+
+    it('should pass scope to writeSkillFiles', async () => {
+      nock(FILE_HOST).get('/skill.md').reply(200, '# Skill')
+
+      const entry = createSkillEntry()
+      await service.install({agent: 'Claude Code', entry, projectPath, scope: 'global'})
+
+      const options = mockSkillConnector.writeSkillFiles.firstCall.args[3] as {scope?: string}
+      expect(options.scope).to.equal('global')
+    })
+
+    it('should pass undefined scope when not specified', async () => {
+      nock(FILE_HOST).get('/skill.md').reply(200, '# Skill')
+
+      const entry = createSkillEntry()
+      await service.install({agent: 'Claude Code', entry, projectPath})
+
+      const options = mockSkillConnector.writeSkillFiles.firstCall.args[3] as {scope?: string}
+      expect(options.scope).to.be.undefined
     })
   })
 
@@ -194,7 +202,7 @@ describe('HubInstallService', () => {
       nock(FILE_HOST).get('/context.md').reply(200, '# Context')
 
       const entry = createBundleEntry()
-      const result = await service.install(entry, projectPath)
+      const result = await service.install({entry, projectPath})
 
       expect(result.installedFiles).to.have.lengthOf(1)
       expect(result.message).to.include('context tree')
@@ -208,7 +216,7 @@ describe('HubInstallService', () => {
       nock(FILE_HOST).get('/context.md').reply(200, '# Context')
 
       const entry = createBundleEntry()
-      await service.install(entry, projectPath)
+      await service.install({entry, projectPath})
 
       expect(fileService.write.callCount).to.equal(1)
       const writtenPath = fileService.write.firstCall.args[1] as string
@@ -229,7 +237,7 @@ describe('HubInstallService', () => {
         ],
       })
 
-      const result = await service.install(entry, projectPath)
+      const result = await service.install({entry, projectPath})
 
       expect(result.installedFiles).to.have.lengthOf(2)
       expect(
@@ -244,7 +252,7 @@ describe('HubInstallService', () => {
       fileService.exists.resolves(true)
 
       const entry = createBundleEntry()
-      const result = await service.install(entry, projectPath)
+      const result = await service.install({entry, projectPath})
 
       expect(result.installedFiles).to.have.lengthOf(0)
       expect(result.message).to.include('already installed')
@@ -255,63 +263,75 @@ describe('HubInstallService', () => {
       nock(FILE_HOST).get('/context.md').reply(200, '# Context')
 
       const entry = createBundleEntry()
-      const result = await service.install(entry, projectPath)
+      const result = await service.install({entry, projectPath})
 
       expect(result.installedFiles).to.have.lengthOf(1)
+    })
+
+    it('should ignore scope for bundles', async () => {
+      nock(FILE_HOST).get('/context.md').reply(200, '# Context')
+
+      const entry = createBundleEntry()
+      const result = await service.install({entry, projectPath, scope: 'global'})
+
+      expect(result.installedFiles).to.have.lengthOf(1)
+      expect(result.message).to.include('context tree')
+      // Scope should not affect bundle install — still goes to context tree
+      expect(fileService.write.calledWith('# Context', join(projectPath, '.brv/context-tree/context.md'), 'overwrite'))
+        .to.be.true
     })
   })
 
   describe('auth', () => {
     it('should pass Bearer auth header by default when authToken is provided', async () => {
-      nock(FILE_HOST)
-        .get('/skill.md')
-        .matchHeader('authorization', 'Bearer my-secret')
-        .reply(200, '# Skill')
+      nock(FILE_HOST).get('/skill.md').matchHeader('authorization', 'Bearer my-secret').reply(200, '# Skill')
 
       const entry = createSkillEntry()
-      const result = await service.install(entry, projectPath, 'Claude Code', {authToken: 'my-secret'})
+      const result = await service.install({
+        agent: 'Claude Code',
+        auth: {authToken: 'my-secret'},
+        entry,
+        projectPath,
+      })
 
       expect(result.installedFiles).to.have.lengthOf(1)
     })
 
     it('should pass Bearer auth header for bundle downloads', async () => {
-      nock(FILE_HOST)
-        .get('/context.md')
-        .matchHeader('authorization', 'Bearer bundle-token')
-        .reply(200, '# Context')
+      nock(FILE_HOST).get('/context.md').matchHeader('authorization', 'Bearer bundle-token').reply(200, '# Context')
 
       const entry = createBundleEntry()
-      const result = await service.install(entry, projectPath, undefined, {authToken: 'bundle-token'})
+      const result = await service.install({
+        auth: {authToken: 'bundle-token'},
+        entry,
+        projectPath,
+      })
 
       expect(result.installedFiles).to.have.lengthOf(1)
     })
 
     it('should use token scheme when specified', async () => {
-      nock(FILE_HOST)
-        .get('/skill.md')
-        .matchHeader('authorization', 'token ghp_abc123')
-        .reply(200, '# Skill')
+      nock(FILE_HOST).get('/skill.md').matchHeader('authorization', 'token ghp_abc123').reply(200, '# Skill')
 
       const entry = createSkillEntry()
-      const result = await service.install(entry, projectPath, 'Claude Code', {
-        authScheme: 'token',
-        authToken: 'ghp_abc123',
+      const result = await service.install({
+        agent: 'Claude Code',
+        auth: {authScheme: 'token', authToken: 'ghp_abc123'},
+        entry,
+        projectPath,
       })
 
       expect(result.installedFiles).to.have.lengthOf(1)
     })
 
     it('should use custom header when specified', async () => {
-      nock(FILE_HOST)
-        .get('/context.md')
-        .matchHeader('PRIVATE-TOKEN', 'glpat-xxx')
-        .reply(200, '# Context')
+      nock(FILE_HOST).get('/context.md').matchHeader('PRIVATE-TOKEN', 'glpat-xxx').reply(200, '# Context')
 
       const entry = createBundleEntry()
-      const result = await service.install(entry, projectPath, undefined, {
-        authScheme: 'custom-header',
-        authToken: 'glpat-xxx',
-        headerName: 'PRIVATE-TOKEN',
+      const result = await service.install({
+        auth: {authScheme: 'custom-header', authToken: 'glpat-xxx', headerName: 'PRIVATE-TOKEN'},
+        entry,
+        projectPath,
       })
 
       expect(result.installedFiles).to.have.lengthOf(1)
@@ -326,9 +346,11 @@ describe('HubInstallService', () => {
         })
 
       const entry = createSkillEntry()
-      const result = await service.install(entry, projectPath, 'Claude Code', {
-        authScheme: 'none',
-        authToken: 'should-be-ignored',
+      const result = await service.install({
+        agent: 'Claude Code',
+        auth: {authScheme: 'none', authToken: 'should-be-ignored'},
+        entry,
+        projectPath,
       })
 
       expect(result.installedFiles).to.have.lengthOf(1)
