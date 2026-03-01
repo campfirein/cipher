@@ -203,6 +203,27 @@ describe('ContextTreeStore', () => {
       expect(total).to.be.greaterThan(0) // At least the last entry remains
     })
 
+    it('should stay bounded with tauHard=1 under repeated long stores', () => {
+      const store = new ContextTreeStore({
+        generator: mockGenerator as unknown as IContentGenerator,
+        maxCompactionRounds: 50,
+        tauHard: 1,
+        tokenizer: charTokenizer,
+      })
+
+      const payload = 'payload-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+      for (let i = 0; i < 40; i++) {
+        store.store(i, payload)
+      }
+
+      const total = getTotalTokens(store)
+      const singleEntryTokens = charTokenizer.countTokens(`[Item 39]: ${payload}`)
+      expect(total).to.be.at.most(
+        1 + singleEntryTokens,
+        `totalTokens=${total} exceeded bound for tauHard=1`,
+      )
+    })
+
     it('should produce a summary handle after compact()', async () => {
       const store = new ContextTreeStore({
         generator: mockGenerator as unknown as IContentGenerator,

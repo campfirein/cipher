@@ -112,9 +112,21 @@ export function buildDeterministicFallbackCompaction(input: {
   const source = input.sourceText.trim()
   if (!source) return ''
 
-  const targetTokens = Number.isFinite(input.inputTokens) ? Math.max(1, Math.floor(input.inputTokens)) : Infinity
-  if (!Number.isFinite(targetTokens) || targetTokens <= 1) {
+  const targetTokens = Number.isFinite(input.inputTokens) ? Math.floor(input.inputTokens) : Infinity
+  if (!Number.isFinite(targetTokens)) {
     return source
+  }
+
+  // Strict reduction is impossible for non-empty strings when target <= 0.
+  // Return empty string to preserve convergence under any tokenizer.
+  if (targetTokens <= 0) {
+    return ''
+  }
+
+  // For target=1, many tokenizers cannot represent any non-empty string with 0 tokens.
+  // Returning empty string is the only tokenizer-agnostic strict reduction.
+  if (targetTokens === 1) {
+    return ''
   }
 
   const countTokens = input.tokenizer
