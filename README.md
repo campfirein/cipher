@@ -91,20 +91,20 @@ See [ByteRover Docs](https://docs.byterover.dev) for the full list and integrati
 
 ### REPL Commands
 
-| Command | Description |
-|---------|-------------|
+| Command                             | Description |
+|-------------------------------------|-------------|
 | `/curate [context] @files @folders` | Add context to the context tree |
-| `/query <question>` | Query the context tree (alias: `/q`) |
-| `/push [-b branch]` | Push context tree to cloud |
-| `/pull [-b branch]` | Pull context tree from cloud |
-| `/connectors` | Manage AI agent connectors |
-| `/hub` | Browse and install skills from the hub |
-| `/provider` | Connect an LLM provider |
-| `/model` | Select an LLM model |
-| `/status` | Show project and CLI status |
-| `/space` | Manage spaces |
-| `/new` | Start a fresh session |
-| `/login` / `/logout` | Authenticate or log out |
+| `/query <question>`                 | Query the context tree (alias: `/q`) |
+| `/push [-b branch]`                 | Push context tree to cloud |
+| `/pull [-b branch]`                 | Pull context tree from cloud |
+| `/connectors`                       | Manage AI agent connectors |
+| `/hub`                              | Browse and install skills from the hub |
+| `/providers`                        | Connect an LLM provider |
+| `/model`                            | Select an LLM model |
+| `/status`                           | Show project and CLI status |
+| `/space`                            | Manage spaces |
+| `/new`                              | Start a fresh session |
+| `/login` / `/logout`                | Authenticate or log out |
 
 Type `/` in the REPL to see all commands with auto-completion.
 
