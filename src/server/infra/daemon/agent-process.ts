@@ -245,6 +245,7 @@ async function start(): Promise<void> {
       topP: 0.95,
       verbose: false,
     },
+    maxInputTokens: providerResult.maxInputTokens,
     model: activeModel ?? DEFAULT_LLM_MODEL,
     openRouterApiKey: providerResult.openRouterApiKey,
     projectId: PROJECT,
@@ -582,6 +583,7 @@ async function hotSwapProvider(
   try {
     // Map fields explicitly to prevent accidental field leakage from ProviderConfigResponse
     currentAgent.refreshProviderConfig({
+      maxInputTokens: freshProvider.maxInputTokens,
       model: newModel,
       openRouterApiKey: freshProvider.openRouterApiKey,
       provider: freshProvider.provider,

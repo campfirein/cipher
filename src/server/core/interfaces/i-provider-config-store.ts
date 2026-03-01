@@ -74,8 +74,9 @@ export interface IProviderConfigStore {
    *
    * @param providerId The provider ID
    * @param modelId The model ID to set as active
+   * @param contextLength Optional context window size from provider API
    */
-  setActiveModel: (providerId: string, modelId: string) => Promise<void>
+  setActiveModel: (providerId: string, modelId: string, contextLength?: number) => Promise<void>
 
   /**
    * Sets the active provider.
