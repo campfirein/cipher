@@ -7,6 +7,7 @@
  * and the explicit mapping in agent-process.ts hotSwapProvider() accordingly.
  */
 export interface ProviderUpdateConfig {
+  maxInputTokens?: number
   model: string
   openRouterApiKey?: string
   provider?: string

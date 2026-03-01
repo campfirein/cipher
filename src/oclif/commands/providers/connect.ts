@@ -28,6 +28,7 @@ export default class ProviderConnect extends Command {
     '<%= config.bin %> providers connect byterover',
     '<%= config.bin %> providers connect openai-compatible --base-url http://localhost:11434/v1',
     '<%= config.bin %> providers connect openai-compatible --base-url http://localhost:11434/v1 --api-key sk-xxx --model llama3',
+    '<%= config.bin %> providers connect google-vertex --credential-file /path/to/service-account.json',
   ]
   public static flags = {
     'api-key': Flags.string({
@@ -37,6 +38,10 @@ export default class ProviderConnect extends Command {
     'base-url': Flags.string({
       char: 'b',
       description: 'Base URL for OpenAI-compatible providers (e.g., http://localhost:11434/v1)',
+    }),
+    'credential-file': Flags.string({
+      char: 'f',
+      description: 'Path to service account JSON key file (for Google Vertex AI)',
     }),
     format: Flags.string({
       default: 'text',
@@ -50,7 +55,7 @@ export default class ProviderConnect extends Command {
   }
 
   protected async connectProvider(
-    {apiKey, baseUrl, model, providerId}: {apiKey?: string; baseUrl?: string; model?: string; providerId: string},
+    {apiKey, baseUrl, credentialFile, model, providerId}: {apiKey?: string; baseUrl?: string; credentialFile?: string; model?: string; providerId: string},
     options?: DaemonClientOptions,
   ) {
     return withDaemonRetry(async (client) => {
@@ -84,7 +89,26 @@ export default class ProviderConnect extends Command {
         }
       }
 
-      // 3. Validate API key if provided and required (skip for openai-compatible)
+      // 3. Validate credential file for google-vertex
+      if (providerId === 'google-vertex') {
+        if (credentialFile) {
+          const validation = await client.requestWithAck<ProviderValidateApiKeyResponse>(
+            ProviderEvents.VALIDATE_API_KEY,
+            {apiKey: credentialFile, providerId},
+          )
+          if (!validation.isValid) {
+            throw new Error(validation.error ?? 'The credential file is invalid. Please check the path and try again.')
+          }
+        } else if (!provider.isConnected) {
+          throw new Error(
+            'Provider "google-vertex" requires a service account credential file. Use the --credential-file flag.'
+            + '\nExample: brv providers connect google-vertex --credential-file /path/to/service-account.json'
+            + '\nGet your service account key at: https://console.cloud.google.com/iam-admin/serviceaccounts',
+          )
+        }
+      }
+
+      // 4. Validate API key if provided and required (skip for openai-compatible)
       if (apiKey && provider.requiresApiKey) {
         const validation = await client.requestWithAck<ProviderValidateApiKeyResponse>(
           ProviderEvents.VALIDATE_API_KEY,
@@ -100,14 +124,16 @@ export default class ProviderConnect extends Command {
         )
       }
 
-      // 4. Connect or switch active provider
-      const hasNewConfig = apiKey || baseUrl
+      // 5. Connect or switch active provider
+      // For google-vertex, credentialFile is passed as apiKey through the transport layer
+      const effectiveApiKey = providerId === 'google-vertex' ? credentialFile : apiKey
+      const hasNewConfig = effectiveApiKey || baseUrl
       await (provider.isConnected && !hasNewConfig
         ? client.requestWithAck<ProviderSetActiveResponse>(ProviderEvents.SET_ACTIVE, {providerId})
-        : client.requestWithAck<ProviderConnectResponse>(ProviderEvents.CONNECT, {apiKey, baseUrl, providerId})
+        : client.requestWithAck<ProviderConnectResponse>(ProviderEvents.CONNECT, {apiKey: effectiveApiKey, baseUrl, providerId})
       );
 
-      // 5. Set model if specified
+      // 6. Set model if specified
       if (model) {
         await client.requestWithAck<ModelSetActiveResponse>(ModelEvents.SET_ACTIVE, {modelId: model, providerId})
       }
@@ -121,11 +147,12 @@ export default class ProviderConnect extends Command {
     const providerId = args.provider
     const apiKey = flags['api-key']
     const baseUrl = flags['base-url']
+    const credentialFile = flags['credential-file']
     const {model} = flags
     const format = flags.format as 'json' | 'text'
 
     try {
-      const result = await this.connectProvider({apiKey, baseUrl, model, providerId})
+      const result = await this.connectProvider({apiKey, baseUrl, credentialFile, model, providerId})
 
       if (format === 'json') {
         writeJsonResponse({command: 'providers connect', data: result, success: true})

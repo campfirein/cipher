@@ -233,7 +233,6 @@ export class AgentLLMService implements ILLMService {
     this.memoryManager = options.memoryManager
     this.sessionEventBus = options.sessionEventBus
     this.logger = options.logger ?? new NoOpLogger()
-    this.outputProcessor = new ToolOutputProcessor(config.truncationConfig)
     this.loopDetector = new LoopDetector()
     this.environmentBuilder = new EnvironmentContextBuilder()
     this.metadataHandler = new ToolMetadataHandler(this.sessionEventBus)
@@ -261,6 +260,9 @@ export class AgentLLMService implements ILLMService {
       timeout: config.timeout,
       verbose: config.verbose ?? false,
     }
+
+    // Initialize output processor after config so maxInputTokens is available
+    this.outputProcessor = new ToolOutputProcessor(this.config.maxInputTokens, config.truncationConfig)
 
     // Initialize formatter and tokenizer based on provider type
     if (this.providerType === 'openai') {
@@ -706,7 +708,7 @@ export class AgentLLMService implements ILLMService {
     try {
       if (overflowResult.recommendation === 'prune') {
         // Try pruning tool outputs first
-        const pruneResult = await this.compactionService.pruneToolOutputs(this.sessionId)
+        const pruneResult = await this.compactionService.pruneToolOutputs(this.sessionId, this.config.maxInputTokens)
 
         // Sync in-memory state with storage (replace compacted tool outputs)
         if (pruneResult.compactedCount > 0) {

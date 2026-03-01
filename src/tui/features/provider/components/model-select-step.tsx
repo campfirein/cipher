@@ -69,6 +69,7 @@ export const ModelSelectStep: React.FC<ModelSelectStepProps> = ({
     setError(null)
     try {
       await setActiveModelMutation.mutateAsync({
+        contextLength: model.contextLength,
         modelId: model.id,
         providerId,
       })

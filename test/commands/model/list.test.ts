@@ -150,6 +150,23 @@ describe('Model List Command', () => {
       expect(loggedMessages.some((m) => m.includes('No models available'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('brv providers connect'))).to.be.true
     })
+
+    it('should show provider errors when model fetch fails', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({activeProviderId: 'google-vertex'})
+      requestStub.onSecondCall().resolves({
+        providers: [{id: 'google-vertex', isConnected: true, name: 'Google Vertex AI'}],
+      })
+      requestStub.onThirdCall().resolves({
+        models: [],
+        providerErrors: {'google-vertex': 'Google Cloud credentials not found. Run `gcloud auth application-default login`.'},
+      })
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('google-vertex:') && m.includes('Google Cloud credentials not found'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('No models available'))).to.be.false
+    })
   })
 
   // ==================== --provider Flag ====================

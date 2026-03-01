@@ -96,6 +96,7 @@ export const ModelFlow: React.FC<ModelFlowProps> = ({isActive = true, onCancel, 
       setError(null)
       try {
         await setActiveModelMutation.mutateAsync({
+          contextLength: model.contextLength,
           modelId: model.id,
           providerId: model.providerId,
         })

@@ -25,10 +25,11 @@ import {useSetActiveProvider} from '../api/set-active-provider.js'
 import {useValidateApiKey} from '../api/validate-api-key.js'
 import {ApiKeyDialog} from './api-key-dialog.js'
 import {BaseUrlDialog} from './base-url-dialog.js'
+import {CredentialPathDialog} from './credential-path-dialog.js'
 import {ModelSelectStep} from './model-select-step.js'
 import {ProviderDialog} from './provider-dialog.js'
 
-type FlowStep = 'api_key' | 'base_url' | 'connecting' | 'done' | 'loading' | 'model_select' | 'provider_actions' | 'select'
+type FlowStep = 'api_key' | 'base_url' | 'connecting' | 'credential_path' | 'done' | 'loading' | 'model_select' | 'provider_actions' | 'select'
 
 interface ProviderAction {
   description: string
@@ -105,6 +106,21 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       )
     }
 
+    if (selectedProvider.id === 'google-vertex') {
+      actions.push(
+        {
+          description: 'Enter a new service account key file path',
+          id: 'replace',
+          name: 'Replace credential',
+        },
+        {
+          description: 'Remove credential and disconnect',
+          id: 'disconnect',
+          name: 'Disconnect',
+        },
+      )
+    }
+
     if (selectedProvider.id === 'openai-compatible') {
       actions.push(
         {
@@ -171,6 +187,12 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       return
     }
 
+    // Google Vertex AI → credential file path step
+    if (provider.id === 'google-vertex') {
+      setStep('credential_path')
+      return
+    }
+
     // No API key needed → connect directly → model select
     setStep('connecting')
     try {
@@ -223,7 +245,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       }
 
       case 'replace': {
-        setStep('api_key')
+        setStep(selectedProvider.id === 'google-vertex' ? 'credential_path' : 'api_key')
 
         break
       }
@@ -335,6 +357,18 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
           </Text>
         </Box>
       )
+    }
+
+    case 'credential_path': {
+      return selectedProvider ? (
+        <CredentialPathDialog
+          isActive={isActive}
+          onCancel={handleApiKeyCancel}
+          onSuccess={handleApiKeySuccess}
+          provider={selectedProvider}
+          validateCredential={handleValidateApiKey}
+        />
+      ) : null
     }
 
     case 'model_select': {
