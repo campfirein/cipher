@@ -48,11 +48,11 @@ export default class ModelList extends Command {
         providerIds = providers.filter((provider) => provider.isConnected).map((provider) => provider.id)
       }
 
-      const {models} = await client.requestWithAck<ModelListByProvidersResponse>(ModelEvents.LIST_BY_PROVIDERS, {
+      const {models, providerErrors} = await client.requestWithAck<ModelListByProvidersResponse>(ModelEvents.LIST_BY_PROVIDERS, {
         providerIds,
       })
 
-      return {activeModel: active.activeModel, activeProviderId: active.activeProviderId, models}
+      return {activeModel: active.activeModel, activeProviderId: active.activeProviderId, models, providerErrors}
     }, options)
   }
 
@@ -68,10 +68,19 @@ export default class ModelList extends Command {
         return
       }
 
+      if (result.providerErrors) {
+        for (const [providerId, errorMsg] of Object.entries(result.providerErrors)) {
+          this.log(chalk.yellow(`${providerId}: ${errorMsg}`))
+        }
+      }
+
       if (result.models.length === 0) {
-        this.log(
-          'No models available. Run "brv providers list" to see available providers, then "brv providers connect <provider-id>" to connect one.',
-        )
+        if (!result.providerErrors) {
+          this.log(
+            'No models available. Run "brv providers list" to see available providers, then "brv providers connect <provider-id>" to connect one.',
+          )
+        }
+
         return
       }
 
