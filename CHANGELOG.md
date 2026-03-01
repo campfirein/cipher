@@ -2,6 +2,55 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.0.0]
+
+### Added
+
+- **Local-first mode** - CLI works without cloud authentication. A `.brv` directory is auto-created in the project root, and `/curate` and `/query` work fully offline.
+- **Native binary installer** - Install on macOS and Linux without Node.js via `curl -fsSL https://byterover.dev/install.sh | sh`. Uninstaller script also available.
+- **Multi-provider LLM support** - Connect to 20+ LLM providers via `/providers connect`: Anthropic, OpenAI, Google, Groq, Mistral, Perplexity, Cerebras, xAI, Together AI, and more.
+- **OpenAI-compatible provider** - Use `--base-url` to connect custom endpoints such as Ollama, LM Studio, llama.cpp, vLLM, and LocalAI.
+- **Google Vertex AI support** - Service account credential support via `-f` flag in `brv providers connect`.
+- **Hub registry** - Browse, install, and manage skills and bundles from registries. Add custom registries with auth support via `brv hub registry add`.
+- **Knowledge scoring** - Compound scoring system (BM25 + importance + recency) with maturity tiers (draft, validated, core). Frequently used knowledge rises; neglected knowledge decays.
+- **YAML frontmatter for context files** - Context files now use structured YAML frontmatter (title, tags, related, keywords) instead of `## Relations` sections.
+- **New agent connectors** - Added OpenClaw, OpenCode, and Auggie CLI integrations, bringing total supported agents to 22.
+- **Consolidated skill connector** - Single `SKILL.md` file for agent skill integration replaces multi-file approach.
+- **Daemon architecture** - A global background daemon enables fast CLI startup and shared connections. Use `brv restart` to restart the daemon.
+- **Parallel task execution** - Concurrent curate and query operations (up to 5 tasks) via per-task child sessions.
+- **API key login** - Authenticate with `brv login -k <key>` for non-interactive or headless environments.
+- **Knowledge attribution** - Query responses include a footer showing which context tree sources contributed to the answer.
+- **Linux ARM64 support** - Native binary builds now available for Linux aarch64.
+- **Context tree merge improvements** - Backup and conflict directories created during sync. Auto-pull on space switch with local change preservation.
+- **Fact extraction** - Automatic facts extraction from content during curation.
+
+### Changed
+
+- **(Breaking) Provider command renamed** - `/provider` is now `/providers` for both the TUI slash command and the oclif command.
+- **(Breaking) Model switch command renamed** - `model set` is now `model switch`.
+- **(Breaking) Default provider changed** - The default LLM provider is now ByteRover instead of OpenRouter.
+- **(Breaking) Provider config cleared on upgrade** - Existing provider configurations are cleared; re-setup is required after upgrading.
+- **Provider management restructured** - Provider commands are now `brv providers list/connect/disconnect/switch` subcommands.
+- **Model management restructured** - Model commands are now `brv model list/switch` subcommands.
+- **Context-window-aware token management** - Compaction and truncation thresholds now adapt to the active model's context window size.
+- **Config structure simplified** - Cloud fields (spaceId, teamId, etc.) are now optional, supporting local-first usage.
+- **Documentation moved** - Detailed docs moved to docs.byterover.dev; README simplified.
+
+### Fixed
+
+- **Agent pool race condition** - Fixed concurrent agent session management causing intermittent failures.
+- **Cross-project context writes** - Agent process working directory now correctly scoped to prevent writing context to wrong project.
+- **Hub list timeouts** - Fixed first-run timeout when loading hub registry.
+- **Rate limit handling** - Provider-aware retry delays prevent excessive retries on rate-limited requests.
+- **Input paste corruption** - Replaced ink-text-input with direct input handling to fix paste-related text corruption.
+- **Stale data in TUI commands** - Disabled React Query cache for TUI commands to ensure fresh data.
+
+### Removed
+
+- **(Breaking) Keychain/Keytar support** - API key storage moved from system keychain to encrypted file-based storage. Re-entry of API keys required after upgrade.
+- **Legacy OpenRouter content generator** - Replaced by the unified multi-provider AI SDK.
+- **Old TUI views** - Removed init-view, login-view, main-view, and Tab bar in favor of page-based routing.
+
 ## [1.8.0]
 
 ### Added
