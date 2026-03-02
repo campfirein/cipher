@@ -989,6 +989,7 @@ update_workspace_protocols() {
   else
     warn "Failed to stop OpenClaw gateway. You may need to restart it manually."
   fi
+<<<<<<< HEAD
 }
 
 # ─── Fix Ownership (root-install safe) ────────────────────────────────────────
