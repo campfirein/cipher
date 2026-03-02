@@ -1,10 +1,5 @@
-import type {Agent} from '../../../core/domain/entities/agent.js'
-
-/**
- * MCP server configuration that gets injected into agent config files.
- * Uses Record to allow agent-specific fields (e.g., env, cwd, disabled).
- */
-export type McpServerConfig = Record<string, unknown>
+import type { Agent } from '../../../core/domain/entities/agent.js'
+import type { McpServerConfig } from '../../../core/interfaces/storage/i-mcp-config-writer.js'
 
 /**
  * Supported MCP config file formats.
@@ -98,6 +93,22 @@ export const MCP_CONNECTOR_CONFIGS = {
     serverConfig: DEFAULT_SERVER_CONFIG,
     serverKeyPath: ['amp.mcpServers', 'brv'],
   },
+  Antigravity: {
+    configPath: '.gemini/antigravity/mcp_config.json',
+    format: 'json',
+    mode: 'auto',
+    scope: 'global',
+    serverConfig: DEFAULT_SERVER_CONFIG,
+    serverKeyPath: STANDARD_KEY_PATH,
+  },
+  'Auggie CLI': {
+    format: 'json',
+    manualGuide: 'https://docs.augmentcode.com/cli/integrations#configure-mcp-via-settings-json',
+    mode: 'manual',
+    scope: 'global',
+    serverConfig: DEFAULT_SERVER_CONFIG,
+    serverKeyPath: STANDARD_KEY_PATH,
+  },
   'Augment Code': {
     format: 'json',
     manualGuide: 'https://docs.augmentcode.com/setup-augment/mcp#import-from-json',
@@ -183,6 +194,17 @@ export const MCP_CONNECTOR_CONFIGS = {
     serverConfig: DEFAULT_SERVER_CONFIG,
     serverKeyPath: STANDARD_KEY_PATH,
   },
+  OpenCode: {
+    format: 'json',
+    manualGuide: 'https://opencode.ai/docs/mcp-servers/#manage',
+    mode: 'manual',
+    scope: 'global',
+    serverConfig: {
+      type: 'local',
+      command: ['brv', 'mcp'],
+    },
+    serverKeyPath: ['mcp', 'brv'],
+  },
   Qoder: {
     format: 'json',
     manualGuide: 'https://docs.qoder.com/user-guide/chat/model-context-protocol#configure-mcp-servers',
@@ -192,7 +214,7 @@ export const MCP_CONNECTOR_CONFIGS = {
     serverKeyPath: STANDARD_KEY_PATH,
   },
   'Qwen Code': {
-    configPath:
+    manualGuide:
       'https://qwenlm.github.io/qwen-code-docs/en/developers/tools/mcp-server/#configure-the-mcp-server-in-settingsjson',
     format: 'json',
     mode: 'manual',

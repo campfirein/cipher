@@ -222,7 +222,7 @@ describe('interactive-loop', () => {
 
       // Emit banner event to trigger welcome message display (event listeners are now set up)
       eventBus.emit('cipher:ui', {
-        context: {model: 'gemini-2.5-pro', sessionId: 'cipher-agent-session'},
+        context: {model: 'gemini-2.5-pro', sessionId: 'agent-session'},
         type: 'banner',
       })
 

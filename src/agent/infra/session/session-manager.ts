@@ -65,8 +65,13 @@ export class SessionManager {
     maxTokens?: number
     model: string
     openRouterApiKey?: string
+    provider?: string
+    providerApiKey?: string
+    providerBaseUrl?: string
+    providerHeaders?: Record<string, string>
     siteName?: string
     temperature?: number
+    verbose?: boolean
   }
   private pendingCreations = new Map<string, Promise<IChatSession>>()
   /** Agent name for each session (e.g., 'plan', 'query', 'curate') */
@@ -85,13 +90,18 @@ export class SessionManager {
    * @param sharedServices - Shared services from CipherAgent (ToolManager, SystemPromptManager, etc.)
    * @param httpConfig - HTTP client configuration
    * @param llmConfig - LLM service configuration
-   * @param llmConfig.openRouterApiKey - Optional OpenRouter API key for direct service
    * @param llmConfig.httpReferer - Optional HTTP Referer for OpenRouter rankings
-   * @param llmConfig.siteName - Optional site name for OpenRouter rankings
    * @param llmConfig.maxIterations - Maximum iterations for agentic loop
    * @param llmConfig.maxTokens - Maximum output tokens
    * @param llmConfig.model - LLM model identifier
+   * @param llmConfig.openRouterApiKey - Optional OpenRouter API key for direct service
+   * @param llmConfig.provider - Optional direct provider ID (anthropic, openai, google, xai, groq, mistral)
+   * @param llmConfig.providerApiKey - Optional API key for direct provider
+   * @param llmConfig.providerBaseUrl - Optional base URL for OpenAI-compatible provider
+   * @param llmConfig.providerHeaders - Optional custom headers for provider
+   * @param llmConfig.siteName - Optional site name for OpenRouter rankings
    * @param llmConfig.temperature - Temperature for generation
+   * @param llmConfig.verbose - Optional verbose debug output
    * @param options - Optional session manager options
    * @param options.config - Session manager configuration
    */
@@ -104,8 +114,13 @@ export class SessionManager {
       maxTokens?: number
       model: string
       openRouterApiKey?: string
+      provider?: string
+      providerApiKey?: string
+      providerBaseUrl?: string
+      providerHeaders?: Record<string, string>
       siteName?: string
       temperature?: number
+      verbose?: boolean
     },
     options?: SessionManagerOptions,
   ) {
@@ -284,7 +299,17 @@ export class SessionManager {
     }
 
     // Clear session history
-    session.reset()
+    await session.reset()
+
+    // Dispose session to remove event listeners (prevents memory leak on repeated task sessions)
+    session.dispose()
+
+    // Clean up metadata maps
+    this.sessionCreatedAt.delete(id)
+    this.sessionLastActivity.delete(id)
+    this.sessionTitles.delete(id)
+    this.sessionAgentNames.delete(id)
+    this.sessionParentIds.delete(id)
 
     // Remove from memory
     return this.sessions.delete(id)
@@ -306,8 +331,7 @@ export class SessionManager {
 
     // Dispose all sessions (prevents event forwarder leaks)
     for (const session of this.sessions.values()) {
-      // ChatSession.dispose() removes event forwarders
-      ;(session as ChatSession).dispose()
+      session.dispose()
     }
 
     this.sessions.clear()
@@ -339,8 +363,15 @@ export class SessionManager {
     const contextManager = session.getLLMService().getContextManager()
     await contextManager.flush()
 
-    // Cleanup session resources (cancels in-flight ops, preserves history)
-    session.cleanup()
+    // Dispose session to remove event listeners (dispose calls cleanup internally)
+    session.dispose()
+
+    // Clean up metadata maps
+    this.sessionCreatedAt.delete(id)
+    this.sessionLastActivity.delete(id)
+    this.sessionTitles.delete(id)
+    this.sessionAgentNames.delete(id)
+    this.sessionParentIds.delete(id)
 
     // Remove from memory only - history remains in storage
     return this.sessions.delete(id)
@@ -475,7 +506,7 @@ export class SessionManager {
     const session = new ChatSession(id, this.sharedServices, sessionServices)
 
     // Initialize LLM service to load persisted history from blob storage
-    // Only call initialize() if the service has the method (ByteRoverLLMService has it, GeminiLLMService doesn't)
+    // Only call initialize() if the service has the method (AgentLLMService has it)
     if ('initialize' in sessionServices.llmService && typeof sessionServices.llmService.initialize === 'function') {
       await sessionServices.llmService.initialize()
       // Debug logging removed for cleaner user experience

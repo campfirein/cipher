@@ -1,0 +1,174 @@
+import {Args, Command, Flags} from '@oclif/core'
+
+import {
+  ModelEvents,
+  type ModelSetActiveResponse,
+} from '../../../shared/transport/events/model-events.js'
+import {
+  type ProviderConnectResponse,
+  ProviderEvents,
+  type ProviderListResponse,
+  type ProviderSetActiveResponse,
+  type ProviderValidateApiKeyResponse,
+} from '../../../shared/transport/events/provider-events.js'
+import {type DaemonClientOptions, withDaemonRetry} from '../../lib/daemon-client.js'
+import {writeJsonResponse} from '../../lib/json-response.js'
+
+export default class ProviderConnect extends Command {
+  public static args = {
+    provider: Args.string({
+      description: 'Provider ID to connect (e.g., anthropic, openai, openrouter)',
+      required: true,
+    }),
+  }
+  public static description = 'Connect or switch to an LLM provider'
+  public static examples = [
+    '<%= config.bin %> providers connect anthropic --api-key sk-xxx',
+    '<%= config.bin %> providers connect openai --api-key sk-xxx --model gpt-4.1',
+    '<%= config.bin %> providers connect byterover',
+    '<%= config.bin %> providers connect openai-compatible --base-url http://localhost:11434/v1',
+    '<%= config.bin %> providers connect openai-compatible --base-url http://localhost:11434/v1 --api-key sk-xxx --model llama3',
+    '<%= config.bin %> providers connect google-vertex --credential-file /path/to/service-account.json',
+  ]
+  public static flags = {
+    'api-key': Flags.string({
+      char: 'k',
+      description: 'API key for the provider',
+    }),
+    'base-url': Flags.string({
+      char: 'b',
+      description: 'Base URL for OpenAI-compatible providers (e.g., http://localhost:11434/v1)',
+    }),
+    'credential-file': Flags.string({
+      char: 'f',
+      description: 'Path to service account JSON key file (for Google Vertex AI)',
+    }),
+    format: Flags.string({
+      default: 'text',
+      description: 'Output format (text or json)',
+      options: ['text', 'json'],
+    }),
+    model: Flags.string({
+      char: 'm',
+      description: 'Model to set as active after connecting',
+    }),
+  }
+
+  protected async connectProvider(
+    {apiKey, baseUrl, credentialFile, model, providerId}: {apiKey?: string; baseUrl?: string; credentialFile?: string; model?: string; providerId: string},
+    options?: DaemonClientOptions,
+  ) {
+    return withDaemonRetry(async (client) => {
+      // 1. Verify provider exists
+      const {providers} = await client.requestWithAck<ProviderListResponse>(ProviderEvents.LIST)
+      const provider = providers.find((p) => p.id === providerId)
+      if (!provider) {
+        throw new Error(`Unknown provider "${providerId}". Run "brv providers list" to see available providers.`)
+      }
+
+      // 2. Validate base URL for openai-compatible
+      if (providerId === 'openai-compatible') {
+        if (!baseUrl && !provider.isConnected) {
+          throw new Error(
+            'Provider "openai-compatible" requires a base URL. Use the --base-url flag to provide one.'
+            + '\nExample: brv providers connect openai-compatible --base-url http://localhost:11434/v1',
+          )
+        }
+
+        if (baseUrl) {
+          let parsed: undefined | URL
+          try {
+            parsed = new URL(baseUrl)
+          } catch {
+            throw new Error(`Invalid base URL format: "${baseUrl}". Must be a valid http:// or https:// URL.`)
+          }
+
+          if (!['http:', 'https:'].includes(parsed.protocol)) {
+            throw new Error('URL must start with http:// or https://')
+          }
+        }
+      }
+
+      // 3. Validate credential file for google-vertex
+      if (providerId === 'google-vertex') {
+        if (credentialFile) {
+          const validation = await client.requestWithAck<ProviderValidateApiKeyResponse>(
+            ProviderEvents.VALIDATE_API_KEY,
+            {apiKey: credentialFile, providerId},
+          )
+          if (!validation.isValid) {
+            throw new Error(validation.error ?? 'The credential file is invalid. Please check the path and try again.')
+          }
+        } else if (!provider.isConnected) {
+          throw new Error(
+            'Provider "google-vertex" requires a service account credential file. Use the --credential-file flag.'
+            + '\nExample: brv providers connect google-vertex --credential-file /path/to/service-account.json'
+            + '\nGet your service account key at: https://console.cloud.google.com/iam-admin/serviceaccounts',
+          )
+        }
+      }
+
+      // 4. Validate API key if provided and required (skip for openai-compatible)
+      if (apiKey && provider.requiresApiKey) {
+        const validation = await client.requestWithAck<ProviderValidateApiKeyResponse>(
+          ProviderEvents.VALIDATE_API_KEY,
+          {apiKey, providerId},
+        )
+        if (!validation.isValid) {
+          throw new Error(validation.error ?? 'The API key provided is invalid. Please check and try again.')
+        }
+      } else if (!apiKey && provider.requiresApiKey && !provider.isConnected) {
+        throw new Error(
+          `Provider "${providerId}" requires an API key. Use the --api-key flag to provide one.`
+          + (provider.apiKeyUrl ? `\nDon't have one? Get your API key at: ${provider.apiKeyUrl}` : ''),
+        )
+      }
+
+      // 5. Connect or switch active provider
+      // For google-vertex, credentialFile is passed as apiKey through the transport layer
+      const effectiveApiKey = providerId === 'google-vertex' ? credentialFile : apiKey
+      const hasNewConfig = effectiveApiKey || baseUrl
+      await (provider.isConnected && !hasNewConfig
+        ? client.requestWithAck<ProviderSetActiveResponse>(ProviderEvents.SET_ACTIVE, {providerId})
+        : client.requestWithAck<ProviderConnectResponse>(ProviderEvents.CONNECT, {apiKey: effectiveApiKey, baseUrl, providerId})
+      );
+
+      // 6. Set model if specified
+      if (model) {
+        await client.requestWithAck<ModelSetActiveResponse>(ModelEvents.SET_ACTIVE, {modelId: model, providerId})
+      }
+
+      return {model, providerId, providerName: provider.name}
+    }, options)
+  }
+
+  public async run(): Promise<void> {
+    const {args, flags} = await this.parse(ProviderConnect)
+    const providerId = args.provider
+    const apiKey = flags['api-key']
+    const baseUrl = flags['base-url']
+    const credentialFile = flags['credential-file']
+    const {model} = flags
+    const format = flags.format as 'json' | 'text'
+
+    try {
+      const result = await this.connectProvider({apiKey, baseUrl, credentialFile, model, providerId})
+
+      if (format === 'json') {
+        writeJsonResponse({command: 'providers connect', data: result, success: true})
+      } else {
+        this.log(`Connected to ${result.providerName} (${result.providerId})`)
+        if (result.model) {
+          this.log(`Model set to: ${result.model}`)
+        }
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred while connecting the provider. Please try again.'
+      if (format === 'json') {
+        writeJsonResponse({command: 'providers connect', data: {error: errorMessage}, success: false})
+      } else {
+        this.log(errorMessage)
+      }
+    }
+  }
+}

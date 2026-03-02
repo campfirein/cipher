@@ -26,16 +26,17 @@ export interface TerminalBreakpointReturn {
  */
 export function useTerminalBreakpoint(): TerminalBreakpointReturn {
   const {stdout} = useStdout()
+  // Subtract 1 from rows to account for the shell prompt line that launched the app
   const [dimensions, setDimensions] = useState({
     columns: stdout?.columns ?? 80,
-    rows: stdout?.rows ?? 24,
+    rows: (stdout?.rows ?? 24) - 1,
   })
 
   useEffect(() => {
     const handleResize = () => {
       setDimensions({
         columns: process.stdout.columns,
-        rows: process.stdout.rows,
+        rows: process.stdout.rows - 1,
       })
     }
 

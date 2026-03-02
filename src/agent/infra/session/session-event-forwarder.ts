@@ -41,9 +41,12 @@ export function setupEventForwarding(
   agentEventBus: AgentEventBus,
   sessionId: string,
 ): void {
-  // Forward llmservice:thinking (void payload)
-  sessionEventBus.on('llmservice:thinking', () => {
-    agentEventBus.emit('llmservice:thinking', {sessionId})
+  // Forward llmservice:thinking (may carry taskId from AgentLLMService)
+  sessionEventBus.on('llmservice:thinking', (payload) => {
+    agentEventBus.emit('llmservice:thinking', {
+      ...(typeof payload === 'object' && payload !== null ? payload : {}),
+      sessionId,
+    })
   })
 
   // Forward llmservice:chunk

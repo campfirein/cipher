@@ -5,33 +5,24 @@
  */
 
 import {Box, Spacer, Text} from 'ink'
-import React, {useMemo, useRef} from 'react'
+import React, {useRef} from 'react'
 
+import {useGetModels} from '../../features/model/api/get-models.js'
+import {useGetProviders} from '../../features/provider/api/get-providers.js'
 import {useTheme} from '../../hooks/index.js'
 import {formatTime} from '../../utils/time.js'
-import {CopyablePrompt} from './copyable-prompt.js'
 
-interface WelcomeBoxProps {
-  /**
-   * Whether the copy prompt is active (responds to keyboard shortcuts)
-   */
-  isCopyActive: boolean
-}
-
-const welcomeExamplePrompts = [
-  'Save our API authentication patterns, use brv curate',
-  'How do we handle error responses?, use brv query',
-]
-
-export const WelcomeBox: React.FC<WelcomeBoxProps> = ({isCopyActive}) => {
+export const WelcomeBox: React.FC = () => {
   const {
     theme: {colors},
   } = useTheme()
+  const {data: providersData} = useGetProviders()
+  const currentProvider = providersData?.providers.find((p) => p.isCurrent)
+  const {data: modelsData} = useGetModels({providerId: currentProvider?.id ?? ''})
 
-  const randomPrompt = useMemo(() => {
-    const randomIndex = Math.floor(Math.random() * welcomeExamplePrompts.length)
-    return welcomeExamplePrompts[randomIndex]
-  }, [])
+  const providerName = currentProvider?.name
+  const activeModel = modelsData?.activeModel
+  const isConnected = Boolean(providerName)
 
   const timestampRef = useRef(new Date())
 
@@ -45,23 +36,34 @@ export const WelcomeBox: React.FC<WelcomeBoxProps> = ({isCopyActive}) => {
       </Box>
       <Box borderColor={colors.border} borderStyle="single" flexDirection="column" gap={1} paddingX={1}>
         <Text bold color={colors.primary}>
-          Welcome to ByteRover!
+          Welcome to ByteRover.
         </Text>
-        <Box flexDirection="column" paddingLeft={2}>
-          <Text color={colors.text}>
-            Tell your AI Agent what to save or retrieve. Just include "<Text color={colors.primary}>brv</Text>" in your
-            prompt.
-          </Text>
-          <Box marginTop={1}>
-            <Text color={colors.text}>Try saying this to your AI Agent:</Text>
-          </Box>
-          <Box flexDirection="column" paddingLeft={4}>
+        <Box flexDirection="column">
+          {isConnected && (
             <Text color={colors.text}>
-              <Text bold>"{randomPrompt}"</Text>
-              {'    '}
-              <CopyablePrompt buttonLabel="[ctrl+y] to copy" isActive={isCopyActive} textToCopy={randomPrompt} />
+              Connected to <Text color={colors.primary}>{providerName}</Text>
+              {activeModel && <Text> (<Text color={colors.primary}>{activeModel}</Text>)</Text>}
+              . ByteRover is your Memory Hub for storing and retrieving AI context
             </Text>
-          </Box>
+          )}
+          {!isConnected && (
+            <Text color={colors.text}>
+              No provider connected. Use <Text color={colors.warning}>/providers</Text> to connect.
+            </Text>
+          )}
+          <Text color={colors.text}> </Text>
+          <Text color={colors.text}>COMMANDS REFERENCE:</Text>
+          <Text color={colors.text}>-------------------------------------------------------------</Text>
+          <Text color={colors.text}>Action        Command       Description</Text>
+          <Text color={colors.text}>-------------------------------------------------------------</Text>
+          <Text color={colors.text}>STORE         <Text color={colors.warning}>/curate</Text>       Save context or knowledge</Text>
+          <Text color={colors.text}>RETRIEVE      <Text color={colors.warning}>/query</Text>        Fetch relevant memories</Text>
+          <Text color={colors.text}>CONNECT       <Text color={colors.warning}>/connectors</Text>   Connect ByteRover to your agent</Text>
+          <Text color={colors.text}>-------------------------------------------------------------</Text>
+          <Text color={colors.text}> </Text>
+          <Text color={colors.text}>GET STARTED:</Text>
+          <Text color={colors.text}>Your memory hub is currently empty. Create your first memory:</Text>
+          <Text color={colors.text}><Text color={colors.warning}>/curate</Text> <Text color={colors.primary}>Curate the folder structure of this repository</Text></Text>
         </Box>
       </Box>
     </Box>

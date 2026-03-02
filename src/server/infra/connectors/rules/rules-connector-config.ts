@@ -27,6 +27,10 @@ export const RULES_CONNECTOR_CONFIGS = {
     filePath: '.agent/rules/agent-context.md',
     writeMode: 'overwrite',
   },
+  'Auggie CLI': {
+    filePath: '.augment/rules/agent-context.md',
+    writeMode: 'overwrite',
+  },
   'Augment Code': {
     filePath: '.augment/rules/agent-context.md',
     writeMode: 'overwrite',
@@ -66,6 +70,10 @@ export const RULES_CONNECTOR_CONFIGS = {
   Kiro: {
     filePath: '.kiro/steering/agent-context.md',
     writeMode: 'overwrite',
+  },
+  OpenCode: {
+    filePath: 'AGENTS.md',
+    writeMode: 'append',
   },
   Qoder: {
     filePath: '.qoder/rules/agent-context.md',

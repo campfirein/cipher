@@ -1,0 +1,158 @@
+import type {ProviderDTO} from '../../../../shared/transport/types/dto.js'
+import type {IProviderConfigStore} from '../../../core/interfaces/i-provider-config-store.js'
+import type {IProviderKeychainStore} from '../../../core/interfaces/i-provider-keychain-store.js'
+import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
+
+import {
+  type ProviderConnectRequest,
+  type ProviderConnectResponse,
+  type ProviderDisconnectRequest,
+  type ProviderDisconnectResponse,
+  ProviderEvents,
+  type ProviderGetActiveResponse,
+  type ProviderListResponse,
+  type ProviderSetActiveRequest,
+  type ProviderSetActiveResponse,
+  type ProviderValidateApiKeyRequest,
+  type ProviderValidateApiKeyResponse,
+} from '../../../../shared/transport/events/provider-events.js'
+import {
+  getProviderById,
+  getProvidersSortedByPriority,
+  providerRequiresApiKey,
+} from '../../../core/domain/entities/provider-registry.js'
+import {TransportDaemonEventNames} from '../../../core/domain/transport/schemas.js'
+import {getErrorMessage} from '../../../utils/error-helpers.js'
+import {processLog} from '../../../utils/process-logger.js'
+import {validateApiKey as validateApiKeyViaFetcher} from '../../http/provider-model-fetcher-registry.js'
+
+export interface ProviderHandlerDeps {
+  providerConfigStore: IProviderConfigStore
+  providerKeychainStore: IProviderKeychainStore
+  transport: ITransportServer
+}
+
+/**
+ * Handles provider:* events.
+ * Business logic for provider management — no terminal/UI calls.
+ */
+export class ProviderHandler {
+  private readonly providerConfigStore: IProviderConfigStore
+  private readonly providerKeychainStore: IProviderKeychainStore
+  private readonly transport: ITransportServer
+
+  constructor(deps: ProviderHandlerDeps) {
+    this.providerConfigStore = deps.providerConfigStore
+    this.providerKeychainStore = deps.providerKeychainStore
+    this.transport = deps.transport
+  }
+
+  setup(): void {
+    this.setupConnect()
+    this.setupDisconnect()
+    this.setupGetActive()
+    this.setupList()
+    this.setupSetActive()
+    this.setupValidateApiKey()
+  }
+
+  private setupConnect(): void {
+    this.transport.onRequest<ProviderConnectRequest, ProviderConnectResponse>(ProviderEvents.CONNECT, async (data) => {
+      const {apiKey, baseUrl, providerId} = data
+
+      // Store API key if provided (supports optional keys for openai-compatible)
+      if (apiKey) {
+        await this.providerKeychainStore.setApiKey(providerId, apiKey)
+      }
+
+      const provider = getProviderById(providerId)
+      await this.providerConfigStore.connectProvider(providerId, {
+        activeModel: provider?.defaultModel,
+        baseUrl,
+      })
+
+      this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
+      return {success: true}
+    })
+  }
+
+  private setupDisconnect(): void {
+    this.transport.onRequest<ProviderDisconnectRequest, ProviderDisconnectResponse>(
+      ProviderEvents.DISCONNECT,
+      async (data) => {
+        const {providerId} = data
+
+        await this.providerConfigStore.disconnectProvider(providerId)
+        await this.providerKeychainStore.deleteApiKey(providerId)
+
+        this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
+        return {success: true}
+      },
+    )
+  }
+
+  private setupGetActive(): void {
+    this.transport.onRequest<void, ProviderGetActiveResponse>(ProviderEvents.GET_ACTIVE, async () => {
+      const activeProviderId = await this.providerConfigStore.getActiveProvider()
+      const activeModel = await this.providerConfigStore.getActiveModel(activeProviderId)
+      return {activeModel, activeProviderId}
+    })
+  }
+
+  private setupList(): void {
+    this.transport.onRequest<void, ProviderListResponse>(ProviderEvents.LIST, async () => {
+      const definitions = getProvidersSortedByPriority()
+      const activeProviderId = await this.providerConfigStore.getActiveProvider().catch((error: unknown) => {
+        processLog(
+          `[ProviderHandler] getActiveProvider failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        return ''
+      })
+
+      const providers: ProviderDTO[] = await Promise.all(
+        definitions.map(async (def) => ({
+          apiKeyUrl: def.apiKeyUrl,
+          category: def.category,
+          description: def.description,
+          id: def.id,
+          isConnected: await this.providerConfigStore.isProviderConnected(def.id).catch((error: unknown) => {
+            processLog(
+              `[ProviderHandler] isProviderConnected failed for ${def.id}: ${error instanceof Error ? error.message : String(error)}`,
+            )
+            return false
+          }),
+          isCurrent: def.id === activeProviderId,
+          name: def.name,
+          requiresApiKey: providerRequiresApiKey(def.id),
+        })),
+      )
+
+      return {providers}
+    })
+  }
+
+  private setupSetActive(): void {
+    this.transport.onRequest<ProviderSetActiveRequest, ProviderSetActiveResponse>(
+      ProviderEvents.SET_ACTIVE,
+      async (data) => {
+        await this.providerConfigStore.setActiveProvider(data.providerId)
+        this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
+        return {success: true}
+      },
+    )
+  }
+
+  private setupValidateApiKey(): void {
+    this.transport.onRequest<ProviderValidateApiKeyRequest, ProviderValidateApiKeyResponse>(
+      ProviderEvents.VALIDATE_API_KEY,
+      async (data) => {
+        try {
+          const result = await validateApiKeyViaFetcher(data.apiKey, data.providerId)
+          return result
+        } catch (error) {
+          return {error: getErrorMessage(error), isValid: false}
+        }
+      },
+    )
+  }
+}

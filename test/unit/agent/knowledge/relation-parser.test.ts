@@ -4,6 +4,7 @@ import {
   formatRelation,
   generateRelationsSection,
   normalizeRelation,
+  normalizeRelationPath,
   parseRelations,
   resolveRelationPath,
 } from '../../../../src/server/core/domain/knowledge/relation-parser.js'
@@ -260,6 +261,28 @@ describe('relation-parser', () => {
       const result = generateRelationsSection(['architecture/agents/Sandbox  and   Security.md'])
 
       expect(result).to.equal('\n## Relations\n@architecture/agents/sandbox_and_security.md\n')
+    })
+  })
+
+  describe('normalizeRelationPath', () => {
+    it('should normalize path to lowercase with .md extension', () => {
+      expect(normalizeRelationPath('Architecture/Agents/Overview')).to.equal('architecture/agents/overview.md')
+    })
+
+    it('should preserve existing .md extension', () => {
+      expect(normalizeRelationPath('code_style/error-handling/overview.md')).to.equal('code_style/error-handling/overview.md')
+    })
+
+    it('should remove @ prefix and normalize', () => {
+      expect(normalizeRelationPath('@code_style/error-handling/overview')).to.equal('code_style/error-handling/overview.md')
+    })
+
+    it('should replace spaces with underscores', () => {
+      expect(normalizeRelationPath('Architecture/Agents/Sandbox and Security.md')).to.equal('architecture/agents/sandbox_and_security.md')
+    })
+
+    it('should handle multiple consecutive spaces', () => {
+      expect(normalizeRelationPath('architecture/agents/Sandbox  and   Security.md')).to.equal('architecture/agents/sandbox_and_security.md')
     })
   })
 })

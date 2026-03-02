@@ -133,7 +133,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
       // Inject curate service into sandbox for Tools SDK
       if (sandbox.setCurateService) {
-        const curateService = createCurateService()
+        const curateService = createCurateService(environmentContext?.workingDirectory)
         sandbox.setCurateService(curateService)
       }
 
@@ -150,7 +150,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.CURATE]: {
     descriptionFile: 'curate',
-    factory: () => createCurateTool(),
+    factory: ({ environmentContext }) => createCurateTool(environmentContext?.workingDirectory),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Modification],
     outputGuidance: 'curate',
     requiredServices: [], // Uses DirectoryManager and MarkdownWriter for file operations

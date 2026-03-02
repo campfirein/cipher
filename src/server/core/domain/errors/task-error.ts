@@ -8,15 +8,21 @@ export const TaskErrorCode = {
   AGENT_NOT_AVAILABLE: 'ERR_AGENT_NOT_AVAILABLE',
   AGENT_NOT_INITIALIZED: 'ERR_AGENT_NOT_INITIALIZED',
 
+  // Context tree errors
+  CONTEXT_TREE_NOT_INITIALIZED: 'ERR_CONTEXT_TREE_NOT_INIT',
+
   // LLM errors
   LLM_ERROR: 'ERR_LLM_ERROR',
   LLM_RATE_LIMIT: 'ERR_LLM_RATE_LIMIT',
+  LOCAL_CHANGES_EXIST: 'ERR_LOCAL_CHANGES_EXIST',
 
   // Auth/Init errors
   NOT_AUTHENTICATED: 'ERR_NOT_AUTHENTICATED',
   // Execution errors
-  PROCESSOR_NOT_INIT: 'ERR_PROCESSOR_NOT_INIT',
   PROJECT_NOT_INIT: 'ERR_PROJECT_NOT_INIT',
+  PROVIDER_NOT_CONFIGURED: 'ERR_PROVIDER_NOT_CONFIGURED',
+  SPACE_NOT_CONFIGURED: 'ERR_SPACE_NOT_CONFIGURED',
+  SPACE_NOT_FOUND: 'ERR_SPACE_NOT_FOUND',
   TASK_CANCELLED: 'ERR_TASK_CANCELLED',
 
   TASK_EXECUTION: 'ERR_TASK_EXECUTION',
@@ -86,6 +92,8 @@ export function serializeTaskError(error: unknown): TaskErrorData {
     // Check for known error names and map to codes
     const codeMap: Record<string, TaskErrorCodeType> = {
       AuthError: TaskErrorCode.NOT_AUTHENTICATED,
+      LlmGenerationError: TaskErrorCode.LLM_ERROR,
+      LlmRateLimitError: TaskErrorCode.LLM_RATE_LIMIT,
       RateLimitError: TaskErrorCode.LLM_RATE_LIMIT,
       TaskCancelledError: TaskErrorCode.TASK_CANCELLED,
       TimeoutError: TaskErrorCode.TASK_TIMEOUT,
@@ -127,31 +135,31 @@ export class AgentDisconnectedError extends TaskError {
 export class AgentNotInitializedError extends TaskError {
   public constructor(reason?: string) {
     super(
-      reason ? `Agent not initialized: ${reason}` : 'Agent not initialized. Please complete login and setup first.',
+      reason ? `Agent failed to initialize: ${reason}` : "Agent failed to initialize. Run 'brv restart' to force a clean restart.",
       TaskErrorCode.AGENT_NOT_INITIALIZED,
     )
     this.name = 'AgentNotInitializedError'
   }
 }
 
-export class ProcessorNotInitError extends TaskError {
-  public constructor() {
-    super('TaskProcessor not initialized', TaskErrorCode.PROCESSOR_NOT_INIT)
-    this.name = 'ProcessorNotInitError'
-  }
-}
-
 export class NotAuthenticatedError extends TaskError {
   public constructor() {
-    super('Not authenticated. Please run "brv login" first.', TaskErrorCode.NOT_AUTHENTICATED)
+    super('Not authenticated. Cloud sync features (push/pull/space) require login — local query and curate work without authentication.', TaskErrorCode.NOT_AUTHENTICATED)
     this.name = 'NotAuthenticatedError'
   }
 }
 
 export class ProjectNotInitError extends TaskError {
   public constructor() {
-    super('Project not initialized. Please run "brv init" first.', TaskErrorCode.PROJECT_NOT_INIT)
+    super('Project not initialized. Run "brv restart" to reinitialize.', TaskErrorCode.PROJECT_NOT_INIT)
     this.name = 'ProjectNotInitError'
+  }
+}
+
+export class ContextTreeNotInitializedError extends TaskError {
+  public constructor() {
+    super('Context tree not initialized', TaskErrorCode.CONTEXT_TREE_NOT_INITIALIZED)
+    this.name = 'ContextTreeNotInitializedError'
   }
 }
 
@@ -159,5 +167,26 @@ export class FileValidationError extends Error {
   public constructor(message = 'File validation failed. Please check file paths.') {
     super(message)
     this.name = 'FileValidationError'
+  }
+}
+
+export class LocalChangesExistError extends TaskError {
+  public constructor(message = 'Local changes exist. Run "brv push" to save your changes before pulling.') {
+    super(message, TaskErrorCode.LOCAL_CHANGES_EXIST)
+    this.name = 'LocalChangesExistError'
+  }
+}
+
+export class SpaceNotConfiguredError extends TaskError {
+  public constructor() {
+    super('No space configured. Run "brv space list" to see available spaces, then "brv space switch --team <team> --name <space>" to select one.', TaskErrorCode.SPACE_NOT_CONFIGURED)
+    this.name = 'SpaceNotConfiguredError'
+  }
+}
+
+export class SpaceNotFoundError extends TaskError {
+  public constructor() {
+    super('Space not found', TaskErrorCode.SPACE_NOT_FOUND)
+    this.name = 'SpaceNotFoundError'
   }
 }

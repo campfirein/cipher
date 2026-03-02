@@ -2,7 +2,15 @@
  * Message and activity log types
  */
 
-import type {ExecutionStatus, ToolCallStatus} from '../../agent/core/domain/queue/types.js'
+/**
+ * Status of an execution (curate/query job)
+ */
+export type ExecutionStatus = 'completed' | 'failed' | 'queued' | 'running'
+
+/**
+ * Status of a tool call within an execution
+ */
+export type ToolCallStatus = 'completed' | 'failed' | 'running'
 
 /**
  * Message type for displaying in message list

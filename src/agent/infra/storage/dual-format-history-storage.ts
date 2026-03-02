@@ -25,6 +25,26 @@ export class DualFormatHistoryStorage implements IHistoryStorage {
   ) {}
 
   /**
+   * Append a single message to the session history.
+   * Routes to appropriate storage based on session format.
+   * New sessions use granular format.
+   */
+  async appendMessage(sessionId: string, message: InternalMessage): Promise<void> {
+    const format = await this.detectFormat(sessionId)
+
+    if (format === 'granular') {
+      return this.granularStorage.appendMessage(sessionId, message)
+    }
+
+    if (format === 'blob') {
+      return this.blobStorage.appendMessage(sessionId, message)
+    }
+
+    // New session - use granular format
+    return this.granularStorage.appendMessage(sessionId, message)
+  }
+
+  /**
    * Delete all history for a session.
    * Deletes from both storages to ensure complete cleanup.
    */

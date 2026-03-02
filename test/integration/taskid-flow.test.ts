@@ -2,6 +2,8 @@ import {TransportClient} from '@campfirein/brv-transport-client'
 import {expect} from 'chai'
 import {randomUUID} from 'node:crypto'
 
+import type {IAgentPool} from '../../src/server/core/interfaces/agent/i-agent-pool.js'
+
 import {TransportHandlers} from '../../src/server/infra/process/transport-handlers.js'
 import {SocketIOTransportServer} from '../../src/server/infra/transport/socket-io-transport-server.js'
 
@@ -29,16 +31,53 @@ describe('TaskId Integration Flow', () => {
   let client: TransportClient
   const port = 9800
 
+  before(() => {
+    process.env.BRV_SESSION_LOG = '/dev/null'
+  })
+
+  after(() => {
+    delete process.env.BRV_SESSION_LOG
+  })
+
   beforeEach(async () => {
     // Start Transport server
     server = new SocketIOTransportServer()
     await server.start(port)
 
+    // Capture mock agent's clientId from the first connection
+    let agentClientId: string | undefined
+    server.onConnection((clientId) => {
+      if (!agentClientId) agentClientId = clientId
+    })
+
+    // Stub agentPool that forwards tasks to the mock agent via the real transport server
+    const stubAgentPool: IAgentPool = {
+      getEntries() {
+        return []
+      },
+      getSize() {
+        return 0
+      },
+      handleAgentDisconnected() {},
+      hasAgent() {
+        return false
+      },
+      markIdle() {},
+      notifyTaskCompleted() {},
+      async shutdown() {},
+      async submitTask(task) {
+        if (!agentClientId)
+          return {message: 'No agent connected', reason: 'create_failed' as const, success: false as const}
+        server.sendTo(agentClientId, 'task:execute', task)
+        return {success: true as const}
+      },
+    }
+
     // Initialize handlers (this is what Transport process does)
-    handlers = new TransportHandlers(server)
+    handlers = new TransportHandlers({agentPool: stubAgentPool, transport: server})
     handlers.setup() // IMPORTANT: Register all handlers
 
-    // Connect mock Agent
+    // Connect mock Agent (first connection — captured by onConnection above)
     mockAgent = new TransportClient()
     await mockAgent.connect(`http://127.0.0.1:${port}`)
 

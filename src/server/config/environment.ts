@@ -18,10 +18,10 @@ type EnvironmentConfig = {
   authorizationUrl: string
   clientId: string
   cogitApiBaseUrl: string
+  hubRegistryUrl: string
   issuerUrl: string
   llmApiBaseUrl: string
   memoraApiBaseUrl: string
-  mixpanelToken: string
   scopes: string[]
   tokenUrl: string
   webAppUrl: string
@@ -37,10 +37,10 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     authorizationUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/authorize',
     clientId: 'byterover-cli-client',
     cogitApiBaseUrl: 'https://dev-beta-cgit.byterover.dev/api/v1',
+    hubRegistryUrl: 'https://hub.byterover.dev/r/registry.json',
     issuerUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc',
     llmApiBaseUrl: 'https://dev-beta-llm.byterover.dev',
     memoraApiBaseUrl: 'https://dev-beta-memora-retrieve.byterover.dev/api/v3',
-    mixpanelToken: '258e1a2b3d44cc634ef28964771b1da0',
     scopes: ['read', 'write', 'debug'],
     tokenUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/token',
     webAppUrl: 'https://dev-beta-app.byterover.dev',
@@ -50,10 +50,10 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     authorizationUrl: 'https://iam.byterover.dev/api/v1/oidc/authorize',
     clientId: 'byterover-cli-client',
     cogitApiBaseUrl: 'https://v3-cgit.byterover.dev/api/v1',
+    hubRegistryUrl: 'https://hub.byterover.dev/r/registry.json',
     issuerUrl: 'https://iam.byterover.dev/api/v1/oidc',
     llmApiBaseUrl: 'https://llm.byterover.dev',
     memoraApiBaseUrl: 'https://beta-memora-retrieve.byterover.dev/api/v3',
-    mixpanelToken: 'fac9051df8242c885a9e0eaf60f78b10',
     scopes: ['read', 'write'],
     tokenUrl: 'https://iam.byterover.dev/api/v1/oidc/token',
     webAppUrl: 'https://app.byterover.dev',

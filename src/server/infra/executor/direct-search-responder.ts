@@ -1,17 +1,17 @@
-/** Score at which the result is so strong that dominance check is skipped */
-export const DIRECT_RESPONSE_HIGH_CONFIDENCE_THRESHOLD = 15
+/** Normalized score at which the result is so strong that dominance check is skipped */
+export const DIRECT_RESPONSE_HIGH_CONFIDENCE_THRESHOLD = 0.93
 
-/** Minimum score for the top result to qualify for a direct (no-LLM) response */
-export const DIRECT_RESPONSE_SCORE_THRESHOLD = 8
+/** Minimum normalized score for the top result to qualify for a direct (no-LLM) response */
+export const DIRECT_RESPONSE_SCORE_THRESHOLD = 0.85
 
-/** Top result must be N times the second result's score to be considered dominant */
-export const DIRECT_RESPONSE_DOMINANCE_RATIO = 2
+/** Minimum gap between top and second result's normalized score to be considered dominant */
+export const DIRECT_RESPONSE_MIN_GAP = 0.08
 
 /** Maximum content length per document in the direct response */
-const MAX_CONTENT_LENGTH = 1500
+const MAX_CONTENT_LENGTH = 5000
 
 /** Maximum number of documents to include in the direct response */
-const MAX_DOCS = 3
+const MAX_DOCS = 5
 
 /**
  * A search result with full document content for direct response formatting.
@@ -27,10 +27,13 @@ export interface DirectSearchResult {
  * Determines if search results are confident enough for a direct response
  * without involving the LLM.
  *
- * Requires:
+ * Uses normalized [0, 1) scores with a gap-based dominance model:
  * 1. Top result score >= DIRECT_RESPONSE_SCORE_THRESHOLD (minimum confidence)
  * 2. Either: top score >= HIGH_CONFIDENCE_THRESHOLD (strong enough to skip dominance check)
- *    Or: top result dominates other results (score >= 2x the second result)
+ *    Or: gap between top and #2 >= DIRECT_RESPONSE_MIN_GAP (clear separation)
+ *
+ * Gap-based instead of ratio-based because normalized scores cluster in [0.8, 0.95],
+ * making ratio checks (e.g., 2x) impossible to satisfy.
  *
  * @param results - Sorted search results (highest score first)
  * @returns true if a direct response can be served
@@ -47,10 +50,10 @@ export function canRespondDirectly(results: DirectSearchResult[]): boolean {
   // High-confidence path: score so strong that dominance is irrelevant
   if (topResult.score >= DIRECT_RESPONSE_HIGH_CONFIDENCE_THRESHOLD) return true
 
-  const secondScore = results[1].score
-  if (secondScore === 0) return true
+  // Gap-based dominance: top must be clearly separated from #2
+  const gap = topResult.score - results[1].score
 
-  return topResult.score / secondScore >= DIRECT_RESPONSE_DOMINANCE_RATIO
+  return gap >= DIRECT_RESPONSE_MIN_GAP
 }
 
 /**

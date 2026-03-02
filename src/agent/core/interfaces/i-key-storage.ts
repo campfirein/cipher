@@ -75,6 +75,15 @@ export interface IKeyStorage {
   list(prefix: StorageKey): Promise<StorageKey[]>
 
   /**
+   * List all key-value pairs matching a prefix.
+   * More efficient than list() followed by individual get() calls.
+   *
+   * @param prefix - Key prefix to match
+   * @returns Array of key-value pairs
+   */
+  listWithValues<T>(prefix: StorageKey): Promise<Array<{key: StorageKey; value: T}>>
+
+  /**
    * Set a value at a composite key.
    * Creates or overwrites the value at the key.
    *

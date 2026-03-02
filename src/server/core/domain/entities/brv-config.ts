@@ -1,11 +1,11 @@
 import {BRV_CONFIG_VERSION} from '../../../constants.js'
-import {BrvConfigVersionError} from '../errors/brv-config-version-error.js'
 import {Agent, AGENT_VALUES} from './agent.js'
 import {Space} from './space.js'
 
 /**
  * Parameters for creating a BrvConfig instance.
- * chatLogPath, cwd, and ide are optional to support partial configs (e.g., after login pre-select).
+ * chatLogPath, cwd, ide, and cloud fields (spaceId, spaceName, teamId, teamName)
+ * are optional to support local-only configs and partial configs.
  */
 export type BrvConfigParams = {
   chatLogPath?: string
@@ -15,10 +15,10 @@ export type BrvConfigParams = {
   createdAt: string
   cwd?: string
   ide?: Agent
-  spaceId: string
-  spaceName: string
-  teamId: string
-  teamName: string
+  spaceId?: string
+  spaceName?: string
+  teamId?: string
+  teamName?: string
   version: string
 }
 
@@ -67,13 +67,7 @@ const isCodingAgent = (value: unknown): value is Agent => {
 const isBrvConfigJson = (json: unknown): json is BrvConfigFromJson => {
   if (typeof json !== 'object' || json === null) return false
 
-  const requiredInputJsonKeys = [
-    'createdAt',
-    'spaceId',
-    'spaceName',
-    'teamId',
-    'teamName',
-  ] as const satisfies readonly (keyof BrvConfigFromJson)[]
+  const requiredInputJsonKeys = ['createdAt'] as const satisfies readonly (keyof BrvConfigFromJson)[]
 
   for (const key of requiredInputJsonKeys) {
     if (!(key in json) || typeof (json as Record<string, unknown>)[key] !== 'string') {
@@ -86,6 +80,10 @@ const isBrvConfigJson = (json: unknown): json is BrvConfigFromJson => {
   if (obj.chatLogPath !== undefined && typeof obj.chatLogPath !== 'string') return false
   if (obj.cwd !== undefined && typeof obj.cwd !== 'string') return false
   if (obj.ide !== undefined && !isCodingAgent(obj.ide)) return false
+  if (obj.spaceId !== undefined && typeof obj.spaceId !== 'string') return false
+  if (obj.spaceName !== undefined && typeof obj.spaceName !== 'string') return false
+  if (obj.teamId !== undefined && typeof obj.teamId !== 'string') return false
+  if (obj.teamName !== undefined && typeof obj.teamName !== 'string') return false
   if (obj.cipherAgentContext !== undefined && typeof obj.cipherAgentContext !== 'string') return false
   if (obj.cipherAgentSystemPrompt !== undefined && typeof obj.cipherAgentSystemPrompt !== 'string') return false
   if (obj.cipherAgentModes !== undefined && !Array.isArray(obj.cipherAgentModes)) return false
@@ -106,31 +104,15 @@ export class BrvConfig {
   public readonly createdAt: string
   public readonly cwd?: string
   public readonly ide?: Agent
-  public readonly spaceId: string
-  public readonly spaceName: string
-  public readonly teamId: string
-  public readonly teamName: string
+  public readonly spaceId?: string
+  public readonly spaceName?: string
+  public readonly teamId?: string
+  public readonly teamName?: string
   public readonly version: string
 
   public constructor(params: BrvConfigParams) {
     if (params.createdAt.trim().length === 0) {
       throw new Error('Created at cannot be empty')
-    }
-
-    if (params.spaceId.trim().length === 0) {
-      throw new Error('Space ID cannot be empty')
-    }
-
-    if (params.spaceName.trim().length === 0) {
-      throw new Error('Space name cannot be empty')
-    }
-
-    if (params.teamId.trim().length === 0) {
-      throw new Error('Team ID cannot be empty')
-    }
-
-    if (params.teamName.trim().length === 0) {
-      throw new Error('Team name cannot be empty')
     }
 
     this.chatLogPath = params.chatLogPath
@@ -148,39 +130,34 @@ export class BrvConfig {
   }
 
   /**
+   * Creates a minimal local-only BrvConfig (no cloud fields).
+   * Used for auto-init when .brv/ doesn't exist.
+   */
+  public static createLocal(params: {cwd: string}): BrvConfig {
+    return new BrvConfig({
+      createdAt: new Date().toISOString(),
+      cwd: params.cwd,
+      version: BRV_CONFIG_VERSION,
+    })
+  }
+
+  /**
    * Deserializes config from JSON format.
+   * Preserves the original version from the file (or defaults to '' if missing).
+   * Callers should check config.version and migrate if needed.
    * @throws Error if the JSON structure is invalid.
-   * @throws BrvConfigVersionError if version is missing or mismatched.
    */
   public static fromJson(json: unknown): BrvConfig {
-    // Minimal check if json is an object
     if (typeof json !== 'object' || json === null || json === undefined) {
       throw new Error('BrvConfig JSON must be an object')
-    }
-
-    // Check version FIRST (before full structure validation)
-    // This ensures outdated configs get a helpful version error
-    // instead of a generic structure error
-    const jsonObj = json as Record<string, unknown>
-    const version = typeof jsonObj.version === 'string' ? jsonObj.version : undefined
-
-    if (version === undefined) {
-      throw new BrvConfigVersionError({
-        currentVersion: undefined,
-        expectedVersion: BRV_CONFIG_VERSION,
-      })
-    }
-
-    if (version !== BRV_CONFIG_VERSION) {
-      throw new BrvConfigVersionError({
-        currentVersion: version,
-        expectedVersion: BRV_CONFIG_VERSION,
-      })
     }
 
     if (!isBrvConfigJson(json)) {
       throw new Error('Invalid BrvConfig JSON structure')
     }
+
+    const jsonObj = json as Record<string, unknown>
+    const version = typeof jsonObj.version === 'string' ? jsonObj.version : ''
 
     return new BrvConfig({...json, version})
   }
@@ -219,6 +196,13 @@ export class BrvConfig {
   }
 
   /**
+   * Returns true when all cloud fields (spaceId, spaceName, teamId, teamName) are set.
+   */
+  public isCloudConnected(): boolean {
+    return Boolean(this.spaceId && this.spaceName && this.teamId && this.teamName)
+  }
+
+  /**
    * Serializes the config to JSON format
    */
   public toJson(): Record<string, unknown> {
@@ -236,5 +220,45 @@ export class BrvConfig {
       teamName: this.teamName,
       version: this.version,
     }
+  }
+
+  /**
+   * Creates a new BrvConfig with space fields replaced, preserving all other fields.
+   */
+  public withSpace(space: Space): BrvConfig {
+    return new BrvConfig({
+      chatLogPath: this.chatLogPath,
+      cipherAgentContext: this.cipherAgentContext,
+      cipherAgentModes: this.cipherAgentModes,
+      cipherAgentSystemPrompt: this.cipherAgentSystemPrompt,
+      createdAt: new Date().toISOString(),
+      cwd: this.cwd,
+      ide: this.ide,
+      spaceId: space.id,
+      spaceName: space.name,
+      teamId: space.teamId,
+      teamName: space.teamName,
+      version: this.version,
+    })
+  }
+
+  /**
+   * Creates a new BrvConfig with version updated, preserving all other fields.
+   */
+  public withVersion(version: string): BrvConfig {
+    return new BrvConfig({
+      chatLogPath: this.chatLogPath,
+      cipherAgentContext: this.cipherAgentContext,
+      cipherAgentModes: this.cipherAgentModes,
+      cipherAgentSystemPrompt: this.cipherAgentSystemPrompt,
+      createdAt: this.createdAt,
+      cwd: this.cwd,
+      ide: this.ide,
+      spaceId: this.spaceId,
+      spaceName: this.spaceName,
+      teamId: this.teamId,
+      teamName: this.teamName,
+      version,
+    })
   }
 }

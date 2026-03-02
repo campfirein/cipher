@@ -3,8 +3,10 @@ import type { REPLResult, SandboxConfig } from '../../core/domain/sandbox/types.
 import type { ICurateService } from '../../core/interfaces/i-curate-service.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
+import type { SessionManager } from '../session/session-manager.js'
 import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
 
+import {CurateResultCollector} from './curate-result-collector.js'
 import { LocalSandbox } from './local-sandbox.js'
 import { createToolsSDK } from './tools-sdk.js'
 
@@ -13,24 +15,29 @@ import { createToolsSDK } from './tools-sdk.js'
  * Manages sandbox instances tied to agent sessions.
  */
 export class SandboxService implements ISandboxService {
+  /** Collector wrapping curateService — captures curate() results per executeCode() call */
+  private collector?: CurateResultCollector
   /** Curate service for Tools SDK */
   private curateService?: ICurateService
   /** Environment context for sandbox injection */
   private environmentContext?: EnvironmentContext
   /** File system service for Tools SDK */
   private fileSystem?: IFileSystem
+  /** Variables buffered before sandbox creation, keyed by sessionId */
+  private pendingVariables = new Map<string, Record<string, unknown>>()
   /** Map of agent sessionId to LocalSandbox instance */
   private sandboxes = new Map<string, LocalSandbox>()
   /** Search knowledge service for Tools SDK */
   private searchKnowledgeService?: ISearchKnowledgeService
-  /** Cached Tools SDK instance (created when fileSystem is set) */
-  private toolsSDK?: ToolsSDK
+  /** Session manager for sub-agent delegation via tools.agentQuery() */
+  private sessionManager?: SessionManager
 
   /**
    * Clean up all resources (called on agent shutdown).
    */
   async cleanup(): Promise<void> {
     this.sandboxes.clear()
+    this.pendingVariables.clear()
   }
 
   /**
@@ -40,6 +47,26 @@ export class SandboxService implements ISandboxService {
    */
   async clearSession(sessionId: string): Promise<void> {
     this.sandboxes.delete(sessionId)
+    this.pendingVariables.delete(sessionId)
+  }
+
+  /**
+   * Delete a variable from a session's sandbox.
+   * If the sandbox doesn't exist yet, cleans up any pending variable with that key.
+   *
+   * @param sessionId - Session identifier
+   * @param key - Variable name to delete
+   */
+  deleteSandboxVariable(sessionId: string, key: string): void {
+    const sandbox = this.sandboxes.get(sessionId)
+    if (sandbox) {
+      sandbox.updateContext({ [key]: undefined })
+    }
+
+    const pending = this.pendingVariables.get(sessionId)
+    if (pending) {
+      delete pending[key]
+    }
   }
 
   /**
@@ -61,16 +88,32 @@ export class SandboxService implements ISandboxService {
         initialContext.context = config.contextPayload
       }
 
+      // Inject any pending variables set before sandbox creation
+      const pending = this.pendingVariables.get(sessionId)
+      if (pending) {
+        Object.assign(initialContext, pending)
+        this.pendingVariables.delete(sessionId)
+      }
+
+      // Build per-session ToolsSDK (includes agentQuery bound to this sessionId)
+      const sessionToolsSDK = this.buildToolsSDK(sessionId)
+
       sandbox = new LocalSandbox({
         environmentContext: this.environmentContext,
         initialContext,
-        toolsSDK: this.toolsSDK,
+        toolsSDK: sessionToolsSDK,
       })
+
       this.sandboxes.set(sessionId, sandbox)
     }
     else if (config?.contextPayload) {
       // Update context if provided
       sandbox.updateContext({ context: config.contextPayload })
+    }
+
+    if (this.collector) {
+      const {curateResults, result} = await this.collector.collect(() => sandbox.execute(code, config))
+      return curateResults.length > 0 ? {...result, curateResults} : result
     }
 
     return sandbox.execute(code, config)
@@ -83,8 +126,9 @@ export class SandboxService implements ISandboxService {
    * @param curateService - Curate service instance
    */
   setCurateService(curateService: ICurateService): void {
-    this.curateService = curateService
-    this.rebuildToolsSDK()
+    this.collector = new CurateResultCollector(curateService)
+    this.curateService = this.collector
+    this.invalidateSandboxes()
   }
 
   /**
@@ -107,7 +151,32 @@ export class SandboxService implements ISandboxService {
    */
   setFileSystem(fileSystem: IFileSystem): void {
     this.fileSystem = fileSystem
-    this.rebuildToolsSDK()
+    this.invalidateSandboxes()
+  }
+
+  /**
+   * Set a variable in a session's sandbox.
+   * If the sandbox doesn't exist yet, the variable is buffered and injected
+   * when the sandbox is created on the first executeCode() call.
+   *
+   * @param sessionId - Session identifier
+   * @param key - Variable name
+   * @param value - Variable value
+   */
+  setSandboxVariable(sessionId: string, key: string, value: unknown): void {
+    const sandbox = this.sandboxes.get(sessionId)
+    if (sandbox) {
+      sandbox.updateContext({ [key]: value })
+    } else {
+      // Buffer — will be injected when sandbox is created in executeCode()
+      let pending = this.pendingVariables.get(sessionId)
+      if (!pending) {
+        pending = {}
+        this.pendingVariables.set(sessionId, pending)
+      }
+
+      pending[key] = value
+    }
   }
 
   /**
@@ -118,19 +187,44 @@ export class SandboxService implements ISandboxService {
    */
   setSearchKnowledgeService(searchKnowledgeService: ISearchKnowledgeService): void {
     this.searchKnowledgeService = searchKnowledgeService
-    this.rebuildToolsSDK()
+    this.invalidateSandboxes()
   }
 
   /**
-   * Rebuild the Tools SDK instance when services change.
-   * Clears existing sandboxes so new ones get the updated SDK.
+   * Set the session manager for sub-agent delegation.
+   * When set, new sandboxes will have access to `tools.agentQuery()`.
+   *
+   * @param sessionManager - Session manager instance
    */
-  private rebuildToolsSDK(): void {
+  setSessionManager(sessionManager: SessionManager): void {
+    this.sessionManager = sessionManager
+  }
+
+  /**
+   * Build a Tools SDK instance for a specific session.
+   * Includes `agentQuery` bound to the session's ID for sub-agent delegation.
+   */
+  private buildToolsSDK(sessionId: string): ToolsSDK | undefined {
+    if (!this.fileSystem) {
+      return undefined
+    }
+
+    return createToolsSDK({
+      curateService: this.curateService,
+      fileSystem: this.fileSystem,
+      parentSessionId: sessionId,
+      sandboxService: this,
+      searchKnowledgeService: this.searchKnowledgeService,
+      sessionManager: this.sessionManager,
+    })
+  }
+
+  /**
+   * Clear existing sandboxes so new ones get updated services.
+   * Called when file system, curate, or search services change.
+   */
+  private invalidateSandboxes(): void {
     if (this.fileSystem) {
-      this.toolsSDK = createToolsSDK(this.fileSystem, this.searchKnowledgeService, this.curateService)
-      // Clear existing sandboxes so new ones get the updated tools SDK
-      // Note: This means existing sessions lose their state when services are updated
-      // This is acceptable since services are typically set once at startup
       this.sandboxes.clear()
     }
   }

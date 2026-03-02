@@ -104,8 +104,30 @@ export function normalizeRelation(relation: string): string {
 }
 
 /**
+ * Normalize a relation path: remove @ prefix, ensure .md extension,
+ * lowercase, and replace spaces with underscores.
+ *
+ * @param relation - Relation path (with or without @ prefix)
+ * @returns Normalized relation path
+ *
+ * @example
+ * ```ts
+ * normalizeRelationPath('Architecture/Agents/Overview.md') // 'architecture/agents/overview.md'
+ * normalizeRelationPath('@code_style/error-handling/overview') // 'code_style/error-handling/overview.md'
+ * normalizeRelationPath('Architecture/Agents/Sandbox and Security.md') // 'architecture/agents/sandbox_and_security.md'
+ * ```
+ */
+export function normalizeRelationPath(relation: string): string {
+  const normalized = normalizeRelation(relation)
+  const withExtension = normalized.endsWith('.md') ? normalized : `${normalized}.md`
+
+  return withExtension.toLowerCase().replaceAll(/\s+/g, '_')
+}
+
+/**
  * Generate the Relations section for context.md.
  * Returns empty string if no relations provided.
+ * @deprecated Use frontmatter `related` field instead. Kept for backward compatibility.
  *
  * @param relations - Array of relation paths (with or without @ prefix)
  * @returns Markdown formatted Relations section or empty string
@@ -128,14 +150,7 @@ export function generateRelationsSection(relations: string[]): string {
   }
 
   const formattedRelations = relations
-    .map(rel => {
-      const normalized = normalizeRelation(rel)
-      // Ensure .md extension is present
-      const withExtension = normalized.endsWith('.md') ? normalized : `${normalized}.md`
-      // Normalize: lowercase and replace spaces with underscores
-      const normalizedPath = withExtension.toLowerCase().replaceAll(/\s+/g, '_')
-      return `@${normalizedPath}`
-    })
+    .map(rel => `@${normalizeRelationPath(rel)}`)
     .join('\n')
 
   return `\n## Relations\n${formattedRelations}\n`

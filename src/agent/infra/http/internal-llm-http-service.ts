@@ -41,14 +41,18 @@ type GenerateResponse = {
 
 /**
  * ByteRover HTTP LLM provider configuration.
+ *
+ * projectId, sessionKey, spaceId, teamId accept either a static string or a provider function.
+ * Provider functions are resolved lazily on each HTTP request,
+ * so long-lived agents always get the latest values from the StateServer.
  */
 export interface ByteRoverHttpConfig {
   apiBaseUrl: string
-  projectId?: string
+  projectId?: (() => string) | string
   region?: string
-  sessionKey: string
-  spaceId: string
-  teamId: string
+  sessionKey: (() => string) | string
+  spaceId: (() => string) | string
+  teamId: (() => string) | string
   timeout?: number
 }
 
@@ -70,7 +74,7 @@ export interface ByteRoverHttpConfig {
  */
 export class ByteRoverLlmHttpService {
   private readonly config: Required<Omit<ByteRoverHttpConfig, 'projectId'>> & {
-    projectId: string
+    projectId: (() => string) | string
   }
 
   /**
@@ -81,7 +85,7 @@ export class ByteRoverLlmHttpService {
    * - region defaults to 'us-east1' (can be overridden per request)
    * - timeout defaults to 60 seconds
    *
-   * @param config - HTTP client configuration (accessToken, apiBaseUrl, sessionKey, optional: projectId, region, timeout)
+   * @param config - HTTP client configuration (apiBaseUrl, sessionKey, optional: projectId, region, timeout)
    */
   public constructor(config: ByteRoverHttpConfig) {
     this.config = {
@@ -125,11 +129,11 @@ export class ByteRoverLlmHttpService {
         contents,
         model,
       },
-      project_id: this.config.projectId,
+      project_id: typeof this.config.projectId === 'function' ? this.config.projectId() : this.config.projectId,
       provider: this.detectProviderFromModel(model),
       region: this.detectRegionFromModel(model),
-      spaceId: this.config.spaceId,
-      teamId: this.config.teamId,
+      spaceId: typeof this.config.spaceId === 'function' ? this.config.spaceId() : this.config.spaceId,
+      teamId: typeof this.config.teamId === 'function' ? this.config.teamId() : this.config.teamId,
     }
 
     return this.callHttpGenerate(request)
@@ -178,7 +182,8 @@ export class ByteRoverLlmHttpService {
    */
   private async callHttpGenerate(request: GenerateRequest): Promise<GenerateContentResponse> {
     const url = `${this.config.apiBaseUrl}/api/llm/generate`
-    const httpClient = new AuthenticatedHttpClient(this.config.sessionKey)
+    const sessionKey = typeof this.config.sessionKey === 'function' ? this.config.sessionKey() : this.config.sessionKey
+    const httpClient = new AuthenticatedHttpClient(sessionKey)
 
     const httpResponse = await httpClient.post<GenerateResponse>(url, request, {
       timeout: this.config.timeout,
@@ -248,7 +253,7 @@ export class ByteRoverLlmHttpService {
 
     // Collect text content (excluding thinking parts)
     const textParts: string[] = []
-    const functionCalls: Array<{args?: Record<string, unknown>; name?: string}> = []
+    const functionCalls: Array<{args?: Record<string, unknown>; name?: string; thoughtSignature?: string}> = []
 
     for (const part of parts) {
       const partRecord = part as Record<string, unknown>
@@ -261,9 +266,12 @@ export class ByteRoverLlmHttpService {
         textParts.push(partRecord.text)
       }
 
-      // Collect function calls
+      // Collect function calls (preserve thoughtSignature for Gemini 3+ models)
       if (partRecord.functionCall) {
-        functionCalls.push(partRecord.functionCall as {args?: Record<string, unknown>; name?: string})
+        functionCalls.push({
+          ...(partRecord.functionCall as {args?: Record<string, unknown>; name?: string}),
+          ...(typeof partRecord.thoughtSignature === 'string' && {thoughtSignature: partRecord.thoughtSignature}),
+        })
       }
     }
 
@@ -280,6 +288,7 @@ export class ByteRoverLlmHttpService {
                 name: fc.name ?? '',
               },
               id: `call_${Date.now()}_${index}`,
+              ...(fc.thoughtSignature && {thoughtSignature: fc.thoughtSignature}),
               type: 'function' as const,
             }))
           : undefined,

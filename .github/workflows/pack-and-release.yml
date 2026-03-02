@@ -1,0 +1,130 @@
+name: Pack and Release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+env:
+  GCS_BUCKET: brv-releases
+  NODE_VERSION: '24'
+
+jobs:
+  pack:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: macos-latest
+            target: darwin-arm64
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Validate version matches tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
+            exit 1
+          fi
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.TRANSPORT_CLIENT_DEPLOY_KEY }}
+      - run: npm ci
+      - run: npm run prepack
+      - name: Pack tarballs
+        run: npx oclif pack tarballs --targets=${{ matrix.target }} --no-xz
+      - name: Upload tarball artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: tarball-${{ matrix.target }}
+          path: dist/
+          retention-days: 7
+
+  upload:
+    needs: pack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Download all tarball artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: dist/
+          merge-multiple: true
+      - name: List all artifacts
+        run: ls -lhR dist/
+      - name: Determine version and SHA
+        id: meta
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          SHA=$(git rev-parse --short HEAD)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "Version: ${VERSION}, SHA: ${SHA}"
+      - name: Upload versioned artifacts to GCS
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          SHA="${{ steps.meta.outputs.sha }}"
+          GCS_DIR="gs://${GCS_BUCKET}/versions/${VERSION}/${SHA}"
+          echo "Uploading to ${GCS_DIR}/"
+          for file in dist/*; do
+            [ -f "$file" ] || continue
+            filename=$(basename "$file")
+            content_type="application/octet-stream"
+            if [[ "$filename" == *-buildmanifest ]]; then
+              content_type="application/json"
+            elif [[ "$filename" == *.tar.gz ]]; then
+              content_type="application/gzip"
+            fi
+            echo "Uploading ${filename} (${content_type})"
+            gsutil -h "Content-Type:${content_type}" \
+              cp "$file" "${GCS_DIR}/${filename}"
+          done
+      - name: Promote to stable channel
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          SHA="${{ steps.meta.outputs.sha }}"
+          GCS_VERSIONED="gs://${GCS_BUCKET}/versions/${VERSION}/${SHA}"
+          GCS_CHANNEL="gs://${GCS_BUCKET}/channels/stable"
+          for target in darwin-arm64 linux-x64 linux-arm64; do
+            versioned_tarball="brv-v${VERSION}-${SHA}-${target}.tar.gz"
+            channel_tarball="brv-${target}.tar.gz"
+            echo "Promoting ${versioned_tarball} -> ${channel_tarball}"
+            gsutil cp "${GCS_VERSIONED}/${versioned_tarball}" \
+              "${GCS_CHANNEL}/${channel_tarball}"
+            versioned_manifest="brv-v${VERSION}-${SHA}-${target}-buildmanifest"
+            channel_manifest="brv-${target}-buildmanifest"
+            echo "Promoting ${versioned_manifest} -> ${channel_manifest}"
+            gsutil cp "${GCS_VERSIONED}/${versioned_manifest}" \
+              "${GCS_CHANNEL}/${channel_manifest}"
+          done
+      - name: Write version file to stable channel
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          echo "$VERSION" | gsutil -h "Content-Type:text/plain" \
+            cp - "gs://${GCS_BUCKET}/channels/stable/version"
+      - name: Verify uploads
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          SHA="${{ steps.meta.outputs.sha }}"
+          echo "=== Versioned artifacts ==="
+          gsutil ls "gs://${GCS_BUCKET}/versions/${VERSION}/${SHA}/"
+          echo ""
+          echo "=== Stable channel ==="
+          gsutil ls "gs://${GCS_BUCKET}/channels/stable/"

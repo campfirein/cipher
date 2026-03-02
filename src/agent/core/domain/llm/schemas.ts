@@ -8,7 +8,7 @@ import {z} from 'zod'
 
 import {ErrorScope, ErrorType, LLMErrorCode} from './error-codes.js'
 import {acceptsAnyModel, getMaxInputTokensForModel, getSupportedModels, isValidProviderModel} from './registry.js'
-import {LLM_PROVIDERS} from './types.js'
+import {PROVIDER_TYPES} from './types.js'
 
 /**
  * Default-free field definitions for LLM configuration.
@@ -41,8 +41,8 @@ const LLMConfigFields = {
     .describe('Specific model name for the selected provider'),
 
   provider: z
-    .enum(LLM_PROVIDERS)
-    .describe("LLM provider (e.g., 'claude', 'gemini', 'openrouter')"),
+    .enum(PROVIDER_TYPES)
+    .describe("LLM provider type (e.g., 'claude', 'gemini', 'openai')"),
 
   temperature: z.coerce
     .number()

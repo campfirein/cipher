@@ -9,10 +9,9 @@ import {Box, Spacer, Text, useInput, useStdout} from 'ink'
 import {ScrollView, ScrollViewRef} from 'ink-scroll-view'
 import React, {useEffect, useRef, useState} from 'react'
 
-import type {CommandMessage} from '../../types.js'
+import type {CommandMessage} from '../../types/index.js'
 
-import {useCommands} from '../../contexts/commands-context.js'
-import {useTheme} from '../../hooks/index.js'
+import {useCommands, useTheme} from '../../hooks/index.js'
 import {formatTime} from '../../utils/index.js'
 import {MessageItem} from '../message-item.js'
 import {CommandOutput} from './command-output.js'
@@ -38,7 +37,7 @@ export const ExpandedCommandView: React.FC<ExpandedCommandViewProps> = ({
   onClose,
   terminalWidth,
 }) => {
-  const {activePrompt, isStreaming, streamingMessages} = useCommands()
+  const {isStreaming, streamingMessages} = useCommands()
   const {
     theme: {colors},
   } = useTheme()
@@ -75,7 +74,7 @@ export const ExpandedCommandView: React.FC<ExpandedCommandViewProps> = ({
     (input, key) => {
       if (!scrollViewRef.current) return
 
-      if ((key.ctrl && input === 'o')) {
+      if (key.ctrl && input === 'o') {
         onClose()
       }
 
@@ -102,12 +101,12 @@ export const ExpandedCommandView: React.FC<ExpandedCommandViewProps> = ({
         updateScrollIndicator()
       }
     },
-    {isActive}
+    {isActive},
   )
 
   const displayTime = message.timestamp ? formatTime(message.timestamp) : ''
   const hasCompletedOutput = message.output && message.output.length > 0
-  const showLiveOutput = (isStreaming || activePrompt) && (streamingMessages.length > 0 || activePrompt)
+  const showLiveOutput = isStreaming && streamingMessages.length > 0
 
   if (message.type === 'error') {
     return <MessageItem isActive={isActive} isExpanded message={message} onClose={onClose} />
@@ -128,7 +127,6 @@ export const ExpandedCommandView: React.FC<ExpandedCommandViewProps> = ({
           <Box flexDirection="column">
             {!hasCompletedOutput && showLiveOutput && (
               <LiveStreamingOutput
-                activePrompt={activePrompt}
                 isExpanded
                 isStreaming={isStreaming}
                 streamingMessages={streamingMessages}
@@ -136,13 +134,9 @@ export const ExpandedCommandView: React.FC<ExpandedCommandViewProps> = ({
               />
             )}
 
-            {hasCompletedOutput && (
-              <CommandOutput isExpanded output={message.output!} terminalWidth={terminalWidth} />
-            )}
+            {hasCompletedOutput && <CommandOutput isExpanded output={message.output!} terminalWidth={terminalWidth} />}
 
-            {!hasCompletedOutput && !showLiveOutput && (
-              <Text color={colors.dimText}>No output</Text>
-            )}
+            {!hasCompletedOutput && !showLiveOutput && <Text color={colors.dimText}>No output</Text>}
           </Box>
         </ScrollView>
         {/* More content indicator */}

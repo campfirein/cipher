@@ -15,7 +15,7 @@
 import {Box, Text, useInput} from 'ink'
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
 
-import {useTheme} from '../contexts/theme-context.js'
+import {useTheme} from '../hooks/index.js'
 
 /**
  * Props for SelectableList component.
@@ -31,6 +31,8 @@ export interface SelectableListProps<T> {
   getCurrentKey?: (item: T) => string
   /** Optional grouping function */
   groupBy?: (item: T) => string
+  /** Hide the Cancel keybind hint and disable Esc to cancel */
+  hideCancelButton?: boolean
   /** Initial search value */
   initialSearch?: string
   /** Whether keyboard input is active */
@@ -83,6 +85,7 @@ export function SelectableList<T>({
   filterKeys,
   getCurrentKey,
   groupBy,
+  hideCancelButton = false,
   initialSearch = '',
   isActive = true,
   items,
@@ -94,7 +97,9 @@ export function SelectableList<T>({
   searchPlaceholder = 'Search...',
   title,
 }: SelectableListProps<T>): React.ReactElement {
-  const {theme: {colors}} = useTheme()
+  const {
+    theme: {colors},
+  } = useTheme()
   const [searchValue, setSearchValue] = useState(initialSearch)
   const [selectedIndex, setSelectedIndex] = useState(0)
 
@@ -171,23 +176,13 @@ export function SelectableList<T>({
         upArrow?: boolean
       },
     ) => {
-      if (key.upArrow || input === 'k') {
+      if (key.upArrow) {
         moveUp()
         return true
       }
 
-      if (key.downArrow || input === 'j') {
+      if (key.downArrow) {
         moveDown()
-        return true
-      }
-
-      if (input === 'g' && !key.ctrl && !key.meta) {
-        setSelectedIndex(0)
-        return true
-      }
-
-      if (input === 'G') {
-        setSelectedIndex(Math.max(0, flatItems.length - 1))
         return true
       }
 
@@ -225,7 +220,7 @@ export function SelectableList<T>({
       }
 
       // Cancel
-      if (key.escape) {
+      if (key.escape && !hideCancelButton) {
         onCancel?.()
         return
       }
@@ -264,9 +259,7 @@ export function SelectableList<T>({
     start = Math.max(0, start)
     start = Math.min(start, Math.max(0, flatItems.length - maxItems))
 
-    const visibleItemKeys = new Set(
-      flatItems.slice(start, start + maxItems).map((item) => keyExtractor(item)),
-    )
+    const visibleItemKeys = new Set(flatItems.slice(start, start + maxItems).map((item) => keyExtractor(item)))
 
     // Filter groups to only include visible items
     const visible = groupedItems
@@ -286,12 +279,7 @@ export function SelectableList<T>({
   const currentKey = currentItem && getCurrentKey ? getCurrentKey(currentItem) : undefined
 
   return (
-    <Box
-      borderColor={colors.border}
-      borderStyle="single"
-      flexDirection="column"
-      paddingX={1}
-    >
+    <Box borderColor={colors.border} borderStyle="single" flexDirection="column" paddingX={1}>
       {/* Title */}
       {title && (
         <Box marginBottom={1}>
@@ -304,9 +292,7 @@ export function SelectableList<T>({
       {/* Search input */}
       <Box marginBottom={1}>
         <Text color={colors.dimText}>🔍 </Text>
-        <Text color={searchValue ? colors.text : colors.dimText}>
-          {searchValue || searchPlaceholder}
-        </Text>
+        <Text color={searchValue ? colors.text : colors.dimText}>{searchValue || searchPlaceholder}</Text>
         <Text color={colors.primary}>▎</Text>
       </Box>
 
@@ -344,9 +330,7 @@ export function SelectableList<T>({
               return (
                 <Box key={key}>
                   {/* Current indicator */}
-                  <Text color={isActive ? colors.primary : colors.text}>
-                    {isCurrent ? '● ' : '  '}
-                  </Text>
+                  <Text color={isActive ? colors.primary : colors.text}>{isCurrent ? '● ' : '  '}</Text>
                   {/* Selection indicator */}
                   <Text
                     backgroundColor={isActive ? colors.dimText : undefined}
@@ -366,9 +350,7 @@ export function SelectableList<T>({
       {/* More below indicator */}
       {hasMoreBelow && (
         <Box justifyContent="center">
-          <Text color={colors.dimText}>
-            ↓ {flatItems.length - windowStart - (availableHeight - 4)} more below
-          </Text>
+          <Text color={colors.dimText}>↓ {flatItems.length - windowStart - (availableHeight - 4)} more below</Text>
         </Box>
       )}
 
@@ -380,9 +362,11 @@ export function SelectableList<T>({
         <Text color={colors.dimText}>
           <Text color={colors.text}>Enter</Text> Select
         </Text>
-        <Text color={colors.dimText}>
-          <Text color={colors.text}>Esc</Text> Cancel
-        </Text>
+        {!hideCancelButton && (
+          <Text color={colors.dimText}>
+            <Text color={colors.text}>Esc</Text> Cancel
+          </Text>
+        )}
         {keybinds.map((kb) => (
           <Text color={colors.dimText} key={kb.key}>
             <Text color={colors.text}>{kb.key}</Text> {kb.label}

@@ -1,7 +1,6 @@
 export const BRV_DIR = '.brv'
 export const BLOBS_DIR = 'blobs'
 export const PROJECT_CONFIG_FILE = 'config.json'
-export const INSTANCE_FILE = 'instance.json'
 export const BRV_CONFIG_VERSION = '0.0.1'
 
 // Global config constants (user-level, stored in XDG config directory)
@@ -19,6 +18,8 @@ export const PROJECT = 'byterover'
 
 // Context Tree directory structure constants
 export const CONTEXT_TREE_DIR = 'context-tree'
+export const CONTEXT_TREE_BACKUP_DIR = 'context-tree-backup'
+export const CONTEXT_TREE_CONFLICT_DIR = 'context-tree-conflicts'
 export const CONTEXT_FILE = 'context.md'
 export const CONTEXT_FILE_EXTENSION = '.md'
 export const README_FILE = 'README.md'
@@ -31,8 +32,9 @@ export const SNAPSHOT_FILE = '.snapshot.json'
 export const DEFAULT_BRANCH = 'main'
 
 // Transport layer constants (optimized for localhost real-time)
-export const TRANSPORT_HOST = '127.0.0.1' // Use hostname for better sandbox compatibility
+export const TRANSPORT_HOST = '127.0.0.1' // Use IP address for better sandbox compatibility
 export const TRANSPORT_REQUEST_TIMEOUT_MS = 10_000 // 10s - most operations complete quickly
+export const TRANSPORT_SPACE_SWITCH_TIMEOUT_MS = 60_000 // 60s - includes cogit pull + merge
 export const TRANSPORT_ROOM_TIMEOUT_MS = 2000 // 2s - room ops are instant on localhost
 export const TRANSPORT_CONNECT_TIMEOUT_MS = 3000 // 3s - 127.0.0.1 connects in <10ms
 export const TRANSPORT_RECONNECTION_DELAY_MS = 50 // 50ms - ultra aggressive start
@@ -46,3 +48,55 @@ export const TRANSPORT_DEFAULT_TRANSPORTS: ('polling' | 'websocket')[] = ['webso
 
 // LLM Model defaults
 export const DEFAULT_LLM_MODEL = 'gemini-3-flash-preview'
+
+// Project room naming convention
+export const PROJECT_ROOM_PREFIX = 'project:'
+export const PROJECT_ROOM_SUFFIX = ':broadcast'
+
+// === Daemon infrastructure constants ===
+export const GLOBAL_PROJECTS_DIR = 'projects'
+export const REGISTRY_FILE = 'registry.json'
+export const DYNAMIC_PORT_MIN = 49_152
+export const DYNAMIC_PORT_MAX = 65_535
+export const PORT_BATCH_SIZE = 20
+export const PORT_MAX_ATTEMPTS = 5
+// Heartbeat
+export const HEARTBEAT_FILE = 'heartbeat'
+export const HEARTBEAT_INTERVAL_MS = 5000 // Write every 5s
+
+// === Idle timeout (server daemon shutdown) ===
+
+/** Server idle timeout - daemon shuts down after this period of no clients */
+export const SERVER_IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
+
+// === Agent idle timeout (agent process cleanup) ===
+
+/** Agent idle timeout - kill agent after this period of no task execution */
+export const AGENT_IDLE_TIMEOUT_MS = 15 * 60 * 1000 // 15 minutes
+
+/** Agent idle check interval - how often to check for idle agents */
+export const AGENT_IDLE_CHECK_INTERVAL_MS = 10_000 // Check every 10s (responsive)
+
+// Sleep/wake detection
+export const SLEEP_WAKE_CHECK_INTERVAL_MS = 5000
+export const SLEEP_WAKE_THRESHOLD_MULTIPLIER = 3
+
+// Spawn lock, daemon readiness polling, daemon stop budget
+// → moved to @campfirein/brv-transport-client
+
+// Shutdown
+export const TRANSPORT_STOP_TIMEOUT_MS = 3000 // 3s max for transport server to stop
+export const SHUTDOWN_FORCE_EXIT_MS = 5000 // 5s safety net before force exit
+
+// Auth state polling (daemon)
+export const AUTH_STATE_POLL_INTERVAL_MS = 5000 // Poll token store every 5s
+
+// Agent Pool (T6)
+export const AGENT_MAX_CONCURRENT_TASKS = 5 // Max parallel curate/query tasks per agent process
+export const AGENT_POOL_MAX_SIZE = 10
+export const AGENT_PROCESS_READY_TIMEOUT_MS = 15_000 // 15s max wait for child process to register
+export const AGENT_PROCESS_STOP_TIMEOUT_MS = 5000 // 5s max wait for child process to stop gracefully
+
+// Curate log
+export const CURATE_LOG_DIR = 'curate-log'
+export const CURATE_LOG_ID_PREFIX = 'cur'

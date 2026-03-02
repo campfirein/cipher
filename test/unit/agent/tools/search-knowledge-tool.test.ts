@@ -203,13 +203,14 @@ describe('Search Knowledge Tool', () => {
       expect(apiResult?.excerpt.length).to.be.greaterThan(0)
     })
 
-    it('should include score in results', async () => {
+    it('should include normalized score in [0, 1) range', async () => {
       const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'authentication'})) as SearchKnowledgeOutput
 
       for (const r of result.results) {
         expect(r.score).to.be.a('number')
         expect(r.score).to.be.greaterThan(0)
+        expect(r.score).to.be.lessThan(1)
       }
     })
 
@@ -844,10 +845,7 @@ describe('Search Knowledge Tool', () => {
       })
 
       // First batch of parallel calls
-      const firstBatch = await Promise.all([
-        tool.execute({query: 'test'}),
-        tool.execute({query: 'test'}),
-      ])
+      const firstBatch = await Promise.all([tool.execute({query: 'test'}), tool.execute({query: 'test'})])
 
       // Both should succeed
       expect((firstBatch[0] as SearchKnowledgeOutput).results).to.be.an('array')
@@ -874,10 +872,7 @@ describe('Search Knowledge Tool', () => {
       })
 
       // Second batch - should rebuild due to changed mtime
-      const secondBatch = await Promise.all([
-        tool.execute({query: 'test'}),
-        tool.execute({query: 'test'}),
-      ])
+      const secondBatch = await Promise.all([tool.execute({query: 'test'}), tool.execute({query: 'test'})])
 
       expect((secondBatch[0] as SearchKnowledgeOutput).results).to.be.an('array')
       expect((secondBatch[1] as SearchKnowledgeOutput).results).to.be.an('array')
@@ -907,9 +902,7 @@ describe('Search Knowledge Tool', () => {
       })
 
       // Run many concurrent executions - should complete without deadlock
-      const manyPromises = Array.from({length: 10}, (_, i) =>
-        tool.execute({query: `query${i}`})
-      )
+      const manyPromises = Array.from({length: 10}, (_, i) => tool.execute({query: `query${i}`}))
 
       // Should complete within reasonable time (not hang)
       const results = await Promise.race([

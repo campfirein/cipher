@@ -1,31 +1,15 @@
 import type {ConnectorType} from './connector-type.js'
 
-/**
- * Array of all supported Agents.
- */
-export const AGENT_VALUES = [
-  'Amp',
-  'Antigravity',
-  'Augment Code',
-  'Claude Code',
-  'Cline',
-  'Codex',
-  'Cursor',
-  'Gemini CLI',
-  'Github Copilot',
-  'Junie',
-  'Kilo Code',
-  'Kiro',
-  'Qoder',
-  'Qwen Code',
-  'Roo Code',
-  'Trae.ai',
-  'Warp',
-  'Windsurf',
-  'Zed',
-] as const
+export {type Agent, AGENT_VALUES} from '../../../../shared/types/agent.js'
 
-export type Agent = (typeof AGENT_VALUES)[number]
+// Re-import Agent for use in this file's type definitions
+import {type Agent, AGENT_VALUES} from '../../../../shared/types/agent.js'
+
+const agentSet: ReadonlySet<string> = new Set(AGENT_VALUES)
+
+export function isAgent(value: string): value is Agent {
+  return agentSet.has(value)
+}
 
 /**
  * Connector availability configuration for an agent.
@@ -43,27 +27,31 @@ type AgentConnectorConfig = {
  */
 export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
   Amp: {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   Antigravity: {
-    default: 'rules',
-    supported: ['rules'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
+  },
+  'Auggie CLI': {
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   'Augment Code': {
-    default: 'rules',
-    supported: ['rules'],
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
   },
   'Claude Code': {
     default: 'skill',
     supported: ['rules', 'hook', 'mcp', 'skill'],
   },
   Cline: {
-    default: 'rules',
-    supported: ['rules'],
+    default: 'mcp',
+    supported: ['rules', 'mcp'],
   },
   Codex: {
-    default: 'mcp',
+    default: 'skill',
     supported: ['rules', 'mcp', 'skill'],
   },
   Cursor: {
@@ -71,48 +59,56 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
     supported: ['rules', 'mcp', 'skill'],
   },
   'Gemini CLI': {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   'Github Copilot': {
-    default: 'mcp',
+    default: 'skill',
     supported: ['rules', 'mcp', 'skill'],
   },
   Junie: {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   'Kilo Code': {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   Kiro: {
-    default: 'mcp',
-    supported: ['rules', 'mcp'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
+  },
+  OpenClaw: {
+    default: 'skill',
+    supported: ['skill'],
+  },
+  OpenCode: {
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   Qoder: {
-    default: 'rules',
-    supported: ['rules'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   'Qwen Code': {
-    default: 'rules',
-    supported: ['rules'],
-  },
-  'Roo Code': {
     default: 'mcp',
     supported: ['rules', 'mcp'],
   },
+  'Roo Code': {
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
+  },
   'Trae.ai': {
-    default: 'rules',
-    supported: ['rules'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   Warp: {
-    default: 'rules',
-    supported: ['rules'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   Windsurf: {
-    default: 'rules',
-    supported: ['rules'],
+    default: 'skill',
+    supported: ['rules', 'mcp', 'skill'],
   },
   Zed: {
     default: 'mcp',

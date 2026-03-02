@@ -1,6 +1,7 @@
 import path from 'node:path'
 
 import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
+import type {CurationStatus} from '../../core/domain/entities/curation-status.js'
 import type {CurateExecuteOptions, ICurateExecutor} from '../../core/interfaces/executor/i-curate-executor.js'
 
 import {FileValidationError} from '../../core/domain/errors/task-error.js'
@@ -18,8 +19,8 @@ import {validateFileForCurate} from '../../utils/file-validator.js'
  * It's an Executor that wraps agent.execute() with curate-specific options.
  *
  * Architecture:
- * - TaskProcessor injects the long-lived CipherAgent
- * - Event streaming is handled by agent-worker (subscribes to agentEventBus)
+ * - AgentProcess injects the long-lived CipherAgent
+ * - Event streaming is handled by agent-process (subscribes to agentEventBus)
  * - Transport handles task lifecycle (task:started, task:completed, task:error)
  * - Executor focuses solely on curate execution
  */
@@ -32,6 +33,8 @@ export class CurateExecutor implements ICurateExecutor {
   private static readonly MAX_LINES_PER_FILE = 2000
   /** Maximum pages to extract for PDFs */
   private static readonly MAX_PDF_PAGES = 50
+  /** Last curation status — available for future status-check command */
+  public lastStatus?: CurationStatus
   private readonly fileContentReader: FileContentReader
 
   constructor(fileContentReader?: FileContentReader) {
@@ -41,21 +44,65 @@ export class CurateExecutor implements ICurateExecutor {
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
     const {clientCwd, content, files, taskId} = options
 
-    // Process file references - now reads file contents directly
+    // Create per-task session for parallel isolation (own sandbox + history + LLM service)
+    const taskSessionId = await agent.createTaskSession(taskId, 'curate')
+
+    // Process file references - reads file contents directly
     const fileReferenceInstructions = await this.processFileReferences(files ?? [], clientCwd)
 
-    // Build prompt with optional file reference instructions
-    const prompt = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
+    // Build full context (content + optional file references)
+    const fullContext = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
 
-    // Execute with curate commandType
-    // Agent uses its default session (created during start())
-    // Task lifecycle is managed by Transport (task:started, task:completed, task:error)
-    const response = await agent.execute(prompt, {
-      executionContext: {commandType: 'curate'},
-      taskId,
-    })
+    // Task-scoped variable names for RLM pattern.
+    // Replace hyphens with underscores: UUIDs have hyphens which are invalid in JS identifiers,
+    // so the LLM would naturally use underscores when writing code-exec calls — causing a
+    // ReferenceError if the variable was stored under the hyphen version.
+    const taskIdSafe = taskId.replaceAll('-', '_')
+    const ctxVar = `__curate_ctx_${taskIdSafe}`
+    const histVar = `__curate_hist_${taskIdSafe}`
+    const metaVar = `__curate_meta_${taskIdSafe}`
 
-    return response
+    // Compute context metadata (RLM pattern — LM sees metadata, not raw content)
+    const contextLines = fullContext.split('\n')
+    const metadata = {
+      charCount: fullContext.length,
+      lineCount: contextLines.length,
+      messageCount: (fullContext.match(/\n\n\[(USER|ASSISTANT)\]:/g) || []).length,
+      preview: fullContext.slice(0, 500),
+      type: 'string',
+    }
+
+    // Inject context, metadata, and empty history into the TASK session's sandbox
+    agent.setSandboxVariableOnSession(taskSessionId, ctxVar, fullContext)
+    agent.setSandboxVariableOnSession(taskSessionId, histVar, {entries: [], totalProcessed: 0})
+    agent.setSandboxVariableOnSession(taskSessionId, metaVar, metadata)
+
+    // Prompt with metadata guidance (RLM pattern: LM sees metadata first, peeks via slicing)
+    const prompt = [
+      `Curate using RLM approach.`,
+      `Context variable: ${ctxVar} (${metadata.charCount} chars, ${metadata.lineCount} lines, ${metadata.messageCount} messages)`,
+      `History variable: ${histVar}`,
+      `Metadata variable: ${metaVar}`,
+      `IMPORTANT: Do NOT print raw context. Use slicing to peek at sections (e.g., ${ctxVar}.slice(0, 3000)).`,
+      `Use silent mode (silent: true) for variable assignments. Use tools.agentQuery() for chunk processing.`,
+    ].join('\n')
+
+    try {
+      // Execute on the task session (isolated sandbox + history)
+      // Task lifecycle is managed by Transport (task:started, task:completed, task:error)
+      const response = await agent.executeOnSession(taskSessionId, prompt, {
+        executionContext: {clearHistory: true, commandType: 'curate', maxIterations: 50},
+        taskId,
+      })
+
+      // Parse curation status from agent response for status tracking
+      this.lastStatus = this.parseCurationStatus(taskId, response)
+
+      return response
+    } finally {
+      // Clean up entire task session (sandbox + history) in one call
+      await agent.deleteTaskSession(taskSessionId)
+    }
   }
 
   /**
@@ -129,6 +176,42 @@ export class CurateExecutor implements ICurateExecutor {
       default: {
         return fileType
       }
+    }
+  }
+
+  /**
+   * Parse curation status from the agent response.
+   * Extracts JSON status block if present, otherwise infers from response text.
+   */
+  private parseCurationStatus(taskId: string, response: string): CurationStatus {
+    const defaultSummary = { added: 0, deleted: 0, failed: 0, merged: 0, updated: 0 }
+    const defaultVerification = { checked: 0, confirmed: 0, missing: [] as string[] }
+
+    // Try to extract JSON status block from response (agent instructed to include it)
+    try {
+      const jsonMatch = /```json\n([\S\s]*?)\n```/.exec(response)
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[1])
+
+        return {
+          completedAt: new Date().toISOString(),
+          status: parsed.summary?.failed > 0 ? 'partial' : 'success',
+          summary: parsed.summary ?? defaultSummary,
+          taskId,
+          verification: parsed.verification ?? defaultVerification,
+        }
+      }
+    } catch {
+      // Ignore parse errors — fall through to heuristic
+    }
+
+    // Fallback: infer from response text
+    return {
+      completedAt: new Date().toISOString(),
+      status: response.includes('failed') ? 'failed' : 'success',
+      summary: defaultSummary,
+      taskId,
+      verification: defaultVerification,
     }
   }
 

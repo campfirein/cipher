@@ -10,10 +10,20 @@ export type RequestHandler<TRequest = unknown, TResponse = unknown> = (
 ) => Promise<TResponse> | TResponse
 
 /**
+ * Metadata passed with connection events.
+ * Extracted from the transport handshake by the implementation.
+ */
+export type ConnectionMetadata = {
+  /** Client's working directory, sent during connection handshake */
+  readonly cwd?: string
+}
+
+/**
  * Connection event handler.
  * @param clientId - Unique identifier of the connected/disconnected client
+ * @param metadata - Connection metadata (populated on connect, empty on disconnect)
  */
-export type ConnectionHandler = (clientId: string) => void
+export type ConnectionHandler = (clientId: string, metadata: ConnectionMetadata) => void
 
 /**
  * Interface for transport server operations.
@@ -45,8 +55,9 @@ export interface ITransportServer {
    * @param room - The room identifier
    * @param event - The event name
    * @param data - The data to send
+   * @param except - Optional client ID to exclude from the broadcast
    */
-  broadcastTo: <T = unknown>(room: string, event: string, data: T) => void
+  broadcastTo: <T = unknown>(room: string, event: string, data: T, except?: string) => void
 
   /**
    * Returns the port the server is listening on.

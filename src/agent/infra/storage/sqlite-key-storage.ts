@@ -58,7 +58,11 @@ export class SqliteKeyStorage implements IKeyStorage {
 
   constructor(config?: SqliteKeyStorageConfig) {
     this.inMemory = config?.inMemory ?? false
-    this.storageDir = config?.storageDir ?? join(process.cwd(), '.brv', 'blobs')
+    this.storageDir = config?.storageDir ?? ''
+    if (!this.inMemory && !this.storageDir) {
+      throw new Error('SqliteKeyStorage: storageDir is required when inMemory is false')
+    }
+
     this.dbPath = this.inMemory ? ':memory:' : join(this.storageDir, config?.dbPath ?? 'context.db')
   }
 
@@ -246,6 +250,34 @@ export class SqliteKeyStorage implements IKeyStorage {
       return rows.map((row) => this.deserializeKey(row.key_path))
     } catch (error) {
       throw new Error(`Failed to list keys with prefix ${prefixPath}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  /**
+   * List all key-value pairs matching a prefix.
+   * More efficient than list() followed by individual get() calls.
+   */
+  async listWithValues<T>(prefix: StorageKey): Promise<Array<{key: StorageKey; value: T}>> {
+    this.ensureInitialized()
+    const prefixPath = this.serializeKey(prefix)
+    const lockKey = lockKeyFromStorageKey(prefix)
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    using _lock = await RWLock.read(lockKey)
+
+    try {
+      const rows = this.db!.prepare(
+        'SELECT key_path, value FROM key_store WHERE key_path LIKE ? ORDER BY key_path',
+      ).all(`${prefixPath}%`) as Array<{key_path: string; value: Buffer}>
+
+      return rows.map((row) => ({
+        key: this.deserializeKey(row.key_path),
+        value: JSON.parse(row.value.toString('utf8')) as T,
+      }))
+    } catch (error) {
+      throw new Error(
+        `Failed to list keys with values for prefix ${prefixPath}: ${error instanceof Error ? error.message : String(error)}`,
+      )
     }
   }
 

@@ -1,12 +1,11 @@
 import {existsSync} from 'node:fs'
-import {mkdir, readFile, writeFile} from 'node:fs/promises'
+import {mkdir, readFile, stat, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
 
 import {BRV_DIR, PROJECT_CONFIG_FILE} from '../../constants.js'
 import {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import {BrvConfigVersionError} from '../../core/domain/errors/brv-config-version-error.js'
 import {getErrorMessage} from '../../utils/error-helpers.js'
 
 /**
@@ -17,6 +16,21 @@ export class ProjectConfigStore implements IProjectConfigStore {
   public async exists(directory?: string): Promise<boolean> {
     const configPath = this.getConfigPath(directory)
     return existsSync(configPath)
+  }
+
+  public async getModifiedTime(directory?: string): Promise<number | undefined> {
+    const configPath = this.getConfigPath(directory)
+
+    if (!existsSync(configPath)) {
+      return undefined
+    }
+
+    try {
+      const stats = await stat(configPath)
+      return stats.mtimeMs
+    } catch {
+      return undefined
+    }
   }
 
   public async read(directory?: string): Promise<BrvConfig | undefined> {
@@ -31,10 +45,6 @@ export class ProjectConfigStore implements IProjectConfigStore {
       const json: unknown = JSON.parse(content)
       return BrvConfig.fromJson(json)
     } catch (error) {
-      if (error instanceof BrvConfigVersionError) {
-        throw error
-      }
-
       throw new Error(`Failed to read config from ${configPath}: ${getErrorMessage(error)}`)
     }
   }
@@ -44,9 +54,8 @@ export class ProjectConfigStore implements IProjectConfigStore {
     const configPath = this.getConfigPath(directory)
 
     try {
-      // Create .brv directory and blobs subdirectory if they don't exist
+      // Create .brv directory if it doesn't exist (for config.json only)
       await mkdir(brDirPath, {recursive: true})
-      await mkdir(join(brDirPath, 'blobs'), {recursive: true})
 
       // Write config.json
       const content = JSON.stringify(config.toJson(), undefined, 2)

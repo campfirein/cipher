@@ -1,3 +1,4 @@
+import {appendFileSync} from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
@@ -8,6 +9,17 @@ import type {
   FolderPackExecuteOptions,
   IFolderPackExecutor,
 } from '../../core/interfaces/executor/i-folder-pack-executor.js'
+
+const LOG_PATH = process.env.BRV_SESSION_LOG
+
+function folderPackLog(message: string): void {
+  if (!LOG_PATH) return
+  try {
+    appendFileSync(LOG_PATH, `${new Date().toISOString()} [folder-pack-executor] ${message}\n`)
+  } catch {
+    // ignore — never block on logging
+  }
+}
 
 /**
  * FolderPackExecutor - Executes folder pack + curate tasks with an injected CipherAgent.
@@ -31,6 +43,10 @@ export class FolderPackExecutor implements IFolderPackExecutor {
   public async executeWithAgent(agent: ICipherAgent, options: FolderPackExecuteOptions): Promise<string> {
     const {clientCwd, content, folderPath, taskId} = options
 
+    if (!folderPath) {
+      throw new Error('folderPath is required for curate-folder tasks')
+    }
+
     // Resolve folder path
     const basePath = clientCwd ?? process.cwd()
     const absoluteFolderPath = path.isAbsolute(folderPath) ? folderPath : path.resolve(basePath, folderPath)
@@ -45,7 +61,7 @@ export class FolderPackExecutor implements IFolderPackExecutor {
     // Use iterative extraction strategy (inspired by rlm)
     // Stores packed folder in sandbox environment and lets agent iteratively query/extract
     // This avoids token limits entirely - works for folders of any size
-    return this.executeIterative(agent, packResult, content, absoluteFolderPath, taskId)
+    return this.executeIterative(agent, packResult, content, absoluteFolderPath, taskId, basePath)
   }
 
   /**
@@ -486,7 +502,7 @@ When curating knowledge from source files, you MUST preserve the exact, complete
    - Detect: fenced blocks with mermaid/plantuml tags, @startuml/@enduml, box-drawing characters
 
 8. **For Tables:**
-   - Copy complete tables with ALL rows into \`narrative.structure\` or \`narrative.features\`
+   - Copy complete tables with ALL rows into \`narrative.structure\` or \`narrative.highlights\`
    - Preserve column headers and every data row - do not summarize
 
 ### What "Preserve" Means:
@@ -544,7 +560,7 @@ content: {
 **Secondary fields for structured details:**
 - \`narrative.rules\` - Exact rule/constraint text from docs
 - \`narrative.examples\` - Complete example code with full context
-- \`narrative.features\` - Full feature descriptions with all details
+- \`narrative.highlights\` - Key highlights, capabilities, deliverables, or notable outcomes
 - \`narrative.structure\` - Complete structural documentation
 - \`narrative.dependencies\` - Full dependency information
 - \`rawConcept.patterns\` - All patterns with complete regex/validation strings
@@ -576,7 +592,7 @@ Extract ALL of the following - COMPLETE and VERBATIM:
 8. **Examples** - Copy full example code with all context
 9. **Metadata** - Capture authors, versions, dates from files
 10. **Diagrams** - Mermaid diagrams, PlantUML, ASCII art flow charts, sequence diagrams (use \`narrative.diagrams\` with type and content - preserve verbatim)
-11. **Tables** - Data tables with ALL rows preserved (use \`narrative.structure\` or \`narrative.features\`)
+11. **Tables** - Data tables with ALL rows preserved (use \`narrative.structure\` or \`narrative.highlights\`)
 12. **Procedures** - Step-by-step instructions, numbered workflows (use \`narrative.rules\`)
 
 ## Curation Process
@@ -765,50 +781,82 @@ await tools.curate([{
     userContext: string | undefined,
     folderPath: string,
     taskId: string,
+    projectRoot: string,
   ): Promise<string> {
     // Step 1: Generate repomix-style XML (single string with all file contents)
     const packedXml = this.folderPackService.generateXml(packResult)
     const xmlSizeInMB = (packedXml.length / (1024 * 1024)).toFixed(2)
 
-    console.log(`[FolderPackExecutor] Generated XML: ${xmlSizeInMB} MB for ${packResult.fileCount} files`)
+    folderPackLog(`Generated XML: ${xmlSizeInMB} MB for ${packResult.fileCount} files`)
 
     // Step 2: Write XML to temporary file (avoids token limits, works with any agent)
     // This approach: file path (~50 bytes) sent to LLM, data stays on disk
-    // IMPORTANT: Write to CWD (not /tmp) so sandbox can access it
-    const tmpFilePath = path.join(process.cwd(), `.byterover-curate-${taskId}.xml`)
+    // IMPORTANT: Write to project root (not /tmp) so sandbox can access it
+    const tmpFilePath = path.join(projectRoot, `.byterover-curate-${taskId}.xml`)
 
-    console.log(`[FolderPackExecutor] Writing folder data to temp file: ${tmpFilePath}`)
+    folderPackLog(`Writing folder data to temp file: ${tmpFilePath}`)
 
     try {
       await fs.writeFile(tmpFilePath, packedXml, 'utf8')
-      console.log(`[FolderPackExecutor] Successfully wrote ${xmlSizeInMB} MB to temp file`)
+      folderPackLog(`Successfully wrote ${xmlSizeInMB} MB to temp file`)
     } catch (error) {
       throw new Error(`Failed to write temp file: ${error instanceof Error ? error.message : String(error)}`)
     }
 
-    // Step 3: Execute main curation task with file path reference
-    const prompt = this.buildIterativePromptWithFileAccess(
+    // Create per-task session for parallel isolation (own sandbox + history + LLM service)
+    const taskSessionId = await agent.createTaskSession(taskId, 'curate')
+
+    // Step 3: Store full instructions as sandbox variable (lazy prompt loading).
+    // This saves ~12-15K tokens by keeping the massive instruction set out of the prompt.
+    // The LLM reads instructions on-demand via code_exec.
+    const fullInstructions = this.buildIterativePromptWithFileAccess(
       userContext,
       folderPath,
       tmpFilePath,
       packResult.fileCount,
       packResult.totalLines,
     )
+    // Replace hyphens with underscores: UUIDs have hyphens which are invalid in JS identifiers.
+    // The LLM uses underscores when writing code-exec calls — matching curate-executor pattern.
+    const taskIdSafe = taskId.replaceAll('-', '_')
+    const instructionsVar = `__curate_instructions_${taskIdSafe}`
+    agent.setSandboxVariableOnSession(taskSessionId, instructionsVar, fullInstructions)
+
+    // Compact prompt with variable reference and essential metadata
+    const contextSection = userContext?.trim() ? `\nUser context: ${userContext}\n` : ''
+    const compactPrompt = [
+      `# Folder Curation Task`,
+      ``,
+      `Folder: ${folderPath} (${packResult.fileCount} files, ${packResult.totalLines} lines)`,
+      `Data file: \`${tmpFilePath}\` (repomix-style XML format)`,
+      `Full instructions: variable \`${instructionsVar}\``,
+      contextSection,
+      `**Start by reading instructions**: Use code_exec to read \`${instructionsVar}.slice(0, 5000)\` for the strategy section, then \`${instructionsVar}.slice(5000, 10000)\` for content rules.`,
+      `Use \`tools.readFile()\` and \`tools.grep()\` inside code_exec to process the XML data file.`,
+      `Use \`tools.curate()\` to create knowledge topics. Use \`setFinalResult()\` when done.`,
+    ]
+      .filter(Boolean)
+      .join('\n')
 
     let response: string
     try {
-      response = await agent.execute(prompt, {
+      response = await agent.executeOnSession(taskSessionId, compactPrompt, {
         executionContext: {commandType: 'curate'},
         taskId,
       })
     } finally {
-      // Step 4: Clean up - delete temp file
-      console.log(`[FolderPackExecutor] Cleaning up temp file`)
+      // Clean up task session (sandbox + history)
+      await agent.deleteTaskSession(taskSessionId)
+
+      // Clean up temp file
+      folderPackLog(`Cleaning up temp file: ${tmpFilePath}`)
       try {
         await fs.unlink(tmpFilePath)
-        console.log(`[FolderPackExecutor] Temp file cleanup successful`)
+        folderPackLog(`Temp file cleanup successful`)
       } catch (error) {
-        console.warn(`[FolderPackExecutor] Temp file cleanup warning (non-fatal):`, error)
+        folderPackLog(
+          `Temp file cleanup warning (non-fatal): ${error instanceof Error ? error.message : String(error)}`,
+        )
       }
     }
 

@@ -1,3 +1,5 @@
+import type {ITransportClient} from '@campfirein/brv-transport-client'
+
 import {setMaxListeners} from 'node:events'
 
 import type {BrvConfig} from '../../../server/core/domain/entities/brv-config.js'
@@ -14,10 +16,12 @@ import type {SystemPromptManager} from '../system-prompt/system-prompt-manager.j
 import type {ToolManager} from '../tools/tool-manager.js'
 import type {ToolProvider} from '../tools/tool-provider.js'
 import type {AgentConfig} from './agent-schemas.js'
+import type {ProviderUpdateConfig} from './provider-update-config.js'
 
 import {STREAMING_EVENT_NAMES} from '../../core/domain/streaming/types.js'
 import {AgentEventBus} from '../events/event-emitter.js'
 import {SessionManager} from '../session/session-manager.js'
+import {TransportEventBridge} from '../transport/transport-event-bridge.js'
 import {AgentError} from './agent-error.js'
 import {BaseAgent} from './base-agent.js'
 import {type ByteRoverHttpConfig, createCipherAgentServices} from './service-initializer.js'
@@ -46,12 +50,18 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   // Private state (must come before methods)
   private readonly _agentEventBus: AgentEventBus
   private readonly _brvConfig?: BrvConfig
+  private readonly _projectIdProvider?: () => string
   /**
    * Session ID - created once during start().
    * Each agent has exactly 1 session (Single-Session pattern).
    */
   private _sessionId?: string
+  private readonly _sessionKeyProvider?: () => string
+  private readonly _spaceIdProvider?: () => string
+  private readonly _teamIdProvider?: () => string
+  private readonly _transportClient?: ITransportClient
   private readonly activeStreamControllers: Map<string, AbortController> = new Map()
+  private eventBridge?: TransportEventBridge
   private sessionManager?: SessionManager
 
   /**
@@ -60,8 +70,24 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    *
    * @param config - Agent configuration (Zod-validated AgentConfig)
    * @param brvConfig - Optional ByteRover config for spaceId/teamId
+   * @param options - Optional lazy providers and transport client; resolved per HTTP request from StateServer
+   * @param options.projectIdProvider - Lazy provider for project ID
+   * @param options.sessionKeyProvider - Lazy provider for session key
+   * @param options.spaceIdProvider - Lazy provider for space ID
+   * @param options.teamIdProvider - Lazy provider for team ID
+   * @param options.transportClient - Transport client for daemon communication
    */
-  public constructor(config: AgentConfig, brvConfig?: BrvConfig) {
+  public constructor(
+    config: AgentConfig,
+    brvConfig?: BrvConfig,
+    options?: {
+      projectIdProvider?: () => string
+      sessionKeyProvider?: () => string
+      spaceIdProvider?: () => string
+      teamIdProvider?: () => string
+      transportClient?: ITransportClient
+    },
+  ) {
     // Call parent constructor (validates with Zod)
     super(config)
 
@@ -69,13 +95,18 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     this._agentEventBus = new AgentEventBus()
 
     this._brvConfig = brvConfig
+    this._projectIdProvider = options?.projectIdProvider
+    this._sessionKeyProvider = options?.sessionKeyProvider
+    this._spaceIdProvider = options?.spaceIdProvider
+    this._teamIdProvider = options?.teamIdProvider
+    this._transportClient = options?.transportClient
   }
-
-  // === Public Getters (expose services for backward compatibility) ===
 
   public get agentEventBus() {
     return this.services?.agentEventBus
   }
+
+  // === Public Getters (expose services for backward compatibility) ===
 
   public get fileSystemService(): FileSystemService | undefined {
     return this.services?.fileSystemService
@@ -113,7 +144,13 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     return this.services?.toolProvider
   }
 
-  // === Public Methods (alphabetical order) ===
+  /**
+   * Get the injected transport client (if any).
+   * Available when agent runs as a child process connected to daemon.
+   */
+  public get transportClient(): ITransportClient | undefined {
+    return this._transportClient
+  }
 
   /**
    * Cancels the currently running turn for the agent's default session.
@@ -144,6 +181,8 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     return Boolean(streamController)
   }
 
+  // === Public Methods (alphabetical order) ===
+
   protected override async cleanupServices(): Promise<void> {
     // Abort all active streams and clear controllers
     for (const controller of this.activeStreamControllers.values()) {
@@ -151,6 +190,12 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     }
 
     this.activeStreamControllers.clear()
+
+    // Dispose event bridge (removes all transport forwarding listeners)
+    if (this.eventBridge) {
+      this.eventBridge.dispose()
+      this.eventBridge = undefined
+    }
 
     // Dispose session manager
     if (this.sessionManager) {
@@ -183,6 +228,40 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   }
 
   /**
+   * Create a task-scoped child session for parallel execution.
+   * The session gets its own sandbox, context manager, and LLM service.
+   */
+  public async createTaskSession(taskId: string, commandType: string): Promise<string> {
+    this.ensureStarted()
+    const sessionMgr = this.getSessionManagerInternal()
+    const parentSessionId = this.getSessionIdInternal()
+    const childSession = await sessionMgr.createChildSession(
+      parentSessionId,
+      commandType,
+      `task-${commandType}-${taskId}`,
+    )
+
+    return childSession.id
+  }
+
+  /**
+   * Delete a sandbox variable from the agent's default session.
+   */
+  public deleteSandboxVariable(key: string): void {
+    this.ensureStarted()
+    const sessionId = this.getSessionIdInternal()
+    this.services!.sandboxService.deleteSandboxVariable(sessionId, key)
+  }
+
+  /**
+   * Delete a sandbox variable from a specific session's sandbox.
+   */
+  public deleteSandboxVariableOnSession(sessionId: string, key: string): void {
+    this.ensureStarted()
+    this.services!.sandboxService.deleteSandboxVariable(sessionId, key)
+  }
+
+  /**
    * Delete a session completely (memory + history).
    */
   public async deleteSession(sessionId: string): Promise<boolean> {
@@ -194,6 +273,15 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     }
 
     return this.getSessionManagerInternal().deleteSession(sessionId)
+  }
+
+  /**
+   * Delete a task session and all its resources (sandbox + history).
+   */
+  public async deleteTaskSession(sessionId: string): Promise<void> {
+    this.ensureStarted()
+    await this.services!.sandboxService.clearSession(sessionId)
+    await this.getSessionManagerInternal().deleteSession(sessionId)
   }
 
   /**
@@ -215,6 +303,26 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Use generate() internally for single code path
     const response = await this.generate(input, {
       executionContext: options?.executionContext,
+      taskId: options?.taskId,
+    })
+
+    return response.content
+  }
+
+  /**
+   * Execute the agent on a specific session (not the default session).
+   * Used for per-task session isolation in parallel execution.
+   */
+  public async executeOnSession(
+    sessionId: string,
+    input: string,
+    options?: {executionContext?: ExecutionContext; taskId?: string},
+  ): Promise<string> {
+    this.ensureStarted()
+
+    const response = await this.generate(input, {
+      executionContext: options?.executionContext,
+      sessionId,
       taskId: options?.taskId,
     })
 
@@ -359,6 +467,60 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     return this.getSessionManagerInternal().listSessions()
   }
 
+  /**
+   * Hot-swap the provider/model configuration by rebuilding the SessionManager.
+   * Called by agent-process when a provider:updated event is received.
+   *
+   * Safety: this is called at the start of executeTask (before LLM calls), and
+   * the task queue is sequential (max concurrency = 1), so no concurrent task
+   * can be using the old SessionManager when this runs.
+   *
+   * @param providerUpdate - New provider configuration from daemon state server
+   */
+  public refreshProviderConfig(providerUpdate: ProviderUpdateConfig): void {
+    this.ensureStarted()
+
+    const services = this.getServices()
+    const httpConfig = this.buildHttpConfig()
+
+    // Build new LLM config with updated provider fields
+    const sessionLLMConfig = {
+      httpReferer: this.config.httpReferer,
+      maxInputTokens: providerUpdate.maxInputTokens,
+      maxIterations: this.config.llm.maxIterations,
+      maxTokens: this.config.llm.maxTokens,
+      model: providerUpdate.model,
+      openRouterApiKey: providerUpdate.openRouterApiKey,
+      provider: providerUpdate.provider,
+      providerApiKey: providerUpdate.providerApiKey,
+      providerBaseUrl: providerUpdate.providerBaseUrl,
+      providerHeaders: providerUpdate.providerHeaders,
+      providerLocation: providerUpdate.providerLocation,
+      providerProject: providerUpdate.providerProject,
+      siteName: this.config.siteName,
+      temperature: this.config.llm.temperature,
+      verbose: this.config.llm.verbose,
+    }
+
+    // Create new SessionManager FIRST — if this throws, old SM remains intact
+    const newSessionManager = new SessionManager(services, httpConfig, sessionLLMConfig, {
+      config: {
+        maxSessions: this.config.sessions.maxSessions,
+        sessionTTL: this.config.sessions.sessionTTL,
+      },
+    })
+
+    // Success — dispose old and swap
+    if (this.sessionManager) {
+      this.sessionManager.dispose()
+    }
+
+    this.sessionManager = newSessionManager
+
+    // Re-wire SessionManager into sandbox for tools.agentQuery()
+    this.services!.sandboxService.setSessionManager?.(this.sessionManager)
+  }
+
   // === Protected Methods (implement abstract from BaseAgent) ===
 
   /**
@@ -376,16 +538,47 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * Reset a specific session's conversation history.
    * @param sessionId - The session ID to reset
    */
-  public resetSession(sessionId: string): void {
+  public async resetSession(sessionId: string): Promise<void> {
     const session = this.getSessionManagerInternal().getSession(sessionId)
     if (session) {
-      session.reset()
+      await session.reset()
     }
 
     // Emit conversation reset event (only if agent is started)
     if (this._isStarted && this.services?.agentEventBus) {
       this.services.agentEventBus.emit('cipher:conversationReset', {sessionId})
     }
+  }
+
+  /**
+   * Set a variable in the agent's default session sandbox.
+   */
+  public setSandboxVariable(key: string, value: unknown): void {
+    this.ensureStarted()
+    const sessionId = this.getSessionIdInternal()
+    this.services!.sandboxService.setSandboxVariable(sessionId, key, value)
+  }
+
+  /**
+   * Set a variable in a specific session's sandbox.
+   */
+  public setSandboxVariableOnSession(sessionId: string, key: string, value: unknown): void {
+    this.ensureStarted()
+    this.services!.sandboxService.setSandboxVariable(sessionId, key, value)
+  }
+
+  /**
+   * Setup per-task event forwarding via TransportEventBridge.
+   * Registers listeners on AgentEventBus that forward llmservice:* events
+   * matching the given taskId to the transport server.
+   *
+   * Only effective when a transport client is injected (child process mode).
+   *
+   * @param taskId - Task ID to filter events by
+   * @returns Cleanup function that removes listeners, or undefined if no bridge
+   */
+  public setupTaskForwarding(taskId: string): (() => void) | undefined {
+    return this.eventBridge?.setupForTask(taskId)
   }
 
   /**
@@ -399,24 +592,22 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Create SessionManager with shared services
     const services = this.getServices()
 
-    // Extract HTTP config
-    const httpConfig: ByteRoverHttpConfig = {
-      accessToken: this.config.accessToken,
-      apiBaseUrl: this.config.apiBaseUrl,
-      projectId: this.config.projectId,
-      region: this.config.region,
-      sessionKey: this.config.sessionKey,
-      spaceId: this.config.spaceId ?? this._brvConfig?.spaceId ?? '',
-      teamId: this.config.teamId ?? this._brvConfig?.teamId ?? '',
-    }
+    const httpConfig = this.buildHttpConfig()
 
     // Extract LLM config for sessions
     const sessionLLMConfig = {
       httpReferer: this.config.httpReferer,
+      maxInputTokens: this.config.maxInputTokens,
       maxIterations: this.config.llm.maxIterations,
       maxTokens: this.config.llm.maxTokens,
       model: this.config.model,
       openRouterApiKey: this.config.openRouterApiKey,
+      provider: this.config.provider,
+      providerApiKey: this.config.providerApiKey,
+      providerBaseUrl: this.config.providerBaseUrl,
+      providerHeaders: this.config.providerHeaders,
+      providerLocation: this.config.providerLocation,
+      providerProject: this.config.providerProject,
       siteName: this.config.siteName,
       temperature: this.config.llm.temperature,
       verbose: this.config.llm.verbose,
@@ -430,10 +621,22 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       },
     })
 
+    // Wire SessionManager into sandbox for tools.agentQuery() sub-agent delegation
+    this.services!.sandboxService.setSessionManager?.(this.sessionManager)
+
     // Create default session (Single-Session pattern)
     // Each agent has exactly 1 session created at start time
     const defaultSession = await this.sessionManager.createSession()
     this._sessionId = defaultSession.id
+
+    // Create event bridge if transport client is injected (child process mode).
+    // The bridge forwards AgentEventBus llmservice:* events to the transport server.
+    if (this._transportClient) {
+      this.eventBridge = new TransportEventBridge({
+        eventBus: this._agentEventBus,
+        transport: this._transportClient,
+      })
+    }
   }
 
   /**
@@ -447,7 +650,8 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   public async stream(input: string, options?: StreamOptions): Promise<AsyncIterableIterator<StreamingEvent>> {
     this.ensureStarted()
 
-    const sessionId = this.getSessionIdInternal()
+    // Use provided sessionId (per-task session) or fall back to default session
+    const sessionId = options?.sessionId ?? this.getSessionIdInternal()
 
     const signal = options?.signal
 
@@ -667,6 +871,21 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   }
 
   // === Private Helpers (alphabetical order) ===
+
+  /**
+   * Build HTTP config for ByteRover API calls.
+   * Uses lazy providers when injected (child process mode), otherwise static config.
+   */
+  private buildHttpConfig(): ByteRoverHttpConfig {
+    return {
+      apiBaseUrl: this.config.apiBaseUrl,
+      projectId: this._projectIdProvider ?? this.config.projectId,
+      region: this.config.region,
+      sessionKey: this._sessionKeyProvider ?? this.config.sessionKey,
+      spaceId: this._spaceIdProvider ?? this.config.spaceId ?? this._brvConfig?.spaceId ?? '',
+      teamId: this._teamIdProvider ?? this.config.teamId ?? this._brvConfig?.teamId ?? '',
+    }
+  }
 
   private getHistoryStorageInternal(): IHistoryStorage {
     const storage = this.services?.historyStorage

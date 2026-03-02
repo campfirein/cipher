@@ -12,6 +12,7 @@ import type {IFileService} from '../../../core/interfaces/services/i-file-servic
 import type {IRuleTemplateService} from '../../../core/interfaces/services/i-rule-template-service.js'
 
 import {AGENT_CONNECTOR_CONFIG} from '../../../core/domain/entities/agent.js'
+import {hasMcpToolsInBrvSection} from '../shared/constants.js'
 import {RuleFileManager} from '../shared/rule-file-manager.js'
 import {RULES_CONNECTOR_CONFIGS} from './rules-connector-config.js'
 
@@ -50,7 +51,12 @@ export class RulesConnector implements IConnector {
   }
 
   getConfigPath(agent: Agent): string {
-    return RULES_CONNECTOR_CONFIGS[agent].filePath
+    const config = agent in RULES_CONNECTOR_CONFIGS ? RULES_CONNECTOR_CONFIGS[agent as keyof typeof RULES_CONNECTOR_CONFIGS] : undefined
+    if (!config) {
+      throw new Error(`Rules connector does not support agent: ${agent}`)
+    }
+
+    return config.filePath
   }
 
   getSupportedAgents(): Agent[] {
@@ -58,7 +64,15 @@ export class RulesConnector implements IConnector {
   }
 
   async install(agent: Agent): Promise<ConnectorInstallResult> {
-    const config = RULES_CONNECTOR_CONFIGS[agent]
+    const config = agent in RULES_CONNECTOR_CONFIGS ? RULES_CONNECTOR_CONFIGS[agent as keyof typeof RULES_CONNECTOR_CONFIGS] : undefined
+    if (!config) {
+      return {
+        alreadyInstalled: false,
+        configPath: '',
+        message: `Rules connector does not support agent: ${agent}`,
+        success: false,
+      }
+    }
 
     try {
       const ruleContent = await this.templateService.generateRuleContent(agent, this.connectorType)
@@ -95,7 +109,16 @@ export class RulesConnector implements IConnector {
       }
     }
 
-    const config = RULES_CONNECTOR_CONFIGS[agent]
+    const config = agent in RULES_CONNECTOR_CONFIGS ? RULES_CONNECTOR_CONFIGS[agent as keyof typeof RULES_CONNECTOR_CONFIGS] : undefined
+    if (!config) {
+      return {
+        configExists: false,
+        configPath: '',
+        error: `Rules connector has no config for agent: ${agent}`,
+        installed: false,
+      }
+    }
+
     const fullPath = path.join(this.projectRoot, config.filePath)
 
     try {
@@ -110,10 +133,7 @@ export class RulesConnector implements IConnector {
       }
 
       const content = await this.fileService.read(fullPath)
-      const hasMcpTools = content.includes('brv-query') || content.includes('brv-curate')
-
-      // For overwrite files, any BRV content means installed
-      // For append files, need both markers and agent tag
+      const hasMcpTools = hasMcpToolsInBrvSection(content)
       const installed = hasMarkers && !hasMcpTools
 
       return {
@@ -141,7 +161,15 @@ export class RulesConnector implements IConnector {
       }
     }
 
-    const config = RULES_CONNECTOR_CONFIGS[agent]
+    const config = agent in RULES_CONNECTOR_CONFIGS ? RULES_CONNECTOR_CONFIGS[agent as keyof typeof RULES_CONNECTOR_CONFIGS] : undefined
+    if (!config) {
+      return {
+        configPath: '',
+        message: `Rules connector has no config for agent: ${agent}`,
+        success: false,
+        wasInstalled: false,
+      }
+    }
 
     try {
       const {fileExists, hasLegacyTag, hasMarkers} = await this.ruleFileManager.status(config.filePath)

@@ -7,7 +7,7 @@
 import {Box, Text} from 'ink'
 import React, {useMemo} from 'react'
 
-import {useTheme} from '../contexts/theme-context.js'
+import {useTheme} from '../hooks/index.js'
 
 export type StatusType = 'error' | 'info' | 'success' | 'warning'
 

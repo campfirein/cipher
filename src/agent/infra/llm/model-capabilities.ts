@@ -8,6 +8,7 @@
  * - OpenAI (o1, o3, gpt-5): Native `reasoning` field in API response
  * - Grok: `reasoning_content` or `reasoning_details` fields
  * - Gemini via OpenRouter: `reasoning_details` array or `thoughts` field
+ * - GLM (Zhipu AI): `reasoning_content` field in API response
  * - Claude/DeepSeek/MiniMax: `<think>...</think>` XML tags in content
  */
 
@@ -138,6 +139,40 @@ export function getModelCapabilities(modelId: string): ModelCapabilities {
       return {
         reasoning: true,
         reasoningFormat: 'think-tags',
+      }
+    }
+
+    return {
+      reasoning: false,
+      reasoningFormat: 'none',
+    }
+  }
+
+  // GLM models (Zhipu AI / Z.AI)
+  if (id.includes('glm')) {
+    // GLM-4.6+ models support reasoning
+    if (id.includes('4.6') || id.includes('4.7')) {
+      return {
+        reasoning: true,
+        reasoningField: 'reasoning_content',
+        reasoningFormat: 'native-field',
+      }
+    }
+
+    return {
+      reasoning: false,
+      reasoningFormat: 'none',
+    }
+  }
+
+  // Kimi models (Moonshot AI)
+  if (id.includes('kimi')) {
+    // Kimi K2 thinking variants and K2.5 support reasoning
+    if (id.includes('thinking') || id.includes('k2.5')) {
+      return {
+        reasoning: true,
+        reasoningField: 'reasoning_content',
+        reasoningFormat: 'native-field',
       }
     }
 

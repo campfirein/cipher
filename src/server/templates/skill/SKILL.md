@@ -1,91 +1,170 @@
 ---
 name: byterover
-description: "Manages project knowledge using ByteRover context tree. Provides two operations: query (retrieve knowledge) and curate (store knowledge). Invoke when user requests information lookup, pattern discovery, or knowledge persistence."
+description: "You MUST use this for gathering contexts before any work. This is a Knowledge management for AI agents. Use `brv` to store and retrieve project patterns, decisions, and architectural rules in .brv/context-tree. Uses a configured LLM provider (default: ByteRover, no API key needed) for query and curate operations."
 ---
 
-# ByteRover Context Tree
+# ByteRover Knowledge Management
 
-A project-level knowledge repository that persists across sessions. Use it to avoid re-discovering patterns, conventions, and decisions.
+Use the `brv` CLI to manage your project's long-term memory.
+Install: `npm install -g byterover-cli`
+Knowledge is stored in `.brv/context-tree/` as human-readable Markdown files.
 
-## Why Use ByteRover
+**No authentication needed.** `brv query` and `brv curate` work out of the box. Login is only required for cloud sync (`push`/`pull`/`space`) — ignore those if you don't need cloud features.
 
-- **Query before working**: Get existing knowledge about patterns, conventions, and past decisions before implementing
-- **Curate after learning**: Capture insights, decisions, and bug fixes so future sessions start informed
+## Workflow
+1.  **Before Thinking:** Run `brv query` to understand existing patterns.
+2.  **After Implementing:** Run `brv curate` to save new patterns/decisions.
 
-## Quick Reference
+## Commands
 
-| Command | When | Example |
-|---------|------|---------|
-| `brv query "question"` | Before starting work | `brv query "How is auth implemented?"` |
-| `brv curate "context" -f file` | After completing work | `brv curate "JWT 24h expiry" -f auth.ts` |
-| `brv status` | To check prerequisites | `brv status` |
+### 1. Query Knowledge
+**Overview:** Retrieve relevant context from your project's knowledge base. Uses a configured LLM provider to synthesize answers from `.brv/context-tree/` content.
 
-## When to Use
+**Use this skill when:**
+- The user wants you to recall something
+- Your context does not contain information you need
+- You need to recall your capabilities or past actions
+- Before performing any action, to check for relevant rules, criteria, or preferences
 
-**Query** when you need to understand something:
-- "How does X work in this codebase?"
-- "What patterns exist for Y?"
-- "Are there conventions for Z?"
-
-**Curate** when you learned or created something valuable:
-- Implemented a feature using specific patterns
-- Fixed a bug and found root cause
-- Made an architecture decision
-
-## Curate Quality
-
-Context must be **specific** and **actionable**:
+**Do NOT use this skill when:**
+- The information is already present in your current context
+- The query is about general knowledge, not stored memory
 
 ```bash
-# Good - specific, explains where and why
-brv curate "Auth uses JWT 24h expiry, tokens in httpOnly cookies" -f src/auth.ts
-
-# Bad - too vague
-brv curate "Fixed auth"
+brv query "How is authentication implemented?"
 ```
 
-**Note:** Context argument must come before `-f` flags. Max 5 files.
+### 2. Curate Context
+**Overview**: Analyze and save knowledge to the local knowledge base. Uses a configured LLM provider to categorize and structure the context you provide.
 
-## Best Practices
+**Use this skill when:**
+- The user wants you to remember something
+- The user intentionally curates memory or knowledge
+- There are meaningful memories from user interactions that should be persisted
+- There are important facts about what you do, what you know, or what decisions and actions you have taken
 
-1. **Break down large contexts** - Run multiple `brv curate` commands for complex topics rather than one massive context. Smaller chunks are easier to retrieve and update.
+**Do NOT use this skill when:**
+- The information is already stored and unchanged
+- The information is transient or only relevant to the current task, or just general knowledge
 
-2. **Let ByteRover read files** - Don't read files yourself before curating. Use `-f` flags to let ByteRover read them directly:
-   ```bash
-   # Good - ByteRover reads the files
-   brv curate "Auth implementation details" -f src/auth.ts -f src/middleware/jwt.ts
+```bash
+brv curate "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"
+```
 
-   # Wasteful - reading files twice
-   # [agent reads files] then brv curate "..." -f same-files
-   ```
+**Include source files** (max 5, project-scoped only):
 
-3. **Be specific in queries** - Queries block your workflow. Use precise questions to get faster, more relevant results:
-   ```bash
-   # Good - specific
-   brv query "What validation library is used for API request schemas?"
+```bash
+brv curate "Authentication middleware details" -f src/middleware/auth.ts
+```
 
-   # Bad - vague, slow
-   brv query "How is validation done?"
-   ```
+**View curate history:** to check past curations
+- Show recent entries (last 10)
+```bash
+brv curate view
+```
+- Full detail for a specific entry: all files and operations performed (logId is printed by `brv curate` on completion, e.g. `cur-1739700001000`)
+```bash
+brv curate view cur-1739700001000
+```
+- List entries with file operations visible (no logId needed)
+```bash
+brv curate view detail
+```
+- Filter by time and status
+```bash
+brv curate view --since 1h --status completed
+```
+- For all filter options
+```bash
+brv curate view --help
+```
 
-4. **Signal outdated context** - When curating updates that replace existing knowledge, explicitly tell ByteRover to clean up:
-   ```bash
-   brv curate "OUTDATED: Previous auth used sessions. NEW: Now uses JWT with refresh tokens. Clean up old session-based auth context." -f src/auth.ts
-   ```
+### 3. LLM Provider Setup
+`brv query` and `brv curate` require a configured LLM provider. Connect the default ByteRover provider (no API key needed):
 
-5. **Specify structure expectations** - Guide ByteRover on how to organize the knowledge:
-   ```bash
-   # Specify topics/domains
-   brv curate "Create separate topics for: 1) JWT validation, 2) refresh token flow, 3) logout handling" -f src/auth.ts
+```bash
+brv providers connect byterover
+```
 
-   # Specify detail level
-   brv curate "Document the error handling patterns in detail (at least 30 lines covering all error types)" -f src/errors/
-   ```
+To use a different provider (e.g., OpenAI, Anthropic, Google), list available options and connect with your own API key:
 
-## Prerequisites
+```bash
+brv providers list
+brv providers connect openai --api-key sk-xxx --model gpt-4.1
+```
 
-Run `brv status` first. If errors occur, the agent cannot fix them—instruct the user to take action in their brv terminal. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for details.
+### 4. Cloud Sync (Optional)
+**Overview:** Sync your local knowledge with a team via ByteRover's cloud service. Requires ByteRover authentication.
 
----
+**Setup steps:**
+1. Log in: Get an API key from your ByteRover account and authenticate:
+```bash
+brv login --api-key sample-key-string
+```
+2. List available spaces:
+```bash
+brv space list
+```
+Sample output:
+```
+brv space list
+1. human-resources-team (team)
+   - a-department (space)
+   - b-department (space)
+2. marketing-team (team)
+   - c-department (space)
+   - d-department (space)
+```
+3. Connect to a space:
+```bash
+brv space switch --team human-resources-team --name a-department
+```
 
-**See also:** [WORKFLOWS.md](WORKFLOWS.md) for detailed patterns and examples, [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for error handling
+**Cloud sync commands:**
+Once connected, `brv push` and `brv pull` sync with that space.
+```bash
+# Pull team updates
+brv pull
+
+# Push local changes
+brv push
+```
+
+**Switching spaces:**
+- Push local changes first (`brv push`) — switching is blocked if unsaved changes exist.
+- Then switch:
+```bash
+brv space switch --team marketing-team --name d-department
+```
+- The switch automatically pulls context from the new space.
+
+## Data Handling
+
+**Storage**: All knowledge is stored as Markdown files in `.brv/context-tree/` within the project directory. Files are human-readable and version-controllable.
+
+**File access**: The `-f` flag on `brv curate` reads files from the current project directory only. Paths outside the project root are rejected. Maximum 5 files per command, text and document formats only.
+
+**LLM usage**: `brv query` and `brv curate` send context to a configured LLM provider for processing. The LLM sees the query or curate text and any included file contents. No data is sent to ByteRover servers unless you explicitly run `brv push`.
+
+**Cloud sync**: `brv push` and `brv pull` require authentication (`brv login`) and send knowledge to ByteRover's cloud service. All other commands operate without ByteRover authentication.
+
+## Error Handling
+**User Action Required:**
+You MUST show this troubleshooting guide to users when errors occur.
+
+"Not authenticated" | Run `brv login --help` for more details.
+"No provider connected" | Run `brv providers connect byterover` (free, no key needed).
+"Connection failed" / "Instance crashed" | User should kill brv process.
+"Token has expired" / "Token is invalid" | Run `brv login` again to re-authenticate.
+"Billing error" / "Rate limit exceeded" | User should check account credits or wait before retrying.
+
+**Agent-Fixable Errors:**
+You MUST handle these errors gracefully and retry the command after fixing.
+
+"Missing required argument(s)." | Run `brv <command> --help` to see usage instructions.
+"Maximum 5 files allowed" | Reduce to 5 or fewer `-f` flags per curate.
+"File does not exist" | Verify path with `ls`, use relative paths from project root.
+"File type not supported" | Only text, image, PDF, and office files are supported.
+
+### Quick Diagnosis
+Run `brv status` to check authentication, project, and provider state.

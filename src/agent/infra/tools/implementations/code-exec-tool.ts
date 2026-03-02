@@ -33,6 +33,15 @@ const CodeExecInputSchema = z
       .describe('Language: "javascript" or "typescript" (default: auto-detect)'),
 
     /**
+     * If true, stdout is suppressed from the result (stderr still returned).
+     * Use for variable assignments or mutations where output is not needed.
+     */
+    silent: z
+      .boolean()
+      .optional()
+      .describe('If true, stdout is suppressed from the result. Use for variable assignments where output is not needed.'),
+
+    /**
      * Timeout in milliseconds (max: 300000, default: 30000 = 30 seconds).
      */
     timeout: z
@@ -69,7 +78,7 @@ export function createCodeExecTool(sandboxService: ISandboxService): Tool {
     description: 'Execute JavaScript or TypeScript code in a sandboxed REPL environment.',
 
     async execute(input: unknown, context?: ToolExecutionContext) {
-      const { code, context: contextPayload, language, timeout } = input as CodeExecInput
+      const { code, context: contextPayload, language, silent, timeout } = input as CodeExecInput
 
       // Get sessionId from execution context (automatic - no user input needed)
       const sessionId = context?.sessionId ?? 'default'
@@ -83,11 +92,48 @@ export function createCodeExecTool(sandboxService: ISandboxService): Tool {
         })
       }
 
+      // Cap stdout per command type to prevent context overflow
+      // curate: 5K (heavy processing, context in variables), query: 8K (results in variables)
+      const maxStdoutChars = context?.commandType === 'curate' ? 5000
+        : context?.commandType === 'query' ? 8000
+        : undefined
+
       const result = await sandboxService.executeCode(code, sessionId, {
         contextPayload,
         language,
+        maxStdoutChars,
         timeout,
       })
+
+      // Auto-redirect large outputs to sandbox variable for RLM commands.
+      // This prevents large tool results from bloating conversation history.
+      const AUTO_REDIRECT_THRESHOLD = 2000
+      if (
+        !silent
+        && result.stdout.length > AUTO_REDIRECT_THRESHOLD
+        && (context?.commandType === 'curate' || context?.commandType === 'query')
+      ) {
+        const overflowVar = `__stdout_${Date.now()}`
+        sandboxService.setSandboxVariable(sessionId, overflowVar, result.stdout)
+
+        // Stream completion via metadata callback if available
+        if (context?.metadata) {
+          context.metadata({
+            description: result.stderr ? 'Execution completed with errors' : 'Execution completed (output stored in variable)',
+            output: `[Output stored in ${overflowVar}]` + (result.stderr ? `\n[stderr]\n${result.stderr}` : ''),
+            progress: 100,
+          })
+        }
+
+        return {
+          executionTime: result.executionTime,
+          finalResult: result.finalResult,
+          locals: result.locals,
+          returnValue: result.returnValue,
+          stderr: result.stderr,
+          stdout: `[Output (${result.stdout.length} chars) stored in variable: ${overflowVar}. Access via code_exec.]`,
+        }
+      }
 
       // Stream completion via metadata callback if available
       if (context?.metadata) {
@@ -99,11 +145,13 @@ export function createCodeExecTool(sandboxService: ISandboxService): Tool {
       }
 
       return {
+        ...(result.curateResults ? {curateResults: result.curateResults} : {}),
         executionTime: result.executionTime,
+        finalResult: result.finalResult,
         locals: result.locals,
         returnValue: result.returnValue,
         stderr: result.stderr,
-        stdout: result.stdout,
+        stdout: silent ? '' : result.stdout,
       }
     },
 

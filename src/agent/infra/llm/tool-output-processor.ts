@@ -120,20 +120,52 @@ export const DEFAULT_TRUNCATION_CONFIG: Required<TruncationConfig> = {
 }
 
 /**
+ * Percentages used to derive per-command truncation thresholds from the model's context window.
+ * Expressed as a fraction of maxInputTokens. Multiply by charsPerToken (default 4) for char threshold.
+ * Calibrated so values equal the original hardcoded limits on a 200K-token context model:
+ *   default  = 6.25%  → 50,000 chars at 200K  (50K chars / (200K tokens × 4 chars/token) = 6.25%)
+ *   curate   = 1.25%  → 10,000 chars at 200K
+ *   query    = 2.50%  → 20,000 chars at 200K
+ */
+const THRESHOLD_PERCENT_DEFAULT = 0.0625
+const THRESHOLD_PERCENT_CURATE = 0.0125
+const THRESHOLD_PERCENT_QUERY = 0.025
+const DEFAULT_CHARS_PER_TOKEN = 4
+
+/**
  * Tool output processor with truncation and file saving capabilities
  */
 export class ToolOutputProcessor {
+  /** Fallback per-command overrides when no maxInputTokens is provided */
+  private static readonly DEFAULT_COMMAND_OVERRIDES: Record<string, Partial<TruncationConfig>> = {
+    curate: {headLines: 50, tailLines: 20, threshold: 10_000},
+    query: {headLines: 100, tailLines: 50, threshold: 20_000},
+  }
+  private readonly commandOverrides: Record<string, Partial<TruncationConfig>>
   private readonly config: Required<TruncationConfig>
 
   /**
    * Create a new tool output processor
    *
-   * @param config - Truncation configuration
+   * @param maxInputTokens - Model context window size. When provided, truncation thresholds
+   *   are derived as a percentage of the context window so they scale across model sizes.
+   * @param config - Optional explicit overrides (take priority over computed defaults)
    */
-  constructor(config?: TruncationConfig) {
-    this.config = {
-      ...DEFAULT_TRUNCATION_CONFIG,
-      ...config,
+  constructor(maxInputTokens?: number, config?: TruncationConfig) {
+    if (maxInputTokens) {
+      const baseThreshold = Math.floor(maxInputTokens * THRESHOLD_PERCENT_DEFAULT * DEFAULT_CHARS_PER_TOKEN)
+      this.config = {
+        ...DEFAULT_TRUNCATION_CONFIG,
+        threshold: baseThreshold,
+        ...config,
+      }
+      this.commandOverrides = {
+        curate: {headLines: 50, tailLines: 20, threshold: Math.floor(maxInputTokens * THRESHOLD_PERCENT_CURATE * DEFAULT_CHARS_PER_TOKEN)},
+        query: {headLines: 100, tailLines: 50, threshold: Math.floor(maxInputTokens * THRESHOLD_PERCENT_QUERY * DEFAULT_CHARS_PER_TOKEN)},
+      }
+    } else {
+      this.config = {...DEFAULT_TRUNCATION_CONFIG, ...config}
+      this.commandOverrides = {...ToolOutputProcessor.DEFAULT_COMMAND_OVERRIDES}
     }
   }
 
@@ -149,15 +181,18 @@ export class ToolOutputProcessor {
    *
    * @param toolName - Name of the tool that produced the output
    * @param output - Raw tool output (any type, will be stringified)
+   * @param commandType - Optional command type for per-command truncation overrides
    * @returns Processed output with metadata
    */
-  async processOutput(toolName: string, output: unknown): Promise<ProcessedOutput> {
+  async processOutput(toolName: string, output: unknown, commandType?: string): Promise<ProcessedOutput> {
+    const config = this.resolveConfig(commandType)
+
     // Convert output to string
     const contentString = this.stringify(output)
     const originalLength = contentString.length
 
     // Check if truncation is needed
-    if (!this.config.enabled || originalLength <= this.config.threshold) {
+    if (!config.enabled || originalLength <= config.threshold) {
       return {
         content: contentString,
       }
@@ -167,7 +202,7 @@ export class ToolOutputProcessor {
     const savedFilePath = await this.saveToTempFile(toolName, contentString)
 
     // Truncate content
-    const truncatedContent = this.truncateContent(contentString)
+    const truncatedContent = this.truncateContent(contentString, config)
 
     return {
       content: truncatedContent,
@@ -189,9 +224,10 @@ export class ToolOutputProcessor {
    *
    * @param toolName - Name of the tool that produced the output
    * @param output - Raw tool output (structured or plain)
+   * @param commandType - Optional command type for per-command truncation overrides
    * @returns Processed output with attachments and title
    */
-  async processStructuredOutput(toolName: string, output: unknown): Promise<ProcessedOutput> {
+  async processStructuredOutput(toolName: string, output: unknown, commandType?: string): Promise<ProcessedOutput> {
     // Try to detect structured output
     if (this.isStructuredOutput(output)) {
       const structured = output as StructuredToolOutput
@@ -199,7 +235,7 @@ export class ToolOutputProcessor {
       const textContent = this.extractTextContent(structured)
 
       // Process the text content with truncation
-      const processed = await this.processOutput(toolName, textContent)
+      const processed = await this.processOutput(toolName, textContent, commandType)
 
       return {
         ...processed,
@@ -215,7 +251,7 @@ export class ToolOutputProcessor {
       const textContent = this.extractMcpTextContent(contentArray)
 
       // Process the text content with truncation
-      const processed = await this.processOutput(toolName, textContent)
+      const processed = await this.processOutput(toolName, textContent, commandType)
 
       return {
         ...processed,
@@ -224,7 +260,7 @@ export class ToolOutputProcessor {
     }
 
     // Fall back to regular processing
-    return this.processOutput(toolName, output)
+    return this.processOutput(toolName, output, commandType)
   }
 
   // ==================== PRIVATE METHODS (alphabetical order) ====================
@@ -400,6 +436,17 @@ export class ToolOutputProcessor {
   }
 
   /**
+   * Resolve effective truncation config, applying per-command overrides if applicable.
+   */
+  private resolveConfig(commandType?: string): Required<TruncationConfig> {
+    if (commandType && commandType in this.commandOverrides) {
+      return {...this.config, ...this.commandOverrides[commandType]}
+    }
+
+    return this.config
+  }
+
+  /**
    * Save content to a temporary file
    *
    * Creates a unique temp file for storing full tool output.
@@ -490,15 +537,16 @@ export class ToolOutputProcessor {
    * [Last N lines]
    *
    * @param content - Content to truncate
+   * @param config - Truncation config to use (may include per-command overrides)
    * @returns Truncated content
    */
-  private truncateContent(content: string): string {
+  private truncateContent(content: string, config: Required<TruncationConfig> = this.config): string {
     const lines = content.split('\n')
     const totalLines = lines.length
 
     // Calculate how many lines to keep
-    const headLines = Math.min(this.config.headLines, totalLines)
-    const tailLines = Math.min(this.config.tailLines, totalLines)
+    const headLines = Math.min(config.headLines, totalLines)
+    const tailLines = Math.min(config.tailLines, totalLines)
 
     // If content is small enough to fit, return as-is
     if (headLines + tailLines >= totalLines) {

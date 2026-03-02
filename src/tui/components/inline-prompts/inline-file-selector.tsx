@@ -26,7 +26,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import React, {useEffect, useMemo, useState} from 'react'
 
-import type {FileSelectorItemResult} from '../../types.js'
+import type {FileSelectorItemResult} from '../../types/index.js'
 
 import {useTheme} from '../../hooks/index.js'
 

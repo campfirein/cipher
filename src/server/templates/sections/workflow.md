@@ -23,6 +23,8 @@ Use `brv curate` **after** you learn or create something valuable:
 - Made architectural/design decisions
 - Found a bug root cause or fix pattern
 
+After curating, use `brv curate view <logId>` to verify what was stored (logId printed on completion).
+
 ## Context Tree Guideline
 
 Good context is:

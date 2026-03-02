@@ -14,6 +14,8 @@ import type {
   ICurateService,
 } from '../../core/interfaces/i-curate-service.js'
 import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
+import type {ISandboxService} from '../../core/interfaces/i-sandbox-service.js'
+import type {SessionManager} from '../session/session-manager.js'
 
 /**
  * Options for glob operation in ToolsSDK.
@@ -85,9 +87,17 @@ export interface SearchKnowledgeOptions {
 export interface SearchKnowledgeResult {
   message: string
   results: Array<{
+    /** Number of other memories that reference this one */
+    backlinkCount?: number
     excerpt: string
     path: string
+    /** Top backlink source paths (max 3) */
+    relatedPaths?: string[]
     score: number
+    /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' */
+    symbolKind?: string
+    /** Resolved hierarchical path in the symbol tree */
+    symbolPath?: string
     title: string
   }>
   totalFound: number
@@ -106,6 +116,17 @@ export interface ISearchKnowledgeService {
  * Provides async file system operations for programmatic access.
  */
 export interface ToolsSDK {
+  /**
+   * Spawn a sub-agent to process a prompt with full code_exec access.
+   * The sub-agent runs in an isolated context (does not pollute parent).
+   * Only the final response string flows back.
+   * @param prompt - Prompt for the sub-agent
+   * @param options - Optional limits
+   * @param options.maxIterations - Maximum agentic iterations (default: 5)
+   * @returns Promise resolving to the sub-agent's final response
+   */
+  agentQuery(prompt: string, options?: { contextData?: Record<string, unknown>; maxIterations?: number }): Promise<string>
+
   /**
    * Execute curate operations on knowledge topics.
    * Operations: ADD, UPDATE, MERGE, DELETE
@@ -174,22 +195,64 @@ export interface ToolsSDK {
 }
 
 /**
+ * Options for creating a Tools SDK instance.
+ */
+export interface CreateToolsSDKOptions {
+  /** Curate service for knowledge curation */
+  curateService?: ICurateService
+  /** File system service for file operations */
+  fileSystem: IFileSystem
+  /** Parent session ID for creating child sessions (required for agentQuery) */
+  parentSessionId?: string
+  /** Sandbox service for variable injection into child sessions (optional, enables contextData in agentQuery) */
+  sandboxService?: ISandboxService
+  /** Search knowledge service */
+  searchKnowledgeService?: ISearchKnowledgeService
+  /** Session manager for sub-agent delegation (required for agentQuery) */
+  sessionManager?: SessionManager
+}
+
+/**
  * Creates a Tools SDK instance for sandbox code execution.
  *
  * The SDK provides async wrapper functions around file system operations,
  * allowing code executed in the sandbox to access file system tools programmatically.
  *
- * @param fileSystem - File system service for file operations
- * @param searchKnowledgeService - Optional search knowledge service
- * @param curateService - Optional curate service for knowledge curation
+ * @param options - Configuration options for the Tools SDK
  * @returns ToolsSDK instance ready to be injected into sandbox context
  */
-export function createToolsSDK(
-  fileSystem: IFileSystem,
-  searchKnowledgeService?: ISearchKnowledgeService,
-  curateService?: ICurateService,
-): ToolsSDK {
+export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
+  const {curateService, fileSystem, parentSessionId, sandboxService, searchKnowledgeService, sessionManager} = options
   return {
+    async agentQuery(prompt: string, options?: { contextData?: Record<string, unknown>; maxIterations?: number }): Promise<string> {
+      if (!sessionManager || !parentSessionId) {
+        throw new Error('agentQuery not available — no session manager configured')
+      }
+
+      const childSession = await sessionManager.createChildSession(parentSessionId, 'sub-query')
+      try {
+        // Inject context data as sandbox variables in child session (RLM pattern).
+        // This avoids embedding large data directly in the prompt string.
+        if (options?.contextData && sandboxService) {
+          for (const [key, value] of Object.entries(options.contextData)) {
+            sandboxService.setSandboxVariable(childSession.id, key, value)
+          }
+        }
+
+        const response = await childSession.run(prompt, {
+          emitTaskId: false,
+          executionContext: {
+            commandType: 'query',
+            maxIterations: options?.maxIterations ?? 5,
+          },
+        })
+
+        return response
+      } finally {
+        await sessionManager.deleteSession(childSession.id)
+      }
+    },
+
     async curate(operations: CurateOperation[], options?: CurateOptions): Promise<CurateResult> {
       if (!curateService) {
         return {

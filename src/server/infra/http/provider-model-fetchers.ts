@@ -1,0 +1,688 @@
+/**
+ * Provider Model Fetcher Implementations
+ *
+ * Implements IProviderModelFetcher for each supported LLM provider:
+ * - AnthropicModelFetcher: Uses @anthropic-ai/sdk
+ * - OpenAIModelFetcher: Uses openai SDK
+ * - GoogleModelFetcher: Uses @google/genai SDK
+ * - OpenAICompatibleModelFetcher: Generic for xAI/Groq/Mistral (REST API)
+ * - OpenRouterModelFetcher: Wraps existing OpenRouterApiClient
+ */
+
+import {createAnthropic} from '@ai-sdk/anthropic'
+import {createOpenAI} from '@ai-sdk/openai'
+import Anthropic from '@anthropic-ai/sdk'
+import {GoogleGenAI} from '@google/genai'
+import {APICallError, generateText} from 'ai'
+import axios, {isAxiosError} from 'axios'
+import {existsSync, readFileSync} from 'node:fs'
+import OpenAI from 'openai'
+
+import type {IProviderModelFetcher, ProviderModelInfo} from '../../core/interfaces/i-provider-model-fetcher.js'
+
+import {resolveVertexAiProject} from '../provider/vertex-ai-utils.js'
+
+// ============================================================================
+// Cache helper
+// ============================================================================
+
+interface ModelCache {
+  models: ProviderModelInfo[]
+  timestamp: number
+}
+
+const DEFAULT_CACHE_TTL = 60 * 60 * 1000 // 1 hour
+
+// ============================================================================
+// Anthropic Model Fetcher
+// ============================================================================
+
+/**
+ * Known Anthropic model pricing (per million tokens, USD).
+ * Anthropic API doesn't expose pricing, so we maintain a static lookup.
+ * Falls back to pattern-based matching for unlisted models.
+ */
+interface AnthropicModelMeta {
+  contextLength: number
+  inputPerM: number
+  outputPerM: number
+}
+
+const ANTHROPIC_KNOWN_MODELS: Readonly<Record<string, AnthropicModelMeta>> = {
+  'claude-3-5-haiku-20241022': {contextLength: 200_000, inputPerM: 0.8, outputPerM: 4},
+  'claude-3-5-sonnet-20240620': {contextLength: 200_000, inputPerM: 3, outputPerM: 15},
+  'claude-3-5-sonnet-20241022': {contextLength: 200_000, inputPerM: 3, outputPerM: 15},
+  'claude-3-haiku-20240307': {contextLength: 200_000, inputPerM: 0.25, outputPerM: 1.25},
+  'claude-3-opus-20240229': {contextLength: 200_000, inputPerM: 15, outputPerM: 75},
+  'claude-3-sonnet-20240229': {contextLength: 200_000, inputPerM: 3, outputPerM: 15},
+  'claude-haiku-4-5-20251001': {contextLength: 200_000, inputPerM: 1, outputPerM: 5},
+  'claude-opus-4-5-20251101': {contextLength: 200_000, inputPerM: 5, outputPerM: 25},
+  'claude-opus-4-6': {contextLength: 200_000, inputPerM: 5, outputPerM: 25},
+  'claude-sonnet-4-5-20250929': {contextLength: 200_000, inputPerM: 3, outputPerM: 15},
+}
+
+/**
+ * Get pricing and context length for an Anthropic model.
+ * Checks exact match first, then falls back to tier-based pattern matching.
+ */
+function getAnthropicModelMeta(modelId: string): AnthropicModelMeta {
+  // Exact match
+  const known = ANTHROPIC_KNOWN_MODELS[modelId]
+  if (known) return known
+
+  // Pattern-based fallback by model tier
+  const id = modelId.toLowerCase()
+  if (id.includes('opus')) {
+    return {contextLength: 200_000, inputPerM: 15, outputPerM: 75}
+  }
+
+  if (id.includes('sonnet')) {
+    return {contextLength: 200_000, inputPerM: 3, outputPerM: 15}
+  }
+
+  if (id.includes('haiku')) {
+    return {contextLength: 200_000, inputPerM: 1, outputPerM: 5}
+  }
+
+  // Unknown model tier
+  return {contextLength: 200_000, inputPerM: 0, outputPerM: 0}
+}
+
+/**
+ * Fetches models from Anthropic using the official SDK.
+ */
+export class AnthropicModelFetcher implements IProviderModelFetcher {
+  private cache: ModelCache | undefined
+  private readonly cacheTtlMs: number
+
+  constructor(cacheTtlMs = DEFAULT_CACHE_TTL) {
+    this.cacheTtlMs = cacheTtlMs
+  }
+
+  async fetchModels(apiKey: string, forceRefresh = false): Promise<ProviderModelInfo[]> {
+    if (!forceRefresh && this.cache && Date.now() - this.cache.timestamp < this.cacheTtlMs) {
+      return this.cache.models
+    }
+
+    const client = new Anthropic({apiKey})
+    const models: ProviderModelInfo[] = []
+
+    // Anthropic models.list() returns a paginated list
+    for await (const model of client.models.list()) {
+      const meta = getAnthropicModelMeta(model.id)
+      models.push({
+        contextLength: meta.contextLength,
+        description: model.display_name,
+        id: model.id,
+        isFree: false,
+        name: model.display_name,
+        pricing: {inputPerM: meta.inputPerM, outputPerM: meta.outputPerM},
+        provider: 'Anthropic',
+      })
+    }
+
+    this.cache = {models, timestamp: Date.now()}
+    return models
+  }
+
+  async validateApiKey(apiKey: string): Promise<{error?: string; isValid: boolean}> {
+    try {
+      const provider = createAnthropic({apiKey})
+      await generateText({
+        maxOutputTokens: 1,
+        maxRetries: 0,
+        messages: [{content: 'hi', role: 'user'}],
+        model: provider('claude-haiku-4-5-20251001'),
+      })
+
+      return {isValid: true}
+    } catch (error: unknown) {
+      return handleAiSdkValidationError(error)
+    }
+  }
+}
+
+// ============================================================================
+// OpenAI Model Fetcher
+// ============================================================================
+
+/**
+ * Fetches models from OpenAI using the official SDK.
+ */
+export class OpenAIModelFetcher implements IProviderModelFetcher {
+  private cache: ModelCache | undefined
+  private readonly cacheTtlMs: number
+
+  constructor(cacheTtlMs = DEFAULT_CACHE_TTL) {
+    this.cacheTtlMs = cacheTtlMs
+  }
+
+  async fetchModels(apiKey: string, forceRefresh = false): Promise<ProviderModelInfo[]> {
+    if (!forceRefresh && this.cache && Date.now() - this.cache.timestamp < this.cacheTtlMs) {
+      return this.cache.models
+    }
+
+    const client = new OpenAI({apiKey})
+    const models: ProviderModelInfo[] = []
+
+    // Fetch all models and filter for chat-capable ones
+    for await (const model of client.models.list()) {
+      // Filter: only include GPT, O-series, and chat models
+      const id = model.id.toLowerCase()
+      if (
+        id.startsWith('gpt-') ||
+        id.startsWith('o1') ||
+        id.startsWith('o3') ||
+        id.startsWith('o4') ||
+        id.startsWith('chatgpt')
+      ) {
+        const pricing = this.estimatePricing(model.id)
+        models.push({
+          contextLength: this.estimateContextLength(model.id),
+          id: model.id,
+          isFree: false,
+          name: model.id,
+          pricing,
+          provider: 'OpenAI',
+        })
+      }
+    }
+
+    // Sort by ID for consistent ordering
+    models.sort((a, b) => a.id.localeCompare(b.id))
+
+    this.cache = {models, timestamp: Date.now()}
+    return models
+  }
+
+  async validateApiKey(apiKey: string): Promise<{error?: string; isValid: boolean}> {
+    try {
+      const provider = createOpenAI({apiKey})
+      await generateText({
+        maxOutputTokens: 1,
+        maxRetries: 0,
+        messages: [{content: 'hi', role: 'user'}],
+        model: provider.responses('gpt-4o-mini'),
+      })
+
+      return {isValid: true}
+    } catch (error: unknown) {
+      return handleAiSdkValidationError(error)
+    }
+  }
+
+  private estimateContextLength(modelId: string): number {
+    const id = modelId.toLowerCase()
+    if (id.includes('gpt-4.1')) return 1_047_576
+    if (id.includes('gpt-4o')) return 128_000
+    if (id.includes('gpt-4-turbo')) return 128_000
+    if (id.includes('gpt-4')) return 8192
+    if (id.includes('o1') || id.includes('o3') || id.includes('o4')) return 200_000
+
+    return 128_000
+  }
+
+  private estimatePricing(modelId: string): {inputPerM: number; outputPerM: number} {
+    const id = modelId.toLowerCase()
+    if (id.includes('gpt-4.1-mini')) return {inputPerM: 0.4, outputPerM: 1.6}
+    if (id.includes('gpt-4.1-nano')) return {inputPerM: 0.1, outputPerM: 0.4}
+    if (id.includes('gpt-4.1')) return {inputPerM: 2, outputPerM: 8}
+    if (id.includes('gpt-4o-mini')) return {inputPerM: 0.15, outputPerM: 0.6}
+    if (id.includes('gpt-4o')) return {inputPerM: 2.5, outputPerM: 10}
+    if (id.includes('gpt-4-turbo')) return {inputPerM: 10, outputPerM: 30}
+    if (id.includes('gpt-4')) return {inputPerM: 30, outputPerM: 60}
+    if (id.includes('o4-mini')) return {inputPerM: 1.1, outputPerM: 4.4}
+    if (id.includes('o3-mini')) return {inputPerM: 1.1, outputPerM: 4.4}
+    if (id.includes('o3')) return {inputPerM: 10, outputPerM: 40}
+    if (id.includes('o1-mini')) return {inputPerM: 3, outputPerM: 12}
+    if (id.includes('o1')) return {inputPerM: 15, outputPerM: 60}
+
+    return {inputPerM: 0, outputPerM: 0}
+  }
+}
+
+// ============================================================================
+// Google Model Fetcher
+// ============================================================================
+
+/**
+ * Fetches models from Google using the @google/genai SDK.
+ */
+export class GoogleModelFetcher implements IProviderModelFetcher {
+  private cache: ModelCache | undefined
+  private readonly cacheTtlMs: number
+
+  constructor(cacheTtlMs = DEFAULT_CACHE_TTL) {
+    this.cacheTtlMs = cacheTtlMs
+  }
+
+  async fetchModels(apiKey: string, forceRefresh = false): Promise<ProviderModelInfo[]> {
+    if (!forceRefresh && this.cache && Date.now() - this.cache.timestamp < this.cacheTtlMs) {
+      return this.cache.models
+    }
+
+    const client = new GoogleGenAI({apiKey})
+    const models: ProviderModelInfo[] = []
+
+    // Google GenAI SDK list models
+    const pager = await client.models.list()
+    for (const model of pager.page) {
+      // Filter for generateContent-capable models (chat/completion models)
+      if (!model.supportedActions?.includes('generateContent')) continue
+
+      const id = model.name?.replace('models/', '') ?? ''
+      models.push({
+        contextLength: model.inputTokenLimit ?? 1_000_000,
+        description: model.description ?? undefined,
+        id,
+        isFree: false,
+        name: model.displayName ?? id,
+        pricing: {inputPerM: 0, outputPerM: 0}, // Google doesn't expose pricing via API
+        provider: 'Google',
+      })
+    }
+
+    this.cache = {models, timestamp: Date.now()}
+    return models
+  }
+
+  async validateApiKey(apiKey: string): Promise<{error?: string; isValid: boolean}> {
+    try {
+      const client = new GoogleGenAI({apiKey})
+      await client.models.list()
+      return {isValid: true}
+    } catch (error: unknown) {
+      return handleSdkValidationError(error)
+    }
+  }
+}
+
+// ============================================================================
+// Google Vertex AI Model Fetcher
+// ============================================================================
+
+/**
+ * Known context window sizes for Google models.
+ * The Vertex AI list endpoint does not populate inputTokenLimit,
+ * so we use a static lookup with prefix matching.
+ */
+const GOOGLE_CONTEXT_LENGTHS: ReadonlyArray<[prefix: string, contextLength: number]> = [
+  ['gemini-2.5', 1_048_576],
+  ['gemini-2.0', 1_048_576],
+  ['gemini-1.5', 1_048_576],
+  ['gemini-1.0', 32_768],
+  ['gemma', 8192],
+]
+
+function getGoogleContextLength(modelId: string): number {
+  for (const [prefix, contextLength] of GOOGLE_CONTEXT_LENGTHS) {
+    if (modelId.startsWith(prefix)) return contextLength
+  }
+
+  return 1_048_576
+}
+
+/**
+ * Fetches models from Google Vertex AI using the @google/genai SDK with vertexai mode.
+ * Uses Application Default Credentials (ADC) instead of API keys.
+ */
+export class GoogleVertexModelFetcher implements IProviderModelFetcher {
+  private cache: ModelCache | undefined
+  private readonly cacheTtlMs: number
+
+  constructor(cacheTtlMs = DEFAULT_CACHE_TTL) {
+    this.cacheTtlMs = cacheTtlMs
+  }
+
+  async fetchModels(apiKey: string, forceRefresh = false): Promise<ProviderModelInfo[]> {
+    if (!forceRefresh && this.cache && Date.now() - this.cache.timestamp < this.cacheTtlMs) {
+      return this.cache.models
+    }
+
+    // apiKey holds the credential file path for Vertex AI.
+    // Set env var for the GoogleGenAI SDK which reads it internally.
+    if (apiKey) {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = apiKey
+    }
+
+    const project = resolveVertexAiProject(apiKey)
+    const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1'
+    const client = new GoogleGenAI({location, project, vertexai: true})
+    const models: ProviderModelInfo[] = []
+
+    try {
+      const pager = await client.models.list()
+      for (const model of pager.page) {
+        // Vertex AI uses "publishers/google/models/<id>" format
+        const rawName = model.name ?? ''
+        const id = rawName.replace(/^publishers\/google\/models\//, '').replace(/^models\//, '')
+
+        // Only include text generation models.
+        // Vertex AI doesn't populate supportedActions, so use prefix matching as primary filter.
+        // When supportedActions IS available, use it as authoritative.
+        if (model.supportedActions && !model.supportedActions.includes('generateContent')) continue
+        if (!id.startsWith('gemini') && !id.startsWith('gemma')) continue
+        if (id.includes('embedding') || id.includes('image')) continue
+        models.push({
+          contextLength: model.inputTokenLimit ?? getGoogleContextLength(id),
+          description: model.description ?? undefined,
+          id,
+          isFree: false,
+          name: model.displayName ?? id,
+          pricing: {inputPerM: 0, outputPerM: 0},
+          provider: 'Google Vertex AI',
+        })
+      }
+    } catch (error: unknown) {
+      throw new Error(formatVertexAiError(error))
+    }
+
+    this.cache = {models, timestamp: Date.now()}
+    return models
+  }
+
+  async validateApiKey(apiKey: string): Promise<{error?: string; isValid: boolean}> {
+    try {
+      // apiKey holds the credential file path for Vertex AI
+      if (apiKey) {
+        if (!existsSync(apiKey)) {
+          return {error: `File not found: ${apiKey}`, isValid: false}
+        }
+
+        try {
+          JSON.parse(readFileSync(apiKey, 'utf8'))
+        } catch {
+          return {error: `Invalid JSON in file: ${apiKey}`, isValid: false}
+        }
+
+        // Set temporarily for the GoogleGenAI SDK to pick up during validation
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = apiKey
+      }
+
+      const project = resolveVertexAiProject(apiKey)
+      const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1'
+      const client = new GoogleGenAI({location, project, vertexai: true})
+      await client.models.list()
+      return {isValid: true}
+    } catch (error: unknown) {
+      return {error: formatVertexAiError(error), isValid: false}
+    }
+  }
+}
+
+/**
+ * Format Vertex AI errors with actionable ADC setup instructions.
+ */
+function formatVertexAiError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const lowerMessage = message.toLowerCase()
+
+  // Invalid credential file (wrong key material, corrupt file, non-service-account JSON)
+  if (lowerMessage.includes('decoder routines') || lowerMessage.includes('unsupported') || lowerMessage.includes('invalid_grant')) {
+    return 'Invalid credential file. Ensure the file is a valid Google Cloud service account JSON key.'
+  }
+
+  if (
+    lowerMessage.includes('could not load the default credentials') ||
+    lowerMessage.includes('default credentials') ||
+    lowerMessage.includes('application_default_credentials')
+  ) {
+    return 'Google Cloud credentials not found. Run `gcloud auth application-default login` or set the GOOGLE_APPLICATION_CREDENTIALS environment variable.'
+  }
+
+  if (lowerMessage.includes('unable to detect a default project')) {
+    return `Google Cloud project not set. Set GOOGLE_CLOUD_PROJECT environment variable or use a service account JSON that contains a project_id.`
+  }
+
+  if (lowerMessage.includes('401') || lowerMessage.includes('unauthorized') || lowerMessage.includes('authentication')) {
+    return `Google Cloud authentication failed. Run \`gcloud auth application-default login\` or check your GOOGLE_APPLICATION_CREDENTIALS.\n${message}`
+  }
+
+  if (lowerMessage.includes('403') || lowerMessage.includes('forbidden') || lowerMessage.includes('permission')) {
+    return `Google Cloud permission denied. Ensure your account has Vertex AI API access enabled.\n${message}`
+  }
+
+  return `Google Vertex AI error: ${message}`
+}
+
+// ============================================================================
+// OpenAI-Compatible Model Fetcher (xAI, Groq, Mistral)
+// ============================================================================
+
+/**
+ * Generic model fetcher for OpenAI-compatible APIs.
+ * Works with xAI (Grok), Groq, and Mistral.
+ */
+export class OpenAICompatibleModelFetcher implements IProviderModelFetcher {
+  private readonly baseUrl: string
+  private cache: ModelCache | undefined
+  private readonly cacheTtlMs: number
+  private readonly providerName: string
+
+  constructor(baseUrl: string, providerName: string, cacheTtlMs = DEFAULT_CACHE_TTL) {
+    this.baseUrl = baseUrl
+    this.providerName = providerName
+    this.cacheTtlMs = cacheTtlMs
+  }
+
+  async fetchModels(apiKey: string, forceRefresh = false): Promise<ProviderModelInfo[]> {
+    if (!forceRefresh && this.cache && Date.now() - this.cache.timestamp < this.cacheTtlMs) {
+      return this.cache.models
+    }
+
+    const response = await axios.get(
+      `${this.baseUrl}/models`,
+      {
+        headers: {Authorization: `Bearer ${apiKey}`},
+        timeout: 30_000,
+      },
+    )
+
+    // Handle different response formats:
+    // - OpenAI/DeepInfra: {data: [{id, ...}, ...]}
+    // - Together AI: [{id, ...}, ...] (top-level array)
+    // - Cohere: {models: [{name, ...}, ...]}
+    const responseData = response.data
+    const modelList: Array<Record<string, unknown>> = Array.isArray(responseData)
+      ? responseData
+      : (responseData.data ?? responseData.models ?? [])
+
+    const models: ProviderModelInfo[] = modelList.map((model) => {
+      const id = String(model.id ?? model.name ?? '')
+
+      return {
+        contextLength: typeof model.context_length === 'number' ? model.context_length : 128_000,
+        id,
+        isFree: false,
+        name: id,
+        pricing: {inputPerM: 0, outputPerM: 0},
+        provider: this.providerName,
+      }
+    })
+
+    // Sort by ID
+    models.sort((a, b) => a.id.localeCompare(b.id))
+
+    this.cache = {models, timestamp: Date.now()}
+    return models
+  }
+
+  async validateApiKey(apiKey: string): Promise<{error?: string; isValid: boolean}> {
+    try {
+      await axios.get(`${this.baseUrl}/models`, {
+        headers: {Authorization: `Bearer ${apiKey}`},
+        timeout: 15_000,
+      })
+      return {isValid: true}
+    } catch (error) {
+      if (isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          return {error: 'Invalid API key', isValid: false}
+        }
+
+        if (error.response?.status === 403) {
+          return {error: 'API key does not have required permissions', isValid: false}
+        }
+
+        return {error: `API error: ${error.response?.statusText ?? error.message}`, isValid: false}
+      }
+
+      return {error: error instanceof Error ? error.message : 'Unknown error', isValid: false}
+    }
+  }
+}
+
+// ============================================================================
+// Chat-based Model Fetcher (Perplexity, Vercel, etc.)
+// ============================================================================
+
+/* eslint-disable camelcase */
+/**
+ * Model fetcher for providers that lack a /models endpoint.
+ * Validates API keys by making a minimal chat completion request.
+ * Model listing returns a static list of known models.
+ */
+export class ChatBasedModelFetcher implements IProviderModelFetcher {
+  private readonly baseUrl: string
+  private readonly knownModels: ProviderModelInfo[]
+
+  constructor(baseUrl: string, providerName: string, knownModels: string[]) {
+    this.baseUrl = baseUrl
+    this.knownModels = knownModels.map((id) => ({
+      contextLength: 128_000,
+      id,
+      isFree: false,
+      name: id,
+      pricing: {inputPerM: 0, outputPerM: 0},
+      provider: providerName,
+    }))
+  }
+
+  async fetchModels(_apiKey: string, _forceRefresh = false): Promise<ProviderModelInfo[]> {
+    return this.knownModels
+  }
+
+  async validateApiKey(apiKey: string): Promise<{error?: string; isValid: boolean}> {
+    try {
+      await axios.post(
+        `${this.baseUrl}/chat/completions`,
+        {
+          max_tokens: 1,
+          messages: [{content: 'hi', role: 'user'}],
+          model: this.knownModels[0]?.id ?? 'default',
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 15_000,
+        },
+      )
+
+      return {isValid: true}
+    } catch (error) {
+      if (isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          return {error: 'Invalid API key', isValid: false}
+        }
+
+        if (error.response?.status === 403) {
+          return {error: 'API key does not have required permissions', isValid: false}
+        }
+
+        // Other errors (429, 400, etc.) mean the key was accepted
+        return {isValid: true}
+      }
+
+      return {error: error instanceof Error ? error.message : 'Unknown error', isValid: false}
+    }
+  }
+}
+
+// ============================================================================
+// OpenRouter Model Fetcher (wraps existing client)
+// ============================================================================
+
+import {getOpenRouterApiClient, type NormalizedModel} from './openrouter-api-client.js'
+
+/**
+ * Model fetcher that wraps the existing OpenRouterApiClient.
+ * Adapts NormalizedModel to ProviderModelInfo.
+ */
+export class OpenRouterModelFetcher implements IProviderModelFetcher {
+  async fetchModels(apiKey: string, forceRefresh = false): Promise<ProviderModelInfo[]> {
+    const client = getOpenRouterApiClient()
+    const models = await client.fetchModels(apiKey, forceRefresh)
+    return models.map((m: NormalizedModel) => ({
+      contextLength: m.contextLength,
+      description: m.description,
+      id: m.id,
+      isFree: m.isFree,
+      name: m.name,
+      pricing: m.pricing,
+      provider: m.provider,
+    }))
+  }
+
+  async validateApiKey(apiKey: string): Promise<{error?: string; isValid: boolean}> {
+    const client = getOpenRouterApiClient()
+    return client.validateApiKey(apiKey)
+  }
+}
+
+// ============================================================================
+// Shared helpers
+// ============================================================================
+
+/**
+ * Handle AI SDK validation errors.
+ * Uses APICallError.statusCode for reliable HTTP status-based detection
+ * instead of fragile string matching on error messages.
+ *
+ * Only 401/403 mean the key is invalid. Other HTTP errors (429 rate limit,
+ * 404 model not found, 500 server error) indicate the key was accepted
+ * but the test request failed for another reason — key is valid.
+ */
+function handleAiSdkValidationError(error: unknown): {error?: string; isValid: boolean} {
+  // AI SDK throws APICallError with statusCode for HTTP-level errors
+  if (APICallError.isInstance(error)) {
+    if (error.statusCode === 401) {
+      return {error: 'Invalid API key', isValid: false}
+    }
+
+    if (error.statusCode === 403) {
+      return {error: 'API key does not have required permissions', isValid: false}
+    }
+
+    // 429, 404, 500, etc. — key authenticated fine, request failed for other reasons
+    return {isValid: true}
+  }
+
+  // Non-API errors (network, timeout, etc.) — can't determine key validity
+  if (error instanceof Error) {
+    return {error: error.message, isValid: false}
+  }
+
+  return {error: 'Unknown error', isValid: false}
+}
+
+/**
+ * Handle SDK validation errors consistently across providers.
+ */
+function handleSdkValidationError(error: unknown): {error: string; isValid: boolean} {
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase()
+    if (message.includes('401') || message.includes('unauthorized') || message.includes('invalid api key') || message.includes('authentication')) {
+      return {error: `Authentication failed: ${error.message}`, isValid: false}
+    }
+
+    if (message.includes('403') || message.includes('forbidden') || message.includes('permission')) {
+      return {error: `Permission denied: ${error.message}`, isValid: false}
+    }
+
+    return {error: error.message, isValid: false}
+  }
+
+  return {error: 'Unknown error', isValid: false}
+}
