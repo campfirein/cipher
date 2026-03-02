@@ -29,7 +29,7 @@ export const ACCESS_IMPORTANCE_BONUS = 3
 export const UPDATE_IMPORTANCE_BONUS = 5
 
 /** BM25 relevance weight in compound score */
-export const W_RELEVANCE = 1.0
+export const W_RELEVANCE = 1
 
 /** Importance weight in compound score */
 export const W_IMPORTANCE = 0
