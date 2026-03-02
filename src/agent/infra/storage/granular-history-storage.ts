@@ -12,7 +12,7 @@ import {MessageStorageService} from './message-storage-service.js'
  * - Selective tool output pruning
  * - Compaction boundary markers
  *
- * This is used for NEW sessions only. Existing sessions use BlobHistoryStorage.
+ * This is the primary history storage implementation.
  */
 export class GranularHistoryStorage implements IHistoryStorage {
   constructor(private readonly messageStorage: MessageStorageService) {}

@@ -1,6 +1,6 @@
 /**
  * Blob storage module
- * Provides persistent storage for binary/large data blobs using SQLite
+ * Provides persistent storage for binary/large data blobs
  */
 
 // Re-export types from core domain
@@ -12,11 +12,8 @@ export {BlobError, BlobErrorCode} from '../../core/domain/errors/blob-error.js'
 // Re-export interface from core
 export type {IBlobStorage} from '../../core/interfaces/i-blob-storage.js'
 
-// Factory (always returns SQLite implementation)
+// Factory (returns file-based implementation)
 export {createBlobStorage} from './blob-storage-factory.js'
 
-// Migration system
-export * as BlobMigrations from './migrations.js'
-
-// SQLite storage implementation
-export {SqliteBlobStorage} from './sqlite-blob-storage.js'
+// File-based storage implementation
+export {FileBlobStorage} from './file-blob-storage.js'

@@ -131,7 +131,7 @@ Commands in `src/tui/features/commands/definitions/` (order = UI suggestion orde
 
 ## Stack
 
-oclif v4, TypeScript (ES2022, Node16 modules, strict), React/Ink (TUI), Zustand, axios, socket.io, better-sqlite3, Mocha + Chai + Sinon + Nock
+oclif v4, TypeScript (ES2022, Node16 modules, strict), React/Ink (TUI), Zustand, axios, socket.io, Mocha + Chai + Sinon + Nock
 
 <!-- BEGIN BYTEROVER RULES -->
 

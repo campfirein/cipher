@@ -35,17 +35,15 @@ export interface CipherAgentServices {
   blobStorage: IBlobStorage
   /**
    * CompactionService for context overflow management.
-   * Only available when granular storage is enabled (useGranularStorage: true).
    */
-  compactionService?: CompactionService
+  compactionService: CompactionService
   fileSystemService: FileSystemService
   historyStorage: IHistoryStorage
   memoryManager: MemoryManager
   /**
    * MessageStorageService for direct granular message access.
-   * Only available when granular storage is enabled (useGranularStorage: true).
    */
-  messageStorageService?: MessageStorageService
+  messageStorageService: MessageStorageService
   policyEngine: IPolicyEngine
   processService: ProcessService
   sandboxService: ISandboxService
