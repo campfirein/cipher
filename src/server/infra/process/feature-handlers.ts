@@ -14,6 +14,7 @@ import type {ProjectBroadcaster, ProjectPathResolver} from '../transport/handler
 
 import {getAuthConfig} from '../../config/auth.config.js'
 import {getCurrentConfig} from '../../config/environment.js'
+import {getProjectDataDir} from '../../utils/path-utils.js'
 import {OAuthService} from '../auth/oauth-service.js'
 import {OidcDiscoveryService} from '../auth/oidc-discovery-service.js'
 import {SystemBrowserLauncher} from '../browser/system-browser-launcher.js'
@@ -34,6 +35,7 @@ import {HubInstallService} from '../hub/hub-install-service.js'
 import {createHubKeychainStore} from '../hub/hub-keychain-store.js'
 import {HubRegistryConfigStore} from '../hub/hub-registry-config-store.js'
 import {HttpSpaceService} from '../space/http-space-service.js'
+import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {HttpTeamService} from '../team/http-team-service.js'
 import {FsTemplateLoader} from '../template/fs-template-loader.js'
@@ -145,6 +147,7 @@ export async function setupFeatureHandlers({
     cogitPushService,
     contextFileReader,
     contextTreeSnapshotService,
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
     projectConfigStore,
     resolveProjectPath,
     tokenStore,

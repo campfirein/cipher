@@ -49,6 +49,7 @@ export interface ContextData {
   name: string
   narrative?: Narrative
   rawConcept?: RawConcept
+  reason?: string
   relations?: string[]
   scoring?: FrontmatterScoring
   snippets: string[]
@@ -500,6 +501,18 @@ function parseFactsSection(content: string): Fact[] | undefined {
   return facts.length > 0 ? facts : undefined
 }
 
+function generateReasonSection(reason?: string): string {
+  if (!reason) return ''
+  return `\n## Reason\n${reason}\n`
+}
+
+function parseReasonSection(content: string): string | undefined {
+  const match = content.match(/##\s*Reason\s*\n([\s\S]*?)(?=\n##\s|\n---\n|$)/i)
+  if (!match) return undefined
+  const text = match[1].trim()
+  return text || undefined
+}
+
 function extractSnippetsFromContent(content: string): string[] {
   let snippetContent = content
 
@@ -507,6 +520,11 @@ function extractSnippetsFromContent(content: string): string[] {
   const relationsMatch = content.match(/##\s*Relations[\s\S]*?(?=\n[^@\n]|$)/i)
   if (relationsMatch) {
     snippetContent = snippetContent.replace(relationsMatch[0], '').trim()
+  }
+
+  const reasonMatch = snippetContent.match(/##\s*Reason[\s\S]*?(?=\n##\s|\n---\n|$)/i)
+  if (reasonMatch) {
+    snippetContent = snippetContent.replace(reasonMatch[0], '').trim()
   }
 
   const rawConceptMatch = snippetContent.match(/##\s*Raw Concept[\s\S]*?(?=\n##\s|\n---\n|$)/i)
@@ -760,6 +778,7 @@ export const MarkdownWriter = {
     const relations = data.relations || []
 
     const frontmatter = generateFrontmatter(data.name, relations, data.tags, data.keywords, data.scoring)
+    const reasonSection = generateReasonSection(data.reason)
     const rawConceptSection = generateRawConceptSection(data.rawConcept)
     const narrativeSection = generateNarrativeSection(data.narrative)
     const factsSection = generateFactsSection(data.facts)
@@ -769,8 +788,8 @@ export const MarkdownWriter = {
     // Build the content parts
     const parts: string[] = []
 
-    // Add sections (rawConcept, narrative, facts) — relations are now in frontmatter
-    const sectionsContent = `${rawConceptSection}${narrativeSection}${factsSection}`.trim()
+    // Add sections — reason first (WHY), then content sections, relations in frontmatter
+    const sectionsContent = `${reasonSection}${rawConceptSection}${narrativeSection}${factsSection}`.trim()
     if (sectionsContent) {
       parts.push(sectionsContent)
     }
@@ -792,13 +811,15 @@ export const MarkdownWriter = {
     return `${frontmatter}${body}`
   },
 
-  mergeContexts(sourceContent: string, targetContent: string): string {
+  mergeContexts(sourceContent: string, targetContent: string, reason?: string): string {
     const sourceParsed = parseContentWithFrontmatter(sourceContent)
     const targetParsed = parseContentWithFrontmatter(targetContent)
     const mergedRelations = [...new Set([...sourceParsed.relations, ...targetParsed.relations])]
 
     const mergedTags = [...new Set([...sourceParsed.tags, ...targetParsed.tags])]
     const mergedKeywords = [...new Set([...sourceParsed.keywords, ...targetParsed.keywords])]
+    // reason: explicit override wins, then source (newer), then target (older)
+    const mergedReason = reason ?? parseReasonSection(sourceParsed.body) ?? parseReasonSection(targetParsed.body)
 
     // Merge scoring metadata (FinMem-inspired lifecycle)
     const defaultScoring: FrontmatterScoring = { importance: 50, maturity: 'draft', recency: 1 }
@@ -843,6 +864,7 @@ export const MarkdownWriter = {
       name: sourceParsed.title || targetParsed.title || '',
       narrative: mergedNarrative,
       rawConcept: mergedRawConcept,
+      reason: mergedReason,
       relations: mergedRelations,
       scoring: mergedScoringData,
       snippets: mergedSnippets,
@@ -859,6 +881,7 @@ export const MarkdownWriter = {
       name: title || name,
       narrative: parseNarrativeSection(body),
       rawConcept: parseRawConceptSection(body),
+      reason: parseReasonSection(body),
       relations,
       scoring,
       snippets: extractSnippetsFromContent(body),

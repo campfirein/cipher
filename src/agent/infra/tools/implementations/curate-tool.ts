@@ -1,18 +1,18 @@
-import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
-import { z } from 'zod'
+import {existsSync} from 'node:fs'
+import {join, resolve} from 'node:path'
+import {z} from 'zod'
 
-import type { Tool, ToolExecutionContext } from '../../../core/domain/tools/types.js'
+import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
 
-import { DirectoryManager } from '../../../../server/core/domain/knowledge/directory-manager.js'
-import { MarkdownWriter, parseFrontmatterScoring } from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import {DirectoryManager} from '../../../../server/core/domain/knowledge/directory-manager.js'
+import {MarkdownWriter, parseFrontmatterScoring} from '../../../../server/core/domain/knowledge/markdown-writer.js'
 import {
   applyDefaultScoring,
   determineTier,
   recordCurateUpdate,
 } from '../../../../server/core/domain/knowledge/memory-scoring.js'
-import { toSnakeCase } from '../../../../server/utils/file-helpers.js'
-import { ToolName } from '../../../core/domain/tools/constants.js'
+import {toSnakeCase} from '../../../../server/utils/file-helpers.js'
+import {ToolName} from '../../../core/domain/tools/constants.js'
 
 /**
  * Operation types for curating knowledge topics.
@@ -26,14 +26,25 @@ type OperationType = z.infer<typeof OperationType>
  */
 const RawConceptSchema = z.object({
   author: z.string().optional().describe('Author or source attribution (e.g., "meowso", "Team Security")'),
-  changes: z.array(z.string()).optional().describe('What changes are induced by this concept (e.g., code changes, process updates, market shifts)'),
-  files: z.array(z.string()).optional().describe('Related documents, source files, or resources (e.g., source code paths, reports, data files)'),
+  changes: z
+    .array(z.string())
+    .optional()
+    .describe('What changes are induced by this concept (e.g., code changes, process updates, market shifts)'),
+  files: z
+    .array(z.string())
+    .optional()
+    .describe('Related documents, source files, or resources (e.g., source code paths, reports, data files)'),
   flow: z.string().optional().describe('The process flow or workflow described by this concept'),
-  patterns: z.array(z.object({
-    description: z.string().describe('What this pattern matches or validates'),
-    flags: z.string().optional().describe('Pattern flags (e.g., "gi" for regex)'),
-    pattern: z.string().describe('The exact pattern string (e.g., regex pattern)')
-  })).optional().describe('Regex or validation patterns related to this concept'),
+  patterns: z
+    .array(
+      z.object({
+        description: z.string().describe('What this pattern matches or validates'),
+        flags: z.string().optional().describe('Pattern flags (e.g., "gi" for regex)'),
+        pattern: z.string().describe('The exact pattern string (e.g., regex pattern)'),
+      }),
+    )
+    .optional()
+    .describe('Regex or validation patterns related to this concept'),
   task: z.string().optional().describe('What is the task related to this concept'),
   timestamp: z
     .string()
@@ -51,11 +62,18 @@ const NarrativeSchema = z.object({
     .describe(
       'Dependency or relationship information (e.g., prerequisite systems, required inputs, related components)',
     ),
-  diagrams: z.array(z.object({
-    content: z.string().describe('The full diagram content (Mermaid code, PlantUML code, or ASCII art) - preserved verbatim'),
-    title: z.string().optional().describe('Optional title or label for the diagram'),
-    type: z.enum(['mermaid', 'plantuml', 'ascii', 'other']).describe('Diagram type for proper rendering'),
-  })).optional().describe('Diagrams found in source content - Mermaid, PlantUML, ASCII art, sequence diagrams. Preserve verbatim.'),
+  diagrams: z
+    .array(
+      z.object({
+        content: z
+          .string()
+          .describe('The full diagram content (Mermaid code, PlantUML code, or ASCII art) - preserved verbatim'),
+        title: z.string().optional().describe('Optional title or label for the diagram'),
+        type: z.enum(['mermaid', 'plantuml', 'ascii', 'other']).describe('Diagram type for proper rendering'),
+      }),
+    )
+    .optional()
+    .describe('Diagrams found in source content - Mermaid, PlantUML, ASCII art, sequence diagrams. Preserve verbatim.'),
   examples: z.string().optional().describe('Concrete examples and use cases demonstrating the concept'),
   highlights: z
     .string()
@@ -64,7 +82,10 @@ const NarrativeSchema = z.object({
       'Key highlights, capabilities, deliverables, or notable outcomes (e.g., "User permission can be stale for up to 300 seconds due to Redis cache")',
     ),
   rules: z.string().optional().describe('Exact rules, constraints, or guidelines - preserved verbatim from source'),
-  structure: z.string().optional().describe('Structural or organizational documentation (e.g., file layout, data schema, process hierarchy)'),
+  structure: z
+    .string()
+    .optional()
+    .describe('Structural or organizational documentation (e.g., file layout, data schema, process hierarchy)'),
 })
 
 /**
@@ -75,25 +96,28 @@ const FactSchema = z.object({
     .enum(['personal', 'project', 'preference', 'convention', 'team', 'environment', 'other'])
     .optional()
     .describe('Category of the fact (e.g., "personal", "project", "preference", "convention", "team", "environment")'),
-  statement: z
-    .string()
-    .describe('The full factual statement (e.g., "My name is Andy", "We use PostgreSQL 15")'),
+  statement: z.string().describe('The full factual statement (e.g., "My name is Andy", "We use PostgreSQL 15")'),
   subject: z
     .string()
     .optional()
     .describe('What the fact is about in snake_case (e.g., "user_name", "database", "sprint_duration")'),
-  value: z
-    .string()
-    .optional()
-    .describe('The extracted value (e.g., "Andy", "PostgreSQL 15", "2 weeks")'),
+  value: z.string().optional().describe('The extracted value (e.g., "Andy", "PostgreSQL 15", "2 weeks")'),
 })
 
 /**
  * Content structure for ADD and UPDATE operations.
  */
 const ContentSchema = z.object({
-  facts: z.array(FactSchema).optional().describe('Factual statements extracted from content (e.g., personal info, project facts, preferences, conventions)'),
-  keywords: z.array(z.string()).default([]).describe('Keywords for search and discovery (e.g., ["jwt", "refresh_token", "rotation"])'),
+  facts: z
+    .array(FactSchema)
+    .optional()
+    .describe(
+      'Factual statements extracted from content (e.g., personal info, project facts, preferences, conventions)',
+    ),
+  keywords: z
+    .array(z.string())
+    .default([])
+    .describe('Keywords for search and discovery (e.g., ["jwt", "refresh_token", "rotation"])'),
   narrative: NarrativeSchema.optional().describe('Narrative section with descriptive and structural context'),
   rawConcept: RawConceptSchema.optional().describe('Raw concept section with metadata and technical footprint'),
   relations: z
@@ -101,7 +125,10 @@ const ContentSchema = z.object({
     .optional()
     .describe('Related topics using domain/topic/title.md or domain/topic/subtopic/title.md notation'),
   snippets: z.array(z.string()).optional().describe('Code/text snippets'),
-  tags: z.array(z.string()).default([]).describe('Tags for categorization and filtering (e.g., ["authentication", "security", "jwt"])'),
+  tags: z
+    .array(z.string())
+    .default([])
+    .describe('Tags for categorization and filtering (e.g., ["authentication", "security", "jwt"])'),
 })
 
 /**
@@ -174,14 +201,30 @@ const SubtopicContextSchema = z.object({
  * Single operation schema for curating knowledge.
  */
 const OperationSchema = z.object({
+  confidence: z
+    .enum(['high', 'low'])
+    .default('low')
+    .describe(
+      'Your confidence in the accuracy and completeness of this operation. Use "high" when you have direct evidence from the source material; use "low" when the information is inferred, uncertain, or incomplete.',
+    ),
   content: ContentSchema.optional().describe('Content for ADD/UPDATE operations'),
   domainContext: DomainContextSchema.optional().describe(
     'Domain-level context for new domains. When creating content in a NEW domain, provide this to auto-generate domain/context.md with purpose, scope, ownership, and usage. Only needed when the domain does not exist yet.',
   ),
+  impact: z
+    .enum(['high', 'low', 'medium'])
+    .default('low')
+    .describe(
+      'Estimated scope of impact of this knowledge change. Use "high" for deletions or major architectural/structural changes; "medium" for significant updates to existing knowledge; "low" for new additions or minor updates.',
+    ),
   mergeTarget: z.string().optional().describe('Target path for MERGE operation'),
   mergeTargetTitle: z.string().optional().describe('Title of the target file for MERGE operation'),
   path: z.string().describe('Path: domain/topic/title.md or domain/topic/subtopic/title.md'),
-  reason: z.string().describe('Reasoning for this operation'),
+  reason: z
+    .string()
+    .describe(
+      'The motivation and context behind this curation — the WHY, not the what. Describe the decision, event, conversation, or observation that made this knowledge worth capturing. Write it for a human reviewer: they will read this in the web inbox to decide whether to approve or modify the change. Example of a good reason: "After debating caching strategies in PR #42, the team chose Redis with a 5-minute TTL as a deliberate performance/freshness trade-off — future agents should know this was intentional." Bad example: "Updating caching documentation."',
+    ),
   subtopicContext: SubtopicContextSchema.optional().describe(
     'Subtopic-level context for new subtopics. When creating content in a NEW subtopic, provide this to auto-generate subtopic/context.md with focus and parent relation. Only needed when the subtopic does not exist yet.',
   ),
@@ -250,12 +293,37 @@ export const CurateInputSchema = z.object({
  * Exported for use by CurateService in sandbox.
  */
 export interface OperationResult {
-  /** Full filesystem path to the created/modified file (for ADD/UPDATE/MERGE) */
+  /** LLM-assessed confidence in the accuracy and completeness of this operation. */
+  confidence: 'high' | 'low'
+  /** Full filesystem path to the created/modified file (for ADD/UPDATE/MERGE) or deleted file. */
   filePath?: string
+  /** Scope of impact: DELETE is high, UPDATE is medium, others are low. */
+  impact: 'high' | 'low' | 'medium'
   message?: string
+  /** Whether this operation should be flagged for human review in the web inbox. */
+  needsReview: boolean
   path: string
+  /** Human-facing motivation: WHY this knowledge was curated. Shown in web review inbox. */
+  reason: string
   status: 'failed' | 'success'
   type: OperationType
+}
+
+/**
+ * Derive review metadata for a curate operation.
+ * confidence and impact are LLM-provided (schema defaults applied by Zod when omitted).
+ * needsReview:
+ *   - DELETE always (irreversible)
+ *   - low confidence + high impact (uncertain about something that matters)
+ *   - high confidence or low/medium impact → no review
+ */
+function deriveReviewMetadata(
+  type: OperationType,
+  confidence: 'high' | 'low',
+  impact: 'high' | 'low' | 'medium',
+): {confidence: 'high' | 'low'; impact: 'high' | 'low' | 'medium'; needsReview: boolean} {
+  const needsReview = type === 'DELETE' || (confidence === 'low' && impact === 'high')
+  return {confidence, impact, needsReview}
 }
 
 /**
@@ -295,8 +363,6 @@ function generateDomainContextMarkdown(domainName: string, context: DomainContex
   return sections.join('\n')
 }
 
-
-
 function generateTopicContextMarkdown(topicName: string, context: TopicContext): string {
   const sections: string[] = [`# Topic: ${topicName}`, '', '## Overview', context.overview, '']
 
@@ -310,7 +376,6 @@ function generateTopicContextMarkdown(topicName: string, context: TopicContext):
 
   return sections.join('\n')
 }
-
 
 function generateSubtopicContextMarkdown(subtopicName: string, context: SubtopicContext): string {
   const sections: string[] = [`# Subtopic: ${subtopicName}`, '', '## Focus', context.focus, '']
@@ -326,24 +391,24 @@ async function createDomainContextIfMissing(
   basePath: string,
   domain: string,
   domainContext?: DomainContext,
-): Promise<{ created: boolean; path?: string }> {
+): Promise<{created: boolean; path?: string}> {
   const normalizedDomain = toSnakeCase(domain)
   const contextPath = join(basePath, normalizedDomain, 'context.md')
 
   const exists = await DirectoryManager.fileExists(contextPath)
   if (exists) {
-    return { created: false }
+    return {created: false}
   }
 
   if (!domainContext) {
-    return { created: false }
+    return {created: false}
   }
 
   const content = generateDomainContextMarkdown(normalizedDomain, domainContext)
 
   await DirectoryManager.writeFileAtomic(contextPath, content)
 
-  return { created: true, path: contextPath }
+  return {created: true, path: contextPath}
 }
 
 async function ensureTopicContextMd(
@@ -351,7 +416,7 @@ async function ensureTopicContextMd(
   domain: string,
   topic: string,
   topicContext?: TopicContext,
-): Promise<{ created: boolean; path?: string }> {
+): Promise<{created: boolean; path?: string}> {
   const normalizedDomain = toSnakeCase(domain)
   const normalizedTopic = toSnakeCase(topic)
   const topicPath = join(basePath, normalizedDomain, normalizedTopic)
@@ -360,23 +425,23 @@ async function ensureTopicContextMd(
   // Check if topic folder exists first
   const folderExists = await DirectoryManager.folderExists(topicPath)
   if (!folderExists) {
-    return { created: false }
+    return {created: false}
   }
 
   // Check if context.md already exists
   const exists = await DirectoryManager.fileExists(contextPath)
   if (exists) {
-    return { created: false }
+    return {created: false}
   }
 
   if (!topicContext) {
-    return { created: false }
+    return {created: false}
   }
 
   const content = generateTopicContextMarkdown(normalizedTopic, topicContext)
   await DirectoryManager.writeFileAtomic(contextPath, content)
 
-  return { created: true, path: contextPath }
+  return {created: true, path: contextPath}
 }
 
 interface EnsureSubtopicContextMdOptions {
@@ -393,8 +458,8 @@ interface EnsureSubtopicContextMdOptions {
  */
 async function ensureSubtopicContextMd(
   options: EnsureSubtopicContextMdOptions,
-): Promise<{ created: boolean; path?: string }> {
-  const { basePath, domain, subtopic, subtopicContext, topic } = options
+): Promise<{created: boolean; path?: string}> {
+  const {basePath, domain, subtopic, subtopicContext, topic} = options
   const normalizedDomain = toSnakeCase(domain)
   const normalizedTopic = toSnakeCase(topic)
   const normalizedSubtopic = toSnakeCase(subtopic)
@@ -404,23 +469,23 @@ async function ensureSubtopicContextMd(
   // Check if subtopic folder exists first
   const folderExists = await DirectoryManager.folderExists(subtopicPath)
   if (!folderExists) {
-    return { created: false }
+    return {created: false}
   }
 
   // Check if context.md already exists
   const exists = await DirectoryManager.fileExists(contextPath)
   if (exists) {
-    return { created: false }
+    return {created: false}
   }
 
   if (!subtopicContext) {
-    return { created: false }
+    return {created: false}
   }
 
   const content = generateSubtopicContextMarkdown(normalizedSubtopic, subtopicContext)
   await DirectoryManager.writeFileAtomic(contextPath, content)
 
-  return { created: true, path: contextPath }
+  return {created: true, path: contextPath}
 }
 
 /**
@@ -429,7 +494,7 @@ async function ensureSubtopicContextMd(
  */
 async function ensureContextMd(
   basePath: string,
-  parsed: { domain: string; subtopic?: string; topic: string },
+  parsed: {domain: string; subtopic?: string; topic: string},
   topicContext?: TopicContext,
   subtopicContext?: SubtopicContext,
 ): Promise<void> {
@@ -451,7 +516,7 @@ async function ensureContextMd(
 /**
  * Parse a path into domain, topic, and optional subtopic.
  */
-function parsePath(path: string): null | { domain: string; subtopic?: string; topic: string } {
+function parsePath(path: string): null | {domain: string; subtopic?: string; topic: string} {
   const parts = path.split('/')
   if (parts.length < 2 || parts.length > 3) {
     return null
@@ -469,7 +534,7 @@ function parsePath(path: string): null | { domain: string; subtopic?: string; to
  * Dynamic domains are allowed - no predefined list or limits.
  * The agent is responsible for creating semantically meaningful domains.
  */
-function validateDomain(domainName: string): { allowed: boolean; reason?: string } {
+function validateDomain(domainName: string): {allowed: boolean; reason?: string} {
   const normalizedDomain = toSnakeCase(domainName)
 
   // Validate domain name format (must be non-empty and valid for filesystem)
@@ -489,7 +554,7 @@ function validateDomain(domainName: string): { allowed: boolean; reason?: string
   }
 
   // All valid domain names are allowed - dynamic domain creation enabled
-  return { allowed: true }
+  return {allowed: true}
 }
 
 /**
@@ -516,12 +581,15 @@ function buildFullPath(basePath: string, knowledgePath: string): string {
  * Execute ADD operation - create new domain/topic/subtopic with {title}.md
  */
 async function executeAdd(basePath: string, operation: Operation): Promise<OperationResult> {
-  const { content, domainContext, path, reason, subtopicContext, title, topicContext } = operation
+  const {confidence, content, domainContext, impact, path, reason, subtopicContext, title, topicContext} = operation
+  const reviewMeta = deriveReviewMetadata('ADD', confidence, impact)
 
   if (!title) {
     return {
+      ...reviewMeta,
       message: 'ADD operation requires a title',
       path,
+      reason,
       status: 'failed',
       type: 'ADD',
     }
@@ -529,8 +597,10 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
 
   if (!content) {
     return {
+      ...reviewMeta,
       message: 'ADD operation requires content',
       path,
+      reason,
       status: 'failed',
       type: 'ADD',
     }
@@ -540,8 +610,10 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
     const parsed = parsePath(path)
     if (!parsed) {
       return {
+        ...reviewMeta,
         message: `Invalid path format: ${path}. Expected domain/topic or domain/topic/subtopic`,
         path,
+        reason,
         status: 'failed',
         type: 'ADD',
       }
@@ -550,8 +622,10 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
     const domainValidation = validateDomain(parsed.domain)
     if (!domainValidation.allowed) {
       return {
+        ...reviewMeta,
         message: domainValidation.reason,
         path,
+        reason,
         status: 'failed',
         type: 'ADD',
       }
@@ -572,6 +646,7 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
       name: title,
       narrative: filteredContent.narrative,
       rawConcept: filteredContent.rawConcept,
+      reason,
       relations: filteredContent.relations,
       scoring: applyDefaultScoring(),
       snippets: filteredContent.snippets ?? [],
@@ -584,16 +659,20 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
     await ensureContextMd(basePath, parsed, topicContext, subtopicContext)
 
     return {
+      ...reviewMeta,
       filePath: contextPath,
       message: `Created ${path}/${filename} with ${content.snippets?.length || 0} snippets. Reason: ${reason}`,
       path,
+      reason,
       status: 'success',
       type: 'ADD',
     }
   } catch (error) {
     return {
+      ...reviewMeta,
       message: error instanceof Error ? error.message : String(error),
       path,
+      reason,
       status: 'failed',
       type: 'ADD',
     }
@@ -604,12 +683,15 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
  * Execute UPDATE operation - modify existing {title}.md
  */
 async function executeUpdate(basePath: string, operation: Operation): Promise<OperationResult> {
-  const { content, domainContext, path, reason, subtopicContext, title, topicContext } = operation
+  const {confidence, content, domainContext, impact, path, reason, subtopicContext, title, topicContext} = operation
+  const reviewMeta = deriveReviewMetadata('UPDATE', confidence, impact)
 
   if (!title) {
     return {
+      ...reviewMeta,
       message: 'UPDATE operation requires a title',
       path,
+      reason,
       status: 'failed',
       type: 'UPDATE',
     }
@@ -617,8 +699,10 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
 
   if (!content) {
     return {
+      ...reviewMeta,
       message: 'UPDATE operation requires content',
       path,
+      reason,
       status: 'failed',
       type: 'UPDATE',
     }
@@ -628,8 +712,10 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
     const parsed = parsePath(path)
     if (!parsed) {
       return {
+        ...reviewMeta,
         message: `Invalid path format: ${path}. Expected domain/topic or domain/topic/subtopic`,
         path,
+        reason,
         status: 'failed',
         type: 'UPDATE',
       }
@@ -642,8 +728,10 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
     const exists = await DirectoryManager.fileExists(contextPath)
     if (!exists) {
       return {
+        ...reviewMeta,
         message: `File does not exist: ${path}/${filename}`,
         path,
+        reason,
         status: 'failed',
         type: 'UPDATE',
       }
@@ -659,7 +747,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
       updatedScoring.importance ?? 50,
       (updatedScoring.maturity ?? 'draft') as 'core' | 'draft' | 'validated',
     )
-    const finalScoring = { ...updatedScoring, maturity: newTier }
+    const finalScoring = {...updatedScoring, maturity: newTier}
 
     // Filter out non-existent files from rawConcept.files
     const filteredContent = filterValidFiles(content)
@@ -670,6 +758,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
       name: title,
       narrative: filteredContent.narrative,
       rawConcept: filteredContent.rawConcept,
+      reason,
       relations: filteredContent.relations,
       scoring: finalScoring,
       snippets: filteredContent.snippets ?? [],
@@ -680,16 +769,20 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
     await ensureContextMd(basePath, parsed, topicContext, subtopicContext)
 
     return {
+      ...reviewMeta,
       filePath: contextPath,
       message: `Updated ${path}/${filename}. Reason: ${reason}`,
       path,
+      reason,
       status: 'success',
       type: 'UPDATE',
     }
   } catch (error) {
     return {
+      ...reviewMeta,
       message: error instanceof Error ? error.message : String(error),
       path,
+      reason,
       status: 'failed',
       type: 'UPDATE',
     }
@@ -701,12 +794,15 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
  * This is the recommended operation type as it eliminates the need for pre-checks.
  */
 async function executeUpsert(basePath: string, operation: Operation): Promise<OperationResult> {
-  const { path, title } = operation
+  const {path, reason, title} = operation
+  const reviewMeta = deriveReviewMetadata('UPSERT', operation.confidence, operation.impact)
 
   if (!title) {
     return {
+      ...reviewMeta,
       message: 'UPSERT operation requires a title',
       path,
+      reason,
       status: 'failed',
       type: 'UPSERT',
     }
@@ -714,8 +810,10 @@ async function executeUpsert(basePath: string, operation: Operation): Promise<Op
 
   if (!operation.content) {
     return {
+      ...reviewMeta,
       message: 'UPSERT operation requires content',
       path,
+      reason,
       status: 'failed',
       type: 'UPSERT',
     }
@@ -725,8 +823,10 @@ async function executeUpsert(basePath: string, operation: Operation): Promise<Op
     const parsed = parsePath(path)
     if (!parsed) {
       return {
+        ...reviewMeta,
         message: `Invalid path format: ${path}. Expected domain/topic or domain/topic/subtopic`,
         path,
+        reason,
         status: 'failed',
         type: 'UPSERT',
       }
@@ -741,7 +841,7 @@ async function executeUpsert(basePath: string, operation: Operation): Promise<Op
 
     if (exists) {
       // File exists - delegate to UPDATE logic
-      const result = await executeUpdate(basePath, { ...operation, type: 'UPDATE' })
+      const result = await executeUpdate(basePath, {...operation, type: 'UPDATE'})
       // Return with UPSERT type but indicate it was an update
       return {
         ...result,
@@ -751,7 +851,7 @@ async function executeUpsert(basePath: string, operation: Operation): Promise<Op
     }
 
     // File doesn't exist - delegate to ADD logic
-    const result = await executeAdd(basePath, { ...operation, type: 'ADD' })
+    const result = await executeAdd(basePath, {...operation, type: 'ADD'})
     // Return with UPSERT type but indicate it was an add
     return {
       ...result,
@@ -760,8 +860,10 @@ async function executeUpsert(basePath: string, operation: Operation): Promise<Op
     }
   } catch (error) {
     return {
+      ...reviewMeta,
       message: error instanceof Error ? error.message : String(error),
       path,
+      reason,
       status: 'failed',
       type: 'UPSERT',
     }
@@ -772,12 +874,26 @@ async function executeUpsert(basePath: string, operation: Operation): Promise<Op
  * Execute MERGE operation - combine source file into target file, delete source file
  */
 async function executeMerge(basePath: string, operation: Operation): Promise<OperationResult> {
-  const { domainContext, mergeTarget, mergeTargetTitle, path, reason, subtopicContext, title, topicContext } = operation
+  const {
+    confidence,
+    domainContext,
+    impact,
+    mergeTarget,
+    mergeTargetTitle,
+    path,
+    reason,
+    subtopicContext,
+    title,
+    topicContext,
+  } = operation
+  const reviewMeta = deriveReviewMetadata('MERGE', confidence, impact)
 
   if (!title) {
     return {
+      ...reviewMeta,
       message: 'MERGE operation requires a title (source file)',
       path,
+      reason,
       status: 'failed',
       type: 'MERGE',
     }
@@ -785,8 +901,10 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
 
   if (!mergeTarget) {
     return {
+      ...reviewMeta,
       message: 'MERGE operation requires mergeTarget',
       path,
+      reason,
       status: 'failed',
       type: 'MERGE',
     }
@@ -794,8 +912,10 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
 
   if (!mergeTargetTitle) {
     return {
+      ...reviewMeta,
       message: 'MERGE operation requires mergeTargetTitle',
       path,
+      reason,
       status: 'failed',
       type: 'MERGE',
     }
@@ -807,8 +927,10 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
 
     if (!sourceParsed || !targetParsed) {
       return {
+        ...reviewMeta,
         message: `Invalid path format. Expected domain/topic or domain/topic/subtopic`,
         path,
+        reason,
         status: 'failed',
         type: 'MERGE',
       }
@@ -828,8 +950,10 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
 
     if (!sourceExists) {
       return {
+        ...reviewMeta,
         message: `Source file does not exist: ${path}/${sourceFilename}`,
         path,
+        reason,
         status: 'failed',
         type: 'MERGE',
       }
@@ -837,8 +961,10 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
 
     if (!targetExists) {
       return {
+        ...reviewMeta,
         message: `Target file does not exist: ${mergeTarget}/${targetFilename}`,
         path,
+        reason,
         status: 'failed',
         type: 'MERGE',
       }
@@ -850,7 +976,7 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
     const sourceContent = await DirectoryManager.readFile(sourceContextPath)
     const targetContent = await DirectoryManager.readFile(targetContextPath)
 
-    const mergedContent = MarkdownWriter.mergeContexts(sourceContent, targetContent)
+    const mergedContent = MarkdownWriter.mergeContexts(sourceContent, targetContent, reason)
     await DirectoryManager.writeFileAtomic(targetContextPath, mergedContent)
 
     await DirectoryManager.deleteFile(sourceContextPath)
@@ -859,16 +985,20 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
     await ensureContextMd(basePath, targetParsed, topicContext, subtopicContext)
 
     return {
+      ...reviewMeta,
       filePath: targetContextPath,
       message: `Merged ${path}/${sourceFilename} into ${mergeTarget}/${targetFilename}. Reason: ${reason}`,
       path,
+      reason,
       status: 'success',
       type: 'MERGE',
     }
   } catch (error) {
     return {
+      ...reviewMeta,
       message: error instanceof Error ? error.message : String(error),
       path,
+      reason,
       status: 'failed',
       type: 'MERGE',
     }
@@ -880,7 +1010,8 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
  * If title is provided, deletes specific file; if omitted, deletes entire folder
  */
 async function executeDelete(basePath: string, operation: Operation): Promise<OperationResult> {
-  const { path, reason, title } = operation
+  const {path, reason, title} = operation
+  const reviewMeta = deriveReviewMetadata('DELETE', operation.confidence, operation.impact)
 
   try {
     const fullPath = buildFullPath(basePath, path)
@@ -893,8 +1024,10 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
       const exists = await DirectoryManager.fileExists(filePath)
       if (!exists) {
         return {
+          ...reviewMeta,
           message: `File does not exist: ${path}/${filename}`,
           path,
+          reason,
           status: 'failed',
           type: 'DELETE',
         }
@@ -903,8 +1036,11 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
       await DirectoryManager.deleteFile(filePath)
 
       return {
+        ...reviewMeta,
+        filePath,
         message: `Deleted ${path}/${filename}. Reason: ${reason}`,
         path,
+        reason,
         status: 'success',
         type: 'DELETE',
       }
@@ -914,8 +1050,10 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
     const exists = await DirectoryManager.folderExists(fullPath)
     if (!exists) {
       return {
+        ...reviewMeta,
         message: `Folder does not exist: ${path}`,
         path,
+        reason,
         status: 'failed',
         type: 'DELETE',
       }
@@ -924,15 +1062,20 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
     await DirectoryManager.deleteTopicRecursive(fullPath)
 
     return {
+      ...reviewMeta,
+      filePath: fullPath,
       message: `Deleted folder ${path}. Reason: ${reason}`,
       path,
+      reason,
       status: 'success',
       type: 'DELETE',
     }
   } catch (error) {
     return {
+      ...reviewMeta,
       message: error instanceof Error ? error.message : String(error),
       path,
+      reason,
       status: 'failed',
       type: 'DELETE',
     }
@@ -949,8 +1092,12 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
     return {
       applied: [
         {
+          confidence: 'high',
+          impact: 'low',
           message: `Invalid input: ${parseResult.error.message}`,
+          needsReview: false,
           path: '',
+          reason: '',
           status: 'failed',
           type: 'ADD',
         },
@@ -965,7 +1112,7 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
     }
   }
 
-  const { basePath, operations } = parseResult.data
+  const {basePath, operations} = parseResult.data
 
   const applied: OperationResult[] = []
   const summary = {
@@ -1031,8 +1178,12 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
         // Exhaustive type check - TypeScript will error if any case is missed
         const exhaustiveCheck: never = operation.type
         result = {
+          confidence: 'high',
+          impact: 'low',
           message: `Unknown operation type: ${exhaustiveCheck}`,
+          needsReview: false,
           path: operation.path,
+          reason: operation.reason,
           status: 'failed',
           type: operation.type,
         }
@@ -1047,9 +1198,8 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
   }
   /* eslint-enable no-await-in-loop */
 
-  return { applied, summary }
+  return {applied, summary}
 }
-
 
 export function createCurateTool(workingDirectory?: string): Tool {
   return {
@@ -1077,13 +1227,15 @@ export function createCurateTool(workingDirectory?: string): Tool {
 
 **Operations:**
 1. **ADD** - Create new titled context file in domain/topic/subtopic
-   - Requires: path, title, content (snippets and/or relations), reason
+   - Requires: path, title, content, confidence, impact, reason
    - Relations must be in the format of "domain/topic/title.md" or "domain/topic/subtopic/title.md"
    - Example with Raw Concept + Narrative:
      {
        type: "ADD",
        path: "structure/caching",
        title: "Redis User Permissions",
+       confidence: "high",
+       impact: "medium",
        content: {
          rawConcept: {
            task: "Introduce Redis cache for getUserPermissions(userId)",
@@ -1099,26 +1251,46 @@ export function createCurateTool(workingDirectory?: string): Tool {
          },
          relations: ["structure/api-endpoints/validation.md", "structure/api-endpoints/error-handling/retry-logic.md"]
        },
-       reason: "New caching pattern"
+       reason: "Introduced after team discussion in PR #42: chose Redis over in-process cache to share state across replicas. The 5-minute staleness was a deliberate trade-off, not an oversight — future agents should not 'fix' it."
      }
    - Creates: structure/caching/redis_user_permissions.md
 
 2. **UPDATE** - Modify existing titled context file (full replacement)
-   - Requires: path, title, content, reason
+   - Requires: path, title, content, confidence, impact, reason
    - Relations must be in the format of "domain/topic/title.md" or "domain/topic/subtopic/title.md"
    - Supports same content structure as ADD
+   - reason example: \`"Token expiry was changed from 1h to 15min in the security audit (Jira SEC-204). Updated to reflect the new default and the reasoning: shorter TTL reduces blast radius of leaked tokens."\`
 
 3. **MERGE** - Combine source file into target file, delete source
-   - Requires: path (source), title (source file), mergeTarget (destination path), mergeTargetTitle (destination file), reason
-   - Example: { type: "MERGE", path: "code_style/old_topic", title: "Old Guide", mergeTarget: "code_style/new_topic", mergeTargetTitle: "New Guide", reason: "Consolidating" }
+   - Requires: path (source), title (source file), mergeTarget (destination path), mergeTargetTitle (destination file), confidence, impact, reason
+   - Example: { type: "MERGE", path: "code_style/old_topic", title: "Old Guide", mergeTarget: "code_style/new_topic", mergeTargetTitle: "New Guide", confidence: "high", impact: "medium", reason: "Both files cover the same conventions; merging keeps a single source of truth and avoids contradictions." }
    - Raw concepts and narratives are intelligently merged
 
 4. **DELETE** - Remove specific file or entire folder
-   - Requires: path, title (optional), reason
+   - Requires: path, title (optional), confidence, impact, reason
    - With title: deletes specific file; without title: deletes entire folder
+   - Example: { type: "DELETE", path: "auth/legacy", title: "Session Token Flow", confidence: "high", impact: "high", reason: "Session-based auth was fully replaced by JWT in v2.0 (PR #88). Keeping this would mislead future agents into thinking sessions are still in use." }
+
+**Review Metadata (per operation — always provide these):**
+- **confidence**: How confident you are in the accuracy/completeness of this knowledge.
+  - \`"high"\`: You have direct evidence from the source material, codebase, or conversation.
+  - \`"low"\`: The information is inferred, partially known, or uncertain.
+- **impact**: The scope of this knowledge change.
+  - \`"high"\`: A deletion, or a major architectural/structural change.
+  - \`"medium"\`: A significant update to existing knowledge.
+  - \`"low"\`: A new addition or minor update.
+- **reason**: The human-readable motivation for this curation. This is the most important review field — a human reviewer will read it in the web inbox to decide whether to approve, edit, or reject the change.
+  - **Capture the WHY, not the what.** The what is already encoded in type, path, title, and content. The reason should answer: *What triggered this? What decision was made? What context would be lost without this knowledge?*
+  - **Write for a future human or agent reader**, not for yourself in the moment. Ask: "If someone reads this 6 months from now with no context, will they understand why this knowledge exists and why it should not be changed?"
+  - **Include trade-offs and intent.** If a decision was deliberate (a performance trade-off, a rejected alternative, a known limitation), say so explicitly — this prevents future agents from "fixing" something that was intentional.
+  - Good: \`"Decided in PR #42 to use Redis over in-process cache to share state across replicas. The 5-min staleness is a deliberate trade-off — do not optimize it away."\`
+  - Good: \`"Session auth was fully removed in v2.0; keeping this doc would mislead future agents into thinking it's still active."\`
+  - Bad: \`"Updating caching docs"\` — describes the operation, not the motivation
+  - Bad: \`"New pattern"\` — vague, gives a reviewer nothing to evaluate
+- Low-confidence or DELETE operations are automatically flagged for human review in the web inbox after \`brv push\`.
 
 **CRITICAL - Path vs Title separation:**
-- "path" = folder location only (domain/topic or domain/topic/subtopic) - NEVER include file extension suffixes 
+- "path" = folder location only (domain/topic or domain/topic/subtopic) - NEVER include file extension suffixes
 - "title" = the context name (becomes {title}.md file automatically)
 - The system auto-generates the .md file from title - DO NOT put .md or _md anywhere in path
 

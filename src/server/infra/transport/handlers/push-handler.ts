@@ -1,7 +1,10 @@
+import {join} from 'node:path'
+
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextFileReader} from '../../../core/interfaces/context-tree/i-context-file-reader.js'
 import type {IContextTreeSnapshotService} from '../../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {ICogitPushService} from '../../../core/interfaces/services/i-cogit-push-service.js'
+import type {ICurateLogStore} from '../../../core/interfaces/storage/i-curate-log-store.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
@@ -17,14 +20,21 @@ import {
   ProjectNotInitError,
   SpaceNotConfiguredError,
 } from '../../../core/domain/errors/task-error.js'
-import {mapToPushContexts} from '../../cogit/context-tree-to-push-context-mapper.js'
+import {type ContextReviewMetadata, mapToPushContexts} from '../../cogit/context-tree-to-push-context-mapper.js'
 import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
+
+/** Factory that creates a curate log store scoped to a project directory. */
+export type CurateLogStoreFactory = (projectPath: string) => ICurateLogStore
+
+/** Path prefix of the context tree relative to the project root. */
+const CONTEXT_TREE_RELATIVE = join('.brv', 'context-tree')
 
 export interface PushHandlerDeps {
   broadcastToProject: ProjectBroadcaster
   cogitPushService: ICogitPushService
   contextFileReader: IContextFileReader
   contextTreeSnapshotService: IContextTreeSnapshotService
+  curateLogStoreFactory: CurateLogStoreFactory
   projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
   tokenStore: ITokenStore
@@ -41,6 +51,7 @@ export class PushHandler {
   private readonly cogitPushService: ICogitPushService
   private readonly contextFileReader: IContextFileReader
   private readonly contextTreeSnapshotService: IContextTreeSnapshotService
+  private readonly curateLogStoreFactory: CurateLogStoreFactory
   private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
   private readonly tokenStore: ITokenStore
@@ -52,6 +63,7 @@ export class PushHandler {
     this.cogitPushService = deps.cogitPushService
     this.contextFileReader = deps.contextFileReader
     this.contextTreeSnapshotService = deps.contextTreeSnapshotService
+    this.curateLogStoreFactory = deps.curateLogStoreFactory
     this.projectConfigStore = deps.projectConfigStore
     this.resolveProjectPath = deps.resolveProjectPath
     this.tokenStore = deps.tokenStore
@@ -67,6 +79,65 @@ export class PushHandler {
     this.transport.onRequest<PushExecuteRequest, PushExecuteResponse>(PushEvents.EXECUTE, (data, clientId) =>
       this.handleExecute(data, clientId),
     )
+  }
+
+  /**
+   * Build a review metadata map keyed by context-tree-relative file path.
+   *
+   * Queries the curate log for the project, extracts the most recent review metadata
+   * for each file path, and returns a Map for use in the push context mapper.
+   *
+   * For deleted paths with no log entry, the mapper applies the default
+   * (needsReview: true) via DELETED_FILE_DEFAULTS in context-tree-to-push-context-mapper.ts.
+   */
+  private async buildReviewMetadata(
+    projectPath: string,
+    deletedPaths: string[],
+  ): Promise<Map<string, ContextReviewMetadata>> {
+    const map = new Map<string, ContextReviewMetadata>()
+
+    try {
+      const store = this.curateLogStoreFactory(projectPath)
+      // List recent completed entries (last 500, newest-first)
+      const entries = await store.list({limit: 500, status: ['completed']})
+      const contextTreeRoot = join(projectPath, CONTEXT_TREE_RELATIVE)
+
+      // Process oldest-first so the newest entry wins for each path
+      for (const entry of [...entries].reverse()) {
+        for (const op of entry.operations) {
+          if (!op.filePath || op.needsReview === undefined) continue
+
+          // Strip absolute project prefix to get context-tree-relative path
+          const prefix = contextTreeRoot + '/'
+          if (!op.filePath.startsWith(prefix)) continue
+          const relativePath = op.filePath.slice(prefix.length)
+
+          map.set(relativePath, {
+            confidence: op.confidence ?? 'high',
+            impact: op.impact ?? 'low',
+            needsReview: op.needsReview,
+            reason: op.reason ?? '',
+          })
+        }
+      }
+    } catch {
+      // Best-effort — if the log is unavailable, proceed without review metadata.
+      // Deleted files still get their default needsReview=true treatment below.
+    }
+
+    // Ensure all deleted paths are flagged even if absent from the curate log
+    for (const deletedPath of deletedPaths) {
+      if (!map.has(deletedPath)) {
+        map.set(deletedPath, {
+          confidence: 'high',
+          impact: 'high',
+          needsReview: true,
+          reason: 'Deleted from context tree',
+        })
+      }
+    }
+
+    return map
   }
 
   private async handleExecute(data: PushExecuteRequest, clientId: string): Promise<PushExecuteResponse> {
@@ -94,10 +165,13 @@ export class PushHandler {
       this.contextFileReader.readMany(changes.modified, projectPath),
     ])
 
+    const reviewMetadata = await this.buildReviewMetadata(projectPath, changes.deleted)
+
     const pushContexts = mapToPushContexts({
       addedFiles,
       deletedPaths: changes.deleted,
       modifiedFiles,
+      reviewMetadata,
     })
 
     this.broadcastToProject(projectPath, PushEvents.PROGRESS, {message: 'Pushing to cloud...', step: 'pushing'})
