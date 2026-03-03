@@ -1,21 +1,18 @@
-import {randomUUID} from 'node:crypto'
 import {writeFile} from 'node:fs/promises'
 
-import type {
-  GenerateContentResponse,
-  IContentGenerator,
-} from '../../core/interfaces/i-content-generator.js'
+import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
 import type {ILogger} from '../../core/interfaces/i-logger.js'
 import type {ContextTreeStore} from './context-tree-store.js'
 
 import {
   buildRetryMessage,
   buildUserMessage,
-  LLM_MAP_SYSTEM_MESSAGE,
+  callLlm,
   type LlmMapParameters,
   parseJsonlFile,
   resolveAndValidatePath,
   validateAgainstSchema,
+  withTimeout,
 } from './map-shared.js'
 import {type MapProgress, type MapRunResult, runMapWorkerPool} from './worker-pool.js'
 
@@ -201,58 +198,3 @@ export async function executeLlmMap(options: LlmMapServiceOptions): Promise<MapR
   return result
 }
 
-// ── Internal Helpers ─────────────────────────────────────────────────────────
-
-/**
- * Race a promise against an abort signal.
- * Since IContentGenerator.generateContent() doesn't accept AbortSignal,
- * this ensures the per-item timeout stops waiting for a hung LLM call.
- */
-function withTimeout<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) {
-    return Promise.reject(new Error('Timed out'))
-  }
-
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => {
-      reject(new Error('Timed out'))
-    }
-
-    signal.addEventListener('abort', onAbort, {once: true})
-
-    promise.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort)
-        resolve(value)
-      },
-      (error) => {
-        signal.removeEventListener('abort', onAbort)
-        reject(error)
-      },
-    )
-  })
-}
-
-async function callLlm(
-  generator: IContentGenerator,
-  userMessage: string,
-  taskId?: string,
-  abortSignal?: AbortSignal,
-): Promise<GenerateContentResponse> {
-  if (abortSignal?.aborted) {
-    throw new Error('Aborted')
-  }
-
-  return generator.generateContent({
-    config: {
-      maxTokens: 4096,
-      temperature: 0,
-    },
-    contents: [
-      {content: userMessage, role: 'user'},
-    ],
-    model: 'default',
-    systemPrompt: LLM_MAP_SYSTEM_MESSAGE,
-    taskId: taskId ?? randomUUID(),
-  })
-}

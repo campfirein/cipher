@@ -9,12 +9,7 @@
  * (no generic schema — curation-specific).
  */
 
-import {randomUUID} from 'node:crypto'
-
-import type {
-  GenerateContentResponse,
-  IContentGenerator,
-} from '../../core/interfaces/i-content-generator.js'
+import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
 import type {ILogger} from '../../core/interfaces/i-logger.js'
 import type {ContextTreeStore} from './context-tree-store.js'
 
@@ -22,7 +17,8 @@ import {type CurationCategory, type CurationFact, VALID_CATEGORIES} from '../san
 import {
   buildRetryMessage,
   buildUserMessage,
-  LLM_MAP_SYSTEM_MESSAGE,
+  callLlm,
+  withTimeout,
 } from './map-shared.js'
 import {type MapProgress, runMapWorkerPool} from './worker-pool.js'
 
@@ -288,55 +284,3 @@ function normalizeCategory(value: unknown): CurationCategory | undefined {
   return VALID_CATEGORIES.has(lower) ? (lower as CurationCategory) : undefined
 }
 
-/**
- * Race a promise against an abort signal.
- * Replicates the pattern from llm-map-service.ts.
- */
-function withTimeout<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) {
-    return Promise.reject(new Error('Timed out'))
-  }
-
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => {
-      reject(new Error('Timed out'))
-    }
-
-    signal.addEventListener('abort', onAbort, {once: true})
-
-    promise.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort)
-        resolve(value)
-      },
-      (error: unknown) => {
-        signal.removeEventListener('abort', onAbort)
-        reject(error instanceof Error ? error : new Error(String(error)))
-      },
-    )
-  })
-}
-
-function callLlm(
-  generator: IContentGenerator,
-  userMessage: string,
-  taskId?: string,
-  abortSignal?: AbortSignal,
-): Promise<GenerateContentResponse> {
-  if (abortSignal?.aborted) {
-    throw new Error('Aborted')
-  }
-
-  return generator.generateContent({
-    config: {
-      maxTokens: 4096,
-      temperature: 0,
-    },
-    contents: [
-      {content: userMessage, role: 'user'},
-    ],
-    model: 'default',
-    systemPrompt: LLM_MAP_SYSTEM_MESSAGE,
-    taskId: taskId ?? randomUUID(),
-  })
-}

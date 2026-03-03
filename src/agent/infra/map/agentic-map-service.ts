@@ -13,6 +13,7 @@ import {
   parseJsonlFile,
   resolveAndValidatePath,
   validateAgainstSchema,
+  withTimeout,
 } from './map-shared.js'
 import {type MapProgress, type MapRunResult, runMapWorkerPool} from './worker-pool.js'
 
@@ -445,34 +446,3 @@ export async function executeAgenticMap(options: AgenticMapServiceOptions): Prom
   }
 }
 
-// ── Internal Helpers ─────────────────────────────────────────────────────────
-
-/**
- * Race a promise against an abort signal.
- * Since executeOnSession() doesn't accept AbortSignal, this ensures
- * the per-item timeout actually stops waiting for a hung call.
- */
-function withTimeout<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) {
-    return Promise.reject(new Error('Timed out'))
-  }
-
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => {
-      reject(new Error('Timed out'))
-    }
-
-    signal.addEventListener('abort', onAbort, {once: true})
-
-    promise.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort)
-        resolve(value)
-      },
-      (error) => {
-        signal.removeEventListener('abort', onAbort)
-        reject(error)
-      },
-    )
-  })
-}

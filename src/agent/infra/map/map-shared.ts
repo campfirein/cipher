@@ -1,8 +1,14 @@
 /* eslint-disable camelcase */
+import {randomUUID} from 'node:crypto'
 import {realpathSync} from 'node:fs'
 import {readFile} from 'node:fs/promises'
 import {basename, dirname, join, normalize, resolve, sep} from 'node:path'
 import {z} from 'zod'
+
+import type {
+  GenerateContentResponse,
+  IContentGenerator,
+} from '../../core/interfaces/i-content-generator.js'
 
 // ── Path Safety ─────────────────────────────────────────────────────────────
 
@@ -334,4 +340,64 @@ export function buildRecursiveCompositionGuidance(
     "Reusing an ancestor's input_path is a cycle and will fail immediately.",
     '</recursive-map-guidance>',
   ].join('\n')
+}
+
+// ── Shared Helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Race a promise against an abort signal.
+ * Used across map services to enforce per-item timeouts on calls that
+ * don't natively accept AbortSignal (e.g., generateContent, executeOnSession).
+ */
+export function withTimeout<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(new Error('Timed out'))
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      reject(new Error('Timed out'))
+    }
+
+    signal.addEventListener('abort', onAbort, {once: true})
+
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      },
+    )
+  })
+}
+
+/**
+ * Stateless LLM call for map item processing.
+ * Shared by llm-map-service and llm-map-memory.
+ */
+export async function callLlm(
+  generator: IContentGenerator,
+  userMessage: string,
+  taskId?: string,
+  abortSignal?: AbortSignal,
+): Promise<GenerateContentResponse> {
+  if (abortSignal?.aborted) {
+    throw new Error('Aborted')
+  }
+
+  return generator.generateContent({
+    config: {
+      maxTokens: 4096,
+      temperature: 0,
+    },
+    contents: [
+      {content: userMessage, role: 'user'},
+    ],
+    model: 'default',
+    systemPrompt: LLM_MAP_SYSTEM_MESSAGE,
+    taskId: taskId ?? randomUUID(),
+  })
 }
