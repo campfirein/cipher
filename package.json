@@ -97,6 +97,8 @@
     "eslint-config-prettier": "^10",
     "eslint-import-resolver-typescript": "^4.4.4",
     "expect-type": "^1.2.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.3.1",
     "mocha": "^10",
     "nock": "^14.0.10",
     "oclif": "^4",
@@ -165,11 +167,19 @@
     "dev": "node bin/kill-daemon.js && npm run build && ./bin/dev.js",
     "dev:kill": "node bin/kill-daemon.js",
     "lint": "eslint",
+    "lint:fix": "npm run lint -- --fix",
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "npm run lint",
     "prepack": "npm run build && BRV_ENV=production oclif manifest",
+    "prepare": "husky",
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
     "version": "git add README.md"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "npm run lint:fix"
+    ]
   },
   "types": "dist/index.d.ts",
   "bundleDependencies": [
