@@ -14,6 +14,15 @@ import {z} from 'zod'
  * remaining non-existent segments on top. This catches symlink escapes
  * at any depth (e.g., workspace/symlink-to-outside/new-dir/file.jsonl).
  */
+/**
+ * Export the canonical path resolver for use in anti-cycle checks.
+ * Returns the real path via realpathSync.native(); falls back to walking
+ * up to the nearest existing ancestor for non-existent paths.
+ */
+export function canonicalizePath(absolutePath: string): string {
+  return canonicalize(absolutePath)
+}
+
 function canonicalize(absolutePath: string): string {
   try {
     return realpathSync.native(absolutePath)
@@ -238,6 +247,16 @@ export const AgenticMapParametersSchema = z.object({
     .positive()
     .optional()
     .describe('Max attempts per item (default: 3)'),
+  max_depth: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe(
+      'Maximum nesting depth for recursive agentic_map calls (default: 1). ' +
+      'Requires read_only=false. Capped at a hard server-side ceiling of 3. ' +
+      'Nested calls cannot increase the depth limit set by the root call.',
+    ),
   output_path: z.string().describe('File path where JSONL output will be written'),
   output_schema: z
     .record(z.string(), z.any())
@@ -296,4 +315,23 @@ export function buildAgenticMapSystemMessage(readOnly: boolean): string {
   }
 
   return lines.join('\n')
+}
+
+/**
+ * Build the recursive composition guidance block appended to sub-agent user messages
+ * when this depth level allows further nesting.
+ */
+export function buildRecursiveCompositionGuidance(
+  currentDepth: number,
+  maxDepth: number,
+): string {
+  const remaining = maxDepth - currentDepth
+  return [
+    '<recursive-map-guidance>',
+    `You are at nesting depth ${currentDepth} (hard limit: ${maxDepth}).`,
+    `You may call agentic_map up to ${remaining} more level(s).`,
+    'Each nested call MUST use a distinct JSONL input_path.',
+    "Reusing an ancestor's input_path is a cycle and will fail immediately.",
+    '</recursive-map-guidance>',
+  ].join('\n')
 }

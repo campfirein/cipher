@@ -140,6 +140,7 @@ export interface ToolsSDK {
    * Only the final response string flows back.
    * @param prompt - Prompt for the sub-agent
    * @param options - Optional limits
+   * @param options.contextData - Optional key/value context injected into child session sandbox
    * @param options.maxIterations - Maximum agentic iterations (default: 5)
    * @returns Promise resolving to the sub-agent's final response
    */

@@ -1,5 +1,6 @@
 import type {ITransportClient} from '@campfirein/brv-transport-client'
 
+import {randomUUID} from 'node:crypto'
 import {setMaxListeners} from 'node:events'
 
 import type {BrvConfig} from '../../../server/core/domain/entities/brv-config.js'
@@ -25,6 +26,7 @@ import {ToolName} from '../../core/domain/tools/constants.js'
 import {AgentEventBus} from '../events/event-emitter.js'
 import {createGeneratorForProvider} from '../llm/providers/index.js'
 import {EventBasedLogger} from '../logger/event-based-logger.js'
+import {deregisterRootEligibleSession, registerRootEligibleSession} from '../map/agentic-map-service.js'
 import {SessionManager} from '../session/session-manager.js'
 import {TransportEventBridge} from '../transport/transport-event-bridge.js'
 import {AgentError} from './agent-error.js'
@@ -55,6 +57,8 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   // Private state (must come before methods)
   private readonly _agentEventBus: AgentEventBus
   private readonly _brvConfig?: BrvConfig
+  /** Unique ID for this agent instance — scopes nesting registry ownership. */
+  private readonly _instanceId = randomUUID()
   private readonly _projectIdProvider?: () => string
   /**
    * Session ID - created once during start().
@@ -67,6 +71,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   private readonly _transportClient?: ITransportClient
   private readonly activeStreamControllers: Map<string, AbortController> = new Map()
   private eventBridge?: TransportEventBridge
+  /**
+   * Tracks session IDs this agent instance registered as root-eligible.
+   * Used for bulk deregistration on agent teardown (cleanupServices).
+   */
+  private readonly rootEligibleSessions = new Set<string>()
   private sessionManager?: SessionManager
 
   /**
@@ -202,6 +211,15 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       this.eventBridge = undefined
     }
 
+    // Deregister all root-eligible sessions before session manager disposal.
+    // stop()/restart() disposes without calling deleteSession() per session,
+    // so this bulk cleanup prevents registry accumulation across restarts.
+    for (const sessionId of this.rootEligibleSessions) {
+      deregisterRootEligibleSession(sessionId, this._instanceId)
+    }
+
+    this.rootEligibleSessions.clear()
+
     // Dispose session manager
     if (this.sessionManager) {
       this.sessionManager.dispose()
@@ -229,14 +247,20 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    */
   public async createSession(sessionId?: string): Promise<IChatSession> {
     this.ensureStarted()
-    return this.getSessionManagerInternal().createSession(sessionId)
+    const session = await this.getSessionManagerInternal().createSession(sessionId)
+    this.registerSessionInternal(session.id)
+    return session
   }
 
   /**
    * Create a task-scoped child session for parallel execution.
    * The session gets its own sandbox, context manager, and LLM service.
    */
-  public async createTaskSession(taskId: string, commandType: string): Promise<string> {
+  public async createTaskSession(
+    taskId: string,
+    commandType: string,
+    options?: {mapRootEligible?: boolean},
+  ): Promise<string> {
     this.ensureStarted()
     const sessionMgr = this.getSessionManagerInternal()
     const parentSessionId = this.getSessionIdInternal()
@@ -245,6 +269,15 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       commandType,
       `task-${commandType}-${taskId}`,
     )
+
+    // Only register as root-eligible when explicitly opted in.
+    // Top-level executors that may call agentic_map (curate-executor,
+    // folder-pack-executor) pass mapRootEligible: true.
+    // For agentic_map sub-sessions (created by processItem), registration
+    // is skipped here — processItem sets its own isRootCaller: false record.
+    if (options?.mapRootEligible) {
+      this.registerSessionInternal(childSession.id)
+    }
 
     return childSession.id
   }
@@ -277,7 +310,16 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       this.stateManager.clearSessionOverride(sessionId)
     }
 
-    return this.getSessionManagerInternal().deleteSession(sessionId)
+    const deleted = await this.getSessionManagerInternal().deleteSession(sessionId)
+    if (deleted && this.rootEligibleSessions.has(sessionId)) {
+      // Deregister only if this agent instance owns the session.
+      // Scoping prevents one agent's teardown from removing another
+      // agent's live record when they share a session ID.
+      deregisterRootEligibleSession(sessionId, this._instanceId)
+      this.rootEligibleSessions.delete(sessionId)
+    }
+
+    return deleted
   }
 
   /**
@@ -287,6 +329,14 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     this.ensureStarted()
     await this.services!.sandboxService.clearSession(sessionId)
     await this.getSessionManagerInternal().deleteSession(sessionId)
+
+    // Deregister root-eligible record if this agent owns it.
+    // For agentic_map sub-sessions, the record was overwritten to isRootCaller: false
+    // by processItem, so deregisterRootEligibleSession is a no-op (correct).
+    if (this.rootEligibleSessions.has(sessionId)) {
+      deregisterRootEligibleSession(sessionId, this._instanceId)
+      this.rootEligibleSessions.delete(sessionId)
+    }
   }
 
   /**
@@ -404,7 +454,10 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     this.ensureStarted()
     const sessionMgr = this.getSessionManagerInternal()
     const existingSession = sessionMgr.getSession(sessionId)
-    return existingSession ?? sessionMgr.createSession(sessionId)
+    if (existingSession) return existingSession
+    const newSession = await sessionMgr.createSession(sessionId)
+    this.registerSessionInternal(newSession.id) // only on actual creation
+    return newSession
   }
 
   /**
@@ -513,10 +566,21 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
         maxSessions: this.config.sessions.maxSessions,
         sessionTTL: this.config.sessions.sessionTTL,
       },
+      onSessionRemoved: (sessionId) => {
+        this.handleSessionRemoved(sessionId)
+      },
     })
 
-    // Success — dispose old and swap
+    // Success — dispose old and swap.
+    // Deregister all root-eligible sessions from the old SM first —
+    // they no longer exist after dispose(). The next stream()/execute()
+    // will recreate sessions via getOrCreateSession and re-register them.
     if (this.sessionManager) {
+      for (const sid of this.rootEligibleSessions) {
+        deregisterRootEligibleSession(sid, this._instanceId)
+      }
+
+      this.rootEligibleSessions.clear()
       this.sessionManager.dispose()
     }
 
@@ -627,6 +691,9 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
         maxSessions: this.config.sessions.maxSessions,
         sessionTTL: this.config.sessions.sessionTTL,
       },
+      onSessionRemoved: (sessionId) => {
+        this.handleSessionRemoved(sessionId)
+      },
     })
 
     // Wire SessionManager into sandbox for tools.agentQuery() sub-agent delegation
@@ -636,6 +703,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Each agent has exactly 1 session created at start time
     const defaultSession = await this.sessionManager.createSession()
     this._sessionId = defaultSession.id
+    this.registerSessionInternal(defaultSession.id)
 
     // Inject agent instance and content generator into ToolProvider for map tools.
     // Uses rebindMapTools() which atomically replaces map tools with fresh deps
@@ -746,6 +814,9 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
         const sessionMgr = this.getSessionManagerInternal()
         const existingSession = sessionMgr.getSession(sessionId)
         const session = existingSession ?? (await sessionMgr.createSession(sessionId))
+        if (!existingSession) {
+          this.registerSessionInternal(session.id) // only on actual creation
+        }
 
         // Increment iteration counter
         this.getStateManager().incrementIteration()
@@ -935,6 +1006,16 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   }
 
   /**
+   * Handle SessionManager lifecycle removals (delete/end/TTL-expire) and keep
+   * root-eligible tracking synchronized with the global nesting registry.
+   */
+  private handleSessionRemoved(sessionId: string): void {
+    if (!this.rootEligibleSessions.has(sessionId)) return
+    deregisterRootEligibleSession(sessionId, this._instanceId)
+    this.rootEligibleSessions.delete(sessionId)
+  }
+
+  /**
    * Rebuild map tool dependencies and update ToolProvider + SandboxService.
    * Called from both start() (initial setup) and refreshProviderConfig() (hot-swap).
    */
@@ -990,5 +1071,14 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
     // Update sandbox for tools.curation.mapExtract()
     services.sandboxService.setContentGenerator?.(mapGenerator)
+  }
+
+  /**
+   * Register a session as root-eligible and track it for lifecycle cleanup.
+   * Routes all root-eligible registrations through a single point.
+   */
+  private registerSessionInternal(sessionId: string): void {
+    registerRootEligibleSession(sessionId, this._instanceId) // throws if id is a live sub-session record
+    this.rootEligibleSessions.add(sessionId)
   }
 }

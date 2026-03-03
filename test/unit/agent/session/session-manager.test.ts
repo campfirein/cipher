@@ -529,6 +529,25 @@ describe('SessionManager', () => {
       const metadata = manager.listSessionsWithMetadata()
       expect(metadata.find((m) => m.id === sessionIdToDelete)).to.be.undefined
     })
+
+    it('should call onSessionRemoved callback with reason=deleted', async () => {
+      const onSessionRemoved = sandbox.stub()
+      const localManager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig, {
+        onSessionRemoved,
+      })
+      localManager.mockCreateSessionServices = mockCreateSessionServices
+
+      mockCreateSessionServices.returns({
+        llmService: createMockLLMService(sandbox),
+        sessionEventBus: new SessionEventBus(),
+      })
+
+      await localManager.createSession('callback-delete')
+      await localManager.deleteSession('callback-delete')
+
+      expect(onSessionRemoved.calledOnceWithExactly('callback-delete', 'deleted')).to.be.true
+      localManager.dispose()
+    })
   })
 
   describe('endSession()', () => {
@@ -588,6 +607,28 @@ describe('SessionManager', () => {
       expect(manager.hasSession(sessionIdToEnd)).to.be.false
       const metadata = manager.listSessionsWithMetadata()
       expect(metadata.find((m) => m.id === sessionIdToEnd)).to.be.undefined
+    })
+
+    it('should call onSessionRemoved callback for ended and ttl_expired reasons', async () => {
+      const onSessionRemoved = sandbox.stub()
+      const localManager = new TestableSessionManager(mockSharedServices, mockHttpConfig, llmConfig, {
+        onSessionRemoved,
+      })
+      localManager.mockCreateSessionServices = mockCreateSessionServices
+
+      mockCreateSessionServices.returns({
+        llmService: createMockLLMService(sandbox),
+        sessionEventBus: new SessionEventBus(),
+      })
+
+      await localManager.createSession('callback-ended')
+      await localManager.endSession('callback-ended')
+      expect(onSessionRemoved.calledWithExactly('callback-ended', 'ended')).to.be.true
+
+      await localManager.createSession('callback-ttl')
+      await localManager.endSession('callback-ttl', 'ttl_expired')
+      expect(onSessionRemoved.calledWithExactly('callback-ttl', 'ttl_expired')).to.be.true
+      localManager.dispose()
     })
   })
 
