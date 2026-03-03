@@ -173,6 +173,7 @@
     "prepack": "npm run build && BRV_ENV=production oclif manifest",
     "prepare": "husky",
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
     "version": "git add README.md"
   },
   "lint-staged": {
