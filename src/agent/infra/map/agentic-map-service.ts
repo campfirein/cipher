@@ -397,11 +397,12 @@ export async function executeAgenticMap(options: AgenticMapServiceOptions): Prom
       } finally {
         clearTimeout(timeoutHandle)
 
-        // Do NOT delete from nestingRegistry here.
+        // Do NOT delete sessions or registry here.
+        // Session deletion is handled by the outer finally (Promise.allSettled)
+        // to avoid a double-dispose race with concurrent deleteTaskSession calls.
         // Registry cleanup is done exclusively by cleanupMapRun at root,
         // ensuring orphaned sessions (withTimeout race) retain their depth records
         // until the root run has fully completed.
-        agent.deleteTaskSession(sessionId).catch(() => {})
       }
     }
 
