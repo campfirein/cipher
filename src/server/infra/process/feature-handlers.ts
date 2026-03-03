@@ -136,6 +136,7 @@ export async function setupFeatureHandlers({
   new StatusHandler({
     contextTreeService,
     contextTreeSnapshotService,
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
     projectConfigStore,
     resolveProjectPath,
     tokenStore,

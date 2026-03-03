@@ -38,6 +38,11 @@ export interface TaskErrorData {
   message: string
 }
 
+export interface ReviewNotification {
+  pendingCount: number
+  reviewUrl: string
+}
+
 export interface Task {
   completedAt?: number
   content: string
@@ -49,6 +54,8 @@ export interface Task {
   isStreaming?: boolean
   reasoningContents?: ReasoningContentItem[]
   result?: string
+  /** Set when curate completes with pending HITL review operations. */
+  reviewNotification?: ReviewNotification
   sessionId?: string
   startedAt?: number
   status: TaskStatus
@@ -94,6 +101,8 @@ export interface TasksActions {
   setError: (taskId: string, error: TaskErrorData) => void
   /** Set task LLM response (final) */
   setResponse: (taskId: string, content: string, sessionId?: string) => void
+  /** Set review notification on a completed curate task */
+  setReviewNotification: (taskId: string, notification: ReviewNotification) => void
   /** Set task to started */
   setStarted: (taskId: string) => void
   /** Update a tool call result */
@@ -344,6 +353,16 @@ export const useTasksStore = create<TasksActions & TasksState>()((set, get) => (
         sessionId: sessionId ?? task.sessionId,
         streamingContent: undefined,
       })
+      return {stats: computeStats(tasks), tasks}
+    }),
+
+  setReviewNotification: (taskId, notification) =>
+    set((state) => {
+      const task = state.tasks.get(taskId)
+      if (!task) return state
+
+      const tasks = new Map(state.tasks)
+      tasks.set(taskId, {...task, reviewNotification: notification})
       return {stats: computeStats(tasks), tasks}
     }),
 

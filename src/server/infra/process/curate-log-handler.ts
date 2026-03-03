@@ -72,6 +72,13 @@ export function computeSummary(operations: CurateLogOperation[]): CurateLogSumma
  * per-project FileCurateLogStore. All I/O errors are swallowed — logging
  * must never block or affect curate task execution.
  */
+/** Info passed to the onPendingReviews callback after curate completes with pending review ops. */
+export type PendingReviewsInfo = {
+  pendingCount: number
+  projectPath: string
+  taskId: string
+}
+
 export class CurateLogHandler implements ITaskLifecycleHook {
   /** Active task count per projectPath — used to evict idle stores. */
   private readonly activeTaskCount = new Map<string, number>()
@@ -82,8 +89,12 @@ export class CurateLogHandler implements ITaskLifecycleHook {
 
   /**
    * @param createStore - Optional factory for testing. Default: FileCurateLogStore.
+   * @param onPendingReviews - Optional callback fired when curate completes with pending review ops.
    */
-  constructor(private readonly createStore?: (projectPath: string) => ICurateLogStore) {}
+  constructor(
+    private readonly createStore?: (projectPath: string) => ICurateLogStore,
+    private readonly onPendingReviews?: (info: PendingReviewsInfo) => void,
+  ) {}
 
   cleanup(taskId: string): void {
     const state = this.tasks.get(taskId)
@@ -141,6 +152,18 @@ export class CurateLogHandler implements ITaskLifecycleHook {
         `CurateLogHandler: failed to save completed entry for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
       )
     })
+
+    // Notify about pending reviews (fire-and-forget)
+    if (this.onPendingReviews) {
+      const pendingCount = state.operations.filter((op) => op.reviewStatus === 'pending').length
+      if (pendingCount > 0) {
+        try {
+          this.onPendingReviews({pendingCount, projectPath: state.projectPath, taskId})
+        } catch {
+          // Best-effort notification — never block task completion
+        }
+      }
+    }
   }
 
   async onTaskCreate(task: TaskInfo): Promise<void | {logId?: string}> {

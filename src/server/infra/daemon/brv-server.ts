@@ -30,6 +30,7 @@ import {fileURLToPath} from 'node:url'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 
+import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
 import {
   AGENT_IDLE_CHECK_INTERVAL_MS,
   AGENT_IDLE_TIMEOUT_MS,
@@ -266,7 +267,15 @@ async function main(): Promise<void> {
     // Start agent idle timeout policy
     agentIdleTimeoutPolicy.start()
 
-    const curateLogHandler = new CurateLogHandler()
+    const curateLogHandler = new CurateLogHandler(undefined, (info) => {
+      const encoded = Buffer.from(info.projectPath).toString('base64url')
+      const reviewUrl = `http://127.0.0.1:${port}/review?project=${encoded}`
+      broadcastToProjectRoom(projectRegistry, projectRouter, info.projectPath, ReviewEvents.NOTIFY, {
+        pendingCount: info.pendingCount,
+        reviewUrl,
+        taskId: info.taskId,
+      })
+    })
 
     const transportHandlers = new TransportHandlers({
       agentPool,

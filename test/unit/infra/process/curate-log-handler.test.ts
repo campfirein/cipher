@@ -433,6 +433,92 @@ describe('CurateLogHandler', () => {
       expect(freshStoreCalled).to.be.true
     })
   })
+
+  // ==========================================================================
+  // onPendingReviews callback
+  // ==========================================================================
+
+  describe('onPendingReviews callback', () => {
+    it('should call onPendingReviews when curate completes with pending review ops', async () => {
+      const notifications: Array<{pendingCount: number; projectPath: string; taskId: string}> = []
+      const handlerWithCallback = new CurateLogHandler(
+        () => store,
+        (info) => notifications.push(info),
+      )
+
+      await handlerWithCallback.onTaskCreate(makeTask())
+
+      // Inject operation with reviewStatus=pending
+      handlerWithCallback.onToolResult('task-abc', {
+        result: {
+          applied: [{
+            confidence: 'low',
+            impact: 'high',
+            needsReview: true,
+            path: '/a.md',
+            status: 'success',
+            type: 'DELETE',
+          }],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handlerWithCallback.onTaskCompleted('task-abc', 'done', makeTask())
+
+      expect(notifications).to.have.lengthOf(1)
+      expect(notifications[0].pendingCount).to.equal(1)
+      expect(notifications[0].projectPath).to.equal('/app')
+      expect(notifications[0].taskId).to.equal('task-abc')
+    })
+
+    it('should NOT call onPendingReviews when no pending review ops exist', async () => {
+      const notifications: Array<{pendingCount: number; projectPath: string; taskId: string}> = []
+      const handlerWithCallback = new CurateLogHandler(
+        () => store,
+        (info) => notifications.push(info),
+      )
+
+      await handlerWithCallback.onTaskCreate(makeTask())
+
+      // Inject operation without needsReview
+      handlerWithCallback.onToolResult('task-abc', {
+        result: {applied: [{path: '/a.md', status: 'success', type: 'ADD'}]},
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handlerWithCallback.onTaskCompleted('task-abc', 'done', makeTask())
+
+      expect(notifications).to.have.lengthOf(0)
+    })
+
+    it('should not throw if onPendingReviews callback throws', async () => {
+      const handlerWithBadCallback = new CurateLogHandler(
+        () => store,
+        () => { throw new Error('callback error') },
+      )
+
+      await handlerWithBadCallback.onTaskCreate(makeTask())
+
+      handlerWithBadCallback.onToolResult('task-abc', {
+        result: {
+          applied: [{needsReview: true, path: '/a.md', status: 'success', type: 'DELETE'}],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      // Should not throw
+      await handlerWithBadCallback.onTaskCompleted('task-abc', 'done', makeTask())
+    })
+  })
 })
 
 }) // end curate-log-handler
