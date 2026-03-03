@@ -221,6 +221,7 @@ export function detectMessageBoundaries(context: string): MessageBoundary[] {
   let match: null | RegExpExecArray = null
   let index = 0
 
+  MESSAGE_BOUNDARY_REGEX.lastIndex = 0
   while ((match = MESSAGE_BOUNDARY_REGEX.exec(context)) !== null) {
     results.push({
       index: index++,
