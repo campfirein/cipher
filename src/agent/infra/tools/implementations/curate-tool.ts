@@ -2,6 +2,7 @@ import {existsSync} from 'node:fs'
 import {join, resolve} from 'node:path'
 import {z} from 'zod'
 
+import type {ContextData} from '../../../../server/core/domain/knowledge/markdown-writer.js'
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
 
 import {DirectoryManager} from '../../../../server/core/domain/knowledge/directory-manager.js'
@@ -12,6 +13,8 @@ import {
   recordCurateUpdate,
 } from '../../../../server/core/domain/knowledge/memory-scoring.js'
 import {toSnakeCase} from '../../../../server/utils/file-helpers.js'
+import {deriveImpactFromLoss, detectStructuralLoss} from '../../../core/domain/knowledge/conflict-detector.js'
+import {resolveStructuralLoss} from '../../../core/domain/knowledge/conflict-resolver.js'
 import {ToolName} from '../../../core/domain/tools/constants.js'
 
 /**
@@ -680,15 +683,27 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
 }
 
 /**
+ * Compute the maximum of two impact levels.
+ */
+function maxImpact(
+  a: 'high' | 'low' | 'medium',
+  b: 'high' | 'low' | 'medium',
+): 'high' | 'low' | 'medium' {
+  const rank = {high: 2, low: 0, medium: 1} as const
+  return rank[a] >= rank[b] ? a : b
+}
+
+/**
  * Execute UPDATE operation - modify existing {title}.md
  */
 async function executeUpdate(basePath: string, operation: Operation): Promise<OperationResult> {
   const {confidence, content, domainContext, impact, path, reason, subtopicContext, title, topicContext} = operation
-  const reviewMeta = deriveReviewMetadata('UPDATE', confidence, impact)
+  // Used for early-exit validation failures (before structural loss can be assessed)
+  const baseReviewMeta = deriveReviewMetadata('UPDATE', confidence, impact)
 
   if (!title) {
     return {
-      ...reviewMeta,
+      ...baseReviewMeta,
       message: 'UPDATE operation requires a title',
       path,
       reason,
@@ -699,7 +714,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
 
   if (!content) {
     return {
-      ...reviewMeta,
+      ...baseReviewMeta,
       message: 'UPDATE operation requires content',
       path,
       reason,
@@ -712,7 +727,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
     const parsed = parsePath(path)
     if (!parsed) {
       return {
-        ...reviewMeta,
+        ...baseReviewMeta,
         message: `Invalid path format: ${path}. Expected domain/topic or domain/topic/subtopic`,
         path,
         reason,
@@ -728,7 +743,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
     const exists = await DirectoryManager.fileExists(contextPath)
     if (!exists) {
       return {
-        ...reviewMeta,
+        ...baseReviewMeta,
         message: `File does not exist: ${path}/${filename}`,
         path,
         reason,
@@ -739,7 +754,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
 
     await createDomainContextIfMissing(basePath, parsed.domain, domainContext)
 
-    // Read existing file to preserve and update scoring metadata
+    // Read existing file to preserve scoring metadata and detect structural loss
     const existingContent = await DirectoryManager.readFile(contextPath)
     const existingScoring = existingContent ? parseFrontmatterScoring(existingContent) : undefined
     const updatedScoring = existingScoring ? recordCurateUpdate(existingScoring) : applyDefaultScoring()
@@ -752,17 +767,35 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
     // Filter out non-existent files from rawConcept.files
     const filteredContent = filterValidFiles(content)
 
-    const contextContent = MarkdownWriter.generateContext({
+    // Detect structural loss and auto-resolve: merge back anything the LLM dropped
+    const existingParsed = existingContent ? MarkdownWriter.parseContent(existingContent, title) : null
+    const proposedContextData = {
       facts: filteredContent.facts,
       keywords: filteredContent.keywords,
       name: title,
       narrative: filteredContent.narrative,
       rawConcept: filteredContent.rawConcept,
-      reason,
       relations: filteredContent.relations,
-      scoring: finalScoring,
       snippets: filteredContent.snippets ?? [],
       tags: filteredContent.tags,
+    }
+
+    let resolvedContextData: ContextData = proposedContextData
+    let elevatedImpact = impact
+
+    if (existingParsed) {
+      const loss = detectStructuralLoss(existingParsed, proposedContextData)
+      const structuralImpact = deriveImpactFromLoss(loss)
+      elevatedImpact = maxImpact(impact, structuralImpact)
+      resolvedContextData = resolveStructuralLoss(existingParsed, proposedContextData, loss)
+    }
+
+    const reviewMeta = deriveReviewMetadata('UPDATE', confidence, elevatedImpact)
+
+    const contextContent = MarkdownWriter.generateContext({
+      ...resolvedContextData,
+      reason,
+      scoring: finalScoring,
     })
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
 
@@ -779,7 +812,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
     }
   } catch (error) {
     return {
-      ...reviewMeta,
+      ...baseReviewMeta,
       message: error instanceof Error ? error.message : String(error),
       path,
       reason,

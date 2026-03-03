@@ -7,8 +7,11 @@ import {createCurateTool} from '../../../../src/agent/infra/tools/implementation
 
 interface CurateOutput {
   applied: Array<{
+    confidence?: 'high' | 'low'
     filePath?: string
+    impact?: 'high' | 'low' | 'medium'
     message?: string
+    needsReview?: boolean
     path: string
     status: 'failed' | 'success'
     type: 'ADD' | 'DELETE' | 'MERGE' | 'UPDATE'
@@ -984,6 +987,208 @@ describe('Curate Tool', () => {
       // Verify parent directories exist (they should be created along with the file)
       const loggingDirExists = await pathExists(join(freshBasePath, 'code_style/error_handling/logging'))
       expect(loggingDirExists).to.be.true
+    })
+  })
+
+  describe('Conflict detection and auto-resolution (UPDATE)', () => {
+    it('should auto-merge lost snippets back into the written file', async () => {
+      const tool = createCurateTool()
+
+      // Create file with two snippets
+      await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: ['snippet-one', 'snippet-two'], tags: []},
+            impact: 'low',
+            path: 'auth/jwt',
+            reason: 'initial',
+            title: 'Token Handling',
+            type: 'ADD',
+          },
+        ],
+      })
+
+      // Update with only one snippet (drops snippet-two)
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'low',
+            content: {keywords: [], snippets: ['snippet-one'], tags: []},
+            impact: 'low',
+            path: 'auth/jwt',
+            reason: 'update',
+            title: 'Token Handling',
+            type: 'UPDATE',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+
+      // Verify the file still contains both snippets (auto-merge preserved snippet-two)
+      const filePath = join(basePath, 'auth/jwt/token_handling.md')
+      const content = await fs.readFile(filePath, 'utf8')
+      expect(content).to.include('snippet-one')
+      expect(content).to.include('snippet-two')
+    })
+
+    it('should elevate impact to "high" when snippets are lost', async () => {
+      const tool = createCurateTool()
+
+      // Create file with snippets
+      await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: ['important-snippet'], tags: []},
+            impact: 'low',
+            path: 'auth/session',
+            reason: 'initial',
+            title: 'Session Flow',
+            type: 'ADD',
+          },
+        ],
+      })
+
+      // Update without any snippets (drops important-snippet)
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: ['updated'], snippets: [], tags: []},
+            impact: 'low', // LLM says low — but structural loss should elevate to high
+            path: 'auth/session',
+            reason: 'update',
+            title: 'Session Flow',
+            type: 'UPDATE',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].impact).to.equal('high')
+    })
+
+    it('should set needsReview=true when confidence=low and structural loss elevates impact to high', async () => {
+      const tool = createCurateTool()
+
+      // Create file with snippets
+      await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: ['critical-info'], tags: []},
+            impact: 'low',
+            path: 'security/tokens',
+            reason: 'initial',
+            title: 'Token Policy',
+            type: 'ADD',
+          },
+        ],
+      })
+
+      // Update: low confidence + drops snippets (structural → high impact)
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'low',
+            content: {keywords: [], snippets: [], tags: []},
+            impact: 'low',
+            path: 'security/tokens',
+            reason: 'inferred update',
+            title: 'Token Policy',
+            type: 'UPDATE',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].needsReview).to.be.true
+    })
+
+    it('should not elevate impact when no structural loss occurs', async () => {
+      const tool = createCurateTool()
+
+      // Create file with snippets
+      await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: ['snippet-a'], tags: []},
+            impact: 'low',
+            path: 'config/settings',
+            reason: 'initial',
+            title: 'App Config',
+            type: 'ADD',
+          },
+        ],
+      })
+
+      // Update that includes the original snippet plus more
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: ['snippet-a', 'snippet-b'], tags: []},
+            impact: 'low',
+            path: 'config/settings',
+            reason: 'adding more info',
+            title: 'App Config',
+            type: 'UPDATE',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].impact).to.equal('low')
+      expect(result.applied[0].needsReview).to.be.false
+    })
+
+    it('should not downgrade LLM-provided high impact', async () => {
+      const tool = createCurateTool()
+
+      await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: [], tags: []},
+            impact: 'low',
+            path: 'infra/database',
+            reason: 'initial',
+            title: 'DB Config',
+            type: 'ADD',
+          },
+        ],
+      })
+
+      // LLM explicitly marks this as high impact (even though no structural loss)
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: [], tags: []},
+            impact: 'high', // LLM says high — should remain high
+            path: 'infra/database',
+            reason: 'major architectural change',
+            title: 'DB Config',
+            type: 'UPDATE',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].impact).to.equal('high')
     })
   })
 })
