@@ -292,9 +292,6 @@ Good context is:
 ## Available Commands
 
 - `brv curate` - Curate context to the context tree
-- `brv curate view` - List curate history (last 10 entries by default)
-- `brv curate view <logId>` - Full detail for a specific entry: all files and operations performed (logId returned by `brv curate`)
-- `brv curate view --detail` - List entries with their file operations visible (no logId needed)
 - `brv query` - Query and retrieve information from the context tree
 - `brv status` - Show CLI status and project information
 
