@@ -399,4 +399,124 @@ describe('FileCurateLogStore', () => {
       expect(completedEntry?.response).to.equal('Final answer')
     })
   })
+
+  // ==========================================================================
+  // updateOperationReviewStatus
+  // ==========================================================================
+
+  describe('updateOperationReviewStatus', () => {
+    it('should update the reviewStatus of a specific operation', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [
+          {needsReview: true, path: '/a.md', reviewStatus: 'pending', status: 'success', type: 'UPDATE'},
+          {needsReview: true, path: '/b.md', reviewStatus: 'pending', status: 'success', type: 'DELETE'},
+        ],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 0, deleted: 1, failed: 0, merged: 0, updated: 1},
+        taskId: 'task-review',
+      }
+      await store.save(entry)
+
+      const result = await store.updateOperationReviewStatus(id, 0, 'approved')
+      expect(result).to.be.true
+
+      const retrieved = await store.getById(id)
+      expect(retrieved?.operations[0].reviewStatus).to.equal('approved')
+      expect(retrieved?.operations[1].reviewStatus).to.equal('pending')
+    })
+
+    it('should return false for non-existent entry', async () => {
+      const result = await store.updateOperationReviewStatus('cur-9999999999999', 0, 'approved')
+      expect(result).to.be.false
+    })
+
+    it('should return false for out-of-bounds operation index', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [{needsReview: true, path: '/a.md', reviewStatus: 'pending', status: 'success', type: 'UPDATE'}],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 1},
+        taskId: 'task-review',
+      }
+      await store.save(entry)
+
+      expect(await store.updateOperationReviewStatus(id, 5, 'approved')).to.be.false
+      expect(await store.updateOperationReviewStatus(id, -1, 'approved')).to.be.false
+    })
+
+    it('should persist reviewStatus to disk', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [{needsReview: true, path: '/a.md', reviewStatus: 'pending', status: 'success', type: 'DELETE'}],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 0, deleted: 1, failed: 0, merged: 0, updated: 0},
+        taskId: 'task-review',
+      }
+      await store.save(entry)
+
+      await store.updateOperationReviewStatus(id, 0, 'rejected')
+
+      // Create a fresh store to verify persistence
+      const freshStore = new FileCurateLogStore({baseDir: tempDir})
+      const retrieved = await freshStore.getById(id)
+      expect(retrieved?.operations[0].reviewStatus).to.equal('rejected')
+    })
+  })
+
+  // ==========================================================================
+  // reviewStatus in Zod schema
+  // ==========================================================================
+
+  describe('reviewStatus schema validation', () => {
+    it('should accept entries with reviewStatus field', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [
+          {confidence: 'low', impact: 'high', needsReview: true, path: '/a.md', reason: 'test', reviewStatus: 'pending', status: 'success', type: 'UPDATE'},
+        ],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 1},
+        taskId: 'task-1',
+      }
+      await store.save(entry)
+
+      const retrieved = await store.getById(id)
+      expect(retrieved?.operations[0].reviewStatus).to.equal('pending')
+    })
+
+    it('should accept entries without reviewStatus field (backward compatible)', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [{path: '/a.md', status: 'success', type: 'ADD'}],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 1, deleted: 0, failed: 0, merged: 0, updated: 0},
+        taskId: 'task-1',
+      }
+      await store.save(entry)
+
+      const retrieved = await store.getById(id)
+      expect(retrieved?.operations[0].reviewStatus).to.be.undefined
+    })
+  })
 })

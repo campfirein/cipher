@@ -18,6 +18,7 @@ const CurateLogOperationFileSchema = z.object({
   needsReview: z.boolean().optional(),
   path: z.string(),
   reason: z.string().optional(),
+  reviewStatus: z.enum(['approved', 'pending', 'rejected']).optional(),
   status: z.enum(['failed', 'success']),
   type: z.enum(['ADD', 'DELETE', 'MERGE', 'UPDATE', 'UPSERT']),
 })
@@ -196,6 +197,25 @@ export class FileCurateLogStore implements ICurateLogStore {
 
     // Prune oldest entries (best-effort — ignore errors)
     this.pruneOldest().catch(() => {})
+  }
+
+  /**
+   * Update the reviewStatus of a specific operation within a log entry.
+   * Reads the entry, updates the operation at the given index, and saves back atomically.
+   * Returns false if the entry or operation index is not found.
+   */
+  async updateOperationReviewStatus(
+    logId: string,
+    operationIndex: number,
+    reviewStatus: 'approved' | 'rejected',
+  ): Promise<boolean> {
+    const entry = await this.getById(logId)
+    if (!entry) return false
+    if (operationIndex < 0 || operationIndex >= entry.operations.length) return false
+
+    entry.operations[operationIndex].reviewStatus = reviewStatus
+    await this.save(entry)
+    return true
   }
 
   // ── Private helpers ─────────────────────────────────────────────────────────

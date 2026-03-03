@@ -13,6 +13,7 @@ export const CurateOperationSchema = z.object({
   needsReview: z.boolean().optional(),
   path: z.string(),
   reason: z.string().optional(),
+  reviewStatus: z.enum(['approved', 'pending', 'rejected']).optional(),
   status: z.enum(['failed', 'success']),
   type: z.enum(['ADD', 'DELETE', 'MERGE', 'UPDATE', 'UPSERT']),
 })

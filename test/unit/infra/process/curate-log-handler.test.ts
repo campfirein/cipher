@@ -28,12 +28,14 @@ function makeStore(sandbox: SinonSandbox): ICurateLogStore & {
   getNextId: SinonStub
   list: SinonStub
   save: SinonStub
+  updateOperationReviewStatus: SinonStub
 } {
   return {
     getById: sandbox.stub().resolves(null),
     getNextId: sandbox.stub().resolves('cur-1000'),
     list: sandbox.stub().resolves([]),
     save: sandbox.stub().resolves(),
+    updateOperationReviewStatus: sandbox.stub().resolves(true),
   }
 }
 
@@ -224,6 +226,48 @@ describe('CurateLogHandler', () => {
 
       // Operations should be stored internally
       // Verified by checking onTaskCompleted uses them
+    })
+
+    it('should set reviewStatus=pending for operations with needsReview=true', async () => {
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [
+            {confidence: 'low', impact: 'high', needsReview: true, path: '/a.md', reason: 'uncertain', status: 'success', type: 'UPDATE'},
+            {confidence: 'high', impact: 'low', needsReview: false, path: '/b.md', reason: 'clear', status: 'success', type: 'ADD'},
+            {confidence: 'high', impact: 'high', needsReview: true, path: '/c.md', reason: 'irreversible', status: 'success', type: 'DELETE'},
+          ],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handler.onTaskCompleted('task-abc', 'done', makeTask())
+
+      const completedEntry: CurateLogEntry = store.save.secondCall.args[0]
+      expect(completedEntry.operations[0].reviewStatus).to.equal('pending')
+      expect(completedEntry.operations[1].reviewStatus).to.be.undefined
+      expect(completedEntry.operations[2].reviewStatus).to.equal('pending')
+    })
+
+    it('should not set reviewStatus for operations without needsReview', async () => {
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [
+            {confidence: 'high', impact: 'low', needsReview: false, path: '/a.md', status: 'success', type: 'ADD'},
+          ],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handler.onTaskCompleted('task-abc', 'done', makeTask())
+
+      const completedEntry: CurateLogEntry = store.save.secondCall.args[0]
+      expect(completedEntry.operations[0].reviewStatus).to.be.undefined
     })
 
     it('should silently skip unknown taskId', () => {
