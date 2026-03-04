@@ -969,48 +969,60 @@ export class AgentLLMService implements ILLMService {
       // Target utilization to leave headroom for response
       const targetMessageTokens = Math.floor(maxMessageTokens * TARGET_MESSAGE_TOKEN_UTILIZATION)
 
-      // Smart pruning: try clearing old tool outputs before destructive compression
-      this.contextManager.markToolOutputsCompacted(2)
-
-      // Get token counts (recalculate if pruning changed content)
+      // Count current token usage
       const currentMessages = this.contextManager.getMessages()
-      const effectiveTokenCounts = currentMessages.map((msg) =>
-        this.generator.estimateTokensSync(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)),
+      const currentTokens = currentMessages.reduce(
+        (sum, msg) => sum + this.generator.estimateTokensSync(
+          typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+        ),
+        0,
       )
 
-      // Destructive compression as fallback if still over limit
-      this.contextManager.compressMessage(targetMessageTokens, effectiveTokenCounts)
+      // Zero-cost continuity: skip all compression work if under threshold.
+      // Below 70% utilization, the agent pays zero overhead for context management.
+      if (currentTokens > targetMessageTokens) {
+        // Step 1: Non-destructive pruning — clear old tool outputs first
+        this.contextManager.markToolOutputsCompacted(2)
 
-      // Emergency guard: if still over 90% after normal compression, force aggressive compaction
-      // This is critical for curate/query commands where there's only 1 user turn,
-      // making the protectedTurns=2 in markToolOutputsCompacted() ineffective.
-      if (executionContext?.commandType === 'curate' || executionContext?.commandType === 'query') {
-        const postCompressionMessages = this.contextManager.getMessages()
-        const postCompressionTokens = postCompressionMessages.reduce(
+        // Step 2: Recount after pruning
+        const afterPruningMessages = this.contextManager.getMessages()
+        const afterPruningTokens = afterPruningMessages.reduce(
           (sum, msg) => sum + this.generator.estimateTokensSync(
             typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
           ),
           0,
         )
-        const totalWithSystem = postCompressionTokens + systemPromptTokens
 
-        if (totalWithSystem > this.config.maxInputTokens * 0.9) {
-          // Aggressive: compact ALL tool outputs (protect 0 turns instead of 2)
-          this.contextManager.markToolOutputsCompacted(0)
+        // Step 3: If still over, run escalated compression (L1→L2→L3) via strategy chain
+        if (afterPruningTokens > targetMessageTokens) {
+          await this.contextManager.compressAndReplace(systemPromptTokens, targetMessageTokens)
+        }
 
-          // Recalculate and re-compress
-          const aggressiveMessages = this.contextManager.getMessages()
-          const aggressiveTokens = aggressiveMessages.map((msg) =>
-            this.generator.estimateTokensSync(
+        // Step 4: Emergency guard for curate/query commands.
+        // Critical because curate/query have only 1 user turn, making
+        // protectedTurns=2 in markToolOutputsCompacted() ineffective.
+        if (executionContext?.commandType === 'curate' || executionContext?.commandType === 'query') {
+          const postCompressionMessages = this.contextManager.getMessages()
+          const postCompressionTokens = postCompressionMessages.reduce(
+            (sum, msg) => sum + this.generator.estimateTokensSync(
               typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
             ),
+            0,
           )
-          this.contextManager.compressMessage(targetMessageTokens, aggressiveTokens)
+          const totalWithSystem = postCompressionTokens + systemPromptTokens
 
-          this.sessionEventBus.emit('llmservice:warning', {
-            message: `Emergency context compression triggered (${Math.round((totalWithSystem / this.config.maxInputTokens) * 100)}% utilization)`,
-            taskId,
-          })
+          if (totalWithSystem > this.config.maxInputTokens * 0.9) {
+            // Aggressive: compact ALL tool outputs (protect 0 turns instead of 2)
+            this.contextManager.markToolOutputsCompacted(0)
+
+            // Re-run escalated compression with aggressively pruned context
+            await this.contextManager.compressAndReplace(systemPromptTokens, targetMessageTokens)
+
+            this.sessionEventBus.emit('llmservice:warning', {
+              message: `Emergency context compression triggered (${Math.round((totalWithSystem / this.config.maxInputTokens) * 100)}% utilization)`,
+              taskId,
+            })
+          }
         }
       }
 
