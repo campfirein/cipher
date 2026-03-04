@@ -3,14 +3,14 @@ import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {SqliteKeyStorage} from '../../../../src/agent/infra/storage/sqlite-key-storage.js'
+import {FileKeyStorage} from '../../../../src/agent/infra/storage/file-key-storage.js'
 
-describe('SqliteKeyStorage', () => {
+describe('FileKeyStorage', () => {
   describe('in-memory mode', () => {
-    let storage: SqliteKeyStorage
+    let storage: FileKeyStorage
 
     beforeEach(async () => {
-      storage = new SqliteKeyStorage({inMemory: true})
+      storage = new FileKeyStorage({inMemory: true})
       await storage.initialize()
     })
 
@@ -20,7 +20,7 @@ describe('SqliteKeyStorage', () => {
 
     describe('initialization', () => {
       it('should initialize successfully', async () => {
-        const newStorage = new SqliteKeyStorage({inMemory: true})
+        const newStorage = new FileKeyStorage({inMemory: true})
         await newStorage.initialize()
         // Should be able to perform operations
         await newStorage.set(['test'], 'value')
@@ -37,7 +37,7 @@ describe('SqliteKeyStorage', () => {
       })
 
       it('should throw error if operations called before initialize', async () => {
-        const uninitStorage = new SqliteKeyStorage({inMemory: true})
+        const uninitStorage = new FileKeyStorage({inMemory: true})
         try {
           await uninitStorage.get(['key'])
           expect.fail('Should have thrown')
@@ -168,6 +168,31 @@ describe('SqliteKeyStorage', () => {
       })
     })
 
+    describe('listWithValues', () => {
+      it('should list keys with values matching prefix', async () => {
+        await storage.set(['data', 'a'], {name: 'alpha'})
+        await storage.set(['data', 'b'], {name: 'beta'})
+        await storage.set(['other', 'c'], {name: 'gamma'})
+
+        const results = await storage.listWithValues<{name: string}>(['data'])
+        expect(results).to.have.lengthOf(2)
+
+        const sorted = results.sort((a, b) =>
+          a.key.join(':').localeCompare(b.key.join(':')),
+        )
+        expect(sorted[0].key).to.deep.equal(['data', 'a'])
+        expect(sorted[0].value).to.deep.equal({name: 'alpha'})
+        expect(sorted[1].key).to.deep.equal(['data', 'b'])
+        expect(sorted[1].value).to.deep.equal({name: 'beta'})
+      })
+
+      it('should return empty array for non-matching prefix', async () => {
+        await storage.set(['data', 'a'], 'value')
+        const results = await storage.listWithValues(['nonexistent'])
+        expect(results).to.deep.equal([])
+      })
+    })
+
     describe('update', () => {
       it('should atomically update existing value', async () => {
         await storage.set(['counter'], {value: 5})
@@ -196,7 +221,7 @@ describe('SqliteKeyStorage', () => {
     })
 
     describe('batch', () => {
-      it('should execute multiple set operations atomically', async () => {
+      it('should execute multiple set operations', async () => {
         await storage.batch([
           {key: ['batch', 'a'], type: 'set', value: 1},
           {key: ['batch', 'b'], type: 'set', value: 2},
@@ -257,6 +282,33 @@ describe('SqliteKeyStorage', () => {
           expect((error as Error).message).to.include("cannot contain ':'")
         }
       })
+
+      it('should throw error if key segment contains path separator', async () => {
+        try {
+          await storage.set(['invalid/key'], 'value')
+          expect.fail('Should have thrown')
+        } catch (error) {
+          expect((error as Error).message).to.include('path separators')
+        }
+      })
+
+      it('should throw error for empty key segment', async () => {
+        try {
+          await storage.set(['valid', '', 'key'], 'value')
+          expect.fail('Should have thrown')
+        } catch (error) {
+          expect((error as Error).message).to.include('cannot be empty')
+        }
+      })
+
+      it('should throw error for dot-dot key segment', async () => {
+        try {
+          await storage.set(['..'], 'value')
+          expect.fail('Should have thrown')
+        } catch (error) {
+          expect((error as Error).message).to.include("cannot be '..'")
+        }
+      })
     })
 
     describe('edge cases', () => {
@@ -271,16 +323,28 @@ describe('SqliteKeyStorage', () => {
         await storage.set(['key with spaces', 'emoji-🚀', 'unicode-日本語'], 'value')
         expect(await storage.get(['key with spaces', 'emoji-🚀', 'unicode-日本語'])).to.equal('value')
       })
+
+      it('should preserve createdAt on update', async () => {
+        await storage.set(['ts-key'], 'first')
+        // Small delay to ensure different timestamps
+        await new Promise((resolve) => {
+          setTimeout(resolve, 5)
+        })
+        await storage.set(['ts-key'], 'second')
+
+        // Value should be updated
+        expect(await storage.get(['ts-key'])).to.equal('second')
+      })
     })
   })
 
   describe('file-based mode', () => {
-    let storage: SqliteKeyStorage
+    let storage: FileKeyStorage
     let tempDir: string
 
     beforeEach(async () => {
-      tempDir = await mkdtemp(join(tmpdir(), 'sqlite-key-storage-test-'))
-      storage = new SqliteKeyStorage({storageDir: tempDir})
+      tempDir = await mkdtemp(join(tmpdir(), 'file-key-storage-test-'))
+      storage = new FileKeyStorage({storageDir: tempDir})
       await storage.initialize()
     })
 
@@ -293,7 +357,7 @@ describe('SqliteKeyStorage', () => {
       await storage.set(['persistent'], 'data')
       storage.close()
 
-      const newStorage = new SqliteKeyStorage({storageDir: tempDir})
+      const newStorage = new FileKeyStorage({storageDir: tempDir})
       await newStorage.initialize()
 
       expect(await newStorage.get(['persistent'])).to.equal('data')
@@ -302,12 +366,102 @@ describe('SqliteKeyStorage', () => {
 
     it('should create storage directory if not exists', async () => {
       const newDir = join(tempDir, 'nested', 'dir')
-      const newStorage = new SqliteKeyStorage({storageDir: newDir})
+      const newStorage = new FileKeyStorage({storageDir: newDir})
       await newStorage.initialize()
 
       await newStorage.set(['test'], 'value')
       expect(await newStorage.get(['test'])).to.equal('value')
       newStorage.close()
+    })
+
+    it('should persist hierarchical keys', async () => {
+      await storage.set(['message', 'session1', 'msg1'], {content: 'hello'})
+      await storage.set(['message', 'session1', 'msg2'], {content: 'world'})
+      storage.close()
+
+      const newStorage = new FileKeyStorage({storageDir: tempDir})
+      await newStorage.initialize()
+
+      expect(await newStorage.get(['message', 'session1', 'msg1'])).to.deep.equal({content: 'hello'})
+      expect(await newStorage.get(['message', 'session1', 'msg2'])).to.deep.equal({content: 'world'})
+
+      const keys = await newStorage.list(['message', 'session1'])
+      expect(keys).to.have.lengthOf(2)
+      newStorage.close()
+    })
+
+    it('should list keys from disk', async () => {
+      await storage.set(['item', 'c'], 1)
+      await storage.set(['item', 'a'], 2)
+      await storage.set(['item', 'b'], 3)
+
+      const keys = await storage.list(['item'])
+      expect(keys).to.deep.equal([
+        ['item', 'a'],
+        ['item', 'b'],
+        ['item', 'c'],
+      ])
+    })
+
+    it('should listWithValues from disk', async () => {
+      await storage.set(['data', 'x'], {v: 1})
+      await storage.set(['data', 'y'], {v: 2})
+
+      const results = await storage.listWithValues<{v: number}>(['data'])
+      expect(results).to.have.lengthOf(2)
+
+      const sorted = results.sort((a, b) =>
+        a.key.join(':').localeCompare(b.key.join(':')),
+      )
+      expect(sorted[0].value).to.deep.equal({v: 1})
+      expect(sorted[1].value).to.deep.equal({v: 2})
+    })
+
+    it('should delete from disk', async () => {
+      await storage.set(['to-delete'], 'value')
+      expect(await storage.delete(['to-delete'])).to.be.true
+      expect(await storage.exists(['to-delete'])).to.be.false
+
+      // Verify not found after reopen
+      storage.close()
+      const newStorage = new FileKeyStorage({storageDir: tempDir})
+      await newStorage.initialize()
+      expect(await newStorage.get(['to-delete'])).to.be.undefined
+      newStorage.close()
+    })
+
+    it('should handle concurrent sequential operations without corruption', async () => {
+      const count = 100
+      // Write 100 items sequentially
+      for (let i = 0; i < count; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await storage.set(['seq', `item-${String(i).padStart(3, '0')}`], {index: i})
+      }
+
+      // Verify all items exist
+      const keys = await storage.list(['seq'])
+      expect(keys).to.have.lengthOf(count)
+
+      // Verify values
+      for (let i = 0; i < count; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        const val = await storage.get<{index: number}>(['seq', `item-${String(i).padStart(3, '0')}`])
+        expect(val?.index).to.equal(i)
+      }
+    })
+  })
+
+  describe('constructor validation', () => {
+    it('should throw error if storageDir not provided in file mode', () => {
+      expect(() => {
+        const _storage = new FileKeyStorage()
+        return _storage
+      }).to.throw('storageDir is required')
+    })
+
+    it('should not throw if inMemory is true without storageDir', () => {
+      const s = new FileKeyStorage({inMemory: true})
+      expect(s).to.be.instanceOf(FileKeyStorage)
     })
   })
 })
