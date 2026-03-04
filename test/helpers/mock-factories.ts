@@ -31,9 +31,11 @@ import type {ISandboxService} from '../../src/agent/core/interfaces/i-sandbox-se
 import type {ScheduledToolExecution, ToolSchedulerContext} from '../../src/agent/core/interfaces/i-tool-scheduler.js'
 import type {AgentEventBus} from '../../src/agent/infra/events/event-emitter.js'
 import type {FileSystemService} from '../../src/agent/infra/file-system/file-system-service.js'
+import type {CompactionService} from '../../src/agent/infra/llm/context/compaction/compaction-service.js'
 import type {ContextManager} from '../../src/agent/infra/llm/context/context-manager.js'
 import type {MemoryManager} from '../../src/agent/infra/memory/memory-manager.js'
 import type {ProcessService} from '../../src/agent/infra/process/process-service.js'
+import type {MessageStorageService} from '../../src/agent/infra/storage/message-storage-service.js'
 import type {SystemPromptManager} from '../../src/agent/infra/system-prompt/system-prompt-manager.js'
 import type {ToolManager} from '../../src/agent/infra/tools/tool-manager.js'
 import type {ToolProvider} from '../../src/agent/infra/tools/tool-provider.js'
@@ -365,9 +367,11 @@ export function createMockCipherAgentServices(
   return {
     agentEventBus,
     blobStorage: createMockBlobStorage(sandbox),
+    compactionService: {} as unknown as CompactionService,
     fileSystemService: createMockFileSystemService(sandbox),
     historyStorage: createMockHistoryStorage(sandbox),
     memoryManager: createMockMemoryManager(sandbox),
+    messageStorageService: {} as unknown as MessageStorageService,
     policyEngine: createMockPolicyEngine(sandbox),
     processService: createMockProcessService(sandbox),
     sandboxService: createMockSandboxService(sandbox),

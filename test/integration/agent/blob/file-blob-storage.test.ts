@@ -1,10 +1,11 @@
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
-import {BlobError, BlobErrorCode, SqliteBlobStorage} from '../../../../src/agent/infra/blob/index.js'
+import {FileBlobStorage} from '../../../../src/agent/infra/blob/file-blob-storage.js'
+import {BlobError, BlobErrorCode} from '../../../../src/agent/infra/blob/index.js'
 
-describe('SqliteBlobStorage', () => {
-  let storage: SqliteBlobStorage
+describe('FileBlobStorage', () => {
+  let storage: FileBlobStorage
 
   beforeEach(async () => {
     // Suppress console output during tests
@@ -12,7 +13,7 @@ describe('SqliteBlobStorage', () => {
     stub(console, 'error')
 
     // Use in-memory mode for fast tests (no file I/O)
-    storage = new SqliteBlobStorage({
+    storage = new FileBlobStorage({
       inMemory: true,
       maxBlobSize: 1024 * 1024, // 1MB for tests
       maxTotalSize: 5 * 1024 * 1024, // 5MB for tests
@@ -22,17 +23,14 @@ describe('SqliteBlobStorage', () => {
 
   afterEach(async () => {
     restore()
-
-    // Close the database
     storage.close()
   })
 
   describe('initialize', () => {
     it('should work in in-memory mode without creating files', async () => {
-      const memStorage = new SqliteBlobStorage({inMemory: true})
+      const memStorage = new FileBlobStorage({inMemory: true})
       await memStorage.initialize()
 
-      // Should be able to store and retrieve
       await memStorage.store('test', Buffer.from('data'))
       const retrieved = await memStorage.retrieve('test')
       expect(retrieved?.content.toString()).to.equal('data')
@@ -44,7 +42,6 @@ describe('SqliteBlobStorage', () => {
       await storage.initialize()
       await storage.initialize()
 
-      // Should still work
       const exists = await storage.exists('nonexistent')
       expect(exists).to.be.false
     })
@@ -147,7 +144,7 @@ describe('SqliteBlobStorage', () => {
     })
 
     it('should throw error if storage not initialized', async () => {
-      const uninitializedStorage = new SqliteBlobStorage({inMemory: true})
+      const uninitializedStorage = new FileBlobStorage({inMemory: true})
 
       try {
         await uninitializedStorage.store('test', Buffer.from('test'))
