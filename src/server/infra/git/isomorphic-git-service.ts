@@ -43,7 +43,14 @@ export class IsomorphicGitService implements IGitService {
     private readonly config: IsomorphicGitServiceConfig,
   ) {}
 
-  // --- Private helpers ---
+  private static isMergeConflictData(data: unknown): data is {filepaths: string[]} {
+    return (
+      typeof data === 'object' &&
+      data !== null &&
+      'filepaths' in data &&
+      Array.isArray((data as {filepaths: unknown}).filepaths)
+    )
+  }
 
   async add(params: AddGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
@@ -86,8 +93,6 @@ export class IsomorphicGitService implements IGitService {
     await git.branch({dir, fs, ref: params.branch})
   }
 
-  // --- IGitService implementation ---
-
   async fetch(params: FetchGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
     this.requireToken()
@@ -103,8 +108,43 @@ export class IsomorphicGitService implements IGitService {
 
   async getConflicts(params: BaseGitParams): Promise<GitConflict[]> {
     const dir = this.requireDirectory(params)
+
+    // Only report conflicts when a merge is actually in progress
+    const mergeInProgress = await fs.promises
+      .access(join(dir, '.git', 'MERGE_HEAD'))
+      .then(() => true)
+      .catch(() => false)
+
+    if (!mergeInProgress) return []
+
+    const matrix = await git.statusMatrix({dir, fs})
     const conflicts: GitConflict[] = []
-    this.walkDir(dir, dir, conflicts)
+
+    await Promise.all(
+      matrix.map(async ([filepath, head, workdir]) => {
+        const path = String(filepath)
+
+        // deleted_modified: file was in HEAD but gone from workdir
+        if (head === 1 && workdir === 0) {
+          conflicts.push({path, type: 'deleted_modified'})
+          return
+        }
+
+        // both_added or both_modified: look for conflict markers in file content
+        if (workdir === 2) {
+          try {
+            const content = await fs.promises.readFile(join(dir, path), 'utf8')
+            if (content.includes('<<<<<<<')) {
+              const type: GitConflict['type'] = head === 0 ? 'both_added' : 'both_modified'
+              conflicts.push({path, type})
+            }
+          } catch {
+            // skip binary or unreadable files
+          }
+        }
+      }),
+    )
+
     return conflicts
   }
 
@@ -169,8 +209,7 @@ export class IsomorphicGitService implements IGitService {
       return {success: true}
     } catch (error) {
       if (error instanceof Error && error.name === 'MergeConflictError') {
-        const conflicts = await this.getConflicts(params)
-        return {conflicts, success: false}
+        return {conflicts: await this.conflictsFromError(dir, error), success: false}
       }
 
       throw error
@@ -195,8 +234,7 @@ export class IsomorphicGitService implements IGitService {
       return {success: true}
     } catch (error) {
       if (error instanceof Error && error.name === 'MergeConflictError') {
-        const conflicts = await this.getConflicts(params)
-        return {conflicts, success: false}
+        return {conflicts: await this.conflictsFromError(dir, error), success: false}
       }
 
       throw error
@@ -245,6 +283,23 @@ export class IsomorphicGitService implements IGitService {
     return {files, isClean: files.length === 0}
   }
 
+  private async conflictsFromError(dir: string, error: Error): Promise<GitConflict[]> {
+    const {data} = error as {data?: unknown}
+    if (!IsomorphicGitService.isMergeConflictData(data)) return []
+
+    const conflictPaths = new Set(data.filepaths)
+    const matrix = await git.statusMatrix({dir, fs})
+
+    return matrix
+      .filter(([filepath]) => conflictPaths.has(String(filepath)))
+      .map(([filepath, head, workdir]) => {
+        const path = String(filepath)
+        const type: GitConflict['type'] =
+          head === 0 ? 'both_added' : workdir === 0 ? 'deleted_modified' : 'both_modified'
+        return {path, type}
+      })
+  }
+
   private getAuthor(): {email: string; name: string} {
     const token = this.authStateStore.getToken()
     return {
@@ -279,27 +334,5 @@ export class IsomorphicGitService implements IGitService {
     const token = this.authStateStore.getToken()
     if (!token) throw new GitAuthError()
     return token
-  }
-
-  private walkDir(rootDir: string, currentDir: string, result: GitConflict[]): void {
-    const entries = fs.readdirSync(currentDir)
-    for (const entry of entries) {
-      if (entry === '.git') continue
-      const fullPath = join(currentDir, entry)
-      const stat = fs.statSync(fullPath)
-      if (stat.isDirectory()) {
-        this.walkDir(rootDir, fullPath, result)
-      } else if (stat.isFile()) {
-        try {
-          const content = fs.readFileSync(fullPath, 'utf8')
-          if (content.includes('<<<<<<<')) {
-            const relativePath = fullPath.slice(rootDir.length + 1)
-            result.push({path: relativePath, type: 'both_modified'})
-          }
-        } catch {
-          // skip binary files or unreadable files
-        }
-      }
-    }
   }
 }

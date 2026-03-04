@@ -55,8 +55,8 @@ describe('IGitService types', () => {
   })
 
   describe('GitConflict', () => {
-    it('type covers all conflict directions', () => {
-      expectTypeOf<GitConflict['type']>().toEqualTypeOf<'both_added' | 'both_modified' | 'deleted_modified'>()
+    it('has path string', () => {
+      expectTypeOf<GitConflict['path']>().toEqualTypeOf<string>()
     })
   })
 

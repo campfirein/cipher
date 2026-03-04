@@ -69,7 +69,12 @@ export interface IGitService {
   createBranch(params: CreateBranchGitParams): Promise<void>
   fetch(params: FetchGitParams): Promise<void>
   /**
-   * Returns conflicts currently present in the working tree (files with conflict markers).
+   * Returns conflicts currently present in the working tree.
+   * Detects all three conflict types (both_modified, both_added, deleted_modified)
+   * by inspecting the git status matrix.
+   *
+   * Returns an empty array when no merge is in progress (MERGE_HEAD absent).
+   *
    * Use this to inspect conflict state when the original `merge()` / `pull()` result is
    * no longer available — e.g. after a process restart or when refreshing a conflict UI.
    */

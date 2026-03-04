@@ -262,29 +262,44 @@ describe('IsomorphicGitService', () => {
       await service.init({directory: testDir})
     })
 
-    it('returns empty array on clean repo', async () => {
+    it('returns empty array when no merge in progress', async () => {
       await writeFile(join(testDir, 'clean.txt'), 'no conflicts')
       const conflicts = await service.getConflicts({directory: testDir})
       expect(conflicts).to.be.empty
     })
 
-    it('detects conflict markers in a file', async () => {
-      const conflictContent = '<<<<<<< HEAD\nA\n=======\nB\n>>>>>>> feature'
-      await writeFile(join(testDir, 'conflict.txt'), conflictContent)
-      const conflicts = await service.getConflicts({directory: testDir})
+    it('detects both_modified conflict when MERGE_HEAD exists', async () => {
+      // Commit a tracked file so statusMatrix has baseline
+      await writeFile(join(testDir, 'file.txt'), 'initial')
+      await service.add({directory: testDir, filePaths: ['file.txt']})
+      await service.commit({directory: testDir, message: 'initial'})
 
+      // Simulate native git merge conflict state:
+      // native git writes MERGE_HEAD and conflict markers; isomorphic-git does not
+      await writeFile(join(testDir, '.git', 'MERGE_HEAD'), 'deadbeef\n')
+      await writeFile(join(testDir, 'file.txt'), '<<<<<<< HEAD\nmain\n=======\nfeature\n>>>>>>> feature')
+
+      const conflicts = await service.getConflicts({directory: testDir})
       expect(conflicts).to.have.length(1)
-      expect(conflicts[0].path).to.equal('conflict.txt')
+      expect(conflicts[0].path).to.equal('file.txt')
       expect(conflicts[0].type).to.equal('both_modified')
     })
 
     it('detects conflicts in nested directories', async () => {
+      // Commit a tracked nested file
       await mkdir(join(testDir, 'sub'), {recursive: true})
-      await writeFile(join(testDir, 'sub', 'nested.txt'), '<<<<<<< HEAD\nA\n=======\nB\n>>>>>>>')
-      const conflicts = await service.getConflicts({directory: testDir})
+      await writeFile(join(testDir, 'sub', 'nested.txt'), 'initial')
+      await service.add({directory: testDir, filePaths: ['sub/nested.txt']})
+      await service.commit({directory: testDir, message: 'initial'})
 
+      // Simulate native git merge conflict state
+      await writeFile(join(testDir, '.git', 'MERGE_HEAD'), 'deadbeef\n')
+      await writeFile(join(testDir, 'sub', 'nested.txt'), '<<<<<<< HEAD\nmain\n=======\nfeature\n>>>>>>> feature')
+
+      const conflicts = await service.getConflicts({directory: testDir})
       expect(conflicts).to.have.length(1)
       expect(conflicts[0].path).to.equal(join('sub', 'nested.txt'))
+      expect(conflicts[0].type).to.equal('both_modified')
     })
   })
 
