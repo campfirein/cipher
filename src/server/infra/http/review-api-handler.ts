@@ -1,6 +1,6 @@
 import express, {type RequestHandler, type Router} from 'express'
-import {readFile} from 'node:fs/promises'
-import {join, relative} from 'node:path'
+import {unlink as fsUnlink, writeFile as fsWriteFile, mkdir, readFile} from 'node:fs/promises'
+import {dirname, join, relative} from 'node:path'
 
 import type {CurateLogEntry, CurateLogOperation} from '../../core/domain/entities/curate-log-entry.js'
 import type {ICurateLogStore} from '../../core/interfaces/storage/i-curate-log-store.js'
@@ -12,6 +12,11 @@ import {getReviewPageHtml} from './review-ui.js'
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface ReviewApiOptions {
+  /** File operations for the context tree. Defaults to real fs operations. Injectable for testing. */
+  contextTreeFs?: {
+    deleteFile: (absolutePath: string) => Promise<void>
+    writeFile: (absolutePath: string, content: string) => Promise<void>
+  }
   curateLogStoreFactory: (projectPath: string) => ICurateLogStore
   reviewBackupStoreFactory: (projectPath: string) => IReviewBackupStore
 }
@@ -81,16 +86,22 @@ function collectPendingFiles(entries: CurateLogEntry[], contextTreeDir: string):
     .sort((a, b) => a.path.localeCompare(b.path))
 }
 
+type PendingUpdate = {
+  logId: string
+  operationIndex: number
+  type: CurateLogOperation['type']
+}
+
 /**
  * Finds all pending operations that match a given relative file path and
- * returns update tasks (logId + operationIndex pairs).
+ * returns update tasks (logId + operationIndex + type).
  */
 function findPendingUpdates(
   entries: CurateLogEntry[],
   contextTreeDir: string,
   targetPath: string,
-): {logId: string; operationIndex: number}[] {
-  const updates: {logId: string; operationIndex: number}[] = []
+): PendingUpdate[] {
+  const updates: PendingUpdate[] = []
 
   for (const entry of entries) {
     for (let i = 0; i < entry.operations.length; i++) {
@@ -100,7 +111,7 @@ function findPendingUpdates(
 
       const relativePath = relative(contextTreeDir, op.filePath)
       if (relativePath === targetPath) {
-        updates.push({logId: entry.id, operationIndex: i})
+        updates.push({logId: entry.id, operationIndex: i, type: op.type})
       }
     }
   }
@@ -113,6 +124,16 @@ function findPendingUpdates(
 export function createReviewApiRouter(options: ReviewApiOptions): Router {
   // eslint-disable-next-line new-cap
   const router = express.Router()
+
+  const ctFs = options.contextTreeFs ?? {
+    async deleteFile(absolutePath: string) {
+      await fsUnlink(absolutePath)
+    },
+    async writeFile(absolutePath: string, content: string) {
+      await mkdir(dirname(absolutePath), {recursive: true})
+      await fsWriteFile(absolutePath, content, 'utf8')
+    },
+  }
 
   // Parse JSON request bodies
   router.use(express.json() as RequestHandler)
@@ -219,12 +240,37 @@ export function createReviewApiRouter(options: ReviewApiOptions): Router {
       const entries = await store.list()
 
       const updates = findPendingUpdates(entries, contextTreeDir, filePath)
+
+      let reverted = false
+
+      // On rejection, revert the file in the context tree before updating statuses
+      if (decision === 'rejected' && updates.length > 0) {
+        const backupStore = options.reviewBackupStoreFactory(projectPath)
+        const absolutePath = join(contextTreeDir, filePath)
+        const backupContent = await backupStore.read(filePath)
+
+        if (backupContent === null) {
+          // No backup → file was newly added (ADD), remove it
+          try {
+            await ctFs.deleteFile(absolutePath)
+          } catch {
+            // File may already be gone — that's fine
+          }
+        } else {
+          // Backup exists → restore pre-curate content (handles UPDATE, UPSERT, MERGE, DELETE)
+          await ctFs.writeFile(absolutePath, backupContent)
+        }
+
+        await backupStore.delete(filePath)
+        reverted = true
+      }
+
       const results = await Promise.all(
         updates.map(({logId, operationIndex}) => store.updateOperationReviewStatus(logId, operationIndex, decision)),
       )
       const updatedCount = results.filter(Boolean).length
 
-      res.json({success: true, updatedCount})
+      res.json({reverted, success: true, updatedCount})
     } catch (error: unknown) {
       res.status(500).json({error: error instanceof Error ? error.message : 'Internal error'})
     }

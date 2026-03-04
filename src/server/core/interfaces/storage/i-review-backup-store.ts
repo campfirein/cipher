@@ -8,6 +8,8 @@
 export interface IReviewBackupStore {
   /** Remove all backups. Called after a successful push creates a new snapshot. */
   clear(): Promise<void>
+  /** Delete the backup for a given relative path. No-op if no backup exists. */
+  delete(relativePath: string): Promise<void>
   /** Check if a backup exists for the given relative path. */
   has(relativePath: string): Promise<boolean>
   /** Read the backed-up content for a relative path. Returns null if no backup exists. */

@@ -46,6 +46,32 @@ describe('FileReviewBackupStore', () => {
     })
   })
 
+  describe('delete', () => {
+    it('should remove a single backup', async () => {
+      await store.save('auth/jwt/refresh.md', 'content')
+      await store.save('api/rate_limiting.md', 'other')
+
+      await store.delete('auth/jwt/refresh.md')
+
+      expect(await store.has('auth/jwt/refresh.md')).to.be.false
+      expect(await store.read('auth/jwt/refresh.md')).to.be.null
+      // Other backups unaffected
+      expect(await store.has('api/rate_limiting.md')).to.be.true
+    })
+
+    it('should be safe to call when backup does not exist', async () => {
+      await store.delete('nonexistent.md')
+    })
+
+    it('should allow re-saving after delete', async () => {
+      await store.save('auth/jwt/refresh.md', 'original')
+      await store.delete('auth/jwt/refresh.md')
+      await store.save('auth/jwt/refresh.md', 'new content')
+
+      expect(await store.read('auth/jwt/refresh.md')).to.equal('new content')
+    })
+  })
+
   describe('clear', () => {
     it('should remove all backups', async () => {
       await store.save('file1.md', 'content1')

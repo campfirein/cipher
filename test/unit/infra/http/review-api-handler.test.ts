@@ -60,6 +60,9 @@ function makeBackupStore(backups: Record<string, string> = {}): IReviewBackupSto
     async clear() {
       data.clear()
     },
+    async delete(path) {
+      data.delete(path)
+    },
     async has(path) {
       return data.has(path)
     },
@@ -72,14 +75,41 @@ function makeBackupStore(backups: Record<string, string> = {}): IReviewBackupSto
   }
 }
 
+type ContextTreeFs = {
+  deleteFile: (path: string) => Promise<void>
+  files: Map<string, string>
+  writeFile: (path: string, content: string) => Promise<void>
+}
+
+function makeContextTreeFs(): ContextTreeFs {
+  const files = new Map<string, string>()
+  return {
+    async deleteFile(path: string) {
+      files.delete(path)
+    },
+    files,
+    async writeFile(path: string, content: string) {
+      files.set(path, content)
+    },
+  }
+}
+
 function startTestServer(opts: {
   backups?: Record<string, string>
   entries?: CurateLogEntry[]
-}): Promise<{port: number; server: Server; store: ICurateLogStore}> {
+}): Promise<{
+  backupStore: IReviewBackupStore
+  contextTreeFs: ContextTreeFs
+  port: number
+  server: Server
+  store: ICurateLogStore
+}> {
   const store = makeStore(opts.entries ?? [])
   const backupStore = makeBackupStore(opts.backups ?? {})
+  const contextTreeFs = makeContextTreeFs()
   const app = express()
   app.use(createReviewApiRouter({
+    contextTreeFs,
     curateLogStoreFactory: () => store,
     reviewBackupStoreFactory: () => backupStore,
   }))
@@ -88,7 +118,7 @@ function startTestServer(opts: {
     const server = app.listen(0, () => {
       const address = server.address()
       const port = typeof address === 'object' && address !== null ? address.port : 0
-      resolve({port, server, store})
+      resolve({backupStore, contextTreeFs, port, server, store})
     })
   })
 }
@@ -384,6 +414,154 @@ describe('review-api-handler', () => {
       })
       expect(res.status).to.equal(200)
       const body = await res.json() as {updatedCount: number}
+      expect(body.updatedCount).to.equal(0)
+    })
+
+    it('should return reverted=false when approving', async () => {
+      const entry = makeEntry({
+        operations: [{
+          filePath: `${PROJECT_PATH}/.brv/context-tree/auth/jwt.md`,
+          needsReview: true,
+          path: 'auth/jwt',
+          reviewStatus: 'pending',
+          status: 'success',
+          type: 'UPDATE',
+        }],
+      })
+      const result = await startTestServer({
+        backups: {'auth/jwt.md': '# Original'},
+        entries: [entry],
+      })
+      server = result.server
+
+      // eslint-disable-next-line n/no-unsupported-features/node-builtins
+      const res = await fetch(`http://127.0.0.1:${result.port}/api/review/decide`, {
+        body: JSON.stringify({decision: 'approved', path: 'auth/jwt.md', project: PROJECT_ENCODED}),
+        headers: {'Content-Type': 'application/json'},
+        method: 'POST',
+      })
+      const body = await res.json() as {reverted: boolean; success: boolean}
+      expect(body.reverted).to.be.false
+      expect(body.success).to.be.true
+    })
+
+    it('should restore backup content when rejecting an UPDATE', async () => {
+      const entry = makeEntry({
+        operations: [{
+          filePath: `${PROJECT_PATH}/.brv/context-tree/auth/jwt.md`,
+          needsReview: true,
+          path: 'auth/jwt',
+          reviewStatus: 'pending',
+          status: 'success',
+          type: 'UPDATE',
+        }],
+      })
+      const result = await startTestServer({
+        backups: {'auth/jwt.md': '# Original Content'},
+        entries: [entry],
+      })
+      server = result.server
+
+      // eslint-disable-next-line n/no-unsupported-features/node-builtins
+      const res = await fetch(`http://127.0.0.1:${result.port}/api/review/decide`, {
+        body: JSON.stringify({decision: 'rejected', path: 'auth/jwt.md', project: PROJECT_ENCODED}),
+        headers: {'Content-Type': 'application/json'},
+        method: 'POST',
+      })
+      const body = await res.json() as {reverted: boolean; success: boolean; updatedCount: number}
+      expect(body.success).to.be.true
+      expect(body.reverted).to.be.true
+      expect(body.updatedCount).to.equal(1)
+
+      // Verify file was restored in context tree
+      const expectedPath = `${PROJECT_PATH}/.brv/context-tree/auth/jwt.md`
+      expect(result.contextTreeFs.files.get(expectedPath)).to.equal('# Original Content')
+
+      // Verify review status was set to rejected
+      const updated = await result.store.getById('cur-1000')
+      expect(updated?.operations[0].reviewStatus).to.equal('rejected')
+
+      // Verify backup was cleaned up
+      expect(await result.backupStore.has('auth/jwt.md')).to.be.false
+    })
+
+    it('should restore backup content when rejecting a DELETE', async () => {
+      const entry = makeEntry({
+        operations: [{
+          filePath: `${PROJECT_PATH}/.brv/context-tree/api/endpoints.md`,
+          needsReview: true,
+          path: 'api/endpoints',
+          reviewStatus: 'pending',
+          status: 'success',
+          type: 'DELETE',
+        }],
+      })
+      const result = await startTestServer({
+        backups: {'api/endpoints.md': '# Endpoints\nGET /api/v1/users'},
+        entries: [entry],
+      })
+      server = result.server
+
+      // eslint-disable-next-line n/no-unsupported-features/node-builtins
+      const res = await fetch(`http://127.0.0.1:${result.port}/api/review/decide`, {
+        body: JSON.stringify({decision: 'rejected', path: 'api/endpoints.md', project: PROJECT_ENCODED}),
+        headers: {'Content-Type': 'application/json'},
+        method: 'POST',
+      })
+      const body = await res.json() as {reverted: boolean}
+      expect(body.reverted).to.be.true
+
+      // Verify deleted file was restored
+      const expectedPath = `${PROJECT_PATH}/.brv/context-tree/api/endpoints.md`
+      expect(result.contextTreeFs.files.get(expectedPath)).to.equal('# Endpoints\nGET /api/v1/users')
+    })
+
+    it('should delete file when rejecting an ADD (no backup exists)', async () => {
+      const entry = makeEntry({
+        operations: [{
+          filePath: `${PROJECT_PATH}/.brv/context-tree/new-feature.md`,
+          needsReview: true,
+          path: 'new-feature',
+          reviewStatus: 'pending',
+          status: 'success',
+          type: 'ADD',
+        }],
+      })
+      const result = await startTestServer({
+        entries: [entry],
+      })
+      server = result.server
+
+      // Pre-populate the context tree file (simulating the ADD created it)
+      const filePath = `${PROJECT_PATH}/.brv/context-tree/new-feature.md`
+      result.contextTreeFs.files.set(filePath, '# New Feature\nContent')
+
+      // eslint-disable-next-line n/no-unsupported-features/node-builtins
+      const res = await fetch(`http://127.0.0.1:${result.port}/api/review/decide`, {
+        body: JSON.stringify({decision: 'rejected', path: 'new-feature.md', project: PROJECT_ENCODED}),
+        headers: {'Content-Type': 'application/json'},
+        method: 'POST',
+      })
+      const body = await res.json() as {reverted: boolean; updatedCount: number}
+      expect(body.reverted).to.be.true
+      expect(body.updatedCount).to.equal(1)
+
+      // Verify file was deleted from context tree
+      expect(result.contextTreeFs.files.has(filePath)).to.be.false
+    })
+
+    it('should not revert when rejecting with no matching operations', async () => {
+      const result = await startTestServer({entries: []})
+      server = result.server
+
+      // eslint-disable-next-line n/no-unsupported-features/node-builtins
+      const res = await fetch(`http://127.0.0.1:${result.port}/api/review/decide`, {
+        body: JSON.stringify({decision: 'rejected', path: 'nonexistent.md', project: PROJECT_ENCODED}),
+        headers: {'Content-Type': 'application/json'},
+        method: 'POST',
+      })
+      const body = await res.json() as {reverted: boolean; updatedCount: number}
+      expect(body.reverted).to.be.false
       expect(body.updatedCount).to.equal(0)
     })
   })

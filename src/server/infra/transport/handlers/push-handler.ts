@@ -20,7 +20,7 @@ import {
   ProjectNotInitError,
   SpaceNotConfiguredError,
 } from '../../../core/domain/errors/task-error.js'
-import {type ContextReviewMetadata, mapToPushContexts} from '../../cogit/context-tree-to-push-context-mapper.js'
+import {mapToPushContexts} from '../../cogit/context-tree-to-push-context-mapper.js'
 import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 /** Factory that creates a curate log store scoped to a project directory. */
@@ -79,72 +79,6 @@ export class PushHandler {
     this.transport.onRequest<PushExecuteRequest, PushExecuteResponse>(PushEvents.EXECUTE, (data, clientId) =>
       this.handleExecute(data, clientId),
     )
-  }
-
-  /**
-   * Build a review metadata map keyed by context-tree-relative file path.
-   *
-   * Queries the curate log for the project, extracts the most recent review metadata
-   * for each file path, and returns a Map for use in the push context mapper.
-   *
-   * Files with reviewStatus 'approved' get needsReview set to false (already reviewed locally).
-   *
-   * For deleted paths with no log entry, the mapper applies the default
-   * (needsReview: true) via DELETED_FILE_DEFAULTS in context-tree-to-push-context-mapper.ts.
-   */
-  private async buildReviewMetadata(
-    projectPath: string,
-    deletedPaths: string[],
-    reviewStatuses?: Map<string, 'approved' | 'pending' | 'rejected'>,
-  ): Promise<Map<string, ContextReviewMetadata>> {
-    const map = new Map<string, ContextReviewMetadata>()
-
-    try {
-      const store = this.curateLogStoreFactory(projectPath)
-      // List recent completed entries (last 500, newest-first)
-      const entries = await store.list({limit: 500, status: ['completed']})
-      const contextTreeRoot = join(projectPath, CONTEXT_TREE_RELATIVE)
-
-      // Process oldest-first so the newest entry wins for each path
-      for (const entry of [...entries].reverse()) {
-        for (const op of entry.operations) {
-          if (!op.filePath || op.needsReview === undefined) continue
-
-          // Strip absolute project prefix to get context-tree-relative path
-          const prefix = contextTreeRoot + '/'
-          if (!op.filePath.startsWith(prefix)) continue
-          const relativePath = op.filePath.slice(prefix.length)
-
-          // If file was approved locally, mark as not needing web review
-          const isApproved = reviewStatuses?.get(relativePath) === 'approved'
-
-          map.set(relativePath, {
-            confidence: op.confidence ?? 'high',
-            impact: op.impact ?? 'low',
-            needsReview: isApproved ? false : op.needsReview,
-            reason: op.reason ?? '',
-          })
-        }
-      }
-    } catch {
-      // Best-effort — if the log is unavailable, proceed without review metadata.
-      // Deleted files still get their default needsReview=true treatment below.
-    }
-
-    // Ensure all deleted paths are flagged even if absent from the curate log
-    for (const deletedPath of deletedPaths) {
-      if (!map.has(deletedPath)) {
-        const isApproved = reviewStatuses?.get(deletedPath) === 'approved'
-        map.set(deletedPath, {
-          confidence: 'high',
-          impact: 'high',
-          needsReview: !isApproved,
-          reason: 'Deleted from context tree',
-        })
-      }
-    }
-
-    return map
   }
 
   /**
@@ -225,13 +159,10 @@ export class PushHandler {
       this.contextFileReader.readMany(pushableModified, projectPath),
     ])
 
-    const reviewMetadata = await this.buildReviewMetadata(projectPath, pushableDeleted, reviewStatuses)
-
     const pushContexts = mapToPushContexts({
       addedFiles,
       deletedPaths: pushableDeleted,
       modifiedFiles,
-      reviewMetadata,
     })
 
     this.broadcastToProject(projectPath, PushEvents.PROGRESS, {message: 'Pushing to cloud...', step: 'pushing'})

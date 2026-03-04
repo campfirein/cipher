@@ -29,6 +29,14 @@ export class FileReviewBackupStore implements IReviewBackupStore {
     }
   }
 
+  async delete(relativePath: string): Promise<void> {
+    try {
+      await rm(join(this.backupDir, relativePath))
+    } catch {
+      // File may not exist — that's fine
+    }
+  }
+
   async has(relativePath: string): Promise<boolean> {
     try {
       await stat(join(this.backupDir, relativePath))

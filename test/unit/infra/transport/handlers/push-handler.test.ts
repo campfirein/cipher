@@ -470,44 +470,6 @@ describe('PushHandler – review filtering', () => {
       expect(pushCall.args[0].contexts[0].operation).to.equal('delete')
     })
 
-    it('should set needsReview=false for approved files in push payload', async () => {
-      createHandler()
-
-      contextTreeSnapshotService.getChanges.resolves({
-        added: ['reviewed.md'],
-        deleted: [],
-        modified: [],
-      })
-
-      curateLogStore.list.resolves([
-        makeCompletedEntry([
-          {
-            confidence: 'low',
-            filePath: '/test/project/.brv/context-tree/reviewed.md',
-            impact: 'high',
-            needsReview: true,
-            path: 'reviewed',
-            reason: 'Big change',
-            reviewStatus: 'approved',
-            status: 'success',
-            type: 'ADD',
-          },
-        ]),
-      ])
-
-      contextFileReader.readMany.callsFake((paths: string[]) =>
-        Promise.resolve(
-          paths.map((p) => ({content: 'Content', keywords: [], path: p, tags: [], title: 'Title'})),
-        ),
-      )
-
-      await executePush()
-
-      const pushCall = cogitPushService.push.getCall(0)
-      const pushedContext = pushCall.args[0].contexts[0]
-      expect(pushedContext.needsReview).to.be.false
-    })
-
     it('should save snapshot selectively after push', async () => {
       createHandler()
 
