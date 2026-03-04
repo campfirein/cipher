@@ -1,6 +1,7 @@
 export type CurateLogOperation = {
   confidence?: 'high' | 'low'
   filePath?: string
+  additionalFilePaths?: string[]
   impact?: 'high' | 'low' | 'medium'
   message?: string
   needsReview?: boolean

@@ -87,6 +87,7 @@ function collectPendingFiles(entries: CurateLogEntry[], contextTreeDir: string):
 }
 
 type PendingUpdate = {
+  additionalFilePaths?: string[]
   logId: string
   operationIndex: number
   type: CurateLogOperation['type']
@@ -111,7 +112,7 @@ function findPendingUpdates(
 
       const relativePath = relative(contextTreeDir, op.filePath)
       if (relativePath === targetPath) {
-        updates.push({logId: entry.id, operationIndex: i, type: op.type})
+        updates.push({additionalFilePaths: op.additionalFilePaths, logId: entry.id, operationIndex: i, type: op.type})
       }
     }
   }
@@ -262,6 +263,24 @@ export function createReviewApiRouter(options: ReviewApiOptions): Router {
         }
 
         await backupStore.delete(filePath)
+
+        // Restore additional files (MERGE source, folder DELETE contents)
+        const allAdditionalPaths = [
+          ...new Set(updates.flatMap((u) => u.additionalFilePaths ?? [])),
+        ]
+
+        await Promise.all(
+          allAdditionalPaths.map(async (absPath) => {
+            const relPath = relative(contextTreeDir, absPath)
+            const content = await backupStore.read(relPath)
+            if (content !== null) {
+              await ctFs.writeFile(absPath, content)
+            }
+
+            await backupStore.delete(relPath)
+          }),
+        )
+
         reverted = true
       }
 
