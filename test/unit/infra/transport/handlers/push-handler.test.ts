@@ -11,6 +11,7 @@ import type {IContextTreeSnapshotService} from '../../../../../src/server/core/i
 import type {ICogitPushService} from '../../../../../src/server/core/interfaces/services/i-cogit-push-service.js'
 import type {ICurateLogStore} from '../../../../../src/server/core/interfaces/storage/i-curate-log-store.js'
 import type {IProjectConfigStore} from '../../../../../src/server/core/interfaces/storage/i-project-config-store.js'
+import type {IReviewBackupStore} from '../../../../../src/server/core/interfaces/storage/i-review-backup-store.js'
 import type {ITransportServer} from '../../../../../src/server/core/interfaces/transport/i-transport-server.js'
 import type {ProjectBroadcaster} from '../../../../../src/server/infra/transport/handlers/handler-types.js'
 import type {PushExecuteResponse, PushPrepareResponse} from '../../../../../src/shared/transport/events/push-events.js'
@@ -82,6 +83,7 @@ describe('PushHandler – review filtering', () => {
   let cogitPushService: SinonStubbedInstance<ICogitPushService>
   let projectConfigStore: SinonStubbedInstance<IProjectConfigStore>
   let curateLogStore: ICurateLogStore & {list: ReturnType<typeof stub>}
+  let reviewBackupStore: IReviewBackupStore & {delete: ReturnType<typeof stub>}
   let transport: ReturnType<typeof createMockTransport>
   let broadcastToProject: ReturnType<typeof stub>
 
@@ -126,6 +128,14 @@ describe('PushHandler – review filtering', () => {
       updateOperationReviewStatus: stub().resolves(true),
     }
 
+    reviewBackupStore = {
+      clear: stub().resolves(),
+      delete: stub().resolves(),
+      has: stub().resolves(false),
+      read: stub().resolves(null),
+      save: stub().resolves(),
+    }
+
     transport = createMockTransport()
     broadcastToProject = stub()
   })
@@ -143,6 +153,7 @@ describe('PushHandler – review filtering', () => {
       curateLogStoreFactory: () => curateLogStore,
       projectConfigStore,
       resolveProjectPath: () => '/test/project',
+      reviewBackupStoreFactory: () => reviewBackupStore,
       tokenStore,
       transport,
       webAppUrl: 'https://app.byterover.com',
@@ -571,6 +582,61 @@ describe('PushHandler – review filtering', () => {
       expect(savedState.has('delete-pending.md')).to.be.true
       // Keep should remain
       expect(savedState.has('keep.md')).to.be.true
+    })
+
+    it('should clear backups for all pushed files after a successful push', async () => {
+      createHandler()
+
+      contextTreeSnapshotService.getChanges.resolves({
+        added: ['new-file.md'],
+        deleted: ['deleted-file.md'],
+        modified: ['modified-file.md'],
+      })
+
+      contextFileReader.readMany.callsFake((paths: string[]) =>
+        Promise.resolve(
+          paths.map((p) => ({content: 'Content', keywords: [], path: p, tags: [], title: 'Title'})),
+        ),
+      )
+
+      await executePush()
+
+      expect(reviewBackupStore.delete.calledWith('new-file.md')).to.be.true
+      expect(reviewBackupStore.delete.calledWith('deleted-file.md')).to.be.true
+      expect(reviewBackupStore.delete.calledWith('modified-file.md')).to.be.true
+    })
+
+    it('should not clear backups for files excluded from push due to pending review', async () => {
+      createHandler()
+
+      contextTreeSnapshotService.getChanges.resolves({
+        added: ['approved.md', 'pending.md'],
+        deleted: [],
+        modified: [],
+      })
+
+      curateLogStore.list.resolves([
+        makeCompletedEntry([
+          {
+            filePath: '/test/project/.brv/context-tree/pending.md',
+            path: 'pending',
+            reviewStatus: 'pending',
+            status: 'success',
+            type: 'ADD',
+          },
+        ]),
+      ])
+
+      contextFileReader.readMany.callsFake((paths: string[]) =>
+        Promise.resolve(
+          paths.map((p) => ({content: 'Content', keywords: [], path: p, tags: [], title: 'Title'})),
+        ),
+      )
+
+      await executePush()
+
+      expect(reviewBackupStore.delete.calledWith('approved.md')).to.be.true
+      expect(reviewBackupStore.delete.calledWith('pending.md')).to.be.false
     })
 
     it('should gracefully handle curate log errors during execute', async () => {

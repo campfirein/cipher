@@ -6,9 +6,9 @@ import type {LlmToolResultEvent} from '../core/domain/transport/schemas.js'
 // ── Zod schemas ──────────────────────────────────────────────────────────────
 
 export const CurateOperationSchema = z.object({
+  additionalFilePaths: z.array(z.string()).optional(),
   confidence: z.enum(['high', 'low']).optional(),
   filePath: z.string().optional(),
-  additionalFilePaths: z.array(z.string()).optional(),
   impact: z.enum(['high', 'low', 'medium']).optional(),
   message: z.string().optional(),
   needsReview: z.boolean().optional(),
