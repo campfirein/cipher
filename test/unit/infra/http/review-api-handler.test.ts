@@ -550,6 +550,94 @@ describe('review-api-handler', () => {
       expect(result.contextTreeFs.files.has(filePath)).to.be.false
     })
 
+    it('should restore source file when rejecting a MERGE', async () => {
+      const targetFilePath = `${PROJECT_PATH}/.brv/context-tree/auth/jwt.md`
+      const sourceFilePath = `${PROJECT_PATH}/.brv/context-tree/auth/old_token.md`
+      const entry = makeEntry({
+        operations: [{
+          additionalFilePaths: [sourceFilePath],
+          filePath: targetFilePath,
+          needsReview: true,
+          path: 'auth/jwt',
+          reviewStatus: 'pending',
+          status: 'success',
+          type: 'MERGE',
+        }],
+      })
+      const result = await startTestServer({
+        backups: {
+          'auth/jwt.md': '# JWT Target\nMerged content',
+          'auth/old_token.md': '# Old Token\nOriginal source content',
+        },
+        entries: [entry],
+      })
+      server = result.server
+
+      // eslint-disable-next-line n/no-unsupported-features/node-builtins
+      const res = await fetch(`http://127.0.0.1:${result.port}/api/review/decide`, {
+        body: JSON.stringify({decision: 'rejected', path: 'auth/jwt.md', project: PROJECT_ENCODED}),
+        headers: {'Content-Type': 'application/json'},
+        method: 'POST',
+      })
+      const body = await res.json() as {reverted: boolean; success: boolean; updatedCount: number}
+      expect(body.success).to.be.true
+      expect(body.reverted).to.be.true
+      expect(body.updatedCount).to.equal(1)
+
+      // Verify target file was restored
+      expect(result.contextTreeFs.files.get(targetFilePath)).to.equal('# JWT Target\nMerged content')
+
+      // Verify source file was restored from backup
+      expect(result.contextTreeFs.files.get(sourceFilePath)).to.equal('# Old Token\nOriginal source content')
+
+      // Verify both backups were cleaned up
+      expect(await result.backupStore.has('auth/jwt.md')).to.be.false
+      expect(await result.backupStore.has('auth/old_token.md')).to.be.false
+    })
+
+    it('should restore all individual files when rejecting a folder DELETE', async () => {
+      const folderPath = `${PROJECT_PATH}/.brv/context-tree/api`
+      const file1 = `${PROJECT_PATH}/.brv/context-tree/api/endpoints.md`
+      const file2 = `${PROJECT_PATH}/.brv/context-tree/api/auth.md`
+      const entry = makeEntry({
+        operations: [{
+          additionalFilePaths: [file1, file2],
+          filePath: folderPath,
+          needsReview: true,
+          path: 'api',
+          reviewStatus: 'pending',
+          status: 'success',
+          type: 'DELETE',
+        }],
+      })
+      const result = await startTestServer({
+        backups: {
+          'api/auth.md': '# Auth\nOAuth flows',
+          'api/endpoints.md': '# Endpoints\nGET /api/v1/users',
+        },
+        entries: [entry],
+      })
+      server = result.server
+
+      // eslint-disable-next-line n/no-unsupported-features/node-builtins
+      const res = await fetch(`http://127.0.0.1:${result.port}/api/review/decide`, {
+        body: JSON.stringify({decision: 'rejected', path: 'api', project: PROJECT_ENCODED}),
+        headers: {'Content-Type': 'application/json'},
+        method: 'POST',
+      })
+      const body = await res.json() as {reverted: boolean; success: boolean; updatedCount: number}
+      expect(body.success).to.be.true
+      expect(body.reverted).to.be.true
+
+      // Verify both files were restored
+      expect(result.contextTreeFs.files.get(file1)).to.equal('# Endpoints\nGET /api/v1/users')
+      expect(result.contextTreeFs.files.get(file2)).to.equal('# Auth\nOAuth flows')
+
+      // Verify backups were cleaned up
+      expect(await result.backupStore.has('api/endpoints.md')).to.be.false
+      expect(await result.backupStore.has('api/auth.md')).to.be.false
+    })
+
     it('should not revert when rejecting with no matching operations', async () => {
       const result = await startTestServer({entries: []})
       server = result.server

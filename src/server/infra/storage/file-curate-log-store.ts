@@ -13,6 +13,7 @@ import {CURATE_LOG_DIR, CURATE_LOG_ID_PREFIX} from '../../constants.js'
 const CurateLogOperationFileSchema = z.object({
   confidence: z.enum(['high', 'low']).optional(),
   filePath: z.string().optional(),
+  additionalFilePaths: z.array(z.string()).optional(),
   impact: z.enum(['high', 'low', 'medium']).optional(),
   message: z.string().optional(),
   needsReview: z.boolean().optional(),

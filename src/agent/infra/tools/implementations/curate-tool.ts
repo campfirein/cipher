@@ -301,6 +301,10 @@ export interface OperationResult {
   confidence: 'high' | 'low'
   /** Full filesystem path to the created/modified file (for ADD/UPDATE/MERGE) or deleted file. */
   filePath?: string
+  /** Additional file paths affected by this operation that need restoration on rejection.
+   * MERGE: the source file path (deleted during merge).
+   * Folder DELETE: all individual .md file paths backed up before deletion. */
+  additionalFilePaths?: string[]
   /** Scope of impact: DELETE is high, UPDATE is medium, others are low. */
   impact: 'high' | 'low' | 'medium'
   message?: string
@@ -1053,6 +1057,7 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
 
     return {
       ...reviewMeta,
+      additionalFilePaths: [sourceContextPath],
       filePath: targetContextPath,
       message: `Merged ${path}/${sourceFilename} into ${mergeTarget}/${targetFilename}. Reason: ${reason}`,
       path,
@@ -1134,6 +1139,7 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
 
     return {
       ...reviewMeta,
+      additionalFilePaths: mdFiles,
       filePath: fullPath,
       message: `Deleted folder ${path}. Reason: ${reason}`,
       path,
