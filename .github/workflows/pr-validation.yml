@@ -1,0 +1,83 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches:
+      - 'proj/**'
+      - develop
+      - 'release/**'
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/cache@v5
+        id: cache
+        with:
+          path: node_modules
+          key: node-modules-${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.TRANSPORT_CLIENT_DEPLOY_KEY }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+  lint:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/cache/restore@v5
+        with:
+          path: node_modules
+          key: node-modules-${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}
+      - run: npm run lint
+
+  build:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/cache/restore@v5
+        with:
+          path: node_modules
+          key: node-modules-${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}
+      - run: npm run build
+
+  test:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/cache/restore@v5
+        with:
+          path: node_modules
+          key: node-modules-${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}
+      - run: npm run test
+
