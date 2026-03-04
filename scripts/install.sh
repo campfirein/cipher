@@ -242,10 +242,12 @@ print_success() {
   printf "\n"
   success "ByteRover CLI installed successfully!"
   printf "\n"
+  restart_ides_agents_msg="${BOLD}Restart you running IDEs and coding/autonomous agents${RESET}\n"
 
   # Check if brv is already on PATH
   case ":${PATH}:" in
     *":${BIN_DIR}:"*)
+      printf "%s\n" "$restart_ides_agents_msg"
       printf "Run ${BOLD}brv${RESET} to get started.\n"
       ;;
     *)
@@ -253,9 +255,13 @@ print_success() {
       printf "\n"
       printf "  ${BOLD}export PATH=\"\$HOME/.brv-cli/bin:\$PATH\"${RESET}\n"
       printf "\n"
+      printf "%s\n" "$restart_ides_agents_msg"
       printf "Then run ${BOLD}brv${RESET} to begin.\n"
       ;;
   esac
+
+  printf "\n"
+  printf "${BOLD}Restart you running IDEs and coding/autonomous "
 }
 
 # ─── Main ────────────────────────────────────────────────────────────────────
