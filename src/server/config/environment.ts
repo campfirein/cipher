@@ -18,6 +18,7 @@ type EnvironmentConfig = {
   authorizationUrl: string
   clientId: string
   cogitApiBaseUrl: string
+  cogitGitBaseUrl: string
   hubRegistryUrl: string
   issuerUrl: string
   llmApiBaseUrl: string
@@ -37,6 +38,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     authorizationUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/authorize',
     clientId: 'byterover-cli-client',
     cogitApiBaseUrl: 'https://dev-beta-cgit.byterover.dev/api/v1',
+    cogitGitBaseUrl: 'https://dev-beta-cgit.byterover.dev',
     hubRegistryUrl: 'https://hub.byterover.dev/r/registry.json',
     issuerUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc',
     llmApiBaseUrl: 'https://dev-beta-llm.byterover.dev',
@@ -50,6 +52,7 @@ export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
     authorizationUrl: 'https://iam.byterover.dev/api/v1/oidc/authorize',
     clientId: 'byterover-cli-client',
     cogitApiBaseUrl: 'https://v3-cgit.byterover.dev/api/v1',
+    cogitGitBaseUrl: 'https://v3-cgit.byterover.dev',
     hubRegistryUrl: 'https://hub.byterover.dev/r/registry.json',
     issuerUrl: 'https://iam.byterover.dev/api/v1/oidc',
     llmApiBaseUrl: 'https://llm.byterover.dev',
