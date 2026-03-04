@@ -82,7 +82,7 @@ export interface SessionLLMConfig {
   maxTokens?: number
   model: string
   openRouterApiKey?: string
-  /** Provider ID (anthropic, openai, google, google-vertex, xai, groq, mistral, openrouter, byterover) */
+  /** Provider ID (anthropic, openai, google, xai, groq, mistral, openrouter, byterover) */
   provider?: string
   /** API key for the direct provider */
   providerApiKey?: string
@@ -90,10 +90,6 @@ export interface SessionLLMConfig {
   providerBaseUrl?: string
   /** Custom headers for the provider */
   providerHeaders?: Record<string, string>
-  /** GCP location for Vertex AI (default: us-central1) */
-  providerLocation?: string
-  /** GCP project ID for Vertex AI */
-  providerProject?: string
   siteName?: string
   temperature?: number
   verbose?: boolean
@@ -378,10 +374,8 @@ export function createSessionServices(
     headers: llmConfig.providerHeaders,
     httpConfig: httpConfig as unknown as Record<string, unknown>,
     httpReferer: llmConfig.httpReferer,
-    location: llmConfig.providerLocation,
     maxTokens: llmConfig.maxTokens ?? 8192,
     model: llmConfig.model,
-    project: llmConfig.providerProject,
     siteName: llmConfig.siteName,
     temperature: llmConfig.temperature ?? 0.7,
   })

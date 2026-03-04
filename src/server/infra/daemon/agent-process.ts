@@ -233,11 +233,6 @@ async function start(): Promise<void> {
   agentLog(`Provider: ${activeProvider}, Model: ${activeModel ?? 'default'}`)
 
   // 5. Create CipherAgent with lazy providers + transport client
-  // Set GOOGLE_APPLICATION_CREDENTIALS for Vertex AI before creating agent
-  if (providerResult.providerCredentialPath) {
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = providerResult.providerCredentialPath
-  }
-
   const envConfig = getCurrentConfig()
   const agentConfig = {
     apiBaseUrl: envConfig.llmApiBaseUrl,
@@ -258,8 +253,6 @@ async function start(): Promise<void> {
     providerApiKey: providerResult.providerApiKey,
     providerBaseUrl: providerResult.providerBaseUrl,
     providerHeaders: providerResult.providerHeaders,
-    providerLocation: providerResult.providerLocation,
-    providerProject: providerResult.providerProject,
     storagePath: configResult.storagePath,
   }
 
@@ -397,8 +390,7 @@ async function executeTask(
 
   if (freshProviderConfig.providerKeyMissing) {
     const modelInfo = freshProviderConfig.activeModel ? ` (model: ${freshProviderConfig.activeModel})` : ''
-    const errorMessage = freshProviderConfig.providerCredentialError
-      ?? `${freshProviderConfig.activeProvider} API key is missing${modelInfo}. Use /provider in the REPL to reconnect.`
+    const errorMessage = `${freshProviderConfig.activeProvider} API key is missing${modelInfo}. Use /provider in the REPL to reconnect.`
     const error = serializeTaskError(
       new TaskError(errorMessage, TaskErrorCode.PROVIDER_NOT_CONFIGURED),
     )
@@ -583,11 +575,6 @@ async function hotSwapProvider(
   }
 
   // Phase 2a: Replace SessionManager (if this throws, old SM remains intact)
-  // Update GOOGLE_APPLICATION_CREDENTIALS for Vertex AI hot-swap
-  if (freshProvider.providerCredentialPath) {
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = freshProvider.providerCredentialPath
-  }
-
   const previousSessionId = currentAgent.sessionId
   try {
     // Map fields explicitly to prevent accidental field leakage from ProviderConfigResponse
@@ -599,8 +586,6 @@ async function hotSwapProvider(
       providerApiKey: freshProvider.providerApiKey,
       providerBaseUrl: freshProvider.providerBaseUrl,
       providerHeaders: freshProvider.providerHeaders,
-      providerLocation: freshProvider.providerLocation,
-      providerProject: freshProvider.providerProject,
     })
   } catch (error) {
     // Old SM still intact — no recovery needed.
