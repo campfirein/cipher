@@ -16,7 +16,6 @@ import {fileURLToPath} from 'node:url'
 
 import type {CipherAgentServices, SessionServices} from '../../core/interfaces/cipher-services.js'
 import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
-import type {IHistoryStorage} from '../../core/interfaces/i-history-storage.js'
 import type {ValidatedAgentConfig} from './agent-schemas.js'
 
 import { createBlobStorage } from '../blob/blob-storage-factory.js'
@@ -39,11 +38,9 @@ import { EventBasedLogger } from '../logger/event-based-logger.js'
 import { MemoryManager } from '../memory/memory-manager.js'
 import { ProcessService } from '../process/process-service.js'
 import { SandboxService } from '../sandbox/sandbox-service.js'
-import { BlobHistoryStorage } from '../storage/blob-history-storage.js'
-import { DualFormatHistoryStorage } from '../storage/dual-format-history-storage.js'
+import { FileKeyStorage } from '../storage/file-key-storage.js'
 import { GranularHistoryStorage } from '../storage/granular-history-storage.js'
 import { MessageStorageService } from '../storage/message-storage-service.js'
-import { SqliteKeyStorage } from '../storage/sqlite-key-storage.js'
 import { ContextTreeStructureContributor } from '../system-prompt/contributors/context-tree-structure-contributor.js'
 import { MapSelectionContributor } from '../system-prompt/contributors/map-selection-contributor.js'
 import { SystemPromptManager } from '../system-prompt/system-prompt-manager.js'
@@ -121,7 +118,7 @@ export type {CipherAgentServices, SessionManagerConfig, SessionServices} from '.
  * 8. Policy engine (no dependencies)
  * 9. Tool scheduler (depends on ToolProvider, PolicyEngine)
  * 10. Tool manager (depends on ToolProvider, ToolScheduler)
- * 11. History storage (depends on BlobStorage)
+ * 11. History storage (file-based granular storage)
  * 12. Return all services
  *
  * @param config - Validated agent configuration (Zod-validated)
@@ -244,42 +241,24 @@ export async function createCipherAgentServices(
   const toolManager = new ToolManager(toolProvider, toolScheduler)
   await toolManager.initialize()
 
-  // 11. History storage (depends on BlobStorage) - SHARED across sessions
-  let historyStorage: IHistoryStorage
-  let compactionService: CompactionService | undefined
-  let messageStorageService: MessageStorageService | undefined
+  // 11. History storage - granular file-based storage
+  const keyStorage = new FileKeyStorage({
+    storageDir: storageBasePath,
+  })
+  await keyStorage.initialize()
 
-  if (config.useGranularStorage) {
-    // Create granular storage infrastructure
-    const keyStorage = new SqliteKeyStorage({
-      storageDir: storageBasePath,
-    })
-    await keyStorage.initialize()
+  const messageStorage = new MessageStorageService(keyStorage)
+  const messageStorageService = messageStorage
+  const historyStorage = new GranularHistoryStorage(messageStorage)
 
-    const messageStorage = new MessageStorageService(keyStorage)
-    messageStorageService = messageStorage
-    const granularStorage = new GranularHistoryStorage(messageStorage)
-    const blobHistoryStorage = new BlobHistoryStorage(blobStorage)
-
-    // DualFormatHistoryStorage routes between formats:
-    // - New sessions → GranularHistoryStorage
-    // - Existing sessions → BlobHistoryStorage (no migration)
-    historyStorage = new DualFormatHistoryStorage(blobHistoryStorage, granularStorage)
-
-    // Create CompactionService for context overflow management
-    const tokenizer = new GeminiTokenizer(config.model ?? 'gemini-3-flash-preview')
-    compactionService = new CompactionService(messageStorage, tokenizer, {
-      overflowThreshold: 0.85,    // 85% triggers compaction check
-      protectedTurns: 2,          // Protect last 2 user turns from pruning
-      pruneKeepPercent: 0.2,      // Keep 20% of context window in tool outputs
-      pruneMinimumPercent: 0.1,   // Only prune if 10%+ of context window can be saved
-    })
-
-    logger.info('Granular history storage enabled for new sessions')
-  } else {
-    // Default: use blob storage for all sessions
-    historyStorage = new BlobHistoryStorage(blobStorage)
-  }
+  // CompactionService for context overflow management
+  const tokenizer = new GeminiTokenizer(config.model ?? 'gemini-3-flash-preview')
+  const compactionService = new CompactionService(messageStorage, tokenizer, {
+    overflowThreshold: 0.85,    // 85% triggers compaction check
+    protectedTurns: 2,          // Protect last 2 user turns from pruning
+    pruneKeepPercent: 0.2,      // Keep 20% of context window in tool outputs
+    pruneMinimumPercent: 0.1,   // Only prune if 10%+ of context window can be saved
+  })
 
   // 12. Log successful initialization
   logger.info('CipherAgent services initialized successfully', {
