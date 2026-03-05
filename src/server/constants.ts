@@ -47,7 +47,7 @@ export const TRANSPORT_PING_TIMEOUT_MS = 10_000 // 10s timeout - avoid false dis
 export const TRANSPORT_DEFAULT_TRANSPORTS: ('polling' | 'websocket')[] = ['websocket']
 
 // LLM Model defaults
-export const DEFAULT_LLM_MODEL = 'gemini-3-flash-preview'
+export const DEFAULT_LLM_MODEL = 'gemini-3.1-flash-lite-preview'
 
 // Project room naming convention
 export const PROJECT_ROOM_PREFIX = 'project:'

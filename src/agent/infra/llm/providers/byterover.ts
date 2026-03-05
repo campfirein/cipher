@@ -41,7 +41,7 @@ export const byteroverProvider: ProviderModule = {
       temperature: config.temperature,
     })
   },
-  defaultModel: 'gemini-3-flash-preview',
+  defaultModel: 'gemini-3.1-flash-lite-preview',
   description: 'Internal ByteRover LLM',
   envVars: [],
   id: 'byterover',
