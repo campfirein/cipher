@@ -913,7 +913,7 @@ describe('ContextManager', () => {
       const mockStrategy = {
         compress: sandbox.stub().callsFake((messages: InternalMessage[]) =>
           // Simulate compression: keep only the last message
-          Promise.resolve([messages[messages.length - 1]]),
+          Promise.resolve([messages.at(-1)]),
         ),
         getName: sandbox.stub().returns('MockStrategy'),
       }
@@ -947,7 +947,7 @@ describe('ContextManager', () => {
     it('should fall back to maxInputTokens when no targetHistoryBudget is provided', async () => {
       const mockStrategy = {
         compress: sandbox.stub().callsFake((messages: InternalMessage[]) =>
-          Promise.resolve([messages[messages.length - 1]]),
+          Promise.resolve([messages.at(-1)]),
         ),
         getName: sandbox.stub().returns('MockStrategy'),
       }
