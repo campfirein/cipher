@@ -443,6 +443,9 @@ describe('review-api-handler', () => {
       const body = await res.json() as {reverted: boolean; success: boolean}
       expect(body.reverted).to.be.false
       expect(body.success).to.be.true
+
+      // Backup cleared on approve so future modifications use the approved state as baseline
+      expect(await result.backupStore.has('auth/jwt.md')).to.be.false
     })
 
     it('should restore backup content when rejecting an UPDATE', async () => {

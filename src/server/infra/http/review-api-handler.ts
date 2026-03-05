@@ -244,44 +244,45 @@ export function createReviewApiRouter(options: ReviewApiOptions): Router {
 
       let reverted = false
 
-      // On rejection, revert the file in the context tree before updating statuses
-      if (decision === 'rejected' && updates.length > 0) {
+      if (updates.length > 0) {
         const backupStore = options.reviewBackupStoreFactory(projectPath)
-        const absolutePath = join(contextTreeDir, filePath)
-        const backupContent = await backupStore.read(filePath)
 
-        if (backupContent === null) {
-          // No backup → file was newly added (ADD), remove it
-          try {
-            await ctFs.deleteFile(absolutePath)
-          } catch {
-            // File may already be gone — that's fine
-          }
-        } else {
-          // Backup exists → restore pre-curate content (handles UPDATE, UPSERT, MERGE, DELETE)
-          await ctFs.writeFile(absolutePath, backupContent)
-        }
-
-        await backupStore.delete(filePath)
-
-        // Restore additional files (MERGE source, folder DELETE contents)
         const allAdditionalPaths = [
           ...new Set(updates.flatMap((u) => u.additionalFilePaths ?? [])),
         ]
 
+        if (decision === 'rejected') {
+          // Revert the primary file
+          const absolutePath = join(contextTreeDir, filePath)
+          const backupContent = await backupStore.read(filePath)
+
+          // null means ADD (new file) → remove it; backup exists → restore pre-curate content
+          await (backupContent === null
+            ? ctFs.deleteFile(absolutePath).catch(() => {})
+            : ctFs.writeFile(absolutePath, backupContent))
+
+          // Restore additional files (MERGE source, folder DELETE contents)
+          await Promise.all(
+            allAdditionalPaths.map(async (absPath) => {
+              const relPath = relative(contextTreeDir, absPath)
+              const content = await backupStore.read(relPath)
+              if (content !== null) {
+                await ctFs.writeFile(absPath, content)
+              }
+
+              await backupStore.delete(relPath)
+            }),
+          )
+
+          reverted = true
+        }
+
+        // On both approve and reject: clear the backup so future modifications
+        // use the current state as the new baseline
+        await backupStore.delete(filePath)
         await Promise.all(
-          allAdditionalPaths.map(async (absPath) => {
-            const relPath = relative(contextTreeDir, absPath)
-            const content = await backupStore.read(relPath)
-            if (content !== null) {
-              await ctFs.writeFile(absPath, content)
-            }
-
-            await backupStore.delete(relPath)
-          }),
+          allAdditionalPaths.map((absPath) => backupStore.delete(relative(contextTreeDir, absPath))),
         )
-
-        reverted = true
       }
 
       const results = await Promise.all(

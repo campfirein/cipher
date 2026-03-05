@@ -6,6 +6,7 @@ import type {IContextTreeSnapshotService} from '../../../core/interfaces/context
 import type {ICogitPushService} from '../../../core/interfaces/services/i-cogit-push-service.js'
 import type {ICurateLogStore} from '../../../core/interfaces/storage/i-curate-log-store.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
+import type {IReviewBackupStore} from '../../../core/interfaces/storage/i-review-backup-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
 import {
@@ -37,6 +38,7 @@ export interface PushHandlerDeps {
   curateLogStoreFactory: CurateLogStoreFactory
   projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
+  reviewBackupStoreFactory: (projectPath: string) => IReviewBackupStore
   tokenStore: ITokenStore
   transport: ITransportServer
   webAppUrl: string
@@ -54,6 +56,7 @@ export class PushHandler {
   private readonly curateLogStoreFactory: CurateLogStoreFactory
   private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
+  private readonly reviewBackupStoreFactory: (projectPath: string) => IReviewBackupStore
   private readonly tokenStore: ITokenStore
   private readonly transport: ITransportServer
   private readonly webAppUrl: string
@@ -66,6 +69,7 @@ export class PushHandler {
     this.curateLogStoreFactory = deps.curateLogStoreFactory
     this.projectConfigStore = deps.projectConfigStore
     this.resolveProjectPath = deps.resolveProjectPath
+    this.reviewBackupStoreFactory = deps.reviewBackupStoreFactory
     this.tokenStore = deps.tokenStore
     this.transport = deps.transport
     this.webAppUrl = deps.webAppUrl
@@ -197,6 +201,16 @@ export class PushHandler {
     }
 
     await this.contextTreeSnapshotService.saveSnapshotFromState(newSnapshot, projectPath)
+
+    // Best-effort: clear backups for pushed files so the pushed state becomes the new diff baseline
+    try {
+      const backupStore = this.reviewBackupStoreFactory(projectPath)
+      await Promise.all(
+        [...pushableAdded, ...pushableModified, ...pushableDeleted].map((p) => backupStore.delete(p)),
+      )
+    } catch {
+      // Backup cleanup must never block the push response
+    }
 
     const url = `${this.webAppUrl}/${config.teamName}/${config.spaceName}`
 

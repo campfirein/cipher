@@ -297,14 +297,16 @@ export const CurateInputSchema = z.object({
  * Exported for use by CurateService in sandbox.
  */
 export interface OperationResult {
+  /**
+   * Additional file paths affected by this operation that need restoration on rejection.
+   * MERGE: the source file path (deleted during merge).
+   * Folder DELETE: all individual .md file paths backed up before deletion.
+   */
+  additionalFilePaths?: string[]
   /** LLM-assessed confidence in the accuracy and completeness of this operation. */
   confidence: 'high' | 'low'
   /** Full filesystem path to the created/modified file (for ADD/UPDATE/MERGE) or deleted file. */
   filePath?: string
-  /** Additional file paths affected by this operation that need restoration on rejection.
-   * MERGE: the source file path (deleted during merge).
-   * Folder DELETE: all individual .md file paths backed up before deletion. */
-  additionalFilePaths?: string[]
   /** Scope of impact: DELETE is high, UPDATE is medium, others are low. */
   impact: 'high' | 'low' | 'medium'
   message?: string
