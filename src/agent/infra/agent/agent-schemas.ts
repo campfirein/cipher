@@ -80,8 +80,6 @@ export const AgentConfigSchema = z
     providerApiKey: z.string().optional().describe('API key for direct provider'),
     providerBaseUrl: z.string().optional().describe('Base URL for OpenAI-compatible provider'),
     providerHeaders: z.record(z.string()).optional().describe('Custom headers for provider'),
-    providerLocation: z.string().optional().describe('GCP location for Vertex AI (default: us-central1)'),
-    providerProject: z.string().optional().describe('GCP project ID for Vertex AI'),
     region: z.string().optional().describe('API region'),
     sessionKey: z.string().default('').describe('ByteRover session key'),
     sessions: SessionConfigSchema.default({}).describe('Session management configuration'),
@@ -89,7 +87,6 @@ export const AgentConfigSchema = z
     spaceId: z.string().optional().describe('ByteRover space ID'),
     storagePath: z.string().min(1).describe('XDG storage directory for blob, key, and session storage'),
     teamId: z.string().optional().describe('ByteRover team ID'),
-    useGranularStorage: z.boolean().default(false).describe('Enable granular history storage'),
   })
   .strict()
 

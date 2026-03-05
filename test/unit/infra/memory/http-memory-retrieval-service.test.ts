@@ -459,7 +459,7 @@ describe('HttpMemoryRetrievalService', () => {
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
         expect((error as Error).message).to.include('Failed to retrieve memories')
-        expect((error as Error).message).to.include('404')
+        expect((error as Error).message).to.include('Not found')
       }
     })
 
@@ -480,7 +480,7 @@ describe('HttpMemoryRetrievalService', () => {
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
         expect((error as Error).message).to.include('Failed to retrieve memories')
-        expect((error as Error).message).to.include('500')
+        expect((error as Error).message).to.include('Internal Server Error')
       }
     })
 

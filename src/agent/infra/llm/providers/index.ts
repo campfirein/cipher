@@ -15,7 +15,6 @@ import {cerebrasProvider} from './cerebras.js'
 import {cohereProvider} from './cohere.js'
 import {deepinfraProvider} from './deepinfra.js'
 import {glmProvider} from './glm.js'
-import {googleVertexProvider} from './google-vertex.js'
 import {googleProvider} from './google.js'
 import {groqProvider} from './groq.js'
 import {minimaxProvider} from './minimax.js'
@@ -41,7 +40,6 @@ const PROVIDER_MODULES: Readonly<Record<string, ProviderModule>> = {
   deepinfra: deepinfraProvider,
   glm: glmProvider,
   google: googleProvider,
-  'google-vertex': googleVertexProvider,
   groq: groqProvider,
   minimax: minimaxProvider,
   mistral: mistralProvider,

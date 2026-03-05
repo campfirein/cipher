@@ -274,6 +274,10 @@ export class SkillConnector implements IConnector {
    * Write files to a named skill subdirectory for the given agent.
    * Used by hub install to write downloaded skill files to e.g. `.claude/skills/{skillName}/`.
    *
+   * @param agent - Agent connector target
+   * @param skillName - Skill folder name to create under the connector path
+   * @param files - Skill files to write
+   * @param options - Optional install scope
    * @param options.scope - 'global' writes to home dir, 'project' (default) writes to project root
    */
   async writeSkillFiles(

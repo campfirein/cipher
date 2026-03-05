@@ -11,6 +11,7 @@ permissions:
 env:
   GCS_BUCKET: brv-releases
   NODE_VERSION: '24'
+  HUSKY: 0
 
 jobs:
   pack:

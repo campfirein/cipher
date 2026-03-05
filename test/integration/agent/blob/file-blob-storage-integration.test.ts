@@ -5,38 +5,35 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {restore, stub} from 'sinon'
 
-import {SqliteBlobStorage} from '../../../../src/agent/infra/blob/sqlite-blob-storage.js'
+import {FileBlobStorage} from '../../../../src/agent/infra/blob/file-blob-storage.js'
 
 /**
- * Integration tests for SqliteBlobStorage
+ * Integration tests for FileBlobStorage
  *
  * These tests verify real file system operations:
- * - Database file creation
+ * - Directory and file creation
  * - Data persistence across restarts
- * - WAL mode functionality
  * - Cleanup and resource management
+ * - Large data handling
  */
-describe('SqliteBlobStorage Integration', () => {
+describe('FileBlobStorage Integration', () => {
   let testDir: string
-  let storage: SqliteBlobStorage
+  let storage: FileBlobStorage
 
   beforeEach(async () => {
-    // Create a temporary directory for each test
-    // Suppress console output during tests
     stub(console, 'log')
     stub(console, 'error')
 
-    testDir = join(tmpdir(), `sqlite-blob-integration-${Date.now()}`)
+    testDir = join(tmpdir(), `file-blob-integration-${Date.now()}`)
     await mkdir(testDir, {recursive: true})
   })
 
   afterEach(async () => {
-    // Cleanup
     if (storage) {
-      restore()
-
       storage.close()
     }
+
+    restore()
 
     try {
       await rm(testDir, {force: true, recursive: true})
@@ -45,43 +42,39 @@ describe('SqliteBlobStorage Integration', () => {
     }
   })
 
-  describe('Database File Creation', () => {
-    it('should create storage.db file on initialization', async () => {
-      storage = new SqliteBlobStorage({storageDir: testDir})
+  describe('Directory Creation', () => {
+    it('should create blobs directory on initialization', async () => {
+      storage = new FileBlobStorage({storageDir: testDir})
       await storage.initialize()
 
-      const dbPath = join(testDir, 'storage.db')
-      expect(existsSync(dbPath)).to.be.true
+      const blobsDir = join(testDir, 'blobs')
+      expect(existsSync(blobsDir)).to.be.true
     })
 
     it('should create storage directory if it does not exist', async () => {
       const nestedDir = join(testDir, 'nested', 'path', 'to', 'storage')
-      storage = new SqliteBlobStorage({storageDir: nestedDir})
+      storage = new FileBlobStorage({storageDir: nestedDir})
       await storage.initialize()
 
-      const dbPath = join(nestedDir, 'storage.db')
-      expect(existsSync(dbPath)).to.be.true
+      const blobsDir = join(nestedDir, 'blobs')
+      expect(existsSync(blobsDir)).to.be.true
     })
 
-    it('should create WAL files when WAL mode is enabled', async () => {
-      storage = new SqliteBlobStorage({storageDir: testDir})
+    it('should create per-blob directories with content.bin and metadata.json', async () => {
+      storage = new FileBlobStorage({storageDir: testDir})
       await storage.initialize()
 
-      // Store some data to trigger WAL
       await storage.store('test-key', Buffer.from('test data'))
 
-      // Check for database file
-      const files = await readdir(testDir)
-
-      // WAL files may not always exist immediately, but the DB should
-      expect(files).to.include('storage.db')
+      const blobDir = join(testDir, 'blobs', 'test-key')
+      expect(existsSync(join(blobDir, 'content.bin'))).to.be.true
+      expect(existsSync(join(blobDir, 'metadata.json'))).to.be.true
     })
   })
 
   describe('Data Persistence', () => {
     it('should persist data across storage restarts', async () => {
-      // First storage instance
-      storage = new SqliteBlobStorage({storageDir: testDir})
+      storage = new FileBlobStorage({storageDir: testDir})
       await storage.initialize()
 
       const key = 'persistent-key'
@@ -92,8 +85,7 @@ describe('SqliteBlobStorage Integration', () => {
 
       storage.close()
 
-      // Second storage instance (new connection)
-      storage = new SqliteBlobStorage({storageDir: testDir})
+      storage = new FileBlobStorage({storageDir: testDir})
       await storage.initialize()
 
       const retrieved = await storage.retrieve(key)
@@ -103,8 +95,7 @@ describe('SqliteBlobStorage Integration', () => {
     })
 
     it('should maintain correct stats after restart', async () => {
-      // First instance: store 3 blobs
-      storage = new SqliteBlobStorage({storageDir: testDir})
+      storage = new FileBlobStorage({storageDir: testDir})
       await storage.initialize()
 
       await storage.store('blob-1', Buffer.from('test1'))
@@ -113,8 +104,7 @@ describe('SqliteBlobStorage Integration', () => {
 
       storage.close()
 
-      // Second instance: verify stats
-      storage = new SqliteBlobStorage({storageDir: testDir})
+      storage = new FileBlobStorage({storageDir: testDir})
       await storage.initialize()
 
       const stats = await storage.getStats()
@@ -125,7 +115,7 @@ describe('SqliteBlobStorage Integration', () => {
 
   describe('Concurrent Operations', () => {
     it('should handle multiple stores in sequence', async () => {
-      storage = new SqliteBlobStorage({storageDir: testDir})
+      storage = new FileBlobStorage({storageDir: testDir})
       await storage.initialize()
 
       const numBlobs = 100
@@ -139,12 +129,11 @@ describe('SqliteBlobStorage Integration', () => {
     })
 
     it('should maintain data integrity during rapid updates', async () => {
-      storage = new SqliteBlobStorage({storageDir: testDir})
+      storage = new FileBlobStorage({storageDir: testDir})
       await storage.initialize()
 
       const key = 'update-test'
 
-      // Rapid sequential updates
       for (let i = 0; i < 10; i++) {
         // eslint-disable-next-line no-await-in-loop
         await storage.store(key, Buffer.from(`version-${i}`))
@@ -156,16 +145,15 @@ describe('SqliteBlobStorage Integration', () => {
   })
 
   describe('Cleanup and Resource Management', () => {
-    it('should properly close database connection', async () => {
-      storage = new SqliteBlobStorage({storageDir: testDir})
+    it('should properly close storage', async () => {
+      storage = new FileBlobStorage({storageDir: testDir})
       await storage.initialize()
 
       await storage.store('test', Buffer.from('data'))
 
-      // Close should not throw
       storage.close()
 
-      // After close, DB should be inaccessible
+      // After close, operations should fail
       try {
         await storage.retrieve('test')
         expect.fail('Should have thrown error')
@@ -175,22 +163,37 @@ describe('SqliteBlobStorage Integration', () => {
     })
 
     it('should allow deleting storage directory after close', async () => {
-      storage = new SqliteBlobStorage({storageDir: testDir})
+      storage = new FileBlobStorage({storageDir: testDir})
       await storage.initialize()
       await storage.store('test', Buffer.from('data'))
 
       storage.close()
 
-      // Should be able to delete directory
       await rm(testDir, {force: true, recursive: true})
 
       expect(existsSync(testDir)).to.be.false
+    })
+
+    it('should clear all blobs from disk', async () => {
+      storage = new FileBlobStorage({storageDir: testDir})
+      await storage.initialize()
+
+      await storage.store('blob-1', Buffer.from('test1'))
+      await storage.store('blob-2', Buffer.from('test2'))
+
+      await storage.clear()
+
+      const entries = await readdir(join(testDir, 'blobs'))
+      expect(entries).to.have.lengthOf(0)
+
+      const stats = await storage.getStats()
+      expect(stats.totalBlobs).to.equal(0)
     })
   })
 
   describe('Large Data Handling', () => {
     it('should handle large blobs (10MB)', async () => {
-      storage = new SqliteBlobStorage({
+      storage = new FileBlobStorage({
         maxBlobSize: 20 * 1024 * 1024, // 20MB
         storageDir: testDir,
       })
