@@ -89,9 +89,13 @@ export interface ICipherAgent {
    *
    * @param taskId - Unique task identifier (used as part of session ID)
    * @param commandType - Command type for agent name tracking ('curate' | 'query')
+   * @param options - Optional configuration
+   * @param options.mapRootEligible - If true, registers the session as root-eligible for
+   *   agentic_map calls (Guard C). Only set for top-level task sessions that may invoke
+   *   agentic_map directly (e.g., curate-executor, folder-pack-executor). Defaults to false.
    * @returns Session ID of the created task session
    */
-  createTaskSession(taskId: string, commandType: string): Promise<string>
+  createTaskSession(taskId: string, commandType: string, options?: {mapRootEligible?: boolean}): Promise<string>
 
   /**
    * Delete a sandbox variable from the agent's default session.
@@ -145,6 +149,8 @@ export interface ICipherAgent {
    * @param sessionId - Session to execute on
    * @param input - User input string
    * @param options - Optional execution options
+   * @param options.executionContext - Optional context for command-specific behavior (curate/query/chat)
+   * @param options.taskId - Optional task ID for event routing (required for concurrent task isolation)
    * @returns Agent response
    */
   executeOnSession(

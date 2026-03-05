@@ -1,20 +1,27 @@
 import type { EnvironmentContext } from '../../core/domain/environment/types.js'
 import type { KnownTool } from '../../core/domain/tools/constants.js'
 import type { Tool } from '../../core/domain/tools/types.js'
+import type { ICipherAgent } from '../../core/interfaces/i-cipher-agent.js'
+import type { IContentGenerator } from '../../core/interfaces/i-content-generator.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
+import type { ILogger } from '../../core/interfaces/i-logger.js'
 import type { IProcessService } from '../../core/interfaces/i-process-service.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
 import type { ITodoStorage } from '../../core/interfaces/i-todo-storage.js'
+import type { ITokenizer } from '../../core/interfaces/i-tokenizer.js'
 import type { MemoryManager } from '../memory/memory-manager.js'
 import type { ToolProviderGetter } from './tool-provider-getter.js'
 
 import { ToolName } from '../../core/domain/tools/constants.js'
 import { createCurateService } from '../sandbox/curate-service.js'
+import { createAgenticMapTool } from './implementations/agentic-map-tool.js'
 import { createCodeExecTool } from './implementations/code-exec-tool.js'
 import { createCurateTool } from './implementations/curate-tool.js'
+import { createExpandKnowledgeTool } from './implementations/expand-knowledge-tool.js'
 import { createGlobFilesTool } from './implementations/glob-files-tool.js'
 import { createGrepContentTool } from './implementations/grep-content-tool.js'
 import { createListDirectoryTool } from './implementations/list-directory-tool.js'
+import { createLlmMapTool } from './implementations/llm-map-tool.js'
 import { createReadFileTool } from './implementations/read-file-tool.js'
 import { createSearchKnowledgeService } from './implementations/search-knowledge-service.js'
 import { createSearchKnowledgeTool } from './implementations/search-knowledge-tool.js'
@@ -26,6 +33,12 @@ import { ToolMarker } from './tool-markers.js'
  * Tools declare which services they need via requiredServices.
  */
 export interface ToolServices {
+  /** Agent instance for creating sub-sessions (used by agentic_map) */
+  agentInstance?: ICipherAgent
+
+  /** Content generator for stateless LLM calls (used by llm_map) */
+  contentGenerator?: IContentGenerator
+
   /** Environment context for sandbox injection */
   environmentContext?: EnvironmentContext
 
@@ -38,6 +51,12 @@ export interface ToolServices {
    */
   getToolProvider?: ToolProviderGetter
 
+  /** Logger for fail-open warnings in map tools */
+  logger?: ILogger
+
+  /** Max context tokens for ContextTreeStore τ_hard computation */
+  maxContextTokens?: number
+
   /** Memory manager for agent memory operations */
   memoryManager?: MemoryManager
 
@@ -49,6 +68,9 @@ export interface ToolServices {
 
   /** Todo storage service for session-based todo persistence */
   todoStorage?: ITodoStorage
+
+  /** Tokenizer for ContextTreeStore token counting */
+  tokenizer?: ITokenizer
 }
 
 /**
@@ -115,6 +137,22 @@ function getRequiredService<T>(service: T | undefined, serviceName: string): T {
  * 3. Add entry to this registry
  */
 export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
+  [ToolName.AGENTIC_MAP]: {
+    factory({agentInstance, contentGenerator, environmentContext, logger, maxContextTokens, tokenizer}) {
+      const agent = getRequiredService(agentInstance, 'agentInstance')
+      const workingDirectory = environmentContext?.workingDirectory ?? process.cwd()
+
+      return createAgenticMapTool(agent, workingDirectory, {
+        generator: contentGenerator,
+        logger,
+        maxContextTokens,
+        tokenizer,
+      })
+    },
+    markers: [ToolMarker.Execution],
+    requiredServices: ['agentInstance'],
+  },
+
   [ToolName.CODE_EXEC]: {
     descriptionFile: 'code_exec',
     factory({ environmentContext, fileSystemService, sandboxService }) {
@@ -156,6 +194,14 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     requiredServices: [], // Uses DirectoryManager and MarkdownWriter for file operations
   },
 
+  [ToolName.EXPAND_KNOWLEDGE]: {
+    descriptionFile: 'expand_knowledge',
+    factory: ({ environmentContext }) =>
+      createExpandKnowledgeTool({ baseDirectory: environmentContext?.workingDirectory }),
+    markers: [ToolMarker.Discovery],
+    requiredServices: [],
+  },
+
   [ToolName.GLOB_FILES]: {
     descriptionFile: 'glob_files',
     factory: (services) => createGlobFilesTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
@@ -176,6 +222,17 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
       createListDirectoryTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
     markers: [ToolMarker.Discovery],
     requiredServices: ['fileSystemService'],
+  },
+
+  [ToolName.LLM_MAP]: {
+    factory({contentGenerator, environmentContext, logger, maxContextTokens, tokenizer}) {
+      const generator = getRequiredService(contentGenerator, 'contentGenerator')
+      const workingDirectory = environmentContext?.workingDirectory ?? process.cwd()
+
+      return createLlmMapTool(generator, workingDirectory, {logger, maxContextTokens, tokenizer})
+    },
+    markers: [ToolMarker.Execution],
+    requiredServices: ['contentGenerator'],
   },
 
   [ToolName.READ_FILE]: {

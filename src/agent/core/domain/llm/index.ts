@@ -32,6 +32,7 @@ export {
   isValidProviderModel,
   LLM_REGISTRY,
   modelSupportsFileType,
+  resolveRegistryProvider,
 } from './registry.js'
 
 // Schemas

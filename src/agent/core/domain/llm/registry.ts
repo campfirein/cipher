@@ -655,6 +655,45 @@ export function getEffectiveMaxInputTokens(
 }
 
 /**
+ * Resolve a user-facing provider ID (e.g. 'anthropic', 'openrouter', 'google-vertex')
+ * to a registry provider type ('claude' | 'gemini' | 'openai').
+ *
+ * Used by both AgentLLMService (tokenizer/formatter selection) and CipherAgent
+ * (registry-clamped maxInputTokens for map tools).
+ */
+export function resolveRegistryProvider(
+  model: string,
+  explicitProvider?: string,
+): LLMProvider {
+  // 1. Explicit provider mapping takes priority
+  if (explicitProvider) {
+    if (explicitProvider === 'anthropic') return 'claude'
+    if (explicitProvider === 'google' || explicitProvider === 'google-vertex') return 'gemini'
+    if (['groq', 'mistral', 'openai', 'openai-compatible', 'openrouter', 'xai'].includes(explicitProvider)) {
+      return 'openai'
+    }
+  }
+
+  // 2. Use registry to detect provider from model name
+  const registryProvider = getProviderFromModel(model)
+  if (registryProvider) return registryProvider
+
+  // 3. Fallback to string prefix matching for unknown models
+  const lowerModel = model.toLowerCase()
+  if (lowerModel.startsWith('claude')) return 'claude'
+  if (
+    lowerModel.startsWith('gpt') ||
+    lowerModel.startsWith('o1') ||
+    lowerModel.startsWith('o3') ||
+    lowerModel.startsWith('o4')
+  ) {
+    return 'openai'
+  }
+
+  return 'gemini'
+}
+
+/**
  * Check if OpenRouter accepts any model (custom models).
  * OpenRouter can route to many models not in our registry.
  * @param provider - LLM provider

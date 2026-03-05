@@ -126,19 +126,6 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
     name: 'Google Gemini',
     priority: 4,
   },
-  'google-vertex': {
-    apiKeyUrl: 'https://console.cloud.google.com/iam-admin/serviceaccounts',
-    baseUrl: '',
-    category: 'popular',
-    defaultModel: 'gemini-2.5-flash',
-    description: 'Gemini via Google Cloud Vertex AI',
-    envVars: ['GOOGLE_APPLICATION_CREDENTIALS'],
-    headers: {},
-    id: 'google-vertex',
-    modelsEndpoint: '',
-    name: 'Google Vertex AI',
-    priority: 5,
-  },
   groq: {
     apiKeyUrl: 'https://console.groq.com/keys',
     baseUrl: 'https://api.groq.com/openai/v1',
@@ -321,9 +308,8 @@ export function providerRequiresApiKey(id: string): boolean {
   const provider = getProviderById(id)
   if (!provider) return false
   // Internal providers (byterover) don't need API keys.
-  // Vertex AI uses Application Default Credentials, not API keys.
   // OpenAI Compatible has optional API key (handled in provider-command).
-  if (id === 'byterover' || id === 'google-vertex' || id === 'openai-compatible') return false
+  if (id === 'byterover' || id === 'openai-compatible') return false
 
   return true
 }

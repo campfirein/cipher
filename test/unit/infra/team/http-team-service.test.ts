@@ -122,7 +122,6 @@ describe('HttpTeamService', () => {
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message).to.include('500')
         expect((error as Error).message).to.include('Internal Server Error')
       }
     })

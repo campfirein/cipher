@@ -75,4 +75,15 @@ export interface IToolProvider {
    * Registers all available tools based on available services.
    */
   initialize(): Promise<void>
+
+  /**
+   * Atomically replace specific tools with new service dependencies.
+   * Builds new tool instances first, then swaps — if build fails, old tools remain.
+   * Throws if any requested tool cannot be rebuilt.
+   *
+   * @param toolNames - Names of tools to replace
+   * @param newServices - Updated services for tool construction (typed as Record at core level;
+   *                      infra implementation casts to Partial<ToolServices> internally)
+   */
+  replaceTools(toolNames: string[], newServices: Record<string, unknown>): void
 }

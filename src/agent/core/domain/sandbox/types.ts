@@ -33,6 +33,9 @@ export interface REPLResult {
  * Configuration for sandbox execution.
  */
 export interface SandboxConfig {
+  /** Command type for gating SDK operations (e.g., 'query' disables curate/writeFile) */
+  commandType?: string
+
   /** Context data to preload as "context" variable */
   contextPayload?: Record<string, unknown> | string | unknown[]
 
