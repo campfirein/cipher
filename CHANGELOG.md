@@ -2,6 +2,21 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.1.0]
+
+### Added
+
+- **Agentic map system** - A new LLM-powered context map organizes knowledge hierarchically and enables smarter retrieval. Includes escalated compression strategies that adapt when context grows large, keeping responses accurate even for very large codebases.
+- **`/exit` command** - Type `/exit` in the REPL to gracefully close the session (alternative to Ctrl+C).
+
+### Changed
+
+- **File-based storage** - Internal storage migrated from SQLite to plain files. Eliminates the native SQLite dependency for a simpler, more portable installation.
+
+### Removed
+
+- **Google Vertex AI provider** - The Vertex AI integration has been removed. Users relying on Google models should use Gemini via Gemini_API_key.
+
 ## [2.0.0]
 
 ### Added

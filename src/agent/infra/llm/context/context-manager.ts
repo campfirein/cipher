@@ -369,6 +369,37 @@ export class ContextManager<T> {
   }
 
   /**
+   * Compress messages using the strategy chain and replace in-memory state.
+   * Called by AgentLLMService when context exceeds the threshold.
+   *
+   * Delegates to compressHistoryIfNeeded() which iterates compressionStrategies
+   * (EscalatedCompression → MiddleRemoval → OldestRemoval) until the history
+   * fits within the token budget.
+   *
+   * @param systemPromptTokens - Tokens reserved for the system prompt
+   * @param targetHistoryBudget - Target token budget for message history.
+   *   When provided, overrides maxInputTokens for threshold/budget calculations
+   *   so the strategy chain compresses to the caller's target (e.g. 70% utilization)
+   *   rather than the full context window.
+   * @returns The compressed message array (same reference as this.messages)
+   */
+  public async compressAndReplace(
+    systemPromptTokens: number,
+    targetHistoryBudget?: number,
+  ): Promise<InternalMessage[]> {
+    const targetMaxTokens = targetHistoryBudget
+      ? targetHistoryBudget + systemPromptTokens
+      : undefined
+    const compressed = await this.compressHistoryIfNeeded(systemPromptTokens, undefined, targetMaxTokens)
+    if (compressed !== this.messages) {
+      this.messages = compressed
+      this.persistDirty = true
+    }
+
+    return this.messages
+  }
+
+  /**
    * Compress messages by removing oldest messages until total tokens fit within the budget.
    * This directly modifies the internal messages array by slicing from the beginning.
    *
@@ -675,16 +706,21 @@ export class ContextManager<T> {
    * Compress conversation history if needed to fit within token limits.
    *
    * This method applies compression strategies sequentially until the history
-   * fits within the available token budget (maxInputTokens - systemPromptTokens).
+   * fits within the available token budget.
    *
    * @param systemPromptTokens - Tokens used by system prompt (reserved, not compressible)
    * @param messagesToCompress - Messages to compress (defaults to all messages)
+   * @param targetMaxTokens - Override for maxInputTokens. When provided, the method
+   *   uses this as the total token ceiling (system + history) instead of this.maxInputTokens.
+   *   This allows the caller to target a lower utilization (e.g. 70%) rather than 100%.
    * @returns Compressed message history
    */
   private async compressHistoryIfNeeded(
     systemPromptTokens: number,
     messagesToCompress?: InternalMessage[],
+    targetMaxTokens?: number,
   ): Promise<InternalMessage[]> {
+    const effectiveMaxTokens = targetMaxTokens ?? this.maxInputTokens
     const messages = messagesToCompress ?? this.messages
 
     // Calculate current token usage
@@ -692,7 +728,7 @@ export class ContextManager<T> {
     const totalTokens = systemPromptTokens + currentHistoryTokens
 
     // No compression needed
-    if (totalTokens <= this.maxInputTokens) {
+    if (totalTokens <= effectiveMaxTokens) {
       // Debug logging removed for cleaner user experience
       return messages
     }
@@ -701,7 +737,7 @@ export class ContextManager<T> {
 
     // Calculate target token budget for history
     // Reserve space for system prompt
-    const maxHistoryTokens = this.maxInputTokens - systemPromptTokens
+    const maxHistoryTokens = effectiveMaxTokens - systemPromptTokens
 
     // Apply compression strategies sequentially
     let compressedHistory = messages
@@ -715,7 +751,7 @@ export class ContextManager<T> {
       const compressedTokens = countMessagesTokens(compressedHistory, this.tokenizer)
       const newTotal = systemPromptTokens + compressedTokens
 
-      if (newTotal <= this.maxInputTokens) {
+      if (newTotal <= effectiveMaxTokens) {
         // Debug logging removed for cleaner user experience
         break
       }
@@ -725,12 +761,12 @@ export class ContextManager<T> {
     const finalTokens = countMessagesTokens(compressedHistory, this.tokenizer)
     const finalTotal = systemPromptTokens + finalTokens
 
-    if (finalTotal > this.maxInputTokens) {
+    if (finalTotal > effectiveMaxTokens) {
       // Keep warning as it's important for users to know
       this.logger.warn('Unable to compress below token limit', {
+        effectiveMaxTokens,
         finalTokens,
         finalTotal,
-        maxInputTokens: this.maxInputTokens,
         sessionId: this.sessionId,
         systemPromptTokens,
       })

@@ -273,115 +273,89 @@ prompt: |
 
   **CRITICAL RULES:**
   - NEVER print raw context — stdout is capped at 5K chars for curate mode
-  - Use the metadata variable to understand context size and structure BEFORE peeking
+  - Use `tools.curation.recon()` to assess context BEFORE processing
   - Peek at context via slicing: `<ctxVar>.slice(0, 3000)` — NEVER `console.log(<ctxVar>)`
   - Use `silent: true` in code_exec for variable assignments (no stdout returned)
-  - For large contexts (>10K chars), use `tools.agentQuery()` to delegate chunk processing
+  - For chunked contexts, use `tools.curation.mapExtract()` for parallel extraction
   - All large data stays inside async IIFE scope — variables do NOT leak to LLM context
 
-  **Step 0 — Check metadata (always do this first):**
+  **Step 0 — Reconnaissance (always do this first):**
   ```javascript
-  // Check context metadata before any processing
+  // Combined metadata + history + preview assessment — replaces separate Steps 0-2
   (async () => {
-    const meta = <metaVar>;
-    console.log(JSON.stringify(meta));
-    // Output: { charCount: 25000, lineCount: 400, messageCount: 12, type: "string", preview: "..." }
+    const r = tools.curation.recon(<ctxVar>, <metaVar>, <histVar>);
+    console.log(JSON.stringify(r));
+    // Returns: { meta, history, headPreview, tailPreview, suggestedMode, suggestedChunkCount }
   })()
   ```
 
-  **Step 1 — Read history and check duplicates:**
+  **When recon().suggestedMode is 'single-pass':**
+  Skip chunking entirely. Read the full context via slicing, detect domains, and curate
+  in 2 code_exec calls (recon + curate). Do NOT use agentQuery, chunk(), or mapExtract() for small contexts.
+
+  **Step 1 — Extract (for chunked contexts, suggestedMode === 'chunked'):**
+  IMPORTANT: Use timeout: 300000 on the code_exec tool call itself (not inside mapExtract options).
   ```javascript
-  // Check curate history for duplicates and existing domains
+  // Parallel extraction via mapExtract — chunks context and processes all chunks concurrently
   (async () => {
-    const history = <histVar>;  // Direct variable access — no file I/O needed
-    const domainSummary = Object.entries(history.entries || [])
-      .reduce((acc, entry) => {
-        const key = entry.domain || 'unknown';
-        if (!acc[key]) acc[key] = [];
-        acc[key].push(entry.title);
-        return acc;
-      }, {});
-    console.log('=== Existing Domains ===');
-    console.log(Object.entries(domainSummary).map(([d, t]) => `${d}: ${t.join(', ')}`).join('\n') || 'None yet');
-    console.log(`Total processed: ${history.totalProcessed || 0}`);
+    const result = await tools.curation.mapExtract(<ctxVar>, {
+      prompt: 'Extract factual statements from the chunk. Return JSON array of {statement, category, subject}.',
+      chunkSize: 8000,
+      taskId: <taskIdVar>,  // bare variable, do NOT quote
+    });
+    // result: { facts: CurationFact[], succeeded, failed, total }
+    if (result.failed > 0) console.log(`Warning: ${result.failed}/${result.total} chunks failed`);
+    const deduped = tools.curation.dedup(result.facts);
+    const grouped = tools.curation.groupBySubject(deduped);
+    console.log(JSON.stringify({ groups: Object.keys(grouped).length, totalFacts: deduped.length }));
   })()
   ```
 
-  **Step 2 — Peek at context via slicing (NOT console.log of full content):**
+  **Step 2 — Curate + verify inline:**
   ```javascript
-  // Peek at context structure — first and last sections only
-  (async () => {
-    const raw = <ctxVar>;
-    const head = raw.slice(0, 3000);
-    const tail = raw.slice(-2000);
-    const lines = head.split('\n');
-    const sessionId = lines.find(l => l.startsWith('Session ID:'))?.split(': ')[1]?.trim();
-    const date = lines.find(l => l.startsWith('Date:'))?.split(': ')[1]?.trim();
-    console.log(JSON.stringify({ sessionId, date, headPreview: head.slice(0, 500), tailPreview: tail.slice(0, 500) }));
-  })()
-  ```
-
-  **Step 3 — For large contexts, delegate chunk processing to sub-agent:**
-  ```javascript
-  // Delegate chunk processing with variable injection (RLM pattern — chunk stays out of prompt)
-  (async () => {
-    const raw = <ctxVar>;
-    const chunkSize = 8000;
-    const chunks = [];
-    for (let i = 0; i < raw.length; i += chunkSize) {
-      chunks.push(raw.slice(i, i + chunkSize));
-    }
-    const extractions = [];
-    for (let i = 0; i < chunks.length; i++) {
-      const result = await tools.agentQuery(
-        `Extract all factual statements, preferences, and key information from variable __chunk (${chunks[i].length} chars). Return as JSON array of {statement, category, subject}.`,
-        { contextData: { __chunk: chunks[i] } }
-      );
-      extractions.push(result);
-    }
-    console.log(JSON.stringify({ chunkCount: chunks.length, extractions }));
-  })()
-  ```
-
-  **Step 4 — Curate with extracted data:**
-  ```javascript
-  // Curate extracted content
+  // Curate extracted content and verify via result — no readFile needed
   (async () => {
     const result = await tools.curate([{
       type: 'UPSERT', path: '<domain>/<topic>', title: '<title>',
       content: { rawConcept: { task: '...', /* ... */ }, narrative: { /* ... */ } },
       reason: 'Curate from RLM context'
     }]);
-    console.log(JSON.stringify({ curated: result.summary }));
+    // Verify inline — CurateResult.applied[].filePath already has paths
+    const created = result.applied.filter(r => r.status === 'success').map(r => r.filePath);
+    // Update history using helper (intentionally mutating)
+    tools.curation.recordProgress(<histVar>, { domain: '<domain>', title: '<title>', keyFacts: ['fact1', 'fact2'] });
+    console.log(JSON.stringify({ summary: result.summary, files: created }));
   })()
   ```
 
-  Then update history in a separate **silent** code_exec (`silent: true`):
-  ```javascript
-  // Update history variable (silent — no stdout needed)
-  <histVar>.entries.push({
-    sessionId: '<id>', timestamp: new Date().toISOString(), title: '<title>',
-    domain: '<domain>/<topic>', keyFacts: ['fact1', 'fact2']
-  });
-  <histVar>.totalProcessed++;
-  ```
-
-  **Step 5 — Post-Curate Verification + Status Reporting (REQUIRED):**
-  After every `tools.curate()` call:
+  **Step 3 — Status Reporting (REQUIRED):**
+  After all curate operations:
   1. Check `result.summary` — ensure `failed === 0`
   2. If `failed > 0`, log the error and retry with corrected operations
-  3. Verify curated files exist: `await tools.readFile('.brv/context-tree/' + path + '/' + title + '.md')`
-  4. If file doesn't exist, retry the curate operation
-  5. Report final status via `setFinalResult()` including summary and verification:
+  3. Report final status via `setFinalResult()` including summary:
   ```javascript
   (async () => {
     const status = {
       summary: result.summary,
-      verification: { checked: paths.length, confirmed: verifiedCount, missing: missingPaths },
+      verification: { checked: created.length, confirmed: created.length, missing: [] },
     };
     setFinalResult('Curation complete.\n```json\n' + JSON.stringify(status, null, 2) + '\n```\n\n' + humanSummary);
   })()
   ```
+
+  **Curation helper functions available via `tools.curation.*`:**
+  - `tools.curation.recon(ctx, meta, history)` — Combined recon: metadata + history domains + head/tail preview + mode recommendation
+  - `tools.curation.mapExtract(ctx, {prompt, chunkSize?, concurrency?, maxContextTokens?, taskId?})` — Parallel LLM extraction: chunks context, processes in parallel, returns `{facts: CurationFact[], succeeded, failed, total}`. Throws if all chunks fail.
+  - `tools.curation.chunk(ctx, {size?, overlap?})` — Intelligent chunking: respects paragraph boundaries, code fences, message markers
+  - `tools.curation.groupBySubject(facts)` — Group CurationFact[] by subject (fallback: category)
+  - `tools.curation.dedup(facts, threshold?)` — Deduplicate facts using Jaccard word-overlap similarity
+  - `tools.curation.detectMessageBoundaries(ctx)` — Find [USER]/[ASSISTANT] markers with offsets
+  - `tools.curation.recordProgress(history, entry)` — Push entry into history + increment totalProcessed
+
+  **Context compression awareness:**
+  - Conversation context may be compacted via escalation when exceeding token limits.
+  - When precision matters, re-read files or tool outputs rather than assuming full conversational recall.
+  - `summaryHandle` from map tools is a compact summary — for full per-item data, read the JSONL output file.
 
   **History retrieval patterns (use within code):**
   - Duplicate check: `history.entries.some(e => e.sessionId === currentId)`

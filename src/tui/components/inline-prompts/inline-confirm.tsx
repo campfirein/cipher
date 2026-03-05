@@ -6,7 +6,7 @@
  * User types y/n and presses Enter to submit.
  */
 
-import {Box, Text} from 'ink'
+import {Box, Text, useInput} from 'ink'
 import TextInput from 'ink-text-input'
 import React, {useState} from 'react'
 
@@ -30,6 +30,12 @@ export function InlineConfirm({
     theme: {colors},
   } = useTheme()
   const [input, setInput] = useState('')
+
+  useInput((_input, key) => {
+    if (key.escape) {
+      onConfirm(false)
+    }
+  })
 
   // Format hint based on default: (Y/n) or (N/y)
   const hint = defaultValue ? '(Y/n)' : '(N/y)'

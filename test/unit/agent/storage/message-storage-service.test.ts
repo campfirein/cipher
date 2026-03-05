@@ -3,8 +3,8 @@ import {expect} from 'chai'
 import type {InternalMessage} from '../../../../src/agent/core/interfaces/message-types.js'
 
 import {COMPACTED_TOOL_OUTPUT_PLACEHOLDER} from '../../../../src/agent/core/domain/storage/message-storage-types.js'
+import {FileKeyStorage} from '../../../../src/agent/infra/storage/file-key-storage.js'
 import {MessageStorageService} from '../../../../src/agent/infra/storage/message-storage-service.js'
-import {SqliteKeyStorage} from '../../../../src/agent/infra/storage/sqlite-key-storage.js'
 
 async function createToolMessages(
   storage: MessageStorageService,
@@ -30,10 +30,10 @@ async function createToolMessages(
 
 describe('MessageStorageService', () => {
   let storage: MessageStorageService
-  let keyStorage: SqliteKeyStorage
+  let keyStorage: FileKeyStorage
 
   beforeEach(async () => {
-    keyStorage = new SqliteKeyStorage({inMemory: true})
+    keyStorage = new FileKeyStorage({inMemory: true})
     await keyStorage.initialize()
     storage = new MessageStorageService(keyStorage)
   })

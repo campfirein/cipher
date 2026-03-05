@@ -3,13 +3,14 @@ import {dirname, join, relative} from 'node:path'
 
 import type {IContextTreeSnapshotService} from '../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 
-import {BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR, README_FILE, SNAPSHOT_FILE} from '../../constants.js'
+import {ARCHIVE_DIR, BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR, README_FILE, SNAPSHOT_FILE} from '../../constants.js'
 import {
   ContextTreeChanges,
   ContextTreeSnapshot,
   ContextTreeSnapshotJson,
   FileState,
 } from '../../core/domain/entities/context-tree-snapshot.js'
+import {isExcludedFromSync} from './derived-artifact.js'
 import {computeContentHash} from './hash-utils.js'
 import {toUnixPath} from './path-utils.js'
 
@@ -153,14 +154,21 @@ export class FileContextTreeSnapshotService implements IContextTreeSnapshotServi
       }
 
       if (entry.isDirectory()) {
+        // Skip _archived/ directory (contains derived artifacts)
+        if (entry.name === ARCHIVE_DIR) continue
+
         tasks.push(this.scanDirectory(fullPath, rootDir, files))
       } else if (entry.isFile() && entry.name.endsWith(CONTEXT_FILE_EXTENSION)) {
         // Only ignore README.md at root level, track it in subdirectories
         const isRoot = currentDir === rootDir
         const isReadmeAtRoot = entry.name === README_FILE && isRoot
-        if (!isReadmeAtRoot) {
-          tasks.push(this.processFile(fullPath, rootDir, files))
-        }
+        if (isReadmeAtRoot) continue
+
+        // Skip derived artifacts (_index.md, _manifest.json, .stub.md, .full.md)
+        const relativePath = toUnixPath(relative(rootDir, fullPath))
+        if (isExcludedFromSync(relativePath)) continue
+
+        tasks.push(this.processFile(fullPath, rootDir, files))
       }
     }
 

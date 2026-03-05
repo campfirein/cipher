@@ -1,0 +1,20 @@
+Retrieve full content from archived knowledge entries in `.brv/context-tree/_archived/`.
+
+When searching the knowledge base, you may encounter results with `symbolKind: "archive_stub"`. These are archived entries that have been evicted from active storage but remain searchable via short ghost cues. Use this tool to retrieve the full original content.
+
+**When to use:**
+- A search result has `symbolKind: "archive_stub"` and you need the full content
+- You want to drill into an archived entry to access its complete knowledge
+
+**Parameters:**
+- `stubPath` (required): Path to the `.stub.md` file (the `path` field from search results where `symbolKind === "archive_stub"`)
+
+**Returns:**
+- `originalPath`: The original file path before archiving
+- `fullContent`: Complete original content of the archived entry
+- `tokenCount`: Estimated token count of the full content
+
+**Example:**
+- Search returns: `{ path: "_archived/auth/jwt-tokens/refresh-flow.stub.md", symbolKind: "archive_stub" }`
+- Call: `expand_knowledge({ stubPath: "_archived/auth/jwt-tokens/refresh-flow.stub.md" })`
+- Returns full original content of the refresh-flow knowledge entry

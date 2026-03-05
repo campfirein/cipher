@@ -127,6 +127,8 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
       '- Each top-level folder is a **domain** (dynamically created based on content)',
       '- Inside domains are **topics** as `.md` files or subfolders with `context.md`',
       '- `context.md` files contain the curated knowledge content',
+      '- `_index.md` files are auto-generated summaries at each directory level',
+      '- `_archived/` contains archived low-importance entries (use `expand_knowledge` to drill into them)',
       '',
       '## Dynamic Domains',
       '- Domains are created dynamically based on the semantics of curated content',
@@ -219,6 +221,18 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
     ].join('\n')
   }
 
+  /**
+   * Count .stub.md files inside an _archived/ directory (recursive).
+   */
+  private async countArchivedEntries(archivedDir: string): Promise<number> {
+    try {
+      const entries = await fs.readdir(archivedDir, {recursive: true})
+      return entries.filter((e) => String(e).endsWith('.stub.md')).length
+    } catch {
+      return 0
+    }
+  }
+
   private async traverseContextTree(options: TraverseOptions): Promise<void> {
     const {currentDepth, dir, entriesCount, lines, maxDepth, maxEntries, relativePath, truncatedCount} = options
 
@@ -253,20 +267,35 @@ export class ContextTreeStructureContributor implements SystemPromptContributor 
       const entryRelativePath = relativePath ? `${relativePath}/${entry.name}` : entry.name
 
       if (entry.isDirectory()) {
-        lines.push(`${indent}${entry.name}/`)
-        // eslint-disable-next-line no-await-in-loop -- Sequential traversal required for ordered output
-        await this.traverseContextTree({
-          currentDepth: currentDepth + 1,
-          dir: path.join(dir, entry.name),
-          entriesCount,
-          lines,
-          maxDepth,
-          maxEntries,
-          relativePath: entryRelativePath,
-          truncatedCount,
-        })
+        // For _archived/ directories, show entry count instead of recursing
+        if (entry.name === '_archived') {
+          // eslint-disable-next-line no-await-in-loop -- Sequential traversal required for ordered output
+          const archivedCount = await this.countArchivedEntries(path.join(dir, entry.name))
+          if (archivedCount > 0) {
+            lines.push(`${indent}_archived/ (${archivedCount} archived entries)`)
+          }
+        } else {
+          lines.push(`${indent}${entry.name}/`)
+          // eslint-disable-next-line no-await-in-loop -- Sequential traversal required for ordered output
+          await this.traverseContextTree({
+            currentDepth: currentDepth + 1,
+            dir: path.join(dir, entry.name),
+            entriesCount,
+            lines,
+            maxDepth,
+            maxEntries,
+            relativePath: entryRelativePath,
+            truncatedCount,
+          })
+        }
       } else {
-        const annotation = entry.name === 'context.md' ? ' (knowledge content)' : ''
+        let annotation = ''
+        if (entry.name === 'context.md') {
+          annotation = ' (knowledge content)'
+        } else if (entry.name === '_index.md') {
+          annotation = ' (summary)'
+        }
+
         lines.push(`${indent}${entry.name}${annotation}`)
       }
     }

@@ -100,3 +100,12 @@ export const AGENT_PROCESS_STOP_TIMEOUT_MS = 5000 // 5s max wait for child proce
 // Curate log
 export const CURATE_LOG_DIR = 'curate-log'
 export const CURATE_LOG_ID_PREFIX = 'cur'
+
+// === Hierarchical DAG (summary, archive, manifest) ===
+export const SUMMARY_INDEX_FILE = '_index.md'
+export const ARCHIVE_DIR = '_archived'
+export const STUB_EXTENSION = '.stub.md'
+export const FULL_ARCHIVE_EXTENSION = '.full.md'
+export const MANIFEST_FILE = '_manifest.json'
+export const ARCHIVE_IMPORTANCE_THRESHOLD = 35
+export const DEFAULT_GHOST_CUE_MAX_TOKENS = 220

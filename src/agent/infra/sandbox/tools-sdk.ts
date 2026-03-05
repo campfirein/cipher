@@ -5,6 +5,7 @@ import type {
   SearchResult,
   WriteResult,
 } from '../../core/domain/file-system/types.js'
+import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
 import type {
   CurateOperation,
   CurateOptions,
@@ -16,6 +17,21 @@ import type {
 import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
 import type {ISandboxService} from '../../core/interfaces/i-sandbox-service.js'
 import type {SessionManager} from '../session/session-manager.js'
+
+import {ContextTreeStore} from '../map/context-tree-store.js'
+import {executeLlmMapMemory} from '../map/llm-map-memory.js'
+import {
+  chunk,
+  type ChunkResult,
+  type CurationFact,
+  dedup,
+  detectMessageBoundaries,
+  groupBySubject,
+  type MessageBoundary,
+  recon,
+  type ReconResult,
+  recordProgress,
+} from './curation-helpers.js'
 
 /**
  * Options for glob operation in ToolsSDK.
@@ -87,6 +103,8 @@ export interface SearchKnowledgeOptions {
 export interface SearchKnowledgeResult {
   message: string
   results: Array<{
+    /** For archive stubs: path to full content (for expand_knowledge tool) */
+    archiveFullPath?: string
     /** Number of other memories that reference this one */
     backlinkCount?: number
     excerpt: string
@@ -94,7 +112,7 @@ export interface SearchKnowledgeResult {
     /** Top backlink source paths (max 3) */
     relatedPaths?: string[]
     score: number
-    /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' */
+    /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' | 'archive_stub' */
     symbolKind?: string
     /** Resolved hierarchical path in the symbol tree */
     symbolPath?: string
@@ -122,6 +140,7 @@ export interface ToolsSDK {
    * Only the final response string flows back.
    * @param prompt - Prompt for the sub-agent
    * @param options - Optional limits
+   * @param options.contextData - Optional key/value context injected into child session sandbox
    * @param options.maxIterations - Maximum agentic iterations (default: 5)
    * @returns Promise resolving to the sub-agent's final response
    */
@@ -135,6 +154,27 @@ export interface ToolsSDK {
    * @returns Promise resolving to curate result with applied operations and summary
    */
   curate(operations: CurateOperation[], options?: CurateOptions): Promise<CurateResult>
+
+  /**
+   * Pre-built curation helpers — reduces LLM iteration overhead.
+   * Stateless functions except recordProgress (intentionally mutating).
+   */
+  readonly curation: {
+    /** Intelligent boundary-aware text splitting */
+    chunk(context: string, options?: {overlap?: number; size?: number}): ChunkResult
+    /** Remove near-duplicate facts using Jaccard word-overlap similarity */
+    dedup(facts: CurationFact[], threshold?: number): CurationFact[]
+    /** Find [USER]: and [ASSISTANT]: markers with offsets */
+    detectMessageBoundaries(context: string): MessageBoundary[]
+    /** Group facts by subject, with fallback to category */
+    groupBySubject(facts: CurationFact[]): Record<string, CurationFact[]>
+    /** Parallel LLM extraction over chunked context. Curate mode only. */
+    mapExtract(context: string, options: {chunkSize?: number; concurrency?: number; maxContextTokens?: number; prompt: string; taskId?: string}): Promise<{facts: CurationFact[]; failed: number; succeeded: number; total: number}>
+    /** Combine Steps 0-2 into one call: metadata + history + preview + mode recommendation */
+    recon(context: string, meta: Record<string, unknown>, history: Record<string, unknown>): ReconResult
+    /** Push entry into history and increment totalProcessed (intentionally mutating) */
+    recordProgress(history: Record<string, unknown>, entry: {domain: string; keyFacts: string[]; title: string}): void
+  }
 
   /**
    * Detect and validate domains from input data.
@@ -198,6 +238,10 @@ export interface ToolsSDK {
  * Options for creating a Tools SDK instance.
  */
 export interface CreateToolsSDKOptions {
+  /** Command type — when 'query', mutating APIs (curate, writeFile) are disabled */
+  commandType?: string
+  /** Content generator for parallel LLM operations (mapExtract) */
+  contentGenerator?: IContentGenerator
   /** Curate service for knowledge curation */
   curateService?: ICurateService
   /** File system service for file operations */
@@ -222,7 +266,8 @@ export interface CreateToolsSDKOptions {
  * @returns ToolsSDK instance ready to be injected into sandbox context
  */
 export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
-  const {curateService, fileSystem, parentSessionId, sandboxService, searchKnowledgeService, sessionManager} = options
+  const {commandType, contentGenerator, curateService, fileSystem, parentSessionId, sandboxService, searchKnowledgeService, sessionManager} = options
+  const isReadOnly = commandType === 'query'
   return {
     async agentQuery(prompt: string, options?: { contextData?: Record<string, unknown>; maxIterations?: number }): Promise<string> {
       if (!sessionManager || !parentSessionId) {
@@ -254,6 +299,10 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
     },
 
     async curate(operations: CurateOperation[], options?: CurateOptions): Promise<CurateResult> {
+      if (isReadOnly) {
+        throw new Error('curate() is disabled in read-only (query) mode')
+      }
+
       if (!curateService) {
         return {
           applied: [{
@@ -273,6 +322,55 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
       }
 
       return curateService.curate(operations, options)
+    },
+
+    curation: {
+      chunk,
+      dedup,
+      detectMessageBoundaries,
+      groupBySubject,
+      async mapExtract(context: string, options: {chunkSize?: number; concurrency?: number; maxContextTokens?: number; prompt: string; taskId?: string}): Promise<{facts: CurationFact[]; failed: number; succeeded: number; total: number}> {
+        if (commandType !== 'curate') {
+          throw new Error('mapExtract only available in curate mode')
+        }
+
+        if (!contentGenerator) {
+          throw new Error('mapExtract not available — no content generator configured')
+        }
+
+        const chunks = chunk(context, {size: options.chunkSize ?? 8000})
+        const items = chunks.chunks.map((c, i) => ({chunk: c, index: i, totalChunks: chunks.totalChunks}))
+
+        // Construct ContextTreeStore with adapter tokenizer (zero-divergence)
+        const tauHard = Math.floor((options.maxContextTokens ?? 100_000) * 0.5)
+        const contextTreeStore = new ContextTreeStore({
+          generator: contentGenerator,
+          tauHard,
+          tokenizer: {countTokens: (text: string) => contentGenerator.estimateTokensSync(text)},
+        })
+
+        const result = await executeLlmMapMemory({
+          concurrency: options.concurrency ?? 8,
+          contextTreeStore,
+          generator: contentGenerator,
+          items,
+          prompt: options.prompt,
+          taskId: options.taskId,
+        })
+
+        // Throw when all chunks fail — no facts to work with
+        if (result.succeeded === 0 && result.total > 0) {
+          throw new Error(`mapExtract failed: all ${result.total} chunks failed extraction`)
+        }
+
+        const facts = result.results
+          .filter((r): r is CurationFact[] => r !== null)
+          .flat()
+
+        return {facts, failed: result.failed, succeeded: result.succeeded, total: result.total}
+      },
+      recon,
+      recordProgress,
     },
 
     async detectDomains(domains: DetectDomainsInput[]): Promise<DetectDomainsResult> {
@@ -332,6 +430,10 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
     },
 
     async writeFile(filePath: string, content: string, options?: WriteFileOptions): Promise<WriteResult> {
+      if (isReadOnly) {
+        throw new Error('writeFile() is disabled in read-only (query) mode')
+      }
+
       return fileSystem.writeFile(filePath, content, {
         createDirs: options?.createDirs ?? false,
       })
