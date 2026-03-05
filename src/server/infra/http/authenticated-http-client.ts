@@ -208,6 +208,11 @@ export class AuthenticatedHttpClient implements IHttpClient {
       return responseData.message
     }
 
+    // Some endpoints return 'error' instead of 'message'
+    if ('error' in responseData && typeof responseData.error === 'string') {
+      return responseData.error
+    }
+
     // Fallback to HTTP status error
     return `HTTP ${error.response.status}: ${error.response.statusText}`
   }
