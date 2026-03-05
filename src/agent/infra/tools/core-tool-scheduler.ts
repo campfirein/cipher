@@ -141,8 +141,10 @@ export class CoreToolScheduler implements IToolScheduler {
     execution.startedAt = new Date()
 
     try {
-      // Pass full context (including taskId) to toolProvider for subagent billing
+      // Pass full context (including taskId, commandType, metadata) to toolProvider
       const result = await this.toolProvider.executeTool(toolName, args, context.sessionId, {
+        commandType: context.commandType,
+        metadata: context.metadata,
         sessionId: context.sessionId,
         taskId: context.taskId,
       })

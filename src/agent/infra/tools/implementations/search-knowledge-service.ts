@@ -5,7 +5,7 @@ import {removeStopwords} from 'stopword'
 import type {IFileSystem} from '../../../core/interfaces/i-file-system.js'
 import type {ISearchKnowledgeService, SearchKnowledgeResult} from '../../sandbox/tools-sdk.js'
 
-import {BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR} from '../../../../server/constants.js'
+import {BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR, SUMMARY_INDEX_FILE} from '../../../../server/constants.js'
 import {
   type FrontmatterScoring,
   parseFrontmatterScoring,
@@ -18,6 +18,8 @@ import {
   determineTier,
   recordAccessHits,
 } from '../../../../server/core/domain/knowledge/memory-scoring.js'
+import { isArchiveStub, isDerivedArtifact } from '../../../../server/infra/context-tree/derived-artifact.js'
+import { parseArchiveStubFrontmatter, parseSummaryFrontmatter } from '../../../../server/infra/context-tree/summary-frontmatter.js'
 import { isPathLikeQuery, matchMemoryPath, parseSymbolicQuery } from './memory-path-matcher.js'
 import {
   buildReferenceIndex,
@@ -28,6 +30,7 @@ import {
   MemorySymbolKind,
   type MemorySymbolTree,
   type ReferenceIndex,
+  type SummaryDocLike,
 } from './memory-symbol-tree.js'
 
 const MAX_CONTEXT_TREE_FILES = 10_000
@@ -92,6 +95,8 @@ interface CachedIndex {
   lastValidatedAt: number
   referenceIndex: ReferenceIndex
   schemaVersion: number
+  /** _index.md files collected separately for symbol tree annotation */
+  summaryMap: Map<string, SummaryDocLike>
   symbolTree: MemorySymbolTree
 }
 
@@ -346,11 +351,28 @@ async function buildFreshIndex(
       lastValidatedAt: now,
       referenceIndex: { backlinks: new Map(), forwardLinks: new Map() },
       schemaVersion: INDEX_SCHEMA_VERSION,
+      summaryMap: new Map(),
       symbolTree: { root: [], symbolMap: new Map() },
     }
   }
 
-  const documentPromises = filesWithMtime.map(async ({mtime, path: filePath}) => {
+  // Partition files: _index.md → summaryFiles, derived artifacts → skip, rest → indexable
+  const summaryFiles: Array<{mtime: number; path: string}> = []
+  const indexableFiles: Array<{mtime: number; path: string}> = []
+
+  for (const file of filesWithMtime) {
+    const fileName = file.path.split('/').at(-1) ?? ''
+    if (fileName === SUMMARY_INDEX_FILE) {
+      summaryFiles.push(file)
+    } else if (!isDerivedArtifact(file.path)) {
+      // Includes regular .md files AND .stub.md files (stubs are searchable)
+      indexableFiles.push(file)
+    }
+    // .full.md and _manifest.json are skipped (isDerivedArtifact returns true)
+  }
+
+  // Read indexable documents for BM25 index
+  const documentPromises = indexableFiles.map(async ({mtime, path: filePath}) => {
     try {
       const fullPath = join(contextTreePath, filePath)
       const {content} = await fileSystem.readFile(fullPath)
@@ -370,8 +392,30 @@ async function buildFreshIndex(
     }
   })
 
-  const results = await Promise.all(documentPromises)
-  const documents = results.filter((doc): doc is IndexedDocument => doc !== null)
+  // Read _index.md files separately for summaryMap (not indexed in BM25)
+  const summaryPromises = summaryFiles.map(async ({ path: filePath }) => {
+    try {
+      const fullPath = join(contextTreePath, filePath)
+      const { content } = await fileSystem.readFile(fullPath)
+      const fm = parseSummaryFrontmatter(content)
+      if (!fm) return null
+
+      return {
+        condensationOrder: fm.condensation_order,
+        path: filePath,
+        tokenCount: fm.token_count,
+      } satisfies SummaryDocLike
+    } catch {
+      return null
+    }
+  })
+
+  const [docResults, summaryResults] = await Promise.all([
+    Promise.all(documentPromises),
+    Promise.all(summaryPromises),
+  ])
+
+  const documents = docResults.filter((doc): doc is IndexedDocument => doc !== null)
 
   const documentMap = new Map<string, IndexedDocument>()
   const fileMtimes = new Map<string, number>()
@@ -380,11 +424,23 @@ async function buildFreshIndex(
     fileMtimes.set(doc.path, doc.mtime)
   }
 
+  // Also track summary file mtimes for cache invalidation
+  for (const sf of summaryFiles) {
+    fileMtimes.set(sf.path, sf.mtime)
+  }
+
+  const summaryMap = new Map<string, SummaryDocLike>()
+  for (const summary of summaryResults) {
+    if (summary) {
+      summaryMap.set(summary.path, summary)
+    }
+  }
+
   const index = new MiniSearch<IndexedDocument>(MINISEARCH_OPTIONS)
   index.addAll(documents)
 
-  // Build symbolic structures from the document map
-  const symbolTree = buildSymbolTree(documentMap)
+  // Build symbolic structures from the document map, with summary annotations
+  const symbolTree = buildSymbolTree(documentMap, summaryMap)
   const referenceIndex = buildReferenceIndex(documentMap)
 
   return {
@@ -395,6 +451,7 @@ async function buildFreshIndex(
     lastValidatedAt: now,
     referenceIndex,
     schemaVersion: INDEX_SCHEMA_VERSION,
+    summaryMap,
     symbolTree,
   }
 }
@@ -446,12 +503,18 @@ async function acquireIndex(
           lastValidatedAt: 0,
           referenceIndex: { backlinks: new Map(), forwardLinks: new Map() },
           schemaVersion: INDEX_SCHEMA_VERSION,
+          summaryMap: new Map(),
           symbolTree: { root: [], symbolMap: new Map() },
         }
       }
     }
 
-    const currentFiles = await findMarkdownFilesWithMtime(fileSystem, contextTreePath)
+    const allFiles = await findMarkdownFilesWithMtime(fileSystem, contextTreePath)
+    // Exclude non-indexable derived artifacts (.full.md) so that currentFiles
+    // matches what buildFreshIndex tracks in fileMtimes. Without this filter,
+    // isCacheValid() sees a size mismatch once archives exist, causing cache thrash.
+    // _index.md is kept (tracked for summary staleness), .stub.md is kept (BM25 indexed).
+    const currentFiles = allFiles.filter((f) => !isDerivedArtifact(f.path) || f.path.split('/').at(-1) === SUMMARY_INDEX_FILE)
 
     // Re-check cache validity after getting file list (another call may have finished)
     if (
@@ -663,20 +726,37 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
   /**
    * Enrich a search result with symbolic metadata and backlink info.
+   * For archive stubs, extracts points_to path into archiveFullPath.
    */
   private enrichResult(
     result: { excerpt: string; path: string; score: number; title: string },
     symbolTree: MemorySymbolTree,
     referenceIndex: ReferenceIndex,
+    documentMap: Map<string, IndexedDocument>,
   ): SearchKnowledgeResult['results'][number] {
     const symbol = symbolTree.symbolMap.get(result.path)
     const backlinks = referenceIndex.backlinks.get(result.path)
 
+    // Detect archive stubs and extract points_to for drill-down
+    let archiveFullPath: string | undefined
+    let symbolKind = symbol ? getSymbolKindLabel(symbol.kind) : undefined
+    if (isArchiveStub(result.path)) {
+      symbolKind = 'archive_stub'
+      const doc = documentMap.get(result.path)
+      if (doc) {
+        const stubFm = parseArchiveStubFrontmatter(doc.content)
+        if (stubFm) {
+          archiveFullPath = stubFm.points_to
+        }
+      }
+    }
+
     return {
       ...result,
+      ...(archiveFullPath && { archiveFullPath }),
       backlinkCount: backlinks?.length ?? 0,
       relatedPaths: backlinks?.slice(0, 3),
-      symbolKind: symbol ? getSymbolKindLabel(symbol.kind) : undefined,
+      symbolKind,
       symbolPath: symbol?.path,
     }
   }
@@ -789,7 +869,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
               score: Math.round(result.score * 100) / 100,
               title: document.title,
             },
-            symbolTree, referenceIndex,
+            symbolTree, referenceIndex, documentMap,
           )
 
           // Apply kind/maturity filters if specified
@@ -860,7 +940,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
       const result = this.enrichResult(
         { excerpt: extractExcerpt(doc.content, query), path: doc.path, score: 1, title: doc.title },
-        symbolTree, referenceIndex,
+        symbolTree, referenceIndex, documentMap,
       )
 
       this.accumulateAccessHits([doc.path])
@@ -894,7 +974,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
       results.push(this.enrichResult(
         { excerpt: extractExcerpt(doc.content, query), path: doc.path, score: 0.9, title: doc.title },
-        symbolTree, referenceIndex,
+        symbolTree, referenceIndex, documentMap,
       ))
     }
 

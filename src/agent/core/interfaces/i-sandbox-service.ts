@@ -2,6 +2,7 @@ import type { ISearchKnowledgeService } from '../../infra/sandbox/tools-sdk.js'
 import type { SessionManager } from '../../infra/session/session-manager.js'
 import type { EnvironmentContext } from '../domain/environment/types.js'
 import type { REPLResult, SandboxConfig } from '../domain/sandbox/types.js'
+import type { IContentGenerator } from './i-content-generator.js'
 import type { ICurateService } from './i-curate-service.js'
 import type { IFileSystem } from './i-file-system.js'
 
@@ -40,6 +41,14 @@ export interface ISandboxService {
    * @returns Execution result with stdout, stderr, and locals
    */
   executeCode(code: string, sessionId: string, config?: SandboxConfig): Promise<REPLResult>
+
+  /**
+   * Set the content generator for parallel LLM operations (mapExtract).
+   * When set, sandboxes will have access to `tools.curation.mapExtract()`.
+   *
+   * @param contentGenerator - Content generator instance
+   */
+  setContentGenerator?(contentGenerator: IContentGenerator): void
 
   /**
    * Set the curate service for Tools SDK injection.

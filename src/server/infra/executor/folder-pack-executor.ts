@@ -804,7 +804,7 @@ await tools.curate([{
     }
 
     // Create per-task session for parallel isolation (own sandbox + history + LLM service)
-    const taskSessionId = await agent.createTaskSession(taskId, 'curate')
+    const taskSessionId = await agent.createTaskSession(taskId, 'curate', {mapRootEligible: true})
 
     // Step 3: Store full instructions as sandbox variable (lazy prompt loading).
     // This saves ~12-15K tokens by keeping the massive instruction set out of the prompt.

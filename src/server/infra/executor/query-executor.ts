@@ -6,6 +6,8 @@ import type { ISearchKnowledgeService, SearchKnowledgeResult } from '../../../ag
 import type { IQueryExecutor, QueryExecuteOptions } from '../../core/interfaces/executor/i-query-executor.js'
 
 import { BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR } from '../../constants.js'
+import { isDerivedArtifact } from '../context-tree/derived-artifact.js'
+import { FileContextTreeManifestService } from '../context-tree/file-context-tree-manifest-service.js'
 import {
   canRespondDirectly,
   type DirectSearchResult,
@@ -28,6 +30,8 @@ const SMART_ROUTING_MAX_DOCS = 5
  * All fields are optional — without them, the executor falls back to the original behavior.
  */
 export interface QueryExecutorDeps {
+  /** Base directory for manifest service (e.g., project path) */
+  baseDirectory?: string
   /** Enable query result caching (default: false) */
   enableCache?: boolean
   /** File system for reading full document content and computing fingerprints */
@@ -57,12 +61,14 @@ export interface QueryExecutorDeps {
  */
 export class QueryExecutor implements IQueryExecutor {
   private static readonly FINGERPRINT_CACHE_TTL_MS = 30_000
+  private readonly baseDirectory?: string
   private readonly cache?: QueryResultCache
   private cachedFingerprint?: { expiresAt: number; value: string }
   private readonly fileSystem?: IFileSystem
   private readonly searchService?: ISearchKnowledgeService
 
   constructor(deps?: QueryExecutorDeps) {
+    this.baseDirectory = deps?.baseDirectory
     this.fileSystem = deps?.fileSystem
     this.searchService = deps?.searchService
     if (deps?.enableCache) {
@@ -137,6 +143,29 @@ export class QueryExecutor implements IQueryExecutor {
       prefetchedContext = this.buildPrefetchedContext(searchResult)
     }
 
+    // Lazy manifest rebuild: provides broad structural awareness for LLM
+    let manifestContext: string | undefined
+    if (this.baseDirectory) {
+      try {
+        const manifestService = new FileContextTreeManifestService({baseDirectory: this.baseDirectory})
+        let manifest = await manifestService.readManifestIfFresh(this.baseDirectory)
+        if (!manifest) {
+          manifest = await manifestService.buildManifest(this.baseDirectory)
+        }
+
+        if (manifest) {
+          const resolved = await manifestService.resolveForInjection(manifest, query, this.baseDirectory)
+          if (resolved.length > 0) {
+            manifestContext = resolved
+              .map((e) => `[${e.type} ${e.path}]\n${e.content}`)
+              .join('\n\n---\n\n')
+          }
+        }
+      } catch {
+        // Fail-open: proceed without manifest context
+      }
+    }
+
     // Create per-task session for parallel isolation (own sandbox + history + LLM service)
     const taskSessionId = await agent.createTaskSession(taskId, 'query')
 
@@ -160,6 +189,7 @@ export class QueryExecutor implements IQueryExecutor {
     agent.setSandboxVariableOnSession(taskSessionId, metaVar, metadata)
 
     const prompt = this.buildQueryPrompt(query, {
+      manifestContext,
       metadata,
       metaVar,
       prefetchedContext,
@@ -222,13 +252,14 @@ export class QueryExecutor implements IQueryExecutor {
   private buildQueryPrompt(
     query: string,
     options: {
+      manifestContext?: string
       metadata: { hasPreFetched: boolean; resultCount: number; topScore: number; totalFound: number }
       metaVar: string
       prefetchedContext?: string
       resultsVar: string
     },
   ): string {
-    const { metadata, metaVar, prefetchedContext, resultsVar } = options
+    const { manifestContext, metadata, metaVar, prefetchedContext, resultsVar } = options
     const groundingRules = `### Grounding Rules (CRITICAL)
 - ONLY use information from the curated knowledge base (.brv/context-tree/)
 - If no relevant knowledge is found, respond: "This topic is not covered in the knowledge base."
@@ -242,6 +273,10 @@ export class QueryExecutor implements IQueryExecutor {
 - **Sources**: File paths from .brv/context-tree/
 - **Gaps**: Note any aspects not covered`
 
+    const manifestSection = manifestContext
+      ? `\n## Structural Context (from manifest)\nThe following provides broad structural awareness of the knowledge base:\n\n${manifestContext}\n`
+      : ''
+
     if (prefetchedContext) {
       return `## User Query
 ${query}
@@ -250,7 +285,7 @@ ${query}
 The following relevant knowledge was found in the context tree:
 
 ${prefetchedContext}
-
+${manifestSection}
 ## Search Results Variable
 Additional search results: \`${resultsVar}\` (${metadata.resultCount} results, top score: ${metadata.topScore.toFixed(2)})
 Metadata: \`${metaVar}\`
@@ -268,7 +303,7 @@ ${responseFormat}`
 
     return `## User Query
 ${query}
-
+${manifestSection}
 ## Search Results Variable
 Search results: \`${resultsVar}\` (${metadata.resultCount} results, top score: ${metadata.topScore.toFixed(2)})
 Metadata: \`${metaVar}\`
@@ -303,10 +338,15 @@ ${responseFormat}`
         respectGitignore: false,
       })
 
-      const files = globResult.files.map((f) => ({
-        mtime: f.modified?.getTime() ?? 0,
-        path: f.path,
-      }))
+      // Filter out non-searchable derived artifacts (_index.md, _manifest.json, .full.md).
+      // Stubs (.stub.md) are intentionally kept — archive/restore should invalidate cache.
+      // Summary-only churn does NOT invalidate cache (summaries are derivative content).
+      const files = globResult.files
+        .filter((f) => !isDerivedArtifact(f.path))
+        .map((f) => ({
+          mtime: f.modified?.getTime() ?? 0,
+          path: f.path,
+        }))
 
       const fingerprint = QueryResultCache.computeFingerprint(files)
       this.cachedFingerprint = {

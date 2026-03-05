@@ -353,6 +353,7 @@ async function start(): Promise<void> {
   await folderPackService.initialize()
   const folderPackExecutor = new FolderPackExecutor(folderPackService)
   const queryExecutor = new QueryExecutor({
+    baseDirectory: projectPath,
     enableCache: true,
     fileSystem: fileSystemService,
     searchService,

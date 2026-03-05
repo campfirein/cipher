@@ -1,6 +1,7 @@
 import type {ContextFileContent} from '../../core/interfaces/context-tree/i-context-file-reader.js'
 
 import {CogitPushContext} from '../../core/domain/entities/cogit-push-context.js'
+import {isExcludedFromSync} from '../context-tree/derived-artifact.js'
 
 /**
  * Parameters for mapping context files to push contexts.
@@ -22,38 +23,44 @@ export type MapToPushContextsParams = {
  * @returns Array of CogitPushContext instances ready for the push API
  */
 export const mapToPushContexts = (params: MapToPushContextsParams): CogitPushContext[] => {
-  const addedContextFiles = params.addedFiles.map(
-    (file) =>
-      new CogitPushContext({
-        content: file.content,
-        operation: 'add',
-        path: file.path,
-        tags: file.tags,
-        title: file.title,
-      }),
-  )
+  const addedContextFiles = params.addedFiles
+    .filter((file) => !isExcludedFromSync(file.path))
+    .map(
+      (file) =>
+        new CogitPushContext({
+          content: file.content,
+          operation: 'add',
+          path: file.path,
+          tags: file.tags,
+          title: file.title,
+        }),
+    )
 
-  const editedContextFiles = params.modifiedFiles.map(
-    (file) =>
-      new CogitPushContext({
-        content: file.content,
-        operation: 'edit',
-        path: file.path,
-        tags: file.tags,
-        title: file.title,
-      }),
-  )
+  const editedContextFiles = params.modifiedFiles
+    .filter((file) => !isExcludedFromSync(file.path))
+    .map(
+      (file) =>
+        new CogitPushContext({
+          content: file.content,
+          operation: 'edit',
+          path: file.path,
+          tags: file.tags,
+          title: file.title,
+        }),
+    )
 
-  const deletedContextFiles = params.deletedPaths.map(
-    (deletedPath) =>
-      new CogitPushContext({
-        content: '',
-        operation: 'delete',
-        path: deletedPath,
-        tags: [],
-        title: '',
-      }),
-  )
+  const deletedContextFiles = params.deletedPaths
+    .filter((deletedPath) => !isExcludedFromSync(deletedPath))
+    .map(
+      (deletedPath) =>
+        new CogitPushContext({
+          content: '',
+          operation: 'delete',
+          path: deletedPath,
+          tags: [],
+          title: '',
+        }),
+    )
 
   return [...addedContextFiles, ...editedContextFiles, ...deletedContextFiles]
 }

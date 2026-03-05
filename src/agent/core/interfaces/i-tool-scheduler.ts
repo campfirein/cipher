@@ -9,6 +9,7 @@
  * Based on gemini-cli's CoreToolScheduler pattern, simplified for autonomous mode.
  */
 
+import type {MetadataCallback} from '../domain/tools/types.js'
 import type {PolicyEvaluationResult} from './i-policy-engine.js'
 
 /**
@@ -70,6 +71,14 @@ export interface ScheduledToolExecution {
  * Context for tool execution.
  */
 export interface ToolSchedulerContext {
+  /**
+   * Command type for context-aware tool behavior (e.g., 'curate', 'query').
+   */
+  commandType?: string
+  /**
+   * Callback for streaming metadata updates during execution.
+   */
+  metadata?: MetadataCallback
   /**
    * Session ID for the current session.
    */
