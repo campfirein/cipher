@@ -88,7 +88,7 @@ export const CommandInput = () => {
         setHasActiveDialog(false)
       }
     },
-    {isActive: isStreaming},
+    {isActive: isStreaming && !activeDialog},
   )
 
   const executeCommand = useCallback(

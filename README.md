@@ -105,6 +105,7 @@ See [ByteRover Docs](https://docs.byterover.dev) for the full list and integrati
 | `/space`                            | Manage spaces |
 | `/new`                              | Start a fresh session |
 | `/login` / `/logout`                | Authenticate or log out |
+| `/exit`                             | Exit the REPL |
 
 Type `/` in the REPL to see all commands with auto-completion.
 
