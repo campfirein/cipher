@@ -73,7 +73,7 @@ src/
 - Esc key cancels streaming responses and long-running commands
 - Slash commands in `src/tui/features/commands/definitions/` (order in `index.ts` = UI suggestion order)
 - Oclif commands: public (`login`, `status`, `curate`, `curate view`, `query`, `push`, `pull`, `restart`, `connectors`, `providers`, `model`, `space`, `hub`) + hidden (`main`, `hook-prompt-submit`, `mcp`, `debug` [dev-only])
-- `/logout` is REPL-only (no oclif command)
+- `/logout`, `/exit` are REPL-only (no oclif commands)
 
 ### Daemon Architecture
 
@@ -85,8 +85,12 @@ src/
 ### Agent (`src/agent/`)
 
 - Tool definitions: `resources/tools/*.txt`; implementations: `infra/tools/implementations/`
+- Tool registry pattern: `infra/tools/tool-registry.ts` — register/resolve tools by name
 - Multi-provider LLM support (ByteRover internal, OpenRouter) in `infra/llm/`
+- Compression strategies in `infra/llm/context/compression/` (reactive-overflow + escalated-compression)
 - System prompt contributor pattern (XML-style sections) in `infra/system-prompt/`
+- Map/memory subsystem (`infra/map/`): agentic map service, context-tree store, LLM map memory, worker pool
+- Storage: file-based blob (`infra/blob/file-blob-storage.ts`) and key storage (`infra/storage/file-key-storage.ts`) — no SQLite
 
 ### Slash Commands
 
@@ -103,6 +107,7 @@ Commands in `src/tui/features/commands/definitions/` (order = UI suggestion orde
 - `/space list`, `/space switch` - Space management
 - `/reset` - Reset context tree (destructive)
 - `/new [-y]` - Start fresh session
+- `/exit` - Gracefully exit the REPL
 - `/login`, `/logout` - Authentication
 
 ### Oclif Hooks (`src/oclif/hooks/`)
