@@ -9,7 +9,7 @@ export const CurateOperationSchema = z.object({
   additionalFilePaths: z.array(z.string()).optional(),
   confidence: z.enum(['high', 'low']).optional(),
   filePath: z.string().optional(),
-  impact: z.enum(['high', 'low', 'medium']).optional(),
+  impact: z.enum(['high', 'low']).optional(),
   message: z.string().optional(),
   needsReview: z.boolean().optional(),
   path: z.string(),
