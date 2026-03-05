@@ -1,7 +1,4 @@
 import {expect} from 'chai'
-import {mkdirSync, rmSync, writeFileSync} from 'node:fs'
-import {tmpdir} from 'node:os'
-import {join} from 'node:path'
 import {createSandbox, type SinonSandbox, type SinonStubbedInstance} from 'sinon'
 
 import type {IProviderConfigStore} from '../../../../src/server/core/interfaces/i-provider-config-store.js'
@@ -106,53 +103,6 @@ describe('resolveProviderConfig', () => {
     expect(result.providerBaseUrl).to.equal('http://localhost:8080')
   })
 
-  it('should resolve google-vertex with env-based config', async () => {
-    const {configStore, keychainStore} = createStubStores(sandbox)
-    configStore.read.resolves(createProviderConfig('google-vertex', {
-      'google-vertex': {activeModel: 'gemini-pro'},
-    }))
-
-    // Stub environment variables
-    const origProject = process.env.GOOGLE_CLOUD_PROJECT
-    const origLocation = process.env.GOOGLE_CLOUD_LOCATION
-    process.env.GOOGLE_CLOUD_PROJECT = 'test-project'
-    process.env.GOOGLE_CLOUD_LOCATION = 'europe-west1'
-
-    try {
-      const result = await resolveProviderConfig(configStore, keychainStore)
-
-      expect(result.activeProvider).to.equal('google-vertex')
-      expect(result.provider).to.equal('google-vertex')
-      expect(result.providerProject).to.equal('test-project')
-      expect(result.providerLocation).to.equal('europe-west1')
-      // google-vertex uses ADC, not API keys — should not resolve or include one
-      expect(result.providerApiKey).to.be.undefined
-    } finally {
-      // Restore env
-      if (origProject === undefined) delete process.env.GOOGLE_CLOUD_PROJECT
-      else process.env.GOOGLE_CLOUD_PROJECT = origProject
-      if (origLocation === undefined) delete process.env.GOOGLE_CLOUD_LOCATION
-      else process.env.GOOGLE_CLOUD_LOCATION = origLocation
-    }
-  })
-
-  it('should fall back to default location for google-vertex when env not set', async () => {
-    const {configStore, keychainStore} = createStubStores(sandbox)
-    configStore.read.resolves(createProviderConfig('google-vertex', {
-      'google-vertex': {},
-    }))
-
-    const origLocation = process.env.GOOGLE_CLOUD_LOCATION
-    delete process.env.GOOGLE_CLOUD_LOCATION
-
-    try {
-      const result = await resolveProviderConfig(configStore, keychainStore)
-      expect(result.providerLocation).to.equal('us-central1')
-    } finally {
-      if (origLocation !== undefined) process.env.GOOGLE_CLOUD_LOCATION = origLocation
-    }
-  })
-
   it('should resolve direct provider (anthropic) with API key and registry info', async () => {
     const {configStore, keychainStore} = createStubStores(sandbox)
     configStore.read.resolves(createProviderConfig('anthropic', {
@@ -177,85 +127,4 @@ describe('resolveProviderConfig', () => {
     expect(result.activeModel).to.be.undefined
   })
 
-  // ==================== Google Vertex AI credential resolution ====================
-
-  describe('google-vertex credential resolution', () => {
-    let tempDir: string
-    const savedEnv: Record<string, string | undefined> = {}
-
-    beforeEach(() => {
-      tempDir = join(tmpdir(), `brv-test-vertex-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-      mkdirSync(tempDir, {recursive: true})
-      savedEnv.GOOGLE_CLOUD_PROJECT = process.env.GOOGLE_CLOUD_PROJECT
-      savedEnv.GOOGLE_CLOUD_LOCATION = process.env.GOOGLE_CLOUD_LOCATION
-      savedEnv.GOOGLE_APPLICATION_CREDENTIALS = process.env.GOOGLE_APPLICATION_CREDENTIALS
-      delete process.env.GOOGLE_CLOUD_PROJECT
-      delete process.env.GOOGLE_CLOUD_LOCATION
-      delete process.env.GOOGLE_APPLICATION_CREDENTIALS
-    })
-
-    afterEach(() => {
-      for (const [key, value] of Object.entries(savedEnv)) {
-        if (value === undefined) delete process.env[key]
-        else process.env[key] = value
-      }
-
-      try {
-        rmSync(tempDir, {force: true, recursive: true})
-      } catch {
-        // Ignore cleanup errors
-      }
-    })
-
-    it('should resolve credential path from keychain', async () => {
-      const {configStore, keychainStore} = createStubStores(sandbox)
-      configStore.read.resolves(createProviderConfig('google-vertex', {'google-vertex': {}}))
-      const credPath = join(tempDir, 'sa.json')
-      // eslint-disable-next-line camelcase
-      writeFileSync(credPath, JSON.stringify({project_id: 'sa-project', type: 'service_account'}))
-      keychainStore.getApiKey.resolves(credPath)
-
-      const result = await resolveProviderConfig(configStore, keychainStore)
-
-      expect(result.providerCredentialPath).to.equal(credPath)
-      expect(result.providerProject).to.equal('sa-project')
-      expect(result.providerKeyMissing).to.be.false
-      expect(result.providerCredentialError).to.be.undefined
-    })
-
-    it('should report error when stored credential path points to missing file', async () => {
-      const {configStore, keychainStore} = createStubStores(sandbox)
-      configStore.read.resolves(createProviderConfig('google-vertex', {'google-vertex': {}}))
-      keychainStore.getApiKey.resolves('/nonexistent/sa.json')
-
-      const result = await resolveProviderConfig(configStore, keychainStore)
-
-      expect(result.providerKeyMissing).to.be.true
-      expect(result.providerCredentialError).to.include('/nonexistent/sa.json')
-    })
-
-    it('should fall back to GOOGLE_APPLICATION_CREDENTIALS env var', async () => {
-      const {configStore, keychainStore} = createStubStores(sandbox)
-      configStore.read.resolves(createProviderConfig('google-vertex', {'google-vertex': {}}))
-      const credPath = join(tempDir, 'env-cred.json')
-      // eslint-disable-next-line camelcase
-      writeFileSync(credPath, JSON.stringify({project_id: 'env-project'}))
-      process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath
-
-      const result = await resolveProviderConfig(configStore, keychainStore)
-
-      expect(result.providerCredentialPath).to.equal(credPath)
-      expect(result.providerKeyMissing).to.be.false
-    })
-
-    it('should report error when no credentials found at all', async () => {
-      const {configStore, keychainStore} = createStubStores(sandbox)
-      configStore.read.resolves(createProviderConfig('google-vertex', {'google-vertex': {}}))
-
-      const result = await resolveProviderConfig(configStore, keychainStore)
-
-      expect(result.providerKeyMissing).to.be.true
-      expect(result.providerCredentialError).to.include('credentials not found')
-    })
-  })
 })

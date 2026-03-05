@@ -80,8 +80,6 @@ export const AgentConfigSchema = z
     providerApiKey: z.string().optional().describe('API key for direct provider'),
     providerBaseUrl: z.string().optional().describe('Base URL for OpenAI-compatible provider'),
     providerHeaders: z.record(z.string()).optional().describe('Custom headers for provider'),
-    providerLocation: z.string().optional().describe('GCP location for Vertex AI (default: us-central1)'),
-    providerProject: z.string().optional().describe('GCP project ID for Vertex AI'),
     region: z.string().optional().describe('API region'),
     sessionKey: z.string().default('').describe('ByteRover session key'),
     sessions: SessionConfigSchema.default({}).describe('Session management configuration'),
