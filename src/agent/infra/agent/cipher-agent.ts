@@ -1030,10 +1030,8 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       headers: sessionLLMConfig.providerHeaders,
       httpConfig: httpConfig as unknown as Record<string, unknown>,
       httpReferer: sessionLLMConfig.httpReferer,
-      location: sessionLLMConfig.providerLocation,
       maxTokens: 4096,
       model: sessionLLMConfig.model,
-      project: sessionLLMConfig.providerProject,
       siteName: sessionLLMConfig.siteName,
       temperature: 0,
     })
