@@ -1,10 +1,11 @@
 import {existsSync} from 'node:fs'
-import {join, resolve} from 'node:path'
+import {dirname, join, relative, resolve} from 'node:path'
 import {z} from 'zod'
 
 import type {ContextData} from '../../../../server/core/domain/knowledge/markdown-writer.js'
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
 
+import {REVIEW_BACKUPS_DIR} from '../../../../server/constants.js'
 import {DirectoryManager} from '../../../../server/core/domain/knowledge/directory-manager.js'
 import {MarkdownWriter, parseFrontmatterScoring} from '../../../../server/core/domain/knowledge/markdown-writer.js'
 import {
@@ -296,6 +297,12 @@ export const CurateInputSchema = z.object({
  * Exported for use by CurateService in sandbox.
  */
 export interface OperationResult {
+  /**
+   * Additional file paths affected by this operation that need restoration on rejection.
+   * MERGE: the source file path (deleted during merge).
+   * Folder DELETE: all individual .md file paths backed up before deletion.
+   */
+  additionalFilePaths?: string[]
   /** LLM-assessed confidence in the accuracy and completeness of this operation. */
   confidence: 'high' | 'low'
   /** Full filesystem path to the created/modified file (for ADD/UPDATE/MERGE) or deleted file. */
@@ -341,6 +348,34 @@ export interface CurateOutput {
     failed: number
     merged: number
     updated: number
+  }
+}
+
+/**
+ * Back up a file's content before curate overwrites or deletes it.
+ *
+ * First-write-wins: if a backup already exists for this path, this is a no-op.
+ * This ensures the backup always reflects the snapshot version (state at last push),
+ * even when multiple curate operations modify the same file between pushes.
+ *
+ * @param filePath - Absolute path to the context tree file being modified
+ * @param basePath - Context tree base path (e.g., '.brv/context-tree')
+ */
+async function backupBeforeWrite(filePath: string, basePath: string): Promise<void> {
+  try {
+    const brvDir = dirname(resolve(basePath))
+    const relativePath = relative(resolve(basePath), resolve(filePath))
+    const backupPath = join(brvDir, REVIEW_BACKUPS_DIR, relativePath)
+
+    // First-write-wins: skip if backup already exists
+    const backupExists = await DirectoryManager.fileExists(backupPath)
+    if (backupExists) return
+
+    // Read current content and save as backup
+    const content = await DirectoryManager.readFile(filePath)
+    await DirectoryManager.writeFileAtomic(backupPath, content)
+  } catch {
+    // Best-effort: backup failure must never block curate operations
   }
 }
 
@@ -797,6 +832,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
       reason,
       scoring: finalScoring,
     })
+    await backupBeforeWrite(contextPath, basePath)
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
 
     await ensureContextMd(basePath, parsed, topicContext, subtopicContext)
@@ -1009,6 +1045,10 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
     const sourceContent = await DirectoryManager.readFile(sourceContextPath)
     const targetContent = await DirectoryManager.readFile(targetContextPath)
 
+    // Backup both files before merge modifies target and deletes source
+    await backupBeforeWrite(targetContextPath, basePath)
+    await backupBeforeWrite(sourceContextPath, basePath)
+
     const mergedContent = MarkdownWriter.mergeContexts(sourceContent, targetContent, reason)
     await DirectoryManager.writeFileAtomic(targetContextPath, mergedContent)
 
@@ -1019,6 +1059,7 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
 
     return {
       ...reviewMeta,
+      additionalFilePaths: [sourceContextPath],
       filePath: targetContextPath,
       message: `Merged ${path}/${sourceFilename} into ${mergeTarget}/${targetFilename}. Reason: ${reason}`,
       path,
@@ -1066,6 +1107,7 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
         }
       }
 
+      await backupBeforeWrite(filePath, basePath)
       await DirectoryManager.deleteFile(filePath)
 
       return {
@@ -1092,10 +1134,14 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
       }
     }
 
+    // Backup all markdown files in the folder before deleting
+    const mdFiles = await DirectoryManager.listMarkdownFiles(fullPath)
+    await Promise.all(mdFiles.map((f) => backupBeforeWrite(f, basePath)))
     await DirectoryManager.deleteTopicRecursive(fullPath)
 
     return {
       ...reviewMeta,
+      additionalFilePaths: mdFiles,
       filePath: fullPath,
       message: `Deleted folder ${path}. Reason: ${reason}`,
       path,

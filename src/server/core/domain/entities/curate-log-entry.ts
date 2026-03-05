@@ -1,4 +1,5 @@
 export type CurateLogOperation = {
+  additionalFilePaths?: string[]
   confidence?: 'high' | 'low'
   filePath?: string
   impact?: 'high' | 'low' | 'medium'
@@ -6,6 +7,8 @@ export type CurateLogOperation = {
   needsReview?: boolean
   path: string
   reason?: string
+  /** Local review status. Set to 'pending' when needsReview=true; updated to 'approved'/'rejected' by the review UI. */
+  reviewStatus?: 'approved' | 'pending' | 'rejected'
   status: 'failed' | 'success'
   type: 'ADD' | 'DELETE' | 'MERGE' | 'UPDATE' | 'UPSERT'
 }

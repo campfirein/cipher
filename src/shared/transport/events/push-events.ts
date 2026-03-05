@@ -9,8 +9,14 @@ export interface PushPrepareRequest {
 }
 
 export interface PushPrepareResponse {
+  /** Number of changed files excluded from push due to pending/rejected reviews. */
+  excludedReviewCount: number
   fileCount: number
   hasChanges: boolean
+  /** Number of files with pending HITL reviews (0 if none). */
+  pendingReviewCount: number
+  /** URL to the local review UI (only set when pendingReviewCount > 0). */
+  reviewUrl?: string
   summary: string
 }
 

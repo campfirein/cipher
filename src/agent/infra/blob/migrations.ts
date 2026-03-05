@@ -152,9 +152,7 @@ export function runMigrations(db: Database.Database, logger: BlobLogger = defaul
 
         appliedCount++
       } catch (error) {
-        const errorMsg = `Database migration failed: ${
-          error instanceof Error ? error.message : String(error)
-        }`
+        const errorMsg = `Database migration failed: ${error instanceof Error ? error.message : String(error)}`
         logger.error(errorMsg)
         throw new Error(errorMsg)
       }

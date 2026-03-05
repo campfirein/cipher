@@ -135,6 +135,10 @@ export interface StatusDTO {
   contextTreeRelativeDir?: string
   contextTreeStatus: 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
   currentDirectory: string
+  /** Number of files with pending HITL review (0 if none or unavailable). */
+  pendingReviewCount?: number
+  /** URL to the local review UI (only set when pendingReviewCount > 0). */
+  reviewUrl?: string
   spaceName?: string
   teamName?: string
   userEmail?: string

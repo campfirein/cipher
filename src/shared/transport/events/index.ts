@@ -15,6 +15,7 @@ export * from './provider-events.js'
 export * from './pull-events.js'
 export * from './push-events.js'
 export * from './reset-events.js'
+export * from './review-events.js'
 export * from './session-events.js'
 export * from './space-events.js'
 export * from './status-events.js'
@@ -34,6 +35,7 @@ import {ProviderEvents} from './provider-events.js'
 import {PullEvents} from './pull-events.js'
 import {PushEvents} from './push-events.js'
 import {ResetEvents} from './reset-events.js'
+import {ReviewEvents} from './review-events.js'
 import {SessionEvents} from './session-events.js'
 import {SpaceEvents} from './space-events.js'
 import {StatusEvents} from './status-events.js'
@@ -57,6 +59,7 @@ export const AllEventGroups = [
   PullEvents,
   PushEvents,
   ResetEvents,
+  ReviewEvents,
   SessionEvents,
   SpaceEvents,
   StatusEvents,

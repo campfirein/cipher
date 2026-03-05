@@ -18,13 +18,9 @@ type PushRequestBody = {
 }
 
 type PushContextBody = {
-  confidence?: string
   content: string
-  impact?: string
-  needs_review?: boolean
   operation: string
   path: string
-  reason?: string
   tags: string[]
   title: string
 }
@@ -79,13 +75,9 @@ export class HttpCogitPushService implements ICogitPushService {
     const url = `${this.config.apiBaseUrl}/organizations/${params.teamId}/projects/${params.spaceId}/commits`
 
     const memories: PushContextBody[] = params.contexts.map((context) => ({
-      confidence: context.confidence,
       content: context.content,
-      impact: context.impact,
-      needs_review: context.needsReview,
       operation: context.operation,
       path: context.path,
-      reason: context.reason,
       tags: [...context.tags],
       title: context.title,
     }))

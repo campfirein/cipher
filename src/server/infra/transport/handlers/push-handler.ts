@@ -6,6 +6,7 @@ import type {IContextTreeSnapshotService} from '../../../core/interfaces/context
 import type {ICogitPushService} from '../../../core/interfaces/services/i-cogit-push-service.js'
 import type {ICurateLogStore} from '../../../core/interfaces/storage/i-curate-log-store.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
+import type {IReviewBackupStore} from '../../../core/interfaces/storage/i-review-backup-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
 import {
@@ -20,7 +21,7 @@ import {
   ProjectNotInitError,
   SpaceNotConfiguredError,
 } from '../../../core/domain/errors/task-error.js'
-import {type ContextReviewMetadata, mapToPushContexts} from '../../cogit/context-tree-to-push-context-mapper.js'
+import {mapToPushContexts} from '../../cogit/context-tree-to-push-context-mapper.js'
 import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 /** Factory that creates a curate log store scoped to a project directory. */
@@ -37,6 +38,7 @@ export interface PushHandlerDeps {
   curateLogStoreFactory: CurateLogStoreFactory
   projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
+  reviewBackupStoreFactory: (projectPath: string) => IReviewBackupStore
   tokenStore: ITokenStore
   transport: ITransportServer
   webAppUrl: string
@@ -54,6 +56,7 @@ export class PushHandler {
   private readonly curateLogStoreFactory: CurateLogStoreFactory
   private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
+  private readonly reviewBackupStoreFactory: (projectPath: string) => IReviewBackupStore
   private readonly tokenStore: ITokenStore
   private readonly transport: ITransportServer
   private readonly webAppUrl: string
@@ -66,6 +69,7 @@ export class PushHandler {
     this.curateLogStoreFactory = deps.curateLogStoreFactory
     this.projectConfigStore = deps.projectConfigStore
     this.resolveProjectPath = deps.resolveProjectPath
+    this.reviewBackupStoreFactory = deps.reviewBackupStoreFactory
     this.tokenStore = deps.tokenStore
     this.transport = deps.transport
     this.webAppUrl = deps.webAppUrl
@@ -82,59 +86,46 @@ export class PushHandler {
   }
 
   /**
-   * Build a review metadata map keyed by context-tree-relative file path.
-   *
-   * Queries the curate log for the project, extracts the most recent review metadata
-   * for each file path, and returns a Map for use in the push context mapper.
-   *
-   * For deleted paths with no log entry, the mapper applies the default
-   * (needsReview: true) via DELETED_FILE_DEFAULTS in context-tree-to-push-context-mapper.ts.
+   * Filter a list of file paths, removing any with pending or rejected review status.
    */
-  private async buildReviewMetadata(
+  private filterPushablePaths(
+    paths: string[],
+    reviewStatuses: Map<string, 'approved' | 'pending' | 'rejected'>,
+  ): string[] {
+    return paths.filter((path) => {
+      const status = reviewStatuses.get(path)
+      return status !== 'pending' && status !== 'rejected'
+    })
+  }
+
+  /**
+   * Build a map of context-tree-relative file path → review status from the curate log.
+   * Uses newest-wins strategy for the same file across multiple entries.
+   */
+  private async getFileReviewStatuses(
     projectPath: string,
-    deletedPaths: string[],
-  ): Promise<Map<string, ContextReviewMetadata>> {
-    const map = new Map<string, ContextReviewMetadata>()
+  ): Promise<Map<string, 'approved' | 'pending' | 'rejected'>> {
+    const map = new Map<string, 'approved' | 'pending' | 'rejected'>()
 
     try {
       const store = this.curateLogStoreFactory(projectPath)
-      // List recent completed entries (last 500, newest-first)
       const entries = await store.list({limit: 500, status: ['completed']})
       const contextTreeRoot = join(projectPath, CONTEXT_TREE_RELATIVE)
 
       // Process oldest-first so the newest entry wins for each path
       for (const entry of [...entries].reverse()) {
         for (const op of entry.operations) {
-          if (!op.filePath || op.needsReview === undefined) continue
+          if (!op.filePath || !op.reviewStatus) continue
 
-          // Strip absolute project prefix to get context-tree-relative path
           const prefix = contextTreeRoot + '/'
           if (!op.filePath.startsWith(prefix)) continue
           const relativePath = op.filePath.slice(prefix.length)
 
-          map.set(relativePath, {
-            confidence: op.confidence ?? 'high',
-            impact: op.impact ?? 'low',
-            needsReview: op.needsReview,
-            reason: op.reason ?? '',
-          })
+          map.set(relativePath, op.reviewStatus)
         }
       }
     } catch {
-      // Best-effort — if the log is unavailable, proceed without review metadata.
-      // Deleted files still get their default needsReview=true treatment below.
-    }
-
-    // Ensure all deleted paths are flagged even if absent from the curate log
-    for (const deletedPath of deletedPaths) {
-      if (!map.has(deletedPath)) {
-        map.set(deletedPath, {
-          confidence: 'high',
-          impact: 'high',
-          needsReview: true,
-          reason: 'Deleted from context tree',
-        })
-      }
+      // Best-effort
     }
 
     return map
@@ -160,18 +151,22 @@ export class PushHandler {
     this.broadcastToProject(projectPath, PushEvents.PROGRESS, {message: 'Reading context files...', step: 'reading'})
 
     const changes = await this.contextTreeSnapshotService.getChanges(projectPath)
-    const [addedFiles, modifiedFiles] = await Promise.all([
-      this.contextFileReader.readMany(changes.added, projectPath),
-      this.contextFileReader.readMany(changes.modified, projectPath),
-    ])
 
-    const reviewMetadata = await this.buildReviewMetadata(projectPath, changes.deleted)
+    // Filter out files with pending/rejected review status
+    const reviewStatuses = await this.getFileReviewStatuses(projectPath)
+    const pushableAdded = this.filterPushablePaths(changes.added, reviewStatuses)
+    const pushableModified = this.filterPushablePaths(changes.modified, reviewStatuses)
+    const pushableDeleted = this.filterPushablePaths(changes.deleted, reviewStatuses)
+
+    const [addedFiles, modifiedFiles] = await Promise.all([
+      this.contextFileReader.readMany(pushableAdded, projectPath),
+      this.contextFileReader.readMany(pushableModified, projectPath),
+    ])
 
     const pushContexts = mapToPushContexts({
       addedFiles,
-      deletedPaths: changes.deleted,
+      deletedPaths: pushableDeleted,
       modifiedFiles,
-      reviewMetadata,
     })
 
     this.broadcastToProject(projectPath, PushEvents.PROGRESS, {message: 'Pushing to cloud...', step: 'pushing'})
@@ -185,13 +180,43 @@ export class PushHandler {
       teamId: config.teamId,
     })
 
-    await this.contextTreeSnapshotService.saveSnapshot(projectPath)
+    // Save snapshot selectively: only record pushed files so excluded files
+    // still appear as changes in the next push.
+    const oldSnapshot = await this.contextTreeSnapshotService.getSnapshotState(projectPath)
+    const currentState = await this.contextTreeSnapshotService.getCurrentState(projectPath)
+    const newSnapshot = new Map(oldSnapshot)
+
+    for (const path of pushableAdded) {
+      const state = currentState.get(path)
+      if (state) newSnapshot.set(path, state)
+    }
+
+    for (const path of pushableModified) {
+      const state = currentState.get(path)
+      if (state) newSnapshot.set(path, state)
+    }
+
+    for (const path of pushableDeleted) {
+      newSnapshot.delete(path)
+    }
+
+    await this.contextTreeSnapshotService.saveSnapshotFromState(newSnapshot, projectPath)
+
+    // Best-effort: clear backups for pushed files so the pushed state becomes the new diff baseline
+    try {
+      const backupStore = this.reviewBackupStoreFactory(projectPath)
+      await Promise.all(
+        [...pushableAdded, ...pushableModified, ...pushableDeleted].map((p) => backupStore.delete(p)),
+      )
+    } catch {
+      // Backup cleanup must never block the push response
+    }
 
     const url = `${this.webAppUrl}/${config.teamName}/${config.spaceName}`
 
     return {
       added: addedFiles.length,
-      deleted: changes.deleted.length,
+      deleted: pushableDeleted.length,
       edited: modifiedFiles.length,
       success: true,
       url,
@@ -221,16 +246,43 @@ export class PushHandler {
     }
 
     const changes = await this.contextTreeSnapshotService.getChanges(projectPath)
+
+    // Get review statuses and filter pushable files
+    const reviewStatuses = await this.getFileReviewStatuses(projectPath)
+    const pushableAdded = this.filterPushablePaths(changes.added, reviewStatuses)
+    const pushableModified = this.filterPushablePaths(changes.modified, reviewStatuses)
+    const pushableDeleted = this.filterPushablePaths(changes.deleted, reviewStatuses)
+
     const totalChanges = changes.added.length + changes.modified.length + changes.deleted.length
+    const pushableTotal = pushableAdded.length + pushableModified.length + pushableDeleted.length
+    const excludedReviewCount = totalChanges - pushableTotal
+
+    // Count pending reviews from review statuses map
+    let pendingReviewCount = 0
+    for (const status of reviewStatuses.values()) {
+      if (status === 'pending') pendingReviewCount++
+    }
 
     const parts: string[] = []
-    if (changes.added.length > 0) parts.push(`${changes.added.length} added`)
-    if (changes.modified.length > 0) parts.push(`${changes.modified.length} modified`)
-    if (changes.deleted.length > 0) parts.push(`${changes.deleted.length} deleted`)
+    if (pushableAdded.length > 0) parts.push(`${pushableAdded.length} added`)
+    if (pushableModified.length > 0) parts.push(`${pushableModified.length} modified`)
+    if (pushableDeleted.length > 0) parts.push(`${pushableDeleted.length} deleted`)
+
+    let reviewUrl: string | undefined
+    if (pendingReviewCount > 0) {
+      const port = this.transport.getPort()
+      if (port) {
+        const encoded = Buffer.from(projectPath).toString('base64url')
+        reviewUrl = `http://127.0.0.1:${port}/review?project=${encoded}`
+      }
+    }
 
     return {
-      fileCount: totalChanges,
-      hasChanges: totalChanges > 0,
+      excludedReviewCount,
+      fileCount: pushableTotal,
+      hasChanges: pushableTotal > 0,
+      pendingReviewCount,
+      ...(reviewUrl ? {reviewUrl} : {}),
       summary: parts.length > 0 ? parts.join(', ') : 'No changes',
     }
   }

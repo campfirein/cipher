@@ -76,5 +76,13 @@ export function formatStatus(status: StatusDTO, version?: string): string {
     }
   }
 
+  if (status.pendingReviewCount && status.pendingReviewCount > 0) {
+    const fileLabel = status.pendingReviewCount === 1 ? 'file' : 'files'
+    lines.push(
+      chalk.yellow(`Pending Reviews: ${status.pendingReviewCount} ${fileLabel} need review`) +
+        (status.reviewUrl ? `\n  Review: ${chalk.blue(status.reviewUrl)}` : ''),
+    )
+  }
+
   return lines.join('\n')
 }

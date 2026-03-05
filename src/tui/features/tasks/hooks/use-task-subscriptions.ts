@@ -16,6 +16,9 @@ import type {
 
 import {useEffect} from 'react'
 
+import type {ReviewNotifyEvent} from '../../../../shared/transport/events/review-events.js'
+
+import {ReviewEvents} from '../../../../shared/transport/events/review-events.js'
 import {useTransportStore} from '../../../stores/transport-store.js'
 import {useTasksStore} from '../stores/tasks-store.js'
 
@@ -95,6 +98,13 @@ export function useTaskSubscriptions(): void {
           sessionId: data.sessionId,
           taskId: data.taskId,
           type: data.type === 'reasoning' ? 'reasoning' : 'text',
+        })
+      }),
+
+      client.on<ReviewNotifyEvent>(ReviewEvents.NOTIFY, (data) => {
+        store.setReviewNotification(data.taskId, {
+          pendingCount: data.pendingCount,
+          reviewUrl: data.reviewUrl,
         })
       }),
     )
