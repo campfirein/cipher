@@ -27,7 +27,9 @@ type PendingFileInfo = {
     impact?: string
     logId: string
     operationIndex: number
+    previousSummary?: string
     reason?: string
+    summary?: string
     type: string
   }[]
   path: string
@@ -75,7 +77,9 @@ function collectPendingFiles(entries: CurateLogEntry[], contextTreeDir: string):
         impact: op.impact,
         logId: entry.id,
         operationIndex: i,
+        previousSummary: op.previousSummary,
         reason: op.reason,
+        summary: op.summary,
         type: op.type,
       })
     }

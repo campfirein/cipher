@@ -21,9 +21,15 @@ Curate knowledge topics with atomic operations. This tool manages the knowledge 
 - **snippets**: Code/text snippets (legacy support, optional)
 - **relations**: Related topics using @domain/topic notation
 
+**Per-Operation Metadata (required for all operations):**
+- **reason**: WHY this knowledge is being curated — the motivation for a human reviewer
+- **summary**: One-line semantic summary of what the knowledge file contains after this operation. Written for a human reviewer to quickly grasp the content. Example: "Caching strategy using Redis with 5-min TTL and write-through invalidation". Required for ADD/UPDATE/UPSERT/MERGE, not needed for DELETE.
+- **confidence**: "high" or "low" — your confidence in accuracy/completeness
+- **impact**: "high" or "low" — scope of change (see tool schema for details)
+
 **Operations:**
 1. **ADD** - Create new titled context file in domain/topic/subtopic
-   - Requires: path, title, content, reason
+   - Requires: path, title, content, reason, summary
    - Example with Raw Concept + Narrative:
      {
        type: "ADD",
@@ -46,12 +52,13 @@ Curate knowledge topics with atomic operations. This tool manages the knowledge 
          },
          relations: ["@structure/database"]
        },
-       reason: "New caching pattern"
+       reason: "New caching pattern",
+       summary: "Redis caching layer for getUserPermissions with 300s TTL and singleton client pattern"
      }
    - Creates: structure/caching/redis_user_permissions.md
 
 2. **UPDATE** - Modify existing titled context file (full replacement)
-   - Requires: path, title, content, reason
+   - Requires: path, title, content, reason, summary
    - Supports same content structure as ADD
 
 3. **MERGE** - Combine source file into target file, delete source
