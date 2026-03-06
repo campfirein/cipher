@@ -32,7 +32,19 @@ export function formatStatus(status: StatusDTO, version?: string): string {
     }
   }
 
-  lines.push(`Current Directory: ${status.currentDirectory}`)
+  lines.push(`Project: ${status.projectRoot ?? status.currentDirectory}`)
+
+  if (status.workspaceRoot && status.workspaceRoot !== status.projectRoot) {
+    lines.push(`Workspace: ${status.workspaceRoot} (linked)`)
+  }
+
+  if (status.resolverError) {
+    lines.push(chalk.yellow(`⚠ ${status.resolverError}`))
+  }
+
+  if (status.shadowedLink) {
+    lines.push(chalk.yellow('⚠ Shadowed .brv-workspace.json found — .brv/ takes priority'))
+  }
 
   if (status.teamName && status.spaceName) {
     lines.push(`Space: ${status.teamName}/${status.spaceName}`)

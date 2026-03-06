@@ -3,6 +3,9 @@ export const BLOBS_DIR = 'blobs'
 export const PROJECT_CONFIG_FILE = 'config.json'
 export const BRV_CONFIG_VERSION = '0.0.1'
 
+// Workspace linking
+export const WORKSPACE_LINK_FILE = '.brv-workspace.json'
+
 // Global config constants (user-level, stored in XDG config directory)
 export const GLOBAL_CONFIG_DIR = 'brv'
 export const GLOBAL_CONFIG_FILE = 'config.json'

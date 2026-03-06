@@ -15,6 +15,7 @@ import {queryCommand} from './query.js'
 import {resetCommand} from './reset.js'
 import {spaceCommand} from './space.js'
 import {statusCommand} from './status.js'
+import {unlinkCommand} from './unlink.js'
 
 /**
  * Load all REPL slash commands.
@@ -44,6 +45,9 @@ export const load: () => SlashCommand[] = () => [
 
   // Space management
   spaceCommand,
+
+  // Workspace management
+  unlinkCommand,
 
   // Context tree management
   resetCommand,

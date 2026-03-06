@@ -6,10 +6,19 @@ import {stub} from 'sinon'
 import type {PatchMarkerDeps} from '../../../src/oclif/hooks/prerun/validate-brv-config-version.js'
 import type {IProjectConfigStore} from '../../../src/server/core/interfaces/storage/i-project-config-store.js'
 import type {AutoInitDeps} from '../../../src/server/infra/config/auto-init.js'
+import type {ProjectResolution} from '../../../src/server/infra/project/resolve-project.js'
 
 import {SKIP_COMMANDS, validateBrvConfigVersion} from '../../../src/oclif/hooks/prerun/validate-brv-config-version.js'
 import {BRV_CONFIG_VERSION} from '../../../src/server/constants.js'
 import {BrvConfig, BrvConfigParams} from '../../../src/server/core/domain/entities/brv-config.js'
+
+// Resolver stubs — outer scope to satisfy unicorn/consistent-function-scoping
+const nullResolver = (): null | ProjectResolution => null
+const directResolver = (): null | ProjectResolution => ({
+  projectRoot: '/path/to/project',
+  source: 'direct',
+  workspaceRoot: '/path/to/project',
+})
 
 describe('validateBrvConfigVersion', () => {
   let existsStub: SinonStub
@@ -68,7 +77,7 @@ describe('validateBrvConfigVersion', () => {
   describe('should skip validation for excluded commands', () => {
     for (const commandId of SKIP_COMMANDS) {
       it(`skips validation for '${commandId}' command`, async () => {
-        await validateBrvConfigVersion(commandId, mockConfigStore, undefined, mockPatchMarkerDeps)
+        await validateBrvConfigVersion({commandId, configStore: mockConfigStore, patchMarkerDeps: mockPatchMarkerDeps})
 
         expect(existsStub.called).to.be.false
         expect(readStub.called).to.be.false
@@ -80,7 +89,7 @@ describe('validateBrvConfigVersion', () => {
     it('calls ensureProjectInitialized when config does not exist', async () => {
       existsStub.resolves(false)
 
-      await validateBrvConfigVersion('status', mockConfigStore, mockAutoInitDeps, mockPatchMarkerDeps)
+      await validateBrvConfigVersion({autoInitDeps: mockAutoInitDeps, commandId: 'status', configStore: mockConfigStore, patchMarkerDeps: mockPatchMarkerDeps, resolver: nullResolver})
 
       expect(existsStub.called).to.be.true
       expect(readStub.called).to.be.false
@@ -91,12 +100,10 @@ describe('validateBrvConfigVersion', () => {
 
   describe('should allow commands when config has valid version', () => {
     it('allows command to proceed when config version matches', async () => {
-      existsStub.resolves(true)
       readStub.resolves(new BrvConfig(validConfigParams))
 
-      await validateBrvConfigVersion('status', mockConfigStore, undefined, mockPatchMarkerDeps)
+      await validateBrvConfigVersion({commandId: 'status', configStore: mockConfigStore, patchMarkerDeps: mockPatchMarkerDeps, resolver: directResolver})
 
-      expect(existsStub.called).to.be.true
       expect(readStub.called).to.be.true
       expect(writeStub.called).to.be.false
     })
@@ -104,14 +111,13 @@ describe('validateBrvConfigVersion', () => {
 
   describe('should migrate config when version is outdated', () => {
     it('migrates config when version is missing (empty string)', async () => {
-      existsStub.resolves(true)
       const oldConfig = new BrvConfig({
         ...validConfigParams,
         version: '',
       })
       readStub.resolves(oldConfig)
 
-      await validateBrvConfigVersion('status', mockConfigStore, undefined, mockPatchMarkerDeps)
+      await validateBrvConfigVersion({commandId: 'status', configStore: mockConfigStore, patchMarkerDeps: mockPatchMarkerDeps, resolver: directResolver})
 
       expect(writeStub.called).to.be.true
       const writtenConfig = writeStub.firstCall.args[0] as BrvConfig
@@ -124,14 +130,13 @@ describe('validateBrvConfigVersion', () => {
     })
 
     it('migrates config when version is mismatched', async () => {
-      existsStub.resolves(true)
       const oldConfig = new BrvConfig({
         ...validConfigParams,
         version: '0.0.0',
       })
       readStub.resolves(oldConfig)
 
-      await validateBrvConfigVersion('push', mockConfigStore, undefined, mockPatchMarkerDeps)
+      await validateBrvConfigVersion({commandId: 'push', configStore: mockConfigStore, patchMarkerDeps: mockPatchMarkerDeps, resolver: directResolver})
 
       expect(writeStub.called).to.be.true
       const writtenConfig = writeStub.firstCall.args[0] as BrvConfig
@@ -144,30 +149,28 @@ describe('validateBrvConfigVersion', () => {
 
   describe('should apply curate-view patch when marker is absent', () => {
     it('calls markPatched after patching when not yet patched', async () => {
-      existsStub.resolves(true)
       readStub.resolves(new BrvConfig(validConfigParams))
       const isPatchedStub = stub().resolves(false)
       const markPatchedStub = stub().resolves()
 
-      await validateBrvConfigVersion('status', mockConfigStore, undefined, {
+      await validateBrvConfigVersion({commandId: 'status', configStore: mockConfigStore, patchMarkerDeps: {
         isPatched: isPatchedStub,
         markPatched: markPatchedStub,
         patchFn: stub().resolves(),
-      })
+      }, resolver: directResolver})
 
       expect(isPatchedStub.calledOnce).to.be.true
       expect(markPatchedStub.calledOnce).to.be.true
     })
 
     it('skips patch when marker already exists', async () => {
-      existsStub.resolves(true)
       readStub.resolves(new BrvConfig(validConfigParams))
       const markPatchedStub = stub().resolves()
 
-      await validateBrvConfigVersion('status', mockConfigStore, undefined, {
+      await validateBrvConfigVersion({commandId: 'status', configStore: mockConfigStore, patchMarkerDeps: {
         isPatched: stub().resolves(true),
         markPatched: markPatchedStub,
-      })
+      }, resolver: directResolver})
 
       expect(markPatchedStub.called).to.be.false
     })
@@ -175,11 +178,10 @@ describe('validateBrvConfigVersion', () => {
 
   describe('should re-throw errors from read', () => {
     it('re-throws errors', async () => {
-      existsStub.resolves(true)
       readStub.rejects(new Error('Corrupted JSON'))
 
       try {
-        await validateBrvConfigVersion('status', mockConfigStore, undefined, mockPatchMarkerDeps)
+        await validateBrvConfigVersion({commandId: 'status', configStore: mockConfigStore, patchMarkerDeps: mockPatchMarkerDeps, resolver: directResolver})
         expect.fail('Expected error to be thrown')
       } catch (error) {
         expect(error).to.be.instanceof(Error)

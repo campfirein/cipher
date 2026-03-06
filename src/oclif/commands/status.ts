@@ -3,7 +3,7 @@ import chalk from 'chalk'
 
 import type {StatusDTO} from '../../shared/transport/types/dto.js'
 
-import {StatusEvents, type StatusGetResponse} from '../../shared/transport/events/status-events.js'
+import {StatusEvents, type StatusGetRequest, type StatusGetResponse} from '../../shared/transport/events/status-events.js'
 import {type DaemonClientOptions, formatConnectionError, withDaemonRetry} from '../lib/daemon-client.js'
 import {writeJsonResponse} from '../lib/json-response.js'
 
@@ -18,11 +18,17 @@ export default class Status extends Command {
       description: 'Output format',
       options: ['text', 'json'],
     }),
+    verbose: Flags.boolean({
+      char: 'v',
+      default: false,
+      description: 'Show resolution source and diagnostic info',
+    }),
   }
 
   protected async fetchStatus(options?: DaemonClientOptions): Promise<StatusDTO> {
+    const request: StatusGetRequest = {cwd: process.cwd()}
     return withDaemonRetry<StatusDTO>(async (client) => {
-      const response = await client.requestWithAck<StatusGetResponse>(StatusEvents.GET)
+      const response = await client.requestWithAck<StatusGetResponse>(StatusEvents.GET, request)
       return response.status
     }, options)
   }
@@ -41,7 +47,7 @@ export default class Status extends Command {
           success: true,
         })
       } else {
-        this.formatTextOutput(status)
+        this.formatTextOutput(status, flags.verbose)
       }
     } catch (error) {
       if (format === 'json') {
@@ -56,7 +62,7 @@ export default class Status extends Command {
     }
   }
 
-  private formatTextOutput(status: StatusDTO): void {
+  private formatTextOutput(status: StatusDTO, verbose = false): void {
     this.log(`CLI Version: ${this.config.version}`)
 
     // Auth status (cloud sync only — not required for local usage)
@@ -81,7 +87,23 @@ export default class Status extends Command {
       }
     }
 
-    this.log(`Current Directory: ${status.currentDirectory}`)
+    this.log(`Project: ${status.projectRoot ?? status.currentDirectory}`)
+
+    if (status.workspaceRoot && status.workspaceRoot !== status.projectRoot) {
+      this.log(`Workspace: ${status.workspaceRoot} (linked)`)
+    }
+
+    if (status.resolverError) {
+      this.log(chalk.yellow(`⚠ ${status.resolverError}`))
+    }
+
+    if (status.shadowedLink) {
+      this.log(chalk.yellow('⚠ Shadowed .brv-workspace.json found — .brv/ takes priority'))
+    }
+
+    if (verbose && status.resolutionSource) {
+      this.log(`Resolution: ${status.resolutionSource}`)
+    }
 
     // Space
     if (status.teamName && status.spaceName) {

@@ -7,8 +7,9 @@ import type {IContextTreeSnapshotService} from '../../../core/interfaces/context
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
-import {StatusEvents, type StatusGetResponse} from '../../../../shared/transport/events/status-events.js'
+import {StatusEvents, type StatusGetRequest, type StatusGetResponse} from '../../../../shared/transport/events/status-events.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
+import {BrokenWorkspaceLinkError, MalformedWorkspaceLinkError, resolveProject} from '../../project/resolve-project.js'
 import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 export interface StatusHandlerDeps {
@@ -42,18 +43,43 @@ export class StatusHandler {
   }
 
   setup(): void {
-    this.transport.onRequest<void, StatusGetResponse>(StatusEvents.GET, async (_data, clientId) => {
+    this.transport.onRequest<StatusGetRequest | void, StatusGetResponse>(StatusEvents.GET, async (data, clientId) => {
       const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
-      const status = await this.collectStatus(projectPath)
+      const cwd = (data as StatusGetRequest | undefined)?.cwd
+      const status = await this.collectStatus(projectPath, cwd)
       return {status}
     })
   }
 
-  private async collectStatus(projectPath: string): Promise<StatusDTO> {
+  private async collectStatus(projectPath: string, clientCwd?: string): Promise<StatusDTO> {
     const result: StatusDTO = {
       authStatus: 'unknown',
       contextTreeStatus: 'unknown',
       currentDirectory: projectPath,
+      projectRoot: projectPath,
+    }
+
+    // Resolve workspace awareness from client cwd (if provided)
+    // Use resolved projectRoot for all downstream checks to avoid inconsistency
+    let effectiveProjectPath = projectPath
+    if (clientCwd) {
+      try {
+        const resolution = resolveProject({cwd: clientCwd})
+        if (resolution) {
+          result.projectRoot = resolution.projectRoot
+          result.workspaceRoot = resolution.workspaceRoot
+          result.resolutionSource = resolution.source
+          result.shadowedLink = resolution.shadowedLink
+          effectiveProjectPath = resolution.projectRoot
+        }
+      } catch (error) {
+        // Surface broken/malformed link errors as actionable status info
+        if (error instanceof BrokenWorkspaceLinkError || error instanceof MalformedWorkspaceLinkError) {
+          result.resolverError = error.message
+        }
+
+        // Fall through with projectPath defaults for config/context checks
+      }
     }
 
     // Auth status
@@ -71,11 +97,11 @@ export class StatusHandler {
       result.authStatus = 'unknown'
     }
 
-    // Project status
+    // Project status — use effectiveProjectPath for consistency with resolved root
     try {
-      const isInitialized = await this.projectConfigStore.exists(projectPath)
+      const isInitialized = await this.projectConfigStore.exists(effectiveProjectPath)
       if (isInitialized) {
-        const config = await this.projectConfigStore.read(projectPath)
+        const config = await this.projectConfigStore.read(effectiveProjectPath)
         if (config) {
           result.teamName = config.teamName
           result.spaceName = config.spaceName
@@ -83,19 +109,19 @@ export class StatusHandler {
       }
     } catch {}
 
-    // Context tree status
+    // Context tree status — use effectiveProjectPath for consistency with resolved root
     try {
-      const contextTreeExists = await this.contextTreeService.exists(projectPath)
+      const contextTreeExists = await this.contextTreeService.exists(effectiveProjectPath)
       if (contextTreeExists) {
-        result.contextTreeDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
+        result.contextTreeDir = join(effectiveProjectPath, BRV_DIR, CONTEXT_TREE_DIR)
         result.contextTreeRelativeDir = join(BRV_DIR, CONTEXT_TREE_DIR)
 
-        const hasSnapshot = await this.contextTreeSnapshotService.hasSnapshot(projectPath)
+        const hasSnapshot = await this.contextTreeSnapshotService.hasSnapshot(effectiveProjectPath)
         if (!hasSnapshot) {
-          await this.contextTreeSnapshotService.initEmptySnapshot(projectPath)
+          await this.contextTreeSnapshotService.initEmptySnapshot(effectiveProjectPath)
         }
 
-        const changes = await this.contextTreeSnapshotService.getChanges(projectPath)
+        const changes = await this.contextTreeSnapshotService.getChanges(effectiveProjectPath)
         const hasChanges = changes.added.length > 0 || changes.modified.length > 0 || changes.deleted.length > 0
 
         if (hasChanges) {

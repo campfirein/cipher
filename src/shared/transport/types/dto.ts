@@ -134,8 +134,19 @@ export interface StatusDTO {
   /** Relative path to the context tree directory from project root (e.g., '.brv/context-tree') */
   contextTreeRelativeDir?: string
   contextTreeStatus: 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
+  /** @deprecated Use projectRoot instead. Kept for backward compatibility. */
   currentDirectory: string
+  /** Absolute path to the project root (directory containing .brv/) */
+  projectRoot?: string
+  /** How the project root was discovered */
+  resolutionSource?: 'direct' | 'flag' | 'linked' | 'walked-up'
+  /** Actionable error message when resolver fails (broken/malformed workspace link) */
+  resolverError?: string
+  /** True if cwd has both .brv/config.json and .brv-workspace.json */
+  shadowedLink?: boolean
   spaceName?: string
   teamName?: string
   userEmail?: string
+  /** Stable workspace root (link directory), or projectRoot if unlinked */
+  workspaceRoot?: string
 }
