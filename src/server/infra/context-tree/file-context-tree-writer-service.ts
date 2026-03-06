@@ -10,6 +10,7 @@ import type {
 } from '../../core/interfaces/context-tree/i-context-tree-writer-service.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR, README_FILE} from '../../constants.js'
+import {isExcludedFromSync} from './derived-artifact.js'
 import {toUnixPath} from './path-utils.js'
 
 export type ContextTreeWriterServiceConfig = {
@@ -92,6 +93,11 @@ export class FileContextTreeWriterService implements IContextTreeWriterService {
 
       // Skip README.md at root level (matches getCurrentState behavior)
       if (normalizedPath === README_FILE) {
+        continue
+      }
+
+      // Skip derived artifacts (_index.md, _archived/*.stub.md, _archived/*.full.md, _manifest.json)
+      if (isExcludedFromSync(normalizedPath)) {
         continue
       }
 

@@ -2,6 +2,7 @@ import type {SlashCommand} from '../../../types/commands.js'
 
 import {connectorsCommand} from './connectors.js'
 import {curateCommand} from './curate.js'
+import {exitCommand} from './exit.js'
 import {hubCommand} from './hub.js'
 import {loginCommand} from './login.js'
 import {logoutCommand} from './logout.js'
@@ -53,4 +54,7 @@ export const load: () => SlashCommand[] = () => [
   // Auth
   loginCommand,
   logoutCommand,
+
+  // Exit
+  exitCommand,
 ]

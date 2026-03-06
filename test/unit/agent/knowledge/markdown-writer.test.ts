@@ -2,6 +2,18 @@ import {expect} from 'chai'
 
 import {MarkdownWriter} from '../../../../src/server/core/domain/knowledge/markdown-writer.js'
 
+function filterBulletLines(lines: string[] | undefined): string[] {
+  return (lines ?? []).filter((line) => line.trim().startsWith('-'))
+}
+
+function filterNonEmpty(lines: string[] | undefined): string[] {
+  return (lines ?? []).filter((line) => line.trim() !== '')
+}
+
+function findLineIndex(lines: string[] | undefined, text: string): number {
+  return (lines ?? []).findIndex((line) => line.includes(text))
+}
+
 /**
  * Unit tests for markdown-writer.
  */
@@ -26,7 +38,7 @@ describe('markdown-writer', () => {
         // eslint-disable-next-line prefer-regex-literals
         const dependenciesSection = result.match(new RegExp(String.raw`### Dependencies\n([\s\S]*?)(?=\n###|\n##|$)`))?.[1]
         expect(dependenciesSection).to.exist
-        const bulletPoints = dependenciesSection?.split('\n').filter(line => line.trim().startsWith('-'))
+        const bulletPoints = filterBulletLines(dependenciesSection?.split('\n'))
         expect(bulletPoints).to.have.lengthOf(2)
       })
 
@@ -48,7 +60,7 @@ describe('markdown-writer', () => {
         // Verify they are on separate lines
         // eslint-disable-next-line prefer-regex-literals
         const structureSection = result.match(new RegExp(String.raw`### Structure\n([\s\S]*?)(?=\n###|\n##|$)`))?.[1]
-        const lines = structureSection?.split('\n').filter(line => line.trim())
+        const lines = filterNonEmpty(structureSection?.split('\n'))
         expect(lines).to.have.lengthOf(3)
       })
 
@@ -70,7 +82,7 @@ describe('markdown-writer', () => {
         // Verify they are on separate lines
         // eslint-disable-next-line prefer-regex-literals
         const highlightsSection = result.match(new RegExp(String.raw`### Highlights\n([\s\S]*?)(?=\n###|\n##|$)`))?.[1]
-        const lines = highlightsSection?.split('\n').filter(line => line.trim())
+        const lines = filterNonEmpty(highlightsSection?.split('\n'))
         expect(lines).to.have.lengthOf(3)
       })
 
@@ -91,7 +103,7 @@ describe('markdown-writer', () => {
         // Verify they are on separate lines
         // eslint-disable-next-line prefer-regex-literals
         const taskMatch = result.match(new RegExp(String.raw`\*\*Task:\*\*\n([\s\S]*?)(?=\n\*\*|\n##|$)`))?.[1]
-        const lines = taskMatch?.split('\n').filter(line => line.trim())
+        const lines = filterNonEmpty(taskMatch?.split('\n'))
         expect(lines).to.have.lengthOf(2)
       })
 
@@ -114,9 +126,9 @@ describe('markdown-writer', () => {
         // eslint-disable-next-line prefer-regex-literals
         const changesSection = result.match(new RegExp(String.raw`\*\*Changes:\*\*\n([\s\S]*?)(?=\n\*\*|\n##|$)`))?.[1]
         const changeLines = changesSection?.split('\n')
-        const change1Index = changeLines?.findIndex(line => line.includes('Change 1'))
-        const change2Index = changeLines?.findIndex(line => line.includes('Change 2'))
-        expect(change2Index).to.be.greaterThan(change1Index! + 1)
+        const change1Index = findLineIndex(changeLines, 'Change 1')
+        const change2Index = findLineIndex(changeLines, 'Change 2')
+        expect(change2Index).to.be.greaterThan(change1Index + 1)
       })
 
       it(String.raw`should convert literal \n to actual newlines in rawConcept files`, () => {
@@ -138,9 +150,9 @@ describe('markdown-writer', () => {
         // eslint-disable-next-line prefer-regex-literals
         const filesSection = result.match(new RegExp(String.raw`\*\*Files:\*\*\n([\s\S]*?)(?=\n\*\*|\n##|$)`))?.[1]
         const fileLines = filesSection?.split('\n')
-        const file1Index = fileLines?.findIndex(line => line.includes('file1.ts'))
-        const file2Index = fileLines?.findIndex(line => line.includes('file2.ts'))
-        expect(file2Index).to.be.greaterThan(file1Index! + 1)
+        const file1Index = findLineIndex(fileLines, 'file1.ts')
+        const file2Index = findLineIndex(fileLines, 'file2.ts')
+        expect(file2Index).to.be.greaterThan(file1Index + 1)
       })
 
       it(String.raw`should convert literal \n to actual newlines in rawConcept flow`, () => {
@@ -161,7 +173,7 @@ describe('markdown-writer', () => {
         // Verify they are on separate lines
         // eslint-disable-next-line prefer-regex-literals
         const flowMatch = result.match(new RegExp(String.raw`\*\*Flow:\*\*\n([\s\S]*?)(?=\n\*\*|\n##|$)`))?.[1]
-        const lines = flowMatch?.split('\n').filter(line => line.trim())
+        const lines = filterNonEmpty(flowMatch?.split('\n'))
         expect(lines).to.have.lengthOf(3)
       })
 
@@ -182,7 +194,7 @@ describe('markdown-writer', () => {
         // All should be on separate lines
         // eslint-disable-next-line prefer-regex-literals
         const dependenciesSection = result.match(new RegExp(String.raw`### Dependencies\n([\s\S]*?)(?=\n###|\n##|$)`))?.[1]
-        const bulletPoints = dependenciesSection?.split('\n').filter(line => line.trim().startsWith('-'))
+        const bulletPoints = filterBulletLines(dependenciesSection?.split('\n'))
         expect(bulletPoints).to.have.lengthOf(3)
       })
 
@@ -201,7 +213,7 @@ describe('markdown-writer', () => {
         expect(result).to.include('- item2')
         // eslint-disable-next-line prefer-regex-literals
         const dependenciesSection = result.match(new RegExp(String.raw`### Dependencies\n([\s\S]*?)(?=\n###|\n##|$)`))?.[1]
-        const bulletPoints = dependenciesSection?.split('\n').filter(line => line.trim().startsWith('-'))
+        const bulletPoints = filterBulletLines(dependenciesSection?.split('\n'))
         expect(bulletPoints).to.have.lengthOf(2)
       })
     })

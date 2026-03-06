@@ -44,8 +44,15 @@ export interface SessionMetadata {
 /**
  * Options for SessionManager constructor
  */
+export type SessionRemovalReason = 'deleted' | 'ended' | 'ttl_expired'
+
 export interface SessionManagerOptions {
   config?: SessionManagerConfig
+  /**
+   * Optional lifecycle callback fired after a session is removed from memory maps.
+   * Used by CipherAgent to synchronize external registries (e.g., nesting registry).
+   */
+  onSessionRemoved?: (sessionId: string, reason: SessionRemovalReason) => void
 }
 
 /**
@@ -73,6 +80,7 @@ export class SessionManager {
     temperature?: number
     verbose?: boolean
   }
+  private readonly onSessionRemoved?: (sessionId: string, reason: SessionRemovalReason) => void
   private pendingCreations = new Map<string, Promise<IChatSession>>()
   /** Agent name for each session (e.g., 'plan', 'query', 'curate') */
   private readonly sessionAgentNames: Map<string, string> = new Map()
@@ -127,6 +135,7 @@ export class SessionManager {
     this.sharedServices = sharedServices
     this.httpConfig = httpConfig
     this.llmConfig = llmConfig
+    this.onSessionRemoved = options?.onSessionRemoved
     this.config = {
       maxSessions: options?.config?.maxSessions ?? 100,
       sessionTTL: options?.config?.sessionTTL ?? 3_600_000, // 1 hour
@@ -312,7 +321,16 @@ export class SessionManager {
     this.sessionParentIds.delete(id)
 
     // Remove from memory
-    return this.sessions.delete(id)
+    const deleted = this.sessions.delete(id)
+    if (deleted) {
+      try {
+        this.onSessionRemoved?.(id, 'deleted')
+      } catch {
+        // Fail-open: session deletion must not fail due to callback errors
+      }
+    }
+
+    return deleted
   }
 
   /**
@@ -353,7 +371,7 @@ export class SessionManager {
    * @param id - Session ID to end
    * @returns True if session existed and was ended
    */
-  public async endSession(id: string): Promise<boolean> {
+  public async endSession(id: string, reason: SessionRemovalReason = 'ended'): Promise<boolean> {
     const session = this.sessions.get(id)
     if (!session) {
       return false
@@ -374,7 +392,16 @@ export class SessionManager {
     this.sessionParentIds.delete(id)
 
     // Remove from memory only - history remains in storage
-    return this.sessions.delete(id)
+    const ended = this.sessions.delete(id)
+    if (ended) {
+      try {
+        this.onSessionRemoved?.(id, reason)
+      } catch {
+        // Fail-open: session ending must not fail due to callback errors
+      }
+    }
+
+    return ended
   }
 
   /**
@@ -484,7 +511,7 @@ export class SessionManager {
 
       if (now - lastActivity > this.config.sessionTTL) {
         // eslint-disable-next-line no-await-in-loop
-        await this.endSession(id) // Preserve history
+        await this.endSession(id, 'ttl_expired') // Preserve history
         cleaned++
       }
     }

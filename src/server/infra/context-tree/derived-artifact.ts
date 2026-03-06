@@ -1,0 +1,54 @@
+/**
+ * Derived-artifact predicates for the Hierarchical DAG architecture.
+ *
+ * Three predicates with clear separation of concerns:
+ * - isDerivedArtifact()  — non-searchable derived content (excluded from query fingerprint)
+ * - isArchiveStub()      — searchable stubs (included in BM25 index and fingerprint)
+ * - isExcludedFromSync() — union of above (excluded from snapshot/sync/merge/push)
+ */
+
+import {ARCHIVE_DIR, FULL_ARCHIVE_EXTENSION, MANIFEST_FILE, STUB_EXTENSION, SUMMARY_INDEX_FILE} from '../../constants.js'
+import {toUnixPath} from './path-utils.js'
+
+/**
+ * Returns true if the given relative path is a derived artifact
+ * that should be excluded from snapshot tracking, CoGit sync,
+ * and query cache fingerprinting.
+ *
+ * Derived artifacts: _index.md, _manifest.json, _archived/*.full.md
+ * NOTE: _archived/*.stub.md are NOT derived — they are searchable.
+ */
+export function isDerivedArtifact(relativePath: string): boolean {
+  const normalized = toUnixPath(relativePath)
+  const segments = normalized.split('/')
+  const fileName = segments.at(-1) ?? ''
+
+  if (fileName === SUMMARY_INDEX_FILE) return true
+
+  if (fileName === MANIFEST_FILE) return true
+
+  if (segments.includes(ARCHIVE_DIR) && fileName.endsWith(FULL_ARCHIVE_EXTENSION)) return true
+
+  return false
+}
+
+/**
+ * Returns true if the path is an archive stub (.stub.md inside _archived/).
+ * Stubs are searchable but excluded from snapshot/sync.
+ */
+export function isArchiveStub(relativePath: string): boolean {
+  const normalized = toUnixPath(relativePath)
+  const segments = normalized.split('/')
+  const fileName = segments.at(-1) ?? ''
+
+  return segments.includes(ARCHIVE_DIR) && fileName.endsWith(STUB_EXTENSION)
+}
+
+/**
+ * Returns true if the path should be excluded from snapshot tracking,
+ * CoGit sync (push/pull/merge), and writer operations.
+ * This includes ALL derived artifacts plus searchable stubs.
+ */
+export function isExcludedFromSync(relativePath: string): boolean {
+  return isDerivedArtifact(relativePath) || isArchiveStub(relativePath)
+}

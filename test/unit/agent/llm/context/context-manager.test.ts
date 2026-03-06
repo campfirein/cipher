@@ -879,6 +879,130 @@ describe('ContextManager', () => {
     })
   })
 
+  describe('compressAndReplace', () => {
+    it('should not compress when messages are under targetHistoryBudget', async () => {
+      const mockStrategy = {
+        compress: sandbox.stub().resolves([]),
+        getName: sandbox.stub().returns('MockStrategy'),
+      }
+
+      const cm = new ContextManager({
+        compressionStrategies: [mockStrategy],
+        formatter,
+        maxInputTokens: 100_000,
+        sessionId: 'no-compress-test',
+        tokenizer,
+      })
+
+      await cm.addUserMessage('Short message')
+      await cm.addAssistantMessage('Short reply')
+
+      await cm.compressAndReplace(1000, 50_000)
+
+      // Strategy should never have been called — messages are under budget
+      expect(mockStrategy.compress.called).to.be.false
+      expect(cm.getMessages()).to.have.lengthOf(2)
+    })
+
+    it('should compress when messages exceed targetHistoryBudget but are under maxInputTokens', async () => {
+      // This is the critical test for the threshold fix.
+      // maxInputTokens = 1000 (total ceiling), but we pass targetHistoryBudget = 100.
+      // Messages total ~200 tokens (well under maxInputTokens=1000 but over budget=100).
+      // Before the fix, compressHistoryIfNeeded checked against maxInputTokens and
+      // would return early without compressing. After the fix, it uses the caller's budget.
+      const mockStrategy = {
+        compress: sandbox.stub().callsFake((messages: InternalMessage[]) =>
+          // Simulate compression: keep only the last message
+          Promise.resolve([messages.at(-1)]),
+        ),
+        getName: sandbox.stub().returns('MockStrategy'),
+      }
+
+      const cm = new ContextManager({
+        compressionStrategies: [mockStrategy],
+        formatter,
+        maxInputTokens: 1000,
+        sessionId: 'threshold-test',
+        tokenizer,
+      })
+
+      // Each message ~10 tokens with MockTokenizer (length/4).
+      // Add enough messages to exceed targetHistoryBudget but stay under maxInputTokens.
+      for (let i = 0; i < 20; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await cm.addUserMessage(`Message number ${i} with extra text for tokens`)
+      }
+
+      // systemPromptTokens=100, targetHistoryBudget=100
+      // History tokens (~200) > budget (100), so compression should fire
+      // Total tokens (100+200=300) < maxInputTokens (1000), so without the fix this would be a no-op
+      await cm.compressAndReplace(100, 100)
+
+      expect(mockStrategy.compress.calledOnce).to.be.true
+      // Strategy was given the targetHistoryBudget as its maxTokens argument
+      const budgetArg = mockStrategy.compress.firstCall.args[1]
+      expect(budgetArg).to.equal(100)
+    })
+
+    it('should fall back to maxInputTokens when no targetHistoryBudget is provided', async () => {
+      const mockStrategy = {
+        compress: sandbox.stub().callsFake((messages: InternalMessage[]) =>
+          Promise.resolve([messages.at(-1)]),
+        ),
+        getName: sandbox.stub().returns('MockStrategy'),
+      }
+
+      const cm = new ContextManager({
+        compressionStrategies: [mockStrategy],
+        formatter,
+        maxInputTokens: 200,
+        sessionId: 'fallback-test',
+        tokenizer,
+      })
+
+      // Add enough messages to exceed maxInputTokens (200)
+      for (let i = 0; i < 20; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await cm.addUserMessage(`Message number ${i} with extra text for tokens`)
+      }
+
+      // No targetHistoryBudget — should use maxInputTokens as ceiling
+      await cm.compressAndReplace(50)
+
+      expect(mockStrategy.compress.calledOnce).to.be.true
+      // Budget should be maxInputTokens - systemPromptTokens = 200 - 50 = 150
+      const budgetArg = mockStrategy.compress.firstCall.args[1]
+      expect(budgetArg).to.equal(150)
+    })
+
+    it('should replace messages and mark persistDirty when strategy produces new array', async () => {
+      const compressedMessage: InternalMessage = {content: 'Summary of conversation', role: 'assistant'}
+      const mockStrategy = {
+        compress: sandbox.stub().resolves([compressedMessage]),
+        getName: sandbox.stub().returns('MockStrategy'),
+      }
+
+      const cm = new ContextManager({
+        compressionStrategies: [mockStrategy],
+        formatter,
+        maxInputTokens: 200,
+        sessionId: 'replace-test',
+        tokenizer,
+      })
+
+      for (let i = 0; i < 20; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await cm.addUserMessage(`Message ${i} with content to push over limit`)
+      }
+
+      await cm.compressAndReplace(50)
+
+      const messages = cm.getMessages()
+      expect(messages).to.have.lengthOf(1)
+      expect(messages[0].content).to.equal('Summary of conversation')
+    })
+  })
+
   describe('compressMessage', () => {
     it('should not remove messages when total tokens are within budget', async () => {
       await contextManager.addUserMessage('Message 1')

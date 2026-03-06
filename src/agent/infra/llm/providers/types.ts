@@ -10,7 +10,7 @@ import type {IContentGenerator} from '../../../core/interfaces/i-content-generat
 /**
  * Provider authentication type.
  */
-export type ProviderAuthType = 'api-key' | 'internal' | 'service-account'
+export type ProviderAuthType = 'api-key' | 'internal'
 
 /**
  * Internal provider type determines formatter/tokenizer selection.
@@ -35,14 +35,10 @@ export interface GeneratorFactoryConfig {
   readonly httpConfig?: Record<string, unknown>
   /** HTTP Referer header (for OpenRouter) */
   readonly httpReferer?: string
-  /** GCP location for Vertex AI */
-  readonly location?: string
   /** Maximum tokens in the response */
   readonly maxTokens: number
   /** Model identifier */
   readonly model: string
-  /** GCP project ID for Vertex AI */
-  readonly project?: string
   /** Site name (for OpenRouter) */
   readonly siteName?: string
   /** Temperature for randomness */

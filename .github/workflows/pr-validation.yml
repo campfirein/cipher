@@ -17,6 +17,7 @@ permissions:
 
 env:
   NODE_VERSION: '24'
+  HUSKY: 0
 
 jobs:
   install:
