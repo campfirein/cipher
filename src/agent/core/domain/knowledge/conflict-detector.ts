@@ -100,15 +100,13 @@ export function detectStructuralLoss(existing: ContextData, proposed: ContextDat
 /**
  * Derive the structural impact level from detected loss.
  *
- * - Lost snippets (primary content) → 'high'
- * - Lost relations, narrative fields, or rawConcept fields → 'medium'
+ * - Any structural loss → 'high'
  * - No loss → 'low'
  *
  * @param loss - Structural loss summary from detectStructuralLoss
  * @returns Impact level derived from structural evidence
  */
-export function deriveImpactFromLoss(loss: StructuralLoss): 'high' | 'low' | 'medium' {
+export function deriveImpactFromLoss(loss: StructuralLoss): 'high' | 'low' {
   if (!loss.hasLoss) return 'low'
-  if (loss.lostSnippets > 0) return 'high'
-  return 'medium'
+  return 'high'
 }

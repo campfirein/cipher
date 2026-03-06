@@ -191,19 +191,19 @@ describe('conflict-detector', () => {
       expect(deriveImpactFromLoss(loss)).to.equal('high')
     })
 
-    it('should return "medium" when relations are lost but no snippets', () => {
+    it('should return "high" when relations are lost but no snippets', () => {
       const loss: StructuralLoss = {...noLoss, hasLoss: true, lostRelations: 2}
-      expect(deriveImpactFromLoss(loss)).to.equal('medium')
+      expect(deriveImpactFromLoss(loss)).to.equal('high')
     })
 
-    it('should return "medium" when narrative fields are lost', () => {
+    it('should return "high" when narrative fields are lost', () => {
       const loss: StructuralLoss = {...noLoss, hasLoss: true, lostNarrativeFields: 1}
-      expect(deriveImpactFromLoss(loss)).to.equal('medium')
+      expect(deriveImpactFromLoss(loss)).to.equal('high')
     })
 
-    it('should return "medium" when rawConcept fields are lost', () => {
+    it('should return "high" when rawConcept fields are lost', () => {
       const loss: StructuralLoss = {...noLoss, hasLoss: true, lostRawConceptFields: 1}
-      expect(deriveImpactFromLoss(loss)).to.equal('medium')
+      expect(deriveImpactFromLoss(loss)).to.equal('high')
     })
 
     it('should return "high" when snippets lost even alongside other loss types', () => {

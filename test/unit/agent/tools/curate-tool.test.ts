@@ -9,7 +9,7 @@ interface CurateOutput {
   applied: Array<{
     confidence?: 'high' | 'low'
     filePath?: string
-    impact?: 'high' | 'low' | 'medium'
+    impact?: 'high' | 'low'
     message?: string
     needsReview?: boolean
     path: string
@@ -79,7 +79,9 @@ describe('Curate Tool', () => {
             basePath,
             operations: [
               {
+                confidence: 'high',
                 content: {keywords: [], snippets: ['test snippet'], tags: []},
+                impact: 'low',
                 path: `${domain}/test_topic`,
                 reason: 'testing predefined domain',
                 title: 'Test Context',
@@ -108,7 +110,9 @@ describe('Curate Tool', () => {
               basePath,
               operations: [
                 {
+                  confidence: 'high',
                   content: {keywords: [], snippets: ['test'], tags: []},
+                  impact: 'low',
                   path: `custom_domain_${i}/topic`,
                   reason: 'testing custom domain',
                   title: 'Test',
@@ -143,7 +147,9 @@ describe('Curate Tool', () => {
               basePath,
               operations: [
                 {
+                  confidence: 'high',
                   content: {keywords: [], snippets: ['test content'], tags: []},
+                  impact: 'low',
                   path: `${domain}/topic`,
                   reason: 'testing semantic domain',
                   title: 'Test',
@@ -178,7 +184,9 @@ describe('Curate Tool', () => {
             basePath,
             operations: [
               {
+                confidence: 'high',
                 content: {keywords: [], snippets: ['test'], tags: []},
+                impact: 'low',
                 path: `custom_domain_${i}/topic`,
                 reason: 'testing',
                 title: 'Test',
@@ -194,7 +202,9 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['code style rules'], tags: []},
+              impact: 'low',
               path: 'code_style/formatting',
               reason: 'testing predefined after custom',
               title: 'Code Style Rules',
@@ -214,7 +224,9 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['test'], tags: []},
+              impact: 'low',
               path: 'authentication/login',
               reason: 'testing',
               title: 'Login Flow',
@@ -228,7 +240,9 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['logout content'], tags: []},
+              impact: 'low',
               path: 'authentication/logout',
               reason: 'testing additional topic',
               title: 'Logout Flow',
@@ -254,7 +268,9 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['test'], tags: []},
+              impact: 'low',
               path: 'Code Style/error-handling',
               reason: 'testing normalization',
               title: 'Best Practices',
@@ -279,7 +295,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test snippet'], tags: []},
+            impact: 'low',
             path: 'code_style/formatting',
             reason: 'testing filePath',
             title: 'Formatting Rules',
@@ -303,7 +321,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['original'], tags: []},
+            impact: 'low',
             path: 'code_style/formatting',
             reason: 'create',
             title: 'Formatting Rules',
@@ -317,7 +337,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['updated'], tags: []},
+            impact: 'low',
             path: 'code_style/formatting',
             reason: 'update',
             title: 'Formatting Rules',
@@ -338,14 +360,18 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['source content'], tags: []},
+            impact: 'low',
             path: 'code_style/old_topic',
             reason: 'create source',
             title: 'Old Guide',
             type: 'ADD',
           },
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['target content'], tags: []},
+            impact: 'low',
             path: 'code_style/new_topic',
             reason: 'create target',
             title: 'New Guide',
@@ -359,6 +385,8 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
+            impact: 'low',
             mergeTarget: 'code_style/new_topic',
             mergeTargetTitle: 'New Guide',
             path: 'code_style/old_topic',
@@ -382,7 +410,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['updated'], tags: []},
+            impact: 'low',
             path: 'code_style/nonexistent',
             reason: 'update',
             title: 'Nonexistent',
@@ -404,7 +434,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test'], tags: []},
+            impact: 'low',
             path: 'code_style/error_handling',
             reason: 'testing naming',
             title: 'Best Practices for Errors',
@@ -428,7 +460,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test'], tags: []},
+            impact: 'low',
             path: 'code_style/formatting',
             reason: 'testing special chars',
             title: 'Error-Handling & Best_Practices',
@@ -451,7 +485,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['subtopic content'], tags: []},
+            impact: 'low',
             path: 'code_style/error_handling/logging',
             reason: 'testing subtopic',
             title: 'Logging Best Practices',
@@ -477,7 +513,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test'], tags: []},
+            impact: 'low',
             path: 'code_style/topic',
             reason: 'testing',
             type: 'ADD',
@@ -496,6 +534,8 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
+            impact: 'low',
             path: 'code_style/topic',
             reason: 'testing',
             title: 'Test',
@@ -515,7 +555,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test'], tags: []},
+            impact: 'low',
             path: 'invalid', // Only one segment
             reason: 'testing',
             title: 'Test',
@@ -537,20 +579,26 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['first'], tags: []},
+            impact: 'low',
             path: 'code_style/topic1',
             reason: 'add 1',
             title: 'First',
             type: 'ADD',
           },
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['second'], tags: []},
+            impact: 'low',
             path: 'design/topic2',
             reason: 'add 2',
             title: 'Second',
             type: 'ADD',
           },
           {
+            confidence: 'high',
+            impact: 'low',
             path: 'invalid',
             reason: 'should fail',
             title: 'Fail',
@@ -574,6 +622,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['test content'], tags: []},
               domainContext: {
                 ownership: 'Platform Security Team',
@@ -584,6 +633,7 @@ describe('Curate Tool', () => {
                 },
                 usage: 'Use this domain for documenting authentication flows and identity verification.',
               },
+              impact: 'low',
               path: 'authentication/jwt',
               reason: 'testing domain context creation',
               title: 'Token Handling',
@@ -620,7 +670,9 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['test content'], tags: []},
+              impact: 'low',
               path: 'caching/redis',
               reason: 'testing no context creation without domainContext',
               title: 'Redis Setup',
@@ -650,6 +702,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['first content'], tags: []},
               domainContext: {
                 purpose: 'Original purpose description.',
@@ -657,6 +710,7 @@ describe('Curate Tool', () => {
                   included: ['Original included item'],
                 },
               },
+              impact: 'low',
               path: 'testing/unit',
               reason: 'first add',
               title: 'First Topic',
@@ -675,6 +729,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['second content'], tags: []},
               domainContext: {
                 purpose: 'This should NOT overwrite the original.',
@@ -682,6 +737,7 @@ describe('Curate Tool', () => {
                   included: ['New included item'],
                 },
               },
+              impact: 'low',
               path: 'testing/integration',
               reason: 'second add',
               title: 'Second Topic',
@@ -714,6 +770,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['updated content'], tags: []},
               domainContext: {
                 purpose: 'API design patterns and guidelines.',
@@ -721,6 +778,7 @@ describe('Curate Tool', () => {
                   included: ['REST API endpoints', 'GraphQL schemas'],
                 },
               },
+              impact: 'low',
               path: 'api_design/endpoints',
               reason: 'updating with domain context',
               title: 'Rest Api',
@@ -758,12 +816,14 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               domainContext: {
                 purpose: 'Shared domain context for merge test.',
                 scope: {
                   included: ['Merged content'],
                 },
               },
+              impact: 'low',
               mergeTarget: 'new_domain/new_topic',
               mergeTargetTitle: 'Target File',
               path: 'old_domain/old_topic',
@@ -793,6 +853,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['test'], tags: []},
               domainContext: {
                 ownership: 'Core Infrastructure Team\nMaintained by DevOps group.',
@@ -804,6 +865,7 @@ describe('Curate Tool', () => {
                 usage:
                   'Backend engineers should reference this domain when:\n- Setting up new database connections\n- Writing complex queries\n- Creating migrations',
               },
+              impact: 'low',
               path: 'database/connections',
               reason: 'full domainContext test',
               title: 'Connection Pool',
@@ -834,6 +896,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['test'], tags: []},
               domainContext: {
                 purpose: 'Minimal domain with only required fields.',
@@ -841,6 +904,7 @@ describe('Curate Tool', () => {
                   included: ['Required item 1', 'Required item 2'],
                 },
               },
+              impact: 'low',
               path: 'minimal_domain/topic',
               reason: 'minimal domainContext test',
               title: 'Test Topic',
@@ -872,7 +936,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test'], tags: []},
+            impact: 'low',
             path: 'invalid', // Invalid path - only one segment
             reason: 'testing',
             title: 'Test',
@@ -895,7 +961,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test'], tags: []},
+            impact: 'low',
             path: 'code_style/new_topic',
             reason: 'testing',
             type: 'ADD',
@@ -918,6 +986,8 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
+            impact: 'low',
             path: 'design/patterns',
             reason: 'testing',
             title: 'Test',
@@ -942,7 +1012,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test'], tags: []},
+            impact: 'low',
             path: '/topic', // Invalid - empty domain
             reason: 'testing empty domain',
             title: 'Test',
@@ -968,7 +1040,9 @@ describe('Curate Tool', () => {
         basePath: freshBasePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test content'], tags: []},
+            impact: 'low',
             path: 'code_style/error_handling/logging',
             reason: 'testing directory creation',
             title: 'Logging Guide',

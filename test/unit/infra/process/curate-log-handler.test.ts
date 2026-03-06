@@ -270,6 +270,108 @@ describe('CurateLogHandler', () => {
       expect(completedEntry.operations[0].reviewStatus).to.be.undefined
     })
 
+    it('should deduplicate operations by filePath, keeping the latest', async () => {
+      // First tool result: initial UPSERT for a file
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [{
+            confidence: 'low',
+            filePath: '/app/.brv/context-tree/design/caching/caching_strategy.md',
+            impact: 'low',
+            needsReview: true,
+            path: 'design/caching',
+            reason: 'first pass',
+            status: 'success',
+            type: 'UPSERT',
+          }],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      // Second tool result: same file updated again
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [{
+            confidence: 'low',
+            filePath: '/app/.brv/context-tree/design/caching/caching_strategy.md',
+            impact: 'high',
+            needsReview: true,
+            path: 'design/caching',
+            reason: 'second pass - final version',
+            status: 'success',
+            type: 'UPSERT',
+          }],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handler.onTaskCompleted('task-abc', 'done', makeTask())
+
+      const completedEntry: CurateLogEntry = store.save.secondCall.args[0]
+      // Should have only 1 operation, not 2
+      expect(completedEntry.operations).to.have.lengthOf(1)
+      expect(completedEntry.operations[0].reason).to.equal('second pass - final version')
+      expect(completedEntry.operations[0].impact).to.equal('high')
+    })
+
+    it('should keep separate operations for different filePaths', async () => {
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [
+            {filePath: '/app/.brv/context-tree/design/caching/redis.md', path: 'design/caching', status: 'success', type: 'ADD'},
+            {filePath: '/app/.brv/context-tree/design/caching/memcache.md', path: 'design/caching', status: 'success', type: 'ADD'},
+          ],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handler.onTaskCompleted('task-abc', 'done', makeTask())
+
+      const completedEntry: CurateLogEntry = store.save.secondCall.args[0]
+      expect(completedEntry.operations).to.have.lengthOf(2)
+    })
+
+    it('should not deduplicate operations without filePath', async () => {
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [
+            {path: 'design/caching', status: 'failed', type: 'ADD'},
+          ],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [
+            {path: 'design/caching', status: 'failed', type: 'ADD'},
+          ],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handler.onTaskCompleted('task-abc', 'done', makeTask())
+
+      const completedEntry: CurateLogEntry = store.save.secondCall.args[0]
+      // Both kept since no filePath to deduplicate on
+      expect(completedEntry.operations).to.have.lengthOf(2)
+    })
+
     it('should silently skip unknown taskId', () => {
       expect(() => {
         handler.onToolResult('unknown-task', {

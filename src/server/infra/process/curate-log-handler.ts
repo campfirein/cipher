@@ -237,9 +237,19 @@ export class CurateLogHandler implements ITaskLifecycleHook {
       if (op.needsReview) {
         op.reviewStatus = 'pending'
       }
-    }
 
-    state.operations.push(...ops)
+      // Deduplicate by filePath: keep only the latest operation per file.
+      // This ensures the reviewer sees the final version, not intermediate states.
+      if (op.filePath) {
+        const existingIndex = state.operations.findIndex((existing) => existing.filePath === op.filePath)
+        if (existingIndex !== -1) {
+          state.operations[existingIndex] = op
+          continue
+        }
+      }
+
+      state.operations.push(op)
+    }
   }
 
   // ── Private helpers ─────────────────────────────────────────────────────────

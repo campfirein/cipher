@@ -207,7 +207,6 @@ const SubtopicContextSchema = z.object({
 const OperationSchema = z.object({
   confidence: z
     .enum(['high', 'low'])
-    .default('low')
     .describe(
       'Your confidence in the accuracy and completeness of this operation. Use "high" when you have direct evidence from the source material; use "low" when the information is inferred, uncertain, or incomplete.',
     ),
@@ -216,10 +215,9 @@ const OperationSchema = z.object({
     'Domain-level context for new domains. When creating content in a NEW domain, provide this to auto-generate domain/context.md with purpose, scope, ownership, and usage. Only needed when the domain does not exist yet.',
   ),
   impact: z
-    .enum(['high', 'low', 'medium'])
-    .default('low')
+    .enum(['high', 'low'])
     .describe(
-      'Estimated scope of impact of this knowledge change. Use "high" for deletions or major architectural/structural changes; "medium" for significant updates to existing knowledge; "low" for new additions or minor updates.',
+      'Estimated scope of impact of this knowledge change. "high": Changes that alter core decisions, strategies, tools, or established approaches. Any change that contradicts or reverses previously curated knowledge. Updates to existing knowledge that change its core substance. Deletions are always high impact. "low": New additions to previously undocumented topics, minor corrections, supplementary details like examples and clarifications, or updates that extend existing knowledge without changing its core substance.',
     ),
   mergeTarget: z.string().optional().describe('Target path for MERGE operation'),
   mergeTargetTitle: z.string().optional().describe('Title of the target file for MERGE operation'),
@@ -308,7 +306,7 @@ export interface OperationResult {
   /** Full filesystem path to the created/modified file (for ADD/UPDATE/MERGE) or deleted file. */
   filePath?: string
   /** Scope of impact: DELETE is high, UPDATE is medium, others are low. */
-  impact: 'high' | 'low' | 'medium'
+  impact: 'high' | 'low'
   message?: string
   /** Whether this operation should be flagged for human review in the web inbox. */
   needsReview: boolean
@@ -324,15 +322,15 @@ export interface OperationResult {
  * confidence and impact are LLM-provided (schema defaults applied by Zod when omitted).
  * needsReview:
  *   - DELETE always (irreversible)
- *   - low confidence + high impact (uncertain about something that matters)
- *   - high confidence or low/medium impact → no review
+ *   - high impact always (core decisions, strategy changes, contradictions)
+ *   - low impact → no review (minor additions/corrections)
  */
 function deriveReviewMetadata(
   type: OperationType,
   confidence: 'high' | 'low',
-  impact: 'high' | 'low' | 'medium',
-): {confidence: 'high' | 'low'; impact: 'high' | 'low' | 'medium'; needsReview: boolean} {
-  const needsReview = type === 'DELETE' || (confidence === 'low' && impact === 'high')
+  impact: 'high' | 'low',
+): {confidence: 'high' | 'low'; impact: 'high' | 'low'; needsReview: boolean} {
+  const needsReview = type === 'DELETE' || impact === 'high'
   return {confidence, impact, needsReview}
 }
 
@@ -721,10 +719,10 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
  * Compute the maximum of two impact levels.
  */
 function maxImpact(
-  a: 'high' | 'low' | 'medium',
-  b: 'high' | 'low' | 'medium',
-): 'high' | 'low' | 'medium' {
-  const rank = {high: 2, low: 0, medium: 1} as const
+  a: 'high' | 'low',
+  b: 'high' | 'low',
+): 'high' | 'low' {
+  const rank = {high: 1, low: 0} as const
   return rank[a] >= rank[b] ? a : b
 }
 
