@@ -154,6 +154,9 @@
       "s3": {
         "host": "https://storage.googleapis.com/brv-releases"
       },
+      "autoupdate": {
+        "debounce": 1
+      },
       "node": {
         "version": "24.13.1"
       }
