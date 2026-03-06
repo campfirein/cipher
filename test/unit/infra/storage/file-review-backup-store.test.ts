@@ -70,6 +70,38 @@ describe('FileReviewBackupStore', () => {
 
       expect(await store.read('auth/jwt/refresh.md')).to.equal('new content')
     })
+
+    it('should prune empty parent directories after deleting the last file', async () => {
+      await store.save('auth/jwt/refresh.md', 'content')
+      await store.delete('auth/jwt/refresh.md')
+
+      expect(await store.list()).to.deep.equal([])
+      // The backup root itself should be gone when it becomes empty
+      expect(await store.has('auth/jwt/refresh.md')).to.be.false
+    })
+
+    it('should not prune a directory that still has other files', async () => {
+      await store.save('auth/jwt/refresh.md', 'content')
+      await store.save('auth/jwt/access.md', 'other')
+
+      await store.delete('auth/jwt/refresh.md')
+
+      // auth/jwt/ dir still exists because access.md is there
+      expect(await store.has('auth/jwt/access.md')).to.be.true
+    })
+
+    it('should prune recursively when all files under a nested path are deleted', async () => {
+      await store.save('auth/jwt/refresh.md', 'a')
+      await store.save('auth/session/cookie.md', 'b')
+
+      await store.delete('auth/jwt/refresh.md')
+      // auth/session/cookie.md still present — auth/ dir not pruned yet
+      expect(await store.list()).to.deep.equal(['auth/session/cookie.md'])
+
+      await store.delete('auth/session/cookie.md')
+      // Now everything is gone
+      expect(await store.list()).to.deep.equal([])
+    })
   })
 
   describe('clear', () => {
