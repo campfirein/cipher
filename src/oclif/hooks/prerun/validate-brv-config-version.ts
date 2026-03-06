@@ -10,7 +10,6 @@ import {type AutoInitDeps, ensureProjectInitialized} from '../../../server/infra
 import {ProjectConfigStore} from '../../../server/infra/config/file-config-store.js'
 import {ensureCurateViewPatched} from '../../../server/infra/connectors/shared/rule-segment-patcher.js'
 import {FileContextTreeService} from '../../../server/infra/context-tree/file-context-tree-service.js'
-import {FileContextTreeSnapshotService} from '../../../server/infra/context-tree/file-context-tree-snapshot-service.js'
 import {syncConfigToXdg} from '../../../server/utils/config-xdg-sync.js'
 import {getProjectDataDir} from '../../../server/utils/path-utils.js'
 
@@ -74,7 +73,6 @@ export const validateBrvConfigVersion = async (
     // Auto-init: create .brv/ with minimal local config
     const deps = autoInitDeps ?? {
       contextTreeService: new FileContextTreeService(),
-      contextTreeSnapshotService: new FileContextTreeSnapshotService(),
       projectConfigStore: configStore,
     }
     await ensureProjectInitialized(deps)

@@ -33,23 +33,27 @@ import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-sto
 
 import {GitAuthError, GitError} from '../../core/domain/errors/git-error.js'
 
-export type IsomorphicGitServiceConfig = {
-  cogitGitBaseUrl: string
+/** Shape of isomorphic-git's MergeConflictError.data property. */
+type IsomorphicGitConflictData = {
+  bothModified: string[]
+  deleteByTheirs: string[]
+  deleteByUs: string[]
+  filepaths: string[]
 }
 
-export class IsomorphicGitService implements IGitService {
-  public constructor(
-    private readonly authStateStore: IAuthStateStore,
-    private readonly config: IsomorphicGitServiceConfig,
-  ) {}
+/** isomorphic-git's MergeConflictError — extends Error with a typed `data` property. */
+type IsomorphicGitMergeConflictError = Error & {data?: IsomorphicGitConflictData}
 
-  private static isMergeConflictData(data: unknown): data is {filepaths: string[]} {
-    return (
-      typeof data === 'object' &&
-      data !== null &&
-      'filepaths' in data &&
-      Array.isArray((data as {filepaths: unknown}).filepaths)
-    )
+export class IsomorphicGitService implements IGitService {
+  public constructor(private readonly authStateStore: IAuthStateStore) {}
+
+  private static isConflictError(error: Error): error is IsomorphicGitMergeConflictError {
+    return 'data' in error
+  }
+
+  private static isMergeConflictData(data: unknown): data is IsomorphicGitConflictData {
+    if (typeof data !== 'object' || data === null) return false
+    return 'filepaths' in data && Array.isArray(data.filepaths)
   }
 
   async add(params: AddGitParams): Promise<void> {
@@ -62,15 +66,6 @@ export class IsomorphicGitService implements IGitService {
     await git.addRemote({dir, fs, remote: params.remote, url: params.url})
   }
 
-  /**
-   * Build the CoGit Git remote URL for a given team and space.
-   * Format: {cogitGitBaseUrl}/git/{teamId}/{spaceId}.git
-   */
-  buildCogitRemoteUrl(teamId: string, spaceId: string): string {
-    const base = this.config.cogitGitBaseUrl.replace(/\/$/, '')
-    return `${base}/git/${teamId}/${spaceId}.git`
-  }
-
   async checkout(params: CheckoutGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
     await git.checkout({dir, fs, ref: params.ref})
@@ -80,11 +75,16 @@ export class IsomorphicGitService implements IGitService {
     const dir = this.requireDirectory(params)
     const author = params.author ?? this.getAuthor()
     const sha = await git.commit({author, dir, fs, message: params.message})
+    const {commit: commitObj} = await git.readCommit({dir, fs, oid: sha})
+
+    // Clean up MERGE_HEAD if present (isomorphic-git does not remove it automatically)
+    await fs.promises.unlink(join(dir, '.git', 'MERGE_HEAD')).catch(() => {})
+
     return {
       author,
       message: params.message,
       sha,
-      timestamp: new Date(),
+      timestamp: new Date(commitObj.author.timestamp * 1000),
     }
   }
 
@@ -145,7 +145,7 @@ export class IsomorphicGitService implements IGitService {
       }),
     )
 
-    return conflicts
+    return conflicts.sort((a, b) => a.path.localeCompare(b.path))
   }
 
   async getCurrentBranch(params: BaseGitParams): Promise<string | undefined> {
@@ -163,6 +163,14 @@ export class IsomorphicGitService implements IGitService {
   async init(params: InitGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
     await git.init({defaultBranch: params.defaultBranch ?? 'main', dir, fs})
+  }
+
+  async isInitialized(params: BaseGitParams): Promise<boolean> {
+    const dir = this.requireDirectory(params)
+    return fs.promises
+      .access(join(dir, '.git'))
+      .then(() => true)
+      .catch(() => false)
   }
 
   async listBranches(params: BaseGitParams): Promise<GitBranch[]> {
@@ -190,7 +198,7 @@ export class IsomorphicGitService implements IGitService {
       }))
     } catch (error) {
       // No commits yet — HEAD ref does not exist
-      if (error instanceof Error && error.name === 'NotFoundError') return []
+      if (error instanceof git.Errors.NotFoundError) return []
       throw error
     }
   }
@@ -200,6 +208,7 @@ export class IsomorphicGitService implements IGitService {
     const author = this.getAuthor()
     try {
       await git.merge({
+        abortOnConflict: false,
         author,
         committer: author,
         dir,
@@ -208,8 +217,11 @@ export class IsomorphicGitService implements IGitService {
       })
       return {success: true}
     } catch (error) {
-      if (error instanceof Error && error.name === 'MergeConflictError') {
-        return {conflicts: await this.conflictsFromError(dir, error), success: false}
+      if (error instanceof git.Errors.MergeConflictError) {
+        // isomorphic-git does not write MERGE_HEAD — write it so getConflicts() works post-restart
+        const theirsOid = await git.resolveRef({dir, fs, ref: params.branch})
+        await fs.promises.writeFile(join(dir, '.git', 'MERGE_HEAD'), `${theirsOid}\n`)
+        return {conflicts: this.conflictsFromError(error), success: false}
       }
 
       throw error
@@ -219,22 +231,40 @@ export class IsomorphicGitService implements IGitService {
   async pull(params: PullGitParams): Promise<PullResult> {
     const dir = this.requireDirectory(params)
     this.requireToken()
+    const remote = params.remote ?? 'origin'
+
+    // Fetch from remote
+    await git.fetch({
+      dir,
+      fs,
+      http,
+      onAuth: this.getOnAuth(),
+      onAuthFailure: this.getOnAuthFailure(),
+      remote,
+      ...(params.branch ? {remoteRef: params.branch} : {}),
+    })
+
+    // Determine which remote-tracking branch to merge
+    const localBranch = params.branch ?? (await this.getCurrentBranch(params))
+    if (!localBranch) throw new GitError('Cannot determine branch for pull')
+
     const author = this.getAuthor()
     try {
-      await git.pull({
+      await git.merge({
+        abortOnConflict: false,
         author,
+        committer: author,
         dir,
         fs,
-        http,
-        onAuth: this.getOnAuth(),
-        onAuthFailure: this.getOnAuthFailure(),
-        ref: params.branch,
-        remote: params.remote ?? 'origin',
+        theirs: `${remote}/${localBranch}`,
       })
       return {success: true}
     } catch (error) {
-      if (error instanceof Error && error.name === 'MergeConflictError') {
-        return {conflicts: await this.conflictsFromError(dir, error), success: false}
+      if (error instanceof git.Errors.MergeConflictError) {
+        // isomorphic-git does not write MERGE_HEAD — write it so getConflicts() works post-restart
+        const theirsOid = await git.resolveRef({dir, fs, ref: `refs/remotes/${remote}/${localBranch}`})
+        await fs.promises.writeFile(join(dir, '.git', 'MERGE_HEAD'), `${theirsOid}\n`)
+        return {conflicts: this.conflictsFromError(error), success: false}
       }
 
       throw error
@@ -256,7 +286,7 @@ export class IsomorphicGitService implements IGitService {
       })
       return {success: true}
     } catch (error) {
-      if (error instanceof Error && error.name === 'PushRejectedError') {
+      if (error instanceof git.Errors.PushRejectedError) {
         return {message: error.message, reason: 'non_fast_forward', success: false}
       }
 
@@ -272,39 +302,37 @@ export class IsomorphicGitService implements IGitService {
   async status(params: BaseGitParams): Promise<GitStatus> {
     const dir = this.requireDirectory(params)
     const matrix = await git.statusMatrix({dir, fs})
-    const files = matrix
-      .map(([filepath, head, workdir]) => {
-        if (head === 0 && workdir === 2) return {path: filepath, status: 'added' as const}
-        if (head === 1 && workdir === 2) return {path: filepath, status: 'modified' as const}
-        if (head === 1 && workdir === 0) return {path: filepath, status: 'deleted' as const}
-        return null
-      })
-      .filter((f): f is GitStatusFile => f !== null)
+    const files: GitStatusFile[] = matrix.flatMap(([filepath, head, workdir]): GitStatusFile[] => {
+      if (head === 0 && workdir === 2) return [{path: String(filepath), status: 'added'}]
+      if (head === 1 && workdir === 2) return [{path: String(filepath), status: 'modified'}]
+      if (head === 1 && workdir === 0) return [{path: String(filepath), status: 'deleted'}]
+      return []
+    })
     return {files, isClean: files.length === 0}
   }
 
-  private async conflictsFromError(dir: string, error: Error): Promise<GitConflict[]> {
-    const {data} = error as {data?: unknown}
-    if (!IsomorphicGitService.isMergeConflictData(data)) return []
+  private conflictsFromError(error: Error): GitConflict[] {
+    if (!IsomorphicGitService.isConflictError(error)) return []
+    const conflictData = error.data
+    if (!IsomorphicGitService.isMergeConflictData(conflictData)) return []
 
-    const conflictPaths = new Set(data.filepaths)
-    const matrix = await git.statusMatrix({dir, fs})
+    const deletedPaths = new Set([...(conflictData.deleteByTheirs ?? []), ...(conflictData.deleteByUs ?? [])])
+    const bothModifiedPaths = new Set(conflictData.bothModified ?? [])
 
-    return matrix
-      .filter(([filepath]) => conflictPaths.has(String(filepath)))
-      .map(([filepath, head, workdir]) => {
-        const path = String(filepath)
-        const type: GitConflict['type'] =
-          head === 0 ? 'both_added' : workdir === 0 ? 'deleted_modified' : 'both_modified'
-        return {path, type}
-      })
+    return conflictData.filepaths
+      .map((path): GitConflict => ({
+        path,
+        type: deletedPaths.has(path) ? 'deleted_modified' : bothModifiedPaths.has(path) ? 'both_modified' : 'both_added',
+      }))
+      .sort((a, b) => a.path.localeCompare(b.path))
   }
 
   private getAuthor(): {email: string; name: string} {
     const token = this.authStateStore.getToken()
+    if (!token) throw new GitAuthError()
     return {
-      email: token?.userEmail ?? 'agent@byterover.dev',
-      name: token?.userEmail?.split('@')[0] ?? 'ByteRover Agent',
+      email: token.userEmail,
+      name: token.userEmail,
     }
   }
 
@@ -326,6 +354,7 @@ export class IsomorphicGitService implements IGitService {
   }
 
   private requireDirectory(params: BaseGitParams): string {
+    // Guard against empty string — undefined/null are caught by TypeScript at compile time
     if (!params.directory) throw new GitError('directory is required for git operations')
     return params.directory
   }

@@ -4,6 +4,7 @@ import {connectorsCommand} from './connectors.js'
 import {curateCommand} from './curate.js'
 import {exitCommand} from './exit.js'
 import {hubCommand} from './hub.js'
+import {initCommand} from './init.js'
 import {loginCommand} from './login.js'
 import {logoutCommand} from './logout.js'
 import {modelCommand} from './model.js'
@@ -44,6 +45,9 @@ export const load: () => SlashCommand[] = () => [
 
   // Space management
   spaceCommand,
+
+  // Git semantic
+  initCommand,
 
   // Context tree management
   resetCommand,
