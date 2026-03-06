@@ -51,7 +51,7 @@
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
     "inquirer-file-selector": "^1.0.1",
-    "isomorphic-git": "^1.27.0",
+    "isomorphic-git": "^1.37.2",
     "js-yaml": "^4.1.1",
     "lodash-es": "^4.17.22",
     "minisearch": "^7.2.0",
