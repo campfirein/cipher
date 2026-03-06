@@ -18,9 +18,11 @@ const CurateLogOperationFileSchema = z.object({
   message: z.string().optional(),
   needsReview: z.boolean().optional(),
   path: z.string(),
+  previousSummary: z.string().optional(),
   reason: z.string().optional(),
   reviewStatus: z.enum(['approved', 'pending', 'rejected']).optional(),
   status: z.enum(['failed', 'success']),
+  summary: z.string().optional(),
   type: z.enum(['ADD', 'DELETE', 'MERGE', 'UPDATE', 'UPSERT']),
 })
 

@@ -230,6 +230,12 @@ const OperationSchema = z.object({
   subtopicContext: SubtopicContextSchema.optional().describe(
     'Subtopic-level context for new subtopics. When creating content in a NEW subtopic, provide this to auto-generate subtopic/context.md with focus and parent relation. Only needed when the subtopic does not exist yet.',
   ),
+  summary: z
+    .string()
+    .optional()
+    .describe(
+      'One-line semantic summary of what this knowledge file contains after this operation. For human reviewers to quickly grasp the content without reading the full document. Example: "Caching strategy using Redis with 5-min TTL and write-through invalidation". Required for ADD/UPDATE/UPSERT/MERGE, not needed for DELETE.',
+    ),
   title: z
     .string()
     .optional()
@@ -311,9 +317,13 @@ export interface OperationResult {
   /** Whether this operation should be flagged for human review in the web inbox. */
   needsReview: boolean
   path: string
+  /** Semantic summary of the file's content before this operation (for UPDATE/UPSERT/MERGE/DELETE). */
+  previousSummary?: string
   /** Human-facing motivation: WHY this knowledge was curated. Shown in web review inbox. */
   reason: string
   status: 'failed' | 'success'
+  /** Semantic summary of the file's content after this operation (for ADD/UPDATE/UPSERT/MERGE). */
+  summary?: string
   type: OperationType
 }
 
@@ -617,7 +627,8 @@ function buildFullPath(basePath: string, knowledgePath: string): string {
  * Execute ADD operation - create new domain/topic/subtopic with {title}.md
  */
 async function executeAdd(basePath: string, operation: Operation): Promise<OperationResult> {
-  const {confidence, content, domainContext, impact, path, reason, subtopicContext, title, topicContext} = operation
+  const {confidence, content, domainContext, impact, path, reason, subtopicContext, summary, title, topicContext} =
+    operation
   const reviewMeta = deriveReviewMetadata('ADD', confidence, impact)
 
   if (!title) {
@@ -686,6 +697,7 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
       relations: filteredContent.relations,
       scoring: applyDefaultScoring(),
       snippets: filteredContent.snippets ?? [],
+      summary,
       tags: filteredContent.tags,
     })
     const filename = `${toSnakeCase(title)}.md`
@@ -701,6 +713,7 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
       path,
       reason,
       status: 'success',
+      summary,
       type: 'ADD',
     }
   } catch (error) {
@@ -730,7 +743,8 @@ function maxImpact(
  * Execute UPDATE operation - modify existing {title}.md
  */
 async function executeUpdate(basePath: string, operation: Operation): Promise<OperationResult> {
-  const {confidence, content, domainContext, impact, path, reason, subtopicContext, title, topicContext} = operation
+  const {confidence, content, domainContext, impact, path, reason, subtopicContext, summary, title, topicContext} =
+    operation
   // Used for early-exit validation failures (before structural loss can be assessed)
   const baseReviewMeta = deriveReviewMetadata('UPDATE', confidence, impact)
 
@@ -800,8 +814,11 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
     // Filter out non-existent files from rawConcept.files
     const filteredContent = filterValidFiles(content)
 
-    // Detect structural loss and auto-resolve: merge back anything the LLM dropped
+    // Extract previous summary from existing file's frontmatter (for review UI)
     const existingParsed = existingContent ? MarkdownWriter.parseContent(existingContent, title) : null
+    const previousSummary = existingParsed?.summary
+
+    // Detect structural loss and auto-resolve: merge back anything the LLM dropped
     const proposedContextData = {
       facts: filteredContent.facts,
       keywords: filteredContent.keywords,
@@ -829,6 +846,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
       ...resolvedContextData,
       reason,
       scoring: finalScoring,
+      summary,
     })
     await backupBeforeWrite(contextPath, basePath)
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
@@ -840,8 +858,10 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
       filePath: contextPath,
       message: `Updated ${path}/${filename}. Reason: ${reason}`,
       path,
+      previousSummary,
       reason,
       status: 'success',
+      summary,
       type: 'UPDATE',
     }
   } catch (error) {
@@ -950,6 +970,7 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
     path,
     reason,
     subtopicContext,
+    summary,
     title,
     topicContext,
   } = operation
@@ -1043,11 +1064,15 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
     const sourceContent = await DirectoryManager.readFile(sourceContextPath)
     const targetContent = await DirectoryManager.readFile(targetContextPath)
 
+    // Extract previous summary from target file (for review UI)
+    const targetParsedContent = MarkdownWriter.parseContent(targetContent, mergeTargetTitle)
+    const previousSummary = targetParsedContent.summary
+
     // Backup both files before merge modifies target and deletes source
     await backupBeforeWrite(targetContextPath, basePath)
     await backupBeforeWrite(sourceContextPath, basePath)
 
-    const mergedContent = MarkdownWriter.mergeContexts(sourceContent, targetContent, reason)
+    const mergedContent = MarkdownWriter.mergeContexts(sourceContent, targetContent, reason, summary)
     await DirectoryManager.writeFileAtomic(targetContextPath, mergedContent)
 
     await DirectoryManager.deleteFile(sourceContextPath)
@@ -1061,8 +1086,10 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
       filePath: targetContextPath,
       message: `Merged ${path}/${sourceFilename} into ${mergeTarget}/${targetFilename}. Reason: ${reason}`,
       path,
+      previousSummary,
       reason,
       status: 'success',
+      summary,
       type: 'MERGE',
     }
   } catch (error) {
@@ -1105,6 +1132,17 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
         }
       }
 
+      // Extract previous summary from file being deleted (for review UI)
+      let previousSummary: string | undefined
+      try {
+        const existingContent = await DirectoryManager.readFile(filePath)
+        if (existingContent) {
+          previousSummary = MarkdownWriter.parseContent(existingContent, title).summary
+        }
+      } catch {
+        // Best-effort: summary extraction failure must never block delete
+      }
+
       await backupBeforeWrite(filePath, basePath)
       await DirectoryManager.deleteFile(filePath)
 
@@ -1113,6 +1151,7 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
         filePath,
         message: `Deleted ${path}/${filename}. Reason: ${reason}`,
         path,
+        previousSummary,
         reason,
         status: 'success',
         type: 'DELETE',

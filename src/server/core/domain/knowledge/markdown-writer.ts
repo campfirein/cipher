@@ -53,6 +53,7 @@ export interface ContextData {
   relations?: string[]
   scoring?: FrontmatterScoring
   snippets: string[]
+  summary?: string
   tags: string[]
 }
 
@@ -64,6 +65,7 @@ interface Frontmatter {
   maturity?: 'core' | 'draft' | 'validated'
   recency?: number
   related: string[]
+  summary?: string
   tags: string[]
   title?: string
   updateCount?: number
@@ -85,6 +87,7 @@ function generateFrontmatter(
   tags: string[] = [],
   keywords: string[] = [],
   scoring?: FrontmatterScoring,
+  summary?: string,
 ): string {
   const normalizedRelations = (relations || []).map(rel => normalizeRelationPath(rel))
 
@@ -92,6 +95,10 @@ function generateFrontmatter(
 
   if (title) {
     fm.title = title
+  }
+
+  if (summary) {
+    fm.summary = summary
   }
 
   fm.tags = tags
@@ -175,6 +182,10 @@ function parseFrontmatter(content: string): null | ParsedFrontmatter {
 
     if (typeof parsed.title === 'string') {
       frontmatter.title = parsed.title
+    }
+
+    if (typeof parsed.summary === 'string') {
+      frontmatter.summary = parsed.summary
     }
 
     // Scoring fields (backward compatible — absent in old files)
@@ -737,6 +748,7 @@ export function updateScoringInContent(content: string, scoring: FrontmatterScor
     frontmatter.tags,
     frontmatter.keywords,
     scoring,
+    frontmatter.summary,
   )
 
   return updatedFrontmatter + body
@@ -747,6 +759,7 @@ function parseContentWithFrontmatter(content: string): {
   keywords: string[]
   relations: string[]
   scoring?: FrontmatterScoring
+  summary?: string
   tags: string[]
   title?: string
 } {
@@ -758,6 +771,7 @@ function parseContentWithFrontmatter(content: string): {
       keywords: parsed.frontmatter.keywords,
       relations: parsed.frontmatter.related,
       scoring: extractScoring(parsed.frontmatter),
+      summary: parsed.frontmatter.summary,
       tags: parsed.frontmatter.tags,
       title: parsed.frontmatter.title,
     }
@@ -777,7 +791,7 @@ export const MarkdownWriter = {
     const snippets = (data.snippets || []).filter(s => s && s.trim())
     const relations = data.relations || []
 
-    const frontmatter = generateFrontmatter(data.name, relations, data.tags, data.keywords, data.scoring)
+    const frontmatter = generateFrontmatter(data.name, relations, data.tags, data.keywords, data.scoring, data.summary)
     const reasonSection = generateReasonSection(data.reason)
     const rawConceptSection = generateRawConceptSection(data.rawConcept)
     const narrativeSection = generateNarrativeSection(data.narrative)
@@ -811,7 +825,7 @@ export const MarkdownWriter = {
     return `${frontmatter}${body}`
   },
 
-  mergeContexts(sourceContent: string, targetContent: string, reason?: string): string {
+  mergeContexts(sourceContent: string, targetContent: string, reason?: string, summary?: string): string {
     const sourceParsed = parseContentWithFrontmatter(sourceContent)
     const targetParsed = parseContentWithFrontmatter(targetContent)
     const mergedRelations = [...new Set([...sourceParsed.relations, ...targetParsed.relations])]
@@ -868,12 +882,13 @@ export const MarkdownWriter = {
       relations: mergedRelations,
       scoring: mergedScoringData,
       snippets: mergedSnippets,
+      summary: summary ?? sourceParsed.summary ?? targetParsed.summary,
       tags: mergedTags,
     })
   },
 
   parseContent(content: string, name: string = ''): ContextData {
-    const { body, keywords, relations, scoring, tags, title } = parseContentWithFrontmatter(content)
+    const { body, keywords, relations, scoring, summary, tags, title } = parseContentWithFrontmatter(content)
 
     return {
       facts: parseFactsSection(body),
@@ -885,6 +900,7 @@ export const MarkdownWriter = {
       relations,
       scoring,
       snippets: extractSnippetsFromContent(body),
+      summary,
       tags,
     }
   },
