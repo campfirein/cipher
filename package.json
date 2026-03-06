@@ -1,7 +1,7 @@
 {
   "name": "byterover-cli",
   "description": "ByteRover's CLI",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "ByteRover",
   "bin": {
     "brv": "./bin/run.js"
@@ -13,7 +13,6 @@
     "@ai-sdk/cohere": "^2.0.0",
     "@ai-sdk/deepinfra": "^1.0.35",
     "@ai-sdk/google": "^2.0.52",
-    "@ai-sdk/google-vertex": "^3.0.100",
     "@ai-sdk/groq": "^2.0.34",
     "@ai-sdk/mistral": "^2.0.27",
     "@ai-sdk/openai": "^2.0.89",
@@ -23,7 +22,6 @@
     "@ai-sdk/vercel": "^1.0.33",
     "@ai-sdk/xai": "^2.0.57",
     "@anthropic-ai/sdk": "^0.70.1",
-    "@anthropic-ai/vertex-sdk": "^0.14.0",
     "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#release/0.8.2",
     "@google/genai": "^1.29.0",
     "@inkjs/ui": "^2.0.0",

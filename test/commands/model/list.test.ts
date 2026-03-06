@@ -153,18 +153,18 @@ describe('Model List Command', () => {
 
     it('should show provider errors when model fetch fails', async () => {
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
-      requestStub.onFirstCall().resolves({activeProviderId: 'google-vertex'})
+      requestStub.onFirstCall().resolves({activeProviderId: 'anthropic'})
       requestStub.onSecondCall().resolves({
-        providers: [{id: 'google-vertex', isConnected: true, name: 'Google Vertex AI'}],
+        providers: [{id: 'anthropic', isConnected: true, name: 'Anthropic'}],
       })
       requestStub.onThirdCall().resolves({
         models: [],
-        providerErrors: {'google-vertex': 'Google Cloud credentials not found. Run `gcloud auth application-default login`.'},
+        providerErrors: {anthropic: 'API key is invalid or expired.'},
       })
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('google-vertex:') && m.includes('Google Cloud credentials not found'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('anthropic:') && m.includes('API key is invalid or expired'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('No models available'))).to.be.false
     })
   })

@@ -154,9 +154,11 @@ describe('ToolManager', () => {
         const result = await toolManager.executeTool('read_file', {path: '/test'}, 'session-1')
 
         expect((mockScheduler.execute as SinonStub).calledOnce).to.be.true
-        // Now passes taskId in context (undefined when not provided)
+        // Now passes commandType, metadata, taskId in context (undefined when not provided)
         expect(
           (mockScheduler.execute as SinonStub).calledWith('read_file', {path: '/test'}, {
+            commandType: undefined,
+            metadata: undefined,
             sessionId: 'session-1',
             taskId: undefined,
           }),
@@ -169,8 +171,8 @@ describe('ToolManager', () => {
       it('should use default sessionId when not provided', async () => {
         await toolManager.executeTool('read_file', {})
 
-        // Now passes taskId in context (undefined when not provided)
-        expect((mockScheduler.execute as SinonStub).calledWith('read_file', {}, {sessionId: 'default', taskId: undefined})).to.be.true
+        // Now passes commandType, metadata, taskId in context (undefined when not provided)
+        expect((mockScheduler.execute as SinonStub).calledWith('read_file', {}, {commandType: undefined, metadata: undefined, sessionId: 'default', taskId: undefined})).to.be.true
       })
 
       it('should return error result when scheduler throws', async () => {
@@ -303,13 +305,14 @@ describe('ToolManager', () => {
         },
       }
       ;(mockToolProvider.getAllTools as SinonStub).returns(mockToolsWithCodeExec)
-      // Filter out code_exec to test filtering behavior
-      ;(mockToolProvider.hasTool as SinonStub).callsFake((name: string) => name !== 'code_exec')
+      // Filter out all curate tools (agentic_map, code_exec, expand_knowledge, llm_map) to test filtering behavior
+      const curateTools = new Set(['agentic_map', 'code_exec', 'expand_knowledge', 'llm_map'])
+      ;(mockToolProvider.hasTool as SinonStub).callsFake((name: string) => !curateTools.has(name))
       toolManager.refresh()
 
       const names = toolManager.getToolNamesForCommand('curate')
 
-      // Curate only uses code_exec, which we filtered out
+      // All curate tools are filtered out
       expect(names).to.deep.equal([])
     })
   })

@@ -26,13 +26,34 @@ import { convertZodToJsonSchema } from './utils/schema-converter.js'
  * 2. Execution phase (via invocation)
  */
 export class ToolProvider implements IToolProvider {
+  /**
+   * Known keys of ToolServices — used for runtime validation of Record<string, unknown> input.
+   * Derived from ToolServices type to prevent drift.
+   * TypeScript ensures this object matches ToolServices keys at compile time.
+   */
+  private static readonly VALID_SERVICE_KEYS = new Set<string>(
+    Object.keys({
+      agentInstance: 0,
+      contentGenerator: 0,
+      environmentContext: 0,
+      fileSystemService: 0,
+      getToolProvider: 0,
+      logger: 0,
+      maxContextTokens: 0,
+      memoryManager: 0,
+      processService: 0,
+      sandboxService: 0,
+      todoStorage: 0,
+      tokenizer: 0,
+    } satisfies Record<keyof ToolServices, 0>),
+  )
   private readonly descriptionLoader?: ToolDescriptionLoader
   private initialized: boolean = false
   private invocationBuilder?: ToolInvocationBuilder
   private services: ToolServices
   private readonly systemPromptManager?: SystemPromptManager
   private readonly toolMarkers: Set<string> = new Set()
-  private readonly tools: Map<string, Tool> = new Map()
+private readonly tools: Map<string, Tool> = new Map()
 
   /**
    * Creates a new tool provider
@@ -238,6 +259,80 @@ export class ToolProvider implements IToolProvider {
     this.invocationBuilder = new ToolInvocationBuilder(this.tools)
 
     this.initialized = true
+  }
+
+  /**
+   * Atomically replace specific tools with new service dependencies.
+   * Build-then-swap pattern: builds new tool instances first, only swaps if all succeed.
+   * Throws if any requested tool cannot be rebuilt (no partial swap).
+   */
+  public replaceTools(toolNames: string[], newServices: Record<string, unknown>): void {
+    // 0. Runtime key validation — catch typos in Record<string, unknown> early
+    for (const key of Object.keys(newServices)) {
+      if (!ToolProvider.VALID_SERVICE_KEYS.has(key)) {
+        throw new Error(`replaceTools: unknown service key "${key}" — valid keys: ${[...ToolProvider.VALID_SERVICE_KEYS].join(', ')}`)
+      }
+    }
+
+    // 1. Merge new services into existing (cast from Record to ToolServices)
+    const mergedServices: ToolServices = {
+      ...this.services,
+      ...newServices as Partial<ToolServices>,
+    }
+
+    // 2. Deduplicate input tool names
+    const uniqueToolNames = [...new Set(toolNames)]
+
+    // 3. Stage new tool instances — fail hard if any tool cannot be built
+    const stagedTools = new Map<string, Tool>()
+    for (const toolName of uniqueToolNames) {
+      const entry = TOOL_REGISTRY[toolName as keyof typeof TOOL_REGISTRY]
+      if (!entry) {
+        throw new Error(`replaceTools: unknown tool "${toolName}" not in TOOL_REGISTRY`)
+      }
+
+      // Check required services
+      const allServicesAvailable = entry.requiredServices.every(
+        (serviceName) => mergedServices[serviceName] !== undefined,
+      )
+      if (!allServicesAvailable) {
+        throw new Error(
+          `replaceTools: missing required services for "${toolName}": ${entry.requiredServices.join(', ')}`,
+        )
+      }
+
+      // Build tool (throws on factory failure — old tools remain intact)
+      const tool = entry.factory(mergedServices)
+
+      // Apply description loader overrides
+      const fileDescription = this.loadExternalDescription(entry.descriptionFile)
+      if (fileDescription) {
+        tool.description = fileDescription
+      }
+
+      stagedTools.set(toolName, tool)
+    }
+
+    // 4. Swap atomically — only reached if ALL builds succeeded
+    this.services = mergedServices
+    for (const [name, tool] of stagedTools) {
+      this.tools.set(name, tool)
+    }
+
+    // 5. Recompute markers from all registered tools
+    this.toolMarkers.clear()
+    for (const [toolName, entry] of Object.entries(TOOL_REGISTRY)) {
+      if (this.tools.has(toolName)) {
+        for (const marker of entry.markers) {
+          this.toolMarkers.add(marker)
+        }
+      }
+    }
+
+    // 6. Rebuild invocationBuilder
+    if (this.initialized && this.invocationBuilder) {
+      this.invocationBuilder = new ToolInvocationBuilder(this.tools)
+    }
   }
 
   /**

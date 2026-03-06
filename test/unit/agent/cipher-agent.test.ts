@@ -4,6 +4,7 @@ import {restore, stub} from 'sinon'
 import type {AgentConfig} from '../../../src/agent/infra/agent/index.js'
 
 import {CipherAgent} from '../../../src/agent/infra/agent/index.js'
+import {_resetNestingRegistryForTests, getNestingRecord} from '../../../src/agent/infra/map/agentic-map-service.js'
 import {BRV_CONFIG_VERSION} from '../../../src/server/constants.js'
 import {BrvConfig} from '../../../src/server/core/domain/entities/brv-config.js'
 
@@ -326,5 +327,42 @@ describe('CipherAgent', () => {
       expect(newSession.id).to.equal('post-refresh-session')
     })
 
+  })
+
+  describe('agentic_map registry integration', () => {
+    beforeEach(() => {
+      _resetNestingRegistryForTests()
+    })
+
+    afterEach(() => {
+      _resetNestingRegistryForTests()
+    })
+
+    it('createTaskSession with mapRootEligible registers root-eligible record', async () => {
+      const agent = new CipherAgent(agentConfig)
+      await agent.start()
+
+      const taskSessionId = await agent.createTaskSession('task-1', 'curate', {mapRootEligible: true})
+      const record = getNestingRecord(taskSessionId)
+      expect(record).to.not.be.undefined
+      expect(record!.isRootCaller).to.be.true
+      expect(record!.nestingDepth).to.equal(0)
+
+      await agent.deleteTaskSession(taskSessionId)
+      expect(getNestingRecord(taskSessionId)).to.be.undefined
+      await agent.stop()
+    })
+
+    it('createTaskSession without mapRootEligible does NOT register (default)', async () => {
+      const agent = new CipherAgent(agentConfig)
+      await agent.start()
+
+      const taskSessionId = await agent.createTaskSession('task-2', 'query')
+      const record = getNestingRecord(taskSessionId)
+      expect(record).to.be.undefined
+
+      await agent.deleteTaskSession(taskSessionId)
+      await agent.stop()
+    })
   })
 })

@@ -42,5 +42,7 @@ export default class Main extends Command {
     await startRepl({
       version: this.config.version,
     })
+
+    this.exit(0)
   }
 }

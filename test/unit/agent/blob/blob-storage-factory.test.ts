@@ -1,7 +1,7 @@
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
-import {createBlobStorage, SqliteBlobStorage} from '../../../../src/agent/infra/blob/index.js'
+import {createBlobStorage, FileBlobStorage} from '../../../../src/agent/infra/blob/index.js'
 
 describe('createBlobStorage (Factory)', () => {
   beforeEach(() => {
@@ -14,24 +14,24 @@ describe('createBlobStorage (Factory)', () => {
     restore()
   })
 
-  it('should always create SqliteBlobStorage (with inMemory config)', () => {
+  it('should create FileBlobStorage (with inMemory config)', () => {
     const storage = createBlobStorage({inMemory: true})
 
-    expect(storage).to.be.instanceOf(SqliteBlobStorage)
+    expect(storage).to.be.instanceOf(FileBlobStorage)
   })
 
-  it('should always create SqliteBlobStorage (with custom config)', () => {
+  it('should create FileBlobStorage (with custom config)', () => {
     const storage = createBlobStorage({
       inMemory: true,
       maxBlobSize: 50 * 1024 * 1024,
     })
 
-    expect(storage).to.be.instanceOf(SqliteBlobStorage)
+    expect(storage).to.be.instanceOf(FileBlobStorage)
   })
 
-  it('should always create SqliteBlobStorage (default config with inMemory)', () => {
+  it('should create FileBlobStorage (default config with inMemory)', () => {
     const storage = createBlobStorage({inMemory: true})
 
-    expect(storage).to.be.instanceOf(SqliteBlobStorage)
+    expect(storage).to.be.instanceOf(FileBlobStorage)
   })
 })

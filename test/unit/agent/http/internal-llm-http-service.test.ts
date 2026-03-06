@@ -280,7 +280,7 @@ describe('ByteRoverLlmHttpService', () => {
       }
     })
 
-    it('should throw error with HTTP status on non-standardized error', async () => {
+    it('should throw error with message from response body on non-standardized error', async () => {
       nock(baseUrl).post('/api/llm/generate').reply(500, {error: 'Internal Server Error'})
 
       try {
@@ -288,7 +288,7 @@ describe('ByteRoverLlmHttpService', () => {
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message).to.include('500')
+        expect((error as Error).message).to.include('Internal Server Error')
       }
     })
 

@@ -99,6 +99,7 @@ export function createCodeExecTool(sandboxService: ISandboxService): Tool {
         : undefined
 
       const result = await sandboxService.executeCode(code, sessionId, {
+        commandType: context?.commandType,
         contextPayload,
         language,
         maxStdoutChars,

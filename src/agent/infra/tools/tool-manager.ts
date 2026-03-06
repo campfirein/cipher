@@ -37,7 +37,10 @@ export class ToolManager {
    * Uses code_exec only - curate operations available via tools.curate() in sandbox.
    */
   private static readonly CURATE_TOOL_NAMES = [
+    'agentic_map',
     'code_exec',
+    'expand_knowledge',
+    'llm_map',
   ] as const
   /**
    * Tools allowed for query operations - only code_exec for programmatic search
@@ -46,6 +49,7 @@ export class ToolManager {
    */
   private static readonly QUERY_TOOL_NAMES = [
     'code_exec',
+    'expand_knowledge',
   ] as const
   private cacheValid: boolean = false
   private callIdCounter: number = 0
@@ -150,6 +154,8 @@ export class ToolManager {
       // Execute tool via scheduler (with policy check) or directly via provider
       const result = this.scheduler
         ? await this.scheduler.execute(toolName, effectiveArgs, {
+          commandType: effectiveContext.commandType,
+          metadata: effectiveContext.metadata,
           sessionId: sessionId ?? 'default',
           taskId: effectiveContext.taskId,
         })
