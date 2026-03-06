@@ -47,15 +47,6 @@ describe('validateBrvConfigVersion', () => {
         exists: stub().resolves(false),
         initialize: stub().resolves(),
       },
-      contextTreeSnapshotService: {
-        getChanges: stub().resolves({added: [], deleted: [], modified: []}),
-        getCurrentState: stub().resolves(new Map()),
-        getSnapshotState: stub().resolves(new Map()),
-        hasSnapshot: stub().resolves(false),
-        initEmptySnapshot: stub().resolves(),
-        saveSnapshot: stub().resolves(),
-        saveSnapshotFromState: stub().resolves(),
-      },
       projectConfigStore: mockConfigStore,
     }
     // Default: already patched — keeps existing tests focused on version migration

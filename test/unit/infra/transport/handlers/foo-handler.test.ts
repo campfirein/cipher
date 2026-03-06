@@ -2,9 +2,9 @@
  * FooHandler Unit Tests
  *
  * Tests git init demo flow (ENG-684):
- * - git init → add → commit → addRemote sequence
+ * - git init only (no add, commit, or addRemote)
  * - Auth token validation
- * - Idempotent: skip re-init if repo already exists, throw if 'origin' already configured
+ * - Idempotent: always calls gitService.init(); reinitialized flag reflects prior state
  * - Response shape
  */
 
@@ -15,7 +15,10 @@ import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 import type {ITokenStore} from '../../../../../src/server/core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
 import type {IGitService} from '../../../../../src/server/core/interfaces/services/i-git-service.js'
-import type {ITransportServer, RequestHandler} from '../../../../../src/server/core/interfaces/transport/i-transport-server.js'
+import type {
+  ITransportServer,
+  RequestHandler,
+} from '../../../../../src/server/core/interfaces/transport/i-transport-server.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../../../src/server/constants.js'
 import {AuthToken} from '../../../../../src/server/core/domain/entities/auth-token.js'
@@ -24,14 +27,6 @@ import {FooHandler} from '../../../../../src/server/infra/transport/handlers/foo
 import {FooEvents} from '../../../../../src/shared/transport/events/foo-events.js'
 
 const CLIENT_ID = 'client-abc'
-const TEAM_ID = 'team1'
-const SPACE_ID = 'space1'
-const COGIT_BASE = 'https://fake-cgit.example.com'
-const REMOTE_URL = `${COGIT_BASE}/git/${TEAM_ID}/${SPACE_ID}.git`
-
-function buildRemoteUrl(teamId: string, spaceId: string): string {
-  return `${COGIT_BASE}/git/${teamId}/${spaceId}.git`
-}
 
 function makeValidToken(): AuthToken {
   return new AuthToken({
@@ -77,7 +72,7 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string) {
     pull: sandbox.stub().resolves({success: true}),
     push: sandbox.stub().resolves({success: true}),
     removeRemote: sandbox.stub().resolves(),
-    status: sandbox.stub().resolves({files: [{path: 'some-context.md', status: 'added'}], isClean: false}),
+    status: sandbox.stub().resolves({files: [], isClean: true}),
   }
 
   const tokenStore: ITokenStore = {
@@ -135,7 +130,6 @@ describe('FooHandler', () => {
     it('should register handler for foo:init event', () => {
       const {contextTreeService, gitService, resolveProjectPath, tokenStore, transport} = makeDeps(sandbox, projectPath)
       const handler = new FooHandler({
-        buildRemoteUrl,
         contextTreeService,
         gitService,
         resolveProjectPath,
@@ -156,16 +150,9 @@ describe('FooHandler', () => {
         sandbox,
         projectPath,
       )
-      new FooHandler({
-        buildRemoteUrl,
-        contextTreeService,
-        gitService,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      }).setup()
+      new FooHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
 
-      await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
+      await requestHandlers[FooEvents.INIT]({}, CLIENT_ID)
 
       expect((contextTreeService.initialize as SinonStub).calledOnceWith(projectPath)).to.be.true
     })
@@ -180,16 +167,9 @@ describe('FooHandler', () => {
         tokenStore,
         transport,
       } = makeDeps(sandbox, projectPath)
-      new FooHandler({
-        buildRemoteUrl,
-        contextTreeService,
-        gitService,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      }).setup()
+      new FooHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
 
-      await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
+      await requestHandlers[FooEvents.INIT]({}, CLIENT_ID)
 
       expect((gitService.init as SinonStub).calledOnce).to.be.true
       expect((gitService.init as SinonStub).firstCall.args[0]).to.deep.equal({
@@ -198,7 +178,7 @@ describe('FooHandler', () => {
       })
     })
 
-    it('should call gitService.add with filePaths ["."]', async () => {
+    it('should return reinitialized=false when repo was not previously initialized', async () => {
       const {
         contextTreeDirPath,
         contextTreeService,
@@ -208,203 +188,65 @@ describe('FooHandler', () => {
         tokenStore,
         transport,
       } = makeDeps(sandbox, projectPath)
-      new FooHandler({
-        buildRemoteUrl,
-        contextTreeService,
-        gitService,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      }).setup()
+      ;(gitService.isInitialized as SinonStub).resolves(false)
+      new FooHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
 
-      await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
-
-      expect((gitService.add as SinonStub).calledOnce).to.be.true
-      expect((gitService.add as SinonStub).firstCall.args[0]).to.deep.equal({
-        directory: contextTreeDirPath,
-        filePaths: ['.'],
-      })
-    })
-
-    it('should call gitService.commit with correct message', async () => {
-      const {
-        contextTreeDirPath,
-        contextTreeService,
-        gitService,
-        requestHandlers,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      } = makeDeps(sandbox, projectPath)
-      new FooHandler({
-        buildRemoteUrl,
-        contextTreeService,
-        gitService,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      }).setup()
-
-      await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
-
-      expect((gitService.commit as SinonStub).calledOnce).to.be.true
-      expect((gitService.commit as SinonStub).firstCall.args[0]).to.deep.equal({
-        directory: contextTreeDirPath,
-        message: 'Initialize context tree',
-      })
-    })
-
-    it('should call gitService.addRemote with remote origin and correct URL', async () => {
-      const {
-        contextTreeDirPath,
-        contextTreeService,
-        gitService,
-        requestHandlers,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      } = makeDeps(sandbox, projectPath)
-      new FooHandler({
-        buildRemoteUrl,
-        contextTreeService,
-        gitService,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      }).setup()
-
-      await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
-
-      expect((gitService.addRemote as SinonStub).calledOnce).to.be.true
-      expect((gitService.addRemote as SinonStub).firstCall.args[0]).to.deep.equal({
-        directory: contextTreeDirPath,
-        remote: 'origin',
-        url: REMOTE_URL,
-      })
-    })
-
-    it('should return response with gitDir and remoteUrl', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      new FooHandler({
-        buildRemoteUrl,
-        contextTreeService,
-        gitService,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      }).setup()
-
-      const result = await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
+      const result = await requestHandlers[FooEvents.INIT]({}, CLIENT_ID)
 
       expect(result).to.deep.equal({
-        gitDir: join(join(projectPath, BRV_DIR, CONTEXT_TREE_DIR), '.git'),
-        remoteUrl: REMOTE_URL,
+        gitDir: join(contextTreeDirPath, '.git'),
+        reinitialized: false,
       })
     })
 
-    it('should skip add/commit when context tree directory has no files', async () => {
+    it('should not call add, commit, or addRemote', async () => {
       const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
         sandbox,
         projectPath,
       )
-      ;(gitService.status as SinonStub).resolves({files: [], isClean: true})
-      new FooHandler({
-        buildRemoteUrl,
-        contextTreeService,
-        gitService,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      }).setup()
+      new FooHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
 
-      await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
+      await requestHandlers[FooEvents.INIT]({}, CLIENT_ID)
 
       expect((gitService.add as SinonStub).called).to.be.false
       expect((gitService.commit as SinonStub).called).to.be.false
-    })
-
-    it('should call git operations in correct order: init → add → commit → addRemote', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      const callOrder: string[] = []
-      ;(gitService.init as SinonStub).callsFake(async () => {
-        callOrder.push('init')
-      })
-      ;(gitService.add as SinonStub).callsFake(async () => {
-        callOrder.push('add')
-      })
-      ;(gitService.commit as SinonStub).callsFake(async () => {
-        callOrder.push('commit')
-      })
-      ;(gitService.addRemote as SinonStub).callsFake(async () => {
-        callOrder.push('addRemote')
-      })
-      new FooHandler({
-        buildRemoteUrl,
-        contextTreeService,
-        gitService,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      }).setup()
-
-      await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
-
-      expect(callOrder).to.deep.equal(['init', 'add', 'commit', 'addRemote'])
+      expect((gitService.addRemote as SinonStub).called).to.be.false
     })
   })
 
   describe('handleInit — repo already exists (isInitialized=true)', () => {
-    it('should skip init/add/commit when repo already initialized', async () => {
+    it('should still call gitService.init when repo already exists', async () => {
       const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
         sandbox,
         projectPath,
       )
       ;(gitService.isInitialized as SinonStub).resolves(true)
-      new FooHandler({
-        buildRemoteUrl,
-        contextTreeService,
-        gitService,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      }).setup()
+      new FooHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
 
-      await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
+      await requestHandlers[FooEvents.INIT]({}, CLIENT_ID)
 
-      expect((gitService.init as SinonStub).called).to.be.false
-      expect((gitService.add as SinonStub).called).to.be.false
-      expect((gitService.commit as SinonStub).called).to.be.false
+      expect((gitService.init as SinonStub).calledOnce).to.be.true
     })
 
-    it('should throw when origin is already configured', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      ;(gitService.listRemotes as SinonStub).resolves([{remote: 'origin', url: REMOTE_URL}])
-      new FooHandler({
-        buildRemoteUrl,
+    it('should return reinitialized=true when repo already existed', async () => {
+      const {
+        contextTreeDirPath,
         contextTreeService,
         gitService,
+        requestHandlers,
         resolveProjectPath,
         tokenStore,
         transport,
-      }).setup()
+      } = makeDeps(sandbox, projectPath)
+      ;(gitService.isInitialized as SinonStub).resolves(true)
+      new FooHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
 
-      try {
-        await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
-        expect.fail('Expected error for existing origin')
-      } catch (error) {
-        expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message).to.include("Remote 'origin' is already configured")
-        expect((error as Error).message).to.include(REMOTE_URL)
-      }
+      const result = await requestHandlers[FooEvents.INIT]({}, CLIENT_ID)
+
+      expect(result).to.deep.equal({
+        gitDir: join(contextTreeDirPath, '.git'),
+        reinitialized: true,
+      })
     })
   })
 
@@ -415,17 +257,10 @@ describe('FooHandler', () => {
         projectPath,
       )
       ;(tokenStore.load as SinonStub).resolves()
-      new FooHandler({
-        buildRemoteUrl,
-        contextTreeService,
-        gitService,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      }).setup()
+      new FooHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
 
       try {
-        await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
+        await requestHandlers[FooEvents.INIT]({}, CLIENT_ID)
         expect.fail('Expected NotAuthenticatedError')
       } catch (error) {
         expect(error).to.be.instanceOf(NotAuthenticatedError)
@@ -446,17 +281,10 @@ describe('FooHandler', () => {
         userId: 'user-123',
       })
       ;(tokenStore.load as SinonStub).resolves(expiredToken)
-      new FooHandler({
-        buildRemoteUrl,
-        contextTreeService,
-        gitService,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      }).setup()
+      new FooHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
 
       try {
-        await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
+        await requestHandlers[FooEvents.INIT]({}, CLIENT_ID)
         expect.fail('Expected NotAuthenticatedError')
       } catch (error) {
         expect(error).to.be.instanceOf(NotAuthenticatedError)
@@ -470,16 +298,9 @@ describe('FooHandler', () => {
         sandbox,
         projectPath,
       )
-      new FooHandler({
-        buildRemoteUrl,
-        contextTreeService,
-        gitService,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      }).setup()
+      new FooHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
 
-      await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
+      await requestHandlers[FooEvents.INIT]({}, CLIENT_ID)
 
       expect((resolveProjectPath as SinonStub).calledWith(CLIENT_ID)).to.be.true
     })
@@ -490,52 +311,15 @@ describe('FooHandler', () => {
         projectPath,
       )
       ;(resolveProjectPath as SinonStub).callsFake(() => {})
-      new FooHandler({
-        buildRemoteUrl,
-        contextTreeService,
-        gitService,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      }).setup()
+      new FooHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
 
       try {
-        await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
+        await requestHandlers[FooEvents.INIT]({}, CLIENT_ID)
         expect.fail('Expected error for missing project path')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
         expect((error as Error).message).to.include('No project path found')
       }
-    })
-  })
-
-  describe('URL building', () => {
-    it('should pass teamId and spaceId to buildRemoteUrl and use result as remote URL', async () => {
-      const {
-        contextTreeDirPath,
-        contextTreeService,
-        gitService,
-        requestHandlers,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      } = makeDeps(sandbox, projectPath)
-      new FooHandler({
-        buildRemoteUrl,
-        contextTreeService,
-        gitService,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      }).setup()
-
-      await requestHandlers[FooEvents.INIT]({spaceId: 'my-space', teamId: 'my-team'}, CLIENT_ID)
-
-      expect((gitService.addRemote as SinonStub).firstCall.args[0]).to.deep.equal({
-        directory: contextTreeDirPath,
-        remote: 'origin',
-        url: `${COGIT_BASE}/git/my-team/my-space.git`,
-      })
     })
   })
 })

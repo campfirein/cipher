@@ -5,13 +5,11 @@ import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-
 import type {IGitService} from '../../../core/interfaces/services/i-git-service.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
-import {FooEvents, type FooInitRequest, type FooInitResponse} from '../../../../shared/transport/events/foo-events.js'
-import {GitError} from '../../../core/domain/errors/git-error.js'
+import {FooEvents, type FooInitResponse} from '../../../../shared/transport/events/foo-events.js'
 import {NotAuthenticatedError} from '../../../core/domain/errors/task-error.js'
 import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 export interface IFooHandlerDeps {
-  buildRemoteUrl: (teamId: string, spaceId: string) => string
   contextTreeService: IContextTreeService
   gitService: IGitService
   resolveProjectPath: ProjectPathResolver
@@ -25,7 +23,6 @@ export interface IFooHandlerDeps {
  * Does NOT modify the existing InitHandler or TUI flow.
  */
 export class FooHandler {
-  private readonly buildRemoteUrl: (teamId: string, spaceId: string) => string
   private readonly contextTreeService: IContextTreeService
   private readonly gitService: IGitService
   private readonly resolveProjectPath: ProjectPathResolver
@@ -33,7 +30,6 @@ export class FooHandler {
   private readonly transport: ITransportServer
 
   constructor(deps: IFooHandlerDeps) {
-    this.buildRemoteUrl = deps.buildRemoteUrl
     this.contextTreeService = deps.contextTreeService
     this.gitService = deps.gitService
     this.resolveProjectPath = deps.resolveProjectPath
@@ -42,12 +38,10 @@ export class FooHandler {
   }
 
   setup(): void {
-    this.transport.onRequest<FooInitRequest, FooInitResponse>(FooEvents.INIT, (data, clientId) =>
-      this.handleInit(data, clientId),
-    )
+    this.transport.onRequest<void, FooInitResponse>(FooEvents.INIT, (_data, clientId) => this.handleInit(clientId))
   }
 
-  private async handleInit(data: FooInitRequest, clientId: string): Promise<FooInitResponse> {
+  private async handleInit(clientId: string): Promise<FooInitResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
 
     const token = await this.tokenStore.load()
@@ -58,30 +52,14 @@ export class FooHandler {
     // 1. Ensure context tree directory exists
     const contextTreeDir = await this.contextTreeService.initialize(projectPath)
 
-    // 2. Git init (idempotent — skip if repo already exists)
-    const repoExists = await this.gitService.isInitialized({directory: contextTreeDir})
-    if (!repoExists) {
-      await this.gitService.init({defaultBranch: 'main', directory: contextTreeDir})
-      const gitStatus = await this.gitService.status({directory: contextTreeDir})
-      if (!gitStatus.isClean) {
-        await this.gitService.add({directory: contextTreeDir, filePaths: ['.']})
-        await this.gitService.commit({directory: contextTreeDir, message: 'Initialize context tree'})
-      }
-    }
-
-    // 3. Add remote — throw if 'origin' already configured
-    const remoteUrl = this.buildRemoteUrl(data.teamId, data.spaceId)
-    const remotes = await this.gitService.listRemotes({directory: contextTreeDir})
-    const existingOrigin = remotes.find((r) => r.remote === 'origin')
-    if (existingOrigin) {
-      throw new GitError(`Remote 'origin' is already configured: ${existingOrigin.url}`)
-    }
-
-    await this.gitService.addRemote({directory: contextTreeDir, remote: 'origin', url: remoteUrl})
+    // 2. Git init — always call (idempotent, like real `git init`).
+    //    Check beforehand to determine whether this is a fresh init or a reinit.
+    const reinitialized = await this.gitService.isInitialized({directory: contextTreeDir})
+    await this.gitService.init({defaultBranch: 'main', directory: contextTreeDir})
 
     return {
       gitDir: join(contextTreeDir, '.git'),
-      remoteUrl,
+      reinitialized,
     }
   }
 }

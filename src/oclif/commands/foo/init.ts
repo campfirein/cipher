@@ -1,29 +1,23 @@
-import {Command, Flags} from '@oclif/core'
+import {Command} from '@oclif/core'
 
 import {FooEvents, type FooInitResponse} from '../../../shared/transport/events/foo-events.js'
 import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
 export default class FooInit extends Command {
   public static description = 'Initialize git repository in .brv/context-tree/'
-  public static examples = ['<%= config.bin %> <%= command.id %> --team my-team --space my-space']
-  public static flags = {
-    space: Flags.string({description: 'Space ID', required: true}),
-    team: Flags.string({description: 'Team ID', required: true}),
-  }
+  public static examples = ['<%= config.bin %> <%= command.id %>']
 
   public async run(): Promise<void> {
-    const {flags} = await this.parse(FooInit)
-
     try {
       const result = await withDaemonRetry(async (client) =>
-        client.requestWithAck<FooInitResponse>(FooEvents.INIT, {
-          spaceId: flags.space,
-          teamId: flags.team,
-        }),
+        client.requestWithAck<FooInitResponse>(FooEvents.INIT, {}),
       )
 
-      this.log('Git repository initialized in .brv/context-tree/')
-      this.log(`Remote 'origin' → ${result.remoteUrl}`)
+      if (result.reinitialized) {
+        this.log(`Reinitialized existing Git repository in ${result.gitDir}`)
+      } else {
+        this.log(`Initialized Git repository in ${result.gitDir}`)
+      }
     } catch (error) {
       this.error(formatConnectionError(error))
     }
