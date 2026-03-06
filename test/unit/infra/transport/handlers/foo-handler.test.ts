@@ -4,20 +4,18 @@
  * Tests git init demo flow (ENG-684):
  * - git init → add → commit → addRemote sequence
  * - Auth token validation
- * - Idempotent: skip re-init if repo already exists, skip addRemote if 'origin' present
+ * - Idempotent: skip re-init if repo already exists, throw if 'origin' already configured
  * - Response shape
  */
 
 import {expect} from 'chai'
-import {mkdtemp, rm} from 'node:fs/promises'
-import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {ITokenStore} from '../../../../../src/server/core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
 import type {IGitService} from '../../../../../src/server/core/interfaces/services/i-git-service.js'
-import type {ITransportServer} from '../../../../../src/server/core/interfaces/transport/i-transport-server.js'
+import type {ITransportServer, RequestHandler} from '../../../../../src/server/core/interfaces/transport/i-transport-server.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../../../src/server/constants.js'
 import {AuthToken} from '../../../../../src/server/core/domain/entities/auth-token.js'
@@ -49,41 +47,65 @@ function makeValidToken(): AuthToken {
 function makeDeps(sandbox: SinonSandbox, projectPath: string) {
   const contextTreeDirPath = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
 
-  const contextTreeService = {
+  const contextTreeService: IContextTreeService = {
+    delete: sandbox.stub().resolves(),
+    exists: sandbox.stub().resolves(false),
     initialize: sandbox.stub().resolves(contextTreeDirPath),
-  } as unknown as IContextTreeService
+  }
 
-  const gitService = {
+  const gitService: IGitService = {
     add: sandbox.stub().resolves(),
     addRemote: sandbox.stub().resolves(),
+    checkout: sandbox.stub().resolves(),
     commit: sandbox.stub().resolves({
       author: {email: 'test@example.com', name: 'test@example.com'},
       message: 'Initialize context tree',
       sha: 'abc123',
       timestamp: new Date(),
     }),
+    createBranch: sandbox.stub().resolves(),
+    fetch: sandbox.stub().resolves(),
+    getConflicts: sandbox.stub().resolves([]),
+    getCurrentBranch: sandbox.stub().resolves(),
+    getRemoteUrl: sandbox.stub().resolves(),
     init: sandbox.stub().resolves(),
     isInitialized: sandbox.stub().resolves(false),
+    listBranches: sandbox.stub().resolves([]),
     listRemotes: sandbox.stub().resolves([]),
-  } as unknown as IGitService
+    log: sandbox.stub().resolves([]),
+    merge: sandbox.stub().resolves({success: true}),
+    pull: sandbox.stub().resolves({success: true}),
+    push: sandbox.stub().resolves({success: true}),
+    removeRemote: sandbox.stub().resolves(),
+    status: sandbox.stub().resolves({files: [{path: 'some-context.md', status: 'added'}], isClean: false}),
+  }
 
-  const tokenStore = {
+  const tokenStore: ITokenStore = {
     clear: sandbox.stub().resolves(),
     load: sandbox.stub().resolves(makeValidToken()),
     save: sandbox.stub().resolves(),
-  } as unknown as ITokenStore
+  }
 
   const resolveProjectPath = sandbox.stub().returns(projectPath)
 
   // Capture registered handlers keyed by event name
-  const requestHandlers: Record<string, (data: unknown, clientId: string) => Promise<unknown>> = {}
-  const transport = {
-    onRequest: sandbox
-      .stub()
-      .callsFake((event: string, handler: (data: unknown, clientId: string) => Promise<unknown>) => {
-        requestHandlers[event] = handler
-      }),
-  } as unknown as ITransportServer
+  const requestHandlers: Record<string, RequestHandler> = {}
+  const transport: ITransportServer = {
+    addToRoom: sandbox.stub(),
+    broadcast: sandbox.stub(),
+    broadcastTo: sandbox.stub(),
+    getPort: sandbox.stub(),
+    isRunning: sandbox.stub(),
+    onConnection: sandbox.stub(),
+    onDisconnection: sandbox.stub(),
+    onRequest: sandbox.stub().callsFake((event: string, handler: RequestHandler) => {
+      requestHandlers[event] = handler
+    }),
+    removeFromRoom: sandbox.stub(),
+    sendTo: sandbox.stub(),
+    start: sandbox.stub().resolves(),
+    stop: sandbox.stub().resolves(),
+  }
 
   return {
     contextTreeDirPath,
@@ -96,18 +118,17 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string) {
   }
 }
 
+const projectPath = '/fake/brv/project'
+
 describe('FooHandler', () => {
   let sandbox: SinonSandbox
-  let projectPath: string
 
-  beforeEach(async () => {
+  beforeEach(() => {
     sandbox = createSandbox()
-    projectPath = await mkdtemp(join(tmpdir(), 'foo-handler-test-'))
   })
 
-  afterEach(async () => {
+  afterEach(() => {
     sandbox.restore()
-    await rm(projectPath, {force: true, recursive: true})
   })
 
   describe('setup()', () => {
@@ -284,6 +305,27 @@ describe('FooHandler', () => {
       })
     })
 
+    it('should skip add/commit when context tree directory has no files', async () => {
+      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
+        sandbox,
+        projectPath,
+      )
+      ;(gitService.status as SinonStub).resolves({files: [], isClean: true})
+      new FooHandler({
+        buildRemoteUrl,
+        contextTreeService,
+        gitService,
+        resolveProjectPath,
+        tokenStore,
+        transport,
+      }).setup()
+
+      await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
+
+      expect((gitService.add as SinonStub).called).to.be.false
+      expect((gitService.commit as SinonStub).called).to.be.false
+    })
+
     it('should call git operations in correct order: init → add → commit → addRemote', async () => {
       const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
         sandbox,
@@ -340,7 +382,7 @@ describe('FooHandler', () => {
       expect((gitService.commit as SinonStub).called).to.be.false
     })
 
-    it('should skip addRemote when origin already configured', async () => {
+    it('should throw when origin is already configured', async () => {
       const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
         sandbox,
         projectPath,
@@ -355,9 +397,14 @@ describe('FooHandler', () => {
         transport,
       }).setup()
 
-      await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
-
-      expect((gitService.addRemote as SinonStub).called).to.be.false
+      try {
+        await requestHandlers[FooEvents.INIT]({spaceId: SPACE_ID, teamId: TEAM_ID}, CLIENT_ID)
+        expect.fail('Expected error for existing origin')
+      } catch (error) {
+        expect(error).to.be.instanceOf(Error)
+        expect((error as Error).message).to.include("Remote 'origin' is already configured")
+        expect((error as Error).message).to.include(REMOTE_URL)
+      }
     })
   })
 

@@ -29,6 +29,7 @@ import {FileContextTreeService} from '../context-tree/file-context-tree-service.
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeWriterService} from '../context-tree/file-context-tree-writer-service.js'
 import {FsFileService} from '../file/fs-file-service.js'
+import {buildCogitRemoteUrl} from '../git/cogit-url.js'
 import {IsomorphicGitService} from '../git/isomorphic-git-service.js'
 import {CallbackHandler} from '../http/callback-handler.js'
 import {HubInstallService} from '../hub/hub-install-service.js'
@@ -221,10 +222,9 @@ export async function setupFeatureHandlers({
     transport,
   }).setup()
 
-  // Demo handler for Git Semantics (ENG-684)
-  const gitService = new IsomorphicGitService(authStateStore, {cogitGitBaseUrl: envConfig.cogitGitBaseUrl})
+  const gitService = new IsomorphicGitService(authStateStore)
   new FooHandler({
-    buildRemoteUrl: gitService.buildCogitRemoteUrl.bind(gitService),
+    buildRemoteUrl: (teamId, spaceId) => buildCogitRemoteUrl(envConfig.cogitGitBaseUrl, teamId, spaceId),
     contextTreeService,
     gitService,
     resolveProjectPath,

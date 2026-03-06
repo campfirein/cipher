@@ -4,7 +4,7 @@ import {FooEvents, type FooInitResponse} from '../../../shared/transport/events/
 import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
 export default class FooInit extends Command {
-  public static description = 'Initialize git repository in .brv/context-tree/ (internal demo)'
+  public static description = 'Initialize git repository in .brv/context-tree/'
   public static examples = ['<%= config.bin %> <%= command.id %> --team my-team --space my-space']
   public static flags = {
     space: Flags.string({description: 'Space ID', required: true}),
@@ -25,7 +25,7 @@ export default class FooInit extends Command {
       this.log('Git repository initialized in .brv/context-tree/')
       this.log(`Remote 'origin' → ${result.remoteUrl}`)
     } catch (error) {
-      this.log(formatConnectionError(error))
+      this.error(formatConnectionError(error))
     }
   }
 }

@@ -6,10 +6,11 @@ import type {IGitService} from '../../../core/interfaces/services/i-git-service.
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
 import {FooEvents, type FooInitRequest, type FooInitResponse} from '../../../../shared/transport/events/foo-events.js'
+import {GitError} from '../../../core/domain/errors/git-error.js'
 import {NotAuthenticatedError} from '../../../core/domain/errors/task-error.js'
 import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
-export interface FooHandlerDeps {
+export interface IFooHandlerDeps {
   buildRemoteUrl: (teamId: string, spaceId: string) => string
   contextTreeService: IContextTreeService
   gitService: IGitService
@@ -31,7 +32,7 @@ export class FooHandler {
   private readonly tokenStore: ITokenStore
   private readonly transport: ITransportServer
 
-  constructor(deps: FooHandlerDeps) {
+  constructor(deps: IFooHandlerDeps) {
     this.buildRemoteUrl = deps.buildRemoteUrl
     this.contextTreeService = deps.contextTreeService
     this.gitService = deps.gitService
@@ -61,16 +62,22 @@ export class FooHandler {
     const repoExists = await this.gitService.isInitialized({directory: contextTreeDir})
     if (!repoExists) {
       await this.gitService.init({defaultBranch: 'main', directory: contextTreeDir})
-      await this.gitService.add({directory: contextTreeDir, filePaths: ['.']})
-      await this.gitService.commit({directory: contextTreeDir, message: 'Initialize context tree'})
+      const gitStatus = await this.gitService.status({directory: contextTreeDir})
+      if (!gitStatus.isClean) {
+        await this.gitService.add({directory: contextTreeDir, filePaths: ['.']})
+        await this.gitService.commit({directory: contextTreeDir, message: 'Initialize context tree'})
+      }
     }
 
-    // 3. Add remote (idempotent — skip if 'origin' already configured)
+    // 3. Add remote — throw if 'origin' already configured
     const remoteUrl = this.buildRemoteUrl(data.teamId, data.spaceId)
     const remotes = await this.gitService.listRemotes({directory: contextTreeDir})
-    if (!remotes.some((r) => r.remote === 'origin')) {
-      await this.gitService.addRemote({directory: contextTreeDir, remote: 'origin', url: remoteUrl})
+    const existingOrigin = remotes.find((r) => r.remote === 'origin')
+    if (existingOrigin) {
+      throw new GitError(`Remote 'origin' is already configured: ${existingOrigin.url}`)
     }
+
+    await this.gitService.addRemote({directory: contextTreeDir, remote: 'origin', url: remoteUrl})
 
     return {
       gitDir: join(contextTreeDir, '.git'),
