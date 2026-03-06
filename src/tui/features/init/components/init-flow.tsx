@@ -4,7 +4,7 @@
  * Initializes the git repository in .brv/context-tree/ via FooHandler.
  */
 
-import {Text} from 'ink'
+import {Text, useInput} from 'ink'
 import Spinner from 'ink-spinner'
 import React, {useEffect} from 'react'
 
@@ -14,8 +14,14 @@ import {useExecuteInit} from '../api/execute-init.js'
 
 type InitFlowProps = CustomDialogCallbacks
 
-export function InitFlow({onComplete}: InitFlowProps): React.ReactNode {
+export function InitFlow({onCancel, onComplete}: InitFlowProps): React.ReactNode {
   const initMutation = useExecuteInit()
+
+  useInput((_, key) => {
+    if (key.escape && !initMutation.isPending) {
+      onCancel()
+    }
+  })
 
   useEffect(() => {
     initMutation.mutate(undefined, {

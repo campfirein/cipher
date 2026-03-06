@@ -302,12 +302,32 @@ export class IsomorphicGitService implements IGitService {
   async status(params: BaseGitParams): Promise<GitStatus> {
     const dir = this.requireDirectory(params)
     const matrix = await git.statusMatrix({dir, fs})
-    const files: GitStatusFile[] = matrix.flatMap(([filepath, head, workdir]): GitStatusFile[] => {
-      if (head === 0 && workdir === 2) return [{path: String(filepath), status: 'added'}]
-      if (head === 1 && workdir === 2) return [{path: String(filepath), status: 'modified'}]
-      if (head === 1 && workdir === 0) return [{path: String(filepath), status: 'deleted'}]
-      return []
-    })
+    const files: GitStatusFile[] = []
+
+    for (const [filepath, head, workdir, stage] of matrix) {
+      const path = String(filepath)
+      if (head === 1 && workdir === 0 && stage === 0) {
+        files.push({path, staged: true, status: 'deleted'}) // [1,0,0] staged deletion (git rm)
+      } else if (head === 1 && workdir === 0 && stage === 1) {
+        files.push({path, staged: false, status: 'deleted'}) // [1,0,1] unstaged deletion (rm without git rm)
+      } else if (head === 1 && workdir === 1 && stage === 0) {
+        files.push({path, staged: true, status: 'deleted'}, {path, staged: false, status: 'untracked'}) //          file still in workdir → untracked
+      } else if (head === 1 && workdir === 2 && stage === 1) {
+        files.push({path, staged: false, status: 'modified'}) // [1,2,1] unstaged modification
+      } else if (head === 1 && workdir === 2 && stage === 2) {
+        files.push({path, staged: true, status: 'modified'}) // [1,2,2] staged modification
+      } else if (head === 1 && workdir === 2 && stage === 3) {
+        files.push({path, staged: true, status: 'modified'}, {path, staged: false, status: 'modified'}) //          plus additional unstaged changes
+      } else if (head === 0 && workdir === 2 && stage === 0) {
+        files.push({path, staged: false, status: 'untracked'}) // [0,2,0] untracked new file
+      } else if (head === 0 && workdir === 2 && stage === 2) {
+        files.push({path, staged: true, status: 'added'}) // [0,2,2] staged new file
+      } else if (head === 0 && workdir === 2 && stage === 3) {
+        files.push({path, staged: true, status: 'added'}, {path, staged: false, status: 'modified'}) //          with additional unstaged changes
+      }
+      // [1,1,1] unmodified → skip
+    }
+
     return {files, isClean: files.length === 0}
   }
 
@@ -320,10 +340,16 @@ export class IsomorphicGitService implements IGitService {
     const bothModifiedPaths = new Set(conflictData.bothModified ?? [])
 
     return conflictData.filepaths
-      .map((path): GitConflict => ({
-        path,
-        type: deletedPaths.has(path) ? 'deleted_modified' : bothModifiedPaths.has(path) ? 'both_modified' : 'both_added',
-      }))
+      .map(
+        (path): GitConflict => ({
+          path,
+          type: deletedPaths.has(path)
+            ? 'deleted_modified'
+            : bothModifiedPaths.has(path)
+              ? 'both_modified'
+              : 'both_added',
+        }),
+      )
       .sort((a, b) => a.path.localeCompare(b.path))
   }
 

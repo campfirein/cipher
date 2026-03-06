@@ -6,7 +6,7 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import type {StatusDTO} from '../../src/shared/transport/types/dto.js'
+import type {GitChanges, StatusDTO} from '../../src/shared/transport/types/dto.js'
 
 import Status from '../../src/oclif/commands/status.js'
 
@@ -181,6 +181,12 @@ describe('Status Command', () => {
 
   // ==================== Context Tree Status ====================
 
+  const emptyGitChanges: GitChanges = {
+    staged: {added: [], deleted: [], modified: []},
+    unstaged: {deleted: [], modified: []},
+    untracked: [],
+  }
+
   describe('context tree status', () => {
     it('should display "Not initialized" when context tree does not exist', async () => {
       mockStatusResponse({
@@ -202,6 +208,7 @@ describe('Status Command', () => {
         authStatus: 'logged_in',
         contextTreeStatus: 'no_changes',
         currentDirectory: '/test',
+        gitBranch: 'main',
         spaceName: 'backend-api',
         teamName: 'acme-corp',
         userEmail: 'user@example.com',
@@ -212,63 +219,89 @@ describe('Status Command', () => {
       expect(loggedMessages.some((m) => m.includes('No changes'))).to.be.true
     })
 
-    it('should display added files with context tree relative path', async () => {
+    it('should display branch name when git is initialized', async () => {
       mockStatusResponse({
         authStatus: 'logged_in',
-        contextTreeChanges: {
-          added: ['design/context.md', 'testing/context.md'],
-          deleted: [],
-          modified: [],
-        },
-        contextTreeRelativeDir: '.brv/context-tree',
-        contextTreeStatus: 'has_changes',
+        contextTreeStatus: 'no_changes',
         currentDirectory: '/test',
-        spaceName: 'backend-api',
-        teamName: 'acme-corp',
+        gitBranch: 'feat/my-branch',
         userEmail: 'user@example.com',
       })
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('Context Tree Changes'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('On branch: feat/my-branch'))).to.be.true
+    })
+
+    it('should display hint to run init when git is not initialized', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'not_initialized',
+        currentDirectory: '/test',
+        userEmail: 'user@example.com',
+      })
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Context Tree: Not initialized'))).to.be.true
+    })
+
+    it('should display staged added files', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeRelativeDir: '.brv/context-tree',
+        contextTreeStatus: 'has_changes',
+        currentDirectory: '/test',
+        gitBranch: 'main',
+        gitChanges: {
+          ...emptyGitChanges,
+          staged: {added: ['design/context.md', 'testing/context.md'], deleted: [], modified: []},
+        },
+        userEmail: 'user@example.com',
+      })
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Changes to be committed'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('new file:') && m.includes('.brv/context-tree/design/context.md')))
         .to.be.true
       expect(loggedMessages.some((m) => m.includes('new file:') && m.includes('.brv/context-tree/testing/context.md')))
         .to.be.true
     })
 
-    it('should display modified files', async () => {
+    it('should display staged modified files', async () => {
       mockStatusResponse({
         authStatus: 'logged_in',
-        contextTreeChanges: {
-          added: [],
-          deleted: [],
-          modified: ['structure/context.md'],
-        },
         contextTreeRelativeDir: '.brv/context-tree',
         contextTreeStatus: 'has_changes',
         currentDirectory: '/test',
+        gitBranch: 'main',
+        gitChanges: {
+          ...emptyGitChanges,
+          staged: {added: [], deleted: [], modified: ['structure/context.md']},
+        },
         userEmail: 'user@example.com',
       })
 
       await createCommand().run()
 
+      expect(loggedMessages.some((m) => m.includes('Changes to be committed'))).to.be.true
       expect(
         loggedMessages.some((m) => m.includes('modified:') && m.includes('.brv/context-tree/structure/context.md')),
       ).to.be.true
     })
 
-    it('should display deleted files', async () => {
+    it('should display staged deleted files', async () => {
       mockStatusResponse({
         authStatus: 'logged_in',
-        contextTreeChanges: {
-          added: [],
-          deleted: ['old/context.md'],
-          modified: [],
-        },
         contextTreeRelativeDir: '.brv/context-tree',
         contextTreeStatus: 'has_changes',
         currentDirectory: '/test',
+        gitBranch: 'main',
+        gitChanges: {
+          ...emptyGitChanges,
+          staged: {added: [], deleted: ['old/context.md'], modified: []},
+        },
         userEmail: 'user@example.com',
       })
 
@@ -278,30 +311,69 @@ describe('Status Command', () => {
         .true
     })
 
-    it('should display all change types sorted by path', async () => {
+    it('should display unstaged modified and deleted files', async () => {
       mockStatusResponse({
         authStatus: 'logged_in',
-        contextTreeChanges: {
-          added: ['z-new/context.md'],
-          deleted: ['a-deleted/context.md'],
-          modified: ['m-modified/context.md'],
-        },
         contextTreeRelativeDir: '.brv/context-tree',
         contextTreeStatus: 'has_changes',
         currentDirectory: '/test',
+        gitBranch: 'main',
+        gitChanges: {
+          ...emptyGitChanges,
+          unstaged: {deleted: ['removed/context.md'], modified: ['edited/context.md']},
+        },
         userEmail: 'user@example.com',
       })
 
       await createCommand().run()
 
-      const changeMessages = loggedMessages.filter(
-        (m) => m.includes('new file:') || m.includes('modified:') || m.includes('deleted:'),
-      )
+      expect(loggedMessages.some((m) => m.includes('Changes not staged for commit'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('modified:') && m.includes('.brv/context-tree/edited/context.md')))
+        .to.be.true
+      expect(loggedMessages.some((m) => m.includes('deleted:') && m.includes('.brv/context-tree/removed/context.md')))
+        .to.be.true
+    })
 
-      expect(changeMessages.length).to.equal(3)
-      expect(changeMessages[0]).to.include('a-deleted')
-      expect(changeMessages[1]).to.include('m-modified')
-      expect(changeMessages[2]).to.include('z-new')
+    it('should display untracked files', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeRelativeDir: '.brv/context-tree',
+        contextTreeStatus: 'has_changes',
+        currentDirectory: '/test',
+        gitBranch: 'main',
+        gitChanges: {
+          ...emptyGitChanges,
+          untracked: ['new-file.md', 'another-new.md'],
+        },
+        userEmail: 'user@example.com',
+      })
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Untracked files'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('.brv/context-tree/new-file.md'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('.brv/context-tree/another-new.md'))).to.be.true
+    })
+
+    it('should omit empty sections', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeRelativeDir: '.brv/context-tree',
+        contextTreeStatus: 'has_changes',
+        currentDirectory: '/test',
+        gitBranch: 'main',
+        gitChanges: {
+          ...emptyGitChanges,
+          staged: {added: ['only-staged.md'], deleted: [], modified: []},
+        },
+        userEmail: 'user@example.com',
+      })
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Changes to be committed'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Changes not staged for commit'))).to.be.false
+      expect(loggedMessages.some((m) => m.includes('Untracked files'))).to.be.false
     })
   })
 

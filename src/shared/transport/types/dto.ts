@@ -6,7 +6,6 @@
 
 import type {Agent} from '../../types/agent.js'
 import type {ConnectorType} from '../../types/connector-type.js'
-import type {ContextTreeChanges} from '../../types/context-tree-changes.js'
 
 // ============================================================================
 // Auth DTOs
@@ -126,15 +125,24 @@ export interface HubEntryDTO {
 // Status DTOs
 // ============================================================================
 
+export interface GitChanges {
+  staged: {added: string[]; deleted: string[]; modified: string[]}
+  unstaged: {deleted: string[]; modified: string[]}
+  untracked: string[]
+}
+
 export interface StatusDTO {
   authStatus: 'expired' | 'logged_in' | 'not_logged_in' | 'unknown'
-  contextTreeChanges?: ContextTreeChanges
   /** Absolute path to the context tree directory (e.g., '/Users/foo/project/.brv/context-tree') */
   contextTreeDir?: string
   /** Relative path to the context tree directory from project root (e.g., '.brv/context-tree') */
   contextTreeRelativeDir?: string
   contextTreeStatus: 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
   currentDirectory: string
+  /** Current git branch name; undefined when git is not initialized */
+  gitBranch?: string
+  /** Present when contextTreeStatus === 'has_changes' */
+  gitChanges?: GitChanges
   spaceName?: string
   teamName?: string
   userEmail?: string

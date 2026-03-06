@@ -1,5 +1,6 @@
 import {expect} from 'chai'
-import {existsSync} from 'node:fs'
+import * as git from 'isomorphic-git'
+import fs, {existsSync} from 'node:fs'
 import {mkdir, rm, unlink, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -139,16 +140,53 @@ describe('IsomorphicGitService', () => {
       expect(result.files).to.be.empty
     })
 
-    it('reports new untracked file as added', async () => {
+    it('reports new untracked file as untracked with staged: false', async () => {
       await writeFile(join(testDir, 'new.md'), 'content')
       const result = await service.status({directory: testDir})
 
       expect(result.isClean).to.be.false
       expect(result.files).to.have.length(1)
-      expect(result.files[0]).to.deep.equal({path: 'new.md', status: 'added'})
+      expect(result.files[0]).to.deep.equal({path: 'new.md', staged: false, status: 'untracked'})
     })
 
-    it('reports modified committed file as modified', async () => {
+    it('reports staged new file as added with staged: true', async () => {
+      await writeFile(join(testDir, 'new.md'), 'content')
+      await service.add({directory: testDir, filePaths: ['new.md']})
+      const result = await service.status({directory: testDir})
+
+      expect(result.isClean).to.be.false
+      expect(result.files).to.have.length(1)
+      expect(result.files[0]).to.deep.equal({path: 'new.md', staged: true, status: 'added'})
+    })
+
+    it('reports unstaged modification as modified with staged: false', async () => {
+      await writeFile(join(testDir, 'tracked.md'), 'original')
+      await service.add({directory: testDir, filePaths: ['tracked.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      await writeFile(join(testDir, 'tracked.md'), 'changed')
+      const result = await service.status({directory: testDir})
+
+      expect(result.isClean).to.be.false
+      const file = result.files.find((f) => f.path === 'tracked.md')
+      expect(file).to.deep.equal({path: 'tracked.md', staged: false, status: 'modified'})
+    })
+
+    it('reports staged modification as modified with staged: true', async () => {
+      await writeFile(join(testDir, 'tracked.md'), 'original')
+      await service.add({directory: testDir, filePaths: ['tracked.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      await writeFile(join(testDir, 'tracked.md'), 'changed')
+      await service.add({directory: testDir, filePaths: ['tracked.md']})
+      const result = await service.status({directory: testDir})
+
+      expect(result.isClean).to.be.false
+      const file = result.files.find((f) => f.path === 'tracked.md')
+      expect(file).to.deep.equal({path: 'tracked.md', staged: true, status: 'modified'})
+    })
+
+    it('reports modified committed file (not staged) as modified with staged: false', async () => {
       await writeFile(join(testDir, 'tracked.md'), 'original')
       await service.add({directory: testDir, filePaths: ['tracked.md']})
       await service.commit({directory: testDir, message: 'initial'})
@@ -159,6 +197,7 @@ describe('IsomorphicGitService', () => {
       expect(result.isClean).to.be.false
       const file = result.files.find((f) => f.path === 'tracked.md')
       expect(file?.status).to.equal('modified')
+      expect(file?.staged).to.be.false
     })
 
     it('returns isClean: true after commit with no further changes', async () => {
@@ -169,6 +208,67 @@ describe('IsomorphicGitService', () => {
       const result = await service.status({directory: testDir})
       expect(result.isClean).to.be.true
       expect(result.files).to.be.empty
+    })
+
+    it('[1,0,1] reports unstaged deletion (rm without git rm) as deleted with staged: false', async () => {
+      await writeFile(join(testDir, 'tracked.md'), 'content')
+      await service.add({directory: testDir, filePaths: ['tracked.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      await unlink(join(testDir, 'tracked.md')) // delete from disk only, not from index
+      const result = await service.status({directory: testDir})
+
+      expect(result.isClean).to.be.false
+      const file = result.files.find((f) => f.path === 'tracked.md')
+      expect(file).to.deep.equal({path: 'tracked.md', staged: false, status: 'deleted'})
+    })
+
+    it('[1,2,3] reports partially staged modification as both staged and unstaged modified', async () => {
+      await writeFile(join(testDir, 'tracked.md'), 'original')
+      await service.add({directory: testDir, filePaths: ['tracked.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      await writeFile(join(testDir, 'tracked.md'), 'change A')
+      await service.add({directory: testDir, filePaths: ['tracked.md']}) // stage change A
+      await writeFile(join(testDir, 'tracked.md'), 'change A + change B') // unstaged change B
+      const result = await service.status({directory: testDir})
+
+      expect(result.isClean).to.be.false
+      const entries = result.files.filter((f) => f.path === 'tracked.md')
+      expect(entries).to.have.length(2)
+      expect(entries).to.deep.include({path: 'tracked.md', staged: true, status: 'modified'})
+      expect(entries).to.deep.include({path: 'tracked.md', staged: false, status: 'modified'})
+    })
+
+    it('[1,0,0] reports staged deletion (git rm) as deleted with staged: true', async () => {
+      await writeFile(join(testDir, 'tracked.md'), 'content')
+      await service.add({directory: testDir, filePaths: ['tracked.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      // git rm: remove from both index and workdir → staged deletion [1,0,0]
+      await git.remove({dir: testDir, filepath: 'tracked.md', fs})
+      await unlink(join(testDir, 'tracked.md'))
+      const result = await service.status({directory: testDir})
+
+      expect(result.isClean).to.be.false
+      const file = result.files.find((f) => f.path === 'tracked.md')
+      expect(file).to.deep.equal({path: 'tracked.md', staged: true, status: 'deleted'})
+    })
+
+    it('[1,1,0] git rm --cached reports staged deletion and file as untracked', async () => {
+      await writeFile(join(testDir, 'tracked.md'), 'content')
+      await service.add({directory: testDir, filePaths: ['tracked.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      // git rm --cached: remove from index but keep file on disk
+      await git.remove({dir: testDir, filepath: 'tracked.md', fs})
+      const result = await service.status({directory: testDir})
+
+      expect(result.isClean).to.be.false
+      const entries = result.files.filter((f) => f.path === 'tracked.md')
+      expect(entries).to.have.length(2)
+      expect(entries).to.deep.include({path: 'tracked.md', staged: true, status: 'deleted'})
+      expect(entries).to.deep.include({path: 'tracked.md', staged: false, status: 'untracked'})
     })
   })
 

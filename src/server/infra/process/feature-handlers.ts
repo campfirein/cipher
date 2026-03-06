@@ -133,9 +133,11 @@ export async function setupFeatureHandlers({
     new ConnectorManager({fileService, projectRoot, templateService})
 
   // Project-scoped handlers (receive resolveProjectPath for client → project resolution)
+  const gitService = new IsomorphicGitService(authStateStore)
+
   new StatusHandler({
     contextTreeService,
-    contextTreeSnapshotService,
+    gitService,
     projectConfigStore,
     resolveProjectPath,
     tokenStore,
@@ -221,7 +223,6 @@ export async function setupFeatureHandlers({
     transport,
   }).setup()
 
-  const gitService = new IsomorphicGitService(authStateStore)
   new FooHandler({
     contextTreeService,
     gitService,
