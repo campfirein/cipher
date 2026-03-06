@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 import {existsSync} from 'node:fs'
-import {mkdir, rm, writeFile} from 'node:fs/promises'
+import {mkdir, rm, unlink, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {stub} from 'sinon'
@@ -10,7 +10,7 @@ import type {IAuthStateStore} from '../../../../src/server/core/interfaces/state
 import {GitAuthError, GitError} from '../../../../src/server/core/domain/errors/git-error.js'
 import {IsomorphicGitService} from '../../../../src/server/infra/git/isomorphic-git-service.js'
 
-const COGIT_BASE = 'https://git.cogit.byterover.com'
+const COGIT_BASE = 'https://fake-cgit.example.com'
 
 function makeTestDir(): string {
   return join(tmpdir(), `brv-git-test-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`)
@@ -60,6 +60,11 @@ describe('IsomorphicGitService', () => {
       expect(existsSync(join(testDir, '.git'))).to.be.true
     })
 
+    it('writes a .gitkeep file', async () => {
+      await service.init({directory: testDir})
+      expect(existsSync(join(testDir, '.gitkeep'))).to.be.true
+    })
+
     it('defaults to main branch', async () => {
       await service.init({directory: testDir})
       const branch = await service.getCurrentBranch({directory: testDir})
@@ -70,6 +75,19 @@ describe('IsomorphicGitService', () => {
       await service.init({defaultBranch: 'trunk', directory: testDir})
       const branch = await service.getCurrentBranch({directory: testDir})
       expect(branch).to.equal('trunk')
+    })
+  })
+
+  // ---- isInitialized() ----
+
+  describe('isInitialized()', () => {
+    it('returns false when no .git directory exists', async () => {
+      expect(await service.isInitialized({directory: testDir})).to.be.false
+    })
+
+    it('returns true after init()', async () => {
+      await service.init({directory: testDir})
+      expect(await service.isInitialized({directory: testDir})).to.be.true
     })
   })
 
@@ -118,6 +136,9 @@ describe('IsomorphicGitService', () => {
   describe('status()', () => {
     beforeEach(async () => {
       await service.init({directory: testDir})
+      // Commit .gitkeep so the repo starts clean
+      await service.add({directory: testDir, filePaths: ['.gitkeep']})
+      await service.commit({directory: testDir, message: 'init'})
     })
 
     it('returns isClean: true on empty repo', async () => {
@@ -283,6 +304,32 @@ describe('IsomorphicGitService', () => {
       expect(conflicts).to.have.length(1)
       expect(conflicts[0].path).to.equal('file.txt')
       expect(conflicts[0].type).to.equal('both_modified')
+    })
+
+    it('detects both_added conflict when new file has conflict markers', async () => {
+      // File does NOT exist in HEAD (never committed), appears in workdir with conflict markers
+      await writeFile(join(testDir, '.git', 'MERGE_HEAD'), 'deadbeef\n')
+      await writeFile(join(testDir, 'brand-new.txt'), '<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch')
+
+      const conflicts = await service.getConflicts({directory: testDir})
+      expect(conflicts).to.have.length(1)
+      expect(conflicts[0].path).to.equal('brand-new.txt')
+      expect(conflicts[0].type).to.equal('both_added')
+    })
+
+    it('detects deleted_modified conflict when tracked file is deleted from workdir', async () => {
+      // File exists in HEAD but is deleted from workdir
+      await writeFile(join(testDir, 'tracked.txt'), 'content')
+      await service.add({directory: testDir, filePaths: ['tracked.txt']})
+      await service.commit({directory: testDir, message: 'add tracked'})
+
+      await writeFile(join(testDir, '.git', 'MERGE_HEAD'), 'deadbeef\n')
+      await unlink(join(testDir, 'tracked.txt'))
+
+      const conflicts = await service.getConflicts({directory: testDir})
+      expect(conflicts).to.have.length(1)
+      expect(conflicts[0].path).to.equal('tracked.txt')
+      expect(conflicts[0].type).to.equal('deleted_modified')
     })
 
     it('detects conflicts in nested directories', async () => {

@@ -80,11 +80,12 @@ export class IsomorphicGitService implements IGitService {
     const dir = this.requireDirectory(params)
     const author = params.author ?? this.getAuthor()
     const sha = await git.commit({author, dir, fs, message: params.message})
+    const {commit: commitObj} = await git.readCommit({dir, fs, oid: sha})
     return {
       author,
       message: params.message,
       sha,
-      timestamp: new Date(),
+      timestamp: new Date(commitObj.author.timestamp * 1000),
     }
   }
 
@@ -145,7 +146,7 @@ export class IsomorphicGitService implements IGitService {
       }),
     )
 
-    return conflicts
+    return conflicts.sort((a, b) => a.path.localeCompare(b.path))
   }
 
   async getCurrentBranch(params: BaseGitParams): Promise<string | undefined> {
@@ -163,6 +164,16 @@ export class IsomorphicGitService implements IGitService {
   async init(params: InitGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
     await git.init({defaultBranch: params.defaultBranch ?? 'main', dir, fs})
+    // Write .gitkeep so the initial commit has at least one file to stage
+    await fs.promises.writeFile(join(dir, '.gitkeep'), '')
+  }
+
+  async isInitialized(params: BaseGitParams): Promise<boolean> {
+    const dir = this.requireDirectory(params)
+    return fs.promises
+      .access(join(dir, '.git'))
+      .then(() => true)
+      .catch(() => false)
   }
 
   async listBranches(params: BaseGitParams): Promise<GitBranch[]> {
@@ -302,9 +313,10 @@ export class IsomorphicGitService implements IGitService {
 
   private getAuthor(): {email: string; name: string} {
     const token = this.authStateStore.getToken()
+    if (!token) throw new GitAuthError()
     return {
-      email: token?.userEmail ?? 'agent@byterover.dev',
-      name: token?.userEmail?.split('@')[0] ?? 'ByteRover Agent',
+      email: token.userEmail,
+      name: token.userEmail,
     }
   }
 
@@ -326,6 +338,7 @@ export class IsomorphicGitService implements IGitService {
   }
 
   private requireDirectory(params: BaseGitParams): string {
+    // Guard against empty string — undefined/null are caught by TypeScript at compile time
     if (!params.directory) throw new GitError('directory is required for git operations')
     return params.directory
   }

@@ -83,6 +83,8 @@ export interface IGitService {
   getCurrentBranch(params: BaseGitParams): Promise<string | undefined>
   getRemoteUrl(params: GetRemoteUrlGitParams): Promise<string | undefined>
   init(params: InitGitParams): Promise<void>
+  /** Returns true if a git repository (.git directory) exists at the given directory. */
+  isInitialized(params: BaseGitParams): Promise<boolean>
   /** Lists local branches only. Remote-tracking branches (e.g. `origin/main`) are not included. */
   listBranches(params: BaseGitParams): Promise<GitBranch[]>
   listRemotes(params: BaseGitParams): Promise<GitRemote[]>
