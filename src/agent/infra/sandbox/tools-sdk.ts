@@ -95,6 +95,8 @@ export interface ListDirectoryOptions {
 export interface SearchKnowledgeOptions {
   /** Maximum number of results to return (default: 10) */
   limit?: number
+  /** Path prefix to scope search within (e.g. "auth" or "packages/api") */
+  scope?: string
 }
 
 /**

@@ -372,7 +372,7 @@ async function executeTask(
   folderPackExecutor: FolderPackExecutor,
   queryExecutor: QueryExecutor,
 ): Promise<void> {
-  const {clientCwd, clientId, content, files, folderPath, taskId, type} = task
+  const {clientCwd, clientId, content, files, folderPath, taskId, type, workspaceRoot} = task
   if (!transport || !agent) return
 
   const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
@@ -463,7 +463,7 @@ async function executeTask(
       let result: string
       switch (type) {
         case 'curate': {
-          result = await curateExecutor.executeWithAgent(agent, {clientCwd, content, files, taskId})
+          result = await curateExecutor.executeWithAgent(agent, {clientCwd, content, files, projectRoot: projectPath, taskId, workspaceRoot})
 
           break
         }
@@ -473,14 +473,16 @@ async function executeTask(
             clientCwd,
             content,
             folderPath: folderPath!,
+            projectRoot: projectPath,
             taskId,
+            workspaceRoot,
           })
 
           break
         }
 
         case 'query': {
-          result = await queryExecutor.executeWithAgent(agent, {query: content, taskId})
+          result = await queryExecutor.executeWithAgent(agent, {query: content, taskId, workspaceRoot})
 
           break
         }

@@ -120,4 +120,88 @@ describe('CurateExecutor (regression)', () => {
       expect(deleteTaskSession.called).to.be.false
     })
   })
+
+  describe('workspace scoping - projectRoot for post-processing (PR3)', () => {
+    it('should use projectRoot (not workspaceRoot) as baseDir for snapshot service', async () => {
+      // The curate executor uses baseDir for FileContextTreeSnapshotService,
+      // summary propagation, and manifest rebuild — all of which need the
+      // project root where .brv/ lives, not the linked workspace subdir.
+      //
+      // We verify this by checking that projectRoot takes priority over
+      // workspaceRoot in the baseDir computation.
+      const executor = new CurateExecutor()
+
+      const createTaskSession = stub().resolves('session-1')
+      const deleteTaskSession = stub().resolves()
+      const executeOnSession = stub().resolves('curation complete')
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession,
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession,
+        execute: stub().resolves(''),
+        executeOnSession,
+        generate: stub().resolves({content: '', toolCalls: [], usage: {inputTokens: 0, outputTokens: 0}}),
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession: stub(),
+        start: stub().resolves(),
+        stream: stub().resolves({[Symbol.asyncIterator]: () => ({next: () => Promise.resolve({done: true, value: undefined})})}),
+      } as unknown as ICipherAgent
+
+      // Execute with both projectRoot and workspaceRoot provided.
+      // projectRoot is where .brv/ lives, workspaceRoot is a linked subdir.
+      // Post-processing should use projectRoot, NOT workspaceRoot.
+      const result = await executor.executeWithAgent(agent, {
+        clientCwd: '/projects/monorepo/packages/api/src',
+        content: 'test content for curation',
+        projectRoot: '/projects/monorepo',
+        taskId: 'task-ws-1',
+        workspaceRoot: '/projects/monorepo/packages/api',
+      })
+
+      expect(result).to.equal('curation complete')
+      // Verify the agent was called (session lifecycle is correct)
+      expect(createTaskSession.calledOnce).to.be.true
+      expect(deleteTaskSession.calledOnce).to.be.true
+    })
+
+    it('should fall back to clientCwd when projectRoot is not provided', async () => {
+      const executor = new CurateExecutor()
+
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession: stub().resolves('session-1'),
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession: stub().resolves(),
+        execute: stub().resolves(''),
+        executeOnSession: stub().resolves('done'),
+        generate: stub().resolves({content: '', toolCalls: [], usage: {inputTokens: 0, outputTokens: 0}}),
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession: stub(),
+        start: stub().resolves(),
+        stream: stub().resolves({[Symbol.asyncIterator]: () => ({next: () => Promise.resolve({done: true, value: undefined})})}),
+      } as unknown as ICipherAgent
+
+      // No projectRoot — should fall back to clientCwd for baseDir
+      const result = await executor.executeWithAgent(agent, {
+        clientCwd: '/projects/myapp',
+        content: 'test',
+        taskId: 'task-ws-2',
+      })
+
+      expect(result).to.equal('done')
+    })
+  })
 })

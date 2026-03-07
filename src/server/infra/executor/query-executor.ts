@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 
 import type { ICipherAgent } from '../../../agent/core/interfaces/i-cipher-agent.js'
 import type { IFileSystem } from '../../../agent/core/interfaces/i-file-system.js'
@@ -63,7 +63,7 @@ export class QueryExecutor implements IQueryExecutor {
   private static readonly FINGERPRINT_CACHE_TTL_MS = 30_000
   private readonly baseDirectory?: string
   private readonly cache?: QueryResultCache
-  private cachedFingerprint?: { expiresAt: number; value: string }
+  private cachedFingerprint?: { expiresAt: number; value: string; workspaceRoot?: string }
   private readonly fileSystem?: IFileSystem
   private readonly searchService?: ISearchKnowledgeService
 
@@ -77,17 +77,18 @@ export class QueryExecutor implements IQueryExecutor {
   }
 
   public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string> {
-    const { query, taskId } = options
+    const { query, taskId, workspaceRoot } = options
+    const workspaceScope = this.deriveWorkspaceScope(workspaceRoot)
 
     // Start search early — runs in parallel with fingerprint computation (independent operations)
-    const searchPromise = this.searchService?.search(query, { limit: SMART_ROUTING_MAX_DOCS })
+    const searchPromise = this.searchService?.search(query, { limit: SMART_ROUTING_MAX_DOCS, scope: workspaceScope })
     // Prevent unhandled rejection if we return early (cache hit) while search is still pending
     searchPromise?.catch(() => {})
 
     // === Tier 0: Exact cache hit (0ms) ===
     let fingerprint: string | undefined
     if (this.cache && this.fileSystem) {
-      fingerprint = await this.computeContextTreeFingerprint()
+      fingerprint = await this.computeContextTreeFingerprint(workspaceRoot)
       const cached = this.cache.get(query, fingerprint)
       if (cached) {
         return cached + ATTRIBUTION_FOOTER
@@ -112,7 +113,7 @@ export class QueryExecutor implements IQueryExecutor {
 
     // Supplementary entity-based searches for better multi-session recall
     if (this.searchService && searchResult && searchResult.totalFound < 3) {
-      searchResult = await this.supplementEntitySearches(query, searchResult)
+      searchResult = await this.supplementEntitySearches(query, searchResult, workspaceScope)
     }
 
     // === OOD short-circuit: no results means topic not covered ===
@@ -188,12 +189,19 @@ export class QueryExecutor implements IQueryExecutor {
     agent.setSandboxVariableOnSession(taskSessionId, resultsVar, searchResult?.results ?? [])
     agent.setSandboxVariableOnSession(taskSessionId, metaVar, metadata)
 
+    // Inject workspace scope so agent follow-up searches are workspace-aware
+    const scopeVar = workspaceScope ? `__query_scope_${taskIdSafe}` : undefined
+    if (scopeVar && workspaceScope) {
+      agent.setSandboxVariableOnSession(taskSessionId, scopeVar, workspaceScope)
+    }
+
     const prompt = this.buildQueryPrompt(query, {
       manifestContext,
       metadata,
       metaVar,
       prefetchedContext,
       resultsVar,
+      scopeVar,
     })
 
     // Query-optimized LLM overrides: tokens and lower temperature
@@ -257,9 +265,10 @@ export class QueryExecutor implements IQueryExecutor {
       metaVar: string
       prefetchedContext?: string
       resultsVar: string
+      scopeVar?: string
     },
   ): string {
-    const { manifestContext, metadata, metaVar, prefetchedContext, resultsVar } = options
+    const { manifestContext, metadata, metaVar, prefetchedContext, resultsVar, scopeVar } = options
     const groundingRules = `### Grounding Rules (CRITICAL)
 - ONLY use information from the curated knowledge base (.brv/context-tree/)
 - If no relevant knowledge is found, respond: "This topic is not covered in the knowledge base."
@@ -275,6 +284,11 @@ export class QueryExecutor implements IQueryExecutor {
 
     const manifestSection = manifestContext
       ? `\n## Structural Context (from manifest)\nThe following provides broad structural awareness of the knowledge base:\n\n${manifestContext}\n`
+      : ''
+
+    // When workspace scope is active, instruct the agent to pass it to follow-up searches
+    const scopeGuidance = scopeVar
+      ? `\nFor any follow-up \`tools.searchKnowledge()\` calls, pass \`{ scope: ${scopeVar} }\` to scope results to the current workspace.`
       : ''
 
     if (prefetchedContext) {
@@ -294,7 +308,7 @@ Metadata: \`${metaVar}\`
 
 Answer the user's question using the pre-fetched context above.
 If the pre-fetched context does not directly address the user's query topic, respond that the topic is not covered in the knowledge base. Do not attempt to answer from tangentially related content.
-If the context is insufficient but relevant, use \`code_exec\` with \`silent: true\` to read additional documents from the search results variable. Use \`setFinalResult(answer)\` when done.
+If the context is insufficient but relevant, use \`code_exec\` with \`silent: true\` to read additional documents from the search results variable. Use \`setFinalResult(answer)\` when done.${scopeGuidance}
 
 ${groundingRules}
 
@@ -311,7 +325,7 @@ Metadata: \`${metaVar}\`
 ## Instructions
 
 Use \`code_exec\` to examine the search results in \`${resultsVar}\`, read relevant documents with \`tools.readFile()\`, and synthesize an answer.
-Use \`silent: true\` for data-loading code_exec calls. Use \`setFinalResult(answer)\` to return the final answer immediately.
+Use \`silent: true\` for data-loading code_exec calls. Use \`setFinalResult(answer)\` to return the final answer immediately.${scopeGuidance}
 
 ${groundingRules}
 
@@ -322,10 +336,15 @@ ${responseFormat}`
    * Compute a context tree fingerprint cheaply using file mtimes.
    * Used for cache invalidation — if any file in the context tree changes,
    * the fingerprint changes and cached results are invalidated.
+   *
+   * Includes workspaceRoot in the hash so different workspaces produce
+   * different fingerprints, preventing cross-workspace cache bleed.
    */
-  private async computeContextTreeFingerprint(): Promise<string> {
+  private async computeContextTreeFingerprint(workspaceRoot?: string): Promise<string> {
     // Fast path: return cached fingerprint if still valid (avoids globFiles I/O)
-    if (this.cachedFingerprint && Date.now() < this.cachedFingerprint.expiresAt) {
+    // Invalidate if workspaceRoot changed since last computation
+    if (this.cachedFingerprint && Date.now() < this.cachedFingerprint.expiresAt
+      && this.cachedFingerprint.workspaceRoot === workspaceRoot) {
       return this.cachedFingerprint.value
     }
 
@@ -345,18 +364,32 @@ ${responseFormat}`
         .filter((f) => !isDerivedArtifact(f.path))
         .map((f) => ({
           mtime: f.modified?.getTime() ?? 0,
-          path: f.path,
+          path: workspaceRoot ? `${workspaceRoot}:${f.path}` : f.path,
         }))
 
       const fingerprint = QueryResultCache.computeFingerprint(files)
       this.cachedFingerprint = {
         expiresAt: Date.now() + QueryExecutor.FINGERPRINT_CACHE_TTL_MS,
         value: fingerprint,
+        workspaceRoot,
       }
       return fingerprint
     } catch {
       return 'unknown'
     }
+  }
+
+  /**
+   * Derive a workspace scope for search from the workspaceRoot.
+   * Returns the relative path from projectRoot to workspaceRoot,
+   * or undefined if they are the same (no scoping needed).
+   */
+  private deriveWorkspaceScope(workspaceRoot?: string): string | undefined {
+    if (!workspaceRoot || !this.baseDirectory) return undefined
+    if (workspaceRoot === this.baseDirectory) return undefined
+    const rel = relative(this.baseDirectory, workspaceRoot)
+
+    return rel || undefined
   }
 
   /**
@@ -386,6 +419,7 @@ ${responseFormat}`
   private async supplementEntitySearches(
     query: string,
     searchResult: SearchKnowledgeResult,
+    scope?: string,
   ): Promise<SearchKnowledgeResult> {
     const entities = this.extractQueryEntities(query)
     if (entities.length <= 1) return searchResult
@@ -393,7 +427,7 @@ ${responseFormat}`
     try {
       const entitySearches = await Promise.allSettled(
         entities.slice(0, 3).map((entity) =>
-          this.searchService!.search(entity, { limit: 3 }),
+          this.searchService!.search(entity, { limit: 3, scope }),
         ),
       )
 
