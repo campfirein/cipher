@@ -400,11 +400,11 @@ async function submitDecision(path, decision) {
 // ── Summary rendering ──────────────────────────────────────────────────
 
 function renderSummaryContent(file) {
-  // Use the last operation's summaries (deduplication keeps only the latest)
+  // Use file-level summaries (read from actual files at serve time, always up-to-date)
   const lastOp = file.operations[file.operations.length - 1];
   const opType = lastOp.type;
-  const previousSummary = lastOp.previousSummary;
-  const summary = lastOp.summary;
+  const previousSummary = file.previousSummary;
+  const summary = file.currentSummary;
 
   // No summaries available at all
   if (!previousSummary && !summary) {
