@@ -16,12 +16,13 @@ import {useExecuteVcStatus} from '../api/execute-vc-status.js'
 
 type VcStatusFlowProps = CustomDialogCallbacks
 
+// eslint-disable-next-line complexity
 function formatVcStatus(result: IVcStatusResponse): string {
-  if (!result.branch) {
+  if (!result.initialized) {
     return chalk.yellow('Git repository not initialized — run `/vc init` to initialize')
   }
 
-  const lines: string[] = [chalk.bold(`On branch: ${result.branch}`)]
+  const lines: string[] = [chalk.bold(`On branch: ${result.branch ?? '(detached HEAD)'}`)]
   const {staged, unstaged, untracked} = result
   const hasChanges =
     staged.added.length > 0 ||

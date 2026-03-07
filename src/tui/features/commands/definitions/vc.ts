@@ -1,6 +1,6 @@
 import type {SlashCommand} from '../../../types/commands.js'
 
-import {vcInitSubCommand} from './init.js'
+import {vcInitSubCommand} from './vc-init.js'
 import {vcStatusSubCommand} from './vc-status.js'
 
 export const vcCommand: SlashCommand = {

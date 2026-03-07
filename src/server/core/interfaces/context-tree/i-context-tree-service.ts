@@ -25,4 +25,10 @@ export interface IContextTreeService {
    * @throws Error if context tree already exists or initialization fails
    */
   initialize(directory?: string): Promise<string>
+
+  /**
+   * Returns the absolute path to the context tree directory without creating it.
+   * @param directory - Base directory
+   */
+  resolvePath(directory: string): string
 }

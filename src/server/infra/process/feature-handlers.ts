@@ -227,7 +227,6 @@ export async function setupFeatureHandlers({
     contextTreeService,
     gitService,
     resolveProjectPath,
-    tokenStore,
     transport,
   }).setup()
 

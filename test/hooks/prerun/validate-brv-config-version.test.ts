@@ -46,6 +46,7 @@ describe('validateBrvConfigVersion', () => {
         delete: stub().resolves(),
         exists: stub().resolves(false),
         initialize: stub().resolves(),
+        resolvePath: stub().returns(''),
       },
       projectConfigStore: mockConfigStore,
     }

@@ -20,12 +20,12 @@ export default class VcStatus extends Command {
   }
 
   private formatOutput(result: IVcStatusResponse): void {
-    if (result.branch) {
-      this.log(chalk.bold(`On branch: ${result.branch}`))
-    } else {
+    if (!result.initialized) {
       this.log(chalk.yellow('Git repository not initialized — run `brv vc init` to initialize'))
       return
     }
+
+    this.log(chalk.bold(`On branch: ${result.branch ?? '(detached HEAD)'}`))
 
     const {staged, unstaged, untracked} = result
     const hasChanges =

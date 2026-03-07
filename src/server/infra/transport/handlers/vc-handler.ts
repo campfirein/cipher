@@ -1,20 +1,16 @@
 import {join} from 'node:path'
 
-import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
 import type {IGitService} from '../../../core/interfaces/services/i-git-service.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
 import {type IVcInitResponse, type IVcStatusResponse, VcEvents} from '../../../../shared/transport/events/vc-events.js'
-import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
-import {NotAuthenticatedError} from '../../../core/domain/errors/task-error.js'
 import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 export interface IVcHandlerDeps {
   contextTreeService: IContextTreeService
   gitService: IGitService
   resolveProjectPath: ProjectPathResolver
-  tokenStore: ITokenStore
   transport: ITransportServer
 }
 
@@ -25,14 +21,12 @@ export class VcHandler {
   private readonly contextTreeService: IContextTreeService
   private readonly gitService: IGitService
   private readonly resolveProjectPath: ProjectPathResolver
-  private readonly tokenStore: ITokenStore
   private readonly transport: ITransportServer
 
   constructor(deps: IVcHandlerDeps) {
     this.contextTreeService = deps.contextTreeService
     this.gitService = deps.gitService
     this.resolveProjectPath = deps.resolveProjectPath
-    this.tokenStore = deps.tokenStore
     this.transport = deps.transport
   }
 
@@ -43,11 +37,6 @@ export class VcHandler {
 
   private async handleInit(clientId: string): Promise<IVcInitResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
-
-    const token = await this.tokenStore.load()
-    if (!token || !token.isValid()) {
-      throw new NotAuthenticatedError()
-    }
 
     // 1. Ensure context tree directory exists
     const contextTreeDir = await this.contextTreeService.initialize(projectPath)
@@ -66,10 +55,15 @@ export class VcHandler {
   private async handleStatus(clientId: string): Promise<IVcStatusResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
 
-    const contextTreeDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
+    const contextTreeDir = this.contextTreeService.resolvePath(projectPath)
     const gitInitialized = await this.gitService.isInitialized({directory: contextTreeDir})
     if (!gitInitialized) {
-      return {staged: {added: [], deleted: [], modified: []}, unstaged: {deleted: [], modified: []}, untracked: []}
+      return {
+        initialized: false,
+        staged: {added: [], deleted: [], modified: []},
+        unstaged: {deleted: [], modified: []},
+        untracked: [],
+      }
     }
 
     const branch = await this.gitService.getCurrentBranch({directory: contextTreeDir})
@@ -80,6 +74,7 @@ export class VcHandler {
 
     return {
       branch,
+      initialized: true,
       staged: {
         added: staged.filter((f) => f.status === 'added').map((f) => f.path),
         deleted: staged.filter((f) => f.status === 'deleted').map((f) => f.path),

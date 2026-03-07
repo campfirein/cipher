@@ -1,3 +1,5 @@
+import type {StatusRow} from 'isomorphic-git'
+
 import * as git from 'isomorphic-git'
 import http from 'isomorphic-git/http/node'
 import fs from 'node:fs'
@@ -302,32 +304,7 @@ export class IsomorphicGitService implements IGitService {
   async status(params: BaseGitParams): Promise<GitStatus> {
     const dir = this.requireDirectory(params)
     const matrix = await git.statusMatrix({dir, fs})
-    const files: GitStatusFile[] = []
-
-    for (const [filepath, head, workdir, stage] of matrix) {
-      const path = String(filepath)
-      if (head === 1 && workdir === 0 && stage === 0) {
-        files.push({path, staged: true, status: 'deleted'}) // [1,0,0] staged deletion (git rm)
-      } else if (head === 1 && workdir === 0 && stage === 1) {
-        files.push({path, staged: false, status: 'deleted'}) // [1,0,1] unstaged deletion (rm without git rm)
-      } else if (head === 1 && workdir === 1 && stage === 0) {
-        files.push({path, staged: true, status: 'deleted'}, {path, staged: false, status: 'untracked'}) //          file still in workdir → untracked
-      } else if (head === 1 && workdir === 2 && stage === 1) {
-        files.push({path, staged: false, status: 'modified'}) // [1,2,1] unstaged modification
-      } else if (head === 1 && workdir === 2 && stage === 2) {
-        files.push({path, staged: true, status: 'modified'}) // [1,2,2] staged modification
-      } else if (head === 1 && workdir === 2 && stage === 3) {
-        files.push({path, staged: true, status: 'modified'}, {path, staged: false, status: 'modified'}) //          plus additional unstaged changes
-      } else if (head === 0 && workdir === 2 && stage === 0) {
-        files.push({path, staged: false, status: 'untracked'}) // [0,2,0] untracked new file
-      } else if (head === 0 && workdir === 2 && stage === 2) {
-        files.push({path, staged: true, status: 'added'}) // [0,2,2] staged new file
-      } else if (head === 0 && workdir === 2 && stage === 3) {
-        files.push({path, staged: true, status: 'added'}, {path, staged: false, status: 'modified'}) //          with additional unstaged changes
-      }
-      // [1,1,1] unmodified → skip
-    }
-
+    const files = this.parseMatrix(matrix)
     return {files, isClean: files.length === 0}
   }
 
@@ -377,6 +354,36 @@ export class IsomorphicGitService implements IGitService {
     return () => {
       throw new GitAuthError('Authentication failed. Try /login again.')
     }
+  }
+
+  // eslint-disable-next-line complexity
+  private parseMatrix(matrix: StatusRow[]): GitStatusFile[] {
+    const files: GitStatusFile[] = []
+    for (const [filepath, head, workdir, stage] of matrix) {
+      const path = String(filepath)
+      if (head === 1 && workdir === 0 && stage === 0) {
+        files.push({path, staged: true, status: 'deleted'}) // [1,0,0] staged deletion (git rm)
+      } else if (head === 1 && workdir === 0 && stage === 1) {
+        files.push({path, staged: false, status: 'deleted'}) // [1,0,1] unstaged deletion (rm without git rm)
+      } else if (head === 1 && workdir === 1 && stage === 0) {
+        files.push({path, staged: true, status: 'deleted'}, {path, staged: false, status: 'untracked'}) // [1,1,0] git rm --cached: staged deletion + file still in workdir → untracked
+      } else if (head === 1 && workdir === 2 && stage === 1) {
+        files.push({path, staged: false, status: 'modified'}) // [1,2,1] unstaged modification
+      } else if (head === 1 && workdir === 2 && stage === 2) {
+        files.push({path, staged: true, status: 'modified'}) // [1,2,2] staged modification
+      } else if (head === 1 && workdir === 2 && stage === 3) {
+        files.push({path, staged: true, status: 'modified'}, {path, staged: false, status: 'modified'}) // [1,2,3] partially staged modification
+      } else if (head === 0 && workdir === 2 && stage === 0) {
+        files.push({path, staged: false, status: 'untracked'}) // [0,2,0] untracked new file
+      } else if (head === 0 && workdir === 2 && stage === 2) {
+        files.push({path, staged: true, status: 'added'}) // [0,2,2] staged new file
+      } else if (head === 0 && workdir === 2 && stage === 3) {
+        files.push({path, staged: true, status: 'added'}, {path, staged: false, status: 'modified'}) // [0,2,3] partially staged new file
+      }
+      // [1,1,1] unmodified → skip
+    }
+
+    return files
   }
 
   private requireDirectory(params: BaseGitParams): string {

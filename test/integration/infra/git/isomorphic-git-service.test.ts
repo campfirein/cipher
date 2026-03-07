@@ -270,6 +270,45 @@ describe('IsomorphicGitService', () => {
       expect(entries).to.deep.include({path: 'tracked.md', staged: true, status: 'deleted'})
       expect(entries).to.deep.include({path: 'tracked.md', staged: false, status: 'untracked'})
     })
+
+    it('[0,2,3] reports partially staged new file as staged added + unstaged modified', async () => {
+      // new file: add to index (staged added), then modify on disk without re-staging
+      await writeFile(join(testDir, 'new.md'), 'original')
+      await service.add({directory: testDir, filePaths: ['new.md']})
+      await writeFile(join(testDir, 'new.md'), 'changed after staging') // unstaged change
+      const result = await service.status({directory: testDir})
+
+      expect(result.isClean).to.be.false
+      const entries = result.files.filter((f) => f.path === 'new.md')
+      expect(entries).to.have.length(2)
+      expect(entries).to.deep.include({path: 'new.md', staged: true, status: 'added'})
+      expect(entries).to.deep.include({path: 'new.md', staged: false, status: 'modified'})
+    })
+
+    it('reports correct statuses for multiple files with mixed states', async () => {
+      // Setup: one committed file (becomes base for HEAD entries)
+      await writeFile(join(testDir, 'committed.md'), 'content')
+      await service.add({directory: testDir, filePaths: ['committed.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      // staged deletion [1,0,0]
+      await git.remove({dir: testDir, filepath: 'committed.md', fs})
+      await unlink(join(testDir, 'committed.md'))
+
+      // staged new file [0,2,2]
+      await writeFile(join(testDir, 'added.md'), 'new')
+      await service.add({directory: testDir, filePaths: ['added.md']})
+
+      // untracked [0,2,0]
+      await writeFile(join(testDir, 'untracked.md'), 'raw')
+
+      const result = await service.status({directory: testDir})
+
+      expect(result.isClean).to.be.false
+      expect(result.files).to.deep.include({path: 'committed.md', staged: true, status: 'deleted'})
+      expect(result.files).to.deep.include({path: 'added.md', staged: true, status: 'added'})
+      expect(result.files).to.deep.include({path: 'untracked.md', staged: false, status: 'untracked'})
+    })
   })
 
   // ---- log() ----

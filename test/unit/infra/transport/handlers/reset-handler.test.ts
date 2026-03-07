@@ -49,6 +49,7 @@ describe('ResetHandler', () => {
       delete: stub(),
       exists: stub(),
       initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/context-tree'),
+      resolvePath: stub<[directory: string], string>().returns(''),
     }
 
     contextTreeSnapshotService = {

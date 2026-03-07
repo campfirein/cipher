@@ -1,7 +1,7 @@
 /**
  * VcHandler Unit Tests
  *
- * Tests git init flow (ENG-685):
+ * Tests vc init and status flows (ENG-685):
  * - git init only (no add, commit, or addRemote)
  * - Auth token validation
  * - Idempotent: always calls gitService.init(); reinitialized flag reflects prior state
@@ -12,7 +12,6 @@ import {expect} from 'chai'
 import {join} from 'node:path'
 import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
-import type {ITokenStore} from '../../../../../src/server/core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
 import type {IGitService} from '../../../../../src/server/core/interfaces/services/i-git-service.js'
 import type {
@@ -21,34 +20,34 @@ import type {
 } from '../../../../../src/server/core/interfaces/transport/i-transport-server.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../../../src/server/constants.js'
-import {AuthToken} from '../../../../../src/server/core/domain/entities/auth-token.js'
-import {NotAuthenticatedError} from '../../../../../src/server/core/domain/errors/task-error.js'
 import {VcHandler} from '../../../../../src/server/infra/transport/handlers/vc-handler.js'
 import {VcEvents} from '../../../../../src/shared/transport/events/vc-events.js'
 
+/** Makes all methods of T typed as SinonStub while still satisfying the original interface. */
+type Stubbed<T> = {[K in keyof T]: SinonStub & T[K]}
+
 const CLIENT_ID = 'client-abc'
 
-function makeValidToken(): AuthToken {
-  return new AuthToken({
-    accessToken: 'access-token',
-    expiresAt: new Date(Date.now() + 3_600_000),
-    refreshToken: 'refresh-token',
-    sessionKey: 'session-key',
-    userEmail: 'test@example.com',
-    userId: 'user-123',
-  })
+interface TestDeps {
+  contextTreeDirPath: string
+  contextTreeService: Stubbed<IContextTreeService>
+  gitService: Stubbed<IGitService>
+  requestHandlers: Record<string, RequestHandler>
+  resolveProjectPath: SinonStub
+  transport: Stubbed<ITransportServer>
 }
 
-function makeDeps(sandbox: SinonSandbox, projectPath: string) {
+function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
   const contextTreeDirPath = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
 
-  const contextTreeService: IContextTreeService = {
+  const contextTreeService: Stubbed<IContextTreeService> = {
     delete: sandbox.stub().resolves(),
     exists: sandbox.stub().resolves(false),
     initialize: sandbox.stub().resolves(contextTreeDirPath),
+    resolvePath: sandbox.stub().returns(contextTreeDirPath),
   }
 
-  const gitService: IGitService = {
+  const gitService: Stubbed<IGitService> = {
     add: sandbox.stub().resolves(),
     addRemote: sandbox.stub().resolves(),
     checkout: sandbox.stub().resolves(),
@@ -75,17 +74,11 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string) {
     status: sandbox.stub().resolves({files: [], isClean: true}),
   }
 
-  const tokenStore: ITokenStore = {
-    clear: sandbox.stub().resolves(),
-    load: sandbox.stub().resolves(makeValidToken()),
-    save: sandbox.stub().resolves(),
-  }
-
   const resolveProjectPath = sandbox.stub().returns(projectPath)
 
   // Capture registered handlers keyed by event name
   const requestHandlers: Record<string, RequestHandler> = {}
-  const transport: ITransportServer = {
+  const transport: Stubbed<ITransportServer> = {
     addToRoom: sandbox.stub(),
     broadcast: sandbox.stub(),
     broadcastTo: sandbox.stub(),
@@ -108,9 +101,17 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string) {
     gitService,
     requestHandlers,
     resolveProjectPath,
-    tokenStore,
     transport,
   }
+}
+
+function makeVcHandler(deps: TestDeps): VcHandler {
+  return new VcHandler({
+    contextTreeService: deps.contextTreeService,
+    gitService: deps.gitService,
+    resolveProjectPath: deps.resolveProjectPath,
+    transport: deps.transport,
+  })
 }
 
 const projectPath = '/fake/brv/project'
@@ -128,208 +129,124 @@ describe('VcHandler', () => {
 
   describe('setup()', () => {
     it('should register handler for vc:init event', () => {
-      const {contextTreeService, gitService, resolveProjectPath, tokenStore, transport} = makeDeps(sandbox, projectPath)
-      const handler = new VcHandler({
-        contextTreeService,
-        gitService,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      })
+      const deps = makeDeps(sandbox, projectPath)
+      makeVcHandler(deps).setup()
 
-      handler.setup()
+      expect(deps.transport.onRequest.called).to.be.true
+      expect(deps.transport.onRequest.firstCall.args[0]).to.equal(VcEvents.INIT)
+    })
 
-      expect((transport.onRequest as SinonStub).called).to.be.true
-      expect((transport.onRequest as SinonStub).firstCall.args[0]).to.equal(VcEvents.INIT)
+    it('should register handler for vc:status event', () => {
+      const deps = makeDeps(sandbox, projectPath)
+      makeVcHandler(deps).setup()
+
+      const registeredEvents = deps.transport.onRequest.args.map((args: unknown[]) => args[0])
+      expect(registeredEvents).to.include(VcEvents.STATUS)
     })
   })
 
   describe('handleInit — fresh repo (isInitialized=false)', () => {
     it('should call contextTreeService.initialize with projectPath', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
+      const deps = makeDeps(sandbox, projectPath)
+      makeVcHandler(deps).setup()
 
-      await requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
+      await deps.requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
 
-      expect((contextTreeService.initialize as SinonStub).calledOnceWith(projectPath)).to.be.true
+      expect(deps.contextTreeService.initialize.calledOnceWith(projectPath)).to.be.true
     })
 
     it('should call gitService.init with contextTreeDir and defaultBranch main', async () => {
-      const {
-        contextTreeDirPath,
-        contextTreeService,
-        gitService,
-        requestHandlers,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      } = makeDeps(sandbox, projectPath)
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
+      const deps = makeDeps(sandbox, projectPath)
+      makeVcHandler(deps).setup()
 
-      await requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
+      await deps.requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
 
-      expect((gitService.init as SinonStub).calledOnce).to.be.true
-      expect((gitService.init as SinonStub).firstCall.args[0]).to.deep.equal({
+      expect(deps.gitService.init.calledOnce).to.be.true
+      expect(deps.gitService.init.firstCall.args[0]).to.deep.equal({
         defaultBranch: 'main',
-        directory: contextTreeDirPath,
+        directory: deps.contextTreeDirPath,
       })
     })
 
     it('should return reinitialized=false when repo was not previously initialized', async () => {
-      const {
-        contextTreeDirPath,
-        contextTreeService,
-        gitService,
-        requestHandlers,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      } = makeDeps(sandbox, projectPath)
-      ;(gitService.isInitialized as SinonStub).resolves(false)
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
 
-      const result = await requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
+      const result = await deps.requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
 
       expect(result).to.deep.equal({
-        gitDir: join(contextTreeDirPath, '.git'),
+        gitDir: join(deps.contextTreeDirPath, '.git'),
         reinitialized: false,
       })
     })
 
     it('should not call add, commit, or addRemote on fresh init', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
+      const deps = makeDeps(sandbox, projectPath)
+      makeVcHandler(deps).setup()
 
-      await requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
+      await deps.requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
 
-      expect((gitService.add as SinonStub).called).to.be.false
-      expect((gitService.commit as SinonStub).called).to.be.false
-      expect((gitService.addRemote as SinonStub).called).to.be.false
+      expect(deps.gitService.add.called).to.be.false
+      expect(deps.gitService.commit.called).to.be.false
+      expect(deps.gitService.addRemote.called).to.be.false
     })
   })
 
   describe('handleInit — repo already exists (isInitialized=true)', () => {
     it('should still call gitService.init when repo already exists', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      ;(gitService.isInitialized as SinonStub).resolves(true)
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      makeVcHandler(deps).setup()
 
-      await requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
+      await deps.requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
 
-      expect((gitService.init as SinonStub).calledOnce).to.be.true
+      expect(deps.gitService.init.calledOnce).to.be.true
     })
 
     it('should return reinitialized=true when repo already existed', async () => {
-      const {
-        contextTreeDirPath,
-        contextTreeService,
-        gitService,
-        requestHandlers,
-        resolveProjectPath,
-        tokenStore,
-        transport,
-      } = makeDeps(sandbox, projectPath)
-      ;(gitService.isInitialized as SinonStub).resolves(true)
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      makeVcHandler(deps).setup()
 
-      const result = await requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
+      const result = await deps.requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
 
       expect(result).to.deep.equal({
-        gitDir: join(contextTreeDirPath, '.git'),
+        gitDir: join(deps.contextTreeDirPath, '.git'),
         reinitialized: true,
       })
     })
 
     it('should not call add, commit, or addRemote on reinit', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      ;(gitService.isInitialized as SinonStub).resolves(true)
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      makeVcHandler(deps).setup()
 
-      await requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
+      await deps.requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
 
-      expect((gitService.add as SinonStub).called).to.be.false
-      expect((gitService.commit as SinonStub).called).to.be.false
-      expect((gitService.addRemote as SinonStub).called).to.be.false
-    })
-  })
-
-  describe('auth validation', () => {
-    it('should throw NotAuthenticatedError when token is missing', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      ;(tokenStore.load as SinonStub).resolves()
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
-
-      try {
-        await requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
-        expect.fail('Expected NotAuthenticatedError')
-      } catch (error) {
-        expect(error).to.be.instanceOf(NotAuthenticatedError)
-      }
-    })
-
-    it('should throw NotAuthenticatedError when token is expired', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      const expiredToken = new AuthToken({
-        accessToken: 'expired-token',
-        expiresAt: new Date(Date.now() - 1000),
-        refreshToken: 'refresh-token',
-        sessionKey: 'session-key',
-        userEmail: 'test@example.com',
-        userId: 'user-123',
-      })
-      ;(tokenStore.load as SinonStub).resolves(expiredToken)
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
-
-      try {
-        await requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
-        expect.fail('Expected NotAuthenticatedError')
-      } catch (error) {
-        expect(error).to.be.instanceOf(NotAuthenticatedError)
-      }
+      expect(deps.gitService.add.called).to.be.false
+      expect(deps.gitService.commit.called).to.be.false
+      expect(deps.gitService.addRemote.called).to.be.false
     })
   })
 
   describe('project path resolution', () => {
     it('should resolve project path using clientId', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
+      const deps = makeDeps(sandbox, projectPath)
+      makeVcHandler(deps).setup()
 
-      await requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
+      await deps.requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
 
-      expect((resolveProjectPath as SinonStub).calledWith(CLIENT_ID)).to.be.true
+      expect(deps.resolveProjectPath.calledWith(CLIENT_ID)).to.be.true
     })
 
     it('should throw when project path cannot be resolved', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      ;(resolveProjectPath as SinonStub).callsFake(() => {})
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
+      const deps = makeDeps(sandbox, projectPath)
+      deps.resolveProjectPath.callsFake(() => {})
+      makeVcHandler(deps).setup()
 
       try {
-        await requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
+        await deps.requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
         expect.fail('Expected error for missing project path')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -342,38 +259,44 @@ describe('VcHandler', () => {
 
   describe('handleStatus — git not initialized', () => {
     it('should return empty response with no branch when git is not initialized', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      ;(gitService.isInitialized as SinonStub).resolves(false)
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
 
-      const result = await requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
+      const result = await deps.requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
 
       expect(result).to.deep.equal({
+        initialized: false,
         staged: {added: [], deleted: [], modified: []},
         unstaged: {deleted: [], modified: []},
         untracked: [],
       })
     })
+
+    it('should resolve project path using clientId', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
+
+      await deps.requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
+
+      expect(deps.resolveProjectPath.calledWith(CLIENT_ID)).to.be.true
+    })
   })
 
   describe('handleStatus — git initialized, clean repo', () => {
     it('should return branch and empty arrays when working tree is clean', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      ;(gitService.isInitialized as SinonStub).resolves(true)
-      ;(gitService.getCurrentBranch as SinonStub).resolves('main')
-      ;(gitService.status as SinonStub).resolves({files: [], isClean: true})
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.status.resolves({files: [], isClean: true})
+      makeVcHandler(deps).setup()
 
-      const result = await requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
+      const result = await deps.requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
 
       expect(result).to.deep.equal({
         branch: 'main',
+        initialized: true,
         staged: {added: [], deleted: [], modified: []},
         unstaged: {deleted: [], modified: []},
         untracked: [],
@@ -383,22 +306,20 @@ describe('VcHandler', () => {
 
   describe('handleStatus — staged files', () => {
     it('should map staged added file to staged.added', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      ;(gitService.isInitialized as SinonStub).resolves(true)
-      ;(gitService.getCurrentBranch as SinonStub).resolves('main')
-      ;(gitService.status as SinonStub).resolves({
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.status.resolves({
         files: [{path: 'a.md', staged: true, status: 'added'}],
         isClean: false,
       })
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
+      makeVcHandler(deps).setup()
 
-      const result = await requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
+      const result = await deps.requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
 
       expect(result).to.deep.equal({
         branch: 'main',
+        initialized: true,
         staged: {added: ['a.md'], deleted: [], modified: []},
         unstaged: {deleted: [], modified: []},
         untracked: [],
@@ -408,22 +329,20 @@ describe('VcHandler', () => {
 
   describe('handleStatus — unstaged files', () => {
     it('should map unstaged modified file to unstaged.modified', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      ;(gitService.isInitialized as SinonStub).resolves(true)
-      ;(gitService.getCurrentBranch as SinonStub).resolves('main')
-      ;(gitService.status as SinonStub).resolves({
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.status.resolves({
         files: [{path: 'b.md', staged: false, status: 'modified'}],
         isClean: false,
       })
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
+      makeVcHandler(deps).setup()
 
-      const result = await requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
+      const result = await deps.requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
 
       expect(result).to.deep.equal({
         branch: 'main',
+        initialized: true,
         staged: {added: [], deleted: [], modified: []},
         unstaged: {deleted: [], modified: ['b.md']},
         untracked: [],
@@ -433,22 +352,20 @@ describe('VcHandler', () => {
 
   describe('handleStatus — untracked files', () => {
     it('should map untracked file to untracked array', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      ;(gitService.isInitialized as SinonStub).resolves(true)
-      ;(gitService.getCurrentBranch as SinonStub).resolves('main')
-      ;(gitService.status as SinonStub).resolves({
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.status.resolves({
         files: [{path: 'c.md', staged: false, status: 'untracked'}],
         isClean: false,
       })
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
+      makeVcHandler(deps).setup()
 
-      const result = await requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
+      const result = await deps.requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
 
       expect(result).to.deep.equal({
         branch: 'main',
+        initialized: true,
         staged: {added: [], deleted: [], modified: []},
         unstaged: {deleted: [], modified: []},
         untracked: ['c.md'],
@@ -458,13 +375,10 @@ describe('VcHandler', () => {
 
   describe('handleStatus — mixed changes', () => {
     it('should correctly populate all three sections simultaneously', async () => {
-      const {contextTreeService, gitService, requestHandlers, resolveProjectPath, tokenStore, transport} = makeDeps(
-        sandbox,
-        projectPath,
-      )
-      ;(gitService.isInitialized as SinonStub).resolves(true)
-      ;(gitService.getCurrentBranch as SinonStub).resolves('feat')
-      ;(gitService.status as SinonStub).resolves({
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getCurrentBranch.resolves('feat')
+      deps.gitService.status.resolves({
         files: [
           {path: 'deleted.md', staged: true, status: 'deleted'},
           {path: 'modified.md', staged: false, status: 'modified'},
@@ -472,16 +386,57 @@ describe('VcHandler', () => {
         ],
         isClean: false,
       })
-      new VcHandler({contextTreeService, gitService, resolveProjectPath, tokenStore, transport}).setup()
+      makeVcHandler(deps).setup()
 
-      const result = await requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
+      const result = await deps.requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
 
       expect(result).to.deep.equal({
         branch: 'feat',
+        initialized: true,
         staged: {added: [], deleted: ['deleted.md'], modified: []},
         unstaged: {deleted: [], modified: ['modified.md']},
         untracked: ['new.md'],
       })
+    })
+  })
+
+  describe('handleStatus — detached HEAD', () => {
+    it('should return response with undefined branch when in detached HEAD state', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getCurrentBranch.resolves()
+      deps.gitService.status.resolves({files: [], isClean: true})
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
+
+      expect(result).to.deep.equal({
+        branch: undefined,
+        initialized: true,
+        staged: {added: [], deleted: [], modified: []},
+        unstaged: {deleted: [], modified: []},
+        untracked: [],
+      })
+    })
+  })
+
+  describe('handleStatus — error propagation', () => {
+    it('should propagate error when gitService.status() throws', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.status.rejects(new Error('git read error'))
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
+        expect.fail('Expected error to be thrown')
+      } catch (error) {
+        expect(error).to.be.instanceOf(Error)
+        if (error instanceof Error) {
+          expect(error.message).to.equal('git read error')
+        }
+      }
     })
   })
 })
