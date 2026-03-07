@@ -42,7 +42,6 @@ import {
   AuthHandler,
   ConfigHandler,
   ConnectorsHandler,
-  FooHandler,
   HubHandler,
   InitHandler,
   ModelHandler,
@@ -52,6 +51,7 @@ import {
   ResetHandler,
   SpaceHandler,
   StatusHandler,
+  VcHandler,
 } from '../transport/handlers/index.js'
 import {HttpUserService} from '../user/http-user-service.js'
 
@@ -137,7 +137,7 @@ export async function setupFeatureHandlers({
 
   new StatusHandler({
     contextTreeService,
-    gitService,
+    contextTreeSnapshotService,
     projectConfigStore,
     resolveProjectPath,
     tokenStore,
@@ -223,7 +223,7 @@ export async function setupFeatureHandlers({
     transport,
   }).setup()
 
-  new FooHandler({
+  new VcHandler({
     contextTreeService,
     gitService,
     resolveProjectPath,

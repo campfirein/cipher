@@ -4,33 +4,7 @@
 
 import chalk from 'chalk'
 
-import type {GitChanges, StatusDTO} from '../../../../shared/transport/types/dto.js'
-
-function formatGitChanges(changes: GitChanges, relativeDir: string): string[] {
-  const result: string[] = []
-  const fp = (file: string) => `${relativeDir}/${file}`
-  const {staged, unstaged, untracked} = changes
-
-  if (staged.added.length > 0 || staged.modified.length > 0 || staged.deleted.length > 0) {
-    result.push('Changes to be committed:')
-    for (const f of staged.added) result.push(`   ${chalk.green(`new file:   ${fp(f)}`)}`)
-    for (const f of staged.modified) result.push(`   ${chalk.green(`modified:   ${fp(f)}`)}`)
-    for (const f of staged.deleted) result.push(`   ${chalk.green(`deleted:    ${fp(f)}`)}`)
-  }
-
-  if (unstaged.modified.length > 0 || unstaged.deleted.length > 0) {
-    result.push('Changes not staged for commit:')
-    for (const f of unstaged.modified) result.push(`   ${chalk.red(`modified:   ${fp(f)}`)}`)
-    for (const f of unstaged.deleted) result.push(`   ${chalk.red(`deleted:    ${fp(f)}`)}`)
-  }
-
-  if (untracked.length > 0) {
-    result.push('Untracked files:')
-    for (const f of untracked) result.push(`   ${chalk.red(fp(f))}`)
-  }
-
-  return result
-}
+import type {StatusDTO} from '../../../../shared/transport/types/dto.js'
 
 export function formatStatus(status: StatusDTO, version?: string): string {
   const lines: string[] = []
@@ -66,14 +40,22 @@ export function formatStatus(status: StatusDTO, version?: string): string {
     lines.push('Space: Not connected')
   }
 
-  if (status.gitBranch) {
-    lines.push(`On branch: ${status.gitBranch}`)
-  }
-
   switch (status.contextTreeStatus) {
     case 'has_changes': {
-      if (status.gitChanges && status.contextTreeRelativeDir) {
-        lines.push(...formatGitChanges(status.gitChanges, status.contextTreeRelativeDir))
+      if (status.contextTreeChanges && status.contextTreeRelativeDir) {
+        const {added, deleted, modified} = status.contextTreeChanges
+        const formatPath = (file: string) => `${status.contextTreeRelativeDir}/${file}`
+
+        const allChanges: {color: (s: string) => string; path: string; status: string}[] = [
+          ...modified.map((f) => ({color: chalk.red, path: f, status: 'modified:'})),
+          ...added.map((f) => ({color: chalk.red, path: f, status: 'new file:'})),
+          ...deleted.map((f) => ({color: chalk.red, path: f, status: 'deleted:'})),
+        ].sort((a, b) => a.path.localeCompare(b.path))
+
+        lines.push('Context Tree Changes:')
+        for (const change of allChanges) {
+          lines.push(`   ${change.color(`${change.status.padEnd(10)} ${formatPath(change.path)}`)}`)
+        }
       }
 
       break
@@ -85,7 +67,7 @@ export function formatStatus(status: StatusDTO, version?: string): string {
     }
 
     case 'not_initialized': {
-      lines.push('Context Tree: Not initialized — use `/init` command to initialize')
+      lines.push('Context Tree: Not initialized')
       break
     }
 

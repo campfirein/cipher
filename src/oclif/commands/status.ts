@@ -1,7 +1,7 @@
 import {Command, Flags} from '@oclif/core'
 import chalk from 'chalk'
 
-import type {GitChanges, StatusDTO} from '../../shared/transport/types/dto.js'
+import type {StatusDTO} from '../../shared/transport/types/dto.js'
 
 import {StatusEvents, type StatusGetResponse} from '../../shared/transport/events/status-events.js'
 import {type DaemonClientOptions, formatConnectionError, withDaemonRetry} from '../lib/daemon-client.js'
@@ -90,16 +90,22 @@ export default class Status extends Command {
       this.log('Space: Not connected')
     }
 
-    // Branch
-    if (status.gitBranch) {
-      this.log(`On branch: ${status.gitBranch}`)
-    }
-
     // Context tree status
     switch (status.contextTreeStatus) {
       case 'has_changes': {
-        if (status.gitChanges && status.contextTreeRelativeDir) {
-          this.logGitChanges(status.gitChanges, status.contextTreeRelativeDir)
+        if (status.contextTreeChanges && status.contextTreeRelativeDir) {
+          const formatPath = (file: string) => `${status.contextTreeRelativeDir}/${file}`
+
+          const allChanges = [
+            ...status.contextTreeChanges.modified.map((f) => ({path: f, status: 'modified:'})),
+            ...status.contextTreeChanges.added.map((f) => ({path: f, status: 'new file:'})),
+            ...status.contextTreeChanges.deleted.map((f) => ({path: f, status: 'deleted:'})),
+          ].sort((a, b) => a.path.localeCompare(b.path))
+
+          this.log('Context Tree Changes:')
+          for (const change of allChanges) {
+            this.log(`   ${chalk.red(`${change.status.padEnd(10)} ${formatPath(change.path)}`)}`)
+          }
         }
 
         break
@@ -111,36 +117,13 @@ export default class Status extends Command {
       }
 
       case 'not_initialized': {
-        this.log('Context Tree: Not initialized — run `brv foo init` to initialize')
+        this.log('Context Tree: Not initialized')
         break
       }
 
       default: {
         this.log('Context Tree: Unable to check status')
       }
-    }
-  }
-
-  private logGitChanges(changes: GitChanges, relativeDir: string): void {
-    const fp = (file: string) => `${relativeDir}/${file}`
-    const {staged, unstaged, untracked} = changes
-
-    if (staged.added.length > 0 || staged.modified.length > 0 || staged.deleted.length > 0) {
-      this.log('Changes to be committed:')
-      for (const f of staged.added) this.log(chalk.green(`\tnew file:   ${fp(f)}`))
-      for (const f of staged.modified) this.log(chalk.green(`\tmodified:   ${fp(f)}`))
-      for (const f of staged.deleted) this.log(chalk.green(`\tdeleted:    ${fp(f)}`))
-    }
-
-    if (unstaged.modified.length > 0 || unstaged.deleted.length > 0) {
-      this.log('Changes not staged for commit:')
-      for (const f of unstaged.modified) this.log(chalk.red(`\tmodified:   ${fp(f)}`))
-      for (const f of unstaged.deleted) this.log(chalk.red(`\tdeleted:    ${fp(f)}`))
-    }
-
-    if (untracked.length > 0) {
-      this.log('Untracked files:')
-      for (const f of untracked) this.log(chalk.red(`\t${fp(f)}`))
     }
   }
 }

@@ -3,7 +3,7 @@ import {join} from 'node:path'
 import type {StatusDTO} from '../../../../shared/transport/types/dto.js'
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
-import type {IGitService} from '../../../core/interfaces/services/i-git-service.js'
+import type {IContextTreeSnapshotService} from '../../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
@@ -13,7 +13,7 @@ import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-ty
 
 export interface StatusHandlerDeps {
   contextTreeService: IContextTreeService
-  gitService: IGitService
+  contextTreeSnapshotService: IContextTreeSnapshotService
   projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
   tokenStore: ITokenStore
@@ -26,7 +26,7 @@ export interface StatusHandlerDeps {
  */
 export class StatusHandler {
   private readonly contextTreeService: IContextTreeService
-  private readonly gitService: IGitService
+  private readonly contextTreeSnapshotService: IContextTreeSnapshotService
   private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
   private readonly tokenStore: ITokenStore
@@ -34,7 +34,7 @@ export class StatusHandler {
 
   constructor(deps: StatusHandlerDeps) {
     this.contextTreeService = deps.contextTreeService
-    this.gitService = deps.gitService
+    this.contextTreeSnapshotService = deps.contextTreeSnapshotService
     this.projectConfigStore = deps.projectConfigStore
     this.resolveProjectPath = deps.resolveProjectPath
     this.tokenStore = deps.tokenStore
@@ -83,40 +83,30 @@ export class StatusHandler {
       }
     } catch {}
 
-    // Context tree status (git-based)
+    // Context tree status
     try {
       const contextTreeExists = await this.contextTreeService.exists(projectPath)
       if (contextTreeExists) {
-        const contextTreeDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
-        result.contextTreeDir = contextTreeDir
+        result.contextTreeDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
         result.contextTreeRelativeDir = join(BRV_DIR, CONTEXT_TREE_DIR)
 
-        const gitInitialized = await this.gitService.isInitialized({directory: contextTreeDir})
-        if (gitInitialized) {
-          result.gitBranch = await this.gitService.getCurrentBranch({directory: contextTreeDir})
-          const gitStatus = await this.gitService.status({directory: contextTreeDir})
+        const hasSnapshot = await this.contextTreeSnapshotService.hasSnapshot(projectPath)
+        if (!hasSnapshot) {
+          await this.contextTreeSnapshotService.initEmptySnapshot(projectPath)
+        }
 
-          if (gitStatus.isClean) {
-            result.contextTreeStatus = 'no_changes'
-          } else {
-            result.contextTreeStatus = 'has_changes'
-            const staged = gitStatus.files.filter((f) => f.staged)
-            const unstaged = gitStatus.files.filter((f) => !f.staged && f.status !== 'untracked')
-            result.gitChanges = {
-              staged: {
-                added: staged.filter((f) => f.status === 'added').map((f) => f.path),
-                deleted: staged.filter((f) => f.status === 'deleted').map((f) => f.path),
-                modified: staged.filter((f) => f.status === 'modified').map((f) => f.path),
-              },
-              unstaged: {
-                deleted: unstaged.filter((f) => f.status === 'deleted').map((f) => f.path),
-                modified: unstaged.filter((f) => f.status === 'modified').map((f) => f.path),
-              },
-              untracked: gitStatus.files.filter((f) => f.status === 'untracked').map((f) => f.path),
-            }
+        const changes = await this.contextTreeSnapshotService.getChanges(projectPath)
+        const hasChanges = changes.added.length > 0 || changes.modified.length > 0 || changes.deleted.length > 0
+
+        if (hasChanges) {
+          result.contextTreeStatus = 'has_changes'
+          result.contextTreeChanges = {
+            added: changes.added,
+            deleted: changes.deleted,
+            modified: changes.modified,
           }
         } else {
-          result.contextTreeStatus = 'not_initialized'
+          result.contextTreeStatus = 'no_changes'
         }
       } else {
         result.contextTreeStatus = 'not_initialized'
