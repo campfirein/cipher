@@ -53,18 +53,18 @@ export class MalformedWorkspaceLinkError extends Error {
   }
 }
 
-function hasBrvConfig(dir: string): boolean {
+export function hasBrvConfig(dir: string): boolean {
   return existsSync(join(dir, BRV_DIR, PROJECT_CONFIG_FILE))
 }
 
-function hasWorkspaceLink(dir: string): boolean {
+export function hasWorkspaceLink(dir: string): boolean {
   return existsSync(join(dir, WORKSPACE_LINK_FILE))
 }
 
 /**
  * Checks if a directory is a git root (.git directory or .git file for worktrees/submodules).
  */
-function isGitRoot(dir: string): boolean {
+export function isGitRoot(dir: string): boolean {
   const gitPath = join(dir, '.git')
   try {
     const stat = statSync(gitPath)
@@ -106,7 +106,7 @@ function readWorkspaceLink(linkFilePath: string): string {
  * Checks that candidate is an ancestor of (or equal to) descendant.
  * Both paths must be absolute.
  */
-function isDescendantOf(descendant: string, ancestor: string): boolean {
+export function isDescendantOf(descendant: string, ancestor: string): boolean {
   const normalizedAncestor = ancestor.endsWith(sep) ? ancestor : ancestor + sep
   return descendant === ancestor || descendant.startsWith(normalizedAncestor)
 }

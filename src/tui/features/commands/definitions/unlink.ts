@@ -49,18 +49,21 @@ export const unlinkCommand: SlashCommand = {
       try {
         resolution = resolveProject()
       } catch {
-        // If resolution still fails, fall back to clearing local state and using cwd.
+        // Resolution failed — no valid project found after unlinking
       }
 
       const store = useTransportStore.getState()
       store.setProjectInfo(resolution?.projectRoot, resolution?.workspaceRoot)
-      const cwd = process.cwd()
-      const reassociationPath = resolution?.projectRoot ?? cwd
-      store.client
-        ?.requestWithAck(ClientEvents.ASSOCIATE_PROJECT, {projectPath: reassociationPath})
-        .catch(() => {
-          // Best-effort: server may not be reachable
-        })
+
+      // Only reassociate if we found a valid project; otherwise skip to avoid
+      // registering a non-project directory in the daemon's room/agent mapping.
+      if (resolution?.projectRoot) {
+        store.client
+          ?.requestWithAck(ClientEvents.ASSOCIATE_PROJECT, {projectPath: resolution.projectRoot})
+          .catch(() => {
+            // Best-effort: server may not be reachable
+          })
+      }
 
       return {
         content: `Removed workspace link: ${linkFile}`,
