@@ -7,6 +7,7 @@ import type {ICurateLogStore} from '../../core/interfaces/storage/i-curate-log-s
 import type {IReviewBackupStore} from '../../core/interfaces/storage/i-review-backup-store.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
+import {MarkdownWriter} from '../../core/domain/knowledge/markdown-writer.js'
 import {getReviewPageHtml} from './review-ui.js'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -22,6 +23,7 @@ export interface ReviewApiOptions {
 }
 
 type PendingFileInfo = {
+  currentSummary?: string
   operations: {
     confidence?: string
     impact?: string
@@ -33,6 +35,7 @@ type PendingFileInfo = {
     type: string
   }[]
   path: string
+  previousSummary?: string
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -50,10 +53,28 @@ function getContextTreeDir(projectPath: string): string {
 }
 
 /**
+ * Extract summary from markdown file content's frontmatter.
+ */
+function extractSummaryFromContent(content: string): string | undefined {
+  try {
+    return MarkdownWriter.parseContent(content).summary
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Scans curate log entries for operations with reviewStatus === 'pending'
  * and groups them by file path (relative to context tree).
+ *
+ * Reads live summaries from the actual files (current + backup) so that
+ * reviews always reflect the latest state, even after subsequent curations.
  */
-function collectPendingFiles(entries: CurateLogEntry[], contextTreeDir: string): PendingFileInfo[] {
+async function collectPendingFiles(
+  entries: CurateLogEntry[],
+  contextTreeDir: string,
+  backupStore: IReviewBackupStore,
+): Promise<PendingFileInfo[]> {
   const pendingByFile = new Map<string, PendingFileInfo['operations']>()
 
   for (const entry of entries) {
@@ -85,9 +106,42 @@ function collectPendingFiles(entries: CurateLogEntry[], contextTreeDir: string):
     }
   }
 
-  return [...pendingByFile.entries()]
-    .map(([path, operations]) => ({operations, path}))
-    .sort((a, b) => a.path.localeCompare(b.path))
+  // Read live summaries from actual files (current + backup) in parallel
+  const sortedEntries = [...pendingByFile.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+
+  const results = await Promise.all(
+    sortedEntries.map(async ([path, operations]): Promise<PendingFileInfo> => {
+      let currentSummary: string | undefined
+      let previousSummary: string | undefined
+
+      try {
+        const currentContent = await readFile(join(contextTreeDir, path), 'utf8')
+        currentSummary = extractSummaryFromContent(currentContent)
+      } catch {
+        // File may have been deleted (DELETE operation) — that's expected
+      }
+
+      try {
+        const backupContent = await backupStore.read(path)
+        if (backupContent !== null) {
+          previousSummary = extractSummaryFromContent(backupContent)
+        }
+      } catch {
+        // No backup — file was newly added
+      }
+
+      // Fall back to curate log values if live reads yielded nothing
+      if (!currentSummary && !previousSummary) {
+        const lastOp = operations.at(-1)!
+        currentSummary = lastOp.summary
+        previousSummary = lastOp.previousSummary
+      }
+
+      return {currentSummary, operations, path, previousSummary}
+    }),
+  )
+
+  return results
 }
 
 type PendingUpdate = {
@@ -167,7 +221,8 @@ export function createReviewApiRouter(options: ReviewApiOptions): Router {
       const store = options.curateLogStoreFactory(projectPath)
       const entries = await store.list()
       const contextTreeDir = getContextTreeDir(projectPath)
-      const files = collectPendingFiles(entries, contextTreeDir)
+      const backupStore = options.reviewBackupStoreFactory(projectPath)
+      const files = await collectPendingFiles(entries, contextTreeDir, backupStore)
 
       res.json({files, projectPath})
     } catch (error: unknown) {
