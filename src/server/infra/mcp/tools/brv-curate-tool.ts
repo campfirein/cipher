@@ -5,8 +5,12 @@ import {waitForConnectedClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
-import {TransportClientEventNames, TransportTaskEventNames} from '../../../core/domain/transport/schemas.js'
-import {detectMcpMode} from '../mcp-mode-detector.js'
+import {TransportTaskEventNames} from '../../../core/domain/transport/schemas.js'
+import {
+  associateProjectWithRetry,
+  type McpStartupProjectContext,
+  resolveMcpTaskContext,
+} from './mcp-project-context.js'
 import {resolveClientCwd} from './resolve-client-cwd.js'
 
 export const BrvCurateInputSchema = z.object({
@@ -53,6 +57,7 @@ export function registerBrvCurateTool(
   server: McpServer,
   getClient: () => ITransportClient | undefined,
   getWorkingDirectory: () => string | undefined,
+  getStartupProjectContext: () => McpStartupProjectContext | undefined,
 ): void {
   server.registerTool(
     'brv-curate',
@@ -95,21 +100,12 @@ export function registerBrvCurateTool(
         }
       }
 
-      // In global mode, associate client with the walked-up project root.
-      // Walk up from clientCwd to find .brv/config.json — raw cwd may be a subdirectory.
-      // Fire-and-forget: server handler is idempotent (first association wins).
-      if (!getWorkingDirectory()) {
-        const {projectRoot} = detectMcpMode(cwdResult.clientCwd)
-        if (projectRoot) {
-          client
-            .requestWithAck(TransportClientEventNames.ASSOCIATE_PROJECT, {
-              projectPath: projectRoot,
-            })
-            .catch(() => {})
-        }
-      }
-
       try {
+        const taskContext = resolveMcpTaskContext(cwdResult.clientCwd, getStartupProjectContext())
+        if (!getWorkingDirectory()) {
+          await associateProjectWithRetry(client, taskContext.projectRoot)
+        }
+
         const taskId = randomUUID()
 
         // Create task via transport (same pattern as brv curate command)
@@ -123,8 +119,10 @@ export function registerBrvCurateTool(
         const ack = await client.requestWithAck<{logId?: string; taskId: string}>(TransportTaskEventNames.CREATE, {
           clientCwd: cwdResult.clientCwd,
           content: resolvedContent,
+          projectPath: taskContext.projectRoot,
           taskId,
           type: taskType,
+          workspaceRoot: taskContext.workspaceRoot,
           ...(hasFolder && folder ? {folderPath: folder} : {}),
           ...(!hasFolder && files?.length ? {files} : {}),
         })

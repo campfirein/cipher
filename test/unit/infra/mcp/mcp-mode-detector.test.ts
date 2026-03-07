@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {existsSync, mkdirSync, rmSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdirSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -23,10 +23,14 @@ describe('detectMcpMode', () => {
     const brvDir = join(testDir, '.brv')
     mkdirSync(brvDir, {recursive: true})
     writeFileSync(join(brvDir, 'config.json'), '{}')
+    const canonicalTestDir = realpathSync(testDir)
 
     const result = detectMcpMode(testDir)
     expect(result.mode).to.equal('project')
-    expect(result.projectRoot).to.equal(testDir)
+    if (result.mode === 'project') {
+      expect(result.projectRoot).to.equal(canonicalTestDir)
+      expect(result.workspaceRoot).to.equal(canonicalTestDir)
+    }
   })
 
   it('should return "project" with projectRoot pointing to ancestor when .brv/config.json exists in ancestor directory', () => {
@@ -36,17 +40,47 @@ describe('detectMcpMode', () => {
 
     const nestedDir = join(testDir, 'src', 'components')
     mkdirSync(nestedDir, {recursive: true})
+    const canonicalTestDir = realpathSync(testDir)
 
     const result = detectMcpMode(nestedDir)
     expect(result.mode).to.equal('project')
-    expect(result.projectRoot).to.equal(testDir)
+    if (result.mode === 'project') {
+      expect(result.projectRoot).to.equal(canonicalTestDir)
+      expect(result.workspaceRoot).to.equal(canonicalTestDir)
+    }
+  })
+
+  it('should return linked workspaceRoot when cwd is inside a linked workspace', () => {
+    const projectRoot = join(testDir, 'repo')
+    const workspaceRoot = join(projectRoot, 'packages', 'api')
+    const cwd = join(workspaceRoot, 'src')
+    mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+    writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
+    mkdirSync(cwd, {recursive: true})
+    writeFileSync(join(workspaceRoot, '.brv-workspace.json'), JSON.stringify({projectRoot}))
+    const canonicalProjectRoot = realpathSync(projectRoot)
+    const canonicalWorkspaceRoot = realpathSync(workspaceRoot)
+
+    const result = detectMcpMode(cwd)
+    expect(result.mode).to.equal('project')
+    if (result.mode === 'project') {
+      expect(result.projectRoot).to.equal(canonicalProjectRoot)
+      expect(result.workspaceRoot).to.equal(canonicalWorkspaceRoot)
+    }
+  })
+
+  it('should surface broken workspace link errors', () => {
+    const workspaceRoot = join(testDir, 'packages', 'api')
+    mkdirSync(workspaceRoot, {recursive: true})
+    writeFileSync(join(workspaceRoot, '.brv-workspace.json'), JSON.stringify({projectRoot: '/missing/project'}))
+
+    expect(() => detectMcpMode(workspaceRoot)).to.throw('Workspace link broken')
   })
 
   it('should return "global" with no projectRoot when no .brv/config.json exists in any ancestor', () => {
     // testDir has no .brv directory
     const result = detectMcpMode(testDir)
     expect(result.mode).to.equal('global')
-    expect(result.projectRoot).to.be.undefined
   })
 
   it('should return "global" when .brv exists but config.json is missing', () => {
@@ -56,12 +90,10 @@ describe('detectMcpMode', () => {
 
     const result = detectMcpMode(testDir)
     expect(result.mode).to.equal('global')
-    expect(result.projectRoot).to.be.undefined
   })
 
   it('should return "global" for filesystem root', () => {
     const result = detectMcpMode('/')
     expect(result.mode).to.equal('global')
-    expect(result.projectRoot).to.be.undefined
   })
 })

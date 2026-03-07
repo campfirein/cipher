@@ -126,4 +126,18 @@ export interface IClientManager {
    * @param clientId - The client's Socket.IO ID
    */
   unregister(clientId: string): void
+
+  /**
+   * Update a client's project path, even if already associated.
+   * Used for reassociation after link/unlink operations.
+   * Moves the client from the old project index to the new one,
+   * and fires onProjectEmpty if the old project has no remaining external clients.
+   *
+   * No-op if client is unknown.
+   *
+   * @param clientId - The client's Socket.IO ID
+   * @param newProjectPath - The new project path to associate
+   * @returns The previous project path (undefined if client not found or not previously associated)
+   */
+  updateProjectPath(clientId: string, newProjectPath: string): string | undefined
 }

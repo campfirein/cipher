@@ -1,5 +1,4 @@
-import {existsSync} from 'node:fs'
-import {dirname, join} from 'node:path'
+import {resolveProject} from '../project/resolve-project.js'
 
 /**
  * Operating mode for the MCP server.
@@ -11,31 +10,25 @@ import {dirname, join} from 'node:path'
  */
 export type McpMode = 'global' | 'project'
 
-export type McpModeResult = {mode: McpMode; projectRoot?: string}
+export type McpModeResult =
+  | {mode: 'global'}
+  | {mode: 'project'; projectRoot: string; workspaceRoot: string}
 
 /**
  * Detects whether the MCP server is running in project or global mode.
  *
- * Walks up from workingDirectory looking for `.brv/config.json`.
- * If found, returns project mode with the discovered project root.
- * If the filesystem root is reached without finding it, returns global mode.
+ * Uses the canonical project resolver so MCP shares workspace-link semantics
+ * with the rest of the CLI.
  */
 export function detectMcpMode(workingDirectory: string): McpModeResult {
-  let current = workingDirectory
-  let parent = dirname(current)
-  while (current !== parent) {
-    if (existsSync(join(current, '.brv', 'config.json'))) {
-      return {mode: 'project', projectRoot: current}
-    }
-
-    current = parent
-    parent = dirname(current)
+  const resolution = resolveProject({cwd: workingDirectory})
+  if (!resolution) {
+    return {mode: 'global'}
   }
 
-  // Check the root directory itself
-  if (existsSync(join(current, '.brv', 'config.json'))) {
-    return {mode: 'project', projectRoot: current}
+  return {
+    mode: 'project',
+    projectRoot: resolution.projectRoot,
+    workspaceRoot: resolution.workspaceRoot,
   }
-
-  return {mode: 'global'}
 }

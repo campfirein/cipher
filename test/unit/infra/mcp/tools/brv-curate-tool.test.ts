@@ -2,10 +2,12 @@ import type {ConnectionState, ConnectionStateHandler, ITransportClient} from '@c
 import type {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 
 import {expect} from 'chai'
-import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs'
+import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {restore, type SinonFakeTimers, type SinonStub, stub, useFakeTimers} from 'sinon'
+
+import type {McpStartupProjectContext} from '../../../../../src/server/infra/mcp/tools/mcp-project-context.js'
 
 import {BrvCurateInputSchema, registerBrvCurateTool} from '../../../../../src/server/infra/mcp/tools/brv-curate-tool.js'
 
@@ -109,10 +111,22 @@ function createMockClient(options?: {state?: ConnectionState}): {
  */
 function setupCurateHandler(options: {
   getClient: () => ITransportClient | undefined
+  getStartupProjectContext?: () => McpStartupProjectContext | undefined
   getWorkingDirectory: () => string | undefined
 }): CurateToolHandler {
   const {getHandler, server} = createMockMcpServer()
-  registerBrvCurateTool(server, options.getClient, options.getWorkingDirectory)
+  registerBrvCurateTool(
+    server,
+    options.getClient,
+    options.getWorkingDirectory,
+    options.getStartupProjectContext ??
+      (() => {
+        const workingDirectory = options.getWorkingDirectory()
+        return workingDirectory
+          ? {projectRoot: workingDirectory, workspaceRoot: workingDirectory}
+          : undefined
+      }),
+  )
   return getHandler('brv-curate')
 }
 
@@ -225,18 +239,32 @@ describe('brv-curate-tool', () => {
     })
 
     it('should prefer explicit cwd over projectRoot', async () => {
-      const {client} = createMockClient()
-      const requestStub = client.requestWithAck as SinonStub
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-curate-project-'))
+      const otherProject = mkdtempSync(join(tmpdir(), 'brv-curate-other-'))
+      mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+      mkdirSync(join(otherProject, '.brv'), {recursive: true})
+      writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
+      writeFileSync(join(otherProject, '.brv', 'config.json'), '{}')
+      const canonicalOtherProject = realpathSync(otherProject)
 
-      const handler = setupCurateHandler({
-        getClient: () => client,
-        getWorkingDirectory: () => '/project/root',
-      })
+      try {
+        const {client} = createMockClient()
+        const requestStub = client.requestWithAck as SinonStub
 
-      await handler({context: 'test', cwd: '/other/project'})
+        const handler = setupCurateHandler({
+          getClient: () => client,
+          getWorkingDirectory: () => projectRoot,
+        })
 
-      const payload = requestStub.firstCall.args[1]
-      expect(payload.clientCwd).to.equal('/other/project')
+        await handler({context: 'test', cwd: otherProject})
+
+        const payload = requestStub.firstCall.args[1]
+        expect(payload.clientCwd).to.equal(otherProject)
+        expect(payload.projectPath).to.equal(canonicalOtherProject)
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+        rmSync(otherProject, {force: true, recursive: true})
+      }
     })
 
     it('should include files in task:create payload when provided', async () => {
@@ -301,27 +329,39 @@ describe('brv-curate-tool', () => {
     })
 
     it('should use explicit cwd when provided in global mode', async () => {
-      const {client} = createMockClient()
-      const requestStub = client.requestWithAck as SinonStub
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-curate-global-'))
+      mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+      writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
+      const canonicalProjectRoot = realpathSync(projectRoot)
 
-      const handler = setupCurateHandler({
-        getClient: () => client,
-        getWorkingDirectory: noWorkingDirectory,
-      })
+      try {
+        const {client} = createMockClient()
+        const requestStub = client.requestWithAck as SinonStub
 
-      const result = await handler({context: 'Auth pattern', cwd: '/some/project'})
+        const handler = setupCurateHandler({
+          getClient: () => client,
+          getWorkingDirectory: noWorkingDirectory,
+        })
 
-      expect(result.isError).to.be.undefined
-      expect(result.content[0].text).to.include('queued for curation')
+        const result = await handler({context: 'Auth pattern', cwd: projectRoot})
 
-      const createCall = requestStub.getCalls().find((c: {args: unknown[]}) => c.args[0] === 'task:create')
-      expect(createCall).to.exist
-      expect(createCall!.args[1]).to.have.property('clientCwd', '/some/project')
+        expect(result.isError).to.be.undefined
+        expect(result.content[0].text).to.include('queued for curation')
+
+        const createCall = requestStub.getCalls().find((c: {args: unknown[]}) => c.args[0] === 'task:create')
+        expect(createCall).to.exist
+        expect(createCall!.args[1]).to.have.property('clientCwd', projectRoot)
+        expect(createCall!.args[1]).to.have.property('projectPath', canonicalProjectRoot)
+        expect(createCall!.args[1]).to.have.property('workspaceRoot', canonicalProjectRoot)
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
     })
 
     it('should call client:associateProject with walked-up project root in global mode', async () => {
-      // Create temp project with .brv/config.json so detectMcpMode finds the root
-      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-test-'))
+      // Create temp project with .brv/config.json so resolveProject finds the root
+      const rawProjectRoot = mkdtempSync(join(tmpdir(), 'brv-test-'))
+      const projectRoot = realpathSync(rawProjectRoot)
       const subDir = join(projectRoot, 'src', 'modules')
       mkdirSync(join(projectRoot, '.brv'), {recursive: true})
       writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
@@ -451,6 +491,105 @@ describe('brv-curate-tool', () => {
   })
 
   describe('handler — transport errors', () => {
+    it('should retry project association once before queueing the task', async () => {
+      const clock = useFakeTimers()
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-curate-retry-'))
+      mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+      writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
+
+      try {
+        const {client} = createMockClient()
+        const requestStub = client.requestWithAck as SinonStub
+        let associationAttempts = 0
+
+        requestStub.callsFake((event: string) => {
+          if (event === 'client:associateProject') {
+            associationAttempts++
+            if (associationAttempts === 1) {
+              return new Promise(() => {})
+            }
+
+            return Promise.resolve({success: true})
+          }
+
+          return Promise.resolve({taskId: 'queued-task'})
+        })
+
+        const handler = setupCurateHandler({
+          getClient: () => client,
+          getWorkingDirectory: noWorkingDirectory,
+        })
+
+        const resultPromise = handler({context: 'Auth pattern', cwd: projectRoot})
+        await clock.tickAsync(3001)
+        const result = await resultPromise
+
+        expect(result.isError).to.be.undefined
+        expect(result.content[0].text).to.include('queued for curation')
+        expect(associationAttempts).to.equal(2)
+      } finally {
+        clock.restore()
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+    })
+
+    it('should return actionable error when project association fails twice', async () => {
+      const clock = useFakeTimers()
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-curate-assoc-fail-'))
+      mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+      writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
+
+      try {
+        const {client} = createMockClient()
+        const requestStub = client.requestWithAck as SinonStub
+        requestStub.callsFake((event: string) => {
+          if (event === 'client:associateProject') {
+            return new Promise(() => {})
+          }
+
+          return Promise.resolve({taskId: 'queued-task'})
+        })
+
+        const handler = setupCurateHandler({
+          getClient: () => client,
+          getWorkingDirectory: noWorkingDirectory,
+        })
+
+        const resultPromise = handler({context: 'Auth pattern', cwd: projectRoot})
+        await clock.tickAsync(6002)
+        const result = await resultPromise
+
+        expect(result.isError).to.be.true
+        expect(result.content[0].text).to.include('Failed to associate MCP client with project')
+        expect(requestStub.getCalls().filter((c: {args: unknown[]}) => c.args[0] === 'task:create')).to.have.length(0)
+      } finally {
+        clock.restore()
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+    })
+
+    it('should surface resolver errors instead of silently falling back', async () => {
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-curate-broken-link-'))
+      const workspace = join(projectRoot, 'packages', 'api')
+      mkdirSync(workspace, {recursive: true})
+      writeFileSync(join(workspace, '.brv-workspace.json'), JSON.stringify({projectRoot: '/missing/project'}))
+
+      try {
+        const {client} = createMockClient()
+        const handler = setupCurateHandler({
+          getClient: () => client,
+          getWorkingDirectory: noWorkingDirectory,
+        })
+
+        const result = await handler({context: 'Auth pattern', cwd: workspace})
+
+        expect(result.isError).to.be.true
+        expect(result.content[0].text).to.include('Workspace link broken')
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+    })
+
     it('should return error when requestWithAck rejects', async () => {
       const {client} = createMockClient()
       const requestStub = client.requestWithAck as SinonStub

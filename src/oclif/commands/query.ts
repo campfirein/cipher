@@ -67,7 +67,7 @@ Bad:
 
     try {
       await withDaemonRetry(
-        async (client, projectRoot) => {
+        async (client, projectRoot, workspaceRoot) => {
           const active = await client.requestWithAck<ProviderConfigResponse>(
             TransportStateEventNames.GET_PROVIDER_CONFIG,
           )
@@ -85,7 +85,7 @@ Bad:
             )
           }
 
-          await this.submitTask({client, format, projectRoot, query: args.query})
+          await this.submitTask({client, format, projectRoot, query: args.query, workspaceRoot})
         },
         {
           ...this.getDaemonClientOptions(),
@@ -121,8 +121,9 @@ Bad:
     format: 'json' | 'text'
     projectRoot?: string
     query: string
+    workspaceRoot?: string
   }): Promise<void> {
-    const {client, format, projectRoot, query} = props
+    const {client, format, projectRoot, query, workspaceRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
       clientCwd: process.cwd(),
@@ -130,6 +131,7 @@ Bad:
       ...(projectRoot ? {projectPath: projectRoot} : {}),
       taskId,
       type: 'query',
+      ...(workspaceRoot ? {workspaceRoot} : {}),
     }
 
     let finalResult: string | undefined

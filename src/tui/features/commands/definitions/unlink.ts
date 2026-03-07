@@ -3,6 +3,11 @@ import {dirname, join, resolve} from 'node:path'
 
 import type {SlashCommand} from '../../../types/commands.js'
 
+// eslint-disable-next-line no-restricted-imports -- unlink must re-resolve project after removing workspace link
+import {resolveProject} from '../../../../server/infra/project/resolve-project.js'
+import {ClientEvents} from '../../../../shared/transport/events/client-events.js'
+import {useTransportStore} from '../../../stores/transport-store.js'
+
 const WORKSPACE_LINK_FILE = '.brv-workspace.json'
 
 function findNearestLink(): null | string {
@@ -37,6 +42,25 @@ export const unlinkCommand: SlashCommand = {
 
     try {
       unlinkSync(linkFile)
+
+      // Re-resolve after unlink so both reconnects and task payloads use the
+      // walked-up project root instead of the raw subdirectory cwd.
+      let resolution: ReturnType<typeof resolveProject> = null
+      try {
+        resolution = resolveProject()
+      } catch {
+        // If resolution still fails, fall back to clearing local state and using cwd.
+      }
+
+      const store = useTransportStore.getState()
+      store.setProjectInfo(resolution?.projectRoot, resolution?.workspaceRoot)
+      const cwd = process.cwd()
+      const reassociationPath = resolution?.projectRoot ?? cwd
+      store.client
+        ?.requestWithAck(ClientEvents.ASSOCIATE_PROJECT, {projectPath: reassociationPath})
+        .catch(() => {
+          // Best-effort: server may not be reachable
+        })
 
       return {
         content: `Removed workspace link: ${linkFile}`,

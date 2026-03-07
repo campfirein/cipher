@@ -5,6 +5,8 @@ export const BRV_CONFIG_VERSION = '0.0.1'
 
 // Workspace linking
 export const WORKSPACE_LINK_FILE = '.brv-workspace.json'
+export const MCP_ASSOCIATE_PROJECT_TIMEOUT_MS = 3000
+export const MCP_ASSOCIATE_PROJECT_MAX_ATTEMPTS = 2
 
 // Global config constants (user-level, stored in XDG config directory)
 export const GLOBAL_CONFIG_DIR = 'brv'

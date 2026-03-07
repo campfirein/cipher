@@ -2,10 +2,12 @@ import type {ConnectionState, ConnectionStateHandler, ITransportClient} from '@c
 import type {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 
 import {expect} from 'chai'
-import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs'
+import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {restore, type SinonFakeTimers, type SinonStub, stub, useFakeTimers} from 'sinon'
+
+import type {McpStartupProjectContext} from '../../../../../src/server/infra/mcp/tools/mcp-project-context.js'
 
 import {BrvQueryInputSchema, registerBrvQueryTool} from '../../../../../src/server/infra/mcp/tools/brv-query-tool.js'
 
@@ -112,10 +114,22 @@ function createMockClient(options?: {state?: ConnectionState}): {
  */
 function setupQueryHandler(options: {
   getClient: () => ITransportClient | undefined
+  getStartupProjectContext?: () => McpStartupProjectContext | undefined
   getWorkingDirectory: () => string | undefined
 }): QueryToolHandler {
   const {getHandler, server} = createMockMcpServer()
-  registerBrvQueryTool(server, options.getClient, options.getWorkingDirectory)
+  registerBrvQueryTool(
+    server,
+    options.getClient,
+    options.getWorkingDirectory,
+    options.getStartupProjectContext ??
+      (() => {
+        const workingDirectory = options.getWorkingDirectory()
+        return workingDirectory
+          ? {projectRoot: workingDirectory, workspaceRoot: workingDirectory}
+          : undefined
+      }),
+  )
   return getHandler('brv-query')
 }
 
@@ -186,22 +200,36 @@ describe('brv-query-tool', () => {
     })
 
     it('should prefer explicit cwd over projectRoot', async () => {
-      const {client, simulateEvent} = createMockClient()
-      const requestStub = client.requestWithAck as SinonStub
-      requestStub.callsFake((_event: string, data: {taskId: string}) => {
-        simulateEvent('task:completed', {result: 'ok', taskId: data.taskId})
-        return Promise.resolve()
-      })
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-query-project-'))
+      const otherProject = mkdtempSync(join(tmpdir(), 'brv-query-other-'))
+      mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+      mkdirSync(join(otherProject, '.brv'), {recursive: true})
+      writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
+      writeFileSync(join(otherProject, '.brv', 'config.json'), '{}')
+      const canonicalOtherProject = realpathSync(otherProject)
 
-      const handler = setupQueryHandler({
-        getClient: () => client,
-        getWorkingDirectory: () => '/project/root',
-      })
+      try {
+        const {client, simulateEvent} = createMockClient()
+        const requestStub = client.requestWithAck as SinonStub
+        requestStub.callsFake((_event: string, data: {taskId: string}) => {
+          simulateEvent('task:completed', {result: 'ok', taskId: data.taskId})
+          return Promise.resolve()
+        })
 
-      await handler({cwd: '/other/project', query: 'test'})
+        const handler = setupQueryHandler({
+          getClient: () => client,
+          getWorkingDirectory: () => projectRoot,
+        })
 
-      const payload = requestStub.firstCall.args[1]
-      expect(payload.clientCwd).to.equal('/other/project')
+        await handler({cwd: otherProject, query: 'test'})
+
+        const payload = requestStub.firstCall.args[1]
+        expect(payload.clientCwd).to.equal(otherProject)
+        expect(payload.projectPath).to.equal(canonicalOtherProject)
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+        rmSync(otherProject, {force: true, recursive: true})
+      }
     })
   })
 
@@ -220,34 +248,46 @@ describe('brv-query-tool', () => {
     })
 
     it('should use explicit cwd when provided in global mode', async () => {
-      const {client, simulateEvent} = createMockClient()
-      const requestStub = client.requestWithAck as SinonStub
-      requestStub.callsFake((event: string, data: {taskId?: string}) => {
-        if (event === 'task:create' && data.taskId) {
-          simulateEvent('task:completed', {result: 'answer', taskId: data.taskId})
-        }
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-query-global-'))
+      mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+      writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
+      const canonicalProjectRoot = realpathSync(projectRoot)
 
-        return Promise.resolve()
-      })
+      try {
+        const {client, simulateEvent} = createMockClient()
+        const requestStub = client.requestWithAck as SinonStub
+        requestStub.callsFake((event: string, data: {taskId?: string}) => {
+          if (event === 'task:create' && data.taskId) {
+            simulateEvent('task:completed', {result: 'answer', taskId: data.taskId})
+          }
 
-      const handler = setupQueryHandler({
-        getClient: () => client,
-        getWorkingDirectory: noWorkingDirectory,
-      })
+          return Promise.resolve()
+        })
 
-      const result = await handler({cwd: '/some/project', query: 'test'})
+        const handler = setupQueryHandler({
+          getClient: () => client,
+          getWorkingDirectory: noWorkingDirectory,
+        })
 
-      expect(result.isError).to.be.undefined
-      expect(result.content[0].text).to.equal('answer')
+        const result = await handler({cwd: projectRoot, query: 'test'})
 
-      const createCall = requestStub.getCalls().find((c: {args: unknown[]}) => c.args[0] === 'task:create')
-      expect(createCall).to.exist
-      expect(createCall!.args[1]).to.have.property('clientCwd', '/some/project')
+        expect(result.isError).to.be.undefined
+        expect(result.content[0].text).to.equal('answer')
+
+        const createCall = requestStub.getCalls().find((c: {args: unknown[]}) => c.args[0] === 'task:create')
+        expect(createCall).to.exist
+        expect(createCall!.args[1]).to.have.property('clientCwd', projectRoot)
+        expect(createCall!.args[1]).to.have.property('projectPath', canonicalProjectRoot)
+        expect(createCall!.args[1]).to.have.property('workspaceRoot', canonicalProjectRoot)
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
     })
 
     it('should call client:associateProject with walked-up project root in global mode', async () => {
-      // Create temp project with .brv/config.json so detectMcpMode finds the root
-      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-test-'))
+      // Create temp project with .brv/config.json so resolveProject finds the root
+      const rawProjectRoot = mkdtempSync(join(tmpdir(), 'brv-test-'))
+      const projectRoot = realpathSync(rawProjectRoot)
       const subDir = join(projectRoot, 'src', 'modules')
       mkdirSync(join(projectRoot, '.brv'), {recursive: true})
       writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
@@ -398,6 +438,109 @@ describe('brv-query-tool', () => {
   })
 
   describe('handler — transport errors', () => {
+    it('should retry project association once before creating the task', async () => {
+      const clock = useFakeTimers()
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-query-retry-'))
+      mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+      writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
+
+      try {
+        const {client, simulateEvent} = createMockClient()
+        const requestStub = client.requestWithAck as SinonStub
+        let associationAttempts = 0
+
+        requestStub.callsFake((event: string, data: {taskId?: string}) => {
+          if (event === 'client:associateProject') {
+            associationAttempts++
+            if (associationAttempts === 1) {
+              return new Promise(() => {})
+            }
+
+            return Promise.resolve({success: true})
+          }
+
+          if (event === 'task:create' && data.taskId) {
+            simulateEvent('task:completed', {result: 'retried answer', taskId: data.taskId})
+          }
+
+          return Promise.resolve()
+        })
+
+        const handler = setupQueryHandler({
+          getClient: () => client,
+          getWorkingDirectory: noWorkingDirectory,
+        })
+
+        const resultPromise = handler({cwd: projectRoot, query: 'test'})
+        await clock.tickAsync(3001)
+        const result = await resultPromise
+
+        expect(result.isError).to.be.undefined
+        expect(result.content[0].text).to.equal('retried answer')
+        expect(associationAttempts).to.equal(2)
+      } finally {
+        clock.restore()
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+    })
+
+    it('should return actionable error when project association fails twice', async () => {
+      const clock = useFakeTimers()
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-query-assoc-fail-'))
+      mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+      writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
+
+      try {
+        const {client} = createMockClient()
+        const requestStub = client.requestWithAck as SinonStub
+        requestStub.callsFake((event: string) => {
+          if (event === 'client:associateProject') {
+            return new Promise(() => {})
+          }
+
+          return Promise.resolve()
+        })
+
+        const handler = setupQueryHandler({
+          getClient: () => client,
+          getWorkingDirectory: noWorkingDirectory,
+        })
+
+        const resultPromise = handler({cwd: projectRoot, query: 'test'})
+        await clock.tickAsync(6002)
+        const result = await resultPromise
+
+        expect(result.isError).to.be.true
+        expect(result.content[0].text).to.include('Failed to associate MCP client with project')
+        expect(requestStub.getCalls().filter((c: {args: unknown[]}) => c.args[0] === 'task:create')).to.have.length(0)
+      } finally {
+        clock.restore()
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+    })
+
+    it('should surface resolver errors instead of silently falling back', async () => {
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-query-broken-link-'))
+      const workspace = join(projectRoot, 'packages', 'api')
+      mkdirSync(workspace, {recursive: true})
+      writeFileSync(join(workspace, '.brv-workspace.json'), JSON.stringify({projectRoot: '/missing/project'}))
+
+      try {
+        const {client} = createMockClient()
+        const handler = setupQueryHandler({
+          getClient: () => client,
+          getWorkingDirectory: noWorkingDirectory,
+        })
+
+        const result = await handler({cwd: workspace, query: 'test'})
+
+        expect(result.isError).to.be.true
+        expect(result.content[0].text).to.include('Workspace link broken')
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+    })
+
     it('should return error when requestWithAck rejects', async () => {
       const {client} = createMockClient()
       const requestStub = client.requestWithAck as SinonStub
