@@ -3,7 +3,7 @@ import * as sinon from 'sinon'
 
 import type {NarrowedUpdateNotifier, UpdateNotifierDeps} from '../../../src/oclif/hooks/init/update-notifier.js'
 
-import {handleUpdateNotification, UPDATE_CHECK_INTERVAL_MS} from '../../../src/oclif/hooks/init/update-notifier.js'
+import {handleUpdateNotification, isNpmGlobalInstall, UPDATE_CHECK_INTERVAL_MS} from '../../../src/oclif/hooks/init/update-notifier.js'
 
 describe('update-notifier hook', () => {
   describe('UPDATE_CHECK_INTERVAL_MS', () => {
@@ -31,17 +31,39 @@ describe('update-notifier hook', () => {
       sinon.restore()
     })
 
-    const createDeps = (notifier: NarrowedUpdateNotifier, isTTY = true): UpdateNotifierDeps => ({
+    type CreateDepsParams = {
+      isNpmGlobalInstalled: boolean,
+      isTTY: boolean
+      notifier: NarrowedUpdateNotifier,
+    }
+
+    const createDeps = (params: CreateDepsParams): UpdateNotifierDeps => ({
       confirmPrompt: confirmStub,
       execSyncFn: execSyncStub,
       exitFn: exitStub,
-      isTTY,
+      isNpmGlobalInstalled: params.isNpmGlobalInstalled,
+      isTTY: params.isTTY,
       log: logStub,
-      notifier,
+      notifier: params.notifier
+    })
+
+    it('should do nothing when not installed via npm global', async () => {
+      await handleUpdateNotification(
+        createDeps({
+          isNpmGlobalInstalled: false,
+          isTTY: true,
+          notifier: {notify: notifyStub, update: {current: '1.0.0', latest: '2.0.0'}},
+        }),
+      )
+
+      expect(confirmStub.called).to.be.false
+      expect(execSyncStub.called).to.be.false
     })
 
     it('should do nothing when no update is available', async () => {
-      await handleUpdateNotification(createDeps({notify: notifyStub, update: undefined}))
+      await handleUpdateNotification(
+        createDeps({isNpmGlobalInstalled: true, isTTY: true, notifier: {notify: notifyStub, update: undefined}}),
+      )
 
       expect(notifyStub.called).to.be.false
       expect(confirmStub.called).to.be.false
@@ -49,7 +71,13 @@ describe('update-notifier hook', () => {
     })
 
     it('should do nothing when current and latest versions are the same (stale cache)', async () => {
-      await handleUpdateNotification(createDeps({notify: notifyStub, update: {current: '1.0.5', latest: '1.0.5'}}))
+      await handleUpdateNotification(
+        createDeps({
+          isNpmGlobalInstalled: true,
+          isTTY: true,
+          notifier: {notify: notifyStub, update: {current: '1.0.5', latest: '1.0.5'}},
+        }),
+      )
 
       expect(confirmStub.called).to.be.false
       expect(execSyncStub.called).to.be.false
@@ -58,7 +86,13 @@ describe('update-notifier hook', () => {
     it('should show notification and prompt when update is available in TTY', async () => {
       confirmStub.resolves(false)
 
-      await handleUpdateNotification(createDeps({notify: notifyStub, update: {current: '1.0.0', latest: '2.0.0'}}))
+      await handleUpdateNotification(
+        createDeps({
+          isNpmGlobalInstalled: true,
+          isTTY: true,
+          notifier: {notify: notifyStub, update: {current: '1.0.0', latest: '2.0.0'}},
+        }),
+      )
 
       expect(notifyStub.called).to.be.false
       expect(confirmStub.calledOnce).to.be.true
@@ -72,7 +106,13 @@ describe('update-notifier hook', () => {
     it('should execute npm update and exit when user confirms', async () => {
       confirmStub.resolves(true)
 
-      await handleUpdateNotification(createDeps({notify: notifyStub, update: {current: '1.0.0', latest: '2.0.0'}}))
+      await handleUpdateNotification(
+        createDeps({
+          isNpmGlobalInstalled: true,
+          isTTY: true,
+          notifier: {notify: notifyStub, update: {current: '1.0.0', latest: '2.0.0'}},
+        }),
+      )
 
       expect(execSyncStub.calledOnce).to.be.true
       expect(execSyncStub.firstCall.args[0]).to.equal('npm update -g byterover-cli')
@@ -87,7 +127,13 @@ describe('update-notifier hook', () => {
       confirmStub.resolves(true)
       execSyncStub.throws(new Error('npm update failed'))
 
-      await handleUpdateNotification(createDeps({notify: notifyStub, update: {current: '1.0.0', latest: '2.0.0'}}))
+      await handleUpdateNotification(
+        createDeps({
+          isNpmGlobalInstalled: true,
+          isTTY: true,
+          notifier: {notify: notifyStub, update: {current: '1.0.0', latest: '2.0.0'}},
+        }),
+      )
 
       expect(execSyncStub.calledOnce).to.be.true
       expect(logStub.calledWith('⚠️  Automatic update failed. Please run manually: npm update -g byterover-cli')).to.be
@@ -97,10 +143,30 @@ describe('update-notifier hook', () => {
     it('should not execute update when user declines', async () => {
       confirmStub.resolves(false)
 
-      await handleUpdateNotification(createDeps({notify: notifyStub, update: {current: '1.0.0', latest: '2.0.0'}}))
+      await handleUpdateNotification(
+        createDeps({
+          isNpmGlobalInstalled: true,
+          isTTY: true,
+          notifier: {notify: notifyStub, update: {current: '1.0.0', latest: '2.0.0'}},
+        }),
+      )
 
       expect(execSyncStub.called).to.be.false
       expect(logStub.called).to.be.false
+    })
+  })
+
+  describe('isNpmGlobalInstall', () => {
+    it('should return true when npm list succeeds', () => {
+      const execSyncStub = sinon.stub().returns(Buffer.from(''))
+      expect(isNpmGlobalInstall(execSyncStub as unknown as typeof import('node:child_process').execSync)).to.be.true
+      expect(execSyncStub.calledOnce).to.be.true
+      expect(execSyncStub.firstCall.args[0]).to.equal('npm list -g byterover-cli --depth=0')
+    })
+
+    it('should return false when npm list throws', () => {
+      const execSyncStub = sinon.stub().throws(new Error('not found'))
+      expect(isNpmGlobalInstall(execSyncStub as unknown as typeof import('node:child_process').execSync)).to.be.false
     })
   })
 })
