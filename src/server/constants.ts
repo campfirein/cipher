@@ -5,6 +5,10 @@ export const BRV_CONFIG_VERSION = '0.0.1'
 
 // Workspace linking
 export const WORKSPACE_LINK_FILE = '.brv-workspace.json'
+
+// Knowledge linking
+export const KNOWLEDGE_LINKS_FILE = 'knowledge-links.json'
+export const KNOWLEDGE_LINK_LOCAL_SCORE_BOOST = 0.1
 export const MCP_ASSOCIATE_PROJECT_TIMEOUT_MS = 3000
 export const MCP_ASSOCIATE_PROJECT_MAX_ATTEMPTS = 2
 

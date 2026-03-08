@@ -9,6 +9,9 @@
  */
 
 import {expect} from 'chai'
+import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import {restore, stub} from 'sinon'
 
 import type {ICipherAgent} from '../../../../src/agent/core/interfaces/i-cipher-agent.js'
@@ -55,8 +58,15 @@ const lowScoreSearchResult = {
 }
 
 describe('QueryExecutor', () => {
+  let tempDir: string
+
+  beforeEach(() => {
+    tempDir = realpathSync(mkdtempSync(join(tmpdir(), 'brv-query-executor-')))
+  })
+
   afterEach(() => {
     restore()
+    rmSync(tempDir, {force: true, recursive: true})
   })
 
   describe('sandbox variable naming (regression)', () => {
@@ -292,6 +302,64 @@ describe('QueryExecutor', () => {
         })
 
         // Both should have gone through full execution (executeOnSession called twice)
+        expect((agent.executeOnSession as ReturnType<typeof stub>).callCount).to.equal(2)
+      })
+
+      it('should invalidate cached responses when linked knowledge changes', async () => {
+        const projectRoot = join(tempDir, 'project-a')
+        const linkedProjectRoot = join(tempDir, 'project-b')
+        mkdirSync(join(projectRoot, '.brv', 'context-tree'), {recursive: true})
+        mkdirSync(join(linkedProjectRoot, '.brv', 'context-tree'), {recursive: true})
+        writeFileSync(join(projectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+        writeFileSync(join(linkedProjectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+        writeFileSync(
+          join(projectRoot, '.brv', 'knowledge-links.json'),
+          JSON.stringify({
+            links: [{addedAt: '2026-01-01', alias: 'shared-lib', projectRoot: linkedProjectRoot, readOnly: true}],
+            version: 1,
+          }),
+        )
+
+        let linkedMtime = new Date('2026-01-01')
+        const fileSystem = {
+          globFiles: stub().callsFake(async (_pattern: string, options?: {cwd?: string}) => {
+            if (options?.cwd === join('.brv', 'context-tree')) {
+              return {files: [{modified: new Date('2026-01-01'), path: 'local.md'}], totalMatches: 1}
+            }
+
+            if (options?.cwd === join(linkedProjectRoot, '.brv', 'context-tree')) {
+              return {files: [{modified: linkedMtime, path: 'shared.md'}], totalMatches: 1}
+            }
+
+            return {files: [], totalMatches: 0}
+          }),
+          readFile: stub(),
+        } as unknown as IFileSystem
+
+        const executor = new QueryExecutor({
+          baseDirectory: projectRoot,
+          enableCache: true,
+          fileSystem,
+          searchService: {search: stub().resolves(lowScoreSearchResult)},
+        })
+
+        const agent = createMockAgent()
+
+        await executor.executeWithAgent(agent, {
+          query: 'authentication',
+          taskId: 'task-a',
+          workspaceRoot: projectRoot,
+        })
+
+        linkedMtime = new Date('2026-01-02')
+        ;(executor as unknown as {cachedFingerprint?: unknown}).cachedFingerprint = undefined
+
+        await executor.executeWithAgent(agent, {
+          query: 'authentication',
+          taskId: 'task-b',
+          workspaceRoot: projectRoot,
+        })
+
         expect((agent.executeOnSession as ReturnType<typeof stub>).callCount).to.equal(2)
       })
     })

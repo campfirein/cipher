@@ -36,6 +36,7 @@ export type ValidatedSessionConfig = z.output<typeof SessionConfigSchema>
 export const FileSystemConfigSchema = z
   .object({
     allowedExtensions: z.array(z.string()).optional().describe('Allowed file extensions'),
+    allowedPaths: z.array(z.string()).optional().describe('Allowed paths for file operations (default: ["."])'),
     maxFileSize: z.number().positive().optional().describe('Maximum file size in bytes'),
     workingDirectory: z.string().optional().describe('Working directory for file operations'),
   })

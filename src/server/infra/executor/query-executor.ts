@@ -6,6 +6,7 @@ import type { ISearchKnowledgeService, SearchKnowledgeResult } from '../../../ag
 import type { IQueryExecutor, QueryExecuteOptions } from '../../core/interfaces/executor/i-query-executor.js'
 
 import { BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR } from '../../constants.js'
+import { loadKnowledgeLinks } from '../../core/domain/knowledge/knowledge-link-schema.js'
 import { isDerivedArtifact } from '../context-tree/derived-artifact.js'
 import { FileContextTreeManifestService } from '../context-tree/file-context-tree-manifest-service.js'
 import {
@@ -242,7 +243,13 @@ export class QueryExecutor implements IQueryExecutor {
     if (highConfidenceResults.length === 0) return undefined
 
     const sections = highConfidenceResults.map(
-      (r) => `### ${r.title}\n**Source**: .brv/context-tree/${r.path}\n\n${r.excerpt}`,
+      (r) => {
+        const source = r.sourceType === 'linked' && r.sourceAlias
+          ? `[${r.sourceAlias}]:${r.path}`
+          : `.brv/context-tree/${r.path}`
+
+        return `### ${r.title}\n**Source**: ${source}\n\n${r.excerpt}`
+      },
     )
 
     return sections.join('\n\n---\n\n')
@@ -270,7 +277,7 @@ export class QueryExecutor implements IQueryExecutor {
   ): string {
     const { manifestContext, metadata, metaVar, prefetchedContext, resultsVar, scopeVar } = options
     const groundingRules = `### Grounding Rules (CRITICAL)
-- ONLY use information from the curated knowledge base (.brv/context-tree/)
+- ONLY use information from the curated knowledge base (local .brv/context-tree/ plus any read-only linked sources)
 - If no relevant knowledge is found, respond: "This topic is not covered in the knowledge base."
 - Do NOT extrapolate, infer, or generate information beyond what is explicitly stated in sources
 - Every claim MUST be traceable to a specific source file
@@ -279,7 +286,7 @@ export class QueryExecutor implements IQueryExecutor {
     const responseFormat = `### Response Format
 - **Summary**: Direct answer (2-3 sentences)
 - **Details**: Key findings with explanations
-- **Sources**: File paths from .brv/context-tree/
+- **Sources**: Use .brv/context-tree/... for local knowledge and [alias]:path for linked knowledge
 - **Gaps**: Note any aspects not covered`
 
     const manifestSection = manifestContext
@@ -367,6 +374,38 @@ ${responseFormat}`
           path: workspaceRoot ? `${workspaceRoot}:${f.path}` : f.path,
         }))
 
+      // Include linked knowledge state in fingerprint so edits in linked
+      // projects invalidate cached query answers.
+      const loaded = this.baseDirectory ? loadKnowledgeLinks(this.baseDirectory) : null
+      if (loaded) {
+        // links-file mtime detects link additions/removals
+        if (loaded.mtime) {
+          files.push({mtime: loaded.mtime, path: '__knowledge-links.json__'})
+        }
+
+        // Glob each linked context tree for file-level change detection
+        const linkedResults = await Promise.all(
+          loaded.sources.map(async (source) => {
+            try {
+              const linkedGlob = await this.fileSystem!.globFiles(`**/*${CONTEXT_FILE_EXTENSION}`, {
+                cwd: source.contextTreeRoot,
+                includeMetadata: true,
+                maxResults: 10_000,
+                respectGitignore: false,
+              })
+
+              return linkedGlob.files
+                .filter((f) => !isDerivedArtifact(f.path))
+                .map((f) => ({mtime: f.modified?.getTime() ?? 0, path: `linked:${source.sourceKey}:${f.path}`}))
+            } catch {
+              // Broken link — skip
+              return []
+            }
+          }),
+        )
+        files.push(...linkedResults.flat())
+      }
+
       const fingerprint = QueryResultCache.computeFingerprint(files)
       this.cachedFingerprint = {
         expiresAt: Date.now() + QueryExecutor.FINGERPRINT_CACHE_TTL_MS,
@@ -432,14 +471,15 @@ ${responseFormat}`
       )
 
       // Collect existing paths to deduplicate
-      const existingPaths = new Set(searchResult.results.map((r) => r.path))
+      const existingPaths = new Set(searchResult.results.map((r) => `${r.sourceAlias ?? r.sourceType ?? 'local'}::${r.path}`))
       const supplementary = []
 
       for (const settled of entitySearches) {
         if (settled.status === 'fulfilled' && settled.value.results) {
           for (const result of settled.value.results) {
-            if (!existingPaths.has(result.path)) {
-              existingPaths.add(result.path)
+            const resultKey = `${result.sourceAlias ?? result.sourceType ?? 'local'}::${result.path}`
+            if (!existingPaths.has(resultKey)) {
+              existingPaths.add(resultKey)
               supplementary.push(result)
             }
           }
@@ -480,14 +520,21 @@ ${responseFormat}`
           .map(async (result) => {
             let content = result.excerpt
             try {
-              const ctPath = join(BRV_DIR, CONTEXT_TREE_DIR, result.path)
+              // Use sourceContextTreeRoot for linked results, local context tree for local
+              const ctBase = result.sourceContextTreeRoot ?? join(BRV_DIR, CONTEXT_TREE_DIR)
+              const ctPath = join(ctBase, result.path)
               const { content: fullContent } = await this.fileSystem!.readFile(ctPath)
               content = fullContent
             } catch {
               // Use excerpt if full read fails
             }
 
-            return { content, path: result.path, score: result.score, title: result.title }
+            // Include source attribution in path for linked results
+            const displayPath = result.sourceType === 'linked' && result.sourceAlias
+              ? `[${result.sourceAlias}]:${result.path}`
+              : result.path
+
+            return { content, path: displayPath, score: result.score, title: result.title }
           }),
       )
 

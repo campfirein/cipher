@@ -1,5 +1,8 @@
-import { expect } from 'chai'
-import { createSandbox, SinonStub } from 'sinon'
+import {expect} from 'chai'
+import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {createSandbox, SinonStub} from 'sinon'
 
 import type { IFileSystem } from '../../../../src/agent/core/interfaces/i-file-system.js'
 import type { GlobFilesResult, GrepContentResult } from '../../../shared/tool-result-types.js'
@@ -24,6 +27,7 @@ function assertGrepContentResult(result: unknown): asserts result is GrepContent
 
 describe('File System Tools', () => {
   const sandbox = createSandbox()
+  let tempDir: string
   let fileSystemMock: IFileSystem
   let globFilesStub: SinonStub
   let readFileStub: SinonStub
@@ -31,6 +35,7 @@ describe('File System Tools', () => {
   let writeFileStub: SinonStub
 
   beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'brv-write-tool-'))
     globFilesStub = sandbox.stub()
     readFileStub = sandbox.stub()
     searchContentStub = sandbox.stub()
@@ -46,6 +51,7 @@ describe('File System Tools', () => {
 
   afterEach(() => {
     sandbox.restore()
+    rmSync(tempDir, {force: true, recursive: true})
   })
 
   describe('read_file', () => {
@@ -240,6 +246,34 @@ describe('File System Tools', () => {
           expect(error.message).to.include('Path blocked')
         }
       }
+    })
+
+    it('should block writes outside the local context tree when environment context is provided', async () => {
+      mkdirSync(join(tempDir, '.brv', 'context-tree'), {recursive: true})
+      writeFileSync(join(tempDir, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+
+      const tool = createWriteFileTool(fileSystemMock, {
+        brvStructure: '',
+        fileTree: '',
+        isGitRepository: false,
+        nodeVersion: '20.0.0',
+        osVersion: 'test',
+        platform: 'darwin',
+        workingDirectory: tempDir,
+      })
+
+      const result = await tool.execute({
+        content: 'data',
+        filePath: join(tempDir, 'notes.md'),
+      })
+
+      expect(result).to.deep.include({
+        bytesWritten: 0,
+        path: join(tempDir, 'notes.md'),
+        success: false,
+      })
+      expect(result).to.have.property('error').that.includes('outside the local context tree')
+      expect(writeFileStub.called).to.be.false
     })
   })
 

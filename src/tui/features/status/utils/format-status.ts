@@ -52,6 +52,15 @@ export function formatStatus(status: StatusDTO, version?: string): string {
     lines.push('Space: Not connected')
   }
 
+  // Knowledge links
+  if (status.knowledgeLinks && status.knowledgeLinks.length > 0) {
+    lines.push('Knowledge Links:')
+    for (const link of status.knowledgeLinks) {
+      const statusText = link.valid ? chalk.green('valid') : chalk.red('broken')
+      lines.push(`   ${link.alias} → ${link.projectRoot} (${statusText})`)
+    }
+  }
+
   switch (status.contextTreeStatus) {
     case 'has_changes': {
       if (status.contextTreeChanges && status.contextTreeRelativeDir) {

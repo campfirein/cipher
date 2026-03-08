@@ -126,6 +126,13 @@ export interface HubEntryDTO {
 // Status DTOs
 // ============================================================================
 
+export interface KnowledgeLinkStatusDTO {
+  alias: string
+  contextTreeSize?: number
+  projectRoot: string
+  valid: boolean
+}
+
 export interface StatusDTO {
   authStatus: 'expired' | 'logged_in' | 'not_logged_in' | 'unknown'
   contextTreeChanges?: ContextTreeChanges
@@ -136,6 +143,8 @@ export interface StatusDTO {
   contextTreeStatus: 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
   /** @deprecated Use projectRoot instead. Kept for backward compatibility. */
   currentDirectory: string
+  /** Knowledge links to other projects' context trees (read-only) */
+  knowledgeLinks?: KnowledgeLinkStatusDTO[]
   /** Absolute path to the project root (directory containing .brv/) */
   projectRoot?: string
   /** How the project root was discovered */

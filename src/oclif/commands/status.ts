@@ -105,6 +105,15 @@ export default class Status extends Command {
       this.log(`Resolution: ${status.resolutionSource}`)
     }
 
+    // Knowledge links
+    if (status.knowledgeLinks && status.knowledgeLinks.length > 0) {
+      this.log('Knowledge Links:')
+      for (const link of status.knowledgeLinks) {
+        const statusText = link.valid ? chalk.green('valid') : chalk.red('broken')
+        this.log(`   ${link.alias} → ${link.projectRoot} (${statusText})`)
+      }
+    }
+
     // Space
     if (status.teamName && status.spaceName) {
       this.log(`Space: ${status.teamName}/${status.spaceName}`)
