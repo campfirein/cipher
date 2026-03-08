@@ -50,4 +50,8 @@ export class FileContextTreeService implements IContextTreeService {
 
     return contextTreeDir
   }
+
+  public resolvePath(directory: string): string {
+    return join(directory, BRV_DIR, CONTEXT_TREE_DIR)
+  }
 }

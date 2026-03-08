@@ -6,7 +6,8 @@ export type BaseGitParams = {
 // --- Entity / Return types ---
 export type GitStatusFile = {
   path: string
-  status: 'added' | 'deleted' | 'modified'
+  staged: boolean
+  status: 'added' | 'deleted' | 'modified' | 'untracked'
 }
 
 export type GitStatus = {
@@ -37,9 +38,7 @@ export type GitRemote = {
   url: string
 }
 
-export type PushResult =
-  | {message?: string; reason: 'non_fast_forward'; success: false}
-  | {success: true}
+export type PushResult = {message?: string; reason: 'non_fast_forward'; success: false} | {success: true}
 
 export type PullResult = {conflicts: GitConflict[]; success: false} | {success: true}
 

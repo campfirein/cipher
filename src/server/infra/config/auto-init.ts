@@ -11,11 +11,8 @@ export interface AutoInitDeps {
 
 /**
  * Ensures .brv/ is initialized with minimal local config.
- * Creates config and context tree directory if they don't exist.
+ * Creates config, context tree directory, and empty snapshot if they don't exist.
  * Idempotent: no-op if already initialized.
- *
- * Note: git initialization (.brv/context-tree/.git/) is done explicitly
- * via the /init command, not here.
  */
 export async function ensureProjectInitialized(deps: AutoInitDeps, directory?: string): Promise<void> {
   const exists = await deps.projectConfigStore.exists(directory)
