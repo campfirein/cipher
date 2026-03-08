@@ -2,6 +2,17 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.1.1]
+
+### Changed
+
+- **Skip update notifier for non-npm installations** - Update notifications are now suppressed when the CLI is not installed via `npm install -g`, preventing irrelevant update prompts for tarball and native binary users.
+- **Auto-update frequency for native installations** - Configured oclif autoupdate with 1-day debounce for more reliable update checks on non-npm installations.
+
+### Fixed
+
+- **Security dependency updates** - Patched `fast-xml-parser`, `@aws-sdk/xml-builder`, and `@hono/node-server` to address security vulnerabilities.
+
 ## [2.1.0]
 
 ### Added

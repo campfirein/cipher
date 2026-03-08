@@ -24,18 +24,33 @@ export type UpdateNotifierDeps = {
   confirmPrompt: (options: {default: boolean; message: string}) => Promise<boolean>
   execSyncFn: (command: string, options: {stdio: 'inherit'}) => void
   exitFn: (code: number) => never
+  isNpmGlobalInstalled: boolean
   isTTY: boolean
   log: (message: string) => void
   notifier: NarrowedUpdateNotifier
 }
 
 /**
+ * Check whether byterover-cli is installed as a npm global package.
+ * @param execSyncFn
+ * @returns false for other installation methods.
+ */
+export const isNpmGlobalInstall = (execSyncFn: typeof execSync): boolean => {
+  try {
+    execSyncFn('npm list -g byterover-cli --depth=0', {stdio: 'ignore'})
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
  * Core update notification logic, extracted for testability
  */
 export async function handleUpdateNotification(deps: UpdateNotifierDeps): Promise<void> {
-  const {confirmPrompt, execSyncFn, exitFn, isTTY, log, notifier} = deps
+  const {confirmPrompt, execSyncFn, exitFn, isNpmGlobalInstalled, isTTY, log, notifier} = deps
 
-  if (!notifier.update || !isTTY) {
+  if (!isNpmGlobalInstalled || !notifier.update || !isTTY) {
     return
   }
 
@@ -69,11 +84,13 @@ export async function handleUpdateNotification(deps: UpdateNotifierDeps): Promis
 const hook: Hook<'init'> = async function (): Promise<void> {
   const pkgInfo = {name: this.config.name, version: this.config.version}
   const notifier = updateNotifier({pkg: pkgInfo, updateCheckInterval: UPDATE_CHECK_INTERVAL_MS})
+  const isNpmGlobalInstalled = isNpmGlobalInstall(execSync)
 
   await handleUpdateNotification({
     confirmPrompt: confirm,
     execSyncFn: execSync,
     exitFn: process.exit,
+    isNpmGlobalInstalled,
     isTTY: process.stdout.isTTY ?? false,
     log: this.log.bind(this),
     notifier,
