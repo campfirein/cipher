@@ -6,23 +6,18 @@ on:
     branches:
       - develop
       - 'proj/**'
-  issue_comment:
-    types: [created]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
   contents: read
   pull-requests: write
-  issues: write
 
 jobs:
   auto-review:
-    if: >-
-      github.event_name == 'pull_request' &&
-      !github.event.pull_request.draft
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -51,28 +46,3 @@ jobs:
             6. Test quality — adequate coverage, proper mocking, fast in-memory tests
 
             Rate each area as: PASS, MINOR (suggestions), or NEEDS_CHANGE (blocking).
-
-  respond-to-mention:
-    if: >-
-      github.event_name == 'issue_comment' &&
-      github.event.issue.pull_request &&
-      contains(github.event.comment.body, '@claude')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 1
-
-      - uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          track_progress: true
-          trigger_phrase: '@claude'
-          claude_args: >-
-            --allowedTools
-            "Read,Glob,Grep,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr checks:*),Bash(gh pr comment:*),mcp__github_inline_comment__create_inline_comment"
-          prompt: |
-            Respond to the user's request in the PR comment.
-            Follow the information defined in CLAUDE.md.
-            You have read-only access — use the available tools to explore code and answer questions accurately.
