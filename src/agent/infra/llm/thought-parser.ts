@@ -70,7 +70,7 @@ export function isGemini2Model(model: string): boolean {
  * @returns True if model is Gemini 3.x
  */
 export function isGemini3Model(model: string): boolean {
-  return model.startsWith('gemini-3-')
+  return /^gemini-3[.-]/.test(model)
 }
 
 /**
@@ -80,7 +80,7 @@ export function isGemini3Model(model: string): boolean {
  * @returns True if model supports multimodal function responses
  */
 export function supportsMultimodalFunctionResponse(model: string): boolean {
-  return model.startsWith('gemini-3-')
+  return /^gemini-3[.-]/.test(model)
 }
 
 /**
