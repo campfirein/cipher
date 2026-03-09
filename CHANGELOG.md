@@ -2,6 +2,12 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.1.2]
+
+### Changed
+
+- **Default LLM model switched to Gemini 3.1 Flash Lite** — The default model for the ByteRover provider is now `gemini-3.1-flash-lite-preview`, replacing `gemini-3-flash-preview`, for improved performance and cost efficiency.
+
 ## [2.1.1]
 
 ### Changed
