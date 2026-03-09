@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto'
-import {existsSync, readFileSync, realpathSync, statSync} from 'node:fs'
+import {existsSync, readdirSync, readFileSync, realpathSync, statSync} from 'node:fs'
 import {join} from 'node:path'
 import {z} from 'zod'
 
@@ -126,16 +126,48 @@ export interface KnowledgeLinkStatus {
 
 /**
  * Validates each knowledge link and returns status for display.
+ *
+ * A link is valid only when both `.brv/config.json` AND `.brv/context-tree/`
+ * exist — matching what loadKnowledgeLinks() requires before including a link
+ * in search sources. When valid, `contextTreeSize` counts `.md` files.
  */
 export function getKnowledgeLinkStatuses(links: KnowledgeLink[]): KnowledgeLinkStatus[] {
   return links.map((link) => {
     const targetConfigPath = join(link.projectRoot, BRV_DIR, PROJECT_CONFIG_FILE)
-    const valid = existsSync(targetConfigPath)
+    const targetContextTree = join(link.projectRoot, BRV_DIR, CONTEXT_TREE_DIR)
+    const valid = existsSync(targetConfigPath) && existsSync(targetContextTree)
+
+    let contextTreeSize: number | undefined
+    if (valid) {
+      contextTreeSize = countMarkdownFiles(targetContextTree)
+    }
 
     return {
       alias: link.alias,
+      contextTreeSize,
       projectRoot: link.projectRoot,
       valid,
     }
   })
+}
+
+/**
+ * Recursively counts .md files in a directory.
+ */
+function countMarkdownFiles(dir: string): number {
+  let count = 0
+  try {
+    const entries = readdirSync(dir, {withFileTypes: true})
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        count += countMarkdownFiles(join(dir, entry.name))
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        count++
+      }
+    }
+  } catch {
+    // Directory unreadable — return 0
+  }
+
+  return count
 }

@@ -106,11 +106,17 @@ export default class Status extends Command {
     }
 
     // Knowledge links
-    if (status.knowledgeLinks && status.knowledgeLinks.length > 0) {
+    if (status.knowledgeLinksError) {
+      this.log(chalk.yellow(`⚠ ${status.knowledgeLinksError}`))
+    } else if (status.knowledgeLinks && status.knowledgeLinks.length > 0) {
       this.log('Knowledge Links:')
       for (const link of status.knowledgeLinks) {
-        const statusText = link.valid ? chalk.green('valid') : chalk.red('broken')
-        this.log(`   ${link.alias} → ${link.projectRoot} (${statusText})`)
+        if (link.valid) {
+          const sizeInfo = link.contextTreeSize === undefined ? '' : ` [${link.contextTreeSize} files]`
+          this.log(`   ${link.alias} → ${link.projectRoot} ${chalk.green('(valid)')}${sizeInfo}`)
+        } else {
+          this.log(`   ${link.alias} → ${link.projectRoot} ${chalk.red(`[BROKEN - run brv unlink-knowledge ${link.alias}]`)}`)
+        }
       }
     }
 

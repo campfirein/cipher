@@ -174,9 +174,9 @@ describe('knowledge-link-schema', () => {
   })
 
   describe('getKnowledgeLinkStatuses', () => {
-    it('should report valid for existing project', () => {
+    it('should report valid for existing project with context tree', () => {
       const projectB = join(testDir, 'project-b')
-      createProject(projectB)
+      createProjectWithContextTree(projectB)
 
       const statuses = getKnowledgeLinkStatuses([
         {addedAt: '2026-01-01', alias: 'project-b', projectRoot: projectB, readOnly: true as const},
@@ -185,6 +185,19 @@ describe('knowledge-link-schema', () => {
       expect(statuses).to.have.length(1)
       expect(statuses[0].valid).to.be.true
       expect(statuses[0].alias).to.equal('project-b')
+      expect(statuses[0].contextTreeSize).to.be.a('number')
+    })
+
+    it('should report invalid for project without context tree', () => {
+      const projectB = join(testDir, 'project-b')
+      createProject(projectB) // has .brv/config.json but no context-tree/
+
+      const statuses = getKnowledgeLinkStatuses([
+        {addedAt: '2026-01-01', alias: 'project-b', projectRoot: projectB, readOnly: true as const},
+      ])
+
+      expect(statuses).to.have.length(1)
+      expect(statuses[0].valid).to.be.false
     })
 
     it('should report invalid for missing project', () => {

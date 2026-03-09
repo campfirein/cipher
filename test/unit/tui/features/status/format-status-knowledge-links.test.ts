@@ -21,7 +21,7 @@ describe('formatStatus knowledge links', () => {
     const status: StatusDTO = {
       ...baseStatus,
       knowledgeLinks: [
-        {alias: 'shared-lib', projectRoot: '/path/to/shared-lib', valid: true},
+        {alias: 'shared-lib', contextTreeSize: 42, projectRoot: '/path/to/shared-lib', valid: true},
       ],
     }
 
@@ -29,10 +29,11 @@ describe('formatStatus knowledge links', () => {
     expect(output).to.include('Knowledge Links:')
     expect(output).to.include('shared-lib')
     expect(output).to.include('/path/to/shared-lib')
-    expect(output).to.include('valid')
+    expect(output).to.include('(valid)')
+    expect(output).to.include('[42 files]')
   })
 
-  it('should show broken status for invalid links', () => {
+  it('should show BROKEN status with actionable hint for invalid links', () => {
     const status: StatusDTO = {
       ...baseStatus,
       knowledgeLinks: [
@@ -43,7 +44,8 @@ describe('formatStatus knowledge links', () => {
     const output = formatStatus(status, '1.0.0')
     expect(output).to.include('Knowledge Links:')
     expect(output).to.include('gone-project')
-    expect(output).to.include('broken')
+    expect(output).to.include('BROKEN')
+    expect(output).to.include('brv unlink-knowledge gone-project')
   })
 
   it('should not show knowledge links section when no links', () => {

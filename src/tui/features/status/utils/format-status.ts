@@ -53,11 +53,17 @@ export function formatStatus(status: StatusDTO, version?: string): string {
   }
 
   // Knowledge links
-  if (status.knowledgeLinks && status.knowledgeLinks.length > 0) {
+  if (status.knowledgeLinksError) {
+    lines.push(chalk.yellow(`⚠ ${status.knowledgeLinksError}`))
+  } else if (status.knowledgeLinks && status.knowledgeLinks.length > 0) {
     lines.push('Knowledge Links:')
     for (const link of status.knowledgeLinks) {
-      const statusText = link.valid ? chalk.green('valid') : chalk.red('broken')
-      lines.push(`   ${link.alias} → ${link.projectRoot} (${statusText})`)
+      if (link.valid) {
+        const sizeInfo = link.contextTreeSize === undefined ? '' : ` [${link.contextTreeSize} files]`
+        lines.push(`   ${link.alias} → ${link.projectRoot} ${chalk.green('(valid)')}${sizeInfo}`)
+      } else {
+        lines.push(`   ${link.alias} → ${link.projectRoot} ${chalk.red(`[BROKEN - run brv unlink-knowledge ${link.alias}]`)}`)
+      }
     }
   }
 

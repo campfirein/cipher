@@ -145,6 +145,8 @@ export interface StatusDTO {
   currentDirectory: string
   /** Knowledge links to other projects' context trees (read-only) */
   knowledgeLinks?: KnowledgeLinkStatusDTO[]
+  /** Error message when knowledge-links.json is malformed */
+  knowledgeLinksError?: string
   /** Absolute path to the project root (directory containing .brv/) */
   projectRoot?: string
   /** How the project root was discovered */

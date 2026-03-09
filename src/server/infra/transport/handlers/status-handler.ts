@@ -9,7 +9,7 @@ import type {ITransportServer} from '../../../core/interfaces/transport/i-transp
 
 import {StatusEvents, type StatusGetRequest, type StatusGetResponse} from '../../../../shared/transport/events/status-events.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
-import {getKnowledgeLinkStatuses, loadKnowledgeLinks} from '../../../core/domain/knowledge/knowledge-link-schema.js'
+import {listKnowledgeLinkStatuses} from '../../../core/domain/knowledge/knowledge-link-operations.js'
 import {BrokenWorkspaceLinkError, MalformedWorkspaceLinkError, resolveProject} from '../../project/resolve-project.js'
 import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
@@ -144,9 +144,11 @@ export class StatusHandler {
 
     // Knowledge links status
     try {
-      const loaded = loadKnowledgeLinks(effectiveProjectPath)
-      if (loaded && loaded.links.length > 0) {
-        result.knowledgeLinks = getKnowledgeLinkStatuses(loaded.links)
+      const linksResult = listKnowledgeLinkStatuses(effectiveProjectPath)
+      if (linksResult.error) {
+        result.knowledgeLinksError = linksResult.error
+      } else if (linksResult.statuses.length > 0) {
+        result.knowledgeLinks = linksResult.statuses
       }
     } catch {
       // Best-effort — swallow errors
