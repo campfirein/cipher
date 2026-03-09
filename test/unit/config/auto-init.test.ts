@@ -31,6 +31,7 @@ describe('ensureProjectInitialized', () => {
       delete: stub().resolves(),
       exists: stub().resolves(false),
       initialize: initializeStub,
+      resolvePath: stub().returns(''),
     }
   })
 

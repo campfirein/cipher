@@ -1,21 +1,27 @@
 /**
- * InitFlow Component
+ * VcInitFlow Component
  *
- * Initializes the git repository in .brv/context-tree/ via FooHandler.
+ * Initializes the git repository in .brv/context-tree/ via VcHandler.
  */
 
-import {Text} from 'ink'
+import {Text, useInput} from 'ink'
 import Spinner from 'ink-spinner'
 import React, {useEffect} from 'react'
 
-import type {CustomDialogCallbacks} from '../../../types/commands.js'
+import type {CustomDialogCallbacks} from '../../../../types/commands.js'
 
-import {useExecuteInit} from '../api/execute-init.js'
+import {useExecuteVcInit} from '../api/execute-vc-init.js'
 
-type InitFlowProps = CustomDialogCallbacks
+type VcInitFlowProps = CustomDialogCallbacks
 
-export function InitFlow({onComplete}: InitFlowProps): React.ReactNode {
-  const initMutation = useExecuteInit()
+export function VcInitFlow({onCancel, onComplete}: VcInitFlowProps): React.ReactNode {
+  const initMutation = useExecuteVcInit()
+
+  useInput((_, key) => {
+    if (key.escape && !initMutation.isPending) {
+      onCancel()
+    }
+  })
 
   useEffect(() => {
     initMutation.mutate(undefined, {

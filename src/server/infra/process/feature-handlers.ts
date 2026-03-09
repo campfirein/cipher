@@ -42,7 +42,6 @@ import {
   AuthHandler,
   ConfigHandler,
   ConnectorsHandler,
-  FooHandler,
   HubHandler,
   InitHandler,
   ModelHandler,
@@ -52,6 +51,7 @@ import {
   ResetHandler,
   SpaceHandler,
   StatusHandler,
+  VcHandler,
 } from '../transport/handlers/index.js'
 import {HttpUserService} from '../user/http-user-service.js'
 
@@ -133,6 +133,8 @@ export async function setupFeatureHandlers({
     new ConnectorManager({fileService, projectRoot, templateService})
 
   // Project-scoped handlers (receive resolveProjectPath for client → project resolution)
+  const gitService = new IsomorphicGitService(authStateStore)
+
   new StatusHandler({
     contextTreeService,
     contextTreeSnapshotService,
@@ -221,12 +223,10 @@ export async function setupFeatureHandlers({
     transport,
   }).setup()
 
-  const gitService = new IsomorphicGitService(authStateStore)
-  new FooHandler({
+  new VcHandler({
     contextTreeService,
     gitService,
     resolveProjectPath,
-    tokenStore,
     transport,
   }).setup()
 

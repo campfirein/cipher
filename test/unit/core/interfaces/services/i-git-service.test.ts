@@ -13,8 +13,12 @@ import type {
 
 describe('IGitService types', () => {
   describe('GitStatusFile', () => {
-    it('status is a string literal union', () => {
-      expectTypeOf<GitStatusFile['status']>().toEqualTypeOf<'added' | 'deleted' | 'modified'>()
+    it('status is a string literal union including untracked', () => {
+      expectTypeOf<GitStatusFile['status']>().toEqualTypeOf<'added' | 'deleted' | 'modified' | 'untracked'>()
+    })
+
+    it('staged is a boolean', () => {
+      expectTypeOf<GitStatusFile['staged']>().toEqualTypeOf<boolean>()
     })
   })
 
