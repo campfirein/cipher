@@ -1,5 +1,6 @@
 import type { EnvironmentContext } from '../../core/domain/environment/types.js'
 import type { REPLResult, SandboxConfig } from '../../core/domain/sandbox/types.js'
+import type { IContentGenerator } from '../../core/interfaces/i-content-generator.js'
 import type { ICurateService } from '../../core/interfaces/i-curate-service.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
@@ -17,6 +18,8 @@ import { createToolsSDK } from './tools-sdk.js'
 export class SandboxService implements ISandboxService {
   /** Collector wrapping curateService — captures curate() results per executeCode() call */
   private collector?: CurateResultCollector
+  /** Content generator for parallel LLM operations (mapExtract) */
+  private contentGenerator?: IContentGenerator
   /** Curate service for Tools SDK */
   private curateService?: ICurateService
   /** Environment context for sandbox injection */
@@ -25,6 +28,8 @@ export class SandboxService implements ISandboxService {
   private fileSystem?: IFileSystem
   /** Variables buffered before sandbox creation, keyed by sessionId */
   private pendingVariables = new Map<string, Record<string, unknown>>()
+  /** Command type used to build each sandbox's ToolsSDK, keyed by sessionId */
+  private sandboxCommandTypes = new Map<string, string | undefined>()
   /** Map of agent sessionId to LocalSandbox instance */
   private sandboxes = new Map<string, LocalSandbox>()
   /** Search knowledge service for Tools SDK */
@@ -37,6 +42,7 @@ export class SandboxService implements ISandboxService {
    */
   async cleanup(): Promise<void> {
     this.sandboxes.clear()
+    this.sandboxCommandTypes.clear()
     this.pendingVariables.clear()
   }
 
@@ -47,6 +53,7 @@ export class SandboxService implements ISandboxService {
    */
   async clearSession(sessionId: string): Promise<void> {
     this.sandboxes.delete(sessionId)
+    this.sandboxCommandTypes.delete(sessionId)
     this.pendingVariables.delete(sessionId)
   }
 
@@ -81,7 +88,24 @@ export class SandboxService implements ISandboxService {
     // Get or create sandbox for this agent session
     let sandbox = this.sandboxes.get(sessionId)
 
-    if (!sandbox) {
+    if (sandbox) {
+      // Hot-swap ToolsSDK if commandType changed (security: enforce read-only on transition)
+      const previousCommandType = this.sandboxCommandTypes.get(sessionId)
+      if (config?.commandType !== previousCommandType) {
+        const newToolsSDK = this.buildToolsSDK(sessionId, config?.commandType)
+        if (newToolsSDK) {
+          sandbox.updateContext({ tools: newToolsSDK })
+        }
+
+        this.sandboxCommandTypes.set(sessionId, config?.commandType)
+      }
+
+      // Update context if provided
+      if (config?.contextPayload) {
+        sandbox.updateContext({ context: config.contextPayload })
+      }
+    }
+    else {
       // First execution for this session - create new sandbox
       const initialContext: Record<string, unknown> = {}
       if (config?.contextPayload) {
@@ -96,7 +120,7 @@ export class SandboxService implements ISandboxService {
       }
 
       // Build per-session ToolsSDK (includes agentQuery bound to this sessionId)
-      const sessionToolsSDK = this.buildToolsSDK(sessionId)
+      const sessionToolsSDK = this.buildToolsSDK(sessionId, config?.commandType)
 
       sandbox = new LocalSandbox({
         environmentContext: this.environmentContext,
@@ -105,10 +129,7 @@ export class SandboxService implements ISandboxService {
       })
 
       this.sandboxes.set(sessionId, sandbox)
-    }
-    else if (config?.contextPayload) {
-      // Update context if provided
-      sandbox.updateContext({ context: config.contextPayload })
+      this.sandboxCommandTypes.set(sessionId, config?.commandType)
     }
 
     if (this.collector) {
@@ -117,6 +138,17 @@ export class SandboxService implements ISandboxService {
     }
 
     return sandbox.execute(code, config)
+  }
+
+  /**
+   * Set the content generator for parallel LLM operations (mapExtract).
+   * When set, new sandboxes will have access to `tools.curation.mapExtract()`.
+   *
+   * @param contentGenerator - Content generator instance
+   */
+  setContentGenerator(contentGenerator: IContentGenerator): void {
+    this.contentGenerator = contentGenerator
+    this.invalidateSandboxes()
   }
 
   /**
@@ -141,6 +173,7 @@ export class SandboxService implements ISandboxService {
     this.environmentContext = environmentContext
     // Clear existing sandboxes so new ones get the updated environment
     this.sandboxes.clear()
+    this.sandboxCommandTypes.clear()
   }
 
   /**
@@ -204,12 +237,14 @@ export class SandboxService implements ISandboxService {
    * Build a Tools SDK instance for a specific session.
    * Includes `agentQuery` bound to the session's ID for sub-agent delegation.
    */
-  private buildToolsSDK(sessionId: string): ToolsSDK | undefined {
+  private buildToolsSDK(sessionId: string, commandType?: string): ToolsSDK | undefined {
     if (!this.fileSystem) {
       return undefined
     }
 
     return createToolsSDK({
+      commandType,
+      contentGenerator: this.contentGenerator,
       curateService: this.curateService,
       fileSystem: this.fileSystem,
       parentSessionId: sessionId,
@@ -226,6 +261,7 @@ export class SandboxService implements ISandboxService {
   private invalidateSandboxes(): void {
     if (this.fileSystem) {
       this.sandboxes.clear()
+      this.sandboxCommandTypes.clear()
     }
   }
 }

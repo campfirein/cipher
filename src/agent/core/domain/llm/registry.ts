@@ -122,9 +122,9 @@ export const LLM_REGISTRY: Record<LLMProvider, ProviderInfo> = {
     supportedFileTypes: ['image', 'pdf'],
   },
   gemini: {
-    defaultModel: 'gemini-3-flash-preview',
+    defaultModel: 'gemini-3.1-flash-lite-preview',
     models: [
-      // Gemini 3 series (Preview)
+      // Gemini 3.1 series
       {
         capabilities: {
           supportsAudio: true,
@@ -136,6 +136,24 @@ export const LLM_REGISTRY: Record<LLMProvider, ProviderInfo> = {
         },
         charsPerToken: 4,
         default: true,
+        displayName: 'Gemini 3.1 Flash Lite',
+        maxInputTokens: 1_000_000,
+        maxOutputTokens: 8192,
+        name: 'gemini-3.1-flash-lite-preview',
+        pricing: {inputPerM: 0.075, outputPerM: 0.3},
+        supportedFileTypes: ['image', 'pdf', 'audio'],
+      },
+      // Gemini 3 series (Preview)
+      {
+        capabilities: {
+          supportsAudio: true,
+          supportsImages: true,
+          supportsMultimodalFunctionResponse: true,
+          supportsPdf: true,
+          supportsStreaming: true,
+          supportsThinking: true,
+        },
+        charsPerToken: 4,
         displayName: 'Gemini 3 Flash (Preview)',
         maxInputTokens: 1_000_000,
         maxOutputTokens: 8192,
@@ -652,6 +670,45 @@ export function getEffectiveMaxInputTokens(
   // Model is unknown (e.g. new OpenRouter model not yet in registry).
   // Trust configuredMax when provided — it comes from an authoritative source like the OpenRouter API.
   return configuredMax ?? DEFAULT_MAX_INPUT_TOKENS
+}
+
+/**
+ * Resolve a user-facing provider ID (e.g. 'anthropic', 'openrouter', 'google-vertex')
+ * to a registry provider type ('claude' | 'gemini' | 'openai').
+ *
+ * Used by both AgentLLMService (tokenizer/formatter selection) and CipherAgent
+ * (registry-clamped maxInputTokens for map tools).
+ */
+export function resolveRegistryProvider(
+  model: string,
+  explicitProvider?: string,
+): LLMProvider {
+  // 1. Explicit provider mapping takes priority
+  if (explicitProvider) {
+    if (explicitProvider === 'anthropic') return 'claude'
+    if (explicitProvider === 'google' || explicitProvider === 'google-vertex') return 'gemini'
+    if (['groq', 'mistral', 'openai', 'openai-compatible', 'openrouter', 'xai'].includes(explicitProvider)) {
+      return 'openai'
+    }
+  }
+
+  // 2. Use registry to detect provider from model name
+  const registryProvider = getProviderFromModel(model)
+  if (registryProvider) return registryProvider
+
+  // 3. Fallback to string prefix matching for unknown models
+  const lowerModel = model.toLowerCase()
+  if (lowerModel.startsWith('claude')) return 'claude'
+  if (
+    lowerModel.startsWith('gpt') ||
+    lowerModel.startsWith('o1') ||
+    lowerModel.startsWith('o3') ||
+    lowerModel.startsWith('o4')
+  ) {
+    return 'openai'
+  }
+
+  return 'gemini'
 }
 
 /**

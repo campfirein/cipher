@@ -14,6 +14,4 @@ export interface ProviderUpdateConfig {
   providerApiKey?: string
   providerBaseUrl?: string
   providerHeaders?: Record<string, string>
-  providerLocation?: string
-  providerProject?: string
 }

@@ -13,7 +13,6 @@ import {
   AnthropicModelFetcher,
   ChatBasedModelFetcher,
   GoogleModelFetcher,
-  GoogleVertexModelFetcher,
   OpenAICompatibleModelFetcher,
   OpenAIModelFetcher,
   OpenRouterModelFetcher,
@@ -88,12 +87,6 @@ export async function getModelFetcher(providerId: string): Promise<IProviderMode
 
     case 'google': {
       fetcher = new GoogleModelFetcher()
-
-      break
-    }
-
-    case 'google-vertex': {
-      fetcher = new GoogleVertexModelFetcher()
 
       break
     }

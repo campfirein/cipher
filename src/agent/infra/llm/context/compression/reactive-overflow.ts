@@ -22,10 +22,15 @@
 
 import type {ILlmProvider} from '../../../../core/interfaces/i-llm-provider.js'
 import type {ITokenizer} from '../../../../core/interfaces/i-tokenizer.js'
-import type {InternalMessage, TextPart} from '../../../../core/interfaces/message-types.js'
+import type {InternalMessage} from '../../../../core/interfaces/message-types.js'
 import type {ICompressionStrategy} from './types.js'
 
-import {isTextPart} from '../../../../core/interfaces/message-type-guards.js'
+import {
+  countHistoryTokens,
+  extractTextContent,
+  findTurnBoundaries,
+  formatMessagesForSummary,
+} from './compression-helpers.js'
 
 /**
  * Options for the ReactiveOverflowStrategy.
@@ -95,7 +100,7 @@ export class ReactiveOverflowStrategy implements ICompressionStrategy {
     tokenizer: ITokenizer,
   ): Promise<InternalMessage[]> {
     // Calculate current token count
-    const currentTokens = this.countHistoryTokens(history, tokenizer)
+    const currentTokens = countHistoryTokens(history, tokenizer)
 
     // Check if compression is needed
     if (currentTokens <= maxHistoryTokens) {
@@ -113,7 +118,7 @@ export class ReactiveOverflowStrategy implements ICompressionStrategy {
     }
 
     // Calculate how many messages to keep (preserve last N turns)
-    const turnBoundaries = this.findTurnBoundaries(nonSystemMessages)
+    const turnBoundaries = findTurnBoundaries(nonSystemMessages)
     const turnsToPreserve = Math.min(this.preserveLastNTurns, turnBoundaries.length)
     const preserveFromIndex = turnsToPreserve > 0
       ? turnBoundaries[turnBoundaries.length - turnsToPreserve]
@@ -151,148 +156,6 @@ export class ReactiveOverflowStrategy implements ICompressionStrategy {
   }
 
   /**
-   * Count tokens in message history.
-   */
-  private countHistoryTokens(history: InternalMessage[], tokenizer: ITokenizer): number {
-    let total = 0
-
-    for (const message of history) {
-      total += this.countMessageTokens(message, tokenizer)
-    }
-
-    return total
-  }
-
-  /**
-   * Count tokens in a single message.
-   */
-  private countMessageTokens(message: InternalMessage, tokenizer: ITokenizer): number {
-    // Role overhead (approximately 4 tokens)
-    let tokens = 4
-
-    if (typeof message.content === 'string') {
-      tokens += tokenizer.countTokens(message.content)
-    } else if (Array.isArray(message.content)) {
-      for (const part of message.content) {
-        tokens += isTextPart(part) ? tokenizer.countTokens(part.text) : 100
-      }
-    }
-
-    // Tool calls overhead
-    if (message.toolCalls) {
-      for (const call of message.toolCalls) {
-        tokens += tokenizer.countTokens(call.function.name)
-        tokens += tokenizer.countTokens(call.function.arguments)
-      }
-    }
-
-    return tokens
-  }
-
-  /**
-   * Extract text content from a message.
-   */
-  private extractTextContent(message: InternalMessage): string {
-    if (typeof message.content === 'string') {
-      return message.content
-    }
-
-    if (Array.isArray(message.content)) {
-      return message.content
-        .filter((p): p is TextPart => isTextPart(p))
-        .map((p) => p.text)
-        .join('\n')
-    }
-
-    return ''
-  }
-
-  /**
-   * Find turn boundaries in message history.
-   *
-   * A turn boundary is the index where a user message starts.
-   * Returns indices of all user messages.
-   */
-  private findTurnBoundaries(messages: InternalMessage[]): number[] {
-    const boundaries: number[] = []
-
-    for (const [index, message] of messages.entries()) {
-      if (message.role === 'user') {
-        boundaries.push(index)
-      }
-    }
-
-    return boundaries
-  }
-
-  /**
-   * Format messages for the summary prompt.
-   */
-  private formatMessagesForSummary(messages: InternalMessage[]): string {
-    const MAX_TOTAL_CHARS = 50_000
-    const MAX_PER_MESSAGE_CHARS = 1000
-    const lines: string[] = []
-    let totalChars = 0
-
-    for (const message of messages) {
-      if (totalChars >= MAX_TOTAL_CHARS) {
-        lines.push(`[... ${messages.length - lines.length} more messages truncated for summarization]`)
-
-        break
-      }
-
-      const role = this.formatRole(message.role)
-      const content = this.extractTextContent(message)
-
-      // Truncate very long messages (capped at 1K chars to prevent overflow)
-      const truncatedContent = content.length > MAX_PER_MESSAGE_CHARS
-        ? `${content.slice(0, MAX_PER_MESSAGE_CHARS)}... [truncated]`
-        : content
-
-      if (truncatedContent) {
-        lines.push(`${role}: ${truncatedContent}`)
-        totalChars += truncatedContent.length
-      }
-
-      // Include tool call information
-      if (message.toolCalls && message.toolCalls.length > 0) {
-        const toolNames = message.toolCalls.map((tc) => tc.function.name).join(', ')
-        lines.push(`[Used tools: ${toolNames}]`)
-        totalChars += toolNames.length + 15
-      }
-    }
-
-    return lines.join('\n\n')
-  }
-
-  /**
-   * Format role for display.
-   */
-  private formatRole(role: string): string {
-    switch (role) {
-      case 'assistant': {
-        return 'Assistant'
-      }
-
-      case 'system': {
-        return 'System'
-      }
-
-      case 'tool': {
-        return 'Tool Result'
-      }
-
-      case 'user': {
-        return 'User'
-      }
-
-      default: {
-        return role.charAt(0).toUpperCase() + role.slice(1)
-      }
-    }
-  }
-
-  /**
    * Generate a fallback summary without LLM.
    */
   private generateFallbackSummary(messages: InternalMessage[]): string {
@@ -311,7 +174,7 @@ export class ReactiveOverflowStrategy implements ICompressionStrategy {
     const topics = new Set<string>()
 
     for (const msg of userMessages.slice(0, 5)) {
-      const content = this.extractTextContent(msg)
+      const content = extractTextContent(msg)
       const words = content.split(/\s+/).slice(0, 10).join(' ')
 
       if (words) {
@@ -336,7 +199,7 @@ export class ReactiveOverflowStrategy implements ICompressionStrategy {
    * Generate a summary of messages using the LLM.
    */
   private async generateSummary(messages: InternalMessage[]): Promise<string> {
-    const conversationText = this.formatMessagesForSummary(messages)
+    const conversationText = formatMessagesForSummary(messages)
 
     const prompt = `You are a conversation summarizer. Summarize the following conversation concisely, preserving:
 - Key decisions made

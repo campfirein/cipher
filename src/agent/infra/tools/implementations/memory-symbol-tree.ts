@@ -11,6 +11,7 @@ export enum MemorySymbolKind {
   Context = 4,
   Domain = 1,
   Subtopic = 3,
+  Summary = 5,
   Topic = 2,
 }
 
@@ -18,7 +19,16 @@ const SYMBOL_KIND_LABELS: Record<MemorySymbolKind, string> = {
   [MemorySymbolKind.Context]: 'context',
   [MemorySymbolKind.Domain]: 'domain',
   [MemorySymbolKind.Subtopic]: 'subtopic',
+  [MemorySymbolKind.Summary]: 'summary',
   [MemorySymbolKind.Topic]: 'topic',
+}
+
+/**
+ * Summary metadata attached to folder nodes that have an _index.md file.
+ */
+export interface SummaryInfo {
+  condensationOrder: number
+  tokenCount: number
 }
 
 /**
@@ -33,6 +43,8 @@ export interface MemorySymbol {
   parent: MemorySymbol | undefined
   /** Relative path within context-tree, e.g. "auth/jwt-tokens/refresh.md" */
   path: string
+  /** Present when this folder has an _index.md summary */
+  summaryInfo?: SummaryInfo
 }
 
 export interface SymbolMetadata {
@@ -40,6 +52,17 @@ export interface SymbolMetadata {
   keywords: string[]
   maturity: string
   tags: string[]
+}
+
+/**
+ * Minimal summary document shape for attaching summary info to folder nodes.
+ * Built from _index.md files during search indexing.
+ */
+export interface SummaryDocLike {
+  condensationOrder: number
+  /** Path to the _index.md file, e.g. "domain/topic/_index.md" */
+  path: string
+  tokenCount: number
 }
 
 /**
@@ -57,11 +80,15 @@ export interface MemorySymbolTree {
  */
 export interface OverviewEntry {
   childCount: number
+  /** Present for folder nodes with _index.md summaries */
+  condensationOrder?: number
   importance: number
   kind: string
   maturity: string
   name: string
   path: string
+  /** Present for folder nodes with _index.md summaries */
+  tokenCount?: number
 }
 
 /**
@@ -178,8 +205,14 @@ function getOrCreateFolderNode(
  *
  * context.md files are absorbed into their parent folder node (enriching its metadata)
  * rather than being treated as leaf Context nodes.
+ *
+ * @param documentMap - Indexed documents (excludes _index.md, includes stubs)
+ * @param summaryMap - Optional map of _index.md summary documents for folder annotation
  */
-export function buildSymbolTree(documentMap: Map<string, DocumentLike>): MemorySymbolTree {
+export function buildSymbolTree(
+  documentMap: Map<string, DocumentLike>,
+  summaryMap?: Map<string, SummaryDocLike>,
+): MemorySymbolTree {
   const root: MemorySymbol[] = []
   const symbolMap = new Map<string, MemorySymbol>()
 
@@ -252,6 +285,22 @@ export function buildSymbolTree(documentMap: Map<string, DocumentLike>): MemoryS
     }
   }
 
+  // Fifth pass: attach summary info from _index.md files to their parent folder nodes
+  if (summaryMap) {
+    for (const summary of summaryMap.values()) {
+      const segments = summary.path.split('/')
+      const folderPath = segments.slice(0, -1).join('/')
+      const folderNode = symbolMap.get(folderPath)
+
+      if (folderNode) {
+        folderNode.summaryInfo = {
+          condensationOrder: summary.condensationOrder,
+          tokenCount: summary.tokenCount,
+        }
+      }
+    }
+  }
+
   // Sort root domains and all children alphabetically
   sortSymbolChildren(root)
 
@@ -295,14 +344,21 @@ export function getSymbolOverview(
 
   function traverse(symbols: MemorySymbol[], currentDepth: number): void {
     for (const symbol of symbols) {
-      entries.push({
+      const entry: OverviewEntry = {
         childCount: symbol.children.length,
         importance: symbol.metadata.importance,
         kind: SYMBOL_KIND_LABELS[symbol.kind] ?? 'unknown',
         maturity: symbol.metadata.maturity,
         name: symbol.name,
         path: symbol.path,
-      })
+      }
+
+      if (symbol.summaryInfo) {
+        entry.condensationOrder = symbol.summaryInfo.condensationOrder
+        entry.tokenCount = symbol.summaryInfo.tokenCount
+      }
+
+      entries.push(entry)
 
       if (currentDepth < depth && symbol.children.length > 0) {
         traverse(symbol.children, currentDepth + 1)

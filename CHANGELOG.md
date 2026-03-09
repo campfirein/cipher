@@ -2,6 +2,38 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.1.2]
+
+### Changed
+
+- **Default LLM model switched to Gemini 3.1 Flash Lite** — The default model for the ByteRover provider is now `gemini-3.1-flash-lite-preview`, replacing `gemini-3-flash-preview`, for improved performance and cost efficiency.
+
+## [2.1.1]
+
+### Changed
+
+- **Skip update notifier for non-npm installations** - Update notifications are now suppressed when the CLI is not installed via `npm install -g`, preventing irrelevant update prompts for tarball and native binary users.
+- **Auto-update frequency for native installations** - Configured oclif autoupdate with 1-day debounce for more reliable update checks on non-npm installations.
+
+### Fixed
+
+- **Security dependency updates** - Patched `fast-xml-parser`, `@aws-sdk/xml-builder`, and `@hono/node-server` to address security vulnerabilities.
+
+## [2.1.0]
+
+### Added
+
+- **Agentic map system** - A new LLM-powered context map organizes knowledge hierarchically and enables smarter retrieval. Includes escalated compression strategies that adapt when context grows large, keeping responses accurate even for very large codebases.
+- **`/exit` command** - Type `/exit` in the REPL to gracefully close the session (alternative to Ctrl+C).
+
+### Changed
+
+- **File-based storage** - Internal storage migrated from SQLite to plain files. Eliminates the native SQLite dependency for a simpler, more portable installation.
+
+### Removed
+
+- **Google Vertex AI provider** - The Vertex AI integration has been removed. Users relying on Google models should use Gemini via Gemini_API_key.
+
 ## [2.0.0]
 
 ### Added

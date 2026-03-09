@@ -16,7 +16,6 @@ import {fileURLToPath} from 'node:url'
 
 import type {CipherAgentServices, SessionServices} from '../../core/interfaces/cipher-services.js'
 import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
-import type {IHistoryStorage} from '../../core/interfaces/i-history-storage.js'
 import type {ValidatedAgentConfig} from './agent-schemas.js'
 
 import { createBlobStorage } from '../blob/blob-storage-factory.js'
@@ -25,6 +24,9 @@ import { AgentEventBus, SessionEventBus } from '../events/event-emitter.js'
 import { FileSystemService } from '../file-system/file-system-service.js'
 import { AgentLLMService } from '../llm/agent-llm-service.js'
 import { CompactionService } from '../llm/context/compaction/compaction-service.js'
+import { EscalatedCompressionStrategy } from '../llm/context/compression/escalated-compression.js'
+import { MiddleRemovalStrategy } from '../llm/context/compression/middle-removal.js'
+import { OldestRemovalStrategy } from '../llm/context/compression/oldest-removal.js'
 import {
   LoggingContentGenerator,
   RetryableContentGenerator,
@@ -36,12 +38,11 @@ import { EventBasedLogger } from '../logger/event-based-logger.js'
 import { MemoryManager } from '../memory/memory-manager.js'
 import { ProcessService } from '../process/process-service.js'
 import { SandboxService } from '../sandbox/sandbox-service.js'
-import { BlobHistoryStorage } from '../storage/blob-history-storage.js'
-import { DualFormatHistoryStorage } from '../storage/dual-format-history-storage.js'
+import { FileKeyStorage } from '../storage/file-key-storage.js'
 import { GranularHistoryStorage } from '../storage/granular-history-storage.js'
 import { MessageStorageService } from '../storage/message-storage-service.js'
-import { SqliteKeyStorage } from '../storage/sqlite-key-storage.js'
 import { ContextTreeStructureContributor } from '../system-prompt/contributors/context-tree-structure-contributor.js'
+import { MapSelectionContributor } from '../system-prompt/contributors/map-selection-contributor.js'
 import { SystemPromptManager } from '../system-prompt/system-prompt-manager.js'
 import { CoreToolScheduler } from '../tools/core-tool-scheduler.js'
 import { DEFAULT_POLICY_RULES } from '../tools/default-policy-rules.js'
@@ -82,7 +83,7 @@ export interface SessionLLMConfig {
   maxTokens?: number
   model: string
   openRouterApiKey?: string
-  /** Provider ID (anthropic, openai, google, google-vertex, xai, groq, mistral, openrouter, byterover) */
+  /** Provider ID (anthropic, openai, google, xai, groq, mistral, openrouter, byterover) */
   provider?: string
   /** API key for the direct provider */
   providerApiKey?: string
@@ -90,10 +91,6 @@ export interface SessionLLMConfig {
   providerBaseUrl?: string
   /** Custom headers for the provider */
   providerHeaders?: Record<string, string>
-  /** GCP location for Vertex AI (default: us-central1) */
-  providerLocation?: string
-  /** GCP project ID for Vertex AI */
-  providerProject?: string
   siteName?: string
   temperature?: number
   verbose?: boolean
@@ -117,7 +114,7 @@ export type {CipherAgentServices, SessionManagerConfig, SessionServices} from '.
  * 8. Policy engine (no dependencies)
  * 9. Tool scheduler (depends on ToolProvider, PolicyEngine)
  * 10. Tool manager (depends on ToolProvider, ToolScheduler)
- * 11. History storage (depends on BlobStorage)
+ * 11. History storage (file-based granular storage)
  * 12. Return all services
  *
  * @param config - Validated agent configuration (Zod-validated)
@@ -205,6 +202,11 @@ export async function createCipherAgentServices(
   })
   systemPromptManager.registerContributor(contextTreeContributor)
 
+  // Register map selection contributor for curate commands
+  // Priority 16 — right after context tree structure, before memories
+  const mapSelectionContributor = new MapSelectionContributor('mapSelection', 16)
+  systemPromptManager.registerContributor(mapSelectionContributor)
+
   // 7. Tool provider (depends on FileSystemService, ProcessService, MemoryManager, SystemPromptManager)
   const verbose = config.llm.verbose ?? false
   const descriptionLoader = new ToolDescriptionLoader()
@@ -235,42 +237,24 @@ export async function createCipherAgentServices(
   const toolManager = new ToolManager(toolProvider, toolScheduler)
   await toolManager.initialize()
 
-  // 11. History storage (depends on BlobStorage) - SHARED across sessions
-  let historyStorage: IHistoryStorage
-  let compactionService: CompactionService | undefined
-  let messageStorageService: MessageStorageService | undefined
+  // 11. History storage - granular file-based storage
+  const keyStorage = new FileKeyStorage({
+    storageDir: storageBasePath,
+  })
+  await keyStorage.initialize()
 
-  if (config.useGranularStorage) {
-    // Create granular storage infrastructure
-    const keyStorage = new SqliteKeyStorage({
-      storageDir: storageBasePath,
-    })
-    await keyStorage.initialize()
+  const messageStorage = new MessageStorageService(keyStorage)
+  const messageStorageService = messageStorage
+  const historyStorage = new GranularHistoryStorage(messageStorage)
 
-    const messageStorage = new MessageStorageService(keyStorage)
-    messageStorageService = messageStorage
-    const granularStorage = new GranularHistoryStorage(messageStorage)
-    const blobHistoryStorage = new BlobHistoryStorage(blobStorage)
-
-    // DualFormatHistoryStorage routes between formats:
-    // - New sessions → GranularHistoryStorage
-    // - Existing sessions → BlobHistoryStorage (no migration)
-    historyStorage = new DualFormatHistoryStorage(blobHistoryStorage, granularStorage)
-
-    // Create CompactionService for context overflow management
-    const tokenizer = new GeminiTokenizer(config.model ?? 'gemini-3-flash-preview')
-    compactionService = new CompactionService(messageStorage, tokenizer, {
-      overflowThreshold: 0.85,    // 85% triggers compaction check
-      protectedTurns: 2,          // Protect last 2 user turns from pruning
-      pruneKeepPercent: 0.2,      // Keep 20% of context window in tool outputs
-      pruneMinimumPercent: 0.1,   // Only prune if 10%+ of context window can be saved
-    })
-
-    logger.info('Granular history storage enabled for new sessions')
-  } else {
-    // Default: use blob storage for all sessions
-    historyStorage = new BlobHistoryStorage(blobStorage)
-  }
+  // CompactionService for context overflow management
+  const tokenizer = new GeminiTokenizer(config.model ?? 'gemini-3.1-flash-lite-preview')
+  const compactionService = new CompactionService(messageStorage, tokenizer, {
+    overflowThreshold: 0.85,    // 85% triggers compaction check
+    protectedTurns: 2,          // Protect last 2 user turns from pruning
+    pruneKeepPercent: 0.2,      // Keep 20% of context window in tool outputs
+    pruneMinimumPercent: 0.1,   // Only prune if 10%+ of context window can be saved
+  })
 
   // 12. Log successful initialization
   logger.info('CipherAgent services initialized successfully', {
@@ -344,6 +328,21 @@ export function createSessionServices(
       verbose: llmConfig.verbose,
     })
 
+    // Create escalated compression strategy with retry-only generator (no UI noise).
+    // Skip LoggingContentGenerator: avoids llmservice:thinking spinner events.
+    // Use a silenced SessionEventBus: RetryableContentGenerator emits
+    // llmservice:warning/error via eventBus on retries. Using a detached
+    // event bus with no listeners ensures these fire into void.
+    const compactionEventBus = new SessionEventBus()
+    const compactionGenerator = new RetryableContentGenerator(baseGenerator, {
+      eventBus: compactionEventBus,
+      policy: DEFAULT_RETRY_POLICY,
+    })
+    const escalatedStrategy = new EscalatedCompressionStrategy({
+      generator: compactionGenerator,
+      model: llmConfig.model ?? 'gemini-3.1-flash-lite-preview',
+    })
+
     return new AgentLLMService(
       sessionId,
       generator,
@@ -351,13 +350,18 @@ export function createSessionServices(
         maxInputTokens: llmConfig.maxInputTokens,
         maxIterations: llmConfig.maxIterations ?? 50,
         maxTokens: llmConfig.maxTokens ?? 8192,
-        model: llmConfig.model ?? 'gemini-3-flash-preview',
+        model: llmConfig.model ?? 'gemini-3.1-flash-lite-preview',
         provider,
         temperature: llmConfig.temperature ?? 0.7,
         verbose: llmConfig.verbose ?? false,
       },
       {
         compactionService: sharedServices.compactionService,
+        compressionStrategies: [
+          escalatedStrategy,
+          new MiddleRemovalStrategy({preserveEnd: 5, preserveStart: 4}),
+          new OldestRemovalStrategy({minMessagesToKeep: 4}),
+        ],
         historyStorage: sharedServices.historyStorage,
         logger: sessionLogger,
         memoryManager: sharedServices.memoryManager,
@@ -378,10 +382,8 @@ export function createSessionServices(
     headers: llmConfig.providerHeaders,
     httpConfig: httpConfig as unknown as Record<string, unknown>,
     httpReferer: llmConfig.httpReferer,
-    location: llmConfig.providerLocation,
     maxTokens: llmConfig.maxTokens ?? 8192,
     model: llmConfig.model,
-    project: llmConfig.providerProject,
     siteName: llmConfig.siteName,
     temperature: llmConfig.temperature ?? 0.7,
   })
