@@ -139,6 +139,9 @@
     ],
     "topicSeparator": " ",
     "topics": {
+      "vc": {
+        "description": "Version control commands for the context tree"
+      },
       "hub": {
         "description": "Browse and manage skills & bundles registry",
         "subtopics": {
