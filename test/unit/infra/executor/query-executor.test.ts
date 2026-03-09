@@ -362,6 +362,67 @@ describe('QueryExecutor', () => {
 
         expect((agent.executeOnSession as ReturnType<typeof stub>).callCount).to.equal(2)
       })
+
+      it('should auto-invalidate fingerprint cache when knowledge link target is deleted within TTL', async () => {
+        const projectRoot = join(tempDir, 'project-c')
+        const linkedProjectRoot = join(tempDir, 'project-d')
+        mkdirSync(join(projectRoot, '.brv', 'context-tree'), {recursive: true})
+        mkdirSync(join(linkedProjectRoot, '.brv', 'context-tree'), {recursive: true})
+        writeFileSync(join(projectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+        writeFileSync(join(linkedProjectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+        writeFileSync(
+          join(projectRoot, '.brv', 'knowledge-links.json'),
+          JSON.stringify({
+            links: [{addedAt: '2026-01-01', alias: 'linked', projectRoot: linkedProjectRoot, readOnly: true}],
+            version: 1,
+          }),
+        )
+
+        const fileSystem = {
+          globFiles: stub().callsFake(async (_pattern: string, options?: {cwd?: string}) => {
+            if (options?.cwd === join('.brv', 'context-tree')) {
+              return {files: [{modified: new Date('2026-01-01'), path: 'local.md'}], totalMatches: 1}
+            }
+
+            if (options?.cwd === join(linkedProjectRoot, '.brv', 'context-tree')) {
+              return {files: [{modified: new Date('2026-01-01'), path: 'shared.md'}], totalMatches: 1}
+            }
+
+            return {files: [], totalMatches: 0}
+          }),
+          readFile: stub(),
+        } as unknown as IFileSystem
+
+        const executor = new QueryExecutor({
+          baseDirectory: projectRoot,
+          enableCache: true,
+          fileSystem,
+          searchService: {search: stub().resolves(lowScoreSearchResult)},
+        })
+
+        const agent = createMockAgent()
+
+        // First query — populates fingerprint cache
+        await executor.executeWithAgent(agent, {
+          query: 'authentication',
+          taskId: 'task-c',
+          workspaceRoot: projectRoot,
+        })
+
+        // Break the link target — delete its config (within TTL window)
+        // Do NOT manually clear cachedFingerprint — the source validity check should detect this
+        rmSync(join(linkedProjectRoot, '.brv', 'config.json'))
+
+        // Same query — should miss cache because source validity hash changed
+        await executor.executeWithAgent(agent, {
+          query: 'authentication',
+          taskId: 'task-d',
+          workspaceRoot: projectRoot,
+        })
+
+        // Both queries should have gone through full execution (no stale cache hit)
+        expect((agent.executeOnSession as ReturnType<typeof stub>).callCount).to.equal(2)
+      })
     })
   })
 })

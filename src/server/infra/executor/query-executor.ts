@@ -64,7 +64,7 @@ export class QueryExecutor implements IQueryExecutor {
   private static readonly FINGERPRINT_CACHE_TTL_MS = 30_000
   private readonly baseDirectory?: string
   private readonly cache?: QueryResultCache
-  private cachedFingerprint?: { expiresAt: number; value: string; workspaceRoot?: string }
+  private cachedFingerprint?: { expiresAt: number; sourceValidityHash: string; value: string; workspaceRoot?: string }
   private readonly fileSystem?: IFileSystem
   private readonly searchService?: ISearchKnowledgeService
 
@@ -349,9 +349,10 @@ ${responseFormat}`
    */
   private async computeContextTreeFingerprint(workspaceRoot?: string): Promise<string> {
     // Fast path: return cached fingerprint if still valid (avoids globFiles I/O)
-    // Invalidate if workspaceRoot changed since last computation
+    // Invalidate if workspaceRoot changed or knowledge link validity changed
     if (this.cachedFingerprint && Date.now() < this.cachedFingerprint.expiresAt
-      && this.cachedFingerprint.workspaceRoot === workspaceRoot) {
+      && this.cachedFingerprint.workspaceRoot === workspaceRoot
+      && this.cachedFingerprint.sourceValidityHash === this.computeSourceValidityHash()) {
       return this.cachedFingerprint.value
     }
 
@@ -409,6 +410,7 @@ ${responseFormat}`
       const fingerprint = QueryResultCache.computeFingerprint(files)
       this.cachedFingerprint = {
         expiresAt: Date.now() + QueryExecutor.FINGERPRINT_CACHE_TTL_MS,
+        sourceValidityHash: this.computeSourceValidityHash(),
         value: fingerprint,
         workspaceRoot,
       }
@@ -419,9 +421,30 @@ ${responseFormat}`
   }
 
   /**
+   * Lightweight hash of currently valid knowledge link source keys.
+   * Used by the fingerprint cache fast path to detect when a link target
+   * becomes broken (directory deleted) within the TTL window.
+   * Cost: one readFileSync + existsSync per link — sub-millisecond for typical setups.
+   */
+  private computeSourceValidityHash(): string {
+    if (!this.baseDirectory) return ''
+    const loaded = loadKnowledgeLinks(this.baseDirectory)
+    if (!loaded) return 'no-links'
+
+    return loaded.sources.map((s) => s.sourceKey).sort().join(',')
+  }
+
+  /**
    * Derive a workspace scope for search from the workspaceRoot.
    * Returns the relative path from projectRoot to workspaceRoot,
    * or undefined if they are the same (no scoping needed).
+   *
+   * KNOWN LIMITATION: Workspace scoping only works if the curated context
+   * tree has a subtree matching the workspace relative path (e.g., 'packages/api').
+   * Since the context tree is organized semantically by the LLM (topic-based),
+   * not by directory structure, scope filtering typically has 0 matches and
+   * falls through to unscoped search. A proper fix requires tagging curated
+   * files with source workspace metadata during curation.
    */
   private deriveWorkspaceScope(workspaceRoot?: string): string | undefined {
     if (!workspaceRoot || !this.baseDirectory) return undefined

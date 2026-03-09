@@ -83,6 +83,9 @@ export class StatusHandler {
       }
     }
 
+    // Preserve actual client working directory for backward compat
+    result.currentDirectory = clientCwd ?? projectPath
+
     // Auth status
     try {
       const token = await this.tokenStore.load()
