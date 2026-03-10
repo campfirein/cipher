@@ -107,7 +107,7 @@ All open sessions and background processes are stopped before the fresh start.`
    * When cwd is resolved: check only absolute patterns (precise, no false positives).
    * When cwd is unavailable: also check relative fallback patterns (./bin/dev.js).
    */
-  private static killByMacOsProcScan(patterns: string[], excludePid: number): void {
+  private static killByMacOsProcScan(patterns: string[], excludePids: Set<number>): void {
     const psResult = spawnSync('ps', ['-A', '-o', 'pid,args'], {encoding: 'utf8'})
     if (!psResult.stdout) return
 
@@ -118,7 +118,7 @@ All open sessions and background processes are stopped before the fresh start.`
       if (!match) continue
       const pid = Number.parseInt(match[1], 10)
       const rawCmdline = match[2].trim()
-      if (Number.isNaN(pid) || pid === excludePid) continue
+      if (Number.isNaN(pid) || excludePids.has(pid)) continue
 
       // Resolve relative .js path using cwd map to get an absolute path for matching.
       let cmdline = rawCmdline
@@ -182,7 +182,7 @@ All open sessions and background processes are stopped before the fresh start.`
    * Works on all Linux distros including Alpine — /proc is a kernel feature,
    * no userspace tools required.
    */
-  private static killByProcScan(patterns: string[], excludePid: number): void {
+  private static killByProcScan(patterns: string[], excludePids: Set<number>): void {
     let entries: string[]
     try {
       entries = readdirSync('/proc')
@@ -192,7 +192,7 @@ All open sessions and background processes are stopped before the fresh start.`
 
     for (const entry of entries) {
       const pid = Number.parseInt(entry, 10)
-      if (Number.isNaN(pid) || pid === excludePid) continue
+      if (Number.isNaN(pid) || excludePids.has(pid)) continue
       try {
         const args = readFileSync(join('/proc', entry, 'cmdline'), 'utf8')
           .split('\0')
@@ -246,16 +246,19 @@ All open sessions and background processes are stopped before the fresh start.`
   private static patternKill(): void {
     const brvBinDir = dirname(process.argv[1])
     const allPatterns = Restart.buildKillPatterns(brvBinDir, process.argv[1])
+    // Exclude both the current node process and its parent shell wrapper (install.sh installs
+    // use a shell script that forks node — killing the wrapper garbles terminal output).
+    const excludePids = new Set([process.pid, process.ppid])
 
     if (process.platform === 'win32') {
       const whereClause = allPatterns.map((p) => `$_.CommandLine -like '*${p}*'`).join(' -or ')
-      const script = `Get-CimInstance Win32_Process | Where-Object { (${whereClause}) -and $_.ProcessId -ne ${process.pid} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
+      const script = `Get-CimInstance Win32_Process | Where-Object { (${whereClause}) -and $_.ProcessId -ne ${process.pid} -and $_.ProcessId -ne ${process.ppid} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
       spawnSync('powershell', ['-Command', script], {stdio: 'ignore'})
     } else if (process.platform === 'linux') {
-      Restart.killByProcScan(allPatterns, process.pid)
+      Restart.killByProcScan(allPatterns, excludePids)
     } else {
       // macOS (and other Unix): ps -A scan with lsof cwd resolution for relative paths
-      Restart.killByMacOsProcScan(allPatterns, process.pid)
+      Restart.killByMacOsProcScan(allPatterns, excludePids)
     }
   }
 
@@ -297,6 +300,11 @@ All open sessions and background processes are stopped before the fresh start.`
     }
   }
 
+  protected exitProcess(code: number): void {
+    // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+    process.exit(code)
+  }
+
   protected async killAllBrvProcesses(dataDir: string): Promise<void> {
     this.log('Stopping processes...')
 
@@ -336,7 +344,7 @@ All open sessions and background processes are stopped before the fresh start.`
 
       if (result.success) {
         this.log(`Daemon started (PID ${result.info.pid}, port ${result.info.port})`)
-        return
+        break
       }
 
       const detail = result.spawnError ? ` (${result.spawnError})` : ''
@@ -347,6 +355,12 @@ All open sessions and background processes are stopped before the fresh start.`
       }
     }
     /* eslint-enable no-await-in-loop */
+
+    // Force exit — oclif does not call process.exit() after run() returns,
+    // relying on the event loop to drain. In production, third-party plugin
+    // hooks (e.g. @oclif/plugin-update) can leave open handles that prevent
+    // the process from exiting naturally. mcp.ts uses the same pattern.
+    this.exitProcess(0)
   }
 
   protected async startDaemon(serverPath: string): Promise<EnsureDaemonResult> {
