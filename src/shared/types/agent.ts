@@ -7,6 +7,7 @@ export const AGENT_VALUES = [
   'Auggie CLI',
   'Augment Code',
   'Claude Code',
+  'Claude Desktop',
   'Cline',
   'Codex',
   'Cursor',
