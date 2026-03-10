@@ -130,6 +130,14 @@ export const MCP_CONNECTOR_CONFIGS = {
     },
     serverKeyPath: STANDARD_KEY_PATH,
   },
+  'Claude Desktop': {
+    format: 'json',
+    manualGuide: 'https://modelcontextprotocol.io/quickstart/user',
+    mode: 'manual',
+    scope: 'global',
+    serverConfig: DEFAULT_SERVER_CONFIG,
+    serverKeyPath: STANDARD_KEY_PATH,
+  },
   Cline: {
     format: 'json',
     manualGuide: 'https://docs.cline.bot/mcp/configuring-mcp-servers#editing-mcp-settings-files',

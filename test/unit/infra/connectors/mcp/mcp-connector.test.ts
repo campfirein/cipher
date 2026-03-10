@@ -402,7 +402,7 @@ describe('McpConnector', () => {
   })
 
   describe('manual mode agents', () => {
-    const manualAgents: McpSupportedAgent[] = ['Cline', 'Augment Code', 'Qoder', 'Trae.ai', 'Warp']
+    const manualAgents: McpSupportedAgent[] = ['Claude Desktop', 'Cline', 'Augment Code', 'Qoder', 'Trae.ai', 'Warp']
 
     for (const agent of manualAgents) {
       it(`should return manual setup instructions for ${agent}`, async () => {
