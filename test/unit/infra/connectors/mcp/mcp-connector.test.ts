@@ -59,6 +59,7 @@ describe('McpConnector', () => {
       expect(agents).to.include('Windsurf')
       expect(agents).to.include('Cline')
       expect(agents).to.include('Antigravity')
+      expect(agents).to.include('Claude Desktop')
       expect(agents.length).to.be.greaterThan(3)
     })
   })
@@ -95,6 +96,10 @@ describe('McpConnector', () => {
     it('should return true for Codex', () => {
       expect(mcpConnector.isSupported('Codex')).to.be.true
     })
+
+    it('should return true for Claude Desktop', () => {
+      expect(mcpConnector.isSupported('Claude Desktop')).to.be.true
+    })
   })
 
   describe('getConfigPath', () => {
@@ -120,6 +125,10 @@ describe('McpConnector', () => {
 
     it('should return config path for Codex (TOML format)', () => {
       expect(mcpConnector.getConfigPath('Codex')).to.equal(path.join(homedir(), '.codex/config.toml'))
+    })
+
+    it('should return empty string for Claude Desktop (manual mode)', () => {
+      expect(mcpConnector.getConfigPath('Claude Desktop')).to.equal('')
     })
   })
 
