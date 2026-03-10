@@ -54,6 +54,7 @@ import {
   VcHandler,
 } from '../transport/handlers/index.js'
 import {HttpUserService} from '../user/http-user-service.js'
+import {FileVcGitConfigStore} from '../vc/file-vc-git-config-store.js'
 
 export interface FeatureHandlersOptions {
   authStateStore: IAuthStateStore
@@ -227,7 +228,9 @@ export async function setupFeatureHandlers({
     contextTreeService,
     gitService,
     resolveProjectPath,
+    tokenStore,
     transport,
+    vcGitConfigStore: new FileVcGitConfigStore(),
   }).setup()
 
   log('Feature handlers registered')

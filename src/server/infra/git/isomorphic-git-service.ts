@@ -1,7 +1,6 @@
 import type {StatusRow} from 'isomorphic-git'
 
 import * as git from 'isomorphic-git'
-import http from 'isomorphic-git/http/node'
 import fs from 'node:fs'
 import {join} from 'node:path'
 
@@ -34,6 +33,7 @@ import type {
 import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
 
 import {GitAuthError, GitError} from '../../core/domain/errors/git-error.js'
+import {gitHttpWrapper as http} from './git-http-wrapper.js'
 
 /** Shape of isomorphic-git's MergeConflictError.data property. */
 type IsomorphicGitConflictData = {
@@ -60,7 +60,14 @@ export class IsomorphicGitService implements IGitService {
 
   async add(params: AddGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
-    await Promise.all(params.filePaths.map((filepath) => git.add({dir, filepath, fs})))
+    const results = await Promise.allSettled(params.filePaths.map((filepath) => git.add({dir, filepath, fs})))
+    const failed = results
+      .map((r, i) => ({path: params.filePaths[i], result: r}))
+      .filter((x): x is {path: string; result: PromiseRejectedResult} => x.result.status === 'rejected')
+    if (failed.length > 0) {
+      const paths = failed.map((f) => f.path).join(', ')
+      throw new GitError(`Failed to stage: ${paths}`)
+    }
   }
 
   async addRemote(params: AddRemoteGitParams): Promise<void> {
@@ -97,10 +104,11 @@ export class IsomorphicGitService implements IGitService {
 
   async fetch(params: FetchGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
-    this.requireToken()
+    const token = this.requireToken()
     await git.fetch({
       dir,
       fs,
+      headers: this.buildBasicAuthHeaders(token.userId, token.sessionKey),
       http,
       onAuth: this.getOnAuth(),
       onAuthFailure: this.getOnAuthFailure(),
@@ -232,13 +240,14 @@ export class IsomorphicGitService implements IGitService {
 
   async pull(params: PullGitParams): Promise<PullResult> {
     const dir = this.requireDirectory(params)
-    this.requireToken()
+    const token = this.requireToken()
     const remote = params.remote ?? 'origin'
 
     // Fetch from remote
     await git.fetch({
       dir,
       fs,
+      headers: this.buildBasicAuthHeaders(token.userId, token.sessionKey),
       http,
       onAuth: this.getOnAuth(),
       onAuthFailure: this.getOnAuthFailure(),
@@ -275,11 +284,12 @@ export class IsomorphicGitService implements IGitService {
 
   async push(params: PushGitParams): Promise<PushResult> {
     const dir = this.requireDirectory(params)
-    this.requireToken()
+    const token = this.requireToken()
     try {
       await git.push({
         dir,
         fs,
+        headers: this.buildBasicAuthHeaders(token.userId, token.sessionKey),
         http,
         onAuth: this.getOnAuth(),
         onAuthFailure: this.getOnAuthFailure(),
@@ -306,6 +316,11 @@ export class IsomorphicGitService implements IGitService {
     const matrix = await git.statusMatrix({dir, fs})
     const files = this.parseMatrix(matrix)
     return {files, isClean: files.length === 0}
+  }
+
+  private buildBasicAuthHeaders(userId: string, sessionKey: string): Record<string, string> {
+    const credentials = Buffer.from(`${userId}:${sessionKey}`).toString('base64')
+    return {Authorization: `Basic ${credentials}`}
   }
 
   private conflictsFromError(error: Error): GitConflict[] {

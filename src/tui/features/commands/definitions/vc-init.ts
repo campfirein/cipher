@@ -10,6 +10,6 @@ export const vcInitSubCommand: SlashCommand = {
       render: ({onCancel, onComplete}) => React.createElement(VcInitFlow, {onCancel, onComplete}),
     }
   },
-  description: 'Initialize git repository in .brv/context-tree/',
+  description: 'Initialize ByteRover version control',
   name: 'init',
 }

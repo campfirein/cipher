@@ -5,7 +5,7 @@ import {type IVcStatusResponse, VcEvents} from '../../../shared/transport/events
 import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
 export default class VcStatus extends Command {
-  public static description = 'Show git status of the context tree'
+  public static description = 'Show ByteRover version control status'
   public static examples = ['<%= config.bin %> <%= command.id %>']
 
   public async run(): Promise<void> {
@@ -21,7 +21,7 @@ export default class VcStatus extends Command {
 
   private formatOutput(result: IVcStatusResponse): void {
     if (!result.initialized) {
-      this.log(chalk.yellow('Git repository not initialized — run `brv vc init` to initialize'))
+      this.log(chalk.yellow('ByteRover version control not initialized — run `brv vc init` to initialize'))
       return
     }
 
@@ -37,9 +37,15 @@ export default class VcStatus extends Command {
       untracked.length > 0
 
     if (!hasChanges) {
-      this.log('Nothing to commit, working tree clean')
+      this.log('Nothing to commit, working directory clean')
       return
     }
+
+    this.printChangeSections(result)
+  }
+
+  private printChangeSections(result: IVcStatusResponse): void {
+    const {staged, unstaged, untracked} = result
 
     if (staged.added.length > 0 || staged.modified.length > 0 || staged.deleted.length > 0) {
       this.log(chalk.bold('Changes to be committed:'))
