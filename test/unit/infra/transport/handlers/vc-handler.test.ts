@@ -146,7 +146,7 @@ describe('VcHandler', () => {
   })
 
   describe('setup()', () => {
-    it('should register handler for vc:init event', () => {
+    it('should register vc:add as the first handler', () => {
       const deps = makeDeps(sandbox, projectPath)
       makeVcHandler(deps).setup()
 
@@ -163,7 +163,9 @@ describe('VcHandler', () => {
       expect(registeredEvents).to.include(VcEvents.COMMIT)
       expect(registeredEvents).to.include(VcEvents.CONFIG)
       expect(registeredEvents).to.include(VcEvents.INIT)
+      expect(registeredEvents).to.include(VcEvents.LOG)
       expect(registeredEvents).to.include(VcEvents.PUSH)
+      expect(registeredEvents).to.include(VcEvents.REMOTE)
       expect(registeredEvents).to.include(VcEvents.STATUS)
     })
   })
@@ -822,7 +824,7 @@ describe('VcHandler', () => {
       expect(result).to.deep.equal({branch: 'develop'})
     })
 
-    it('should throw VcError BRANCH_NOT_FOUND for invalid branch names', async () => {
+    it('should throw VcError INVALID_BRANCH_NAME for invalid branch names', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
@@ -840,7 +842,7 @@ describe('VcHandler', () => {
           } catch (error) {
             expect(error).to.be.instanceOf(VcError)
             if (error instanceof VcError) {
-              expect(error.code).to.equal(VcErrorCode.BRANCH_NOT_FOUND)
+              expect(error.code).to.equal(VcErrorCode.INVALID_BRANCH_NAME)
               expect(error.message).to.include(invalid)
             }
           }
@@ -911,6 +913,66 @@ describe('VcHandler', () => {
           expect(error.code).to.equal(VcErrorCode.BRANCH_NOT_FOUND)
         }
       }
+    })
+
+    it('should return deduplicated commits from all branches when all=true', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.listBranches.resolves([
+        {isCurrent: true, name: 'main'},
+        {isCurrent: false, name: 'feature'},
+      ])
+
+      const commit1 = {
+        author: {email: 'a@example.com', name: 'A'},
+        message: 'first',
+        sha: 'sha1',
+        timestamp: new Date('2024-01-02'),
+      }
+      const commit2 = {
+        author: {email: 'b@example.com', name: 'B'},
+        message: 'second',
+        sha: 'sha2',
+        timestamp: new Date('2024-01-01'),
+      }
+      // main returns both commits; feature returns commit1 (duplicate) + commit2
+      deps.gitService.log.withArgs({directory: deps.contextTreeDirPath, ref: 'main'}).resolves([commit1, commit2])
+      deps.gitService.log.withArgs({directory: deps.contextTreeDirPath, ref: 'feature'}).resolves([commit1])
+      makeVcHandler(deps).setup()
+
+      const result = (await deps.requestHandlers[VcEvents.LOG]({all: true, limit: 10}, CLIENT_ID)) as {
+        commits: Array<{sha: string}>
+        currentBranch: string
+      }
+
+      // Should deduplicate: sha1 appears in both branches, should appear only once
+      expect(result.commits).to.have.length(2)
+      expect(result.commits[0].sha).to.equal('sha1') // newer timestamp first
+      expect(result.commits[1].sha).to.equal('sha2')
+      expect(result.currentBranch).to.equal('main')
+    })
+
+    it('should respect limit when all=true', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.listBranches.resolves([{isCurrent: true, name: 'main'}])
+
+      const commits = Array.from({length: 5}, (_, i) => ({
+        author: {email: 'a@example.com', name: 'A'},
+        message: `commit ${i}`,
+        sha: `sha${i}`,
+        timestamp: new Date(2024, 0, 5 - i),
+      }))
+      deps.gitService.log.resolves(commits)
+      makeVcHandler(deps).setup()
+
+      const result = (await deps.requestHandlers[VcEvents.LOG]({all: true, limit: 3}, CLIENT_ID)) as {
+        commits: unknown[]
+      }
+
+      expect(result.commits).to.have.length(3)
     })
   })
 

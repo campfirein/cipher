@@ -19,7 +19,10 @@ export function VcCommitFlow({message, onCancel, onComplete}: VcCommitFlowProps)
     }
   })
 
+  const fired = React.useRef(false)
   useEffect(() => {
+    if (fired.current) return
+    fired.current = true
     commitMutation.mutate(
       {message},
       {

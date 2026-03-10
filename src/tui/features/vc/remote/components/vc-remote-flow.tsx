@@ -27,7 +27,10 @@ export function VcRemoteFlow({onCancel, onComplete, subcommand, url}: VcRemoteFl
     }
   })
 
+  const fired = React.useRef(false)
   useEffect(() => {
+    if (fired.current) return
+    fired.current = true
     remoteMutation.mutate(
       {subcommand, url},
       {

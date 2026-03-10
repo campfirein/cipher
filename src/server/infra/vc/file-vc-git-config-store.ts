@@ -1,5 +1,4 @@
 import {createHash} from 'node:crypto'
-import {existsSync} from 'node:fs'
 import {mkdir, readFile, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
@@ -34,7 +33,6 @@ export class FileVcGitConfigStore implements IVcGitConfigStore {
 
   public async get(projectPath: string): Promise<IVcGitConfig | undefined> {
     const configPath = this.configPath(projectPath)
-    if (!existsSync(configPath)) return undefined
     try {
       const content = await readFile(configPath, 'utf8')
       const parsed: unknown = JSON.parse(content)

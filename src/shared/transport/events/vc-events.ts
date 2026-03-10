@@ -3,6 +3,7 @@ export const VcErrorCode = {
   BRANCH_NOT_FOUND: 'ERR_VC_BRANCH_NOT_FOUND',
   CONFIG_KEY_NOT_SET: 'ERR_VC_CONFIG_KEY_NOT_SET',
   GIT_NOT_INITIALIZED: 'ERR_VC_GIT_NOT_INITIALIZED',
+  INVALID_BRANCH_NAME: 'ERR_VC_INVALID_BRANCH_NAME',
   INVALID_CONFIG_KEY: 'ERR_VC_INVALID_CONFIG_KEY',
   INVALID_REMOTE_URL: 'ERR_VC_INVALID_REMOTE_URL',
   NO_REMOTE: 'ERR_VC_NO_REMOTE',
@@ -11,7 +12,6 @@ export const VcErrorCode = {
   NOTHING_TO_PUSH: 'ERR_VC_NOTHING_TO_PUSH',
   PUSH_FAILED: 'ERR_VC_PUSH_FAILED',
   REMOTE_ALREADY_EXISTS: 'ERR_VC_REMOTE_ALREADY_EXISTS',
-  REMOTE_NOT_FOUND: 'ERR_VC_REMOTE_NOT_FOUND',
   USER_NOT_CONFIGURED: 'ERR_VC_USER_NOT_CONFIGURED',
 } as const
 
@@ -105,7 +105,11 @@ export interface IVcLogResponse {
 
 export type VcRemoteSubcommand = 'add' | 'set-url' | 'show'
 
-export const VC_REMOTE_SUBCOMMANDS: readonly string[] = ['add', 'set-url', 'show'] satisfies readonly VcRemoteSubcommand[]
+export const VC_REMOTE_SUBCOMMANDS: readonly string[] = [
+  'add',
+  'set-url',
+  'show',
+] satisfies readonly VcRemoteSubcommand[]
 
 export function isVcRemoteSubcommand(value: string): value is VcRemoteSubcommand {
   return VC_REMOTE_SUBCOMMANDS.includes(value)
@@ -117,6 +121,6 @@ export interface IVcRemoteRequest {
 }
 
 export interface IVcRemoteResponse {
-  action: string
+  action: VcRemoteSubcommand
   url?: string
 }

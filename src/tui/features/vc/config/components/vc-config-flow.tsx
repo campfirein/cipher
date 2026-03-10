@@ -21,7 +21,10 @@ export function VcConfigFlow({configKey, onCancel, onComplete, value}: VcConfigF
     }
   })
 
+  const fired = React.useRef(false)
   useEffect(() => {
+    if (fired.current) return
+    fired.current = true
     configMutation.mutate(
       {key: configKey, value},
       {

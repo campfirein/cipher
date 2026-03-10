@@ -19,7 +19,10 @@ export function VcPushFlow({branch, onCancel, onComplete}: VcPushFlowProps): Rea
     }
   })
 
+  const fired = React.useRef(false)
   useEffect(() => {
+    if (fired.current) return
+    fired.current = true
     pushMutation.mutate(
       {branch},
       {

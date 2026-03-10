@@ -366,7 +366,7 @@ export class VcHandler {
 
     if (trimmed) {
       if (!isValidBranchName(trimmed)) {
-        throw new VcError(`Invalid branch name: '${trimmed}'.`, VcErrorCode.BRANCH_NOT_FOUND)
+        throw new VcError(`Invalid branch name: '${trimmed}'.`, VcErrorCode.INVALID_BRANCH_NAME)
       }
 
       return trimmed

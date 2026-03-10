@@ -19,7 +19,10 @@ export function VcAddFlow({filePaths, onCancel, onComplete}: VcAddFlowProps): Re
     }
   })
 
+  const fired = React.useRef(false)
   useEffect(() => {
+    if (fired.current) return
+    fired.current = true
     addMutation.mutate(
       {filePaths},
       {
