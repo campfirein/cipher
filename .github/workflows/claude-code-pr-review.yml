@@ -2,7 +2,7 @@ name: Claude Code PR Review
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review]
+    types: [opened, synchronize, ready_for_review, reopened]
     branches:
       - develop
       - 'proj/**'
@@ -19,12 +19,39 @@ jobs:
   auto-review:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
+      - name: Detect main branch sync
+        id: detect-sync
+        run: |
+          if [ "${{ github.event.action }}" != "synchronize" ]; then
+            echo "is_main_sync=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git fetch origin main --depth=1
+          MAIN_SHA=$(git rev-parse origin/main)
+          PARENTS=$(git log -1 --format='%P')
+          PARENT1=$(echo "$PARENTS" | awk '{print $1}')
+          PARENT2=$(echo "$PARENTS" | awk '{print $2}')
+
+          BEFORE="${{ github.event.before }}"
+
+          if [ -n "$PARENT2" ] && \
+             { { [ "$PARENT1" = "$BEFORE" ] && [ "$PARENT2" = "$MAIN_SHA" ]; } || \
+               { [ "$PARENT2" = "$BEFORE" ] && [ "$PARENT1" = "$MAIN_SHA" ]; }; }; then
+            echo "is_main_sync=true" >> "$GITHUB_OUTPUT"
+            echo "Skipping review: sync from main detected"
+          else
+            echo "is_main_sync=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: anthropics/claude-code-action@v1
+        if: steps.detect-sync.outputs.is_main_sync != 'true'
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -33,16 +60,11 @@ jobs:
             --allowedTools
             "Read,Glob,Grep,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr checks:*),Bash(gh pr comment:*),mcp__github_inline_comment__create_inline_comment"
           prompt: |
-            Research then review this PR using the information provided in CLAUDE.md. Be extremely brutal with design and logic flaws.
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
             
-            Use inline comments for specific code issues. Apply Conventional Comments. Provide hints/suggestions to fix when possible.
+            Perform a comprehensive code review using the information provided in CLAUDE.md.
+            Be extremely brutal with design and logic flaws.
             
-            Provide a summary comment with overall assessment covering:
-            1. Correctness — logic errors, edge cases, error handling
-            2. Convention compliance — .js imports, I-prefix interfaces, no `any`/`as Type`
-            3. Architecture — proper layer boundaries, no circular dependencies
-            4. Security — no secrets or sensitive data in code
-            5. Performance — unnecessary re-renders, memory leaks, blocking operations
-            6. Test quality — adequate coverage, proper mocking, fast in-memory tests
-
-            Rate each area as: PASS, MINOR (suggestions), or NEEDS_CHANGE (blocking).
+            Provide detailed feedback using inline comments for specific issues. Apply Conventional Comments.
+            Use top-level comments for general observations.
