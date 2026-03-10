@@ -38,7 +38,7 @@ export function VcPushFlow({branch, onCancel, onComplete}: VcPushFlowProps): Rea
 
   return (
     <Text>
-      <Spinner type="dots" /> Pushing to origin/{branch ?? '...'}...
+      <Spinner type="dots" /> {branch ? `Pushing to origin/${branch}...` : 'Pushing...'}
     </Text>
   )
 }

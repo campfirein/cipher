@@ -51,10 +51,7 @@ async function parseLsRefsBody(body: Buffer): Promise<Array<{name: string; sha: 
     const lenHex = body.subarray(offset, offset + 4).toString('ascii')
     const len = Number.parseInt(lenHex, 16)
     if (len === 0) break // flush packet
-    if (len < 4) {
-      offset += 4
-      continue
-    }
+    if (len < 4) break // malformed pktline — cannot advance safely, treat as end-of-stream
 
     const line = body
       .subarray(offset + 4, offset + len)

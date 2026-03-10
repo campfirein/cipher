@@ -331,7 +331,10 @@ export class VcHandler {
   ): Promise<{commits: GitCommit[]; displayBranch: string | undefined}> {
     const currentBranch = await this.gitService.getCurrentBranch({directory: contextTreeDir})
 
-    if (data.all) {
+    const all = data.all ?? false
+    const limit = data.limit ?? 10
+
+    if (all) {
       const branches = await this.gitService.listBranches({directory: contextTreeDir})
       const commitsByBranch = await Promise.all(
         branches.map((branch) => this.gitService.log({directory: contextTreeDir, ref: branch.name})),
@@ -345,7 +348,7 @@ export class VcHandler {
           return true
         })
         .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-        .slice(0, data.limit)
+        .slice(0, limit)
       return {commits, displayBranch: currentBranch}
     }
 
@@ -357,7 +360,7 @@ export class VcHandler {
       }
     }
 
-    const commits = await this.gitService.log({depth: data.limit, directory: contextTreeDir, ref: data.ref})
+    const commits = await this.gitService.log({depth: limit, directory: contextTreeDir, ref: data.ref})
     return {commits, displayBranch: data.ref ?? currentBranch}
   }
 

@@ -85,8 +85,8 @@ export interface IVcPushResponse {
 }
 
 export interface IVcLogRequest {
-  all: boolean
-  limit: number
+  all?: boolean
+  limit?: number
   ref?: string
 }
 
