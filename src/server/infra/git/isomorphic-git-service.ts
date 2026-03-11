@@ -9,6 +9,7 @@ import type {
   AddRemoteGitParams,
   BaseGitParams,
   CheckoutGitParams,
+  CloneGitParams,
   CommitGitParams,
   CreateBranchGitParams,
   FetchGitParams,
@@ -78,6 +79,21 @@ export class IsomorphicGitService implements IGitService {
   async checkout(params: CheckoutGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
     await git.checkout({dir, fs, ref: params.ref})
+  }
+
+  async clone(params: CloneGitParams): Promise<void> {
+    const dir = this.requireDirectory(params)
+    const token = this.requireToken()
+    await git.clone({
+      dir,
+      fs,
+      headers: this.buildBasicAuthHeaders(token.userId, token.sessionKey),
+      http,
+      onAuth: this.getOnAuth(),
+      onAuthFailure: this.getOnAuthFailure(),
+      onProgress: params.onProgress,
+      url: params.url,
+    })
   }
 
   async commit(params: CommitGitParams): Promise<GitCommit> {
@@ -350,7 +366,7 @@ export class IsomorphicGitService implements IGitService {
     if (!token) throw new GitAuthError()
     return {
       email: token.userEmail,
-      name: token.userEmail,
+      name: token.userName ?? token.userEmail,
     }
   }
 

@@ -1,6 +1,8 @@
 export const VcErrorCode = {
+  ALREADY_INITIALIZED: 'ERR_VC_ALREADY_INITIALIZED',
   AUTH_FAILED: 'ERR_VC_AUTH_FAILED',
   BRANCH_NOT_FOUND: 'ERR_VC_BRANCH_NOT_FOUND',
+  CLONE_FAILED: 'ERR_VC_CLONE_FAILED',
   CONFIG_KEY_NOT_SET: 'ERR_VC_CONFIG_KEY_NOT_SET',
   GIT_NOT_INITIALIZED: 'ERR_VC_GIT_NOT_INITIALIZED',
   INVALID_BRANCH_NAME: 'ERR_VC_INVALID_BRANCH_NAME',
@@ -19,6 +21,8 @@ export type VcErrorCodeType = (typeof VcErrorCode)[keyof typeof VcErrorCode]
 
 export const VcEvents = {
   ADD: 'vc:add',
+  CLONE: 'vc:clone',
+  CLONE_PROGRESS: 'vc:clone:progress',
   COMMIT: 'vc:commit',
   CONFIG: 'vc:config',
   INIT: 'vc:init',
@@ -123,4 +127,22 @@ export interface IVcRemoteRequest {
 export interface IVcRemoteResponse {
   action: VcRemoteSubcommand
   url?: string
+}
+
+export interface IVcCloneRequest {
+  spaceId: string
+  spaceName: string
+  teamId: string
+  teamName: string
+}
+
+export interface IVcCloneResponse {
+  gitDir: string
+  spaceName: string
+  teamName: string
+}
+
+export interface IVcCloneProgressEvent {
+  message: string
+  step: 'cloning' | 'saving'
 }

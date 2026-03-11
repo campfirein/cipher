@@ -146,35 +146,143 @@ async function translateUploadPackV2ToV1(
 ): Promise<GitHttpResponse> {
   const baseUrl = String(params.url).replace(/\/info\/refs\?service=git-upload-pack.*$/, '')
 
-  let lsRefsResponse: Awaited<ReturnType<typeof httpRequest>>
+  // Use native fetch instead of isomorphic-git's httpRequest to avoid the
+  // "require is not defined" error that occurs when httpRequest processes a POST
+  // body in an ESM context (it lazily loads node:stream via require()).
+  let lsBody: Buffer
   try {
-    lsRefsResponse = await httpRequest({
-      body: singleChunk(LS_REFS_REQUEST),
+    // eslint-disable-next-line n/no-unsupported-features/node-builtins
+    const fetchResponse = await fetch(`${baseUrl}/git-upload-pack`, {
+      body: LS_REFS_REQUEST,
       headers: {
-        ...params.headers,
+        ...(params.headers as Record<string, string>),
         'Content-Type': 'application/x-git-upload-pack-request',
         'Git-Protocol': 'version=2',
       },
       method: 'POST',
-      url: `${baseUrl}/git-upload-pack`,
     })
+    lsBody = Buffer.from(await fetchResponse.arrayBuffer())
   } catch (error) {
     throw new Error(
       `Failed to translate Git Protocol v2 to v1 (ls-refs POST to ${baseUrl}/git-upload-pack failed): ${error instanceof Error ? error.message : String(error)}`,
     )
   }
 
-  const lsChunks: Buffer[] = []
-  for await (const chunk of lsRefsResponse.body ?? []) {
-    lsChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-  }
-
-  const lsBody = Buffer.concat(lsChunks)
-
   const refs = await parseLsRefsBody(lsBody)
   const v1Body = buildV1RefsAdvertisement('git-upload-pack', refs)
 
   return {...originalResponse, body: singleChunk(v1Body)} satisfies GitHttpResponse
+}
+
+/**
+ * Intercept a v1-format git-upload-pack POST from isomorphic-git and convert
+ * it to a Git Protocol v2 fetch command, since the CoGit server only handles v2.
+ *
+ * Parses the v1 pktlines (want/have/done) and re-sends as v2 format using
+ * native fetch to avoid the `require is not defined` ESM issue in httpRequest.
+ *
+ * The v2 packfile response is passed back after stripping the "packfile" section
+ * header pktline (if present), so isomorphic-git sees a v1-compatible sideband stream.
+ */
+async function interceptUploadPackPost(params: Parameters<typeof httpRequest>[0]): Promise<GitHttpResponse> {
+  // Buffer the v1 body from isomorphic-git
+  const chunks: Buffer[] = []
+  for await (const chunk of params.body ?? []) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+
+  const v1Body = Buffer.concat(chunks)
+
+  // Parse v1 pktlines: extract want SHAs, have SHAs, and done flag.
+  // The first "want" line includes capabilities (e.g. "want <sha> side-band-64k ofs-delta") —
+  // we only keep the 40-char SHA; capabilities are dropped since v2 handles them differently.
+  const wants: string[] = []
+  const haves: string[] = []
+  let done = false
+  let offset = 0
+  while (offset + 4 <= v1Body.length) {
+    const lenHex = v1Body.subarray(offset, offset + 4).toString('ascii')
+    const len = Number.parseInt(lenHex, 16)
+    if (len === 0) {
+      offset += 4
+      continue
+    }
+
+    if (len < 4) break
+    const line = v1Body
+      .subarray(offset + 4, offset + len)
+      .toString('utf8')
+      .replace(/\n$/, '')
+    offset += len
+
+    if (line.startsWith('want ')) {
+      wants.push(line.split(' ')[1]) // 40-char SHA only, ignore capabilities
+    } else if (line.startsWith('have ')) {
+      haves.push(line.split(' ')[1])
+    } else if (line === 'done') {
+      done = true
+    }
+  }
+
+  // Build a v2 fetch command body.
+  // '0001' is the delim-pkt (Git Protocol v2) that separates the command
+  // section from the argument section. '0000' (flush-pkt) would signal
+  // end-of-request, causing the server to ignore all want/done arguments.
+  let v2 = pktline('command=fetch\n') + '0001'
+  for (const sha of wants) v2 += pktline(`want ${sha}\n`)
+  for (const sha of haves) v2 += pktline(`have ${sha}\n`)
+  if (done) v2 += pktline('done\n')
+  v2 += '0000'
+
+  const url = String(params.url)
+  // eslint-disable-next-line n/no-unsupported-features/node-builtins
+  const fetchResponse = await fetch(url, {
+    body: Buffer.from(v2),
+    headers: {
+      ...(params.headers as Record<string, string>),
+      'Content-Type': 'application/x-git-upload-pack-request',
+      'Git-Protocol': 'version=2',
+    },
+    method: 'POST',
+  })
+
+  if (!fetchResponse.ok) {
+    throw new Error(`HTTP Error: ${fetchResponse.status} ${fetchResponse.statusText}`)
+  }
+
+  const v2ResponseBody = Buffer.from(await fetchResponse.arrayBuffer())
+
+  // Strip the v2 "packfile" section header pktline (if present) so that
+  // isomorphic-git receives a v1-compatible sideband stream starting with
+  // the first real sideband byte (0x01 = packfile data, 0x02 = progress).
+  const responseBody = stripV2PackfileSectionHeader(v2ResponseBody)
+
+  return {
+    body: singleChunk(responseBody),
+    headers: Object.fromEntries(fetchResponse.headers.entries()),
+    method: 'POST',
+    statusCode: fetchResponse.status,
+    statusMessage: fetchResponse.statusText,
+    url,
+  } satisfies GitHttpResponse
+}
+
+/**
+ * Git Protocol v2 fetch responses wrap the packfile in a "packfile" section.
+ * Strip that section-header pktline so isomorphic-git sees a v1-compatible
+ * sideband stream (first byte of each pktline is the sideband code).
+ */
+function stripV2PackfileSectionHeader(body: Buffer): Buffer {
+  if (body.length < 4) return body
+  const lenHex = body.subarray(0, 4).toString('ascii')
+  const len = Number.parseInt(lenHex, 16)
+  if (len < 4 || len > body.length) return body
+  // Strip optional sideband-1 prefix byte (0x01 = pack-data band) then check for "packfile\n"
+  let payload = body.subarray(4, len)
+  if (payload[0] === 0x01) payload = payload.subarray(1)
+  const content = payload.toString('utf8').replace(/\n$/, '')
+  if (content === 'packfile') return body.subarray(len)
+  return body
 }
 
 /**
@@ -189,13 +297,21 @@ async function translateUploadPackV2ToV1(
  *  2. git-upload-pack (fetch/clone): Always returns a Git Protocol v2 capability
  *     advertisement, even when the client does not request v2. isomorphic-git uses
  *     Protocol v1 internally and cannot use a v2 response for its fetch logic.
- *     This wrapper translates the v2 response to v1 by making a secondary ls-refs
- *     POST request, then synthesising a compliant v1 refs advertisement.
+ *     This wrapper:
+ *       a. Translates the info/refs v2 response to v1 (ls-refs POST + synthetic refs advertisement)
+ *       b. Intercepts the subsequent pack-data POST and converts it from v1 to v2 fetch command
  */
 export const gitHttpWrapper: {request: typeof httpRequest} = {
   async request(params) {
-    const response = await httpRequest(params)
     const url = String(params.url)
+
+    // Intercept git-upload-pack pack-data POST (not info/refs):
+    // isomorphic-git sends v1 want/have/done but the server only understands v2.
+    if (url.includes('/git-upload-pack') && !url.includes('/info/refs')) {
+      return interceptUploadPackPost(params)
+    }
+
+    const response = await httpRequest(params)
 
     const service = url.includes('/info/refs?service=git-receive-pack')
       ? 'git-receive-pack'

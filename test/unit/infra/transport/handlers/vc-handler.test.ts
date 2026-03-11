@@ -11,6 +11,7 @@ import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 import type {ITokenStore} from '../../../../../src/server/core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
 import type {IGitService} from '../../../../../src/server/core/interfaces/services/i-git-service.js'
+import type {IProjectConfigStore} from '../../../../../src/server/core/interfaces/storage/i-project-config-store.js'
 import type {
   ITransportServer,
   RequestHandler,
@@ -30,9 +31,11 @@ type Stubbed<T> = {[K in keyof T]: SinonStub & T[K]}
 const CLIENT_ID = 'client-abc'
 
 interface TestDeps {
+  broadcastToProject: SinonStub
   contextTreeDirPath: string
   contextTreeService: Stubbed<IContextTreeService>
   gitService: Stubbed<IGitService>
+  projectConfigStore: Stubbed<IProjectConfigStore>
   requestHandlers: Record<string, RequestHandler>
   resolveProjectPath: SinonStub
   tokenStore: Stubbed<ITokenStore>
@@ -54,6 +57,7 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     add: sandbox.stub().resolves(),
     addRemote: sandbox.stub().resolves(),
     checkout: sandbox.stub().resolves(),
+    clone: sandbox.stub().resolves(),
     commit: sandbox.stub().resolves({
       author: {email: 'test@example.com', name: 'Test User'},
       message: 'test commit',
@@ -109,10 +113,21 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     stop: sandbox.stub().resolves(),
   }
 
+  const broadcastToProject = sandbox.stub()
+
+  const projectConfigStore: Stubbed<IProjectConfigStore> = {
+    exists: sandbox.stub().resolves(false),
+    getModifiedTime: sandbox.stub().resolves(),
+    read: sandbox.stub().resolves(),
+    write: sandbox.stub().resolves(),
+  }
+
   return {
+    broadcastToProject,
     contextTreeDirPath,
     contextTreeService,
     gitService,
+    projectConfigStore,
     requestHandlers,
     resolveProjectPath,
     tokenStore,
@@ -123,8 +138,11 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
 
 function makeVcHandler(deps: TestDeps): VcHandler {
   return new VcHandler({
+    broadcastToProject: deps.broadcastToProject,
+    cogitGitBaseUrl: 'https://test-cogit.byterover.dev',
     contextTreeService: deps.contextTreeService,
     gitService: deps.gitService,
+    projectConfigStore: deps.projectConfigStore,
     resolveProjectPath: deps.resolveProjectPath,
     tokenStore: deps.tokenStore,
     transport: deps.transport,
@@ -146,12 +164,12 @@ describe('VcHandler', () => {
   })
 
   describe('setup()', () => {
-    it('should register vc:add as the first handler', () => {
+    it('should register vc:clone as the first handler', () => {
       const deps = makeDeps(sandbox, projectPath)
       makeVcHandler(deps).setup()
 
       expect(deps.transport.onRequest.called).to.be.true
-      expect(deps.transport.onRequest.firstCall.args[0]).to.equal(VcEvents.ADD)
+      expect(deps.transport.onRequest.firstCall.args[0]).to.equal(VcEvents.CLONE)
     })
 
     it('should register handlers for all vc events', () => {
@@ -159,6 +177,7 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
 
       const registeredEvents = deps.transport.onRequest.args.map((args: unknown[]) => args[0])
+      expect(registeredEvents).to.include(VcEvents.CLONE)
       expect(registeredEvents).to.include(VcEvents.ADD)
       expect(registeredEvents).to.include(VcEvents.COMMIT)
       expect(registeredEvents).to.include(VcEvents.CONFIG)
