@@ -93,7 +93,7 @@ describe('Status Command', () => {
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('Not connected'))).to.be.true
+      expect(loggedMessages.some((m) => m.startsWith('Account:') && m.includes('Not connected'))).to.be.true
     })
 
     it('should display "Session expired" when token is expired', async () => {
@@ -175,7 +175,7 @@ describe('Status Command', () => {
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('Not connected'))).to.be.true
+      expect(loggedMessages.some((m) => m.startsWith('Space:') && m.includes('Not connected'))).to.be.true
     })
   })
 
