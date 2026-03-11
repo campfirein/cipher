@@ -126,6 +126,18 @@ export interface HubEntryDTO {
 // Status DTOs
 // ============================================================================
 
+export interface ProjectLocationDTO {
+  domainCount: number
+  fileCount: number
+  /** True if this project currently has at least one connected client/agent */
+  isActive: boolean
+  /** True if this is the project the client is currently running from */
+  isCurrent: boolean
+  /** True if .brv/context-tree exists */
+  isInitialized: boolean
+  projectPath: string
+}
+
 export interface StatusDTO {
   authStatus: 'expired' | 'logged_in' | 'not_logged_in' | 'unknown'
   contextTreeChanges?: ContextTreeChanges
@@ -135,6 +147,7 @@ export interface StatusDTO {
   contextTreeRelativeDir?: string
   contextTreeStatus: 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
   currentDirectory: string
+  locations: ProjectLocationDTO[]
   spaceName?: string
   teamName?: string
   userEmail?: string
