@@ -122,7 +122,7 @@ export const LLM_REGISTRY: Record<LLMProvider, ProviderInfo> = {
     supportedFileTypes: ['image', 'pdf'],
   },
   gemini: {
-    defaultModel: 'gemini-3.1-flash-lite-preview',
+    defaultModel: 'gemini-3-flash-preview',
     models: [
       // Gemini 3.1 series
       {
@@ -135,7 +135,6 @@ export const LLM_REGISTRY: Record<LLMProvider, ProviderInfo> = {
           supportsThinking: true,
         },
         charsPerToken: 4,
-        default: true,
         displayName: 'Gemini 3.1 Flash Lite',
         maxInputTokens: 1_000_000,
         maxOutputTokens: 8192,
@@ -154,6 +153,7 @@ export const LLM_REGISTRY: Record<LLMProvider, ProviderInfo> = {
           supportsThinking: true,
         },
         charsPerToken: 4,
+        default: true,
         displayName: 'Gemini 3 Flash (Preview)',
         maxInputTokens: 1_000_000,
         maxOutputTokens: 8192,
