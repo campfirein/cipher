@@ -1,6 +1,30 @@
+export const VcErrorCode = {
+  AUTH_FAILED: 'ERR_VC_AUTH_FAILED',
+  BRANCH_NOT_FOUND: 'ERR_VC_BRANCH_NOT_FOUND',
+  CONFIG_KEY_NOT_SET: 'ERR_VC_CONFIG_KEY_NOT_SET',
+  GIT_NOT_INITIALIZED: 'ERR_VC_GIT_NOT_INITIALIZED',
+  INVALID_BRANCH_NAME: 'ERR_VC_INVALID_BRANCH_NAME',
+  INVALID_CONFIG_KEY: 'ERR_VC_INVALID_CONFIG_KEY',
+  INVALID_REMOTE_URL: 'ERR_VC_INVALID_REMOTE_URL',
+  NO_REMOTE: 'ERR_VC_NO_REMOTE',
+  NON_FAST_FORWARD: 'ERR_VC_NON_FAST_FORWARD',
+  NOTHING_STAGED: 'ERR_VC_NOTHING_STAGED',
+  NOTHING_TO_PUSH: 'ERR_VC_NOTHING_TO_PUSH',
+  PUSH_FAILED: 'ERR_VC_PUSH_FAILED',
+  REMOTE_ALREADY_EXISTS: 'ERR_VC_REMOTE_ALREADY_EXISTS',
+  USER_NOT_CONFIGURED: 'ERR_VC_USER_NOT_CONFIGURED',
+} as const
+
+export type VcErrorCodeType = (typeof VcErrorCode)[keyof typeof VcErrorCode]
+
 export const VcEvents = {
+  ADD: 'vc:add',
+  COMMIT: 'vc:commit',
+  CONFIG: 'vc:config',
   INIT: 'vc:init',
   LOG: 'vc:log',
+  PUSH: 'vc:push',
+  REMOTE: 'vc:remote',
   STATUS: 'vc:status',
 } as const
 
@@ -17,9 +41,52 @@ export interface IVcStatusResponse {
   untracked: string[]
 }
 
+export interface IVcAddRequest {
+  filePaths?: string[]
+}
+
+export interface IVcAddResponse {
+  count: number
+}
+
+export interface IVcCommitRequest {
+  message: string
+}
+
+export interface IVcCommitResponse {
+  message: string
+  sha: string
+}
+
+export type VcConfigKey = 'user.email' | 'user.name'
+
+export const VC_CONFIG_KEYS: readonly string[] = ['user.name', 'user.email'] satisfies readonly VcConfigKey[]
+
+export function isVcConfigKey(key: string): key is VcConfigKey {
+  return VC_CONFIG_KEYS.includes(key)
+}
+
+export interface IVcConfigRequest {
+  key: VcConfigKey
+  value?: string
+}
+
+export interface IVcConfigResponse {
+  key: string
+  value: string
+}
+
+export interface IVcPushRequest {
+  branch?: string
+}
+
+export interface IVcPushResponse {
+  branch: string
+}
+
 export interface IVcLogRequest {
-  all: boolean
-  limit: number
+  all?: boolean
+  limit?: number
   ref?: string
 }
 
@@ -34,4 +101,26 @@ export interface IVcLogResponse {
     timestamp: string
   }>
   currentBranch?: string
+}
+
+export type VcRemoteSubcommand = 'add' | 'set-url' | 'show'
+
+export const VC_REMOTE_SUBCOMMANDS: readonly string[] = [
+  'add',
+  'set-url',
+  'show',
+] satisfies readonly VcRemoteSubcommand[]
+
+export function isVcRemoteSubcommand(value: string): value is VcRemoteSubcommand {
+  return VC_REMOTE_SUBCOMMANDS.includes(value)
+}
+
+export interface IVcRemoteRequest {
+  subcommand: VcRemoteSubcommand
+  url?: string
+}
+
+export interface IVcRemoteResponse {
+  action: VcRemoteSubcommand
+  url?: string
 }

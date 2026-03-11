@@ -4,7 +4,7 @@ import {type IVcInitResponse, VcEvents} from '../../../shared/transport/events/v
 import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
 export default class VcInit extends Command {
-  public static description = 'Initialize git repository in .brv/context-tree/'
+  public static description = 'Initialize ByteRover version control'
   public static examples = ['<%= config.bin %> <%= command.id %>']
 
   public async run(): Promise<void> {
@@ -12,9 +12,9 @@ export default class VcInit extends Command {
       const result = await withDaemonRetry(async (client) => client.requestWithAck<IVcInitResponse>(VcEvents.INIT, {}))
 
       if (result.reinitialized) {
-        this.log(`Reinitialized existing Git repository in ${result.gitDir}`)
+        this.log(`Reinitialized existing ByteRover version control in ${result.gitDir}`)
       } else {
-        this.log(`Initialized Git repository in ${result.gitDir}`)
+        this.log(`Initialized ByteRover version control in ${result.gitDir}`)
       }
     } catch (error) {
       this.error(formatConnectionError(error))

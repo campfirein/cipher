@@ -10,6 +10,6 @@ export const vcStatusSubCommand: SlashCommand = {
       render: ({onCancel, onComplete}) => React.createElement(VcStatusFlow, {onCancel, onComplete}),
     }
   },
-  description: 'Show git status of the context tree',
+  description: 'Show ByteRover version control status',
   name: 'status',
 }

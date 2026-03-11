@@ -13,16 +13,30 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_LOCAL_CHANGES_EXIST: 'You have local changes. Run /push to save your changes before pulling.',
   ERR_NOT_AUTHENTICATED: 'Not authenticated. This is required for cloud sync. Run /login to connect your account.',
   ERR_PROJECT_NOT_INIT: "Project not initialized. Run 'brv restart' to reinitialize.",
-  ERR_PROVIDER_NOT_CONFIGURED: 'No provider connected. Run /providers connect byterover to use the free built-in provider, or connect another provider.',
+  ERR_PROVIDER_NOT_CONFIGURED:
+    'No provider connected. Run /providers connect byterover to use the free built-in provider, or connect another provider.',
   ERR_SPACE_NOT_CONFIGURED: 'No space configured. Run /space switch to select a space first.',
   ERR_SPACE_NOT_FOUND: 'Space not found. Check your configuration.',
+  ERR_VC_AUTH_FAILED: 'Authentication failed. Run /login.',
+  ERR_VC_BRANCH_NOT_FOUND: 'Branch not found.',
+  ERR_VC_CONFIG_KEY_NOT_SET: 'Config key is not set.',
+  ERR_VC_GIT_NOT_INITIALIZED: 'ByteRover version control not initialized. Run /vc init first.',
+  ERR_VC_INVALID_BRANCH_NAME: 'Invalid branch name.',
+  ERR_VC_INVALID_CONFIG_KEY: 'Invalid config key. Allowed: user.name, user.email.',
+  ERR_VC_NO_REMOTE: 'No remote configured. Run /vc remote add origin <url>.',
+  ERR_VC_NON_FAST_FORWARD: 'Remote has changes. Run /vc pull first.',
+  ERR_VC_NOTHING_STAGED: 'Nothing staged. Run /vc add first.',
+  ERR_VC_NOTHING_TO_PUSH: 'No commits to push. Run /vc add and /vc commit first.',
+  ERR_VC_PUSH_FAILED: 'Push failed. Check your connection and try again.',
+  ERR_VC_REMOTE_ALREADY_EXISTS: "Remote 'origin' already exists. Use /vc remote set-url <url> to update.",
+  ERR_VC_USER_NOT_CONFIGURED: 'Commit author not configured. Run /vc config user.name and /vc config user.email.',
 }
 
 /**
  * Format a task error (from task:error events) into a user-friendly message.
  * Falls back to the raw error message if no mapping exists.
  */
-export function formatTaskError(error: undefined | {code?: string; message: string}): string {
+export function formatTaskError(error?: {code?: string; message: string}): string {
   if (!error) return ''
   if (error.code && error.code in USER_FRIENDLY_MESSAGES) {
     return USER_FRIENDLY_MESSAGES[error.code]
