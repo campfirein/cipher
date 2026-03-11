@@ -17,7 +17,9 @@ describe('StatusHandler — default listContextTreeEntries', () => {
   let projectPath: string
 
   afterEach(async () => {
-    await rm(projectPath, {force: true, recursive: true})
+    if (projectPath) {
+      await rm(projectPath, {force: true, recursive: true})
+    }
   })
 
   function makeRealHandler(transport: MockTransportServer): StatusHandler {

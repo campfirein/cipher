@@ -76,7 +76,7 @@ export class StatusHandler {
     const activeSet = new Set(this.getActiveProjectPaths())
 
     const results = await Promise.all(
-      [...all.entries()].map(async ([path, info]) => {
+      [...all.entries()].map(async ([path]) => {
         const ctDir = join(path, BRV_DIR, CONTEXT_TREE_DIR)
         let isInitialized = false
         try {
@@ -84,7 +84,8 @@ export class StatusHandler {
             path === currentProjectPath && currentCtExists !== undefined
               ? currentCtExists
               : await this.contextTreeService.exists(path)
-        } catch {
+        } catch (error) {
+          console.error('StatusHandler: failed to check context tree existence', error)
           // FS error — treat as not initialized
         }
 
@@ -96,7 +97,8 @@ export class StatusHandler {
             const counts = await this.listContextTreeEntries(ctDir)
             domainCount = counts.domainCount
             fileCount = counts.fileCount
-          } catch {
+          } catch (error) {
+            console.error('StatusHandler: failed to list context tree entries', error)
             // ENOENT or permission error — leave counts at 0
           }
         }
@@ -108,20 +110,17 @@ export class StatusHandler {
           isCurrent: path === currentProjectPath,
           isInitialized,
           projectPath: path,
-          registeredAt: info.registeredAt,
         }
       }),
     )
 
     // Sort: current first → active (has clients) → initialized → rest, all by registeredAt desc
-    return results
-      .sort((a, b) => {
-        if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1
-        if (a.isActive !== b.isActive) return a.isActive ? -1 : 1
-        if (a.isInitialized !== b.isInitialized) return a.isInitialized ? -1 : 1
-        return b.registeredAt - a.registeredAt
-      })
-      .map(({registeredAt: _, ...dto}) => dto)
+    return results.sort((a, b) => {
+      if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1
+      if (a.isInitialized !== b.isInitialized) return a.isInitialized ? -1 : 1
+      return (all.get(b.projectPath)?.registeredAt ?? 0) - (all.get(a.projectPath)?.registeredAt ?? 0)
+    })
   }
 
   private async collectStatus(projectPath: string): Promise<StatusDTO> {

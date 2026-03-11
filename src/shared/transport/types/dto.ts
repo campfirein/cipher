@@ -129,7 +129,7 @@ export interface HubEntryDTO {
 export interface ProjectLocationDTO {
   domainCount: number
   fileCount: number
-  /** True if this project currently has at least one connected client/agent */
+  /** True if this project has connected clients or agents, excluding the current project */
   isActive: boolean
   /** True if this is the project the client is currently running from */
   isCurrent: boolean

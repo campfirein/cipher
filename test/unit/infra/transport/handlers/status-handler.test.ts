@@ -127,6 +127,15 @@ describe('StatusHandler', () => {
     })
   })
 
+  describe('locations — registry failure', () => {
+    it('should return empty locations when projectRegistry.getAll throws', async () => {
+      deps.projectRegistry.getAll.throws(new Error('registry failure'))
+      createHandler()
+      const result = await callGetHandler()
+      expect(result.status.locations).to.deep.equal([])
+    })
+  })
+
   describe('locations — sort order', () => {
     it('should put current first, then active (has clients), then initialized, then rest', async () => {
       const currentPath = '/project/current'
