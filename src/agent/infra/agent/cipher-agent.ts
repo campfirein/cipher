@@ -1042,7 +1042,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     }
 
     // Compute registry-clamped maxContextTokens
-    const mapModel = sessionLLMConfig.model ?? 'gemini-3.1-flash-lite-preview'
+    const mapModel = sessionLLMConfig.model ?? 'gemini-3-flash-preview'
     const mapRegistryProvider = resolveRegistryProvider(mapModel, mapProvider)
     const effectiveMaxContextTokens = getEffectiveMaxInputTokens(
       mapRegistryProvider, mapModel, sessionLLMConfig.maxInputTokens,

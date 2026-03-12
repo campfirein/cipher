@@ -35,8 +35,14 @@ function createStubStores(sandbox: SinonSandbox) {
   return {configStore, keychainStore}
 }
 
-function createProviderConfig(activeProvider: string, providers: Record<string, {activeModel?: string; baseUrl?: string}> = {}): ProviderConfig {
-  const providerEntries: Record<string, {activeModel?: string; baseUrl?: string; connectedAt: string; favoriteModels: string[]; recentModels: string[]}> = {}
+function createProviderConfig(
+  activeProvider: string,
+  providers: Record<string, {activeModel?: string; baseUrl?: string}> = {},
+): ProviderConfig {
+  const providerEntries: Record<
+    string,
+    {activeModel?: string; baseUrl?: string; connectedAt: string; favoriteModels: string[]; recentModels: string[]}
+  > = {}
   for (const [id, opts] of Object.entries(providers)) {
     providerEntries[id] = {
       ...opts,
@@ -90,9 +96,11 @@ describe('resolveProviderConfig', () => {
 
   it('should resolve openai-compatible provider with base URL', async () => {
     const {configStore, keychainStore} = createStubStores(sandbox)
-    configStore.read.resolves(createProviderConfig('openai-compatible', {
-      'openai-compatible': {activeModel: 'local-model', baseUrl: 'http://localhost:8080'},
-    }))
+    configStore.read.resolves(
+      createProviderConfig('openai-compatible', {
+        'openai-compatible': {activeModel: 'local-model', baseUrl: 'http://localhost:8080'},
+      }),
+    )
     keychainStore.getApiKey.resolves('test-key')
 
     const result = await resolveProviderConfig(configStore, keychainStore)
@@ -101,13 +109,32 @@ describe('resolveProviderConfig', () => {
     expect(result.provider).to.equal('openai-compatible')
     expect(result.providerApiKey).to.equal('test-key')
     expect(result.providerBaseUrl).to.equal('http://localhost:8080')
+    expect(result.providerKeyMissing).to.be.false
+  })
+
+  it('should NOT set providerKeyMissing for openai-compatible without API key (Ollama use case)', async () => {
+    const {configStore, keychainStore} = createStubStores(sandbox)
+    configStore.read.resolves(
+      createProviderConfig('openai-compatible', {
+        'openai-compatible': {activeModel: 'qwen3.5:9b', baseUrl: 'http://localhost:11434/v1'},
+      }),
+    )
+    keychainStore.getApiKey.resolves()
+
+    const result = await resolveProviderConfig(configStore, keychainStore)
+
+    expect(result.activeProvider).to.equal('openai-compatible')
+    expect(result.providerKeyMissing).to.be.false
+    expect(result.providerBaseUrl).to.equal('http://localhost:11434/v1')
   })
 
   it('should resolve direct provider (anthropic) with API key and registry info', async () => {
     const {configStore, keychainStore} = createStubStores(sandbox)
-    configStore.read.resolves(createProviderConfig('anthropic', {
-      anthropic: {activeModel: 'claude-sonnet-4-20250514'},
-    }))
+    configStore.read.resolves(
+      createProviderConfig('anthropic', {
+        anthropic: {activeModel: 'claude-sonnet-4-20250514'},
+      }),
+    )
     keychainStore.getApiKey.resolves('sk-ant-key')
 
     const result = await resolveProviderConfig(configStore, keychainStore)
@@ -126,5 +153,4 @@ describe('resolveProviderConfig', () => {
 
     expect(result.activeModel).to.be.undefined
   })
-
 })
