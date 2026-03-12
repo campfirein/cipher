@@ -151,7 +151,7 @@ async function translateUploadPackV2ToV1(
   // body in an ESM context (it lazily loads node:stream via require()).
   let lsBody: Buffer
   try {
-    // eslint-disable-next-line n/no-unsupported-features/node-builtins
+    // eslint-disable-next-line n/no-unsupported-features/node-builtins -- fetch works on Node >=18, stable from 21
     const fetchResponse = await fetch(`${baseUrl}/git-upload-pack`, {
       body: LS_REFS_REQUEST,
       headers: {
@@ -235,7 +235,7 @@ async function interceptUploadPackPost(params: Parameters<typeof httpRequest>[0]
   v2 += '0000'
 
   const url = String(params.url)
-  // eslint-disable-next-line n/no-unsupported-features/node-builtins
+  // eslint-disable-next-line n/no-unsupported-features/node-builtins -- fetch works on Node >=18, stable from 21
   const fetchResponse = await fetch(url, {
     body: Buffer.from(v2),
     headers: {

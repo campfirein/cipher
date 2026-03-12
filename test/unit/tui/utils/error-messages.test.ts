@@ -16,10 +16,27 @@ describe('error-messages', () => {
       expect(formatTransportError(err)).to.equal('Nothing staged. Run /vc add first.')
     })
 
-    it('returns /vc config hint for ERR_VC_USER_NOT_CONFIGURED', () => {
-      const err = Object.assign(new Error('Commit author not configured.'), {code: 'ERR_VC_USER_NOT_CONFIGURED'})
+    it('returns /vc config hint with specific values when authenticated (ERR_VC_USER_NOT_CONFIGURED)', () => {
+      const err = Object.assign(
+        new Error(
+          `Commit author not configured. Run: brv vc config user.name "bao@b.dev" and brv vc config user.email "bao@b.dev". for event 'vc:commit'`,
+        ),
+        {code: 'ERR_VC_USER_NOT_CONFIGURED'},
+      )
       expect(formatTransportError(err)).to.equal(
-        'Commit author not configured. Run /vc config user.name and /vc config user.email.',
+        'Commit author not configured. Run: /vc config user.name "bao@b.dev" and /vc config user.email "bao@b.dev".',
+      )
+    })
+
+    it('returns generic /vc config hint when not authenticated (ERR_VC_USER_NOT_CONFIGURED)', () => {
+      const err = Object.assign(
+        new Error(
+          `Commit author not configured. Run: brv vc config user.name <value> and brv vc config user.email <value>. for event 'vc:commit'`,
+        ),
+        {code: 'ERR_VC_USER_NOT_CONFIGURED'},
+      )
+      expect(formatTransportError(err)).to.equal(
+        'Commit author not configured. Run: /vc config user.name <value> and /vc config user.email <value>.',
       )
     })
 

@@ -125,6 +125,50 @@ describe('IsomorphicGitService', () => {
       const commit = await service.commit({directory: testDir, message: 'two files'})
       expect(commit.sha).to.be.a('string')
     })
+
+    it('stages a deleted file (rm + add) and commits the deletion', async () => {
+      // Setup: commit file-a.md
+      await writeFile(join(testDir, 'file-a.md'), 'content')
+      await service.add({directory: testDir, filePaths: ['file-a.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      // Delete from disk (not git rm) → [1,0,1] = unstaged deletion
+      await unlink(join(testDir, 'file-a.md'))
+
+      // add should stage the deletion without throwing
+      await service.add({directory: testDir, filePaths: ['file-a.md']})
+
+      const status = await service.status({directory: testDir})
+      const fileEntry = status.files.find((f) => f.path === 'file-a.md')
+      expect(fileEntry).to.deep.equal({path: 'file-a.md', staged: true, status: 'deleted'})
+
+      // Commit the deletion
+      const commit = await service.commit({directory: testDir, message: 'delete file-a.md'})
+      expect(commit.message).to.equal('delete file-a.md')
+
+      // After commit: status should be clean
+      const statusAfter = await service.status({directory: testDir})
+      expect(statusAfter.isClean).to.be.true
+    })
+
+    it('re-adding an already staged deletion is a no-op (does not throw)', async () => {
+      // Setup: commit file-a.md
+      await writeFile(join(testDir, 'file-a.md'), 'content')
+      await service.add({directory: testDir, filePaths: ['file-a.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      // Delete and stage deletion → [1,0,0]
+      await unlink(join(testDir, 'file-a.md'))
+      await service.add({directory: testDir, filePaths: ['file-a.md']})
+
+      // Re-add the already staged deletion — should not throw
+      await service.add({directory: testDir, filePaths: ['file-a.md']})
+
+      // Status should still show staged deletion
+      const status = await service.status({directory: testDir})
+      const fileEntry = status.files.find((f) => f.path === 'file-a.md')
+      expect(fileEntry).to.deep.equal({path: 'file-a.md', staged: true, status: 'deleted'})
+    })
   })
 
   // ---- status() ----

@@ -331,8 +331,9 @@ describe('VcHandler', () => {
     it('should call gitService.add with ["."] by default', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
-      // after add: 1 file staged
-      deps.gitService.status.resolves({files: [{path: 'a.md', staged: true, status: 'added'}], isClean: false})
+      // before add: nothing staged; after add: a.md staged → delta = 1
+      deps.gitService.status.onFirstCall().resolves({files: [], isClean: true})
+      deps.gitService.status.onSecondCall().resolves({files: [{path: 'a.md', staged: true, status: 'added'}], isClean: false})
       makeVcHandler(deps).setup()
 
       const result = await deps.requestHandlers[VcEvents.ADD]({}, CLIENT_ID)
@@ -464,6 +465,62 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(Error)
         expect((error as Error).message).to.include('missing.md')
       }
+    })
+
+    it('should return count=1 when staging an unstaged file deletion', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      // before: file deleted but not yet staged [1,0,1] → {staged: false, status: 'deleted'}
+      deps.gitService.status.onFirstCall().resolves({
+        files: [{path: 'a.md', staged: false, status: 'deleted'}],
+        isClean: false,
+      })
+      // after: deletion staged [1,0,0] → {staged: true, status: 'deleted'}
+      deps.gitService.status.onSecondCall().resolves({
+        files: [{path: 'a.md', staged: true, status: 'deleted'}],
+        isClean: false,
+      })
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.ADD]({filePaths: ['a.md']}, CLIENT_ID)
+
+      expect(result).to.deep.equal({count: 1})
+    })
+
+    it('should return count=0 when re-adding an already staged deletion (no-op)', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      // already staged deletion [1,0,0] before and after — no change
+      deps.gitService.status.resolves({files: [{path: 'a.md', staged: true, status: 'deleted'}], isClean: false})
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.ADD]({filePaths: ['a.md']}, CLIENT_ID)
+
+      expect(result).to.deep.equal({count: 0})
+    })
+
+    it('should return count=1 for partially staged deletion with same untracked path [1,1,0]', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      // [1,1,0] = git rm --cached: staged deletion + file still in workdir (untracked)
+      deps.gitService.status.onFirstCall().resolves({
+        files: [
+          {path: 'a.md', staged: true, status: 'deleted'},
+          {path: 'a.md', staged: false, status: 'untracked'},
+        ],
+        isClean: false,
+      })
+      // after add: file is back in index as staged new file
+      deps.gitService.status.onSecondCall().resolves({
+        files: [{path: 'a.md', staged: true, status: 'added'}],
+        isClean: false,
+      })
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.ADD]({filePaths: ['a.md']}, CLIENT_ID)
+
+      // a.md was in stagedBefore AND in hadUnstagedBefore → counts as 1 (re-staged)
+      expect(result).to.deep.equal({count: 1})
     })
   })
 
@@ -659,7 +716,7 @@ describe('VcHandler', () => {
 
       expect(deps.gitService.push.calledOnce).to.be.true
       expect(deps.gitService.push.firstCall.args[0]).to.deep.include({branch: 'main', remote: 'origin'})
-      expect(result).to.deep.equal({branch: 'main'})
+      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'main'})
     })
 
     it('should push to custom branch when specified', async () => {
@@ -675,7 +732,7 @@ describe('VcHandler', () => {
       const result = await deps.requestHandlers[VcEvents.PUSH]({branch: 'feat/x'}, CLIENT_ID)
 
       expect(deps.gitService.push.firstCall.args[0]).to.deep.include({branch: 'feat/x'})
-      expect(result).to.deep.equal({branch: 'feat/x'})
+      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'feat/x'})
     })
 
     it('should throw VcError NO_REMOTE when no remote configured', async () => {
@@ -806,7 +863,7 @@ describe('VcHandler', () => {
       const result = await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
 
       expect(deps.gitService.push.firstCall.args[0]).to.deep.include({branch: 'feat/my-feature'})
-      expect(result).to.deep.equal({branch: 'feat/my-feature'})
+      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'feat/my-feature'})
     })
 
     it('should fallback to main when getCurrentBranch returns undefined', async () => {
@@ -823,7 +880,7 @@ describe('VcHandler', () => {
       const result = await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
 
       expect(deps.gitService.push.firstCall.args[0]).to.deep.include({branch: 'main'})
-      expect(result).to.deep.equal({branch: 'main'})
+      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'main'})
     })
 
     it('should ignore empty/whitespace branch and use current branch instead', async () => {
@@ -840,7 +897,7 @@ describe('VcHandler', () => {
       const result = await deps.requestHandlers[VcEvents.PUSH]({branch: '   '}, CLIENT_ID)
 
       expect(deps.gitService.push.firstCall.args[0]).to.deep.include({branch: 'develop'})
-      expect(result).to.deep.equal({branch: 'develop'})
+      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'develop'})
     })
 
     it('should throw VcError INVALID_BRANCH_NAME for invalid branch names', async () => {

@@ -21,7 +21,7 @@ export default class VcPush extends Command {
         client.requestWithAck<IVcPushResponse>(VcEvents.PUSH, {branch: flags.branch}),
       )
 
-      this.log(`Pushed to origin/${result.branch}.`)
+      this.log(result.alreadyUpToDate ? 'Everything up-to-date.' : `Pushed to origin/${result.branch}.`)
     } catch (error) {
       this.error(formatConnectionError(error))
     }

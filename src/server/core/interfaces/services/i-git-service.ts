@@ -38,9 +38,9 @@ export type GitRemote = {
   url: string
 }
 
-export type PushResult = {message?: string; reason: 'non_fast_forward'; success: false} | {success: true}
+export type PushResult = {alreadyUpToDate?: boolean; success: true} | {message?: string; reason: 'non_fast_forward'; success: false}
 
-export type PullResult = {conflicts: GitConflict[]; success: false} | {success: true}
+export type PullResult = {alreadyUpToDate?: boolean; success: true} | {conflicts: GitConflict[]; success: false}
 
 export type MergeResult = {conflicts: GitConflict[]; success: false} | {success: true}
 
