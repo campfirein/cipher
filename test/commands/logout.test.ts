@@ -32,11 +32,15 @@ class TestableLogoutCommand extends Logout {
 
 // ==================== Tests ====================
 
+type MockTransportClient = {
+  [K in keyof ITransportClient]: sinon.SinonStub
+}
+
 describe('Logout Command', () => {
   let config: Config
   let loggedMessages: string[]
   let stdoutOutput: string[]
-  let mockClient: sinon.SinonStubbedInstance<ITransportClient>
+  let mockClient: MockTransportClient
   let mockConnector: sinon.SinonStub<[], Promise<ConnectionResult>>
 
   before(async () => {
@@ -58,12 +62,12 @@ describe('Logout Command', () => {
       on: stub().returns(() => {}),
       once: stub(),
       onStateChange: stub().returns(() => {}),
-      request: stub() as unknown as ITransportClient['request'],
+      request: stub(),
       requestWithAck: stub().resolves({}),
-    } as unknown as sinon.SinonStubbedInstance<ITransportClient>
+    }
 
     mockConnector = stub<[], Promise<ConnectionResult>>().resolves({
-      client: mockClient as unknown as ITransportClient,
+      client: mockClient as ITransportClient,
       projectRoot: '/test/project',
     })
   })
@@ -99,7 +103,7 @@ describe('Logout Command', () => {
   }
 
   function mockLogoutResponse(response: AuthLogoutResponse): void {
-    ;(mockClient.requestWithAck as sinon.SinonStub).resolves(response)
+    mockClient.requestWithAck.resolves(response)
   }
 
   // ==================== Successful Logout ====================
@@ -119,8 +123,8 @@ describe('Logout Command', () => {
 
       await createCommand().run()
 
-      expect((mockClient.requestWithAck as sinon.SinonStub).calledOnce).to.be.true
-      const [event, ...rest] = (mockClient.requestWithAck as sinon.SinonStub).firstCall.args
+      expect(mockClient.requestWithAck.calledOnce).to.be.true
+      const [event, ...rest] = mockClient.requestWithAck.firstCall.args
       expect(event).to.equal(AuthEvents.LOGOUT)
       expect(rest).to.deep.equal([])
     })

@@ -72,8 +72,8 @@ src/
 - Pages in `src/tui/app/pages/` (home, login, config-provider)
 - Esc key cancels streaming responses and long-running commands
 - Slash commands in `src/tui/features/commands/definitions/` (order in `index.ts` = UI suggestion order)
-- Oclif commands: public (`login`, `logout`, `status`, `curate`, `curate view`, `query`, `push`, `pull`, `restart`, `connectors`, `providers`, `model`, `space`, `hub`) + hidden (`main`, `hook-prompt-submit`, `mcp`, `debug` [dev-only])
-- `/exit` is REPL-only (no oclif command)
+- Oclif commands: public (`login`, `status`, `curate`, `curate view`, `query`, `push`, `pull`, `restart`, `connectors`, `providers`, `model`, `space`, `hub`) + hidden (`main`, `hook-prompt-submit`, `mcp`, `debug` [dev-only])
+- `/logout`, `/exit` are REPL-only (no oclif commands)
 
 ### Daemon Architecture
 
