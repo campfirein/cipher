@@ -63,8 +63,4 @@ jobs:
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
             
-            Perform a comprehensive code review using the information provided in CLAUDE.md.
-            Be extremely brutal with design and logic flaws.
-            
-            Provide detailed feedback using inline comments for specific issues. Apply Conventional Comments.
-            Use top-level comments for general observations.
+            Perform code review. Provide detailed feedback using inline comments for specific issues. Apply Conventional Comments.
