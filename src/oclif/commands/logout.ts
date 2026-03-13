@@ -29,7 +29,7 @@ export default class Logout extends Command {
 
   public async run(): Promise<void> {
     const {flags} = await this.parse(Logout)
-    const format = (flags.format ?? 'text') as 'json' | 'text'
+    const format = flags.format ?? 'text'
 
     try {
       if (format === 'text') {
@@ -45,10 +45,11 @@ export default class Logout extends Command {
           this.log('Logged out successfully')
         }
       } else {
+        const errorMessage = response.error ?? 'Logout failed'
         if (format === 'json') {
-          writeJsonResponse({command: 'logout', data: {error: 'Logout failed'}, success: false})
+          writeJsonResponse({command: 'logout', data: {error: errorMessage}, success: false})
         } else {
-          this.log('Logout failed')
+          this.log(errorMessage)
         }
 
         process.exitCode = 1
