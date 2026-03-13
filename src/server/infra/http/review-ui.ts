@@ -530,10 +530,42 @@ function updatePendingCount() {
   document.getElementById('pending-count').textContent = remaining + ' pending';
 
   if (remaining === 0) {
+    clearInterval(poller);
     document.getElementById('bulk-actions').style.display = 'none';
     document.getElementById('summary-bar').textContent = 'All reviews completed.';
   }
 }
+
+// Poll every 5 s so the page reflects external decisions (e.g., brv review approve via CLI).
+// When the server reports 0 pending items, mark any locally-undecided cards as resolved.
+let poller = setInterval(async () => {
+  if (!project || fileData.length === 0) return;
+  try {
+    const data = await fetchPending();
+    const serverPaths = new Set((data.files || []).map(f => f.path));
+    let anyUpdated = false;
+
+    for (let i = 0; i < fileData.length; i++) {
+      const card = document.getElementById('file-' + i);
+      if (!card || card.querySelector('.decided')) continue;
+      if (!serverPaths.has(fileData[i].path)) {
+        // Item was resolved externally
+        const header = card.querySelector('.file-header');
+        if (header) {
+          header.innerHTML = '<div><span class="file-path">' + escapeHtml(fileData[i].path) + '</span></div>'
+            + '<div class="decided approved">Resolved</div>';
+        }
+        const summaryContent = card.querySelector('.summary-content');
+        if (summaryContent) summaryContent.style.display = 'none';
+        anyUpdated = true;
+      }
+    }
+
+    if (anyUpdated) updatePendingCount();
+  } catch {
+    // Ignore transient poll errors
+  }
+}, 5000);
 
 // ── Init ───────────────────────────────────────────────────────────────────
 

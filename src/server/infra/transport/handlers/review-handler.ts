@@ -20,6 +20,8 @@ type ReviewBackupStoreFactory = (projectPath: string) => IReviewBackupStore
 
 export interface ReviewHandlerDeps {
   curateLogStoreFactory: CurateLogStoreFactory
+  /** Called after all pending ops for a task are decided. Used to notify TUI clients. */
+  onResolved?: (info: {projectPath: string; taskId: string}) => void
   resolveProjectPath: ProjectPathResolver
   reviewBackupStoreFactory: ReviewBackupStoreFactory
   transport: ITransportServer
@@ -48,12 +50,14 @@ async function writeFileWithDirs(absolutePath: string, content: string): Promise
  */
 export class ReviewHandler {
   private readonly curateLogStoreFactory: CurateLogStoreFactory
+  private readonly onResolved: ReviewHandlerDeps['onResolved']
   private readonly resolveProjectPath: ProjectPathResolver
   private readonly reviewBackupStoreFactory: ReviewBackupStoreFactory
   private readonly transport: ITransportServer
 
   constructor(deps: ReviewHandlerDeps) {
     this.curateLogStoreFactory = deps.curateLogStoreFactory
+    this.onResolved = deps.onResolved
     this.resolveProjectPath = deps.resolveProjectPath
     this.reviewBackupStoreFactory = deps.reviewBackupStoreFactory
     this.transport = deps.transport
@@ -142,6 +146,12 @@ export class ReviewHandler {
         return {path: relPath, reverted}
       }),
     )
+
+    try {
+      this.onResolved?.({projectPath, taskId})
+    } catch {
+      // Best-effort notification — never block the response
+    }
 
     return {files: fileResults, totalCount: fileResults.length}
   }
