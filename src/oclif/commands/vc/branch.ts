@@ -32,19 +32,19 @@ export default class VcBranch extends Command {
     try {
       if (flags.delete) {
         const result = await this.requestBranch({action: 'delete', name: flags.delete})
-        this.log(`Deleted branch '${result.deleted}'.`)
+        if (result.action === 'delete') this.log(`Deleted branch '${result.deleted}'.`)
         return
       }
 
       if (args.name) {
         const result = await this.requestBranch({action: 'create', name: args.name})
-        this.log(`Created branch '${result.created}'.`)
+        if (result.action === 'create') this.log(`Created branch '${result.created}'.`)
         return
       }
 
       const result = await this.requestBranch({action: 'list', all: flags.all})
 
-      if (!result.branches || result.branches.length === 0) {
+      if (result.action !== 'list' || result.branches.length === 0) {
         this.log('No branches found.')
         return
       }

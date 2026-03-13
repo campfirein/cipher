@@ -7,6 +7,7 @@ export const VcErrorCode = {
   CLONE_FAILED: 'ERR_VC_CLONE_FAILED',
   CONFIG_KEY_NOT_SET: 'ERR_VC_CONFIG_KEY_NOT_SET',
   GIT_NOT_INITIALIZED: 'ERR_VC_GIT_NOT_INITIALIZED',
+  INVALID_ACTION: 'ERR_VC_INVALID_ACTION',
   INVALID_BRANCH_NAME: 'ERR_VC_INVALID_BRANCH_NAME',
   INVALID_CONFIG_KEY: 'ERR_VC_INVALID_CONFIG_KEY',
   INVALID_REMOTE_URL: 'ERR_VC_INVALID_REMOTE_URL',
@@ -165,15 +166,12 @@ export interface IVcCloneProgressEvent {
 
 export type VcBranchAction = 'create' | 'delete' | 'list'
 
-export interface IVcBranchRequest {
-  action: VcBranchAction
-  all?: boolean
-  name?: string
-}
+export type IVcBranchRequest =
+  | {action: 'create'; name: string}
+  | {action: 'delete'; name: string}
+  | {action: 'list'; all?: boolean}
 
-export interface IVcBranchResponse {
-  action: VcBranchAction
-  branches?: Array<{isCurrent: boolean; isRemote: boolean; name: string}>
-  created?: string
-  deleted?: string
-}
+export type IVcBranchResponse =
+  | {action: 'create'; created: string}
+  | {action: 'delete'; deleted: string}
+  | {action: 'list'; branches: Array<{isCurrent: boolean; isRemote: boolean; name: string}>}

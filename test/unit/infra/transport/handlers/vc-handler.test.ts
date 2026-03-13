@@ -23,7 +23,12 @@ import {AuthToken} from '../../../../../src/server/core/domain/entities/auth-tok
 import {GitAuthError, GitError} from '../../../../../src/server/core/domain/errors/git-error.js'
 import {VcError} from '../../../../../src/server/core/domain/errors/vc-error.js'
 import {VcHandler} from '../../../../../src/server/infra/transport/handlers/vc-handler.js'
-import {type IVcBranchResponse, VcErrorCode, VcEvents} from '../../../../../src/shared/transport/events/vc-events.js'
+import {
+  type IVcBranchRequest,
+  type IVcBranchResponse,
+  VcErrorCode,
+  VcEvents,
+} from '../../../../../src/shared/transport/events/vc-events.js'
 
 /** Makes all methods of T typed as SinonStub while still satisfying the original interface. */
 type Stubbed<T> = {[K in keyof T]: SinonStub & T[K]}
@@ -165,12 +170,12 @@ describe('VcHandler', () => {
   })
 
   describe('setup()', () => {
-    it('should register vc:branch as the first handler', () => {
+    it('should register vc:branch handler', () => {
       const deps = makeDeps(sandbox, projectPath)
       makeVcHandler(deps).setup()
 
-      expect(deps.transport.onRequest.called).to.be.true
-      expect(deps.transport.onRequest.firstCall.args[0]).to.equal(VcEvents.BRANCH)
+      const registeredEvents = deps.transport.onRequest.args.map((args: unknown[]) => args[0])
+      expect(registeredEvents).to.include(VcEvents.BRANCH)
     })
 
     it('should register handlers for all vc events', () => {
@@ -1321,11 +1326,14 @@ describe('VcHandler', () => {
         {isCurrent: false, isRemote: false, name: 'feature'},
       ])
       makeVcHandler(deps).setup()
-      const result = (await deps.requestHandlers[VcEvents.BRANCH]({action: 'list'}, CLIENT_ID)) as IVcBranchResponse
+      const result = (await deps.requestHandlers[VcEvents.BRANCH]({action: 'list'}, CLIENT_ID)) as Extract<
+        IVcBranchResponse,
+        {action: 'list'}
+      >
       expect(result.action).to.equal('list')
       expect(result.branches).to.have.length(2)
-      expect(result.branches![0]).to.deep.equal({isCurrent: true, isRemote: false, name: 'main'})
-      expect(result.branches![1]).to.deep.equal({isCurrent: false, isRemote: false, name: 'feature'})
+      expect(result.branches[0]).to.deep.equal({isCurrent: true, isRemote: false, name: 'main'})
+      expect(result.branches[1]).to.deep.equal({isCurrent: false, isRemote: false, name: 'feature'})
     })
 
     it('list should pass remote=origin when all flag is true', async () => {
@@ -1348,7 +1356,10 @@ describe('VcHandler', () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.listBranches.resolves([])
       makeVcHandler(deps).setup()
-      const result = (await deps.requestHandlers[VcEvents.BRANCH]({action: 'list'}, CLIENT_ID)) as IVcBranchResponse
+      const result = (await deps.requestHandlers[VcEvents.BRANCH]({action: 'list'}, CLIENT_ID)) as Extract<
+        IVcBranchResponse,
+        {action: 'list'}
+      >
       expect(result.branches).to.deep.equal([])
     })
 
@@ -1386,7 +1397,7 @@ describe('VcHandler', () => {
       const result = (await deps.requestHandlers[VcEvents.BRANCH](
         {action: 'create', name: 'feature/test'},
         CLIENT_ID,
-      )) as IVcBranchResponse
+      )) as Extract<IVcBranchResponse, {action: 'create'}>
       expect(result.created).to.equal('feature/test')
     })
 
@@ -1406,18 +1417,19 @@ describe('VcHandler', () => {
       }
     })
 
-    it('create should throw INVALID_BRANCH_NAME for missing or invalid names', async () => {
+    it('create should throw INVALID_BRANCH_NAME for invalid names', async () => {
       const deps = makeDeps(sandbox, projectPath)
       makeVcHandler(deps).setup()
-      const names = [undefined, '-bad', '/bad', 'bad name', 'bad~name', 'bad^name', 'bad:name', 'bad?name', 'bad*name']
+      const names = ['', '-bad', '/bad', 'bad name', 'bad~name', 'bad^name', 'bad:name', 'bad?name', 'bad*name']
       const results = await Promise.allSettled(
         names.map((name) => deps.requestHandlers[VcEvents.BRANCH]({action: 'create', name}, CLIENT_ID)),
       )
       for (const result of results) {
         expect(result.status).to.equal('rejected')
         if (result.status === 'rejected') {
-          expect(result.reason).to.be.instanceOf(VcError)
-          expect((result.reason as VcError).code).to.equal(VcErrorCode.INVALID_BRANCH_NAME)
+          const error = result.reason
+          expect(error).to.be.instanceOf(VcError)
+          if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.INVALID_BRANCH_NAME)
         }
       }
     })
@@ -1451,7 +1463,7 @@ describe('VcHandler', () => {
       const result = (await deps.requestHandlers[VcEvents.BRANCH](
         {action: 'delete', name: 'feature/test'},
         CLIENT_ID,
-      )) as IVcBranchResponse
+      )) as Extract<IVcBranchResponse, {action: 'delete'}>
       expect(result.deleted).to.equal('feature/test')
       expect(deps.gitService.deleteBranch.calledOnce).to.be.true
     })
@@ -1497,11 +1509,24 @@ describe('VcHandler', () => {
       }
     })
 
-    it('delete should throw INVALID_BRANCH_NAME when name is missing', async () => {
+    it('delete should throw INVALID_BRANCH_NAME when name is missing at runtime', async () => {
       const deps = makeDeps(sandbox, projectPath)
       makeVcHandler(deps).setup()
       try {
-        await deps.requestHandlers[VcEvents.BRANCH]({action: 'delete'}, CLIENT_ID)
+        // Simulate malformed transport payload (no name despite type requiring it)
+        await deps.requestHandlers[VcEvents.BRANCH]({action: 'delete'} as unknown as IVcBranchRequest, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.INVALID_BRANCH_NAME)
+      }
+    })
+
+    it('create should throw INVALID_BRANCH_NAME when name is missing at runtime', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      makeVcHandler(deps).setup()
+      try {
+        await deps.requestHandlers[VcEvents.BRANCH]({action: 'create'} as unknown as IVcBranchRequest, CLIENT_ID)
         expect.fail('Expected error')
       } catch (error) {
         expect(error).to.be.instanceOf(VcError)

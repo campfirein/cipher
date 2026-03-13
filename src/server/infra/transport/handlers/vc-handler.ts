@@ -163,14 +163,19 @@ export class VcHandler {
     }
 
     if (data.action === 'list') return this.handleBranchList(directory, data.all)
-    if (data.action === 'create') return this.handleBranchCreate(directory, data.name)
-    if (data.action === 'delete') return this.handleBranchDelete(directory, data.name)
 
-    throw new VcError(`Unknown branch action: '${String(data.action)}'.`, VcErrorCode.INVALID_BRANCH_NAME)
+    // Runtime guard: `name` is guaranteed by the discriminated union at compile time,
+    // but transport payloads are untrusted — validate at the boundary.
+    if (data.action === 'create' || data.action === 'delete') {
+      if (!data.name) throw new VcError('Branch name is required.', VcErrorCode.INVALID_BRANCH_NAME)
+      if (data.action === 'create') return this.handleBranchCreate(directory, data.name)
+      return this.handleBranchDelete(directory, data.name)
+    }
+
+    throw new VcError(`Unknown branch action.`, VcErrorCode.INVALID_ACTION)
   }
 
-  private async handleBranchCreate(directory: string, name?: string): Promise<IVcBranchResponse> {
-    if (!name) throw new VcError('Branch name is required.', VcErrorCode.INVALID_BRANCH_NAME)
+  private async handleBranchCreate(directory: string, name: string): Promise<IVcBranchResponse> {
     if (!isValidBranchName(name)) {
       throw new VcError(`Invalid branch name: '${name}'.`, VcErrorCode.INVALID_BRANCH_NAME)
     }
@@ -184,9 +189,7 @@ export class VcHandler {
     return {action: 'create', created: name}
   }
 
-  private async handleBranchDelete(directory: string, name?: string): Promise<IVcBranchResponse> {
-    if (!name) throw new VcError('Branch name is required.', VcErrorCode.INVALID_BRANCH_NAME)
-
+  private async handleBranchDelete(directory: string, name: string): Promise<IVcBranchResponse> {
     const current = await this.gitService.getCurrentBranch({directory})
     if (name === current) {
       throw new VcError(`Cannot delete current branch '${name}'.`, VcErrorCode.CANNOT_DELETE_CURRENT_BRANCH)
@@ -592,6 +595,7 @@ export class VcHandler {
 }
 
 function isValidBranchName(name: string): boolean {
+  if (!name) return false
   if (name.startsWith('-') || name.startsWith('.') || name.startsWith('/')) return false
   if (name.endsWith('.lock') || name.endsWith('/') || name.endsWith('.')) return false
   if (name.includes('//') || name.includes('@{') || name.includes(' ')) return false
