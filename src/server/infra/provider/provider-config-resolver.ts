@@ -106,7 +106,7 @@ export async function resolveProviderConfig(
         provider: activeProvider,
         providerApiKey: apiKey || undefined,
         providerBaseUrl: config.getBaseUrl(activeProvider) || undefined,
-        providerKeyMissing: !apiKey,
+        providerKeyMissing: providerRequiresApiKey(activeProvider) && !apiKey,
       }
     }
 
@@ -117,7 +117,7 @@ export async function resolveProviderConfig(
         maxInputTokens,
         openRouterApiKey: apiKey || undefined,
         provider: activeProvider,
-        providerKeyMissing: !apiKey,
+        providerKeyMissing: providerRequiresApiKey(activeProvider) && !apiKey,
       }
     }
 
@@ -132,7 +132,7 @@ export async function resolveProviderConfig(
         providerApiKey: apiKey || undefined,
         providerBaseUrl: providerDef?.baseUrl || undefined,
         providerHeaders: headers && Object.keys(headers).length > 0 ? {...headers} : undefined,
-        providerKeyMissing: !apiKey,
+        providerKeyMissing: providerRequiresApiKey(activeProvider) && !apiKey,
       }
     }
   }
