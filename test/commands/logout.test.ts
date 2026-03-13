@@ -69,6 +69,9 @@ describe('Logout Command', () => {
 
   afterEach(() => {
     restore()
+    process.exitCode = undefined
+  })
+    restore()
   })
 
   function createCommand(...argv: string[]): TestableLogoutCommand {
