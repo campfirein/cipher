@@ -11,6 +11,7 @@ import Restart from '../../src/oclif/commands/restart.js'
 
 class TestableRestartCommand extends Restart {
   public cleanupCalls: Array<{dataDir: string}> = []
+  public exitCalls: Array<{code: number}> = []
   public killCalls: Array<{dataDir: string}> = []
   public startCalls: Array<{serverPath: string}> = []
   private _startResults: EnsureDaemonResult[]
@@ -22,6 +23,10 @@ class TestableRestartCommand extends Restart {
 
   protected override cleanupAllDaemonFiles(dataDir: string): void {
     this.cleanupCalls.push({dataDir})
+  }
+
+  protected override exitProcess(code: number): void {
+    this.exitCalls.push({code})
   }
 
   protected override async killAllBrvProcesses(dataDir: string): Promise<void> {
