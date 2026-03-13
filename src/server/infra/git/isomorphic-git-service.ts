@@ -125,7 +125,7 @@ export class IsomorphicGitService implements IGitService {
 
   async checkout(params: CheckoutGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
-    await git.checkout({dir, fs, ref: params.ref})
+    await git.checkout({dir, force: params.force, fs, ref: params.ref})
   }
 
   async clone(params: CloneGitParams): Promise<void> {
@@ -185,7 +185,7 @@ export class IsomorphicGitService implements IGitService {
 
   async createBranch(params: CreateBranchGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
-    await git.branch({dir, fs, ref: params.branch})
+    await git.branch({checkout: params.checkout, dir, fs, ref: params.branch})
   }
 
   async deleteBranch(params: DeleteBranchGitParams): Promise<void> {

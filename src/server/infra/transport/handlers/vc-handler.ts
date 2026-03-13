@@ -12,6 +12,8 @@ import {
   type IVcAddResponse,
   type IVcBranchRequest,
   type IVcBranchResponse,
+  type IVcCheckoutRequest,
+  type IVcCheckoutResponse,
   type IVcCloneProgressEvent,
   type IVcCloneRequest,
   type IVcCloneResponse,
@@ -87,6 +89,9 @@ export class VcHandler {
     this.transport.onRequest<IVcBranchRequest, IVcBranchResponse>(VcEvents.BRANCH, (data, clientId) =>
       this.handleBranch(data, clientId),
     )
+    this.transport.onRequest<IVcCheckoutRequest, IVcCheckoutResponse>(VcEvents.CHECKOUT, (data, clientId) =>
+      this.handleCheckout(data, clientId),
+    )
     this.transport.onRequest<IVcCloneRequest, IVcCloneResponse>(VcEvents.CLONE, (data, clientId) =>
       this.handleClone(data, clientId),
     )
@@ -128,6 +133,24 @@ export class VcHandler {
     }
 
     return 'Run: brv vc config user.name <value> and brv vc config user.email <value>.'
+  }
+
+  /**
+   * When force is NOT set, checks for uncommitted changes and throws
+   * VcError(UNCOMMITTED_CHANGES) if the working tree is dirty.
+   * When force IS set, skips the check entirely (changes will be discarded).
+   */
+  private async guardUncommittedChanges(force: boolean | undefined, directory: string): Promise<void> {
+    if (force) return
+
+    const status = await this.gitService.status({directory})
+    const hasTrackedChanges = status.files.some((f) => f.status !== 'untracked')
+    if (hasTrackedChanges) {
+      throw new VcError(
+        'You have uncommitted changes that would be overwritten. Commit your changes or use --force to discard them.',
+        VcErrorCode.UNCOMMITTED_CHANGES,
+      )
+    }
   }
 
   private async handleAdd(data: IVcAddRequest, clientId: string): Promise<IVcAddResponse> {
@@ -217,6 +240,49 @@ export class VcHandler {
         name: b.name,
       })),
     }
+  }
+
+  private async handleCheckout(data: IVcCheckoutRequest, clientId: string): Promise<IVcCheckoutResponse> {
+    // ── Phase 1: Resolve project and validate inputs ──
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const directory = this.contextTreeService.resolvePath(projectPath)
+
+    const gitInitialized = await this.gitService.isInitialized({directory})
+    if (!gitInitialized) {
+      throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
+    }
+
+    this.validateBranchName(data.branch)
+
+    // ── Phase 2: Safety checks ──
+    const previousBranch = await this.gitService.getCurrentBranch({directory})
+    await this.guardUncommittedChanges(data.force, directory)
+
+    // ── Phase 3: Create or switch ──
+    if (data.create) {
+      const branches = await this.gitService.listBranches({directory})
+      if (branches.some((b) => b.name === data.branch)) {
+        throw new VcError(`Branch '${data.branch}' already exists.`, VcErrorCode.BRANCH_ALREADY_EXISTS)
+      }
+
+      await this.gitService.createBranch({branch: data.branch, checkout: true, directory})
+      return {branch: data.branch, created: true, previousBranch}
+    }
+
+    try {
+      await this.gitService.checkout({directory, force: data.force, ref: data.branch})
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'NotFoundError') {
+        throw new VcError(
+          `Branch '${data.branch}' not found. Use 'brv vc checkout -b ${data.branch}' to create it.`,
+          VcErrorCode.BRANCH_NOT_FOUND,
+        )
+      }
+
+      throw error
+    }
+
+    return {branch: data.branch, created: false, previousBranch}
   }
 
   private async handleClone(data: IVcCloneRequest, clientId: string): Promise<IVcCloneResponse> {
@@ -591,6 +657,20 @@ export class VcHandler {
     if (currentTrimmed) return currentTrimmed
 
     return 'main'
+  }
+
+  /**
+   * Validates that branch name is non-empty and well-formed.
+   * Throws VcError(INVALID_BRANCH_NAME) on failure.
+   */
+  private validateBranchName(branch: string): void {
+    if (!branch) {
+      throw new VcError('Branch name is required.', VcErrorCode.INVALID_BRANCH_NAME)
+    }
+
+    if (!isValidBranchName(branch)) {
+      throw new VcError(`Invalid branch name: '${branch}'.`, VcErrorCode.INVALID_BRANCH_NAME)
+    }
   }
 }
 
