@@ -1,7 +1,9 @@
 export const VcErrorCode = {
   ALREADY_INITIALIZED: 'ERR_VC_ALREADY_INITIALIZED',
   AUTH_FAILED: 'ERR_VC_AUTH_FAILED',
+  BRANCH_ALREADY_EXISTS: 'ERR_VC_BRANCH_ALREADY_EXISTS',
   BRANCH_NOT_FOUND: 'ERR_VC_BRANCH_NOT_FOUND',
+  CANNOT_DELETE_CURRENT_BRANCH: 'ERR_VC_CANNOT_DELETE_CURRENT_BRANCH',
   CLONE_FAILED: 'ERR_VC_CLONE_FAILED',
   CONFIG_KEY_NOT_SET: 'ERR_VC_CONFIG_KEY_NOT_SET',
   GIT_NOT_INITIALIZED: 'ERR_VC_GIT_NOT_INITIALIZED',
@@ -23,6 +25,7 @@ export type VcErrorCodeType = (typeof VcErrorCode)[keyof typeof VcErrorCode]
 
 export const VcEvents = {
   ADD: 'vc:add',
+  BRANCH: 'vc:branch',
   CLONE: 'vc:clone',
   CLONE_PROGRESS: 'vc:clone:progress',
   COMMIT: 'vc:commit',
@@ -158,4 +161,19 @@ export interface IVcCloneResponse {
 export interface IVcCloneProgressEvent {
   message: string
   step: 'cloning' | 'saving'
+}
+
+export type VcBranchAction = 'create' | 'delete' | 'list'
+
+export interface IVcBranchRequest {
+  action: VcBranchAction
+  all?: boolean
+  name?: string
+}
+
+export interface IVcBranchResponse {
+  action: VcBranchAction
+  branches?: Array<{isCurrent: boolean; isRemote: boolean; name: string}>
+  created?: string
+  deleted?: string
 }
