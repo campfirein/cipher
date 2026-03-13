@@ -147,7 +147,6 @@ export interface StatusDTO {
   contextTreeRelativeDir?: string
   contextTreeStatus: 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
   currentDirectory: string
-  locations: ProjectLocationDTO[]
   spaceName?: string
   teamName?: string
   userEmail?: string

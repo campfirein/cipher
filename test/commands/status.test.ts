@@ -77,8 +77,8 @@ describe('Status Command', () => {
     return command
   }
 
-  function mockStatusResponse(status: Omit<StatusDTO, 'locations'> & Partial<Pick<StatusDTO, 'locations'>>): void {
-    ;(mockClient.requestWithAck as sinon.SinonStub).resolves({status: {locations: [], ...status}})
+  function mockStatusResponse(status: StatusDTO): void {
+    ;(mockClient.requestWithAck as sinon.SinonStub).resolves({status})
   }
 
   // ==================== Auth Status ====================
@@ -305,169 +305,14 @@ describe('Status Command', () => {
     })
   })
 
-  // ==================== Registered Project Locations ====================
-
-  describe('registered project locations', () => {
-    it('should display current project with [current] label and domain/file counts', async () => {
-      mockStatusResponse({
-        authStatus: 'logged_in',
-        contextTreeStatus: 'no_changes',
-        currentDirectory: '/test',
-        locations: [
-          {
-            domainCount: 4,
-            fileCount: 18,
-            isActive: false,
-            isCurrent: true,
-            isInitialized: true,
-            projectPath: '/Users/andy/byterover',
-          },
-        ],
-        userEmail: 'user@example.com',
-      })
-
-      await createCommand().run()
-
-      expect(loggedMessages.some((m) => m.includes('[current]'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('/Users/andy/byterover'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('4 domains') && m.includes('18 files'))).to.be.true
-    })
-
-    it('should display active project with [active] label', async () => {
-      mockStatusResponse({
-        authStatus: 'logged_in',
-        contextTreeStatus: 'no_changes',
-        currentDirectory: '/test',
-        locations: [
-          {
-            domainCount: 2,
-            fileCount: 8,
-            isActive: true,
-            isCurrent: false,
-            isInitialized: true,
-            projectPath: '/Users/andy/brv-transport',
-          },
-        ],
-        userEmail: 'user@example.com',
-      })
-
-      await createCommand().run()
-
-      expect(loggedMessages.some((m) => m.includes('[active]'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('/Users/andy/brv-transport'))).to.be.true
-    })
-
-    it('should display (not initialized) when isInitialized=false', async () => {
-      mockStatusResponse({
-        authStatus: 'logged_in',
-        contextTreeStatus: 'no_changes',
-        currentDirectory: '/test',
-        locations: [
-          {
-            domainCount: 0,
-            fileCount: 0,
-            isActive: false,
-            isCurrent: false,
-            isInitialized: false,
-            projectPath: '/Users/andy/my-app',
-          },
-        ],
-        userEmail: 'user@example.com',
-      })
-
-      await createCommand().run()
-
-      expect(loggedMessages.some((m) => m.includes('(not initialized)'))).to.be.true
-    })
-
-    it('should use singular "domain" and "file" labels when count is 1', async () => {
-      mockStatusResponse({
-        authStatus: 'logged_in',
-        contextTreeStatus: 'no_changes',
-        currentDirectory: '/test',
-        locations: [
-          {
-            domainCount: 1,
-            fileCount: 1,
-            isActive: false,
-            isCurrent: true,
-            isInitialized: true,
-            projectPath: '/Users/andy/byterover',
-          },
-        ],
-        userEmail: 'user@example.com',
-      })
-
-      await createCommand().run()
-
-      expect(loggedMessages.some((m) => m.includes('1 domain') && !m.includes('1 domains'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('1 file') && !m.includes('1 files'))).to.be.true
-    })
-
-    it('should display "none found" when locations is empty', async () => {
-      mockStatusResponse({
-        authStatus: 'logged_in',
-        contextTreeStatus: 'no_changes',
-        currentDirectory: '/test',
-        locations: [],
-        userEmail: 'user@example.com',
-      })
-
-      await createCommand().run()
-
-      expect(loggedMessages.some((m) => m.includes('Registered Projects — none found'))).to.be.true
-    })
-
-    it('should display header with project count when locations exist', async () => {
-      mockStatusResponse({
-        authStatus: 'logged_in',
-        contextTreeStatus: 'no_changes',
-        currentDirectory: '/test',
-        locations: [
-          {
-            domainCount: 1,
-            fileCount: 5,
-            isActive: false,
-            isCurrent: true,
-            isInitialized: true,
-            projectPath: '/project/a',
-          },
-          {
-            domainCount: 0,
-            fileCount: 0,
-            isActive: false,
-            isCurrent: false,
-            isInitialized: false,
-            projectPath: '/project/b',
-          },
-        ],
-        userEmail: 'user@example.com',
-      })
-
-      await createCommand().run()
-
-      expect(loggedMessages.some((m) => m.includes('Registered Projects — 2 found'))).to.be.true
-    })
-  })
-
   // ==================== JSON Output ====================
 
   describe('JSON output', () => {
-    it('should include locations array in JSON output', async () => {
+    it('should output success: true with status data', async () => {
       mockStatusResponse({
         authStatus: 'logged_in',
         contextTreeStatus: 'no_changes',
         currentDirectory: '/test',
-        locations: [
-          {
-            domainCount: 3,
-            fileCount: 10,
-            isActive: false,
-            isCurrent: true,
-            isInitialized: true,
-            projectPath: '/Users/andy/byterover',
-          },
-        ],
         userEmail: 'user@example.com',
       })
 
@@ -483,8 +328,8 @@ describe('Status Command', () => {
         writeStub.restore()
       }
 
-      const parsed = JSON.parse(captured) as {data: {locations: unknown[]}}
-      expect(parsed.data.locations).to.be.an('array').with.lengthOf(1)
+      const parsed = JSON.parse(captured) as {success: boolean}
+      expect(parsed.success).to.be.true
     })
   })
 

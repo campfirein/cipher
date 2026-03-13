@@ -4,8 +4,8 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {stub} from 'sinon'
 
-import {StatusHandler} from '../../../../src/server/infra/transport/handlers/status-handler.js'
-import {StatusEvents} from '../../../../src/shared/transport/events/status-events.js'
+import {LocationsHandler} from '../../../../src/server/infra/transport/handlers/locations-handler.js'
+import {LocationsEvents} from '../../../../src/shared/transport/events/locations-events.js'
 import {createMockTransportServer, type MockTransportServer} from '../../../helpers/mock-factories.js'
 
 // ==================== defaultListContextTreeEntries (real FS) ====================
@@ -13,7 +13,7 @@ import {createMockTransportServer, type MockTransportServer} from '../../../help
 // The handler computes ctDir = join(projectPath, '.brv', 'context-tree'), so we create the
 // full directory structure under a tmpdir.
 
-describe('StatusHandler — default listContextTreeEntries', () => {
+describe('LocationsHandler — default listContextTreeEntries', () => {
   let projectPath: string
 
   afterEach(async () => {
@@ -22,37 +22,18 @@ describe('StatusHandler — default listContextTreeEntries', () => {
     }
   })
 
-  function makeRealHandler(transport: MockTransportServer): StatusHandler {
+  function makeRealHandler(transport: MockTransportServer): LocationsHandler {
     const registry = new Map([[projectPath, {projectPath, registeredAt: 1000, sanitizedPath: 's', storagePath: '/s'}]])
     const contextTreeService = {delete: stub(), exists: stub().resolves(true), initialize: stub()}
-    const contextTreeSnapshotService = {
-      getChanges: stub().resolves({added: [], deleted: [], modified: []}),
-      getCurrentState: stub(),
-      getSnapshotState: stub(),
-      hasSnapshot: stub().resolves(true),
-      initEmptySnapshot: stub(),
-      saveSnapshot: stub(),
-      saveSnapshotFromState: stub(),
-    }
-    const projectConfigStore = {
-      exists: stub().resolves(false),
-      getModifiedTime: stub().resolves(),
-      read: stub(),
-      write: stub(),
-    }
     const projectRegistry = {get: stub(), getAll: stub().returns(registry), register: stub(), unregister: stub()}
-    const tokenStore = {clear: stub(), load: stub().resolves(), save: stub()}
     const resolveProjectPath = stub().returns(projectPath)
 
     // No listContextTreeEntries injected — uses the real default readdir implementation
-    const handler = new StatusHandler({
+    const handler = new LocationsHandler({
       contextTreeService,
-      contextTreeSnapshotService,
       getActiveProjectPaths: () => [],
-      projectConfigStore,
       projectRegistry,
       resolveProjectPath,
-      tokenStore,
       transport,
     })
     handler.setup()
@@ -71,11 +52,11 @@ describe('StatusHandler — default listContextTreeEntries', () => {
     const transport = createMockTransportServer()
     makeRealHandler(transport)
 
-    const getHandler = transport._handlers.get(StatusEvents.GET)
+    const getHandler = transport._handlers.get(LocationsEvents.GET)
     const result = await getHandler!(undefined, 'client-1')
 
-    expect(result.status.locations[0].domainCount).to.equal(2)
-    expect(result.status.locations[0].fileCount).to.equal(3)
+    expect(result.locations[0].domainCount).to.equal(2)
+    expect(result.locations[0].fileCount).to.equal(3)
   })
 
   it('should return domainCount=0 and fileCount=0 for an empty context-tree directory', async () => {
@@ -85,10 +66,10 @@ describe('StatusHandler — default listContextTreeEntries', () => {
     const transport = createMockTransportServer()
     makeRealHandler(transport)
 
-    const getHandler = transport._handlers.get(StatusEvents.GET)
+    const getHandler = transport._handlers.get(LocationsEvents.GET)
     const result = await getHandler!(undefined, 'client-1')
 
-    expect(result.status.locations[0].domainCount).to.equal(0)
-    expect(result.status.locations[0].fileCount).to.equal(0)
+    expect(result.locations[0].domainCount).to.equal(0)
+    expect(result.locations[0].fileCount).to.equal(0)
   })
 })

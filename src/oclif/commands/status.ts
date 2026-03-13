@@ -1,7 +1,7 @@
 import {Command, Flags} from '@oclif/core'
 import chalk from 'chalk'
 
-import type {ProjectLocationDTO, StatusDTO} from '../../shared/transport/types/dto.js'
+import type {StatusDTO} from '../../shared/transport/types/dto.js'
 
 import {StatusEvents, type StatusGetResponse} from '../../shared/transport/events/status-events.js'
 import {type DaemonClientOptions, formatConnectionError, withDaemonRetry} from '../lib/daemon-client.js'
@@ -53,21 +53,6 @@ export default class Status extends Command {
       } else {
         this.log(formatConnectionError(error))
       }
-    }
-  }
-
-  private formatLocationEntry(loc: ProjectLocationDTO): void {
-    const label = loc.isCurrent ? '  ' + chalk.green('[current]') : loc.isActive ? '  ' + chalk.yellow('[active]') : ''
-    const path = loc.isCurrent || loc.isActive ? chalk.bold(loc.projectPath) : loc.projectPath
-    this.log(`  ${path}${label}`)
-    if (loc.isInitialized) {
-      const domainLabel = loc.domainCount === 1 ? 'domain' : 'domains'
-      const fileLabel = loc.fileCount === 1 ? 'file' : 'files'
-      this.log(
-        chalk.dim(`  └─ .brv/context-tree/    ${loc.domainCount} ${domainLabel} · ${loc.fileCount} ${fileLabel}`),
-      )
-    } else {
-      this.log(chalk.dim('  └─ .brv/context-tree/    (not initialized)'))
     }
   }
 
@@ -139,19 +124,6 @@ export default class Status extends Command {
       default: {
         this.log('Context Tree: Unable to check status')
       }
-    }
-
-    // Registered project locations
-    this.log('')
-    if (status.locations.length > 0) {
-      this.log(`Registered Projects — ${status.locations.length} found`)
-      this.log('──────────────────────────────────────────')
-      for (const loc of status.locations) {
-        this.formatLocationEntry(loc)
-        this.log('')
-      }
-    } else {
-      this.log('Registered Projects — none found')
     }
   }
 }

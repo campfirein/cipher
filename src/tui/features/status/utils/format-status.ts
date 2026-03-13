@@ -4,25 +4,7 @@
 
 import chalk from 'chalk'
 
-import type {ProjectLocationDTO, StatusDTO} from '../../../../shared/transport/types/dto.js'
-
-export function formatLocationEntry(loc: ProjectLocationDTO): string[] {
-  const label = loc.isCurrent ? '  ' + chalk.green('[current]') : loc.isActive ? '  ' + chalk.yellow('[active]') : ''
-  const path = loc.isCurrent || loc.isActive ? chalk.bold(loc.projectPath) : loc.projectPath
-  const lines: string[] = [`  ${path}${label}`]
-
-  if (loc.isInitialized) {
-    const domainLabel = loc.domainCount === 1 ? 'domain' : 'domains'
-    const fileLabel = loc.fileCount === 1 ? 'file' : 'files'
-    lines.push(
-      chalk.dim(`  └─ .brv/context-tree/    ${loc.domainCount} ${domainLabel} · ${loc.fileCount} ${fileLabel}`),
-    )
-  } else {
-    lines.push(chalk.dim('  └─ .brv/context-tree/    (not initialized)'))
-  }
-
-  return lines
-}
+import type {StatusDTO} from '../../../../shared/transport/types/dto.js'
 
 export function formatStatus(status: StatusDTO, version?: string): string {
   const lines: string[] = []
@@ -92,24 +74,6 @@ export function formatStatus(status: StatusDTO, version?: string): string {
     default: {
       lines.push('Context Tree: Unable to check status')
     }
-  }
-
-  // Registered project locations
-  lines.push('')
-  if (status.locations.length > 0) {
-    lines.push(
-      `Registered Projects — ${status.locations.length} found`,
-      chalk.dim('──────────────────────────────────────────'),
-    )
-    for (const loc of status.locations) {
-      for (const line of formatLocationEntry(loc)) {
-        lines.push(line)
-      }
-
-      lines.push('')
-    }
-  } else {
-    lines.push('Registered Projects — none found')
   }
 
   return lines.join('\n')

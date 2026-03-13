@@ -44,6 +44,7 @@ import {
   ConnectorsHandler,
   HubHandler,
   InitHandler,
+  LocationsHandler,
   ModelHandler,
   ProviderHandler,
   PullHandler,
@@ -139,11 +140,17 @@ export async function setupFeatureHandlers({
   new StatusHandler({
     contextTreeService,
     contextTreeSnapshotService,
-    getActiveProjectPaths,
     projectConfigStore,
-    projectRegistry,
     resolveProjectPath,
     tokenStore,
+    transport,
+  }).setup()
+
+  new LocationsHandler({
+    contextTreeService,
+    getActiveProjectPaths,
+    projectRegistry,
+    resolveProjectPath,
     transport,
   }).setup()
 
