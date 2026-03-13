@@ -161,14 +161,14 @@ export class VcHandler {
 
     const url = buildCogitRemoteUrl(this.cogitGitBaseUrl, data.teamId, data.spaceId)
 
-    await this.contextTreeService.initialize(projectPath)
-
-    this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
-      message: `Cloning from ${data.teamName}/${data.spaceName}...`,
-      step: 'cloning',
-    })
-
     try {
+      await this.contextTreeService.initialize(projectPath)
+
+      this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
+        message: `Cloning from ${data.teamName}/${data.spaceName}...`,
+        step: 'cloning',
+      })
+
       await this.gitService.clone({
         directory: contextTreeDir,
         onProgress: ({loaded, phase, total}) => {
@@ -179,6 +179,22 @@ export class VcHandler {
         },
         url,
       })
+
+      this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
+        message: 'Saving configuration...',
+        step: 'saving',
+      })
+
+      const space = new Space({
+        id: data.spaceId,
+        isDefault: false,
+        name: data.spaceName,
+        teamId: data.teamId,
+        teamName: data.teamName,
+      })
+      const existing = await this.projectConfigStore.read(projectPath)
+      const updated = existing ? existing.withSpace(space) : BrvConfig.partialFromSpace({space})
+      await this.projectConfigStore.write(updated, projectPath)
     } catch (error) {
       if (error instanceof GitAuthError) {
         throw new VcError('Authentication failed. Run /login.', VcErrorCode.AUTH_FAILED)
@@ -187,22 +203,6 @@ export class VcHandler {
       const msg = error instanceof Error ? error.message : String(error)
       throw new VcError(`Clone failed: ${msg}`, VcErrorCode.CLONE_FAILED)
     }
-
-    this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
-      message: 'Saving configuration...',
-      step: 'saving',
-    })
-
-    const space = new Space({
-      id: data.spaceId,
-      isDefault: false,
-      name: data.spaceName,
-      teamId: data.teamId,
-      teamName: data.teamName,
-    })
-    const existing = await this.projectConfigStore.read(projectPath)
-    const updated = existing ? existing.withSpace(space) : BrvConfig.partialFromSpace({space})
-    await this.projectConfigStore.write(updated, projectPath)
 
     return {
       gitDir: join(contextTreeDir, '.git'),

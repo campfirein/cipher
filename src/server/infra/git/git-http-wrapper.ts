@@ -235,22 +235,35 @@ async function interceptUploadPackPost(params: Parameters<typeof httpRequest>[0]
   v2 += '0000'
 
   const url = String(params.url)
-  // eslint-disable-next-line n/no-unsupported-features/node-builtins -- fetch works on Node >=18, stable from 21
-  const fetchResponse = await fetch(url, {
-    body: Buffer.from(v2),
-    headers: {
-      ...(params.headers as Record<string, string>),
-      'Content-Type': 'application/x-git-upload-pack-request',
-      'Git-Protocol': 'version=2',
-    },
-    method: 'POST',
-  })
+  let v2ResponseBody: Buffer
+  let responseHeaders: Record<string, string>
+  let statusCode: number
+  let statusMessage: string
+  try {
+    // eslint-disable-next-line n/no-unsupported-features/node-builtins -- fetch works on Node >=18, stable from 21
+    const fetchResponse = await fetch(url, {
+      body: Buffer.from(v2),
+      headers: {
+        ...(params.headers as Record<string, string>),
+        'Content-Type': 'application/x-git-upload-pack-request',
+        'Git-Protocol': 'version=2',
+      },
+      method: 'POST',
+    })
 
-  if (!fetchResponse.ok) {
-    throw new Error(`HTTP Error: ${fetchResponse.status} ${fetchResponse.statusText}`)
+    if (!fetchResponse.ok) {
+      throw new Error(`HTTP Error: ${fetchResponse.status} ${fetchResponse.statusText}`)
+    }
+
+    v2ResponseBody = Buffer.from(await fetchResponse.arrayBuffer())
+    responseHeaders = Object.fromEntries(fetchResponse.headers.entries())
+    statusCode = fetchResponse.status
+    statusMessage = fetchResponse.statusText
+  } catch (error) {
+    throw new Error(
+      `Failed to fetch pack data from ${url}: ${error instanceof Error ? error.message : String(error)}`,
+    )
   }
-
-  const v2ResponseBody = Buffer.from(await fetchResponse.arrayBuffer())
 
   // Strip the v2 "packfile" section header pktline (if present) so that
   // isomorphic-git receives a v1-compatible sideband stream starting with
@@ -259,10 +272,10 @@ async function interceptUploadPackPost(params: Parameters<typeof httpRequest>[0]
 
   return {
     body: singleChunk(responseBody),
-    headers: Object.fromEntries(fetchResponse.headers.entries()),
+    headers: responseHeaders,
     method: 'POST',
-    statusCode: fetchResponse.status,
-    statusMessage: fetchResponse.statusText,
+    statusCode,
+    statusMessage,
     url,
   } satisfies GitHttpResponse
 }
