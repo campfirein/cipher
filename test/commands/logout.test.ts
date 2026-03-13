@@ -119,7 +119,7 @@ describe('Logout Command', () => {
 
       expect((mockClient.requestWithAck as sinon.SinonStub).calledOnce).to.be.true
       const [event, ...rest] = (mockClient.requestWithAck as sinon.SinonStub).firstCall.args
-      expect(event).to.equal('auth:logout')
+      expect(event).to.equal(AuthEvents.LOGOUT)
       expect(rest).to.deep.equal([])
     })
   })
