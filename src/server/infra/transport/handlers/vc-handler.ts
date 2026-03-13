@@ -116,7 +116,7 @@ export class VcHandler {
       if (token?.isValid()) {
         const email = existing?.email ?? token.userEmail
         const name = existing?.name ?? token.userName ?? token.userEmail
-        return `Run: brv vc config user.name "${name}" and brv vc config user.email "${email}".`
+        return `Run: brv vc config user.name '${name}' and brv vc config user.email '${email}'.`
       }
     } catch {
       // not logged in
@@ -330,7 +330,7 @@ export class VcHandler {
         throw new VcError(`Merge conflicts in: ${paths}`, VcErrorCode.MERGE_CONFLICT)
       }
 
-      if (result.success) alreadyUpToDate = result.alreadyUpToDate ?? false
+      alreadyUpToDate = result.alreadyUpToDate ?? false
     } catch (error) {
       if (error instanceof VcError) throw error
       if (error instanceof GitAuthError) {
@@ -341,7 +341,8 @@ export class VcHandler {
         throw new VcError(error.message, VcErrorCode.PULL_FAILED)
       }
 
-      throw new VcError('Pull failed. Check your connection and try again.', VcErrorCode.PULL_FAILED)
+      const message = error instanceof Error ? error.message : 'Pull failed. Check your connection and try again.'
+      throw new VcError(message, VcErrorCode.PULL_FAILED)
     }
 
     return {alreadyUpToDate, branch}
@@ -382,7 +383,8 @@ export class VcHandler {
         throw new VcError('Authentication failed. Run /login.', VcErrorCode.AUTH_FAILED)
       }
 
-      throw new VcError('Push failed. Check your connection and try again.', VcErrorCode.PUSH_FAILED)
+      const message = error instanceof Error ? error.message : 'Push failed. Check your connection and try again.'
+      throw new VcError(message, VcErrorCode.PUSH_FAILED)
     }
 
     return {alreadyUpToDate, branch}
@@ -522,7 +524,9 @@ export class VcHandler {
 }
 
 function isValidBranchName(name: string): boolean {
-  if (name.startsWith('-')) return false
+  if (name.startsWith('-') || name.startsWith('.')) return false
+  if (name.endsWith('.lock') || name.endsWith('/') || name.endsWith('.')) return false
+  if (name.includes('//') || name.includes('@{') || name.includes(' ')) return false
   // eslint-disable-next-line no-control-regex
   return !/\.\.|[~^:?*[\\\u0000-\u001F\u007F]/.test(name)
 }

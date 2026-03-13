@@ -14,7 +14,6 @@ import {useGetSpaces} from '../../../space/api/get-spaces.js'
 import {useExecuteVcClone} from '../api/execute-vc-clone.js'
 
 interface SpaceItem {
-  id: string
   name: string
   spaceId: string
   spaceName: string
@@ -57,7 +56,6 @@ export function VcCloneFlow({onCancel, onComplete}: CustomDialogCallbacks): Reac
   const spaceItems: SpaceItem[] = useMemo(
     () =>
       allSpaces.map((s) => ({
-        id: s.id,
         name: `${s.teamName}/${s.name}`,
         spaceId: s.id,
         spaceName: s.name,
@@ -109,19 +107,11 @@ export function VcCloneFlow({onCancel, onComplete}: CustomDialogCallbacks): Reac
     )
   }
 
-  if (allSpaces.length === 0) {
-    return (
-      <Box>
-        <Text color={colors.dimText}>Loading...</Text>
-      </Box>
-    )
-  }
-
   if (step === 'cloning') {
     return (
       <>
-        {progressMessages.map((msg, i) => (
-          <Text key={i}>{msg}</Text>
+        {progressMessages.map((msg) => (
+          <Text key={msg}>{msg}</Text>
         ))}
         <Text>
           <Spinner type="dots" /> Cloning...
@@ -138,11 +128,11 @@ export function VcCloneFlow({onCancel, onComplete}: CustomDialogCallbacks): Reac
         </Box>
       )}
       <SelectableList<SpaceItem>
-        filterKeys={(item) => [item.id, item.name]}
-        getCurrentKey={(item) => item.id}
+        filterKeys={(item) => [item.spaceId, item.name]}
+        getCurrentKey={(item) => item.spaceId}
         isActive
         items={spaceItems}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.spaceId}
         onCancel={onCancel}
         onSelect={handleSelect}
         renderItem={(item, isHighlighted) => (

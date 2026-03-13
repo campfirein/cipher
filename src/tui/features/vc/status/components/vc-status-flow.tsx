@@ -12,6 +12,7 @@ import React, {useEffect} from 'react'
 import type {IVcStatusResponse} from '../../../../../shared/transport/events/vc-events.js'
 import type {CustomDialogCallbacks} from '../../../../types/commands.js'
 
+import {formatTransportError} from '../../../../utils/error-messages.js'
 import {useExecuteVcStatus} from '../api/execute-vc-status.js'
 
 type VcStatusFlowProps = CustomDialogCallbacks
@@ -70,7 +71,7 @@ export function VcStatusFlow({onCancel, onComplete}: VcStatusFlowProps): React.R
   useEffect(() => {
     statusMutation.mutate(undefined, {
       onError(error) {
-        onComplete(`Failed to get vc status: ${error.message}`)
+        onComplete(`Failed to get vc status: ${formatTransportError(error)}`)
       },
       onSuccess(result) {
         onComplete(formatVcStatus(result))

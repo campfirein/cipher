@@ -20,7 +20,7 @@ import type {IVcGitConfigStore} from '../../../../../src/server/core/interfaces/
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../../../src/server/constants.js'
 import {AuthToken} from '../../../../../src/server/core/domain/entities/auth-token.js'
-import {GitAuthError} from '../../../../../src/server/core/domain/errors/git-error.js'
+import {GitAuthError, GitError} from '../../../../../src/server/core/domain/errors/git-error.js'
 import {VcError} from '../../../../../src/server/core/domain/errors/vc-error.js'
 import {VcHandler} from '../../../../../src/server/infra/transport/handlers/vc-handler.js'
 import {VcErrorCode, VcEvents} from '../../../../../src/shared/transport/events/vc-events.js'
@@ -183,6 +183,7 @@ describe('VcHandler', () => {
       expect(registeredEvents).to.include(VcEvents.CONFIG)
       expect(registeredEvents).to.include(VcEvents.INIT)
       expect(registeredEvents).to.include(VcEvents.LOG)
+      expect(registeredEvents).to.include(VcEvents.PULL)
       expect(registeredEvents).to.include(VcEvents.PUSH)
       expect(registeredEvents).to.include(VcEvents.REMOTE)
       expect(registeredEvents).to.include(VcEvents.STATUS)
@@ -924,6 +925,155 @@ describe('VcHandler', () => {
           }
         }),
       )
+    })
+  })
+
+  describe('handlePull', () => {
+    it('should pull from origin/main by default', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.resolves({alreadyUpToDate: false, success: true})
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+
+      expect(deps.gitService.pull.calledOnce).to.be.true
+      expect(deps.gitService.pull.firstCall.args[0]).to.deep.include({branch: 'main', remote: 'origin'})
+      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'main'})
+    })
+
+    it('should pull custom branch when specified', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.resolves({alreadyUpToDate: false, success: true})
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.PULL]({branch: 'feat/x'}, CLIENT_ID)
+
+      expect(deps.gitService.pull.firstCall.args[0]).to.deep.include({branch: 'feat/x'})
+      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'feat/x'})
+    })
+
+    it('should return alreadyUpToDate when no changes', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.resolves({alreadyUpToDate: true, success: true})
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+
+      expect(result).to.deep.equal({alreadyUpToDate: true, branch: 'main'})
+    })
+
+    it('should throw VcError MERGE_CONFLICT when pull has conflicts', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.resolves({conflicts: [{path: 'file.txt'}], success: false})
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.MERGE_CONFLICT)
+          expect(error.message).to.include('file.txt')
+        }
+      }
+    })
+
+    it('should throw VcError GIT_NOT_INITIALIZED when git not initialized', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.GIT_NOT_INITIALIZED)
+        }
+      }
+    })
+
+    it('should throw VcError NO_REMOTE when no remote configured', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([])
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.NO_REMOTE)
+        }
+      }
+    })
+
+    it('should throw VcError AUTH_FAILED when gitService.pull throws GitAuthError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.rejects(new GitAuthError())
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.AUTH_FAILED)
+        }
+      }
+    })
+
+    it('should throw VcError PULL_FAILED with original message for GitError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.rejects(new GitError('You have unresolved merge conflicts.'))
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.PULL_FAILED)
+          expect(error.message).to.equal('You have unresolved merge conflicts.')
+        }
+      }
+    })
+
+    it('should throw VcError PULL_FAILED with original message for unknown errors', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.rejects(new Error('HTTP Error: 500 Internal Server Error'))
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.PULL_FAILED)
+          expect(error.message).to.equal('HTTP Error: 500 Internal Server Error')
+        }
+      }
     })
   })
 

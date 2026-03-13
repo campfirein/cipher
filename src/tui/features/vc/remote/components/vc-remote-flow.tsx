@@ -5,6 +5,7 @@ import React, {useEffect} from 'react'
 import type {VcRemoteSubcommand} from '../../../../../shared/transport/events/vc-events.js'
 import type {CustomDialogCallbacks} from '../../../../types/commands.js'
 
+import {formatTransportError} from '../../../../utils/error-messages.js'
 import {useExecuteVcRemote} from '../api/execute-vc-remote.js'
 
 type VcRemoteFlowProps = CustomDialogCallbacks & {
@@ -35,7 +36,7 @@ export function VcRemoteFlow({onCancel, onComplete, subcommand, url}: VcRemoteFl
       {subcommand, url},
       {
         onError(error) {
-          onComplete(`Failed: ${error.message}`)
+          onComplete(`Failed: ${formatTransportError(error)}`)
         },
         onSuccess(result) {
           if (result.action === 'show') {

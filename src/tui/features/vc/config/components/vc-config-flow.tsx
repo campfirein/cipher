@@ -5,6 +5,7 @@ import React, {useEffect} from 'react'
 import type {VcConfigKey} from '../../../../../shared/transport/events/vc-events.js'
 import type {CustomDialogCallbacks} from '../../../../types/commands.js'
 
+import {formatTransportError} from '../../../../utils/error-messages.js'
 import {useExecuteVcConfig} from '../api/execute-vc-config.js'
 
 type VcConfigFlowProps = CustomDialogCallbacks & {
@@ -29,7 +30,7 @@ export function VcConfigFlow({configKey, onCancel, onComplete, value}: VcConfigF
       {key: configKey, value},
       {
         onError(error) {
-          onComplete(`Failed: ${error.message}`)
+          onComplete(`Failed: ${formatTransportError(error)}`)
         },
         onSuccess(result) {
           onComplete(`${result.key} = ${result.value}`)
