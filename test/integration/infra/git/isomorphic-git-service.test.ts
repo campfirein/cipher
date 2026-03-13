@@ -431,6 +431,57 @@ describe('IsomorphicGitService', () => {
       const branch = await service.getCurrentBranch({directory: testDir})
       expect(branch).to.equal('main')
     })
+
+    it('isRemote is false for local branches', async () => {
+      const branches = await service.listBranches({directory: testDir})
+      expect(branches[0].isRemote).to.be.false
+    })
+
+    it('deleteBranch removes a branch', async () => {
+      await service.createBranch({branch: 'to-delete', directory: testDir})
+      let branches = await service.listBranches({directory: testDir})
+      expect(branches.map((b) => b.name)).to.include('to-delete')
+
+      await service.deleteBranch({branch: 'to-delete', directory: testDir})
+      branches = await service.listBranches({directory: testDir})
+      expect(branches.map((b) => b.name)).to.not.include('to-delete')
+    })
+
+    it('deleteBranch throws for non-existent branch', async () => {
+      try {
+        await service.deleteBranch({branch: 'nonexistent', directory: testDir})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.an('error')
+      }
+    })
+
+    it('createBranch and deleteBranch work with slash in name (feature/test)', async () => {
+      await service.createBranch({branch: 'feature/test', directory: testDir})
+      let branches = await service.listBranches({directory: testDir})
+      expect(branches.map((b) => b.name)).to.include('feature/test')
+
+      await service.deleteBranch({branch: 'feature/test', directory: testDir})
+      branches = await service.listBranches({directory: testDir})
+      expect(branches.map((b) => b.name)).to.not.include('feature/test')
+    })
+
+    it('listBranches returns empty array before any commits', async () => {
+      const emptyDir = makeTestDir()
+      await mkdir(emptyDir, {recursive: true})
+      await service.init({directory: emptyDir})
+      const branches = await service.listBranches({directory: emptyDir})
+      expect(branches).to.be.an('array').that.is.empty
+      await rm(emptyDir, {force: true, recursive: true})
+    })
+
+    it('listBranches with remote returns local-only when no remote configured', async () => {
+      const branches = await service.listBranches({directory: testDir, remote: 'origin'})
+      // Should not throw, just return local branches
+      expect(branches).to.have.length(1)
+      expect(branches[0].name).to.equal('main')
+      expect(branches[0].isRemote).to.be.false
+    })
   })
 
   // ---- checkout() ----

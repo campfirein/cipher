@@ -25,6 +25,7 @@ export type GitCommit = {
 
 export type GitBranch = {
   isCurrent: boolean
+  isRemote: boolean
   name: string
 }
 
@@ -54,6 +55,8 @@ export type PullGitParams = BaseGitParams & {branch?: string; remote?: string}
 export type FetchGitParams = BaseGitParams & {remote?: string}
 export type MergeGitParams = BaseGitParams & {branch: string}
 export type CreateBranchGitParams = BaseGitParams & {branch: string}
+export type DeleteBranchGitParams = BaseGitParams & {branch: string}
+export type ListBranchesGitParams = BaseGitParams & {remote?: string}
 export type CheckoutGitParams = BaseGitParams & {ref: string}
 export type AddRemoteGitParams = BaseGitParams & {remote: string; url: string}
 export type RemoveRemoteGitParams = BaseGitParams & {remote: string}
@@ -71,6 +74,7 @@ export interface IGitService {
   clone(params: CloneGitParams): Promise<void>
   commit(params: CommitGitParams): Promise<GitCommit>
   createBranch(params: CreateBranchGitParams): Promise<void>
+  deleteBranch(params: DeleteBranchGitParams): Promise<void>
   fetch(params: FetchGitParams): Promise<void>
   /**
    * Returns conflicts currently present in the working tree.
@@ -89,8 +93,8 @@ export interface IGitService {
   init(params: InitGitParams): Promise<void>
   /** Returns true if a git repository (.git directory) exists at the given directory. */
   isInitialized(params: BaseGitParams): Promise<boolean>
-  /** Lists local branches only. Remote-tracking branches (e.g. `origin/main`) are not included. */
-  listBranches(params: BaseGitParams): Promise<GitBranch[]>
+  /** Lists local branches. When `remote` is specified, also includes remote-tracking branches. */
+  listBranches(params: ListBranchesGitParams): Promise<GitBranch[]>
   listRemotes(params: BaseGitParams): Promise<GitRemote[]>
   log(params: LogGitParams): Promise<GitCommit[]>
   merge(params: MergeGitParams): Promise<MergeResult>

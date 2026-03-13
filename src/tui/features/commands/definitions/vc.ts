@@ -1,6 +1,7 @@
 import type {SlashCommand} from '../../../types/commands.js'
 
 import {vcAddSubCommand} from './vc-add.js'
+import {vcBranchSubCommand} from './vc-branch.js'
 import {vcCloneSubCommand} from './vc-clone.js'
 import {vcCommitSubCommand} from './vc-commit.js'
 import {vcConfigSubCommand} from './vc-config.js'
@@ -23,6 +24,7 @@ export const vcCommand: SlashCommand = {
     vcPushSubCommand,
     vcStatusSubCommand,
     vcLogSubCommand,
+    vcBranchSubCommand,
     vcConfigSubCommand,
     vcRemoteSubCommand,
   ],

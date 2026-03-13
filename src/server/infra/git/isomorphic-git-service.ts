@@ -12,6 +12,7 @@ import type {
   CloneGitParams,
   CommitGitParams,
   CreateBranchGitParams,
+  DeleteBranchGitParams,
   FetchGitParams,
   GetRemoteUrlGitParams,
   GitBranch,
@@ -22,6 +23,7 @@ import type {
   GitStatusFile,
   IGitService,
   InitGitParams,
+  ListBranchesGitParams,
   LogGitParams,
   MergeGitParams,
   MergeResult,
@@ -186,6 +188,11 @@ export class IsomorphicGitService implements IGitService {
     await git.branch({dir, fs, ref: params.branch})
   }
 
+  async deleteBranch(params: DeleteBranchGitParams): Promise<void> {
+    const dir = this.requireDirectory(params)
+    await git.deleteBranch({dir, fs, ref: params.branch})
+  }
+
   async fetch(params: FetchGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
     const token = this.requireToken()
@@ -267,11 +274,26 @@ export class IsomorphicGitService implements IGitService {
       .catch(() => false)
   }
 
-  async listBranches(params: BaseGitParams): Promise<GitBranch[]> {
+  async listBranches(params: ListBranchesGitParams): Promise<GitBranch[]> {
     const dir = this.requireDirectory(params)
     const current = await this.getCurrentBranch(params)
     const branches = await git.listBranches({dir, fs})
-    return branches.map((name) => ({isCurrent: name === current, name}))
+    const result: GitBranch[] = branches.map((name) => ({isCurrent: name === current, isRemote: false, name}))
+
+    if (params.remote) {
+      try {
+        const remoteBranches = await git.listBranches({dir, fs, remote: params.remote})
+        for (const name of remoteBranches) {
+          if (name === 'HEAD') continue
+          result.push({isCurrent: false, isRemote: true, name: `${params.remote}/${name}`})
+        }
+      } catch {
+        // No remote configured or no refs fetched yet — return local-only.
+        // Mirrors `git branch -a`: never auto-fetches, reads cached refs only.
+      }
+    }
+
+    return result
   }
 
   async listRemotes(params: BaseGitParams): Promise<GitRemote[]> {

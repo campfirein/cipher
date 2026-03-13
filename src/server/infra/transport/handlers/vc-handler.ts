@@ -10,6 +10,8 @@ import type {IVcGitConfig, IVcGitConfigStore} from '../../../core/interfaces/vc/
 import {
   type IVcAddRequest,
   type IVcAddResponse,
+  type IVcBranchRequest,
+  type IVcBranchResponse,
   type IVcCloneProgressEvent,
   type IVcCloneRequest,
   type IVcCloneResponse,
@@ -82,6 +84,9 @@ export class VcHandler {
   }
 
   setup(): void {
+    this.transport.onRequest<IVcBranchRequest, IVcBranchResponse>(VcEvents.BRANCH, (data, clientId) =>
+      this.handleBranch(data, clientId),
+    )
     this.transport.onRequest<IVcCloneRequest, IVcCloneResponse>(VcEvents.CLONE, (data, clientId) =>
       this.handleClone(data, clientId),
     )
@@ -146,6 +151,72 @@ export class VcHandler {
     ).length
 
     return {count}
+  }
+
+  private async handleBranch(data: IVcBranchRequest, clientId: string): Promise<IVcBranchResponse> {
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const directory = this.contextTreeService.resolvePath(projectPath)
+
+    const gitInitialized = await this.gitService.isInitialized({directory})
+    if (!gitInitialized) {
+      throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
+    }
+
+    if (data.action === 'list') return this.handleBranchList(directory, data.all)
+
+    // Runtime guard: `name` is guaranteed by the discriminated union at compile time,
+    // but transport payloads are untrusted — validate at the boundary.
+    if (data.action === 'create' || data.action === 'delete') {
+      if (!data.name) throw new VcError('Branch name is required.', VcErrorCode.INVALID_BRANCH_NAME)
+      if (data.action === 'create') return this.handleBranchCreate(directory, data.name)
+      return this.handleBranchDelete(directory, data.name)
+    }
+
+    throw new VcError(`Unknown branch action.`, VcErrorCode.INVALID_ACTION)
+  }
+
+  private async handleBranchCreate(directory: string, name: string): Promise<IVcBranchResponse> {
+    if (!isValidBranchName(name)) {
+      throw new VcError(`Invalid branch name: '${name}'.`, VcErrorCode.INVALID_BRANCH_NAME)
+    }
+
+    const existing = await this.gitService.listBranches({directory})
+    if (existing.some((b) => b.name === name)) {
+      throw new VcError(`Branch '${name}' already exists.`, VcErrorCode.BRANCH_ALREADY_EXISTS)
+    }
+
+    await this.gitService.createBranch({branch: name, directory})
+    return {action: 'create', created: name}
+  }
+
+  private async handleBranchDelete(directory: string, name: string): Promise<IVcBranchResponse> {
+    const current = await this.gitService.getCurrentBranch({directory})
+    if (name === current) {
+      throw new VcError(`Cannot delete current branch '${name}'.`, VcErrorCode.CANNOT_DELETE_CURRENT_BRANCH)
+    }
+
+    const localBranches = await this.gitService.listBranches({directory})
+    if (!localBranches.some((b) => b.name === name)) {
+      throw new VcError(`Branch '${name}' not found.`, VcErrorCode.BRANCH_NOT_FOUND)
+    }
+
+    await this.gitService.deleteBranch({branch: name, directory})
+    return {action: 'delete', deleted: name}
+  }
+
+  private async handleBranchList(directory: string, all?: boolean): Promise<IVcBranchResponse> {
+    const branches = await this.gitService.listBranches({
+      directory,
+      remote: all ? 'origin' : undefined,
+    })
+    return {
+      action: 'list',
+      branches: branches.map((b) => ({
+        isCurrent: b.isCurrent,
+        isRemote: b.isRemote,
+        name: b.name,
+      })),
+    }
   }
 
   private async handleClone(data: IVcCloneRequest, clientId: string): Promise<IVcCloneResponse> {
@@ -524,7 +595,8 @@ export class VcHandler {
 }
 
 function isValidBranchName(name: string): boolean {
-  if (name.startsWith('-') || name.startsWith('.')) return false
+  if (!name) return false
+  if (name.startsWith('-') || name.startsWith('.') || name.startsWith('/')) return false
   if (name.endsWith('.lock') || name.endsWith('/') || name.endsWith('.')) return false
   if (name.includes('//') || name.includes('@{') || name.includes(' ')) return false
   // eslint-disable-next-line no-control-regex
