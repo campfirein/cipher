@@ -52,11 +52,7 @@ export default class Locations extends Command {
     const path = loc.isCurrent || loc.isActive ? chalk.bold(loc.projectPath) : loc.projectPath
     this.log(`  ${path}${label}`)
     if (loc.isInitialized) {
-      const domainLabel = loc.domainCount === 1 ? 'domain' : 'domains'
-      const fileLabel = loc.fileCount === 1 ? 'file' : 'files'
-      this.log(
-        chalk.dim(`  └─ .brv/context-tree/    ${loc.domainCount} ${domainLabel} · ${loc.fileCount} ${fileLabel}`),
-      )
+      this.log(chalk.dim('  └─ .brv/context-tree/'))
     } else {
       this.log(chalk.dim('  └─ .brv/context-tree/    (not initialized)'))
     }
@@ -65,7 +61,7 @@ export default class Locations extends Command {
   private formatTextOutput(locations: ProjectLocationDTO[]): void {
     if (locations.length > 0) {
       this.log(`Registered Projects — ${locations.length} found`)
-      this.log('──────────────────────────────────────────')
+      this.log(chalk.dim('──────────────────────────────────────────'))
       for (const loc of locations) {
         this.formatLocationEntry(loc)
         this.log('')

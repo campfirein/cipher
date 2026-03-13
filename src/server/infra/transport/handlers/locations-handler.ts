@@ -1,4 +1,3 @@
-import {readdir} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {ProjectLocationDTO} from '../../../../shared/transport/types/dto.js'
@@ -13,7 +12,6 @@ import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-ty
 export interface LocationsHandlerDeps {
   contextTreeService: IContextTreeService
   getActiveProjectPaths: () => string[]
-  listContextTreeEntries?: (ctDir: string) => Promise<{domainCount: number; fileCount: number}>
   projectRegistry: IProjectRegistry
   resolveProjectPath: ProjectPathResolver
   transport: ITransportServer
@@ -21,12 +19,11 @@ export interface LocationsHandlerDeps {
 
 /**
  * Handles locations:get event.
- * Returns all registered project locations with context tree status and counts.
+ * Returns all registered project locations with context tree status.
  */
 export class LocationsHandler {
   private readonly contextTreeService: IContextTreeService
   private readonly getActiveProjectPaths: () => string[]
-  private readonly listContextTreeEntries: (ctDir: string) => Promise<{domainCount: number; fileCount: number}>
   private readonly projectRegistry: IProjectRegistry
   private readonly resolveProjectPath: ProjectPathResolver
   private readonly transport: ITransportServer
@@ -34,21 +31,9 @@ export class LocationsHandler {
   constructor(deps: LocationsHandlerDeps) {
     this.contextTreeService = deps.contextTreeService
     this.getActiveProjectPaths = deps.getActiveProjectPaths
-    this.listContextTreeEntries = deps.listContextTreeEntries ?? LocationsHandler.defaultListContextTreeEntries
     this.projectRegistry = deps.projectRegistry
     this.resolveProjectPath = deps.resolveProjectPath
     this.transport = deps.transport
-  }
-
-  private static async defaultListContextTreeEntries(ctDir: string): Promise<{domainCount: number; fileCount: number}> {
-    // Non-recursive read for immediate subdirectories (domains) — avoids Dirent.parentPath (Node 20.12+ only)
-    const topLevel = await readdir(ctDir, {withFileTypes: true})
-    const domainCount = topLevel.filter((e) => e.isDirectory()).length
-
-    // Recursive read for all .md files
-    const allEntries = await readdir(ctDir, {recursive: true, withFileTypes: true})
-    const fileCount = allEntries.filter((e) => e.isFile() && e.name.endsWith('.md')).length
-    return {domainCount, fileCount}
   }
 
   setup(): void {
@@ -69,33 +54,16 @@ export class LocationsHandler {
 
     const results = await Promise.all(
       [...all.entries()].map(async ([path]) => {
-        const ctDir = join(path, BRV_DIR, CONTEXT_TREE_DIR)
         let isInitialized = false
         try {
           isInitialized = await this.contextTreeService.exists(path)
-        } catch (error) {
-          console.error('LocationsHandler: failed to check context tree existence', error)
+        } catch {
           // FS error — treat as not initialized
         }
 
-        let domainCount = 0
-        let fileCount = 0
-
-        if (isInitialized) {
-          try {
-            const counts = await this.listContextTreeEntries(ctDir)
-            domainCount = counts.domainCount
-            fileCount = counts.fileCount
-          } catch (error) {
-            console.error('LocationsHandler: failed to list context tree entries', error)
-            // ENOENT or permission error — leave counts at 0
-          }
-        }
-
         return {
-          domainCount,
-          fileCount,
-          isActive: activeSet.has(path) && path !== currentProjectPath,
+          contextTreePath: join(path, BRV_DIR, CONTEXT_TREE_DIR),
+          isActive: activeSet.has(path) || path === currentProjectPath,
           isCurrent: path === currentProjectPath,
           isInitialized,
           projectPath: path,

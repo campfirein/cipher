@@ -15,7 +15,6 @@ type ProjectInfoLike = {projectPath: string; registeredAt: number; sanitizedPath
 
 type TestDeps = {
   contextTreeService: {delete: SinonStub; exists: SinonStub; initialize: SinonStub}
-  listContextTreeEntries: SinonStub
   projectRegistry: {get: SinonStub; getAll: SinonStub; register: SinonStub; unregister: SinonStub}
 }
 
@@ -30,7 +29,6 @@ function makeStubs(): TestDeps {
       exists: stub().resolves(false),
       initialize: stub(),
     },
-    listContextTreeEntries: stub().resolves({domainCount: 0, fileCount: 0}),
     projectRegistry: {
       get: stub(),
       getAll: stub().returns(new Map()),
@@ -51,7 +49,6 @@ describe('LocationsHandler', () => {
     deps = makeStubs()
     resolveProjectPath = stub().returns('/project/current')
     transport = createMockTransportServer()
-    stub(console, 'error')
   })
 
   afterEach(() => {
@@ -62,7 +59,6 @@ describe('LocationsHandler', () => {
     const handler = new LocationsHandler({
       contextTreeService: deps.contextTreeService,
       getActiveProjectPaths,
-      listContextTreeEntries: deps.listContextTreeEntries,
       projectRegistry: deps.projectRegistry,
       resolveProjectPath,
       transport,
@@ -167,17 +163,17 @@ describe('LocationsHandler', () => {
       expect(locations[0].isCurrent).to.be.false
     })
 
-    it('should NOT set isActive for the current project even if it appears in getActiveProjectPaths', async () => {
+    it('should set isActive=true for the current project', async () => {
       const currentPath = '/project/current'
       const registry = new Map([[currentPath, makeProjectInfo(currentPath, 1000)]])
       deps.projectRegistry.getAll.returns(registry)
 
-      createHandler(() => [currentPath])
+      createHandler()
       const result = await callGetHandler()
       const {locations} = result
 
       expect(locations[0].isCurrent).to.be.true
-      expect(locations[0].isActive).to.be.false
+      expect(locations[0].isActive).to.be.true
     })
 
     it('should set isActive=false when getActiveProjectPaths returns empty array', async () => {
@@ -222,56 +218,6 @@ describe('LocationsHandler', () => {
 
       expect(initialized?.isInitialized).to.be.true
       expect(notInit?.isInitialized).to.be.false
-    })
-  })
-
-  describe('counts when not initialized', () => {
-    it('should return domainCount=0 and fileCount=0 when not initialized', async () => {
-      const registry = new Map([['/project/a', makeProjectInfo('/project/a', 1000)]])
-      deps.projectRegistry.getAll.returns(registry)
-      deps.contextTreeService.exists.resolves(false)
-
-      createHandler()
-      const result = await callGetHandler()
-      const {locations} = result
-
-      expect(locations[0].domainCount).to.equal(0)
-      expect(locations[0].fileCount).to.equal(0)
-      expect(deps.listContextTreeEntries.called).to.be.false
-    })
-  })
-
-  describe('counts when initialized', () => {
-    it('should return counts from listContextTreeEntries when initialized', async () => {
-      const projectPath = '/project/initialized'
-      const registry = new Map([[projectPath, makeProjectInfo(projectPath, 1000)]])
-      deps.projectRegistry.getAll.returns(registry)
-      deps.contextTreeService.exists.resolves(true)
-      deps.listContextTreeEntries.resolves({domainCount: 2, fileCount: 3})
-      resolveProjectPath.returns('/some/other/path')
-
-      createHandler()
-      const result = await callGetHandler()
-      const {locations} = result
-
-      expect(locations[0].domainCount).to.equal(2)
-      expect(locations[0].fileCount).to.equal(3)
-    })
-
-    it('should return domainCount=0 and fileCount=0 when listContextTreeEntries throws (ENOENT)', async () => {
-      const projectPath = '/project/initialized'
-      const registry = new Map([[projectPath, makeProjectInfo(projectPath, 1000)]])
-      deps.projectRegistry.getAll.returns(registry)
-      deps.contextTreeService.exists.resolves(true)
-      deps.listContextTreeEntries.rejects(new Error('ENOENT'))
-      resolveProjectPath.returns('/some/other/path')
-
-      createHandler()
-      const result = await callGetHandler()
-      const {locations} = result
-
-      expect(locations[0].domainCount).to.equal(0)
-      expect(locations[0].fileCount).to.equal(0)
     })
   })
 })

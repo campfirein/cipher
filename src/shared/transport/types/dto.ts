@@ -127,9 +127,9 @@ export interface HubEntryDTO {
 // ============================================================================
 
 export interface ProjectLocationDTO {
-  domainCount: number
-  fileCount: number
-  /** True if this project has connected clients or agents, excluding the current project */
+  /** Absolute path to the context tree directory (e.g., '/Users/foo/project/.brv/context-tree') */
+  contextTreePath: string
+  /** True if this project has connected clients/agents or is the current project */
   isActive: boolean
   /** True if this is the project the client is currently running from */
   isCurrent: boolean

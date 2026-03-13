@@ -8,11 +8,7 @@ function formatLocationEntry(loc: ProjectLocationDTO): string[] {
   const lines: string[] = [`  ${path}${label}`]
 
   if (loc.isInitialized) {
-    const domainLabel = loc.domainCount === 1 ? 'domain' : 'domains'
-    const fileLabel = loc.fileCount === 1 ? 'file' : 'files'
-    lines.push(
-      chalk.dim(`  └─ .brv/context-tree/    ${loc.domainCount} ${domainLabel} · ${loc.fileCount} ${fileLabel}`),
-    )
+    lines.push(chalk.dim('  └─ .brv/context-tree/'))
   } else {
     lines.push(chalk.dim('  └─ .brv/context-tree/    (not initialized)'))
   }

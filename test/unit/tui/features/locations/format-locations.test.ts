@@ -12,8 +12,7 @@ function stripAnsi(str: string): string {
 
 function makeLoc(overrides: Partial<ProjectLocationDTO> = {}): ProjectLocationDTO {
   return {
-    domainCount: 0,
-    fileCount: 0,
+    contextTreePath: '/projects/foo/.brv/context-tree',
     isActive: false,
     isCurrent: false,
     isInitialized: false,
@@ -53,15 +52,9 @@ describe('formatLocations', () => {
     expect(output).to.include('(not initialized)')
   })
 
-  it('should show domain and file counts when initialized', () => {
-    const output = stripAnsi(formatLocations([makeLoc({domainCount: 3, fileCount: 12, isInitialized: true})]))
-    expect(output).to.include('3 domains')
-    expect(output).to.include('12 files')
-  })
-
-  it('should use singular labels for count of 1', () => {
-    const output = stripAnsi(formatLocations([makeLoc({domainCount: 1, fileCount: 1, isInitialized: true})]))
-    expect(output).to.include('1 domain')
-    expect(output).to.include('1 file')
+  it('should show context-tree path when initialized', () => {
+    const output = stripAnsi(formatLocations([makeLoc({isInitialized: true})]))
+    expect(output).to.include('.brv/context-tree/')
+    expect(output).to.not.include('(not initialized)')
   })
 })

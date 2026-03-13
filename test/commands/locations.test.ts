@@ -86,7 +86,13 @@ describe('Locations Command', () => {
   describe('text output', () => {
     it('should display header with count when locations exist', async () => {
       mockLocationsResponse([
-        {domainCount: 0, fileCount: 0, isActive: false, isCurrent: true, isInitialized: false, projectPath: '/p/a'},
+        {
+          contextTreePath: '/p/a/.brv/context-tree',
+          isActive: false,
+          isCurrent: true,
+          isInitialized: false,
+          projectPath: '/p/a',
+        },
       ])
 
       await createCommand().run()
@@ -104,7 +110,13 @@ describe('Locations Command', () => {
 
     it('should display [current] label for current project', async () => {
       mockLocationsResponse([
-        {domainCount: 2, fileCount: 5, isActive: false, isCurrent: true, isInitialized: true, projectPath: '/p/cur'},
+        {
+          contextTreePath: '/p/cur/.brv/context-tree',
+          isActive: false,
+          isCurrent: true,
+          isInitialized: true,
+          projectPath: '/p/cur',
+        },
       ])
 
       await createCommand().run()
@@ -114,7 +126,13 @@ describe('Locations Command', () => {
 
     it('should display [active] label for active project', async () => {
       mockLocationsResponse([
-        {domainCount: 0, fileCount: 0, isActive: true, isCurrent: false, isInitialized: false, projectPath: '/p/act'},
+        {
+          contextTreePath: '/p/act/.brv/context-tree',
+          isActive: true,
+          isCurrent: false,
+          isInitialized: false,
+          projectPath: '/p/act',
+        },
       ])
 
       await createCommand().run()
@@ -122,19 +140,31 @@ describe('Locations Command', () => {
       expect(loggedMessages.some((m) => m.includes('[active]') && m.includes('/p/act'))).to.be.true
     })
 
-    it('should display domain/file counts when initialized', async () => {
+    it('should display context-tree path when initialized', async () => {
       mockLocationsResponse([
-        {domainCount: 3, fileCount: 10, isActive: false, isCurrent: false, isInitialized: true, projectPath: '/p/init'},
+        {
+          contextTreePath: '/p/init/.brv/context-tree',
+          isActive: false,
+          isCurrent: false,
+          isInitialized: true,
+          projectPath: '/p/init',
+        },
       ])
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('3 domains') && m.includes('10 files'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('.brv/context-tree/'))).to.be.true
     })
 
     it('should display "(not initialized)" when not initialized', async () => {
       mockLocationsResponse([
-        {domainCount: 0, fileCount: 0, isActive: false, isCurrent: false, isInitialized: false, projectPath: '/p/x'},
+        {
+          contextTreePath: '/p/x/.brv/context-tree',
+          isActive: false,
+          isCurrent: false,
+          isInitialized: false,
+          projectPath: '/p/x',
+        },
       ])
 
       await createCommand().run()
@@ -148,7 +178,13 @@ describe('Locations Command', () => {
   describe('JSON output', () => {
     it('should output locations array with success: true', async () => {
       mockLocationsResponse([
-        {domainCount: 3, fileCount: 10, isActive: false, isCurrent: true, isInitialized: true, projectPath: '/p/a'},
+        {
+          contextTreePath: '/p/a/.brv/context-tree',
+          isActive: false,
+          isCurrent: true,
+          isInitialized: true,
+          projectPath: '/p/a',
+        },
       ])
 
       let captured = ''
