@@ -542,7 +542,7 @@ describe('CurateLogHandler', () => {
 
   describe('onPendingReviews callback', () => {
     it('should call onPendingReviews when curate completes with pending review ops', async () => {
-      const notifications: Array<{pendingCount: number; projectPath: string; taskId: string}> = []
+      const notifications: Array<{clientId: string; pendingCount: number; projectPath: string; taskId: string}> = []
       const handlerWithCallback = new CurateLogHandler(
         () => store,
         (info) => notifications.push(info),
@@ -571,13 +571,14 @@ describe('CurateLogHandler', () => {
       await handlerWithCallback.onTaskCompleted('task-abc', 'done', makeTask())
 
       expect(notifications).to.have.lengthOf(1)
+      expect(notifications[0].clientId).to.equal('client-1')
       expect(notifications[0].pendingCount).to.equal(1)
       expect(notifications[0].projectPath).to.equal('/app')
       expect(notifications[0].taskId).to.equal('task-abc')
     })
 
     it('should NOT call onPendingReviews when no pending review ops exist', async () => {
-      const notifications: Array<{pendingCount: number; projectPath: string; taskId: string}> = []
+      const notifications: Array<{clientId: string; pendingCount: number; projectPath: string; taskId: string}> = []
       const handlerWithCallback = new CurateLogHandler(
         () => store,
         (info) => notifications.push(info),

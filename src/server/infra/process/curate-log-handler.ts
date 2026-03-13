@@ -74,6 +74,8 @@ export function computeSummary(operations: CurateLogOperation[]): CurateLogSumma
  */
 /** Info passed to the onPendingReviews callback after curate completes with pending review ops. */
 export type PendingReviewsInfo = {
+  /** Transport client ID of the task originator — used for direct sendTo delivery. */
+  clientId: string
   pendingCount: number
   projectPath: string
   taskId: string
@@ -111,6 +113,18 @@ export class CurateLogHandler implements ITaskLifecycleHook {
     }
   }
 
+  /**
+   * Synchronously returns the pending review count from in-memory state.
+   * Included in the task:completed payload so the client receives it atomically
+   * without relying on a separate review:notify event that arrives after disk I/O.
+   */
+  getTaskCompletionData(taskId: string): Record<string, unknown> {
+    const state = this.tasks.get(taskId)
+    if (!state) return {}
+    const pendingReviewCount = state.operations.filter((op) => op.reviewStatus === 'pending').length
+    return pendingReviewCount > 0 ? {pendingReviewCount} : {}
+  }
+
   async onTaskCancelled(taskId: string, _task: TaskInfo): Promise<void> {
     const state = this.tasks.get(taskId)
     if (!state) return
@@ -132,7 +146,7 @@ export class CurateLogHandler implements ITaskLifecycleHook {
     })
   }
 
-  async onTaskCompleted(taskId: string, result: string, _task: TaskInfo): Promise<void> {
+  async onTaskCompleted(taskId: string, result: string, task: TaskInfo): Promise<void> {
     const state = this.tasks.get(taskId)
     if (!state) return
 
@@ -158,7 +172,7 @@ export class CurateLogHandler implements ITaskLifecycleHook {
       const pendingCount = state.operations.filter((op) => op.reviewStatus === 'pending').length
       if (pendingCount > 0) {
         try {
-          this.onPendingReviews({pendingCount, projectPath: state.projectPath, taskId})
+          this.onPendingReviews({clientId: task.clientId, pendingCount, projectPath: state.projectPath, taskId})
         } catch {
           // Best-effort notification — never block task completion
         }

@@ -54,6 +54,7 @@ import {
   PullHandler,
   PushHandler,
   ResetHandler,
+  ReviewHandler,
   SpaceHandler,
   StatusHandler,
 } from '../transport/handlers/index.js'
@@ -176,6 +177,13 @@ export async function setupFeatureHandlers({
     contextTreeService,
     contextTreeSnapshotService,
     resolveProjectPath,
+    transport,
+  }).setup()
+
+  new ReviewHandler({
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
+    resolveProjectPath,
+    reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
     transport,
   }).setup()
 
