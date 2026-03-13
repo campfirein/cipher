@@ -4,6 +4,7 @@ import React, {useEffect} from 'react'
 
 import type {CustomDialogCallbacks} from '../../../../types/commands.js'
 
+import {formatTransportError} from '../../../../utils/error-messages.js'
 import {useExecuteVcAdd} from '../api/execute-vc-add.js'
 
 type VcAddFlowProps = CustomDialogCallbacks & {
@@ -27,7 +28,7 @@ export function VcAddFlow({filePaths, onCancel, onComplete}: VcAddFlowProps): Re
       {filePaths},
       {
         onError(error) {
-          onComplete(`Failed to stage: ${error.message}`)
+          onComplete(`Failed to stage: ${formatTransportError(error)}`)
         },
         onSuccess(result) {
           if (result.count === 0) {

@@ -5,17 +5,17 @@ import React, {useEffect} from 'react'
 import type {CustomDialogCallbacks} from '../../../../types/commands.js'
 
 import {formatTransportError} from '../../../../utils/error-messages.js'
-import {useExecuteVcPush} from '../api/execute-vc-push.js'
+import {useExecuteVcPull} from '../api/execute-vc-pull.js'
 
-type VcPushFlowProps = CustomDialogCallbacks & {
+type VcPullFlowProps = CustomDialogCallbacks & {
   branch?: string
 }
 
-export function VcPushFlow({branch, onCancel, onComplete}: VcPushFlowProps): React.ReactNode {
-  const pushMutation = useExecuteVcPush()
+export function VcPullFlow({branch, onCancel, onComplete}: VcPullFlowProps): React.ReactNode {
+  const pullMutation = useExecuteVcPull()
 
   useInput((_, key) => {
-    if (key.escape && !pushMutation.isPending) {
+    if (key.escape && !pullMutation.isPending) {
       onCancel()
     }
   })
@@ -24,14 +24,14 @@ export function VcPushFlow({branch, onCancel, onComplete}: VcPushFlowProps): Rea
   useEffect(() => {
     if (fired.current) return
     fired.current = true
-    pushMutation.mutate(
+    pullMutation.mutate(
       {branch},
       {
         onError(error) {
-          onComplete(`Failed to push: ${formatTransportError(error)}`)
+          onComplete(`Failed to pull: ${formatTransportError(error)}`)
         },
         onSuccess(result) {
-          onComplete(result.alreadyUpToDate ? 'Everything up-to-date.' : `Pushed to origin/${result.branch}.`)
+          onComplete(result.alreadyUpToDate ? 'Already up to date.' : `Pulled from origin/${result.branch}.`)
         },
       },
     )
@@ -39,7 +39,7 @@ export function VcPushFlow({branch, onCancel, onComplete}: VcPushFlowProps): Rea
 
   return (
     <Text>
-      <Spinner type="dots" /> {branch ? `Pushing to origin/${branch}...` : 'Pushing...'}
+      <Spinner type="dots" /> {branch ? `Pulling from origin/${branch}...` : 'Pulling...'}
     </Text>
   )
 }

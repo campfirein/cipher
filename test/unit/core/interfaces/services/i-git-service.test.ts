@@ -26,7 +26,7 @@ describe('IGitService types', () => {
     it('success true variant has no reason field', () => {
       const result: PushResult = {success: true}
       if (result.success) {
-        expectTypeOf(result).toEqualTypeOf<{success: true}>()
+        expectTypeOf(result).toEqualTypeOf<{alreadyUpToDate?: boolean; success: true}>()
       }
     })
 

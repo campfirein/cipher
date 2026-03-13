@@ -38,9 +38,9 @@ export type GitRemote = {
   url: string
 }
 
-export type PushResult = {message?: string; reason: 'non_fast_forward'; success: false} | {success: true}
+export type PushResult = {alreadyUpToDate?: boolean; success: true} | {message?: string; reason: 'non_fast_forward'; success: false}
 
-export type PullResult = {conflicts: GitConflict[]; success: false} | {success: true}
+export type PullResult = {alreadyUpToDate?: boolean; success: true} | {conflicts: GitConflict[]; success: false}
 
 export type MergeResult = {conflicts: GitConflict[]; success: false} | {success: true}
 
@@ -58,12 +58,17 @@ export type CheckoutGitParams = BaseGitParams & {ref: string}
 export type AddRemoteGitParams = BaseGitParams & {remote: string; url: string}
 export type RemoveRemoteGitParams = BaseGitParams & {remote: string}
 export type GetRemoteUrlGitParams = BaseGitParams & {remote: string}
+export type CloneGitParams = BaseGitParams & {
+  onProgress?: (progress: {loaded: number; phase: string; total?: number}) => void
+  url: string
+}
 
 // --- Interface ---
 export interface IGitService {
   add(params: AddGitParams): Promise<void>
   addRemote(params: AddRemoteGitParams): Promise<void>
   checkout(params: CheckoutGitParams): Promise<void>
+  clone(params: CloneGitParams): Promise<void>
   commit(params: CommitGitParams): Promise<GitCommit>
   createBranch(params: CreateBranchGitParams): Promise<void>
   fetch(params: FetchGitParams): Promise<void>

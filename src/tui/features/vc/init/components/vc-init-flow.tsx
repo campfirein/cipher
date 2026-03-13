@@ -10,6 +10,7 @@ import React, {useEffect} from 'react'
 
 import type {CustomDialogCallbacks} from '../../../../types/commands.js'
 
+import {formatTransportError} from '../../../../utils/error-messages.js'
 import {useExecuteVcInit} from '../api/execute-vc-init.js'
 
 type VcInitFlowProps = CustomDialogCallbacks
@@ -26,7 +27,7 @@ export function VcInitFlow({onCancel, onComplete}: VcInitFlowProps): React.React
   useEffect(() => {
     initMutation.mutate(undefined, {
       onError(error) {
-        onComplete(`Failed to initialize: ${error.message}`)
+        onComplete(`Failed to initialize: ${formatTransportError(error)}`)
       },
       onSuccess(result) {
         const msg = result.reinitialized

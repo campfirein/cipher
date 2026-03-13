@@ -16,6 +16,7 @@ export interface UserDTO {
   email: string
   hasOnboardedCli: boolean
   id: string
+  name?: string
 }
 
 export interface AuthTokenDTO {

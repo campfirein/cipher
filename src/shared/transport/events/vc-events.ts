@@ -1,15 +1,19 @@
 export const VcErrorCode = {
+  ALREADY_INITIALIZED: 'ERR_VC_ALREADY_INITIALIZED',
   AUTH_FAILED: 'ERR_VC_AUTH_FAILED',
   BRANCH_NOT_FOUND: 'ERR_VC_BRANCH_NOT_FOUND',
+  CLONE_FAILED: 'ERR_VC_CLONE_FAILED',
   CONFIG_KEY_NOT_SET: 'ERR_VC_CONFIG_KEY_NOT_SET',
   GIT_NOT_INITIALIZED: 'ERR_VC_GIT_NOT_INITIALIZED',
   INVALID_BRANCH_NAME: 'ERR_VC_INVALID_BRANCH_NAME',
   INVALID_CONFIG_KEY: 'ERR_VC_INVALID_CONFIG_KEY',
   INVALID_REMOTE_URL: 'ERR_VC_INVALID_REMOTE_URL',
+  MERGE_CONFLICT: 'ERR_VC_MERGE_CONFLICT',
   NO_REMOTE: 'ERR_VC_NO_REMOTE',
   NON_FAST_FORWARD: 'ERR_VC_NON_FAST_FORWARD',
   NOTHING_STAGED: 'ERR_VC_NOTHING_STAGED',
   NOTHING_TO_PUSH: 'ERR_VC_NOTHING_TO_PUSH',
+  PULL_FAILED: 'ERR_VC_PULL_FAILED',
   PUSH_FAILED: 'ERR_VC_PUSH_FAILED',
   REMOTE_ALREADY_EXISTS: 'ERR_VC_REMOTE_ALREADY_EXISTS',
   USER_NOT_CONFIGURED: 'ERR_VC_USER_NOT_CONFIGURED',
@@ -19,10 +23,13 @@ export type VcErrorCodeType = (typeof VcErrorCode)[keyof typeof VcErrorCode]
 
 export const VcEvents = {
   ADD: 'vc:add',
+  CLONE: 'vc:clone',
+  CLONE_PROGRESS: 'vc:clone:progress',
   COMMIT: 'vc:commit',
   CONFIG: 'vc:config',
   INIT: 'vc:init',
   LOG: 'vc:log',
+  PULL: 'vc:pull',
   PUSH: 'vc:push',
   REMOTE: 'vc:remote',
   STATUS: 'vc:status',
@@ -81,6 +88,16 @@ export interface IVcPushRequest {
 }
 
 export interface IVcPushResponse {
+  alreadyUpToDate?: boolean
+  branch: string
+}
+
+export interface IVcPullRequest {
+  branch?: string
+}
+
+export interface IVcPullResponse {
+  alreadyUpToDate?: boolean
   branch: string
 }
 
@@ -123,4 +140,22 @@ export interface IVcRemoteRequest {
 export interface IVcRemoteResponse {
   action: VcRemoteSubcommand
   url?: string
+}
+
+export interface IVcCloneRequest {
+  spaceId: string
+  spaceName: string
+  teamId: string
+  teamName: string
+}
+
+export interface IVcCloneResponse {
+  gitDir: string
+  spaceName: string
+  teamName: string
+}
+
+export interface IVcCloneProgressEvent {
+  message: string
+  step: 'cloning' | 'saving'
 }

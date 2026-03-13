@@ -196,7 +196,7 @@ describe('AuthHandler — setupExternalAuthSync', () => {
       expect(stateChangedCall, 'auth:stateChanged should be broadcast').to.exist
       expect(stateChangedCall!.args[1]).to.deep.equal({
         isAuthorized: true,
-        user: {email: 'test@example.com', hasOnboardedCli: true, id: 'user-123'},
+        user: {email: 'test@example.com', hasOnboardedCli: true, id: 'user-123', name: 'Test User'},
       })
     })
 

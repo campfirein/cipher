@@ -4,6 +4,7 @@ import React, {useEffect} from 'react'
 
 import type {CustomDialogCallbacks} from '../../../../types/commands.js'
 
+import {formatTransportError} from '../../../../utils/error-messages.js'
 import {useExecuteVcCommit} from '../api/execute-vc-commit.js'
 
 type VcCommitFlowProps = CustomDialogCallbacks & {
@@ -27,7 +28,7 @@ export function VcCommitFlow({message, onCancel, onComplete}: VcCommitFlowProps)
       {message},
       {
         onError(error) {
-          onComplete(`Failed to commit: ${error.message}`)
+          onComplete(`Failed to commit: ${formatTransportError(error)}`)
         },
         onSuccess(result) {
           onComplete(`[${result.sha.slice(0, 7)}] ${result.message}`)

@@ -11,6 +11,7 @@ import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 import type {ITokenStore} from '../../../../../src/server/core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
 import type {IGitService} from '../../../../../src/server/core/interfaces/services/i-git-service.js'
+import type {IProjectConfigStore} from '../../../../../src/server/core/interfaces/storage/i-project-config-store.js'
 import type {
   ITransportServer,
   RequestHandler,
@@ -19,7 +20,7 @@ import type {IVcGitConfigStore} from '../../../../../src/server/core/interfaces/
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../../../src/server/constants.js'
 import {AuthToken} from '../../../../../src/server/core/domain/entities/auth-token.js'
-import {GitAuthError} from '../../../../../src/server/core/domain/errors/git-error.js'
+import {GitAuthError, GitError} from '../../../../../src/server/core/domain/errors/git-error.js'
 import {VcError} from '../../../../../src/server/core/domain/errors/vc-error.js'
 import {VcHandler} from '../../../../../src/server/infra/transport/handlers/vc-handler.js'
 import {VcErrorCode, VcEvents} from '../../../../../src/shared/transport/events/vc-events.js'
@@ -30,9 +31,11 @@ type Stubbed<T> = {[K in keyof T]: SinonStub & T[K]}
 const CLIENT_ID = 'client-abc'
 
 interface TestDeps {
+  broadcastToProject: SinonStub
   contextTreeDirPath: string
   contextTreeService: Stubbed<IContextTreeService>
   gitService: Stubbed<IGitService>
+  projectConfigStore: Stubbed<IProjectConfigStore>
   requestHandlers: Record<string, RequestHandler>
   resolveProjectPath: SinonStub
   tokenStore: Stubbed<ITokenStore>
@@ -54,6 +57,7 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     add: sandbox.stub().resolves(),
     addRemote: sandbox.stub().resolves(),
     checkout: sandbox.stub().resolves(),
+    clone: sandbox.stub().resolves(),
     commit: sandbox.stub().resolves({
       author: {email: 'test@example.com', name: 'Test User'},
       message: 'test commit',
@@ -109,10 +113,21 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     stop: sandbox.stub().resolves(),
   }
 
+  const broadcastToProject = sandbox.stub()
+
+  const projectConfigStore: Stubbed<IProjectConfigStore> = {
+    exists: sandbox.stub().resolves(false),
+    getModifiedTime: sandbox.stub().resolves(),
+    read: sandbox.stub().resolves(),
+    write: sandbox.stub().resolves(),
+  }
+
   return {
+    broadcastToProject,
     contextTreeDirPath,
     contextTreeService,
     gitService,
+    projectConfigStore,
     requestHandlers,
     resolveProjectPath,
     tokenStore,
@@ -123,8 +138,11 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
 
 function makeVcHandler(deps: TestDeps): VcHandler {
   return new VcHandler({
+    broadcastToProject: deps.broadcastToProject,
+    cogitGitBaseUrl: 'https://test-cogit.byterover.dev',
     contextTreeService: deps.contextTreeService,
     gitService: deps.gitService,
+    projectConfigStore: deps.projectConfigStore,
     resolveProjectPath: deps.resolveProjectPath,
     tokenStore: deps.tokenStore,
     transport: deps.transport,
@@ -146,12 +164,12 @@ describe('VcHandler', () => {
   })
 
   describe('setup()', () => {
-    it('should register vc:add as the first handler', () => {
+    it('should register vc:clone as the first handler', () => {
       const deps = makeDeps(sandbox, projectPath)
       makeVcHandler(deps).setup()
 
       expect(deps.transport.onRequest.called).to.be.true
-      expect(deps.transport.onRequest.firstCall.args[0]).to.equal(VcEvents.ADD)
+      expect(deps.transport.onRequest.firstCall.args[0]).to.equal(VcEvents.CLONE)
     })
 
     it('should register handlers for all vc events', () => {
@@ -159,11 +177,13 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
 
       const registeredEvents = deps.transport.onRequest.args.map((args: unknown[]) => args[0])
+      expect(registeredEvents).to.include(VcEvents.CLONE)
       expect(registeredEvents).to.include(VcEvents.ADD)
       expect(registeredEvents).to.include(VcEvents.COMMIT)
       expect(registeredEvents).to.include(VcEvents.CONFIG)
       expect(registeredEvents).to.include(VcEvents.INIT)
       expect(registeredEvents).to.include(VcEvents.LOG)
+      expect(registeredEvents).to.include(VcEvents.PULL)
       expect(registeredEvents).to.include(VcEvents.PUSH)
       expect(registeredEvents).to.include(VcEvents.REMOTE)
       expect(registeredEvents).to.include(VcEvents.STATUS)
@@ -312,8 +332,9 @@ describe('VcHandler', () => {
     it('should call gitService.add with ["."] by default', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
-      // after add: 1 file staged
-      deps.gitService.status.resolves({files: [{path: 'a.md', staged: true, status: 'added'}], isClean: false})
+      // before add: nothing staged; after add: a.md staged → delta = 1
+      deps.gitService.status.onFirstCall().resolves({files: [], isClean: true})
+      deps.gitService.status.onSecondCall().resolves({files: [{path: 'a.md', staged: true, status: 'added'}], isClean: false})
       makeVcHandler(deps).setup()
 
       const result = await deps.requestHandlers[VcEvents.ADD]({}, CLIENT_ID)
@@ -445,6 +466,62 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(Error)
         expect((error as Error).message).to.include('missing.md')
       }
+    })
+
+    it('should return count=1 when staging an unstaged file deletion', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      // before: file deleted but not yet staged [1,0,1] → {staged: false, status: 'deleted'}
+      deps.gitService.status.onFirstCall().resolves({
+        files: [{path: 'a.md', staged: false, status: 'deleted'}],
+        isClean: false,
+      })
+      // after: deletion staged [1,0,0] → {staged: true, status: 'deleted'}
+      deps.gitService.status.onSecondCall().resolves({
+        files: [{path: 'a.md', staged: true, status: 'deleted'}],
+        isClean: false,
+      })
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.ADD]({filePaths: ['a.md']}, CLIENT_ID)
+
+      expect(result).to.deep.equal({count: 1})
+    })
+
+    it('should return count=0 when re-adding an already staged deletion (no-op)', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      // already staged deletion [1,0,0] before and after — no change
+      deps.gitService.status.resolves({files: [{path: 'a.md', staged: true, status: 'deleted'}], isClean: false})
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.ADD]({filePaths: ['a.md']}, CLIENT_ID)
+
+      expect(result).to.deep.equal({count: 0})
+    })
+
+    it('should return count=1 for partially staged deletion with same untracked path [1,1,0]', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      // [1,1,0] = git rm --cached: staged deletion + file still in workdir (untracked)
+      deps.gitService.status.onFirstCall().resolves({
+        files: [
+          {path: 'a.md', staged: true, status: 'deleted'},
+          {path: 'a.md', staged: false, status: 'untracked'},
+        ],
+        isClean: false,
+      })
+      // after add: file is back in index as staged new file
+      deps.gitService.status.onSecondCall().resolves({
+        files: [{path: 'a.md', staged: true, status: 'added'}],
+        isClean: false,
+      })
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.ADD]({filePaths: ['a.md']}, CLIENT_ID)
+
+      // a.md was in stagedBefore AND in hadUnstagedBefore → counts as 1 (re-staged)
+      expect(result).to.deep.equal({count: 1})
     })
   })
 
@@ -640,7 +717,7 @@ describe('VcHandler', () => {
 
       expect(deps.gitService.push.calledOnce).to.be.true
       expect(deps.gitService.push.firstCall.args[0]).to.deep.include({branch: 'main', remote: 'origin'})
-      expect(result).to.deep.equal({branch: 'main'})
+      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'main'})
     })
 
     it('should push to custom branch when specified', async () => {
@@ -656,7 +733,7 @@ describe('VcHandler', () => {
       const result = await deps.requestHandlers[VcEvents.PUSH]({branch: 'feat/x'}, CLIENT_ID)
 
       expect(deps.gitService.push.firstCall.args[0]).to.deep.include({branch: 'feat/x'})
-      expect(result).to.deep.equal({branch: 'feat/x'})
+      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'feat/x'})
     })
 
     it('should throw VcError NO_REMOTE when no remote configured', async () => {
@@ -787,7 +864,7 @@ describe('VcHandler', () => {
       const result = await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
 
       expect(deps.gitService.push.firstCall.args[0]).to.deep.include({branch: 'feat/my-feature'})
-      expect(result).to.deep.equal({branch: 'feat/my-feature'})
+      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'feat/my-feature'})
     })
 
     it('should fallback to main when getCurrentBranch returns undefined', async () => {
@@ -804,7 +881,7 @@ describe('VcHandler', () => {
       const result = await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
 
       expect(deps.gitService.push.firstCall.args[0]).to.deep.include({branch: 'main'})
-      expect(result).to.deep.equal({branch: 'main'})
+      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'main'})
     })
 
     it('should ignore empty/whitespace branch and use current branch instead', async () => {
@@ -821,7 +898,7 @@ describe('VcHandler', () => {
       const result = await deps.requestHandlers[VcEvents.PUSH]({branch: '   '}, CLIENT_ID)
 
       expect(deps.gitService.push.firstCall.args[0]).to.deep.include({branch: 'develop'})
-      expect(result).to.deep.equal({branch: 'develop'})
+      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'develop'})
     })
 
     it('should throw VcError INVALID_BRANCH_NAME for invalid branch names', async () => {
@@ -848,6 +925,155 @@ describe('VcHandler', () => {
           }
         }),
       )
+    })
+  })
+
+  describe('handlePull', () => {
+    it('should pull from origin/main by default', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.resolves({alreadyUpToDate: false, success: true})
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+
+      expect(deps.gitService.pull.calledOnce).to.be.true
+      expect(deps.gitService.pull.firstCall.args[0]).to.deep.include({branch: 'main', remote: 'origin'})
+      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'main'})
+    })
+
+    it('should pull custom branch when specified', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.resolves({alreadyUpToDate: false, success: true})
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.PULL]({branch: 'feat/x'}, CLIENT_ID)
+
+      expect(deps.gitService.pull.firstCall.args[0]).to.deep.include({branch: 'feat/x'})
+      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'feat/x'})
+    })
+
+    it('should return alreadyUpToDate when no changes', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.resolves({alreadyUpToDate: true, success: true})
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+
+      expect(result).to.deep.equal({alreadyUpToDate: true, branch: 'main'})
+    })
+
+    it('should throw VcError MERGE_CONFLICT when pull has conflicts', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.resolves({conflicts: [{path: 'file.txt'}], success: false})
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.MERGE_CONFLICT)
+          expect(error.message).to.include('file.txt')
+        }
+      }
+    })
+
+    it('should throw VcError GIT_NOT_INITIALIZED when git not initialized', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.GIT_NOT_INITIALIZED)
+        }
+      }
+    })
+
+    it('should throw VcError NO_REMOTE when no remote configured', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([])
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.NO_REMOTE)
+        }
+      }
+    })
+
+    it('should throw VcError AUTH_FAILED when gitService.pull throws GitAuthError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.rejects(new GitAuthError())
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.AUTH_FAILED)
+        }
+      }
+    })
+
+    it('should throw VcError PULL_FAILED with original message for GitError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.rejects(new GitError('You have unresolved merge conflicts.'))
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.PULL_FAILED)
+          expect(error.message).to.equal('You have unresolved merge conflicts.')
+        }
+      }
+    })
+
+    it('should throw VcError PULL_FAILED with original message for unknown errors', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.rejects(new Error('HTTP Error: 500 Internal Server Error'))
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.PULL_FAILED)
+          expect(error.message).to.equal('HTTP Error: 500 Internal Server Error')
+        }
+      }
     })
   })
 

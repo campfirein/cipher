@@ -9,6 +9,7 @@ import type {
   AddRemoteGitParams,
   BaseGitParams,
   CheckoutGitParams,
+  CloneGitParams,
   CommitGitParams,
   CreateBranchGitParams,
   FetchGitParams,
@@ -60,10 +61,55 @@ export class IsomorphicGitService implements IGitService {
 
   async add(params: AddGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
-    const results = await Promise.allSettled(params.filePaths.map((filepath) => git.add({dir, filepath, fs})))
+
+    // Identify deleted files (exist in HEAD + index but not on disk: [1,0,1])
+    // git.add() silently ignores missing files; git.remove() is required to stage deletions
+    const matrix = await git.statusMatrix({dir, fs})
+    // Covers [1,0,1] (unstaged deletion) and [1,0,2] (post-merge-conflict absent file).
+    // stage !== 0 excludes [1,0,0] which is already staged as deletion — no git.remove() needed.
+    const deletedInIndex = new Set(
+      matrix
+        .filter(([, head, workdir, stage]) => head === 1 && workdir === 0 && stage !== 0)
+        .map(([filepath]) => String(filepath)),
+    )
+
+    // Files not present on disk at all (workdir=0): covers both [1,0,1] (unstaged deletion)
+    // and [1,0,0] (already staged deletion). git.add() on these exact paths throws; skip toAdd.
+    const notOnDisk = new Set(matrix.filter((row) => row[2] === 0).map((row) => String(row[0])))
+
+    const toRemove: string[] = []
+    const toAdd: string[] = []
+
+    for (const rp of params.filePaths) {
+      const matchesDelete = (filepath: string) => {
+        if (rp === '.') return true
+        if (filepath === rp) return true
+        const prefix = rp.endsWith('/') ? rp : `${rp}/`
+        return filepath.startsWith(prefix)
+      }
+
+      for (const deleted of deletedInIndex) {
+        if (matchesDelete(deleted)) toRemove.push(deleted)
+      }
+
+      // Don't call git.add() for exact paths not on disk — git.remove() handles [1,0,1] above,
+      // and [1,0,0] (already staged deletion) needs no further action.
+      // git.add('.') and directory patterns are fine (silently skip missing files).
+      if (!notOnDisk.has(rp)) {
+        toAdd.push(rp)
+      }
+    }
+
+    const results = await Promise.allSettled([
+      ...toRemove.map((filepath) => git.remove({dir, filepath, fs})),
+      ...toAdd.map((filepath) => git.add({dir, filepath, fs})),
+    ])
+
+    const allPaths = [...toRemove, ...toAdd]
     const failed = results
-      .map((r, i) => ({path: params.filePaths[i], result: r}))
+      .map((r, i) => ({path: allPaths[i], result: r}))
       .filter((x): x is {path: string; result: PromiseRejectedResult} => x.result.status === 'rejected')
+
     if (failed.length > 0) {
       const paths = failed.map((f) => f.path).join(', ')
       throw new GitError(`Failed to stage: ${paths}`)
@@ -80,14 +126,52 @@ export class IsomorphicGitService implements IGitService {
     await git.checkout({dir, fs, ref: params.ref})
   }
 
+  async clone(params: CloneGitParams): Promise<void> {
+    const dir = this.requireDirectory(params)
+    const token = this.requireToken()
+    await git.clone({
+      dir,
+      fs,
+      headers: this.buildBasicAuthHeaders(token.userId, token.sessionKey),
+      http,
+      onAuth: this.getOnAuth(),
+      onAuthFailure: this.getOnAuthFailure(),
+      onProgress: params.onProgress,
+      url: params.url,
+    })
+  }
+
   async commit(params: CommitGitParams): Promise<GitCommit> {
     const dir = this.requireDirectory(params)
     const author = params.author ?? this.getAuthor()
-    const sha = await git.commit({author, dir, fs, message: params.message})
+
+    // If MERGE_HEAD exists, create a proper merge commit with two parents
+    const mergeHeadPath = join(dir, '.git', 'MERGE_HEAD')
+    const mergeHeadContent = await fs.promises.readFile(mergeHeadPath, 'utf8').catch(() => null)
+    const mergeHead = mergeHeadContent?.trim() ?? null
+
+    let parent: string[] | undefined
+    if (mergeHead) {
+      const headSha = await git.resolveRef({dir, fs, ref: 'HEAD'})
+      parent = [headSha, mergeHead]
+    }
+
+    let sha: string
+    try {
+      sha = await git.commit({author, dir, fs, message: params.message, ...(parent ? {parent} : {})})
+    } catch (error) {
+      if (error instanceof git.Errors.UnmergedPathsError) {
+        const paths = error.data.filepaths.join(', ')
+        throw new GitError(`Unmerged files must be resolved before committing: ${paths}`)
+      }
+
+      throw error
+    }
+
     const {commit: commitObj} = await git.readCommit({dir, fs, oid: sha})
 
-    // Clean up MERGE_HEAD if present (isomorphic-git does not remove it automatically)
-    await fs.promises.unlink(join(dir, '.git', 'MERGE_HEAD')).catch(() => {})
+    // Clean up MERGE_HEAD (isomorphic-git does not remove it automatically)
+    await fs.promises.unlink(mergeHeadPath).catch(() => {})
 
     return {
       author,
@@ -243,6 +327,17 @@ export class IsomorphicGitService implements IGitService {
     const token = this.requireToken()
     const remote = params.remote ?? 'origin'
 
+    // Guard: if MERGE_HEAD exists, a previous merge is unresolved — refuse to pull
+    const hasPendingMerge = await fs.promises
+      .readFile(join(dir, '.git', 'MERGE_HEAD'), 'utf8')
+      .then(() => true)
+      .catch(() => false)
+    if (hasPendingMerge) {
+      throw new GitError(
+        'You have unresolved merge conflicts. Resolve them, stage the files, and commit before pulling again.',
+      )
+    }
+
     // Fetch from remote
     await git.fetch({
       dir,
@@ -259,9 +354,44 @@ export class IsomorphicGitService implements IGitService {
     const localBranch = params.branch ?? (await this.getCurrentBranch(params))
     if (!localBranch) throw new GitError('Cannot determine branch for pull')
 
+    // After fetch, check if already up to date
+    const localSha = await git.resolveRef({dir, fs, ref: `refs/heads/${localBranch}`}).catch(() => null)
+    const remoteSha = await git.resolveRef({dir, fs, ref: `refs/remotes/${remote}/${localBranch}`}).catch(() => null)
+    if (localSha && remoteSha && localSha === remoteSha) {
+      return {alreadyUpToDate: true, success: true}
+    }
+
+    // Step 2: working tree safety check (isomorphic-git does not do this automatically)
+    // Abort if any dirty local file would be overwritten by the incoming changes
+    if (localSha && remoteSha) {
+      const matrix = await git.statusMatrix({dir, fs})
+      const dirtyFiles = matrix.filter((row) => row[2] !== 1 || row[3] !== 1).map((row) => String(row[0]))
+
+      const localRef = localSha
+      const remoteRef = remoteSha
+      const wouldBeOverwritten = await Promise.all(
+        dirtyFiles.map(async (filepath) => {
+          const [localFileOid, remoteFileOid] = await Promise.all([
+            git
+              .readBlob({dir, filepath, fs, oid: localRef})
+              .then((r) => r.oid)
+              .catch(() => null),
+            git
+              .readBlob({dir, filepath, fs, oid: remoteRef})
+              .then((r) => r.oid)
+              .catch(() => null),
+          ])
+          return localFileOid !== remoteFileOid
+        }),
+      )
+      if (wouldBeOverwritten.some(Boolean)) {
+        throw new GitError('Local changes would be overwritten by pull. Commit or discard your changes first.')
+      }
+    }
+
     const author = this.getAuthor()
     try {
-      await git.merge({
+      const mergeResult = await git.merge({
         abortOnConflict: false,
         author,
         committer: author,
@@ -269,13 +399,24 @@ export class IsomorphicGitService implements IGitService {
         fs,
         theirs: `${remote}/${localBranch}`,
       })
-      return {success: true}
+      // isomorphic-git merge only updates refs/commits — checkout to apply file changes to workdir.
+      await git.checkout({dir, fs, ref: localBranch})
+      return {alreadyUpToDate: mergeResult.alreadyMerged, success: true}
     } catch (error) {
       if (error instanceof git.Errors.MergeConflictError) {
         // isomorphic-git does not write MERGE_HEAD — write it so getConflicts() works post-restart
         const theirsOid = await git.resolveRef({dir, fs, ref: `refs/remotes/${remote}/${localBranch}`})
         await fs.promises.writeFile(join(dir, '.git', 'MERGE_HEAD'), `${theirsOid}\n`)
         return {conflicts: this.conflictsFromError(error), success: false}
+      }
+
+      if (error instanceof git.Errors.CheckoutConflictError) {
+        // Undo the merge commit — restore HEAD to pre-merge state so repo is left clean
+        if (localSha) {
+          await git.writeRef({dir, force: true, fs, ref: `refs/heads/${localBranch}`, value: localSha})
+        }
+
+        throw new GitError('Local changes would be overwritten by pull. Commit or discard your changes first.')
       }
 
       throw error
@@ -286,6 +427,15 @@ export class IsomorphicGitService implements IGitService {
     const dir = this.requireDirectory(params)
     const token = this.requireToken()
     try {
+      const branch = params.branch ?? (await git.currentBranch({dir, fs})) ?? 'main'
+      const remote = params.remote ?? 'origin'
+
+      const localSha = await git.resolveRef({dir, fs, ref: `refs/heads/${branch}`}).catch(() => null)
+      const remoteSha = await git.resolveRef({dir, fs, ref: `refs/remotes/${remote}/${branch}`}).catch(() => null)
+      if (localSha && remoteSha && localSha === remoteSha) {
+        return {alreadyUpToDate: true, success: true}
+      }
+
       await git.push({
         dir,
         fs,
@@ -294,9 +444,9 @@ export class IsomorphicGitService implements IGitService {
         onAuth: this.getOnAuth(),
         onAuthFailure: this.getOnAuthFailure(),
         ref: params.branch,
-        remote: params.remote ?? 'origin',
+        remote,
       })
-      return {success: true}
+      return {alreadyUpToDate: false, success: true}
     } catch (error) {
       if (error instanceof git.Errors.PushRejectedError) {
         return {message: error.message, reason: 'non_fast_forward', success: false}
@@ -350,7 +500,7 @@ export class IsomorphicGitService implements IGitService {
     if (!token) throw new GitAuthError()
     return {
       email: token.userEmail,
-      name: token.userEmail,
+      name: token.userName ?? token.userEmail,
     }
   }
 
@@ -380,6 +530,8 @@ export class IsomorphicGitService implements IGitService {
         files.push({path, staged: true, status: 'deleted'}) // [1,0,0] staged deletion (git rm)
       } else if (head === 1 && workdir === 0 && stage === 1) {
         files.push({path, staged: false, status: 'deleted'}) // [1,0,1] unstaged deletion (rm without git rm)
+      } else if (head === 1 && workdir === 0 && stage === 2) {
+        files.push({path, staged: false, status: 'deleted'}) // [1,0,2] absent from disk, index differs from HEAD (e.g. post-merge-conflict)
       } else if (head === 1 && workdir === 1 && stage === 0) {
         files.push({path, staged: true, status: 'deleted'}, {path, staged: false, status: 'untracked'}) // [1,1,0] git rm --cached: staged deletion + file still in workdir → untracked
       } else if (head === 1 && workdir === 2 && stage === 1) {

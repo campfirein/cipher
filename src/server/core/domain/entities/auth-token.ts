@@ -6,6 +6,7 @@ export type AuthTokenParams = {
   tokenType?: string
   userEmail: string
   userId: string
+  userName?: string
 }
 
 /**
@@ -19,6 +20,7 @@ export class AuthToken {
   public readonly tokenType: string
   public readonly userEmail: string
   public readonly userId: string
+  public readonly userName?: string
 
   public constructor(params: AuthTokenParams) {
     this.accessToken = params.accessToken
@@ -28,6 +30,7 @@ export class AuthToken {
     this.tokenType = params.tokenType ?? 'Bearer'
     this.userId = params.userId
     this.userEmail = params.userEmail
+    this.userName = params.userName
   }
 
   /**
@@ -52,6 +55,7 @@ export class AuthToken {
       tokenType: json.tokenType,
       userEmail: json.userEmail,
       userId: json.userId,
+      userName: json.userName || undefined,
     })
   }
 
@@ -76,7 +80,7 @@ export class AuthToken {
    * @returns A JSON object representing the AuthToken
    */
   public toJson(): Record<string, string> {
-    return {
+    const json: Record<string, string> = {
       accessToken: this.accessToken,
       expiresAt: this.expiresAt.toISOString(),
       refreshToken: this.refreshToken,
@@ -85,5 +89,7 @@ export class AuthToken {
       userEmail: this.userEmail,
       userId: this.userId,
     }
+    if (this.userName) json.userName = this.userName
+    return json
   }
 }

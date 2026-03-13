@@ -29,7 +29,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_VC_NOTHING_TO_PUSH: 'No commits to push. Run /vc add and /vc commit first.',
   ERR_VC_PUSH_FAILED: 'Push failed. Check your connection and try again.',
   ERR_VC_REMOTE_ALREADY_EXISTS: "Remote 'origin' already exists. Use /vc remote set-url <url> to update.",
-  ERR_VC_USER_NOT_CONFIGURED: 'Commit author not configured. Run /vc config user.name and /vc config user.email.',
+  // ERR_VC_USER_NOT_CONFIGURED intentionally omitted: fall through to server's specific hint with actual values
 }
 
 /**
@@ -59,5 +59,5 @@ export function formatTransportError(error: unknown): string {
     return USER_FRIENDLY_MESSAGES[code]
   }
 
-  return error.message.replace(/ for event '[^']+'$/, '')
+  return error.message.replace(/ for event '[^']+'$/, '').replaceAll(/\bbrv vc /g, '/vc ')
 }

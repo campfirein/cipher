@@ -3,12 +3,16 @@ import {join} from 'node:path'
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
 import type {GitCommit, IGitService} from '../../../core/interfaces/services/i-git-service.js'
+import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 import type {IVcGitConfig, IVcGitConfigStore} from '../../../core/interfaces/vc/i-vc-git-config-store.js'
 
 import {
   type IVcAddRequest,
   type IVcAddResponse,
+  type IVcCloneProgressEvent,
+  type IVcCloneRequest,
+  type IVcCloneResponse,
   type IVcCommitRequest,
   type IVcCommitResponse,
   type IVcConfigRequest,
@@ -16,6 +20,8 @@ import {
   type IVcInitResponse,
   type IVcLogRequest,
   type IVcLogResponse,
+  type IVcPullRequest,
+  type IVcPullResponse,
   type IVcPushRequest,
   type IVcPushResponse,
   type IVcRemoteRequest,
@@ -24,9 +30,13 @@ import {
   VcErrorCode,
   VcEvents,
 } from '../../../../shared/transport/events/vc-events.js'
-import {GitAuthError} from '../../../core/domain/errors/git-error.js'
+import {BrvConfig} from '../../../core/domain/entities/brv-config.js'
+import {Space} from '../../../core/domain/entities/space.js'
+import {GitAuthError, GitError} from '../../../core/domain/errors/git-error.js'
+import {NotAuthenticatedError} from '../../../core/domain/errors/task-error.js'
 import {VcError} from '../../../core/domain/errors/vc-error.js'
-import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
+import {buildCogitRemoteUrl} from '../../git/cogit-url.js'
+import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 const FIELD_MAP: Record<string, 'email' | 'name'> = {
   'user.email': 'email',
@@ -34,8 +44,11 @@ const FIELD_MAP: Record<string, 'email' | 'name'> = {
 }
 
 export interface IVcHandlerDeps {
+  broadcastToProject: ProjectBroadcaster
+  cogitGitBaseUrl: string
   contextTreeService: IContextTreeService
   gitService: IGitService
+  projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
   tokenStore: ITokenStore
   transport: ITransportServer
@@ -46,16 +59,22 @@ export interface IVcHandlerDeps {
  * Handles vc:* events (Version Control commands).
  */
 export class VcHandler {
+  private readonly broadcastToProject: ProjectBroadcaster
+  private readonly cogitGitBaseUrl: string
   private readonly contextTreeService: IContextTreeService
   private readonly gitService: IGitService
+  private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
   private readonly tokenStore: ITokenStore
   private readonly transport: ITransportServer
   private readonly vcGitConfigStore: IVcGitConfigStore
 
   constructor(deps: IVcHandlerDeps) {
+    this.broadcastToProject = deps.broadcastToProject
+    this.cogitGitBaseUrl = deps.cogitGitBaseUrl
     this.contextTreeService = deps.contextTreeService
     this.gitService = deps.gitService
+    this.projectConfigStore = deps.projectConfigStore
     this.resolveProjectPath = deps.resolveProjectPath
     this.tokenStore = deps.tokenStore
     this.transport = deps.transport
@@ -63,6 +82,9 @@ export class VcHandler {
   }
 
   setup(): void {
+    this.transport.onRequest<IVcCloneRequest, IVcCloneResponse>(VcEvents.CLONE, (data, clientId) =>
+      this.handleClone(data, clientId),
+    )
     this.transport.onRequest<IVcAddRequest, IVcAddResponse>(VcEvents.ADD, (data, clientId) =>
       this.handleAdd(data, clientId),
     )
@@ -75,6 +97,9 @@ export class VcHandler {
     this.transport.onRequest<void, IVcInitResponse>(VcEvents.INIT, (_data, clientId) => this.handleInit(clientId))
     this.transport.onRequest<IVcLogRequest, IVcLogResponse>(VcEvents.LOG, (data, clientId) =>
       this.handleLog(data, clientId),
+    )
+    this.transport.onRequest<IVcPullRequest, IVcPullResponse>(VcEvents.PULL, (data, clientId) =>
+      this.handlePull(data, clientId),
     )
     this.transport.onRequest<IVcPushRequest, IVcPushResponse>(VcEvents.PUSH, (data, clientId) =>
       this.handlePush(data, clientId),
@@ -90,8 +115,8 @@ export class VcHandler {
       const token = await this.tokenStore.load()
       if (token?.isValid()) {
         const email = existing?.email ?? token.userEmail
-        const name = existing?.name ?? token.userEmail
-        return `Run: brv vc config user.name "${name}" and brv vc config user.email "${email}".`
+        const name = existing?.name ?? token.userName ?? token.userEmail
+        return `Run: brv vc config user.name '${name}' and brv vc config user.email '${email}'.`
       }
     } catch {
       // not logged in
@@ -109,12 +134,81 @@ export class VcHandler {
       throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
     }
 
+    const statusBefore = await this.gitService.status({directory})
+    const stagedBefore = new Set(statusBefore.files.filter((f) => f.staged).map((f) => f.path))
+    const hadUnstagedBefore = new Set(statusBefore.files.filter((f) => !f.staged).map((f) => f.path))
+
     await this.gitService.add({directory, filePaths: data.filePaths ?? ['.']})
 
     const statusAfter = await this.gitService.status({directory})
-    const count = statusAfter.files.filter((f) => f.staged).length
+    const count = statusAfter.files.filter(
+      (f) => f.staged && (!stagedBefore.has(f.path) || hadUnstagedBefore.has(f.path)),
+    ).length
 
     return {count}
+  }
+
+  private async handleClone(data: IVcCloneRequest, clientId: string): Promise<IVcCloneResponse> {
+    const token = await this.tokenStore.load()
+    if (!token?.isValid()) throw new NotAuthenticatedError()
+
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const contextTreeDir = this.contextTreeService.resolvePath(projectPath)
+
+    if (await this.gitService.isInitialized({directory: contextTreeDir})) {
+      throw new VcError('Already initialized. Use /vc pull to sync.', VcErrorCode.ALREADY_INITIALIZED)
+    }
+
+    const url = buildCogitRemoteUrl(this.cogitGitBaseUrl, data.teamId, data.spaceId)
+
+    try {
+      await this.contextTreeService.initialize(projectPath)
+
+      this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
+        message: `Cloning from ${data.teamName}/${data.spaceName}...`,
+        step: 'cloning',
+      })
+
+      await this.gitService.clone({
+        directory: contextTreeDir,
+        onProgress: ({loaded, phase, total}) => {
+          this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
+            message: `${phase}: ${loaded}${total === undefined ? '' : `/${total}`}`,
+            step: 'cloning',
+          })
+        },
+        url,
+      })
+
+      this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
+        message: 'Saving configuration...',
+        step: 'saving',
+      })
+
+      const space = new Space({
+        id: data.spaceId,
+        isDefault: false,
+        name: data.spaceName,
+        teamId: data.teamId,
+        teamName: data.teamName,
+      })
+      const existing = await this.projectConfigStore.read(projectPath)
+      const updated = existing ? existing.withSpace(space) : BrvConfig.partialFromSpace({space})
+      await this.projectConfigStore.write(updated, projectPath)
+    } catch (error) {
+      if (error instanceof GitAuthError) {
+        throw new VcError('Authentication failed. Run /login.', VcErrorCode.AUTH_FAILED)
+      }
+
+      const msg = error instanceof Error ? error.message : String(error)
+      throw new VcError(`Clone failed: ${msg}`, VcErrorCode.CLONE_FAILED)
+    }
+
+    return {
+      gitDir: join(contextTreeDir, '.git'),
+      spaceName: data.spaceName,
+      teamName: data.teamName,
+    }
   }
 
   private async handleCommit(data: IVcCommitRequest, clientId: string): Promise<IVcCommitResponse> {
@@ -212,6 +306,48 @@ export class VcHandler {
     }
   }
 
+  private async handlePull(data: IVcPullRequest, clientId: string): Promise<IVcPullResponse> {
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const directory = this.contextTreeService.resolvePath(projectPath)
+
+    const gitInitialized = await this.gitService.isInitialized({directory})
+    if (!gitInitialized) {
+      throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
+    }
+
+    const remotes = await this.gitService.listRemotes({directory})
+    if (remotes.length === 0) {
+      throw new VcError('No remote configured.', VcErrorCode.NO_REMOTE)
+    }
+
+    const branch = await this.resolveTargetBranch(data.branch, directory)
+
+    let alreadyUpToDate = false
+    try {
+      const result = await this.gitService.pull({branch, directory, remote: 'origin'})
+      if (!result.success) {
+        const paths = result.conflicts.map((c) => c.path).join(', ')
+        throw new VcError(`Merge conflicts in: ${paths}`, VcErrorCode.MERGE_CONFLICT)
+      }
+
+      alreadyUpToDate = result.alreadyUpToDate ?? false
+    } catch (error) {
+      if (error instanceof VcError) throw error
+      if (error instanceof GitAuthError) {
+        throw new VcError('Authentication failed. Run /login.', VcErrorCode.AUTH_FAILED)
+      }
+
+      if (error instanceof GitError) {
+        throw new VcError(error.message, VcErrorCode.PULL_FAILED)
+      }
+
+      const message = error instanceof Error ? error.message : 'Pull failed. Check your connection and try again.'
+      throw new VcError(message, VcErrorCode.PULL_FAILED)
+    }
+
+    return {alreadyUpToDate, branch}
+  }
+
   private async handlePush(data: IVcPushRequest, clientId: string): Promise<IVcPushResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
     const directory = this.contextTreeService.resolvePath(projectPath)
@@ -233,21 +369,25 @@ export class VcHandler {
 
     const branch = await this.resolveTargetBranch(data.branch, directory)
 
+    let alreadyUpToDate = false
     try {
       const result = await this.gitService.push({branch, directory, remote: 'origin'})
       if (!result.success && result.reason === 'non_fast_forward') {
         throw new VcError('Remote has changes.', VcErrorCode.NON_FAST_FORWARD)
       }
+
+      if (result.success) alreadyUpToDate = result.alreadyUpToDate ?? false
     } catch (error) {
       if (error instanceof VcError) throw error
       if (error instanceof GitAuthError) {
         throw new VcError('Authentication failed. Run /login.', VcErrorCode.AUTH_FAILED)
       }
 
-      throw new VcError('Push failed. Check your connection and try again.', VcErrorCode.PUSH_FAILED)
+      const message = error instanceof Error ? error.message : 'Push failed. Check your connection and try again.'
+      throw new VcError(message, VcErrorCode.PUSH_FAILED)
     }
 
-    return {branch}
+    return {alreadyUpToDate, branch}
   }
 
   private async handleRemote(data: IVcRemoteRequest, clientId: string): Promise<IVcRemoteResponse> {
@@ -384,7 +524,9 @@ export class VcHandler {
 }
 
 function isValidBranchName(name: string): boolean {
-  if (name.startsWith('-')) return false
+  if (name.startsWith('-') || name.startsWith('.')) return false
+  if (name.endsWith('.lock') || name.endsWith('/') || name.endsWith('.')) return false
+  if (name.includes('//') || name.includes('@{') || name.includes(' ')) return false
   // eslint-disable-next-line no-control-regex
   return !/\.\.|[~^:?*[\\\u0000-\u001F\u007F]/.test(name)
 }

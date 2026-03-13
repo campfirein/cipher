@@ -12,7 +12,7 @@ const vcCommitFlags = {
 export const vcCommitSubCommand: SlashCommand = {
   async action(_context, rawArgs) {
     const parsed = await parseReplArgs(rawArgs, {flags: vcCommitFlags, strict: false})
-    const {message} = parsed.flags
+    const message = parsed.flags.message ?? parsed.argv[0]
 
     if (!message) {
       const errorMsg: MessageActionReturn = {
