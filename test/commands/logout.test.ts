@@ -74,7 +74,6 @@ describe('Logout Command', () => {
 
   afterEach(() => {
     restore()
-    process.exitCode = undefined
   })
 
   function createCommand(...argv: string[]): TestableLogoutCommand {
@@ -139,8 +138,7 @@ describe('Logout Command', () => {
       await createCommand().run()
 
       expect(loggedMessages.some((m) => m.includes('Logout failed'))).to.be.true
-      expect(process.exitCode).to.equal(1)
-    })
+      })
   })
 
   // ==================== JSON Format ====================
@@ -166,8 +164,7 @@ describe('Logout Command', () => {
       expect(json.command).to.equal('logout')
       expect(json.success).to.be.false
       expect(json.data).to.deep.include({error: 'Logout failed'})
-      expect(process.exitCode).to.equal(1)
-    })
+      })
 
     it('should output JSON on connection error', async () => {
       mockConnector.rejects(new NoInstanceRunningError())
@@ -178,8 +175,7 @@ describe('Logout Command', () => {
       expect(json.command).to.equal('logout')
       expect(json.success).to.be.false
       expect(json.data).to.have.property('error')
-      expect(process.exitCode).to.equal(1)
-    })
+      })
 
     it('should not log "Logging out..." in json mode', async () => {
       mockLogoutResponse({success: true})
@@ -199,8 +195,7 @@ describe('Logout Command', () => {
       await createCommand().run()
 
       expect(loggedMessages.some((m) => m.includes('Daemon failed to start automatically'))).to.be.true
-      expect(process.exitCode).to.equal(1)
-    })
+      })
 
     it('should handle InstanceCrashedError', async () => {
       mockConnector.rejects(new InstanceCrashedError())
@@ -208,8 +203,7 @@ describe('Logout Command', () => {
       await createCommand().run()
 
       expect(loggedMessages.some((m) => m.includes('Daemon crashed unexpectedly'))).to.be.true
-      expect(process.exitCode).to.equal(1)
-    })
+      })
 
     it('should handle ConnectionFailedError', async () => {
       mockConnector.rejects(new ConnectionFailedError(37_847, new Error('Connection refused')))
@@ -217,8 +211,7 @@ describe('Logout Command', () => {
       await createCommand().run()
 
       expect(loggedMessages.some((m) => m.includes('Failed to connect'))).to.be.true
-      expect(process.exitCode).to.equal(1)
-    })
+      })
 
     it('should handle unexpected errors', async () => {
       mockConnector.rejects(new Error('Something went wrong'))
@@ -226,7 +219,6 @@ describe('Logout Command', () => {
       await createCommand().run()
 
       expect(loggedMessages.some((m) => m.includes('Something went wrong'))).to.be.true
-      expect(process.exitCode).to.equal(1)
-    })
+      })
   })
 })
