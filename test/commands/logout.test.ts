@@ -137,7 +137,14 @@ describe('Logout Command', () => {
 
       expect(loggedMessages.some((m) => m.includes('Logout failed'))).to.be.true
     })
-  })
+    it('should display error message when logout fails', async () => {
+      mockLogoutResponse({success: false})
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Logout failed'))).to.be.true
+      expect(process.exitCode).to.equal(1)
+    })
 
   // ==================== JSON Format ====================
 
