@@ -2,6 +2,18 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.1.4]
+
+### Fixed
+
+- **Local Ollama and OpenAI-compatible providers work without an API key** — Providers that do not require an API key (e.g. local Ollama) no longer trigger a "provider key missing" error. Only providers that actually require a key are flagged when one is absent.
+
+## [2.1.3]
+
+### Fixed
+
+- **`brv restart` killing itself and hanging terminal** — Fixed an issue where `brv restart` could kill its own parent shell wrapper process (used by native binary installations via `install.sh`), causing garbled terminal output and hangs. The restart command now also force-exits after completion to prevent stale oclif plugin handles from blocking the process.
+
 ## [2.1.2]
 
 ### Changed
