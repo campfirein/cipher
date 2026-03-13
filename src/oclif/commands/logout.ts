@@ -51,8 +51,6 @@ export default class Logout extends Command {
         } else {
           this.log(errorMessage)
         }
-
-        process.exitCode = 0
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Logout failed'
@@ -62,8 +60,6 @@ export default class Logout extends Command {
       } else {
         this.log(formatConnectionError(error))
       }
-
-      process.exitCode = 0
     }
   }
 }
