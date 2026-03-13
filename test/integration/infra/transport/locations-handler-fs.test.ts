@@ -4,6 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {stub} from 'sinon'
 
+import {FileContextTreeService} from '../../../../src/server/infra/context-tree/file-context-tree-service.js'
 import {LocationsHandler} from '../../../../src/server/infra/transport/handlers/locations-handler.js'
 import {LocationsEvents} from '../../../../src/shared/transport/events/locations-events.js'
 import {createMockTransportServer, type MockTransportServer} from '../../../helpers/mock-factories.js'
@@ -22,7 +23,7 @@ describe('LocationsHandler — real FS', () => {
 
   function makeRealHandler(transport: MockTransportServer): LocationsHandler {
     const registry = new Map([[projectPath, {projectPath, registeredAt: 1000, sanitizedPath: 's', storagePath: '/s'}]])
-    const contextTreeService = {delete: stub(), exists: stub().resolves(true), initialize: stub()}
+    const contextTreeService = new FileContextTreeService()
     const projectRegistry = {get: stub(), getAll: stub().returns(registry), register: stub(), unregister: stub()}
     const resolveProjectPath = stub().returns(projectPath)
 
@@ -62,5 +63,17 @@ describe('LocationsHandler — real FS', () => {
     const result = await getHandler!(undefined, 'client-1')
 
     expect(result.locations[0].isInitialized).to.be.true
+  })
+
+  it('should return isInitialized=false when context-tree directory does not exist', async () => {
+    projectPath = await mkdtemp(join(tmpdir(), 'brv-ct-none-'))
+
+    const transport = createMockTransportServer()
+    makeRealHandler(transport)
+
+    const getHandler = transport._handlers.get(LocationsEvents.GET)
+    const result = await getHandler!(undefined, 'client-1')
+
+    expect(result.locations[0].isInitialized).to.be.false
   })
 })

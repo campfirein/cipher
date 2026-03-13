@@ -176,7 +176,7 @@ describe('LocationsHandler', () => {
       expect(locations[0].isActive).to.be.true
     })
 
-    it('should set isActive=false when getActiveProjectPaths returns empty array', async () => {
+    it('should set isActive=false for non-current project not in active paths', async () => {
       const registry = new Map([['/project/a', makeProjectInfo('/project/a', 1000)]])
       deps.projectRegistry.getAll.returns(registry)
 
