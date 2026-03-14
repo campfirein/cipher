@@ -34,6 +34,7 @@ type ProviderCallbackServerOptions = {
 export class ProviderCallbackServer {
   private readonly callbackPath: string
   private readonly connections = new Set<Socket>()
+  private isStopping = false
   private onCallback: ((code: string, state: string) => void) | undefined
   private onError: ((error: Error) => void) | undefined
   private pendingTimeout: ReturnType<typeof setTimeout> | undefined
@@ -69,7 +70,7 @@ export class ProviderCallbackServer {
 
       this.server.on('error', reject)
 
-      this.server.listen(this.port, () => {
+      this.server.listen(this.port, '127.0.0.1', () => {
         const address = this.server?.address()
         if (address !== null && address !== undefined && typeof address !== 'string') {
           resolve(address.port)
@@ -81,8 +82,14 @@ export class ProviderCallbackServer {
   }
 
   public async stop(): Promise<void> {
+    if (this.isStopping) return
+
+    this.isStopping = true
+
     // Reject any pending waitForCallback promise so consumers don't hang
     this.onError?.(new ProviderOAuthError('Callback server was stopped'))
+    this.onCallback = undefined
+    this.onError = undefined
 
     if (this.pendingTimeout !== undefined) {
       clearTimeout(this.pendingTimeout)
@@ -91,6 +98,7 @@ export class ProviderCallbackServer {
 
     return new Promise((resolve) => {
       if (this.server === undefined) {
+        this.isStopping = false
         resolve()
         return
       }
@@ -103,12 +111,17 @@ export class ProviderCallbackServer {
 
       this.server.close(() => {
         this.server = undefined
+        this.isStopping = false
         resolve()
       })
     })
   }
 
   public waitForCallback(expectedState: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<ProviderCallbackResult> {
+    if (this.onCallback !== undefined) {
+      return Promise.reject(new ProviderOAuthError('A callback is already pending'))
+    }
+
     const promise = new Promise<ProviderCallbackResult>((resolve, reject) => {
       let settled = false
 

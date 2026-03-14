@@ -44,10 +44,16 @@ export async function exchangeCodeForTokens(params: TokenExchangeParams): Promis
         headers: {
           'Content-Type': params.contentType,
         },
+        timeout: 30_000,
       },
     )
 
-    return response.data
+    const {data} = response
+    if (typeof data.access_token !== 'string' || data.access_token === '') {
+      throw new ProviderTokenExchangeError({message: 'Invalid token response: missing access_token'})
+    }
+
+    return data
   } catch (error) {
     if (isAxiosError(error)) {
       const data: unknown = error.response?.data
