@@ -214,6 +214,34 @@ describe('exchangeCodeForTokens', () => {
       }
     })
 
+    it('should throw ProviderTokenExchangeError when access_token is missing', async () => {
+      nock(basePath).post(tokenPath).reply(200, {token_type: 'Bearer'})
+
+      try {
+        await exchangeCodeForTokens(baseParams)
+        expect.fail('Should have thrown an error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(ProviderTokenExchangeError)
+        if (error instanceof ProviderTokenExchangeError) {
+          expect(error.message).to.include('access_token')
+        }
+      }
+    })
+
+    it('should throw ProviderTokenExchangeError when access_token is empty', async () => {
+      nock(basePath).post(tokenPath).reply(200, {access_token: '', token_type: 'Bearer'})
+
+      try {
+        await exchangeCodeForTokens(baseParams)
+        expect.fail('Should have thrown an error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(ProviderTokenExchangeError)
+        if (error instanceof ProviderTokenExchangeError) {
+          expect(error.message).to.include('access_token')
+        }
+      }
+    })
+
     it('should re-throw non-Axios errors', async () => {
       nock(basePath).post(tokenPath).reply(200, tokenResponse)
 

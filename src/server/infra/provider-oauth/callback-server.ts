@@ -56,6 +56,11 @@ export class ProviderCallbackServer {
   }
 
   public async start(): Promise<number> {
+    const address = this.getAddress()
+    if (address !== undefined) {
+      return address.port
+    }
+
     return new Promise((resolve, reject) => {
       this.server = http.createServer((req, res) => {
         this.handleRequest(req, res)
@@ -182,6 +187,8 @@ export class ProviderCallbackServer {
       res.writeHead(400, {'Content-Type': 'text/html'})
       res.end(`<html><body><h1>Authentication failed</h1><p>${escapeHtml(errorDescription ?? error)}</p></body></html>`)
       this.onError?.(new ProviderCallbackOAuthError(error, errorDescription ?? undefined))
+      this.onCallback = undefined
+      this.onError = undefined
       return
     }
 
@@ -189,11 +196,15 @@ export class ProviderCallbackServer {
       res.writeHead(400, {'Content-Type': 'text/html'})
       res.end('<html><body><h1>Authentication failed</h1><p>Missing code or state parameter</p></body></html>')
       this.onError?.(new ProviderOAuthError('Missing code or state parameter'))
+      this.onCallback = undefined
+      this.onError = undefined
       return
     }
 
     res.writeHead(200, {'Content-Type': 'text/html'})
     res.end(SUCCESS_HTML)
     this.onCallback?.(code, state)
+    this.onCallback = undefined
+    this.onError = undefined
   }
 }
