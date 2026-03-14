@@ -36,8 +36,9 @@ export async function exchangeCodeForTokens(params: TokenExchangeParams): Promis
     body.client_secret = params.clientSecret
   }
 
+  let response: Awaited<ReturnType<typeof axios.post<ProviderTokenResponse>>>
   try {
-    const response = await axios.post<ProviderTokenResponse>(
+    response = await axios.post<ProviderTokenResponse>(
       params.tokenUrl,
       params.contentType === 'application/x-www-form-urlencoded' ? new URLSearchParams(body).toString() : body,
       {
@@ -47,13 +48,6 @@ export async function exchangeCodeForTokens(params: TokenExchangeParams): Promis
         timeout: 30_000,
       },
     )
-
-    const {data} = response
-    if (typeof data.access_token !== 'string' || data.access_token === '') {
-      throw new ProviderTokenExchangeError({message: 'Invalid token response: missing access_token'})
-    }
-
-    return data
   } catch (error) {
     if (isAxiosError(error)) {
       const data: unknown = error.response?.data
@@ -67,4 +61,11 @@ export async function exchangeCodeForTokens(params: TokenExchangeParams): Promis
 
     throw error
   }
+
+  const {data} = response
+  if (typeof data.access_token !== 'string' || data.access_token === '') {
+    throw new ProviderTokenExchangeError({message: 'Invalid token response: missing access_token'})
+  }
+
+  return data
 }
