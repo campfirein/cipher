@@ -251,6 +251,31 @@ describe('CurateLogHandler', () => {
       expect(completedEntry.operations[2].reviewStatus).to.equal('pending')
     })
 
+    it('should NOT set reviewStatus=pending for failed operations even with needsReview=true', async () => {
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [
+            {confidence: 'low', impact: 'high', needsReview: true, path: '/a.md', reason: 'uncertain', status: 'failed', type: 'UPDATE'},
+            {confidence: 'high', impact: 'high', needsReview: true, path: '/b.md', reason: 'irreversible', status: 'success', type: 'DELETE'},
+          ],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handler.onTaskCompleted('task-abc', 'done', makeTask())
+
+      const completedEntry: CurateLogEntry = store.save.secondCall.args[0]
+      // Failed operation should NOT have reviewStatus=pending
+      expect(completedEntry.operations[0].reviewStatus).to.be.undefined
+      expect(completedEntry.operations[0].status).to.equal('failed')
+      // Successful operation should still have reviewStatus=pending
+      expect(completedEntry.operations[1].reviewStatus).to.equal('pending')
+      expect(completedEntry.operations[1].status).to.equal('success')
+    })
+
     it('should not set reviewStatus for operations without needsReview', async () => {
       handler.onToolResult('task-abc', {
         result: {

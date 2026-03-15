@@ -248,7 +248,7 @@ export class CurateLogHandler implements ITaskLifecycleHook {
 
     const ops = extractCurateOperations(payload)
     for (const op of ops) {
-      if (op.needsReview) {
+      if (op.needsReview && op.status === 'success') {
         op.reviewStatus = 'pending'
       }
 
