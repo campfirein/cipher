@@ -239,7 +239,7 @@ describe('resolveProviderConfig', () => {
     expect(result.providerKeyMissing).to.be.true
   })
 
-  it('should use config baseUrl for non-OAuth provider when set (Finding 5)', async () => {
+  it('should use config baseUrl for non-OAuth provider when set', async () => {
     const {configStore, keychainStore} = createStubStores(sandbox)
     configStore.read.resolves(
       createProviderConfig('anthropic', {
