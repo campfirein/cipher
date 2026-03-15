@@ -17,12 +17,33 @@ class TestableProviderConnectCommand extends ProviderConnect {
     this.mockConnector = mockConnector
   }
 
-  protected override async connectProvider(params: {apiKey?: string; baseUrl?: string; model?: string; providerId: string}) {
+  protected override async connectProvider(params: {
+    apiKey?: string
+    baseUrl?: string
+    model?: string
+    providerId: string
+  }) {
     return super.connectProvider(params, {
       maxRetries: 1,
       retryDelayMs: 0,
       transportConnector: this.mockConnector,
     })
+  }
+
+  protected override async connectProviderOAuth(
+    params: {code?: string; providerId: string},
+    _options?: unknown,
+    onProgress?: (msg: string) => void,
+  ) {
+    return super.connectProviderOAuth(
+      params,
+      {
+        maxRetries: 1,
+        retryDelayMs: 0,
+        transportConnector: this.mockConnector,
+      },
+      onProgress,
+    )
   }
 }
 
@@ -294,7 +315,15 @@ describe('Provider Connect Command', () => {
 
     it('should include API key URL in error when available', async () => {
       ;(mockClient.requestWithAck as sinon.SinonStub).resolves({
-        providers: [{apiKeyUrl: 'https://platform.openai.com/api-keys', id: 'openai', isConnected: false, name: 'OpenAI', requiresApiKey: true}],
+        providers: [
+          {
+            apiKeyUrl: 'https://platform.openai.com/api-keys',
+            id: 'openai',
+            isConnected: false,
+            name: 'OpenAI',
+            requiresApiKey: true,
+          },
+        ],
       })
 
       await createCommand('openai').run()
@@ -366,6 +395,210 @@ describe('Provider Connect Command', () => {
       await createCommand('anthropic').run()
 
       expect(loggedMessages.some((m) => m.includes('Something went wrong'))).to.be.true
+    })
+  })
+
+  // ==================== OAuth Flow ====================
+
+  describe('oauth flow', () => {
+    const openaiOAuthProvider = {
+      id: 'openai',
+      isConnected: false,
+      name: 'OpenAI',
+      requiresApiKey: true,
+      supportsOAuth: true,
+    }
+
+    it('should start OAuth flow and print auth URL for auto callback mode', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({providers: [openaiOAuthProvider]})
+      requestStub.onSecondCall().resolves({
+        authUrl: 'https://auth.openai.com/oauth/authorize?client_id=test',
+        callbackMode: 'auto',
+        success: true,
+      })
+      requestStub.onThirdCall().resolves({success: true})
+
+      await createCommand('openai', '--oauth').run()
+
+      expect(loggedMessages.some((m) => m.includes('https://auth.openai.com/oauth/authorize'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Connected to OpenAI via OAuth'))).to.be.true
+    })
+
+    it('should send LIST then START_OAUTH events', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({providers: [openaiOAuthProvider]})
+      requestStub.onSecondCall().resolves({
+        authUrl: 'https://auth.openai.com/oauth/authorize',
+        callbackMode: 'auto',
+        success: true,
+      })
+      requestStub.onThirdCall().resolves({success: true})
+
+      await createCommand('openai', '--oauth').run()
+
+      expect(requestStub.firstCall.args[0]).to.equal('provider:list')
+      expect(requestStub.secondCall.args[0]).to.equal('provider:startOAuth')
+      expect(requestStub.secondCall.args[1]).to.deep.include({providerId: 'openai'})
+    })
+
+    it('should send AWAIT_OAUTH_CALLBACK with 5-minute timeout for auto mode', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({providers: [openaiOAuthProvider]})
+      requestStub.onSecondCall().resolves({
+        authUrl: 'https://auth.openai.com/oauth/authorize',
+        callbackMode: 'auto',
+        success: true,
+      })
+      requestStub.onThirdCall().resolves({success: true})
+
+      await createCommand('openai', '--oauth').run()
+
+      expect(requestStub.thirdCall.args[0]).to.equal('provider:awaitOAuthCallback')
+      expect(requestStub.thirdCall.args[2]).to.deep.equal({timeout: 300_000})
+    })
+
+    it('should handle code-paste mode by printing instructions', async () => {
+      const codePasteProvider = {
+        id: 'some-provider',
+        isConnected: false,
+        name: 'Some Provider',
+        requiresApiKey: true,
+        supportsOAuth: true,
+      }
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({providers: [codePasteProvider]})
+      requestStub.onSecondCall().resolves({
+        authUrl: 'https://auth.example.com/authorize',
+        callbackMode: 'code-paste',
+        success: true,
+      })
+
+      await createCommand('some-provider', '--oauth').run()
+
+      expect(loggedMessages.some((m) => m.includes('Copy the authorization code'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('--oauth --code'))).to.be.true
+    })
+
+    it('should submit code when --oauth --code is provided', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({providers: [openaiOAuthProvider]})
+      requestStub.onSecondCall().resolves({success: true})
+
+      await createCommand('openai', '--oauth', '--code', 'my-auth-code').run()
+
+      expect(requestStub.secondCall.args[0]).to.equal('provider:submitOAuthCode')
+      expect(requestStub.secondCall.args[1]).to.deep.include({code: 'my-auth-code', providerId: 'openai'})
+    })
+
+    it('should error when provider does not support OAuth', async () => {
+      const noOAuthProvider = {
+        id: 'anthropic',
+        isConnected: false,
+        name: 'Anthropic',
+        requiresApiKey: true,
+        supportsOAuth: false,
+      }
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({providers: [noOAuthProvider]})
+
+      await createCommand('anthropic', '--oauth').run()
+
+      expect(loggedMessages.some((m) => m.includes('does not support OAuth'))).to.be.true
+    })
+
+    it('should error for unknown provider with --oauth', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({providers: []})
+
+      await createCommand('unknown-provider', '--oauth').run()
+
+      expect(loggedMessages.some((m) => m.includes('Unknown provider'))).to.be.true
+    })
+
+    it('should handle START_OAUTH failure', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({providers: [openaiOAuthProvider]})
+      requestStub.onSecondCall().resolves({
+        authUrl: '',
+        callbackMode: 'auto',
+        error: 'Failed to start OAuth',
+        success: false,
+      })
+
+      await createCommand('openai', '--oauth').run()
+
+      expect(loggedMessages.some((m) => m.includes('Failed to start OAuth'))).to.be.true
+    })
+
+    it('should handle AWAIT_OAUTH_CALLBACK failure', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({providers: [openaiOAuthProvider]})
+      requestStub.onSecondCall().resolves({
+        authUrl: 'https://auth.openai.com/oauth/authorize',
+        callbackMode: 'auto',
+        success: true,
+      })
+      requestStub.onThirdCall().resolves({error: 'OAuth callback timed out', success: false})
+
+      await createCommand('openai', '--oauth').run()
+
+      expect(loggedMessages.some((m) => m.includes('OAuth callback timed out'))).to.be.true
+    })
+
+    it('should error when --oauth and --api-key are both provided', async () => {
+      await createCommand('openai', '--oauth', '--api-key', 'sk-test').run()
+
+      expect(loggedMessages.some((m) => m.includes('Cannot use --oauth and --api-key together'))).to.be.true
+    })
+
+    it('should error when --code is provided without --oauth', async () => {
+      await createCommand('openai', '--code', 'my-code').run()
+
+      expect(loggedMessages.some((m) => m.includes('--code requires the --oauth flag'))).to.be.true
+    })
+
+    it('should output JSON on successful OAuth connect', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({providers: [openaiOAuthProvider]})
+      requestStub.onSecondCall().resolves({
+        authUrl: 'https://auth.openai.com/oauth/authorize',
+        callbackMode: 'auto',
+        success: true,
+      })
+      requestStub.onThirdCall().resolves({success: true})
+
+      await createJsonCommand('openai', '--oauth').run()
+
+      expect(loggedMessages).to.be.empty
+      const json = parseJsonOutput()
+      expect(json.command).to.equal('providers connect')
+      expect(json.success).to.be.true
+      expect(json.data).to.deep.include({providerId: 'openai'})
+    })
+
+    it('should output JSON without progress logs for code-paste OAuth', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({providers: [openaiOAuthProvider]})
+      requestStub.onSecondCall().resolves({
+        authUrl: 'https://auth.openai.com/oauth/authorize',
+        callbackMode: 'code-paste',
+        success: true,
+      })
+
+      await createJsonCommand('openai', '--oauth').run()
+
+      expect(loggedMessages).to.be.empty
+      const json = parseJsonOutput()
+      expect(json.command).to.equal('providers connect')
+      expect(json.success).to.be.true
+      expect(json.data).to.deep.include({providerId: 'openai'})
+    })
+
+    it('should output JSON error when --oauth and --api-key conflict', async () => {
+      await createJsonCommand('openai', '--oauth', '--api-key', 'sk-test').run()
+
+      const json = parseJsonOutput()
+      expect(json.success).to.be.false
+      expect(json.data).to.have.property('error')
     })
   })
 })

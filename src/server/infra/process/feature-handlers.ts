@@ -103,6 +103,7 @@ export async function setupFeatureHandlers({
   }).setup()
 
   new ProviderHandler({
+    browserLauncher: new SystemBrowserLauncher(),
     providerConfigStore,
     providerKeychainStore,
     transport,

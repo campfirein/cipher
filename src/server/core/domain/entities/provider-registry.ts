@@ -6,6 +6,42 @@
  */
 
 /**
+ * Configuration for a single OAuth authentication mode.
+ */
+export interface OAuthModeConfig {
+  /** Auth URL for this mode */
+  readonly authUrl: string
+  /** Mode identifier (e.g. 'default', 'pro-max') */
+  readonly id: string
+  /** Display label (e.g. "Sign in with ChatGPT") */
+  readonly label: string
+}
+
+/**
+ * OAuth configuration for a provider.
+ */
+export interface ProviderOAuthConfig {
+  /** How the callback is received: local server ('auto') or user pastes code ('code-paste') */
+  readonly callbackMode: 'auto' | 'code-paste'
+  /** Port for local callback server (auto mode only) */
+  readonly callbackPort?: number
+  /** OAuth client ID */
+  readonly clientId: string
+  /** Extra query params appended to the authorization URL (provider-specific) */
+  readonly extraParams?: Readonly<Record<string, string>>
+  /** Supported OAuth modes (some providers have multiple) */
+  readonly modes: readonly OAuthModeConfig[]
+  /** OAuth redirect URI */
+  readonly redirectUri: string
+  /** OAuth scopes */
+  readonly scopes: string
+  /** Token endpoint content type: OpenAI = 'form', Anthropic = 'json' */
+  readonly tokenContentType: 'form' | 'json'
+  /** Token exchange endpoint */
+  readonly tokenUrl: string
+}
+
+/**
  * Definition for an LLM provider.
  */
 export interface ProviderDefinition {
@@ -29,6 +65,8 @@ export interface ProviderDefinition {
   readonly modelsEndpoint: string
   /** Display name */
   readonly name: string
+  /** OAuth configuration (only for OAuth-capable providers) */
+  readonly oauth?: ProviderOAuthConfig
   /** Priority for display order (lower = higher priority) */
   readonly priority: number
 }
@@ -189,6 +227,24 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
     id: 'openai',
     modelsEndpoint: '/models',
     name: 'OpenAI',
+    oauth: {
+      callbackMode: 'auto',
+      callbackPort: 1455,
+      // Public OAuth client ID (safe to commit — native app public client, no client secret)
+      clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
+      /* eslint-disable camelcase -- OAuth query params follow RFC 6749 naming */
+      extraParams: {
+        codex_cli_simplified_flow: 'true',
+        id_token_add_organizations: 'true',
+        originator: 'byterover',
+      },
+      /* eslint-enable camelcase */
+      modes: [{authUrl: 'https://auth.openai.com/oauth/authorize', id: 'default', label: 'Sign in with ChatGPT'}],
+      redirectUri: 'http://localhost:1455/auth/callback',
+      scopes: 'openid profile email offline_access',
+      tokenContentType: 'form',
+      tokenUrl: 'https://auth.openai.com/oauth/token',
+    },
     priority: 3,
   },
   'openai-compatible': {
@@ -304,7 +360,9 @@ export function getProviderById(id: string): ProviderDefinition | undefined {
 /**
  * Check if a provider requires an API key.
  */
-export function providerRequiresApiKey(id: string): boolean {
+export function providerRequiresApiKey(id: string, authMethod?: 'api-key' | 'oauth'): boolean {
+  if (authMethod === 'oauth') return false
+
   const provider = getProviderById(id)
   if (!provider) return false
   // Internal providers (byterover) don't need API keys.

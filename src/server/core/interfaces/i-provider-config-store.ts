@@ -13,7 +13,14 @@ export interface IProviderConfigStore {
    */
   connectProvider: (
     providerId: string,
-    options?: {activeModel?: string; baseUrl?: string},
+    options?: {
+      activeModel?: string
+      authMethod?: 'api-key' | 'oauth'
+      baseUrl?: string
+      oauthAccountId?: string
+      oauthExpiresAt?: string
+      oauthRefreshToken?: string
+    },
   ) => Promise<void>
 
   /**
