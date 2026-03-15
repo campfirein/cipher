@@ -123,7 +123,7 @@ check_clawhub() {
   fi
 }
 
-check_brv_skill() {
+setup_brv_openclaw_integration() {
   local global_skills_dir="$HOME/.openclaw/skills"
 
   [ -n "${BRV_CMD:-}" ] || error "BRV_CMD is not set. Run check_brv_cli() first."
@@ -133,16 +133,18 @@ check_brv_skill() {
     return
   fi
 
-  warn "ByteRover Skill is missing from $global_skills_dir. Installing ByteRover Skill..."
-
+  # Step 1: Install ByteRover skill into OpenClaw's global skills directory
+  info "Installing ByteRover Skill into $global_skills_dir..."
   if ! retry_with_backoff clawhub install --force byterover; then
     error "Failed to install ByteRover Skill after multiple attempts."
   fi
 
+  # Step 2: Register OpenClaw as a skill-type connector inside ByteRover
+  info "Registering OpenClaw connector in ByteRover..."
   if ! "$BRV_CMD" connectors install OpenClaw --type skill; then
-    error "Failed to install ByteRover Skill for OpenClaw."
+    error "Failed to register OpenClaw connector in ByteRover."
   fi
-  success "ByteRover Skill is installed for OpenClaw"
+  success "ByteRover <-> OpenClaw integration is configured"
 }
 
 check_brv_cli() {
@@ -531,7 +533,9 @@ function resolveBrvPath(): string {
 function isBrvReachable(): boolean {
   const resolved = resolveBrvPath();
   if (resolved.includes("/") || resolved.includes("\\")) return existsSync(resolved);
-  const pathDirs = (process.env.PATH || "").split(delimiter);
+  // Check against the same extended PATH that execFileAsync will use
+  const extendedPath = join(homedir(), ".brv-cli", "bin") + delimiter + (process.env.PATH || "");
+  const pathDirs = extendedPath.split(delimiter);
   return pathDirs.some(dir => dir && existsSync(join(dir, resolved)));
 }
 
@@ -827,13 +831,17 @@ export default function (api) {
 
     const original = event.content;
 
-    // Strip thinking/reasoning tags (non-greedy handles multiple separate blocks;
-    // nested same-type tags are not handled but are extremely rare in practice)
-    let filtered = original
-      .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
-      .replace(/<think>[\s\S]*?<\/think>/gi, "")
-      .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "")
-      .replace(/<reflection>[\s\S]*?<\/reflection>/gi, "");
+    // Only strip if response starts with a thinking/reasoning block (chain-of-thought preamble).
+    // Avoids silently removing legitimate content when users discuss XML or prompt engineering.
+    let filtered = original;
+    if (/^<thinking>/i.test(original) || /^<think>/i.test(original) ||
+        /^<reasoning>/i.test(original) || /^<reflection>/i.test(original)) {
+      filtered = original
+        .replace(/^<thinking>[\s\S]*?<\/thinking>/gi, "")
+        .replace(/^<think>[\s\S]*?<\/think>/gi, "")
+        .replace(/^<reasoning>[\s\S]*?<\/reasoning>/gi, "")
+        .replace(/^<reflection>[\s\S]*?<\/reflection>/gi, "");
+    }
 
     // Clean up leftover blank lines from removal
     filtered = filtered.replace(/\n{3,}/g, "\n\n").trim();
@@ -1100,7 +1108,7 @@ main() {
   check_node
   check_clawhub
   check_brv_cli
-  check_brv_skill
+  setup_brv_openclaw_integration
   check_openclaw_cli
   check_config
   echo ""
