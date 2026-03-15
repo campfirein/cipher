@@ -16,7 +16,11 @@ export const openaiProvider: ProviderModule = {
   baseUrl: 'https://api.openai.com/v1',
   category: 'popular',
   createGenerator(config: GeneratorFactoryConfig) {
-    const provider = createOpenAI({apiKey: config.apiKey!})
+    const provider = createOpenAI({
+      apiKey: config.apiKey ?? '',
+      baseURL: config.baseUrl,
+      headers: config.headers,
+    })
 
     return new AiSdkContentGenerator({
       model: provider.responses(config.model),

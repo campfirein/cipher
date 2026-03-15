@@ -37,11 +37,31 @@ function createStubStores(sandbox: SinonSandbox) {
 
 function createProviderConfig(
   activeProvider: string,
-  providers: Record<string, {activeModel?: string; baseUrl?: string}> = {},
+  providers: Record<
+    string,
+    {
+      activeModel?: string
+      authMethod?: 'api-key' | 'oauth'
+      baseUrl?: string
+      oauthAccountId?: string
+      oauthExpiresAt?: string
+      oauthRefreshToken?: string
+    }
+  > = {},
 ): ProviderConfig {
   const providerEntries: Record<
     string,
-    {activeModel?: string; baseUrl?: string; connectedAt: string; favoriteModels: string[]; recentModels: string[]}
+    {
+      activeModel?: string
+      authMethod?: 'api-key' | 'oauth'
+      baseUrl?: string
+      connectedAt: string
+      favoriteModels: string[]
+      oauthAccountId?: string
+      oauthExpiresAt?: string
+      oauthRefreshToken?: string
+      recentModels: string[]
+    }
   > = {}
   for (const [id, opts] of Object.entries(providers)) {
     providerEntries[id] = {
@@ -143,6 +163,132 @@ describe('resolveProviderConfig', () => {
     expect(result.provider).to.equal('anthropic')
     expect(result.providerApiKey).to.equal('sk-ant-key')
     expect(result.activeModel).to.equal('claude-sonnet-4-20250514')
+  })
+
+  it('should resolve OAuth-connected OpenAI with Codex URL and ChatGPT-Account-Id header', async () => {
+    const {configStore, keychainStore} = createStubStores(sandbox)
+    configStore.read.resolves(
+      createProviderConfig('openai', {
+        openai: {
+          activeModel: 'gpt-4.1',
+          authMethod: 'oauth',
+          oauthAccountId: 'org-abc123',
+        },
+      }),
+    )
+    keychainStore.getApiKey.resolves('oauth-access-token-xyz')
+
+    const result = await resolveProviderConfig(configStore, keychainStore)
+
+    expect(result.activeProvider).to.equal('openai')
+    expect(result.provider).to.equal('openai')
+    expect(result.providerApiKey).to.equal('oauth-access-token-xyz')
+    expect(result.providerBaseUrl).to.equal('https://chatgpt.com/backend-api/codex')
+    expect(result.providerHeaders).to.deep.equal({'ChatGPT-Account-Id': 'org-abc123'})
+    expect(result.providerKeyMissing).to.be.false
+  })
+
+  it('should resolve OAuth-connected OpenAI without account ID (no ChatGPT-Account-Id header)', async () => {
+    const {configStore, keychainStore} = createStubStores(sandbox)
+    configStore.read.resolves(
+      createProviderConfig('openai', {
+        openai: {
+          activeModel: 'gpt-4.1',
+          authMethod: 'oauth',
+        },
+      }),
+    )
+    keychainStore.getApiKey.resolves('oauth-access-token-xyz')
+
+    const result = await resolveProviderConfig(configStore, keychainStore)
+
+    expect(result.providerBaseUrl).to.equal('https://chatgpt.com/backend-api/codex')
+    expect(result.providerHeaders).to.be.undefined
+    expect(result.providerKeyMissing).to.be.false
+  })
+
+  it('should resolve API-key-connected OpenAI with standard base URL (not Codex)', async () => {
+    const {configStore, keychainStore} = createStubStores(sandbox)
+    configStore.read.resolves(
+      createProviderConfig('openai', {
+        openai: {activeModel: 'gpt-4.1', authMethod: 'api-key'},
+      }),
+    )
+    keychainStore.getApiKey.resolves('sk-openai-key')
+
+    const result = await resolveProviderConfig(configStore, keychainStore)
+
+    expect(result.activeProvider).to.equal('openai')
+    expect(result.providerApiKey).to.equal('sk-openai-key')
+    expect(result.providerBaseUrl).to.equal('https://api.openai.com/v1')
+    expect(result.providerHeaders).to.be.undefined
+    expect(result.providerKeyMissing).to.be.false
+  })
+
+  it('should set providerKeyMissing for API-key OpenAI without key', async () => {
+    const {configStore, keychainStore} = createStubStores(sandbox)
+    configStore.read.resolves(
+      createProviderConfig('openai', {
+        openai: {activeModel: 'gpt-4.1', authMethod: 'api-key'},
+      }),
+    )
+    keychainStore.getApiKey.resolves()
+
+    const result = await resolveProviderConfig(configStore, keychainStore)
+
+    expect(result.providerKeyMissing).to.be.true
+  })
+
+  it('should use config baseUrl for non-OAuth provider when set', async () => {
+    const {configStore, keychainStore} = createStubStores(sandbox)
+    configStore.read.resolves(
+      createProviderConfig('anthropic', {
+        anthropic: {activeModel: 'claude-sonnet-4-20250514', baseUrl: 'https://custom-proxy.example.com'},
+      }),
+    )
+    keychainStore.getApiKey.resolves('sk-ant-key')
+
+    const result = await resolveProviderConfig(configStore, keychainStore)
+
+    expect(result.providerBaseUrl).to.equal('https://custom-proxy.example.com')
+  })
+
+  it('should resolve legacy OpenAI config without authMethod field (backward compat)', async () => {
+    const {configStore, keychainStore} = createStubStores(sandbox)
+    configStore.read.resolves(
+      createProviderConfig('openai', {
+        openai: {activeModel: 'gpt-4.1'},
+      }),
+    )
+    keychainStore.getApiKey.resolves('sk-openai-key')
+
+    const result = await resolveProviderConfig(configStore, keychainStore)
+
+    expect(result.activeProvider).to.equal('openai')
+    expect(result.providerApiKey).to.equal('sk-openai-key')
+    expect(result.providerBaseUrl).to.equal('https://api.openai.com/v1')
+    expect(result.providerHeaders).to.be.undefined
+    expect(result.providerKeyMissing).to.be.false
+  })
+
+  it('should return providerKeyMissing false for OAuth OpenAI even when token is absent (race window)', async () => {
+    const {configStore, keychainStore} = createStubStores(sandbox)
+    configStore.read.resolves(
+      createProviderConfig('openai', {
+        openai: {
+          activeModel: 'gpt-4.1',
+          authMethod: 'oauth',
+          oauthAccountId: 'org-abc123',
+        },
+      }),
+    )
+    keychainStore.getApiKey.resolves()
+
+    const result = await resolveProviderConfig(configStore, keychainStore)
+
+    expect(result.providerApiKey).to.be.undefined
+    expect(result.providerKeyMissing).to.be.false
+    expect(result.providerBaseUrl).to.equal('https://chatgpt.com/backend-api/codex')
   })
 
   it('should return undefined model when provider has no active model', async () => {

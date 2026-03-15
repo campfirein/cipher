@@ -13,6 +13,8 @@ import {getProviderById, providerRequiresApiKey} from '../../core/domain/entitie
 import {type ProviderConfigResponse} from '../../core/domain/transport/schemas.js'
 import {getProviderApiKeyFromEnv} from './env-provider-detector.js'
 
+const OPENAI_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
+
 async function isProviderCredentialAccessible(
   providerId: string,
   providerKeychainStore: IProviderKeychainStore,
@@ -123,6 +125,24 @@ export async function resolveProviderConfig(
 
     default: {
       const providerDef = getProviderById(activeProvider)
+      const providerConfig = config.providers[activeProvider]
+
+      // OAuth-connected OpenAI: use Codex endpoint + ChatGPT-Account-Id header
+      if (activeProvider === 'openai' && providerConfig?.authMethod === 'oauth') {
+        return {
+          activeModel,
+          activeProvider,
+          maxInputTokens,
+          provider: activeProvider,
+          providerApiKey: apiKey || undefined,
+          providerBaseUrl: OPENAI_CODEX_BASE_URL,
+          providerHeaders: providerConfig.oauthAccountId
+            ? {'ChatGPT-Account-Id': providerConfig.oauthAccountId}
+            : undefined,
+          providerKeyMissing: providerRequiresApiKey(activeProvider, providerConfig.authMethod) && !apiKey,
+        }
+      }
+
       const headers = providerDef?.headers
       return {
         activeModel,
@@ -130,9 +150,9 @@ export async function resolveProviderConfig(
         maxInputTokens,
         provider: activeProvider,
         providerApiKey: apiKey || undefined,
-        providerBaseUrl: providerDef?.baseUrl || undefined,
+        providerBaseUrl: config.getBaseUrl(activeProvider) || providerDef?.baseUrl || undefined,
         providerHeaders: headers && Object.keys(headers).length > 0 ? {...headers} : undefined,
-        providerKeyMissing: providerRequiresApiKey(activeProvider) && !apiKey,
+        providerKeyMissing: providerRequiresApiKey(activeProvider, providerConfig?.authMethod) && !apiKey,
       }
     }
   }
