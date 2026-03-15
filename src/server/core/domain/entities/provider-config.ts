@@ -13,12 +13,20 @@ export interface ConnectedProviderConfig {
   readonly activeModel?: string
   /** Context window size of the active model (from provider API, e.g. OpenRouter) */
   readonly activeModelContextLength?: number
+  /** How this provider was authenticated */
+  readonly authMethod?: 'api-key' | 'oauth'
   /** Custom API base URL (for openai-compatible provider) */
   readonly baseUrl?: string
   /** When the provider was connected */
   readonly connectedAt: string
   /** User's favorite models (for quick access) */
   readonly favoriteModels: readonly string[]
+  /** OAuth account ID (e.g. ChatGPT-Account-Id for OpenAI) */
+  readonly oauthAccountId?: string
+  /** OAuth token expiry as ISO 8601 timestamp (MVP: stored in config until Issue 5 adds secure storage) */
+  readonly oauthExpiresAt?: string
+  /** OAuth refresh token (MVP: stored in config until Issue 5 adds secure storage) */
+  readonly oauthRefreshToken?: string
   /** Recently used models (last 10) */
   readonly recentModels: readonly string[]
 }
@@ -216,13 +224,27 @@ export class ProviderConfig {
   /**
    * Create a new config with a provider connected.
    */
-  public withProviderConnected(providerId: string, options?: {activeModel?: string; baseUrl?: string}): ProviderConfig {
+  public withProviderConnected(
+    providerId: string,
+    options?: {
+      activeModel?: string
+      authMethod?: 'api-key' | 'oauth'
+      baseUrl?: string
+      oauthAccountId?: string
+      oauthExpiresAt?: string
+      oauthRefreshToken?: string
+    },
+  ): ProviderConfig {
     const existingConfig = this.providers[providerId]
     const newProviderConfig: ConnectedProviderConfig = {
       activeModel: options?.activeModel ?? existingConfig?.activeModel,
+      authMethod: options?.authMethod ?? existingConfig?.authMethod,
       baseUrl: options?.baseUrl ?? existingConfig?.baseUrl,
       connectedAt: existingConfig?.connectedAt ?? new Date().toISOString(),
       favoriteModels: existingConfig?.favoriteModels ?? [],
+      oauthAccountId: options?.oauthAccountId ?? existingConfig?.oauthAccountId,
+      oauthExpiresAt: options?.oauthExpiresAt ?? existingConfig?.oauthExpiresAt,
+      oauthRefreshToken: options?.oauthRefreshToken ?? existingConfig?.oauthRefreshToken,
       recentModels: existingConfig?.recentModels ?? [],
     }
 

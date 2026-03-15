@@ -57,12 +57,17 @@ export class FileProviderConfigStore implements IProviderConfigStore {
    */
   public async connectProvider(
     providerId: string,
-    options?: {activeModel?: string; baseUrl?: string},
+    options?: {
+      activeModel?: string
+      authMethod?: 'api-key' | 'oauth'
+      baseUrl?: string
+      oauthAccountId?: string
+      oauthExpiresAt?: string
+      oauthRefreshToken?: string
+    },
   ): Promise<void> {
     const config = await this.read()
-    const newConfig = config
-      .withProviderConnected(providerId, options)
-      .withActiveProvider(providerId)
+    const newConfig = config.withProviderConnected(providerId, options).withActiveProvider(providerId)
     await this.write(newConfig)
   }
 
