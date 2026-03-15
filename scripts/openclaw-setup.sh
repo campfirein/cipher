@@ -68,6 +68,25 @@ confirm() {
   esac
 }
 
+retry_with_backoff() {
+  local max_retries=3
+  local delay=5
+  local attempt=1
+
+  while [ "$attempt" -le "$max_retries" ]; do
+    if "$@"; then
+      return 0
+    fi
+    if [ "$attempt" -lt "$max_retries" ]; then
+      warn "Attempt $attempt/$max_retries failed. Retrying in ${delay}s..."
+      sleep "$delay"
+      delay=$((delay * 2))
+    fi
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
 setup_cleanup() {
   CLEANUP_FILES=""
   CONFIG_BACKUP=""
@@ -114,43 +133,14 @@ check_brv_skill() {
 
   warn "ByteRover Skill is missing from $global_skills_dir. Installing ByteRover Skill..."
 
-  # clawhub always installs to <workspace>/skills/ (ignores cwd).
-  # Resolve the workspace path from openclaw.json, then copy to the global skills dir.
-  local workspace
-  workspace=$(CONFIG_PATH="$CONFIG_PATH" node -e '
-    const fs = require("fs");
-    try {
-      const c = JSON.parse(fs.readFileSync(process.env.CONFIG_PATH, "utf8"));
-      console.log(c.agents?.defaults?.workspace || "");
-    } catch(e) { /* silent */ }
-  ')
-
-  if ! clawhub install --force byterover; then
-    error "Failed to install ByteRover Skill."
+  if ! retry_with_backoff clawhub install --force byterover; then
+    error "Failed to install ByteRover Skill after multiple attempts."
   fi
 
-  # Find where clawhub actually installed it
-  local installed_dir=""
-  if [ -n "$workspace" ] && [ -f "$workspace/skills/byterover/SKILL.md" ]; then
-    installed_dir="$workspace/skills/byterover"
+  if ! "$BRV_CMD" connectors install OpenClaw --type skill; then
+    error "Failed to install ByteRover Skill for OpenClaw."
   fi
-
-  if [ -z "$installed_dir" ]; then
-    error "clawhub installed byterover but could not locate it. Check your workspace at: $workspace"
-  fi
-
-  # Copy to global skills dir, then remove workspace copy (it was only a
-  # byproduct of clawhub always installing to <workspace>/skills/). Leaving
-  # it behind would leave root-owned files in the user's workspace.
-  mkdir -p "$global_skills_dir"
-  cp -R "$installed_dir" "$global_skills_dir/byterover"
-  rm -rf "$installed_dir"
-
-  if [ -f "$global_skills_dir/byterover/SKILL.md" ]; then
-    success "ByteRover Skill installed to $global_skills_dir/byterover"
-  else
-    error "Failed to copy ByteRover Skill to $global_skills_dir"
-  fi
+  success "ByteRover Skill is installed for OpenClaw"
 }
 
 check_brv_cli() {
@@ -987,6 +977,18 @@ update_workspace_protocols() {
     update_agents_md "$ws/AGENTS.md"
     update_tools_md "$ws/TOOLS.md"
   done
+
+  echo "Restarting OpenClaw gateway to apply changes..."
+  if openclaw gateway stop; then
+    success "OpenClaw gateway stopped."
+    if openclaw gateway start; then
+      success "OpenClaw gateway started."
+    else
+      warn "Failed to start OpenClaw gateway. You may need to start it manually with 'openclaw gateway start'."
+    fi
+  else
+    warn "Failed to stop OpenClaw gateway. You may need to restart it manually."
+  fi
 }
 
 # ─── Fix Ownership (root-install safe) ────────────────────────────────────────
@@ -1082,8 +1084,8 @@ main() {
   info "Phase 1: Pre-flight Checks"
   check_node
   check_clawhub
-  check_brv_skill
   check_brv_cli
+  check_brv_skill
   check_openclaw_cli
   check_config
   echo ""
