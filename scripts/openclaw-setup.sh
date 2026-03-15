@@ -839,7 +839,6 @@ export default function (api) {
     if (/^<thinking>/i.test(original) || /^<think>/i.test(original) ||
         /^<reasoning>/i.test(original) || /^<reflection>/i.test(original)) {
       filtered = original
-      filtered = original
         .replace(/^<thinking>[\s\S]*?<\/thinking>/i, "")
         .replace(/^<think>[\s\S]*?<\/think>/i, "")
         .replace(/^<reasoning>[\s\S]*?<\/reasoning>/i, "")
