@@ -62,8 +62,6 @@ export class FileProviderConfigStore implements IProviderConfigStore {
       authMethod?: 'api-key' | 'oauth'
       baseUrl?: string
       oauthAccountId?: string
-      oauthExpiresAt?: string
-      oauthRefreshToken?: string
     },
   ): Promise<void> {
     const config = await this.read()

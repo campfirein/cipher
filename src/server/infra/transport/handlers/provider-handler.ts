@@ -1,6 +1,7 @@
 import type {ProviderDTO} from '../../../../shared/transport/types/dto.js'
 import type {IProviderConfigStore} from '../../../core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../../core/interfaces/i-provider-keychain-store.js'
+import type {IProviderOAuthTokenStore} from '../../../core/interfaces/i-provider-oauth-token-store.js'
 import type {IBrowserLauncher} from '../../../core/interfaces/services/i-browser-launcher.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 import type {
@@ -39,6 +40,7 @@ import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {processLog} from '../../../utils/process-logger.js'
 import {validateApiKey as validateApiKeyViaFetcher} from '../../http/provider-model-fetcher-registry.js'
 import {
+  computeExpiresAt,
   exchangeCodeForTokens as defaultExchangeCodeForTokens,
   generatePkce as defaultGeneratePkce,
   parseAccountIdFromIdToken,
@@ -62,6 +64,7 @@ export interface ProviderHandlerDeps {
   generatePkce?: () => PkceParameters
   providerConfigStore: IProviderConfigStore
   providerKeychainStore: IProviderKeychainStore
+  providerOAuthTokenStore: IProviderOAuthTokenStore
   transport: ITransportServer
 }
 
@@ -77,6 +80,7 @@ export class ProviderHandler {
   private readonly oauthFlows = new Map<string, OAuthFlowState>()
   private readonly providerConfigStore: IProviderConfigStore
   private readonly providerKeychainStore: IProviderKeychainStore
+  private readonly providerOAuthTokenStore: IProviderOAuthTokenStore
   private readonly transport: ITransportServer
 
   constructor(deps: ProviderHandlerDeps) {
@@ -86,6 +90,7 @@ export class ProviderHandler {
     this.generatePkce = deps.generatePkce ?? defaultGeneratePkce
     this.providerConfigStore = deps.providerConfigStore
     this.providerKeychainStore = deps.providerKeychainStore
+    this.providerOAuthTokenStore = deps.providerOAuthTokenStore
     this.transport = deps.transport
   }
 
@@ -145,18 +150,20 @@ export class ProviderHandler {
           // Store access token as the "API key" in keychain
           await this.providerKeychainStore.setApiKey(data.providerId, tokens.access_token)
 
-          // Compute token expiry as ISO timestamp
-          const oauthExpiresAt = tokens.expires_in
-            ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-            : undefined
+          // Store refresh token + expiry in encrypted OAuth token store
+          if (tokens.refresh_token) {
+            const expiresAt = tokens.expires_in ? computeExpiresAt(tokens.expires_in) : computeExpiresAt(3600) // 1-hour default when provider omits expires_in
+            await this.providerOAuthTokenStore.set(data.providerId, {
+              expiresAt,
+              refreshToken: tokens.refresh_token,
+            })
+          }
 
-          // Connect provider with OAuth auth method + token metadata
+          // Connect provider — secrets stored in keychain + encrypted token store, not config
           await this.providerConfigStore.connectProvider(data.providerId, {
             activeModel: providerDef.defaultModel,
             authMethod: 'oauth',
             oauthAccountId,
-            oauthExpiresAt,
-            oauthRefreshToken: tokens.refresh_token,
           })
 
           // Broadcast update
@@ -205,6 +212,7 @@ export class ProviderHandler {
 
         await this.providerConfigStore.disconnectProvider(providerId)
         await this.providerKeychainStore.deleteApiKey(providerId)
+        await this.providerOAuthTokenStore.delete(providerId)
 
         this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
         return {success: true}

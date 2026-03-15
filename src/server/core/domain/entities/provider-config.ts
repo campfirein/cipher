@@ -23,10 +23,6 @@ export interface ConnectedProviderConfig {
   readonly favoriteModels: readonly string[]
   /** OAuth account ID (e.g. ChatGPT-Account-Id for OpenAI) */
   readonly oauthAccountId?: string
-  /** OAuth token expiry as ISO 8601 timestamp (MVP: stored in config — TODO(ENG-1512/Issue5): move to encrypted storage in provider-oauth-token-store) */
-  readonly oauthExpiresAt?: string
-  /** OAuth refresh token (MVP: stored in config — TODO(ENG-1512/Issue5): move to encrypted storage in provider-oauth-token-store) */
-  readonly oauthRefreshToken?: string
   /** Recently used models (last 10) */
   readonly recentModels: readonly string[]
 }
@@ -47,10 +43,8 @@ export interface ProviderConfigParams {
 const isProviderConfigJson = (json: unknown): json is ProviderConfigParams => {
   if (typeof json !== 'object' || json === null) return false
 
-  const obj = json as Record<string, unknown>
-
-  if (typeof obj.activeProvider !== 'string') return false
-  if (typeof obj.providers !== 'object' || obj.providers === null) return false
+  if (!('activeProvider' in json) || typeof json.activeProvider !== 'string') return false
+  if (!('providers' in json) || typeof json.providers !== 'object' || json.providers === null) return false
 
   return true
 }
@@ -231,8 +225,6 @@ export class ProviderConfig {
       authMethod?: 'api-key' | 'oauth'
       baseUrl?: string
       oauthAccountId?: string
-      oauthExpiresAt?: string
-      oauthRefreshToken?: string
     },
   ): ProviderConfig {
     const existingConfig = this.providers[providerId]
@@ -243,8 +235,6 @@ export class ProviderConfig {
       connectedAt: existingConfig?.connectedAt ?? new Date().toISOString(),
       favoriteModels: existingConfig?.favoriteModels ?? [],
       oauthAccountId: options?.oauthAccountId ?? existingConfig?.oauthAccountId,
-      oauthExpiresAt: options?.oauthExpiresAt ?? existingConfig?.oauthExpiresAt,
-      oauthRefreshToken: options?.oauthRefreshToken ?? existingConfig?.oauthRefreshToken,
       recentModels: existingConfig?.recentModels ?? [],
     }
 

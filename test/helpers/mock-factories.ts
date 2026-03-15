@@ -41,6 +41,7 @@ import type {ToolManager} from '../../src/agent/infra/tools/tool-manager.js'
 import type {ToolProvider} from '../../src/agent/infra/tools/tool-provider.js'
 import type {IProviderConfigStore} from '../../src/server/core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../src/server/core/interfaces/i-provider-keychain-store.js'
+import type {IProviderOAuthTokenStore} from '../../src/server/core/interfaces/i-provider-oauth-token-store.js'
 import type {ITerminal} from '../../src/server/core/interfaces/services/i-terminal.js'
 import type {ITransportServer} from '../../src/server/core/interfaces/transport/i-transport-server.js'
 
@@ -215,10 +216,7 @@ export function createMockProcessService(sandbox: SinonSandbox, overrides?: Part
  * @param overrides - Optional overrides for specific methods
  * @returns Mock ISandboxService (cast to full type for test usage)
  */
-export function createMockSandboxService(
-  sandbox: SinonSandbox,
-  overrides?: Partial<ISandboxService>,
-): ISandboxService {
+export function createMockSandboxService(sandbox: SinonSandbox, overrides?: Partial<ISandboxService>): ISandboxService {
   const mock: Partial<ISandboxService> = {
     cleanup: sandbox.stub().resolves(),
     clearSession: sandbox.stub().resolves(),
@@ -488,6 +486,26 @@ export function createMockProviderKeychainStore(
   }
 
   return mock as unknown as SinonStubbedInstance<IProviderKeychainStore>
+}
+
+/**
+ * Creates a mock IProviderOAuthTokenStore with commonly-used methods stubbed.
+ *
+ * @param overrides - Optional overrides for specific methods
+ * @returns Mock IProviderOAuthTokenStore (cast to full type for test usage)
+ */
+export function createMockProviderOAuthTokenStore(
+  overrides?: Partial<SinonStubbedInstance<IProviderOAuthTokenStore>>,
+): SinonStubbedInstance<IProviderOAuthTokenStore> {
+  const mock = {
+    delete: stub().resolves(),
+    get: stub().resolves(),
+    has: stub().resolves(false),
+    set: stub().resolves(),
+    ...overrides,
+  }
+
+  return mock as unknown as SinonStubbedInstance<IProviderOAuthTokenStore>
 }
 
 // ============================================================================

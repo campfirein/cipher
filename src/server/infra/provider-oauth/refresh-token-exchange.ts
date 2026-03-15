@@ -1,28 +1,22 @@
 /* eslint-disable camelcase */
 import axios, {isAxiosError} from 'axios'
 
-import type {ProviderTokenResponse, TokenExchangeParams} from './types.js'
+import type {ProviderTokenResponse, RefreshTokenExchangeParams} from './types.js'
 
 import {extractOAuthErrorFields, ProviderTokenExchangeError} from './errors.js'
 import {ProviderTokenResponseSchema} from './types.js'
 
 /**
- * Exchanges an authorization code for tokens at the provider's token endpoint.
+ * Exchanges a refresh token for a new access token at the provider's token endpoint.
  * Supports configurable content type to accommodate different providers:
  * - OpenAI uses application/x-www-form-urlencoded
  * - Anthropic uses application/json
  */
-export async function exchangeCodeForTokens(params: TokenExchangeParams): Promise<ProviderTokenResponse> {
+export async function exchangeRefreshToken(params: RefreshTokenExchangeParams): Promise<ProviderTokenResponse> {
   const body: Record<string, string> = {
     client_id: params.clientId,
-    code: params.code,
-    code_verifier: params.codeVerifier,
-    grant_type: 'authorization_code',
-    redirect_uri: params.redirectUri,
-  }
-
-  if (params.clientSecret !== undefined) {
-    body.client_secret = params.clientSecret
+    grant_type: 'refresh_token',
+    refresh_token: params.refreshToken,
   }
 
   let response: {data: unknown}
@@ -43,7 +37,7 @@ export async function exchangeCodeForTokens(params: TokenExchangeParams): Promis
       const errorFields = extractOAuthErrorFields(data)
       throw new ProviderTokenExchangeError({
         errorCode: errorFields.error ?? error.code,
-        message: errorFields.error_description ?? `Token exchange failed: ${error.message}`,
+        message: errorFields.error_description ?? `Token refresh failed: ${error.message}`,
         statusCode: error.response?.status,
       })
     }
