@@ -130,7 +130,9 @@ setup_brv_openclaw_integration() {
 
   if [ -d "$global_skills_dir/byterover" ] && [ -f "$global_skills_dir/byterover/SKILL.md" ]; then
     success "ByteRover Skill is installed at $global_skills_dir/byterover"
-    return
+  if [ -d "$global_skills_dir/byterover" ] && [ -f "$global_skills_dir/byterover/SKILL.md" ]; then
+    success "ByteRover Skill is already installed at $global_skills_dir/byterover"
+  else
   fi
 
   # Step 1: Install ByteRover skill into OpenClaw's global skills directory
