@@ -24,6 +24,13 @@ export type ProviderTokenResponse = {
   token_type?: string
 }
 
+export type RefreshTokenExchangeParams = {
+  clientId: string
+  contentType: TokenRequestContentType
+  refreshToken: string
+  tokenUrl: string
+}
+
 export type TokenExchangeParams = {
   clientId: string
   clientSecret?: string
@@ -32,4 +39,9 @@ export type TokenExchangeParams = {
   contentType: TokenRequestContentType
   redirectUri: string
   tokenUrl: string
+}
+
+/** Compute an ISO 8601 expiry timestamp from an OAuth expires_in value (seconds). */
+export function computeExpiresAt(expiresInSeconds: number): string {
+  return new Date(Date.now() + expiresInSeconds * 1000).toISOString()
 }

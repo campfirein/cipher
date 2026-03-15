@@ -18,8 +18,6 @@ export interface IProviderConfigStore {
       authMethod?: 'api-key' | 'oauth'
       baseUrl?: string
       oauthAccountId?: string
-      oauthExpiresAt?: string
-      oauthRefreshToken?: string
     },
   ) => Promise<void>
 

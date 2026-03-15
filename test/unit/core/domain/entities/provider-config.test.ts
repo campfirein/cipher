@@ -34,19 +34,15 @@ describe('ProviderConfig', () => {
       expect(updated.providers.openai.oauthAccountId).to.equal('acct_123')
     })
 
-    it('should connect with all OAuth fields', () => {
+    it('should connect with OAuth fields (tokens stored in encrypted store)', () => {
       const config = ProviderConfig.createDefault()
       const updated = config.withProviderConnected('openai', {
         authMethod: 'oauth',
         oauthAccountId: 'acct_123',
-        oauthExpiresAt: '2026-03-15T12:00:00.000Z',
-        oauthRefreshToken: 'refresh_token_abc',
       })
 
       expect(updated.providers.openai.authMethod).to.equal('oauth')
       expect(updated.providers.openai.oauthAccountId).to.equal('acct_123')
-      expect(updated.providers.openai.oauthExpiresAt).to.equal('2026-03-15T12:00:00.000Z')
-      expect(updated.providers.openai.oauthRefreshToken).to.equal('refresh_token_abc')
     })
 
     it('should preserve existing fields when reconnecting with OAuth', () => {
@@ -129,8 +125,6 @@ describe('ProviderConfig', () => {
             connectedAt: '2026-03-15T00:00:00.000Z',
             favoriteModels: [],
             oauthAccountId: 'acct_123',
-            oauthExpiresAt: '2026-03-15T12:00:00.000Z',
-            oauthRefreshToken: 'refresh_abc',
             recentModels: [],
           },
         },
@@ -140,24 +134,18 @@ describe('ProviderConfig', () => {
 
       expect(config.providers.openai.authMethod).to.equal('oauth')
       expect(config.providers.openai.oauthAccountId).to.equal('acct_123')
-      expect(config.providers.openai.oauthExpiresAt).to.equal('2026-03-15T12:00:00.000Z')
-      expect(config.providers.openai.oauthRefreshToken).to.equal('refresh_abc')
     })
 
     it('should roundtrip OAuth fields through toJson/fromJson', () => {
       const config = ProviderConfig.createDefault().withProviderConnected('openai', {
         authMethod: 'oauth',
         oauthAccountId: 'acct_456',
-        oauthExpiresAt: '2026-06-01T00:00:00.000Z',
-        oauthRefreshToken: 'refresh_xyz',
       })
 
       const restored = ProviderConfig.fromJson(config.toJson())
 
       expect(restored.providers.openai.authMethod).to.equal('oauth')
       expect(restored.providers.openai.oauthAccountId).to.equal('acct_456')
-      expect(restored.providers.openai.oauthExpiresAt).to.equal('2026-06-01T00:00:00.000Z')
-      expect(restored.providers.openai.oauthRefreshToken).to.equal('refresh_xyz')
     })
   })
 
@@ -167,7 +155,6 @@ describe('ProviderConfig', () => {
         .withProviderConnected('openai', {
           authMethod: 'oauth',
           oauthAccountId: 'acct_123',
-          oauthRefreshToken: 'refresh_abc',
         })
         .withActiveProvider('openai')
 

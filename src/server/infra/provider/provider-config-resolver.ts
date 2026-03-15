@@ -8,6 +8,7 @@
 
 import type {IProviderConfigStore} from '../../core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keychain-store.js'
+import type {ITokenRefreshManager} from '../../core/interfaces/i-token-refresh-manager.js'
 
 import {CHATGPT_OAUTH_BASE_URL, CHATGPT_OAUTH_ORIGINATOR} from '../../../shared/constants/oauth.js'
 import {getProviderById, providerRequiresApiKey} from '../../core/domain/entities/provider-registry.js'
@@ -91,6 +92,7 @@ export async function clearStaleProviderConfig(
 export async function resolveProviderConfig(
   providerConfigStore: IProviderConfigStore,
   providerKeychainStore: IProviderKeychainStore,
+  tokenRefreshManager?: ITokenRefreshManager,
 ): Promise<ProviderConfigResponse> {
   const config = await providerConfigStore.read()
   const {activeProvider} = config
@@ -134,6 +136,21 @@ export async function resolveProviderConfig(
     default: {
       const providerDef = getProviderById(activeProvider)
       const providerConfig = config.providers[activeProvider]
+
+      // Attempt OAuth token refresh if provider is OAuth-connected
+      if (providerConfig?.authMethod === 'oauth' && tokenRefreshManager) {
+        try {
+          const refreshed = await tokenRefreshManager.refreshIfNeeded(activeProvider)
+          if (!refreshed) {
+            return {activeModel, activeProvider, maxInputTokens, providerKeyMissing: true}
+          }
+
+          // Re-read API key after potential refresh
+          apiKey = (await providerKeychainStore.getApiKey(activeProvider)) ?? apiKey
+        } catch {
+          return {activeModel, activeProvider, maxInputTokens, providerKeyMissing: true}
+        }
+      }
 
       // OAuth-connected OpenAI: use Codex endpoint + required headers
       if (activeProvider === 'openai' && providerConfig?.authMethod === 'oauth') {

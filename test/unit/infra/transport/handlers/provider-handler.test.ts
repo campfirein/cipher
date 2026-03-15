@@ -17,6 +17,7 @@ import {ProviderEvents} from '../../../../../src/shared/transport/events/provide
 import {
   createMockProviderConfigStore,
   createMockProviderKeychainStore,
+  createMockProviderOAuthTokenStore,
   createMockTransportServer,
 } from '../../../../helpers/mock-factories.js'
 
@@ -54,6 +55,7 @@ const TEST_TOKEN_RESPONSE: ProviderTokenResponse = {
 describe('ProviderHandler', () => {
   let providerConfigStore: ReturnType<typeof createMockProviderConfigStore>
   let providerKeychainStore: ReturnType<typeof createMockProviderKeychainStore>
+  let providerOAuthTokenStore: ReturnType<typeof createMockProviderOAuthTokenStore>
   let transport: ReturnType<typeof createMockTransportServer>
   let browserLauncher: sinon.SinonStubbedInstance<IBrowserLauncher>
   let mockCallbackServer: sinon.SinonStubbedInstance<ProviderCallbackServer>
@@ -63,6 +65,7 @@ describe('ProviderHandler', () => {
   beforeEach(() => {
     providerConfigStore = createMockProviderConfigStore()
     providerKeychainStore = createMockProviderKeychainStore()
+    providerOAuthTokenStore = createMockProviderOAuthTokenStore()
     transport = createMockTransportServer()
     browserLauncher = createMockBrowserLauncher()
     mockCallbackServer = createMockCallbackServer()
@@ -82,6 +85,7 @@ describe('ProviderHandler', () => {
       generatePkce: generatePkceStub,
       providerConfigStore,
       providerKeychainStore,
+      providerOAuthTokenStore,
       transport,
     })
     handler.setup()
@@ -272,6 +276,7 @@ describe('ProviderHandler', () => {
         generatePkce: generatePkceStub,
         providerConfigStore,
         providerKeychainStore,
+        providerOAuthTokenStore,
         transport,
       })
       handler.setup()
@@ -303,6 +308,7 @@ describe('ProviderHandler', () => {
         generatePkce: generatePkceStub,
         providerConfigStore,
         providerKeychainStore,
+        providerOAuthTokenStore,
         transport,
       })
       handler.setup()
@@ -400,7 +406,7 @@ describe('ProviderHandler', () => {
       })
     })
 
-    it('should store refresh token and expiry in provider config', async () => {
+    it('should store refresh token and expiry in encrypted OAuth token store', async () => {
       createHandler()
 
       const startHandler = transport._handlers.get(ProviderEvents.START_OAUTH)
@@ -409,13 +415,20 @@ describe('ProviderHandler', () => {
       const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
       await awaitHandler!({providerId: 'openai'}, 'client-1')
 
-      const connectArgs = providerConfigStore.connectProvider.firstCall.args[1]
-      expect(connectArgs?.oauthRefreshToken).to.equal('test-refresh-token')
-      expect(connectArgs?.oauthExpiresAt).to.be.a('string')
+      // Verify tokens stored in encrypted store, NOT in provider config
+      expect(providerOAuthTokenStore.set.calledOnce).to.be.true
+      const [providerId, tokenRecord] = providerOAuthTokenStore.set.firstCall.args
+      expect(providerId).to.equal('openai')
+      expect(tokenRecord.refreshToken).to.equal('test-refresh-token')
+      expect(tokenRecord.expiresAt).to.be.a('string')
       // Verify it's a valid ISO timestamp roughly 1 hour from now
-      const expiresAt = new Date(connectArgs!.oauthExpiresAt!).getTime()
+      const expiresAt = new Date(tokenRecord.expiresAt).getTime()
       const expectedApprox = Date.now() + 3600 * 1000
       expect(Math.abs(expiresAt - expectedApprox)).to.be.lessThan(5000)
+
+      // Verify connectProvider receives OAuth metadata (not tokens — those are in encrypted store)
+      const connectArgs = providerConfigStore.connectProvider.firstCall.args[1]
+      expect(connectArgs?.authMethod).to.equal('oauth')
     })
 
     it('should broadcast PROVIDER_UPDATED on success', async () => {
@@ -484,6 +497,54 @@ describe('ProviderHandler', () => {
 
       expect(result).to.deep.include({success: false})
       expect(result.error).to.include('Token exchange failed')
+    })
+
+    it('should store refresh token with default expiry when expires_in is missing', async () => {
+      exchangeCodeStub.resolves({
+        access_token: 'test-access-token',
+        refresh_token: 'test-refresh-token',
+        // No expires_in in response
+      })
+      createHandler()
+
+      const startHandler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      await startHandler!({providerId: 'openai'}, 'client-1')
+
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+      const result = await awaitHandler!({providerId: 'openai'}, 'client-1')
+
+      expect(result).to.deep.equal({success: true})
+
+      // Refresh token should still be stored with a default 1-hour expiry
+      expect(providerOAuthTokenStore.set.calledOnce).to.be.true
+      const [providerId, tokenRecord] = providerOAuthTokenStore.set.firstCall.args
+      expect(providerId).to.equal('openai')
+      expect(tokenRecord.refreshToken).to.equal('test-refresh-token')
+      // Default expiry should be roughly 1 hour from now
+      const expiresAt = new Date(tokenRecord.expiresAt).getTime()
+      const expectedApprox = Date.now() + 3600 * 1000
+      expect(Math.abs(expiresAt - expectedApprox)).to.be.lessThan(5000)
+    })
+
+    it('should not store in OAuth token store when no refresh_token returned', async () => {
+      exchangeCodeStub.resolves({
+        access_token: 'test-access-token',
+        expires_in: 3600,
+        // No refresh_token in response
+      })
+      createHandler()
+
+      const startHandler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      await startHandler!({providerId: 'openai'}, 'client-1')
+
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+      const result = await awaitHandler!({providerId: 'openai'}, 'client-1')
+
+      expect(result).to.deep.equal({success: true})
+      // Access token should still be stored in keychain
+      expect(providerKeychainStore.setApiKey.calledWith('openai', 'test-access-token')).to.be.true
+      // But no refresh token to store
+      expect(providerOAuthTokenStore.set.notCalled).to.be.true
     })
 
     it('should handle missing id_token gracefully (oauthAccountId undefined)', async () => {

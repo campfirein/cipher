@@ -1,8 +1,9 @@
 import {expect} from 'chai'
-import {createSandbox, type SinonSandbox, type SinonStubbedInstance} from 'sinon'
+import sinon, {createSandbox, type SinonSandbox, type SinonStubbedInstance} from 'sinon'
 
 import type {IProviderConfigStore} from '../../../../src/server/core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../../../src/server/core/interfaces/i-provider-keychain-store.js'
+import type {ITokenRefreshManager} from '../../../../src/server/infra/provider-oauth/token-refresh-manager.js'
 
 import {ProviderConfig} from '../../../../src/server/core/domain/entities/provider-config.js'
 import {resolveProviderConfig} from '../../../../src/server/infra/provider/provider-config-resolver.js'
@@ -44,8 +45,6 @@ function createProviderConfig(
       authMethod?: 'api-key' | 'oauth'
       baseUrl?: string
       oauthAccountId?: string
-      oauthExpiresAt?: string
-      oauthRefreshToken?: string
     }
   > = {},
 ): ProviderConfig {
@@ -58,8 +57,6 @@ function createProviderConfig(
       connectedAt: string
       favoriteModels: string[]
       oauthAccountId?: string
-      oauthExpiresAt?: string
-      oauthRefreshToken?: string
       recentModels: string[]
     }
   > = {}
@@ -298,5 +295,121 @@ describe('resolveProviderConfig', () => {
     const result = await resolveProviderConfig(configStore, keychainStore)
 
     expect(result.activeModel).to.be.undefined
+  })
+
+  // ==================== Token Refresh Manager Integration ====================
+
+  it('should call tokenRefreshManager for OAuth providers when provided', async () => {
+    const {configStore, keychainStore} = createStubStores(sandbox)
+    configStore.read.resolves(
+      createProviderConfig('openai', {
+        openai: {activeModel: 'gpt-5.1-codex', authMethod: 'oauth', oauthAccountId: 'org-abc'},
+      }),
+    )
+    keychainStore.getApiKey.resolves('refreshed-access-token')
+
+    const refreshManager: ITokenRefreshManager = {
+      refreshIfNeeded: sandbox.stub().resolves(true),
+    }
+
+    const result = await resolveProviderConfig(configStore, keychainStore, refreshManager)
+
+    expect((refreshManager.refreshIfNeeded as sinon.SinonStub).calledWith('openai')).to.be.true
+    expect(result.providerApiKey).to.equal('refreshed-access-token')
+    expect(result.providerKeyMissing).to.be.false
+  })
+
+  it('should return providerKeyMissing when tokenRefreshManager returns false', async () => {
+    const {configStore, keychainStore} = createStubStores(sandbox)
+    configStore.read.resolves(
+      createProviderConfig('openai', {
+        openai: {activeModel: 'gpt-5.1-codex', authMethod: 'oauth', oauthAccountId: 'org-abc'},
+      }),
+    )
+
+    const refreshManager: ITokenRefreshManager = {
+      refreshIfNeeded: sandbox.stub().resolves(false),
+    }
+
+    const result = await resolveProviderConfig(configStore, keychainStore, refreshManager)
+
+    expect(result.providerKeyMissing).to.be.true
+    expect(result.providerApiKey).to.be.undefined
+  })
+
+  it('should re-read API key from keychain after successful refresh', async () => {
+    const {configStore, keychainStore} = createStubStores(sandbox)
+    configStore.read.resolves(
+      createProviderConfig('openai', {
+        openai: {activeModel: 'gpt-5.1-codex', authMethod: 'oauth', oauthAccountId: 'org-abc'},
+      }),
+    )
+    // First call returns old token, second call (after refresh) returns new token
+    keychainStore.getApiKey.onFirstCall().resolves('old-access-token')
+    keychainStore.getApiKey.onSecondCall().resolves('fresh-access-token')
+
+    const refreshManager: ITokenRefreshManager = {
+      refreshIfNeeded: sandbox.stub().resolves(true),
+    }
+
+    const result = await resolveProviderConfig(configStore, keychainStore, refreshManager)
+
+    // getApiKey must be called twice: once before refresh check, once after
+    expect(keychainStore.getApiKey.callCount).to.equal(2)
+    // Result should use the fresh token from second read
+    expect(result.providerApiKey).to.equal('fresh-access-token')
+  })
+
+  it('should not call tokenRefreshManager for non-OAuth providers', async () => {
+    const {configStore, keychainStore} = createStubStores(sandbox)
+    configStore.read.resolves(
+      createProviderConfig('openai', {
+        openai: {activeModel: 'gpt-4.1', authMethod: 'api-key'},
+      }),
+    )
+    keychainStore.getApiKey.resolves('sk-key')
+
+    const refreshManager: ITokenRefreshManager = {
+      refreshIfNeeded: sandbox.stub().resolves(true),
+    }
+
+    await resolveProviderConfig(configStore, keychainStore, refreshManager)
+
+    expect((refreshManager.refreshIfNeeded as sinon.SinonStub).notCalled).to.be.true
+  })
+
+  it('should work without tokenRefreshManager (backward compatible)', async () => {
+    const {configStore, keychainStore} = createStubStores(sandbox)
+    configStore.read.resolves(
+      createProviderConfig('openai', {
+        openai: {activeModel: 'gpt-5.1-codex', authMethod: 'oauth', oauthAccountId: 'org-abc'},
+      }),
+    )
+    keychainStore.getApiKey.resolves('access-token')
+
+    // No tokenRefreshManager — should still resolve normally
+    const result = await resolveProviderConfig(configStore, keychainStore)
+
+    expect(result.providerApiKey).to.equal('access-token')
+    expect(result.providerBaseUrl).to.equal('https://chatgpt.com/backend-api/codex')
+  })
+
+  it('should return providerKeyMissing when tokenRefreshManager throws', async () => {
+    const {configStore, keychainStore} = createStubStores(sandbox)
+    configStore.read.resolves(
+      createProviderConfig('openai', {
+        openai: {activeModel: 'gpt-5.1-codex', authMethod: 'oauth', oauthAccountId: 'org-abc'},
+      }),
+    )
+
+    const refreshManager: ITokenRefreshManager = {
+      refreshIfNeeded: sandbox.stub().rejects(new Error('Unexpected error')),
+    }
+
+    const result = await resolveProviderConfig(configStore, keychainStore, refreshManager)
+
+    // Should degrade gracefully instead of throwing
+    expect(result.providerKeyMissing).to.be.true
+    expect(result.providerApiKey).to.be.undefined
   })
 })
