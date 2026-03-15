@@ -27,6 +27,8 @@ export interface ProviderOAuthConfig {
   readonly callbackPort?: number
   /** OAuth client ID */
   readonly clientId: string
+  /** Whether to add `code=true` query param to auth URL (code-paste mode only — tells server to display paste-able code) */
+  readonly codeDisplay?: boolean
   /** Extra query params appended to the authorization URL (provider-specific) */
   readonly extraParams?: Readonly<Record<string, string>>
   /** Supported OAuth modes (some providers have multiple) */
