@@ -33,5 +33,6 @@ export interface ModelSetActiveRequest {
 }
 
 export interface ModelSetActiveResponse {
+  error?: string
   success: boolean
 }

@@ -184,11 +184,11 @@ describe('resolveProviderConfig', () => {
     expect(result.provider).to.equal('openai')
     expect(result.providerApiKey).to.equal('oauth-access-token-xyz')
     expect(result.providerBaseUrl).to.equal('https://chatgpt.com/backend-api/codex')
-    expect(result.providerHeaders).to.deep.equal({'ChatGPT-Account-Id': 'org-abc123'})
+    expect(result.providerHeaders).to.deep.equal({'ChatGPT-Account-Id': 'org-abc123', originator: 'byterover'})
     expect(result.providerKeyMissing).to.be.false
   })
 
-  it('should resolve OAuth-connected OpenAI without account ID (no ChatGPT-Account-Id header)', async () => {
+  it('should resolve OAuth-connected OpenAI without account ID (originator header only)', async () => {
     const {configStore, keychainStore} = createStubStores(sandbox)
     configStore.read.resolves(
       createProviderConfig('openai', {
@@ -203,7 +203,7 @@ describe('resolveProviderConfig', () => {
     const result = await resolveProviderConfig(configStore, keychainStore)
 
     expect(result.providerBaseUrl).to.equal('https://chatgpt.com/backend-api/codex')
-    expect(result.providerHeaders).to.be.undefined
+    expect(result.providerHeaders).to.deep.equal({originator: 'byterover'})
     expect(result.providerKeyMissing).to.be.false
   })
 

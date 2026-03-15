@@ -9,12 +9,20 @@
 import type {IProviderConfigStore} from '../../core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keychain-store.js'
 
+import {CHATGPT_OAUTH_BASE_URL} from '../../../shared/constants/oauth.js'
 import {getProviderById, providerRequiresApiKey} from '../../core/domain/entities/provider-registry.js'
 import {type ProviderConfigResponse} from '../../core/domain/transport/schemas.js'
 import {getProviderApiKeyFromEnv} from './env-provider-detector.js'
 
-const OPENAI_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
-
+/**
+ * Check if a provider's credential (API key or OAuth access token) is accessible.
+ *
+ * Note: authMethod is intentionally NOT passed to providerRequiresApiKey() here.
+ * OAuth access tokens are stored in the keychain (as the provider's "API key"),
+ * so the keychain check on the next line correctly handles both auth methods.
+ * If an OAuth token expires and the refresh manager (Issue 5) deletes it from
+ * keychain, this function returns false — correctly marking the provider as stale.
+ */
 async function isProviderCredentialAccessible(
   providerId: string,
   providerKeychainStore: IProviderKeychainStore,
@@ -127,18 +135,23 @@ export async function resolveProviderConfig(
       const providerDef = getProviderById(activeProvider)
       const providerConfig = config.providers[activeProvider]
 
-      // OAuth-connected OpenAI: use Codex endpoint + ChatGPT-Account-Id header
+      // OAuth-connected OpenAI: use Codex endpoint + required headers
       if (activeProvider === 'openai' && providerConfig?.authMethod === 'oauth') {
+        const codexHeaders: Record<string, string> = {
+          originator: 'byterover',
+        }
+        if (providerConfig.oauthAccountId) {
+          codexHeaders['ChatGPT-Account-Id'] = providerConfig.oauthAccountId
+        }
+
         return {
           activeModel,
           activeProvider,
           maxInputTokens,
           provider: activeProvider,
           providerApiKey: apiKey || undefined,
-          providerBaseUrl: OPENAI_CODEX_BASE_URL,
-          providerHeaders: providerConfig.oauthAccountId
-            ? {'ChatGPT-Account-Id': providerConfig.oauthAccountId}
-            : undefined,
+          providerBaseUrl: CHATGPT_OAUTH_BASE_URL,
+          providerHeaders: codexHeaders,
           providerKeyMissing: providerRequiresApiKey(activeProvider, providerConfig.authMethod) && !apiKey,
         }
       }
