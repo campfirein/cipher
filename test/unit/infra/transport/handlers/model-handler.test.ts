@@ -410,6 +410,24 @@ describe('ModelHandler', () => {
       expect(result.models[0].id).to.equal('o4-mini')
     })
 
+    it('should return error message when fetchModels throws', async () => {
+      const mockFetcher = {
+        fetchModels: stub().rejects(new Error('Request failed with status code 401')),
+        validateApiKey: stub().resolves({isValid: true}),
+      }
+      getModelFetcherStub.resolves(mockFetcher)
+
+      createHandler()
+
+      const handler = transport._handlers.get(ModelEvents.LIST)
+      const result = await handler!({providerId: 'openai'}, 'client-1')
+
+      expect(result.error).to.equal('Request failed with status code 401')
+      expect(result.models).to.deep.equal([])
+      expect(result.favorites).to.deep.equal([])
+      expect(result.recent).to.deep.equal([])
+    })
+
     it('should pass authMethod undefined for non-connected providers', async () => {
       providerConfigStore.read.resolves(ProviderConfig.createDefault())
       providerKeychainStore.getApiKey.resolves('some-key')

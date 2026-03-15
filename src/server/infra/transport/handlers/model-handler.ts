@@ -61,8 +61,9 @@ export class ModelHandler {
         const authMethod = config.providers[providerId]?.authMethod
         const apiKey = await this.providerKeychainStore.getApiKey(providerId)
         fetchedModels = await fetcher.fetchModels(apiKey ?? '', {authMethod})
-      } catch {
-        return {favorites: [], models: [], recent: []}
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to load models'
+        return {error: message, favorites: [], models: [], recent: []}
       }
 
       const models: ModelDTO[] = fetchedModels.map((m) => ({

@@ -151,9 +151,13 @@ export class AnthropicModelFetcher implements IProviderModelFetcher {
 // ============================================================================
 
 /**
- * Allowlist of model IDs permitted for OAuth-connected OpenAI (Codex).
- * Models with "codex" in the name are also allowed (dynamic matching).
- * Based on OpenCode (opencode/src/plugin/codex.ts).
+ * Strict allowlist of model IDs permitted for OAuth-connected OpenAI (Codex).
+ * Only models verified to work with the ChatGPT Codex endpoint are included.
+ *
+ * NOT supported (Bad Request on chatgpt.com/backend-api/codex):
+ * - codex-mini-latest: standard API model, not a Codex endpoint model
+ * - o4-mini: reasoning model, not supported by the Codex endpoint
+ * - gpt-5.3-codex-spark: reported unsupported (GitHub openai/codex#13469)
  */
 export const CODEX_ALLOWED_MODELS = new Set([
   'gpt-5.1-codex',
@@ -179,9 +183,9 @@ export const CODEX_FALLBACK_MODELS: readonly ProviderModelInfo[] = [
   },
   {
     contextLength: 200_000,
-    id: 'codex-mini-latest',
+    id: 'gpt-5.1-codex-mini',
     isFree: true,
-    name: 'Codex Mini (Latest)',
+    name: 'GPT-5.1 Codex Mini',
     pricing: {inputPerM: 0, outputPerM: 0},
     provider: 'OpenAI',
   },
@@ -205,7 +209,7 @@ export class OpenAIModelFetcher implements IProviderModelFetcher {
   async fetchModels(apiKey: string, options?: FetchModelsOptions): Promise<ProviderModelInfo[]> {
     // OAuth-connected OpenAI: fetch from models.dev, filter to Codex models
     if (options?.authMethod === 'oauth') {
-      return this.fetchCodexModels(options.forceRefresh)
+      return this.fetchCodexModels(options.forceRefresh ?? false)
     }
 
     const forceRefresh = options?.forceRefresh ?? false
@@ -303,8 +307,9 @@ export class OpenAIModelFetcher implements IProviderModelFetcher {
       return [...CODEX_FALLBACK_MODELS]
     }
 
-    // Filter: keep models with "codex" in name OR in the allowlist
-    const codexModels = allModels.filter((m) => m.id.includes('codex') || CODEX_ALLOWED_MODELS.has(m.id))
+    // Strict allowlist only — dynamic "codex in name" matching is too broad
+    // (e.g. codex-mini-latest, gpt-5.3-codex-spark cause Bad Request)
+    const codexModels = allModels.filter((m) => CODEX_ALLOWED_MODELS.has(m.id))
 
     if (codexModels.length === 0) {
       return [...CODEX_FALLBACK_MODELS]

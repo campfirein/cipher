@@ -5,6 +5,8 @@
  * Inspired by OpenCode's provider system.
  */
 
+import {CHATGPT_OAUTH_ORIGINATOR} from '../../../../shared/constants/oauth.js'
+
 /**
  * Configuration for a single OAuth authentication mode.
  */
@@ -238,7 +240,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
       extraParams: {
         codex_cli_simplified_flow: 'true',
         id_token_add_organizations: 'true',
-        originator: 'byterover',
+        originator: CHATGPT_OAUTH_ORIGINATOR,
       },
       /* eslint-enable camelcase */
       modes: [{authUrl: 'https://auth.openai.com/oauth/authorize', id: 'default', label: 'Sign in with ChatGPT'}],

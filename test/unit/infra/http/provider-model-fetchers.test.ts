@@ -31,6 +31,14 @@ const SAMPLE_OPENAI_MODELS: ProviderModelInfo[] = [
     provider: 'OpenAI',
   },
   {
+    contextLength: 200_000,
+    id: 'gpt-5.3-codex-spark',
+    isFree: false,
+    name: 'GPT-5.3 Codex Spark',
+    pricing: {inputPerM: 0.5, outputPerM: 2},
+    provider: 'OpenAI',
+  },
+  {
     contextLength: 128_000,
     id: 'gpt-4o',
     isFree: false,
@@ -64,11 +72,13 @@ describe('OpenAIModelFetcher', () => {
       const models = await fetcher.fetchModels('token', {authMethod: 'oauth'})
 
       const ids = models.map((m) => m.id)
-      // Should include: "codex" in name (gpt-5.3-codex, codex-mini-latest) + explicit allowlist (gpt-5.2)
+      // Should include only models in the strict allowlist
       expect(ids).to.include('gpt-5.3-codex')
-      expect(ids).to.include('codex-mini-latest')
       expect(ids).to.include('gpt-5.2')
-      // Should NOT include non-codex, non-allowlist models
+      // Should NOT include models with "codex" in name but not in allowlist
+      expect(ids).to.not.include('codex-mini-latest')
+      expect(ids).to.not.include('gpt-5.3-codex-spark')
+      // Should NOT include non-allowlist models
       expect(ids).to.not.include('gpt-4o')
       expect(ids).to.not.include('gpt-4.1')
     })

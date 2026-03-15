@@ -9,7 +9,7 @@
 import type {IProviderConfigStore} from '../../core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keychain-store.js'
 
-import {CHATGPT_OAUTH_BASE_URL} from '../../../shared/constants/oauth.js'
+import {CHATGPT_OAUTH_BASE_URL, CHATGPT_OAUTH_ORIGINATOR} from '../../../shared/constants/oauth.js'
 import {getProviderById, providerRequiresApiKey} from '../../core/domain/entities/provider-registry.js'
 import {type ProviderConfigResponse} from '../../core/domain/transport/schemas.js'
 import {getProviderApiKeyFromEnv} from './env-provider-detector.js'
@@ -138,7 +138,7 @@ export async function resolveProviderConfig(
       // OAuth-connected OpenAI: use Codex endpoint + required headers
       if (activeProvider === 'openai' && providerConfig?.authMethod === 'oauth') {
         const codexHeaders: Record<string, string> = {
-          originator: 'byterover',
+          originator: CHATGPT_OAUTH_ORIGINATOR,
         }
         if (providerConfig.oauthAccountId) {
           codexHeaders['ChatGPT-Account-Id'] = providerConfig.oauthAccountId

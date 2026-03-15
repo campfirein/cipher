@@ -12,6 +12,7 @@ export interface ModelListRequest {
 
 export interface ModelListResponse {
   activeModel?: string
+  error?: string
   favorites: string[]
   models: ModelDTO[]
   recent: string[]
