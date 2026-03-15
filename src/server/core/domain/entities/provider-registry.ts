@@ -27,6 +27,8 @@ export interface ProviderOAuthConfig {
   readonly callbackPort?: number
   /** OAuth client ID */
   readonly clientId: string
+  /** Extra query params appended to the authorization URL (provider-specific) */
+  readonly extraParams?: Readonly<Record<string, string>>
   /** Supported OAuth modes (some providers have multiple) */
   readonly modes: readonly OAuthModeConfig[]
   /** OAuth redirect URI */
@@ -228,7 +230,15 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
     oauth: {
       callbackMode: 'auto',
       callbackPort: 1455,
+      // Public OAuth client ID (safe to commit — native app public client, no client secret)
       clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
+      /* eslint-disable camelcase -- OAuth query params follow RFC 6749 naming */
+      extraParams: {
+        codex_cli_simplified_flow: 'true',
+        id_token_add_organizations: 'true',
+        originator: 'byterover',
+      },
+      /* eslint-enable camelcase */
       modes: [{authUrl: 'https://auth.openai.com/oauth/authorize', id: 'default', label: 'Sign in with ChatGPT'}],
       redirectUri: 'http://localhost:1455/auth/callback',
       scopes: 'openid profile email offline_access',

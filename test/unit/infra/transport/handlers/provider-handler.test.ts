@@ -289,7 +289,7 @@ describe('ProviderHandler', () => {
       expect(secondServer.start.calledOnce).to.be.true
     })
 
-    it('should stop callback server if flow setup fails after server started', async () => {
+    it('should succeed and keep callback server running even if browser launch fails', async () => {
       const failingServer = createMockCallbackServer()
       // Server starts successfully but browser launch throws after server is stored
       browserLauncher.open.callsFake(() => {
@@ -327,6 +327,25 @@ describe('ProviderHandler', () => {
 
       expect(result).to.deep.include({success: false})
       expect(result.error).to.include('No active OAuth flow')
+    })
+
+    it('should return error when a concurrent await is already in progress', async () => {
+      // Make waitForCallback block indefinitely so first await stays in progress
+      mockCallbackServer.waitForCallback.returns(new Promise(() => {}))
+      createHandler()
+
+      const startHandler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      await startHandler!({providerId: 'openai'}, 'client-1')
+
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+
+      // Fire first await (will block forever) — no need to await it
+      awaitHandler!({providerId: 'openai'}, 'client-1')
+
+      // Second await should fail immediately
+      const result = await awaitHandler!({providerId: 'openai'}, 'client-1')
+      expect(result).to.deep.include({success: false})
+      expect(result.error).to.include('already being awaited')
     })
 
     it('should exchange code for tokens and store credentials on success', async () => {

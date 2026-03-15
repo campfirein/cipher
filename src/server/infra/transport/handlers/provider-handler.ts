@@ -46,6 +46,7 @@ import {
 } from '../../provider-oauth/index.js'
 
 type OAuthFlowState = {
+  awaitInProgress?: boolean
   callbackServer?: ProviderCallbackServer
   codeVerifier: string
   state: string
@@ -108,6 +109,12 @@ export class ProviderHandler {
         if (!flow?.callbackServer) {
           return {error: 'No active OAuth flow for this provider', success: false}
         }
+
+        if (flow.awaitInProgress) {
+          return {error: 'OAuth callback is already being awaited for this provider', success: false}
+        }
+
+        flow.awaitInProgress = true
 
         try {
           // Block until callback or timeout (5 min default in ProviderCallbackServer)
@@ -181,6 +188,7 @@ export class ProviderHandler {
       const provider = getProviderById(providerId)
       await this.providerConfigStore.connectProvider(providerId, {
         activeModel: provider?.defaultModel,
+        authMethod: apiKey ? 'api-key' : undefined,
         baseUrl,
       })
 
@@ -306,11 +314,11 @@ export class ProviderHandler {
             state: pkce.state,
           })
 
-          // OpenAI-specific params
-          if (data.providerId === 'openai') {
-            params.set('codex_cli_simplified_flow', 'true')
-            params.set('id_token_add_organizations', 'true')
-            params.set('originator', 'byterover')
+          // Provider-specific extra params (e.g. OpenAI's codex_cli_simplified_flow)
+          if (oauthConfig.extraParams) {
+            for (const [key, value] of Object.entries(oauthConfig.extraParams)) {
+              params.set(key, value)
+            }
           }
 
           const authUrl = `${mode.authUrl}?${params.toString()}`

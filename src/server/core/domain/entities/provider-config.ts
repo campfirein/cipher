@@ -23,9 +23,9 @@ export interface ConnectedProviderConfig {
   readonly favoriteModels: readonly string[]
   /** OAuth account ID (e.g. ChatGPT-Account-Id for OpenAI) */
   readonly oauthAccountId?: string
-  /** OAuth token expiry as ISO 8601 timestamp (MVP: stored in config until Issue 5 adds secure storage) */
+  /** OAuth token expiry as ISO 8601 timestamp (MVP: stored in config — TODO(ENG-1512/Issue5): move to encrypted storage in provider-oauth-token-store) */
   readonly oauthExpiresAt?: string
-  /** OAuth refresh token (MVP: stored in config until Issue 5 adds secure storage) */
+  /** OAuth refresh token (MVP: stored in config — TODO(ENG-1512/Issue5): move to encrypted storage in provider-oauth-token-store) */
   readonly oauthRefreshToken?: string
   /** Recently used models (last 10) */
   readonly recentModels: readonly string[]

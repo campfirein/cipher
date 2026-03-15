@@ -127,6 +127,7 @@ export default class ProviderConnect extends Command {
   protected async connectProviderOAuth(
     {code, providerId}: {code?: string; providerId: string},
     options?: DaemonClientOptions,
+    onProgress?: (msg: string) => void,
   ) {
     return withDaemonRetry(async (client) => {
       // 1. Verify provider exists and supports OAuth
@@ -162,11 +163,11 @@ export default class ProviderConnect extends Command {
       }
 
       // Always print auth URL (user's machine may not support browser launch)
-      this.log(`\nOpen this URL to authenticate:\n  ${startResponse.authUrl}\n`)
+      onProgress?.(`\nOpen this URL to authenticate:\n  ${startResponse.authUrl}\n`)
 
       // 3. Handle based on callback mode
       if (startResponse.callbackMode === 'auto') {
-        this.log('Waiting for authentication in browser...')
+        onProgress?.('Waiting for authentication in browser...')
         const awaitResponse = await client.requestWithAck<ProviderAwaitOAuthCallbackResponse>(
           ProviderEvents.AWAIT_OAUTH_CALLBACK,
           {providerId},
@@ -180,8 +181,8 @@ export default class ProviderConnect extends Command {
       }
 
       // code-paste mode: print instructions and exit
-      this.log('Copy the authorization code from the browser and run:')
-      this.log(`  brv providers connect ${providerId} --oauth --code <code>`)
+      onProgress?.('Copy the authorization code from the browser and run:')
+      onProgress?.(`  brv providers connect ${providerId} --oauth --code <code>`)
       return {providerName: provider.name, showInstructions: true}
     }, options)
   }
@@ -192,7 +193,7 @@ export default class ProviderConnect extends Command {
     const apiKey = flags['api-key']
     const baseUrl = flags['base-url']
     const {code, model, oauth} = flags
-    const format = flags.format as 'json' | 'text'
+    const format: 'json' | 'text' = flags.format === 'json' ? 'json' : 'text'
 
     // Validate flag combinations
     if (oauth && apiKey) {
@@ -219,7 +220,8 @@ export default class ProviderConnect extends Command {
 
     try {
       if (oauth) {
-        const result = await this.connectProviderOAuth({code, providerId})
+        const onProgress = format === 'text' ? (msg: string) => this.log(msg) : undefined
+        const result = await this.connectProviderOAuth({code, providerId}, undefined, onProgress)
 
         if (format === 'json') {
           writeJsonResponse({command: 'providers connect', data: {providerId}, success: true})

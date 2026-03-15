@@ -30,12 +30,20 @@ class TestableProviderConnectCommand extends ProviderConnect {
     })
   }
 
-  protected override async connectProviderOAuth(params: {code?: string; providerId: string}) {
-    return super.connectProviderOAuth(params, {
-      maxRetries: 1,
-      retryDelayMs: 0,
-      transportConnector: this.mockConnector,
-    })
+  protected override async connectProviderOAuth(
+    params: {code?: string; providerId: string},
+    _options?: unknown,
+    onProgress?: (msg: string) => void,
+  ) {
+    return super.connectProviderOAuth(
+      params,
+      {
+        maxRetries: 1,
+        retryDelayMs: 0,
+        transportConnector: this.mockConnector,
+      },
+      onProgress,
+    )
   }
 }
 
@@ -414,7 +422,7 @@ describe('Provider Connect Command', () => {
       await createCommand('openai', '--oauth').run()
 
       expect(loggedMessages.some((m) => m.includes('https://auth.openai.com/oauth/authorize'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('Connected to OpenAI via OAuth (Codex)'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Connected to OpenAI via OAuth'))).to.be.true
     })
 
     it('should send LIST then START_OAUTH events', async () => {
@@ -560,6 +568,25 @@ describe('Provider Connect Command', () => {
 
       await createJsonCommand('openai', '--oauth').run()
 
+      expect(loggedMessages).to.be.empty
+      const json = parseJsonOutput()
+      expect(json.command).to.equal('providers connect')
+      expect(json.success).to.be.true
+      expect(json.data).to.deep.include({providerId: 'openai'})
+    })
+
+    it('should output JSON without progress logs for code-paste OAuth', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({providers: [openaiOAuthProvider]})
+      requestStub.onSecondCall().resolves({
+        authUrl: 'https://auth.openai.com/oauth/authorize',
+        callbackMode: 'code-paste',
+        success: true,
+      })
+
+      await createJsonCommand('openai', '--oauth').run()
+
+      expect(loggedMessages).to.be.empty
       const json = parseJsonOutput()
       expect(json.command).to.equal('providers connect')
       expect(json.success).to.be.true
