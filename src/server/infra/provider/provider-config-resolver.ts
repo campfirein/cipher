@@ -123,6 +123,24 @@ export async function resolveProviderConfig(
 
     default: {
       const providerDef = getProviderById(activeProvider)
+      const providerConfig = config.providers[activeProvider]
+
+      // OAuth-connected OpenAI: use Codex endpoint + ChatGPT-Account-Id header
+      if (activeProvider === 'openai' && providerConfig?.authMethod === 'oauth') {
+        return {
+          activeModel,
+          activeProvider,
+          maxInputTokens,
+          provider: activeProvider,
+          providerApiKey: apiKey || undefined,
+          providerBaseUrl: 'https://chatgpt.com/backend-api/codex',
+          providerHeaders: providerConfig.oauthAccountId
+            ? {'ChatGPT-Account-Id': providerConfig.oauthAccountId}
+            : undefined,
+          providerKeyMissing: false,
+        }
+      }
+
       const headers = providerDef?.headers
       return {
         activeModel,
@@ -130,9 +148,9 @@ export async function resolveProviderConfig(
         maxInputTokens,
         provider: activeProvider,
         providerApiKey: apiKey || undefined,
-        providerBaseUrl: providerDef?.baseUrl || undefined,
+        providerBaseUrl: config.getBaseUrl(activeProvider) || providerDef?.baseUrl || undefined,
         providerHeaders: headers && Object.keys(headers).length > 0 ? {...headers} : undefined,
-        providerKeyMissing: providerRequiresApiKey(activeProvider) && !apiKey,
+        providerKeyMissing: providerRequiresApiKey(activeProvider, providerConfig?.authMethod) && !apiKey,
       }
     }
   }
