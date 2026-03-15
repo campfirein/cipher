@@ -7,6 +7,7 @@ import type {ProviderTokenResponse, RefreshTokenExchangeParams, TokenRequestCont
 
 import {getProviderById} from '../../core/domain/entities/provider-registry.js'
 import {TransportDaemonEventNames} from '../../core/domain/transport/schemas.js'
+import {processLog} from '../../utils/process-logger.js'
 import {isPermanentOAuthError} from './errors.js'
 import {exchangeRefreshToken as defaultExchangeRefreshToken} from './refresh-token-exchange.js'
 import {computeExpiresAt} from './types.js'
@@ -122,6 +123,9 @@ export class TokenRefreshManager implements ITokenRefreshManager {
       // Transient errors (network timeout, 5xx): keep credentials intact.
       // Return true so the caller uses the existing access token from the keychain,
       // which may still be valid until it actually expires.
+      processLog(
+        `[TokenRefreshManager] Transient refresh error for ${providerId}: ${error instanceof Error ? error.message : String(error)}`,
+      )
       return true
     }
   }
