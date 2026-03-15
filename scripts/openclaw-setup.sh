@@ -126,6 +126,8 @@ check_clawhub() {
 check_brv_skill() {
   local global_skills_dir="$HOME/.openclaw/skills"
 
+  [ -n "${BRV_CMD:-}" ] || error "BRV_CMD is not set. Run check_brv_cli() first."
+
   if [ -d "$global_skills_dir/byterover" ] && [ -f "$global_skills_dir/byterover/SKILL.md" ]; then
     success "ByteRover Skill is installed at $global_skills_dir/byterover"
     return
@@ -528,7 +530,7 @@ function resolveBrvPath(): string {
 
 function isBrvReachable(): boolean {
   const resolved = resolveBrvPath();
-  if (resolved.includes("/") || resolved.includes("\\")) return true;
+  if (resolved.includes("/") || resolved.includes("\\")) return existsSync(resolved);
   const pathDirs = (process.env.PATH || "").split(delimiter);
   return pathDirs.some(dir => dir && existsSync(join(dir, resolved)));
 }
@@ -538,6 +540,10 @@ function buildBrvEnv(): NodeJS.ProcessEnv {
   const brvBinDir = join(homedir(), ".brv-cli", "bin");
   env.PATH = brvBinDir + delimiter + (env.PATH || "");
   return env;
+}
+
+function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
+  return err instanceof Error && 'code' in err;
 }
 
 function buildOnboardingPrompt(): string {
@@ -802,7 +808,7 @@ export default function (api) {
         return { prependContext: injection };
       }
     } catch (err: unknown) {
-      const errCode = err instanceof Error ? (err as NodeJS.ErrnoException).code : undefined;
+      const errCode = isErrnoException(err) ? err.code : undefined;
       const errMsg = err instanceof Error ? err.message : String(err);
       if (errCode !== 'ENOENT') {
         api.logger.warn(`[byterover] Query failed (${brvPath}): ${errMsg}`);
@@ -833,7 +839,8 @@ export default function (api) {
     filtered = filtered.replace(/\n{3,}/g, "\n\n").trim();
 
     if (filtered !== original) {
-      api.logger.debug("[byterover] Stripped thinking/reasoning blocks from response");
+      const strippedChars = original.length - filtered.length;
+      api.logger.debug(\`[byterover] Stripped \${strippedChars} chars of thinking/reasoning blocks from response\`);
     }
 
     // If stripping left nothing meaningful, don't send an empty message
@@ -1004,6 +1011,7 @@ fix_ownership() {
   [ "$(id -u)" -eq 0 ] || return 0
 
   # Determine the actual runtime user (the owner of $HOME)
+  local home_owner
   home_owner="$(stat -c '%u:%g' "$HOME" 2>/dev/null || stat -f '%u:%g' "$HOME" 2>/dev/null)" || return 0
 
   # If $HOME is owned by root, nothing to fix
@@ -1011,22 +1019,28 @@ fix_ownership() {
 
   info "Fixing file ownership for non-root runtime user..."
 
-  # Recursively fix ALL directories that root-install may have created.
+  # Recursively fix only the specific directories that root-install creates.
   # install.sh creates:        ~/.brv-cli, ~/.npm-global, ~/.npm, ~/.cache/brv
   # openclaw-setup.sh creates: ~/.openclaw/*, ~/.config/clawhub
   # oclif/npm create:          ~/.config/configstore, ~/.local/state/brv
   for dir in \
     "$HOME/.brv-cli" \
     "$HOME/.openclaw" \
-    "$HOME/.config" \
-    "$HOME/.local" \
-    "$HOME/.cache" \
+    "$HOME/.config/clawhub" \
+    "$HOME/.config/configstore" \
+    "$HOME/.local/state/brv" \
+    "$HOME/.cache/brv" \
     "$HOME/.npm" \
     "$HOME/.npm-global"; do
     [ -d "$dir" ] || continue
     chown -R "$home_owner" "$dir" 2>/dev/null && \
       printf "  ${DIM}Fixed: %s${RESET}\n" "$dir" || \
       warn "Could not fix ownership of $dir"
+  done
+
+  # Fix parent traversal (non-recursive) so runtime user can reach subdirectories
+  for parent in "$HOME/.config" "$HOME/.local" "$HOME/.local/state" "$HOME/.cache"; do
+    [ -d "$parent" ] && chown "$home_owner" "$parent" 2>/dev/null
   done
 
   # macOS: oclif also uses ~/Library/Application Support/brv
