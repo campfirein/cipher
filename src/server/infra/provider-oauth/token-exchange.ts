@@ -3,7 +3,8 @@ import axios, {isAxiosError} from 'axios'
 
 import type {ProviderTokenResponse, TokenExchangeParams} from './types.js'
 
-import {ProviderTokenExchangeError} from './errors.js'
+import {extractOAuthErrorFields, ProviderTokenExchangeError} from './errors.js'
+import {ProviderTokenResponseSchema} from './types.js'
 
 /**
  * Exchanges an authorization code for tokens at the provider's token endpoint.
@@ -11,18 +12,6 @@ import {ProviderTokenExchangeError} from './errors.js'
  * - OpenAI uses application/x-www-form-urlencoded
  * - Anthropic uses application/json
  */
-function extractOAuthErrorFields(data: unknown): {error?: string; error_description?: string} {
-  if (typeof data !== 'object' || data === null) {
-    return {}
-  }
-
-  return {
-    error: 'error' in data && typeof data.error === 'string' ? data.error : undefined,
-    error_description:
-      'error_description' in data && typeof data.error_description === 'string' ? data.error_description : undefined,
-  }
-}
-
 export async function exchangeCodeForTokens(params: TokenExchangeParams): Promise<ProviderTokenResponse> {
   const body: Record<string, string> = {
     client_id: params.clientId,
@@ -36,9 +25,9 @@ export async function exchangeCodeForTokens(params: TokenExchangeParams): Promis
     body.client_secret = params.clientSecret
   }
 
-  let response: Awaited<ReturnType<typeof axios.post<ProviderTokenResponse>>>
+  let response: {data: unknown}
   try {
-    response = await axios.post<ProviderTokenResponse>(
+    response = await axios.post(
       params.tokenUrl,
       params.contentType === 'application/x-www-form-urlencoded' ? new URLSearchParams(body).toString() : body,
       {
@@ -62,10 +51,5 @@ export async function exchangeCodeForTokens(params: TokenExchangeParams): Promis
     throw error
   }
 
-  const {data} = response
-  if (typeof data.access_token !== 'string' || data.access_token === '') {
-    throw new ProviderTokenExchangeError({message: 'Invalid token response: missing access_token'})
-  }
-
-  return data
+  return ProviderTokenResponseSchema.parse(response.data)
 }

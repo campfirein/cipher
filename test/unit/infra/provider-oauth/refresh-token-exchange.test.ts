@@ -1,6 +1,7 @@
 /* eslint-disable camelcase -- OAuth token fields use snake_case per RFC 6749 */
 import {expect} from 'chai'
 import nock from 'nock'
+import {ZodError} from 'zod'
 
 import {ProviderTokenExchangeError} from '../../../../src/server/infra/provider-oauth/errors.js'
 import {exchangeRefreshToken} from '../../../../src/server/infra/provider-oauth/refresh-token-exchange.js'
@@ -125,7 +126,7 @@ describe('exchangeRefreshToken', () => {
     }
   })
 
-  it('should throw ProviderTokenExchangeError when access_token is missing', async () => {
+  it('should throw ZodError when access_token is missing', async () => {
     nock('https://auth.openai.com').post('/oauth/token').reply(200, {token_type: 'Bearer'})
 
     try {
@@ -137,9 +138,7 @@ describe('exchangeRefreshToken', () => {
       })
       expect.fail('Should have thrown')
     } catch (error) {
-      expect(error).to.be.instanceOf(ProviderTokenExchangeError)
-      if (!(error instanceof ProviderTokenExchangeError)) throw error
-      expect(error.message).to.include('missing access_token')
+      expect(error).to.be.instanceOf(ZodError)
     }
   })
 })

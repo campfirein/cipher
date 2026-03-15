@@ -2,6 +2,7 @@
 import {expect} from 'chai'
 import nock from 'nock'
 import {restore} from 'sinon'
+import {ZodError} from 'zod'
 
 import type {TokenExchangeParams} from '../../../../src/server/infra/provider-oauth/types.js'
 
@@ -214,31 +215,25 @@ describe('exchangeCodeForTokens', () => {
       }
     })
 
-    it('should throw ProviderTokenExchangeError when access_token is missing', async () => {
+    it('should throw ZodError when access_token is missing', async () => {
       nock(basePath).post(tokenPath).reply(200, {token_type: 'Bearer'})
 
       try {
         await exchangeCodeForTokens(baseParams)
         expect.fail('Should have thrown an error')
       } catch (error) {
-        expect(error).to.be.instanceOf(ProviderTokenExchangeError)
-        if (error instanceof ProviderTokenExchangeError) {
-          expect(error.message).to.include('access_token')
-        }
+        expect(error).to.be.instanceOf(ZodError)
       }
     })
 
-    it('should throw ProviderTokenExchangeError when access_token is empty', async () => {
+    it('should throw ZodError when access_token is empty', async () => {
       nock(basePath).post(tokenPath).reply(200, {access_token: '', token_type: 'Bearer'})
 
       try {
         await exchangeCodeForTokens(baseParams)
         expect.fail('Should have thrown an error')
       } catch (error) {
-        expect(error).to.be.instanceOf(ProviderTokenExchangeError)
-        if (error instanceof ProviderTokenExchangeError) {
-          expect(error.message).to.include('access_token')
-        }
+        expect(error).to.be.instanceOf(ZodError)
       }
     })
 

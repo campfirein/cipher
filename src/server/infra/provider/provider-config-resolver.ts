@@ -8,6 +8,7 @@
 
 import type {IProviderConfigStore} from '../../core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keychain-store.js'
+import type {IProviderOAuthTokenStore} from '../../core/interfaces/i-provider-oauth-token-store.js'
 import type {ITokenRefreshManager} from '../../core/interfaces/i-token-refresh-manager.js'
 
 import {CHATGPT_OAUTH_BASE_URL, CHATGPT_OAUTH_ORIGINATOR} from '../../../shared/constants/oauth.js'
@@ -46,6 +47,7 @@ async function isProviderCredentialAccessible(
 export async function clearStaleProviderConfig(
   providerConfigStore: IProviderConfigStore,
   providerKeychainStore: IProviderKeychainStore,
+  providerOAuthTokenStore?: IProviderOAuthTokenStore,
 ): Promise<void> {
   try {
     const config = await providerConfigStore.read()
@@ -76,6 +78,12 @@ export async function clearStaleProviderConfig(
     }
 
     await providerConfigStore.write(newConfig)
+
+    // Clean up orphaned OAuth tokens for stale providers (consistent with
+    // the 3-store cleanup in TokenRefreshManager and ProviderHandler.setupDisconnect)
+    if (providerOAuthTokenStore) {
+      await Promise.all(staleProviderIds.map((id) => providerOAuthTokenStore.delete(id).catch(() => {})))
+    }
   } catch {
     // Non-critical: if validation fails, daemon continues normally.
     // The user will encounter a provider error when submitting a task instead.

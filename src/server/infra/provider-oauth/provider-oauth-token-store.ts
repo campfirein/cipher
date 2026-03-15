@@ -1,16 +1,16 @@
 import {createCipheriv, createDecipheriv, randomBytes} from 'node:crypto'
-import {mkdir, readFile, writeFile} from 'node:fs/promises'
+import {mkdir, readFile, rename, writeFile} from 'node:fs/promises'
+import {z} from 'zod'
 
 import type {IProviderOAuthTokenStore, OAuthTokenRecord} from '../../core/interfaces/i-provider-oauth-token-store.js'
 
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 
-function isTokenRecordMap(value: unknown): value is Record<string, OAuthTokenRecord> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-  return Object.values(value).every(
-    (v) => typeof v === 'object' && v !== null && 'refreshToken' in v && 'expiresAt' in v,
-  )
-}
+const OAuthTokenRecordSchema = z.object({
+  expiresAt: z.string(),
+  refreshToken: z.string(),
+})
+const TokenRecordMapSchema = z.record(OAuthTokenRecordSchema)
 
 const KEY_FILE = '.provider-oauth-keys'
 const CREDENTIALS_FILE = 'provider-oauth-tokens'
@@ -29,6 +29,7 @@ export interface FileProviderOAuthTokenStoreDeps {
   readonly getKeyPath: () => string
   readonly readBuffer?: (path: string) => Promise<Buffer>
   readonly readString?: (path: string) => Promise<string>
+  readonly renameFile?: (oldPath: string, newPath: string) => Promise<void>
   readonly writeData?: (
     path: string,
     data: Buffer | string,
@@ -56,6 +57,7 @@ export class FileProviderOAuthTokenStore implements IProviderOAuthTokenStore {
   private readonly ensureDir: (path: string) => Promise<void>
   private readonly readBuffer: (path: string) => Promise<Buffer>
   private readonly readString: (path: string) => Promise<string>
+  private readonly renameFile: (oldPath: string, newPath: string) => Promise<void>
   private readonly writeData: (
     path: string,
     data: Buffer | string,
@@ -69,6 +71,7 @@ export class FileProviderOAuthTokenStore implements IProviderOAuthTokenStore {
     this.ensureDir = deps.ensureDir ?? ((p) => mkdir(p, {recursive: true}).then(() => {}))
     this.readBuffer = deps.readBuffer ?? ((p) => readFile(p))
     this.readString = deps.readString ?? ((p) => readFile(p, 'utf8'))
+    this.renameFile = deps.renameFile ?? rename
     this.writeData = deps.writeData ?? ((p, d, o) => writeFile(p, d, o))
   }
 
@@ -154,11 +157,7 @@ export class FileProviderOAuthTokenStore implements IProviderOAuthTokenStore {
       const decrypted = this.decrypt(encrypted.trim(), key)
       const parsed: unknown = JSON.parse(decrypted)
 
-      if (!isTokenRecordMap(parsed)) {
-        throw new Error('Invalid token store format')
-      }
-
-      return parsed
+      return TokenRecordMapSchema.parse(parsed)
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return {}
       throw error
@@ -169,17 +168,29 @@ export class FileProviderOAuthTokenStore implements IProviderOAuthTokenStore {
     const dataDir = this.deps.getDataDir()
     const keyPath = this.deps.getKeyPath()
     const credentialsPath = this.deps.getCredentialsPath()
+    const tmpKeyPath = `${keyPath}.tmp`
+    const tmpCredentialsPath = `${credentialsPath}.tmp`
 
     await this.ensureDir(dataDir)
 
-    // Always generate new key for rotation (security best practice)
+    // Always generate new key for rotation (security best practice).
+    // Write to temp files first, then atomically rename both — a crash at any
+    // point leaves either the old consistent pair or the new one, never a
+    // mismatched key/ciphertext that would destroy all stored tokens.
     const key = randomBytes(KEY_LENGTH)
-    await this.writeData(keyPath, key, {mode: 0o600})
-
     const plaintext = JSON.stringify(records)
     const encrypted = this.encrypt(plaintext, key)
 
-    await this.writeData(credentialsPath, encrypted, {encoding: 'utf8', mode: 0o600})
+    await this.writeData(tmpKeyPath, key, {mode: 0o600})
+    await this.writeData(tmpCredentialsPath, encrypted, {encoding: 'utf8', mode: 0o600})
+
+    // Rename key first, then credentials. If a crash occurs between the two
+    // renames, loadAll() will read the new key + old ciphertext and fail to
+    // decrypt — but set() recovers by overwriting with fresh data. The key
+    // improvement is that writes target temp files, so a crash during the
+    // write phase never corrupts the live key/ciphertext pair.
+    await this.renameFile(tmpKeyPath, keyPath)
+    await this.renameFile(tmpCredentialsPath, credentialsPath)
   }
 
   private serialize<T>(fn: () => Promise<T>): Promise<T> {

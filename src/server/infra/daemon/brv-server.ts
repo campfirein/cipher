@@ -407,7 +407,7 @@ async function main(): Promise<void> {
     // Clear stale provider config on startup (e.g. migration from v1 system keychain to v2 file keystore).
     // If a provider is configured but its API key is no longer accessible, disconnect it so the user
     // is returned to the onboarding flow rather than hitting a cryptic API key error mid-task.
-    await clearStaleProviderConfig(providerConfigStore, providerKeychainStore)
+    await clearStaleProviderConfig(providerConfigStore, providerKeychainStore, providerOAuthTokenStore)
 
     // State endpoint: provider config — agents request this on startup and after provider:updated
     transportServer.onRequest<void, ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG, async () =>

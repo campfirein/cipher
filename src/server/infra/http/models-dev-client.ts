@@ -9,13 +9,14 @@
 import axios from 'axios'
 import {mkdir, readFile, writeFile} from 'node:fs/promises'
 import {dirname, join} from 'node:path'
+import {z} from 'zod'
 
 import type {ProviderModelInfo} from '../../core/interfaces/i-provider-model-fetcher.js'
 
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 
 // ============================================================================
-// Types
+// Schemas
 // ============================================================================
 
 interface ModelsDevModel {
@@ -40,6 +41,11 @@ interface ModelsDevProvider {
 
 type ModelsDevData = Record<string, ModelsDevProvider>
 
+const CacheEnvelopeSchema = z.object({
+  data: z.record(z.unknown()),
+  timestamp: z.number(),
+})
+
 interface CacheEnvelope {
   data: ModelsDevData
   timestamp: number
@@ -56,12 +62,6 @@ const FETCH_TIMEOUT_MS = 10_000
 // ============================================================================
 // Client
 // ============================================================================
-
-function isCacheEnvelope(value: unknown): value is CacheEnvelope {
-  if (typeof value !== 'object' || value === null) return false
-  if (!('data' in value) || !('timestamp' in value)) return false
-  return typeof value.timestamp === 'number' && Boolean(value.data)
-}
 
 export class ModelsDevClient {
   private readonly cachePath: string
@@ -155,8 +155,9 @@ export class ModelsDevClient {
     try {
       const content = await readFile(this.cachePath, 'utf8')
       const parsed: unknown = JSON.parse(content)
-      if (isCacheEnvelope(parsed)) {
-        return parsed
+      const result = CacheEnvelopeSchema.safeParse(parsed)
+      if (result.success) {
+        return result.data as CacheEnvelope
       }
     } catch {
       // Cache read failure is non-fatal

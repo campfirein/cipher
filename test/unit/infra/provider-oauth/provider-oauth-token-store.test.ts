@@ -16,6 +16,12 @@ function createInMemoryFs() {
   const writeData: SinonStub = stub().callsFake(async (path: string, data: Buffer | string): Promise<void> => {
     storage.set(path, typeof data === 'string' ? Buffer.from(data, 'utf8') : data)
   })
+  const renameFile: SinonStub = stub().callsFake(async (oldPath: string, newPath: string): Promise<void> => {
+    const data = storage.get(oldPath)
+    if (!data) throw createEnoent(oldPath)
+    storage.set(newPath, data)
+    storage.delete(oldPath)
+  })
 
   return {
     ensureDir: stub().resolves(),
@@ -29,6 +35,7 @@ function createInMemoryFs() {
       if (!data) throw createEnoent(path)
       return data.toString('utf8')
     }),
+    renameFile,
     storage,
     writeData,
   }
@@ -47,6 +54,7 @@ describe('FileProviderOAuthTokenStore', () => {
       getKeyPath: () => KEY_PATH,
       readBuffer: fs.readBuffer,
       readString: fs.readString,
+      renameFile: fs.renameFile,
       writeData: fs.writeData,
     })
   })
@@ -136,12 +144,19 @@ describe('FileProviderOAuthTokenStore', () => {
   it('should write files with 0600 permissions', async () => {
     await store.set('openai', {expiresAt: '2026-03-15T12:00:00.000Z', refreshToken: 'rt_abc123'})
 
-    // writeData is called twice: once for key file, once for credentials file
-    const keyCall = fs.writeData.getCalls().find((c) => c.args[0] === KEY_PATH)
-    const credCall = fs.writeData.getCalls().find((c) => c.args[0] === CREDENTIALS_PATH)
+    // writeData writes to temp files first, then renames to final paths
+    const keyCall = fs.writeData.getCalls().find((c) => c.args[0] === `${KEY_PATH}.tmp`)
+    const credCall = fs.writeData.getCalls().find((c) => c.args[0] === `${CREDENTIALS_PATH}.tmp`)
 
     expect(keyCall?.args[2]).to.deep.include({mode: 0o600})
     expect(credCall?.args[2]).to.deep.include({mode: 0o600})
+  })
+
+  it('should use atomic rename to move temp files to final paths', async () => {
+    await store.set('openai', {expiresAt: '2026-03-15T12:00:00.000Z', refreshToken: 'rt_abc123'})
+
+    expect(fs.renameFile.calledWith(`${KEY_PATH}.tmp`, KEY_PATH)).to.be.true
+    expect(fs.renameFile.calledWith(`${CREDENTIALS_PATH}.tmp`, CREDENTIALS_PATH)).to.be.true
   })
 
   it('should handle corrupt credentials file gracefully on get', async () => {

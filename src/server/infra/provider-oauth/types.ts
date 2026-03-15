@@ -1,3 +1,5 @@
+import {z} from 'zod'
+
 export type ProviderCallbackResult = {
   code: string
   state: string
@@ -15,14 +17,20 @@ export type TokenRequestContentType = 'application/json' | 'application/x-www-fo
  * Raw token response from an OAuth provider.
  * Fields are snake_case per OAuth 2.0 spec (RFC 6749).
  */
-export type ProviderTokenResponse = {
-  access_token: string
-  expires_in?: number
-  id_token?: string
-  refresh_token?: string
-  scope?: string
-  token_type?: string
-}
+export const ProviderTokenResponseSchema = z.object({
+  // eslint-disable-next-line camelcase
+  access_token: z.string().min(1),
+  // eslint-disable-next-line camelcase
+  expires_in: z.number().optional(),
+  // eslint-disable-next-line camelcase
+  id_token: z.string().optional(),
+  // eslint-disable-next-line camelcase
+  refresh_token: z.string().optional(),
+  scope: z.string().optional(),
+  // eslint-disable-next-line camelcase
+  token_type: z.string().optional(),
+})
+export type ProviderTokenResponse = z.infer<typeof ProviderTokenResponseSchema>
 
 export type RefreshTokenExchangeParams = {
   clientId: string
