@@ -195,6 +195,7 @@ describe('VcHandler', () => {
       expect(registeredEvents).to.include(VcEvents.PUSH)
       expect(registeredEvents).to.include(VcEvents.REMOTE)
       expect(registeredEvents).to.include(VcEvents.STATUS)
+      expect(registeredEvents).to.include(VcEvents.CHECKOUT)
     })
   })
 
