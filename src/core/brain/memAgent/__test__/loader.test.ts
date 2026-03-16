@@ -255,27 +255,32 @@ describe('Loader', () => {
 			expect(result.mcpServers.testServer.args).toEqual([1, 2, 3]);
 		});
 
-		it('should handle case-insensitive environment variable names', async () => {
-			process.env.test_var = 'lowercase';
-			process.env.TEST_VAR = 'uppercase';
+		// Windows treats environment variable names as case-insensitive,
+		// so setting both test_var and TEST_VAR overwrites the same variable.
+		// This test only applies to platforms with case-sensitive env vars.
+		it.skipIf(process.platform === 'win32')(
+			'should handle case-insensitive environment variable names',
+			async () => {
+				process.env.test_var = 'lowercase';
+				process.env.TEST_VAR = 'uppercase';
 
-			const mockConfig = {
-				systemPrompt: '$test_var',
-				llm: {
-					provider: 'openai',
-					model: 'gpt-4',
-					apiKey: '$TEST_VAR',
-				},
-			};
+				const mockConfig = {
+					systemPrompt: '$test_var',
+					llm: {
+						provider: 'openai',
+						model: 'gpt-4',
+						apiKey: '$TEST_VAR',
+					},
+				};
 
-			mockFs.readFile.mockResolvedValue(JSON.stringify(mockConfig));
-			mockParseYaml.mockReturnValue(mockConfig);
+				mockFs.readFile.mockResolvedValue(JSON.stringify(mockConfig));
+				mockParseYaml.mockReturnValue(mockConfig);
 
-			const result = (await loadAgentConfig('/path/to/config.yml')) as any;
-			console.log(result);
-			expect(result.systemPrompt).toBe('lowercase');
-			expect(result.llm.apiKey).toBe('uppercase');
-		});
+				const result = (await loadAgentConfig('/path/to/config.yml')) as any;
+				expect(result.systemPrompt).toBe('lowercase');
+				expect(result.llm.apiKey).toBe('uppercase');
+			}
+		);
 	});
 
 	describe('Config File Loading', () => {
