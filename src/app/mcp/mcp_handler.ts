@@ -16,6 +16,7 @@ import * as path from 'path';
 import type { AggregatorConfig } from '@core/mcp/types.js';
 import { McpSseServer } from './mcp_sse_server.js';
 import { McpStreamableHttpServer } from './mcp_streamable_http_server.js';
+import { redactSensitiveData } from '../api/utils/security.js';
 
 // Derive the AgentCard type from the schema
 export type AgentCard = z.infer<typeof AgentCardSchema>;
@@ -370,7 +371,7 @@ async function getAgentCardResource(agentCard: AgentCard): Promise<any> {
 			{
 				uri: 'cipher://agent/card',
 				mimeType: 'application/json',
-				text: JSON.stringify(agentCard, null, 2),
+				text: JSON.stringify(redactSensitiveData(agentCard), null, 2),
 			},
 		],
 	};
@@ -395,7 +396,9 @@ async function getAgentStatsResource(agent: MemAgent): Promise<any> {
 				connectedClients: mcpClients.size,
 				failedConnections: Object.keys(failedConnections).length,
 				clientNames: Array.from(mcpClients.keys()),
-				failures: failedConnections,
+				failures: Object.fromEntries(
+					Object.keys(failedConnections).map(name => [name, 'Connection failed'])
+				),
 			},
 			uptime: process.uptime(),
 			memoryUsage: process.memoryUsage(),
@@ -416,7 +419,7 @@ async function getAgentStatsResource(agent: MemAgent): Promise<any> {
 		logger.error('[MCP Handler] Error getting agent stats', { error: errorMessage });
 
 		const errorStats = {
-			error: `Failed to retrieve stats: ${errorMessage}`,
+			error: 'Failed to retrieve stats',
 			timestamp: new Date().toISOString(),
 		};
 
