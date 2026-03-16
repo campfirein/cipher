@@ -270,11 +270,11 @@ async function main(): Promise<void> {
     const curateLogHandler = new CurateLogHandler(undefined, (info) => {
       const encoded = Buffer.from(info.projectPath).toString('base64url')
       const reviewUrl = `http://127.0.0.1:${port}/review?project=${encoded}`
-      broadcastToProjectRoom(projectRegistry, projectRouter, info.projectPath, ReviewEvents.NOTIFY, {
-        pendingCount: info.pendingCount,
-        reviewUrl,
-        taskId: info.taskId,
-      })
+      const payload = {pendingCount: info.pendingCount, reviewUrl, taskId: info.taskId}
+      // Send directly to the task originator (covers CLI clients not in the project room)
+      transportServer!.sendTo(info.clientId, ReviewEvents.NOTIFY, payload)
+      // Also broadcast to the project room so TUI and other connected clients are notified
+      broadcastToProjectRoom(projectRegistry, projectRouter, info.projectPath, ReviewEvents.NOTIFY, payload, info.clientId)
     })
 
     const transportHandlers = new TransportHandlers({

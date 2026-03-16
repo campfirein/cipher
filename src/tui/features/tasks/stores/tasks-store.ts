@@ -87,6 +87,8 @@ export interface TasksActions {
     taskId: string
     type: 'reasoning' | 'text'
   }) => void
+  /** Clear the review notification on a task (called after approve/reject) */
+  clearReviewNotification: (taskId: string) => void
   /** Clear all tasks */
   clearTasks: () => void
   /** Create a new task */
@@ -219,6 +221,16 @@ export const useTasksStore = create<TasksActions & TasksState>()((set, get) => (
         })
       }
 
+      return {stats: computeStats(tasks), tasks}
+    }),
+
+  clearReviewNotification: (taskId) =>
+    set((state) => {
+      const task = state.tasks.get(taskId)
+      if (!task?.reviewNotification) return state
+
+      const tasks = new Map(state.tasks)
+      tasks.set(taskId, {...task, reviewNotification: undefined})
       return {stats: computeStats(tasks), tasks}
     }),
 
