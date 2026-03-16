@@ -20,6 +20,20 @@ export default [
       },
     },
   },
+  // Web UI (browser environment) — allow browser globals and React naming conventions
+  {
+    files: ['src/webui/**/*.ts', 'src/webui/**/*.tsx'],
+    languageOptions: {
+      globals: {
+        document: 'readonly',
+        fetch: 'readonly',
+        window: 'readonly',
+      },
+    },
+    rules: {
+      'unicorn/filename-case': 'off',
+    },
+  },
   // Prevent TUI from importing server code directly
   {
     files: ['src/tui/**/*.ts', 'src/tui/**/*.tsx'],

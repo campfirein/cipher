@@ -1,5 +1,5 @@
 import {instrument} from '@socket.io/admin-ui'
-import {createServer, Server as HttpServer} from 'node:http'
+import {createServer, Server as HttpServer, type IncomingMessage, type ServerResponse} from 'node:http'
 import {Server, Socket} from 'socket.io'
 
 import type {TransportServerConfig} from '../../core/domain/transport/types.js'
@@ -144,13 +144,13 @@ export class SocketIOTransportServer implements ITransportServer {
     }
   }
 
-  async start(port: number): Promise<void> {
+  async start(port: number, requestListener?: (req: IncomingMessage, res: ServerResponse) => void): Promise<void> {
     if (this.running) {
       throw new TransportServerAlreadyRunningError(this.port ?? port)
     }
 
     return new Promise((resolve, reject) => {
-      this.httpServer = createServer()
+      this.httpServer = requestListener ? createServer(requestListener) : createServer()
 
       // In development mode, allow admin.socket.io for debugging
       const corsOrigin = isDevelopment() ? [this.config.corsOrigin, 'https://admin.socket.io'] : this.config.corsOrigin

@@ -55,6 +55,7 @@ import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
 import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {SocketIOTransportServer} from '../transport/socket-io-transport-server.js'
+import {createWebUiMiddleware} from '../webui/webui-middleware.js'
 import {AgentIdleTimeoutPolicy} from './agent-idle-timeout-policy.js'
 import {AgentPool} from './agent-pool.js'
 import {DaemonResilience} from './daemon-resilience.js'
@@ -167,9 +168,18 @@ async function main(): Promise<void> {
   let agentPool: AgentPool | undefined
 
   try {
-    // 4. Start Socket.IO transport server
+    // 4. Start Socket.IO transport server with web UI middleware
+    const daemonDir = dirname(fileURLToPath(import.meta.url))
+    const projectRoot = join(daemonDir, '..', '..', '..', '..')
+    const webuiDistDir = join(projectRoot, 'dist', 'webui')
+
+    const webuiApp = createWebUiMiddleware({
+      getConfig: () => ({port, projectCwd: process.cwd(), version}),
+      webuiDistDir,
+    })
+
     transportServer = new SocketIOTransportServer()
-    await transportServer.start(port)
+    await transportServer.start(port, webuiApp)
     log(`Transport server started on port ${port}`)
 
     // 5. Start heartbeat writer
