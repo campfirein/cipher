@@ -11,15 +11,21 @@ export default class ReviewApprove extends Command {
       required: true,
     }),
   }
-  public static description = 'Approve all pending review operations for a curate task'
+  public static description = 'Approve pending review operations for a curate task'
   public static examples = [
     '# Approve all pending changes from a curate task',
     '<%= config.bin %> review approve abc-123',
+    '',
+    '# Approve a single file',
+    '<%= config.bin %> review approve abc-123 --file architecture/security/audit.md',
     '',
     '# Approve and get structured output (useful for coding agents)',
     '<%= config.bin %> review approve abc-123 --format json',
   ]
   public static flags = {
+    file: Flags.string({
+      description: 'Approve only the specified file path (relative to context tree)',
+    }),
     format: Flags.string({
       default: 'text',
       description: 'Output format (text or json)',
@@ -40,6 +46,7 @@ export default class ReviewApprove extends Command {
         (client) =>
           client.requestWithAck<ReviewDecideTaskResponse>(ReviewEvents.DECIDE_TASK, {
             decision: 'approved',
+            ...(flags.file ? {filePath: flags.file} : {}),
             taskId: args.taskId,
           }),
         this.getDaemonClientOptions(),

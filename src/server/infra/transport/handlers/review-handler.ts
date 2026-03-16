@@ -71,7 +71,7 @@ export class ReviewHandler {
   }
 
   private async handleDecideTask(
-    {decision, taskId}: ReviewDecideTaskRequest,
+    {decision, filePath: filterPath, taskId}: ReviewDecideTaskRequest,
     clientId: string,
   ): Promise<ReviewDecideTaskResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
@@ -101,6 +101,15 @@ export class ReviewHandler {
         }
 
         ops.push({additionalFilePaths: op.additionalFilePaths, logId: entry.id, operationIndex: i})
+      }
+    }
+
+    // If filePath filter is provided, only process that one file
+    if (filterPath) {
+      const filtered = pendingByPath.get(filterPath)
+      pendingByPath.clear()
+      if (filtered) {
+        pendingByPath.set(filterPath, filtered)
       }
     }
 
@@ -138,13 +147,26 @@ export class ReviewHandler {
           allAdditionalPaths.map((absPath) => backupStore.delete(relative(contextTreeDir, absPath))),
         )
 
-        // Update review status in the curate log
-        await Promise.all(
-          ops.map(({logId, operationIndex}) => store.updateOperationReviewStatus(logId, operationIndex, decision)),
-        )
-
-        return {path: relPath, reverted}
+        return {ops, path: relPath, reverted}
       }),
+    )
+
+    // Batch-update review status grouped by logId (one read+write per entry file)
+    const byLogId = new Map<string, Array<{operationIndex: number; reviewStatus: 'approved' | 'rejected'}>>()
+    for (const {ops} of fileResults) {
+      for (const {logId, operationIndex} of ops) {
+        let batch = byLogId.get(logId)
+        if (!batch) {
+          batch = []
+          byLogId.set(logId, batch)
+        }
+
+        batch.push({operationIndex, reviewStatus: decision})
+      }
+    }
+
+    await Promise.all(
+      [...byLogId.entries()].map(([logId, updates]) => store.batchUpdateOperationReviewStatus(logId, updates)),
     )
 
     try {
@@ -153,6 +175,6 @@ export class ReviewHandler {
       // Best-effort notification — never block the response
     }
 
-    return {files: fileResults, totalCount: fileResults.length}
+    return {files: fileResults.map(({path, reverted}) => ({path, reverted})), totalCount: fileResults.length}
   }
 }

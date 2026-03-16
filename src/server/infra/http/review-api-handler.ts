@@ -344,10 +344,23 @@ export function createReviewApiRouter(options: ReviewApiOptions): Router {
         )
       }
 
+      // Batch-update grouped by logId (one read+write per entry file)
+      const byLogId = new Map<string, Array<{operationIndex: number; reviewStatus: 'approved' | 'rejected'}>>()
+      for (const {logId, operationIndex} of updates) {
+        let batch = byLogId.get(logId)
+        if (!batch) {
+          batch = []
+          byLogId.set(logId, batch)
+        }
+
+        batch.push({operationIndex, reviewStatus: decision})
+      }
+
+      const logIdBatches = [...byLogId.entries()]
       const results = await Promise.all(
-        updates.map(({logId, operationIndex}) => store.updateOperationReviewStatus(logId, operationIndex, decision)),
+        logIdBatches.map(([logId, batch]) => store.batchUpdateOperationReviewStatus(logId, batch)),
       )
-      const updatedCount = results.filter(Boolean).length
+      const updatedCount = logIdBatches.reduce((sum, [, batch], i) => sum + (results[i] ? batch.length : 0), 0)
 
       res.json({reverted, success: true, updatedCount})
     } catch (error: unknown) {

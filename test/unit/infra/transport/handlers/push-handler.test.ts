@@ -121,6 +121,7 @@ describe('PushHandler – review filtering', () => {
     } as unknown as SinonStubbedInstance<IProjectConfigStore>
 
     curateLogStore = {
+      batchUpdateOperationReviewStatus: stub().resolves(true),
       getById: stub().resolves(null),
       getNextId: stub().resolves('cur-1'),
       list: stub().resolves([]),

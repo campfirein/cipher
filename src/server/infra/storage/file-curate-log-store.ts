@@ -96,6 +96,22 @@ export class FileCurateLogStore implements ICurateLogStore {
     this.maxEntries = opts.maxEntries ?? DEFAULT_MAX_ENTRIES
   }
 
+  async batchUpdateOperationReviewStatus(
+    logId: string,
+    updates: Array<{operationIndex: number; reviewStatus: 'approved' | 'rejected'}>,
+  ): Promise<boolean> {
+    const entry = await this.getById(logId)
+    if (!entry) return false
+
+    for (const {operationIndex, reviewStatus} of updates) {
+      if (operationIndex < 0 || operationIndex >= entry.operations.length) continue
+      entry.operations[operationIndex].reviewStatus = reviewStatus
+    }
+
+    await this.save(entry)
+    return true
+  }
+
   /**
    * Retrieve an entry by ID. Returns null if:
    * - ID format is invalid (security: prevents path traversal)
