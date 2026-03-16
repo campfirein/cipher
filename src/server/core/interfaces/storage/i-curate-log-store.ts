@@ -24,10 +24,4 @@ export interface ICurateLogStore {
   }): Promise<CurateLogEntry[]>
   /** Persist (create or overwrite) a log entry. Best-effort — callers should handle errors. */
   save(entry: CurateLogEntry): Promise<void>
-  /** Update the reviewStatus of a specific operation within a log entry. Returns false if entry/index not found. */
-  updateOperationReviewStatus(
-    logId: string,
-    operationIndex: number,
-    reviewStatus: 'approved' | 'rejected',
-  ): Promise<boolean>
 }

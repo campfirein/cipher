@@ -126,7 +126,6 @@ describe('PushHandler – review filtering', () => {
       getNextId: stub().resolves('cur-1'),
       list: stub().resolves([]),
       save: stub().resolves(),
-      updateOperationReviewStatus: stub().resolves(true),
     }
 
     reviewBackupStore = {

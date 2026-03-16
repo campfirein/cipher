@@ -47,7 +47,6 @@ function makeStore(sandbox: SinonSandbox): ICurateLogStore & {
   getNextId: SinonStub
   list: SinonStub
   save: SinonStub
-  updateOperationReviewStatus: SinonStub
 } {
   return {
     batchUpdateOperationReviewStatus: sandbox.stub().resolves(true),
@@ -55,7 +54,6 @@ function makeStore(sandbox: SinonSandbox): ICurateLogStore & {
     getNextId: sandbox.stub().resolves('cur-9999'),
     list: sandbox.stub().resolves([]),
     save: sandbox.stub().resolves(),
-    updateOperationReviewStatus: sandbox.stub().resolves(true),
   }
 }
 

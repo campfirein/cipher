@@ -107,9 +107,8 @@ export class ReviewHandler {
     // If filePaths filter is provided, only process those files
     if (filterPaths?.length) {
       const filterSet = new Set(filterPaths)
-      for (const key of pendingByPath.keys()) {
-        if (!filterSet.has(key)) pendingByPath.delete(key)
-      }
+      const keysToDelete = [...pendingByPath.keys()].filter((key) => !filterSet.has(key))
+      for (const key of keysToDelete) pendingByPath.delete(key)
     }
 
     // Apply decision for each affected file in parallel
@@ -133,7 +132,6 @@ export class ReviewHandler {
               const rel = relative(contextTreeDir, absPath)
               const content = await backupStore.read(rel)
               if (content !== null) await writeFileWithDirs(absPath, content)
-              await backupStore.delete(rel)
             }),
           )
 

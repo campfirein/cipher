@@ -250,7 +250,7 @@ Bad examples:
     for (const op of pendingOps) {
       const impact = op.impact === 'high' ? ' · HIGH IMPACT' : ''
       const displayPath = this.extractContextTreeRelativePath(op.filePath) ?? op.path
-      this.log(`\n  [${op.type}${impact}] - Path: ${displayPath}`)
+      this.log(`\n  [${op.type}${impact}] - path: ${displayPath}`)
       if (op.reason) this.log(`  Why:   ${op.reason}`)
       if (op.previousSummary) this.log(`  Before: ${op.previousSummary}`)
       if (op.summary) this.log(`  After:  ${op.summary}`)
@@ -258,7 +258,7 @@ Bad examples:
 
     this.log(`\n  To approve all:  brv review approve ${taskId}`)
     this.log(`  To reject all:   brv review reject ${taskId}`)
-    this.log(`  Per file:        brv review approve/reject ${taskId} --file <Path> [--file <Path>]`)
+    this.log(`  Per file:        brv review approve/reject ${taskId} --file <path> [--file <path>]`)
   }
 
   private reportError(error: unknown, format: 'json' | 'text', providerContext?: ProviderErrorContext): void {

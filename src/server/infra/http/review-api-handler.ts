@@ -328,8 +328,6 @@ export function createReviewApiRouter(options: ReviewApiOptions): Router {
               if (content !== null) {
                 await ctFs.writeFile(absPath, content)
               }
-
-              await backupStore.delete(relPath)
             }),
           )
 
@@ -360,6 +358,7 @@ export function createReviewApiRouter(options: ReviewApiOptions): Router {
       const results = await Promise.all(
         logIdBatches.map(([logId, batch]) => store.batchUpdateOperationReviewStatus(logId, batch)),
       )
+      // Assumes all indices in each batch are valid — guaranteed by findPendingUpdates which only produces indices from actual entries.
       const updatedCount = logIdBatches.reduce((sum, [, batch], i) => sum + (results[i] ? batch.length : 0), 0)
 
       res.json({reverted, success: true, updatedCount})
