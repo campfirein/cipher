@@ -40,6 +40,7 @@ export interface AuthLoginWithApiKeyResponse {
 }
 
 export interface AuthLogoutResponse {
+  error?: string
   success: boolean
 }
 

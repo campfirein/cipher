@@ -2,6 +2,16 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.1.5]
+
+### Added
+
+- **`brv logout` command** — Disconnect from ByteRover cloud and clear stored credentials from the CLI. Supports `--format json` for headless/automation use cases.
+
+### Fixed
+
+- **Security dependency updates** — Patched `flatted`, `hono`, and `yauzl` to address security vulnerabilities.
+
 ## [2.1.4]
 
 ### Fixed
