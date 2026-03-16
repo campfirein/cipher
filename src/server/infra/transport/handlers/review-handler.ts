@@ -172,6 +172,7 @@ export class ReviewHandler {
       // Best-effort notification — never block the response
     }
 
-    return {files: fileResults.map(({path, reverted}) => ({path, reverted})), totalCount: fileResults.length}
+    const totalCount = fileResults.reduce((sum, {ops}) => sum + ops.length, 0)
+    return {files: fileResults.map(({path, reverted}) => ({path, reverted})), totalCount}
   }
 }
