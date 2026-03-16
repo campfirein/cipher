@@ -20,6 +20,10 @@ function isSignificantKnowledge(content: string): boolean {
 		return false;
 	}
 
+	if (process.env.DISABLE_SIGNIFICANCE_FILTER === 'true') {
+		return true;
+	}
+
 	const text = content.toLowerCase().trim();
 
 	// Skip trivial tool results and non-technical content

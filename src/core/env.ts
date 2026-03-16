@@ -117,6 +117,7 @@ const envSchema = z.object({
 	USE_WORKSPACE_MEMORY: z.boolean().default(false),
 	WORKSPACE_SEARCH_THRESHOLD: z.number().default(0.4),
 	DISABLE_DEFAULT_MEMORY: z.boolean().default(false),
+	DISABLE_SIGNIFICANCE_FILTER: z.boolean().default(false),
 	WORKSPACE_VECTOR_STORE_TYPE: z
 		.enum(['qdrant', 'milvus', 'chroma', 'pinecone', 'pgvector', 'in-memory'])
 		.optional(),
@@ -350,6 +351,8 @@ export const env: EnvSchema = new Proxy({} as EnvSchema, {
 					: 0.4;
 			case 'DISABLE_DEFAULT_MEMORY':
 				return process.env.DISABLE_DEFAULT_MEMORY === 'true';
+			case 'DISABLE_SIGNIFICANCE_FILTER':
+				return process.env.DISABLE_SIGNIFICANCE_FILTER === 'true';
 			case 'WORKSPACE_VECTOR_STORE_TYPE':
 				return process.env.WORKSPACE_VECTOR_STORE_TYPE;
 			case 'WORKSPACE_VECTOR_STORE_HOST':
@@ -553,6 +556,7 @@ export const validateEnv = () => {
 			? parseFloat(process.env.WORKSPACE_SEARCH_THRESHOLD)
 			: 0.4,
 		DISABLE_DEFAULT_MEMORY: process.env.DISABLE_DEFAULT_MEMORY === 'true',
+		DISABLE_SIGNIFICANCE_FILTER: process.env.DISABLE_SIGNIFICANCE_FILTER === 'true',
 		WORKSPACE_VECTOR_STORE_TYPE: process.env.WORKSPACE_VECTOR_STORE_TYPE,
 		WORKSPACE_VECTOR_STORE_HOST: process.env.WORKSPACE_VECTOR_STORE_HOST,
 		WORKSPACE_VECTOR_STORE_PORT: process.env.WORKSPACE_VECTOR_STORE_PORT
