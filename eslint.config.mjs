@@ -31,6 +31,7 @@ export default [
       },
     },
     rules: {
+      'n/no-unsupported-features/node-builtins': 'off',
       'unicorn/filename-case': 'off',
     },
   },
