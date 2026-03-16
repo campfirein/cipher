@@ -10,6 +10,7 @@ import {
   formatConnectionError,
   hasLeakedHandles,
   type ProviderErrorContext,
+  providerMissingMessage,
   withDaemonRetry,
 } from '../lib/daemon-client.js'
 import {writeJsonResponse} from '../lib/json-response.js'
@@ -80,11 +81,7 @@ Bad:
           }
 
           if (active.providerKeyMissing) {
-            const message =
-              active.authMethod === 'oauth'
-                ? `${active.activeProvider} authentication has expired.\nPlease reconnect: brv providers connect ${active.activeProvider}`
-                : `${active.activeProvider} API key is missing from storage.\nPlease reconnect: brv providers connect ${active.activeProvider}`
-            throw new Error(message)
+            throw new Error(providerMissingMessage(active.activeProvider, active.authMethod))
           }
 
           await this.submitTask({client, format, projectRoot, query: args.query})

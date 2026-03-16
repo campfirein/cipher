@@ -135,6 +135,15 @@ export function hasLeakedHandles(error: unknown): boolean {
   return error.code === TaskErrorCode.AGENT_DISCONNECTED || error.code === TaskErrorCode.AGENT_NOT_AVAILABLE
 }
 
+/**
+ * Builds a user-friendly message when provider credentials are missing from storage.
+ */
+export function providerMissingMessage(activeProvider: string, authMethod?: 'api-key' | 'oauth'): string {
+  return authMethod === 'oauth'
+    ? `${activeProvider} authentication has expired.\nPlease reconnect: brv providers connect ${activeProvider} --oauth`
+    : `${activeProvider} API key is missing from storage.\nPlease reconnect: brv providers connect ${activeProvider} --api-key <your-key>`
+}
+
 export interface ProviderErrorContext {
   activeModel?: string
   activeProvider?: string
@@ -200,11 +209,7 @@ export function formatConnectionError(error: unknown, providerContext?: Provider
     return "Authentication required for cloud sync. Run 'brv login' to connect your account."
   }
 
-  if (
-    lowerMessage.includes('api key') ||
-    lowerMessage.includes('invalid key') ||
-    lowerMessage.includes('credentials')
-  ) {
+  if (lowerMessage.includes('api key') || lowerMessage.includes('invalid key')) {
     const provider = providerContext?.activeProvider ?? '<provider>'
     const model = providerContext?.activeModel
     const currentInfo = model ? `Provider: ${provider}  Model: ${model}\n\n` : `Provider: ${provider}\n\n`

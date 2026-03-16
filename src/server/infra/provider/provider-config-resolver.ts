@@ -144,8 +144,11 @@ export async function resolveProviderConfig(
     default: {
       const providerDef = getProviderById(activeProvider)
       const providerConfig = config.providers[activeProvider]
+      if (!providerConfig) {
+        return {activeModel, activeProvider, maxInputTokens}
+      }
 
-      const authMethod = providerConfig?.authMethod
+      const {authMethod} = providerConfig
 
       // Attempt OAuth token refresh if provider is OAuth-connected
       if (authMethod === 'oauth' && tokenRefreshManager) {
@@ -167,8 +170,8 @@ export async function resolveProviderConfig(
         const codexHeaders: Record<string, string> = {
           originator: CHATGPT_OAUTH_ORIGINATOR,
         }
-        if (providerConfig!.oauthAccountId) {
-          codexHeaders['ChatGPT-Account-Id'] = providerConfig!.oauthAccountId
+        if (providerConfig.oauthAccountId) {
+          codexHeaders['ChatGPT-Account-Id'] = providerConfig.oauthAccountId
         }
 
         return {

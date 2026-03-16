@@ -238,6 +238,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
       callbackPort: 1455,
       // Public OAuth client ID (safe to commit — native app public client, no client secret)
       clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
+      // OpenAI Codex model used for the ChatGPT OAuth (Codex CLI) flow
       defaultModel: 'gpt-5.1-codex-mini',
       /* eslint-disable camelcase -- OAuth query params follow RFC 6749 naming */
       extraParams: {
