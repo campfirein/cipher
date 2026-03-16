@@ -31,6 +31,8 @@ export interface ProviderOAuthConfig {
   readonly clientId: string
   /** Whether to add `code=true` query param to auth URL (code-paste mode only — tells server to display paste-able code) */
   readonly codeDisplay?: boolean
+  /** Default model when connected via OAuth (overrides ProviderDefinition.defaultModel) */
+  readonly defaultModel?: string
   /** Extra query params appended to the authorization URL (provider-specific) */
   readonly extraParams?: Readonly<Record<string, string>>
   /** Supported OAuth modes (some providers have multiple) */
@@ -236,6 +238,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
       callbackPort: 1455,
       // Public OAuth client ID (safe to commit — native app public client, no client secret)
       clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
+      defaultModel: 'gpt-5.1-codex-mini',
       /* eslint-disable camelcase -- OAuth query params follow RFC 6749 naming */
       extraParams: {
         codex_cli_simplified_flow: 'true',

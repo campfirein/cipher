@@ -30,6 +30,10 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [TaskErrorCode.LOCAL_CHANGES_EXIST]: 'You have local changes. Run "brv push" to save your changes before pulling.',
   [TaskErrorCode.NOT_AUTHENTICATED]:
     'Not authenticated. Cloud sync features (push/pull/space) require login — local query and curate work without authentication.',
+  [TaskErrorCode.OAUTH_REFRESH_FAILED]:
+    'OAuth token refresh failed. Run "brv providers connect <provider> --oauth" to reconnect.',
+  [TaskErrorCode.OAUTH_TOKEN_EXPIRED]:
+    'OAuth token has expired. Run "brv providers connect <provider> --oauth" to reconnect.',
   [TaskErrorCode.PROJECT_NOT_INIT]: 'Project not initialized. Run "brv restart" to reinitialize.',
   [TaskErrorCode.PROVIDER_NOT_CONFIGURED]:
     'No provider connected. Run "brv providers connect byterover" to use the free built-in provider, or connect another provider.',
@@ -196,15 +200,19 @@ export function formatConnectionError(error: unknown, providerContext?: Provider
     return "Authentication required for cloud sync. Run 'brv login' to connect your account."
   }
 
-  if (lowerMessage.includes('api key') || lowerMessage.includes('invalid key')) {
+  if (
+    lowerMessage.includes('api key') ||
+    lowerMessage.includes('invalid key') ||
+    lowerMessage.includes('credentials')
+  ) {
     const provider = providerContext?.activeProvider ?? '<provider>'
     const model = providerContext?.activeModel
     const currentInfo = model ? `Provider: ${provider}  Model: ${model}\n\n` : `Provider: ${provider}\n\n`
 
     return (
-      `LLM provider API key is missing or invalid.\n${currentInfo}` +
-      '  Reconnect with your API key:\n' +
-      `    brv providers connect ${provider} --api-key <key>\n\n` +
+      `LLM provider credentials are missing or invalid.\n${currentInfo}` +
+      '  Reconnect your provider:\n' +
+      `    brv providers connect ${provider}\n\n` +
       '  Switch to a different provider:\n' +
       '    brv providers switch <provider>\n\n' +
       '  See all options:  brv providers --help'

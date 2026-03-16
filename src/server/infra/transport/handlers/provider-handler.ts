@@ -160,8 +160,10 @@ export class ProviderHandler {
           }
 
           // Connect provider — secrets stored in keychain + encrypted token store, not config
+          // OAuth providers may define their own default model (e.g., Codex for OpenAI OAuth)
+          const defaultModel = oauthConfig.defaultModel ?? providerDef.defaultModel
           await this.providerConfigStore.connectProvider(data.providerId, {
-            activeModel: providerDef.defaultModel,
+            activeModel: defaultModel,
             authMethod: 'oauth',
             oauthAccountId,
           })

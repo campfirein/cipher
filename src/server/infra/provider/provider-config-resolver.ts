@@ -145,39 +145,42 @@ export async function resolveProviderConfig(
       const providerDef = getProviderById(activeProvider)
       const providerConfig = config.providers[activeProvider]
 
+      const authMethod = providerConfig?.authMethod
+
       // Attempt OAuth token refresh if provider is OAuth-connected
-      if (providerConfig?.authMethod === 'oauth' && tokenRefreshManager) {
+      if (authMethod === 'oauth' && tokenRefreshManager) {
         try {
           const refreshed = await tokenRefreshManager.refreshIfNeeded(activeProvider)
           if (!refreshed) {
-            return {activeModel, activeProvider, maxInputTokens, providerKeyMissing: true}
+            return {activeModel, activeProvider, authMethod, maxInputTokens, providerKeyMissing: true}
           }
 
           // Re-read API key after potential refresh
           apiKey = (await providerKeychainStore.getApiKey(activeProvider)) ?? apiKey
         } catch {
-          return {activeModel, activeProvider, maxInputTokens, providerKeyMissing: true}
+          return {activeModel, activeProvider, authMethod, maxInputTokens, providerKeyMissing: true}
         }
       }
 
       // OAuth-connected OpenAI: use Codex endpoint + required headers
-      if (activeProvider === 'openai' && providerConfig?.authMethod === 'oauth') {
+      if (activeProvider === 'openai' && authMethod === 'oauth') {
         const codexHeaders: Record<string, string> = {
           originator: CHATGPT_OAUTH_ORIGINATOR,
         }
-        if (providerConfig.oauthAccountId) {
-          codexHeaders['ChatGPT-Account-Id'] = providerConfig.oauthAccountId
+        if (providerConfig!.oauthAccountId) {
+          codexHeaders['ChatGPT-Account-Id'] = providerConfig!.oauthAccountId
         }
 
         return {
           activeModel,
           activeProvider,
+          authMethod,
           maxInputTokens,
           provider: activeProvider,
           providerApiKey: apiKey || undefined,
           providerBaseUrl: CHATGPT_OAUTH_BASE_URL,
           providerHeaders: codexHeaders,
-          providerKeyMissing: providerRequiresApiKey(activeProvider, providerConfig.authMethod) && !apiKey,
+          providerKeyMissing: providerRequiresApiKey(activeProvider, authMethod) && !apiKey,
         }
       }
 
@@ -185,12 +188,13 @@ export async function resolveProviderConfig(
       return {
         activeModel,
         activeProvider,
+        authMethod,
         maxInputTokens,
         provider: activeProvider,
         providerApiKey: apiKey || undefined,
         providerBaseUrl: config.getBaseUrl(activeProvider) || providerDef?.baseUrl || undefined,
         providerHeaders: headers && Object.keys(headers).length > 0 ? {...headers} : undefined,
-        providerKeyMissing: providerRequiresApiKey(activeProvider, providerConfig?.authMethod) && !apiKey,
+        providerKeyMissing: providerRequiresApiKey(activeProvider, authMethod) && !apiKey,
       }
     }
   }

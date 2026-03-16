@@ -80,9 +80,11 @@ Bad:
           }
 
           if (active.providerKeyMissing) {
-            throw new Error(
-              `${active.activeProvider} API key is missing from storage.\nPlease reconnect: brv providers connect ${active.activeProvider} --api-key <your-key>`,
-            )
+            const message =
+              active.authMethod === 'oauth'
+                ? `${active.activeProvider} authentication has expired.\nPlease reconnect: brv providers connect ${active.activeProvider}`
+                : `${active.activeProvider} API key is missing from storage.\nPlease reconnect: brv providers connect ${active.activeProvider}`
+            throw new Error(message)
           }
 
           await this.submitTask({client, format, projectRoot, query: args.query})

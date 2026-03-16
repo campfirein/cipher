@@ -45,13 +45,6 @@ export class ProviderTokenExchangeError extends ProviderOAuthError {
 }
 
 /**
- * Checks whether an OAuth token refresh error is permanent (token revoked, client invalid)
- * vs. transient (network timeout, server error).
- *
- * Permanent errors require disconnecting the provider and re-authenticating.
- * Transient errors should preserve credentials so the existing access token can still be used.
- */
-/**
  * Extracts OAuth error fields from an unknown error response body.
  * Shared by token-exchange and refresh-token-exchange.
  */
@@ -68,6 +61,13 @@ export function extractOAuthErrorFields(data: unknown): {error?: string; error_d
   }
 }
 
+/**
+ * Checks whether an OAuth token refresh error is permanent (token revoked, client invalid)
+ * vs. transient (network timeout, server error).
+ *
+ * Permanent errors require disconnecting the provider and re-authenticating.
+ * Transient errors should preserve credentials so the existing access token can still be used.
+ */
 export function isPermanentOAuthError(error: unknown): boolean {
   if (!(error instanceof ProviderTokenExchangeError)) {
     return false

@@ -68,7 +68,7 @@ describe('ProviderCallbackServer', () => {
 
       // Allow auto-close to complete
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       expect(server.getAddress()).to.be.undefined
@@ -79,7 +79,7 @@ describe('ProviderCallbackServer', () => {
       await server.start()
 
       try {
-        await server.waitForCallback('test-state', 100)
+        await server.waitForCallback('test-state', 10)
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(ProviderCallbackTimeoutError)
@@ -87,7 +87,7 @@ describe('ProviderCallbackServer', () => {
 
       // Allow auto-close to complete
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 10)
       })
 
       expect(server.getAddress()).to.be.undefined
@@ -98,12 +98,12 @@ describe('ProviderCallbackServer', () => {
       await server.start()
 
       try {
-        await server.waitForCallback('test-state', 100)
+        await server.waitForCallback('test-state', 10)
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(ProviderCallbackTimeoutError)
         if (error instanceof ProviderCallbackTimeoutError) {
-          expect(error.timeoutMs).to.equal(100)
+          expect(error.timeoutMs).to.equal(10)
         }
       }
     })
@@ -215,7 +215,7 @@ describe('ProviderCallbackServer', () => {
       const fetchPromise = fetch(`http://localhost:${port}/auth/callback?code=test-code&state=test-state`)
 
       await new Promise((resolve) => {
-        setTimeout(resolve, 25)
+        setTimeout(resolve, 5)
       })
 
       const startTime = Date.now()
