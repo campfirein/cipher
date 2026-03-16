@@ -931,70 +931,68 @@ export class Neo4jBackend implements KnowledgeGraph {
 		return converted;
 	}
 
-        private buildFilterConstraints(
-                filters: NodeFilters | EdgeFilters,
-                prefix: string,
-                params: any
-        ): string {
-                const constraints: string[] = [];
+	private buildFilterConstraints(
+		filters: NodeFilters | EdgeFilters,
+		prefix: string,
+		params: any
+	): string {
+		const constraints: string[] = [];
 
-                for (const [rawKey, filter] of Object.entries(filters)) {
-                        const propertyKey = this.escapePropertyKey(rawKey);
-                        const paramKey = `${prefix}_${Object.keys(params).length}`;
+		for (const [rawKey, filter] of Object.entries(filters)) {
+			const propertyKey = this.escapePropertyKey(rawKey);
+			const paramKey = `${prefix}_${Object.keys(params).length}`;
 
-                        if (typeof filter === 'object' && filter !== null && !Array.isArray(filter)) {
-                                // Range filters
-                                if ('gte' in filter) {
-                                        constraints.push(`${prefix}.${propertyKey} >= $${paramKey}_gte`);
-                                        params[`${paramKey}_gte`] = filter.gte;
-                                }
-                                if ('gt' in filter) {
-                                        constraints.push(`${prefix}.${propertyKey} > $${paramKey}_gt`);
-                                        params[`${paramKey}_gt`] = filter.gt;
-                                }
-                                if ('lte' in filter) {
-                                        constraints.push(`${prefix}.${propertyKey} <= $${paramKey}_lte`);
-                                        params[`${paramKey}_lte`] = filter.lte;
-                                }
-                                if ('lt' in filter) {
-                                        constraints.push(`${prefix}.${propertyKey} < $${paramKey}_lt`);
-                                        params[`${paramKey}_lt`] = filter.lt;
-                                }
+			if (typeof filter === 'object' && filter !== null && !Array.isArray(filter)) {
+				// Range filters
+				if ('gte' in filter) {
+					constraints.push(`${prefix}.${propertyKey} >= $${paramKey}_gte`);
+					params[`${paramKey}_gte`] = filter.gte;
+				}
+				if ('gt' in filter) {
+					constraints.push(`${prefix}.${propertyKey} > $${paramKey}_gt`);
+					params[`${paramKey}_gt`] = filter.gt;
+				}
+				if ('lte' in filter) {
+					constraints.push(`${prefix}.${propertyKey} <= $${paramKey}_lte`);
+					params[`${paramKey}_lte`] = filter.lte;
+				}
+				if ('lt' in filter) {
+					constraints.push(`${prefix}.${propertyKey} < $${paramKey}_lt`);
+					params[`${paramKey}_lt`] = filter.lt;
+				}
 
-                                // Array filters
-                                if ('any' in filter && Array.isArray(filter.any)) {
-                                        constraints.push(`${prefix}.${propertyKey} IN $${paramKey}`);
-                                        params[paramKey] = filter.any;
-                                }
-                                if ('all' in filter && Array.isArray(filter.all)) {
-                                        // For 'all' filter, check if the property (assumed to be array) contains all values
-                                        constraints.push(
-                                                `all(x IN $${paramKey} WHERE x IN ${prefix}.${propertyKey})`
-                                        );
-                                        params[paramKey] = filter.all;
-                                }
-                        } else {
-                                // Direct equality
-                                constraints.push(`${prefix}.${propertyKey} = $${paramKey}`);
-                                params[paramKey] = filter;
-                        }
-                }
+				// Array filters
+				if ('any' in filter && Array.isArray(filter.any)) {
+					constraints.push(`${prefix}.${propertyKey} IN $${paramKey}`);
+					params[paramKey] = filter.any;
+				}
+				if ('all' in filter && Array.isArray(filter.all)) {
+					// For 'all' filter, check if the property (assumed to be array) contains all values
+					constraints.push(`all(x IN $${paramKey} WHERE x IN ${prefix}.${propertyKey})`);
+					params[paramKey] = filter.all;
+				}
+			} else {
+				// Direct equality
+				constraints.push(`${prefix}.${propertyKey} = $${paramKey}`);
+				params[paramKey] = filter;
+			}
+		}
 
-                return constraints.join(' AND ');
-        }
+		return constraints.join(' AND ');
+	}
 
-        private escapePropertyKey(key: string): string {
-                if (key.trim().length === 0) {
-                        throw new Error('Filter property names must not be empty.');
-                }
+	private escapePropertyKey(key: string): string {
+		if (key.trim().length === 0) {
+			throw new Error('Filter property names must not be empty.');
+		}
 
-                if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
-                        return key;
-                }
+		if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+			return key;
+		}
 
-                const escapedKey = key.replace(/`/g, '``');
-                return `\`${escapedKey}\``;
-        }
+		const escapedKey = key.replace(/`/g, '``');
+		return `\`${escapedKey}\``;
+	}
 
 	private async createIndexes(): Promise<void> {
 		const session = this.getSession();
