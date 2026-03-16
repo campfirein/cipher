@@ -5,6 +5,7 @@ import http from 'node:http'
 
 import type {ProviderCallbackResult} from './types.js'
 
+import {OAUTH_CALLBACK_TIMEOUT_MS} from '../../../shared/constants/oauth.js'
 import {
   ProviderCallbackOAuthError,
   ProviderCallbackStateError,
@@ -13,9 +14,49 @@ import {
 } from './errors.js'
 
 const DEFAULT_CALLBACK_PATH = '/auth/callback'
-const DEFAULT_TIMEOUT_MS = 300_000 // 5 minutes
 
-const SUCCESS_HTML = '<html><body><h1>Authentication successful</h1><p>You can close this window.</p></body></html>'
+const SUCCESS_HTML = `<!DOCTYPE html>
+<html>
+<head>
+  <title>ByteRover - Authorization Successful</title>
+  <style>
+    body { font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #0f0f0f; color: #e5e5e5; }
+    .container { text-align: center; padding: 2rem; }
+    h1 { color: #17b26a; margin-bottom: 1rem; }
+    p { color: #a3a3a3; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Authorization Successful</h1>
+    <p>You can close this window and return to ByteRover.</p>
+  </div>
+  <script>setTimeout(() => window.close(), 2000);</script>
+</body>
+</html>`
+
+function errorHtml(message: string): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <title>ByteRover - Authorization Failed</title>
+  <style>
+    body { font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #0f0f0f; color: #e5e5e5; }
+    .container { text-align: center; padding: 2rem; }
+    h1 { color: #f87171; margin-bottom: 1rem; }
+    p { color: #a3a3a3; }
+    .error { color: #fca5a5; font-family: monospace; margin-top: 1rem; padding: 1rem; background: rgba(248,113,113,0.1); border-radius: 0.5rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Authorization Failed</h1>
+    <p>An error occurred during authorization.</p>
+    <div class="error">${escapeHtml(message)}</div>
+  </div>
+</body>
+</html>`
+}
 
 function escapeHtml(text: string): string {
   return text
@@ -122,7 +163,10 @@ export class ProviderCallbackServer {
     })
   }
 
-  public waitForCallback(expectedState: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<ProviderCallbackResult> {
+  public waitForCallback(
+    expectedState: string,
+    timeoutMs = OAUTH_CALLBACK_TIMEOUT_MS,
+  ): Promise<ProviderCallbackResult> {
     if (this.onCallback !== undefined) {
       return Promise.reject(new ProviderOAuthError('A callback is already pending'))
     }
@@ -185,7 +229,7 @@ export class ProviderCallbackServer {
 
     if (error !== null) {
       res.writeHead(400, {'Content-Type': 'text/html'})
-      res.end(`<html><body><h1>Authentication failed</h1><p>${escapeHtml(errorDescription ?? error)}</p></body></html>`)
+      res.end(errorHtml(errorDescription ?? error))
       this.onError?.(new ProviderCallbackOAuthError(error, errorDescription ?? undefined))
       this.onCallback = undefined
       this.onError = undefined
@@ -194,7 +238,7 @@ export class ProviderCallbackServer {
 
     if (code === null || state === null) {
       res.writeHead(400, {'Content-Type': 'text/html'})
-      res.end('<html><body><h1>Authentication failed</h1><p>Missing code or state parameter</p></body></html>')
+      res.end(errorHtml('Missing code or state parameter'))
       this.onError?.(new ProviderOAuthError('Missing code or state parameter'))
       this.onCallback = undefined
       this.onError = undefined

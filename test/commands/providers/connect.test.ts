@@ -405,6 +405,16 @@ describe('Provider Connect Command', () => {
       id: 'openai',
       isConnected: false,
       name: 'OpenAI',
+      oauthCallbackMode: 'auto',
+      requiresApiKey: true,
+      supportsOAuth: true,
+    }
+
+    const codePasteOAuthProvider = {
+      id: 'anthropic',
+      isConnected: false,
+      name: 'Anthropic',
+      oauthCallbackMode: 'code-paste',
       requiresApiKey: true,
       supportsOAuth: true,
     }
@@ -480,15 +490,24 @@ describe('Provider Connect Command', () => {
       expect(loggedMessages.some((m) => m.includes('--oauth --code'))).to.be.true
     })
 
-    it('should submit code when --oauth --code is provided', async () => {
+    it('should submit code when --oauth --code is provided for code-paste provider', async () => {
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
-      requestStub.onFirstCall().resolves({providers: [openaiOAuthProvider]})
+      requestStub.onFirstCall().resolves({providers: [codePasteOAuthProvider]})
       requestStub.onSecondCall().resolves({success: true})
+
+      await createCommand('anthropic', '--oauth', '--code', 'my-auth-code').run()
+
+      expect(requestStub.secondCall.args[0]).to.equal('provider:submitOAuthCode')
+      expect(requestStub.secondCall.args[1]).to.deep.include({code: 'my-auth-code', providerId: 'anthropic'})
+    })
+
+    it('should error when --code is used with a browser-callback (auto) provider', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({providers: [openaiOAuthProvider]})
 
       await createCommand('openai', '--oauth', '--code', 'my-auth-code').run()
 
-      expect(requestStub.secondCall.args[0]).to.equal('provider:submitOAuthCode')
-      expect(requestStub.secondCall.args[1]).to.deep.include({code: 'my-auth-code', providerId: 'openai'})
+      expect(loggedMessages.some((m) => m.includes('does not accept --code'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv providers connect openai --oauth'))).to.be.true
     })
 
     it('should error when provider does not support OAuth', async () => {

@@ -2,6 +2,7 @@ import type {ProviderDTO} from '../types/dto.js'
 
 export const ProviderEvents = {
   AWAIT_OAUTH_CALLBACK: 'provider:awaitOAuthCallback',
+  CANCEL_OAUTH: 'provider:cancelOAuth',
   CONNECT: 'provider:connect',
   DISCONNECT: 'provider:disconnect',
   GET_ACTIVE: 'provider:getActive',
@@ -9,6 +10,7 @@ export const ProviderEvents = {
   SET_ACTIVE: 'provider:setActive',
   START_OAUTH: 'provider:startOAuth',
   SUBMIT_OAUTH_CODE: 'provider:submitOAuthCode',
+  UPDATED: 'provider:updated',
   VALIDATE_API_KEY: 'provider:validateApiKey',
 } as const
 
@@ -58,6 +60,14 @@ export interface ProviderSetActiveResponse {
 }
 
 // ==================== OAuth Events ====================
+
+export interface ProviderCancelOAuthRequest {
+  providerId: string
+}
+
+export interface ProviderCancelOAuthResponse {
+  success: boolean
+}
 
 export interface ProviderStartOAuthRequest {
   mode?: string

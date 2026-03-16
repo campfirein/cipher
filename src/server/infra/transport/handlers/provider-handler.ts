@@ -14,6 +14,8 @@ import type {
 import {
   type ProviderAwaitOAuthCallbackRequest,
   type ProviderAwaitOAuthCallbackResponse,
+  type ProviderCancelOAuthRequest,
+  type ProviderCancelOAuthResponse,
   type ProviderConnectRequest,
   type ProviderConnectResponse,
   type ProviderDisconnectRequest,
@@ -45,11 +47,13 @@ import {
   generatePkce as defaultGeneratePkce,
   parseAccountIdFromIdToken,
   ProviderCallbackServer,
+  ProviderCallbackTimeoutError,
 } from '../../provider-oauth/index.js'
 
 type OAuthFlowState = {
   awaitInProgress?: boolean
   callbackServer?: ProviderCallbackServer
+  clientId: string
   codeVerifier: string
   state: string
 }
@@ -103,7 +107,22 @@ export class ProviderHandler {
     this.setupValidateApiKey()
     this.setupStartOAuth()
     this.setupAwaitOAuthCallback()
+    this.setupCancelOAuth()
     this.setupSubmitOAuthCode()
+
+    // Clean up OAuth flows when a client disconnects (prevents callback server port leaks)
+    this.transport.onDisconnection((clientId) => {
+      this.cleanupFlowsForClient(clientId)
+    })
+  }
+
+  private cleanupFlowsForClient(clientId: string): void {
+    for (const [providerId, flow] of this.oauthFlows.entries()) {
+      if (flow.clientId === clientId) {
+        flow.callbackServer?.stop().catch(() => {})
+        this.oauthFlows.delete(providerId)
+      }
+    }
   }
 
   private setupAwaitOAuthCallback(): void {
@@ -173,6 +192,10 @@ export class ProviderHandler {
 
           return {success: true}
         } catch (error) {
+          if (error instanceof ProviderCallbackTimeoutError) {
+            return {error: 'Authentication timed out. Please try again.', success: false}
+          }
+
           return {error: getErrorMessage(error), success: false}
         } finally {
           // Only clean up if this is still the same flow (guard against concurrent START_OAUTH)
@@ -181,6 +204,21 @@ export class ProviderHandler {
             this.oauthFlows.delete(data.providerId)
           }
         }
+      },
+    )
+  }
+
+  private setupCancelOAuth(): void {
+    this.transport.onRequest<ProviderCancelOAuthRequest, ProviderCancelOAuthResponse>(
+      ProviderEvents.CANCEL_OAUTH,
+      async (data) => {
+        const flow = this.oauthFlows.get(data.providerId)
+        if (flow?.callbackServer) {
+          await flow.callbackServer.stop().catch(() => {})
+        }
+
+        this.oauthFlows.delete(data.providerId)
+        return {success: true}
       },
     )
   }
@@ -261,6 +299,8 @@ export class ProviderHandler {
             }),
             isCurrent: def.id === activeProviderId,
             name: def.name,
+            oauthCallbackMode: def.oauth?.callbackMode,
+            oauthLabel: def.oauth?.modes[0]?.label,
             requiresApiKey: providerRequiresApiKey(def.id, authMethod),
             supportsOAuth: Boolean(def.oauth),
           }
@@ -286,7 +326,7 @@ export class ProviderHandler {
   private setupStartOAuth(): void {
     this.transport.onRequest<ProviderStartOAuthRequest, ProviderStartOAuthResponse>(
       ProviderEvents.START_OAUTH,
-      async (data) => {
+      async (data, clientId) => {
         const providerDef = getProviderById(data.providerId)
         if (!providerDef?.oauth) {
           const errorResponse: ProviderStartOAuthResponse = {
@@ -343,6 +383,7 @@ export class ProviderHandler {
           // Store flow state
           this.oauthFlows.set(data.providerId, {
             callbackServer,
+            clientId,
             codeVerifier: pkce.codeVerifier,
             state: pkce.state,
           })

@@ -519,10 +519,17 @@ export function createMockProviderOAuthTokenStore(
 type AnyRequestHandler = (data: any, clientId: string) => any
 
 /**
+ * Handler type for transport server disconnection handlers.
+ */
+type DisconnectionHandler = (clientId: string, metadata?: Record<string, unknown>) => void
+
+/**
  * Extended mock transport server with handler introspection.
  */
 export type MockTransportServer = SinonStubbedInstance<ITransportServer> & {
+  _disconnectionHandlers: DisconnectionHandler[]
   _handlers: Map<string, AnyRequestHandler>
+  _simulateDisconnect: (clientId: string) => void
 }
 
 /**
@@ -541,15 +548,24 @@ export type MockTransportServer = SinonStubbedInstance<ITransportServer> & {
  */
 export function createMockTransportServer(): MockTransportServer {
   const handlers = new Map<string, AnyRequestHandler>()
+  const disconnectionHandlers: DisconnectionHandler[] = []
   return {
+    _disconnectionHandlers: disconnectionHandlers,
     _handlers: handlers,
+    _simulateDisconnect(clientId: string) {
+      for (const handler of disconnectionHandlers) {
+        handler(clientId)
+      }
+    },
     addToRoom: stub(),
     broadcast: stub(),
     broadcastTo: stub(),
     getPort: stub(),
     isRunning: stub(),
     onConnection: stub(),
-    onDisconnection: stub(),
+    onDisconnection: stub().callsFake((handler: DisconnectionHandler) => {
+      disconnectionHandlers.push(handler)
+    }),
     onRequest: stub().callsFake((event: string, handler: AnyRequestHandler) => {
       handlers.set(event, handler)
     }),
