@@ -16,15 +16,17 @@ export default class ReviewReject extends Command {
     '# Reject all pending changes from a curate task',
     '<%= config.bin %> review reject abc-123',
     '',
-    '# Reject a single file',
+    '# Reject specific files',
     '<%= config.bin %> review reject abc-123 --file architecture/security/audit.md',
+    '<%= config.bin %> review reject abc-123 --file auth/jwt.md --file auth/oauth.md',
     '',
     '# Reject and get structured output (useful for coding agents)',
     '<%= config.bin %> review reject abc-123 --format json',
   ]
   public static flags = {
     file: Flags.string({
-      description: 'Reject only the specified file path (relative to context tree)',
+      description: 'Reject only the specified file path(s) (relative to context tree)',
+      multiple: true,
     }),
     format: Flags.string({
       default: 'text',
@@ -46,7 +48,7 @@ export default class ReviewReject extends Command {
         (client) =>
           client.requestWithAck<ReviewDecideTaskResponse>(ReviewEvents.DECIDE_TASK, {
             decision: 'rejected',
-            ...(flags.file ? {filePath: flags.file} : {}),
+            ...(flags.file?.length ? {filePaths: flags.file} : {}),
             taskId: args.taskId,
           }),
         this.getDaemonClientOptions(),

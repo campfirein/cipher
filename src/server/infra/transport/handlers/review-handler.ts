@@ -71,7 +71,7 @@ export class ReviewHandler {
   }
 
   private async handleDecideTask(
-    {decision, filePath: filterPath, taskId}: ReviewDecideTaskRequest,
+    {decision, filePaths: filterPaths, taskId}: ReviewDecideTaskRequest,
     clientId: string,
   ): Promise<ReviewDecideTaskResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
@@ -104,12 +104,11 @@ export class ReviewHandler {
       }
     }
 
-    // If filePath filter is provided, only process that one file
-    if (filterPath) {
-      const filtered = pendingByPath.get(filterPath)
-      pendingByPath.clear()
-      if (filtered) {
-        pendingByPath.set(filterPath, filtered)
+    // If filePaths filter is provided, only process those files
+    if (filterPaths?.length) {
+      const filterSet = new Set(filterPaths)
+      for (const key of pendingByPath.keys()) {
+        if (!filterSet.has(key)) pendingByPath.delete(key)
       }
     }
 

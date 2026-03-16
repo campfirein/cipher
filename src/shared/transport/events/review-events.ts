@@ -11,8 +11,8 @@ export interface ReviewNotifyEvent {
 
 export interface ReviewDecideTaskRequest {
   decision: 'approved' | 'rejected'
-  /** When provided, only operations targeting this context-tree-relative path are affected. */
-  filePath?: string
+  /** When provided, only operations targeting these context-tree-relative paths are affected. */
+  filePaths?: string[]
   taskId: string
 }
 
