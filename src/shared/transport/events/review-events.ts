@@ -1,6 +1,7 @@
 export const ReviewEvents = {
   DECIDE_TASK: 'review:decideTask',
   NOTIFY: 'review:notify',
+  PENDING: 'review:pending',
 } as const
 
 export interface ReviewNotifyEvent {
@@ -17,4 +18,23 @@ export interface ReviewDecideTaskRequest {
 export interface ReviewDecideTaskResponse {
   files: Array<{path: string; reverted: boolean}>
   totalCount: number
+}
+
+export interface ReviewPendingOperation {
+  impact?: 'high' | 'low'
+  path: string
+  previousSummary?: string
+  reason?: string
+  summary?: string
+  type: 'ADD' | 'DELETE' | 'MERGE' | 'UPDATE' | 'UPSERT'
+}
+
+export interface ReviewPendingTask {
+  operations: ReviewPendingOperation[]
+  taskId: string
+}
+
+export interface ReviewPendingResponse {
+  pendingCount: number
+  tasks: ReviewPendingTask[]
 }
