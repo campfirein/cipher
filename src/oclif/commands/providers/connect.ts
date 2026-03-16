@@ -1,5 +1,6 @@
 import {Args, Command, Flags} from '@oclif/core'
 
+import {OAUTH_CALLBACK_TIMEOUT_MS} from '../../../shared/constants/oauth.js'
 import {ModelEvents, type ModelSetActiveResponse} from '../../../shared/transport/events/model-events.js'
 import {
   type ProviderAwaitOAuthCallbackResponse,
@@ -41,7 +42,9 @@ export default class ProviderConnect extends Command {
     }),
     code: Flags.string({
       char: 'c',
-      description: 'Authorization code for code-paste OAuth providers',
+      description:
+        'Authorization code for code-paste OAuth providers (e.g., Anthropic). ' +
+        'Not applicable to browser-callback providers like OpenAI — use --oauth without --code instead.',
     }),
     format: Flags.string({
       default: 'text',
@@ -141,6 +144,15 @@ export default class ProviderConnect extends Command {
         throw new Error(`Provider "${providerId}" does not support OAuth. Use --api-key instead.`)
       }
 
+      // --code is only valid for code-paste providers (e.g., Anthropic).
+      // Browser-callback providers like OpenAI handle the code exchange automatically.
+      if (code && provider.oauthCallbackMode !== 'code-paste') {
+        throw new Error(
+          `Provider "${providerId}" uses browser-based OAuth and does not accept --code.\n` +
+            `Run: brv providers connect ${providerId} --oauth`,
+        )
+      }
+
       // If --code is provided, submit it directly (code-paste providers)
       if (code) {
         const response = await client.requestWithAck<ProviderSubmitOAuthCodeResponse>(
@@ -171,7 +183,7 @@ export default class ProviderConnect extends Command {
         const awaitResponse = await client.requestWithAck<ProviderAwaitOAuthCallbackResponse>(
           ProviderEvents.AWAIT_OAUTH_CALLBACK,
           {providerId},
-          {timeout: 300_000},
+          {timeout: OAUTH_CALLBACK_TIMEOUT_MS},
         )
         if (!awaitResponse.success) {
           throw new Error(awaitResponse.error ?? 'OAuth authentication failed')

@@ -37,7 +37,8 @@ export default class ProviderList extends Command {
 
       for (const p of providers) {
         const status = p.isCurrent ? chalk.green('(current)') : p.isConnected ? chalk.yellow('(connected)') : ''
-        const authBadge = p.authMethod === 'oauth' ? chalk.cyan('[OAuth]') : p.isConnected ? chalk.dim('[API Key]') : ''
+        const authBadge =
+          p.authMethod === 'oauth' ? chalk.cyan('[OAuth]') : p.authMethod === 'api-key' ? chalk.dim('[API Key]') : ''
         this.log(`  ${p.name} [${p.id}] ${status} ${authBadge}`.trimEnd())
       }
     } catch (error) {

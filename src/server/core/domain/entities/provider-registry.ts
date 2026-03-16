@@ -15,7 +15,7 @@ export interface OAuthModeConfig {
   readonly authUrl: string
   /** Mode identifier (e.g. 'default', 'pro-max') */
   readonly id: string
-  /** Display label (e.g. "Sign in with ChatGPT") */
+  /** Display label (e.g. "Sign in with OpenAI") */
   readonly label: string
 }
 
@@ -247,7 +247,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
         originator: CHATGPT_OAUTH_ORIGINATOR,
       },
       /* eslint-enable camelcase */
-      modes: [{authUrl: 'https://auth.openai.com/oauth/authorize', id: 'default', label: 'Sign in with ChatGPT'}],
+      modes: [{authUrl: 'https://auth.openai.com/oauth/authorize', id: 'default', label: 'Sign in with OpenAI'}],
       redirectUri: 'http://localhost:1455/auth/callback',
       scopes: 'openid profile email offline_access',
       tokenContentType: 'form',

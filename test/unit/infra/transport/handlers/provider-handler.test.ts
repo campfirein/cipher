@@ -13,6 +13,7 @@ import type {
 import {ProviderConfig} from '../../../../../src/server/core/domain/entities/provider-config.js'
 import {PROVIDER_REGISTRY} from '../../../../../src/server/core/domain/entities/provider-registry.js'
 import {TransportDaemonEventNames} from '../../../../../src/server/core/domain/transport/schemas.js'
+import {ProviderCallbackTimeoutError} from '../../../../../src/server/infra/provider-oauth/errors.js'
 import {ProviderHandler} from '../../../../../src/server/infra/transport/handlers/provider-handler.js'
 import {ProviderEvents} from '../../../../../src/shared/transport/events/provider-events.js'
 import {
@@ -104,7 +105,14 @@ describe('ProviderHandler', () => {
       expect(transport._handlers.has(ProviderEvents.VALIDATE_API_KEY)).to.be.true
       expect(transport._handlers.has(ProviderEvents.START_OAUTH)).to.be.true
       expect(transport._handlers.has(ProviderEvents.AWAIT_OAUTH_CALLBACK)).to.be.true
+      expect(transport._handlers.has(ProviderEvents.CANCEL_OAUTH)).to.be.true
       expect(transport._handlers.has(ProviderEvents.SUBMIT_OAUTH_CODE)).to.be.true
+    })
+
+    it('should register a disconnection handler', () => {
+      createHandler()
+
+      expect(transport._disconnectionHandlers.length).to.equal(1)
     })
   })
 
@@ -519,6 +527,20 @@ describe('ProviderHandler', () => {
       expect(result2.error).to.include('No active OAuth flow')
     })
 
+    it('should return user-friendly message on callback timeout', async () => {
+      mockCallbackServer.waitForCallback.rejects(new ProviderCallbackTimeoutError(300_000))
+      createHandler()
+
+      const startHandler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      await startHandler!({providerId: 'openai'}, 'client-1')
+
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+      const result = await awaitHandler!({providerId: 'openai'}, 'client-1')
+
+      expect(result).to.deep.include({success: false})
+      expect(result.error).to.equal('Authentication timed out. Please try again.')
+    })
+
     it('should return error when token exchange fails', async () => {
       exchangeCodeStub.rejects(new Error('Token exchange failed'))
       createHandler()
@@ -646,6 +668,96 @@ describe('ProviderHandler', () => {
       const openaiProvider = result.providers.find((p: {id: string}) => p.id === 'openai')
       expect(openaiProvider?.authMethod).to.equal('oauth')
       expect(openaiProvider?.requiresApiKey).to.be.false
+    })
+  })
+
+  describe('provider:cancelOAuth', () => {
+    it('should stop callback server and delete flow', async () => {
+      createHandler()
+
+      // Start an OAuth flow first
+      const startHandler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      await startHandler!({providerId: 'openai'}, 'client-1')
+      expect(mockCallbackServer.start.calledOnce).to.be.true
+
+      // Cancel it
+      const cancelHandler = transport._handlers.get(ProviderEvents.CANCEL_OAUTH)
+      const result = await cancelHandler!({providerId: 'openai'}, 'client-1')
+
+      expect(result).to.deep.equal({success: true})
+      expect(mockCallbackServer.stop.called).to.be.true
+    })
+
+    it('should return success when no active flow exists (idempotent)', async () => {
+      createHandler()
+
+      const cancelHandler = transport._handlers.get(ProviderEvents.CANCEL_OAUTH)
+      const result = await cancelHandler!({providerId: 'openai'}, 'client-1')
+
+      expect(result).to.deep.equal({success: true})
+    })
+
+    it('should allow a new OAuth flow after cancellation', async () => {
+      createHandler()
+
+      // Start, cancel, then start again
+      const startHandler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      await startHandler!({providerId: 'openai'}, 'client-1')
+
+      const cancelHandler = transport._handlers.get(ProviderEvents.CANCEL_OAUTH)
+      await cancelHandler!({providerId: 'openai'}, 'client-1')
+
+      // Reset the mock to track the second start
+      mockCallbackServer.start.resetHistory()
+      const result = await startHandler!({providerId: 'openai'}, 'client-1')
+
+      expect(result.success).to.be.true
+      expect(mockCallbackServer.start.calledOnce).to.be.true
+    })
+  })
+
+  describe('client disconnect cleanup', () => {
+    it('should stop callback server when initiating client disconnects', async () => {
+      createHandler()
+
+      // Start an OAuth flow
+      const startHandler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      await startHandler!({providerId: 'openai'}, 'client-1')
+
+      // Simulate client disconnect
+      transport._simulateDisconnect('client-1')
+
+      expect(mockCallbackServer.stop.called).to.be.true
+    })
+
+    it('should not affect flows from other clients', async () => {
+      createHandler()
+
+      // Start an OAuth flow from client-1
+      const startHandler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      await startHandler!({providerId: 'openai'}, 'client-1')
+
+      // Simulate disconnect of a different client
+      transport._simulateDisconnect('client-2')
+
+      // Callback server should NOT be stopped
+      expect(mockCallbackServer.stop.called).to.be.false
+    })
+
+    it('should allow new flow after disconnect cleanup', async () => {
+      createHandler()
+
+      const startHandler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      await startHandler!({providerId: 'openai'}, 'client-1')
+
+      transport._simulateDisconnect('client-1')
+
+      // Reset mock and start a new flow from another client
+      mockCallbackServer.start.resetHistory()
+      const result = await startHandler!({providerId: 'openai'}, 'client-2')
+
+      expect(result.success).to.be.true
+      expect(mockCallbackServer.start.calledOnce).to.be.true
     })
   })
 })
