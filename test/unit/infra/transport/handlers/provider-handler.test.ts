@@ -11,6 +11,7 @@ import type {
 } from '../../../../../src/server/infra/provider-oauth/types.js'
 
 import {ProviderConfig} from '../../../../../src/server/core/domain/entities/provider-config.js'
+import {PROVIDER_REGISTRY} from '../../../../../src/server/core/domain/entities/provider-registry.js'
 import {TransportDaemonEventNames} from '../../../../../src/server/core/domain/transport/schemas.js'
 import {ProviderHandler} from '../../../../../src/server/infra/transport/handlers/provider-handler.js'
 import {ProviderEvents} from '../../../../../src/shared/transport/events/provider-events.js'
@@ -128,6 +129,16 @@ describe('ProviderHandler', () => {
       expect(providerKeychainStore.setApiKey.calledBefore(providerConfigStore.connectProvider)).to.be.true
     })
 
+    it('should connect with authMethod api-key when API key provided', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.CONNECT)
+      await handler!({apiKey: 'test-key', providerId: 'openrouter'}, 'client-1')
+
+      const connectArgs = providerConfigStore.connectProvider.firstCall.args[1] as Record<string, unknown>
+      expect(connectArgs.authMethod).to.equal('api-key')
+    })
+
     it('should broadcast after connectProvider completes', async () => {
       createHandler()
 
@@ -157,6 +168,15 @@ describe('ProviderHandler', () => {
       await handler!({providerId: 'openrouter'}, 'client-1')
 
       expect(providerKeychainStore.deleteApiKey.calledWith('openrouter')).to.be.true
+    })
+
+    it('should delete OAuth tokens from encrypted store', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.DISCONNECT)
+      await handler!({providerId: 'openai'}, 'client-1')
+
+      expect(providerOAuthTokenStore.delete.calledWith('openai')).to.be.true
     })
 
     it('should broadcast after disconnectProvider completes', async () => {
@@ -404,6 +424,20 @@ describe('ProviderHandler', () => {
         authMethod: 'oauth',
         oauthAccountId: 'acct_test123',
       })
+    })
+
+    it('should use OAuth-specific default model instead of provider default', async () => {
+      createHandler()
+
+      const startHandler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      await startHandler!({providerId: 'openai'}, 'client-1')
+
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+      await awaitHandler!({providerId: 'openai'}, 'client-1')
+
+      const connectOptions = providerConfigStore.connectProvider.firstCall.args[1] as Record<string, unknown>
+      // OAuth connect should use the OAuth-specific default (Codex model), not the provider's generic default (gpt-4.1)
+      expect(connectOptions.activeModel).to.equal(PROVIDER_REGISTRY.openai.oauth!.defaultModel)
     })
 
     it('should store refresh token and expiry in encrypted OAuth token store', async () => {
