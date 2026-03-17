@@ -5,6 +5,7 @@ import {randomUUID} from 'node:crypto'
 
 import type {CurateLogOperation} from '../../../server/core/domain/entities/curate-log-entry.js'
 
+import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../server/constants.js'
 import {ProviderConfigResponse, TransportStateEventNames} from '../../../server/core/domain/transport/index.js'
 import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
 import {TaskEvents} from '../../../shared/transport/events/index.js'
@@ -158,6 +159,7 @@ Bad examples:
       files: pendingOps.map((op) => ({
         after: op.summary,
         before: op.previousSummary,
+        filePath: this.extractContextTreeRelativePath(op.filePath) ?? op.path,
         impact: op.impact,
         path: op.path,
         reason: op.reason,
@@ -227,6 +229,14 @@ Bad examples:
     }
   }
 
+  private extractContextTreeRelativePath(filePath?: string): string | undefined {
+    if (!filePath) return undefined
+    const marker = `${BRV_DIR}/${CONTEXT_TREE_DIR}/`
+    const idx = filePath.indexOf(marker)
+    if (idx === -1) return undefined
+    return filePath.slice(idx + marker.length)
+  }
+
   /**
    * Print a human-readable pending review summary to stdout.
    * Called after successful curate completion when review is required.
@@ -239,7 +249,8 @@ Bad examples:
 
     for (const op of pendingOps) {
       const impact = op.impact === 'high' ? ' · HIGH IMPACT' : ''
-      this.log(`\n  [${op.type}${impact}] ${op.path}`)
+      const displayPath = this.extractContextTreeRelativePath(op.filePath) ?? op.path
+      this.log(`\n  [${op.type}${impact}] - path: ${displayPath}`)
       if (op.reason) this.log(`  Why:   ${op.reason}`)
       if (op.previousSummary) this.log(`  Before: ${op.previousSummary}`)
       if (op.summary) this.log(`  After:  ${op.summary}`)
@@ -247,6 +258,7 @@ Bad examples:
 
     this.log(`\n  To approve all:  brv review approve ${taskId}`)
     this.log(`  To reject all:   brv review reject ${taskId}`)
+    this.log(`  Per file:        brv review approve/reject ${taskId} --file <path> [--file <path>]`)
   }
 
   private reportError(error: unknown, format: 'json' | 'text', providerContext?: ProviderErrorContext): void {

@@ -53,7 +53,9 @@ Curate knowledge topics with atomic operations. This tool manages the knowledge 
          relations: ["@structure/database"]
        },
        reason: "New caching pattern",
-       summary: "Redis caching layer for getUserPermissions with 300s TTL and singleton client pattern"
+       summary: "Redis caching layer for getUserPermissions with 300s TTL and singleton client pattern",
+       confidence: "high",
+       impact: "low"
      }
    - Creates: structure/caching/redis_user_permissions.md
 

@@ -71,7 +71,7 @@ export class ReviewHandler {
   }
 
   private async handleDecideTask(
-    {decision, taskId}: ReviewDecideTaskRequest,
+    {decision, filePaths: filterPaths, taskId}: ReviewDecideTaskRequest,
     clientId: string,
   ): Promise<ReviewDecideTaskResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
@@ -104,6 +104,13 @@ export class ReviewHandler {
       }
     }
 
+    // If filePaths filter is provided, only process those files
+    if (filterPaths?.length) {
+      const filterSet = new Set(filterPaths)
+      const keysToDelete = [...pendingByPath.keys()].filter((key) => !filterSet.has(key))
+      for (const key of keysToDelete) pendingByPath.delete(key)
+    }
+
     // Apply decision for each affected file in parallel
     const fileResults = await Promise.all(
       [...pendingByPath.entries()].map(async ([relPath, ops]) => {
@@ -125,7 +132,6 @@ export class ReviewHandler {
               const rel = relative(contextTreeDir, absPath)
               const content = await backupStore.read(rel)
               if (content !== null) await writeFileWithDirs(absPath, content)
-              await backupStore.delete(rel)
             }),
           )
 
@@ -138,13 +144,26 @@ export class ReviewHandler {
           allAdditionalPaths.map((absPath) => backupStore.delete(relative(contextTreeDir, absPath))),
         )
 
-        // Update review status in the curate log
-        await Promise.all(
-          ops.map(({logId, operationIndex}) => store.updateOperationReviewStatus(logId, operationIndex, decision)),
-        )
-
-        return {path: relPath, reverted}
+        return {ops, path: relPath, reverted}
       }),
+    )
+
+    // Batch-update review status grouped by logId (one read+write per entry file)
+    const byLogId = new Map<string, Array<{operationIndex: number; reviewStatus: 'approved' | 'rejected'}>>()
+    for (const {ops} of fileResults) {
+      for (const {logId, operationIndex} of ops) {
+        let batch = byLogId.get(logId)
+        if (!batch) {
+          batch = []
+          byLogId.set(logId, batch)
+        }
+
+        batch.push({operationIndex, reviewStatus: decision})
+      }
+    }
+
+    await Promise.all(
+      [...byLogId.entries()].map(([logId, updates]) => store.batchUpdateOperationReviewStatus(logId, updates)),
     )
 
     try {
@@ -153,6 +172,7 @@ export class ReviewHandler {
       // Best-effort notification — never block the response
     }
 
-    return {files: fileResults, totalCount: fileResults.length}
+    const totalCount = fileResults.reduce((sum, {ops}) => sum + ops.length, 0)
+    return {files: fileResults.map(({path, reverted}) => ({path, reverted})), totalCount}
   }
 }

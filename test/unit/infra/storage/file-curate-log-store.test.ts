@@ -477,6 +477,104 @@ describe('FileCurateLogStore', () => {
   })
 
   // ==========================================================================
+  // batchUpdateOperationReviewStatus
+  // ==========================================================================
+
+  describe('batchUpdateOperationReviewStatus', () => {
+    it('should update multiple operations in a single entry', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [
+          {needsReview: true, path: '/a.md', reviewStatus: 'pending', status: 'success', type: 'UPDATE'},
+          {needsReview: true, path: '/b.md', reviewStatus: 'pending', status: 'success', type: 'DELETE'},
+          {needsReview: true, path: '/c.md', reviewStatus: 'pending', status: 'success', type: 'ADD'},
+        ],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 1, deleted: 1, failed: 0, merged: 0, updated: 1},
+        taskId: 'task-batch',
+      }
+      await store.save(entry)
+
+      const result = await store.batchUpdateOperationReviewStatus(id, [
+        {operationIndex: 0, reviewStatus: 'approved'},
+        {operationIndex: 2, reviewStatus: 'rejected'},
+      ])
+      expect(result).to.be.true
+
+      const retrieved = await store.getById(id)
+      expect(retrieved?.operations[0].reviewStatus).to.equal('approved')
+      expect(retrieved?.operations[1].reviewStatus).to.equal('pending')
+      expect(retrieved?.operations[2].reviewStatus).to.equal('rejected')
+    })
+
+    it('should return false for non-existent entry', async () => {
+      const result = await store.batchUpdateOperationReviewStatus('cur-9999999999999', [
+        {operationIndex: 0, reviewStatus: 'approved'},
+      ])
+      expect(result).to.be.false
+    })
+
+    it('should skip out-of-range indices gracefully', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [
+          {needsReview: true, path: '/a.md', reviewStatus: 'pending', status: 'success', type: 'UPDATE'},
+        ],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 1},
+        taskId: 'task-batch',
+      }
+      await store.save(entry)
+
+      const result = await store.batchUpdateOperationReviewStatus(id, [
+        {operationIndex: 0, reviewStatus: 'approved'},
+        {operationIndex: 5, reviewStatus: 'approved'},
+        {operationIndex: -1, reviewStatus: 'approved'},
+      ])
+      expect(result).to.be.true
+
+      const retrieved = await store.getById(id)
+      expect(retrieved?.operations[0].reviewStatus).to.equal('approved')
+    })
+
+    it('should persist batch updates to disk', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [
+          {needsReview: true, path: '/a.md', reviewStatus: 'pending', status: 'success', type: 'UPDATE'},
+          {needsReview: true, path: '/b.md', reviewStatus: 'pending', status: 'success', type: 'DELETE'},
+        ],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 0, deleted: 1, failed: 0, merged: 0, updated: 1},
+        taskId: 'task-batch',
+      }
+      await store.save(entry)
+
+      await store.batchUpdateOperationReviewStatus(id, [
+        {operationIndex: 0, reviewStatus: 'approved'},
+        {operationIndex: 1, reviewStatus: 'rejected'},
+      ])
+
+      const freshStore = new FileCurateLogStore({baseDir: tempDir})
+      const retrieved = await freshStore.getById(id)
+      expect(retrieved?.operations[0].reviewStatus).to.equal('approved')
+      expect(retrieved?.operations[1].reviewStatus).to.equal('rejected')
+    })
+  })
+
+  // ==========================================================================
   // reviewStatus in Zod schema
   // ==========================================================================
 
