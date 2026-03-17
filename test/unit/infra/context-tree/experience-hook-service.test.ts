@@ -230,6 +230,38 @@ describe('ExperienceHookService', () => {
       expect(lines.filter((l) => l === 'from-instance-1')).to.have.length(1)
       expect(lines.filter((l) => l === 'from-instance-2')).to.have.length(1)
     })
+
+    it('prunes the queue map entry after the queue fully drains', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const queues = (ExperienceHookService as any).queues as Map<string, Promise<void>>
+      const key = service.projectKey
+
+      await service.onCurateComplete('no signals')
+      // The cleanup runs as a microtask after the awaited promise resolves;
+      // one extra tick ensures it has fired.
+      await Promise.resolve()
+
+      expect(queues.has(key)).to.be.false
+    })
+
+    it('does not prune the entry while a later task is still in the queue', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const queues = (ExperienceHookService as any).queues as Map<string, Promise<void>>
+      const key = service.projectKey
+
+      // Enqueue two tasks; only the second (tail) should trigger pruning
+      const p1 = service.onCurateComplete('no signals')
+      const p2 = service.onCurateComplete('no signals')
+
+      // After the first resolves the tail is still p2 — entry must not be deleted yet
+      await p1
+      expect(queues.has(key)).to.be.true
+
+      // After the second resolves (and cleanup microtask runs) the entry is pruned
+      await p2
+      await Promise.resolve()
+      expect(queues.has(key)).to.be.false
+    })
   })
 
   // -------------------------------------------------------------------------

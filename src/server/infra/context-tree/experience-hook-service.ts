@@ -48,6 +48,16 @@ export class ExperienceHookService implements IExperienceHookService {
     const current = ExperienceHookService.queues.get(this.projectKey) ?? Promise.resolve()
     const next = current.then(() => this.process(response)).catch(() => {})
     ExperienceHookService.queues.set(this.projectKey, next)
+
+    // Prune the entry once the queue drains.
+    // Only delete when `next` is still the tail (no newer task was enqueued
+    // while this one was in-flight), so concurrent callers never clobber each other.
+    next.then(() => {
+      if (ExperienceHookService.queues.get(this.projectKey) === next) {
+        ExperienceHookService.queues.delete(this.projectKey)
+      }
+    })
+
     return next
   }
 
