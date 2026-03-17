@@ -5,7 +5,7 @@ import type {ExperienceConsolidationService} from './experience-consolidation-se
 
 import {EXPERIENCE_CONSOLIDATION_INTERVAL} from '../../constants.js'
 import {type ExperienceSignal, extractExperienceSignals, signalTarget} from './experience-extractor.js'
-import {ExperienceStore} from './experience-store.js'
+import {type ExperienceMeta, ExperienceStore} from './experience-store.js'
 
 /**
  * ExperienceHookService — default implementation of IExperienceHookService.
@@ -15,7 +15,7 @@ import {ExperienceStore} from './experience-store.js'
  * - Deduplicate against existing section bullets (case-insensitive)
  * - Batch-write new bullets to the experience store
  * - Increment the curation counter on every hook call (tracks consolidation cadence)
- * - Serialize concurrent hook calls via a promise-chain queue
+ * - Serialize concurrent hook calls and consolidation via a promise-chain queue
  *
  * Fail-open: all errors inside process() are swallowed so that experience
  * write failures never surface to the curation caller.
@@ -41,12 +41,27 @@ export class ExperienceHookService implements IExperienceHookService {
 
   /**
    * Enqueue processing of a completed curation response.
-   * Returns a promise that resolves when this specific call's work is done.
+   * Returns a promise that resolves when this specific call's curation work is done.
+   * Background consolidation may continue after this promise settles, but it still
+   * remains on the shared project queue so later calls do not race with it.
    * Never rejects — errors are swallowed inside process().
    */
   onCurateComplete(response: string): Promise<void> {
     const current = ExperienceHookService.queues.get(this.projectKey) ?? Promise.resolve()
-    const next = current.then(() => this.process(response)).catch(() => {})
+    let settleProcessDone!: () => void
+    const processDone = new Promise<void>((resolve) => {
+      settleProcessDone = resolve
+    })
+    const next = current.then(async () => {
+      const meta = await this.process(response)
+      settleProcessDone()
+
+      if (this.consolidationService && meta.curationCount % EXPERIENCE_CONSOLIDATION_INTERVAL === 0) {
+        await this.consolidationService.consolidate(this.store, meta.curationCount).catch(() => {})
+      }
+    }).catch(() => {
+      settleProcessDone()
+    })
     ExperienceHookService.queues.set(this.projectKey, next)
 
     // Prune the entry once the queue drains.
@@ -58,7 +73,7 @@ export class ExperienceHookService implements IExperienceHookService {
       }
     })
 
-    return next
+    return processDone
   }
 
   private groupByFile(signals: ExperienceSignal[]): Record<string, {bullets: string[]; section: string}> {
@@ -76,7 +91,7 @@ export class ExperienceHookService implements IExperienceHookService {
     return result
   }
 
-  private async process(response: string): Promise<void> {
+  private async process(response: string): Promise<ExperienceMeta> {
     // 1. Ensure store is seeded (idempotent — fast no-op after first run)
     await this.store.ensureInitialized()
 
@@ -98,12 +113,6 @@ export class ExperienceHookService implements IExperienceHookService {
     )
 
     // 4. Increment curation counter (always — tracks consolidation cadence even when no signals)
-    const meta = await this.store.incrementCurationCount()
-
-    // Phase 4: fire-and-forget consolidation every EXPERIENCE_CONSOLIDATION_INTERVAL curations
-    if (this.consolidationService && meta.curationCount % EXPERIENCE_CONSOLIDATION_INTERVAL === 0) {
-      // eslint-disable-next-line no-void
-      void this.consolidationService.consolidate(this.store, meta.curationCount).catch(() => {})
-    }
+    return this.store.incrementCurationCount()
   }
 }

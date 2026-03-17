@@ -1,7 +1,7 @@
 import {expect} from 'chai'
 import {mkdir, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
-import {join} from 'node:path'
+import {join, resolve} from 'node:path'
 import sinon from 'sinon'
 
 import type {IConsolidationLlm} from '../../../../src/server/core/interfaces/experience/i-consolidation-llm.js'
@@ -234,12 +234,14 @@ describe('ExperienceHookService', () => {
     it('prunes the queue map entry after the queue fully drains', async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const queues = (ExperienceHookService as any).queues as Map<string, Promise<void>>
-      const key = service.projectKey
+      const key = resolve(baseDir)
 
       await service.onCurateComplete('no signals')
-      // The cleanup runs as a microtask after the awaited promise resolves;
-      // one extra tick ensures it has fired.
-      await Promise.resolve()
+      // onCurateComplete() resolves when curation work completes; queue pruning happens
+      // on the subsequent turn after the internal tail promise settles.
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0)
+      })
 
       expect(queues.has(key)).to.be.false
     })
@@ -247,7 +249,7 @@ describe('ExperienceHookService', () => {
     it('does not prune the entry while a later task is still in the queue', async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const queues = (ExperienceHookService as any).queues as Map<string, Promise<void>>
-      const key = service.projectKey
+      const key = resolve(baseDir)
 
       // Enqueue two tasks; only the second (tail) should trigger pruning
       const p1 = service.onCurateComplete('no signals')
@@ -259,7 +261,9 @@ describe('ExperienceHookService', () => {
 
       // After the second resolves (and cleanup microtask runs) the entry is pruned
       await p2
-      await Promise.resolve()
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0)
+      })
       expect(queues.has(key)).to.be.false
     })
   })
@@ -349,6 +353,48 @@ describe('ExperienceHookService', () => {
 
       // process() must have resolved already even though consolidation is still in-flight
       expect(consolidationResolved).to.be.false
+    })
+
+    it('serializes later curations behind in-flight consolidation', async () => {
+      let releaseConsolidation!: () => void
+      const llm: IConsolidationLlm = {
+        generate: sinon.stub().callsFake(
+          () =>
+            new Promise<string>((resolve) => {
+              releaseConsolidation = () => resolve('["merged lesson"]')
+            }),
+        ),
+      }
+      const consolidationService = new ExperienceConsolidationService(llm)
+      const svc = new ExperienceHookService(baseDir, consolidationService)
+
+      await svc.onCurateComplete(buildResponse([{text: 'seed lesson 1', type: 'lesson'}]))
+      await svc.onCurateComplete(buildResponse([{text: 'seed lesson 2', type: 'lesson'}]))
+      await svc.onCurateComplete('no signals')
+      await svc.onCurateComplete('no signals')
+
+      await svc.onCurateComplete('no signals')
+
+      let laterResolved = false
+      const laterCuration = svc
+        .onCurateComplete(buildResponse([{text: 'post consolidation lesson', type: 'lesson'}]))
+        .then(() => {
+          laterResolved = true
+        })
+
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(laterResolved).to.be.false
+      expect((await store.readMeta()).curationCount).to.equal(EXPERIENCE_CONSOLIDATION_INTERVAL)
+
+      releaseConsolidation()
+      await laterCuration
+
+      const lines = await store.readSectionLines(EXPERIENCE_LESSONS_FILE, 'Facts')
+      expect(lines).to.include('merged lesson')
+      expect(lines).to.include('post consolidation lesson')
+      expect((await store.readMeta()).curationCount).to.equal(EXPERIENCE_CONSOLIDATION_INTERVAL + 1)
     })
 
     it('does not call consolidate without a consolidation service', async () => {

@@ -3,6 +3,7 @@ import {createSandbox, SinonStub} from 'sinon'
 
 import type {IFileSystem} from '../../../../src/agent/core/interfaces/i-file-system.js'
 
+import {SearchKnowledgeService} from '../../../../src/agent/infra/tools/implementations/search-knowledge-service.js'
 import {createSearchKnowledgeTool} from '../../../../src/agent/infra/tools/implementations/search-knowledge-tool.js'
 
 interface SearchKnowledgeOutput {
@@ -1089,6 +1090,122 @@ describe('Search Knowledge Tool', () => {
         expect((result as SearchKnowledgeOutput).results).to.deep.equal([])
         expect((result as SearchKnowledgeOutput).message).to.include('empty')
       }
+    })
+  })
+
+  describe('OOD Detection', () => {
+    it('should fall back to file mtime when updatedAt is invalid', async () => {
+      listDirectoryStub.resolves({count: 1, entries: [], tree: '', truncated: false})
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date('2024-01-01'),
+            path: '/test/.brv/context-tree/test/invalid-updated-at.md',
+            size: 100,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 1 file',
+        totalFound: 1,
+        truncated: false,
+      })
+      readFileStub.resolves({
+        content: [
+          '---',
+          'title: "Invalid UpdatedAt"',
+          'tags: []',
+          'keywords: []',
+          'importance: 70',
+          'recency: 1',
+          'maturity: validated',
+          'updatedAt: "not-a-real-date"',
+          '---',
+          '',
+          '# Invalid UpdatedAt',
+          '',
+          'authentication token refresh flow',
+        ].join('\n'),
+        encoding: 'utf8',
+        lines: 12,
+        size: 160,
+        totalLines: 12,
+        truncated: false,
+      })
+
+      const tool = createSearchKnowledgeTool(fileSystemMock)
+      const result = (await tool.execute({query: 'authentication'})) as SearchKnowledgeOutput
+
+      expect(result.results).to.have.length.greaterThan(0)
+      expect(Number.isFinite(result.results[0].score)).to.equal(true)
+    })
+
+    it('should use the highest BM25 candidate instead of the top compound-ranked result', () => {
+      const service = new SearchKnowledgeService(fileSystemMock)
+      const now = new Date().toISOString()
+      const documentMap = new Map<string, {
+        content: string
+        id: string
+        mtime: number
+        path: string
+        scoring: {
+          importance: number
+          maturity: 'draft'
+          recency: number
+          updatedAt: string
+        }
+        title: string
+      }>()
+
+      documentMap.set('weak-compound-top', {
+        content: '# Weak lexical match\n\nneedle',
+        id: 'weak-compound-top',
+        mtime: Date.now(),
+        path: 'test/weak-compound-top.md',
+        scoring: {importance: 100, maturity: 'draft', recency: 1, updatedAt: now},
+        title: 'Weak lexical match',
+      })
+      documentMap.set('strong-bm25', {
+        content: '# Strong lexical match\n\nneedle needle needle',
+        id: 'strong-bm25',
+        mtime: Date.now(),
+        path: 'test/strong-bm25.md',
+        scoring: {importance: 0, maturity: 'draft', recency: 0, updatedAt: now},
+        title: 'Strong lexical match',
+      })
+
+      for (let i = 0; i < 48; i++) {
+        documentMap.set(`filler-${i}`, {
+          content: `# Filler ${i}\n\nunrelated content`,
+          id: `filler-${i}`,
+          mtime: Date.now(),
+          path: `test/filler-${i}.md`,
+          scoring: {importance: 50, maturity: 'draft', recency: 1, updatedAt: now},
+          title: `Filler ${i}`,
+        })
+      }
+
+      const fakeIndex = {
+        search: sandbox.stub().returns([
+          {id: 'weak-compound-top', queryTerms: ['needle'], score: 1},
+          {id: 'strong-bm25', queryTerms: ['needle'], score: 1.6},
+        ]),
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = (service as any).runTextSearch(
+        'needle',
+        documentMap,
+        fakeIndex,
+        10,
+        undefined,
+        {root: [], symbolMap: new Map()},
+        {backlinks: new Map(), forwardLinks: new Map()},
+      ) as SearchKnowledgeOutput
+
+      expect(result.totalFound).to.equal(2)
+      expect(result.results).to.have.length.greaterThan(0)
+      expect(result.message).to.not.include('No matching knowledge found for this query')
     })
   })
 })

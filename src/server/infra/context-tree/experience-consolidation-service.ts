@@ -8,7 +8,7 @@ import {
   EXPERIENCE_PLAYBOOK_FILE,
 } from '../../constants.js'
 import {parseFrontmatterScoring, updateScoringInContent} from '../../core/domain/knowledge/markdown-writer.js'
-import {determineTier, recordCurateUpdate} from '../../core/domain/knowledge/memory-scoring.js'
+import {recordConsolidation} from '../../core/domain/knowledge/memory-scoring.js'
 import {EXPERIENCE_SECTIONS, type ExperienceStore} from './experience-store.js'
 
 // ---------------------------------------------------------------------------
@@ -117,7 +117,7 @@ export class ExperienceConsolidationService {
     ]
 
     // Playbook consolidates less frequently — every INTERVAL * 3 curations
-    if (curationCount % (EXPERIENCE_CONSOLIDATION_INTERVAL * 3) === 0) {
+    if (curationCount > 0 && curationCount % (EXPERIENCE_CONSOLIDATION_INTERVAL * 3) === 0) {
       targets.push({filename: EXPERIENCE_PLAYBOOK_FILE, section: EXPERIENCE_SECTIONS[EXPERIENCE_PLAYBOOK_FILE]})
     }
 
@@ -151,12 +151,7 @@ export class ExperienceConsolidationService {
     // Missing frontmatter means corrupted file — skip rather than overwrite
     if (!scoring) return
 
-    const updated = recordCurateUpdate(scoring)
-    const tier = determineTier(
-      updated.importance ?? 50,
-      (updated.maturity ?? 'draft') as 'core' | 'draft' | 'validated',
-    )
-    const finalScoring = {...updated, maturity: tier}
+    const finalScoring = recordConsolidation(scoring)
 
     const withUpdatedFrontmatter = updateScoringInContent(content, finalScoring)
     const withConsolidatedSection = replaceSectionContent(withUpdatedFrontmatter, section, consolidated)

@@ -6,6 +6,7 @@ import {
   determineTier,
   recordAccessHit,
   recordAccessHits,
+  recordConsolidation,
   recordCurateUpdate,
   W_IMPORTANCE,
   W_RECENCY,
@@ -167,6 +168,25 @@ describe('memory-scoring', () => {
     it('adds UPDATE_IMPORTANCE_BONUS to importance', () => {
       const result = recordCurateUpdate({importance: 60, updateCount: 0})
       expect(result.importance).to.be.greaterThan(60)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // recordConsolidation
+  // -------------------------------------------------------------------------
+
+  describe('recordConsolidation()', () => {
+    it('preserves importance, recency, and updateCount', () => {
+      const result = recordConsolidation({importance: 70, recency: 0.4, updateCount: 3})
+      expect(result.importance).to.equal(70)
+      expect(result.recency).to.equal(0.4)
+      expect(result.updateCount).to.equal(3)
+    })
+
+    it('updates updatedAt', () => {
+      const before = Date.now()
+      const result = recordConsolidation({updatedAt: '2024-01-01T00:00:00.000Z'})
+      expect(new Date(result.updatedAt!).getTime()).to.be.greaterThanOrEqual(before)
     })
   })
 })

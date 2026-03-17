@@ -5,7 +5,7 @@
  * - Compound scoring (BM25 relevance + importance + recency)
  * - Exponential decay of importance and recency over time
  * - Maturity tier determination with hysteresis (draft -> validated -> core)
- * - Feedback recording (search access hits, curate updates)
+ * - Feedback recording (search access hits, curate updates, consolidation writes)
  *
  * All functions are stateless and side-effect free.
  */
@@ -205,6 +205,23 @@ export function recordCurateUpdate(scoring: FrontmatterScoring): FrontmatterScor
     recency: 1,
     updateCount: newUpdateCount,
     updatedAt: now,
+  }
+}
+
+/**
+ * Record a background consolidation write on a knowledge file.
+ *
+ * Consolidation is not a user curation event, so it must not change
+ * importance, updateCount, recency, or maturity. It only refreshes the
+ * persisted timestamp to reflect that the file body was rewritten.
+ *
+ * @param scoring - Current scoring state
+ * @returns Updated scoring (original not mutated)
+ */
+export function recordConsolidation(scoring: FrontmatterScoring): FrontmatterScoring {
+  return {
+    ...scoring,
+    updatedAt: new Date().toISOString(),
   }
 }
 

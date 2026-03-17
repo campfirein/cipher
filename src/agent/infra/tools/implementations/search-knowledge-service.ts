@@ -861,7 +861,8 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       const scoring = doc?.scoring ?? applyDefaultScoring()
       // Prefer frontmatter updatedAt over file mtime: access-hit writes update mtime but
       // do NOT update updatedAt, so recency decays correctly for frequently-accessed files.
-      const updatedAtMs = scoring.updatedAt ? new Date(scoring.updatedAt).getTime() : (doc?.mtime ?? now)
+      const parsedUpdatedAtMs = scoring.updatedAt ? new Date(scoring.updatedAt).getTime() : Number.NaN
+      const updatedAtMs = Number.isFinite(parsedUpdatedAtMs) ? parsedUpdatedAtMs : (doc?.mtime ?? now)
       const daysSince = Math.max(0, (now - updatedAtMs) / 86_400_000)
       const decayed = applyDecay(scoring, daysSince)
       const bm25 = normalizeScore(r.score)
@@ -872,16 +873,21 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
         score: compoundScore(bm25, decayed.importance ?? 50, decayed.recency ?? 1, decayed.maturity ?? 'draft'),
       }
     })
+    let topBm25 = 0
+    for (const result of searchResults) {
+      if (result.bm25 > topBm25) topBm25 = result.bm25
+    }
+
     searchResults.sort((a, b) => b.score - a.score)
 
     const results: SearchKnowledgeResult['results'] = []
 
     if (searchResults.length > 0) {
-      // OOD detection: if the best result's raw BM25 score is below the minimum floor,
-      // the query has no meaningful lexical match in the knowledge base.
+      // OOD detection: if the best lexical candidate's raw BM25 score is below
+      // the minimum floor, the query has no meaningful lexical match in the knowledge base.
       // Uses bm25 (not compound score) so importance/recency bonuses don't mask irrelevance.
       // Only apply for corpora with enough documents for reliable BM25 scoring.
-      if (documentMap.size >= 50 && searchResults[0].bm25 < MINIMUM_RELEVANCE_SCORE) {
+      if (documentMap.size >= 50 && topBm25 < MINIMUM_RELEVANCE_SCORE) {
         return {
           message: 'No matching knowledge found for this query. The topic may not be covered in the context tree.',
           results: [],
@@ -896,7 +902,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       if (
         andSearchFailed &&
         documentMap.size >= 50 &&
-        searchResults[0].bm25 < UNMATCHED_TERM_SCORE_THRESHOLD &&
+        topBm25 < UNMATCHED_TERM_SCORE_THRESHOLD &&
         hasUnmatchedSignificantTerms(filteredWords, searchResults)
       ) {
         return {

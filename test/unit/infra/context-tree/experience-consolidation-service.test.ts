@@ -18,7 +18,11 @@ import {EXPERIENCE_SECTIONS, type ExperienceStore} from '../../../../src/server/
 // ---------------------------------------------------------------------------
 
 /** Build minimal valid frontmatter content for a given section. */
-function buildContent(section: string, bullets: string[] = []): string {
+function buildContent(
+  section: string,
+  bullets: string[] = [],
+  scoring: {importance?: number; recency?: number; updateCount?: number} = {},
+): string {
   const now = new Date().toISOString()
   const bulletBlock = bullets.map((b) => `- ${b}`).join('\n')
   return [
@@ -26,11 +30,11 @@ function buildContent(section: string, bullets: string[] = []): string {
     'title: "Experience: Test"',
     'tags: []',
     'keywords: []',
-    'importance: 70',
-    'recency: 1',
+    `importance: ${scoring.importance ?? 70}`,
+    `recency: ${scoring.recency ?? 1}`,
     'maturity: validated',
     'accessCount: 0',
-    'updateCount: 0',
+    `updateCount: ${scoring.updateCount ?? 0}`,
     `createdAt: "${now}"`,
     `updatedAt: "${now}"`,
     '---',
@@ -169,7 +173,7 @@ describe('ExperienceConsolidationService', () => {
       expect(writtenContent).to.not.include('- lesson A')
     })
 
-    it('updates frontmatter importance and updatedAt in the written content', async () => {
+    it('preserves importance, recency, and updateCount while updating updatedAt', async () => {
       const llm = makeLlm('["refined"]')
       const store = makeStore()
       const section = EXPERIENCE_SECTIONS[EXPERIENCE_LESSONS_FILE]
@@ -177,15 +181,16 @@ describe('ExperienceConsolidationService', () => {
       ;(store.readSectionLines as SinonStub).callsFake((filename: string) =>
         Promise.resolve(filename === EXPERIENCE_LESSONS_FILE ? bullets : []),
       )
-      ;(store.readFile as SinonStub).resolves(buildContent(section, bullets))
+      ;(store.readFile as SinonStub).resolves(buildContent(section, bullets, {importance: 70, recency: 0.4, updateCount: 3}))
       const service = new ExperienceConsolidationService(llm)
 
       const before = Date.now()
       await service.consolidate(store, EXPERIENCE_CONSOLIDATION_INTERVAL)
 
       const writtenContent = (store.writeFile as SinonStub).firstCall.args[1] as string
-      // recordCurateUpdate adds UPDATE_IMPORTANCE_BONUS (+5) to the initial 70
-      expect(writtenContent).to.match(/importance:\s*75/)
+      expect(writtenContent).to.match(/importance:\s*70/)
+      expect(writtenContent).to.match(/recency:\s*0\.4/)
+      expect(writtenContent).to.match(/updateCount:\s*3/)
       // updatedAt must be present (yaml may use single or double quotes)
       const updatedAtMatch = /updatedAt:\s*['"]([^'"]+)['"]/.exec(writtenContent)
       expect(updatedAtMatch).to.not.be.null
@@ -246,6 +251,24 @@ describe('ExperienceConsolidationService', () => {
       await service.consolidate(store, EXPERIENCE_CONSOLIDATION_INTERVAL)
 
       const writtenFiles = (store.writeFile as SinonStub).args.map((args: unknown[]) => args[0] as string)
+      expect(writtenFiles).to.not.include(EXPERIENCE_PLAYBOOK_FILE)
+    })
+
+    it('does NOT consolidate playbook when curationCount is 0', async () => {
+      const llm = makeLlm('["refined"]')
+      const store = makeStore()
+      ;(store.readSectionLines as SinonStub).resolves(['bullet 1', 'bullet 2'])
+      ;(store.readFile as SinonStub).callsFake((filename: string) =>
+        Promise.resolve(buildContent(EXPERIENCE_SECTIONS[filename] ?? 'Facts', ['bullet 1', 'bullet 2'])),
+      )
+      const service = new ExperienceConsolidationService(llm)
+
+      await service.consolidate(store, 0)
+
+      const writtenFiles = (store.writeFile as SinonStub).args.map((args: unknown[]) => args[0] as string)
+      expect(writtenFiles).to.include(EXPERIENCE_LESSONS_FILE)
+      expect(writtenFiles).to.include(EXPERIENCE_HINTS_FILE)
+      expect(writtenFiles).to.include(EXPERIENCE_DEAD_ENDS_FILE)
       expect(writtenFiles).to.not.include(EXPERIENCE_PLAYBOOK_FILE)
     })
 
