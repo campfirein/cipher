@@ -45,6 +45,7 @@ export default class ProviderConnect extends Command {
       description:
         'Authorization code for code-paste OAuth providers (e.g., Anthropic). ' +
         'Not applicable to browser-callback providers like OpenAI — use --oauth without --code instead.',
+      hidden: true,
     }),
     format: Flags.string({
       default: 'text',
