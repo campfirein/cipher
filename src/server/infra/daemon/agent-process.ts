@@ -42,6 +42,7 @@ import {
   TransportStateEventNames,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
+import {ExperienceHookService} from '../context-tree/experience-hook-service.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
@@ -341,7 +342,8 @@ async function start(): Promise<void> {
   const searchService = createSearchKnowledgeService(fileSystemService, {baseDirectory: projectPath})
 
   // 7. Create executors and listen for task:execute from pool
-  const curateExecutor = new CurateExecutor()
+  const experienceHookService = new ExperienceHookService(projectPath)
+  const curateExecutor = new CurateExecutor(undefined, experienceHookService)
   const folderPackService = new FolderPackService(fileSystemService)
   await folderPackService.initialize()
   const folderPackExecutor = new FolderPackExecutor(folderPackService)
