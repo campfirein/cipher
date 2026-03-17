@@ -29,12 +29,12 @@ export default class Status extends Command {
 
   public async run(): Promise<void> {
     const {flags} = await this.parse(Status)
-    const format = flags.format as 'json' | 'text'
+    const isJson = flags.format === 'json'
 
     try {
       const status = await this.fetchStatus()
 
-      if (format === 'json') {
+      if (isJson) {
         writeJsonResponse({
           command: 'status',
           data: {...status, cliVersion: this.config.version},
@@ -44,7 +44,7 @@ export default class Status extends Command {
         this.formatTextOutput(status)
       }
     } catch (error) {
-      if (format === 'json') {
+      if (isJson) {
         writeJsonResponse({
           command: 'status',
           data: {error: formatConnectionError(error)},
