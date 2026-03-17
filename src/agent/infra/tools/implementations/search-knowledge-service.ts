@@ -9,7 +9,7 @@ import {BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR, SUMMARY_INDEX_FILE} f
 import {
   type FrontmatterScoring,
   parseFrontmatterScoring,
-  updateScoringInContent,
+  upsertScoringInContent,
 } from '../../../../server/core/domain/knowledge/markdown-writer.js'
 import {
   applyDecay,
@@ -465,7 +465,6 @@ async function acquireIndex(
   fileSystem: IFileSystem,
   contextTreePath: string,
   ttlMs: number,
-  onBeforeBuild?: (contextTreePath: string) => Promise<void>,
 ): Promise<CachedIndex | {error: true; result: SearchKnowledgeResult}> {
   const now = Date.now()
 
@@ -532,11 +531,6 @@ async function acquireIndex(
       return updatedCache
     }
 
-    // Flush pending access hits before building so updated scoring is picked up
-    if (onBeforeBuild) {
-      await onBeforeBuild(contextTreePath)
-    }
-
     // Build fresh index
     const freshIndex = await buildFreshIndex(fileSystem, contextTreePath, currentFiles)
     state.cachedIndex = freshIndex
@@ -576,6 +570,8 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
   private readonly baseDirectory: string
   private readonly cacheTtlMs: number
   private readonly fileSystem: IFileSystem
+  /** In-flight flush promise shared across concurrent callers so they all receive the same scoring map. */
+  private flushingPromise: Promise<Map<string, FrontmatterScoring>> | undefined
   private readonly pendingAccessHits: Map<string, number> = new Map()
   private readonly state: IndexState = {
     buildingPromise: undefined,
@@ -590,17 +586,33 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
   /**
    * Flush accumulated access hits to disk by updating frontmatter scoring.
-   * Called during index rebuild to batch writes and avoid write amplification.
-   * Best-effort: errors are swallowed per file.
+   * Called at the start of every search() so hits persist even during stable-cache
+   * steady state (not only when the index is rebuilt).
+   *
+   * If another flush is already in progress, returns the same in-flight Promise so
+   * concurrent callers wait on the same I/O batch and all receive identical scoring
+   * data to apply as an in-memory patch.  This prevents one concurrent search from
+   * running ranking against pre-flush scoring while another has already flushed.
+   *
+   * Returns the updated FrontmatterScoring per relative path for every file that was
+   * successfully flushed, so callers can patch the in-memory index without a rebuild.
+   * Best-effort: per-file errors are swallowed.
    */
-  async flushAccessHits(contextTreePath: string): Promise<void> {
+  async flushAccessHits(contextTreePath: string): Promise<Map<string, FrontmatterScoring>> {
+    // If a flush is already in flight, join it — this call's hits will be included in
+    // the next flush cycle once pendingAccessHits grows again.
+    if (this.flushingPromise) {
+      return this.flushingPromise
+    }
+
     if (this.pendingAccessHits.size === 0) {
-      return
+      return new Map()
     }
 
     const hits = new Map(this.pendingAccessHits)
     this.pendingAccessHits.clear()
 
+    const flushed = new Map<string, FrontmatterScoring>()
     const tasks = [...hits.entries()].map(async ([relPath, count]) => {
       try {
         const fullPath = join(contextTreePath, relPath)
@@ -612,13 +624,21 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
           (updated.maturity ?? 'draft') as 'core' | 'draft' | 'validated',
         )
         const finalScoring: FrontmatterScoring = {...updated, maturity: newTier}
-        const newContent = updateScoringInContent(content, finalScoring)
+        const newContent = upsertScoringInContent(content, finalScoring)
         await this.fileSystem.writeFile(fullPath, newContent)
+        flushed.set(relPath, finalScoring)
       } catch {
         // Best-effort — swallow per-file errors
       }
     })
-    await Promise.allSettled(tasks)
+
+    // Store the promise SYNCHRONOUSLY before any await so concurrent calls can join it.
+    this.flushingPromise = Promise.allSettled(tasks).then(() => flushed)
+    try {
+      return await this.flushingPromise
+    } finally {
+      this.flushingPromise = undefined
+    }
   }
 
   /**
@@ -633,10 +653,40 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     const limit = options?.limit ?? 10
     const contextTreePath = join(this.baseDirectory, BRV_DIR, CONTEXT_TREE_DIR)
 
-    // Acquire index with parallel-safe locking; flush pending access hits before any rebuild
-    const indexResult = await acquireIndex(this.state, this.fileSystem, contextTreePath, this.cacheTtlMs, (ctxPath) =>
-      this.flushAccessHits(ctxPath),
-    )
+    // Flush accumulated access hits to disk before acquiring the index so that scoring
+    // updates persist even when the cache stays valid (no rebuild triggered).
+    const flushedScoring = await this.flushAccessHits(contextTreePath)
+
+    // Acquire index with parallel-safe locking
+    const indexResult = await acquireIndex(this.state, this.fileSystem, contextTreePath, this.cacheTtlMs)
+
+    // Patch the in-memory documentMap and symbolTree with just-flushed scoring so that
+    // the current search (and subsequent TTL-window searches) reflect up-to-date
+    // importance and maturity — without waiting for the next full index rebuild.
+    // Both surfaces must stay in sync: documentMap drives ranking, symbolTree drives
+    // overview output and minMaturity filtering.
+    // updatedAt is preserved from the existing scoring: access hits must not reset the
+    // recency clock (only curation writes update that field).
+    if (!('error' in indexResult) && flushedScoring.size > 0) {
+      for (const [relPath, scoring] of flushedScoring) {
+        const doc = indexResult.documentMap.get(relPath)
+        if (doc) {
+          doc.scoring = {
+            ...scoring,
+            updatedAt: scoring.updatedAt ?? doc.scoring?.updatedAt,
+          }
+        }
+
+        const symbol = indexResult.symbolTree.symbolMap.get(relPath)
+        if (symbol) {
+          symbol.metadata = {
+            ...symbol.metadata,
+            importance: scoring.importance ?? symbol.metadata.importance,
+            maturity: scoring.maturity ?? symbol.metadata.maturity,
+          }
+        }
+      }
+    }
 
     // Handle error case (context tree not initialized)
     if ('error' in indexResult) {
@@ -803,17 +853,22 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     }
 
     // Normalize BM25 scores to [0, 1) then blend with importance + recency via compound scoring.
-    // Decay is computed lazily from file mtime — no disk writes during search.
+    // Decay uses frontmatter updatedAt (written only on curation, not on access-hit flushes)
+    // so that access-hit file rewrites do not reset the recency clock.
     const now = Date.now()
     const searchResults = rawResults.map((r) => {
       const doc = documentMap.get(r.id)
       const scoring = doc?.scoring ?? applyDefaultScoring()
-      const daysSince = doc ? Math.max(0, (now - doc.mtime) / 86_400_000) : 0
+      // Prefer frontmatter updatedAt over file mtime: access-hit writes update mtime but
+      // do NOT update updatedAt, so recency decays correctly for frequently-accessed files.
+      const updatedAtMs = scoring.updatedAt ? new Date(scoring.updatedAt).getTime() : (doc?.mtime ?? now)
+      const daysSince = Math.max(0, (now - updatedAtMs) / 86_400_000)
       const decayed = applyDecay(scoring, daysSince)
       const bm25 = normalizeScore(r.score)
 
       return {
         ...r,
+        bm25,
         score: compoundScore(bm25, decayed.importance ?? 50, decayed.recency ?? 1, decayed.maturity ?? 'draft'),
       }
     })
@@ -822,10 +877,11 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     const results: SearchKnowledgeResult['results'] = []
 
     if (searchResults.length > 0) {
-      // OOD detection: if the best result scores below the minimum floor,
-      // the query has no meaningful match in the knowledge base.
+      // OOD detection: if the best result's raw BM25 score is below the minimum floor,
+      // the query has no meaningful lexical match in the knowledge base.
+      // Uses bm25 (not compound score) so importance/recency bonuses don't mask irrelevance.
       // Only apply for corpora with enough documents for reliable BM25 scoring.
-      if (documentMap.size >= 50 && searchResults[0].score < MINIMUM_RELEVANCE_SCORE) {
+      if (documentMap.size >= 50 && searchResults[0].bm25 < MINIMUM_RELEVANCE_SCORE) {
         return {
           message: 'No matching knowledge found for this query. The topic may not be covered in the context tree.',
           results: [],
@@ -835,11 +891,12 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
       // Term-based OOD: when AND search failed, check if significant query terms
       // are completely absent from the corpus. If unmatched terms exist and the
-      // score is below the trusted threshold, the query is about an uncovered topic.
+      // BM25 score is below the trusted threshold, the query is about an uncovered topic.
+      // Uses bm25 (not compound score) to keep thresholds independent of scoring bonuses.
       if (
         andSearchFailed &&
         documentMap.size >= 50 &&
-        searchResults[0].score < UNMATCHED_TERM_SCORE_THRESHOLD &&
+        searchResults[0].bm25 < UNMATCHED_TERM_SCORE_THRESHOLD &&
         hasUnmatchedSignificantTerms(filteredWords, searchResults)
       ) {
         return {
@@ -895,11 +952,10 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       }
     }
 
-    // Accumulate access hits for returned results (flushed during next index rebuild)
-    // Disabled for benchmark: prevents feedback loop from distorting scores across queries
-    // if (results.length > 0) {
-    //   this.accumulateAccessHits(results.map((r) => r.path))
-    // }
+    // Accumulate access hits for returned results (flushed at the start of the next search)
+    if (results.length > 0) {
+      this.accumulateAccessHits(results.map((r) => r.path))
+    }
 
     return {
       message:

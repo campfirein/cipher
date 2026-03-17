@@ -724,6 +724,33 @@ export function updateScoringInContent(content: string, scoring: FrontmatterScor
   return updatedFrontmatter + body
 }
 
+/**
+ * Upsert scoring fields into markdown content.
+ *
+ * Unlike `updateScoringInContent`, this function handles legacy files that have
+ * no frontmatter: it prepends a minimal scoring-only frontmatter block so that
+ * the accumulated scoring is actually persisted to disk rather than silently
+ * dropped.
+ */
+export function upsertScoringInContent(content: string, scoring: FrontmatterScoring): string {
+  const parsed = parseFrontmatter(content)
+  if (!parsed) {
+    // Legacy file — prepend a scoring-only frontmatter block, preserving the body
+    return generateFrontmatter('', [], [], [], scoring) + content
+  }
+
+  const { body, frontmatter } = parsed
+  const updatedFrontmatter = generateFrontmatter(
+    frontmatter.title ?? '',
+    frontmatter.related,
+    frontmatter.tags,
+    frontmatter.keywords,
+    scoring,
+  )
+
+  return updatedFrontmatter + body
+}
+
 function parseContentWithFrontmatter(content: string): {
   body: string
   keywords: string[]

@@ -32,10 +32,10 @@ export const UPDATE_IMPORTANCE_BONUS = 5
 export const W_RELEVANCE = 1
 
 /** Importance weight in compound score */
-export const W_IMPORTANCE = 0
+export const W_IMPORTANCE = 0.15
 
 /** Recency weight in compound score */
-export const W_RECENCY = 0
+export const W_RECENCY = 0.05
 
 /** Importance threshold to promote draft -> validated */
 export const PROMOTE_TO_VALIDATED = 65

@@ -203,14 +203,16 @@ describe('Search Knowledge Tool', () => {
       expect(apiResult?.excerpt.length).to.be.greaterThan(0)
     })
 
-    it('should include normalized score in [0, 1) range', async () => {
+    it('should include a positive compound score', async () => {
       const tool = createSearchKnowledgeTool(fileSystemMock)
       const result = (await tool.execute({query: 'authentication'})) as SearchKnowledgeOutput
 
+      // Compound score = W_RELEVANCE*bm25 + W_IMPORTANCE*(imp/100) + W_RECENCY*recency
+      // Max theoretical: 1.0 + 0.15 + 0.05 = 1.20
       for (const r of result.results) {
         expect(r.score).to.be.a('number')
         expect(r.score).to.be.greaterThan(0)
-        expect(r.score).to.be.lessThan(1)
+        expect(r.score).to.be.lessThan(1.25)
       }
     })
 
@@ -494,14 +496,15 @@ describe('Search Knowledge Tool', () => {
 
       // First search builds the index
       await tool.execute({query: 'test'})
-      const firstCallCount = readFileStub.callCount
+      const firstGlobCount = globFilesStub.callCount
 
-      // Second search should use cached index
+      // Second search should use cached index (flush may call readFile for scoring,
+      // but the index itself is not rebuilt — glob should not be called again)
       await tool.execute({query: 'test'})
-      const secondCallCount = readFileStub.callCount
+      const secondGlobCount = globFilesStub.callCount
 
-      // readFile should not be called again for the same files
-      expect(secondCallCount).to.equal(firstCallCount)
+      // Glob should not be called again — index was served from TTL cache
+      expect(secondGlobCount).to.equal(firstGlobCount)
     })
 
     it('should invalidate cache when file is modified', async () => {
@@ -615,6 +618,154 @@ describe('Search Knowledge Tool', () => {
 
       // listDirectory should NOT be called again
       expect(secondListDirCount).to.equal(firstListDirCount)
+    })
+
+    it('should flush access hits to disk even when index cache stays valid', async () => {
+      // Use long TTL so the index is never rebuilt — flush must still persist hits
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 60_000})
+      const writeFileStub = fileSystemMock.writeFile as SinonStub
+
+      // First search: builds index, accumulates 1 hit
+      await tool.execute({query: 'test'})
+      expect(writeFileStub.callCount).to.equal(0) // no flush yet (nothing to flush before first search)
+
+      // Second search: flush runs before acquireIndex, writes the hit to disk
+      await tool.execute({query: 'test'})
+      expect(writeFileStub.callCount).to.equal(1) // hit from first search flushed
+
+      // The written content must contain a scoring frontmatter block — even for legacy
+      // files that started with no frontmatter (the upsert path must prepend it)
+      const writtenContent: string = writeFileStub.firstCall.args[1]
+      expect(writtenContent).to.include('---', 'flushed file must have a frontmatter block')
+      expect(writtenContent).to.match(/importance:\s*\d/, 'flushed frontmatter must include importance')
+      expect(writtenContent).to.include('# Test File', 'original body must be preserved after prepended frontmatter')
+
+      // Third search: pendingAccessHits cleared after second flush; second hit now flushed
+      await tool.execute({query: 'test'})
+      expect(writeFileStub.callCount).to.equal(2)
+    })
+
+    it('should reflect flushed scoring in the same search that triggered the flush', async () => {
+      // Use long TTL so the index is never rebuilt between calls
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 60_000})
+
+      // First search: builds index with default scoring (importance=50, no frontmatter)
+      const result1 = (await tool.execute({query: 'test'})) as SearchKnowledgeOutput
+      expect(result1.results).to.have.length.greaterThan(0, 'first search must find the test file')
+
+      // readFile returns the updated content (with elevated importance) when flushing on second search
+      readFileStub.resolves({
+        content: '---\nimportance: 53\nmaturity: draft\nrecency: 1\n---\n# Test File\n\nTest content for caching.',
+        encoding: 'utf8',
+        lines: 7,
+        size: 100,
+        totalLines: 7,
+        truncated: false,
+      })
+
+      // Second search: flush patches documentMap — result score must be >= first search's score
+      // because importance grew from 50 → 53 (one access hit applied)
+      const result2 = (await tool.execute({query: 'test'})) as SearchKnowledgeOutput
+      expect(result2.results).to.have.length.greaterThan(0, 'second search must still find the test file after flush')
+      expect(result2.results[0].score).to.be.greaterThanOrEqual(result1.results[0].score)
+    })
+
+    it('should reflect flushed maturity in minMaturity filter after warm-TTL flush', async () => {
+      // Use long TTL so the index is never rebuilt
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 60_000})
+
+      // First search: file is indexed with maturity='draft' (no frontmatter → applyDefaultScoring)
+      await tool.execute({query: 'test'})
+
+      // On flush the file is read with importance=62; after +3 access bonus → 65 → promoted to 'validated'
+      readFileStub.resolves({
+        content: '---\nimportance: 62\nmaturity: draft\nrecency: 1\n---\n# Test File\n\nTest content for caching.',
+        encoding: 'utf8',
+        lines: 7,
+        size: 100,
+        totalLines: 7,
+        truncated: false,
+      })
+
+      // Second search with minMaturity='validated': flush fires first, promoting the file.
+      // The minMaturity filter reads symbolTree.symbolMap which must be patched for the file to pass.
+      // If the symbolTree patch regressed, symbol.metadata.maturity stays 'draft' and the file is
+      // excluded → results are empty → this assertion fails (not skipped).
+      const result = (await tool.execute({minMaturity: 'validated', query: 'test'})) as SearchKnowledgeOutput
+      expect(result.results).to.have.length.greaterThan(0, 'promoted file must pass the minMaturity filter')
+      const found = result.results.find((r) => r.path.includes('file'))
+      expect(found).to.exist
+    })
+
+    it('should reflect flushed importance in overview after warm-TTL flush', async () => {
+      // baseDirectory='/test' makes contextTreePath='/test/.brv/context-tree', which is the
+      // common prefix of the mock file paths.  That causes findMarkdownFilesWithMtime to strip
+      // the prefix correctly, yielding relative path 'test/file.md' (depth 2) — reachable by
+      // the default overviewDepth=2.  Without this, the absolute mock path is used as-is and
+      // the file appears at depth 5, invisible to the depth-2 overview.
+      const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 60_000})
+
+      // Search 1: build index and accumulate 1 hit
+      await tool.execute({query: 'test'})
+      // Search 2 (overview): flush search-1 hit, snapshot importance after flush (50+3=53)
+      const overview1 = (await tool.execute({overview: true, query: 'irrelevant'})) as SearchKnowledgeOutput
+
+      // Switch readFile to return content with higher importance for the next flush
+      readFileStub.resolves({
+        content: '---\nimportance: 80\nmaturity: validated\nrecency: 1\n---\n# Test File\n\nTest content for caching.',
+        encoding: 'utf8',
+        lines: 7,
+        size: 100,
+        totalLines: 7,
+        truncated: false,
+      })
+
+      // Search 3: accumulates another hit (overview searches don't accumulate hits)
+      await tool.execute({query: 'test'})
+      // Search 4 (overview): flush search-3 hit (80+3=83), symbolTree patched to importance=83
+      const overview2 = (await tool.execute({overview: true, query: 'irrelevant'})) as SearchKnowledgeOutput
+
+      // Both entries must be present — overview always shows all nodes regardless of query
+      const entry1 = overview1.results.find((r) => r.path.includes('file'))
+      const entry2 = overview2.results.find((r) => r.path.includes('file'))
+      expect(entry1).to.exist
+      expect(entry2).to.exist
+      // score = importance/100; after symbolTree patch entry2 must score higher than entry1
+      expect(entry2!.score).to.be.greaterThan(entry1!.score)
+    })
+
+    it('should handle concurrent searches racing over the same flush batch', async () => {
+      // Use long TTL so both concurrent searches take the TTL fast path after the first build
+      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 60_000})
+      const writeFileStub = fileSystemMock.writeFile as SinonStub
+
+      // Build index and accumulate 1 pending hit; capture pre-flush score as baseline
+      const result0 = (await tool.execute({query: 'test'})) as SearchKnowledgeOutput
+      expect(result0.results).to.have.length.greaterThan(0, 'first search must find the test file')
+      const preFlushScore = result0.results[0].score
+      expect(writeFileStub.callCount).to.equal(0)
+
+      // Two concurrent searches race to flush the same pending batch.
+      // Both join the shared flushingPromise, so they both receive the same flushed scoring
+      // map and apply the same post-flush patch to the cached index.
+      const [result1, result2] = (await Promise.all([
+        tool.execute({query: 'test'}),
+        tool.execute({query: 'test'}),
+      ])) as [SearchKnowledgeOutput, SearchKnowledgeOutput]
+
+      // Both must return valid results — the race must not cause errors or lost results
+      expect(result1.results).to.have.length.greaterThan(0, 'concurrent search 1 must find the test file')
+      expect(result2.results).to.have.length.greaterThan(0, 'concurrent search 2 must find the test file')
+
+      // Exactly one flush write: both concurrent searches joined the same in-flight flush
+      expect(writeFileStub.callCount).to.equal(1)
+
+      // Both searches must have observed the flushed importance boost — not the pre-flush score
+      expect(result1.results[0].score).to.be.greaterThan(preFlushScore, 'search 1 must reflect flushed importance')
+      expect(result2.results[0].score).to.be.greaterThan(preFlushScore, 'search 2 must reflect flushed importance')
+
+      // Both searches must have seen the same post-flush scoring state
+      expect(result1.results[0].score).to.equal(result2.results[0].score, 'both concurrent searches must observe identical post-flush scores')
     })
   })
 
@@ -877,8 +1028,10 @@ describe('Search Knowledge Tool', () => {
       expect((secondBatch[0] as SearchKnowledgeOutput).results).to.be.an('array')
       expect((secondBatch[1] as SearchKnowledgeOutput).results).to.be.an('array')
 
-      // Second batch should trigger exactly one more build (not two)
-      expect(readFileStub.callCount).to.equal(2)
+      // Second batch should trigger exactly one more build (not two).
+      // With accumulateAccessHits enabled, flushAccessHits also calls readFile once
+      // to write back updated scoring — so total is 3 (1 first build + 1 flush read + 1 rebuild).
+      expect(readFileStub.callCount).to.equal(3)
     })
 
     it('should not deadlock when multiple tools execute concurrently', async () => {
