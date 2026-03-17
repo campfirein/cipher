@@ -2,14 +2,19 @@ import {expect} from 'chai'
 import {mkdir, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+import sinon from 'sinon'
+
+import type {IConsolidationLlm} from '../../../../src/server/core/interfaces/experience/i-consolidation-llm.js'
 
 import {
   BRV_DIR,
   CONTEXT_TREE_DIR,
+  EXPERIENCE_CONSOLIDATION_INTERVAL,
   EXPERIENCE_DIR,
   EXPERIENCE_HINTS_FILE,
   EXPERIENCE_LESSONS_FILE,
 } from '../../../../src/server/constants.js'
+import {ExperienceConsolidationService} from '../../../../src/server/infra/context-tree/experience-consolidation-service.js'
 import {ExperienceHookService} from '../../../../src/server/infra/context-tree/experience-hook-service.js'
 import {ExperienceStore} from '../../../../src/server/infra/context-tree/experience-store.js'
 
@@ -238,5 +243,93 @@ describe('ExperienceHookService', () => {
     const expectedDir = experienceDir(baseDir)
     const {existsSync} = await import('node:fs')
     expect(existsSync(expectedDir)).to.equal(true)
+  })
+
+  // -------------------------------------------------------------------------
+  // Phase 4: consolidation trigger
+  // -------------------------------------------------------------------------
+
+  describe('onCurateComplete() — consolidation trigger', () => {
+    let consolidateSpy: sinon.SinonStub
+
+    function makeConsolidationService(): ExperienceConsolidationService {
+      const llm: IConsolidationLlm = {generate: sinon.stub().resolves('["refined"]')}
+      const svc = new ExperienceConsolidationService(llm)
+      consolidateSpy = sinon.stub(svc, 'consolidate').resolves()
+      return svc
+    }
+
+    it('does not call consolidate before the interval threshold', async () => {
+      const consolidationService = makeConsolidationService()
+      const svc = new ExperienceHookService(baseDir, consolidationService)
+
+      // Call (INTERVAL - 1) times — consolidation must not fire
+      await Promise.all(
+        Array.from({length: EXPERIENCE_CONSOLIDATION_INTERVAL - 1}, () => svc.onCurateComplete('no signals')),
+      )
+
+      expect(consolidateSpy.called).to.be.false
+    })
+
+    it('calls consolidate exactly once when curationCount hits the interval', async () => {
+      const consolidationService = makeConsolidationService()
+      const svc = new ExperienceHookService(baseDir, consolidationService)
+
+      await Promise.all(
+        Array.from({length: EXPERIENCE_CONSOLIDATION_INTERVAL}, () => svc.onCurateComplete('no signals')),
+      )
+
+      // consolidate is fire-and-forget; give microtasks a chance to settle
+      await Promise.resolve()
+      expect(consolidateSpy.callCount).to.equal(1)
+    })
+
+    it('calls consolidate again at the next interval multiple', async () => {
+      const consolidationService = makeConsolidationService()
+      const svc = new ExperienceHookService(baseDir, consolidationService)
+
+      await Promise.all(
+        Array.from({length: EXPERIENCE_CONSOLIDATION_INTERVAL * 2}, () => svc.onCurateComplete('no signals')),
+      )
+
+      await Promise.resolve()
+      expect(consolidateSpy.callCount).to.equal(2)
+    })
+
+    it('process() resolves before consolidation completes (fire-and-forget)', async () => {
+      let consolidationResolved = false
+      const llm: IConsolidationLlm = {
+        generate: sinon.stub().callsFake(async () => {
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, 20)
+          })
+          consolidationResolved = true
+          return '["done"]'
+        }),
+      }
+      const consolidationService = new ExperienceConsolidationService(llm)
+      const svc = new ExperienceHookService(baseDir, consolidationService)
+
+      // Drive curationCount to the threshold; queue serializes internally
+      await Promise.all(
+        Array.from({length: EXPERIENCE_CONSOLIDATION_INTERVAL}, () => svc.onCurateComplete('no signals')),
+      )
+
+      // process() must have resolved already even though consolidation is still in-flight
+      expect(consolidationResolved).to.be.false
+    })
+
+    it('does not call consolidate without a consolidation service', async () => {
+      // Default constructor — no consolidation service
+      const svc = new ExperienceHookService(baseDir)
+
+      await Promise.all(
+        Array.from({length: EXPERIENCE_CONSOLIDATION_INTERVAL}, () => svc.onCurateComplete('no signals')),
+      )
+
+      // No error and curation counter still incremented
+      const meta = await store.readMeta()
+      expect(meta.curationCount).to.equal(EXPERIENCE_CONSOLIDATION_INTERVAL)
+    })
   })
 })

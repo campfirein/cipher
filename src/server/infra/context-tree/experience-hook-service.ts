@@ -1,7 +1,9 @@
 import {resolve} from 'node:path'
 
 import type {IExperienceHookService} from '../../core/interfaces/experience/i-experience-hook-service.js'
+import type {ExperienceConsolidationService} from './experience-consolidation-service.js'
 
+import {EXPERIENCE_CONSOLIDATION_INTERVAL} from '../../constants.js'
 import {type ExperienceSignal, extractExperienceSignals, signalTarget} from './experience-extractor.js'
 import {ExperienceStore} from './experience-store.js'
 
@@ -27,12 +29,14 @@ export class ExperienceHookService implements IExperienceHookService {
    * ExperienceHookService instances exist for the same directory.
    */
   private static readonly queues = new Map<string, Promise<void>>()
-private readonly projectKey: string
+  private readonly consolidationService?: ExperienceConsolidationService
+  private readonly projectKey: string
   private readonly store: ExperienceStore
 
-  constructor(baseDirectory: string) {
+  constructor(baseDirectory: string, consolidationService?: ExperienceConsolidationService) {
     this.projectKey = resolve(baseDirectory)
     this.store = new ExperienceStore(baseDirectory)
+    this.consolidationService = consolidationService
   }
 
   /**
@@ -84,12 +88,12 @@ private readonly projectKey: string
     )
 
     // 4. Increment curation counter (always — tracks consolidation cadence even when no signals)
-    await this.store.incrementCurationCount()
+    const meta = await this.store.incrementCurationCount()
 
-    // Phase 4: consolidation trigger
-    // const meta = await this.store.incrementCurationCount()
-    // if (meta.curationCount % EXPERIENCE_CONSOLIDATION_INTERVAL === 0) {
-    //   await this.consolidationService.consolidate()
-    // }
+    // Phase 4: fire-and-forget consolidation every EXPERIENCE_CONSOLIDATION_INTERVAL curations
+    if (this.consolidationService && meta.curationCount % EXPERIENCE_CONSOLIDATION_INTERVAL === 0) {
+      // eslint-disable-next-line no-void
+      void this.consolidationService.consolidate(this.store, meta.curationCount).catch(() => {})
+    }
   }
 }
