@@ -2,6 +2,45 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.1.5]
+
+### Added
+
+- **`brv logout` command** — Disconnect from ByteRover cloud and clear stored credentials from the CLI. Supports `--format json` for headless/automation use cases.
+
+### Fixed
+
+- **Security dependency updates** — Patched `flatted`, `hono`, and `yauzl` to address security vulnerabilities.
+
+## [2.1.4]
+
+### Fixed
+
+- **Local Ollama and OpenAI-compatible providers work without an API key** — Providers that do not require an API key (e.g. local Ollama) no longer trigger a "provider key missing" error. Only providers that actually require a key are flagged when one is absent.
+
+## [2.1.3]
+
+### Fixed
+
+- **`brv restart` killing itself and hanging terminal** — Fixed an issue where `brv restart` could kill its own parent shell wrapper process (used by native binary installations via `install.sh`), causing garbled terminal output and hangs. The restart command now also force-exits after completion to prevent stale oclif plugin handles from blocking the process.
+
+## [2.1.2]
+
+### Changed
+
+- **Default LLM model switched to Gemini 3.1 Flash Lite** — The default model for the ByteRover provider is now `gemini-3.1-flash-lite-preview`, replacing `gemini-3-flash-preview`, for improved performance and cost efficiency.
+
+## [2.1.1]
+
+### Changed
+
+- **Skip update notifier for non-npm installations** - Update notifications are now suppressed when the CLI is not installed via `npm install -g`, preventing irrelevant update prompts for tarball and native binary users.
+- **Auto-update frequency for native installations** - Configured oclif autoupdate with 1-day debounce for more reliable update checks on non-npm installations.
+
+### Fixed
+
+- **Security dependency updates** - Patched `fast-xml-parser`, `@aws-sdk/xml-builder`, and `@hono/node-server` to address security vulnerabilities.
+
 ## [2.1.0]
 
 ### Added

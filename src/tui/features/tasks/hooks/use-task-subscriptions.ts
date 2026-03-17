@@ -102,10 +102,14 @@ export function useTaskSubscriptions(): void {
       }),
 
       client.on<ReviewNotifyEvent>(ReviewEvents.NOTIFY, (data) => {
-        store.setReviewNotification(data.taskId, {
-          pendingCount: data.pendingCount,
-          reviewUrl: data.reviewUrl,
-        })
+        if (data.pendingCount === 0) {
+          store.clearReviewNotification(data.taskId)
+        } else {
+          store.setReviewNotification(data.taskId, {
+            pendingCount: data.pendingCount,
+            reviewUrl: data.reviewUrl,
+          })
+        }
       }),
     )
 

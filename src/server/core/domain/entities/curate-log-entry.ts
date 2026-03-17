@@ -6,10 +6,14 @@ export type CurateLogOperation = {
   message?: string
   needsReview?: boolean
   path: string
+  /** Semantic summary of the file's content before this operation (for review UI). */
+  previousSummary?: string
   reason?: string
   /** Local review status. Set to 'pending' when needsReview=true; updated to 'approved'/'rejected' by the review UI. */
   reviewStatus?: 'approved' | 'pending' | 'rejected'
   status: 'failed' | 'success'
+  /** Semantic summary of the file's content after this operation (for review UI). */
+  summary?: string
   type: 'ADD' | 'DELETE' | 'MERGE' | 'UPDATE' | 'UPSERT'
 }
 

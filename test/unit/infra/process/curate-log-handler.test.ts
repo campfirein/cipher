@@ -24,18 +24,18 @@ function makeTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
 }
 
 function makeStore(sandbox: SinonSandbox): ICurateLogStore & {
+  batchUpdateOperationReviewStatus: SinonStub
   getById: SinonStub
   getNextId: SinonStub
   list: SinonStub
   save: SinonStub
-  updateOperationReviewStatus: SinonStub
 } {
   return {
+    batchUpdateOperationReviewStatus: sandbox.stub().resolves(true),
     getById: sandbox.stub().resolves(null),
     getNextId: sandbox.stub().resolves('cur-1000'),
     list: sandbox.stub().resolves([]),
     save: sandbox.stub().resolves(),
-    updateOperationReviewStatus: sandbox.stub().resolves(true),
   }
 }
 
@@ -249,6 +249,31 @@ describe('CurateLogHandler', () => {
       expect(completedEntry.operations[0].reviewStatus).to.equal('pending')
       expect(completedEntry.operations[1].reviewStatus).to.be.undefined
       expect(completedEntry.operations[2].reviewStatus).to.equal('pending')
+    })
+
+    it('should NOT set reviewStatus=pending for failed operations even with needsReview=true', async () => {
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [
+            {confidence: 'low', impact: 'high', needsReview: true, path: '/a.md', reason: 'uncertain', status: 'failed', type: 'UPDATE'},
+            {confidence: 'high', impact: 'high', needsReview: true, path: '/b.md', reason: 'irreversible', status: 'success', type: 'DELETE'},
+          ],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handler.onTaskCompleted('task-abc', 'done', makeTask())
+
+      const completedEntry: CurateLogEntry = store.save.secondCall.args[0]
+      // Failed operation should NOT have reviewStatus=pending
+      expect(completedEntry.operations[0].reviewStatus).to.be.undefined
+      expect(completedEntry.operations[0].status).to.equal('failed')
+      // Successful operation should still have reviewStatus=pending
+      expect(completedEntry.operations[1].reviewStatus).to.equal('pending')
+      expect(completedEntry.operations[1].status).to.equal('success')
     })
 
     it('should not set reviewStatus for operations without needsReview', async () => {
@@ -542,7 +567,7 @@ describe('CurateLogHandler', () => {
 
   describe('onPendingReviews callback', () => {
     it('should call onPendingReviews when curate completes with pending review ops', async () => {
-      const notifications: Array<{pendingCount: number; projectPath: string; taskId: string}> = []
+      const notifications: Array<{clientId: string; pendingCount: number; projectPath: string; taskId: string}> = []
       const handlerWithCallback = new CurateLogHandler(
         () => store,
         (info) => notifications.push(info),
@@ -571,13 +596,14 @@ describe('CurateLogHandler', () => {
       await handlerWithCallback.onTaskCompleted('task-abc', 'done', makeTask())
 
       expect(notifications).to.have.lengthOf(1)
+      expect(notifications[0].clientId).to.equal('client-1')
       expect(notifications[0].pendingCount).to.equal(1)
       expect(notifications[0].projectPath).to.equal('/app')
       expect(notifications[0].taskId).to.equal('task-abc')
     })
 
     it('should NOT call onPendingReviews when no pending review ops exist', async () => {
-      const notifications: Array<{pendingCount: number; projectPath: string; taskId: string}> = []
+      const notifications: Array<{clientId: string; pendingCount: number; projectPath: string; taskId: string}> = []
       const handlerWithCallback = new CurateLogHandler(
         () => store,
         (info) => notifications.push(info),

@@ -18,9 +18,11 @@ const CurateLogOperationFileSchema = z.object({
   message: z.string().optional(),
   needsReview: z.boolean().optional(),
   path: z.string(),
+  previousSummary: z.string().optional(),
   reason: z.string().optional(),
   reviewStatus: z.enum(['approved', 'pending', 'rejected']).optional(),
   status: z.enum(['failed', 'success']),
+  summary: z.string().optional(),
   type: z.enum(['ADD', 'DELETE', 'MERGE', 'UPDATE', 'UPSERT']),
 })
 
@@ -92,6 +94,22 @@ export class FileCurateLogStore implements ICurateLogStore {
   constructor(opts: FileCurateLogStoreOptions) {
     this.logDir = join(opts.baseDir, CURATE_LOG_DIR)
     this.maxEntries = opts.maxEntries ?? DEFAULT_MAX_ENTRIES
+  }
+
+  async batchUpdateOperationReviewStatus(
+    logId: string,
+    updates: Array<{operationIndex: number; reviewStatus: 'approved' | 'rejected'}>,
+  ): Promise<boolean> {
+    const entry = await this.getById(logId)
+    if (!entry) return false
+
+    for (const {operationIndex, reviewStatus} of updates) {
+      if (operationIndex < 0 || operationIndex >= entry.operations.length) continue
+      entry.operations[operationIndex].reviewStatus = reviewStatus
+    }
+
+    await this.save(entry)
+    return true
   }
 
   /**

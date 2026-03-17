@@ -3,6 +3,11 @@ import type {CurateLogEntry} from '../../domain/entities/curate-log-entry.js'
 export type CurateLogStatus = 'cancelled' | 'completed' | 'error' | 'processing'
 
 export interface ICurateLogStore {
+  /** Batch-update reviewStatus for multiple operations within a single log entry. Reads once, writes once. */
+  batchUpdateOperationReviewStatus(
+    logId: string,
+    updates: Array<{operationIndex: number; reviewStatus: 'approved' | 'rejected'}>,
+  ): Promise<boolean>
   /** Retrieve an entry by ID. Returns null if not found or if the file is corrupt. */
   getById(id: string): Promise<CurateLogEntry | null>
   /** Generate the next monotonic log entry ID. */
@@ -19,10 +24,4 @@ export interface ICurateLogStore {
   }): Promise<CurateLogEntry[]>
   /** Persist (create or overwrite) a log entry. Best-effort — callers should handle errors. */
   save(entry: CurateLogEntry): Promise<void>
-  /** Update the reviewStatus of a specific operation within a log entry. Returns false if entry/index not found. */
-  updateOperationReviewStatus(
-    logId: string,
-    operationIndex: number,
-    reviewStatus: 'approved' | 'rejected',
-  ): Promise<boolean>
 }

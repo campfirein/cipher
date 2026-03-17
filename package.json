@@ -1,7 +1,7 @@
 {
   "name": "byterover-cli",
   "description": "ByteRover's CLI",
-  "version": "2.1.0",
+  "version": "2.1.5",
   "author": "ByteRover",
   "bin": {
     "brv": "./bin/run.js"
@@ -153,6 +153,9 @@
     "update": {
       "s3": {
         "host": "https://storage.googleapis.com/brv-releases"
+      },
+      "autoupdate": {
+        "debounce": 1
       },
       "node": {
         "version": "24.13.1"

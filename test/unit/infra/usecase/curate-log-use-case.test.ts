@@ -42,18 +42,18 @@ function makeCompletedEntry(overrides: Partial<CurateLogEntry> = {}): CurateLogE
 }
 
 function makeStore(sandbox: SinonSandbox): ICurateLogStore & {
+  batchUpdateOperationReviewStatus: SinonStub
   getById: SinonStub
   getNextId: SinonStub
   list: SinonStub
   save: SinonStub
-  updateOperationReviewStatus: SinonStub
 } {
   return {
+    batchUpdateOperationReviewStatus: sandbox.stub().resolves(true),
     getById: sandbox.stub().resolves(null),
     getNextId: sandbox.stub().resolves('cur-9999'),
     list: sandbox.stub().resolves([]),
     save: sandbox.stub().resolves(),
-    updateOperationReviewStatus: sandbox.stub().resolves(true),
   }
 }
 

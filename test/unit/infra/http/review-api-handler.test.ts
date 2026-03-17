@@ -32,6 +32,17 @@ function makeEntry(overrides: Partial<CurateLogEntry> = {}): CurateLogEntry {
 function makeStore(entries: CurateLogEntry[] = []): ICurateLogStore {
   const data = new Map(entries.map((e) => [e.id, structuredClone(e)]))
   return {
+    async batchUpdateOperationReviewStatus(logId, updates) {
+      const entry = data.get(logId)
+      if (!entry) return false
+      for (const {operationIndex, reviewStatus} of updates) {
+        if (operationIndex >= 0 && operationIndex < entry.operations.length) {
+          entry.operations[operationIndex].reviewStatus = reviewStatus
+        }
+      }
+
+      return true
+    },
     async getById(id) {
       return data.get(id) ?? null
     },
@@ -43,13 +54,6 @@ function makeStore(entries: CurateLogEntry[] = []): ICurateLogStore {
     },
     async save(entry) {
       data.set(entry.id, structuredClone(entry))
-    },
-    async updateOperationReviewStatus(logId, operationIndex, reviewStatus) {
-      const entry = data.get(logId)
-      if (!entry) return false
-      if (operationIndex < 0 || operationIndex >= entry.operations.length) return false
-      entry.operations[operationIndex].reviewStatus = reviewStatus
-      return true
     },
   }
 }

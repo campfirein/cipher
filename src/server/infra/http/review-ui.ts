@@ -2,7 +2,7 @@
  * Returns the complete HTML page for the local HITL review UI.
  *
  * Self-contained: all CSS and JS are inline. No external dependencies.
- * Includes a simple line-level diff algorithm for rendering changes.
+ * Shows semantic summaries of previous/current versions for each operation.
  */
 export function getReviewPageHtml(): string {
   return `<!DOCTYPE html>
@@ -89,11 +89,8 @@ export function getReviewPageHtml(): string {
     justify-content: space-between;
     padding: 12px 16px;
     border-bottom: 1px solid var(--border);
-    cursor: pointer;
     user-select: none;
   }
-
-  .file-header:hover { background: var(--bg-tertiary); }
 
   .file-path {
     font-family: var(--font-mono);
@@ -161,6 +158,79 @@ export function getReviewPageHtml(): string {
     color: var(--text);
   }
 
+  .summary-content {
+    padding: 12px 16px;
+  }
+
+  .summary-block {
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .summary-block:last-child {
+    margin-bottom: 0;
+  }
+
+  .summary-block.previous {
+    background: var(--red-bg);
+    border-left: 3px solid var(--red);
+  }
+
+  .summary-block.current {
+    background: var(--green-bg);
+    border-left: 3px solid var(--green);
+  }
+
+  .summary-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+
+  .summary-block.previous .summary-label { color: var(--red); }
+  .summary-block.current .summary-label { color: var(--green); }
+
+  .summary-text {
+    color: var(--text);
+  }
+
+  .no-summary {
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 13px;
+    padding: 8px 12px;
+  }
+
+  .decided {
+    padding: 16px;
+    text-align: center;
+    font-weight: 500;
+  }
+
+  .decided.approved { color: var(--green); }
+  .decided.rejected { color: var(--red); }
+
+  .summary-bar {
+    display: flex;
+    gap: 16px;
+    padding: 12px 0;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  .bulk-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  /* ── Diff styles (retained for future use) ─────────────────────────── */
+
   .diff-container {
     overflow-x: auto;
   }
@@ -211,29 +281,6 @@ export function getReviewPageHtml(): string {
 
   table.diff tr.added .marker { color: var(--green); }
   table.diff tr.removed .marker { color: var(--red); }
-
-  .decided {
-    padding: 16px;
-    text-align: center;
-    font-weight: 500;
-  }
-
-  .decided.approved { color: var(--green); }
-  .decided.rejected { color: var(--red); }
-
-  .summary-bar {
-    display: flex;
-    gap: 16px;
-    padding: 12px 0;
-    color: var(--text-muted);
-    font-size: 13px;
-  }
-
-  .bulk-actions {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 16px;
-  }
 </style>
 </head>
 <body>
@@ -260,7 +307,7 @@ const params = new URLSearchParams(window.location.search);
 const project = params.get('project') || '';
 let fileData = [];
 
-// ── Diff algorithm (simple LCS-based line diff) ────────────────────────────
+// ── Diff algorithm (retained for future use — currently un-wired) ───────
 
 function computeLineDiff(oldText, newText) {
   const oldLines = oldText.split('\\n');
@@ -320,6 +367,8 @@ function renderDiff(diffLines) {
   return html;
 }
 
+// ── Utilities ───────────────────────────────────────────────────────────
+
 function escapeHtml(text) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -348,7 +397,58 @@ async function submitDecision(path, decision) {
   return res.json();
 }
 
-// ── Rendering ──────────────────────────────────────────────────────────────
+// ── Summary rendering ──────────────────────────────────────────────────
+
+function renderSummaryContent(file) {
+  // Use file-level summaries (read from actual files at serve time, always up-to-date)
+  const lastOp = file.operations[file.operations.length - 1];
+  const opType = lastOp.type;
+  const previousSummary = file.previousSummary;
+  const summary = file.currentSummary;
+
+  // No summaries available at all
+  if (!previousSummary && !summary) {
+    return '<div class="no-summary">No summary available for this change.</div>';
+  }
+
+  let html = '';
+
+  if (opType === 'DELETE') {
+    // DELETE: show only what was removed
+    if (previousSummary) {
+      html += '<div class="summary-block previous">'
+        + '<div class="summary-label">Removed</div>'
+        + '<div class="summary-text">' + escapeHtml(previousSummary) + '</div>'
+        + '</div>';
+    }
+  } else if (opType === 'ADD') {
+    // ADD: show only the new content
+    if (summary) {
+      html += '<div class="summary-block current">'
+        + '<div class="summary-label">New</div>'
+        + '<div class="summary-text">' + escapeHtml(summary) + '</div>'
+        + '</div>';
+    }
+  } else {
+    // UPDATE, UPSERT, MERGE: show both versions
+    if (previousSummary) {
+      html += '<div class="summary-block previous">'
+        + '<div class="summary-label">Previous</div>'
+        + '<div class="summary-text">' + escapeHtml(previousSummary) + '</div>'
+        + '</div>';
+    }
+    if (summary) {
+      html += '<div class="summary-block current">'
+        + '<div class="summary-label">Current</div>'
+        + '<div class="summary-text">' + escapeHtml(summary) + '</div>'
+        + '</div>';
+    }
+  }
+
+  return html || '<div class="no-summary">No summary available for this change.</div>';
+}
+
+// ── Rendering ──────────────────────────────────────────────────────────
 
 function renderFileCard(file, index) {
   const opBadges = file.operations.map(op =>
@@ -362,8 +462,10 @@ function renderFileCard(file, index) {
     ? '<span class="reason-text">' + escapeHtml(reasons[0]) + '</span>'
     : '';
 
+  const summaryHtml = renderSummaryContent(file);
+
   return '<div class="file-card" id="file-' + index + '">'
-    + '<div class="file-header" onclick="toggleDiff(' + index + ')">'
+    + '<div class="file-header">'
     + '  <div><span class="file-path">' + escapeHtml(file.path) + '</span>' + reasonHtml + '</div>'
     + '  <div class="file-meta">'
     + '    ' + opBadges
@@ -373,32 +475,8 @@ function renderFileCard(file, index) {
     + '    </div>'
     + '  </div>'
     + '</div>'
-    + '<div class="diff-container" id="diff-' + index + '" style="display:none">'
-    + '  <div class="diff-loading">Click to load diff...</div>'
-    + '</div>'
+    + '<div class="summary-content">' + summaryHtml + '</div>'
     + '</div>';
-}
-
-async function toggleDiff(index) {
-  const container = document.getElementById('diff-' + index);
-  if (!container) return;
-
-  if (container.style.display === 'none') {
-    container.style.display = 'block';
-    if (container.dataset.loaded !== 'true') {
-      container.innerHTML = '<div class="diff-loading">Loading diff...</div>';
-      try {
-        const data = await fetchDiff(fileData[index].path);
-        const diffLines = computeLineDiff(data.oldContent, data.newContent);
-        container.innerHTML = renderDiff(diffLines);
-        container.dataset.loaded = 'true';
-      } catch (e) {
-        container.innerHTML = '<div class="error">Failed to load diff: ' + escapeHtml(e.message) + '</div>';
-      }
-    }
-  } else {
-    container.style.display = 'none';
-  }
 }
 
 async function decide(event, index, decision) {
@@ -413,15 +491,14 @@ async function decide(event, index, decision) {
   try {
     await submitDecision(file.path, decision);
     // Replace card content with decided state
-    const diffContainer = document.getElementById('diff-' + index);
-    if (diffContainer) diffContainer.style.display = 'none';
+    const summaryContent = card.querySelector('.summary-content');
+    if (summaryContent) summaryContent.style.display = 'none';
     const header = card.querySelector('.file-header');
     const label = decision === 'approved' ? 'Approved' : 'Rejected';
     const cls = decision === 'approved' ? 'approved' : 'rejected';
     header.innerHTML = '<div><span class="file-path">' + escapeHtml(file.path) + '</span></div>'
       + '<div class="decided ' + cls + '">' + label + '</div>';
     header.style.cursor = 'default';
-    header.onclick = null;
 
     // Update count
     updatePendingCount();
@@ -453,10 +530,42 @@ function updatePendingCount() {
   document.getElementById('pending-count').textContent = remaining + ' pending';
 
   if (remaining === 0) {
+    clearInterval(poller);
     document.getElementById('bulk-actions').style.display = 'none';
     document.getElementById('summary-bar').textContent = 'All reviews completed.';
   }
 }
+
+// Poll every 5 s so the page reflects external decisions (e.g., brv review approve via CLI).
+// When the server reports 0 pending items, mark any locally-undecided cards as resolved.
+let poller = setInterval(async () => {
+  if (!project || fileData.length === 0) return;
+  try {
+    const data = await fetchPending();
+    const serverPaths = new Set((data.files || []).map(f => f.path));
+    let anyUpdated = false;
+
+    for (let i = 0; i < fileData.length; i++) {
+      const card = document.getElementById('file-' + i);
+      if (!card || card.querySelector('.decided')) continue;
+      if (!serverPaths.has(fileData[i].path)) {
+        // Item was resolved externally
+        const header = card.querySelector('.file-header');
+        if (header) {
+          header.innerHTML = '<div><span class="file-path">' + escapeHtml(fileData[i].path) + '</span></div>'
+            + '<div class="decided approved">Resolved</div>';
+        }
+        const summaryContent = card.querySelector('.summary-content');
+        if (summaryContent) summaryContent.style.display = 'none';
+        anyUpdated = true;
+      }
+    }
+
+    if (anyUpdated) updatePendingCount();
+  } catch {
+    // Ignore transient poll errors
+  }
+}, 5000);
 
 // ── Init ───────────────────────────────────────────────────────────────────
 

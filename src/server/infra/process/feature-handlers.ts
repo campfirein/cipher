@@ -14,6 +14,7 @@ import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-sto
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 import type {ProjectBroadcaster, ProjectPathResolver} from '../transport/handlers/handler-types.js'
 
+import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
 import {getAuthConfig} from '../../config/auth.config.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {BRV_DIR} from '../../constants.js'
@@ -54,6 +55,7 @@ import {
   PullHandler,
   PushHandler,
   ResetHandler,
+  ReviewHandler,
   SpaceHandler,
   StatusHandler,
 } from '../transport/handlers/index.js'
@@ -175,6 +177,16 @@ export async function setupFeatureHandlers({
   new ResetHandler({
     contextTreeService,
     contextTreeSnapshotService,
+    resolveProjectPath,
+    reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
+    transport,
+  }).setup()
+
+  new ReviewHandler({
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
+    onResolved({projectPath, taskId}) {
+      broadcastToProject(projectPath, ReviewEvents.NOTIFY, {pendingCount: 0, reviewUrl: '', taskId})
+    },
     resolveProjectPath,
     reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
     transport,
