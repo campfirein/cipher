@@ -42,6 +42,8 @@ import {
   TransportStateEventNames,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
+import {BackpressureGate} from '../context-tree/backpressure-gate.js'
+import {ConsolidationQualityEvaluator} from '../context-tree/consolidation-quality.js'
 import {ExperienceConsolidationService} from '../context-tree/experience-consolidation-service.js'
 import {ExperienceHookService} from '../context-tree/experience-hook-service.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
@@ -346,6 +348,7 @@ async function start(): Promise<void> {
   //    Consolidation LLM adapter: uses an isolated one-shot task session so it
   //    never pollutes the user's default session history.
   const startedAgent = agent
+  const qualityEvaluator = new ConsolidationQualityEvaluator()
   const consolidationService = new ExperienceConsolidationService({
     async generate(instructions: string, userMessage: string): Promise<string> {
       const taskId = randomUUID()
@@ -360,8 +363,9 @@ async function start(): Promise<void> {
         void startedAgent.deleteTaskSession(sessionId).catch(() => {})
       }
     },
-  })
-  const experienceHookService = new ExperienceHookService(projectPath, consolidationService)
+  }, qualityEvaluator)
+  const gate = new BackpressureGate()
+  const experienceHookService = new ExperienceHookService(projectPath, consolidationService, gate)
   const curateExecutor = new CurateExecutor(undefined, experienceHookService)
   const folderPackService = new FolderPackService(fileSystemService)
   await folderPackService.initialize()

@@ -24,9 +24,11 @@ import { AgentEventBus, SessionEventBus } from '../events/event-emitter.js'
 import { FileSystemService } from '../file-system/file-system-service.js'
 import { AgentLLMService } from '../llm/agent-llm-service.js'
 import { CompactionService } from '../llm/context/compaction/compaction-service.js'
+import { CompressionQualityEvaluator } from '../llm/context/compression/compression-quality-evaluator.js'
 import { EscalatedCompressionStrategy } from '../llm/context/compression/escalated-compression.js'
 import { MiddleRemovalStrategy } from '../llm/context/compression/middle-removal.js'
 import { OldestRemovalStrategy } from '../llm/context/compression/oldest-removal.js'
+import { SessionProgressTracker } from '../llm/context/session-progress-tracker.js'
 import {
   LoggingContentGenerator,
   RetryableContentGenerator,
@@ -43,6 +45,7 @@ import { GranularHistoryStorage } from '../storage/granular-history-storage.js'
 import { MessageStorageService } from '../storage/message-storage-service.js'
 import { ContextTreeStructureContributor } from '../system-prompt/contributors/context-tree-structure-contributor.js'
 import { MapSelectionContributor } from '../system-prompt/contributors/map-selection-contributor.js'
+import { ProgressTrajectoryContributor } from '../system-prompt/contributors/progress-trajectory-contributor.js'
 import { SystemPromptManager } from '../system-prompt/system-prompt-manager.js'
 import { CoreToolScheduler } from '../tools/core-tool-scheduler.js'
 import { DEFAULT_POLICY_RULES } from '../tools/default-policy-rules.js'
@@ -303,6 +306,10 @@ export function createSessionServices(
   // 1. Create session-specific event bus
   const sessionEventBus = new SessionEventBus()
 
+  // 1b. Create session progress tracker (Pattern 1: Progress Trajectory)
+  const progressTracker = new SessionProgressTracker(sessionEventBus)
+  progressTracker.attach()
+
   // 2. Create session-scoped logger
   const sessionLogger = new EventBasedLogger(sharedServices.agentEventBus, 'LLMService', sessionId)
 
@@ -343,6 +350,12 @@ export function createSessionServices(
       model: llmConfig.model ?? 'gemini-3-flash-preview',
     })
 
+    // Per-session progress contributor (Pattern 1)
+    const progressContributor = new ProgressTrajectoryContributor('progress', 25, progressTracker)
+
+    // Pattern 4: compression quality evaluator (final-output evaluation after full chain)
+    const compressionQualityEvaluator = new CompressionQualityEvaluator({warningThreshold: 0.5})
+
     return new AgentLLMService(
       sessionId,
       generator,
@@ -357,6 +370,7 @@ export function createSessionServices(
       },
       {
         compactionService: sharedServices.compactionService,
+        compressionQualityEvaluator,
         compressionStrategies: [
           escalatedStrategy,
           new MiddleRemovalStrategy({preserveEnd: 5, preserveStart: 4}),
@@ -365,7 +379,9 @@ export function createSessionServices(
         historyStorage: sharedServices.historyStorage,
         logger: sessionLogger,
         memoryManager: sharedServices.memoryManager,
+        progressTracker,
         sandboxService: sharedServices.sandboxService,
+        sessionContributors: [progressContributor],
         sessionEventBus,
         systemPromptManager: sharedServices.systemPromptManager,
         toolManager: sharedServices.toolManager,

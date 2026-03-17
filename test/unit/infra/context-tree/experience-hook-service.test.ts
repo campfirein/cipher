@@ -245,6 +245,19 @@ describe('ExperienceHookService', () => {
       }
     })
 
+    it('still increments curationCount when ensureInitialized fails', async () => {
+      const ensureStub = sinon.stub(ExperienceStore.prototype, 'ensureInitialized').rejects(new Error('disk full'))
+
+      try {
+        await service.onCurateComplete('no signals')
+
+        const meta = await store.readMeta()
+        expect(meta.curationCount).to.equal(1)
+      } finally {
+        ensureStub.restore()
+      }
+    })
+
     it('cross-instance: two instances for the same path share the queue and serialize', async () => {
       const service2 = new ExperienceHookService(baseDir)
 
@@ -383,6 +396,11 @@ describe('ExperienceHookService', () => {
 
       // process() must have resolved already even though consolidation is still in-flight
       expect(consolidationResolved).to.be.false
+
+      // Let the background consolidation finish before teardown removes the temp directory.
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 25)
+      })
     })
 
     it('serializes later curations behind in-flight consolidation', async () => {

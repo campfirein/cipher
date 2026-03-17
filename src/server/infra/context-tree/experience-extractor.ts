@@ -1,3 +1,4 @@
+import {MultiStrategyParser} from '../../../agent/infra/llm/parsing/multi-strategy-parser.js'
 import {
   EXPERIENCE_DEAD_ENDS_FILE,
   EXPERIENCE_HINTS_FILE,
@@ -48,6 +49,12 @@ const SIGNAL_TYPE_MAP: Record<ExperienceSignalType, SignalTarget> = {
 
 const VALID_TYPES = new Set<string>(['dead-end', 'hint', 'lesson', 'strategy'])
 
+/** Parser for extracting signal arrays from fence body when JSON.parse fails. */
+const experienceBodyParser = new MultiStrategyParser<ExperienceSignal[]>({
+  enabledTiers: ['raw-json'],
+  validator: (v): v is ExperienceSignal[] => Array.isArray(v) && v.every((item) => isValidSignal(item)),
+})
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -81,10 +88,27 @@ function isValidSignal(value: unknown): value is ExperienceSignal {
 export function extractExperienceSignals(curateResponse: string): ExperienceSignal[] {
   try {
     const match = /```experience\r?\n([\s\S]*?)\r?\n```/.exec(curateResponse)
-    if (!match) return []
-    const parsed: unknown = JSON.parse(match[1])
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter((v) => isValidSignal(v))
+    if (!match) {
+      return []
+    }
+
+    const body = match[1]
+
+    // Try direct JSON.parse first (current behavior)
+    try {
+      const parsed: unknown = JSON.parse(body)
+      if (Array.isArray(parsed)) {
+        return parsed.filter((v) => isValidSignal(v))
+      }
+    } catch {
+      // JSON parse failed on fence body — fall through to parser
+    }
+
+    // Fallback: use MultiStrategyParser on the fence body only (not full response).
+    // Handles malformed JSON inside the fence (extra whitespace, trailing commas).
+    const result = experienceBodyParser.parse(body)
+
+    return result ? result.parsed.filter((v) => isValidSignal(v)) : []
   } catch {
     return []
   }

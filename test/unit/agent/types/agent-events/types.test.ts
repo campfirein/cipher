@@ -41,6 +41,7 @@ describe('cipher/agent-events', () => {
     it('should have correct SESSION_EVENT_NAMES array', () => {
       expect(SESSION_EVENT_NAMES).to.deep.equal([
         'llmservice:chunk',
+        'llmservice:compressionQuality',
         'llmservice:contextCompressed',
         'llmservice:contextOverflow',
         'llmservice:contextPruned',
@@ -74,6 +75,7 @@ describe('cipher/agent-events', () => {
         'cipher:stateReset',
         'cipher:ui',
         'llmservice:chunk',
+        'llmservice:compressionQuality',
         'llmservice:contextCompressed',
         'llmservice:contextOverflow',
         'llmservice:contextPruned',

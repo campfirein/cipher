@@ -9,6 +9,8 @@ import type {
   ToolPart,
   ToolState,
 } from '../../../core/interfaces/message-types.js'
+import type {SessionEventBus} from '../../events/event-emitter.js'
+import type {CompressionQualityEvaluator} from './compression/compression-quality-evaluator.js'
 import type {ICompressionStrategy} from './compression/types.js'
 
 import {getErrorMessage} from '../../../../server/utils/error-helpers.js'
@@ -89,6 +91,8 @@ export interface MessageValidation {
  * Configuration options for ContextManager
  */
 export interface ContextManagerOptions<T> {
+  /** Optional quality evaluator for measuring compression output (Pattern 4). */
+  compressionQualityEvaluator?: CompressionQualityEvaluator
   compressionStrategies?: ICompressionStrategy[]
   formatter: IMessageFormatter<T>
   historyStorage?: IHistoryStorage
@@ -98,6 +102,8 @@ export interface ContextManagerOptions<T> {
   onPersistenceFailed?: (event: PersistenceFailedEvent) => void
   /** Configuration for persistence retry behavior */
   persistenceRetry?: PersistenceRetryConfig
+  /** Optional session event bus for emitting compression quality events. */
+  sessionEventBus?: SessionEventBus
   sessionId: string
   tokenizer: ITokenizer
 }
@@ -115,6 +121,7 @@ export interface ContextManagerOptions<T> {
  * (e.g., GeminiContent for Gemini, MessageParam for Anthropic)
  */
 export class ContextManager<T> {
+  private readonly compressionQualityEvaluator?: CompressionQualityEvaluator
   private readonly compressionStrategies: ICompressionStrategy[]
   private readonly formatter: IMessageFormatter<T>
   private readonly historyStorage?: IHistoryStorage
@@ -141,6 +148,7 @@ export class ContextManager<T> {
   private persistedCount: number = 0
   /** Retry configuration for persistence operations */
   private readonly persistenceRetry: Required<PersistenceRetryConfig>
+  private readonly sessionEventBus?: SessionEventBus
   private readonly sessionId: string
   private readonly tokenizer: ITokenizer
 
@@ -178,6 +186,10 @@ export class ContextManager<T> {
       new MiddleRemovalStrategy({preserveEnd: 5, preserveStart: 4}),
       new OldestRemovalStrategy({minMessagesToKeep: 4}),
     ]
+
+    // Pattern 4: compression quality evaluation
+    this.compressionQualityEvaluator = options.compressionQualityEvaluator
+    this.sessionEventBus = options.sessionEventBus
   }
 
   /**
@@ -770,6 +782,24 @@ export class ContextManager<T> {
         sessionId: this.sessionId,
         systemPromptTokens,
       })
+    }
+
+    // Pattern 4: Evaluate compression quality on the final output.
+    // Uses countMessagesTokens() — same function used for budget decisions above.
+    const didCompress = finalTokens < currentHistoryTokens
+    if (didCompress && this.compressionQualityEvaluator) {
+      const snapshot = this.compressionQualityEvaluator.evaluate(messages, compressedHistory)
+      this.sessionEventBus?.emit('llmservice:compressionQuality', {
+        dimensions: snapshot.dimensions,
+        overallScore: snapshot.overallScore,
+      })
+      if (snapshot.overallScore < this.compressionQualityEvaluator.warningThreshold) {
+        this.logger.warn('Compression quality below threshold', {
+          dimensions: snapshot.dimensions,
+          overallScore: snapshot.overallScore,
+          sessionId: this.sessionId,
+        })
+      }
     }
 
     return compressedHistory

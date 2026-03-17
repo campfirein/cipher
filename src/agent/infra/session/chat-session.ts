@@ -14,6 +14,7 @@ import {sessionStatusManager} from './session-status.js'
 const SESSION_EVENT_NAMES: readonly [
   'llmservice:thinking',
   'llmservice:chunk',
+  'llmservice:compressionQuality',
   'llmservice:response',
   'llmservice:toolCall',
   'llmservice:toolResult',
@@ -29,6 +30,7 @@ const SESSION_EVENT_NAMES: readonly [
 ] = [
   'llmservice:thinking',
   'llmservice:chunk',
+  'llmservice:compressionQuality',
   'llmservice:response',
   'llmservice:toolCall',
   'llmservice:toolResult',

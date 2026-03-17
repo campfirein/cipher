@@ -27,7 +27,7 @@ describe('SessionEventForwarder', () => {
       }).to.not.throw()
     })
 
-    it('should register listeners on sessionBus for all 7 event types', () => {
+    it('should register listeners on sessionBus for all 8 event types', () => {
       const listenerCountBefore = sessionBus.listenerCount('llmservice:thinking')
 
       setupEventForwarding(sessionBus, agentBus, testSessionId)
@@ -35,6 +35,7 @@ describe('SessionEventForwarder', () => {
       // Verify listeners registered for each event type
       expect(sessionBus.listenerCount('llmservice:thinking')).to.be.greaterThan(listenerCountBefore)
       expect(sessionBus.listenerCount('llmservice:chunk')).to.be.greaterThan(0)
+      expect(sessionBus.listenerCount('llmservice:compressionQuality')).to.be.greaterThan(0)
       expect(sessionBus.listenerCount('llmservice:response')).to.be.greaterThan(0)
       expect(sessionBus.listenerCount('llmservice:toolCall')).to.be.greaterThan(0)
       expect(sessionBus.listenerCount('llmservice:toolResult')).to.be.greaterThan(0)
