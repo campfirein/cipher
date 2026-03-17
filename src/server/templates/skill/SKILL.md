@@ -111,7 +111,6 @@ brv locations -f json
 
 JSON fields: `projectPath`, `contextTreePath`, `isCurrent`, `isActive`, `isInitialized`.
 
-
 ### 5. Cloud Sync (Optional)
 **Overview:** Sync your local knowledge with a team via ByteRover's cloud service. Requires ByteRover authentication.
 
