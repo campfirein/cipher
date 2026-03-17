@@ -24,18 +24,18 @@ function makeTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
 }
 
 function makeStore(sandbox: SinonSandbox): ICurateLogStore & {
+  batchUpdateOperationReviewStatus: SinonStub
   getById: SinonStub
   getNextId: SinonStub
   list: SinonStub
   save: SinonStub
-  updateOperationReviewStatus: SinonStub
 } {
   return {
+    batchUpdateOperationReviewStatus: sandbox.stub().resolves(true),
     getById: sandbox.stub().resolves(null),
     getNextId: sandbox.stub().resolves('cur-1000'),
     list: sandbox.stub().resolves([]),
     save: sandbox.stub().resolves(),
-    updateOperationReviewStatus: sandbox.stub().resolves(true),
   }
 }
 
