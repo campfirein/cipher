@@ -67,10 +67,10 @@ export default class ReviewPending extends Command {
 
   private printTask(task: ReviewPendingTask): void {
     this.log(`  Task: ${task.taskId}`)
-    for (const op of task.operations) {
+    for (const [i, op] of task.operations.entries()) {
       const impact = op.impact === 'high' ? ' · HIGH IMPACT' : ''
       const displayPath = op.filePath ?? op.path
-      this.log('')
+      if (i > 0) this.log('')
       this.log(`  [${op.type}${impact}] - path: ${displayPath}`)
       if (op.reason) this.log(`  Why:    ${op.reason}`)
       if (op.previousSummary) this.log(`  Before: ${op.previousSummary}`)

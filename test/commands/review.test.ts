@@ -363,8 +363,8 @@ describe('Review Commands', () => {
       expect(loggedMessages.some((m) => m.includes('Added Memcached layer'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('Redis only'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('Redis + Memcached'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv review approve task-abc-123'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv review reject task-abc-123'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('review approve task-abc-123'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('review reject task-abc-123'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('--file <path>'))).to.be.true
     })
 
@@ -418,7 +418,7 @@ describe('Review Commands', () => {
 
       expect(loggedMessages.some((m) => m.includes('review approve task-aaa'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('review approve task-bbb'))).to.be.true
-      expect(loggedMessages.some((m) => m === '---')).to.be.true
+      expect(loggedMessages.includes('---')).to.be.true
     })
 
     it('should output JSON with tasks and pendingCount', async () => {
@@ -439,9 +439,9 @@ describe('Review Commands', () => {
       expect(json.success).to.be.true
       expect(json.data).to.have.property('pendingCount', 1)
       expect(json.data).to.have.property('status', 'success')
-      const tasks = json.data.tasks
+      const {tasks} = json.data as {tasks: Array<{operations: unknown[]; taskId: string}>}
       expect(tasks).to.be.an('array').with.lengthOf(1)
-      const [first] = tasks as Array<{operations: unknown[]; taskId: string}>
+      const [first] = tasks
       expect(first.taskId).to.equal('task-abc-123')
       expect(first.operations).to.have.lengthOf(1)
     })
