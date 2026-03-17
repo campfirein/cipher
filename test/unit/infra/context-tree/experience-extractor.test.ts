@@ -106,6 +106,13 @@ describe('ExperienceExtractor', () => {
       expect(signals).to.have.length(1)
       expect(signals[0].text).to.equal('first')
     })
+
+    it('supports CRLF line endings in the fenced block', () => {
+      const response = '```experience\r\n[{"type":"lesson","text":"windows newline"}]\r\n```'
+      const signals = extractExperienceSignals(response)
+      expect(signals).to.have.length(1)
+      expect(signals[0]).to.deep.equal({text: 'windows newline', type: 'lesson'})
+    })
   })
 
   describe('signalTarget()', () => {

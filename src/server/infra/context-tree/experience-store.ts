@@ -65,7 +65,9 @@ function buildSeedFile(title: string, tags: string[], keywords: string[], sectio
 // ---------------------------------------------------------------------------
 
 /**
- * Insert bullets after the given section header.
+ * Append bullets to the end of the given section.
+ * Preserves chronological order across repeated appends so later consolidation
+ * reads bullets in the same order they were originally added.
  * Throws if the section header is not found — missing header indicates
  * corruption or a bad consolidation output, not a graceful no-op.
  */
@@ -78,7 +80,9 @@ function appendBulletsToSection(content: string, sectionHeader: string, bullets:
     )
   }
 
-  const insertAt = idx + marker.length
+  const sectionStart = idx + marker.length
+  const nextHeading = content.indexOf('\n## ', sectionStart)
+  const insertAt = nextHeading === -1 ? content.length : nextHeading
   const newLines = bullets.map((b) => `- ${b}`).join('\n') + '\n'
   return content.slice(0, insertAt) + newLines + content.slice(insertAt)
 }

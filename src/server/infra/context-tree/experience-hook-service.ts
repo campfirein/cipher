@@ -101,7 +101,7 @@ export class ExperienceHookService implements IExperienceHookService {
     // 3. Group by target file and batch-write after deduplication (parallel across files)
     const groups = Object.entries(this.groupByFile(signals))
 
-    await Promise.all(
+    await Promise.allSettled(
       groups.map(async ([filename, {bullets, section}]) => {
         const existing = await this.store.readSectionLines(filename, section)
         const existingSet = new Set(existing.map((s) => s.toLowerCase()))

@@ -118,4 +118,3 @@ export const EXPERIENCE_HINTS_FILE = 'hints.md'
 export const EXPERIENCE_DEAD_ENDS_FILE = 'dead-ends.md'
 export const EXPERIENCE_META_FILE = '_meta.json'          // local-only, not .md → never synced/indexed
 export const EXPERIENCE_CONSOLIDATION_INTERVAL = 5
-export const EXPERIENCE_CONFIDENCE_THRESHOLD = 0.6

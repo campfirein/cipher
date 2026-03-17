@@ -146,6 +146,14 @@ describe('ExperienceStore', () => {
       expect(lines).to.include('second lesson')
     })
 
+    it('preserves insertion order across successive appends', async () => {
+      await store.appendBulkToFile(EXPERIENCE_LESSONS_FILE, 'Facts', ['first lesson'])
+      await store.appendBulkToFile(EXPERIENCE_LESSONS_FILE, 'Facts', ['second lesson'])
+
+      const lines = await store.readSectionLines(EXPERIENCE_LESSONS_FILE, 'Facts')
+      expect(lines).to.deep.equal(['first lesson', 'second lesson'])
+    })
+
     it('applies recordCurateUpdate() exactly once regardless of bullet count', async () => {
       const beforeContent = await readFile(experienceFile(baseDir, EXPERIENCE_LESSONS_FILE), 'utf8')
       const beforeScoring = parseFrontmatterScoring(beforeContent)

@@ -117,6 +117,7 @@ export class ExperienceConsolidationService {
     ]
 
     // Playbook consolidates less frequently — every INTERVAL * 3 curations
+    // (guard ensures curationCount=0 never triggers a playbook pass).
     if (curationCount > 0 && curationCount % (EXPERIENCE_CONSOLIDATION_INTERVAL * 3) === 0) {
       targets.push({filename: EXPERIENCE_PLAYBOOK_FILE, section: EXPERIENCE_SECTIONS[EXPERIENCE_PLAYBOOK_FILE]})
     }

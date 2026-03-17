@@ -215,6 +215,36 @@ describe('ExperienceHookService', () => {
       expect(lines).to.include('after failure')
     })
 
+    it('still increments curationCount when one file append fails', async () => {
+      const originalAppend = ExperienceStore.prototype.appendBulkToFile
+      const appendStub = sinon.stub(ExperienceStore.prototype, 'appendBulkToFile').callsFake(
+        async function (this: ExperienceStore, filename: string, section: string, bullets: string[]) {
+          if (filename === EXPERIENCE_LESSONS_FILE) {
+            throw new Error('disk full')
+          }
+
+          return originalAppend.call(this, filename, section, bullets)
+        },
+      )
+
+      try {
+        await service.onCurateComplete(
+          buildResponse([
+            {text: 'broken lesson write', type: 'lesson'},
+            {text: 'hint survives', type: 'hint'},
+          ]),
+        )
+
+        const meta = await store.readMeta()
+        expect(meta.curationCount).to.equal(1)
+
+        const hints = await store.readSectionLines(EXPERIENCE_HINTS_FILE, 'Hints')
+        expect(hints).to.include('hint survives')
+      } finally {
+        appendStub.restore()
+      }
+    })
+
     it('cross-instance: two instances for the same path share the queue and serialize', async () => {
       const service2 = new ExperienceHookService(baseDir)
 

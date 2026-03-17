@@ -610,6 +610,8 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     }
 
     const hits = new Map(this.pendingAccessHits)
+    // Best-effort: access hits captured for this flush may be lost on I/O errors
+    // because we drain the pending map before writes complete.
     this.pendingAccessHits.clear()
 
     const flushed = new Map<string, FrontmatterScoring>()

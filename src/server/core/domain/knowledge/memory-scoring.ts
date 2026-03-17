@@ -49,7 +49,11 @@ export const DEMOTE_FROM_CORE = 60
 /** Importance threshold to demote validated -> draft (hysteresis gap) */
 export const DEMOTE_FROM_VALIDATED = 35
 
-/** Search score multiplier per maturity tier */
+/**
+ * Search score multiplier per maturity tier.
+ * Intentionally neutral for now: maturity affects filtering/lifecycle decisions,
+ * but does not yet add a ranking boost until tuned with real retrieval data.
+ */
 export const TIER_BOOST: Record<string, number> = {
   core: 1,
   draft: 1,

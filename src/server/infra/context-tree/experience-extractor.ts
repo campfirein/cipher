@@ -80,7 +80,7 @@ function isValidSignal(value: unknown): value is ExperienceSignal {
  */
 export function extractExperienceSignals(curateResponse: string): ExperienceSignal[] {
   try {
-    const match = /```experience\n([\s\S]*?)\n```/.exec(curateResponse)
+    const match = /```experience\r?\n([\s\S]*?)\r?\n```/.exec(curateResponse)
     if (!match) return []
     const parsed: unknown = JSON.parse(match[1])
     if (!Array.isArray(parsed)) return []
