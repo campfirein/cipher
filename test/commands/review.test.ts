@@ -7,12 +7,26 @@ import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
 import ReviewApprove from '../../src/oclif/commands/review/approve.js'
+import ReviewPending from '../../src/oclif/commands/review/pending.js'
 import ReviewReject from '../../src/oclif/commands/review/reject.js'
 import {ReviewEvents} from '../../src/shared/transport/events/review-events.js'
 
 // ==================== Testable subclasses ====================
 
 class TestableReviewApprove extends ReviewApprove {
+  private readonly mockConnector: () => Promise<ConnectionResult>
+
+  constructor(argv: string[], mockConnector: () => Promise<ConnectionResult>, config: Config) {
+    super(argv, config)
+    this.mockConnector = mockConnector
+  }
+
+  protected override getDaemonClientOptions() {
+    return {maxRetries: 1, retryDelayMs: 0, transportConnector: this.mockConnector}
+  }
+}
+
+class TestableReviewPending extends ReviewPending {
   private readonly mockConnector: () => Promise<ConnectionResult>
 
   constructor(argv: string[], mockConnector: () => Promise<ConnectionResult>, config: Config) {
@@ -110,6 +124,26 @@ describe('Review Commands', () => {
 
   function createJsonRejectCommand(...argv: string[]): TestableReviewReject {
     const command = new TestableReviewReject([...argv, '--format', 'json'], mockConnector, config)
+    stub(command, 'log').callsFake((msg?: string) => {
+      if (msg) loggedMessages.push(msg)
+    })
+    stub(process.stdout, 'write').callsFake((chunk: string | Uint8Array) => {
+      stdoutOutput.push(String(chunk))
+      return true
+    })
+    return command
+  }
+
+  function createPendingCommand(): TestableReviewPending {
+    const command = new TestableReviewPending([], mockConnector, config)
+    stub(command, 'log').callsFake((msg?: string) => {
+      if (msg) loggedMessages.push(msg)
+    })
+    return command
+  }
+
+  function createJsonPendingCommand(): TestableReviewPending {
+    const command = new TestableReviewPending(['--format', 'json'], mockConnector, config)
     stub(command, 'log').callsFake((msg?: string) => {
       if (msg) loggedMessages.push(msg)
     })
@@ -278,6 +312,165 @@ describe('Review Commands', () => {
       expect(json.data).to.have.property('decision', 'rejected')
       expect(json.data).to.have.property('taskId', 'task-abc-123')
       expect(json.data).to.have.property('totalCount', 1)
+    })
+  })
+
+  // ==================== brv review pending ====================
+
+  describe('review pending', () => {
+    it('should send review:pending event', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({pendingCount: 0, tasks: []})
+
+      await createPendingCommand().run()
+
+      const call = (mockClient.requestWithAck as sinon.SinonStub).firstCall
+      expect(call.args[0]).to.equal(ReviewEvents.PENDING)
+      expect(call.args[1]).to.deep.equal({})
+    })
+
+    it('should print "no pending" message when no reviews', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({pendingCount: 0, tasks: []})
+
+      await createPendingCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('No pending reviews.'))).to.be.true
+    })
+
+    it('should print operation details and approve/reject commands', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({
+        pendingCount: 1,
+        tasks: [
+          {
+            operations: [
+              {
+                impact: 'high',
+                path: 'infrastructure/caching',
+                previousSummary: 'Redis only',
+                reason: 'Added Memcached layer',
+                summary: 'Redis + Memcached',
+                type: 'UPSERT',
+              },
+            ],
+            taskId: 'task-abc-123',
+          },
+        ],
+      })
+
+      await createPendingCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('1 operation pending review'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('[UPSERT · HIGH IMPACT] - path: infrastructure/caching'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Added Memcached layer'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Redis only'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Redis + Memcached'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv review approve task-abc-123'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv review reject task-abc-123'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('--file <path>'))).to.be.true
+    })
+
+    it('should use plural for multiple operations', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({
+        pendingCount: 2,
+        tasks: [
+          {
+            operations: [
+              {path: 'auth/jwt', type: 'UPSERT'},
+              {path: 'auth/session', type: 'DELETE'},
+            ],
+            taskId: 'task-abc-123',
+          },
+        ],
+      })
+
+      await createPendingCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('2 operations pending review'))).to.be.true
+    })
+
+    it('should omit impact suffix for low-impact operations', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({
+        pendingCount: 1,
+        tasks: [
+          {
+            operations: [{impact: 'low', path: 'auth/jwt', type: 'ADD'}],
+            taskId: 'task-abc-123',
+          },
+        ],
+      })
+
+      await createPendingCommand().run()
+
+      const opLine = loggedMessages.find((m) => m.includes('[ADD]'))
+      expect(opLine).to.exist
+      expect(opLine).to.not.include('HIGH IMPACT')
+    })
+
+    it('should separate multiple tasks with a blank line', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({
+        pendingCount: 2,
+        tasks: [
+          {operations: [{path: 'auth/jwt', type: 'UPSERT'}], taskId: 'task-aaa'},
+          {operations: [{path: 'infra/cache', type: 'DELETE'}], taskId: 'task-bbb'},
+        ],
+      })
+
+      await createPendingCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('brv review approve task-aaa'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv review approve task-bbb'))).to.be.true
+    })
+
+    it('should output JSON with tasks and pendingCount', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({
+        pendingCount: 1,
+        tasks: [
+          {
+            operations: [{impact: 'high', path: 'infrastructure/caching', type: 'UPSERT'}],
+            taskId: 'task-abc-123',
+          },
+        ],
+      })
+
+      await createJsonPendingCommand().run()
+
+      const json = parseJsonOutput()
+      expect(json.command).to.equal('review')
+      expect(json.success).to.be.true
+      expect(json.data).to.have.property('pendingCount', 1)
+      expect(json.data).to.have.property('status', 'success')
+      const tasks = json.data.tasks as Array<{operations: unknown[]; taskId: string;}>
+      expect(tasks).to.be.an('array').with.lengthOf(1)
+      expect(tasks[0].taskId).to.equal('task-abc-123')
+      expect(tasks[0].operations).to.have.lengthOf(1)
+    })
+
+    it('should output JSON with empty tasks when no pending reviews', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({pendingCount: 0, tasks: []})
+
+      await createJsonPendingCommand().run()
+
+      const json = parseJsonOutput()
+      expect(json.success).to.be.true
+      expect(json.data).to.have.property('pendingCount', 0)
+      expect(json.data).to.have.property('tasks').that.is.an('array').with.lengthOf(0)
+    })
+
+    it('should output JSON error on connection failure', async () => {
+      mockConnector.rejects(new NoInstanceRunningError())
+
+      await createJsonPendingCommand().run()
+
+      const json = parseJsonOutput()
+      expect(json.success).to.be.false
+      expect(json.data).to.have.property('error')
+    })
+
+    it('should print error message on connection failure in text mode', async () => {
+      mockConnector.rejects(new NoInstanceRunningError())
+
+      await createPendingCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Daemon failed to start automatically'))).to.be.true
     })
   })
 })

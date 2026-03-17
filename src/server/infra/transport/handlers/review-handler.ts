@@ -9,6 +9,9 @@ import {
   type ReviewDecideTaskRequest,
   type ReviewDecideTaskResponse,
   ReviewEvents,
+  type ReviewPendingOperation,
+  type ReviewPendingResponse,
+  type ReviewPendingTask,
 } from '../../../../shared/transport/events/review-events.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
 import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
@@ -67,6 +70,11 @@ export class ReviewHandler {
     this.transport.onRequest<ReviewDecideTaskRequest, ReviewDecideTaskResponse>(
       ReviewEvents.DECIDE_TASK,
       (data, clientId) => this.handleDecideTask(data, clientId),
+    )
+
+    this.transport.onRequest<Record<string, unknown>, ReviewPendingResponse>(
+      ReviewEvents.PENDING,
+      (_data, clientId) => this.handlePending(clientId),
     )
   }
 
@@ -174,5 +182,46 @@ export class ReviewHandler {
 
     const totalCount = fileResults.reduce((sum, {ops}) => sum + ops.length, 0)
     return {files: fileResults.map(({path, reverted}) => ({path, reverted})), totalCount}
+  }
+
+  private async handlePending(clientId: string): Promise<ReviewPendingResponse> {
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const contextTreeDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
+    const store = this.curateLogStoreFactory(projectPath)
+    const entries = await store.list({status: ['completed']})
+
+    const taskMap = new Map<string, ReviewPendingOperation[]>()
+
+    for (const entry of entries) {
+      for (const op of entry.operations) {
+        if (op.reviewStatus !== 'pending' || op.status === 'failed') continue
+
+        let ops = taskMap.get(entry.taskId)
+        if (!ops) {
+          ops = []
+          taskMap.set(entry.taskId, ops)
+        }
+
+        const pendingOp: ReviewPendingOperation = {path: op.path, type: op.type}
+        if (op.filePath) {
+          const rel = relative(contextTreeDir, op.filePath)
+          if (!rel.startsWith('..')) pendingOp.filePath = rel
+        }
+
+        if (op.impact) pendingOp.impact = op.impact
+        if (op.reason) pendingOp.reason = op.reason
+        if (op.previousSummary) pendingOp.previousSummary = op.previousSummary
+        if (op.summary) pendingOp.summary = op.summary
+        ops.push(pendingOp)
+      }
+    }
+
+    const tasks: ReviewPendingTask[] = [...taskMap.entries()].map(([taskId, operations]) => ({
+      operations,
+      taskId,
+    }))
+    const pendingCount = tasks.reduce((sum, t) => sum + t.operations.length, 0)
+
+    return {pendingCount, tasks}
   }
 }
