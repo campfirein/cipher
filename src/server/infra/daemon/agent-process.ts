@@ -347,11 +347,11 @@ async function start(): Promise<void> {
   //    never pollutes the user's default session history.
   const startedAgent = agent
   const consolidationService = new ExperienceConsolidationService({
-    async generate(systemPrompt: string, userMessage: string): Promise<string> {
+    async generate(instructions: string, userMessage: string): Promise<string> {
       const taskId = randomUUID()
       const sessionId = await startedAgent.createTaskSession(taskId, 'consolidation')
       try {
-        return await startedAgent.executeOnSession(sessionId, `${systemPrompt}\n\n${userMessage}`, {
+        return await startedAgent.executeOnSession(sessionId, `${instructions}\n\n${userMessage}`, {
           executionContext: {clearHistory: true, maxIterations: 1},
           taskId,
         })
