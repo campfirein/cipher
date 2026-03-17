@@ -109,3 +109,12 @@ export const FULL_ARCHIVE_EXTENSION = '.full.md'
 export const MANIFEST_FILE = '_manifest.json'
 export const ARCHIVE_IMPORTANCE_THRESHOLD = 35
 export const DEFAULT_GHOST_CUE_MAX_TOKENS = 220
+
+// === Experience domain constants ===
+export const EXPERIENCE_DIR = 'experience'
+export const EXPERIENCE_PLAYBOOK_FILE = 'playbook.md'
+export const EXPERIENCE_LESSONS_FILE = 'lessons.md'
+export const EXPERIENCE_HINTS_FILE = 'hints.md'
+export const EXPERIENCE_DEAD_ENDS_FILE = 'dead-ends.md'
+export const EXPERIENCE_META_FILE = '_meta.json'          // local-only, not .md → never synced/indexed
+export const EXPERIENCE_CONSOLIDATION_INTERVAL = 5

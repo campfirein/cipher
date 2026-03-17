@@ -42,6 +42,8 @@ import {
   TransportStateEventNames,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
+import {ExperienceConsolidationService} from '../context-tree/experience-consolidation-service.js'
+import {ExperienceHookService} from '../context-tree/experience-hook-service.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
@@ -341,7 +343,26 @@ async function start(): Promise<void> {
   const searchService = createSearchKnowledgeService(fileSystemService, {baseDirectory: projectPath})
 
   // 7. Create executors and listen for task:execute from pool
-  const curateExecutor = new CurateExecutor()
+  //    Consolidation LLM adapter: uses an isolated one-shot task session so it
+  //    never pollutes the user's default session history.
+  const startedAgent = agent
+  const consolidationService = new ExperienceConsolidationService({
+    async generate(instructions: string, userMessage: string): Promise<string> {
+      const taskId = randomUUID()
+      const sessionId = await startedAgent.createTaskSession(taskId, 'consolidation')
+      try {
+        return await startedAgent.executeOnSession(sessionId, `${instructions}\n\n${userMessage}`, {
+          executionContext: {clearHistory: true, maxIterations: 1},
+          taskId,
+        })
+      } finally {
+        // eslint-disable-next-line no-void
+        void startedAgent.deleteTaskSession(sessionId).catch(() => {})
+      }
+    },
+  })
+  const experienceHookService = new ExperienceHookService(projectPath, consolidationService)
+  const curateExecutor = new CurateExecutor(undefined, experienceHookService)
   const folderPackService = new FolderPackService(fileSystemService)
   await folderPackService.initialize()
   const folderPackExecutor = new FolderPackExecutor(folderPackService)

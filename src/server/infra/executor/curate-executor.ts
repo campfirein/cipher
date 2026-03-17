@@ -3,6 +3,7 @@ import path from 'node:path'
 import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
 import type {CurationStatus} from '../../core/domain/entities/curation-status.js'
 import type {CurateExecuteOptions, ICurateExecutor} from '../../core/interfaces/executor/i-curate-executor.js'
+import type {IExperienceHookService} from '../../core/interfaces/experience/i-experience-hook-service.js'
 
 import {FileValidationError} from '../../core/domain/errors/task-error.js'
 import {
@@ -41,10 +42,12 @@ export class CurateExecutor implements ICurateExecutor {
   /** Last curation status — available for future status-check command */
   public lastStatus?: CurationStatus
   private readonly fileContentReader: FileContentReader
+  private readonly hookService?: IExperienceHookService
   private readonly preCompactionService = new PreCompactionService()
 
-  constructor(fileContentReader?: FileContentReader) {
+  constructor(fileContentReader?: FileContentReader, hookService?: IExperienceHookService) {
     this.fileContentReader = fileContentReader ?? createFileContentReader()
+    this.hookService = hookService
   }
 
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
@@ -114,6 +117,11 @@ export class CurateExecutor implements ICurateExecutor {
         `IMPORTANT: Any code_exec call containing mapExtract MUST use timeout: 300000 on the code_exec tool call itself (not inside mapExtract options).`,
         `Use tools.curation.groupBySubject() and tools.curation.dedup() to organize extractions.`,
         `Verify via result.applied[].filePath — do NOT call readFile for verification.`,
+        `After verification, append an experience block to your response with up to 5 signals you observed during this curation (skip if none apply):`,
+        `\`\`\`experience`,
+        `[{"type":"lesson","text":"<what you learned>"},{"type":"hint","text":"<forward-looking tip>"},{"type":"dead-end","text":"<approach that failed>"},{"type":"strategy","text":"<reusable pattern>"}]`,
+        `\`\`\``,
+        `Valid types: lesson, hint, dead-end, strategy. Omit entries that do not apply. Emit the block only once, at the end.`,
       ].join('\n')
 
       // Execute on the task session (isolated sandbox + history)
@@ -125,6 +133,17 @@ export class CurateExecutor implements ICurateExecutor {
 
       // Parse curation status from agent response for status tracking
       this.lastStatus = this.parseCurationStatus(taskId, response)
+
+      // Experience hook — awaited so written files are visible to Phase 4's snapshot diff
+      // (summary propagation and manifest prewarm pick up the new experience files).
+      // Fail-open: hook errors never block the curation result.
+      if (this.hookService) {
+        try {
+          await this.hookService.onCurateComplete(response)
+        } catch {
+          // fail-open
+        }
+      }
 
       // --- Phase 4: Post-curation summary propagation (fail-open) ---
       if (preState) {
