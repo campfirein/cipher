@@ -2,6 +2,12 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.2.0]
+
+### Added
+
+- **`brv locations` command** — List all registered projects and their context tree status. Shows which projects are initialized, which is current, and which have active connections. Supports `--format json` for automation. Also available as `/locations` in the REPL.
+
 ## [2.1.5]
 
 ### Added
