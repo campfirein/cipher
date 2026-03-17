@@ -15,8 +15,8 @@ import Status from '../../src/oclif/commands/status.js'
 class TestableStatusCommand extends Status {
   private readonly mockConnector: () => Promise<ConnectionResult>
 
-  constructor(mockConnector: () => Promise<ConnectionResult>, config: Config) {
-    super([], config)
+  constructor(mockConnector: () => Promise<ConnectionResult>, config: Config, argv: string[] = []) {
+    super(argv, config)
     this.mockConnector = mockConnector
   }
 
@@ -93,7 +93,7 @@ describe('Status Command', () => {
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('Not connected'))).to.be.true
+      expect(loggedMessages.some((m) => m.startsWith('Account:') && m.includes('Not connected'))).to.be.true
     })
 
     it('should display "Session expired" when token is expired', async () => {
@@ -175,7 +175,7 @@ describe('Status Command', () => {
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('Not connected'))).to.be.true
+      expect(loggedMessages.some((m) => m.startsWith('Space:') && m.includes('Not connected'))).to.be.true
     })
   })
 
@@ -302,6 +302,34 @@ describe('Status Command', () => {
       expect(changeMessages[0]).to.include('a-deleted')
       expect(changeMessages[1]).to.include('m-modified')
       expect(changeMessages[2]).to.include('z-new')
+    })
+  })
+
+  // ==================== JSON Output ====================
+
+  describe('JSON output', () => {
+    it('should output success: true with status data', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'no_changes',
+        currentDirectory: '/test',
+        userEmail: 'user@example.com',
+      })
+
+      let captured = ''
+      const writeStub = stub(process.stdout, 'write').callsFake((chunk) => {
+        captured += chunk
+        return true
+      })
+
+      try {
+        await new TestableStatusCommand(mockConnector, config, ['--format', 'json']).run()
+      } finally {
+        writeStub.restore()
+      }
+
+      const parsed = JSON.parse(captured) as {success: boolean}
+      expect(parsed.success).to.be.true
     })
   })
 

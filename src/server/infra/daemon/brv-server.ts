@@ -422,7 +422,9 @@ async function main(): Promise<void> {
       broadcastToProject(projectPath, event, data) {
         broadcastToProjectRoom(projectRegistry, projectRouter, projectPath, event, data)
       },
+      getActiveProjectPaths: () => clientManager.getActiveProjects(),
       log,
+      projectRegistry,
       providerConfigStore,
       providerKeychainStore,
       providerOAuthTokenStore,
