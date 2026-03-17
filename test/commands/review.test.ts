@@ -359,12 +359,13 @@ describe('Review Commands', () => {
       await createPendingCommand().run()
 
       expect(loggedMessages.some((m) => m.includes('1 operation pending review'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('[UPSERT · HIGH IMPACT] infrastructure/caching'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('[UPSERT · HIGH IMPACT] - path: infrastructure/caching'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('Added Memcached layer'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('Redis only'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('Redis + Memcached'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('brv review approve task-abc-123'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('brv review reject task-abc-123'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('--file <path>'))).to.be.true
     })
 
     it('should use plural for multiple operations', async () => {

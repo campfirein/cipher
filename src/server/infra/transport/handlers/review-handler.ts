@@ -186,6 +186,7 @@ export class ReviewHandler {
 
   private async handlePending(clientId: string): Promise<ReviewPendingResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const contextTreeDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
     const store = this.curateLogStoreFactory(projectPath)
     const entries = await store.list({status: ['completed']})
 
@@ -202,6 +203,11 @@ export class ReviewHandler {
         }
 
         const pendingOp: ReviewPendingOperation = {path: op.path, type: op.type}
+        if (op.filePath) {
+          const rel = relative(contextTreeDir, op.filePath)
+          if (!rel.startsWith('..')) pendingOp.filePath = rel
+        }
+
         if (op.impact) pendingOp.impact = op.impact
         if (op.reason) pendingOp.reason = op.reason
         if (op.previousSummary) pendingOp.previousSummary = op.previousSummary

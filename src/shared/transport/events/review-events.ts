@@ -23,6 +23,8 @@ export interface ReviewDecideTaskResponse {
 }
 
 export interface ReviewPendingOperation {
+  /** Context-tree-relative file path (e.g. architecture/daemon/lifecycle.md). Used with --file flag. */
+  filePath?: string
   impact?: 'high' | 'low'
   path: string
   previousSummary?: string

@@ -66,17 +66,19 @@ export default class ReviewPending extends Command {
   }
 
   private printTask(task: ReviewPendingTask): void {
+    this.log(`  Task: ${task.taskId}`)
     for (const op of task.operations) {
       const impact = op.impact === 'high' ? ' · HIGH IMPACT' : ''
-      this.log(`[${op.type}${impact}] ${op.path}`)
+      const displayPath = op.filePath ?? op.path
+      this.log(`\n  [${op.type}${impact}] - path: ${displayPath}`)
       if (op.reason) this.log(`  Why:    ${op.reason}`)
       if (op.previousSummary) this.log(`  Before: ${op.previousSummary}`)
       if (op.summary) this.log(`  After:  ${op.summary}`)
-      this.log('')
     }
 
-    this.log(`  To approve: brv review approve ${task.taskId}`)
-    this.log(`  To reject:  brv review reject ${task.taskId}`)
+    this.log(`\n  To approve all:  brv review approve ${task.taskId}`)
+    this.log(`  To reject all:   brv review reject ${task.taskId}`)
+    this.log(`  Per file:        brv review approve/reject ${task.taskId} --file <path> [--file <path>]`)
   }
 
   private printText(response: ReviewPendingResponse): void {
@@ -89,7 +91,7 @@ export default class ReviewPending extends Command {
     this.log(`${pendingCount} operation${pendingCount === 1 ? '' : 's'} pending review\n`)
 
     for (const [i, task] of response.tasks.entries()) {
-      if (i > 0) this.log('')
+      if (i > 0) this.log('\n---\n')
       this.printTask(task)
     }
   }
