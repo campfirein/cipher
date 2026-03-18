@@ -114,20 +114,43 @@ export class CompressionQualityEvaluator {
   private extractKeyDecisions(messages: InternalMessage[]): string[] {
     const decisions: string[] = []
     for (const msg of messages) {
-      if (msg.role !== 'assistant' || typeof msg.content !== 'string') {
+      if (msg.role !== 'assistant') {
         continue
       }
 
-      const sentences = msg.content.split(/[.!?\n]/)
-      for (const sentence of sentences) {
-        const trimmed = sentence.trim()
-        if (trimmed.length > 10 && DECISION_PATTERN.test(trimmed)) {
-          decisions.push(trimmed.toLowerCase().slice(0, 150))
+      for (const text of this.extractTextParts(msg.content)) {
+        const sentences = text.split(/[.!?\n]/)
+        for (const sentence of sentences) {
+          const trimmed = sentence.trim()
+          if (trimmed.length > 10 && DECISION_PATTERN.test(trimmed)) {
+            decisions.push(trimmed.toLowerCase().slice(0, 150))
+          }
         }
       }
     }
 
     return decisions
+  }
+
+  /**
+   * Extract text fragments from message content, including array text parts.
+   */
+  private extractTextParts(content: InternalMessage['content']): string[] {
+    if (typeof content === 'string') {
+      return [content]
+    }
+
+    if (!Array.isArray(content)) {
+      return []
+    }
+
+    return content.flatMap((part) => {
+      if (typeof part === 'object' && part !== null && 'text' in part) {
+        return [String((part as {text: string}).text)]
+      }
+
+      return []
+    })
   }
 
   /**
@@ -154,11 +177,11 @@ export class CompressionQualityEvaluator {
   private extractUserIntents(messages: InternalMessage[]): string[] {
     const intents: string[] = []
     for (const msg of messages) {
-      if (msg.role !== 'user' || typeof msg.content !== 'string') {
+      if (msg.role !== 'user') {
         continue
       }
 
-      const text = msg.content.trim()
+      const text = this.extractTextParts(msg.content).join(' ').trim()
       if (text.length === 0) {
         continue
       }
@@ -183,15 +206,7 @@ export class CompressionQualityEvaluator {
   private flattenMessages(messages: InternalMessage[]): string {
     const parts: string[] = []
     for (const msg of messages) {
-      if (typeof msg.content === 'string') {
-        parts.push(msg.content)
-      } else if (Array.isArray(msg.content)) {
-        for (const part of msg.content) {
-          if (typeof part === 'object' && part !== null && 'text' in part) {
-            parts.push(String((part as {text: string}).text))
-          }
-        }
-      }
+      parts.push(...this.extractTextParts(msg.content))
 
       // Also include tool call function names (they may appear in summary messages)
       if (msg.toolCalls) {

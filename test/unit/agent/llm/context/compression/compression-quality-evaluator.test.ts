@@ -10,6 +10,40 @@ function makeMessage(role: 'assistant' | 'system' | 'tool' | 'user', content: st
 
 describe('CompressionQualityEvaluator', () => {
   describe('evaluate()', () => {
+    it('should extract user intent from text parts in array content', () => {
+      const evaluator = new CompressionQualityEvaluator()
+      const original = [
+        {
+          content: [
+            {text: 'Review the deployment config before release', type: 'text'},
+          ],
+          role: 'user',
+        } as InternalMessage,
+      ]
+      const compressed = [makeMessage('system', '[Summary] Work completed.')]
+
+      const snapshot = evaluator.evaluate(original, compressed)
+
+      expect(snapshot.dimensions.userIntentClarity).to.equal(0)
+    })
+
+    it('should extract key decisions from assistant text parts in array content', () => {
+      const evaluator = new CompressionQualityEvaluator()
+      const original = [
+        {
+          content: [
+            {text: 'I decided to cache the response locally for speed.', type: 'text'},
+          ],
+          role: 'assistant',
+        } as InternalMessage,
+      ]
+      const compressed = [makeMessage('system', '[Summary] Some work was done.')]
+
+      const snapshot = evaluator.evaluate(original, compressed)
+
+      expect(snapshot.dimensions.factualCompleteness).to.equal(0)
+    })
+
     it('should return perfect scores when all content is preserved', () => {
       const evaluator = new CompressionQualityEvaluator()
       const original = [

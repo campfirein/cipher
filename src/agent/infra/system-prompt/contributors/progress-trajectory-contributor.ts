@@ -7,6 +7,7 @@ import type {SessionProgressTracker} from '../../llm/context/session-progress-tr
 
 /** Hard cap on output characters (~200 tokens at ~4 chars/token). */
 const MAX_OUTPUT_CHARS = 800
+const CLOSING_TAG = '\n</sessionProgress>'
 
 // ---------------------------------------------------------------------------
 // ProgressTrajectoryContributor
@@ -84,7 +85,11 @@ export class ProgressTrajectoryContributor implements SystemPromptContributor {
 
     // Hard-cap output to stay within token budget
     if (output.length > MAX_OUTPUT_CHARS) {
-      output = output.slice(0, MAX_OUTPUT_CHARS - 20) + '\n</sessionProgress>'
+      const withoutClosing = output.replace(/\n<\/sessionProgress>$/, '')
+      const maxBodyChars = MAX_OUTPUT_CHARS - CLOSING_TAG.length
+      const candidate = [...withoutClosing].slice(0, maxBodyChars).join('')
+      const lastLineBreak = candidate.lastIndexOf('\n')
+      output = (lastLineBreak > 0 ? candidate.slice(0, lastLineBreak) : candidate) + CLOSING_TAG
     }
 
     return output

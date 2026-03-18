@@ -144,6 +144,10 @@ describe('ProgressTrajectoryContributor', () => {
 
     expect(content.length).to.be.at.most(800)
     expect(content).to.include('</sessionProgress>')
+    const lines = content.split('\n')
+    const closingTagIndex = lines.lastIndexOf('</sessionProgress>')
+    expect(closingTagIndex).to.be.greaterThan(0)
+    expect(lines[closingTagIndex - 1]).to.match(/\|$/)
   })
 
   it('should have correct id and priority', () => {

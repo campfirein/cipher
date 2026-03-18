@@ -59,15 +59,20 @@ export class ExperienceHookService implements IExperienceHookService {
       const {gateTriggered, meta, preIncrementCount} = await this.process(response)
       settleProcessDone()
 
-      // Background: gate-triggered compaction uses PRE-increment count
-      // (never hits playbook since preIncrementCount won't be on INTERVAL*3 boundary)
-      if (gateTriggered && this.consolidationService) {
-        await this.consolidationService.consolidate(this.store, preIncrementCount).catch(() => {})
-      }
-
-      // Background: cadence-based consolidation uses POST-increment count (unchanged)
-      if (this.consolidationService && meta.curationCount % EXPERIENCE_CONSOLIDATION_INTERVAL === 0) {
-        await this.consolidationService.consolidate(this.store, meta.curationCount).catch(() => {})
+      // Background consolidation:
+      // - Cadence-based consolidation uses POST-increment count so playbook cadence
+      //   remains correct at INTERVAL*3 boundaries.
+      // - Gate-triggered consolidation uses PRE-increment count to avoid accidentally
+      //   including playbook when not on a cadence boundary.
+      // - When both trigger in the same queue slot, cadence subsumes gate so we avoid
+      //   running two back-to-back consolidate() passes over the same files.
+      const cadenceTriggered = meta.curationCount % EXPERIENCE_CONSOLIDATION_INTERVAL === 0
+      if (this.consolidationService) {
+        if (cadenceTriggered) {
+          await this.consolidationService.consolidate(this.store, meta.curationCount).catch(() => {})
+        } else if (gateTriggered) {
+          await this.consolidationService.consolidate(this.store, preIncrementCount).catch(() => {})
+        }
       }
     }).catch(() => {
       settleProcessDone()
@@ -111,6 +116,8 @@ export class ExperienceHookService implements IExperienceHookService {
 
     // 2. Extract typed signals from the agent response
     const signals = extractExperienceSignals(response)
+    const groupedSignals = this.groupByFile(signals)
+    const existingByFile = new Map<string, string[]>()
 
     // 3. Evaluate backpressure gate (Pattern 2) — gate only, no blocking
     let gateTriggered = false
@@ -119,11 +126,11 @@ export class ExperienceHookService implements IExperienceHookService {
       const meta = await this.store.readMeta()
       preIncrementCount = meta.curationCount
       // Compute projected entry counts (existing + incoming unique bullets)
-      const grouped = this.groupByFile(signals)
       let maxProjected = 0
-      for (const [filename, {bullets, section}] of Object.entries(grouped)) {
+      for (const [filename, {bullets, section}] of Object.entries(groupedSignals)) {
         // eslint-disable-next-line no-await-in-loop
         const existing = await this.store.readSectionLines(filename, section)
+        existingByFile.set(filename, existing)
         const existingSet = new Set(existing.map((s) => s.toLowerCase()))
         const newCount = bullets.filter((b) => !existingSet.has(b.toLowerCase())).length
         maxProjected = Math.max(maxProjected, existing.length + newCount)
@@ -137,11 +144,11 @@ export class ExperienceHookService implements IExperienceHookService {
     }
 
     // 4. Group by target file and batch-write after deduplication (parallel across files)
-    const groups = Object.entries(this.groupByFile(signals))
+    const groups = Object.entries(groupedSignals)
 
     await Promise.allSettled(
       groups.map(async ([filename, {bullets, section}]) => {
-        const existing = await this.store.readSectionLines(filename, section)
+        const existing = existingByFile.get(filename) ?? await this.store.readSectionLines(filename, section)
         const existingSet = new Set(existing.map((s) => s.toLowerCase()))
         const newBullets = bullets.filter((b) => !existingSet.has(b.toLowerCase()))
         if (newBullets.length > 0) {

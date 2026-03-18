@@ -14,6 +14,7 @@ import {
   EXPERIENCE_HINTS_FILE,
   EXPERIENCE_LESSONS_FILE,
 } from '../../../../src/server/constants.js'
+import {BackpressureGate} from '../../../../src/server/infra/context-tree/backpressure-gate.js'
 import {ExperienceConsolidationService} from '../../../../src/server/infra/context-tree/experience-consolidation-service.js'
 import {ExperienceHookService} from '../../../../src/server/infra/context-tree/experience-hook-service.js'
 import {ExperienceStore} from '../../../../src/server/infra/context-tree/experience-store.js'
@@ -456,6 +457,34 @@ describe('ExperienceHookService', () => {
       // No error and curation counter still incremented
       const meta = await store.readMeta()
       expect(meta.curationCount).to.equal(EXPERIENCE_CONSOLIDATION_INTERVAL)
+    })
+
+    it('triggers background consolidation when an injected gate fires', async () => {
+      const consolidationService = makeConsolidationService()
+      const gate = new BackpressureGate({maxEntriesPerFile: 1, minConsolidationIntervalSec: 0})
+      const svc = new ExperienceHookService(baseDir, consolidationService, gate)
+
+      await svc.onCurateComplete(buildResponse([{text: 'gate-triggered lesson', type: 'lesson'}]))
+      await Promise.resolve()
+
+      expect(consolidateSpy.calledOnce).to.be.true
+      expect(consolidateSpy.firstCall.args[1]).to.equal(0)
+    })
+
+    it('runs cadence consolidation only once when gate and cadence trigger together', async () => {
+      const consolidationService = makeConsolidationService()
+      const gate = new BackpressureGate({maxEntriesPerFile: 1, minConsolidationIntervalSec: 0})
+      const svc = new ExperienceHookService(baseDir, consolidationService, gate)
+
+      await Promise.all(
+        Array.from({length: EXPERIENCE_CONSOLIDATION_INTERVAL - 1}, () => svc.onCurateComplete('no signals')),
+      )
+
+      await svc.onCurateComplete(buildResponse([{text: 'boundary lesson', type: 'lesson'}]))
+      await Promise.resolve()
+
+      expect(consolidateSpy.callCount).to.equal(1)
+      expect(consolidateSpy.firstCall.args[1]).to.equal(EXPERIENCE_CONSOLIDATION_INTERVAL)
     })
   })
 })
