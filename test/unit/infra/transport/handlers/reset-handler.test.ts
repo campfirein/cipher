@@ -5,6 +5,7 @@ import {restore, stub} from 'sinon'
 
 import type {IContextTreeService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-snapshot-service.js'
+import type {IReviewBackupStore} from '../../../../../src/server/core/interfaces/storage/i-review-backup-store.js'
 import type {ITransportServer} from '../../../../../src/server/core/interfaces/transport/i-transport-server.js'
 
 import {ResetHandler} from '../../../../../src/server/infra/transport/handlers/reset-handler.js'
@@ -41,6 +42,7 @@ function createMockTransport(): SinonStubbedInstance<ITransportServer> & {_handl
 describe('ResetHandler', () => {
   let contextTreeService: SinonStubbedInstance<IContextTreeService>
   let contextTreeSnapshotService: SinonStubbedInstance<IContextTreeSnapshotService>
+  let reviewBackupStore: SinonStubbedInstance<IReviewBackupStore>
   let resolveProjectPath: ReturnType<typeof stub>
   let transport: ReturnType<typeof createMockTransport>
 
@@ -61,6 +63,15 @@ describe('ResetHandler', () => {
       saveSnapshotFromState: stub(),
     }
 
+    reviewBackupStore = {
+      clear: stub().resolves(),
+      delete: stub().resolves(),
+      has: stub().resolves(false),
+      list: stub().resolves([]),
+      read: stub().resolves(null),
+      save: stub().resolves(),
+    } as unknown as SinonStubbedInstance<IReviewBackupStore>
+
     resolveProjectPath = stub().returns('/test/project')
     transport = createMockTransport()
   })
@@ -74,6 +85,7 @@ describe('ResetHandler', () => {
       contextTreeService,
       contextTreeSnapshotService,
       resolveProjectPath,
+      reviewBackupStoreFactory: () => reviewBackupStore,
       transport,
     })
     handler.setup()
@@ -141,6 +153,25 @@ describe('ResetHandler', () => {
       await callExecuteHandler()
 
       expect(contextTreeService.initialize.calledBefore(contextTreeSnapshotService.initEmptySnapshot)).to.be.true
+    })
+
+    it('should clear review backups after resetting context tree', async () => {
+      createHandler()
+      contextTreeService.exists.resolves(true)
+
+      await callExecuteHandler()
+
+      expect(reviewBackupStore.clear.calledOnce).to.be.true
+    })
+
+    it('should succeed even if backup clear throws', async () => {
+      createHandler()
+      contextTreeService.exists.resolves(true)
+      reviewBackupStore.clear.rejects(new Error('disk error'))
+
+      const result = await callExecuteHandler()
+
+      expect(result.success).to.be.true
     })
 
     it('should resolve project path from clientId', async () => {
