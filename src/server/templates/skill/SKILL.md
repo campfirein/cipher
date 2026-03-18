@@ -82,11 +82,11 @@ brv curate view --help
 ### 3. Review Pending Changes
 **Overview:** After a curate operation, some changes may require human review before being applied. Use `brv review` to list, approve, or reject pending operations.
 
-**When to use:**
+**Use this when:**
 - A curate operation reports pending reviews (shown in curate output)
 - The user wants to check, approve, or reject pending changes
 
-**When NOT to use:**
+**Do NOT use this when:**
 - There are no pending reviews (check with `brv review pending` first)
 
 **Commands:**
@@ -111,7 +111,7 @@ Sample output:
 
   To approve all:  brv review approve ddcb3dc6-d957-4a56-b9c3-d0bdc04317f3
   To reject all:   brv review reject ddcb3dc6-d957-4a56-b9c3-d0bdc04317f3
-  Per file:        brv review approve/reject ddcb3dc6-d957-4a56-b9c3-d0bdc04317f3 --file <path> [--file <path>]
+  Per file:        brv review <approve|reject> ddcb3dc6-d957-4a56-b9c3-d0bdc04317f3 --file <path> [--file <path>]
 ```
 
 Each pending task shows: operation type (ADD/UPDATE/DELETE/MERGE/UPSERT), file path, reason, and before/after summaries. High-impact operations are flagged.
