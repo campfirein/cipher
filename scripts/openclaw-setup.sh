@@ -400,7 +400,18 @@ export default function (api) {
 
   api.on("before_prompt_build", async () => {
     const onboardedMarker = join(homedir(), ".openclaw", ".byterover-onboarded");
+  api.on("before_prompt_build", async () => {
+    const onboardedMarker = join(homedir(), ".openclaw", ".byterover-onboarded");
     if (existsSync(onboardedMarker)) return;
+
+    const promptPath = join(
+      homedir(), ".openclaw", "extensions", "byterover-onboarding", "onboarding-prompt.md"
+    );
+
+    if (!existsSync(promptPath)) {
+      api.logger.warn("[byterover-onboarding] onboarding-prompt.md not found — skipping injection.");
+      return;
+    }
 
     const promptPath = join(
       homedir(), ".openclaw", "extensions", "byterover-onboarding", "onboarding-prompt.md"
