@@ -1003,7 +1003,8 @@ export default function (api) {
       }
 
       // No existing context — still inject the curate reminder so agent knows to save new knowledge
-      return { prependContext: curateReminder };
+      // No existing context — skip injection to avoid reminder noise on empty context trees
+      return;
     } catch (err: unknown) {
       const errCode = isErrnoException(err) ? err.code : undefined;
       const errMsg = err instanceof Error ? err.message : String(err);
