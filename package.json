@@ -116,7 +116,7 @@
     "./oclif.manifest.json"
   ],
   "homepage": "https://www.byterover.dev/",
-  "license": "UNLICENSED",
+  "license": "Elastic-2.0",
   "main": "dist/index.js",
   "type": "module",
   "oclif": {
