@@ -1,1 +1,4 @@
 export {SkillConnector} from './skill-connector.js'
+export {SkillExportCoordinator} from './skill-export-coordinator.js'
+export {SkillExportService} from './skill-export-service.js'
+export {SkillKnowledgeBuilder} from './skill-knowledge-builder.js'
