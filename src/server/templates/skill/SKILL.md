@@ -100,19 +100,20 @@ brv review pending
 
 Sample output:
 ```
-⚠  2 operations require review (task: 22a203e5-ac2a-4b77-b8dd-d0ff55c4d810)
+2 operations pending review
 
-    [UPSERT · HIGH IMPACT] - Path: architecture/plugin_system/plugin_system_architecture.md
-    Why:   Documenting potential shift to OCI-based plugin loading
-    After:  Proposed replacement of Jiti-based loading with OCI registry
+  Task: ddcb3dc6-d957-4a56-b9c3-d0bdc04317f3
+  [UPSERT · HIGH IMPACT] - path: architecture/context/context_compression_pipeline.md
+  Why:    Documenting switch to token-budget sliding window
+  After:  Context compression pipeline switching from reactive-overflow to token-budget sliding window in src/agent/infra/llm/context/compression/
 
-    [UPSERT · HIGH IMPACT] - Path: architecture/security/security_audit_engine.md
-    Why:   Documenting proposed merger of security audit and policies
-    After:  Proposed merger into unified Security Policy Engine
+  [UPSERT · HIGH IMPACT] - path: architecture/tools/agent_tool_registry.md
+  Why:    Documenting tool registry rewrite with capability-based permissions
+  After:  Agent tool registry rewrite in src/agent/infra/tools/tool-registry.ts using capability-based permissions
 
-    To approve all:  brv review approve 22a203e5-ac2a-4b77-b8dd-d0ff55c4d810
-    To reject all:   brv review reject 22a203e5-ac2a-4b77-b8dd-d0ff55c4d810
-    Per file:        brv review approve/reject 22a203e5-ac2a-4b77-b8dd-d0ff55c4d810 --file <Path>
+  To approve all:  brv review approve ddcb3dc6-d957-4a56-b9c3-d0bdc04317f3
+  To reject all:   brv review reject ddcb3dc6-d957-4a56-b9c3-d0bdc04317f3
+  Per file:        brv review approve/reject ddcb3dc6-d957-4a56-b9c3-d0bdc04317f3 --file <path> [--file <path>]
 ```
 
 Each pending task shows: operation type (ADD/UPDATE/DELETE/MERGE/UPSERT), file path, reason, and before/after summaries. High-impact operations are flagged.
@@ -122,7 +123,7 @@ Approve all operations for a task (applies the changes):
 brv review approve <taskId>
 ```
 
-Reject all operations for a task (restores files from backup):
+Reject all operations for a task (discards pending changes; restores backup for UPDATE/DELETE operations):
 ```bash
 brv review reject <taskId>
 ```
