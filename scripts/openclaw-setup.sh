@@ -357,6 +357,11 @@ disable_plugin_in_config() {
             process.exit(0);
         }
         delete entries["byterover"];
+        // Also remove from trust list
+        if (Array.isArray(config.plugins?.allow)) {
+            config.plugins.allow = config.plugins.allow.filter(id => id !== "byterover");
+            if (config.plugins.allow.length === 0) delete config.plugins.allow;
+        }
         if (Object.keys(entries).length === 0) delete config.plugins.entries;
         if (config.plugins && Object.keys(config.plugins).length === 0) delete config.plugins;
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
@@ -400,8 +405,6 @@ export default function (api) {
 
   api.on("before_prompt_build", async () => {
     const onboardedMarker = join(homedir(), ".openclaw", ".byterover-onboarded");
-  api.on("before_prompt_build", async () => {
-    const onboardedMarker = join(homedir(), ".openclaw", ".byterover-onboarded");
     if (existsSync(onboardedMarker)) return;
 
     const promptPath = join(
@@ -412,10 +415,6 @@ export default function (api) {
       api.logger.warn("[byterover-onboarding] onboarding-prompt.md not found — skipping injection.");
       return;
     }
-
-    const promptPath = join(
-      homedir(), ".openclaw", "extensions", "byterover-onboarding", "onboarding-prompt.md"
-    );
 
     api.logger.info("[byterover-onboarding] Onboarding not completed — triggering onboarding.");
 
@@ -696,8 +695,6 @@ disable_onboarding_plugin_in_config() {
             config.plugins.allow = config.plugins.allow.filter(id => id !== "byterover-onboarding");
             if (config.plugins.allow.length === 0) delete config.plugins.allow;
         }
-        if (Object.keys(entries).length === 0) delete config.plugins.entries;
-        if (config.plugins && Object.keys(config.plugins).length === 0) delete config.plugins;
         if (Object.keys(entries).length === 0) delete config.plugins.entries;
         if (config.plugins && Object.keys(config.plugins).length === 0) delete config.plugins;
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
@@ -1002,7 +999,6 @@ export default function (api) {
         return { prependContext: injection };
       }
 
-      // No existing context — still inject the curate reminder so agent knows to save new knowledge
       // No existing context — skip injection to avoid reminder noise on empty context trees
       return;
     } catch (err: unknown) {
