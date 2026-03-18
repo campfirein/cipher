@@ -112,9 +112,7 @@ describe('McpConnector', () => {
     })
 
     it('should return config path for Windsurf (global scope)', () => {
-      expect(mcpConnector.getConfigPath('Windsurf')).to.equal(
-        path.join(homedir(), '.codeium/windsurf/mcp_config.json'),
-      )
+      expect(mcpConnector.getConfigPath('Windsurf')).to.equal(path.join(homedir(), '.codeium/windsurf/mcp_config.json'))
     })
 
     it('should return config path for Antigravity (global scope)', () => {
@@ -127,8 +125,11 @@ describe('McpConnector', () => {
       expect(mcpConnector.getConfigPath('Codex')).to.equal(path.join(homedir(), '.codex/config.toml'))
     })
 
-    it('should return empty string for Claude Desktop (manual mode)', () => {
-      expect(mcpConnector.getConfigPath('Claude Desktop')).to.equal('')
+    it('should return platform-specific config path for Claude Desktop', () => {
+      const configPath = mcpConnector.getConfigPath('Claude Desktop')
+      expect(configPath).to.not.equal('')
+      expect(configPath).to.include('Claude')
+      expect(configPath).to.include('claude_desktop_config.json')
     })
   })
 
@@ -411,7 +412,7 @@ describe('McpConnector', () => {
   })
 
   describe('manual mode agents', () => {
-    const manualAgents: McpSupportedAgent[] = ['Claude Desktop', 'Cline', 'Augment Code', 'Qoder', 'Trae.ai', 'Warp']
+    const manualAgents: McpSupportedAgent[] = ['Cline', 'Augment Code', 'Qoder', 'Trae.ai', 'Warp']
 
     for (const agent of manualAgents) {
       it(`should return manual setup instructions for ${agent}`, async () => {
