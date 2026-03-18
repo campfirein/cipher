@@ -93,7 +93,25 @@ brv providers list
 brv providers connect openai --api-key sk-xxx --model gpt-4.1
 ```
 
-### 4. Cloud Sync (Optional)
+### 4. Project Locations
+**Overview:** List registered projects and their context tree paths. Returns project metadata including initialization status and active state. Use `-f json` for machine-readable output.
+
+**Use this when:**
+- You need to find a project's context tree path
+- You need to check which projects are registered
+- You need to verify if a project is initialized
+
+**Do NOT use this when:**
+- You already know the project path from your current context
+- You need project content rather than metadata — use `brv query` instead
+
+```bash
+brv locations -f json
+```
+
+JSON fields: `projectPath`, `contextTreePath`, `isCurrent`, `isActive`, `isInitialized`.
+
+### 5. Cloud Sync (Optional)
 **Overview:** Sync your local knowledge with a team via ByteRover's cloud service. Requires ByteRover authentication.
 
 **Setup steps:**

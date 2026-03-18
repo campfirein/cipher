@@ -248,7 +248,7 @@ export async function createCipherAgentServices(
   const historyStorage = new GranularHistoryStorage(messageStorage)
 
   // CompactionService for context overflow management
-  const tokenizer = new GeminiTokenizer(config.model ?? 'gemini-3.1-flash-lite-preview')
+  const tokenizer = new GeminiTokenizer(config.model ?? 'gemini-3-flash-preview')
   const compactionService = new CompactionService(messageStorage, tokenizer, {
     overflowThreshold: 0.85,    // 85% triggers compaction check
     protectedTurns: 2,          // Protect last 2 user turns from pruning
@@ -340,7 +340,7 @@ export function createSessionServices(
     })
     const escalatedStrategy = new EscalatedCompressionStrategy({
       generator: compactionGenerator,
-      model: llmConfig.model ?? 'gemini-3.1-flash-lite-preview',
+      model: llmConfig.model ?? 'gemini-3-flash-preview',
     })
 
     return new AgentLLMService(
@@ -350,7 +350,7 @@ export function createSessionServices(
         maxInputTokens: llmConfig.maxInputTokens,
         maxIterations: llmConfig.maxIterations ?? 50,
         maxTokens: llmConfig.maxTokens ?? 8192,
-        model: llmConfig.model ?? 'gemini-3.1-flash-lite-preview',
+        model: llmConfig.model ?? 'gemini-3-flash-preview',
         provider,
         temperature: llmConfig.temperature ?? 0.7,
         verbose: llmConfig.verbose ?? false,

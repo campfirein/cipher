@@ -8,6 +8,7 @@
 import type {IConnectorManager} from '../../core/interfaces/connectors/i-connector-manager.js'
 import type {IProviderConfigStore} from '../../core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keychain-store.js'
+import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 import type {ProjectBroadcaster, ProjectPathResolver} from '../transport/handlers/handler-types.js'
@@ -43,6 +44,7 @@ import {
   ConnectorsHandler,
   HubHandler,
   InitHandler,
+  LocationsHandler,
   ModelHandler,
   ProviderHandler,
   PullHandler,
@@ -56,7 +58,9 @@ import {HttpUserService} from '../user/http-user-service.js'
 export interface FeatureHandlersOptions {
   authStateStore: IAuthStateStore
   broadcastToProject: ProjectBroadcaster
+  getActiveProjectPaths: () => string[]
   log: (msg: string) => void
+  projectRegistry: IProjectRegistry
   providerConfigStore: IProviderConfigStore
   providerKeychainStore: IProviderKeychainStore
   resolveProjectPath: ProjectPathResolver
@@ -70,7 +74,9 @@ export interface FeatureHandlersOptions {
 export async function setupFeatureHandlers({
   authStateStore,
   broadcastToProject,
+  getActiveProjectPaths,
   log,
+  projectRegistry,
   providerConfigStore,
   providerKeychainStore,
   resolveProjectPath,
@@ -137,6 +143,14 @@ export async function setupFeatureHandlers({
     projectConfigStore,
     resolveProjectPath,
     tokenStore,
+    transport,
+  }).setup()
+
+  new LocationsHandler({
+    contextTreeService,
+    getActiveProjectPaths,
+    projectRegistry,
+    resolveProjectPath,
     transport,
   }).setup()
 
