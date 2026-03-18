@@ -9,6 +9,7 @@ describe('getClaudeDesktopConfigPath', () => {
   describe('macOS (darwin)', () => {
     it('should return ~/Library/Application Support/Claude path', () => {
       const result = getClaudeDesktopConfigPath({
+        env: {},
         homedir: () => '/Users/testuser',
         platform: () => 'darwin',
       })
@@ -18,24 +19,9 @@ describe('getClaudeDesktopConfigPath', () => {
   })
 
   describe('Windows (win32)', () => {
-    let originalAppData: string | undefined
-
-    beforeEach(() => {
-      originalAppData = process.env.APPDATA
-    })
-
-    afterEach(() => {
-      if (originalAppData === undefined) {
-        delete process.env.APPDATA
-      } else {
-        process.env.APPDATA = originalAppData
-      }
-    })
-
     it('should use APPDATA when set', () => {
-      process.env.APPDATA = String.raw`C:\Users\Test\AppData\Roaming`
-
       const result = getClaudeDesktopConfigPath({
+        env: {APPDATA: String.raw`C:\Users\Test\AppData\Roaming`},
         homedir: () => String.raw`C:\Users\Test`,
         platform: () => 'win32',
       })
@@ -44,9 +30,8 @@ describe('getClaudeDesktopConfigPath', () => {
     })
 
     it('should fall back to ~/AppData/Roaming when APPDATA is not set', () => {
-      delete process.env.APPDATA
-
       const result = getClaudeDesktopConfigPath({
+        env: {},
         homedir: () => String.raw`C:\Users\Test`,
         platform: () => 'win32',
       })
@@ -56,24 +41,9 @@ describe('getClaudeDesktopConfigPath', () => {
   })
 
   describe('Linux', () => {
-    let originalXdg: string | undefined
-
-    beforeEach(() => {
-      originalXdg = process.env.XDG_CONFIG_HOME
-    })
-
-    afterEach(() => {
-      if (originalXdg === undefined) {
-        delete process.env.XDG_CONFIG_HOME
-      } else {
-        process.env.XDG_CONFIG_HOME = originalXdg
-      }
-    })
-
     it('should return ~/.config/Claude path by default', () => {
-      delete process.env.XDG_CONFIG_HOME
-
       const result = getClaudeDesktopConfigPath({
+        env: {},
         homedir: () => '/home/testuser',
         platform: () => 'linux',
       })
@@ -82,14 +52,25 @@ describe('getClaudeDesktopConfigPath', () => {
     })
 
     it('should use XDG_CONFIG_HOME when set', () => {
-      process.env.XDG_CONFIG_HOME = '/custom/config'
-
       const result = getClaudeDesktopConfigPath({
+        env: {XDG_CONFIG_HOME: '/custom/config'},
         homedir: () => '/home/testuser',
         platform: () => 'linux',
       })
 
       expect(result).to.equal(join('/custom/config', 'Claude', CONFIG_FILE))
+    })
+  })
+
+  describe('unsupported platform', () => {
+    it('should fall back to ~/.config/Claude path', () => {
+      const result = getClaudeDesktopConfigPath({
+        env: {},
+        homedir: () => '/home/testuser',
+        platform: () => 'freebsd' as NodeJS.Platform,
+      })
+
+      expect(result).to.equal(join('/home/testuser', '.config', 'Claude', CONFIG_FILE))
     })
   })
 })

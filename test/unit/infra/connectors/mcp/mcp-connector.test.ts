@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {mkdir, rm, writeFile} from 'node:fs/promises'
+import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {homedir, tmpdir} from 'node:os'
 import path from 'node:path'
 
@@ -9,6 +9,7 @@ import type {
   McpSupportedAgent,
 } from '../../../../../src/server/infra/connectors/mcp/mcp-connector-config.js'
 
+import {getClaudeDesktopConfigPath} from '../../../../../src/server/infra/connectors/mcp/claude-desktop-config-path.js'
 import {MCP_CONNECTOR_CONFIGS} from '../../../../../src/server/infra/connectors/mcp/mcp-connector-config.js'
 import {McpConnector} from '../../../../../src/server/infra/connectors/mcp/mcp-connector.js'
 import {BRV_RULE_MARKERS} from '../../../../../src/server/infra/connectors/shared/constants.js'
@@ -127,9 +128,7 @@ describe('McpConnector', () => {
 
     it('should return platform-specific config path for Claude Desktop', () => {
       const configPath = mcpConnector.getConfigPath('Claude Desktop')
-      expect(configPath).to.not.equal('')
-      expect(configPath).to.include('Claude')
-      expect(configPath).to.include('claude_desktop_config.json')
+      expect(configPath).to.equal(getClaudeDesktopConfigPath())
     })
   })
 
@@ -310,6 +309,139 @@ describe('McpConnector', () => {
       })
     })
   }
+
+  describe('Claude Desktop (configPathResolver)', () => {
+    const configPath = getClaudeDesktopConfigPath()
+    const configDir = path.dirname(configPath)
+    const {serverConfig} = MCP_CONNECTOR_CONFIGS['Claude Desktop']
+    let originalContent: null | string = null
+
+    beforeEach(async () => {
+      try {
+        originalContent = await readFile(configPath, 'utf8')
+      } catch {
+        originalContent = null
+      }
+    })
+
+    afterEach(async () => {
+      if (originalContent === null) {
+        try {
+          await rm(configPath, {force: true})
+        } catch {
+          // Ignore if file doesn't exist
+        }
+      } else {
+        await writeFile(configPath, originalContent, 'utf8')
+      }
+    })
+
+    describe('install', () => {
+      it('should create new config file if not exists', async () => {
+        // Ensure config file doesn't exist for this test
+        await rm(configPath, {force: true})
+
+        const result = await mcpConnector.install('Claude Desktop')
+
+        expect(result.success).to.be.true
+        expect(result.alreadyInstalled).to.be.false
+        expect(result.configPath).to.equal(configPath)
+
+        const content = await fileService.read(configPath)
+        const json = JSON.parse(content)
+        expect(json.mcpServers.brv).to.deep.equal(serverConfig)
+      })
+
+      it('should add MCP server to existing config', async () => {
+        const existingConfig = {someOtherSetting: true}
+        await mkdir(configDir, {recursive: true})
+        await writeFile(configPath, JSON.stringify(existingConfig))
+
+        const result = await mcpConnector.install('Claude Desktop')
+
+        expect(result.success).to.be.true
+        expect(result.alreadyInstalled).to.be.false
+
+        const content = await fileService.read(configPath)
+        const json = JSON.parse(content)
+        expect(json.someOtherSetting).to.be.true
+        expect(json.mcpServers.brv).to.deep.equal(serverConfig)
+      })
+
+      it('should return alreadyInstalled if server exists', async () => {
+        const existingConfig = {mcpServers: {brv: serverConfig}}
+        await mkdir(configDir, {recursive: true})
+        await writeFile(configPath, JSON.stringify(existingConfig))
+
+        const result = await mcpConnector.install('Claude Desktop')
+
+        expect(result.success).to.be.true
+        expect(result.alreadyInstalled).to.be.true
+      })
+    })
+
+    describe('status', () => {
+      it('should return configExists false if file not exists', async () => {
+        await rm(configPath, {force: true})
+
+        const result = await mcpConnector.status('Claude Desktop')
+
+        expect(result.configExists).to.be.false
+        expect(result.installed).to.be.false
+      })
+
+      it('should return installed true if server exists', async () => {
+        const existingConfig = {mcpServers: {brv: serverConfig}}
+        await mkdir(configDir, {recursive: true})
+        await writeFile(configPath, JSON.stringify(existingConfig))
+
+        const result = await mcpConnector.status('Claude Desktop')
+
+        expect(result.configExists).to.be.true
+        expect(result.installed).to.be.true
+      })
+    })
+
+    describe('uninstall', () => {
+      it('should return wasInstalled false if config not exists', async () => {
+        await rm(configPath, {force: true})
+
+        const result = await mcpConnector.uninstall('Claude Desktop')
+
+        expect(result.success).to.be.true
+        expect(result.wasInstalled).to.be.false
+      })
+
+      it('should remove only our server and preserve others', async () => {
+        const existingConfig = {
+          mcpServers: {
+            brv: serverConfig,
+            'other-server': {
+              command: 'other-cmd',
+              args: [], // eslint-disable-line perfectionist/sort-objects
+            },
+          },
+          otherSetting: 'preserved',
+        }
+        await mkdir(configDir, {recursive: true})
+        await writeFile(configPath, JSON.stringify(existingConfig))
+
+        const result = await mcpConnector.uninstall('Claude Desktop')
+
+        expect(result.success).to.be.true
+        expect(result.wasInstalled).to.be.true
+
+        const content = await fileService.read(configPath)
+        const json = JSON.parse(content)
+        expect(json.mcpServers.brv).to.be.undefined
+        expect(json.mcpServers['other-server']).to.deep.equal({
+          command: 'other-cmd',
+          args: [], // eslint-disable-line perfectionist/sort-objects
+        })
+        expect(json.otherSetting).to.equal('preserved')
+      })
+    })
+  })
 
   describe('unsupported agent', () => {
     it('should return failure for unsupported agent on install', async () => {

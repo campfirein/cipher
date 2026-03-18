@@ -8,11 +8,13 @@ const CLAUDE_DESKTOP_DIR = 'Claude'
  * Dependencies for platform detection, injectable for testing.
  */
 type PlatformDeps = {
+  env: Record<string, string | undefined>
   homedir: () => string
   platform: () => NodeJS.Platform
 }
 
 const defaultDeps: PlatformDeps = {
+  env: process.env,
   homedir,
   platform,
 }
@@ -30,7 +32,7 @@ export const getClaudeDesktopConfigPath = (deps: PlatformDeps = defaultDeps): st
   const currentPlatform = deps.platform()
 
   if (currentPlatform === 'win32') {
-    const appData = process.env.APPDATA
+    const appData = deps.env.APPDATA
     if (appData !== undefined) {
       return join(appData, CLAUDE_DESKTOP_DIR, CLAUDE_DESKTOP_CONFIG_FILE)
     }
@@ -44,12 +46,12 @@ export const getClaudeDesktopConfigPath = (deps: PlatformDeps = defaultDeps): st
 
   // Linux: respect XDG_CONFIG_HOME if set
   if (currentPlatform === 'linux') {
-    const xdgConfigHome = process.env.XDG_CONFIG_HOME
+    const xdgConfigHome = deps.env.XDG_CONFIG_HOME
     if (xdgConfigHome !== undefined) {
       return join(xdgConfigHome, CLAUDE_DESKTOP_DIR, CLAUDE_DESKTOP_CONFIG_FILE)
     }
   }
 
-  // Linux default
+  // Default fallback (Linux and other platforms)
   return join(deps.homedir(), '.config', CLAUDE_DESKTOP_DIR, CLAUDE_DESKTOP_CONFIG_FILE)
 }
