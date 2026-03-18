@@ -31,6 +31,12 @@ type ExperienceHookServiceOptions = {
  */
 export class ExperienceHookService implements IExperienceHookService {
   /**
+   * Project-scoped export queues.
+   * Kept separate from the main curation queue so slow SKILL.md sync I/O does
+   * not delay later onCurateComplete() calls from reaching processDone.
+   */
+  private static readonly exportQueues = new Map<string, Promise<void>>()
+  /**
    * Project-scoped serialization queues.
    * Keyed by resolved absolute project path so that all instances for the same
    * project share one queue, preventing concurrent read-modify-write races on
@@ -55,8 +61,10 @@ export class ExperienceHookService implements IExperienceHookService {
   /**
    * Enqueue processing of a completed curation response.
    * Returns a promise that resolves when this specific call's curation work is done.
-   * Background consolidation may continue after this promise settles, but it still
+   * Background consolidation may continue after this promise settles and still
    * remains on the shared project queue so later calls do not race with it.
+   * Skill export is scheduled on a separate project-scoped queue after
+   * consolidation so export I/O never delays later curate completions.
    * Never rejects — errors are swallowed inside process().
    */
   onCurateComplete(response: string): Promise<void> {
@@ -87,9 +95,9 @@ export class ExperienceHookService implements IExperienceHookService {
 
       // Background skill export — sync accumulated experience into agent SKILL.md files.
       // Runs after consolidation so the exported knowledge reflects the latest state.
-      // Never delays curate completion (processDone already settled above).
+      // Never delays curate completion or later curation processing.
       if (this.exportCoordinator) {
-        await this.exportCoordinator.buildAndSync().catch(() => {})
+        this.enqueueExport()
       }
     }).catch(() => {
       settleProcessDone()
@@ -106,6 +114,20 @@ export class ExperienceHookService implements IExperienceHookService {
     })
 
     return processDone
+  }
+
+  private enqueueExport(): void {
+    const current = ExperienceHookService.exportQueues.get(this.projectKey) ?? Promise.resolve()
+    const next = current.then(async () => {
+      await this.exportCoordinator?.buildAndSync().catch(() => {})
+    }).catch(() => {})
+
+    ExperienceHookService.exportQueues.set(this.projectKey, next)
+    next.then(() => {
+      if (ExperienceHookService.exportQueues.get(this.projectKey) === next) {
+        ExperienceHookService.exportQueues.delete(this.projectKey)
+      }
+    })
   }
 
   private groupByFile(signals: ExperienceSignal[]): Record<string, {bullets: string[]; section: string}> {

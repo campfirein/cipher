@@ -111,13 +111,9 @@ export class SkillKnowledgeBuilder {
   // ---------------------------------------------------------------------------
 
   private async readAndClean(filename: string, section: string): Promise<string[]> {
-    try {
-      const bullets = await this.store.readSectionLines(filename, section)
+    const bullets = await this.store.readSectionLines(filename, section)
 
-      return cleanExperienceBullets(bullets)
-    } catch {
-      return []
-    }
+    return cleanExperienceBullets(bullets)
   }
 
   private renderBlock(data: SkillExportData): string {

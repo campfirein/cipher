@@ -5,6 +5,7 @@ import {join, resolve} from 'node:path'
 import sinon from 'sinon'
 
 import type {IConsolidationLlm} from '../../../../src/server/core/interfaces/experience/i-consolidation-llm.js'
+import type {SkillExportCoordinator} from '../../../../src/server/infra/connectors/skill/skill-export-coordinator.js'
 
 import {
   BRV_DIR,
@@ -309,6 +310,61 @@ describe('ExperienceHookService', () => {
         setTimeout(resolve, 0)
       })
       expect(queues.has(key)).to.be.false
+    })
+
+    it('process() resolves before export completes (fire-and-forget)', async () => {
+      let exportResolved = false
+      const exportCoordinator = {
+        buildAndSync: sinon.stub().callsFake(async () => {
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, 20)
+          })
+          exportResolved = true
+          return {failed: [], updated: []}
+        }),
+      } as unknown as SkillExportCoordinator
+
+      const svc = new ExperienceHookService({baseDirectory: baseDir, exportCoordinator})
+
+      await svc.onCurateComplete('no signals')
+
+      expect(exportResolved).to.be.false
+
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 25)
+      })
+    })
+
+    it('does not serialize later curations behind in-flight export', async () => {
+      let releaseFirstExport!: () => void
+      const buildAndSync = sinon.stub()
+
+      buildAndSync.onFirstCall().callsFake(
+        () =>
+          new Promise((resolve) => {
+            releaseFirstExport = () => resolve({failed: [], updated: []})
+          }),
+      )
+      buildAndSync.onSecondCall().resolves({failed: [], updated: []})
+
+      const exportCoordinator = {buildAndSync} as unknown as SkillExportCoordinator
+      const svc = new ExperienceHookService({baseDirectory: baseDir, exportCoordinator})
+
+      await svc.onCurateComplete('no signals')
+      await Promise.resolve()
+      expect(buildAndSync.calledOnce).to.be.true
+
+      const laterResult = Promise.race([
+        svc.onCurateComplete(buildResponse([{text: 'later while export is in-flight', type: 'lesson'}])).then(() => 'resolved'),
+        new Promise<'timed-out'>((resolve) => {
+          setTimeout(() => resolve('timed-out'), 25)
+        }),
+      ])
+
+      expect(await laterResult).to.equal('resolved')
+
+      releaseFirstExport()
+      await Promise.resolve()
     })
   })
 

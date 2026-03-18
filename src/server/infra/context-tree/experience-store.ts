@@ -87,6 +87,10 @@ function appendBulletsToSection(content: string, sectionHeader: string, bullets:
   return content.slice(0, insertAt) + newLines + content.slice(insertAt)
 }
 
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error
+}
+
 // ---------------------------------------------------------------------------
 // ExperienceStore
 // ---------------------------------------------------------------------------
@@ -265,6 +269,8 @@ export class ExperienceStore {
   /**
    * Read bullet lines from a named section, stripped of the leading "- ".
    * Returns an empty array if the file or section does not exist.
+   * Re-throws non-ENOENT read errors so callers do not mistake I/O failures
+   * for genuinely empty knowledge.
    * Used by ExperienceHookService for in-memory deduplication.
    */
   async readSectionLines(filename: string, section: string): Promise<string[]> {
@@ -273,7 +279,11 @@ export class ExperienceStore {
     let content: string
     try {
       content = await DirectoryManager.readFile(filePath)
-    } catch {
+    } catch (error) {
+      if (!isErrnoException(error) || error.code !== 'ENOENT') {
+        throw error
+      }
+
       return []
     }
 

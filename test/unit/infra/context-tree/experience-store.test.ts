@@ -2,6 +2,7 @@ import {expect} from 'chai'
 import {mkdir, readFile, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+import sinon from 'sinon'
 
 import {
   BRV_DIR,
@@ -13,6 +14,7 @@ import {
   EXPERIENCE_META_FILE,
   EXPERIENCE_PLAYBOOK_FILE,
 } from '../../../../src/server/constants.js'
+import {DirectoryManager} from '../../../../src/server/core/domain/knowledge/directory-manager.js'
 import {parseFrontmatterScoring} from '../../../../src/server/core/domain/knowledge/markdown-writer.js'
 import {EXPERIENCE_SECTIONS, ExperienceStore} from '../../../../src/server/infra/context-tree/experience-store.js'
 
@@ -234,6 +236,22 @@ describe('ExperienceStore', () => {
     it('returns empty array when file does not exist', async () => {
       const lines = await store.readSectionLines('nonexistent.md', 'Facts')
       expect(lines).to.deep.equal([])
+    })
+
+    it('re-throws non-ENOENT read errors instead of treating them as empty', async () => {
+      const readStub = sinon.stub(DirectoryManager, 'readFile')
+      const eaccesError = new Error('permission denied')
+      ;(eaccesError as NodeJS.ErrnoException).code = 'EACCES'
+      readStub.rejects(eaccesError)
+
+      try {
+        await store.readSectionLines(EXPERIENCE_LESSONS_FILE, 'Facts')
+        expect.fail('expected readSectionLines() to throw')
+      } catch (error) {
+        expect((error as NodeJS.ErrnoException).code).to.equal('EACCES')
+      } finally {
+        readStub.restore()
+      }
     })
 
     it('returns empty array when section has no bullets', async () => {
