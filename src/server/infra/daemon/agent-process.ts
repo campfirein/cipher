@@ -394,9 +394,12 @@ async function start(): Promise<void> {
     agentLog('Skill export wiring failed — curations will proceed without SKILL.md export')
   }
 
-  const experienceHookService = new ExperienceHookService(
-    projectPath, consolidationService, gate, {exportCoordinator},
-  )
+  const experienceHookService = new ExperienceHookService({
+    baseDirectory: projectPath,
+    consolidationService,
+    exportCoordinator,
+    gate,
+  })
   const curateExecutor = new CurateExecutor(undefined, experienceHookService)
   const folderPackService = new FolderPackService(fileSystemService)
   await folderPackService.initialize()

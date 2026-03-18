@@ -15,7 +15,7 @@ import {MAIN_SKILL_FILE_NAME} from './skill-connector-config.js'
 // ---------------------------------------------------------------------------
 
 export interface SkillExportServiceOptions {
-  /** Used only for spliceIntoContent() — the knowledge block is pre-built by the caller. */
+  /** Provides spliceIntoContent() for merging generated blocks into existing SKILL.md content. */
   builder: SkillKnowledgeBuilder
   fileService: IFileService
   skillConnector: SkillConnector

@@ -9,6 +9,13 @@ import {EXPERIENCE_CONSOLIDATION_INTERVAL} from '../../constants.js'
 import {type ExperienceSignal, extractExperienceSignals, signalTarget} from './experience-extractor.js'
 import {type ExperienceMeta, ExperienceStore} from './experience-store.js'
 
+type ExperienceHookServiceOptions = {
+  baseDirectory: string
+  consolidationService?: ExperienceConsolidationService
+  exportCoordinator?: SkillExportCoordinator
+  gate?: BackpressureGate
+}
+
 /**
  * ExperienceHookService — default implementation of IExperienceHookService.
  *
@@ -37,17 +44,12 @@ export class ExperienceHookService implements IExperienceHookService {
   private readonly projectKey: string
   private readonly store: ExperienceStore
 
-  constructor(
-    baseDirectory: string,
-    consolidationService?: ExperienceConsolidationService,
-    gate?: BackpressureGate,
-    options?: {exportCoordinator?: SkillExportCoordinator},
-  ) {
-    this.projectKey = resolve(baseDirectory)
-    this.store = new ExperienceStore(baseDirectory)
-    this.consolidationService = consolidationService
-    this.gate = gate
-    this.exportCoordinator = options?.exportCoordinator
+  constructor(options: ExperienceHookServiceOptions) {
+    this.projectKey = resolve(options.baseDirectory)
+    this.store = new ExperienceStore(options.baseDirectory)
+    this.consolidationService = options.consolidationService
+    this.gate = options.gate
+    this.exportCoordinator = options.exportCoordinator
   }
 
   /**
