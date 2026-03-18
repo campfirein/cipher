@@ -192,6 +192,7 @@ export async function setupFeatureHandlers({
     contextTreeService,
     contextTreeSnapshotService,
     resolveProjectPath,
+    reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
     transport,
   }).setup()
 

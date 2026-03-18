@@ -30,11 +30,14 @@ export class FileReviewBackupStore implements IReviewBackupStore {
   }
 
   async delete(relativePath: string): Promise<void> {
+    const absPath = join(this.backupDir, relativePath)
     try {
-      await rm(join(this.backupDir, relativePath))
+      await rm(absPath)
     } catch {
       // File may not exist — that's fine
     }
+
+    await this.pruneEmptyDirs(dirname(absPath))
   }
 
   async has(relativePath: string): Promise<boolean> {
@@ -94,5 +97,23 @@ export class FileReviewBackupStore implements IReviewBackupStore {
 
     await mkdir(dirname(backupPath), {recursive: true})
     await writeFile(backupPath, content, 'utf8')
+  }
+
+  /**
+   * Remove empty ancestor directories up to and including the backup root.
+   * Called after each file deletion to keep the directory tree clean.
+   */
+  private async pruneEmptyDirs(dir: string): Promise<void> {
+    if (!dir.startsWith(this.backupDir)) return
+
+    try {
+      const entries = await readdir(dir)
+      if (entries.length > 0) return
+      await rm(dir, {recursive: true})
+    } catch {
+      return
+    }
+
+    await this.pruneEmptyDirs(dirname(dir))
   }
 }
