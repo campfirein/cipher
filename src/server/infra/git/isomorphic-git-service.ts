@@ -43,6 +43,9 @@ import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-sto
 import {GitAuthError, GitError} from '../../core/domain/errors/git-error.js'
 import {gitHttpWrapper as http} from './git-http-wrapper.js'
 
+/** Max commit depth for ahead/behind calculation. Counts beyond this are truncated. */
+const MAX_AHEAD_BEHIND_DEPTH = 500
+
 /** Shape of isomorphic-git's MergeConflictError.data property. */
 type IsomorphicGitConflictData = {
   bothModified: string[]
@@ -221,8 +224,8 @@ export class IsomorphicGitService implements IGitService {
     if (localSha === remoteSha) return {ahead: 0, behind: 0}
 
     const [localLog, remoteLog] = await Promise.all([
-      git.log({depth: 100, dir, fs, ref: params.localRef}).catch(() => []),
-      git.log({depth: 100, dir, fs, ref: params.remoteRef}).catch(() => []),
+      git.log({depth: MAX_AHEAD_BEHIND_DEPTH, dir, fs, ref: params.localRef}).catch(() => []),
+      git.log({depth: MAX_AHEAD_BEHIND_DEPTH, dir, fs, ref: params.remoteRef}).catch(() => []),
     ])
 
     const localShas = new Set(localLog.map((c) => c.oid))
