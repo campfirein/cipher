@@ -198,6 +198,25 @@ describe('ExperienceConsolidationService', () => {
       expect(new Date(updatedAtMatch![1]).getTime()).to.be.greaterThanOrEqual(before)
     })
 
+    it('salvages valid strings when LLM returns a mixed array with non-string elements', async () => {
+      const llm = makeLlm('["keep this", null, "also keep", 42]')
+      const store = makeStore()
+      const section = EXPERIENCE_SECTIONS[EXPERIENCE_LESSONS_FILE]
+      const bullets = ['lesson A', 'lesson B']
+      ;(store.readFile as SinonStub).callsFake((filename: string) =>
+        Promise.resolve(filename === EXPERIENCE_LESSONS_FILE ? buildContent(section, bullets) : buildContent('Other', [])),
+      )
+      const service = new ExperienceConsolidationService(llm)
+
+      await service.consolidate(store, EXPERIENCE_CONSOLIDATION_INTERVAL)
+
+      const writtenContent = (store.writeFile as SinonStub).firstCall.args[1] as string
+      expect(writtenContent).to.include('- keep this')
+      expect(writtenContent).to.include('- also keep')
+      expect(writtenContent).to.not.include('null')
+      expect(writtenContent).to.not.include('42')
+    })
+
     it('falls back to markdown bullet parsing when LLM returns a bulleted list', async () => {
       const llm = makeLlm('- refined bullet one\n- refined bullet two')
       const store = makeStore()

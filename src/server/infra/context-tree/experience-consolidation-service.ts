@@ -45,7 +45,10 @@ Return ONLY a JSON array of strings (the refined bullet texts):`
 /** Parser for extracting string arrays from LLM consolidation responses. */
 const bulletParser = new MultiStrategyParser<string[]>({
   enabledTiers: ['json-block', 'raw-json'],
-  validator: (v): v is string[] => Array.isArray(v) && v.every((s) => typeof s === 'string'),
+  // Accept arrays with at least one string; parseBullets filters non-strings.
+  // Using .some() instead of .every() so mixed arrays like ["keep", null, "also keep"]
+  // are accepted rather than silently dropped to the markdown fallback.
+  validator: (v): v is string[] => Array.isArray(v) && v.some((s) => typeof s === 'string'),
 })
 
 /**
@@ -57,7 +60,8 @@ function parseBullets(response: string): string[] {
   // Try structured parsing first
   const result = bulletParser.parse(response)
   if (result) {
-    return result.parsed.filter((s) => s.trim().length > 0)
+    return (result.parsed as unknown[])
+      .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
   }
 
   // Markdown bullet fallback
@@ -86,6 +90,9 @@ function replaceSectionContent(content: string, section: string, bullets: string
   return content.slice(0, bodyStart) + bulletBlock + after
 }
 
+// NOTE: This duplicates the section-parsing logic in ExperienceStore.readSectionLines.
+// If parsing rules change (e.g. heading level, bullet markers), both sites must be updated.
+// Worth extracting a shared utility when convenient.
 function readSectionLinesFromContent(content: string, section: string): string[] {
   const marker = `\n## ${section}\n`
   const start = content.indexOf(marker)
