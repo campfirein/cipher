@@ -72,5 +72,15 @@ describe('getClaudeDesktopConfigPath', () => {
 
       expect(result).to.equal(join('/home/testuser', '.config', 'Claude', CONFIG_FILE))
     })
+
+    it('should respect XDG_CONFIG_HOME on non-linux platforms', () => {
+      const result = getClaudeDesktopConfigPath({
+        env: {XDG_CONFIG_HOME: '/custom/config'},
+        homedir: () => '/home/testuser',
+        platform: () => 'freebsd' as NodeJS.Platform,
+      })
+
+      expect(result).to.equal(join('/custom/config', 'Claude', CONFIG_FILE))
+    })
   })
 })

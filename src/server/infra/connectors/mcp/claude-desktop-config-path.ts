@@ -44,12 +44,10 @@ export const getClaudeDesktopConfigPath = (deps: PlatformDeps = defaultDeps): st
     return join(deps.homedir(), 'Library', 'Application Support', CLAUDE_DESKTOP_DIR, CLAUDE_DESKTOP_CONFIG_FILE)
   }
 
-  // Linux: respect XDG_CONFIG_HOME if set
-  if (currentPlatform === 'linux') {
-    const xdgConfigHome = deps.env.XDG_CONFIG_HOME
-    if (xdgConfigHome !== undefined) {
-      return join(xdgConfigHome, CLAUDE_DESKTOP_DIR, CLAUDE_DESKTOP_CONFIG_FILE)
-    }
+  // Linux and other platforms: respect XDG_CONFIG_HOME if set
+  const xdgConfigHome = deps.env.XDG_CONFIG_HOME
+  if (xdgConfigHome !== undefined) {
+    return join(xdgConfigHome, CLAUDE_DESKTOP_DIR, CLAUDE_DESKTOP_CONFIG_FILE)
   }
 
   // Default fallback (Linux and other platforms)

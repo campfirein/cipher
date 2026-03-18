@@ -1,8 +1,9 @@
 import {expect} from 'chai'
-import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
+import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {homedir, tmpdir} from 'node:os'
 import path from 'node:path'
 
+import type {IFileService} from '../../../../../src/server/core/interfaces/services/i-file-service.js'
 import type {IRuleTemplateService} from '../../../../../src/server/core/interfaces/services/i-rule-template-service.js'
 import type {
   JsonMcpConnectorConfig,
@@ -311,69 +312,71 @@ describe('McpConnector', () => {
   }
 
   describe('Claude Desktop (configPathResolver)', () => {
-    const configPath = getClaudeDesktopConfigPath()
-    const configDir = path.dirname(configPath)
     const {serverConfig} = MCP_CONNECTOR_CONFIGS['Claude Desktop']
-    let originalContent: null | string = null
+    let files: Map<string, string>
+    let desktopConnector: McpConnector
+    let configPath: string
 
-    beforeEach(async () => {
-      try {
-        originalContent = await readFile(configPath, 'utf8')
-      } catch {
-        originalContent = null
+    beforeEach(() => {
+      configPath = getClaudeDesktopConfigPath()
+      files = new Map()
+      const stubFileService: IFileService = {
+        async createBackup() {
+          return ''
+        },
+        async delete(p) {
+          files.delete(p)
+        },
+        async deleteDirectory() {},
+        async exists(p) {
+          return files.has(p)
+        },
+        async read(p) {
+          const c = files.get(p)
+          if (c === undefined) throw new Error('ENOENT')
+          return c
+        },
+        async replaceContent() {},
+        async write(content, p) {
+          files.set(p, content)
+        },
       }
-    })
-
-    afterEach(async () => {
-      if (originalContent === null) {
-        try {
-          await rm(configPath, {force: true})
-        } catch {
-          // Ignore if file doesn't exist
-        }
-      } else {
-        await writeFile(configPath, originalContent, 'utf8')
-      }
+      desktopConnector = new McpConnector({
+        fileService: stubFileService,
+        projectRoot: testDir,
+        templateService,
+      })
     })
 
     describe('install', () => {
       it('should create new config file if not exists', async () => {
-        // Ensure config file doesn't exist for this test
-        await rm(configPath, {force: true})
-
-        const result = await mcpConnector.install('Claude Desktop')
+        const result = await desktopConnector.install('Claude Desktop')
 
         expect(result.success).to.be.true
         expect(result.alreadyInstalled).to.be.false
         expect(result.configPath).to.equal(configPath)
 
-        const content = await fileService.read(configPath)
-        const json = JSON.parse(content)
+        const json = JSON.parse(files.get(configPath)!)
         expect(json.mcpServers.brv).to.deep.equal(serverConfig)
       })
 
       it('should add MCP server to existing config', async () => {
-        const existingConfig = {someOtherSetting: true}
-        await mkdir(configDir, {recursive: true})
-        await writeFile(configPath, JSON.stringify(existingConfig))
+        files.set(configPath, JSON.stringify({someOtherSetting: true}))
 
-        const result = await mcpConnector.install('Claude Desktop')
+        const result = await desktopConnector.install('Claude Desktop')
 
         expect(result.success).to.be.true
         expect(result.alreadyInstalled).to.be.false
 
-        const content = await fileService.read(configPath)
-        const json = JSON.parse(content)
+        const json = JSON.parse(files.get(configPath)!)
         expect(json.someOtherSetting).to.be.true
         expect(json.mcpServers.brv).to.deep.equal(serverConfig)
       })
 
       it('should return alreadyInstalled if server exists', async () => {
-        const existingConfig = {mcpServers: {brv: serverConfig}}
-        await mkdir(configDir, {recursive: true})
-        await writeFile(configPath, JSON.stringify(existingConfig))
+        files.set(configPath, JSON.stringify({mcpServers: {brv: serverConfig}}))
 
-        const result = await mcpConnector.install('Claude Desktop')
+        const result = await desktopConnector.install('Claude Desktop')
 
         expect(result.success).to.be.true
         expect(result.alreadyInstalled).to.be.true
@@ -382,20 +385,16 @@ describe('McpConnector', () => {
 
     describe('status', () => {
       it('should return configExists false if file not exists', async () => {
-        await rm(configPath, {force: true})
-
-        const result = await mcpConnector.status('Claude Desktop')
+        const result = await desktopConnector.status('Claude Desktop')
 
         expect(result.configExists).to.be.false
         expect(result.installed).to.be.false
       })
 
       it('should return installed true if server exists', async () => {
-        const existingConfig = {mcpServers: {brv: serverConfig}}
-        await mkdir(configDir, {recursive: true})
-        await writeFile(configPath, JSON.stringify(existingConfig))
+        files.set(configPath, JSON.stringify({mcpServers: {brv: serverConfig}}))
 
-        const result = await mcpConnector.status('Claude Desktop')
+        const result = await desktopConnector.status('Claude Desktop')
 
         expect(result.configExists).to.be.true
         expect(result.installed).to.be.true
@@ -404,9 +403,7 @@ describe('McpConnector', () => {
 
     describe('uninstall', () => {
       it('should return wasInstalled false if config not exists', async () => {
-        await rm(configPath, {force: true})
-
-        const result = await mcpConnector.uninstall('Claude Desktop')
+        const result = await desktopConnector.uninstall('Claude Desktop')
 
         expect(result.success).to.be.true
         expect(result.wasInstalled).to.be.false
@@ -423,16 +420,14 @@ describe('McpConnector', () => {
           },
           otherSetting: 'preserved',
         }
-        await mkdir(configDir, {recursive: true})
-        await writeFile(configPath, JSON.stringify(existingConfig))
+        files.set(configPath, JSON.stringify(existingConfig))
 
-        const result = await mcpConnector.uninstall('Claude Desktop')
+        const result = await desktopConnector.uninstall('Claude Desktop')
 
         expect(result.success).to.be.true
         expect(result.wasInstalled).to.be.true
 
-        const content = await fileService.read(configPath)
-        const json = JSON.parse(content)
+        const json = JSON.parse(files.get(configPath)!)
         expect(json.mcpServers.brv).to.be.undefined
         expect(json.mcpServers['other-server']).to.deep.equal({
           command: 'other-cmd',
