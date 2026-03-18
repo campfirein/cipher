@@ -9,6 +9,7 @@ import type {
   ConnectorUninstallResult,
 } from '../../../core/interfaces/connectors/connector-types.js'
 import type {ConnectorOperationOptions, IConnector} from '../../../core/interfaces/connectors/i-connector.js'
+import type {SkillExportTarget} from '../../../core/interfaces/connectors/i-skill-export-service.js'
 import type {IFileService} from '../../../core/interfaces/services/i-file-service.js'
 import type {SkillConnectorConfig, SkillSupportedAgent} from './skill-connector-config.js'
 
@@ -55,6 +56,50 @@ export class SkillConnector implements IConnector {
     this.supportedAgents = Object.entries(AGENT_CONNECTOR_CONFIG)
       .filter(([_, config]) => config.supported.includes(this.connectorType))
       .map(([agent]) => agent as Agent)
+  }
+
+  /**
+   * Discover all installed skill targets across all supported agents.
+   *
+   * Returns one entry per installed location — if an agent has both project
+   * and global installs, both are returned.  Errors are swallowed per-agent.
+   */
+  async discoverInstalledTargets(): Promise<SkillExportTarget[]> {
+    const targets: SkillExportTarget[] = []
+
+    for (const agentName of this.supportedAgents) {
+      if (!(agentName in SKILL_CONNECTOR_CONFIGS)) {
+        continue
+      }
+
+      const config = this.getConfig(agentName)
+
+      try {
+        // Check project scope
+        if (config.projectPath) {
+          const projectDir = this.resolveFullPath(config, 'project', BRV_SKILL_NAME)
+          const projectSkillFile = path.join(projectDir, MAIN_SKILL_FILE_NAME)
+          // eslint-disable-next-line no-await-in-loop
+          if (await this.fileService.exists(projectSkillFile)) {
+            targets.push({agent: agentName, installedPath: projectDir, scope: 'project'})
+          }
+        }
+
+        // Check global scope
+        if (config.globalPath) {
+          const globalDir = this.resolveFullPath(config, 'global', BRV_SKILL_NAME)
+          const globalSkillFile = path.join(globalDir, MAIN_SKILL_FILE_NAME)
+          // eslint-disable-next-line no-await-in-loop
+          if (await this.fileService.exists(globalSkillFile)) {
+            targets.push({agent: agentName, installedPath: globalDir, scope: 'global'})
+          }
+        }
+      } catch {
+        // Swallow per-agent errors — discovery is best-effort
+      }
+    }
+
+    return targets
   }
 
   getConfigPath(agent: Agent): string {

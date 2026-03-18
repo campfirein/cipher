@@ -1,6 +1,7 @@
 import {resolve} from 'node:path'
 
 import type {IExperienceHookService} from '../../core/interfaces/experience/i-experience-hook-service.js'
+import type {SkillExportCoordinator} from '../connectors/skill/skill-export-coordinator.js'
 import type {BackpressureGate} from './backpressure-gate.js'
 import type {ExperienceConsolidationService} from './experience-consolidation-service.js'
 
@@ -31,15 +32,22 @@ export class ExperienceHookService implements IExperienceHookService {
    */
   private static readonly queues = new Map<string, Promise<void>>()
   private readonly consolidationService?: ExperienceConsolidationService
+  private readonly exportCoordinator?: SkillExportCoordinator
   private readonly gate?: BackpressureGate
   private readonly projectKey: string
   private readonly store: ExperienceStore
 
-  constructor(baseDirectory: string, consolidationService?: ExperienceConsolidationService, gate?: BackpressureGate) {
+  constructor(
+    baseDirectory: string,
+    consolidationService?: ExperienceConsolidationService,
+    gate?: BackpressureGate,
+    options?: {exportCoordinator?: SkillExportCoordinator},
+  ) {
     this.projectKey = resolve(baseDirectory)
     this.store = new ExperienceStore(baseDirectory)
     this.consolidationService = consolidationService
     this.gate = gate
+    this.exportCoordinator = options?.exportCoordinator
   }
 
   /**
@@ -73,6 +81,13 @@ export class ExperienceHookService implements IExperienceHookService {
         } else if (gateTriggered) {
           await this.consolidationService.consolidate(this.store, preIncrementCount).catch(() => {})
         }
+      }
+
+      // Background skill export — sync accumulated experience into agent SKILL.md files.
+      // Runs after consolidation so the exported knowledge reflects the latest state.
+      // Never delays curate completion (processDone already settled above).
+      if (this.exportCoordinator) {
+        await this.exportCoordinator.buildAndSync().catch(() => {})
       }
     }).catch(() => {
       settleProcessDone()
