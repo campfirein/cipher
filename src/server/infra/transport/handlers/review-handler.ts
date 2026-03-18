@@ -194,6 +194,7 @@ export class ReviewHandler {
 
     for (const entry of entries) {
       for (const op of entry.operations) {
+        // Skip failed ops (e.g. validation errors) — they were never applied to disk
         if (op.reviewStatus !== 'pending' || op.status === 'failed') continue
 
         let ops = taskMap.get(entry.taskId)

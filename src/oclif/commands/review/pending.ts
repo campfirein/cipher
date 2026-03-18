@@ -31,7 +31,7 @@ export default class ReviewPending extends Command {
 
   public async run(): Promise<void> {
     const {flags} = await this.parse(ReviewPending)
-    const format = (flags.format ?? 'text') as 'json' | 'text'
+    const format = flags.format === 'json' ? 'json' : 'text'
 
     try {
       const response = await withDaemonRetry(
@@ -67,18 +67,20 @@ export default class ReviewPending extends Command {
 
   private printTask(task: ReviewPendingTask): void {
     this.log(`  Task: ${task.taskId}`)
-    for (const op of task.operations) {
+    for (const [i, op] of task.operations.entries()) {
       const impact = op.impact === 'high' ? ' · HIGH IMPACT' : ''
       const displayPath = op.filePath ?? op.path
-      this.log(`\n  [${op.type}${impact}] - path: ${displayPath}`)
+      if (i > 0) this.log('')
+      this.log(`  [${op.type}${impact}] - path: ${displayPath}`)
       if (op.reason) this.log(`  Why:    ${op.reason}`)
       if (op.previousSummary) this.log(`  Before: ${op.previousSummary}`)
       if (op.summary) this.log(`  After:  ${op.summary}`)
     }
 
-    this.log(`\n  To approve all:  brv review approve ${task.taskId}`)
-    this.log(`  To reject all:   brv review reject ${task.taskId}`)
-    this.log(`  Per file:        brv review approve/reject ${task.taskId} --file <path> [--file <path>]`)
+    this.log('')
+    this.log(`  To approve all:  ${this.config.bin} review approve ${task.taskId}`)
+    this.log(`  To reject all:   ${this.config.bin} review reject ${task.taskId}`)
+    this.log(`  Per file:        ${this.config.bin} review approve/reject ${task.taskId} --file <path> [--file <path>]`)
   }
 
   private printText(response: ReviewPendingResponse): void {
@@ -88,10 +90,16 @@ export default class ReviewPending extends Command {
     }
 
     const {pendingCount} = response
-    this.log(`${pendingCount} operation${pendingCount === 1 ? '' : 's'} pending review\n`)
+    this.log(`${pendingCount} operation${pendingCount === 1 ? '' : 's'} pending review`)
+    this.log('')
 
     for (const [i, task] of response.tasks.entries()) {
-      if (i > 0) this.log('\n---\n')
+      if (i > 0) {
+        this.log('')
+        this.log('---')
+        this.log('')
+      }
+
       this.printTask(task)
     }
   }

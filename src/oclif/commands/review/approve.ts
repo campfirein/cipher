@@ -41,7 +41,7 @@ export default class ReviewApprove extends Command {
 
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(ReviewApprove)
-    const format = (flags.format ?? 'text') as 'json' | 'text'
+    const format = flags.format === 'json' ? 'json' : 'text'
 
     try {
       const response = await withDaemonRetry(

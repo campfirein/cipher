@@ -97,7 +97,7 @@ describe('Review Commands', () => {
   function createApproveCommand(...argv: string[]): TestableReviewApprove {
     const command = new TestableReviewApprove(argv, mockConnector, config)
     stub(command, 'log').callsFake((msg?: string) => {
-      if (msg) loggedMessages.push(msg)
+      loggedMessages.push(msg ?? '')
     })
     return command
   }
@@ -105,7 +105,7 @@ describe('Review Commands', () => {
   function createRejectCommand(...argv: string[]): TestableReviewReject {
     const command = new TestableReviewReject(argv, mockConnector, config)
     stub(command, 'log').callsFake((msg?: string) => {
-      if (msg) loggedMessages.push(msg)
+      loggedMessages.push(msg ?? '')
     })
     return command
   }
@@ -137,7 +137,7 @@ describe('Review Commands', () => {
   function createPendingCommand(): TestableReviewPending {
     const command = new TestableReviewPending([], mockConnector, config)
     stub(command, 'log').callsFake((msg?: string) => {
-      if (msg) loggedMessages.push(msg)
+      loggedMessages.push(msg ?? '')
     })
     return command
   }
@@ -145,7 +145,7 @@ describe('Review Commands', () => {
   function createJsonPendingCommand(): TestableReviewPending {
     const command = new TestableReviewPending(['--format', 'json'], mockConnector, config)
     stub(command, 'log').callsFake((msg?: string) => {
-      if (msg) loggedMessages.push(msg)
+      loggedMessages.push(msg ?? '')
     })
     stub(process.stdout, 'write').callsFake((chunk: string | Uint8Array) => {
       stdoutOutput.push(String(chunk))
@@ -363,8 +363,8 @@ describe('Review Commands', () => {
       expect(loggedMessages.some((m) => m.includes('Added Memcached layer'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('Redis only'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('Redis + Memcached'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv review approve task-abc-123'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv review reject task-abc-123'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('review approve task-abc-123'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('review reject task-abc-123'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('--file <path>'))).to.be.true
     })
 
@@ -405,7 +405,7 @@ describe('Review Commands', () => {
       expect(opLine).to.not.include('HIGH IMPACT')
     })
 
-    it('should separate multiple tasks with a blank line', async () => {
+    it('should separate multiple tasks with a --- separator', async () => {
       ;(mockClient.requestWithAck as sinon.SinonStub).resolves({
         pendingCount: 2,
         tasks: [
@@ -416,8 +416,9 @@ describe('Review Commands', () => {
 
       await createPendingCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('brv review approve task-aaa'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('brv review approve task-bbb'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('review approve task-aaa'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('review approve task-bbb'))).to.be.true
+      expect(loggedMessages.includes('---')).to.be.true
     })
 
     it('should output JSON with tasks and pendingCount', async () => {
@@ -438,10 +439,11 @@ describe('Review Commands', () => {
       expect(json.success).to.be.true
       expect(json.data).to.have.property('pendingCount', 1)
       expect(json.data).to.have.property('status', 'success')
-      const tasks = json.data.tasks as Array<{operations: unknown[]; taskId: string;}>
+      const {tasks} = json.data as {tasks: Array<{operations: unknown[]; taskId: string}>}
       expect(tasks).to.be.an('array').with.lengthOf(1)
-      expect(tasks[0].taskId).to.equal('task-abc-123')
-      expect(tasks[0].operations).to.have.lengthOf(1)
+      const [first] = tasks
+      expect(first.taskId).to.equal('task-abc-123')
+      expect(first.operations).to.have.lengthOf(1)
     })
 
     it('should output JSON with empty tasks when no pending reviews', async () => {
