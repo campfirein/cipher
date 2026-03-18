@@ -79,7 +79,41 @@ brv curate view --since 1h --status completed
 brv curate view --help
 ```
 
-### 3. LLM Provider Setup
+### 3. Review Pending Changes
+**Overview:** After a curate operation, some changes may require human review before being applied. Use `brv review` to list, approve, or reject pending operations.
+
+**Use this skill when:**
+- A curate operation reports pending reviews (shown in curate output)
+- The user wants to check if there are pending review items
+- The user wants to approve or reject curated changes
+
+**Commands:**
+
+List all pending reviews for the current project:
+```bash
+brv review pending
+```
+
+Each pending task shows: operation type (ADD/UPDATE/DELETE/MERGE/UPSERT), file path, reason, and before/after summaries. High-impact operations are flagged.
+
+Approve all operations for a task (applies the changes):
+```bash
+brv review approve <taskId>
+```
+
+Reject all operations for a task (restores files from backup):
+```bash
+brv review reject <taskId>
+```
+
+**JSON output** (useful for agent-driven workflows):
+```bash
+brv review pending --format json
+brv review approve <taskId> --format json
+brv review reject <taskId> --format json
+```
+
+### 4. LLM Provider Setup
 `brv query` and `brv curate` require a configured LLM provider. Connect the default ByteRover provider (no API key needed):
 
 ```bash
@@ -93,7 +127,7 @@ brv providers list
 brv providers connect openai --api-key sk-xxx --model gpt-4.1
 ```
 
-### 4. Project Locations
+### 5. Project Locations
 **Overview:** List registered projects and their context tree paths. Returns project metadata including initialization status and active state. Use `-f json` for machine-readable output.
 
 **Use this when:**
@@ -111,7 +145,7 @@ brv locations -f json
 
 JSON fields: `projectPath`, `contextTreePath`, `isCurrent`, `isActive`, `isInitialized`.
 
-### 5. Cloud Sync (Optional)
+### 6. Cloud Sync (Optional)
 **Overview:** Sync your local knowledge with a team via ByteRover's cloud service. Requires ByteRover authentication.
 
 **Setup steps:**
