@@ -35,7 +35,7 @@ brv query "How is authentication implemented?"
 ```
 
 ### 2. Curate Context
-**Overview**: Analyze and save knowledge to the local knowledge base. Uses a configured LLM provider to categorize and structure the context you provide.
+**Overview:** Analyze and save knowledge to the local knowledge base. Uses a configured LLM provider to categorize and structure the context you provide.
 
 **Use this skill when:**
 - The user wants you to remember something
@@ -87,11 +87,32 @@ brv curate view --help
 - The user wants to check if there are pending review items
 - The user wants to approve or reject curated changes
 
+**Do NOT use this skill when:**
+- There are no curate operations pending (check with `brv curate view` first)
+- The user has not asked to review or approve changes
+
 **Commands:**
 
 List all pending reviews for the current project:
 ```bash
 brv review pending
+```
+
+Sample output:
+```
+⚠  2 operations require review (task: 22a203e5-ac2a-4b77-b8dd-d0ff55c4d810)
+
+    [UPSERT · HIGH IMPACT] - Path: architecture/plugin_system/plugin_system_architecture.md
+    Why:   Documenting potential shift to OCI-based plugin loading
+    After:  Proposed replacement of Jiti-based loading with OCI registry
+
+    [UPSERT · HIGH IMPACT] - Path: architecture/security/security_audit_engine.md
+    Why:   Documenting proposed merger of security audit and policies
+    After:  Proposed merger into unified Security Policy Engine
+
+    To approve all:  brv review approve 22a203e5-ac2a-4b77-b8dd-d0ff55c4d810
+    To reject all:   brv review reject 22a203e5-ac2a-4b77-b8dd-d0ff55c4d810
+    Per file:        brv review approve/reject 22a203e5-ac2a-4b77-b8dd-d0ff55c4d810 --file <Path>
 ```
 
 Each pending task shows: operation type (ADD/UPDATE/DELETE/MERGE/UPSERT), file path, reason, and before/after summaries. High-impact operations are flagged.
