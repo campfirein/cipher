@@ -26,6 +26,7 @@ import {VcHandler} from '../../../../../src/server/infra/transport/handlers/vc-h
 import {
   type IVcBranchRequest,
   type IVcBranchResponse,
+  type IVcCheckoutResponse,
   VcErrorCode,
   VcEvents,
 } from '../../../../../src/shared/transport/events/vc-events.js'
@@ -194,6 +195,7 @@ describe('VcHandler', () => {
       expect(registeredEvents).to.include(VcEvents.PUSH)
       expect(registeredEvents).to.include(VcEvents.REMOTE)
       expect(registeredEvents).to.include(VcEvents.STATUS)
+      expect(registeredEvents).to.include(VcEvents.CHECKOUT)
     })
   })
 
@@ -1527,6 +1529,171 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
       try {
         await deps.requestHandlers[VcEvents.BRANCH]({action: 'create'} as unknown as IVcBranchRequest, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.INVALID_BRANCH_NAME)
+      }
+    })
+  })
+
+  describe('handleCheckout', () => {
+    it('should switch to an existing branch', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.status.resolves({files: [], isClean: true})
+      makeVcHandler(deps).setup()
+
+      const result = (await deps.requestHandlers[VcEvents.CHECKOUT](
+        {branch: 'feature'},
+        CLIENT_ID,
+      )) as IVcCheckoutResponse
+
+      expect(result).to.deep.equal({branch: 'feature', created: false, previousBranch: 'main'})
+      expect(deps.gitService.checkout.firstCall.args[0]).to.deep.include({ref: 'feature'})
+      expect(deps.gitService.listBranches.called).to.be.false
+    })
+
+    it('should throw GIT_NOT_INITIALIZED when not initialized', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.CHECKOUT]({branch: 'feature'}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.GIT_NOT_INITIALIZED)
+      }
+    })
+
+    it('should throw BRANCH_NOT_FOUND when branch does not exist', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.status.resolves({files: [], isClean: true})
+      const notFoundError = new Error('Could not find origin/nonexistent.')
+      ;(notFoundError as Error & {code: string}).code = 'NotFoundError'
+      deps.gitService.checkout.rejects(notFoundError)
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.CHECKOUT]({branch: 'nonexistent'}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.BRANCH_NOT_FOUND)
+          expect(error.message).to.include('brv vc checkout -b')
+        }
+      }
+    })
+
+    it('should throw UNCOMMITTED_CHANGES when working tree is dirty without force', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.status.resolves({
+        files: [{path: 'file.md', staged: false, status: 'modified'}],
+        isClean: false,
+      })
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.CHECKOUT]({branch: 'feature'}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.UNCOMMITTED_CHANGES)
+      }
+    })
+
+    it('should allow checkout when only untracked files exist', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.status.resolves({
+        files: [{path: 'new-file.md', staged: false, status: 'untracked'}],
+        isClean: false,
+      })
+      makeVcHandler(deps).setup()
+
+      const result = (await deps.requestHandlers[VcEvents.CHECKOUT](
+        {branch: 'feature'},
+        CLIENT_ID,
+      )) as IVcCheckoutResponse
+
+      expect(result).to.deep.equal({branch: 'feature', created: false, previousBranch: 'main'})
+      expect(deps.gitService.checkout.firstCall.args[0]).to.deep.include({ref: 'feature'})
+    })
+
+    it('should switch with force when working tree is dirty', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.getCurrentBranch.resolves('main')
+      makeVcHandler(deps).setup()
+
+      const result = (await deps.requestHandlers[VcEvents.CHECKOUT](
+        {branch: 'feature', force: true},
+        CLIENT_ID,
+      )) as IVcCheckoutResponse
+
+      expect(result).to.deep.equal({branch: 'feature', created: false, previousBranch: 'main'})
+      expect(deps.gitService.checkout.firstCall.args[0]).to.deep.include({force: true, ref: 'feature'})
+      expect(deps.gitService.status.called).to.be.false
+    })
+
+    it('should create and switch with create flag', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.status.resolves({files: [], isClean: true})
+      deps.gitService.listBranches.resolves([{isCurrent: true, isRemote: false, name: 'main'}])
+      makeVcHandler(deps).setup()
+
+      const result = (await deps.requestHandlers[VcEvents.CHECKOUT](
+        {branch: 'new-branch', create: true},
+        CLIENT_ID,
+      )) as IVcCheckoutResponse
+
+      expect(result).to.deep.equal({branch: 'new-branch', created: true, previousBranch: 'main'})
+      expect(deps.gitService.createBranch.firstCall.args[0]).to.deep.include({branch: 'new-branch', checkout: true})
+      expect(deps.gitService.checkout.called).to.be.false
+    })
+
+    it('should throw BRANCH_ALREADY_EXISTS when create flag used on existing branch', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.status.resolves({files: [], isClean: true})
+      deps.gitService.listBranches.resolves([
+        {isCurrent: true, isRemote: false, name: 'main'},
+        {isCurrent: false, isRemote: false, name: 'existing'},
+      ])
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.CHECKOUT]({branch: 'existing', create: true}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.BRANCH_ALREADY_EXISTS)
+      }
+    })
+
+    it('should throw INVALID_BRANCH_NAME for invalid names', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.status.resolves({files: [], isClean: true})
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.CHECKOUT]({branch: '-bad'}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.INVALID_BRANCH_NAME)
+      }
+    })
+
+    it('should throw INVALID_BRANCH_NAME for empty branch name', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.CHECKOUT]({branch: ''}, CLIENT_ID)
         expect.fail('Expected error')
       } catch (error) {
         expect(error).to.be.instanceOf(VcError)

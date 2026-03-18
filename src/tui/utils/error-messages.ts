@@ -19,7 +19,6 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_SPACE_NOT_FOUND: 'Space not found. Check your configuration.',
   ERR_VC_AUTH_FAILED: 'Authentication failed. Run /login.',
   ERR_VC_BRANCH_ALREADY_EXISTS: 'Branch already exists.',
-  ERR_VC_BRANCH_NOT_FOUND: 'Branch not found.',
   ERR_VC_CANNOT_DELETE_CURRENT_BRANCH: 'Cannot delete the currently checked-out branch.',
   ERR_VC_CONFIG_KEY_NOT_SET: 'Config key is not set.',
   ERR_VC_GIT_NOT_INITIALIZED: 'ByteRover version control not initialized. Run /vc init first.',
@@ -32,6 +31,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_VC_NOTHING_TO_PUSH: 'No commits to push. Run /vc add and /vc commit first.',
   ERR_VC_PUSH_FAILED: 'Push failed. Check your connection and try again.',
   ERR_VC_REMOTE_ALREADY_EXISTS: "Remote 'origin' already exists. Use /vc remote set-url <url> to update.",
+  ERR_VC_UNCOMMITTED_CHANGES: 'You have uncommitted changes. Commit or use --force to discard.',
   // ERR_VC_USER_NOT_CONFIGURED intentionally omitted: fall through to server's specific hint with actual values
 }
 

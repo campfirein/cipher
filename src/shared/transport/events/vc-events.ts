@@ -19,6 +19,7 @@ export const VcErrorCode = {
   PULL_FAILED: 'ERR_VC_PULL_FAILED',
   PUSH_FAILED: 'ERR_VC_PUSH_FAILED',
   REMOTE_ALREADY_EXISTS: 'ERR_VC_REMOTE_ALREADY_EXISTS',
+  UNCOMMITTED_CHANGES: 'ERR_VC_UNCOMMITTED_CHANGES',
   USER_NOT_CONFIGURED: 'ERR_VC_USER_NOT_CONFIGURED',
 } as const
 
@@ -27,6 +28,7 @@ export type VcErrorCodeType = (typeof VcErrorCode)[keyof typeof VcErrorCode]
 export const VcEvents = {
   ADD: 'vc:add',
   BRANCH: 'vc:branch',
+  CHECKOUT: 'vc:checkout',
   CLONE: 'vc:clone',
   CLONE_PROGRESS: 'vc:clone:progress',
   COMMIT: 'vc:commit',
@@ -175,3 +177,15 @@ export type IVcBranchResponse =
   | {action: 'create'; created: string}
   | {action: 'delete'; deleted: string}
   | {action: 'list'; branches: Array<{isCurrent: boolean; isRemote: boolean; name: string}>}
+
+export interface IVcCheckoutRequest {
+  branch: string
+  create?: boolean
+  force?: boolean
+}
+
+export interface IVcCheckoutResponse {
+  branch: string
+  created: boolean
+  previousBranch?: string
+}
