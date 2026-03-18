@@ -680,6 +680,13 @@ disable_onboarding_plugin_in_config() {
             process.exit(0);
         }
         delete entries["byterover-onboarding"];
+        // Also remove from trust list
+        if (Array.isArray(config.plugins?.allow)) {
+            config.plugins.allow = config.plugins.allow.filter(id => id !== "byterover-onboarding");
+            if (config.plugins.allow.length === 0) delete config.plugins.allow;
+        }
+        if (Object.keys(entries).length === 0) delete config.plugins.entries;
+        if (config.plugins && Object.keys(config.plugins).length === 0) delete config.plugins;
         if (Object.keys(entries).length === 0) delete config.plugins.entries;
         if (config.plugins && Object.keys(config.plugins).length === 0) delete config.plugins;
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
