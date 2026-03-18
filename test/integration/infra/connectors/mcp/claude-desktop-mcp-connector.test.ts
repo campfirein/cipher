@@ -17,7 +17,7 @@ describe('Claude Desktop MCP Connector (real filesystem)', () => {
   let configPath: string
   let fileService: FsFileService
   let mcpConnector: McpConnector
-  const originalResolver = MCP_CONNECTOR_CONFIGS['Claude Desktop'].configPathResolver
+  const originalConfig = {...MCP_CONNECTOR_CONFIGS['Claude Desktop']}
 
   beforeEach(async () => {
     testDir = path.join(tmpdir(), `brv-claude-desktop-test-${Date.now()}`)
@@ -40,9 +40,7 @@ describe('Claude Desktop MCP Connector (real filesystem)', () => {
   })
 
   afterEach(async () => {
-    Object.assign(MCP_CONNECTOR_CONFIGS['Claude Desktop'], {
-      configPathResolver: originalResolver,
-    })
+    Object.assign(MCP_CONNECTOR_CONFIGS['Claude Desktop'], originalConfig)
     await rm(testDir, {force: true, recursive: true})
   })
 
