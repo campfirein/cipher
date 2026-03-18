@@ -73,9 +73,11 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     createBranch: sandbox.stub().resolves(),
     deleteBranch: sandbox.stub().resolves(),
     fetch: sandbox.stub().resolves(),
+    getAheadBehind: sandbox.stub().resolves({ahead: 0, behind: 0}),
     getConflicts: sandbox.stub().resolves([]),
     getCurrentBranch: sandbox.stub().resolves('main'),
     getRemoteUrl: sandbox.stub().resolves(),
+    getTrackingBranch: sandbox.stub().resolves(),
     init: sandbox.stub().resolves(),
     isInitialized: sandbox.stub().resolves(true),
     listBranches: sandbox.stub().resolves([]),
@@ -85,6 +87,7 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     pull: sandbox.stub().resolves({success: true}),
     push: sandbox.stub().resolves({success: true}),
     removeRemote: sandbox.stub().resolves(),
+    setTrackingBranch: sandbox.stub().resolves(),
     status: sandbox.stub().resolves({files: [], isClean: true}),
   }
 
@@ -327,7 +330,7 @@ describe('VcHandler', () => {
 
       const result = await deps.requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
 
-      expect(result).to.deep.equal({
+      expect(result).to.deep.include({
         branch: 'main',
         initialized: true,
         staged: {added: ['a.md'], deleted: [], modified: []},
@@ -714,7 +717,7 @@ describe('VcHandler', () => {
   })
 
   describe('handlePush', () => {
-    it('should push to origin/main by default', async () => {
+    it('should push to origin/main when tracking is configured', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
@@ -722,16 +725,41 @@ describe('VcHandler', () => {
         {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
       ])
       deps.gitService.push.resolves({success: true})
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
       makeVcHandler(deps).setup()
 
       const result = await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
 
       expect(deps.gitService.push.calledOnce).to.be.true
       expect(deps.gitService.push.firstCall.args[0]).to.deep.include({branch: 'main', remote: 'origin'})
-      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'main'})
+      expect(result).to.deep.include({alreadyUpToDate: false, branch: 'main'})
     })
 
-    it('should push to custom branch when specified', async () => {
+    it('should throw VcError NO_UPSTREAM when no tracking configured and no -u flag', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.log.resolves([
+        {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
+      ])
+      deps.gitService.getTrackingBranch.resolves()
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.NO_UPSTREAM)
+          expect(error.message).to.include('brv vc push -u origin main')
+        }
+      }
+
+      expect(deps.gitService.push.called).to.be.false
+    })
+
+    it('should allow push with explicit branch even without tracking', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
@@ -739,12 +767,30 @@ describe('VcHandler', () => {
         {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
       ])
       deps.gitService.push.resolves({success: true})
+      deps.gitService.getTrackingBranch.resolves()
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.PUSH]({branch: 'feat/x'}, CLIENT_ID)
+
+      expect(deps.gitService.push.calledOnce).to.be.true
+      expect(result).to.deep.include({branch: 'feat/x'})
+    })
+
+    it('should push to custom branch when specified and tracking exists', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.log.resolves([
+        {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
+      ])
+      deps.gitService.push.resolves({success: true})
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'feat/x'})
       makeVcHandler(deps).setup()
 
       const result = await deps.requestHandlers[VcEvents.PUSH]({branch: 'feat/x'}, CLIENT_ID)
 
       expect(deps.gitService.push.firstCall.args[0]).to.deep.include({branch: 'feat/x'})
-      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'feat/x'})
+      expect(result).to.deep.include({alreadyUpToDate: false, branch: 'feat/x'})
     })
 
     it('should throw VcError NO_REMOTE when no remote configured', async () => {
@@ -790,6 +836,7 @@ describe('VcHandler', () => {
         {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
       ])
       deps.gitService.push.resolves({reason: 'non_fast_forward', success: false})
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
       makeVcHandler(deps).setup()
 
       try {
@@ -827,6 +874,7 @@ describe('VcHandler', () => {
         {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
       ])
       deps.gitService.push.rejects(new GitAuthError())
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
       makeVcHandler(deps).setup()
 
       try {
@@ -848,6 +896,7 @@ describe('VcHandler', () => {
         {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
       ])
       deps.gitService.push.rejects(new Error('Network timeout'))
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
       makeVcHandler(deps).setup()
 
       try {
@@ -861,7 +910,7 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should push to active branch from getCurrentBranch when no branch specified', async () => {
+    it('should push to active branch from getCurrentBranch when tracking exists', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
@@ -869,16 +918,17 @@ describe('VcHandler', () => {
         {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
       ])
       deps.gitService.getCurrentBranch.resolves('feat/my-feature')
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'feat/my-feature'})
       deps.gitService.push.resolves({success: true})
       makeVcHandler(deps).setup()
 
       const result = await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
 
       expect(deps.gitService.push.firstCall.args[0]).to.deep.include({branch: 'feat/my-feature'})
-      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'feat/my-feature'})
+      expect(result).to.deep.include({alreadyUpToDate: false, branch: 'feat/my-feature'})
     })
 
-    it('should fallback to main when getCurrentBranch returns undefined', async () => {
+    it('should throw VcError NO_UPSTREAM when getCurrentBranch returns undefined and no tracking', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
@@ -886,13 +936,21 @@ describe('VcHandler', () => {
         {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
       ])
       deps.gitService.getCurrentBranch.resolves()
-      deps.gitService.push.resolves({success: true})
+      deps.gitService.getTrackingBranch.resolves()
       makeVcHandler(deps).setup()
 
-      const result = await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
+      try {
+        await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.NO_UPSTREAM)
+          expect(error.message).to.include('brv vc push -u origin main')
+        }
+      }
 
-      expect(deps.gitService.push.firstCall.args[0]).to.deep.include({branch: 'main'})
-      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'main'})
+      expect(deps.gitService.push.called).to.be.false
     })
 
     it('should ignore empty/whitespace branch and use current branch instead', async () => {
@@ -903,13 +961,14 @@ describe('VcHandler', () => {
         {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
       ])
       deps.gitService.getCurrentBranch.resolves('develop')
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'develop'})
       deps.gitService.push.resolves({success: true})
       makeVcHandler(deps).setup()
 
       const result = await deps.requestHandlers[VcEvents.PUSH]({branch: '   '}, CLIENT_ID)
 
       expect(deps.gitService.push.firstCall.args[0]).to.deep.include({branch: 'develop'})
-      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'develop'})
+      expect(result).to.deep.include({alreadyUpToDate: false, branch: 'develop'})
     })
 
     it('should throw VcError INVALID_BRANCH_NAME for invalid branch names', async () => {
@@ -937,13 +996,65 @@ describe('VcHandler', () => {
         }),
       )
     })
-  })
 
-  describe('handlePull', () => {
-    it('should pull from origin/main by default', async () => {
+    it('should allow push -u without tracking (sets upstream after push)', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.log.resolves([
+        {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
+      ])
+      deps.gitService.push.resolves({success: true})
+      deps.gitService.getTrackingBranch.resolves()
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.PUSH]({setUpstream: true}, CLIENT_ID)
+
+      expect(deps.gitService.push.calledOnce).to.be.true
+      expect(deps.gitService.setTrackingBranch.calledOnce).to.be.true
+      expect(result).to.deep.include({upstreamSet: true})
+    })
+
+    it('should not set upstream when tracking already exists', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.log.resolves([
+        {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
+      ])
+      deps.gitService.push.resolves({success: true})
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
+
+      expect(deps.gitService.setTrackingBranch.called).to.be.false
+      expect(result).to.deep.include({upstreamSet: false})
+    })
+
+    it('should not call setTrackingBranch when setUpstream is not passed', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.log.resolves([
+        {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
+      ])
+      deps.gitService.push.resolves({success: true})
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
+      makeVcHandler(deps).setup()
+
+      await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
+
+      expect(deps.gitService.setTrackingBranch.called).to.be.false
+    })
+  })
+
+  describe('handlePull', () => {
+    it('should pull from tracking branch when configured', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
       deps.gitService.pull.resolves({alreadyUpToDate: false, success: true})
       makeVcHandler(deps).setup()
 
@@ -951,38 +1062,45 @@ describe('VcHandler', () => {
 
       expect(deps.gitService.pull.calledOnce).to.be.true
       expect(deps.gitService.pull.firstCall.args[0]).to.deep.include({branch: 'main', remote: 'origin'})
-      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'main'})
+      expect(result).to.deep.include({alreadyUpToDate: false, branch: 'main'})
     })
 
-    it('should pull custom branch when specified', async () => {
+    it('should throw NO_UPSTREAM when no tracking and no explicit branch', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
-      deps.gitService.pull.resolves({alreadyUpToDate: false, success: true})
+      deps.gitService.getTrackingBranch.resolves()
       makeVcHandler(deps).setup()
 
-      const result = await deps.requestHandlers[VcEvents.PULL]({branch: 'feat/x'}, CLIENT_ID)
-
-      expect(deps.gitService.pull.firstCall.args[0]).to.deep.include({branch: 'feat/x'})
-      expect(result).to.deep.equal({alreadyUpToDate: false, branch: 'feat/x'})
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.NO_UPSTREAM)
+        }
+      }
     })
 
     it('should return alreadyUpToDate when no changes', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
       deps.gitService.pull.resolves({alreadyUpToDate: true, success: true})
       makeVcHandler(deps).setup()
 
       const result = await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
 
-      expect(result).to.deep.equal({alreadyUpToDate: true, branch: 'main'})
+      expect(result).to.deep.include({alreadyUpToDate: true, branch: 'main'})
     })
 
     it('should throw VcError MERGE_CONFLICT when pull has conflicts', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
       deps.gitService.pull.resolves({conflicts: [{path: 'file.txt'}], success: false})
       makeVcHandler(deps).setup()
 
@@ -1036,6 +1154,7 @@ describe('VcHandler', () => {
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
       deps.gitService.pull.rejects(new GitAuthError())
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
       makeVcHandler(deps).setup()
 
       try {
@@ -1054,6 +1173,7 @@ describe('VcHandler', () => {
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
       deps.gitService.pull.rejects(new GitError('You have unresolved merge conflicts.'))
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
       makeVcHandler(deps).setup()
 
       try {
@@ -1073,6 +1193,7 @@ describe('VcHandler', () => {
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
       deps.gitService.pull.rejects(new Error('HTTP Error: 500 Internal Server Error'))
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
       makeVcHandler(deps).setup()
 
       try {
@@ -1085,6 +1206,77 @@ describe('VcHandler', () => {
           expect(error.message).to.equal('HTTP Error: 500 Internal Server Error')
         }
       }
+    })
+
+    it('should pull from tracking branch when config exists', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.getCurrentBranch.resolves('feat/x')
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'develop'})
+      deps.gitService.pull.resolves({alreadyUpToDate: false, success: true})
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+
+      expect(deps.gitService.pull.firstCall.args[0]).to.deep.include({branch: 'develop', remote: 'origin'})
+      expect(result).to.deep.include({branch: 'develop'})
+    })
+
+    it('should throw NO_UPSTREAM when no tracking config and no explicit branch', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.getCurrentBranch.resolves('feat/x')
+      deps.gitService.getTrackingBranch.resolves()
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.NO_UPSTREAM)
+        }
+      }
+    })
+  })
+
+  describe('handleStatus — tracking branch', () => {
+    it('should include ahead/behind when tracking branch exists', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.status.resolves({files: [], isClean: true})
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
+      deps.gitService.getAheadBehind.resolves({ahead: 3, behind: 1})
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
+
+      expect(result).to.deep.include({
+        ahead: 3,
+        behind: 1,
+        branch: 'main',
+        trackingBranch: 'origin/main',
+      })
+    })
+
+    it('should omit tracking info when no tracking config', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.status.resolves({files: [], isClean: true})
+      deps.gitService.getTrackingBranch.resolves()
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
+
+      expect(result).to.have.property('branch', 'main')
+      expect(result).to.have.property('trackingBranch', undefined)
+      expect(result).to.have.property('ahead', undefined)
+      expect(result).to.have.property('behind', undefined)
     })
   })
 

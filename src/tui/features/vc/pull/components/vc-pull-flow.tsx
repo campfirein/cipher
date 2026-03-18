@@ -7,11 +7,9 @@ import type {CustomDialogCallbacks} from '../../../../types/commands.js'
 import {formatTransportError} from '../../../../utils/error-messages.js'
 import {useExecuteVcPull} from '../api/execute-vc-pull.js'
 
-type VcPullFlowProps = CustomDialogCallbacks & {
-  branch?: string
-}
+type VcPullFlowProps = CustomDialogCallbacks
 
-export function VcPullFlow({branch, onCancel, onComplete}: VcPullFlowProps): React.ReactNode {
+export function VcPullFlow({onCancel, onComplete}: VcPullFlowProps): React.ReactNode {
   const pullMutation = useExecuteVcPull()
 
   useInput((_, key) => {
@@ -25,7 +23,7 @@ export function VcPullFlow({branch, onCancel, onComplete}: VcPullFlowProps): Rea
     if (fired.current) return
     fired.current = true
     pullMutation.mutate(
-      {branch},
+      undefined,
       {
         onError(error) {
           onComplete(`Failed to pull: ${formatTransportError(error)}`)
@@ -39,7 +37,7 @@ export function VcPullFlow({branch, onCancel, onComplete}: VcPullFlowProps): Rea
 
   return (
     <Text>
-      <Spinner type="dots" /> {branch ? `Pulling from origin/${branch}...` : 'Pulling...'}
+      <Spinner type="dots" /> Pulling...
     </Text>
   )
 }

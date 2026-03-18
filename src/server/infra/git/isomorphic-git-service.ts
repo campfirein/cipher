@@ -7,6 +7,7 @@ import {join} from 'node:path'
 import type {
   AddGitParams,
   AddRemoteGitParams,
+  AheadBehind,
   BaseGitParams,
   CheckoutGitParams,
   CloneGitParams,
@@ -14,7 +15,9 @@ import type {
   CreateBranchGitParams,
   DeleteBranchGitParams,
   FetchGitParams,
+  GetAheadBehindParams,
   GetRemoteUrlGitParams,
+  GetTrackingBranchParams,
   GitBranch,
   GitCommit,
   GitConflict,
@@ -32,6 +35,8 @@ import type {
   PushGitParams,
   PushResult,
   RemoveRemoteGitParams,
+  SetTrackingBranchParams,
+  TrackingBranch,
 } from '../../core/interfaces/services/i-git-service.js'
 import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
 
@@ -207,6 +212,27 @@ export class IsomorphicGitService implements IGitService {
     })
   }
 
+  async getAheadBehind(params: GetAheadBehindParams): Promise<AheadBehind> {
+    const dir = this.requireDirectory(params)
+
+    const localSha = await git.resolveRef({dir, fs, ref: params.localRef}).catch(() => null)
+    const remoteSha = await git.resolveRef({dir, fs, ref: params.remoteRef}).catch(() => null)
+    if (!localSha || !remoteSha) return {ahead: 0, behind: 0}
+    if (localSha === remoteSha) return {ahead: 0, behind: 0}
+
+    const [localLog, remoteLog] = await Promise.all([
+      git.log({depth: 100, dir, fs, ref: params.localRef}).catch(() => []),
+      git.log({depth: 100, dir, fs, ref: params.remoteRef}).catch(() => []),
+    ])
+
+    const localShas = new Set(localLog.map((c) => c.oid))
+    const remoteShas = new Set(remoteLog.map((c) => c.oid))
+
+    const ahead = localLog.filter((c) => !remoteShas.has(c.oid)).length
+    const behind = remoteLog.filter((c) => !localShas.has(c.oid)).length
+    return {ahead, behind}
+  }
+
   async getConflicts(params: BaseGitParams): Promise<GitConflict[]> {
     const dir = this.requireDirectory(params)
 
@@ -259,6 +285,20 @@ export class IsomorphicGitService implements IGitService {
     const dir = this.requireDirectory(params)
     const result = await git.getConfig({dir, fs, path: `remote.${params.remote}.url`})
     return result === undefined || result === null ? undefined : String(result)
+  }
+
+  async getTrackingBranch(params: GetTrackingBranchParams): Promise<TrackingBranch | undefined> {
+    const dir = this.requireDirectory(params)
+    const remote = await git.getConfig({dir, fs, path: `branch.${params.branch}.remote`})
+    if (remote === undefined || remote === null) return undefined
+
+    const merge = await git.getConfig({dir, fs, path: `branch.${params.branch}.merge`})
+    if (merge === undefined || merge === null) return undefined
+
+    // merge is stored as refs/heads/<branch> — extract the branch name
+    const mergeStr = String(merge)
+    const remoteBranch = mergeStr.startsWith('refs/heads/') ? mergeStr.slice('refs/heads/'.length) : mergeStr
+    return {remote: String(remote), remoteBranch}
   }
 
   async init(params: InitGitParams): Promise<void> {
@@ -481,6 +521,12 @@ export class IsomorphicGitService implements IGitService {
   async removeRemote(params: RemoveRemoteGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
     await git.deleteRemote({dir, fs, remote: params.remote})
+  }
+
+  async setTrackingBranch(params: SetTrackingBranchParams): Promise<void> {
+    const dir = this.requireDirectory(params)
+    await git.setConfig({dir, fs, path: `branch.${params.branch}.remote`, value: params.remote})
+    await git.setConfig({dir, fs, path: `branch.${params.branch}.merge`, value: `refs/heads/${params.remoteBranch}`})
   }
 
   async status(params: BaseGitParams): Promise<GitStatus> {

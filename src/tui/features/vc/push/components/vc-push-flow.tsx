@@ -9,9 +9,10 @@ import {useExecuteVcPush} from '../api/execute-vc-push.js'
 
 type VcPushFlowProps = CustomDialogCallbacks & {
   branch?: string
+  setUpstream?: boolean
 }
 
-export function VcPushFlow({branch, onCancel, onComplete}: VcPushFlowProps): React.ReactNode {
+export function VcPushFlow({branch, onCancel, onComplete, setUpstream}: VcPushFlowProps): React.ReactNode {
   const pushMutation = useExecuteVcPush()
 
   useInput((_, key) => {
@@ -25,13 +26,19 @@ export function VcPushFlow({branch, onCancel, onComplete}: VcPushFlowProps): Rea
     if (fired.current) return
     fired.current = true
     pushMutation.mutate(
-      {branch},
+      {branch, setUpstream},
       {
         onError(error) {
           onComplete(`Failed to push: ${formatTransportError(error)}`)
         },
         onSuccess(result) {
-          onComplete(result.alreadyUpToDate ? 'Everything up-to-date.' : `Pushed to origin/${result.branch}.`)
+          if (result.alreadyUpToDate) {
+            onComplete('Everything up-to-date.')
+          } else if (result.upstreamSet) {
+            onComplete(`Pushed to origin/${result.branch} and set upstream.`)
+          } else {
+            onComplete(`Pushed to origin/${result.branch}.`)
+          }
         },
       },
     )
