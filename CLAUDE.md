@@ -9,6 +9,7 @@ npm run build                                    # Compile to dist/
 npm test                                         # All tests
 npx mocha --forbid-only "test/path/to/file.test.ts"  # Single test
 npm run lint                                     # ESLint
+npm run typecheck                                # TypeScript type checking
 ./bin/dev.js [command]                          # Dev mode (ts-node)
 ./bin/run.js [command]                          # Prod mode
 ```
@@ -51,8 +52,10 @@ src/
 │   ├── infra/       # Auth, connectors, daemon, hub, transport, etc.
 │   └── utils/       # Shared utilities (errors, file helpers, type guards)
 ├── shared/          # Cross-module shared code
+│   ├── constants/   # Shared constants (curation limits, etc.)
 │   ├── types/       # Shared types (Agent, ConnectorType)
-│   └── transport/   # Transport event definitions
+│   ├── transport/   # Transport event definitions
+│   └── utils/       # Shared utility functions
 ├── tui/             # React/Ink TUI
 │   ├── app/         # Router, pages (home, login, config-provider), layouts
 │   ├── components/  # Shared UI components
@@ -63,7 +66,7 @@ src/
 │   ├── stores/      # Zustand stores
 │   ├── types/       # Shared TUI type definitions
 │   └── utils/       # TUI utility functions
-└── oclif/           # Oclif commands and hooks
+└── oclif/           # Oclif commands, hooks, and lib/ (daemon-client, JSON response utils)
 ```
 
 ### REPL + TUI
@@ -72,8 +75,8 @@ src/
 - Pages in `src/tui/app/pages/` (home, login, config-provider)
 - Esc key cancels streaming responses and long-running commands
 - Slash commands in `src/tui/features/commands/definitions/` (order in `index.ts` = UI suggestion order)
-- Oclif commands: public (`login`, `status`, `curate`, `curate view`, `query`, `push`, `pull`, `restart`, `connectors`, `providers`, `model`, `space`, `hub`) + hidden (`main`, `hook-prompt-submit`, `mcp`, `debug` [dev-only])
-- `/logout`, `/exit` are REPL-only (no oclif commands)
+- Oclif commands: public (`login`, `logout`, `status`, `locations`, `curate`, `curate view`, `query`, `push`, `pull`, `restart`, `connectors`, `providers`, `model`, `space`, `hub`) + hidden (`main`, `hook-prompt-submit`, `mcp`, `debug` [dev-only])
+- `/exit` is REPL-only (no oclif command)
 
 ### Daemon Architecture
 
@@ -97,6 +100,7 @@ src/
 Commands in `src/tui/features/commands/definitions/` (order = UI suggestion order):
 
 - `/status` - Show CLI status and project information
+- `/locations` - List registered projects and context tree status
 - `/curate` - Curate context to the context tree (supports `@file` and `@folder`)
 - `/query` - Query the context tree
 - `/connectors` - Manage agent connectors (rules, hook, mcp, skill)
