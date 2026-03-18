@@ -39,11 +39,17 @@ export type GitRemote = {
   url: string
 }
 
-export type PushResult = {alreadyUpToDate?: boolean; success: true} | {message?: string; reason: 'non_fast_forward'; success: false}
+export type PushResult =
+  | {alreadyUpToDate?: boolean; success: true}
+  | {message?: string; reason: 'non_fast_forward'; success: false}
 
 export type PullResult = {alreadyUpToDate?: boolean; success: true} | {conflicts: GitConflict[]; success: false}
 
 export type MergeResult = {conflicts: GitConflict[]; success: false} | {success: true}
+
+export type TrackingBranch = {remote: string; remoteBranch: string}
+
+export type AheadBehind = {ahead: number; behind: number}
 
 // --- Params types ---
 export type InitGitParams = BaseGitParams & {defaultBranch?: string}
@@ -61,6 +67,9 @@ export type CheckoutGitParams = BaseGitParams & {force?: boolean; ref: string}
 export type AddRemoteGitParams = BaseGitParams & {remote: string; url: string}
 export type RemoveRemoteGitParams = BaseGitParams & {remote: string}
 export type GetRemoteUrlGitParams = BaseGitParams & {remote: string}
+export type GetTrackingBranchParams = BaseGitParams & {branch: string}
+export type SetTrackingBranchParams = BaseGitParams & {branch: string; remote: string; remoteBranch: string}
+export type GetAheadBehindParams = BaseGitParams & {localRef: string; remoteRef: string}
 export type CloneGitParams = BaseGitParams & {
   onProgress?: (progress: {loaded: number; phase: string; total?: number}) => void
   url: string
@@ -76,6 +85,8 @@ export interface IGitService {
   createBranch(params: CreateBranchGitParams): Promise<void>
   deleteBranch(params: DeleteBranchGitParams): Promise<void>
   fetch(params: FetchGitParams): Promise<void>
+  /** Returns how many commits the local ref is ahead/behind relative to the remote ref. */
+  getAheadBehind(params: GetAheadBehindParams): Promise<AheadBehind>
   /**
    * Returns conflicts currently present in the working tree.
    * Detects all three conflict types (both_modified, both_added, deleted_modified)
@@ -90,6 +101,8 @@ export interface IGitService {
   /** Returns the current branch name, or `undefined` when in detached HEAD state. */
   getCurrentBranch(params: BaseGitParams): Promise<string | undefined>
   getRemoteUrl(params: GetRemoteUrlGitParams): Promise<string | undefined>
+  /** Returns the upstream tracking branch config, or `undefined` if not configured. */
+  getTrackingBranch(params: GetTrackingBranchParams): Promise<TrackingBranch | undefined>
   init(params: InitGitParams): Promise<void>
   /** Returns true if a git repository (.git directory) exists at the given directory. */
   isInitialized(params: BaseGitParams): Promise<boolean>
@@ -107,5 +120,7 @@ export interface IGitService {
    */
   push(params: PushGitParams): Promise<PushResult>
   removeRemote(params: RemoveRemoteGitParams): Promise<void>
+  /** Writes upstream tracking config: `branch.<name>.remote` and `branch.<name>.merge`. */
+  setTrackingBranch(params: SetTrackingBranchParams): Promise<void>
   status(params: BaseGitParams): Promise<GitStatus>
 }

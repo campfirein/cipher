@@ -443,7 +443,7 @@ export class VcHandler {
     }
   }
 
-  private async handlePull(data: IVcPullRequest, clientId: string): Promise<IVcPullResponse> {
+  private async handlePull(_data: IVcPullRequest, clientId: string): Promise<IVcPullResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
     const directory = this.contextTreeService.resolvePath(projectPath)
 
@@ -457,7 +457,7 @@ export class VcHandler {
       throw new VcError('No remote configured.', VcErrorCode.NO_REMOTE)
     }
 
-    const branch = await this.resolveTargetBranch(data.branch, directory)
+    const branch = await this.resolvePullBranch(directory)
 
     let alreadyUpToDate = false
     try {
@@ -506,11 +506,26 @@ export class VcHandler {
 
     const branch = await this.resolveTargetBranch(data.branch, directory)
 
+    // Block push when no upstream tracking and no explicit branch — like git:
+    //   git push           → error if no tracking
+    //   git push origin X  → OK without tracking (explicit target)
+    //   git push -u        → OK (will set tracking)
+    const explicitBranch = Boolean(data.branch?.trim())
+    const existingTracking = await this.gitService.getTrackingBranch({branch, directory})
+    if (!existingTracking && !explicitBranch && !data.setUpstream) {
+      throw new VcError(
+        `The current branch '${branch}' has no upstream branch.\n` +
+          `To push the current branch and set the remote as upstream, use\n\n` +
+          `    brv vc push -u origin ${branch}`,
+        VcErrorCode.NO_UPSTREAM,
+      )
+    }
+
     let alreadyUpToDate = false
     try {
       const result = await this.gitService.push({branch, directory, remote: 'origin'})
       if (!result.success && result.reason === 'non_fast_forward') {
-        throw new VcError('Remote has changes.', VcErrorCode.NON_FAST_FORWARD)
+        throw new VcError('Remote has changes. Pull first with /vc pull.', VcErrorCode.NON_FAST_FORWARD)
       }
 
       if (result.success) alreadyUpToDate = result.alreadyUpToDate ?? false
@@ -524,7 +539,14 @@ export class VcHandler {
       throw new VcError(message, VcErrorCode.PUSH_FAILED)
     }
 
-    return {alreadyUpToDate, branch}
+    // Set upstream tracking after successful push
+    let upstreamSet = false
+    if (data.setUpstream) {
+      await this.gitService.setTrackingBranch({branch, directory, remote: 'origin', remoteBranch: branch})
+      upstreamSet = true
+    }
+
+    return {alreadyUpToDate, branch, upstreamSet}
   }
 
   private async handleRemote(data: IVcRemoteRequest, clientId: string): Promise<IVcRemoteResponse> {
@@ -586,7 +608,27 @@ export class VcHandler {
     const staged = gitStatus.files.filter((f) => f.staged)
     const unstaged = gitStatus.files.filter((f) => !f.staged && f.status !== 'untracked')
 
+    // Resolve tracking branch and ahead/behind counts
+    let trackingBranch: string | undefined
+    let ahead: number | undefined
+    let behind: number | undefined
+    if (branch) {
+      const tracking = await this.gitService.getTrackingBranch({branch, directory: contextTreeDir})
+      if (tracking) {
+        trackingBranch = `${tracking.remote}/${tracking.remoteBranch}`
+        const counts = await this.gitService.getAheadBehind({
+          directory: contextTreeDir,
+          localRef: `refs/heads/${branch}`,
+          remoteRef: `refs/remotes/${tracking.remote}/${tracking.remoteBranch}`,
+        })
+        ahead = counts.ahead
+        behind = counts.behind
+      }
+    }
+
     return {
+      ahead,
+      behind,
       branch,
       initialized: true,
       staged: {
@@ -594,6 +636,7 @@ export class VcHandler {
         deleted: staged.filter((f) => f.status === 'deleted').map((f) => f.path),
         modified: staged.filter((f) => f.status === 'modified').map((f) => f.path),
       },
+      trackingBranch,
       unstaged: {
         deleted: unstaged.filter((f) => f.status === 'deleted').map((f) => f.path),
         modified: unstaged.filter((f) => f.status === 'modified').map((f) => f.path),
@@ -639,6 +682,29 @@ export class VcHandler {
 
     const commits = await this.gitService.log({depth: limit, directory: contextTreeDir, ref: data.ref})
     return {commits, displayBranch: data.ref ?? currentBranch}
+  }
+
+  /**
+   * Resolves pull target branch: explicit → tracking config → error.
+   * Mirrors native git: `git pull` without tracking config errors.
+   */
+  private async resolvePullBranch(directory: string): Promise<string> {
+    const current = await this.gitService.getCurrentBranch({directory})
+    const currentTrimmed = current?.trim()
+    if (currentTrimmed) {
+      const tracking = await this.gitService.getTrackingBranch({branch: currentTrimmed, directory})
+      if (tracking) return tracking.remoteBranch
+
+      // No tracking configured — error like native git
+      throw new VcError(
+        `There is no tracking information for the current branch '${currentTrimmed}'.\n` +
+          `To set upstream tracking, use:\n\n` +
+          `    brv vc push -u origin ${currentTrimmed}`,
+        VcErrorCode.NO_UPSTREAM,
+      )
+    }
+
+    throw new VcError('Cannot determine branch for pull. Check out a branch first.', VcErrorCode.PULL_FAILED)
   }
 
   private async resolveTargetBranch(requestedBranch: string | undefined, directory: string): Promise<string> {

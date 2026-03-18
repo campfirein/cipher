@@ -25,7 +25,22 @@ export default class VcStatus extends Command {
       return
     }
 
-    this.log(chalk.bold(`On branch: ${result.branch ?? '(detached HEAD)'}`))
+    this.log(chalk.bold(`On branch ${result.branch ?? '(detached HEAD)'}`))
+
+    if (result.trackingBranch) {
+      const ahead = result.ahead ?? 0
+      const behind = result.behind ?? 0
+      if (ahead > 0 && behind > 0) {
+        this.log(
+          `Your branch and '${result.trackingBranch}' have diverged,\n` +
+            `and have ${ahead} and ${behind} different commits each, respectively.`,
+        )
+      } else if (ahead > 0) {
+        this.log(`Your branch is ahead of '${result.trackingBranch}' by ${ahead} commit${ahead === 1 ? '' : 's'}.`)
+      } else if (behind > 0) {
+        this.log(`Your branch is behind '${result.trackingBranch}' by ${behind} commit${behind === 1 ? '' : 's'}.`)
+      }
+    }
 
     const {staged, unstaged, untracked} = result
     const hasChanges =

@@ -708,4 +708,105 @@ describe('IsomorphicGitService', () => {
       }
     })
   })
+
+  // ---- getTrackingBranch() / setTrackingBranch() ----
+
+  describe('getTrackingBranch()', () => {
+    it('returns undefined when no tracking config is set', async () => {
+      await service.init({directory: testDir})
+      await writeFile(join(testDir, 'a.md'), 'content')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'init'})
+
+      const result = await service.getTrackingBranch({branch: 'main', directory: testDir})
+
+      expect(result).to.be.undefined
+    })
+
+    it('returns tracking config after setTrackingBranch', async () => {
+      await service.init({directory: testDir})
+      await writeFile(join(testDir, 'a.md'), 'content')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'init'})
+
+      await service.setTrackingBranch({branch: 'main', directory: testDir, remote: 'origin', remoteBranch: 'main'})
+      const result = await service.getTrackingBranch({branch: 'main', directory: testDir})
+
+      expect(result).to.deep.equal({remote: 'origin', remoteBranch: 'main'})
+    })
+
+    it('overwrites existing tracking config', async () => {
+      await service.init({directory: testDir})
+      await writeFile(join(testDir, 'a.md'), 'content')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'init'})
+
+      await service.setTrackingBranch({branch: 'main', directory: testDir, remote: 'origin', remoteBranch: 'main'})
+      await service.setTrackingBranch({branch: 'main', directory: testDir, remote: 'origin', remoteBranch: 'develop'})
+      const result = await service.getTrackingBranch({branch: 'main', directory: testDir})
+
+      expect(result).to.deep.equal({remote: 'origin', remoteBranch: 'develop'})
+    })
+  })
+
+  // ---- getAheadBehind() ----
+
+  describe('getAheadBehind()', () => {
+    it('returns {ahead: 0, behind: 0} when refs are equal', async () => {
+      await service.init({directory: testDir})
+      await writeFile(join(testDir, 'a.md'), 'content')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'init'})
+
+      const result = await service.getAheadBehind({
+        directory: testDir,
+        localRef: 'refs/heads/main',
+        remoteRef: 'refs/heads/main',
+      })
+
+      expect(result).to.deep.equal({ahead: 0, behind: 0})
+    })
+
+    it('returns {ahead: 0, behind: 0} when remote ref does not exist', async () => {
+      await service.init({directory: testDir})
+      await writeFile(join(testDir, 'a.md'), 'content')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'init'})
+
+      const result = await service.getAheadBehind({
+        directory: testDir,
+        localRef: 'refs/heads/main',
+        remoteRef: 'refs/remotes/origin/main',
+      })
+
+      expect(result).to.deep.equal({ahead: 0, behind: 0})
+    })
+
+    it('counts commits ahead when local has more commits', async () => {
+      await service.init({directory: testDir})
+      await writeFile(join(testDir, 'a.md'), 'v1')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'commit 1'})
+
+      // Create a branch to act as remote ref point
+      await service.createBranch({branch: 'remote-snapshot', directory: testDir})
+
+      // Add 2 more commits on main
+      await writeFile(join(testDir, 'a.md'), 'v2')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'commit 2'})
+      await writeFile(join(testDir, 'a.md'), 'v3')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'commit 3'})
+
+      const result = await service.getAheadBehind({
+        directory: testDir,
+        localRef: 'refs/heads/main',
+        remoteRef: 'refs/heads/remote-snapshot',
+      })
+
+      expect(result.ahead).to.equal(2)
+      expect(result.behind).to.equal(0)
+    })
+  })
 })

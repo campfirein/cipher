@@ -13,6 +13,7 @@ export const VcErrorCode = {
   INVALID_REMOTE_URL: 'ERR_VC_INVALID_REMOTE_URL',
   MERGE_CONFLICT: 'ERR_VC_MERGE_CONFLICT',
   NO_REMOTE: 'ERR_VC_NO_REMOTE',
+  NO_UPSTREAM: 'ERR_VC_NO_UPSTREAM',
   NON_FAST_FORWARD: 'ERR_VC_NON_FAST_FORWARD',
   NOTHING_STAGED: 'ERR_VC_NOTHING_STAGED',
   NOTHING_TO_PUSH: 'ERR_VC_NOTHING_TO_PUSH',
@@ -47,9 +48,12 @@ export interface IVcInitResponse {
 }
 
 export interface IVcStatusResponse {
+  ahead?: number
+  behind?: number
   branch?: string
   initialized: boolean
   staged: {added: string[]; deleted: string[]; modified: string[]}
+  trackingBranch?: string
   unstaged: {deleted: string[]; modified: string[]}
   untracked: string[]
 }
@@ -91,16 +95,16 @@ export interface IVcConfigResponse {
 
 export interface IVcPushRequest {
   branch?: string
+  setUpstream?: boolean
 }
 
 export interface IVcPushResponse {
   alreadyUpToDate?: boolean
   branch: string
+  upstreamSet?: boolean
 }
 
-export interface IVcPullRequest {
-  branch?: string
-}
+export type IVcPullRequest = void
 
 export interface IVcPullResponse {
   alreadyUpToDate?: boolean
