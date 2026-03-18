@@ -410,6 +410,9 @@ export function createSessionServices(
   // to ensure proper cleanup when sessions are disposed
 
   return {
+    cleanup() {
+      progressTracker.detach()
+    },
     llmService,
     sessionEventBus,
   }

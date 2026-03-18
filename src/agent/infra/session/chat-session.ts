@@ -73,6 +73,7 @@ export class ChatSession implements IChatSession {
   private isExecuting: boolean = false
   private readonly llmService: ILLMService
   private readonly messageQueue: MessageQueueService
+  private readonly sessionCleanup?: () => void
   private readonly sharedServices: CipherAgentServices
   /** When true, strip taskId from forwarded events (subagent mode via emitTaskId: false) */
   private suppressTaskIdForwarding: boolean = false
@@ -90,6 +91,7 @@ export class ChatSession implements IChatSession {
     this.eventBus = sessionServices.sessionEventBus
     this.llmService = sessionServices.llmService
     this.messageQueue = new MessageQueueService(sessionServices.sessionEventBus)
+    this.sessionCleanup = sessionServices.cleanup
 
     // Setup event forwarding from session bus to agent bus
     this.setupEventForwarding()
@@ -148,6 +150,8 @@ export class ChatSession implements IChatSession {
     }
 
     this.forwarders.clear()
+
+    this.sessionCleanup?.()
 
     // Clean up session status
     sessionStatusManager.remove(this.id)

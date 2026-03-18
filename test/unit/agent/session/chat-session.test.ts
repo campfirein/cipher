@@ -470,6 +470,19 @@ describe('ChatSession', () => {
       // Should not forward after dispose
       expect(agentEmitStub.called).to.be.false
     })
+
+    it('should call session cleanup hook on dispose', () => {
+      const cleanupStub = sandbox.stub()
+      const sessionWithCleanup = new ChatSession(sessionId, mockSharedServices, {
+        cleanup: cleanupStub,
+        llmService: mockLLMService,
+        sessionEventBus,
+      })
+
+      sessionWithCleanup.dispose()
+
+      expect(cleanupStub.calledOnce).to.be.true
+    })
   })
 
   describe('getLLMService()', () => {

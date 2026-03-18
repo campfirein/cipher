@@ -225,6 +225,11 @@ export class MultiStrategyParser<T = unknown> {
   private tryRawJson(text: string): null | ParseResult<T> {
     // Try array first (more specific), then object
     for (const [open, close] of [['[', ']'], ['{', '}']] as const) {
+      // NOTE: This zero-dependency heuristic grabs the outermost bracket pair
+      // via indexOf/lastIndexOf. If the model emits prose brackets before the
+      // actual JSON (for example, "expected {x}. Result: {...}"), the candidate
+      // may be wrong. In that case tryParseJson() rejects it and this tier
+      // falls through to later strategies.
       const startIdx = text.indexOf(open)
       if (startIdx === -1) {
         continue
