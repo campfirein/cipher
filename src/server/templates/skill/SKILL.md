@@ -82,14 +82,12 @@ brv curate view --help
 ### 3. Review Pending Changes
 **Overview:** After a curate operation, some changes may require human review before being applied. Use `brv review` to list, approve, or reject pending operations.
 
-**Use this skill when:**
+**When to use:**
 - A curate operation reports pending reviews (shown in curate output)
-- The user wants to check if there are pending review items
-- The user wants to approve or reject curated changes
+- The user wants to check, approve, or reject pending changes
 
-**Do NOT use this skill when:**
-- There are no curate operations pending (check with `brv curate view` first)
-- The user has not asked to review or approve changes
+**When NOT to use:**
+- There are no pending reviews (check with `brv review pending` first)
 
 **Commands:**
 
@@ -127,6 +125,15 @@ Reject all operations for a task (discards pending changes; restores backup for 
 ```bash
 brv review reject <taskId>
 ```
+
+Approve or reject specific files within a task:
+```bash
+brv review approve <taskId> --file <path> --file <path>
+brv review reject <taskId> --file <path>
+```
+File paths are relative to context tree (as shown in `brv review pending` output).
+
+**Note**: Always ask the user before approving or rejecting critical changes.
 
 **JSON output** (useful for agent-driven workflows):
 ```bash
