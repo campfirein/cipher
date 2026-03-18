@@ -79,7 +79,9 @@ export class SessionProgressTracker {
 
   /**
    * Start listening to session events.
-   * Call once after construction. Safe to call multiple times (idempotent via AbortSignal).
+   * Call exactly once after construction. Not idempotent — calling again
+   * before detach() double-registers listeners; calling after detach()
+   * registers against an aborted signal (listeners are immediately removed).
    */
   public attach(): void {
     const {signal} = this.abortController
@@ -117,16 +119,10 @@ export class SessionProgressTracker {
       {signal},
     )
 
-    // Compression quality — emitted by Pattern 4 after full strategy chain
-    this.sessionEventBus.on(
-      'llmservice:compressionQuality',
-      () => {
-        this.compressionCount++
-      },
-      {signal},
-    )
-
-    // Context compressed — emitted by summary-compaction path
+    // Context compressed — canonical "a compression happened" event,
+    // emitted by both strategy-chain and summary-compaction paths.
+    // Note: llmservice:compressionQuality is a quality side-channel only
+    // and must NOT increment compressionCount to avoid double-counting.
     this.sessionEventBus.on(
       'llmservice:contextCompressed',
       () => {

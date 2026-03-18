@@ -136,7 +136,21 @@ describe('SessionProgressTracker', () => {
       expect(tracker.getSnapshot().compressionCount).to.equal(1)
     })
 
-    it('should count compressionQuality events', () => {
+    it('should not count compressionQuality events (quality side-channel only)', () => {
+      eventBus.emit('llmservice:compressionQuality', {
+        dimensions: {factualCompleteness: 0.8, toolContextPreservation: 0.9, userIntentClarity: 0.7},
+        overallScore: 0.8,
+      })
+
+      expect(tracker.getSnapshot().compressionCount).to.equal(0)
+    })
+
+    it('should not double-count when both contextCompressed and compressionQuality fire', () => {
+      eventBus.emit('llmservice:contextCompressed', {
+        compressedTokens: 5000,
+        originalTokens: 10_000,
+        strategy: 'summary',
+      })
       eventBus.emit('llmservice:compressionQuality', {
         dimensions: {factualCompleteness: 0.8, toolContextPreservation: 0.9, userIntentClarity: 0.7},
         overallScore: 0.8,
