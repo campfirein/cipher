@@ -61,6 +61,7 @@ export interface CipherAgentServices {
  * - LLMService: LLM client with isolated context manager
  */
 export interface SessionServices {
+  cleanup?: () => void
   llmService: ILLMService
   sessionEventBus: SessionEventBus
 }

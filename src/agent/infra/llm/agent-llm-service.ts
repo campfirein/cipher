@@ -2,6 +2,7 @@ import type {MessageParam} from '@anthropic-ai/sdk/resources/messages'
 import type {Content} from '@google/genai'
 import type {ChatCompletionMessageParam} from 'openai/resources/chat/completions'
 
+import type {SystemPromptContributor} from '../../core/domain/system-prompt/types.js'
 import type {ToolExecutionResult} from '../../core/domain/tools/tool-error.js'
 import type {ToolSet} from '../../core/domain/tools/types.js'
 import type {ExecutionContext} from '../../core/interfaces/i-cipher-agent.js'
@@ -22,7 +23,9 @@ import type {MemoryManager} from '../memory/memory-manager.js'
 import type {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import type {ToolManager} from '../tools/tool-manager.js'
 import type {CompactionService} from './context/compaction/compaction-service.js'
+import type {CompressionQualityEvaluator} from './context/compression/compression-quality-evaluator.js'
 import type {ICompressionStrategy} from './context/compression/types.js'
+import type {SessionProgressTracker} from './context/session-progress-tracker.js'
 
 import {getErrorMessage} from '../../../server/utils/error-helpers.js'
 import {AgentStateMachine} from '../../core/domain/agent/agent-state-machine.js'
@@ -173,10 +176,14 @@ export class AgentLLMService implements ILLMService {
   private readonly metadataHandler: ToolMetadataHandler
   private readonly mutex = new AsyncMutex()
   private readonly outputProcessor: ToolOutputProcessor
+  /** Optional progress tracker for recording iteration completions (Pattern 1). */
+  private readonly progressTracker?: SessionProgressTracker
   private readonly providerId: string
   private readonly providerType: 'claude' | 'gemini' | 'openai'
-  /** Optional sandbox service for rolling checkpoint variable injection (Pattern 1) */
+  /** Optional sandbox service for rolling checkpoint variable injection */
   private readonly sandboxService?: ISandboxService
+  /** Per-session system prompt contributors (appended after shared SystemPromptManager output). */
+  private readonly sessionContributors: SystemPromptContributor[]
   private readonly sessionEventBus: SessionEventBus
   private readonly sessionId: string
   private readonly systemPromptManager: SystemPromptManager
@@ -215,13 +222,19 @@ export class AgentLLMService implements ILLMService {
     config: AgentLLMServiceConfig,
     options: {
       compactionService?: CompactionService
+      /** Optional quality evaluator for measuring compression output (Pattern 4). */
+      compressionQualityEvaluator?: CompressionQualityEvaluator
       /** Optional compression strategies for context overflow management */
       compressionStrategies?: ICompressionStrategy[]
       historyStorage?: IHistoryStorage
       logger?: ILogger
       memoryManager?: MemoryManager
+      /** Optional progress tracker for recording iteration completions (Pattern 1). */
+      progressTracker?: SessionProgressTracker
       /** Optional sandbox service for rolling checkpoint variable injection */
       sandboxService?: ISandboxService
+      /** Per-session system prompt contributors (appended after shared prompt). */
+      sessionContributors?: SystemPromptContributor[]
       sessionEventBus: SessionEventBus
       systemPromptManager: SystemPromptManager
       toolManager: ToolManager
@@ -230,7 +243,9 @@ export class AgentLLMService implements ILLMService {
     this.sessionId = sessionId
     this.generator = generator
     this.compactionService = options.compactionService
+    this.progressTracker = options.progressTracker
     this.sandboxService = options.sandboxService
+    this.sessionContributors = options.sessionContributors ?? []
     this.toolManager = options.toolManager
     this.systemPromptManager = options.systemPromptManager
     this.memoryManager = options.memoryManager
@@ -281,10 +296,13 @@ export class AgentLLMService implements ILLMService {
 
     // Initialize context manager with optional history storage
     this.contextManager = new ContextManager({
+      compressionQualityEvaluator: options.compressionQualityEvaluator,
       compressionStrategies: options.compressionStrategies,
       formatter: this.formatter,
       historyStorage: options.historyStorage,
+      logger: this.logger,
       maxInputTokens: this.config.maxInputTokens,
+      sessionEventBus: options.sessionEventBus,
       sessionId,
       tokenizer: this.tokenizer,
     })
@@ -370,9 +388,13 @@ export class AgentLLMService implements ILLMService {
           tools: toolSet,
         })
 
+        // Record completed iteration before result check so one-turn tasks are counted
+        this.progressTracker?.recordIteration()
+
         if (result !== null) {
           // Task complete - no tool calls
           stateMachine.complete()
+
           return result
         }
 
@@ -919,6 +941,19 @@ export class AgentLLMService implements ILLMService {
         type: reflectionType,
       })
       systemPrompt = systemPrompt + '\n\n' + reflectionPrompt
+    }
+
+    // Append per-session contributor content (never cached — changes every iteration)
+    for (const contributor of this.sessionContributors) {
+      // eslint-disable-next-line no-await-in-loop -- Sequential to maintain deterministic prompt ordering
+      const content = await contributor.getContent({
+        availableMarkers,
+        availableTools,
+        commandType: executionContext?.commandType,
+      })
+      if (content) {
+        systemPrompt = systemPrompt + '\n\n' + content
+      }
     }
 
     // Verbose debug: Show complete system prompt

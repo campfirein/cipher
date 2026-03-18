@@ -96,4 +96,12 @@ export function setupEventForwarding(
       sessionId,
     })
   })
+
+  // Forward llmservice:compressionQuality (Pattern 4)
+  sessionEventBus.on('llmservice:compressionQuality', (payload) => {
+    agentEventBus.emit('llmservice:compressionQuality', {
+      ...payload,
+      sessionId,
+    })
+  })
 }

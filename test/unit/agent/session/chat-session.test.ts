@@ -65,6 +65,7 @@ describe('ChatSession', () => {
       const eventNames = [
         'llmservice:thinking',
         'llmservice:chunk',
+        'llmservice:compressionQuality',
         'llmservice:response',
         'llmservice:toolCall',
         'llmservice:toolResult',
@@ -453,8 +454,8 @@ describe('ChatSession', () => {
 
       session.dispose()
 
-      // Should call off for each event name (14 events in ChatSession's SESSION_EVENT_NAMES)
-      expect(offStub.callCount).to.equal(14)
+      // Should call off for each event name (15 events in ChatSession's SESSION_EVENT_NAMES)
+      expect(offStub.callCount).to.equal(15)
     })
 
     it('should clear forwarders map', () => {
@@ -468,6 +469,19 @@ describe('ChatSession', () => {
 
       // Should not forward after dispose
       expect(agentEmitStub.called).to.be.false
+    })
+
+    it('should call session cleanup hook on dispose', () => {
+      const cleanupStub = sandbox.stub()
+      const sessionWithCleanup = new ChatSession(sessionId, mockSharedServices, {
+        cleanup: cleanupStub,
+        llmService: mockLLMService,
+        sessionEventBus,
+      })
+
+      sessionWithCleanup.dispose()
+
+      expect(cleanupStub.calledOnce).to.be.true
     })
   })
 

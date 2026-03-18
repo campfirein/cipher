@@ -86,7 +86,7 @@ describe('ExperienceConsolidationService', () => {
     it('skips LLM call when a file has 0 bullets', async () => {
       const llm = makeLlm()
       const store = makeStore()
-      ;(store.readSectionLines as SinonStub).resolves([])
+      ;(store.readFile as SinonStub).resolves(buildContent(EXPERIENCE_SECTIONS[EXPERIENCE_LESSONS_FILE], []))
       const service = new ExperienceConsolidationService(llm)
 
       await service.consolidate(store, EXPERIENCE_CONSOLIDATION_INTERVAL)
@@ -97,7 +97,9 @@ describe('ExperienceConsolidationService', () => {
     it('skips LLM call when a file has only 1 bullet', async () => {
       const llm = makeLlm()
       const store = makeStore()
-      ;(store.readSectionLines as SinonStub).resolves(['only one bullet'])
+      ;(store.readFile as SinonStub).resolves(
+        buildContent(EXPERIENCE_SECTIONS[EXPERIENCE_LESSONS_FILE], ['only one bullet']),
+      )
       const service = new ExperienceConsolidationService(llm)
 
       await service.consolidate(store, EXPERIENCE_CONSOLIDATION_INTERVAL)
@@ -108,7 +110,6 @@ describe('ExperienceConsolidationService', () => {
     it('skips writeFile when LLM returns an empty JSON array', async () => {
       const llm = makeLlm('[]')
       const store = makeStore()
-      ;(store.readSectionLines as SinonStub).resolves(['bullet A', 'bullet B'])
       ;(store.readFile as SinonStub).resolves(
         buildContent(EXPERIENCE_SECTIONS[EXPERIENCE_LESSONS_FILE], ['bullet A', 'bullet B']),
       )
@@ -122,7 +123,6 @@ describe('ExperienceConsolidationService', () => {
     it('skips writeFile when file has no frontmatter', async () => {
       const llm = makeLlm('["refined"]')
       const store = makeStore()
-      ;(store.readSectionLines as SinonStub).resolves(['bullet A', 'bullet B'])
       ;(store.readFile as SinonStub).resolves('## Facts\n- bullet A\n- bullet B\n')
       const service = new ExperienceConsolidationService(llm)
 
@@ -141,7 +141,6 @@ describe('ExperienceConsolidationService', () => {
       const llm = makeLlm('["refined bullet"]')
       const store = makeStore()
       const bullets = ['first lesson', 'second lesson']
-      ;(store.readSectionLines as SinonStub).resolves(bullets)
       ;(store.readFile as SinonStub).resolves(buildContent(EXPERIENCE_SECTIONS[EXPERIENCE_LESSONS_FILE], bullets))
       const service = new ExperienceConsolidationService(llm)
 
@@ -159,10 +158,9 @@ describe('ExperienceConsolidationService', () => {
       const section = EXPERIENCE_SECTIONS[EXPERIENCE_LESSONS_FILE]
       const bullets = ['lesson A', 'lesson B', 'lesson A duplicate']
       // Only lessons file has bullets — prevents other files from being processed
-      ;(store.readSectionLines as SinonStub).callsFake((filename: string) =>
-        Promise.resolve(filename === EXPERIENCE_LESSONS_FILE ? bullets : []),
+      ;(store.readFile as SinonStub).callsFake((filename: string) =>
+        Promise.resolve(filename === EXPERIENCE_LESSONS_FILE ? buildContent(section, bullets) : buildContent('Other', [])),
       )
-      ;(store.readFile as SinonStub).resolves(buildContent(section, bullets))
       const service = new ExperienceConsolidationService(llm)
 
       await service.consolidate(store, EXPERIENCE_CONSOLIDATION_INTERVAL)
@@ -178,10 +176,13 @@ describe('ExperienceConsolidationService', () => {
       const store = makeStore()
       const section = EXPERIENCE_SECTIONS[EXPERIENCE_LESSONS_FILE]
       const bullets = ['bullet X', 'bullet Y']
-      ;(store.readSectionLines as SinonStub).callsFake((filename: string) =>
-        Promise.resolve(filename === EXPERIENCE_LESSONS_FILE ? bullets : []),
+      ;(store.readFile as SinonStub).callsFake((filename: string) =>
+        Promise.resolve(
+          filename === EXPERIENCE_LESSONS_FILE
+            ? buildContent(section, bullets, {importance: 70, recency: 0.4, updateCount: 3})
+            : buildContent('Other', []),
+        ),
       )
-      ;(store.readFile as SinonStub).resolves(buildContent(section, bullets, {importance: 70, recency: 0.4, updateCount: 3}))
       const service = new ExperienceConsolidationService(llm)
 
       const before = Date.now()
@@ -197,15 +198,33 @@ describe('ExperienceConsolidationService', () => {
       expect(new Date(updatedAtMatch![1]).getTime()).to.be.greaterThanOrEqual(before)
     })
 
+    it('salvages valid strings when LLM returns a mixed array with non-string elements', async () => {
+      const llm = makeLlm('["keep this", null, "also keep", 42]')
+      const store = makeStore()
+      const section = EXPERIENCE_SECTIONS[EXPERIENCE_LESSONS_FILE]
+      const bullets = ['lesson A', 'lesson B']
+      ;(store.readFile as SinonStub).callsFake((filename: string) =>
+        Promise.resolve(filename === EXPERIENCE_LESSONS_FILE ? buildContent(section, bullets) : buildContent('Other', [])),
+      )
+      const service = new ExperienceConsolidationService(llm)
+
+      await service.consolidate(store, EXPERIENCE_CONSOLIDATION_INTERVAL)
+
+      const writtenContent = (store.writeFile as SinonStub).firstCall.args[1] as string
+      expect(writtenContent).to.include('- keep this')
+      expect(writtenContent).to.include('- also keep')
+      expect(writtenContent).to.not.include('null')
+      expect(writtenContent).to.not.include('42')
+    })
+
     it('falls back to markdown bullet parsing when LLM returns a bulleted list', async () => {
       const llm = makeLlm('- refined bullet one\n- refined bullet two')
       const store = makeStore()
       const section = EXPERIENCE_SECTIONS[EXPERIENCE_HINTS_FILE]
       const bullets = ['raw hint A', 'raw hint B']
-      ;(store.readSectionLines as SinonStub).callsFake((filename: string) =>
-        Promise.resolve(filename === EXPERIENCE_HINTS_FILE ? bullets : []),
+      ;(store.readFile as SinonStub).callsFake((filename: string) =>
+        Promise.resolve(filename === EXPERIENCE_HINTS_FILE ? buildContent(section, bullets) : buildContent('Other', [])),
       )
-      ;(store.readFile as SinonStub).resolves(buildContent(section, bullets))
       const service = new ExperienceConsolidationService(llm)
 
       await service.consolidate(store, EXPERIENCE_CONSOLIDATION_INTERVAL)
@@ -224,7 +243,6 @@ describe('ExperienceConsolidationService', () => {
     it('consolidates lessons, hints, and dead-ends at every interval', async () => {
       const llm = makeLlm('["refined"]')
       const store = makeStore()
-      ;(store.readSectionLines as SinonStub).resolves(['bullet 1', 'bullet 2'])
       ;(store.readFile as SinonStub).callsFake((filename: string) =>
         Promise.resolve(buildContent(EXPERIENCE_SECTIONS[filename] ?? 'Facts', ['bullet 1', 'bullet 2'])),
       )
@@ -241,7 +259,6 @@ describe('ExperienceConsolidationService', () => {
     it('does NOT consolidate playbook at plain INTERVAL (only every INTERVAL*3)', async () => {
       const llm = makeLlm('["refined"]')
       const store = makeStore()
-      ;(store.readSectionLines as SinonStub).resolves(['bullet 1', 'bullet 2'])
       ;(store.readFile as SinonStub).callsFake((filename: string) =>
         Promise.resolve(buildContent(EXPERIENCE_SECTIONS[filename] ?? 'Facts', ['bullet 1', 'bullet 2'])),
       )
@@ -257,7 +274,6 @@ describe('ExperienceConsolidationService', () => {
     it('does NOT consolidate playbook when curationCount is 0', async () => {
       const llm = makeLlm('["refined"]')
       const store = makeStore()
-      ;(store.readSectionLines as SinonStub).resolves(['bullet 1', 'bullet 2'])
       ;(store.readFile as SinonStub).callsFake((filename: string) =>
         Promise.resolve(buildContent(EXPERIENCE_SECTIONS[filename] ?? 'Facts', ['bullet 1', 'bullet 2'])),
       )
@@ -275,7 +291,6 @@ describe('ExperienceConsolidationService', () => {
     it('consolidates playbook at INTERVAL * 3', async () => {
       const llm = makeLlm('["refined"]')
       const store = makeStore()
-      ;(store.readSectionLines as SinonStub).resolves(['bullet 1', 'bullet 2'])
       ;(store.readFile as SinonStub).callsFake((filename: string) =>
         Promise.resolve(buildContent(EXPERIENCE_SECTIONS[filename] ?? 'Facts', ['bullet 1', 'bullet 2'])),
       )
@@ -290,7 +305,7 @@ describe('ExperienceConsolidationService', () => {
     it('updates meta.lastConsolidatedAt after consolidation', async () => {
       const llm = makeLlm()
       const store = makeStore()
-      ;(store.readSectionLines as SinonStub).resolves([]) // skip file processing
+      ;(store.readFile as SinonStub).resolves(buildContent(EXPERIENCE_SECTIONS[EXPERIENCE_LESSONS_FILE], []))
       const service = new ExperienceConsolidationService(llm)
 
       const before = Date.now()
@@ -317,7 +332,6 @@ describe('ExperienceConsolidationService', () => {
         },
       }
       const store = makeStore()
-      ;(store.readSectionLines as SinonStub).resolves(['bullet 1', 'bullet 2'])
       ;(store.readFile as SinonStub).callsFake((filename: string) =>
         Promise.resolve(buildContent(EXPERIENCE_SECTIONS[filename] ?? 'Facts', ['bullet 1', 'bullet 2'])),
       )
@@ -333,7 +347,7 @@ describe('ExperienceConsolidationService', () => {
     it('does not throw when writeMeta fails', async () => {
       const llm = makeLlm()
       const store = makeStore()
-      ;(store.readSectionLines as SinonStub).resolves([])
+      ;(store.readFile as SinonStub).resolves(buildContent(EXPERIENCE_SECTIONS[EXPERIENCE_LESSONS_FILE], []))
       ;(store.writeMeta as SinonStub).rejects(new Error('disk full'))
       const service = new ExperienceConsolidationService(llm)
 

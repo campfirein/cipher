@@ -14,6 +14,7 @@ import {
   EXPERIENCE_HINTS_FILE,
   EXPERIENCE_LESSONS_FILE,
 } from '../../../../src/server/constants.js'
+import {BackpressureGate} from '../../../../src/server/infra/context-tree/backpressure-gate.js'
 import {ExperienceConsolidationService} from '../../../../src/server/infra/context-tree/experience-consolidation-service.js'
 import {ExperienceHookService} from '../../../../src/server/infra/context-tree/experience-hook-service.js'
 import {ExperienceStore} from '../../../../src/server/infra/context-tree/experience-store.js'
@@ -245,6 +246,19 @@ describe('ExperienceHookService', () => {
       }
     })
 
+    it('still increments curationCount when ensureInitialized fails', async () => {
+      const ensureStub = sinon.stub(ExperienceStore.prototype, 'ensureInitialized').rejects(new Error('disk full'))
+
+      try {
+        await service.onCurateComplete('no signals')
+
+        const meta = await store.readMeta()
+        expect(meta.curationCount).to.equal(1)
+      } finally {
+        ensureStub.restore()
+      }
+    })
+
     it('cross-instance: two instances for the same path share the queue and serialize', async () => {
       const service2 = new ExperienceHookService(baseDir)
 
@@ -383,6 +397,11 @@ describe('ExperienceHookService', () => {
 
       // process() must have resolved already even though consolidation is still in-flight
       expect(consolidationResolved).to.be.false
+
+      // Let the background consolidation finish before teardown removes the temp directory.
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 25)
+      })
     })
 
     it('serializes later curations behind in-flight consolidation', async () => {
@@ -438,6 +457,34 @@ describe('ExperienceHookService', () => {
       // No error and curation counter still incremented
       const meta = await store.readMeta()
       expect(meta.curationCount).to.equal(EXPERIENCE_CONSOLIDATION_INTERVAL)
+    })
+
+    it('triggers background consolidation when an injected gate fires', async () => {
+      const consolidationService = makeConsolidationService()
+      const gate = new BackpressureGate({maxEntriesPerFile: 1, minConsolidationIntervalSec: 0})
+      const svc = new ExperienceHookService(baseDir, consolidationService, gate)
+
+      await svc.onCurateComplete(buildResponse([{text: 'gate-triggered lesson', type: 'lesson'}]))
+      await Promise.resolve()
+
+      expect(consolidateSpy.calledOnce).to.be.true
+      expect(consolidateSpy.firstCall.args[1]).to.equal(0)
+    })
+
+    it('runs cadence consolidation only once when gate and cadence trigger together', async () => {
+      const consolidationService = makeConsolidationService()
+      const gate = new BackpressureGate({maxEntriesPerFile: 1, minConsolidationIntervalSec: 0})
+      const svc = new ExperienceHookService(baseDir, consolidationService, gate)
+
+      await Promise.all(
+        Array.from({length: EXPERIENCE_CONSOLIDATION_INTERVAL - 1}, () => svc.onCurateComplete('no signals')),
+      )
+
+      await svc.onCurateComplete(buildResponse([{text: 'boundary lesson', type: 'lesson'}]))
+      await Promise.resolve()
+
+      expect(consolidateSpy.callCount).to.equal(1)
+      expect(consolidateSpy.firstCall.args[1]).to.equal(EXPERIENCE_CONSOLIDATION_INTERVAL)
     })
   })
 })

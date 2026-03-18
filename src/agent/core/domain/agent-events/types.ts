@@ -18,6 +18,7 @@ export const AGENT_EVENT_NAMES = [
  */
 export const SESSION_EVENT_NAMES = [
   'llmservice:chunk',
+  'llmservice:compressionQuality',
   'llmservice:contextCompressed',
   'llmservice:contextOverflow',
   'llmservice:contextPruned',
@@ -228,6 +229,20 @@ export interface AgentEventMap {
     sessionId: string
     taskId?: string
     type: 'reasoning' | 'text'
+  }
+
+  /**
+   * Emitted after the full compression pipeline completes, reporting quality dimensions
+   * of the final compressed output (Pattern 4). Forwarded from SessionEventMap with sessionId.
+   */
+  'llmservice:compressionQuality': {
+    dimensions: {
+      factualCompleteness: number
+      toolContextPreservation: number
+      userIntentClarity: number
+    }
+    overallScore: number
+    sessionId: string
   }
 
   /**
@@ -590,6 +605,21 @@ export interface SessionEventMap {
     isComplete?: boolean
     taskId?: string
     type: 'reasoning' | 'text'
+  }
+
+  /**
+   * Emitted after the full compression pipeline completes, reporting quality dimensions
+   * of the final compressed output (Pattern 4).
+   * @property {object} dimensions - Per-dimension quality scores (0-1)
+   * @property {number} overallScore - Weighted overall quality score (0-1)
+   */
+  'llmservice:compressionQuality': {
+    dimensions: {
+      factualCompleteness: number
+      toolContextPreservation: number
+      userIntentClarity: number
+    }
+    overallScore: number
   }
 
   /**

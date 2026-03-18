@@ -1,5 +1,7 @@
 import type {IConsolidationLlm} from '../../core/interfaces/experience/i-consolidation-llm.js'
+import type {ConsolidationQualityEvaluator} from './consolidation-quality.js'
 
+import {MultiStrategyParser} from '../../../agent/infra/llm/parsing/multi-strategy-parser.js'
 import {
   EXPERIENCE_CONSOLIDATION_INTERVAL,
   EXPERIENCE_DEAD_ENDS_FILE,
@@ -40,23 +42,29 @@ ${bulletBlock}
 Return ONLY a JSON array of strings (the refined bullet texts):`
 }
 
+/** Parser for extracting string arrays from LLM consolidation responses. */
+const bulletParser = new MultiStrategyParser<string[]>({
+  enabledTiers: ['json-block', 'raw-json'],
+  // Accept arrays with at least one string; parseBullets filters non-strings.
+  // Using .some() instead of .every() so mixed arrays like ["keep", null, "also keep"]
+  // are accepted rather than silently dropped to the markdown fallback.
+  validator: (v): v is string[] => Array.isArray(v) && v.some((s) => typeof s === 'string'),
+})
+
 /**
  * Parse LLM response into bullet strings.
- * Tries JSON array first; falls back to markdown bullet list.
+ * Uses MultiStrategyParser with json-block and raw-json tiers,
+ * then falls back to markdown bullet list extraction.
  */
 function parseBullets(response: string): string[] {
-  try {
-    const jsonMatch = /\[[\s\S]*\]/.exec(response)
-    if (jsonMatch) {
-      const parsed: unknown = JSON.parse(jsonMatch[0])
-      if (Array.isArray(parsed)) {
-        return parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-      }
-    }
-  } catch {
-    // JSON parse failed — fall through to markdown fallback
+  // Try structured parsing first
+  const result = bulletParser.parse(response)
+  if (result) {
+    return (result.parsed as unknown[])
+      .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
   }
 
+  // Markdown bullet fallback
   return response
     .split('\n')
     .filter((line) => line.startsWith('- '))
@@ -82,6 +90,25 @@ function replaceSectionContent(content: string, section: string, bullets: string
   return content.slice(0, bodyStart) + bulletBlock + after
 }
 
+// NOTE: This duplicates the section-parsing logic in ExperienceStore.readSectionLines.
+// If parsing rules change (e.g. heading level, bullet markers), both sites must be updated.
+// Worth extracting a shared utility when convenient.
+function readSectionLinesFromContent(content: string, section: string): string[] {
+  const marker = `\n## ${section}\n`
+  const start = content.indexOf(marker)
+  if (start === -1) return []
+
+  const sectionStart = start + marker.length
+  const nextHeading = content.indexOf('\n## ', sectionStart)
+  const sectionContent =
+    nextHeading === -1 ? content.slice(sectionStart) : content.slice(sectionStart, nextHeading)
+
+  return sectionContent
+    .split('\n')
+    .filter((line) => line.startsWith('- '))
+    .map((line) => line.slice(2))
+}
+
 // ---------------------------------------------------------------------------
 // ExperienceConsolidationService
 // ---------------------------------------------------------------------------
@@ -98,9 +125,11 @@ function replaceSectionContent(content: string, section: string, bullets: string
  */
 export class ExperienceConsolidationService {
   private readonly llm: IConsolidationLlm
+  private readonly qualityEvaluator?: ConsolidationQualityEvaluator
 
-  constructor(llm: IConsolidationLlm) {
+  constructor(llm: IConsolidationLlm, qualityEvaluator?: ConsolidationQualityEvaluator) {
     this.llm = llm
+    this.qualityEvaluator = qualityEvaluator
   }
 
   /**
@@ -135,25 +164,62 @@ export class ExperienceConsolidationService {
   }
 
   private async consolidateFile(store: ExperienceStore, filename: string, section: string): Promise<void> {
-    const bullets = await store.readSectionLines(filename, section)
+    const content = await store.readFile(filename)
+    const bullets = readSectionLinesFromContent(content, section)
 
     // Nothing meaningful to consolidate
-    if (bullets.length < 2) return
+    if (bullets.length < 2) {
+      return
+    }
 
-    const response = await this.llm.generate(CONSOLIDATION_SYSTEM_PROMPT, buildUserMessage(section, bullets))
-    const consolidated = parseBullets(response)
-
-    // LLM returned nothing usable — skip write to avoid data loss
-    if (consolidated.length === 0) return
-
-    const content = await store.readFile(filename)
     const scoring = parseFrontmatterScoring(content)
 
     // Missing frontmatter means corrupted file — skip rather than overwrite
-    if (!scoring) return
+    if (!scoring) {
+      return
+    }
+
+    // Multi-round consolidation loop (Pattern 3)
+    const originalBullets = [...bullets]
+    let consolidated: null | string[] = null
+    let previousScore: number | undefined
+    const maxRounds = this.qualityEvaluator?.maxRounds ?? 1
+
+    for (let round = 0; round < maxRounds; round++) {
+      // eslint-disable-next-line no-await-in-loop
+      const response = await this.llm.generate(
+        CONSOLIDATION_SYSTEM_PROMPT,
+        buildUserMessage(section, consolidated ?? bullets),
+      )
+      const result = parseBullets(response)
+
+      // LLM returned nothing usable — stop loop to avoid data loss
+      if (result.length === 0) {
+        break
+      }
+
+      consolidated = result
+
+      // Quality check (skip on last round or if no evaluator)
+      if (this.qualityEvaluator) {
+        const evaluation = this.qualityEvaluator.evaluate(originalBullets, consolidated)
+        if (this.qualityEvaluator.shouldTerminate(evaluation.overallScore, previousScore, round + 1)) {
+          break
+        }
+
+        previousScore = evaluation.overallScore
+      } else {
+        // Single-pass when no evaluator
+        break
+      }
+    }
+
+    // LLM returned nothing usable across all rounds — skip write
+    if (!consolidated || consolidated.length === 0) {
+      return
+    }
 
     const finalScoring = recordConsolidation(scoring)
-
     const withUpdatedFrontmatter = updateScoringInContent(content, finalScoring)
     const withConsolidatedSection = replaceSectionContent(withUpdatedFrontmatter, section, consolidated)
 

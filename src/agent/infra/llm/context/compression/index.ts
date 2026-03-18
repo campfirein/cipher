@@ -12,6 +12,10 @@ export {
   formatRole,
 } from './compression-helpers.js'
 
+// Compression quality evaluator (Pattern 4)
+export {CompressionQualityEvaluator} from './compression-quality-evaluator.js'
+export type {CompressionDimensions, CompressionQualityEvaluatorOptions, CompressionQualitySnapshot} from './compression-quality-evaluator.js'
+
 // Compression strategies (alphabetical order)
 export {createEnhancedCompactionStrategy, EnhancedCompactionStrategy} from './enhanced-compaction.js'
 export type {CompactionResult, EnhancedCompactionOptions} from './enhanced-compaction.js'
