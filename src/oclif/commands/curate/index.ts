@@ -14,6 +14,7 @@ import {
   formatConnectionError,
   hasLeakedHandles,
   type ProviderErrorContext,
+  providerMissingMessage,
   withDaemonRetry,
 } from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
@@ -124,9 +125,7 @@ Bad examples:
           }
 
           if (active.providerKeyMissing) {
-            throw new Error(
-              `${active.activeProvider} API key is missing from storage.\nPlease reconnect: brv providers connect ${active.activeProvider} --api-key <your-key>`,
-            )
+            throw new Error(providerMissingMessage(active.activeProvider, active.authMethod))
           }
 
           await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType})
@@ -252,8 +251,8 @@ Bad examples:
       const displayPath = this.extractContextTreeRelativePath(op.filePath) ?? op.path
       this.log(`\n  [${op.type}${impact}] - path: ${displayPath}`)
       if (op.reason) this.log(`  Why:   ${op.reason}`)
-      if (op.previousSummary) this.log(`  Before: ${op.previousSummary}`)
-      if (op.summary) this.log(`  After:  ${op.summary}`)
+      if (op.previousSummary) this.log(`  Before: ${op.previousSummary.replaceAll('\n', '\n          ')}`)
+      if (op.summary) this.log(`  After:  ${op.summary.replaceAll('\n', '\n          ')}`)
     }
 
     this.log(`\n  To approve all:  brv review approve ${taskId}`)

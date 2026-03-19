@@ -76,6 +76,11 @@ export const ProviderDialog: React.FC<ProviderDialogProps> = ({
           {isCurrent && (
             <Text color={colors.primary}>(Current)</Text>
           )}
+          {item.isConnected && item.authMethod && (
+            <Text color={colors.primary}>
+              {item.authMethod === 'oauth' ? '[OAuth]' : '[API Key]'}
+            </Text>
+          )}
         </Box>
       )}
       searchPlaceholder="Search providers..."

@@ -12,8 +12,11 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_CONTEXT_TREE_NOT_INIT: 'Context tree not initialized.',
   ERR_LOCAL_CHANGES_EXIST: 'You have local changes. Run /push to save your changes before pulling.',
   ERR_NOT_AUTHENTICATED: 'Not authenticated. This is required for cloud sync. Run /login to connect your account.',
+  ERR_OAUTH_REFRESH_FAILED: 'OAuth token refresh failed. Run /providers to reconnect your provider.',
+  ERR_OAUTH_TOKEN_EXPIRED: 'OAuth token has expired. Run /providers to reconnect your provider.',
   ERR_PROJECT_NOT_INIT: "Project not initialized. Run 'brv restart' to reinitialize.",
-  ERR_PROVIDER_NOT_CONFIGURED: 'No provider connected. Run /providers connect byterover to use the free built-in provider, or connect another provider.',
+  ERR_PROVIDER_NOT_CONFIGURED:
+    'No provider connected. Run /providers connect byterover to use the free built-in provider, or connect another provider.',
   ERR_SPACE_NOT_CONFIGURED: 'No space configured. Run /space switch to select a space first.',
   ERR_SPACE_NOT_FOUND: 'Space not found. Check your configuration.',
 }
@@ -45,5 +48,9 @@ export function formatTransportError(error: unknown): string {
     return USER_FRIENDLY_MESSAGES[code]
   }
 
-  return error.message.replace(/ for event '[^']+'$/, '')
+  if (error.name === 'TransportRequestTimeoutError') {
+    return 'Request timed out. Please try again.'
+  }
+
+  return error.message.replace(/ for event '[^']+'(?: after \d+ms)?$/, '')
 }

@@ -3,8 +3,10 @@ import type {SinonStubbedInstance} from 'sinon'
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
+import type {CurateLogEntry} from '../../../../../src/server/core/domain/entities/curate-log-entry.js'
 import type {IContextTreeService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-snapshot-service.js'
+import type {ICurateLogStore} from '../../../../../src/server/core/interfaces/storage/i-curate-log-store.js'
 import type {IReviewBackupStore} from '../../../../../src/server/core/interfaces/storage/i-review-backup-store.js'
 import type {ITransportServer} from '../../../../../src/server/core/interfaces/transport/i-transport-server.js'
 
@@ -42,6 +44,7 @@ function createMockTransport(): SinonStubbedInstance<ITransportServer> & {_handl
 describe('ResetHandler', () => {
   let contextTreeService: SinonStubbedInstance<IContextTreeService>
   let contextTreeSnapshotService: SinonStubbedInstance<IContextTreeSnapshotService>
+  let curateLogStore: SinonStubbedInstance<ICurateLogStore>
   let reviewBackupStore: SinonStubbedInstance<IReviewBackupStore>
   let resolveProjectPath: ReturnType<typeof stub>
   let transport: ReturnType<typeof createMockTransport>
@@ -62,6 +65,14 @@ describe('ResetHandler', () => {
       saveSnapshot: stub(),
       saveSnapshotFromState: stub(),
     }
+
+    curateLogStore = {
+      batchUpdateOperationReviewStatus: stub().resolves(true),
+      getById: stub().resolves(null),
+      getNextId: stub().resolves('cur-1'),
+      list: stub().resolves([]),
+      save: stub().resolves(),
+    } as unknown as SinonStubbedInstance<ICurateLogStore>
 
     reviewBackupStore = {
       clear: stub().resolves(),
@@ -84,6 +95,7 @@ describe('ResetHandler', () => {
     const handler = new ResetHandler({
       contextTreeService,
       contextTreeSnapshotService,
+      curateLogStoreFactory: () => curateLogStore,
       resolveProjectPath,
       reviewBackupStoreFactory: () => reviewBackupStore,
       transport,
@@ -197,6 +209,95 @@ describe('ResetHandler', () => {
 
       expect(contextTreeService.exists.called).to.be.false
       expect(contextTreeService.delete.called).to.be.false
+    })
+
+    it('should clear pending review statuses in curate log', async () => {
+      createHandler()
+      contextTreeService.exists.resolves(true)
+
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id: 'cur-100',
+        input: {},
+        operations: [
+          {
+            filePath: '/test/project/.brv/context-tree/auth/jwt.md',
+            needsReview: true,
+            path: 'auth/jwt',
+            reviewStatus: 'pending',
+            status: 'success',
+            type: 'DELETE',
+          },
+          {
+            filePath: '/test/project/.brv/context-tree/api/rest.md',
+            needsReview: true,
+            path: 'api/rest',
+            reviewStatus: 'approved',
+            status: 'success',
+            type: 'UPDATE',
+          },
+        ],
+        startedAt: Date.now() - 1000,
+        status: 'completed',
+        summary: {added: 0, deleted: 1, failed: 0, merged: 0, updated: 1},
+        taskId: 'task-1',
+      }
+      curateLogStore.list.resolves([entry])
+
+      const result = await callExecuteHandler()
+
+      expect(result.success).to.be.true
+      expect(curateLogStore.batchUpdateOperationReviewStatus.calledOnce).to.be.true
+      expect(curateLogStore.batchUpdateOperationReviewStatus.firstCall.args[0]).to.equal('cur-100')
+      expect(curateLogStore.batchUpdateOperationReviewStatus.firstCall.args[1]).to.deep.equal([
+        {operationIndex: 0, reviewStatus: 'rejected'},
+      ])
+    })
+
+    it('should clear pending reviews across multiple entries', async () => {
+      createHandler()
+      contextTreeService.exists.resolves(true)
+
+      const entry1: CurateLogEntry = {
+        completedAt: Date.now(),
+        id: 'cur-100',
+        input: {},
+        operations: [
+          {filePath: '/test/project/.brv/context-tree/a.md', path: 'a', reviewStatus: 'pending', status: 'success', type: 'ADD'},
+        ],
+        startedAt: Date.now() - 1000,
+        status: 'completed',
+        summary: {added: 1, deleted: 0, failed: 0, merged: 0, updated: 0},
+        taskId: 'task-1',
+      }
+      const entry2: CurateLogEntry = {
+        completedAt: Date.now(),
+        id: 'cur-200',
+        input: {},
+        operations: [
+          {filePath: '/test/project/.brv/context-tree/b.md', path: 'b', reviewStatus: 'pending', status: 'success', type: 'UPDATE'},
+        ],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 1},
+        taskId: 'task-2',
+      }
+      curateLogStore.list.resolves([entry1, entry2])
+
+      const result = await callExecuteHandler()
+
+      expect(result.success).to.be.true
+      expect(curateLogStore.batchUpdateOperationReviewStatus.callCount).to.equal(2)
+    })
+
+    it('should succeed even if clearing pending reviews throws', async () => {
+      createHandler()
+      contextTreeService.exists.resolves(true)
+      curateLogStore.list.rejects(new Error('disk error'))
+
+      const result = await callExecuteHandler()
+
+      expect(result.success).to.be.true
     })
   })
 })

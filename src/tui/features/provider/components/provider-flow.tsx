@@ -24,11 +24,13 @@ import {useGetProviders} from '../api/get-providers.js'
 import {useSetActiveProvider} from '../api/set-active-provider.js'
 import {useValidateApiKey} from '../api/validate-api-key.js'
 import {ApiKeyDialog} from './api-key-dialog.js'
+import {AuthMethodDialog} from './auth-method-dialog.js'
 import {BaseUrlDialog} from './base-url-dialog.js'
 import {ModelSelectStep} from './model-select-step.js'
+import {OAuthDialog} from './oauth-dialog.js'
 import {ProviderDialog} from './provider-dialog.js'
 
-type FlowStep = 'api_key' | 'base_url' | 'connecting' | 'done' | 'loading' | 'model_select' | 'provider_actions' | 'select'
+type FlowStep = 'api_key' | 'auth_method' | 'base_url' | 'connecting' | 'done' | 'loading' | 'model_select' | 'oauth' | 'provider_actions' | 'select'
 
 interface ProviderAction {
   description: string
@@ -90,7 +92,20 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       })
     }
 
-    if (selectedProvider.requiresApiKey) {
+    if (selectedProvider.authMethod === 'oauth') {
+      actions.push(
+        {
+          description: 'Re-authenticate via browser',
+          id: 'reconnect_oauth',
+          name: 'Reconnect OAuth',
+        },
+        {
+          description: 'Remove OAuth connection',
+          id: 'disconnect',
+          name: 'Disconnect',
+        },
+      )
+    } else if (selectedProvider.requiresApiKey) {
       actions.push(
         {
           description: 'Enter a new API key',
@@ -165,6 +180,12 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       return
     }
 
+    // Supports OAuth → auth method selection
+    if (provider.supportsOAuth) {
+      setStep('auth_method')
+      return
+    }
+
     // Requires API key → api_key step
     if (provider.requiresApiKey) {
       setStep('api_key')
@@ -222,6 +243,12 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
         break
       }
 
+      case 'reconnect_oauth': {
+        setStep('oauth')
+
+        break
+      }
+
       case 'replace': {
         setStep('api_key')
 
@@ -261,9 +288,29 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
   }, [baseUrl, connectMutation, selectedProvider])
 
   const handleApiKeyCancel = useCallback(() => {
-    setStep('select')
-    setSelectedProvider(null)
-    setBaseUrl(null)
+    if (selectedProvider?.supportsOAuth) {
+      setStep('auth_method')
+    } else {
+      setStep('select')
+      setSelectedProvider(null)
+      setBaseUrl(null)
+    }
+  }, [selectedProvider])
+
+  const handleAuthMethodSelect = useCallback((method: 'api-key' | 'oauth') => {
+    if (method === 'oauth') {
+      setStep('oauth')
+    } else {
+      setStep('api_key')
+    }
+  }, [])
+
+  const handleOAuthCancel = useCallback(() => {
+    setStep('auth_method')
+  }, [])
+
+  const handleOAuthSuccess = useCallback(() => {
+    setStep('model_select')
   }, [])
 
   const handleValidateApiKey = useCallback(async (apiKey: string) => {
@@ -315,6 +362,20 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       ) : null
     }
 
+    case 'auth_method': {
+      return selectedProvider ? (
+        <AuthMethodDialog
+          isActive={isActive}
+          onCancel={() => {
+            setStep('select')
+            setSelectedProvider(null)
+          }}
+          onSelect={handleAuthMethodSelect}
+          provider={selectedProvider}
+        />
+      ) : null
+    }
+
     case 'base_url': {
       return (
         <BaseUrlDialog
@@ -345,6 +406,17 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
           onComplete={(modelName) => onComplete(`Connected to ${selectedProvider.name}, model set to ${modelName}`)}
           providerId={selectedProvider.id}
           providerName={selectedProvider.name}
+        />
+      ) : null
+    }
+
+    case 'oauth': {
+      return selectedProvider ? (
+        <OAuthDialog
+          isActive={isActive}
+          onCancel={handleOAuthCancel}
+          onSuccess={handleOAuthSuccess}
+          provider={selectedProvider}
         />
       ) : null
     }
