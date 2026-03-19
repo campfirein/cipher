@@ -207,56 +207,12 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
     const entries: Array<{mtime: number; path: string; size: number}> = []
     await this.scanSourceStats(contextTreeDir, contextTreeDir, entries)
 
-    // Also include .abstract.md siblings so newly-written abstracts invalidate the manifest
-    await this.scanAbstractStats(contextTreeDir, contextTreeDir, entries)
-
     const input = entries
       .sort((a, b) => a.path.localeCompare(b.path))
       .map((e) => `${e.path}:${e.mtime}:${e.size}`)
       .join('\n')
 
     return computeContentHash(input)
-  }
-
-  /**
-   * Recursively scan context tree for .abstract.md sibling files.
-   * These are derived artifacts excluded from normal stat scan but included
-   * here so their appearance invalidates the manifest (triggers abstract-aware rescan).
-   */
-  private async scanAbstractStats(
-    currentDir: string,
-    contextTreeDir: string,
-    entries: Array<{mtime: number; path: string; size: number}>,
-  ): Promise<void> {
-    let dirEntries: import('node:fs').Dirent[]
-    try {
-      dirEntries = await readdir(currentDir, {withFileTypes: true}) as import('node:fs').Dirent[]
-    } catch {
-      return
-    }
-
-    /* eslint-disable no-await-in-loop */
-    for (const entry of dirEntries) {
-      const entryName = entry.name as string
-      const fullPath = join(currentDir, entryName)
-
-      if (entry.isDirectory()) {
-        await this.scanAbstractStats(fullPath, contextTreeDir, entries)
-      } else if (entry.isFile() && entryName.endsWith(ABSTRACT_EXTENSION)) {
-        const relativePath = toUnixPath(relative(contextTreeDir, fullPath))
-        try {
-          const fileStat = await stat(fullPath)
-          entries.push({
-            mtime: fileStat.mtimeMs,
-            path: relativePath,
-            size: fileStat.size,
-          })
-        } catch {
-          // Skip unreadable files
-        }
-      }
-    }
-    /* eslint-enable no-await-in-loop */
   }
 
   /**
@@ -376,7 +332,8 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
 
   /**
    * Recursively collect stat data for all source files (for fingerprint).
-   * Excludes derived artifacts.
+   * Excludes derived artifacts except .abstract.md siblings, which are included
+   * so abstract generation invalidates the manifest without a second tree walk.
    */
   private async scanSourceStats(
     currentDir: string,
@@ -399,8 +356,8 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
         await this.scanSourceStats(fullPath, contextTreeDir, entries)
       } else if (entry.isFile() && entryName.endsWith(CONTEXT_FILE_EXTENSION)) {
         const relativePath = toUnixPath(relative(contextTreeDir, fullPath))
-        // Include all non-derived files (contexts + stubs) in fingerprint
-        if (isDerivedArtifact(relativePath)) continue
+        const isAbstractSibling = entryName.endsWith(ABSTRACT_EXTENSION)
+        if (!isAbstractSibling && isDerivedArtifact(relativePath)) continue
 
         try {
           const fileStat = await stat(fullPath)

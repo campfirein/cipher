@@ -51,27 +51,17 @@ export class MemoryDeduplicator {
       return drafts.map((memory) => ({action: 'CREATE', memory}))
     }
 
-    const actions: DeduplicationAction[] = []
-
-    /* eslint-disable no-await-in-loop */
-    for (const draft of drafts) {
-      // DECISIONS are always appended as immutable log entries
+    return Promise.all(drafts.map(async (draft) => {
       if (draft.category === 'DECISIONS') {
-        actions.push({action: 'CREATE', memory: draft})
-        continue
+        return {action: 'CREATE', memory: draft} satisfies DeduplicationAction
       }
 
-      const action = await this.deduplicateSingle(draft, existing)
-      actions.push(action)
-    }
-    /* eslint-enable no-await-in-loop */
-
-    return actions
+      return this.deduplicateSingle(draft, existing)
+    }))
   }
 
   private async deduplicateSingle(draft: DraftMemory, existing: Memory[]): Promise<DeduplicationAction> {
     const existingSummary = existing
-      .slice(0, 20)
       .map((m) => `[id:${m.id}] ${m.content.slice(0, 300)}`)
       .join('\n---\n')
 
@@ -98,7 +88,9 @@ Decide: CREATE, MERGE (with targetId and mergedContent), or SKIP.`
         targetId?: string
       }
 
-      if (parsed.action === 'MERGE' && parsed.targetId && parsed.mergedContent) {
+      const targetExists = parsed.targetId ? existing.some((memory) => memory.id === parsed.targetId) : false
+
+      if (parsed.action === 'MERGE' && targetExists && parsed.mergedContent && parsed.targetId) {
         return {action: 'MERGE', memory: draft, mergedContent: parsed.mergedContent, targetId: parsed.targetId}
       }
 

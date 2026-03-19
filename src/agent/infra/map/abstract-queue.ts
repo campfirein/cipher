@@ -1,4 +1,4 @@
-import {writeFile} from 'node:fs/promises'
+import {mkdir, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
@@ -34,6 +34,7 @@ export interface AbstractQueueStatus {
  * - drain() waits for all pending/processing items to complete (for graceful shutdown)
  */
 export class AbstractGenerationQueue {
+  private drainResolvers: Array<() => void> = []
   private failed = 0
   private generator: IContentGenerator | undefined
   private pending: QueueItem[] = []
@@ -41,6 +42,8 @@ export class AbstractGenerationQueue {
   private processing = false
   /** Number of items currently in retry backoff (removed from pending but not yet re-enqueued). */
   private retrying = 0
+  private statusWriteFailed = false
+  private statusWritePromise: Promise<void> = Promise.resolve()
 
   constructor(
     private readonly projectRoot: string,
@@ -52,20 +55,14 @@ export class AbstractGenerationQueue {
    * Includes items currently in retry backoff so drain() does not resolve prematurely.
    */
   async drain(): Promise<void> {
-    if (this.pending.length === 0 && !this.processing && this.retrying === 0) {
+    if (this.isIdle()) {
+      await this.statusWritePromise.catch(() => {})
       return
     }
 
-    return new Promise<void>((resolve) => {
-      const check = () => {
-        if (this.pending.length === 0 && !this.processing && this.retrying === 0) {
-          resolve()
-        } else {
-          setTimeout(check, 100)
-        }
-      }
-
-      check()
+    await new Promise<void>((resolve) => {
+      this.drainResolvers.push(resolve)
+      this.resolveDrainersIfIdle()
     })
   }
 
@@ -74,8 +71,7 @@ export class AbstractGenerationQueue {
    */
   enqueue(item: {contextPath: string; fullContent: string}): void {
     this.pending.push({attempts: 0, contextPath: item.contextPath, fullContent: item.fullContent})
-    // eslint-disable-next-line no-void
-    void this.writeStatusFile()
+    this.queueStatusWrite()
     this.scheduleNext()
   }
 
@@ -101,14 +97,18 @@ export class AbstractGenerationQueue {
     this.scheduleNext()
   }
 
+  private isIdle(): boolean {
+    return this.pending.length === 0 && !this.processing && this.retrying === 0
+  }
+
   private async processNext(): Promise<void> {
     if (!this.generator || this.pending.length === 0) {
+      this.resolveDrainersIfIdle()
       return
     }
 
     this.processing = true
-    // eslint-disable-next-line no-void
-    void this.writeStatusFile()
+    this.queueStatusWrite()
 
     const item = this.pending.shift()!
 
@@ -135,11 +135,11 @@ export class AbstractGenerationQueue {
         // Exponential backoff: 500ms, 1000ms, 2000ms, ...
         const delay = 500 * 2 ** (item.attempts - 1)
         this.retrying++
-        // eslint-disable-next-line no-void
-        void this.writeStatusFile()
+        this.queueStatusWrite()
         setTimeout(() => {
           this.retrying--
           this.pending.unshift(item)
+          this.queueStatusWrite()
           this.scheduleNext()
         }, delay)
       } else {
@@ -147,15 +147,34 @@ export class AbstractGenerationQueue {
       }
     } finally {
       this.processing = false
-      // eslint-disable-next-line no-void
-      void this.writeStatusFile()
+      this.queueStatusWrite()
     }
 
     this.scheduleNext()
+    this.resolveDrainersIfIdle()
+  }
+
+  private queueStatusWrite(): void {
+    this.statusWritePromise = this.statusWritePromise
+      .catch(() => {})
+      .then(async () => this.writeStatusFile())
+  }
+
+  private resolveDrainersIfIdle(): void {
+    if (!this.isIdle() || this.drainResolvers.length === 0) {
+      return
+    }
+
+    const resolvers = this.drainResolvers.splice(0)
+    const settledStatusWrite = this.statusWritePromise.catch(() => {})
+    for (const resolve of resolvers) {
+      settledStatusWrite.then(() => resolve()).catch(() => {})
+    }
   }
 
   private scheduleNext(): void {
     if (!this.generator || this.processing || this.pending.length === 0) {
+      this.resolveDrainersIfIdle()
       return
     }
 
@@ -165,6 +184,26 @@ export class AbstractGenerationQueue {
 
   private async writeStatusFile(): Promise<void> {
     const statusPath = join(this.projectRoot, '.brv', '_queue_status.json')
-    await writeFile(statusPath, JSON.stringify(this.getStatus()), 'utf8').catch(() => {})
+    try {
+      await mkdir(join(this.projectRoot, '.brv'), {recursive: true})
+      await writeFile(statusPath, JSON.stringify(this.getStatus()), 'utf8')
+      this.statusWriteFailed = false
+    } catch (error) {
+      const errorCode = typeof error === 'object' && error !== null && 'code' in error
+        ? (error as NodeJS.ErrnoException).code
+        : undefined
+      if (errorCode === 'ENOENT') {
+        return
+      }
+
+      if (!this.statusWriteFailed) {
+        this.statusWriteFailed = true
+        console.debug(
+          `[AbstractGenerationQueue] Failed to write queue status: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
+      }
+    }
   }
 }

@@ -219,6 +219,46 @@ describe('ingest_resource Tool', () => {
     })
   })
 
+  describe('Exclude matching', () => {
+    it('applies exclude patterns without substring false positives', async () => {
+      const {fs: fileSystem, globFilesStub, readFileStub} = makeFileSystem(sandbox)
+      globFilesStub.resolves({
+        files: [
+          {isDirectory: false, modified: new Date(), path: '/workspace/src/service.test.ts', size: 100},
+          {isDirectory: false, modified: new Date(), path: '/workspace/src/distributed.ts', size: 100},
+          {isDirectory: false, modified: new Date(), path: '/workspace/src/rebuilder.ts', size: 100},
+          {isDirectory: false, modified: new Date(), path: '/workspace/src/dist/index.ts', size: 100},
+          {isDirectory: false, modified: new Date(), path: '/workspace/src/build/output.ts', size: 100},
+        ],
+        ignoredCount: 0,
+        message: '',
+        totalFound: 5,
+        truncated: false,
+      })
+      readFileStub.resolves({
+        content: 'export const ok = true',
+        encoding: 'utf8',
+        lines: 1,
+        size: 22,
+        totalLines: 1,
+        truncated: false,
+      })
+
+      const tool = createIngestResourceTool({
+        baseDirectory: '/workspace',
+        contentGenerator: makeGenerator(sandbox),
+        fileSystem,
+      })
+      await tool.execute({path: '/workspace/src'})
+
+      const readPaths = readFileStub.getCalls().map((call) => call.args[0] as string).sort()
+      expect(readPaths).to.deep.equal([
+        '/workspace/src/distributed.ts',
+        '/workspace/src/rebuilder.ts',
+      ])
+    })
+  })
+
   // ── Integration: curate writes to .brv/context-tree ───────────────────────
 
   describe('Curate path integration', () => {

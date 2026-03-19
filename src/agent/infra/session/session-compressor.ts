@@ -32,6 +32,18 @@ Return ONLY a JSON array of memory objects:
 
 Extract 0-3 memories per category. Skip categories with nothing new. Be concise (max 200 chars per memory).`
 
+const MAX_DIGEST_CHARS = 12_000
+
+function truncateDigestAtBoundary(digest: string, maxChars: number = MAX_DIGEST_CHARS): string {
+  if (digest.length <= maxChars) {
+    return digest
+  }
+
+  const clipped = digest.slice(0, maxChars)
+  const boundary = clipped.lastIndexOf('\n\n')
+  return boundary >= Math.floor(maxChars * 0.6) ? clipped.slice(0, boundary) : clipped
+}
+
 /**
  * Extracts and persists memories from a completed task session.
  *
@@ -116,10 +128,11 @@ export class SessionCompressor {
 
   private async extractDrafts(digest: string, commandType: string): Promise<DraftMemory[]> {
     try {
+      const truncatedDigest = truncateDigestAtBoundary(digest)
       const prompt = `## Session Type: ${commandType}
 
 ## Conversation
-${digest.slice(0, 12_000)}
+${truncatedDigest}
 
 Extract reusable memories from this session.`
 

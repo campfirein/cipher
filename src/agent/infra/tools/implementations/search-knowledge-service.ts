@@ -354,6 +354,10 @@ function extractExcerpt(content: string, query: string, maxLength: number = 800)
   return excerpt || cleanContent.slice(0, maxLength) + (cleanContent.length > maxLength ? '...' : '')
 }
 
+function stripMarkdownFrontmatter(content: string): string {
+  return content.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, '').trim()
+}
+
 async function findMarkdownFilesWithMtime(
   fileSystem: IFileSystem,
   contextTreePath: string,
@@ -484,7 +488,7 @@ async function buildFreshIndex(
 
       return {
         condensationOrder: fm.condensation_order,
-        excerpt: content.slice(0, 400),
+        excerpt: stripMarkdownFrontmatter(content).slice(0, 400),
         path: filePath,
         scoring,
         tokenCount: fm.token_count,

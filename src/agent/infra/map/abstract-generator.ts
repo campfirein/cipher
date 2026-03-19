@@ -16,6 +16,10 @@ const ABSTRACT_SYSTEM_PROMPT = `You are a technical documentation assistant.
 Your job is to produce precise, factual summaries of knowledge documents.
 Output only the requested content — no preamble, no commentary.`
 
+const OVERVIEW_SYSTEM_PROMPT = `You are a technical documentation assistant.
+Your job is to produce structured overviews of knowledge documents.
+Preserve factual accuracy, surface important entities and decisions, and format the result in concise markdown.`
+
 function buildAbstractPrompt(content: string): string {
   return `Produce a ONE-LINE summary (max 80 tokens) of the following knowledge document.
 The line must be a complete sentence that captures the core topic and key insight.
@@ -58,22 +62,20 @@ export async function generateFileAbstracts(
   fullContent: string,
   generator: IContentGenerator,
 ): Promise<AbstractGenerateResult> {
-  const taskId = randomUUID()
-
   const [abstractResponse, overviewResponse] = await Promise.all([
     generator.generateContent({
       config: {maxTokens: 150, temperature: 0},
       contents: [{content: buildAbstractPrompt(fullContent), role: 'user'}],
       model: 'default',
       systemPrompt: ABSTRACT_SYSTEM_PROMPT,
-      taskId,
+      taskId: randomUUID(),
     }),
     generator.generateContent({
       config: {maxTokens: 2000, temperature: 0},
       contents: [{content: buildOverviewPrompt(fullContent), role: 'user'}],
       model: 'default',
-      systemPrompt: ABSTRACT_SYSTEM_PROMPT,
-      taskId,
+      systemPrompt: OVERVIEW_SYSTEM_PROMPT,
+      taskId: randomUUID(),
     }),
   ])
 

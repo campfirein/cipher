@@ -1,4 +1,4 @@
-import {join, resolve} from 'node:path'
+import {basename, isAbsolute, join, relative, resolve} from 'node:path'
 import {z} from 'zod'
 
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
@@ -17,6 +17,28 @@ const DEFAULT_EXCLUDE = ['node_modules', '.git', '*.test.*', '*.spec.*', 'dist',
 const MAX_FILES = 200
 const MAX_FILE_LINES = 500
 const MAX_CONTENT_CHARS = 4000
+
+function toRelativeUnixPath(rootPath: string, filePath: string): string {
+  const relativePath = isAbsolute(filePath) ? relative(rootPath, filePath) : filePath
+  return relativePath.replaceAll('\\', '/')
+}
+
+function matchesExcludePattern(relativePath: string, pattern: string): boolean {
+  const normalizedPath = relativePath.replaceAll('\\', '/')
+  const normalizedPattern = pattern.replaceAll('\\', '/')
+
+  if (!normalizedPattern.includes('*')) {
+    return normalizedPath.split('/').includes(normalizedPattern)
+  }
+
+  const regexPattern = normalizedPattern
+    .replaceAll('.', String.raw`\.`)
+    .replaceAll('**', '<<<DOUBLESTAR>>>')
+    .replaceAll('*', '[^/]*')
+    .replaceAll('<<<DOUBLESTAR>>>', '.*')
+
+  return new RegExp(`^${regexPattern}$|/${regexPattern}$|^${regexPattern}/|/${regexPattern}/`).test(normalizedPath)
+}
 
 const IngestResourceInputSchema = z
   .object({
@@ -61,7 +83,7 @@ export function createIngestResourceTool(config: IngestResourceConfig = {}): Too
       // Normalize to absolute using the injected workspace root so relative inputs like './src'
       // resolve against the project directory, not the agent process cwd.
       const absPath = resolve(baseDirectory ?? process.cwd(), params.path)
-      const domain = params.domain ?? absPath.split('/').at(-1) ?? 'imported'
+      const domain = params.domain ?? (basename(absPath) || 'imported')
       const include = params.include ?? DEFAULT_INCLUDE
       const exclude = params.exclude ?? DEFAULT_EXCLUDE
 
@@ -78,13 +100,12 @@ export function createIngestResourceTool(config: IngestResourceConfig = {}): Too
         })
 
         for (const file of globResult.files) {
-          const relativePath = file.path.startsWith(absPath)
-            ? file.path.slice(absPath.length + 1)
-            : file.path
+          const relativePath = toRelativeUnixPath(absPath, file.path)
+          if (relativePath.startsWith('../')) continue
 
           if (relativePath.split('/').length > params.depth) continue
 
-          const excluded = exclude.some((ex) => relativePath.includes(ex.replace('*', '')))
+          const excluded = exclude.some((pattern) => matchesExcludePattern(relativePath, pattern))
           if (!excluded && !seenPaths.has(file.path)) {
             seenPaths.add(file.path)
             rawPaths.push(file.path)
@@ -101,9 +122,8 @@ export function createIngestResourceTool(config: IngestResourceConfig = {}): Too
         try {
           const {content} = await fileSystem.readFile(filePath, {limit: MAX_FILE_LINES})
           if (content.trim()) {
-            const relativePath = filePath.startsWith(absPath)
-              ? filePath.slice(absPath.length + 1)
-              : filePath
+            const relativePath = toRelativeUnixPath(absPath, filePath)
+            if (relativePath.startsWith('../')) continue
             fileItems.push({content: content.slice(0, MAX_CONTENT_CHARS), path: relativePath})
           }
         } catch {

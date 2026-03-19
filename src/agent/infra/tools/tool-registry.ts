@@ -160,7 +160,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.CODE_EXEC]: {
     descriptionFile: 'code_exec',
-    factory({ environmentContext, fileSystemService, sandboxService }) {
+    factory({ abstractQueue, environmentContext, fileSystemService, sandboxService }) {
       const sandbox = getRequiredService(sandboxService, 'sandboxService')
 
       // Inject file system service into sandbox for Tools SDK
@@ -176,7 +176,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
       // Inject curate service into sandbox for Tools SDK
       if (sandbox.setCurateService) {
-        const curateService = createCurateService(environmentContext?.workingDirectory)
+        const curateService = createCurateService(environmentContext?.workingDirectory, abstractQueue)
         sandbox.setCurateService(curateService)
       }
 
@@ -197,7 +197,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
       createCurateTool(environmentContext?.workingDirectory, abstractQueue),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Modification],
     outputGuidance: 'curate',
-    requiredServices: ['abstractQueue'],
+    requiredServices: [],
   },
 
   [ToolName.EXPAND_KNOWLEDGE]: {

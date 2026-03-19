@@ -166,6 +166,19 @@ describe('AbstractGenerationQueue', () => {
       expect(written.pending).to.equal(1)
     })
 
+    it('creates the .brv directory on first status write', async () => {
+      await fs.rm(join(tmpDir, '.brv'), {force: true, recursive: true})
+
+      const q = new AbstractGenerationQueue(tmpDir)
+      q.enqueue({contextPath: join(tmpDir, 'file.md'), fullContent: 'content'})
+
+      await new Promise<void>((r) => { setTimeout(r, 50) })
+
+      const raw = await fs.readFile(join(tmpDir, '.brv', '_queue_status.json'), 'utf8')
+      const written = JSON.parse(raw) as {pending: number}
+      expect(written.pending).to.equal(1)
+    })
+
     it('status file reflects retrying items in pending count', async () => {
       const {generator, rejectNextCall} = makeControlledGenerator(sandbox)
       const q = new AbstractGenerationQueue(tmpDir, 2)

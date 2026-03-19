@@ -463,6 +463,22 @@ async function ensureContextMd(
   }
 }
 
+async function deleteDerivedSiblings(contextPath: string): Promise<void> {
+  const siblingPaths = [
+    contextPath.replace(/\.md$/, '.abstract.md'),
+    contextPath.replace(/\.md$/, '.overview.md'),
+  ]
+
+  /* eslint-disable no-await-in-loop */
+  for (const siblingPath of siblingPaths) {
+    if (siblingPath === contextPath) continue
+    if (await DirectoryManager.fileExists(siblingPath)) {
+      await DirectoryManager.deleteFile(siblingPath)
+    }
+  }
+  /* eslint-enable no-await-in-loop */
+}
+
 /**
  * Parse a path into domain, topic, and optional subtopic.
  */
@@ -872,6 +888,7 @@ async function executeMerge(basePath: string, operation: Operation, onAfterWrite
     onAfterWrite?.(targetContextPath, mergedContent)
 
     await DirectoryManager.deleteFile(sourceContextPath)
+    await deleteDerivedSiblings(sourceContextPath)
 
     await ensureContextMd(basePath, sourceParsed, topicContext, subtopicContext, onAfterWrite)
     await ensureContextMd(basePath, targetParsed, topicContext, subtopicContext, onAfterWrite)
@@ -919,6 +936,7 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
       }
 
       await DirectoryManager.deleteFile(filePath)
+      await deleteDerivedSiblings(filePath)
 
       return {
         message: `Deleted ${path}/${filename}. Reason: ${reason}`,
