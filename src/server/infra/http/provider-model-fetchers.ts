@@ -176,7 +176,7 @@ export const CODEX_FALLBACK_MODELS: readonly ProviderModelInfo[] = [
   {
     contextLength: 400_000,
     id: 'gpt-5.3-codex',
-    isFree: true,
+    isFree: false,
     name: 'GPT-5.3 Codex',
     pricing: {inputPerM: 0, outputPerM: 0},
     provider: 'OpenAI',
@@ -184,7 +184,7 @@ export const CODEX_FALLBACK_MODELS: readonly ProviderModelInfo[] = [
   {
     contextLength: 200_000,
     id: 'gpt-5.1-codex-mini',
-    isFree: true,
+    isFree: false,
     name: 'GPT-5.1 Codex Mini',
     pricing: {inputPerM: 0, outputPerM: 0},
     provider: 'OpenAI',
@@ -318,7 +318,7 @@ export class OpenAIModelFetcher implements IProviderModelFetcher {
     // Zero out costs (included in ChatGPT subscription)
     return codexModels.map((m) => ({
       ...m,
-      isFree: true,
+      isFree: false,
       pricing: {inputPerM: 0, outputPerM: 0},
     }))
   }
