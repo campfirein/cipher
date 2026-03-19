@@ -2,7 +2,11 @@ import {useMutation} from '@tanstack/react-query'
 
 import type {MutationConfig} from '../../../lib/react-query.js'
 
-import {ModelEvents, type ModelSetActiveRequest, type ModelSetActiveResponse} from '../../../../shared/transport/events/index.js'
+import {
+  ModelEvents,
+  type ModelSetActiveRequest,
+  type ModelSetActiveResponse,
+} from '../../../../shared/transport/events/index.js'
 import {useTransportStore} from '../../../stores/transport-store.js'
 
 export type SetActiveModelDTO = {
@@ -11,11 +15,24 @@ export type SetActiveModelDTO = {
   providerId: string
 }
 
-export const setActiveModel = ({contextLength, modelId, providerId}: SetActiveModelDTO): Promise<ModelSetActiveResponse> => {
+export const setActiveModel = async ({
+  contextLength,
+  modelId,
+  providerId,
+}: SetActiveModelDTO): Promise<ModelSetActiveResponse> => {
   const {apiClient} = useTransportStore.getState()
-  if (!apiClient) return Promise.reject(new Error('Not connected'))
+  if (!apiClient) throw new Error('Not connected')
 
-  return apiClient.request<ModelSetActiveResponse, ModelSetActiveRequest>(ModelEvents.SET_ACTIVE, {contextLength, modelId, providerId})
+  const response = await apiClient.request<ModelSetActiveResponse, ModelSetActiveRequest>(ModelEvents.SET_ACTIVE, {
+    contextLength,
+    modelId,
+    providerId,
+  })
+  if (!response.success && response.error) {
+    throw new Error(response.error)
+  }
+
+  return response
 }
 
 type UseSetActiveModelOptions = {

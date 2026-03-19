@@ -7,10 +7,7 @@ import {writeJsonResponse} from '../../lib/json-response.js'
 
 export default class ProviderList extends Command {
   public static description = 'List all available providers and their connection status'
-  public static examples = [
-    '<%= config.bin %> providers list',
-    '<%= config.bin %> providers list --format json',
-  ]
+  public static examples = ['<%= config.bin %> providers list', '<%= config.bin %> providers list --format json']
   public static flags = {
     format: Flags.string({
       default: 'text',
@@ -40,7 +37,9 @@ export default class ProviderList extends Command {
 
       for (const p of providers) {
         const status = p.isCurrent ? chalk.green('(current)') : p.isConnected ? chalk.yellow('(connected)') : ''
-        this.log(`  ${p.name} [${p.id}] ${status}`.trimEnd())
+        const authBadge =
+          p.authMethod === 'oauth' ? chalk.cyan('[OAuth]') : p.authMethod === 'api-key' ? chalk.dim('[API Key]') : ''
+        this.log(`  ${p.name} [${p.id}] ${status} ${authBadge}`.trimEnd())
       }
     } catch (error) {
       if (format === 'json') {
