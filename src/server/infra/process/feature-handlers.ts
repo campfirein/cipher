@@ -196,6 +196,7 @@ export async function setupFeatureHandlers({
   new ResetHandler({
     contextTreeService,
     contextTreeSnapshotService,
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
     resolveProjectPath,
     reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
     transport,
