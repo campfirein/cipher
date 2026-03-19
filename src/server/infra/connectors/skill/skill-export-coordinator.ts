@@ -5,6 +5,10 @@ import type {SkillKnowledgeBuilder} from './skill-knowledge-builder.js'
 // SkillExportCoordinator
 // ---------------------------------------------------------------------------
 
+export interface SkillBuildAndSyncResult extends SkillExportResult {
+  block: string
+}
+
 /**
  * Thin composition layer: builds the knowledge block then syncs it.
  *
@@ -21,9 +25,10 @@ export class SkillExportCoordinator {
    * Build the current knowledge block and sync to all installed targets.
    * Empty blocks are still synced to clean up stale markers after /reset.
    */
-  async buildAndSync(): Promise<SkillExportResult> {
+  async buildAndSync(): Promise<SkillBuildAndSyncResult> {
     const block = await this.builder.build()
+    const result = await this.service.syncInstalledTargets(block)
 
-    return this.service.syncInstalledTargets(block)
+    return {block, ...result}
   }
 }

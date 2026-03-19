@@ -247,6 +247,36 @@ describe('ExperienceHookService', () => {
       }
     })
 
+    it('still writes bullets and increments curationCount when gate-evaluation reads fail', async () => {
+      const gate = new BackpressureGate({maxEntriesPerFile: 1, minConsolidationIntervalSec: 0})
+      const svc = new ExperienceHookService({baseDirectory: baseDir, gate})
+      const originalReadSectionLines = ExperienceStore.prototype.readSectionLines
+      let failOnce = true
+
+      const readStub = sinon.stub(ExperienceStore.prototype, 'readSectionLines').callsFake(
+        async function (this: ExperienceStore, filename: string, section: string) {
+          if (failOnce && filename === EXPERIENCE_LESSONS_FILE && section === 'Facts') {
+            failOnce = false
+            throw new Error('transient read failure')
+          }
+
+          return originalReadSectionLines.call(this, filename, section)
+        },
+      )
+
+      try {
+        await svc.onCurateComplete(buildResponse([{text: 'survives gate read failure', type: 'lesson'}]))
+
+        const meta = await store.readMeta()
+        expect(meta.curationCount).to.equal(1)
+
+        const lessons = await store.readSectionLines(EXPERIENCE_LESSONS_FILE, 'Facts')
+        expect(lessons).to.include('survives gate read failure')
+      } finally {
+        readStub.restore()
+      }
+    })
+
     it('still increments curationCount when ensureInitialized fails', async () => {
       const ensureStub = sinon.stub(ExperienceStore.prototype, 'ensureInitialized').rejects(new Error('disk full'))
 

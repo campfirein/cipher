@@ -41,10 +41,11 @@ function makeSkillExportStack(overrides: {
 } = {}): {factory: SinonStub; stack: SkillExportStack} {
   const block = overrides.buildResult ?? 'built knowledge block'
   const syncResult = overrides.syncResult ?? {failed: [], updated: []}
+  const buildAndSync = stub().resolves({block, ...syncResult})
 
   const stack = {
     builder: {build: stub().resolves(block)},
-    coordinator: {},
+    coordinator: {buildAndSync},
     service: {syncInstalledTargets: stub().resolves(syncResult)},
     store: {},
   } as unknown as SkillExportStack
@@ -116,18 +117,17 @@ describe('ConnectorsHandler', () => {
       expect(factory.calledOnceWith('/test/project')).to.be.true
     })
 
-    it('should call builder.build() and return the block', async () => {
+    it('should call coordinator.buildAndSync() and return the block', async () => {
       const {factory, stack} = makeSkillExportStack({buildResult: 'my knowledge'})
       const result = await callSyncHandler('client-1', factory)
-      expect((stack.builder.build as sinon.SinonStub).calledOnce).to.be.true
+      expect((stack.coordinator.buildAndSync as sinon.SinonStub).calledOnce).to.be.true
       expect(result.block).to.equal('my knowledge')
     })
 
-    it('should call service.syncInstalledTargets() with the built block', async () => {
+    it('should return the coordinator result unchanged', async () => {
       const {factory, stack} = makeSkillExportStack({buildResult: 'the block'})
       await callSyncHandler('client-1', factory)
-      const syncStub = stack.service.syncInstalledTargets as sinon.SinonStub
-      expect(syncStub.calledOnceWith('the block')).to.be.true
+      expect((stack.coordinator.buildAndSync as sinon.SinonStub).calledOnce).to.be.true
     })
 
     it('should return block merged with sync result', async () => {

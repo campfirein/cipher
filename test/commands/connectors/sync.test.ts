@@ -25,11 +25,11 @@ class TestableConnectorsSyncCommand extends ConnectorsSync {
     this.mockSyncResult = mockSyncResult
   }
 
-  protected override getProjectRoot(): string | undefined {
+  override getProjectRoot(): string | undefined {
     return this.mockProjectRoot
   }
 
-  protected override async performSync(_projectRoot: string): Promise<ConnectorSyncResponse> {
+  override async performSync(_projectRoot: string): Promise<ConnectorSyncResponse> {
     return this.mockSyncResult
   }
 }
@@ -224,7 +224,8 @@ describe('Connectors Sync Command', () => {
         stdoutOutput.push(String(chunk))
         return true
       })
-      sinon.stub(command, 'performSync' as keyof TestableConnectorsSyncCommand).rejects(new Error('store broken'))
+      const performSyncStub = sinon.stub(command, 'performSync')
+      performSyncStub.rejects(new Error('store broken'))
 
       await command.run()
 

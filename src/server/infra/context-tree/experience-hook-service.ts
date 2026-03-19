@@ -167,8 +167,16 @@ export class ExperienceHookService implements IExperienceHookService {
       // Compute projected entry counts (existing + incoming unique bullets)
       let maxProjected = 0
       for (const [filename, {bullets, section}] of Object.entries(groupedSignals)) {
-        // eslint-disable-next-line no-await-in-loop
-        const existing = await this.store.readSectionLines(filename, section)
+        let existing: string[]
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          existing = await this.store.readSectionLines(filename, section)
+        } catch {
+          // Fail-open during gate evaluation so a transient read error does not
+          // block bullet writes or curation-count tracking for this response.
+          existing = []
+        }
+
         existingByFile.set(filename, existing)
         const existingSet = new Set(existing.map((s) => s.toLowerCase()))
         const newCount = bullets.filter((b) => !existingSet.has(b.toLowerCase())).length

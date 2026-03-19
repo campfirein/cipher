@@ -132,9 +132,7 @@ export class ConnectorsHandler {
   private async handleSync(clientId: string): Promise<ConnectorSyncResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
     const stack = await this.skillExportStackFactory(projectPath)
-    const block = await stack.builder.build()
-    const result = await stack.service.syncInstalledTargets(block)
-    return {block, ...result}
+    return stack.coordinator.buildAndSync()
   }
 
 }

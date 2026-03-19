@@ -13,6 +13,20 @@ export interface SkillExportStack {
   store: ExperienceStore
 }
 
+let staticTemplatePromise: Promise<string> | undefined
+
+async function loadStaticTemplate(fileService: FsFileService): Promise<string> {
+  if (!staticTemplatePromise) {
+    const skillContentLoader = new SkillContentLoader(fileService)
+    staticTemplatePromise = skillContentLoader.loadSkillFile('SKILL.md').catch((error: unknown) => {
+      staticTemplatePromise = undefined
+      throw error
+    })
+  }
+
+  return staticTemplatePromise
+}
+
 /**
  * Single assembly point for the skill export stack.
  *
@@ -21,8 +35,7 @@ export interface SkillExportStack {
  */
 export async function createSkillExportStack(projectRoot: string): Promise<SkillExportStack> {
   const fileService = new FsFileService()
-  const skillContentLoader = new SkillContentLoader(fileService)
-  const staticTemplate = await skillContentLoader.loadSkillFile('SKILL.md')
+  const staticTemplate = await loadStaticTemplate(fileService)
   const store = new ExperienceStore(projectRoot)
   const builder = new SkillKnowledgeBuilder(store)
   const skillConnector = new SkillConnector({fileService, projectRoot})

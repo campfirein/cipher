@@ -1,20 +1,34 @@
-import {Text} from 'ink'
+import {Text, useInput} from 'ink'
 import Spinner from 'ink-spinner'
-import React, {useEffect} from 'react'
+import React, {useEffect, useRef} from 'react'
 
 import type {CustomDialogCallbacks} from '../../../types/commands.js'
 
 import {useExecuteSyncSkill} from '../api/execute-sync-skill.js'
 
-export function ConnectorsSyncFlow({onComplete}: CustomDialogCallbacks): React.ReactNode {
+export function ConnectorsSyncFlow({onCancel, onComplete}: CustomDialogCallbacks): React.ReactNode {
   const syncMutation = useExecuteSyncSkill()
+  const dismissedRef = useRef(false)
+
+  useInput((_input, key) => {
+    if (key.escape) {
+      dismissedRef.current = true
+      onCancel()
+    }
+  })
+
+  useEffect(() => () => {
+    dismissedRef.current = true
+  }, [])
 
   useEffect(() => {
     syncMutation.mutate(undefined, {
       onError(error) {
+        if (dismissedRef.current) return
         onComplete(`Failed to sync skill knowledge: ${error.message}`)
       },
       onSuccess(result) {
+        if (dismissedRef.current) return
         const lines: string[] = []
 
         if (result.block.length === 0) {

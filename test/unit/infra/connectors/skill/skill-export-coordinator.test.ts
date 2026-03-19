@@ -25,11 +25,12 @@ describe('SkillExportCoordinator', () => {
     const service = {syncInstalledTargets} as ISkillExportService
 
     const coordinator = new SkillExportCoordinator(builder, service)
-    await coordinator.buildAndSync()
+    const result = await coordinator.buildAndSync()
 
     expect(builderBuild.calledOnce).to.equal(true)
     expect(syncInstalledTargets.calledOnceWithExactly('knowledge block')).to.equal(true)
     expect(syncInstalledTargets.calledAfter(builderBuild)).to.equal(true)
+    expect(result).to.deep.equal({block: 'knowledge block', failed: [], updated: []})
   })
 
   it('syncs empty blocks so stale marker cleanup still happens', async () => {
@@ -43,6 +44,6 @@ describe('SkillExportCoordinator', () => {
     const result = await coordinator.buildAndSync()
 
     expect(syncInstalledTargets.calledOnceWithExactly('')).to.equal(true)
-    expect(result).to.deep.equal({failed: [], updated: []})
+    expect(result).to.deep.equal({block: '', failed: [], updated: []})
   })
 })

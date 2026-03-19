@@ -8,11 +8,11 @@ import {writeJsonResponse} from '../../lib/json-response.js'
 
 export default class ConnectorsSync extends Command {
   static description = 'Sync project knowledge into installed agent SKILL.md files'
-static examples = [
+  static examples = [
     '<%= config.bin %> connectors sync',
     '<%= config.bin %> connectors sync --format json',
   ]
-static flags = {
+  static flags = {
     format: Flags.string({
       default: 'text',
       description: 'Output format (text or json)',
@@ -35,9 +35,7 @@ static flags = {
    */
   protected async performSync(projectRoot: string): Promise<ConnectorSyncResponse> {
     const stack = await createSkillExportStack(projectRoot)
-    const block = await stack.builder.build()
-    const result = await stack.service.syncInstalledTargets(block)
-    return {block, ...result}
+    return stack.coordinator.buildAndSync()
   }
 
   async run(): Promise<void> {
