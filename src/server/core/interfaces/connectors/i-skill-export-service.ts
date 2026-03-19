@@ -1,7 +1,11 @@
-import type {SkillExportResult} from '../../../../shared/types/skill-export.js'
+import type {SkillExportResult, SkillExportScope} from '../../../../shared/types/skill-export.js'
 import type {Agent} from '../../domain/entities/agent.js'
 
-export type {SkillBuildAndSyncResult, SkillExportResult} from '../../../../shared/types/skill-export.js'
+export type {
+  SkillBuildAndSyncResult,
+  SkillExportResult,
+  SkillExportScope,
+} from '../../../../shared/types/skill-export.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -15,7 +19,7 @@ export interface SkillExportTarget {
   agent: Agent
   /** Absolute path to the skill directory (e.g. /project/.claude/skills/byterover/) */
   installedPath: string
-  scope: 'global' | 'project'
+  scope: SkillExportScope
 }
 
 /**
