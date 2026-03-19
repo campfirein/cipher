@@ -327,6 +327,31 @@ describe('CipherAgent', () => {
       expect(newSession.id).to.equal('post-refresh-session')
     })
 
+    it('should replace SessionManager when only credentials change (token refresh / auth method switch)', async () => {
+      const agent = new CipherAgent(agentConfig)
+      await agent.start()
+
+      // Create a session on the old SessionManager
+      const oldSession = await agent.createSession('pre-refresh')
+      expect(oldSession.id).to.equal('pre-refresh')
+      expect(agent.listSessions()).to.include('pre-refresh')
+
+      // Simulate credential-only change: same model, new API key + headers (e.g., OAuth token refresh)
+      agent.refreshProviderConfig({
+        model: agentConfig.model,
+        providerApiKey: 'refreshed-oauth-token',
+        providerHeaders: {'ChatGPT-Account-Id': 'org-123'},
+      })
+
+      // Old sessions are gone (SessionManager was replaced)
+      expect(agent.getSession('pre-refresh')).to.be.undefined
+      expect(agent.listSessions()).to.not.include('pre-refresh')
+
+      // New SessionManager is functional
+      const newSession = await agent.createSession('post-credential-refresh')
+      expect(newSession.id).to.equal('post-credential-refresh')
+      expect(agent.listSessions()).to.include('post-credential-refresh')
+    })
   })
 
   describe('agentic_map registry integration', () => {
