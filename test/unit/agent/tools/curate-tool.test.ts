@@ -13,6 +13,7 @@ interface CurateOutput {
     message?: string
     needsReview?: boolean
     path: string
+    previousSummary?: string
     status: 'failed' | 'success'
     type: 'ADD' | 'DELETE' | 'MERGE' | 'UPDATE'
   }>
@@ -1263,6 +1264,60 @@ describe('Curate Tool', () => {
 
       expect(result.applied[0].status).to.equal('success')
       expect(result.applied[0].impact).to.equal('high')
+    })
+  })
+
+  describe('Folder DELETE previousSummary', () => {
+    it('should populate previousSummary with bullet list of file summaries', async () => {
+      const tool = createCurateTool()
+      const folderPath = join(basePath, 'test_domain', 'handlers')
+      await fs.mkdir(folderPath, {recursive: true})
+
+      // Create content files with summary in frontmatter
+      await fs.writeFile(
+        join(folderPath, 'auth_handler.md'),
+        '---\nsummary: Handles authentication requests\n---\n# Auth Handler\nContent',
+      )
+      await fs.writeFile(
+        join(folderPath, 'status_handler.md'),
+        '---\nsummary: Aggregates system status\n---\n# Status Handler\nContent',
+      )
+      // _index.md and context.md should be excluded from the bullet list
+      await fs.writeFile(join(folderPath, '_index.md'), '---\ntype: summary\n---\n# Handlers')
+      await fs.writeFile(join(folderPath, 'context.md'), '# Topic: handlers')
+
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {confidence: 'high', impact: 'low', path: 'test_domain/handlers', reason: 'outdated', type: 'DELETE'},
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].previousSummary).to.be.a('string')
+      expect(result.applied[0].previousSummary).to.include('auth handler: Handles authentication requests')
+      expect(result.applied[0].previousSummary).to.include('status handler: Aggregates system status')
+      expect(result.applied[0].previousSummary).to.not.include('_index')
+      expect(result.applied[0].previousSummary).to.not.include('context')
+    })
+
+    it('should return no previousSummary when folder only contains _index.md and context.md', async () => {
+      const tool = createCurateTool()
+      const folderPath = join(basePath, 'test_domain', 'empty_topic')
+      await fs.mkdir(folderPath, {recursive: true})
+
+      await fs.writeFile(join(folderPath, '_index.md'), '---\ntype: summary\n---\n# Empty')
+      await fs.writeFile(join(folderPath, 'context.md'), '# Topic: empty_topic')
+
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {confidence: 'high', impact: 'low', path: 'test_domain/empty_topic', reason: 'cleanup', type: 'DELETE'},
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].previousSummary).to.be.undefined
     })
   })
 })

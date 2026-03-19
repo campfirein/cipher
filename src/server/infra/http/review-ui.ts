@@ -197,6 +197,7 @@ export function getReviewPageHtml(): string {
 
   .summary-text {
     color: var(--text);
+    white-space: pre-line;
   }
 
   .no-summary {

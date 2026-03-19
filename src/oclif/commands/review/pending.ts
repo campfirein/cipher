@@ -73,8 +73,8 @@ export default class ReviewPending extends Command {
       if (i > 0) this.log('')
       this.log(`  [${op.type}${impact}] - path: ${displayPath}`)
       if (op.reason) this.log(`  Why:    ${op.reason}`)
-      if (op.previousSummary) this.log(`  Before: ${op.previousSummary}`)
-      if (op.summary) this.log(`  After:  ${op.summary}`)
+      if (op.previousSummary) this.log(`  Before: ${op.previousSummary.replaceAll('\n', '\n          ')}`)
+      if (op.summary) this.log(`  After:  ${op.summary.replaceAll('\n', '\n          ')}`)
     }
 
     this.log('')

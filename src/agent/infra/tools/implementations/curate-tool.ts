@@ -1,5 +1,5 @@
 import {existsSync} from 'node:fs'
-import {dirname, join, relative, resolve} from 'node:path'
+import {basename, dirname, join, relative, resolve} from 'node:path'
 import {z} from 'zod'
 
 import type {ContextData} from '../../../../server/core/domain/knowledge/markdown-writer.js'
@@ -1173,6 +1173,30 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
 
     // Backup all markdown files in the folder before deleting
     const mdFiles = await DirectoryManager.listMarkdownFiles(fullPath)
+
+    // Extract previous summary as bullet list of individual file summaries (for review UI)
+    let previousSummary: string | undefined
+    try {
+      const contentFiles = mdFiles.filter((f) => {
+        const name = basename(f)
+        return name !== '_index.md' && name !== 'context.md'
+      })
+      const contents = await Promise.all(
+        contentFiles.map(async (f) => ({content: await DirectoryManager.readFile(f), name: basename(f)})),
+      )
+      const bullets = contents
+        .filter((c): c is {content: string; name: string} => c.content !== null && c.content !== undefined)
+        .map((c) => ({name: c.name, summary: MarkdownWriter.parseContent(c.content, c.name.replace(/\.md$/, '')).summary}))
+        .filter((c): c is {name: string; summary: string} => c.summary !== undefined)
+        .map((c) => `- ${c.name.replace(/\.md$/, '').replaceAll('_', ' ')}: ${c.summary}`)
+
+      if (bullets.length > 0) {
+        previousSummary = bullets.join('\n')
+      }
+    } catch {
+      // Best-effort: summary extraction failure must never block delete
+    }
+
     await Promise.all(mdFiles.map((f) => backupBeforeWrite(f, basePath)))
     await DirectoryManager.deleteTopicRecursive(fullPath)
 
@@ -1182,6 +1206,7 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
       filePath: fullPath,
       message: `Deleted folder ${path}. Reason: ${reason}`,
       path,
+      previousSummary,
       reason,
       status: 'success',
       type: 'DELETE',

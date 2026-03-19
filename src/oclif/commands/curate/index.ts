@@ -251,8 +251,8 @@ Bad examples:
       const displayPath = this.extractContextTreeRelativePath(op.filePath) ?? op.path
       this.log(`\n  [${op.type}${impact}] - path: ${displayPath}`)
       if (op.reason) this.log(`  Why:   ${op.reason}`)
-      if (op.previousSummary) this.log(`  Before: ${op.previousSummary}`)
-      if (op.summary) this.log(`  After:  ${op.summary}`)
+      if (op.previousSummary) this.log(`  Before: ${op.previousSummary.replaceAll('\n', '\n          ')}`)
+      if (op.summary) this.log(`  After:  ${op.summary.replaceAll('\n', '\n          ')}`)
     }
 
     this.log(`\n  To approve all:  brv review approve ${taskId}`)
