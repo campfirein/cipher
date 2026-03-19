@@ -8,6 +8,7 @@ import {vcCommitSubCommand} from './vc-commit.js'
 import {vcConfigSubCommand} from './vc-config.js'
 import {vcInitSubCommand} from './vc-init.js'
 import {vcLogSubCommand} from './vc-log.js'
+import {vcMergeSubCommand} from './vc-merge.js'
 import {vcPullSubCommand} from './vc-pull.js'
 import {vcPushSubCommand} from './vc-push.js'
 import {vcRemoteSubCommand} from './vc-remote.js'
@@ -25,6 +26,7 @@ export const vcCommand: SlashCommand = {
     vcPushSubCommand,
     vcStatusSubCommand,
     vcLogSubCommand,
+    vcMergeSubCommand,
     vcBranchSubCommand,
     vcCheckoutSubCommand,
     vcConfigSubCommand,

@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import {join} from 'node:path'
 
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
@@ -24,6 +25,8 @@ import {
   type IVcInitResponse,
   type IVcLogRequest,
   type IVcLogResponse,
+  type IVcMergeRequest,
+  type IVcMergeResponse,
   type IVcPullRequest,
   type IVcPullResponse,
   type IVcPushRequest,
@@ -107,6 +110,9 @@ export class VcHandler {
     this.transport.onRequest<void, IVcInitResponse>(VcEvents.INIT, (_data, clientId) => this.handleInit(clientId))
     this.transport.onRequest<IVcLogRequest, IVcLogResponse>(VcEvents.LOG, (data, clientId) =>
       this.handleLog(data, clientId),
+    )
+    this.transport.onRequest<IVcMergeRequest, IVcMergeResponse>(VcEvents.MERGE, (data, clientId) =>
+      this.handleMerge(data, clientId),
     )
     this.transport.onRequest<IVcPullRequest, IVcPullResponse>(VcEvents.PULL, (data, clientId) =>
       this.handlePull(data, clientId),
@@ -441,6 +447,105 @@ export class VcHandler {
       })),
       currentBranch: displayBranch,
     }
+  }
+
+  private async handleMerge(data: IVcMergeRequest, clientId: string): Promise<IVcMergeResponse> {
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const directory = this.contextTreeService.resolvePath(projectPath)
+
+    const gitInitialized = await this.gitService.isInitialized({directory})
+    if (!gitInitialized) {
+      throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
+    }
+
+    const mergeHeadPath = join(directory, '.git', 'MERGE_HEAD')
+    const mergeMsgPath = join(directory, '.git', 'MERGE_MSG')
+    const hasMergeHead = await fs.promises
+      .access(mergeHeadPath)
+      .then(() => true)
+      .catch(() => false)
+
+    if (data.action === 'abort') {
+      if (!hasMergeHead) {
+        throw new VcError('There is no merge to abort (MERGE_HEAD missing).', VcErrorCode.NO_MERGE_IN_PROGRESS)
+      }
+
+      await this.gitService.abortMerge({directory})
+      return {action: 'abort'}
+    }
+
+    if (data.action === 'continue') {
+      if (!hasMergeHead) {
+        throw new VcError('There is no merge in progress (MERGE_HEAD missing).', VcErrorCode.NO_MERGE_IN_PROGRESS)
+      }
+
+      if (!data.message) {
+        // Return default message so oclif can open editor; TUI uses it directly
+        const defaultMessage = await fs.promises
+          .readFile(mergeMsgPath, 'utf8')
+          .then((content) => content.trim())
+          .catch(() => 'Merge commit')
+        return {action: 'continue', defaultMessage}
+      }
+
+      // Check for unresolved conflicts before committing
+      const conflicts = await this.gitService.getConflicts({directory})
+      if (conflicts.length > 0) {
+        throw new VcError('Committing is not possible because you have unmerged files.', VcErrorCode.MERGE_CONFLICT)
+      }
+
+      const config = await this.vcGitConfigStore.get(projectPath)
+      if (!config?.name || !config.email) {
+        const hint = await this.buildAuthorHint(config)
+        throw new VcError(`Commit author not configured. ${hint}`, VcErrorCode.USER_NOT_CONFIGURED)
+      }
+
+      await this.gitService.commit({
+        author: {email: config.email, name: config.name},
+        directory,
+        message: data.message,
+      })
+      return {action: 'continue'}
+    }
+
+    // action: 'merge'
+    if (!data.branch) {
+      throw new VcError('Branch name is required for merge.', VcErrorCode.INVALID_BRANCH_NAME)
+    }
+
+    if (!isValidBranchName(data.branch)) {
+      throw new VcError(`Invalid branch name: '${data.branch}'.`, VcErrorCode.INVALID_BRANCH_NAME)
+    }
+
+    if (hasMergeHead) {
+      throw new VcError('You have not concluded your merge (MERGE_HEAD exists).', VcErrorCode.MERGE_IN_PROGRESS)
+    }
+
+    await this.guardUncommittedChanges(false, directory)
+
+    // Validate branch exists
+    const branches = await this.gitService.listBranches({directory})
+    if (!branches.some((b) => b.name === data.branch)) {
+      throw new VcError(`merge: ${data.branch} - not something we can merge`, VcErrorCode.BRANCH_NOT_FOUND)
+    }
+
+    const result = await this.gitService.merge({branch: data.branch, directory, message: data.message})
+
+    if (!result.success) {
+      return {
+        action: 'merge',
+        branch: data.branch,
+        conflicts: result.conflicts.map((c) => ({path: c.path, type: c.type})),
+      }
+    }
+
+    // merge() only updates refs — checkout to apply changes to working tree
+    const currentBranch = await this.gitService.getCurrentBranch({directory})
+    if (currentBranch) {
+      await this.gitService.checkout({directory, ref: currentBranch})
+    }
+
+    return {action: 'merge', branch: data.branch}
   }
 
   private async handlePull(_data: IVcPullRequest, clientId: string): Promise<IVcPullResponse> {

@@ -12,6 +12,8 @@ export const VcErrorCode = {
   INVALID_CONFIG_KEY: 'ERR_VC_INVALID_CONFIG_KEY',
   INVALID_REMOTE_URL: 'ERR_VC_INVALID_REMOTE_URL',
   MERGE_CONFLICT: 'ERR_VC_MERGE_CONFLICT',
+  MERGE_IN_PROGRESS: 'ERR_VC_MERGE_IN_PROGRESS',
+  NO_MERGE_IN_PROGRESS: 'ERR_VC_NO_MERGE_IN_PROGRESS',
   NO_REMOTE: 'ERR_VC_NO_REMOTE',
   NO_UPSTREAM: 'ERR_VC_NO_UPSTREAM',
   NON_FAST_FORWARD: 'ERR_VC_NON_FAST_FORWARD',
@@ -36,6 +38,7 @@ export const VcEvents = {
   CONFIG: 'vc:config',
   INIT: 'vc:init',
   LOG: 'vc:log',
+  MERGE: 'vc:merge',
   PULL: 'vc:pull',
   PUSH: 'vc:push',
   REMOTE: 'vc:remote',
@@ -192,4 +195,19 @@ export interface IVcCheckoutResponse {
   branch: string
   created: boolean
   previousBranch?: string
+}
+
+export type VcMergeAction = 'abort' | 'continue' | 'merge'
+
+export interface IVcMergeRequest {
+  action: VcMergeAction
+  branch?: string
+  message?: string
+}
+
+export interface IVcMergeResponse {
+  action: VcMergeAction
+  branch?: string
+  conflicts?: Array<{path: string; type: string}>
+  defaultMessage?: string
 }

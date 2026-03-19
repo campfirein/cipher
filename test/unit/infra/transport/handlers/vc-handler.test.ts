@@ -5,6 +5,8 @@
  */
 
 import {expect} from 'chai'
+import {existsSync, mkdirSync, rmSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
@@ -27,6 +29,8 @@ import {
   type IVcBranchRequest,
   type IVcBranchResponse,
   type IVcCheckoutResponse,
+  type IVcMergeRequest,
+  type IVcMergeResponse,
   VcErrorCode,
   VcEvents,
 } from '../../../../../src/shared/transport/events/vc-events.js'
@@ -60,6 +64,7 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
   }
 
   const gitService: Stubbed<IGitService> = {
+    abortMerge: sandbox.stub().resolves(),
     add: sandbox.stub().resolves(),
     addRemote: sandbox.stub().resolves(),
     checkout: sandbox.stub().resolves(),
@@ -161,6 +166,34 @@ function makeVcHandler(deps: TestDeps): VcHandler {
 }
 
 const projectPath = '/fake/brv/project'
+
+/**
+ * Creates a real temp dir with .git/ so fs.promises.access(MERGE_HEAD) works.
+ * Returns a deps object whose contextTreeService.resolvePath points to that dir.
+ */
+function makeMergeDeps(
+  sb: SinonSandbox,
+  opts: {mergeHead?: boolean; mergeMsg?: string} = {},
+): TestDeps & {tmpDir: string} {
+  const tmpDir = join(tmpdir(), `brv-vc-merge-test-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`)
+  mkdirSync(join(tmpDir, '.git'), {recursive: true})
+
+  if (opts.mergeHead) {
+    writeFileSync(join(tmpDir, '.git', 'MERGE_HEAD'), 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\n')
+  }
+
+  if (opts.mergeMsg) {
+    writeFileSync(join(tmpDir, '.git', 'MERGE_MSG'), `${opts.mergeMsg}\n`)
+  }
+
+  const deps = makeDeps(sb, projectPath)
+  deps.contextTreeService.resolvePath.returns(tmpDir)
+  return {...deps, tmpDir}
+}
+
+function cleanupDir(dir: string): void {
+  if (existsSync(dir)) rmSync(dir, {force: true, recursive: true})
+}
 
 describe('VcHandler', () => {
   let sandbox: SinonSandbox
@@ -1890,6 +1923,314 @@ describe('VcHandler', () => {
       } catch (error) {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.INVALID_BRANCH_NAME)
+      }
+    })
+  })
+
+  // ── handleMerge ──
+
+  describe('handleMerge', () => {
+    it('should register vc:merge handler', () => {
+      const deps = makeDeps(sandbox, projectPath)
+      makeVcHandler(deps).setup()
+      expect(deps.requestHandlers[VcEvents.MERGE]).to.be.a('function')
+    })
+
+    // ── action: 'merge' ──
+
+    it('should merge successfully and checkout working tree', async () => {
+      const deps = makeMergeDeps(sandbox)
+      try {
+        deps.gitService.listBranches.resolves([{isCurrent: false, isRemote: false, name: 'feature'}])
+        deps.gitService.merge.resolves({success: true})
+        deps.gitService.getCurrentBranch.resolves('main')
+
+        makeVcHandler(deps).setup()
+        const result = (await deps.requestHandlers[VcEvents.MERGE](
+          {action: 'merge', branch: 'feature'} satisfies IVcMergeRequest,
+          CLIENT_ID,
+        )) as IVcMergeResponse
+
+        expect(result.action).to.equal('merge')
+        expect(result.branch).to.equal('feature')
+        expect(result.conflicts).to.be.undefined
+        expect(deps.gitService.merge.calledOnce).to.be.true
+        expect(deps.gitService.checkout.calledOnce).to.be.true
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should return conflicts when merge has conflicts', async () => {
+      const deps = makeMergeDeps(sandbox)
+      try {
+        deps.gitService.listBranches.resolves([{isCurrent: false, isRemote: false, name: 'feature'}])
+        deps.gitService.merge.resolves({
+          conflicts: [{path: 'file.md', type: 'both_modified'}],
+          success: false,
+        })
+
+        makeVcHandler(deps).setup()
+        const result = (await deps.requestHandlers[VcEvents.MERGE](
+          {action: 'merge', branch: 'feature'} satisfies IVcMergeRequest,
+          CLIENT_ID,
+        )) as IVcMergeResponse
+
+        expect(result.conflicts).to.have.length(1)
+        expect(result.conflicts![0].path).to.equal('file.md')
+        expect(deps.gitService.checkout.called).to.be.false
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should pass custom message to merge', async () => {
+      const deps = makeMergeDeps(sandbox)
+      try {
+        deps.gitService.listBranches.resolves([{isCurrent: false, isRemote: false, name: 'feature'}])
+        deps.gitService.merge.resolves({success: true})
+        deps.gitService.getCurrentBranch.resolves('main')
+
+        makeVcHandler(deps).setup()
+        await deps.requestHandlers[VcEvents.MERGE](
+          {action: 'merge', branch: 'feature', message: 'custom msg'} satisfies IVcMergeRequest,
+          CLIENT_ID,
+        )
+
+        expect(deps.gitService.merge.firstCall.args[0].message).to.equal('custom msg')
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should throw MERGE_IN_PROGRESS when MERGE_HEAD exists', async () => {
+      const deps = makeMergeDeps(sandbox, {mergeHead: true})
+      try {
+        deps.gitService.listBranches.resolves([{isCurrent: false, isRemote: false, name: 'feature'}])
+        makeVcHandler(deps).setup()
+
+        try {
+          await deps.requestHandlers[VcEvents.MERGE](
+            {action: 'merge', branch: 'feature'} satisfies IVcMergeRequest,
+            CLIENT_ID,
+          )
+          expect.fail('Expected error')
+        } catch (error) {
+          expect(error).to.be.instanceOf(VcError)
+          if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.MERGE_IN_PROGRESS)
+        }
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should throw UNCOMMITTED_CHANGES when working tree is dirty', async () => {
+      const deps = makeMergeDeps(sandbox)
+      try {
+        deps.gitService.listBranches.resolves([{isCurrent: false, isRemote: false, name: 'feature'}])
+        deps.gitService.status.resolves({
+          files: [{path: 'dirty.md', staged: false, status: 'modified'}],
+          isClean: false,
+        })
+
+        makeVcHandler(deps).setup()
+        try {
+          await deps.requestHandlers[VcEvents.MERGE](
+            {action: 'merge', branch: 'feature'} satisfies IVcMergeRequest,
+            CLIENT_ID,
+          )
+          expect.fail('Expected error')
+        } catch (error) {
+          expect(error).to.be.instanceOf(VcError)
+          if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.UNCOMMITTED_CHANGES)
+        }
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should throw BRANCH_NOT_FOUND when branch does not exist', async () => {
+      const deps = makeMergeDeps(sandbox)
+      try {
+        deps.gitService.listBranches.resolves([{isCurrent: true, isRemote: false, name: 'main'}])
+
+        makeVcHandler(deps).setup()
+        try {
+          await deps.requestHandlers[VcEvents.MERGE](
+            {action: 'merge', branch: 'nonexistent'} satisfies IVcMergeRequest,
+            CLIENT_ID,
+          )
+          expect.fail('Expected error')
+        } catch (error) {
+          expect(error).to.be.instanceOf(VcError)
+          if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.BRANCH_NOT_FOUND)
+        }
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should throw GIT_NOT_INITIALIZED when git is not initialized', async () => {
+      const deps = makeMergeDeps(sandbox)
+      try {
+        deps.gitService.isInitialized.resolves(false)
+
+        makeVcHandler(deps).setup()
+        try {
+          await deps.requestHandlers[VcEvents.MERGE](
+            {action: 'merge', branch: 'feature'} satisfies IVcMergeRequest,
+            CLIENT_ID,
+          )
+          expect.fail('Expected error')
+        } catch (error) {
+          expect(error).to.be.instanceOf(VcError)
+          if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.GIT_NOT_INITIALIZED)
+        }
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should throw INVALID_BRANCH_NAME when branch name is invalid', async () => {
+      const deps = makeMergeDeps(sandbox)
+      try {
+        makeVcHandler(deps).setup()
+        try {
+          await deps.requestHandlers[VcEvents.MERGE](
+            {action: 'merge', branch: '..invalid'} satisfies IVcMergeRequest,
+            CLIENT_ID,
+          )
+          expect.fail('Expected error')
+        } catch (error) {
+          expect(error).to.be.instanceOf(VcError)
+          if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.INVALID_BRANCH_NAME)
+        }
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should throw INVALID_BRANCH_NAME when branch name is missing', async () => {
+      const deps = makeMergeDeps(sandbox)
+      try {
+        makeVcHandler(deps).setup()
+        try {
+          await deps.requestHandlers[VcEvents.MERGE]({action: 'merge'} satisfies IVcMergeRequest, CLIENT_ID)
+          expect.fail('Expected error')
+        } catch (error) {
+          expect(error).to.be.instanceOf(VcError)
+          if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.INVALID_BRANCH_NAME)
+        }
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    // ── action: 'abort' ──
+
+    it('should abort merge successfully', async () => {
+      const deps = makeMergeDeps(sandbox, {mergeHead: true})
+      try {
+        makeVcHandler(deps).setup()
+        const result = (await deps.requestHandlers[VcEvents.MERGE](
+          {action: 'abort'} satisfies IVcMergeRequest,
+          CLIENT_ID,
+        )) as IVcMergeResponse
+
+        expect(result.action).to.equal('abort')
+        expect(deps.gitService.abortMerge.calledOnce).to.be.true
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should throw NO_MERGE_IN_PROGRESS when aborting without MERGE_HEAD', async () => {
+      const deps = makeMergeDeps(sandbox)
+      try {
+        makeVcHandler(deps).setup()
+        try {
+          await deps.requestHandlers[VcEvents.MERGE]({action: 'abort'} satisfies IVcMergeRequest, CLIENT_ID)
+          expect.fail('Expected error')
+        } catch (error) {
+          expect(error).to.be.instanceOf(VcError)
+          if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.NO_MERGE_IN_PROGRESS)
+        }
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    // ── action: 'continue' ──
+
+    it('should return defaultMessage when continuing without message', async () => {
+      const deps = makeMergeDeps(sandbox, {mergeHead: true, mergeMsg: "Merge branch 'feature'"})
+      try {
+        makeVcHandler(deps).setup()
+        const result = (await deps.requestHandlers[VcEvents.MERGE](
+          {action: 'continue'} satisfies IVcMergeRequest,
+          CLIENT_ID,
+        )) as IVcMergeResponse
+
+        expect(result.action).to.equal('continue')
+        expect(result.defaultMessage).to.equal("Merge branch 'feature'")
+        expect(deps.gitService.commit.called).to.be.false
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should commit when continuing with message', async () => {
+      const deps = makeMergeDeps(sandbox, {mergeHead: true})
+      try {
+        deps.gitService.getConflicts.resolves([])
+        makeVcHandler(deps).setup()
+        const result = (await deps.requestHandlers[VcEvents.MERGE](
+          {action: 'continue', message: 'Resolved merge'} satisfies IVcMergeRequest,
+          CLIENT_ID,
+        )) as IVcMergeResponse
+
+        expect(result.action).to.equal('continue')
+        expect(deps.gitService.commit.calledOnce).to.be.true
+        expect(deps.gitService.commit.firstCall.args[0].message).to.equal('Resolved merge')
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should throw MERGE_CONFLICT when continuing with unresolved conflicts', async () => {
+      const deps = makeMergeDeps(sandbox, {mergeHead: true})
+      try {
+        deps.gitService.getConflicts.resolves([{path: 'file.md', type: 'both_modified'}])
+
+        makeVcHandler(deps).setup()
+        try {
+          await deps.requestHandlers[VcEvents.MERGE](
+            {action: 'continue', message: 'try commit'} satisfies IVcMergeRequest,
+            CLIENT_ID,
+          )
+          expect.fail('Expected error')
+        } catch (error) {
+          expect(error).to.be.instanceOf(VcError)
+          if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.MERGE_CONFLICT)
+        }
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should throw NO_MERGE_IN_PROGRESS when continuing without MERGE_HEAD', async () => {
+      const deps = makeMergeDeps(sandbox)
+      try {
+        makeVcHandler(deps).setup()
+        try {
+          await deps.requestHandlers[VcEvents.MERGE]({action: 'continue'} satisfies IVcMergeRequest, CLIENT_ID)
+          expect.fail('Expected error')
+        } catch (error) {
+          expect(error).to.be.instanceOf(VcError)
+          if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.NO_MERGE_IN_PROGRESS)
+        }
+      } finally {
+        cleanupDir(deps.tmpDir)
       }
     })
   })

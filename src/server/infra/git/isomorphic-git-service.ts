@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import {join} from 'node:path'
 
 import type {
+  AbortMergeGitParams,
   AddGitParams,
   AddRemoteGitParams,
   AheadBehind,
@@ -67,6 +68,15 @@ export class IsomorphicGitService implements IGitService {
   private static isMergeConflictData(data: unknown): data is IsomorphicGitConflictData {
     if (typeof data !== 'object' || data === null) return false
     return 'filepaths' in data && Array.isArray(data.filepaths)
+  }
+
+  async abortMerge(params: AbortMergeGitParams): Promise<void> {
+    const dir = this.requireDirectory(params)
+    const mergeHeadPath = join(dir, '.git', 'MERGE_HEAD')
+    const mergeMsgPath = join(dir, '.git', 'MERGE_MSG')
+    await git.checkout({dir, force: true, fs, ref: 'HEAD'})
+    await fs.promises.unlink(mergeHeadPath).catch(() => {})
+    await fs.promises.unlink(mergeMsgPath).catch(() => {})
   }
 
   async add(params: AddGitParams): Promise<void> {
@@ -157,6 +167,7 @@ export class IsomorphicGitService implements IGitService {
 
     // If MERGE_HEAD exists, create a proper merge commit with two parents
     const mergeHeadPath = join(dir, '.git', 'MERGE_HEAD')
+    const mergeMsgPath = join(dir, '.git', 'MERGE_MSG')
     const mergeHeadContent = await fs.promises.readFile(mergeHeadPath, 'utf8').catch(() => null)
     const mergeHead = mergeHeadContent?.trim() ?? null
 
@@ -180,8 +191,9 @@ export class IsomorphicGitService implements IGitService {
 
     const {commit: commitObj} = await git.readCommit({dir, fs, oid: sha})
 
-    // Clean up MERGE_HEAD (isomorphic-git does not remove it automatically)
+    // Clean up MERGE_HEAD and MERGE_MSG (isomorphic-git does not remove them automatically)
     await fs.promises.unlink(mergeHeadPath).catch(() => {})
+    await fs.promises.unlink(mergeMsgPath).catch(() => {})
 
     return {
       author,
@@ -364,7 +376,10 @@ export class IsomorphicGitService implements IGitService {
 
   async merge(params: MergeGitParams): Promise<MergeResult> {
     const dir = this.requireDirectory(params)
+    const mergeHeadPath = join(dir, '.git', 'MERGE_HEAD')
+    const mergeMsgPath = join(dir, '.git', 'MERGE_MSG')
     const author = this.getAuthor()
+    const message = params.message ?? `Merge branch '${params.branch}'`
     try {
       await git.merge({
         abortOnConflict: false,
@@ -372,14 +387,17 @@ export class IsomorphicGitService implements IGitService {
         committer: author,
         dir,
         fs,
+        message,
         theirs: params.branch,
       })
       return {success: true}
     } catch (error) {
       if (error instanceof git.Errors.MergeConflictError) {
-        // isomorphic-git does not write MERGE_HEAD — write it so getConflicts() works post-restart
+        // isomorphic-git does not write MERGE_HEAD/MERGE_MSG — write them so
+        // getConflicts() and --continue work post-restart
         const theirsOid = await git.resolveRef({dir, fs, ref: params.branch})
-        await fs.promises.writeFile(join(dir, '.git', 'MERGE_HEAD'), `${theirsOid}\n`)
+        await fs.promises.writeFile(mergeHeadPath, `${theirsOid}\n`)
+        await fs.promises.writeFile(mergeMsgPath, `${message}\n`)
         return {conflicts: this.conflictsFromError(error), success: false}
       }
 
