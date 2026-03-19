@@ -1,9 +1,6 @@
 import {Args, Command, Flags} from '@oclif/core'
 
-import {
-  ModelEvents,
-  type ModelSetActiveResponse,
-} from '../../../shared/transport/events/model-events.js'
+import {ModelEvents, type ModelSetActiveResponse} from '../../../shared/transport/events/model-events.js'
 import {
   ProviderEvents,
   type ProviderGetActiveResponse,
@@ -52,7 +49,10 @@ export default class ModelSwitch extends Command {
         this.log(`Model switched to: ${result.modelId} (provider: ${result.providerId})`)
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred while switching the model. Please try again.'
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : 'An unexpected error occurred while switching the model. Please try again.'
       if (format === 'json') {
         writeJsonResponse({command: 'model switch', data: {error: errorMessage}, success: false})
       } else {
@@ -76,21 +76,35 @@ export default class ModelSwitch extends Command {
         }
 
         if (!provider.isConnected) {
-          throw new Error(`Provider "${providerFlag}" is not connected. Run "brv providers connect ${providerFlag}" first.`)
+          throw new Error(
+            `Provider "${providerFlag}" is not connected. Run "brv providers connect ${providerFlag}" first.`,
+          )
         }
 
         providerId = providerFlag
       } else {
         const active = await client.requestWithAck<ProviderGetActiveResponse>(ProviderEvents.GET_ACTIVE)
+        if (!active.activeProviderId) {
+          throw new Error('No active provider configured. Run "brv providers connect <provider>" first.')
+        }
+
         providerId = active.activeProviderId
       }
 
       if (providerId === 'byterover') {
-        throw new Error('ByteRover provider uses its own internal LLM and does not support model switching. Run "brv providers switch <provider>" to switch to a different provider first.')
+        throw new Error(
+          'ByteRover provider uses its own internal LLM and does not support model switching. Run "brv providers switch <provider>" to switch to a different provider first.',
+        )
       }
 
       // 2. Switch active model
-      await client.requestWithAck<ModelSetActiveResponse>(ModelEvents.SET_ACTIVE, {modelId, providerId})
+      const response = await client.requestWithAck<ModelSetActiveResponse>(ModelEvents.SET_ACTIVE, {
+        modelId,
+        providerId,
+      })
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to switch model')
+      }
 
       return {modelId, providerId}
     }, options)

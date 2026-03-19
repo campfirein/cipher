@@ -48,8 +48,10 @@ src/
 │   ├── infra/       # Tools, LLM services, sessions, storage, transport
 │   └── resources/   # Prompt YAML configs, tool definition .txt files
 ├── server/          # Server-side infrastructure
+│   ├── config/      # Auth config, environment
 │   ├── core/        # Domain entities, interfaces, errors
 │   ├── infra/       # Auth, connectors, daemon, hub, transport, etc.
+│   ├── templates/   # Server templates
 │   └── utils/       # Shared utilities (errors, file helpers, type guards)
 ├── shared/          # Cross-module shared code
 │   ├── constants/   # Shared constants (curation limits, etc.)
