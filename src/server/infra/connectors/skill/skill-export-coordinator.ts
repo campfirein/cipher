@@ -1,4 +1,5 @@
-import type {ISkillExportService, SkillBuildAndSyncResult} from '../../../core/interfaces/connectors/i-skill-export-service.js'
+import type {SkillBuildAndSyncResult} from '../../../../shared/types/skill-export.js'
+import type {ISkillExportService} from '../../../core/interfaces/connectors/i-skill-export-service.js'
 import type {SkillKnowledgeBuilder} from './skill-knowledge-builder.js'
 
 // ---------------------------------------------------------------------------
