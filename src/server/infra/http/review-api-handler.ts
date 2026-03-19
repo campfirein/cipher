@@ -1,6 +1,6 @@
 import express, {type RequestHandler, type Router} from 'express'
 import {unlink as fsUnlink, writeFile as fsWriteFile, mkdir, readFile} from 'node:fs/promises'
-import {dirname, join, relative} from 'node:path'
+import {dirname, isAbsolute, join, relative} from 'node:path'
 
 import type {CurateLogEntry, CurateLogOperation} from '../../core/domain/entities/curate-log-entry.js'
 import type {ICurateLogStore} from '../../core/interfaces/storage/i-curate-log-store.js'
@@ -50,6 +50,15 @@ function decodeProjectPath(encoded: string): null | string {
 
 function getContextTreeDir(projectPath: string): string {
   return join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
+}
+
+/**
+ * Returns true if filePath escapes outside the given root directory.
+ * Guards against path traversal (e.g. ../../etc/passwd).
+ */
+function isTraversal(rootDir: string, filePath: string): boolean {
+  const resolved = relative(rootDir, join(rootDir, filePath))
+  return resolved.startsWith('..') || isAbsolute(resolved)
 }
 
 /**
@@ -249,6 +258,12 @@ export function createReviewApiRouter(options: ReviewApiOptions): Router {
 
     try {
       const contextTreeDir = getContextTreeDir(projectPath)
+
+      if (isTraversal(contextTreeDir, filePath)) {
+        res.status(400).json({error: 'Invalid file path'})
+        return
+      }
+
       const backupStore = options.reviewBackupStoreFactory(projectPath)
 
       // Read backup (pre-curate) content
@@ -297,6 +312,12 @@ export function createReviewApiRouter(options: ReviewApiOptions): Router {
     try {
       const store = options.curateLogStoreFactory(projectPath)
       const contextTreeDir = getContextTreeDir(projectPath)
+
+      if (isTraversal(contextTreeDir, filePath)) {
+        res.status(400).json({error: 'Invalid file path'})
+        return
+      }
+
       const entries = await store.list()
 
       const updates = findPendingUpdates(entries, contextTreeDir, filePath)
@@ -320,8 +341,9 @@ export function createReviewApiRouter(options: ReviewApiOptions): Router {
             ? ctFs.deleteFile(absolutePath).catch(() => {})
             : ctFs.writeFile(absolutePath, backupContent))
 
-          // Restore additional files (MERGE source, folder DELETE contents)
-          await Promise.all(
+          // Restore additional files (MERGE source, folder DELETE contents).
+          // Best-effort: partial failures must not block the log update below.
+          await Promise.allSettled(
             allAdditionalPaths.map(async (absPath) => {
               const relPath = relative(contextTreeDir, absPath)
               const content = await backupStore.read(relPath)

@@ -119,9 +119,12 @@ export class ReviewHandler {
       for (const key of keysToDelete) pendingByPath.delete(key)
     }
 
-    // Apply decision for each affected file in parallel
-    const fileResults = await Promise.all(
-      [...pendingByPath.entries()].map(async ([relPath, ops]) => {
+    type FileResult = {ops: PendingOp[]; path: string; reverted: boolean}
+
+    // Apply decision for each affected file in parallel.
+    // allSettled so a single file failure does not block log updates for files that succeeded.
+    const settled = await Promise.allSettled(
+      [...pendingByPath.entries()].map(async ([relPath, ops]): Promise<FileResult> => {
         let reverted = false
         const allAdditionalPaths = [...new Set(ops.flatMap((o) => o.additionalFilePaths ?? []))]
 
@@ -134,8 +137,9 @@ export class ReviewHandler {
             ? unlink(absolutePath).catch(() => {})
             : writeFileWithDirs(absolutePath, backupContent))
 
-          // Restore additional paths (MERGE source, folder DELETE contents)
-          await Promise.all(
+          // Restore additional paths (MERGE source, folder DELETE contents).
+          // Best-effort: partial failures must not block the log update below.
+          await Promise.allSettled(
             allAdditionalPaths.map(async (absPath) => {
               const rel = relative(contextTreeDir, absPath)
               const content = await backupStore.read(rel)
@@ -148,13 +152,19 @@ export class ReviewHandler {
 
         // Clear backups for both approve and reject (current state becomes new baseline)
         await backupStore.delete(relPath)
-        await Promise.all(
+        await Promise.allSettled(
           allAdditionalPaths.map((absPath) => backupStore.delete(relative(contextTreeDir, absPath))),
         )
 
         return {ops, path: relPath, reverted}
       }),
     )
+
+    // Only update log entries for files that were successfully processed.
+    // Files that failed remain pending and can be retried.
+    const fileResults = settled
+      .filter((r): r is PromiseFulfilledResult<FileResult> => r.status === 'fulfilled')
+      .map((r) => r.value)
 
     // Batch-update review status grouped by logId (one read+write per entry file)
     const byLogId = new Map<string, Array<{operationIndex: number; reviewStatus: 'approved' | 'rejected'}>>()

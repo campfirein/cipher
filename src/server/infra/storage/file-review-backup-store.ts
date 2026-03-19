@@ -1,4 +1,4 @@
-import {mkdir, readdir, readFile, rm, stat, writeFile} from 'node:fs/promises'
+import {mkdir, readdir, readFile, rename, rm, stat, writeFile} from 'node:fs/promises'
 import {dirname, join} from 'node:path'
 
 import type {IReviewBackupStore} from '../../core/interfaces/storage/i-review-backup-store.js'
@@ -69,7 +69,7 @@ export class FileReviewBackupStore implements IReviewBackupStore {
         const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name
         if (entry.isDirectory()) {
           subdirTasks.push(scan(join(dir, entry.name), relativePath))
-        } else if (entry.isFile()) {
+        } else if (entry.isFile() && !entry.name.endsWith('.tmp')) {
           paths.push(relativePath)
         }
       }
@@ -96,24 +96,37 @@ export class FileReviewBackupStore implements IReviewBackupStore {
     if (await this.has(relativePath)) return
 
     await mkdir(dirname(backupPath), {recursive: true})
-    await writeFile(backupPath, content, 'utf8')
+
+    // Write atomically: write to a .tmp sibling then rename so a crash mid-write
+    // never leaves a partial (corrupt) backup that first-write-wins would preserve.
+    const tmpPath = `${backupPath}.tmp`
+    try {
+      await writeFile(tmpPath, content, 'utf8')
+      await rename(tmpPath, backupPath)
+    } catch (error) {
+      await rm(tmpPath, {force: true}).catch(() => {})
+      throw error
+    }
   }
 
   /**
    * Remove empty ancestor directories up to and including the backup root.
    * Called after each file deletion to keep the directory tree clean.
    */
-  private async pruneEmptyDirs(dir: string): Promise<void> {
-    if (!dir.startsWith(this.backupDir)) return
+  private async pruneEmptyDirs(startDir: string): Promise<void> {
+    let dir = startDir
+    while (dir.startsWith(this.backupDir) && dir !== this.backupDir) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const entries = await readdir(dir)
+        if (entries.length > 0) return
+        // eslint-disable-next-line no-await-in-loop
+        await rm(dir, {recursive: true})
+      } catch {
+        return
+      }
 
-    try {
-      const entries = await readdir(dir)
-      if (entries.length > 0) return
-      await rm(dir, {recursive: true})
-    } catch {
-      return
+      dir = dirname(dir)
     }
-
-    await this.pruneEmptyDirs(dirname(dir))
   }
 }

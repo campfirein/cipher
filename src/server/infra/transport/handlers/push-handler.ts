@@ -1,4 +1,4 @@
-import {join} from 'node:path'
+import {join, relative} from 'node:path'
 
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextFileReader} from '../../../core/interfaces/context-tree/i-context-file-reader.js'
@@ -117,9 +117,8 @@ export class PushHandler {
         for (const op of entry.operations) {
           if (!op.filePath || !op.reviewStatus) continue
 
-          const prefix = contextTreeRoot + '/'
-          if (!op.filePath.startsWith(prefix)) continue
-          const relativePath = op.filePath.slice(prefix.length)
+          const relativePath = relative(contextTreeRoot, op.filePath)
+          if (relativePath.startsWith('..')) continue
 
           map.set(relativePath, op.reviewStatus)
         }

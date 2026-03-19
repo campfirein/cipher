@@ -76,15 +76,15 @@ describe('computeSummary', () => {
     expect(computeSummary(ops).deleted).to.equal(1)
   })
 
-  it('should count UPSERT operations as updated', () => {
+  it('should count UPSERT operations as added or updated based on message', () => {
     const ops: CurateLogOperation[] = [
-      {message: 'created new topic', path: '/a.md', status: 'success', type: 'UPSERT'},
-      {message: 'updated existing', path: '/b.md', status: 'success', type: 'UPSERT'},
+      {message: 'Upserted (created new) auth/jwt.md', path: '/a.md', status: 'success', type: 'UPSERT'},
+      {message: 'Upserted (updated existing) auth/oauth.md', path: '/b.md', status: 'success', type: 'UPSERT'},
       {path: '/c.md', status: 'success', type: 'UPSERT'},
     ]
     const summary = computeSummary(ops)
-    expect(summary.updated).to.equal(3)
-    expect(summary.added).to.equal(0)
+    expect(summary.added).to.equal(1)
+    expect(summary.updated).to.equal(2)
   })
 
   it('should count failed operations regardless of type', () => {
