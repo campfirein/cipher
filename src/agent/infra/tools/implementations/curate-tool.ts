@@ -1,4 +1,3 @@
-import {existsSync} from 'node:fs'
 import {basename, dirname, join, relative, resolve} from 'node:path'
 import {z} from 'zod'
 
@@ -258,24 +257,22 @@ type Content = z.infer<typeof ContentSchema>
  * Filter out non-existent files from rawConcept.files.
  * Returns a new content object with only valid file paths.
  */
-function filterValidFiles(content: Content): Content {
+async function filterValidFiles(content: Content): Promise<Content> {
   if (!content.rawConcept?.files || content.rawConcept.files.length === 0) {
     return content
   }
 
-  const validFiles = content.rawConcept.files.filter((filePath) => {
-    // Skip filesystem validation for URLs and document references
-    if (filePath.includes('://')) {
-      return true
-    }
+  const checks = await Promise.all(
+    content.rawConcept.files.map(async (filePath) => {
+      // Skip filesystem validation for URLs and document references
+      if (filePath.includes('://')) return true
+      // Skip entries that look like document references (no path separators, contain spaces)
+      if (!filePath.includes('/') && !filePath.includes('\\') && filePath.includes(' ')) return true
+      return DirectoryManager.fileExists(filePath)
+    }),
+  )
 
-    // Skip entries that look like document references (no path separators, contain spaces)
-    if (!filePath.includes('/') && !filePath.includes('\\') && filePath.includes(' ')) {
-      return true
-    }
-
-    return existsSync(filePath)
-  })
+  const validFiles = content.rawConcept.files.filter((_, i) => checks[i])
 
   // Return content with filtered files (empty array if none exist)
   return {
@@ -685,7 +682,7 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
     const finalPath = parsed.subtopic ? join(topicPath, toSnakeCase(parsed.subtopic)) : topicPath
 
     // Filter out non-existent files from rawConcept.files
-    const filteredContent = filterValidFiles(content)
+    const filteredContent = await filterValidFiles(content)
 
     const contextContent = MarkdownWriter.generateContext({
       facts: filteredContent.facts,
@@ -812,7 +809,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
     const finalScoring = {...updatedScoring, maturity: newTier}
 
     // Filter out non-existent files from rawConcept.files
-    const filteredContent = filterValidFiles(content)
+    const filteredContent = await filterValidFiles(content)
 
     // Extract previous summary from existing file's frontmatter (for review UI)
     const existingParsed = existingContent ? MarkdownWriter.parseContent(existingContent, title) : null

@@ -1,5 +1,7 @@
 import type {ContextData, Narrative, RawConcept} from '../../../../server/core/domain/knowledge/markdown-writer.js'
 
+import {normalize} from './utils.js'
+
 /**
  * Summary of detected structural loss when comparing existing vs proposed content.
  */
@@ -15,13 +17,6 @@ export type StructuralLoss = {
   lostRelations: number
   /** Number of snippets that would be lost */
   lostSnippets: number
-}
-
-/**
- * Normalize a string for comparison (trim and lowercase).
- */
-function normalize(s: string): string {
-  return s.trim().toLowerCase()
 }
 
 /**

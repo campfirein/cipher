@@ -53,8 +53,12 @@ export function computeSummary(operations: CurateLogOperation[]): CurateLogSumma
       }
 
       case 'UPSERT': {
-        // UPSERT is intentionally counted as "updated" — CurateLogSummary has no separate upserted field.
-        summary.updated++
+        if (op.message?.includes('created new')) {
+          summary.added++
+        } else {
+          summary.updated++
+        }
+
         break
       }
     }

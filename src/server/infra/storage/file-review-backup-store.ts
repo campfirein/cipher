@@ -103,17 +103,20 @@ export class FileReviewBackupStore implements IReviewBackupStore {
    * Remove empty ancestor directories up to and including the backup root.
    * Called after each file deletion to keep the directory tree clean.
    */
-  private async pruneEmptyDirs(dir: string): Promise<void> {
-    if (!dir.startsWith(this.backupDir)) return
+  private async pruneEmptyDirs(startDir: string): Promise<void> {
+    let dir = startDir
+    while (dir.startsWith(this.backupDir) && dir !== this.backupDir) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const entries = await readdir(dir)
+        if (entries.length > 0) return
+        // eslint-disable-next-line no-await-in-loop
+        await rm(dir, {recursive: true})
+      } catch {
+        return
+      }
 
-    try {
-      const entries = await readdir(dir)
-      if (entries.length > 0) return
-      await rm(dir, {recursive: true})
-    } catch {
-      return
+      dir = dirname(dir)
     }
-
-    await this.pruneEmptyDirs(dirname(dir))
   }
 }

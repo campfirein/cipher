@@ -1,12 +1,7 @@
 import type {ContextData, Narrative, RawConcept} from '../../../../server/core/domain/knowledge/markdown-writer.js'
 import type {StructuralLoss} from './conflict-detector.js'
 
-/**
- * Normalize a string for comparison (trim and lowercase).
- */
-function normalize(s: string): string {
-  return s.trim().toLowerCase()
-}
+import {normalize} from './utils.js'
 
 /**
  * Merge two arrays with case-insensitive deduplication.
