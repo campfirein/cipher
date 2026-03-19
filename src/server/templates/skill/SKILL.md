@@ -86,7 +86,7 @@ brv curate view --help
 - A curate operation reports pending reviews (shown in curate output)
 - The user wants to check, approve, or reject pending changes
 
-**Do NOT use this when:**
+**Do NOT use this skill when:**
 - There are no pending reviews (check with `brv review pending` first)
 
 **Commands:**
