@@ -33,6 +33,7 @@ import type {AgentEventBus} from '../../src/agent/infra/events/event-emitter.js'
 import type {FileSystemService} from '../../src/agent/infra/file-system/file-system-service.js'
 import type {CompactionService} from '../../src/agent/infra/llm/context/compaction/compaction-service.js'
 import type {ContextManager} from '../../src/agent/infra/llm/context/context-manager.js'
+import type {AbstractGenerationQueue} from '../../src/agent/infra/map/abstract-queue.js'
 import type {MemoryManager} from '../../src/agent/infra/memory/memory-manager.js'
 import type {ProcessService} from '../../src/agent/infra/process/process-service.js'
 import type {MessageStorageService} from '../../src/agent/infra/storage/message-storage-service.js'
@@ -365,6 +366,7 @@ export function createMockCipherAgentServices(
   overrides?: Partial<CipherAgentServices>,
 ): CipherAgentServices {
   return {
+    abstractQueue: {} as unknown as AbstractGenerationQueue,
     agentEventBus,
     blobStorage: createMockBlobStorage(sandbox),
     compactionService: {} as unknown as CompactionService,
@@ -379,6 +381,7 @@ export function createMockCipherAgentServices(
     toolManager: createMockToolManager(sandbox),
     toolProvider: createMockToolProvider(sandbox),
     toolScheduler: createMockToolScheduler(sandbox),
+    workingDirectory: process.cwd(),
     ...overrides,
   }
 }

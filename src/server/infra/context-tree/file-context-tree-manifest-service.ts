@@ -26,6 +26,7 @@ import type {
 import type {IContextTreeManifestService} from '../../core/interfaces/context-tree/i-context-tree-manifest-service.js'
 
 import {
+  ABSTRACT_EXTENSION,
   ARCHIVE_DIR,
   BRV_DIR,
   CONTEXT_FILE_EXTENSION,
@@ -149,8 +150,22 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
     /* eslint-disable no-await-in-loop */
     for (const entry of ordered) {
       try {
-        const fullPath = join(contextTreeDir, entry.path)
-        const content = await readFile(fullPath, 'utf8')
+        let content: string
+        // For context entries, prefer .abstract.md sibling if it exists on disk
+        // (dynamic read avoids stale-manifest issues since .abstract.md is a derived artifact)
+        if (entry.type === 'context') {
+          const abstractRelPath = entry.path.replace(/\.md$/, ABSTRACT_EXTENSION)
+          const abstractFullPath = join(contextTreeDir, abstractRelPath)
+          try {
+            content = await readFile(abstractFullPath, 'utf8')
+          } catch {
+            // Abstract not ready yet — fall back to full content
+            content = await readFile(join(contextTreeDir, entry.path), 'utf8')
+          }
+        } else {
+          content = await readFile(join(contextTreeDir, entry.path), 'utf8')
+        }
+
         resolved.push({
           content,
           path: entry.path,
@@ -192,12 +207,56 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
     const entries: Array<{mtime: number; path: string; size: number}> = []
     await this.scanSourceStats(contextTreeDir, contextTreeDir, entries)
 
+    // Also include .abstract.md siblings so newly-written abstracts invalidate the manifest
+    await this.scanAbstractStats(contextTreeDir, contextTreeDir, entries)
+
     const input = entries
       .sort((a, b) => a.path.localeCompare(b.path))
       .map((e) => `${e.path}:${e.mtime}:${e.size}`)
       .join('\n')
 
     return computeContentHash(input)
+  }
+
+  /**
+   * Recursively scan context tree for .abstract.md sibling files.
+   * These are derived artifacts excluded from normal stat scan but included
+   * here so their appearance invalidates the manifest (triggers abstract-aware rescan).
+   */
+  private async scanAbstractStats(
+    currentDir: string,
+    contextTreeDir: string,
+    entries: Array<{mtime: number; path: string; size: number}>,
+  ): Promise<void> {
+    let dirEntries: import('node:fs').Dirent[]
+    try {
+      dirEntries = await readdir(currentDir, {withFileTypes: true}) as import('node:fs').Dirent[]
+    } catch {
+      return
+    }
+
+    /* eslint-disable no-await-in-loop */
+    for (const entry of dirEntries) {
+      const entryName = entry.name as string
+      const fullPath = join(currentDir, entryName)
+
+      if (entry.isDirectory()) {
+        await this.scanAbstractStats(fullPath, contextTreeDir, entries)
+      } else if (entry.isFile() && entryName.endsWith(ABSTRACT_EXTENSION)) {
+        const relativePath = toUnixPath(relative(contextTreeDir, fullPath))
+        try {
+          const fileStat = await stat(fullPath)
+          entries.push({
+            mtime: fileStat.mtimeMs,
+            path: relativePath,
+            size: fileStat.size,
+          })
+        } catch {
+          // Skip unreadable files
+        }
+      }
+    }
+    /* eslint-enable no-await-in-loop */
   }
 
   /**
@@ -288,10 +347,22 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
           try {
             const content = await readFile(fullPath, 'utf8')
             const scoring = parseFrontmatterScoring(content)
+
+            // Check for a sibling .abstract.md — use its token count for lane budgeting
+            const abstractRelPath = relativePath.replace(/\.md$/, ABSTRACT_EXTENSION)
+            const abstractFullPath = join(contextTreeDir, abstractRelPath)
+            let abstractTokens: number | undefined
+            try {
+              const abstractContent = await readFile(abstractFullPath, 'utf8')
+              abstractTokens = estimateTokens(abstractContent)
+            } catch { /* no abstract yet */ }
+
             contexts.push({
+              abstractPath: abstractTokens === undefined ? undefined : abstractRelPath,
+              abstractTokens,
               importance: scoring?.importance ?? 50,
               path: relativePath,
-              tokens: estimateTokens(content),
+              tokens: abstractTokens ?? estimateTokens(content),
               type: 'context',
             })
           } catch {

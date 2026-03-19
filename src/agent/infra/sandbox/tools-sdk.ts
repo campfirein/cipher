@@ -108,11 +108,13 @@ export interface SearchKnowledgeResult {
     /** Number of other memories that reference this one */
     backlinkCount?: number
     excerpt: string
+    /** Path to .overview.md for this entry; present when L1 overview exists */
+    overviewPath?: string
     path: string
     /** Top backlink source paths (max 3) */
     relatedPaths?: string[]
     score: number
-    /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' | 'archive_stub' */
+    /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' | 'archive_stub' | 'summary' */
     symbolKind?: string
     /** Resolved hierarchical path in the symbol tree */
     symbolPath?: string
