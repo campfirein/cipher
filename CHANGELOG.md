@@ -2,6 +2,16 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **`brv connectors sync` command** — Explicitly sync accumulated project knowledge into installed agent SKILL.md files. Run from the REPL with `/connectors sync` or from the CLI with `brv connectors sync`. Supports `--format json` for automation use cases.
+
+### Removed
+
+- **`brv-export-skill` MCP tool** — Removed. Use `brv connectors sync` (CLI) or `/connectors sync` (REPL) instead. Project knowledge is also synced automatically after every `brv curate` via the post-curation hook.
+
 ## [2.1.5]
 
 ### Added

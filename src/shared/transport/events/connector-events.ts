@@ -7,6 +7,7 @@ export const ConnectorEvents = {
   GET_AGENTS: 'connectors:getAgents',
   INSTALL: 'connectors:install',
   LIST: 'connectors:list',
+  SYNC: 'connectors:sync',
 } as const
 
 export interface ConnectorGetAgentsResponse {
@@ -36,4 +37,11 @@ export interface ConnectorInstallResponse {
   message: string
   requiresManualSetup?: boolean
   success: boolean
+}
+
+export interface ConnectorSyncResponse {
+  /** Rendered knowledge markdown block — empty string means no knowledge accumulated yet. */
+  block: string
+  failed: Array<{agent: Agent; error: string; scope: 'global' | 'project'}>
+  updated: Array<{agent: Agent; path: string; scope: 'global' | 'project'}>
 }
