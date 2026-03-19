@@ -1,5 +1,6 @@
 import type {Agent} from '../../types/agent.js'
 import type {ConnectorType} from '../../types/connector-type.js'
+import type {SkillBuildAndSyncResult} from '../../types/skill-export.js'
 import type {AgentDTO, ConnectorDTO} from '../types/dto.js'
 
 export const ConnectorEvents = {
@@ -39,9 +40,4 @@ export interface ConnectorInstallResponse {
   success: boolean
 }
 
-export interface ConnectorSyncResponse {
-  /** Rendered knowledge markdown block — empty string means no knowledge accumulated yet. */
-  block: string
-  failed: Array<{agent: Agent; error: string; scope: 'global' | 'project'}>
-  updated: Array<{agent: Agent; path: string; scope: 'global' | 'project'}>
-}
+export type ConnectorSyncResponse = SkillBuildAndSyncResult

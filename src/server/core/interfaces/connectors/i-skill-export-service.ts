@@ -1,4 +1,7 @@
+import type {SkillExportResult} from '../../../../shared/types/skill-export.js'
 import type {Agent} from '../../domain/entities/agent.js'
+
+export type {SkillBuildAndSyncResult, SkillExportResult} from '../../../../shared/types/skill-export.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -14,18 +17,6 @@ export interface SkillExportTarget {
   installedPath: string
   scope: 'global' | 'project'
 }
-
-/**
- * Outcome of a sync operation across all installed targets.
- */
-export interface SkillExportResult {
-  failed: Array<{agent: Agent; error: string; scope: 'global' | 'project'}>
-  updated: Array<{agent: Agent; path: string; scope: 'global' | 'project'}>
-}
-
-// ---------------------------------------------------------------------------
-// Interface
-// ---------------------------------------------------------------------------
 
 /**
  * Syncs a pre-built knowledge block into all installed skill targets.
