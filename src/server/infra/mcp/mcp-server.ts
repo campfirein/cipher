@@ -12,7 +12,7 @@ import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 import {TransportClientEventNames} from '../../core/domain/transport/schemas.js'
 import {resolveLocalServerMainPath} from '../../utils/server-main-resolver.js'
 import {detectMcpMode, type McpMode} from './mcp-mode-detector.js'
-import {registerBrvCurateTool, registerBrvExportSkillTool, registerBrvQueryTool} from './tools/index.js'
+import {registerBrvCurateTool, registerBrvQueryTool} from './tools/index.js'
 
 export interface McpServerConfig {
   /** CLI version for MCP server identification */
@@ -74,10 +74,6 @@ export class ByteRoverMcpServer {
     registerBrvCurateTool(
       this.server,
       () => this.client,
-      () => this.getWorkingDirectory(),
-    )
-    registerBrvExportSkillTool(
-      this.server,
       () => this.getWorkingDirectory(),
     )
   }

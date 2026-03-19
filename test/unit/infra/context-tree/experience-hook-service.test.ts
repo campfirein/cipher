@@ -5,6 +5,7 @@ import {join, resolve} from 'node:path'
 import sinon from 'sinon'
 
 import type {IConsolidationLlm} from '../../../../src/server/core/interfaces/experience/i-consolidation-llm.js'
+import type {SkillExportCoordinator} from '../../../../src/server/infra/connectors/skill/skill-export-coordinator.js'
 
 import {
   BRV_DIR,
@@ -29,7 +30,7 @@ async function makeService(): Promise<{baseDir: string; service: ExperienceHookS
     `experience-hook-service-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   )
   await mkdir(baseDir, {recursive: true})
-  const service = new ExperienceHookService(baseDir)
+  const service = new ExperienceHookService({baseDirectory: baseDir})
   const store = new ExperienceStore(baseDir)
   return {baseDir, service, store}
 }
@@ -246,6 +247,36 @@ describe('ExperienceHookService', () => {
       }
     })
 
+    it('still writes bullets and increments curationCount when gate-evaluation reads fail', async () => {
+      const gate = new BackpressureGate({maxEntriesPerFile: 1, minConsolidationIntervalSec: 0})
+      const svc = new ExperienceHookService({baseDirectory: baseDir, gate})
+      const originalReadSectionLines = ExperienceStore.prototype.readSectionLines
+      let failOnce = true
+
+      const readStub = sinon.stub(ExperienceStore.prototype, 'readSectionLines').callsFake(
+        async function (this: ExperienceStore, filename: string, section: string) {
+          if (failOnce && filename === EXPERIENCE_LESSONS_FILE && section === 'Facts') {
+            failOnce = false
+            throw new Error('transient read failure')
+          }
+
+          return originalReadSectionLines.call(this, filename, section)
+        },
+      )
+
+      try {
+        await svc.onCurateComplete(buildResponse([{text: 'survives gate read failure', type: 'lesson'}]))
+
+        const meta = await store.readMeta()
+        expect(meta.curationCount).to.equal(1)
+
+        const lessons = await store.readSectionLines(EXPERIENCE_LESSONS_FILE, 'Facts')
+        expect(lessons).to.include('survives gate read failure')
+      } finally {
+        readStub.restore()
+      }
+    })
+
     it('still increments curationCount when ensureInitialized fails', async () => {
       const ensureStub = sinon.stub(ExperienceStore.prototype, 'ensureInitialized').rejects(new Error('disk full'))
 
@@ -260,7 +291,7 @@ describe('ExperienceHookService', () => {
     })
 
     it('cross-instance: two instances for the same path share the queue and serialize', async () => {
-      const service2 = new ExperienceHookService(baseDir)
+      const service2 = new ExperienceHookService({baseDirectory: baseDir})
 
       // Fire one call on each instance simultaneously
       const p1 = service.onCurateComplete(buildResponse([{text: 'from-instance-1', type: 'lesson'}]))
@@ -310,6 +341,61 @@ describe('ExperienceHookService', () => {
       })
       expect(queues.has(key)).to.be.false
     })
+
+    it('process() resolves before export completes (fire-and-forget)', async () => {
+      let exportResolved = false
+      const exportCoordinator = {
+        buildAndSync: sinon.stub().callsFake(async () => {
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, 20)
+          })
+          exportResolved = true
+          return {failed: [], updated: []}
+        }),
+      } as unknown as SkillExportCoordinator
+
+      const svc = new ExperienceHookService({baseDirectory: baseDir, exportCoordinator})
+
+      await svc.onCurateComplete('no signals')
+
+      expect(exportResolved).to.be.false
+
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 25)
+      })
+    })
+
+    it('does not serialize later curations behind in-flight export', async () => {
+      let releaseFirstExport!: () => void
+      const buildAndSync = sinon.stub()
+
+      buildAndSync.onFirstCall().callsFake(
+        () =>
+          new Promise((resolve) => {
+            releaseFirstExport = () => resolve({failed: [], updated: []})
+          }),
+      )
+      buildAndSync.onSecondCall().resolves({failed: [], updated: []})
+
+      const exportCoordinator = {buildAndSync} as unknown as SkillExportCoordinator
+      const svc = new ExperienceHookService({baseDirectory: baseDir, exportCoordinator})
+
+      await svc.onCurateComplete('no signals')
+      await Promise.resolve()
+      expect(buildAndSync.calledOnce).to.be.true
+
+      const laterResult = Promise.race([
+        svc.onCurateComplete(buildResponse([{text: 'later while export is in-flight', type: 'lesson'}])).then(() => 'resolved'),
+        new Promise<'timed-out'>((resolve) => {
+          setTimeout(() => resolve('timed-out'), 25)
+        }),
+      ])
+
+      expect(await laterResult).to.equal('resolved')
+
+      releaseFirstExport()
+      await Promise.resolve()
+    })
   })
 
   // -------------------------------------------------------------------------
@@ -341,7 +427,7 @@ describe('ExperienceHookService', () => {
 
     it('does not call consolidate before the interval threshold', async () => {
       const consolidationService = makeConsolidationService()
-      const svc = new ExperienceHookService(baseDir, consolidationService)
+      const svc = new ExperienceHookService({baseDirectory: baseDir, consolidationService})
 
       // Call (INTERVAL - 1) times — consolidation must not fire
       await Promise.all(
@@ -353,7 +439,7 @@ describe('ExperienceHookService', () => {
 
     it('calls consolidate exactly once when curationCount hits the interval', async () => {
       const consolidationService = makeConsolidationService()
-      const svc = new ExperienceHookService(baseDir, consolidationService)
+      const svc = new ExperienceHookService({baseDirectory: baseDir, consolidationService})
 
       await Promise.all(
         Array.from({length: EXPERIENCE_CONSOLIDATION_INTERVAL}, () => svc.onCurateComplete('no signals')),
@@ -366,7 +452,7 @@ describe('ExperienceHookService', () => {
 
     it('calls consolidate again at the next interval multiple', async () => {
       const consolidationService = makeConsolidationService()
-      const svc = new ExperienceHookService(baseDir, consolidationService)
+      const svc = new ExperienceHookService({baseDirectory: baseDir, consolidationService})
 
       await Promise.all(
         Array.from({length: EXPERIENCE_CONSOLIDATION_INTERVAL * 2}, () => svc.onCurateComplete('no signals')),
@@ -388,7 +474,7 @@ describe('ExperienceHookService', () => {
         }),
       }
       const consolidationService = new ExperienceConsolidationService(llm)
-      const svc = new ExperienceHookService(baseDir, consolidationService)
+      const svc = new ExperienceHookService({baseDirectory: baseDir, consolidationService})
 
       // Drive curationCount to the threshold; queue serializes internally
       await Promise.all(
@@ -415,7 +501,7 @@ describe('ExperienceHookService', () => {
         ),
       }
       const consolidationService = new ExperienceConsolidationService(llm)
-      const svc = new ExperienceHookService(baseDir, consolidationService)
+      const svc = new ExperienceHookService({baseDirectory: baseDir, consolidationService})
 
       await svc.onCurateComplete(buildResponse([{text: 'seed lesson 1', type: 'lesson'}]))
       await svc.onCurateComplete(buildResponse([{text: 'seed lesson 2', type: 'lesson'}]))
@@ -448,7 +534,7 @@ describe('ExperienceHookService', () => {
 
     it('does not call consolidate without a consolidation service', async () => {
       // Default constructor — no consolidation service
-      const svc = new ExperienceHookService(baseDir)
+      const svc = new ExperienceHookService({baseDirectory: baseDir})
 
       await Promise.all(
         Array.from({length: EXPERIENCE_CONSOLIDATION_INTERVAL}, () => svc.onCurateComplete('no signals')),
@@ -462,7 +548,7 @@ describe('ExperienceHookService', () => {
     it('triggers background consolidation when an injected gate fires', async () => {
       const consolidationService = makeConsolidationService()
       const gate = new BackpressureGate({maxEntriesPerFile: 1, minConsolidationIntervalSec: 0})
-      const svc = new ExperienceHookService(baseDir, consolidationService, gate)
+      const svc = new ExperienceHookService({baseDirectory: baseDir, consolidationService, gate})
 
       await svc.onCurateComplete(buildResponse([{text: 'gate-triggered lesson', type: 'lesson'}]))
       await Promise.resolve()
@@ -474,7 +560,7 @@ describe('ExperienceHookService', () => {
     it('runs cadence consolidation only once when gate and cadence trigger together', async () => {
       const consolidationService = makeConsolidationService()
       const gate = new BackpressureGate({maxEntriesPerFile: 1, minConsolidationIntervalSec: 0})
-      const svc = new ExperienceHookService(baseDir, consolidationService, gate)
+      const svc = new ExperienceHookService({baseDirectory: baseDir, consolidationService, gate})
 
       await Promise.all(
         Array.from({length: EXPERIENCE_CONSOLIDATION_INTERVAL - 1}, () => svc.onCurateComplete('no signals')),

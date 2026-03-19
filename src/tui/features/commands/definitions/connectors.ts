@@ -3,6 +3,7 @@ import React from 'react'
 import type {SlashCommand} from '../../../types/commands.js'
 
 import {ConnectorsFlow} from '../../connectors/components/connectors-flow.js'
+import {connectorsSyncCommand} from './connectors-sync.js'
 
 export const connectorsCommand: SlashCommand = {
   action: () => ({
@@ -10,4 +11,5 @@ export const connectorsCommand: SlashCommand = {
   }),
   description: 'Manage agent connectors (rules, hook, mcp, or skill)',
   name: 'connectors',
+  subCommands: [connectorsSyncCommand],
 }

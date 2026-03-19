@@ -22,6 +22,7 @@ import {HttpCogitPushService} from '../cogit/http-cogit-push-service.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
 import {ConnectorManager} from '../connectors/connector-manager.js'
 import {RuleTemplateService} from '../connectors/shared/template-service.js'
+import {createSkillExportStack} from '../connectors/skill/create-skill-export-stack.js'
 import {SkillConnector} from '../connectors/skill/skill-connector.js'
 import {FileContextFileReader} from '../context-tree/file-context-file-reader.js'
 import {FileContextTreeMerger} from '../context-tree/file-context-tree-merger.js'
@@ -187,6 +188,7 @@ export async function setupFeatureHandlers({
   new ConnectorsHandler({
     connectorManagerFactory,
     resolveProjectPath,
+    skillExportStackFactory: createSkillExportStack,
     transport,
   }).setup()
 

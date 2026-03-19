@@ -9,6 +9,13 @@ import {EXPERIENCE_CONSOLIDATION_INTERVAL} from '../../constants.js'
 import {type ExperienceSignal, extractExperienceSignals, signalTarget} from './experience-extractor.js'
 import {type ExperienceMeta, ExperienceStore} from './experience-store.js'
 
+type ExperienceHookServiceOptions = {
+  baseDirectory: string
+  consolidationService?: ExperienceConsolidationService
+  exportCoordinator?: SkillExportCoordinator
+  gate?: BackpressureGate
+}
+
 /**
  * ExperienceHookService — default implementation of IExperienceHookService.
  *
@@ -24,6 +31,12 @@ import {type ExperienceMeta, ExperienceStore} from './experience-store.js'
  */
 export class ExperienceHookService implements IExperienceHookService {
   /**
+   * Project-scoped export queues.
+   * Kept separate from the main curation queue so slow SKILL.md sync I/O does
+   * not delay later onCurateComplete() calls from reaching processDone.
+   */
+  private static readonly exportQueues = new Map<string, Promise<void>>()
+  /**
    * Project-scoped serialization queues.
    * Keyed by resolved absolute project path so that all instances for the same
    * project share one queue, preventing concurrent read-modify-write races on
@@ -37,24 +50,21 @@ export class ExperienceHookService implements IExperienceHookService {
   private readonly projectKey: string
   private readonly store: ExperienceStore
 
-  constructor(
-    baseDirectory: string,
-    consolidationService?: ExperienceConsolidationService,
-    gate?: BackpressureGate,
-    options?: {exportCoordinator?: SkillExportCoordinator},
-  ) {
-    this.projectKey = resolve(baseDirectory)
-    this.store = new ExperienceStore(baseDirectory)
-    this.consolidationService = consolidationService
-    this.gate = gate
-    this.exportCoordinator = options?.exportCoordinator
+  constructor(options: ExperienceHookServiceOptions) {
+    this.projectKey = resolve(options.baseDirectory)
+    this.store = new ExperienceStore(options.baseDirectory)
+    this.consolidationService = options.consolidationService
+    this.gate = options.gate
+    this.exportCoordinator = options.exportCoordinator
   }
 
   /**
    * Enqueue processing of a completed curation response.
    * Returns a promise that resolves when this specific call's curation work is done.
-   * Background consolidation may continue after this promise settles, but it still
+   * Background consolidation may continue after this promise settles and still
    * remains on the shared project queue so later calls do not race with it.
+   * Skill export is scheduled on a separate project-scoped queue after
+   * consolidation so export I/O never delays later curate completions.
    * Never rejects — errors are swallowed inside process().
    */
   onCurateComplete(response: string): Promise<void> {
@@ -85,9 +95,9 @@ export class ExperienceHookService implements IExperienceHookService {
 
       // Background skill export — sync accumulated experience into agent SKILL.md files.
       // Runs after consolidation so the exported knowledge reflects the latest state.
-      // Never delays curate completion (processDone already settled above).
+      // Never delays curate completion or later curation processing.
       if (this.exportCoordinator) {
-        await this.exportCoordinator.buildAndSync().catch(() => {})
+        this.enqueueExport()
       }
     }).catch(() => {
       settleProcessDone()
@@ -104,6 +114,20 @@ export class ExperienceHookService implements IExperienceHookService {
     })
 
     return processDone
+  }
+
+  private enqueueExport(): void {
+    const current = ExperienceHookService.exportQueues.get(this.projectKey) ?? Promise.resolve()
+    const next = current.then(async () => {
+      await this.exportCoordinator?.buildAndSync().catch(() => {})
+    }).catch(() => {})
+
+    ExperienceHookService.exportQueues.set(this.projectKey, next)
+    next.then(() => {
+      if (ExperienceHookService.exportQueues.get(this.projectKey) === next) {
+        ExperienceHookService.exportQueues.delete(this.projectKey)
+      }
+    })
   }
 
   private groupByFile(signals: ExperienceSignal[]): Record<string, {bullets: string[]; section: string}> {
@@ -143,8 +167,16 @@ export class ExperienceHookService implements IExperienceHookService {
       // Compute projected entry counts (existing + incoming unique bullets)
       let maxProjected = 0
       for (const [filename, {bullets, section}] of Object.entries(groupedSignals)) {
-        // eslint-disable-next-line no-await-in-loop
-        const existing = await this.store.readSectionLines(filename, section)
+        let existing: string[]
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          existing = await this.store.readSectionLines(filename, section)
+        } catch {
+          // Fail-open during gate evaluation so a transient read error does not
+          // block bullet writes or curation-count tracking for this response.
+          existing = []
+        }
+
         existingByFile.set(filename, existing)
         const existingSet = new Set(existing.map((s) => s.toLowerCase()))
         const newCount = bullets.filter((b) => !existingSet.has(b.toLowerCase())).length

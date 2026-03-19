@@ -42,20 +42,14 @@ import {
   TransportStateEventNames,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
-import {SkillConnector} from '../connectors/skill/skill-connector.js'
-import {SkillContentLoader} from '../connectors/skill/skill-content-loader.js'
-import {SkillExportCoordinator} from '../connectors/skill/skill-export-coordinator.js'
-import {SkillExportService} from '../connectors/skill/skill-export-service.js'
-import {SkillKnowledgeBuilder} from '../connectors/skill/skill-knowledge-builder.js'
+import {createSkillExportStack} from '../connectors/skill/create-skill-export-stack.js'
 import {BackpressureGate} from '../context-tree/backpressure-gate.js'
 import {ConsolidationQualityEvaluator} from '../context-tree/consolidation-quality.js'
 import {ExperienceConsolidationService} from '../context-tree/experience-consolidation-service.js'
 import {ExperienceHookService} from '../context-tree/experience-hook-service.js'
-import {ExperienceStore} from '../context-tree/experience-store.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
-import {FsFileService} from '../file/fs-file-service.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {createAgentLogger} from './agent-logger.js'
 import {resolveSessionId} from './session-resolver.js'
@@ -374,29 +368,21 @@ async function start(): Promise<void> {
   const gate = new BackpressureGate()
 
   // Skill export: auto-sync accumulated experience into agent SKILL.md files
-  let exportCoordinator: SkillExportCoordinator | undefined
+  let exportCoordinator
   try {
-    const fsFileService = new FsFileService()
-    const skillContentLoader = new SkillContentLoader(fsFileService)
-    const staticTemplate = await skillContentLoader.loadSkillFile('SKILL.md')
-    const experienceStoreForExport = new ExperienceStore(projectPath)
-    const knowledgeBuilder = new SkillKnowledgeBuilder(experienceStoreForExport)
-    const skillConnector = new SkillConnector({fileService: fsFileService, projectRoot: projectPath})
-    const skillExportService = new SkillExportService({
-      builder: knowledgeBuilder,
-      fileService: fsFileService,
-      skillConnector,
-      staticTemplate,
-    })
-    exportCoordinator = new SkillExportCoordinator(knowledgeBuilder, skillExportService)
+    const stack = await createSkillExportStack(projectPath)
+    exportCoordinator = stack.coordinator
   } catch {
     // Fail-open: if skill export wiring fails, curations still work without export
     agentLog('Skill export wiring failed — curations will proceed without SKILL.md export')
   }
 
-  const experienceHookService = new ExperienceHookService(
-    projectPath, consolidationService, gate, {exportCoordinator},
-  )
+  const experienceHookService = new ExperienceHookService({
+    baseDirectory: projectPath,
+    consolidationService,
+    exportCoordinator,
+    gate,
+  })
   const curateExecutor = new CurateExecutor(undefined, experienceHookService)
   const folderPackService = new FolderPackService(fileSystemService)
   await folderPackService.initialize()

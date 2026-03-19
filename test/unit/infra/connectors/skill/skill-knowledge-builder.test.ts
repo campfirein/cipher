@@ -107,11 +107,11 @@ describe('SkillKnowledgeBuilder', () => {
       expect(result).to.equal('')
     })
 
-    it('returns [] for a section when readSectionLines throws (fail-open)', async () => {
+    it('re-throws when readSectionLines fails with a non-ENOENT error', async () => {
       const store = makeStore()
       ;(store.readSectionLines as SinonStub).callsFake((filename: string) => {
         if (filename === EXPERIENCE_LESSONS_FILE) {
-          return Promise.reject(new Error('file not found'))
+          return Promise.reject(new Error('permission denied'))
         }
 
         if (filename === EXPERIENCE_HINTS_FILE) {
@@ -122,12 +122,12 @@ describe('SkillKnowledgeBuilder', () => {
       })
 
       const builder = new SkillKnowledgeBuilder(store)
-      const result = await builder.build()
-
-      // The error section is silently skipped; the surviving section still renders
-      expect(result).to.not.include('### Lessons Learned')
-      expect(result).to.include('### Hints & Tips')
-      expect(result).to.include('- hint survives')
+      try {
+        await builder.build()
+        expect.fail('expected build() to throw')
+      } catch (error) {
+        expect((error as Error).message).to.equal('permission denied')
+      }
     })
   })
 

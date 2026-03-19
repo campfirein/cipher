@@ -19,8 +19,8 @@ export interface SkillExportTarget {
  * Outcome of a sync operation across all installed targets.
  */
 export interface SkillExportResult {
-  failed: Array<{agent: string; error: string; scope: 'global' | 'project'}>
-  updated: Array<{agent: string; path: string; scope: 'global' | 'project'}>
+  failed: Array<{agent: Agent; error: string; scope: 'global' | 'project'}>
+  updated: Array<{agent: Agent; path: string; scope: 'global' | 'project'}>
 }
 
 // ---------------------------------------------------------------------------
