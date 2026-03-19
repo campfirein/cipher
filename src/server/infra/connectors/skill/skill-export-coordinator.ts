@@ -1,13 +1,10 @@
-import type {ISkillExportService, SkillExportResult} from '../../../core/interfaces/connectors/i-skill-export-service.js'
+import type {SkillBuildAndSyncResult} from '../../../../shared/types/skill-export.js'
+import type {ISkillExportService} from '../../../core/interfaces/connectors/i-skill-export-service.js'
 import type {SkillKnowledgeBuilder} from './skill-knowledge-builder.js'
 
 // ---------------------------------------------------------------------------
 // SkillExportCoordinator
 // ---------------------------------------------------------------------------
-
-export interface SkillBuildAndSyncResult extends SkillExportResult {
-  block: string
-}
 
 /**
  * Thin composition layer: builds the knowledge block then syncs it.
