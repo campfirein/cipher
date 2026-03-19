@@ -13,12 +13,16 @@ export interface ConnectedProviderConfig {
   readonly activeModel?: string
   /** Context window size of the active model (from provider API, e.g. OpenRouter) */
   readonly activeModelContextLength?: number
+  /** How this provider was authenticated */
+  readonly authMethod?: 'api-key' | 'oauth'
   /** Custom API base URL (for openai-compatible provider) */
   readonly baseUrl?: string
   /** When the provider was connected */
   readonly connectedAt: string
   /** User's favorite models (for quick access) */
   readonly favoriteModels: readonly string[]
+  /** OAuth account ID (e.g. ChatGPT-Account-Id for OpenAI) */
+  readonly oauthAccountId?: string
   /** Recently used models (last 10) */
   readonly recentModels: readonly string[]
 }
@@ -39,10 +43,8 @@ export interface ProviderConfigParams {
 const isProviderConfigJson = (json: unknown): json is ProviderConfigParams => {
   if (typeof json !== 'object' || json === null) return false
 
-  const obj = json as Record<string, unknown>
-
-  if (typeof obj.activeProvider !== 'string') return false
-  if (typeof obj.providers !== 'object' || obj.providers === null) return false
+  if (!('activeProvider' in json) || typeof json.activeProvider !== 'string') return false
+  if (!('providers' in json) || typeof json.providers !== 'object' || json.providers === null) return false
 
   return true
 }
@@ -216,13 +218,23 @@ export class ProviderConfig {
   /**
    * Create a new config with a provider connected.
    */
-  public withProviderConnected(providerId: string, options?: {activeModel?: string; baseUrl?: string}): ProviderConfig {
+  public withProviderConnected(
+    providerId: string,
+    options?: {
+      activeModel?: string
+      authMethod?: 'api-key' | 'oauth'
+      baseUrl?: string
+      oauthAccountId?: string
+    },
+  ): ProviderConfig {
     const existingConfig = this.providers[providerId]
     const newProviderConfig: ConnectedProviderConfig = {
       activeModel: options?.activeModel ?? existingConfig?.activeModel,
+      authMethod: options?.authMethod ?? existingConfig?.authMethod,
       baseUrl: options?.baseUrl ?? existingConfig?.baseUrl,
       connectedAt: existingConfig?.connectedAt ?? new Date().toISOString(),
       favoriteModels: existingConfig?.favoriteModels ?? [],
+      oauthAccountId: options?.oauthAccountId ?? existingConfig?.oauthAccountId,
       recentModels: existingConfig?.recentModels ?? [],
     }
 

@@ -14,6 +14,7 @@ import {
   formatConnectionError,
   hasLeakedHandles,
   type ProviderErrorContext,
+  providerMissingMessage,
   withDaemonRetry,
 } from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
@@ -124,9 +125,7 @@ Bad examples:
           }
 
           if (active.providerKeyMissing) {
-            throw new Error(
-              `${active.activeProvider} API key is missing from storage.\nPlease reconnect: brv providers connect ${active.activeProvider} --api-key <your-key>`,
-            )
+            throw new Error(providerMissingMessage(active.activeProvider, active.authMethod))
           }
 
           await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType})

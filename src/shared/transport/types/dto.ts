@@ -78,13 +78,17 @@ export interface ConnectorDTO {
 
 export interface ProviderDTO {
   apiKeyUrl?: string
+  authMethod?: 'api-key' | 'oauth'
   category: 'other' | 'popular'
   description: string
   id: string
   isConnected: boolean
   isCurrent: boolean
   name: string
+  oauthCallbackMode?: 'auto' | 'code-paste'
+  oauthLabel?: string
   requiresApiKey: boolean
+  supportsOAuth: boolean
 }
 
 export interface ModelDTO {

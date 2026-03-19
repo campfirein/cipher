@@ -1,6 +1,7 @@
 import type {ModelDTO} from '../../../../shared/transport/types/dto.js'
 import type {IProviderConfigStore} from '../../../core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../../core/interfaces/i-provider-keychain-store.js'
+import type {IProviderModelFetcher, ProviderModelInfo} from '../../../core/interfaces/i-provider-model-fetcher.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
 import {
@@ -13,9 +14,10 @@ import {
   type ModelSetActiveResponse,
 } from '../../../../shared/transport/events/model-events.js'
 import {TransportDaemonEventNames} from '../../../core/domain/transport/schemas.js'
-import {getModelFetcher} from '../../http/provider-model-fetcher-registry.js'
+import {getModelFetcher as getModelFetcherDefault} from '../../http/provider-model-fetcher-registry.js'
 
 export interface ModelHandlerDeps {
+  getModelFetcher?: (providerId: string) => Promise<IProviderModelFetcher | undefined>
   providerConfigStore: IProviderConfigStore
   providerKeychainStore: IProviderKeychainStore
   transport: ITransportServer
@@ -26,11 +28,13 @@ export interface ModelHandlerDeps {
  * Business logic for model listing and selection — no terminal/UI calls.
  */
 export class ModelHandler {
+  private readonly getModelFetcher: (providerId: string) => Promise<IProviderModelFetcher | undefined>
   private readonly providerConfigStore: IProviderConfigStore
   private readonly providerKeychainStore: IProviderKeychainStore
   private readonly transport: ITransportServer
 
   constructor(deps: ModelHandlerDeps) {
+    this.getModelFetcher = deps.getModelFetcher ?? getModelFetcherDefault
     this.providerConfigStore = deps.providerConfigStore
     this.providerKeychainStore = deps.providerKeychainStore
     this.transport = deps.transport
@@ -45,18 +49,21 @@ export class ModelHandler {
   private setupList(): void {
     this.transport.onRequest<ModelListRequest, ModelListResponse>(ModelEvents.LIST, async (data) => {
       const {providerId} = data
-      const fetcher = await getModelFetcher(providerId)
+      const fetcher = await this.getModelFetcher(providerId)
       if (!fetcher) {
         return {favorites: [], models: [], recent: []}
       }
 
       // Fetch models from provider API using the correct per-provider fetcher
-      let fetchedModels: Awaited<ReturnType<typeof fetcher.fetchModels>>
+      let fetchedModels: ProviderModelInfo[]
       try {
+        const config = await this.providerConfigStore.read()
+        const authMethod = config.providers[providerId]?.authMethod
         const apiKey = await this.providerKeychainStore.getApiKey(providerId)
-        fetchedModels = await fetcher.fetchModels(apiKey ?? '')
-      } catch {
-        return {favorites: [], models: [], recent: []}
+        fetchedModels = await fetcher.fetchModels(apiKey ?? '', {authMethod})
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to load models'
+        return {error: message, favorites: [], models: [], recent: []}
       }
 
       const models: ModelDTO[] = fetchedModels.map((m) => ({
@@ -90,14 +97,16 @@ export class ModelHandler {
       ModelEvents.LIST_BY_PROVIDERS,
       async (data) => {
         const {providerIds} = data
+        const config = await this.providerConfigStore.read()
 
         const results = await Promise.allSettled(
           providerIds.map(async (providerId): Promise<ModelDTO[]> => {
-            const fetcher = await getModelFetcher(providerId)
+            const fetcher = await this.getModelFetcher(providerId)
             if (!fetcher) return []
 
+            const authMethod = config.providers[providerId]?.authMethod
             const apiKey = await this.providerKeychainStore.getApiKey(providerId)
-            const fetchedModels = await fetcher.fetchModels(apiKey ?? '')
+            const fetchedModels = await fetcher.fetchModels(apiKey ?? '', {authMethod})
 
             return fetchedModels.map((model) => ({
               contextLength: model.contextLength,
@@ -134,10 +143,49 @@ export class ModelHandler {
 
   private setupSetActive(): void {
     this.transport.onRequest<ModelSetActiveRequest, ModelSetActiveResponse>(ModelEvents.SET_ACTIVE, async (data) => {
-      await this.providerConfigStore.setActiveProvider(data.providerId)
-      await this.providerConfigStore.setActiveModel(data.providerId, data.modelId, data.contextLength)
-      this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
-      return {success: true}
+      try {
+        const config = await this.providerConfigStore.read()
+        const providerConfig = config.providers[data.providerId]
+
+        if (!providerConfig) {
+          return {
+            error: `Provider "${data.providerId}" is not connected`,
+            success: false,
+          }
+        }
+
+        let matchedModel: ProviderModelInfo | undefined
+
+        // Validate model against allowed list for OAuth providers
+        if (providerConfig.authMethod === 'oauth') {
+          const fetcher = await this.getModelFetcher(data.providerId)
+          if (!fetcher) {
+            return {
+              error: `Cannot validate model for OAuth-connected ${data.providerId}: model fetcher unavailable`,
+              success: false,
+            }
+          }
+
+          const allowedModels = await fetcher.fetchModels('', {authMethod: 'oauth'})
+          matchedModel = allowedModels.find((m) => m.id === data.modelId)
+          if (!matchedModel) {
+            const allowedIds = allowedModels.map((m) => m.id).join(', ')
+            return {
+              error: `Model "${data.modelId}" is not available for OAuth-connected ${data.providerId}. Allowed models: ${allowedIds}`,
+              success: false,
+            }
+          }
+        }
+
+        const contextLength = data.contextLength ?? matchedModel?.contextLength
+        await this.providerConfigStore.setActiveProvider(data.providerId)
+        await this.providerConfigStore.setActiveModel(data.providerId, data.modelId, contextLength)
+        this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
+        return {success: true}
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to set active model'
+        return {error: message, success: false}
+      }
     })
   }
 }
