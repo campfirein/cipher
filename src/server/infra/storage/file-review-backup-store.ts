@@ -1,4 +1,4 @@
-import {mkdir, readdir, readFile, rm, stat, writeFile} from 'node:fs/promises'
+import {mkdir, readdir, readFile, rename, rm, stat, writeFile} from 'node:fs/promises'
 import {dirname, join} from 'node:path'
 
 import type {IReviewBackupStore} from '../../core/interfaces/storage/i-review-backup-store.js'
@@ -69,7 +69,7 @@ export class FileReviewBackupStore implements IReviewBackupStore {
         const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name
         if (entry.isDirectory()) {
           subdirTasks.push(scan(join(dir, entry.name), relativePath))
-        } else if (entry.isFile()) {
+        } else if (entry.isFile() && !entry.name.endsWith('.tmp')) {
           paths.push(relativePath)
         }
       }
@@ -96,7 +96,17 @@ export class FileReviewBackupStore implements IReviewBackupStore {
     if (await this.has(relativePath)) return
 
     await mkdir(dirname(backupPath), {recursive: true})
-    await writeFile(backupPath, content, 'utf8')
+
+    // Write atomically: write to a .tmp sibling then rename so a crash mid-write
+    // never leaves a partial (corrupt) backup that first-write-wins would preserve.
+    const tmpPath = `${backupPath}.tmp`
+    try {
+      await writeFile(tmpPath, content, 'utf8')
+      await rename(tmpPath, backupPath)
+    } catch (error) {
+      await rm(tmpPath, {force: true}).catch(() => {})
+      throw error
+    }
   }
 
   /**
