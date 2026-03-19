@@ -254,6 +254,42 @@ describe('ResetHandler', () => {
       ])
     })
 
+    it('should clear pending reviews across multiple entries', async () => {
+      createHandler()
+      contextTreeService.exists.resolves(true)
+
+      const entry1: CurateLogEntry = {
+        completedAt: Date.now(),
+        id: 'cur-100',
+        input: {},
+        operations: [
+          {filePath: '/test/project/.brv/context-tree/a.md', path: 'a', reviewStatus: 'pending', status: 'success', type: 'ADD'},
+        ],
+        startedAt: Date.now() - 1000,
+        status: 'completed',
+        summary: {added: 1, deleted: 0, failed: 0, merged: 0, updated: 0},
+        taskId: 'task-1',
+      }
+      const entry2: CurateLogEntry = {
+        completedAt: Date.now(),
+        id: 'cur-200',
+        input: {},
+        operations: [
+          {filePath: '/test/project/.brv/context-tree/b.md', path: 'b', reviewStatus: 'pending', status: 'success', type: 'UPDATE'},
+        ],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 1},
+        taskId: 'task-2',
+      }
+      curateLogStore.list.resolves([entry1, entry2])
+
+      const result = await callExecuteHandler()
+
+      expect(result.success).to.be.true
+      expect(curateLogStore.batchUpdateOperationReviewStatus.callCount).to.equal(2)
+    })
+
     it('should succeed even if clearing pending reviews throws', async () => {
       createHandler()
       contextTreeService.exists.resolves(true)

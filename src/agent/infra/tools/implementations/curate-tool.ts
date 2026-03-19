@@ -1186,9 +1186,9 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
       )
       const bullets = contents
         .filter((c): c is {content: string; name: string} => c.content !== null && c.content !== undefined)
-        .map((c) => ({name: c.name, summary: MarkdownWriter.parseContent(c.content).summary}))
+        .map((c) => ({name: c.name, summary: MarkdownWriter.parseContent(c.content, c.name.replace(/\.md$/, '')).summary}))
         .filter((c): c is {name: string; summary: string} => c.summary !== undefined)
-        .map((c) => `- ${c.name.replace(/\.md$/, '')}: ${c.summary}`)
+        .map((c) => `- ${c.name.replace(/\.md$/, '').replaceAll('_', ' ')}: ${c.summary}`)
 
       if (bullets.length > 0) {
         previousSummary = bullets.join('\n')

@@ -50,6 +50,7 @@ export class ResetHandler {
    */
   private async clearPendingReviews(projectPath: string): Promise<void> {
     const store = this.curateLogStoreFactory(projectPath)
+    // Only completed entries can carry reviewable operations; pending reviews are assigned at completion time.
     const entries = await store.list({status: ['completed']})
 
     const updates = entries
