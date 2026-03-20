@@ -271,6 +271,15 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
       return
     }
 
+    // Build a set of abstract sibling paths present in this directory so we can
+    // check existence without throwing ENOENT for every context file that has
+    // no abstract yet (the common case early in a project's lifetime).
+    const abstractsInDir = new Set(
+      entries
+        .filter((e) => e.isFile() && (e.name as string).endsWith(ABSTRACT_EXTENSION))
+        .map((e) => join(currentDir, e.name as string)),
+    )
+
     /* eslint-disable no-await-in-loop */
     for (const entry of entries) {
       const entryName = entry.name as string
@@ -304,14 +313,17 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
             const content = await readFile(fullPath, 'utf8')
             const scoring = parseFrontmatterScoring(content)
 
-            // Check for a sibling .abstract.md — use its token count for lane budgeting
+            // Use abstract sibling for token budgeting only if it is known to exist
+            // (checked via abstractsInDir set, avoiding ENOENT as control flow).
             const abstractRelPath = relativePath.replace(/\.md$/, ABSTRACT_EXTENSION)
             const abstractFullPath = join(contextTreeDir, abstractRelPath)
             let abstractTokens: number | undefined
-            try {
-              const abstractContent = await readFile(abstractFullPath, 'utf8')
-              abstractTokens = estimateTokens(abstractContent)
-            } catch { /* no abstract yet */ }
+            if (abstractsInDir.has(abstractFullPath)) {
+              try {
+                const abstractContent = await readFile(abstractFullPath, 'utf8')
+                abstractTokens = estimateTokens(abstractContent)
+              } catch { /* unreadable — treat as absent */ }
+            }
 
             contexts.push({
               abstractPath: abstractTokens === undefined ? undefined : abstractRelPath,

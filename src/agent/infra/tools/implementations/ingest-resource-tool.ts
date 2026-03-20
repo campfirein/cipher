@@ -141,7 +141,7 @@ export function createIngestResourceTool(config: IngestResourceConfig = {}): Too
         concurrency: 8,
         generator: contentGenerator,
         items: fileItems.map((f) => ({content: f.content, path: f.path})),
-        prompt: 'Extract key knowledge facts from this file.\n\nPath: {{path}}\n\nContent:\n{{content}}',
+        prompt: 'Extract key knowledge facts from the file provided in the map details below.',
         taskId: context?.taskId,
       })
       if (mapResult.results.length !== fileItems.length) {
