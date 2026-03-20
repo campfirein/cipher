@@ -36,12 +36,16 @@ export const VcEvents = {
   CLONE_PROGRESS: 'vc:clone:progress',
   COMMIT: 'vc:commit',
   CONFIG: 'vc:config',
+  FETCH: 'vc:fetch',
   INIT: 'vc:init',
   LOG: 'vc:log',
   MERGE: 'vc:merge',
   PULL: 'vc:pull',
   PUSH: 'vc:push',
   REMOTE: 'vc:remote',
+  // vc-remote-url start
+  REMOTE_URL: 'vc:remote-url',
+  // vc-remote-url end
   STATUS: 'vc:status',
 } as const
 
@@ -55,6 +59,7 @@ export interface IVcStatusResponse {
   behind?: number
   branch?: string
   initialized: boolean
+  mergeInProgress?: boolean
   staged: {added: string[]; deleted: string[]; modified: string[]}
   trackingBranch?: string
   unstaged: {deleted: string[]; modified: string[]}
@@ -107,7 +112,20 @@ export interface IVcPushResponse {
   upstreamSet?: boolean
 }
 
-export type IVcPullRequest = void
+export interface IVcFetchRequest {
+  ref?: string
+  remote?: string
+}
+
+export interface IVcFetchResponse {
+  remote: string
+}
+
+export interface IVcPullRequest {
+  allowUnrelatedHistories?: boolean
+  branch?: string
+  remote?: string
+}
 
 export interface IVcPullResponse {
   alreadyUpToDate?: boolean
@@ -173,17 +191,19 @@ export interface IVcCloneProgressEvent {
   step: 'cloning' | 'saving'
 }
 
-export type VcBranchAction = 'create' | 'delete' | 'list'
+export type VcBranchAction = 'create' | 'delete' | 'list' | 'set-upstream'
 
 export type IVcBranchRequest =
   | {action: 'create'; name: string}
   | {action: 'delete'; name: string}
   | {action: 'list'; all?: boolean}
+  | {action: 'set-upstream'; upstream: string}
 
 export type IVcBranchResponse =
   | {action: 'create'; created: string}
   | {action: 'delete'; deleted: string}
   | {action: 'list'; branches: Array<{isCurrent: boolean; isRemote: boolean; name: string}>}
+  | {action: 'set-upstream'; branch: string; upstream: string}
 
 export interface IVcCheckoutRequest {
   branch: string
@@ -201,6 +221,7 @@ export type VcMergeAction = 'abort' | 'continue' | 'merge'
 
 export interface IVcMergeRequest {
   action: VcMergeAction
+  allowUnrelatedHistories?: boolean
   branch?: string
   message?: string
 }
@@ -211,3 +232,14 @@ export interface IVcMergeResponse {
   conflicts?: Array<{path: string; type: string}>
   defaultMessage?: string
 }
+
+// vc-remote-url start
+export interface IVcRemoteUrlRequest {
+  spaceId: string
+  teamId: string
+}
+
+export interface IVcRemoteUrlResponse {
+  url: string
+}
+// vc-remote-url end

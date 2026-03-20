@@ -1,6 +1,6 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {execFileSync} from 'node:child_process'
-import {mkdtempSync, readFileSync, unlinkSync, writeFileSync} from 'node:fs'
+import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -23,6 +23,10 @@ export default class VcMerge extends Command {
       default: false,
       description: 'Abort the current merge',
       exclusive: ['continue'],
+    }),
+    'allow-unrelated-histories': Flags.boolean({
+      default: false,
+      description: 'Allow merging unrelated histories',
     }),
     continue: Flags.boolean({
       default: false,
@@ -50,7 +54,7 @@ export default class VcMerge extends Command {
       this.error('Usage: brv vc merge <branch> | --abort | --continue')
     }
 
-    return this.handleMerge(args.branch, flags.message)
+    return this.handleMerge(args.branch, flags.message, flags['allow-unrelated-histories'])
   }
 
   private async handleAbort(): Promise<void> {
@@ -92,10 +96,10 @@ export default class VcMerge extends Command {
     }
   }
 
-  private async handleMerge(branch: string, message?: string): Promise<void> {
+  private async handleMerge(branch: string, message?: string, allowUnrelatedHistories?: boolean): Promise<void> {
     try {
       const result = await withDaemonRetry(async (client) =>
-        client.requestWithAck<IVcMergeResponse>(VcEvents.MERGE, {action: 'merge', branch, message}),
+        client.requestWithAck<IVcMergeResponse>(VcEvents.MERGE, {action: 'merge', allowUnrelatedHistories, branch, message}),
       )
 
       if (result.conflicts && result.conflicts.length > 0) {
@@ -131,7 +135,7 @@ export default class VcMerge extends Command {
       return cleaned
     } finally {
       try {
-        unlinkSync(tmpFile)
+        rmSync(tmpDir, {force: true, recursive: true})
       } catch {
         // ignore cleanup errors
       }

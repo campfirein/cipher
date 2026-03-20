@@ -73,7 +73,7 @@ export function VcMergeFlow({action, branch, message, onCancel, onComplete}: VcM
         // action: 'merge'
         if (result.conflicts && result.conflicts.length > 0) {
           const conflictLines = result.conflicts
-            .map((c) => `  CONFLICT (${c.type}): ${c.path}`)
+            .map((c) => `CONFLICT (${c.type}): ${c.path}`)
             .join('\n')
           onComplete(
             `${conflictLines}\nAutomatic merge failed; fix conflicts and then commit the result.`,

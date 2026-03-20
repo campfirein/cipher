@@ -51,7 +51,17 @@ export default class VcStatus extends Command {
       unstaged.deleted.length > 0 ||
       untracked.length > 0
 
-    if (!hasChanges) {
+    if (result.mergeInProgress) {
+      const hasUnstaged = unstaged.modified.length > 0 || unstaged.deleted.length > 0
+      if (hasUnstaged) {
+        this.log(chalk.yellow('You have unmerged paths.'))
+        this.log(chalk.yellow('  (fix conflicts and run "brv vc add", then "brv vc merge --continue")'))
+      } else {
+        this.log(chalk.yellow('All conflicts fixed but you are still merging.'))
+        this.log(chalk.yellow('  (use "brv vc merge --continue" to conclude merge)'))
+        if (!hasChanges) return
+      }
+    } else if (!hasChanges) {
       this.log('Nothing to commit, working directory clean')
       return
     }

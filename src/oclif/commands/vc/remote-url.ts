@@ -1,16 +1,16 @@
 import {Command, Flags} from '@oclif/core'
 
 import {SpaceEvents, type SpaceListResponse} from '../../../shared/transport/events/space-events.js'
-import {type IVcCloneProgressEvent, type IVcCloneResponse, VcEvents} from '../../../shared/transport/events/vc-events.js'
+import {type IVcRemoteUrlResponse, VcEvents} from '../../../shared/transport/events/vc-events.js'
 import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
-export default class VcClone extends Command {
-  public static description = 'Clone a ByteRover space repository'
-  public static examples = ['<%= config.bin %> vc clone --team acme --space my-space']
+export default class VcRemoteUrl extends Command {
+  public static description = 'Get the cogit remote URL with embedded credentials for a space'
+  public static examples = ['<%= config.bin %> vc remote-url --team acme --space my-space']
   public static flags = {
     space: Flags.string({
       char: 's',
-      description: 'Name of the space to clone',
+      description: 'Name of the space',
       required: true,
     }),
     team: Flags.string({
@@ -21,7 +21,7 @@ export default class VcClone extends Command {
   }
 
   public async run(): Promise<void> {
-    const {flags} = await this.parse(VcClone)
+    const {flags} = await this.parse(VcRemoteUrl)
     const spaceName = flags.space
     const teamName = flags.team
 
@@ -49,27 +49,13 @@ export default class VcClone extends Command {
           )
         }
 
-        // Listen for clone progress events
-        const unsub = client.on<IVcCloneProgressEvent>(VcEvents.CLONE_PROGRESS, (evt) => {
-          process.stderr.write(`\r${evt.message}`)
+        return client.requestWithAck<IVcRemoteUrlResponse>(VcEvents.REMOTE_URL, {
+          spaceId: targetSpace.id,
+          teamId: targetSpace.teamId,
         })
-
-        try {
-          const response = await client.requestWithAck<IVcCloneResponse>(VcEvents.CLONE, {
-            spaceId: targetSpace.id,
-            spaceName: targetSpace.name,
-            teamId: targetSpace.teamId,
-            teamName: targetSpace.teamName,
-          }, {timeout: 120_000})
-          process.stderr.write('\n')
-          return response
-        } finally {
-          unsub()
-        }
       })
 
-      this.log(`Cloned ${result.teamName}/${result.spaceName} successfully.`)
-      this.log(`Git dir: ${result.gitDir}`)
+      this.log(result.url)
     } catch (error) {
       this.error(formatConnectionError(error))
     }

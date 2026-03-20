@@ -22,6 +22,8 @@ import {
   type IVcCommitResponse,
   type IVcConfigRequest,
   type IVcConfigResponse,
+  type IVcFetchRequest,
+  type IVcFetchResponse,
   type IVcInitResponse,
   type IVcLogRequest,
   type IVcLogResponse,
@@ -33,6 +35,10 @@ import {
   type IVcPushResponse,
   type IVcRemoteRequest,
   type IVcRemoteResponse,
+  // vc-remote-url start
+  type IVcRemoteUrlRequest,
+  type IVcRemoteUrlResponse,
+  // vc-remote-url end
   type IVcStatusResponse,
   VcErrorCode,
   VcEvents,
@@ -107,6 +113,9 @@ export class VcHandler {
     this.transport.onRequest<IVcConfigRequest, IVcConfigResponse>(VcEvents.CONFIG, (data, clientId) =>
       this.handleConfig(data, clientId),
     )
+    this.transport.onRequest<IVcFetchRequest, IVcFetchResponse>(VcEvents.FETCH, (data, clientId) =>
+      this.handleFetch(data, clientId),
+    )
     this.transport.onRequest<void, IVcInitResponse>(VcEvents.INIT, (_data, clientId) => this.handleInit(clientId))
     this.transport.onRequest<IVcLogRequest, IVcLogResponse>(VcEvents.LOG, (data, clientId) =>
       this.handleLog(data, clientId),
@@ -123,6 +132,11 @@ export class VcHandler {
     this.transport.onRequest<IVcRemoteRequest, IVcRemoteResponse>(VcEvents.REMOTE, (data, clientId) =>
       this.handleRemote(data, clientId),
     )
+    // vc-remote-url start
+    this.transport.onRequest<IVcRemoteUrlRequest, IVcRemoteUrlResponse>(VcEvents.REMOTE_URL, (data) =>
+      this.handleRemoteUrl(data),
+    )
+    // vc-remote-url end
     this.transport.onRequest<void, IVcStatusResponse>(VcEvents.STATUS, (_data, clientId) => this.handleStatus(clientId))
   }
 
@@ -132,13 +146,13 @@ export class VcHandler {
       if (token?.isValid()) {
         const email = existing?.email ?? token.userEmail
         const name = existing?.name ?? token.userName ?? token.userEmail
-        return `Run: brv vc config user.name '${name}' and brv vc config user.email '${email}'.`
+        return `Run: /vc config user.name '${name}' and /vc config user.email '${email}'.`
       }
     } catch {
       // not logged in
     }
 
-    return 'Run: brv vc config user.name <value> and brv vc config user.email <value>.'
+    return 'Run: /vc config user.name <value> and /vc config user.email <value>.'
   }
 
   /**
@@ -201,6 +215,10 @@ export class VcHandler {
       return this.handleBranchDelete(directory, data.name)
     }
 
+    if (data.action === 'set-upstream') {
+      return this.handleBranchSetUpstream(directory, data.upstream)
+    }
+
     throw new VcError(`Unknown branch action.`, VcErrorCode.INVALID_ACTION)
   }
 
@@ -248,6 +266,33 @@ export class VcHandler {
     }
   }
 
+  private async handleBranchSetUpstream(directory: string, upstream: string): Promise<IVcBranchResponse> {
+    const slashIndex = upstream.indexOf('/')
+    if (slashIndex <= 0) {
+      throw new VcError(
+        `Invalid upstream format '${upstream}'. Expected <remote>/<branch> (e.g. origin/main).`,
+        VcErrorCode.INVALID_BRANCH_NAME,
+      )
+    }
+
+    const remote = upstream.slice(0, slashIndex)
+    const remoteBranch = upstream.slice(slashIndex + 1)
+    if (!remoteBranch) {
+      throw new VcError(
+        `Invalid upstream format '${upstream}'. Expected <remote>/<branch> (e.g. origin/main).`,
+        VcErrorCode.INVALID_BRANCH_NAME,
+      )
+    }
+
+    const currentBranch = await this.gitService.getCurrentBranch({directory})
+    if (!currentBranch) {
+      throw new VcError('Cannot set upstream in detached HEAD state.', VcErrorCode.INVALID_BRANCH_NAME)
+    }
+
+    await this.gitService.setTrackingBranch({branch: currentBranch, directory, remote, remoteBranch})
+    return {action: 'set-upstream', branch: currentBranch, upstream}
+  }
+
   private async handleCheckout(data: IVcCheckoutRequest, clientId: string): Promise<IVcCheckoutResponse> {
     // ── Phase 1: Resolve project and validate inputs ──
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
@@ -280,7 +325,7 @@ export class VcHandler {
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'NotFoundError') {
         throw new VcError(
-          `Branch '${data.branch}' not found. Use 'brv vc checkout -b ${data.branch}' to create it.`,
+          `Branch '${data.branch}' not found. Use '/vc checkout -b ${data.branch}' to create it.`,
           VcErrorCode.BRANCH_NOT_FOUND,
         )
       }
@@ -410,6 +455,38 @@ export class VcHandler {
     return {key: data.key, value}
   }
 
+  private async handleFetch(data: IVcFetchRequest, clientId: string): Promise<IVcFetchResponse> {
+    const token = await this.tokenStore.load()
+    if (!token?.isValid()) throw new NotAuthenticatedError()
+
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const directory = this.contextTreeService.resolvePath(projectPath)
+
+    const gitInitialized = await this.gitService.isInitialized({directory})
+    if (!gitInitialized) {
+      throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
+    }
+
+    const remotes = await this.gitService.listRemotes({directory})
+    if (remotes.length === 0) {
+      throw new VcError('No remote configured.', VcErrorCode.NO_REMOTE)
+    }
+
+    const remote = data.remote ?? 'origin'
+    try {
+      await this.gitService.fetch({directory, ref: data.ref, remote})
+    } catch (error) {
+      if (error instanceof GitAuthError) {
+        throw new VcError('Authentication failed. Run /login.', VcErrorCode.AUTH_FAILED)
+      }
+
+      const message = error instanceof Error ? error.message : 'Fetch failed.'
+      throw new VcError(message, VcErrorCode.PULL_FAILED)
+    }
+
+    return {remote}
+  }
+
   private async handleInit(clientId: string): Promise<IVcInitResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
 
@@ -517,19 +594,31 @@ export class VcHandler {
       throw new VcError(`Invalid branch name: '${data.branch}'.`, VcErrorCode.INVALID_BRANCH_NAME)
     }
 
+    const config = await this.vcGitConfigStore.get(projectPath)
+    if (!config?.name || !config.email) {
+      const hint = await this.buildAuthorHint(config)
+      throw new VcError(`Commit author not configured. ${hint}`, VcErrorCode.USER_NOT_CONFIGURED)
+    }
+
     if (hasMergeHead) {
       throw new VcError('You have not concluded your merge (MERGE_HEAD exists).', VcErrorCode.MERGE_IN_PROGRESS)
     }
 
     await this.guardUncommittedChanges(false, directory)
 
-    // Validate branch exists
-    const branches = await this.gitService.listBranches({directory})
+    // Validate branch exists (check both local and remote-tracking branches)
+    const branches = await this.gitService.listBranches({directory, remote: 'origin'})
     if (!branches.some((b) => b.name === data.branch)) {
       throw new VcError(`merge: ${data.branch} - not something we can merge`, VcErrorCode.BRANCH_NOT_FOUND)
     }
 
-    const result = await this.gitService.merge({branch: data.branch, directory, message: data.message})
+    const result = await this.gitService.merge({
+      allowUnrelatedHistories: data.allowUnrelatedHistories,
+      author: {email: config.email, name: config.name},
+      branch: data.branch,
+      directory,
+      message: data.message,
+    })
 
     if (!result.success) {
       return {
@@ -548,7 +637,7 @@ export class VcHandler {
     return {action: 'merge', branch: data.branch}
   }
 
-  private async handlePull(_data: IVcPullRequest, clientId: string): Promise<IVcPullResponse> {
+  private async handlePull(data: IVcPullRequest, clientId: string): Promise<IVcPullResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
     const directory = this.contextTreeService.resolvePath(projectPath)
 
@@ -562,11 +651,13 @@ export class VcHandler {
       throw new VcError('No remote configured.', VcErrorCode.NO_REMOTE)
     }
 
-    const branch = await this.resolvePullBranch(directory)
+    // If explicit branch provided, use it directly (skip tracking resolution)
+    const remote = data?.remote ?? 'origin'
+    const branch = data?.branch ?? (await this.resolvePullBranch(directory))
 
     let alreadyUpToDate = false
     try {
-      const result = await this.gitService.pull({branch, directory, remote: 'origin'})
+      const result = await this.gitService.pull({allowUnrelatedHistories: data?.allowUnrelatedHistories, branch, directory, remote})
       if (!result.success) {
         const paths = result.conflicts.map((c) => c.path).join(', ')
         throw new VcError(`Merge conflicts in: ${paths}`, VcErrorCode.MERGE_CONFLICT)
@@ -621,9 +712,16 @@ export class VcHandler {
       throw new VcError(
         `The current branch '${branch}' has no upstream branch.\n` +
           `To push the current branch and set the remote as upstream, use\n\n` +
-          `    brv vc push -u origin ${branch}`,
+          `    /vc push -u origin ${branch}`,
         VcErrorCode.NO_UPSTREAM,
       )
+    }
+
+    // Set upstream tracking BEFORE push so pull works even if push fails with non_fast_forward
+    let upstreamSet = false
+    if (data.setUpstream) {
+      await this.gitService.setTrackingBranch({branch, directory, remote: 'origin', remoteBranch: branch})
+      upstreamSet = true
     }
 
     let alreadyUpToDate = false
@@ -642,13 +740,6 @@ export class VcHandler {
 
       const message = error instanceof Error ? error.message : 'Push failed. Check your connection and try again.'
       throw new VcError(message, VcErrorCode.PUSH_FAILED)
-    }
-
-    // Set upstream tracking after successful push
-    let upstreamSet = false
-    if (data.setUpstream) {
-      await this.gitService.setTrackingBranch({branch, directory, remote: 'origin', remoteBranch: branch})
-      upstreamSet = true
     }
 
     return {alreadyUpToDate, branch, upstreamSet}
@@ -693,6 +784,20 @@ export class VcHandler {
     return {action: 'set-url', url: data.url}
   }
 
+  // vc-remote-url start
+  private async handleRemoteUrl(data: IVcRemoteUrlRequest): Promise<IVcRemoteUrlResponse> {
+    const token = await this.tokenStore.load()
+    if (!token?.isValid()) throw new NotAuthenticatedError()
+
+    const url = buildCogitRemoteUrl(this.cogitGitBaseUrl, data.teamId, data.spaceId)
+    const parsed = new URL(url)
+    parsed.username = token.userId
+    parsed.password = token.sessionKey
+
+    return {url: parsed.toString()}
+  }
+  // vc-remote-url end
+
   private async handleStatus(clientId: string): Promise<IVcStatusResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
 
@@ -709,6 +814,12 @@ export class VcHandler {
 
     const branch = await this.gitService.getCurrentBranch({directory: contextTreeDir})
     const gitStatus = await this.gitService.status({directory: contextTreeDir})
+
+    // Check if a merge is in progress (MERGE_HEAD exists)
+    const mergeInProgress = await fs.promises
+      .access(join(contextTreeDir, '.git', 'MERGE_HEAD'))
+      .then(() => true)
+      .catch(() => false)
 
     const staged = gitStatus.files.filter((f) => f.staged)
     const unstaged = gitStatus.files.filter((f) => !f.staged && f.status !== 'untracked')
@@ -736,6 +847,7 @@ export class VcHandler {
       behind,
       branch,
       initialized: true,
+      mergeInProgress,
       staged: {
         added: staged.filter((f) => f.status === 'added').map((f) => f.path),
         deleted: staged.filter((f) => f.status === 'deleted').map((f) => f.path),
@@ -804,7 +916,7 @@ export class VcHandler {
       throw new VcError(
         `There is no tracking information for the current branch '${currentTrimmed}'.\n` +
           `To set upstream tracking, use:\n\n` +
-          `    brv vc push -u origin ${currentTrimmed}`,
+          `    /vc push -u origin ${currentTrimmed}`,
         VcErrorCode.NO_UPSTREAM,
       )
     }

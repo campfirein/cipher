@@ -1,9 +1,13 @@
-import {Command, Flags} from '@oclif/core'
+import {Args, Command, Flags} from '@oclif/core'
 
 import {type IVcPushResponse, VcEvents} from '../../../shared/transport/events/vc-events.js'
 import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
 export default class VcPush extends Command {
+  public static args = {
+    arg1: Args.string({description: 'Remote name or branch', required: false}),
+    arg2: Args.string({description: 'Branch to push', required: false}),
+  }
   public static description = 'Push commits to ByteRover cloud'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
@@ -17,11 +21,9 @@ export default class VcPush extends Command {
       description: 'Set upstream tracking branch',
     }),
   }
-  public static strict = false
 
   public async run(): Promise<void> {
-    const {argv, flags} = await this.parse(VcPush)
-    const positional = argv as string[]
+    const {args, flags} = await this.parse(VcPush)
 
     // Git push semantics: push [<remote> [<branch>]]
     //   brv vc push                → current branch
@@ -29,16 +31,14 @@ export default class VcPush extends Command {
     //   brv vc push origin feat/x  → feat/x
     //   brv vc push feat/x         → error (unknown remote)
     let branch: string | undefined
-    if (positional.length >= 2) {
-      if (positional[0] !== 'origin') {
-        this.error(`Unknown remote '${positional[0]}'.`)
+    if (args.arg1 && args.arg2) {
+      if (args.arg1 !== 'origin') {
+        this.error(`Unknown remote '${args.arg1}'.`)
       }
 
-      branch = positional[1]
-    } else if (positional.length === 1 && positional[0] !== 'origin') {
-      this.error(
-        `Unknown remote '${positional[0]}'. Use 'brv vc push origin ${positional[0]}' to push a specific branch.`,
-      )
+      branch = args.arg2
+    } else if (args.arg1 && args.arg1 !== 'origin') {
+      this.error(`Unknown remote '${args.arg1}'. Use 'brv vc push origin ${args.arg1}' to push a specific branch.`)
     }
 
     try {
@@ -46,7 +46,7 @@ export default class VcPush extends Command {
         client.requestWithAck<IVcPushResponse>(VcEvents.PUSH, {
           branch,
           setUpstream: flags['set-upstream'],
-        }),
+        }, {timeout: 120_000}),
       )
 
       if (result.alreadyUpToDate) {
