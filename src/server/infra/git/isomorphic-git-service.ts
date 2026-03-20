@@ -383,6 +383,11 @@ export class IsomorphicGitService implements IGitService {
     const mergeMsgPath = join(dir, '.git', 'MERGE_MSG')
     const author = params.author ?? this.getAuthor()
     const message = params.message ?? `Merge branch '${params.branch}'`
+    const currentBranch = await git.currentBranch({dir, fs})
+    const localSha = currentBranch
+      ? await git.resolveRef({dir, fs, ref: `refs/heads/${currentBranch}`}).catch(() => null)
+      : null
+
     try {
       await git.merge({
         abortOnConflict: false,
@@ -393,8 +398,23 @@ export class IsomorphicGitService implements IGitService {
         message,
         theirs: params.branch,
       })
+
+      // isomorphic-git merge only updates refs — checkout to apply changes to working tree
+      if (currentBranch) {
+        await git.checkout({dir, fs, ref: currentBranch})
+      }
+
       return {success: true}
     } catch (error) {
+      if (error instanceof git.Errors.CheckoutConflictError) {
+        // Undo the merge commit — restore HEAD to pre-merge state so repo is left clean
+        if (localSha && currentBranch) {
+          await git.writeRef({dir, force: true, fs, ref: `refs/heads/${currentBranch}`, value: localSha})
+        }
+
+        throw new GitError('Local changes would be overwritten by merge. Commit or discard your changes first.')
+      }
+
       if (error instanceof git.Errors.MergeConflictError) {
         // isomorphic-git does not write MERGE_HEAD/MERGE_MSG — write them so
         // getConflicts() and --continue work post-restart

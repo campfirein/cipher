@@ -628,12 +628,6 @@ export class VcHandler {
       }
     }
 
-    // merge() only updates refs — checkout to apply changes to working tree
-    const currentBranch = await this.gitService.getCurrentBranch({directory})
-    if (currentBranch) {
-      await this.gitService.checkout({directory, ref: currentBranch})
-    }
-
     return {action: 'merge', branch: data.branch}
   }
 
@@ -657,7 +651,12 @@ export class VcHandler {
 
     let alreadyUpToDate = false
     try {
-      const result = await this.gitService.pull({allowUnrelatedHistories: data?.allowUnrelatedHistories, branch, directory, remote})
+      const result = await this.gitService.pull({
+        allowUnrelatedHistories: data?.allowUnrelatedHistories,
+        branch,
+        directory,
+        remote,
+      })
       if (!result.success) {
         const paths = result.conflicts.map((c) => c.path).join(', ')
         throw new VcError(`Merge conflicts in: ${paths}`, VcErrorCode.MERGE_CONFLICT)

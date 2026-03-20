@@ -1,5 +1,5 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {execFileSync} from 'node:child_process'
+import {execSync} from 'node:child_process'
 import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -99,7 +99,12 @@ export default class VcMerge extends Command {
   private async handleMerge(branch: string, message?: string, allowUnrelatedHistories?: boolean): Promise<void> {
     try {
       const result = await withDaemonRetry(async (client) =>
-        client.requestWithAck<IVcMergeResponse>(VcEvents.MERGE, {action: 'merge', allowUnrelatedHistories, branch, message}),
+        client.requestWithAck<IVcMergeResponse>(VcEvents.MERGE, {
+          action: 'merge',
+          allowUnrelatedHistories,
+          branch,
+          message,
+        }),
       )
 
       if (result.conflicts && result.conflicts.length > 0) {
@@ -124,7 +129,7 @@ export default class VcMerge extends Command {
     writeFileSync(tmpFile, defaultMessage)
 
     try {
-      execFileSync(editor, [tmpFile], {stdio: 'inherit'})
+      execSync(`${editor} ${tmpFile}`, {stdio: 'inherit'})
       const content = readFileSync(tmpFile, 'utf8')
       // Strip comment lines and trim
       const cleaned = content

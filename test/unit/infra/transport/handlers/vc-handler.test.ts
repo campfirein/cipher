@@ -1936,7 +1936,6 @@ describe('VcHandler', () => {
       try {
         deps.gitService.listBranches.resolves([{isCurrent: false, isRemote: false, name: 'feature'}])
         deps.gitService.merge.resolves({success: true})
-        deps.gitService.getCurrentBranch.resolves('main')
 
         makeVcHandler(deps).setup()
         const result = await invoke<IVcMergeResponse>(deps, VcEvents.MERGE, {
@@ -1948,7 +1947,6 @@ describe('VcHandler', () => {
         expect(result.branch).to.equal('feature')
         expect(result.conflicts).to.be.undefined
         expect(deps.gitService.merge.calledOnce).to.be.true
-        expect(deps.gitService.checkout.calledOnce).to.be.true
       } finally {
         cleanupDir(deps.tmpDir)
       }
