@@ -144,6 +144,11 @@ export function createIngestResourceTool(config: IngestResourceConfig = {}): Too
         prompt: 'Extract key knowledge facts from this file.\n\nPath: {{path}}\n\nContent:\n{{content}}',
         taskId: context?.taskId,
       })
+      if (mapResult.results.length !== fileItems.length) {
+        throw new Error(
+          `ingest_resource expected ${fileItems.length} mapped result(s), received ${mapResult.results.length}`,
+        )
+      }
 
       // Step 4: Convert to CurateOperations
       const operations: CurateOperation[] = []

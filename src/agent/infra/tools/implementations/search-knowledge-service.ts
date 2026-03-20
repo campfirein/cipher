@@ -81,7 +81,7 @@ function normalizeScore(rawScore: number): number {
  * @returns New parent entries only — caller merges and re-sorts
  */
 function propagateScoresToParents(
-  results: SearchKnowledgeResult['results'],
+  results: Array<{bm25Score: number; path: string; score: number}>,
   symbolTree: MemorySymbolTree,
   summaryMap: Map<string, SummaryDocLike>,
   propagationFactor = 0.55,
@@ -94,7 +94,7 @@ function propagateScoresToParents(
     let factor = propagationFactor
     while (parent) {
       const cur = boosts.get(parent.path) ?? 0
-      boosts.set(parent.path, Math.max(cur, r.score * factor))
+      boosts.set(parent.path, Math.max(cur, r.bm25Score * factor))
       parent = parent.parent
       factor *= propagationFactor
     }
@@ -109,8 +109,9 @@ function propagateScoresToParents(
     const doc = summaryMap.get(indexKey)
     if (!doc) continue
 
-    // Apply persisted importance/maturity from _index.md so repeated accesses
-    // to this domain/topic progressively elevate its summary result in rankings.
+    // Propagate the strongest child BM25 signal upward, then apply the parent
+    // summary's own scoring exactly once. This avoids double-counting lifecycle
+    // weights that are already baked into child compound scores.
     const finalScore = doc.scoring
       ? compoundScore(score, doc.scoring.importance ?? 50, doc.scoring.recency ?? 0.5, doc.scoring.maturity ?? 'draft')
       : score
@@ -919,12 +920,14 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
       return {
         ...r,
+        bm25Score: bm25,
         score: compoundScore(bm25, decayed.importance ?? 50, decayed.recency ?? 1, decayed.maturity ?? 'draft'),
       }
     })
     searchResults.sort((a, b) => b.score - a.score)
 
     const results: SearchKnowledgeResult['results'] = []
+    const propagationInputs: Array<{bm25Score: number; path: string; score: number}> = []
 
     if (searchResults.length > 0) {
       // OOD detection: if the best result scores below the minimum floor,
@@ -996,15 +999,27 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
           }
 
           results.push(enriched)
+          propagationInputs.push({
+            bm25Score: result.bm25Score,
+            path: document.path,
+            score: enriched.score,
+          })
         }
       }
     }
 
     // Propagate scores upward to parent domain/topic nodes (hierarchical retrieval)
-    const propagated = propagateScoresToParents(results, symbolTree, summaryMap)
+    const propagated = propagateScoresToParents(propagationInputs, symbolTree, summaryMap)
     for (const p of propagated) {
       if (options?.includeKinds && p.symbolKind && !options.includeKinds.includes(p.symbolKind)) continue
       if (options?.excludeKinds && p.symbolKind && options.excludeKinds.includes(p.symbolKind)) continue
+      if (options?.minMaturity && p.symbolKind === 'summary') {
+        const tierRank: Record<string, number> = { core: 3, draft: 1, validated: 2 }
+        const summaryDoc = summaryMap.get(`${p.path}/_index.md`)
+        const summaryMaturity = summaryDoc?.scoring?.maturity ?? 'draft'
+        if ((tierRank[summaryMaturity] ?? 1) < (tierRank[options.minMaturity] ?? 1)) continue
+      }
+
       results.push(p)
     }
 

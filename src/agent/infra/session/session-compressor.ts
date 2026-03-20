@@ -33,6 +33,7 @@ Return ONLY a JSON array of memory objects:
 Extract 0-3 memories per category. Skip categories with nothing new. Be concise (max 200 chars per memory).`
 
 const MAX_DIGEST_CHARS = 12_000
+const MIN_BOUNDARY_RATIO = 0.6
 
 function truncateDigestAtBoundary(digest: string, maxChars: number = MAX_DIGEST_CHARS): string {
   if (digest.length <= maxChars) {
@@ -41,7 +42,8 @@ function truncateDigestAtBoundary(digest: string, maxChars: number = MAX_DIGEST_
 
   const clipped = digest.slice(0, maxChars)
   const boundary = clipped.lastIndexOf('\n\n')
-  return boundary >= Math.floor(maxChars * 0.6) ? clipped.slice(0, boundary) : clipped
+  // Prefer a natural message boundary when it falls reasonably close to the cap.
+  return boundary >= Math.floor(maxChars * MIN_BOUNDARY_RATIO) ? clipped.slice(0, boundary) : clipped
 }
 
 /**
@@ -89,7 +91,8 @@ export class SessionCompressor {
       return {created: 0, merged: 0, skipped: 0}
     }
 
-    // Step 2: Load existing agent memories for deduplication
+    // Step 2: Load the most recently updated agent memories for deduplication.
+    // MemoryManager.list() sorts by updatedAt DESC before applying the limit.
     const existing = await this.memoryManager.list({limit: 60, source: 'agent'})
 
     // Step 3: Deduplicate

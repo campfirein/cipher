@@ -1016,5 +1016,50 @@ describe('Search Knowledge Tool', () => {
       // core/high-importance domain must outscore the draft/low-importance domain
       expect(authSummary!.score).to.be.greaterThan(apiSummary!.score)
     })
+
+    it('filters propagated summary results by minMaturity', async () => {
+      listDirectoryStub.resolves({count: 2, entries: [], tree: '', truncated: false})
+      globFilesStub.resolves({
+        files: [
+          {isDirectory: false, modified: new Date('2024-01-01'), path: '/test/.brv/context-tree/auth/jwt.md', size: 100},
+          {isDirectory: false, modified: new Date('2024-01-01'), path: '/test/.brv/context-tree/auth/_index.md', size: 120},
+        ],
+        ignoredCount: 0,
+        message: 'Found 2 files',
+        totalFound: 2,
+        truncated: false,
+      })
+
+      readFileStub.callsFake((filePath: string) => {
+        if (filePath.includes('_index')) {
+          return Promise.resolve({
+            content:
+              '---\ncondensation_order: 1\nimportance: 70\nmaturity: draft\nrecency: 0.9\ntoken_count: 100\ntype: summary\n---\nAuth domain summary.',
+            encoding: 'utf8',
+            lines: 3,
+            size: 120,
+            totalLines: 3,
+            truncated: false,
+          })
+        }
+
+        return Promise.resolve({
+          content: '---\nimportance: 90\nmaturity: core\n---\n# JWT\n\nSecurity token handling.',
+          encoding: 'utf8',
+          lines: 4,
+          size: 100,
+          totalLines: 4,
+          truncated: false,
+        })
+      })
+
+      const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 0})
+      const result = (await tool.execute({minMaturity: 'core', query: 'security token'})) as {
+        results: Array<{path: string; symbolKind?: string}>
+      }
+
+      expect(result.results.some((r) => r.path === 'auth' && r.symbolKind === 'summary')).to.equal(false)
+      expect(result.results.some((r) => r.path === 'auth/jwt.md')).to.equal(true)
+    })
   })
 })

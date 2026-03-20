@@ -231,7 +231,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
         fileSystem: fileSystemService,
       }),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Modification],
-    requiredServices: ['abstractQueue', 'contentGenerator', 'fileSystemService'],
+    requiredServices: ['contentGenerator', 'fileSystemService'],
   },
 
   [ToolName.LIST_DIRECTORY]: {

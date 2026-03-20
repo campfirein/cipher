@@ -191,8 +191,8 @@ describe('AbstractGenerationQueue', () => {
       await new Promise<void>((r) => { setImmediate(r) })
       await new Promise<void>((r) => { setImmediate(r) })
 
-      // Status file is written during retrying++ branch — wait for it
-      await new Promise<void>((r) => { setImmediate(r) })
+      // Status file is written during retrying++ branch — wait for disk I/O to flush
+      await new Promise<void>((r) => { setTimeout(r, 50) })
 
       const statusPath = join(tmpDir, '.brv', '_queue_status.json')
       const raw = await fs.readFile(statusPath, 'utf8')

@@ -30,6 +30,8 @@ Respond with ONLY a JSON object:
 {"action": "MERGE", "targetId": "<id>", "mergedContent": "<combined content>"}
 {"action": "SKIP"}`
 
+const DEDUPLICATION_CONCURRENCY = 4
+
 /**
  * LLM-based deduplicator for agent-extracted memories.
  *
@@ -51,13 +53,28 @@ export class MemoryDeduplicator {
       return drafts.map((memory) => ({action: 'CREATE', memory}))
     }
 
-    return Promise.all(drafts.map(async (draft) => {
-      if (draft.category === 'DECISIONS') {
-        return {action: 'CREATE', memory: draft} satisfies DeduplicationAction
-      }
+    const actions = Array.from<DeduplicationAction>({length: drafts.length})
+    let nextIndex = 0
 
-      return this.deduplicateSingle(draft, existing)
-    }))
+    const worker = async (): Promise<void> => {
+      while (nextIndex < drafts.length) {
+        const draftIndex = nextIndex++
+        const draft = drafts[draftIndex]
+        if (draft.category === 'DECISIONS') {
+          actions[draftIndex] = {action: 'CREATE', memory: draft}
+          continue
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        actions[draftIndex] = await this.deduplicateSingle(draft, existing)
+      }
+    }
+
+    await Promise.all(
+      Array.from({length: Math.min(DEDUPLICATION_CONCURRENCY, drafts.length)}, async () => worker()),
+    )
+
+    return actions
   }
 
   private async deduplicateSingle(draft: DraftMemory, existing: Memory[]): Promise<DeduplicationAction> {

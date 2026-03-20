@@ -52,13 +52,11 @@ ${content}
  *   1. L0 .abstract.md — one-line summary (~80 tokens)
  *   2. L1 .overview.md — key points + structure (~1500 tokens)
  *
- * @param _contextPath - Path to the context file (unused, reserved for future logging)
  * @param fullContent - Full markdown content of the knowledge file
  * @param generator - LLM content generator
  * @returns Abstract and overview content strings
  */
 export async function generateFileAbstracts(
-  _contextPath: string,
   fullContent: string,
   generator: IContentGenerator,
 ): Promise<AbstractGenerateResult> {
