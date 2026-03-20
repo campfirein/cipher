@@ -143,9 +143,6 @@ setup_brv_openclaw_integration() {
     fi
   fi
 
-  # Write SKILL.md with usage protocol (always overwrite to update)
-  write_skill_md
-
   # Step 2: Register OpenClaw as a skill-type connector inside ByteRover (idempotent)
   info "Registering OpenClaw connector in ByteRover..."
   if ! "$BRV_CMD" connectors install OpenClaw --type skill; then
@@ -278,6 +275,13 @@ enable_plugin_in_config() {
         if (!config.plugins.allow.includes("byterover")) {
             config.plugins.allow.push("byterover");
         }
+        // Register extension load path
+        config.plugins.load = config.plugins.load || {};
+        config.plugins.load.paths = config.plugins.load.paths || [];
+        const brvPath = "~/.openclaw/extensions/byterover";
+        if (!config.plugins.load.paths.includes(brvPath)) {
+            config.plugins.load.paths.push(brvPath);
+        }
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
         console.log("Plugin enabled in config.");
     } catch (e) {
@@ -361,6 +365,12 @@ disable_plugin_in_config() {
         if (Array.isArray(config.plugins?.allow)) {
             config.plugins.allow = config.plugins.allow.filter(id => id !== "byterover");
             if (config.plugins.allow.length === 0) delete config.plugins.allow;
+        }
+        // Also remove from load paths
+        if (Array.isArray(config.plugins?.load?.paths)) {
+            config.plugins.load.paths = config.plugins.load.paths.filter(p => p !== "~/.openclaw/extensions/byterover");
+            if (config.plugins.load.paths.length === 0) delete config.plugins.load.paths;
+            if (config.plugins.load && Object.keys(config.plugins.load).length === 0) delete config.plugins.load;
         }
         if (Object.keys(entries).length === 0) delete config.plugins.entries;
         if (config.plugins && Object.keys(config.plugins).length === 0) delete config.plugins;
@@ -619,6 +629,8 @@ Briefly mention two automatic features running in the background:
    insights are automatically saved before they're lost
 2. **Daily Knowledge Mining** — every morning at 9 AM, yesterday's session notes are
    reviewed and valuable patterns are extracted
+3. **Auto Context Enrichment** — every prompt is automatically enriched with relevant
+   knowledge from your ByteRover memory before the agent responds
 
 Then say onboarding is complete. Give a few quick tips:
 - "Just say 'remember that...' anytime to teach me something new"
@@ -669,6 +681,13 @@ enable_onboarding_plugin_in_config() {
         if (!config.plugins.allow.includes("byterover-onboarding")) {
             config.plugins.allow.push("byterover-onboarding");
         }
+        // Register extension load path
+        config.plugins.load = config.plugins.load || {};
+        config.plugins.load.paths = config.plugins.load.paths || [];
+        const onboardPath = "~/.openclaw/extensions/byterover-onboarding";
+        if (!config.plugins.load.paths.includes(onboardPath)) {
+            config.plugins.load.paths.push(onboardPath);
+        }
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
         console.log("Onboarding plugin enabled in config.");
     } catch (e) {
@@ -695,6 +714,12 @@ disable_onboarding_plugin_in_config() {
             config.plugins.allow = config.plugins.allow.filter(id => id !== "byterover-onboarding");
             if (config.plugins.allow.length === 0) delete config.plugins.allow;
         }
+        // Also remove from load paths
+        if (Array.isArray(config.plugins?.load?.paths)) {
+            config.plugins.load.paths = config.plugins.load.paths.filter(p => p !== "~/.openclaw/extensions/byterover-onboarding");
+            if (config.plugins.load.paths.length === 0) delete config.plugins.load.paths;
+            if (config.plugins.load && Object.keys(config.plugins.load).length === 0) delete config.plugins.load;
+        }
         if (Object.keys(entries).length === 0) delete config.plugins.entries;
         if (config.plugins && Object.keys(config.plugins).length === 0) delete config.plugins;
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
@@ -713,62 +738,6 @@ remove_onboarding_plugin_files() {
   else
     echo "No onboarding plugin files found."
   fi
-}
-
-write_skill_md() {
-  local skill_dir="$HOME/.openclaw/skills/byterover"
-  local skill_file="$skill_dir/SKILL.md"
-
-  mkdir -p "$skill_dir"
-
-  cat > "$skill_file" <<SKILL_EOF
----
-name: ByteRover
-description: Long-term memory system for AI agents — query, curate, and sync project knowledge
-metadata:
-  openclaw:
-    requires:
-      bins:
-        - brv
----
-
-# ByteRover — Long-Term Memory for AI Agents
-
-ByteRover (\`brv\`) is your structured long-term memory. Use it to store and retrieve
-project patterns, decisions, and architectural rules in \`.brv/context-tree/\`.
-
-## Usage Protocol
-
-1. **Before answering questions**, query existing knowledge:
-   \`\`\`
-   $BRV_CMD query "<topic>"
-   \`\`\`
-2. **After completing tasks**, curate new insights:
-   \`\`\`
-   $BRV_CMD curate "<summary of what you learned>"
-   \`\`\`
-3. **Sync with team** (requires login):
-   \`\`\`
-   $BRV_CMD pull
-   $BRV_CMD push
-   \`\`\`
-
-## Onboarding
-
-If the file \`~/.openclaw/.byterover-onboarded\` does **not** exist:
-
-1. **Read** the full guide at \`~/.openclaw/extensions/byterover-onboarding/onboarding-prompt.md\` FIRST
-2. **Follow the 6 phases IN ORDER — do NOT skip or improvise:**
-   - Phase 1: Welcome (mention ByteRover by name, ask for demo)
-   - Phase 2: Provider setup (\`$BRV_CMD providers\` → connect if needed)
-   - Phase 3: Cloud or Local (\`$BRV_CMD login\` or skip)
-   - Phase 4: Curate demo (\`$BRV_CMD curate "<info>"\`)
-   - Phase 5: Query demo (\`$BRV_CMD query "<topic>"\`)
-   - Phase 6: Wrap up (\`touch ~/.openclaw/.byterover-onboarded\`)
-3. The guide has detailed instructions for each phase — **you MUST read it, do NOT wing it**
-SKILL_EOF
-
-  success "SKILL.md written to $skill_file"
 }
 
 list_workspaces() {
