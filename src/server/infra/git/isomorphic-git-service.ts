@@ -709,9 +709,10 @@ export class IsomorphicGitService implements IGitService {
     }
 
     // No conflicts — write all remote files to working tree and stage them
+    const oursSet = new Set(oursFiles)
     /* eslint-disable no-await-in-loop -- sequential file writes + git add */
     for (const filepath of theirsFiles) {
-      if (oursFiles.includes(filepath)) continue // same content, already present
+      if (oursSet.has(filepath)) continue // same content, already present
       const blob = await git.readBlob({dir, filepath, fs, oid: theirsSha})
       const filePath = join(dir, filepath)
       const fileDir = join(filePath, '..')
