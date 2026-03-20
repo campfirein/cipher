@@ -12,7 +12,7 @@ import {createMockTransportServer, type MockTransportServer} from '../../../../h
 // ==================== Test Helpers ====================
 
 type TestDeps = {
-  contextTreeService: {delete: SinonStub; exists: SinonStub; initialize: SinonStub}
+  contextTreeService: {delete: SinonStub; exists: SinonStub; initialize: SinonStub; resolvePath: SinonStub}
   contextTreeSnapshotService: {
     getChanges: SinonStub
     getCurrentState: SinonStub
@@ -32,6 +32,7 @@ function makeStubs(): TestDeps {
       delete: stub(),
       exists: stub().resolves(false),
       initialize: stub(),
+      resolvePath: stub().callsFake((p: string) => p),
     },
     contextTreeSnapshotService: {
       getChanges: stub().resolves({added: [], deleted: [], modified: []}),
