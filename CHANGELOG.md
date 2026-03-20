@@ -2,6 +2,33 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.3.0]
+
+### Added
+
+- **OAuth provider authentication** — Connect to LLM providers by signing in via your browser instead of manually entering API keys. OpenAI is the first supported OAuth provider. Run `/providers` in the REPL or `brv providers connect openai --oauth` from the command line to authenticate through the browser. Tokens are securely stored and automatically refreshed by the daemon.
+
+### Changed
+
+- **Provider list shows authentication method** — `brv providers list` now displays `[OAuth]` or `[API Key]` badges next to connected providers indicating how they were authenticated.
+- **Reconnect option for OAuth providers** — Already-connected OAuth providers show a "Reconnect OAuth" option in `/providers` to re-authenticate or switch accounts.
+
+## [2.2.0]
+
+### Added
+
+- **`brv locations` command** — List all registered projects and their context tree status. Shows which projects are initialized, which is current, and which have active connections. Supports `--format json` for automation. Also available as `/locations` in the REPL.
+
+## [2.1.5]
+
+### Added
+
+- **`brv logout` command** — Disconnect from ByteRover cloud and clear stored credentials from the CLI. Supports `--format json` for headless/automation use cases.
+
+### Fixed
+
+- **Security dependency updates** — Patched `flatted`, `hono`, and `yauzl` to address security vulnerabilities.
+
 ## [2.1.4]
 
 ### Fixed

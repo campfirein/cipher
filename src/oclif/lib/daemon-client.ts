@@ -31,6 +31,10 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [TaskErrorCode.LOCAL_CHANGES_EXIST]: 'You have local changes. Run "brv push" to save your changes before pulling.',
   [TaskErrorCode.NOT_AUTHENTICATED]:
     'Not authenticated. Cloud sync features (push/pull/space) require login — local query and curate work without authentication.',
+  [TaskErrorCode.OAUTH_REFRESH_FAILED]:
+    'OAuth token refresh failed. Run "brv providers connect <provider> --oauth" to reconnect.',
+  [TaskErrorCode.OAUTH_TOKEN_EXPIRED]:
+    'OAuth token has expired. Run "brv providers connect <provider> --oauth" to reconnect.',
   [TaskErrorCode.PROJECT_NOT_INIT]: 'Project not initialized. Run "brv restart" to reinitialize.',
   [TaskErrorCode.PROVIDER_NOT_CONFIGURED]:
     'No provider connected. Run "brv providers connect byterover" to use the free built-in provider, or connect another provider.',
@@ -143,6 +147,15 @@ export function hasLeakedHandles(error: unknown): boolean {
   if (!(error instanceof Error)) return false
   if (!('code' in error)) return false
   return error.code === TaskErrorCode.AGENT_DISCONNECTED || error.code === TaskErrorCode.AGENT_NOT_AVAILABLE
+}
+
+/**
+ * Builds a user-friendly message when provider credentials are missing from storage.
+ */
+export function providerMissingMessage(activeProvider: string, authMethod?: 'api-key' | 'oauth'): string {
+  return authMethod === 'oauth'
+    ? `${activeProvider} authentication has expired.\nPlease reconnect: brv providers connect ${activeProvider} --oauth`
+    : `${activeProvider} API key is missing from storage.\nPlease reconnect: brv providers connect ${activeProvider} --api-key <your-key>`
 }
 
 export interface ProviderErrorContext {

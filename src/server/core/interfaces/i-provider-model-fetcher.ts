@@ -32,6 +32,16 @@ export interface ProviderModelInfo {
 }
 
 /**
+ * Options for fetchModels().
+ */
+export interface FetchModelsOptions {
+  /** How this provider was authenticated */
+  authMethod?: 'api-key' | 'oauth'
+  /** If true, bypass any cache */
+  forceRefresh?: boolean
+}
+
+/**
  * Interface for provider-specific model fetching.
  *
  * Implementations handle the specifics of each provider's API
@@ -40,11 +50,11 @@ export interface ProviderModelInfo {
 export interface IProviderModelFetcher {
   /**
    * Fetch available models from the provider.
-   * @param apiKey - API key for authentication
-   * @param forceRefresh - If true, bypass any cache
+   * @param apiKey - API key or OAuth access token for authentication
+   * @param options - Fetch options (authMethod, forceRefresh)
    * @returns Array of normalized model info
    */
-  fetchModels(apiKey: string, forceRefresh?: boolean): Promise<ProviderModelInfo[]>
+  fetchModels(apiKey: string, options?: FetchModelsOptions): Promise<ProviderModelInfo[]>
 
   /**
    * Validate an API key by attempting a lightweight API call.

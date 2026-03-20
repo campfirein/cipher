@@ -16,7 +16,7 @@ describe('error-messages', () => {
       expect(formatTransportError(err)).to.equal('Nothing staged. Run /vc add first.')
     })
 
-    it('returns /vc config hint with specific values when authenticated (ERR_VC_USER_NOT_CONFIGURED)', () => {
+    it('falls through to server hint for ERR_VC_USER_NOT_CONFIGURED (authenticated)', () => {
       const err = Object.assign(
         new Error(
           `Commit author not configured. Run: brv vc config user.name "bao@b.dev" and brv vc config user.email "bao@b.dev". for event 'vc:commit'`,
@@ -24,11 +24,11 @@ describe('error-messages', () => {
         {code: 'ERR_VC_USER_NOT_CONFIGURED'},
       )
       expect(formatTransportError(err)).to.equal(
-        'Commit author not configured. Run: /vc config user.name "bao@b.dev" and /vc config user.email "bao@b.dev".',
+        'Commit author not configured. Run: brv vc config user.name "bao@b.dev" and brv vc config user.email "bao@b.dev".',
       )
     })
 
-    it('returns generic /vc config hint when not authenticated (ERR_VC_USER_NOT_CONFIGURED)', () => {
+    it('falls through to server hint for ERR_VC_USER_NOT_CONFIGURED (not authenticated)', () => {
       const err = Object.assign(
         new Error(
           `Commit author not configured. Run: brv vc config user.name <value> and brv vc config user.email <value>. for event 'vc:commit'`,
@@ -36,7 +36,7 @@ describe('error-messages', () => {
         {code: 'ERR_VC_USER_NOT_CONFIGURED'},
       )
       expect(formatTransportError(err)).to.equal(
-        'Commit author not configured. Run: /vc config user.name <value> and /vc config user.email <value>.',
+        'Commit author not configured. Run: brv vc config user.name <value> and brv vc config user.email <value>.',
       )
     })
 
@@ -73,6 +73,17 @@ describe('error-messages', () => {
     it('returns raw message when error has no code property', () => {
       const err = new Error('No code here.')
       expect(formatTransportError(err)).to.equal('No code here.')
+    })
+
+    it('should return friendly message for TransportRequestTimeoutError', () => {
+      const error = new Error("Request timeout for event 'provider:awaitOAuthCallback' after 300000ms")
+      error.name = 'TransportRequestTimeoutError'
+      expect(formatTransportError(error)).to.equal('Request timed out. Please try again.')
+    })
+
+    it('should strip event name and timeout suffix from transport errors', () => {
+      const error = new Error("Something failed for event 'test:event' after 5000ms")
+      expect(formatTransportError(error)).to.equal('Something failed')
     })
   })
 

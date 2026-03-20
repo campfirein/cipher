@@ -79,13 +79,17 @@ export interface ConnectorDTO {
 
 export interface ProviderDTO {
   apiKeyUrl?: string
+  authMethod?: 'api-key' | 'oauth'
   category: 'other' | 'popular'
   description: string
   id: string
   isConnected: boolean
   isCurrent: boolean
   name: string
+  oauthCallbackMode?: 'auto' | 'code-paste'
+  oauthLabel?: string
   requiresApiKey: boolean
+  supportsOAuth: boolean
 }
 
 export interface ModelDTO {
@@ -126,6 +130,18 @@ export interface HubEntryDTO {
 // ============================================================================
 // Status DTOs
 // ============================================================================
+
+export interface ProjectLocationDTO {
+  /** Absolute path to the context tree directory (e.g., '/Users/foo/project/.brv/context-tree') */
+  contextTreePath: string
+  /** True if this project has connected clients/agents or is the current project */
+  isActive: boolean
+  /** True if this is the project the client is currently running from */
+  isCurrent: boolean
+  /** True if .brv/context-tree exists */
+  isInitialized: boolean
+  projectPath: string
+}
 
 export interface StatusDTO {
   authStatus: 'expired' | 'logged_in' | 'not_logged_in' | 'unknown'
