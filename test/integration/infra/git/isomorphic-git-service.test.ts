@@ -1,7 +1,7 @@
 import {expect} from 'chai'
 import * as git from 'isomorphic-git'
 import fs, {existsSync} from 'node:fs'
-import {mkdir, rm, unlink, writeFile} from 'node:fs/promises'
+import {mkdir, readFile, rm, unlink, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {stub} from 'sinon'
@@ -637,6 +637,103 @@ describe('IsomorphicGitService', () => {
       const conflicts = await service.getConflicts({directory: testDir})
       expect(conflicts).to.have.length(1)
       expect(conflicts[0].path).to.equal('a.md')
+    })
+  })
+
+  // ---- abortMerge() ----
+
+  describe('abortMerge()', () => {
+    beforeEach(async () => {
+      await service.init({directory: testDir})
+      await writeFile(join(testDir, 'a.md'), 'base')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'base'})
+    })
+
+    it('restores working tree, removes MERGE_HEAD and MERGE_MSG', async () => {
+      // Create a conflict
+      await service.createBranch({branch: 'feature', directory: testDir})
+      await service.checkout({directory: testDir, ref: 'feature'})
+      await writeFile(join(testDir, 'a.md'), 'feature version')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'feature'})
+
+      await service.checkout({directory: testDir, ref: 'main'})
+      await writeFile(join(testDir, 'a.md'), 'main version')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'main'})
+
+      const mergeResult = await service.merge({branch: 'feature', directory: testDir})
+      expect(mergeResult.success).to.be.false
+
+      // Verify MERGE_HEAD and MERGE_MSG exist after conflict
+      expect(existsSync(join(testDir, '.git', 'MERGE_HEAD'))).to.be.true
+      expect(existsSync(join(testDir, '.git', 'MERGE_MSG'))).to.be.true
+
+      // Abort the merge
+      await service.abortMerge({directory: testDir})
+
+      // MERGE_HEAD and MERGE_MSG should be removed
+      expect(existsSync(join(testDir, '.git', 'MERGE_HEAD'))).to.be.false
+      expect(existsSync(join(testDir, '.git', 'MERGE_MSG'))).to.be.false
+
+      // Working tree should be restored to pre-merge state
+      const content = await readFile(join(testDir, 'a.md'), 'utf8')
+      expect(content).to.equal('main version')
+
+      // No conflicts should remain
+      const conflicts = await service.getConflicts({directory: testDir})
+      expect(conflicts).to.be.empty
+    })
+  })
+
+  // ---- merge() MERGE_MSG ----
+
+  describe('merge() MERGE_MSG', () => {
+    beforeEach(async () => {
+      await service.init({directory: testDir})
+      await writeFile(join(testDir, 'a.md'), 'base')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'base'})
+    })
+
+    it('writes MERGE_MSG alongside MERGE_HEAD on conflict', async () => {
+      await service.createBranch({branch: 'feature', directory: testDir})
+      await service.checkout({directory: testDir, ref: 'feature'})
+      await writeFile(join(testDir, 'a.md'), 'feature version')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'feature'})
+
+      await service.checkout({directory: testDir, ref: 'main'})
+      await writeFile(join(testDir, 'a.md'), 'main version')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'main'})
+
+      await service.merge({branch: 'feature', directory: testDir})
+
+      const mergeMsg = await readFile(join(testDir, '.git', 'MERGE_MSG'), 'utf8')
+      expect(mergeMsg.trim()).to.equal("Merge branch 'feature'")
+    })
+
+    it('passes custom message to git.merge() on true merge commit', async () => {
+      // Create diverged branches so a merge commit is required (not fast-forward)
+      await service.createBranch({branch: 'feature', directory: testDir})
+      await service.checkout({directory: testDir, ref: 'feature'})
+      await writeFile(join(testDir, 'b.md'), 'feature file')
+      await service.add({directory: testDir, filePaths: ['b.md']})
+      await service.commit({directory: testDir, message: 'feature commit'})
+
+      await service.checkout({directory: testDir, ref: 'main'})
+      await writeFile(join(testDir, 'c.md'), 'main file')
+      await service.add({directory: testDir, filePaths: ['c.md']})
+      await service.commit({directory: testDir, message: 'main commit'})
+
+      const result = await service.merge({branch: 'feature', directory: testDir, message: 'Custom merge msg'})
+      expect(result.success).to.be.true
+
+      // Verify the commit message
+      const log = await service.log({depth: 1, directory: testDir})
+      expect(log[0].message).to.equal('Custom merge msg')
     })
   })
 

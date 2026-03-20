@@ -13,6 +13,7 @@ export default class VcBranch extends Command {
     '<%= config.bin %> <%= command.id %> feature/new-context',
     '<%= config.bin %> <%= command.id %> -d feature/new-context',
     '<%= config.bin %> <%= command.id %> -a',
+    '<%= config.bin %> <%= command.id %> --set-upstream-to origin/main',
   ]
   public static flags = {
     all: Flags.boolean({
@@ -24,12 +25,24 @@ export default class VcBranch extends Command {
       char: 'd',
       description: 'Delete a branch by name',
     }),
+    'set-upstream-to': Flags.string({
+      description: 'Set upstream tracking (e.g. origin/main)',
+    }),
   }
 
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(VcBranch)
 
     try {
+      if (flags['set-upstream-to']) {
+        const result = await this.requestBranch({action: 'set-upstream', upstream: flags['set-upstream-to']})
+        if (result.action === 'set-upstream') {
+          this.log(`Branch '${result.branch}' set up to track '${result.upstream}'.`)
+        }
+
+        return
+      }
+
       if (flags.delete) {
         const result = await this.requestBranch({action: 'delete', name: flags.delete})
         if (result.action === 'delete') this.log(`Deleted branch '${result.deleted}'.`)

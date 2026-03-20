@@ -57,9 +57,15 @@ export type AddGitParams = BaseGitParams & {filePaths: string[]}
 export type CommitGitParams = BaseGitParams & {author?: {email: string; name: string}; message: string}
 export type LogGitParams = BaseGitParams & {depth?: number; ref?: string}
 export type PushGitParams = BaseGitParams & {branch?: string; remote?: string}
-export type PullGitParams = BaseGitParams & {branch?: string; remote?: string}
-export type FetchGitParams = BaseGitParams & {remote?: string}
-export type MergeGitParams = BaseGitParams & {branch: string}
+export type PullGitParams = BaseGitParams & {allowUnrelatedHistories?: boolean; branch?: string; remote?: string}
+export type FetchGitParams = BaseGitParams & {ref?: string; remote?: string}
+export type AbortMergeGitParams = BaseGitParams
+export type MergeGitParams = BaseGitParams & {
+  allowUnrelatedHistories?: boolean
+  author?: {email: string; name: string}
+  branch: string
+  message?: string
+}
 export type CreateBranchGitParams = BaseGitParams & {branch: string; checkout?: boolean}
 export type DeleteBranchGitParams = BaseGitParams & {branch: string}
 export type ListBranchesGitParams = BaseGitParams & {remote?: string}
@@ -77,6 +83,7 @@ export type CloneGitParams = BaseGitParams & {
 
 // --- Interface ---
 export interface IGitService {
+  abortMerge(params: AbortMergeGitParams): Promise<void>
   add(params: AddGitParams): Promise<void>
   addRemote(params: AddRemoteGitParams): Promise<void>
   checkout(params: CheckoutGitParams): Promise<void>

@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import {join} from 'node:path'
 
 import type {
+  AbortMergeGitParams,
   AddGitParams,
   AddRemoteGitParams,
   AheadBehind,
@@ -67,6 +68,17 @@ export class IsomorphicGitService implements IGitService {
   private static isMergeConflictData(data: unknown): data is IsomorphicGitConflictData {
     if (typeof data !== 'object' || data === null) return false
     return 'filepaths' in data && Array.isArray(data.filepaths)
+  }
+
+  async abortMerge(params: AbortMergeGitParams): Promise<void> {
+    const dir = this.requireDirectory(params)
+    const mergeHeadPath = join(dir, '.git', 'MERGE_HEAD')
+    const mergeMsgPath = join(dir, '.git', 'MERGE_MSG')
+    // Get current branch BEFORE checkout to avoid detached HEAD
+    const branch = await this.getCurrentBranch(params)
+    await git.checkout({dir, force: true, fs, ref: branch ?? 'HEAD'})
+    await fs.promises.unlink(mergeHeadPath).catch(() => {})
+    await fs.promises.unlink(mergeMsgPath).catch(() => {})
   }
 
   async add(params: AddGitParams): Promise<void> {
@@ -157,6 +169,7 @@ export class IsomorphicGitService implements IGitService {
 
     // If MERGE_HEAD exists, create a proper merge commit with two parents
     const mergeHeadPath = join(dir, '.git', 'MERGE_HEAD')
+    const mergeMsgPath = join(dir, '.git', 'MERGE_MSG')
     const mergeHeadContent = await fs.promises.readFile(mergeHeadPath, 'utf8').catch(() => null)
     const mergeHead = mergeHeadContent?.trim() ?? null
 
@@ -180,8 +193,9 @@ export class IsomorphicGitService implements IGitService {
 
     const {commit: commitObj} = await git.readCommit({dir, fs, oid: sha})
 
-    // Clean up MERGE_HEAD (isomorphic-git does not remove it automatically)
+    // Clean up MERGE_HEAD and MERGE_MSG (isomorphic-git does not remove them automatically)
     await fs.promises.unlink(mergeHeadPath).catch(() => {})
+    await fs.promises.unlink(mergeMsgPath).catch(() => {})
 
     return {
       author,
@@ -211,6 +225,7 @@ export class IsomorphicGitService implements IGitService {
       http,
       onAuth: this.getOnAuth(),
       onAuthFailure: this.getOnAuthFailure(),
+      ref: params.ref,
       remote: params.remote ?? 'origin',
     })
   }
@@ -364,7 +379,15 @@ export class IsomorphicGitService implements IGitService {
 
   async merge(params: MergeGitParams): Promise<MergeResult> {
     const dir = this.requireDirectory(params)
-    const author = this.getAuthor()
+    const mergeHeadPath = join(dir, '.git', 'MERGE_HEAD')
+    const mergeMsgPath = join(dir, '.git', 'MERGE_MSG')
+    const author = params.author ?? this.getAuthor()
+    const message = params.message ?? `Merge branch '${params.branch}'`
+    const currentBranch = await git.currentBranch({dir, fs})
+    const localSha = currentBranch
+      ? await git.resolveRef({dir, fs, ref: `refs/heads/${currentBranch}`}).catch(() => null)
+      : null
+
     try {
       await git.merge({
         abortOnConflict: false,
@@ -372,15 +395,42 @@ export class IsomorphicGitService implements IGitService {
         committer: author,
         dir,
         fs,
+        message,
         theirs: params.branch,
       })
+
+      // isomorphic-git merge only updates refs — checkout to apply changes to working tree
+      if (currentBranch) {
+        await git.checkout({dir, fs, ref: currentBranch})
+      }
+
       return {success: true}
     } catch (error) {
+      if (error instanceof git.Errors.CheckoutConflictError) {
+        // Undo the merge commit — restore HEAD to pre-merge state so repo is left clean
+        if (localSha && currentBranch) {
+          await git.writeRef({dir, force: true, fs, ref: `refs/heads/${currentBranch}`, value: localSha})
+        }
+
+        throw new GitError('Local changes would be overwritten by merge. Commit or discard your changes first.')
+      }
+
       if (error instanceof git.Errors.MergeConflictError) {
-        // isomorphic-git does not write MERGE_HEAD — write it so getConflicts() works post-restart
+        // isomorphic-git does not write MERGE_HEAD/MERGE_MSG — write them so
+        // getConflicts() and --continue work post-restart
         const theirsOid = await git.resolveRef({dir, fs, ref: params.branch})
-        await fs.promises.writeFile(join(dir, '.git', 'MERGE_HEAD'), `${theirsOid}\n`)
+        await fs.promises.writeFile(mergeHeadPath, `${theirsOid}\n`)
+        await fs.promises.writeFile(mergeMsgPath, `${message}\n`)
         return {conflicts: this.conflictsFromError(error), success: false}
+      }
+
+      if (error instanceof git.Errors.MergeNotSupportedError) {
+        if (!params.allowUnrelatedHistories) {
+          throw new GitError('Refusing to merge unrelated histories. Use --allow-unrelated-histories to force.')
+        }
+
+        const oursRef = (await git.currentBranch({dir, fs})) ?? 'HEAD'
+        return this.mergeUnrelatedHistories({author, dir, message, oursRef, theirsRef: params.branch})
       }
 
       throw error
@@ -473,6 +523,25 @@ export class IsomorphicGitService implements IGitService {
         const theirsOid = await git.resolveRef({dir, fs, ref: `refs/remotes/${remote}/${localBranch}`})
         await fs.promises.writeFile(join(dir, '.git', 'MERGE_HEAD'), `${theirsOid}\n`)
         return {conflicts: this.conflictsFromError(error), success: false}
+      }
+
+      if (error instanceof git.Errors.MergeNotSupportedError) {
+        if (!params.allowUnrelatedHistories) {
+          throw new GitError('Refusing to merge unrelated histories. Use --allow-unrelated-histories to force.')
+        }
+
+        const result = await this.mergeUnrelatedHistories({
+          author,
+          dir,
+          message: `Merge remote-tracking branch '${remote}/${localBranch}'`,
+          oursRef: localBranch,
+          theirsRef: `${remote}/${localBranch}`,
+        })
+        if (result.success) {
+          await git.checkout({dir, fs, ref: localBranch})
+        }
+
+        return result
       }
 
       if (error instanceof git.Errors.CheckoutConflictError) {
@@ -590,6 +659,100 @@ export class IsomorphicGitService implements IGitService {
     return () => {
       throw new GitAuthError('Authentication failed. Try /login again.')
     }
+  }
+
+  /**
+   * Manual merge for unrelated histories (no common ancestor).
+   * isomorphic-git throws MergeNotSupportedError because it can't handle
+   * base=null at the root tree level. We bypass by combining both trees directly.
+   */
+  private async mergeUnrelatedHistories(params: {
+    author: {email: string; name: string}
+    dir: string
+    message: string
+    oursRef: string
+    theirsRef: string
+  }): Promise<MergeResult> {
+    const {author, dir, message, oursRef, theirsRef} = params
+    const mergeHeadPath = join(dir, '.git', 'MERGE_HEAD')
+    const mergeMsgPath = join(dir, '.git', 'MERGE_MSG')
+
+    const oursSha = await git.resolveRef({dir, fs, ref: oursRef})
+    const theirsSha = await git.resolveRef({dir, fs, ref: theirsRef})
+
+    // List all files from both sides
+    const oursFiles = await git.listFiles({dir, fs, ref: oursSha})
+    const theirsFiles = await git.listFiles({dir, fs, ref: theirsSha})
+    const theirsSet = new Set(theirsFiles)
+
+    // Detect conflicts: same filepath on both sides with different content
+    const conflicts: GitConflict[] = []
+    /* eslint-disable no-await-in-loop -- sequential file I/O is intentional here */
+    for (const filepath of oursFiles) {
+      if (!theirsSet.has(filepath)) continue
+
+      const oursBlob = await git.readBlob({dir, filepath, fs, oid: oursSha})
+      const theirsBlob = await git.readBlob({dir, filepath, fs, oid: theirsSha})
+      if (oursBlob.oid !== theirsBlob.oid) {
+        conflicts.push({path: filepath, type: 'both_added'})
+      }
+    }
+    /* eslint-enable no-await-in-loop */
+
+    if (conflicts.length > 0) {
+      // Write MERGE_HEAD/MERGE_MSG so --continue works
+      await fs.promises.writeFile(mergeHeadPath, `${theirsSha}\n`)
+      await fs.promises.writeFile(mergeMsgPath, `${message}\n`)
+
+      // Write conflict markers to working tree for each conflicted file
+      /* eslint-disable no-await-in-loop -- sequential per-file conflict marker writes */
+      for (const conflict of conflicts) {
+        const oursBlob = await git.readBlob({dir, filepath: conflict.path, fs, oid: oursSha})
+        const theirsBlob = await git.readBlob({dir, filepath: conflict.path, fs, oid: theirsSha})
+        const oursContent = Buffer.from(oursBlob.blob).toString('utf8')
+        const theirsContent = Buffer.from(theirsBlob.blob).toString('utf8')
+
+        const conflictContent =
+          `<<<<<<< ${oursRef}\n` +
+          oursContent +
+          (oursContent.endsWith('\n') ? '' : '\n') +
+          `=======\n` +
+          theirsContent +
+          (theirsContent.endsWith('\n') ? '' : '\n') +
+          `>>>>>>> ${theirsRef}\n`
+
+        await fs.promises.writeFile(join(dir, conflict.path), conflictContent)
+      }
+      /* eslint-enable no-await-in-loop */
+
+      return {conflicts, success: false}
+    }
+
+    // No conflicts — write all remote files to working tree and stage them
+    const oursSet = new Set(oursFiles)
+    /* eslint-disable no-await-in-loop -- sequential file writes + git add */
+    for (const filepath of theirsFiles) {
+      if (oursSet.has(filepath)) continue // same content, already present
+      const blob = await git.readBlob({dir, filepath, fs, oid: theirsSha})
+      const filePath = join(dir, filepath)
+      const fileDir = join(filePath, '..')
+      await fs.promises.mkdir(fileDir, {recursive: true})
+      await fs.promises.writeFile(filePath, Buffer.from(blob.blob))
+      await git.add({dir, filepath, fs})
+    }
+    /* eslint-enable no-await-in-loop */
+
+    // Create merge commit with both parents
+    await git.commit({
+      author,
+      committer: author,
+      dir,
+      fs,
+      message,
+      parent: [oursSha, theirsSha],
+    })
+
+    return {success: true}
   }
 
   // eslint-disable-next-line complexity

@@ -17,6 +17,7 @@ const LABELS: Record<VcBranchAction, string> = {
   create: 'Creating branch...',
   delete: 'Deleting branch...',
   list: 'Listing branches...',
+  'set-upstream': 'Setting upstream...',
 }
 
 export function VcBranchFlow({onCancel, onComplete, request}: VcBranchFlowProps): React.ReactNode {
@@ -35,12 +36,31 @@ export function VcBranchFlow({onCancel, onComplete, request}: VcBranchFlowProps)
         onComplete(`Failed: ${formatTransportError(error)}`)
       },
       onSuccess(result) {
-        if (result.action === 'list') {
-          onComplete(formatBranchList(result.branches))
-        } else if (result.action === 'create') {
+        switch (result.action) {
+        case 'create': {
           onComplete(`Created branch '${result.created}'.`)
-        } else {
+        
+        break;
+        }
+
+        case 'delete': {
           onComplete(`Deleted branch '${result.deleted}'.`)
+        
+        break;
+        }
+
+        case 'list': {
+          onComplete(formatBranchList(result.branches))
+        
+        break;
+        }
+
+        case 'set-upstream': {
+          onComplete(`Branch '${result.branch}' set up to track '${result.upstream}'.`)
+        
+        break;
+        }
+        // No default
         }
       },
     })
