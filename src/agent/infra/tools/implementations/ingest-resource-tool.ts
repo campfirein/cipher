@@ -40,6 +40,11 @@ function matchesExcludePattern(relativePath: string, pattern: string): boolean {
   return new RegExp(`^${regexPattern}$|/${regexPattern}$|^${regexPattern}/|/${regexPattern}/`).test(normalizedPath)
 }
 
+function getDirectoryDepth(relativePath: string): number {
+  if (!relativePath) return 0
+  return Math.max(0, relativePath.split('/').length - 1)
+}
+
 const IngestResourceInputSchema = z
   .object({
     depth: z.number().int().min(1).max(5).optional().default(3).describe('Maximum directory depth to scan (default: 3, max: 5)'),
@@ -103,7 +108,7 @@ export function createIngestResourceTool(config: IngestResourceConfig = {}): Too
           const relativePath = toRelativeUnixPath(absPath, file.path)
           if (relativePath.startsWith('../')) continue
 
-          if (relativePath.split('/').length > params.depth) continue
+          if (getDirectoryDepth(relativePath) > params.depth) continue
 
           const excluded = exclude.some((pattern) => matchesExcludePattern(relativePath, pattern))
           if (!excluded && !seenPaths.has(file.path)) {

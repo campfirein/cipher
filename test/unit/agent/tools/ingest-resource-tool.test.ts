@@ -192,10 +192,10 @@ describe('ingest_resource Tool', () => {
       // Files at varying depths relative to /workspace/src
       globFilesStub.resolves({
         files: [
-          {isDirectory: false, modified: new Date(), path: '/workspace/src/a.ts', size: 100},      // depth 1 ✓
-          {isDirectory: false, modified: new Date(), path: '/workspace/src/a/b.ts', size: 100},    // depth 2 ✓
-          {isDirectory: false, modified: new Date(), path: '/workspace/src/a/b/c.ts', size: 100},  // depth 3 ✗
-          {isDirectory: false, modified: new Date(), path: '/workspace/src/a/b/c/d.ts', size: 100}, // depth 4 ✗
+          {isDirectory: false, modified: new Date(), path: '/workspace/src/a.ts', size: 100},      // directory depth 0 ✓
+          {isDirectory: false, modified: new Date(), path: '/workspace/src/a/b.ts', size: 100},    // directory depth 1 ✓
+          {isDirectory: false, modified: new Date(), path: '/workspace/src/a/b/c.ts', size: 100},  // directory depth 2 ✓
+          {isDirectory: false, modified: new Date(), path: '/workspace/src/a/b/c/d.ts', size: 100}, // directory depth 3 ✗
         ],
         ignoredCount: 0,
         message: '',
@@ -214,8 +214,15 @@ describe('ingest_resource Tool', () => {
 
       // readFile is called only for files that survived the depth filter.
       // DEFAULT_INCLUDE has 7 patterns; seenPaths deduplicates across all pattern calls.
-      // Only files at depth ≤ 2 (a.ts, a/b.ts) survive → readFile called at most 2 times.
-      expect(readFileStub.callCount).to.be.at.most(2)
+      // Only files at directory depth ≤ 2 survive → readFile called at most 3 times.
+      expect(readFileStub.callCount).to.be.at.most(3)
+
+      const readPaths = readFileStub.getCalls().map((call) => call.args[0] as string).sort()
+      expect(readPaths).to.deep.equal([
+        '/workspace/src/a.ts',
+        '/workspace/src/a/b.ts',
+        '/workspace/src/a/b/c.ts',
+      ])
     })
   })
 
