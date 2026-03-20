@@ -1,7 +1,5 @@
 import {
   DAEMON_INSTANCE_FILE,
-  type EnsureDaemonResult,
-  ensureDaemonRunning,
   getGlobalDataDir,
   GlobalInstanceManager,
   HEARTBEAT_FILE,
@@ -9,26 +7,26 @@ import {
 } from '@campfirein/brv-transport-client'
 import {Command} from '@oclif/core'
 import {spawnSync} from 'node:child_process'
-import {readdirSync, readFileSync, readlinkSync, unlinkSync} from 'node:fs'
+import {readdirSync, readFileSync, unlinkSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 
-import {resolveLocalServerMainPath} from '../../server/utils/server-main-resolver.js'
-
-const MAX_ATTEMPTS = 3
 const KILL_SETTLE_MS = 500
-const DAEMON_START_TIMEOUT_MS = 15_000
-const KILL_VERIFY_TIMEOUT_MS = 2000
+const KILL_VERIFY_TIMEOUT_MS = 5000
 const KILL_VERIFY_POLL_MS = 100
+const SIGTERM_BUDGET_MS = 8000
 
 export default class Restart extends Command {
   static description = `Restart ByteRover — stop everything and start fresh.
 
 Run this when ByteRover is unresponsive, stuck, or after installing an update.
-All open sessions and background processes are stopped before the fresh start.`
+All open sessions and background processes are stopped.
+The daemon will restart automatically on the next brv command.`
   static examples = ['<%= config.bin %> <%= command.id %>']
+  /** Server/agent patterns — cannot match CLI processes, no self-kill risk. */
+  private static readonly SERVER_AGENT_PATTERNS = ['brv-server.js', 'agent-process.js']
 
   /**
-   * Builds the list of file-path patterns used to identify brv processes for pattern kill.
+   * Builds the list of CLI script patterns used to identify brv client processes.
    *
    * All patterns are absolute paths or specific filenames to avoid false-positive matches
    * against other oclif CLIs (which also use bin/run.js and bin/dev.js conventions).
@@ -41,114 +39,20 @@ All open sessions and background processes are stopped before the fresh start.`
    *   nvm / system global:         cmdline = node .../bin/brv  ← caught by 'bin/brv' substring
    *   curl install (/.brv-cli/):   join(brvBinDir, 'run') — entry point named 'run' without .js
    *
-   * Relative patterns (./bin/run.js, ./bin/dev.js) are intentionally excluded: they would
-   * match any oclif CLI running in dev mode, not just brv.
-   *
    * Set deduplicates when paths overlap (e.g. process.argv[1] is already run.js).
    */
-  static buildKillPatterns(brvBinDir: string, argv1: string): string[] {
-    // Patterns ordered from most specific to broadest:
-    //   bin/brv                    — nvm/bundled binary (.../bin/brv)
-    //   byterover-cli/bin/run.js   — npm global/nvm install (package name is always the folder name
-    //                                in node_modules): /usr/local/.../byterover-cli/bin/run.js,
-    //                                .nvm/.../byterover-cli/bin/run.js. NOT used for dev.js because
-    //                                dev clones can have any directory name — covered by brvBinDir.
-    //   exact sibling paths        — current installation's run.js / dev.js / run (any dir name)
-    //   process.argv[1]            — current executable (bundled binary / dev entry)
-    const brvScripts = [
+  static buildCliPatterns(): string[] {
+    const brvBinDir = dirname(process.argv[1])
+    return [
       ...new Set([
-        argv1,
         join('bin', 'brv'),
         join('byterover-cli', 'bin', 'run.js'),
         join(brvBinDir, 'dev.js'),
         join(brvBinDir, 'run'), // curl install: entry point named 'run' without .js suffix
         join(brvBinDir, 'run.js'),
+        process.argv[1],
       ]),
     ]
-    return ['brv-server.js', 'agent-process.js', ...brvScripts]
-  }
-
-  /**
-   * Build a pid→cwd map from `lsof -d cwd -Fn` output.
-   *
-   * On macOS, `-p <pid>` is ignored and lsof returns ALL processes.
-   * Output format per process: `p<pid>\nfcwd\nn<cwd_path>`.
-   * Returns empty map if lsof is unavailable.
-   */
-  private static buildCwdByPid(): Map<number, string> {
-    const cwdByPid = new Map<number, string>()
-    try {
-      const lsofResult = spawnSync('lsof', ['-d', 'cwd', '-Fn'], {encoding: 'utf8'})
-      if (!lsofResult.stdout) return cwdByPid
-      const lines = lsofResult.stdout.split('\n')
-      let curPid = -1
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith('p')) {
-          curPid = Number.parseInt(lines[i].slice(1), 10)
-        } else if (lines[i] === 'fcwd' && curPid > 0 && lines[i + 1]?.startsWith('n')) {
-          cwdByPid.set(curPid, lines[i + 1].slice(1))
-        }
-      }
-    } catch {
-      // lsof unavailable — caller falls back to relative-path patterns
-    }
-
-    return cwdByPid
-  }
-
-  /**
-   * Kill matching brv processes on macOS by scanning all processes via `ps`.
-   *
-   * For processes started with a relative path (e.g. `./bin/dev.js`), the literal
-   * relative path is in the OS cmdline — absolute-path patterns won't match.
-   * Resolves relative .js paths using buildCwdByPid() to avoid false positives
-   * (e.g. `byterover-cli-clone/bin/dev.js` must not match `byterover-cli/bin/dev.js`).
-   *
-   * When cwd is resolved: check only absolute patterns (precise, no false positives).
-   * When cwd is unavailable: also check relative fallback patterns (./bin/dev.js).
-   */
-  private static killByMacOsProcScan(patterns: string[], excludePids: Set<number>): void {
-    const psResult = spawnSync('ps', ['-A', '-o', 'pid,args'], {encoding: 'utf8'})
-    if (!psResult.stdout) return
-
-    const cwdByPid = Restart.buildCwdByPid()
-
-    for (const line of psResult.stdout.split('\n').slice(1)) {
-      const match = /^\s*(\d+)\s+(.+)$/.exec(line)
-      if (!match) continue
-      const pid = Number.parseInt(match[1], 10)
-      const rawCmdline = match[2].trim()
-      if (Number.isNaN(pid) || excludePids.has(pid)) continue
-
-      // Resolve relative .js path using cwd map to get an absolute path for matching.
-      let cmdline = rawCmdline
-      let cwdResolved = false
-      const relativeJs = rawCmdline.split(/\s+/).find((a) => a.endsWith('.js') && !a.startsWith('/'))
-      if (relativeJs) {
-        const cwd = cwdByPid.get(pid)
-        if (cwd) {
-          cmdline = rawCmdline.replace(relativeJs, join(cwd, relativeJs))
-          cwdResolved = true
-        }
-      }
-
-      for (const pattern of patterns) {
-        // When cwd resolved to absolute path, skip relative fallback patterns (those starting with
-        // './') — the resolved cmdline no longer contains relative paths, so these won't match.
-        // Prevents false positives against other projects (e.g. byterover-cli-clone) that also
-        // run ./bin/dev.js when lsof is unavailable and cwd cannot be resolved.
-        if (cwdResolved && pattern.startsWith('./')) continue
-        if (cmdline.includes(pattern)) {
-          try {
-            process.kill(pid, 'SIGKILL')
-          } catch {
-            // Process already dead — ignore
-          }
-
-          break
-        }
-      }
-    }
   }
 
   /**
@@ -170,17 +74,8 @@ All open sessions and background processes are stopped before the fresh start.`
 
   /**
    * Kill matching brv processes on Linux by scanning /proc/<pid>/cmdline.
-   *
-   * For processes started with a relative path (e.g. `./bin/dev.js`), resolves
-   * the path using /proc/<pid>/cwd so absolute-path patterns match correctly
-   * without false positives.
-   *
-   * When cwd is resolved: check only absolute patterns (precise, no false positives).
-   * When cwd is unavailable: also check relative fallback patterns (./bin/dev.js).
-   * Mirrors the macOS killByMacOsProcScan behavior.
-   *
-   * Works on all Linux distros including Alpine — /proc is a kernel feature,
-   * no userspace tools required.
+   * Simple substring match — no cwd resolution needed.
+   * Works on all Linux distros including Alpine — /proc is a kernel feature.
    */
   private static killByProcScan(patterns: string[], excludePids: Set<number>): void {
     let entries: string[]
@@ -194,34 +89,9 @@ All open sessions and background processes are stopped before the fresh start.`
       const pid = Number.parseInt(entry, 10)
       if (Number.isNaN(pid) || excludePids.has(pid)) continue
       try {
-        const args = readFileSync(join('/proc', entry, 'cmdline'), 'utf8')
-          .split('\0')
-          .filter(Boolean)
-        let cmdline = args.join(' ')
-
-        // Resolve relative .js path using /proc/<pid>/cwd to match against absolute-path patterns.
-        // Without this, `./bin/dev.js` would not match `byterover-cli/bin/dev.js`.
-        let cwdResolved = false
-        const relativeJs = args.find((a) => a.endsWith('.js') && !a.startsWith('/'))
-        if (relativeJs) {
-          try {
-            const cwd = readlinkSync(join('/proc', entry, 'cwd'))
-            cmdline = cmdline.replace(relativeJs, join(cwd, relativeJs))
-            cwdResolved = true
-          } catch {
-            // cwd unreadable — use original cmdline
-          }
-        }
-
-        for (const pattern of patterns) {
-          // When cwd resolved to absolute path, skip relative fallback patterns (those starting with
-          // './') — the resolved cmdline no longer contains relative paths, so these won't match.
-          // Prevents false positives against other oclif CLIs that also run ./bin/dev.js.
-          if (cwdResolved && pattern.startsWith('./')) continue
-          if (cmdline.includes(pattern)) {
-            process.kill(pid, 'SIGKILL')
-            break // Already killing this PID — no need to check remaining patterns
-          }
+        const cmdline = readFileSync(join('/proc', entry, 'cmdline'), 'utf8')
+        if (patterns.some((p) => cmdline.includes(p))) {
+          process.kill(pid, 'SIGKILL')
         }
       } catch {
         // Process exited or permission denied — ignore
@@ -230,35 +100,55 @@ All open sessions and background processes are stopped before the fresh start.`
   }
 
   /**
-   * Best-effort pattern kill for all brv processes (daemon, agents, TUI sessions, MCP servers,
-   * headless commands). Errors are silently ignored.
+   * Kill matching brv processes on macOS by scanning all processes via `ps`.
+   * Simple substring match — no cwd resolution needed because patterns
+   * are either unique filenames (brv-server.js) or absolute paths.
+   */
+  private static killByPsScan(patterns: string[], excludePids: Set<number>): void {
+    const psResult = spawnSync('ps', ['-A', '-o', 'pid,args'], {encoding: 'utf8'})
+    if (!psResult.stdout) return
+
+    for (const line of psResult.stdout.split('\n').slice(1)) {
+      const match = /^\s*(\d+)\s+(.+)$/.exec(line)
+      if (!match) continue
+      const pid = Number.parseInt(match[1], 10)
+      const cmdline = match[2]
+      if (Number.isNaN(pid) || excludePids.has(pid)) continue
+
+      if (patterns.some((p) => cmdline.includes(p))) {
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {
+          // Process already dead — ignore
+        }
+      }
+    }
+  }
+
+  /**
+   * Pattern-kill brv processes matching the given patterns.
    *
-   * Relative paths (e.g. `./bin/dev.js`) are resolved via cwd before pattern matching,
-   * ensuring accuracy without false positives from other oclif CLIs.
+   * Self-exclusion: own PID and parent PID are always filtered out.
+   * The parent PID exclusion protects the oclif bin/brv bash wrapper
+   * on bundled installs (it does not use exec, so bash remains as parent).
    *
    * OS dispatch:
-   *   Linux (incl. Alpine, WSL2): /proc scan + /proc/<pid>/cwd resolution
-   *   macOS:                      ps -A scan + lsof cwd resolution
+   *   Linux (incl. Alpine, WSL2): /proc scan
+   *   macOS:                      ps -A scan
    *   Windows:                    PowerShell Get-CimInstance — available Windows 8+ / PS 3.0+
-   *
-   * Self-exclusion: own PID filtered on Unix; excluded explicitly in PowerShell query.
    */
-  private static patternKill(): void {
-    const brvBinDir = dirname(process.argv[1])
-    const allPatterns = Restart.buildKillPatterns(brvBinDir, process.argv[1])
-    // Exclude both the current node process and its parent shell wrapper (install.sh installs
-    // use a shell script that forks node — killing the wrapper garbles terminal output).
+  private static patternKill(patterns: string[]): void {
     const excludePids = new Set([process.pid, process.ppid])
 
     if (process.platform === 'win32') {
-      const whereClause = allPatterns.map((p) => `$_.CommandLine -like '*${p}*'`).join(' -or ')
+      const whereClause = patterns.map((p) => `$_.CommandLine -like '*${p}*'`).join(' -or ')
       const script = `Get-CimInstance Win32_Process | Where-Object { (${whereClause}) -and $_.ProcessId -ne ${process.pid} -and $_.ProcessId -ne ${process.ppid} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
       spawnSync('powershell', ['-Command', script], {stdio: 'ignore'})
     } else if (process.platform === 'linux') {
-      Restart.killByProcScan(allPatterns, excludePids)
+      Restart.killByProcScan(patterns, excludePids)
     } else {
-      // macOS (and other Unix): ps -A scan with lsof cwd resolution for relative paths
-      Restart.killByMacOsProcScan(allPatterns, excludePids)
+      // macOS (and other Unix): ps -A scan
+      Restart.killByPsScan(patterns, excludePids)
     }
   }
 
@@ -271,9 +161,7 @@ All open sessions and background processes are stopped before the fresh start.`
   /**
    * Polls until the process with the given PID is no longer alive.
    * Uses `process.kill(pid, 0)` — sends no signal, just checks existence.
-   * On ESRCH the PID is confirmed dead. Silently times out if the process
-   * outlives timeoutMs (e.g. zombie held by parent).
-   * Unix only — on Windows, taskkill /f is synchronous so no polling needed.
+   * On ESRCH the PID is confirmed dead.
    */
   private static async waitForPidToDie(pid: number, timeoutMs: number): Promise<void> {
     const deadline = Date.now() + timeoutMs
@@ -287,7 +175,28 @@ All open sessions and background processes are stopped before the fresh start.`
       // eslint-disable-next-line no-await-in-loop -- intentional poll loop
       await Restart.sleep(KILL_VERIFY_POLL_MS)
     }
-    // Timed out — continue anyway; retry loop will kill again if still alive
+    // Timed out — continue anyway
+  }
+
+  /**
+   * Polls until the process is dead, returning true if it exited.
+   * Used for SIGTERM → SIGKILL flow where we need to know whether
+   * graceful shutdown succeeded before falling back to force kill.
+   */
+  private static async waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      try {
+        process.kill(pid, 0)
+      } catch {
+        return true // ESRCH = dead
+      }
+
+      // eslint-disable-next-line no-await-in-loop -- intentional poll loop
+      await Restart.sleep(KILL_VERIFY_POLL_MS)
+    }
+
+    return false
   }
 
   protected cleanupAllDaemonFiles(dataDir: string): void {
@@ -305,65 +214,52 @@ All open sessions and background processes are stopped before the fresh start.`
     process.exit(code)
   }
 
-  protected async killAllBrvProcesses(dataDir: string): Promise<void> {
-    this.log('Stopping processes...')
-
-    // Read PID directly from daemon.json — no health-check filtering.
-    const info = new GlobalInstanceManager({dataDir}).load()
-    if (info !== undefined) {
-      Restart.killByPid(info.pid)
-      // Verify the daemon PID is dead before pattern-killing the rest.
-      // taskkill /f on Windows is synchronous so polling is only needed on Unix.
-      if (process.platform !== 'win32') {
-        await Restart.waitForPidToDie(info.pid, KILL_VERIFY_TIMEOUT_MS)
-      }
-    }
-
-    // Always run pattern kill — catches processes not in daemon.json
-    // (agents, TUI sessions, MCP servers, headless commands).
-    Restart.patternKill()
-
-    await Restart.sleep(KILL_SETTLE_MS)
-  }
-
   async run(): Promise<void> {
-    const serverPath = resolveLocalServerMainPath()
     const dataDir = getGlobalDataDir()
 
-    /* eslint-disable no-await-in-loop -- intentional sequential retry loop */
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      if (attempt > 1) {
-        this.log(`Attempt ${attempt}/${MAX_ATTEMPTS}...`)
+    // Phase 1: Kill all client processes first (TUI, MCP, headless commands).
+    // Must happen BEFORE daemon kill — clients have reconnectors that will
+    // respawn the daemon via ensureDaemonRunning() if they detect disconnection.
+    // Self excluded by process.pid / process.ppid.
+    this.log('Stopping clients...')
+    Restart.patternKill(Restart.buildCliPatterns())
+    await Restart.sleep(KILL_SETTLE_MS)
+
+    // Phase 2: Graceful daemon kill via daemon.json PID.
+    // SIGTERM triggers ShutdownHandler → stops agents, transport, releases daemon.json.
+    // Safe now because all clients are dead — no one can respawn daemon.
+    const info = new GlobalInstanceManager({dataDir}).load()
+    if (info !== undefined) {
+      this.log(`Stopping daemon (PID ${info.pid})...`)
+
+      let stopped = false
+      try {
+        process.kill(info.pid, 'SIGTERM')
+        stopped = await Restart.waitForProcessExit(info.pid, SIGTERM_BUDGET_MS)
+      } catch {
+        stopped = true // ESRCH = already dead
       }
 
-      await this.killAllBrvProcesses(dataDir)
-      this.cleanupAllDaemonFiles(dataDir)
-
-      this.log('Starting daemon...')
-      const result = await this.startDaemon(serverPath)
-
-      if (result.success) {
-        this.log(`Daemon started (PID ${result.info.pid}, port ${result.info.port})`)
-        break
-      }
-
-      const detail = result.spawnError ? ` (${result.spawnError})` : ''
-      if (attempt < MAX_ATTEMPTS) {
-        this.log(`Daemon did not start (${result.reason}${detail}). Retrying...`)
-      } else {
-        this.error(`Failed to start daemon after ${MAX_ATTEMPTS} attempts: ${result.reason}${detail}`)
+      if (!stopped) {
+        Restart.killByPid(info.pid)
+        if (process.platform !== 'win32') {
+          await Restart.waitForPidToDie(info.pid, KILL_VERIFY_TIMEOUT_MS)
+        }
       }
     }
-    /* eslint-enable no-await-in-loop */
+
+    // Phase 3: Kill orphaned server/agent processes not tracked in daemon.json.
+    Restart.patternKill(Restart.SERVER_AGENT_PATTERNS)
+    await Restart.sleep(KILL_SETTLE_MS)
+
+    // Phase 4: Clean state files.
+    this.cleanupAllDaemonFiles(dataDir)
+
+    this.log('All ByteRover processes stopped.')
 
     // Force exit — oclif does not call process.exit() after run() returns,
-    // relying on the event loop to drain. In production, third-party plugin
-    // hooks (e.g. @oclif/plugin-update) can leave open handles that prevent
-    // the process from exiting naturally. mcp.ts uses the same pattern.
+    // relying on the event loop to drain. Third-party plugin hooks (e.g.
+    // @oclif/plugin-update) can leave open handles that prevent exit.
     this.exitProcess(0)
-  }
-
-  protected async startDaemon(serverPath: string): Promise<EnsureDaemonResult> {
-    return ensureDaemonRunning({serverPath, timeoutMs: DAEMON_START_TIMEOUT_MS})
   }
 }
