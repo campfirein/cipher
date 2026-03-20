@@ -932,6 +932,8 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     const results: SearchKnowledgeResult['results'] = []
     const propagationInputs: Array<{bm25Score: number; path: string; score: number}> = []
 
+    let scoreFloor: number | undefined
+
     if (searchResults.length > 0) {
       // OOD detection: if the best result scores below the minimum floor,
       // the query has no meaningful match in the knowledge base.
@@ -961,7 +963,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       }
 
       const topScore = searchResults[0].score
-      const scoreFloor = topScore * SCORE_GAP_RATIO
+      scoreFloor = topScore * SCORE_GAP_RATIO
       const resultLimit = Math.min(limit, searchResults.length)
 
       for (let i = 0; i < resultLimit; i++) {
@@ -1013,6 +1015,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     // Propagate scores upward to parent domain/topic nodes (hierarchical retrieval)
     const propagated = propagateScoresToParents(propagationInputs, symbolTree, summaryMap)
     for (const p of propagated) {
+      if (scoreFloor !== undefined && p.score < scoreFloor) continue
       if (options?.includeKinds && p.symbolKind && !options.includeKinds.includes(p.symbolKind)) continue
       if (options?.excludeKinds && p.symbolKind && options.excludeKinds.includes(p.symbolKind)) continue
       if (options?.minMaturity && p.symbolKind === 'summary') {

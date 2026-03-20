@@ -73,8 +73,10 @@ export class AbstractGenerationQueue {
     // Guard against paths that must never trigger abstract generation:
     // - derived artifacts (.abstract.md, .overview.md) — would produce .abstract.abstract.md
     // - summary index files (_index.md) — domain/topic summaries, not knowledge nodes
+    // - hierarchy scaffolding (context.md) — helper files, not leaf knowledge entries
     const fileName = item.contextPath.split('/').at(-1) ?? item.contextPath
     if (
+      fileName === 'context.md' ||
       fileName === '_index.md' ||
       item.contextPath.endsWith('.abstract.md') ||
       item.contextPath.endsWith('.overview.md')

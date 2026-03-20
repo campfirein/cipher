@@ -75,6 +75,13 @@ describe('AbstractGenerationQueue', () => {
       expect(q.getStatus().pending).to.equal(1)
     })
 
+    it('ignores helper files that should never generate abstracts', () => {
+      const q = new AbstractGenerationQueue(tmpDir)
+      q.enqueue({contextPath: join(tmpDir, 'context.md'), fullContent: 'helper'})
+      q.enqueue({contextPath: join(tmpDir, '_index.md'), fullContent: 'summary'})
+      expect(q.getStatus().pending).to.equal(0)
+    })
+
     it('includes items in retry backoff in the pending count', async () => {
       const {generator, rejectNextCall} = makeControlledGenerator(sandbox)
       const q = new AbstractGenerationQueue(tmpDir, 2) // maxAttempts=2 → one retry
