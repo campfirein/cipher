@@ -1026,6 +1026,8 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
     if (propagated.length > 0) {
       results.sort((a, b) => b.score - a.score)
+      // Trim back to the caller-requested limit after propagated entries are merged in.
+      if (results.length > limit) results.splice(limit)
     }
 
     // Accumulate access hits for returned results (flushed during next index rebuild).
