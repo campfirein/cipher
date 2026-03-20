@@ -139,6 +139,13 @@ export interface ProjectLocationDTO {
 }
 
 export interface StatusDTO {
+  /** Current state of the background abstract generation queue, if active */
+  abstractQueue?: {
+    failed: number
+    pending: number
+    processed: number
+    processing: boolean
+  }
   authStatus: 'expired' | 'logged_in' | 'not_logged_in' | 'unknown'
   contextTreeChanges?: ContextTreeChanges
   /** Absolute path to the context tree directory (e.g., '/Users/foo/project/.brv/context-tree') */

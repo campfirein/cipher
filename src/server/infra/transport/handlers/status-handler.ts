@@ -1,3 +1,4 @@
+import {readFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {StatusDTO} from '../../../../shared/transport/types/dto.js'
@@ -82,6 +83,15 @@ export class StatusHandler {
         }
       }
     } catch {}
+
+    // Abstract generation queue status (written by agent process via abstract-queue.ts)
+    try {
+      const queueStatusPath = join(projectPath, BRV_DIR, '_queue_status.json')
+      const raw = await readFile(queueStatusPath, 'utf8')
+      result.abstractQueue = JSON.parse(raw) as StatusDTO['abstractQueue']
+    } catch {
+      // File doesn't exist yet — no queue running
+    }
 
     // Context tree status
     try {

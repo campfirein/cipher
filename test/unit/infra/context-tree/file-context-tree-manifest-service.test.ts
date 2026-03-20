@@ -267,6 +267,18 @@ describe('FileContextTreeManifestService', () => {
       const result = await service.readManifestIfFresh(testDir)
       expect(result).to.be.null
     })
+
+    it('should return null when an abstract file is added after build', async () => {
+      const domainDir = join(contextTreeDir, 'auth')
+      await mkdir(domainDir, {recursive: true})
+      await writeFile(join(domainDir, 'tokens.md'), '# Tokens')
+
+      await service.buildManifest(testDir)
+      await writeFile(join(domainDir, 'tokens.abstract.md'), 'Short abstract')
+
+      const result = await service.readManifestIfFresh(testDir)
+      expect(result).to.be.null
+    })
   })
 
   describe('resolveForInjection', () => {

@@ -9,6 +9,7 @@ import type { IProcessService } from '../../core/interfaces/i-process-service.js
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
 import type { ITodoStorage } from '../../core/interfaces/i-todo-storage.js'
 import type { ITokenizer } from '../../core/interfaces/i-tokenizer.js'
+import type { AbstractGenerationQueue } from '../map/abstract-queue.js'
 import type { MemoryManager } from '../memory/memory-manager.js'
 import type { ToolProviderGetter } from './tool-provider-getter.js'
 
@@ -20,6 +21,7 @@ import { createCurateTool } from './implementations/curate-tool.js'
 import { createExpandKnowledgeTool } from './implementations/expand-knowledge-tool.js'
 import { createGlobFilesTool } from './implementations/glob-files-tool.js'
 import { createGrepContentTool } from './implementations/grep-content-tool.js'
+import { createIngestResourceTool } from './implementations/ingest-resource-tool.js'
 import { createListDirectoryTool } from './implementations/list-directory-tool.js'
 import { createLlmMapTool } from './implementations/llm-map-tool.js'
 import { createReadFileTool } from './implementations/read-file-tool.js'
@@ -33,6 +35,9 @@ import { ToolMarker } from './tool-markers.js'
  * Tools declare which services they need via requiredServices.
  */
 export interface ToolServices {
+  /** Abstract generation queue for background L0/L1 abstract file generation */
+  abstractQueue?: AbstractGenerationQueue
+
   /** Agent instance for creating sub-sessions (used by agentic_map) */
   agentInstance?: ICipherAgent
 
@@ -155,7 +160,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.CODE_EXEC]: {
     descriptionFile: 'code_exec',
-    factory({ environmentContext, fileSystemService, sandboxService }) {
+    factory({ abstractQueue, environmentContext, fileSystemService, sandboxService }) {
       const sandbox = getRequiredService(sandboxService, 'sandboxService')
 
       // Inject file system service into sandbox for Tools SDK
@@ -171,7 +176,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
       // Inject curate service into sandbox for Tools SDK
       if (sandbox.setCurateService) {
-        const curateService = createCurateService(environmentContext?.workingDirectory)
+        const curateService = createCurateService(environmentContext?.workingDirectory, abstractQueue)
         sandbox.setCurateService(curateService)
       }
 
@@ -188,10 +193,11 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.CURATE]: {
     descriptionFile: 'curate',
-    factory: ({ environmentContext }) => createCurateTool(environmentContext?.workingDirectory),
+    factory: ({ abstractQueue, environmentContext }) =>
+      createCurateTool(environmentContext?.workingDirectory, abstractQueue),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Modification],
     outputGuidance: 'curate',
-    requiredServices: [], // Uses DirectoryManager and MarkdownWriter for file operations
+    requiredServices: [],
   },
 
   [ToolName.EXPAND_KNOWLEDGE]: {
@@ -214,6 +220,18 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
     factory: (services) => createGrepContentTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
     markers: [ToolMarker.Core, ToolMarker.Discovery],
     requiredServices: ['fileSystemService'],
+  },
+
+  [ToolName.INGEST_RESOURCE]: {
+    factory: ({ abstractQueue, contentGenerator, environmentContext, fileSystemService }) =>
+      createIngestResourceTool({
+        abstractQueue,
+        baseDirectory: environmentContext?.workingDirectory,
+        contentGenerator,
+        fileSystem: fileSystemService,
+      }),
+    markers: [ToolMarker.ContextBuilding, ToolMarker.Modification],
+    requiredServices: ['contentGenerator', 'fileSystemService'],
   },
 
   [ToolName.LIST_DIRECTORY]: {

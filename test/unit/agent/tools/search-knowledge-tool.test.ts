@@ -877,8 +877,8 @@ describe('Search Knowledge Tool', () => {
       expect((secondBatch[0] as SearchKnowledgeOutput).results).to.be.an('array')
       expect((secondBatch[1] as SearchKnowledgeOutput).results).to.be.an('array')
 
-      // Second batch should trigger exactly one more build (not two)
-      expect(readFileStub.callCount).to.equal(2)
+      // Second batch triggers one more build (not two) + one readFile from access-hit flush = 3 total
+      expect(readFileStub.callCount).to.equal(3)
     })
 
     it('should not deadlock when multiple tools execute concurrently', async () => {
@@ -936,6 +936,175 @@ describe('Search Knowledge Tool', () => {
         expect((result as SearchKnowledgeOutput).results).to.deep.equal([])
         expect((result as SearchKnowledgeOutput).message).to.include('empty')
       }
+    })
+  })
+
+  // ── Summary hotness ranking ────────────────────────────────────────────────
+
+  describe('Summary hotness ranking', () => {
+    it('_index.md frontmatter scoring elevates core domain summary above draft domain', async () => {
+      // Two domains with identical BM25 content so scores differ only due to _index.md scoring
+      listDirectoryStub.resolves({count: 4, entries: [], tree: '', truncated: false})
+
+      // baseDirectory='/test' → contextTreePath='/test/.brv/context-tree' → glob paths strip correctly
+      globFilesStub.resolves({
+        files: [
+          {isDirectory: false, modified: new Date('2024-01-01'), path: '/test/.brv/context-tree/auth/jwt.md', size: 100},
+          {isDirectory: false, modified: new Date('2024-01-01'), path: '/test/.brv/context-tree/auth/_index.md', size: 150},
+          {isDirectory: false, modified: new Date('2024-01-01'), path: '/test/.brv/context-tree/api/design.md', size: 100},
+          {isDirectory: false, modified: new Date('2024-01-01'), path: '/test/.brv/context-tree/api/_index.md', size: 100},
+        ],
+        ignoredCount: 0,
+        message: 'Found 4 files',
+        totalFound: 4,
+        truncated: false,
+      })
+
+      readFileStub.callsFake((filePath: string) => {
+        // auth _index.md: high importance + core maturity
+        if (filePath.includes('auth') && filePath.includes('_index')) {
+          return Promise.resolve({
+            content:
+              '---\ncondensation_order: 1\nimportance: 90\nmaturity: core\nrecency: 0.9\ntoken_count: 100\ntype: summary\n---\nAuth domain summary.',
+            encoding: 'utf8',
+            lines: 3,
+            size: 150,
+            totalLines: 3,
+            truncated: false,
+          })
+        }
+
+        // api _index.md: low importance + draft maturity
+        if (filePath.includes('api') && filePath.includes('_index')) {
+          return Promise.resolve({
+            content:
+              '---\ncondensation_order: 1\nimportance: 20\nmaturity: draft\nrecency: 0.2\ntoken_count: 50\ntype: summary\n---\nApi domain summary.',
+            encoding: 'utf8',
+            lines: 3,
+            size: 100,
+            totalLines: 3,
+            truncated: false,
+          })
+        }
+
+        // Both leaf documents have identical content to equalise base BM25 scores
+        return Promise.resolve({
+          content: '# Security Module\n\nHandles security token validation and renewal.',
+          encoding: 'utf8',
+          lines: 3,
+          size: 80,
+          totalLines: 3,
+          truncated: false,
+        })
+      })
+
+      const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 0})
+      const result = (await tool.execute({query: 'security token'})) as {
+        message: string
+        results: Array<{excerpt: string; path: string; score: number; symbolKind?: string; title: string}>
+        totalFound: number
+      }
+
+      const summaryResults = result.results.filter((r) => r.symbolKind === 'summary')
+      expect(summaryResults.length).to.be.greaterThanOrEqual(2)
+
+      const authSummary = summaryResults.find((r) => r.path === 'auth')
+      const apiSummary = summaryResults.find((r) => r.path === 'api')
+
+      expect(authSummary).to.exist
+      expect(apiSummary).to.exist
+      // core/high-importance domain must outscore the draft/low-importance domain
+      expect(authSummary!.score).to.be.greaterThan(apiSummary!.score)
+    })
+
+    it('filters propagated summary results by minMaturity', async () => {
+      listDirectoryStub.resolves({count: 2, entries: [], tree: '', truncated: false})
+      globFilesStub.resolves({
+        files: [
+          {isDirectory: false, modified: new Date('2024-01-01'), path: '/test/.brv/context-tree/auth/jwt.md', size: 100},
+          {isDirectory: false, modified: new Date('2024-01-01'), path: '/test/.brv/context-tree/auth/_index.md', size: 120},
+        ],
+        ignoredCount: 0,
+        message: 'Found 2 files',
+        totalFound: 2,
+        truncated: false,
+      })
+
+      readFileStub.callsFake((filePath: string) => {
+        if (filePath.includes('_index')) {
+          return Promise.resolve({
+            content:
+              '---\ncondensation_order: 1\nimportance: 70\nmaturity: draft\nrecency: 0.9\ntoken_count: 100\ntype: summary\n---\nAuth domain summary.',
+            encoding: 'utf8',
+            lines: 3,
+            size: 120,
+            totalLines: 3,
+            truncated: false,
+          })
+        }
+
+        return Promise.resolve({
+          content: '---\nimportance: 90\nmaturity: core\n---\n# JWT\n\nSecurity token handling.',
+          encoding: 'utf8',
+          lines: 4,
+          size: 100,
+          totalLines: 4,
+          truncated: false,
+        })
+      })
+
+      const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 0})
+      const result = (await tool.execute({minMaturity: 'core', query: 'security token'})) as {
+        results: Array<{path: string; symbolKind?: string}>
+      }
+
+      expect(result.results.some((r) => r.path === 'auth' && r.symbolKind === 'summary')).to.equal(false)
+      expect(result.results.some((r) => r.path === 'auth/jwt.md')).to.equal(true)
+    })
+
+    it('filters weak propagated summary results by the score gap ratio', async () => {
+      listDirectoryStub.resolves({count: 2, entries: [], tree: '', truncated: false})
+      globFilesStub.resolves({
+        files: [
+          {isDirectory: false, modified: new Date('2024-01-01'), path: '/test/.brv/context-tree/auth/jwt.md', size: 100},
+          {isDirectory: false, modified: new Date('2024-01-01'), path: '/test/.brv/context-tree/auth/_index.md', size: 120},
+        ],
+        ignoredCount: 0,
+        message: 'Found 2 files',
+        totalFound: 2,
+        truncated: false,
+      })
+
+      readFileStub.callsFake((filePath: string) => {
+        if (filePath.includes('_index')) {
+          return Promise.resolve({
+            content:
+              '---\ncondensation_order: 1\nimportance: 5\nmaturity: draft\nrecency: 0.1\ntoken_count: 100\ntype: summary\n---\nWeak auth domain summary.',
+            encoding: 'utf8',
+            lines: 3,
+            size: 120,
+            totalLines: 3,
+            truncated: false,
+          })
+        }
+
+        return Promise.resolve({
+          content: '---\nimportance: 95\nmaturity: core\nrecency: 1\n---\n# JWT\n\nSecurity token handling and renewal.',
+          encoding: 'utf8',
+          lines: 4,
+          size: 100,
+          totalLines: 4,
+          truncated: false,
+        })
+      })
+
+      const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 0})
+      const result = (await tool.execute({query: 'security token'})) as {
+        results: Array<{path: string; symbolKind?: string}>
+      }
+
+      expect(result.results.some((r) => r.path === 'auth/jwt.md')).to.equal(true)
+      expect(result.results.some((r) => r.path === 'auth' && r.symbolKind === 'summary')).to.equal(false)
     })
   })
 })

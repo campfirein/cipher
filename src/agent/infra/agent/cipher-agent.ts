@@ -27,6 +27,9 @@ import {AgentEventBus} from '../events/event-emitter.js'
 import {createGeneratorForProvider} from '../llm/providers/index.js'
 import {EventBasedLogger} from '../logger/event-based-logger.js'
 import {deregisterRootEligibleSession, registerRootEligibleSession} from '../map/agentic-map-service.js'
+import {MemoryDeduplicator} from '../memory/memory-deduplicator.js'
+import {createCurateService} from '../sandbox/curate-service.js'
+import {SessionCompressor} from '../session/session-compressor.js'
 import {SessionManager} from '../session/session-manager.js'
 import {TransportEventBridge} from '../transport/transport-event-bridge.js'
 import {AgentError} from './agent-error.js'
@@ -76,7 +79,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * Used for bulk deregistration on agent teardown (cleanupServices).
    */
   private readonly rootEligibleSessions = new Set<string>()
+  /** Lazily-created session compressor, rebuilt on each rebindCurateTools() call. */
+  private sessionCompressor?: SessionCompressor
   private sessionManager?: SessionManager
+  /** Tracks user-facing task sessions for post-session memory extraction. */
+  private readonly userFacingTaskSessions = new Set<string>()
 
   /**
    * Creates a new CipherAgent instance.
@@ -198,6 +205,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   // === Public Methods (alphabetical order) ===
 
   protected override async cleanupServices(): Promise<void> {
+    // Drain abstract generation queue before session disposal
+    if (this.services?.abstractQueue) {
+      await this.services.abstractQueue.drain()
+    }
+
     // Abort all active streams and clear controllers
     for (const controller of this.activeStreamControllers.values()) {
       controller.abort()
@@ -259,7 +271,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   public async createTaskSession(
     taskId: string,
     commandType: string,
-    options?: {mapRootEligible?: boolean},
+    options?: {mapRootEligible?: boolean; userFacing?: boolean},
   ): Promise<string> {
     this.ensureStarted()
     const sessionMgr = this.getSessionManagerInternal()
@@ -277,6 +289,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // is skipped here — processItem sets its own isRootCaller: false record.
     if (options?.mapRootEligible) {
       this.registerSessionInternal(childSession.id)
+    }
+
+    // Track user-facing sessions for post-session memory extraction.
+    if (options?.userFacing) {
+      this.userFacingTaskSessions.add(childSession.id)
     }
 
     return childSession.id
@@ -327,6 +344,24 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    */
   public async deleteTaskSession(sessionId: string): Promise<void> {
     this.ensureStarted()
+
+    // Compress memories for user-facing sessions before disposal (fail-open).
+    if (this.userFacingTaskSessions.has(sessionId) && this.sessionCompressor) {
+      try {
+        const session = this.getSessionManagerInternal().getSession(sessionId)
+        if (session) {
+          const messages = session.getLLMService().getContextManager().getComprehensiveMessages()
+          const commandType = this.getSessionManagerInternal().getSessionCommandType(sessionId) ?? 'curate'
+          await this.sessionCompressor.compress(messages, commandType).catch(() => {})
+        }
+      } catch {
+        // Fail-open: synchronous errors in the session accessor chain (e.g. corrupted
+        // session state) must not prevent clearSession + deleteSession from running.
+      }
+
+      this.userFacingTaskSessions.delete(sessionId)
+    }
+
     await this.services!.sandboxService.clearSession(sessionId)
     await this.getSessionManagerInternal().deleteSession(sessionId)
 
@@ -589,6 +624,9 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
     // Rebind map tools with fresh generator/tokenizer/maxContextTokens
     this.rebindMapTools(services, httpConfig, sessionLLMConfig)
+
+    // Rebind curate tools with fresh generator + abstract queue
+    this.rebindCurateTools(services, httpConfig, sessionLLMConfig)
   }
 
   /**
@@ -705,6 +743,9 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Uses rebindMapTools() which atomically replaces map tools with fresh deps
     // (generator, tokenizer, maxContextTokens, logger).
     this.rebindMapTools(services, httpConfig, sessionLLMConfig)
+
+    // Wire abstract generation queue with curate generator + rebuild curate service.
+    this.rebindCurateTools(services, httpConfig, sessionLLMConfig)
 
     // Create event bridge if transport client is injected (child process mode).
     // The bridge forwards AgentEventBus llmservice:* events to the transport server.
@@ -1015,6 +1056,45 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * Rebuild map tool dependencies and update ToolProvider + SandboxService.
    * Called from both start() (initial setup) and refreshProviderConfig() (hot-swap).
    */
+  private rebindCurateTools(
+    services: CipherAgentServices,
+    httpConfig: ByteRoverHttpConfig,
+    sessionLLMConfig: SessionLLMConfig,
+  ): void {
+    const curateProvider = sessionLLMConfig.provider
+      ?? (sessionLLMConfig.openRouterApiKey ? 'openrouter' : 'byterover')
+    const curateGenerator = createGeneratorForProvider(curateProvider, {
+      apiKey: curateProvider === 'openrouter'
+        ? (sessionLLMConfig.openRouterApiKey ?? sessionLLMConfig.providerApiKey)
+        : sessionLLMConfig.providerApiKey,
+      baseUrl: sessionLLMConfig.providerBaseUrl,
+      headers: sessionLLMConfig.providerHeaders,
+      httpConfig: httpConfig as unknown as Record<string, unknown>,
+      httpReferer: sessionLLMConfig.httpReferer,
+      maxTokens: 4096,
+      model: sessionLLMConfig.model,
+      siteName: sessionLLMConfig.siteName,
+      temperature: 0,
+    })
+
+    // Wire generator into the abstract queue so background generation can proceed
+    services.abstractQueue.setGenerator(curateGenerator)
+
+    // Rebuild sandbox CurateService with the queue — reuses existing hot-swap path
+    const newCurateService = createCurateService(services.workingDirectory, services.abstractQueue)
+    services.sandboxService.setCurateService?.(newCurateService)
+
+    // Atomically rebuild CURATE + INGEST_RESOURCE tools so both enqueue abstracts
+    services.toolProvider.replaceTools(
+      [ToolName.CURATE, ToolName.INGEST_RESOURCE],
+      {abstractQueue: services.abstractQueue, contentGenerator: curateGenerator},
+    )
+
+    // Rebuild session compressor with the new generator (used in deleteTaskSession)
+    const deduplicator = new MemoryDeduplicator(curateGenerator)
+    this.sessionCompressor = new SessionCompressor(deduplicator, curateGenerator, services.memoryManager)
+  }
+
   private rebindMapTools(
     services: CipherAgentServices,
     httpConfig: ByteRoverHttpConfig,

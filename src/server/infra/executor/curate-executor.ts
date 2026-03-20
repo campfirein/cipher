@@ -69,7 +69,7 @@ export class CurateExecutor implements ICurateExecutor {
       // Fail-open: if snapshot fails, skip summary propagation
     }
 
-    const taskSessionId = await agent.createTaskSession(taskId, 'curate', {mapRootEligible: true})
+    const taskSessionId = await agent.createTaskSession(taskId, 'curate', {mapRootEligible: true, userFacing: true})
     try {
       // Task-scoped variable names for RLM pattern.
       // Replace hyphens with underscores: UUIDs have hyphens which are invalid in JS identifiers,
