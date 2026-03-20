@@ -54,11 +54,10 @@ export class MemoryDeduplicator {
     }
 
     const actions = Array.from<DeduplicationAction>({length: drafts.length})
-    let nextIndex = 0
+    const concurrency = Math.min(DEDUPLICATION_CONCURRENCY, drafts.length)
 
-    const worker = async (): Promise<void> => {
-      while (nextIndex < drafts.length) {
-        const draftIndex = nextIndex++
+    const worker = async (workerIndex: number): Promise<void> => {
+      for (let draftIndex = workerIndex; draftIndex < drafts.length; draftIndex += concurrency) {
         const draft = drafts[draftIndex]
         if (draft.category === 'DECISIONS') {
           actions[draftIndex] = {action: 'CREATE', memory: draft}
@@ -71,7 +70,7 @@ export class MemoryDeduplicator {
     }
 
     await Promise.all(
-      Array.from({length: Math.min(DEDUPLICATION_CONCURRENCY, drafts.length)}, async () => worker()),
+      Array.from({length: concurrency}, async (_, workerIndex) => worker(workerIndex)),
     )
 
     return actions

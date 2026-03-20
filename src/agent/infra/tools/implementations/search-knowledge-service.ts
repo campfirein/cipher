@@ -81,7 +81,7 @@ function normalizeScore(rawScore: number): number {
  * @returns New parent entries only — caller merges and re-sorts
  */
 function propagateScoresToParents(
-  results: Array<{bm25Score: number; path: string; score: number}>,
+  results: Array<{bm25Score: number; path: string}>,
   symbolTree: MemorySymbolTree,
   summaryMap: Map<string, SummaryDocLike>,
   propagationFactor = 0.55,
@@ -930,7 +930,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     searchResults.sort((a, b) => b.score - a.score)
 
     const results: SearchKnowledgeResult['results'] = []
-    const propagationInputs: Array<{bm25Score: number; path: string; score: number}> = []
+    const propagationInputs: Array<{bm25Score: number; path: string}> = []
 
     let scoreFloor: number | undefined
 
@@ -1006,7 +1006,6 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
           propagationInputs.push({
             bm25Score: result.bm25Score,
             path: document.path,
-            score: enriched.score,
           })
         }
       }

@@ -161,8 +161,9 @@ export function createIngestResourceTool(config: IngestResourceConfig = {}): Too
         const facts = mapResult.results[i]
         if (!facts || facts.length === 0) continue
 
-        const fileBaseName = file.path.split('/').at(-1)?.replace(/\.[^.]+$/, '') ?? 'unknown'
-        const topic = file.path.split('/').at(-2) ?? domain
+        const pathSegments = file.path.split('/')
+        const fileBaseName = pathSegments.at(-1)?.replace(/\.[^.]+$/, '') ?? 'unknown'
+        const topic = pathSegments.length > 1 ? (pathSegments.at(-2) ?? fileBaseName) : fileBaseName
 
         const highlights = facts.map((f) => `**${f.subject ?? 'Concept'}**: ${f.statement}`).join('\n\n')
 

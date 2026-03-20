@@ -313,6 +313,8 @@ describe('ingest_resource Tool', () => {
       // File should have been written inside .brv/context-tree
       const contextTreeEntries = await fs.readdir(join(tmpProject, '.brv', 'context-tree'), {recursive: true})
       expect(contextTreeEntries.length).to.be.greaterThan(0)
+      expect(contextTreeEntries).to.include('testdomain/index/index.md')
+      expect(contextTreeEntries).to.not.include('testdomain/testdomain/index.md')
 
       // The workspace root itself should NOT have domain directories written at top level
       const rootEntries = await fs.readdir(tmpProject)

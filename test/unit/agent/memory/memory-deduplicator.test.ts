@@ -58,4 +58,35 @@ describe('MemoryDeduplicator', () => {
     const [action] = await deduplicator.deduplicate([{category: 'PATTERNS', content: 'New draft'}], existing)
     expect(action.action).to.equal('CREATE')
   })
+
+  it('processes each draft exactly once across concurrent workers', async () => {
+    const seenDrafts: string[] = []
+    const generator = {
+      estimateTokensSync: () => 10,
+      generateContent: sandbox.stub().callsFake(async ({contents}: {contents: Array<{content: string}>}) => {
+        const prompt = contents[0].content
+        const match = /## Draft Memory \(category: [^)]+\)\n([\s\S]*?)\n\n## Existing Memories/.exec(prompt)
+        seenDrafts.push(match?.[1] ?? '')
+        return {content: '{"action":"SKIP"}', finishReason: 'stop'}
+      }),
+      generateContentStream: sandbox.stub().rejects(new Error('n/a')),
+    } as unknown as IContentGenerator
+
+    const deduplicator = new MemoryDeduplicator(generator)
+    const existing = [{
+      content: 'Existing memory',
+      createdAt: 0,
+      id: 'm1',
+      updatedAt: 0,
+    }] satisfies Memory[]
+    const drafts = Array.from({length: 8}, (_, index) => ({
+      category: 'PATTERNS' as const,
+      content: `Draft ${index + 1}`,
+    }))
+
+    const actions = await deduplicator.deduplicate(drafts, existing)
+
+    expect(actions).to.have.length(8)
+    expect(seenDrafts.sort()).to.deep.equal(drafts.map((draft) => draft.content).sort())
+  })
 })
