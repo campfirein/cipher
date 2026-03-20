@@ -1,5 +1,5 @@
 import {mkdir, writeFile} from 'node:fs/promises'
-import {basename, join} from 'node:path'
+import {join} from 'node:path'
 
 import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
 
@@ -70,9 +70,15 @@ export class AbstractGenerationQueue {
    * Add a file to the abstract generation queue.
    */
   enqueue(item: {contextPath: string; fullContent: string}): void {
-    // Guard against derived artifacts (e.g. .abstract.md, .overview.md) that should never
-    // trigger re-generation — enqueue paths must point to source context files only.
-    if (item.contextPath.endsWith('.abstract.md') || item.contextPath.endsWith('.overview.md')) {
+    // Guard against paths that must never trigger abstract generation:
+    // - derived artifacts (.abstract.md, .overview.md) — would produce .abstract.abstract.md
+    // - summary index files (_index.md) — domain/topic summaries, not knowledge nodes
+    const fileName = item.contextPath.split('/').at(-1) ?? item.contextPath
+    if (
+      fileName === '_index.md' ||
+      item.contextPath.endsWith('.abstract.md') ||
+      item.contextPath.endsWith('.overview.md')
+    ) {
       return
     }
 
@@ -108,7 +114,7 @@ export class AbstractGenerationQueue {
   }
 
   private async processNext(): Promise<void> {
-    if (!this.generator || this.pending.length === 0) {
+    if (!this.generator || this.processing || this.pending.length === 0) {
       this.resolveDrainersIfIdle()
       return
     }
@@ -117,13 +123,8 @@ export class AbstractGenerationQueue {
     this.queueStatusWrite()
 
     const item = this.pending.shift()!
-    const itemName = basename(item.contextPath)
 
     try {
-      if (itemName === '_index.md' || itemName.endsWith('.abstract.md') || itemName.endsWith('.overview.md')) {
-        return
-      }
-
       const {abstractContent, overviewContent} = await generateFileAbstracts(
         item.fullContent,
         this.generator,

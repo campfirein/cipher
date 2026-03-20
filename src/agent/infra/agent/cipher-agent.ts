@@ -347,11 +347,16 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
     // Compress memories for user-facing sessions before disposal (fail-open).
     if (this.userFacingTaskSessions.has(sessionId) && this.sessionCompressor) {
-      const session = this.getSessionManagerInternal().getSession(sessionId)
-      if (session) {
-        const messages = session.getLLMService().getContextManager().getComprehensiveMessages()
-        const commandType = this.getSessionManagerInternal().getSessionCommandType(sessionId) ?? 'curate'
-        await this.sessionCompressor.compress(messages, commandType).catch(() => {})
+      try {
+        const session = this.getSessionManagerInternal().getSession(sessionId)
+        if (session) {
+          const messages = session.getLLMService().getContextManager().getComprehensiveMessages()
+          const commandType = this.getSessionManagerInternal().getSessionCommandType(sessionId) ?? 'curate'
+          await this.sessionCompressor.compress(messages, commandType).catch(() => {})
+        }
+      } catch {
+        // Fail-open: synchronous errors in the session accessor chain (e.g. corrupted
+        // session state) must not prevent clearSession + deleteSession from running.
       }
 
       this.userFacingTaskSessions.delete(sessionId)

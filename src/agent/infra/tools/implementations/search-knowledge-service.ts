@@ -129,6 +129,9 @@ function propagateScoresToParents(
   return boosted
 }
 
+/** Numeric rank for maturity tiers — used for minMaturity filtering in both BM25 and propagated results. */
+const MATURITY_TIER_RANK: Record<string, number> = {core: 3, draft: 1, validated: 2}
+
 const MINISEARCH_OPTIONS = {
   fields: ['title', 'content', 'path'] as string[],
   idField: 'id' as const,
@@ -990,10 +993,9 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
           }
 
           if (options?.minMaturity && enriched.symbolKind) {
-            const tierRank: Record<string, number> = { core: 3, draft: 1, validated: 2 }
             const symbol = symbolTree.symbolMap.get(document.path)
             const docMaturity = symbol?.metadata.maturity ?? 'draft'
-            if ((tierRank[docMaturity] ?? 1) < (tierRank[options.minMaturity] ?? 1)) {
+            if ((MATURITY_TIER_RANK[docMaturity] ?? 1) < (MATURITY_TIER_RANK[options.minMaturity] ?? 1)) {
               continue
             }
           }
@@ -1014,10 +1016,9 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       if (options?.includeKinds && p.symbolKind && !options.includeKinds.includes(p.symbolKind)) continue
       if (options?.excludeKinds && p.symbolKind && options.excludeKinds.includes(p.symbolKind)) continue
       if (options?.minMaturity && p.symbolKind === 'summary') {
-        const tierRank: Record<string, number> = { core: 3, draft: 1, validated: 2 }
         const summaryDoc = summaryMap.get(`${p.path}/_index.md`)
         const summaryMaturity = summaryDoc?.scoring?.maturity ?? 'draft'
-        if ((tierRank[summaryMaturity] ?? 1) < (tierRank[options.minMaturity] ?? 1)) continue
+        if ((MATURITY_TIER_RANK[summaryMaturity] ?? 1) < (MATURITY_TIER_RANK[options.minMaturity] ?? 1)) continue
       }
 
       results.push(p)
