@@ -96,24 +96,21 @@ describe('Restart Command', () => {
         callOrder.push('phase1:clients')
       }
     })
+    processKillStub.withArgs(9999, 'SIGTERM').callsFake(() => {
+      callOrder.push('phase2:daemon')
+    })
 
     const command = createCommand({pid: 9999, port: 50_000})
-    processKillStub.withArgs(9999, 'SIGTERM').returns(true)
-    processKillStub.callThrough()
 
     await command.run()
 
-    callOrder.push('phase4:cleanup') // cleanupAllDaemonFiles is overridden but still called
-    expect(callOrder[0]).to.equal('phase1:clients')
-    expect(callOrder[1]).to.equal('phase3:orphans')
+    expect(callOrder).to.deep.equal(['phase1:clients', 'phase2:daemon', 'phase3:orphans'])
     expect(command.cleanupCalls).to.have.length(1)
   })
 
   describe('Phase 2: daemon kill', () => {
     it('sends SIGTERM to daemon PID when daemon info exists', async () => {
       const command = createCommand({pid: 1234, port: 50_000})
-      processKillStub.withArgs(1234, 'SIGTERM').returns(true)
-      processKillStub.callThrough()
 
       await command.run()
 
@@ -124,8 +121,6 @@ describe('Restart Command', () => {
     it('falls back to SIGKILL when SIGTERM times out', async () => {
       waitForProcessExitStub.resolves(false) // simulate timeout
       const command = createCommand({pid: 5678, port: 50_000})
-      processKillStub.withArgs(5678, 'SIGTERM').returns(true)
-      processKillStub.callThrough()
 
       await command.run()
 
@@ -136,8 +131,6 @@ describe('Restart Command', () => {
     it('skips SIGKILL when SIGTERM succeeds', async () => {
       waitForProcessExitStub.resolves(true) // graceful exit
       const command = createCommand({pid: 4321, port: 50_000})
-      processKillStub.withArgs(4321, 'SIGTERM').returns(true)
-      processKillStub.callThrough()
 
       await command.run()
 
@@ -147,7 +140,6 @@ describe('Restart Command', () => {
     it('treats ESRCH from SIGTERM as already dead', async () => {
       const command = createCommand({pid: 7777, port: 50_000})
       processKillStub.withArgs(7777, 'SIGTERM').throws(new Error('ESRCH'))
-      processKillStub.callThrough()
 
       await command.run()
 
@@ -166,9 +158,7 @@ describe('Restart Command', () => {
   })
 
   describe('SERVER_AGENT_PATTERNS', () => {
-    it('contains only brv-server.js and agent-process.js', () => {
-      // Access via buildCliPatterns to verify separation — SERVER_AGENT_PATTERNS
-      // is private, so we verify indirectly: buildCliPatterns must NOT include them.
+    it('are excluded from CLI patterns to prevent self-kill', () => {
       const cliPatterns = Restart.buildCliPatterns()
       expect(cliPatterns).to.not.include('brv-server.js')
       expect(cliPatterns).to.not.include('agent-process.js')

@@ -142,7 +142,9 @@ The daemon will restart automatically on the next brv command.`
     const excludePids = new Set([process.pid, process.ppid])
 
     if (process.platform === 'win32') {
-      const whereClause = patterns.map((p) => `$_.CommandLine -like '*${p}*'`).join(' -or ')
+      const whereClause = patterns
+        .map((p) => `$_.CommandLine -like '*${p.replaceAll("'", "''")}*'`)
+        .join(' -or ')
       const script = `Get-CimInstance Win32_Process | Where-Object { (${whereClause}) -and $_.ProcessId -ne ${process.pid} -and $_.ProcessId -ne ${process.ppid} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
       spawnSync('powershell', ['-Command', script], {stdio: 'ignore'})
     } else if (process.platform === 'linux') {

@@ -5,7 +5,7 @@ import {execSync} from 'node:child_process'
 export type RestartAfterUpdateDeps = {
   argv: string[]
   commandId: string | undefined
-  execSyncFn: typeof execSync
+  execSyncFn: (command: string, options: {stdio: 'inherit'}) => void
   log: (msg: string) => void
 }
 

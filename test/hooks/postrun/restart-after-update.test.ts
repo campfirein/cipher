@@ -1,5 +1,4 @@
 import {expect} from 'chai'
-import {execSync} from 'node:child_process'
 import {restore, stub} from 'sinon'
 
 import {handleRestartAfterUpdate} from '../../../src/oclif/hooks/postrun/restart-after-update.js'
@@ -21,7 +20,7 @@ describe('restart-after-update hook', () => {
     await handleRestartAfterUpdate({
       argv: [],
       commandId: 'update',
-      execSyncFn: execSyncStub as unknown as typeof execSync,
+      execSyncFn: execSyncStub,
       log: logStub,
     })
 
@@ -34,7 +33,7 @@ describe('restart-after-update hook', () => {
     await handleRestartAfterUpdate({
       argv: ['--autoupdate'],
       commandId: 'update',
-      execSyncFn: execSyncStub as unknown as typeof execSync,
+      execSyncFn: execSyncStub,
       log: logStub,
     })
 
@@ -46,7 +45,7 @@ describe('restart-after-update hook', () => {
     await handleRestartAfterUpdate({
       argv: [],
       commandId: 'status',
-      execSyncFn: execSyncStub as unknown as typeof execSync,
+      execSyncFn: execSyncStub,
       log: logStub,
     })
 
@@ -60,7 +59,7 @@ describe('restart-after-update hook', () => {
     await handleRestartAfterUpdate({
       argv: [],
       commandId: 'update',
-      execSyncFn: execSyncStub as unknown as typeof execSync,
+      execSyncFn: execSyncStub,
       log: logStub,
     })
 
@@ -72,7 +71,7 @@ describe('restart-after-update hook', () => {
     await handleRestartAfterUpdate({
       argv: [],
       commandId: undefined,
-      execSyncFn: execSyncStub as unknown as typeof execSync,
+      execSyncFn: execSyncStub,
       log: logStub,
     })
 

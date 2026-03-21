@@ -83,6 +83,19 @@ describe('update-notifier hook', () => {
       expect(execSyncStub.called).to.be.false
     })
 
+    it('should do nothing when isTTY is false even if update is available', async () => {
+      await handleUpdateNotification(
+        createDeps({
+          isNpmGlobalInstalled: true,
+          isTTY: false,
+          notifier: {notify: notifyStub, update: {current: '1.0.0', latest: '2.0.0'}},
+        }),
+      )
+
+      expect(confirmStub.called).to.be.false
+      expect(execSyncStub.called).to.be.false
+    })
+
     it('should show notification and prompt when update is available in TTY', async () => {
       confirmStub.resolves(false)
 
