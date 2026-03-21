@@ -89,7 +89,7 @@ describe('OpenAIModelFetcher', () => {
       const models = await fetcher.fetchModels('token', {authMethod: 'oauth'})
 
       for (const model of models) {
-        expect(model.isFree).to.be.true
+        expect(model.isFree).to.be.false
         expect(model.pricing.inputPerM).to.equal(0)
         expect(model.pricing.outputPerM).to.equal(0)
       }
