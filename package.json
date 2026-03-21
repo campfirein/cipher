@@ -130,7 +130,8 @@
       ],
       "command_not_found": "./dist/oclif/hooks/command_not_found/handle-invalid-commands",
       "error": "./dist/oclif/hooks/error/clean-errors",
-      "prerun": "./dist/oclif/hooks/prerun/validate-brv-config-version"
+      "prerun": "./dist/oclif/hooks/prerun/validate-brv-config-version",
+      "update": "./dist/oclif/hooks/update/restart-after-update"
     },
     "plugins": [
       "@oclif/plugin-help",

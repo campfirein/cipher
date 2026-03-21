@@ -63,7 +63,7 @@ export async function handleUpdateNotification(deps: UpdateNotifierDeps): Promis
 
   const shouldUpdate = await confirmPrompt({
     default: true,
-    message: `Update available: ${current} → ${latest}. Would you like to update now?`,
+    message: `Update available: ${current} → ${latest}. Update now? (active sessions will be restarted)`,
   })
 
   if (shouldUpdate) {
@@ -71,9 +71,13 @@ export async function handleUpdateNotification(deps: UpdateNotifierDeps): Promis
     try {
       execSyncFn('npm update -g byterover-cli', {stdio: 'inherit'})
       log('')
-      log(`✓ Successfully updated to ${latest}`)
-      log('')
-      log(`The update will take effect on next launch. Run 'brv' when ready.`)
+      log(`✓ Updated to ${latest}. Restarting...`)
+      try {
+        execSyncFn('brv restart', {stdio: 'inherit'})
+      } catch {
+        // best-effort — update already succeeded, process may have been killed by restart
+      }
+
       exitFn(0)
     } catch {
       log('⚠️  Automatic update failed. Please run manually: npm update -g byterover-cli')

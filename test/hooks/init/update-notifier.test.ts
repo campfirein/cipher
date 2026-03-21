@@ -98,12 +98,12 @@ describe('update-notifier hook', () => {
       expect(confirmStub.calledOnce).to.be.true
       expect(confirmStub.firstCall.args[0]).to.deep.equal({
         default: true,
-        message: 'Update available: 1.0.0 → 2.0.0. Would you like to update now?',
+        message: 'Update available: 1.0.0 → 2.0.0. Update now? (active sessions will be restarted)',
       })
       expect(execSyncStub.called).to.be.false
     })
 
-    it('should execute npm update and exit when user confirms', async () => {
+    it('should execute npm update, run brv restart, and exit when user confirms', async () => {
       confirmStub.resolves(true)
 
       await handleUpdateNotification(
@@ -114,11 +114,31 @@ describe('update-notifier hook', () => {
         }),
       )
 
-      expect(execSyncStub.calledOnce).to.be.true
+      expect(execSyncStub.calledTwice).to.be.true
       expect(execSyncStub.firstCall.args[0]).to.equal('npm update -g byterover-cli')
+      expect(execSyncStub.secondCall.args[0]).to.equal('brv restart')
       expect(logStub.calledWith('Updating byterover-cli...')).to.be.true
-      expect(logStub.calledWith('✓ Successfully updated to 2.0.0')).to.be.true
-      expect(logStub.calledWith(`The update will take effect on next launch. Run 'brv' when ready.`)).to.be.true
+      expect(logStub.calledWith('✓ Updated to 2.0.0. Restarting...')).to.be.true
+      expect(exitStub.calledOnce).to.be.true
+      expect(exitStub.calledWith(0)).to.be.true
+    })
+
+    it('should still exit 0 if brv restart fails after successful npm update', async () => {
+      confirmStub.resolves(true)
+      execSyncStub.onFirstCall().returns(undefined as never)
+      execSyncStub.onSecondCall().throws(new Error('restart failed'))
+
+      await handleUpdateNotification(
+        createDeps({
+          isNpmGlobalInstalled: true,
+          isTTY: true,
+          notifier: {notify: notifyStub, update: {current: '1.0.0', latest: '2.0.0'}},
+        }),
+      )
+
+      expect(execSyncStub.calledTwice).to.be.true
+      expect(execSyncStub.firstCall.args[0]).to.equal('npm update -g byterover-cli')
+      expect(execSyncStub.secondCall.args[0]).to.equal('brv restart')
       expect(exitStub.calledOnce).to.be.true
       expect(exitStub.calledWith(0)).to.be.true
     })
