@@ -1160,7 +1160,6 @@ restart_openclaw_gateway() {
   else
     warn "Failed to stop OpenClaw gateway. You may need to restart it manually."
   fi
-<<<<<<< HEAD
 }
 
 update_workspace_protocols() {
