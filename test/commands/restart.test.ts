@@ -165,6 +165,46 @@ describe('Restart Command', () => {
     })
   })
 
+  describe('protected command exclusion', () => {
+    it('passes skipProtected=true for Phase 1 (CLI clients)', async () => {
+      const command = createCommand()
+
+      await command.run()
+
+      // Phase 1 call has skipProtected=true, Phase 3 does not
+      const phase1Call = patternKillStub.getCall(0)
+      const phase3Call = patternKillStub.getCall(1)
+      expect(phase1Call.args[1]).to.be.true
+      expect(phase3Call.args[1]).to.be.undefined
+    })
+
+    it('isProtectedCommand detects update in null-byte delimited cmdline (Linux)', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const isProtected = (Restart as any).isProtectedCommand.bind(Restart)
+      // Positive: brv update variants
+      expect(isProtected('node\0/usr/lib/byterover-cli/bin/run.js\0update\0')).to.be.true
+      expect(isProtected('node\0/usr/lib/byterover-cli/bin/run.js\0update')).to.be.true
+      expect(isProtected('node\0/usr/lib/byterover-cli/bin/run.js\0update\0--force\0')).to.be.true
+      // Negative: other commands
+      expect(isProtected('node\0/usr/lib/byterover-cli/bin/run.js\0restart\0')).to.be.false
+      expect(isProtected('node\0/usr/lib/byterover-cli/bin/run.js\0status\0')).to.be.false
+      // Negative: "update" as prefix of another argument
+      expect(isProtected('node\0/usr/lib/byterover-cli/bin/run.js\0update-notifier\0')).to.be.false
+    })
+
+    it('isProtectedCommand detects update in space-delimited cmdline (macOS)', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const isProtected = (Restart as any).isProtectedCommand.bind(Restart)
+      // Positive: brv update variants
+      expect(isProtected('node /usr/lib/byterover-cli/bin/run.js update')).to.be.true
+      expect(isProtected('node /usr/lib/byterover-cli/bin/run.js update --force')).to.be.true
+      // Negative: other commands
+      expect(isProtected('node /usr/lib/byterover-cli/bin/run.js restart')).to.be.false
+      // Negative: "update" as part of a path or different argument
+      expect(isProtected('node /home/user/update-project/bin/run.js restart')).to.be.false
+    })
+  })
+
   describe('buildCliPatterns()', () => {
     it('all patterns are absolute paths or package-scoped names', () => {
       const patterns = Restart.buildCliPatterns()

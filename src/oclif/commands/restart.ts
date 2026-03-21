@@ -22,6 +22,8 @@ Run this when ByteRover is unresponsive, stuck, or after installing an update.
 All open sessions and background processes are stopped.
 The daemon will restart automatically on the next brv command.`
   static examples = ['<%= config.bin %> <%= command.id %>']
+  /** Commands whose processes must not be killed (e.g. `brv update` calls `brv restart`). */
+  private static readonly PROTECTED_COMMANDS = ['update']
   /** Server/agent patterns — cannot match CLI processes, no self-kill risk. */
   private static readonly SERVER_AGENT_PATTERNS = ['brv-server.js', 'agent-process.js']
 
@@ -57,6 +59,22 @@ The daemon will restart automatically on the next brv command.`
   }
 
   /**
+   * Returns true if the cmdline contains a protected command as an argument.
+   * Handles both /proc null-byte delimiters (Linux) and space delimiters (macOS ps).
+   */
+  private static isProtectedCommand(cmdline: string): boolean {
+    return Restart.PROTECTED_COMMANDS.some(
+      (cmd) =>
+        // Linux /proc/cmdline: null-byte delimited
+        cmdline.includes(`\0${cmd}\0`) ||
+        cmdline.endsWith(`\0${cmd}`) ||
+        // macOS ps / Windows: space delimited
+        cmdline.endsWith(` ${cmd}`) ||
+        cmdline.includes(` ${cmd} `),
+    )
+  }
+
+  /**
    * Kill a process by PID.
    * - Unix: SIGKILL via process.kill() — immediate, no graceful shutdown
    * - Windows: taskkill /f /t — force tree-kill (also kills agent children)
@@ -78,7 +96,7 @@ The daemon will restart automatically on the next brv command.`
    * Simple substring match — no cwd resolution needed.
    * Works on all Linux distros including Alpine — /proc is a kernel feature.
    */
-  private static killByProcScan(patterns: string[], excludePids: Set<number>): void {
+  private static killByProcScan(patterns: string[], excludePids: Set<number>, skipProtected: boolean): void {
     let entries: string[]
     try {
       entries = readdirSync('/proc')
@@ -92,6 +110,7 @@ The daemon will restart automatically on the next brv command.`
       try {
         const cmdline = readFileSync(join('/proc', entry, 'cmdline'), 'utf8')
         if (patterns.some((p) => cmdline.includes(p))) {
+          if (skipProtected && Restart.isProtectedCommand(cmdline)) continue
           process.kill(pid, 'SIGKILL')
         }
       } catch {
@@ -105,7 +124,7 @@ The daemon will restart automatically on the next brv command.`
    * Simple substring match — no cwd resolution needed because patterns
    * are either unique filenames (brv-server.js) or absolute paths.
    */
-  private static killByPsScan(patterns: string[], excludePids: Set<number>): void {
+  private static killByPsScan(patterns: string[], excludePids: Set<number>, skipProtected: boolean): void {
     const psResult = spawnSync('ps', ['-A', '-o', 'pid,args'], {encoding: 'utf8'})
     if (!psResult.stdout) return
 
@@ -117,6 +136,7 @@ The daemon will restart automatically on the next brv command.`
       if (Number.isNaN(pid) || excludePids.has(pid)) continue
 
       if (patterns.some((p) => cmdline.includes(p))) {
+        if (skipProtected && Restart.isProtectedCommand(cmdline)) continue
         try {
           process.kill(pid, 'SIGKILL')
         } catch {
@@ -133,25 +153,30 @@ The daemon will restart automatically on the next brv command.`
    * The parent PID exclusion protects the oclif bin/brv bash wrapper
    * on bundled installs (it does not use exec, so bash remains as parent).
    *
+   * When skipProtected is true, processes running protected commands
+   * (e.g. `brv update`) are spared — prevents `brv restart` from killing
+   * the `brv update` process that invoked it.
+   *
    * OS dispatch:
    *   Linux (incl. Alpine, WSL2): /proc scan
    *   macOS:                      ps -A scan
    *   Windows:                    PowerShell Get-CimInstance — available Windows 8+ / PS 3.0+
    */
-  private static patternKill(patterns: string[]): void {
+  private static patternKill(patterns: string[], skipProtected = false): void {
     const excludePids = new Set([process.pid, process.ppid])
 
     if (process.platform === 'win32') {
-      const whereClause = patterns
-        .map((p) => `$_.CommandLine -like '*${p.replaceAll("'", "''")}*'`)
-        .join(' -or ')
-      const script = `Get-CimInstance Win32_Process | Where-Object { (${whereClause}) -and $_.ProcessId -ne ${process.pid} -and $_.ProcessId -ne ${process.ppid} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
+      const whereClause = patterns.map((p) => `$_.CommandLine -like '*${p.replaceAll("'", "''")}*'`).join(' -or ')
+      const protectedClause = skipProtected
+        ? ` -and ${Restart.PROTECTED_COMMANDS.map((cmd) => `$_.CommandLine -notlike '* ${cmd} *' -and $_.CommandLine -notlike '* ${cmd}'`).join(' -and ')}`
+        : ''
+      const script = `Get-CimInstance Win32_Process | Where-Object { (${whereClause}) -and $_.ProcessId -ne ${process.pid} -and $_.ProcessId -ne ${process.ppid}${protectedClause} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
       spawnSync('powershell', ['-Command', script], {stdio: 'ignore'})
     } else if (process.platform === 'linux') {
-      Restart.killByProcScan(patterns, excludePids)
+      Restart.killByProcScan(patterns, excludePids, skipProtected)
     } else {
       // macOS (and other Unix): ps -A scan
-      Restart.killByPsScan(patterns, excludePids)
+      Restart.killByPsScan(patterns, excludePids, skipProtected)
     }
   }
 
@@ -208,8 +233,9 @@ The daemon will restart automatically on the next brv command.`
     // Must happen BEFORE daemon kill — clients have reconnectors that will
     // respawn the daemon via ensureDaemonRunning() if they detect disconnection.
     // Self excluded by process.pid / process.ppid.
+    // Protected commands (e.g. `brv update`) are spared.
     this.log('Stopping clients...')
-    Restart.patternKill(Restart.buildCliPatterns())
+    Restart.patternKill(Restart.buildCliPatterns(), true)
     await Restart.sleep(KILL_SETTLE_MS)
 
     // Phase 2: Graceful daemon kill via daemon.json PID.
