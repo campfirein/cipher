@@ -11,6 +11,7 @@ import {
   clearStaleProviderConfig,
   resolveProviderConfig,
 } from '../../../../src/server/infra/provider/provider-config-resolver.js'
+import {createMockAuthStateStore} from '../../../helpers/mock-factories.js'
 
 // ==================== Helpers ====================
 
@@ -94,7 +95,7 @@ describe('provider-config-resolver', () => {
       const {configStore, keychainStore} = createStubStores(sandbox)
       configStore.read.resolves(createProviderConfig('byterover'))
 
-      const result = await resolveProviderConfig(configStore, keychainStore)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
       expect(result.activeProvider).to.equal('byterover')
       expect(result.providerApiKey).to.be.undefined
@@ -108,7 +109,7 @@ describe('provider-config-resolver', () => {
       configStore.read.resolves(createProviderConfig('openrouter', {openrouter: {activeModel: 'gpt-4o'}}))
       keychainStore.getApiKey.resolves('sk-or-key-123')
 
-      const result = await resolveProviderConfig(configStore, keychainStore)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
       expect(result.activeProvider).to.equal('openrouter')
       expect(result.activeModel).to.equal('gpt-4o')
@@ -125,7 +126,7 @@ describe('provider-config-resolver', () => {
       )
       keychainStore.getApiKey.resolves('test-key')
 
-      const result = await resolveProviderConfig(configStore, keychainStore)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
       expect(result.activeProvider).to.equal('openai-compatible')
       expect(result.provider).to.equal('openai-compatible')
@@ -143,7 +144,7 @@ describe('provider-config-resolver', () => {
       )
       keychainStore.getApiKey.resolves()
 
-      const result = await resolveProviderConfig(configStore, keychainStore)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
       expect(result.activeProvider).to.equal('openai-compatible')
       expect(result.providerKeyMissing).to.be.false
@@ -159,7 +160,7 @@ describe('provider-config-resolver', () => {
       )
       keychainStore.getApiKey.resolves('sk-ant-key')
 
-      const result = await resolveProviderConfig(configStore, keychainStore)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
       expect(result.activeProvider).to.equal('anthropic')
       expect(result.provider).to.equal('anthropic')
@@ -180,7 +181,7 @@ describe('provider-config-resolver', () => {
       )
       keychainStore.getApiKey.resolves('oauth-access-token-xyz')
 
-      const result = await resolveProviderConfig(configStore, keychainStore)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
       expect(result.activeProvider).to.equal('openai')
       expect(result.provider).to.equal('openai')
@@ -202,7 +203,7 @@ describe('provider-config-resolver', () => {
       )
       keychainStore.getApiKey.resolves('oauth-access-token-xyz')
 
-      const result = await resolveProviderConfig(configStore, keychainStore)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
       expect(result.providerBaseUrl).to.equal('https://chatgpt.com/backend-api/codex')
       expect(result.providerHeaders).to.deep.equal({originator: 'byterover'})
@@ -218,7 +219,7 @@ describe('provider-config-resolver', () => {
       )
       keychainStore.getApiKey.resolves('sk-openai-key')
 
-      const result = await resolveProviderConfig(configStore, keychainStore)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
       expect(result.activeProvider).to.equal('openai')
       expect(result.providerApiKey).to.equal('sk-openai-key')
@@ -236,7 +237,7 @@ describe('provider-config-resolver', () => {
       )
       keychainStore.getApiKey.resolves()
 
-      const result = await resolveProviderConfig(configStore, keychainStore)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
       expect(result.providerKeyMissing).to.be.true
     })
@@ -250,7 +251,7 @@ describe('provider-config-resolver', () => {
       )
       keychainStore.getApiKey.resolves('sk-ant-key')
 
-      const result = await resolveProviderConfig(configStore, keychainStore)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
       expect(result.providerBaseUrl).to.equal('https://custom-proxy.example.com')
     })
@@ -264,7 +265,7 @@ describe('provider-config-resolver', () => {
       )
       keychainStore.getApiKey.resolves('sk-openai-key')
 
-      const result = await resolveProviderConfig(configStore, keychainStore)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
       expect(result.activeProvider).to.equal('openai')
       expect(result.providerApiKey).to.equal('sk-openai-key')
@@ -286,7 +287,7 @@ describe('provider-config-resolver', () => {
       )
       keychainStore.getApiKey.resolves()
 
-      const result = await resolveProviderConfig(configStore, keychainStore)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
       expect(result.providerApiKey).to.be.undefined
       expect(result.providerKeyMissing).to.be.false
@@ -297,7 +298,7 @@ describe('provider-config-resolver', () => {
       const {configStore, keychainStore} = createStubStores(sandbox)
       configStore.read.resolves(createProviderConfig('byterover'))
 
-      const result = await resolveProviderConfig(configStore, keychainStore)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
       expect(result.activeModel).to.be.undefined
     })
@@ -317,7 +318,7 @@ describe('provider-config-resolver', () => {
         refreshIfNeeded: sandbox.stub().resolves(true),
       }
 
-      const result = await resolveProviderConfig(configStore, keychainStore, refreshManager)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore, tokenRefreshManager: refreshManager})
 
       expect((refreshManager.refreshIfNeeded as sinon.SinonStub).calledWith('openai')).to.be.true
       expect(result.providerApiKey).to.equal('refreshed-access-token')
@@ -336,7 +337,7 @@ describe('provider-config-resolver', () => {
         refreshIfNeeded: sandbox.stub().resolves(false),
       }
 
-      const result = await resolveProviderConfig(configStore, keychainStore, refreshManager)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore, tokenRefreshManager: refreshManager})
 
       expect(result.providerKeyMissing).to.be.true
       expect(result.providerApiKey).to.be.undefined
@@ -357,7 +358,7 @@ describe('provider-config-resolver', () => {
         refreshIfNeeded: sandbox.stub().resolves(true),
       }
 
-      const result = await resolveProviderConfig(configStore, keychainStore, refreshManager)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore, tokenRefreshManager: refreshManager})
 
       // getApiKey must be called twice: once before refresh check, once after
       expect(keychainStore.getApiKey.callCount).to.equal(2)
@@ -378,7 +379,7 @@ describe('provider-config-resolver', () => {
         refreshIfNeeded: sandbox.stub().resolves(true),
       }
 
-      await resolveProviderConfig(configStore, keychainStore, refreshManager)
+      await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore, tokenRefreshManager: refreshManager})
 
       expect((refreshManager.refreshIfNeeded as sinon.SinonStub).notCalled).to.be.true
     })
@@ -393,7 +394,7 @@ describe('provider-config-resolver', () => {
       keychainStore.getApiKey.resolves('access-token')
 
       // No tokenRefreshManager — should still resolve normally
-      const result = await resolveProviderConfig(configStore, keychainStore)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
       expect(result.providerApiKey).to.equal('access-token')
       expect(result.providerBaseUrl).to.equal('https://chatgpt.com/backend-api/codex')
@@ -411,11 +412,62 @@ describe('provider-config-resolver', () => {
         refreshIfNeeded: sandbox.stub().rejects(new Error('Unexpected error')),
       }
 
-      const result = await resolveProviderConfig(configStore, keychainStore, refreshManager)
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore, tokenRefreshManager: refreshManager})
 
       // Should degrade gracefully instead of throwing
       expect(result.providerKeyMissing).to.be.true
       expect(result.providerApiKey).to.be.undefined
+    })
+  })
+
+  // ==================== authRequired field ====================
+
+  describe('authRequired field', () => {
+    it('should set authRequired true for byterover when unauthenticated', async () => {
+      const {configStore, keychainStore} = createStubStores(sandbox)
+      configStore.read.resolves(createProviderConfig('byterover'))
+
+      const result = await resolveProviderConfig({authStateStore: createMockAuthStateStore(sandbox, {isAuthenticated: false}), providerConfigStore: configStore, providerKeychainStore: keychainStore})
+
+      expect(result.authRequired).to.be.true
+    })
+
+    it('should not set authRequired for byterover when authenticated', async () => {
+      const {configStore, keychainStore} = createStubStores(sandbox)
+      configStore.read.resolves(createProviderConfig('byterover'))
+
+      const result = await resolveProviderConfig({authStateStore: createMockAuthStateStore(sandbox, {isAuthenticated: true}), providerConfigStore: configStore, providerKeychainStore: keychainStore})
+
+      expect(result.authRequired).to.be.undefined
+    })
+
+    it('should not set authRequired for non-byterover providers', async () => {
+      const {configStore, keychainStore} = createStubStores(sandbox)
+      configStore.read.resolves(createProviderConfig('openrouter', {openrouter: {activeModel: 'gpt-4o'}}))
+      keychainStore.getApiKey.resolves('sk-key')
+
+      const result = await resolveProviderConfig({authStateStore: createMockAuthStateStore(sandbox, {isAuthenticated: false}), providerConfigStore: configStore, providerKeychainStore: keychainStore})
+
+      expect(result.authRequired).to.be.undefined
+    })
+
+    it('should not set authRequired when activeProvider is empty string (post-disconnect)', async () => {
+      const {configStore, keychainStore} = createStubStores(sandbox)
+      configStore.read.resolves(createProviderConfig(''))
+
+      const result = await resolveProviderConfig({authStateStore: createMockAuthStateStore(sandbox, {isAuthenticated: false}), providerConfigStore: configStore, providerKeychainStore: keychainStore})
+
+      expect(result.authRequired).to.be.undefined
+      expect(result.activeProvider).to.equal('')
+    })
+
+    it('should not set authRequired when authStateStore is not provided (backward compat)', async () => {
+      const {configStore, keychainStore} = createStubStores(sandbox)
+      configStore.read.resolves(createProviderConfig('byterover'))
+
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
+
+      expect(result.authRequired).to.be.undefined
     })
   })
 

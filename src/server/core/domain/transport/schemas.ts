@@ -333,6 +333,8 @@ export interface ProviderConfigResponse {
   activeProvider: string
   /** How the provider was authenticated ('api-key' | 'oauth'). Undefined for internal providers. */
   authMethod?: 'api-key' | 'oauth'
+  /** True when the active provider requires authentication but the user is not logged in. */
+  authRequired?: boolean
   maxInputTokens?: number
   openRouterApiKey?: string
   provider?: string

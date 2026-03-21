@@ -18,6 +18,7 @@ import type {CommandSideEffects} from '../../../types/commands.js'
 import {SelectableList} from '../../../components/selectable-list.js'
 import {useTheme} from '../../../hooks/index.js'
 import {formatTransportError} from '../../../utils/index.js'
+import {useAuthStore} from '../../auth/stores/auth-store.js'
 import {useConnectProvider} from '../api/connect-provider.js'
 import {useDisconnectProvider} from '../api/disconnect-provider.js'
 import {useGetProviders} from '../api/get-providers.js'
@@ -69,6 +70,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
   const disconnectMutation = useDisconnectProvider()
   const setActiveMutation = useSetActiveProvider()
   const validateMutation = useValidateApiKey()
+  const isAuthorized = useAuthStore((s) => s.isAuthorized)
 
   const providers = data?.providers ?? []
 
@@ -148,6 +150,13 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
     setSelectedProvider(provider)
     setError(null)
 
+    // ByteRover requires authentication
+    if (provider.id === 'byterover' && !isAuthorized) {
+      setError('ByteRover Provider requires authentication. Run /login to sign in.')
+      setStep('select')
+      return
+    }
+
     // ByteRover + already active → complete
     if (provider.id === 'byterover' && provider.isCurrent) {
       onComplete(`Connected to ${provider.name}`)
@@ -201,13 +210,19 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       setError(formatTransportError(error_))
       setStep('select')
     }
-  }, [connectMutation, onComplete])
+  }, [connectMutation, isAuthorized, onComplete])
 
   const handleAction = useCallback(async (action: ProviderAction) => {
     if (!selectedProvider) return
 
     switch (action.id) {
       case 'activate': {
+        if (selectedProvider.id === 'byterover' && !isAuthorized) {
+          setError('ByteRover requires authentication. Run /login to sign in.')
+          setStep('select')
+          return
+        }
+
         setStep('connecting')
         try {
           await setActiveMutation.mutateAsync({providerId: selectedProvider.id})
@@ -263,7 +278,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
         break
       }
     }
-  }, [disconnectMutation, onComplete, selectedProvider, setActiveMutation])
+  }, [disconnectMutation, isAuthorized, onComplete, selectedProvider, setActiveMutation])
 
   const handleBaseUrlSubmit = useCallback((url: string) => {
     setBaseUrl(url)

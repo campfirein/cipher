@@ -10,6 +10,7 @@ import type {IProviderConfigStore} from '../../core/interfaces/i-provider-config
 import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keychain-store.js'
 import type {IProviderOAuthTokenStore} from '../../core/interfaces/i-provider-oauth-token-store.js'
 import type {ITokenRefreshManager} from '../../core/interfaces/i-token-refresh-manager.js'
+import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
 
 import {CHATGPT_OAUTH_BASE_URL, CHATGPT_OAUTH_ORIGINATOR} from '../../../shared/constants/oauth.js'
 import {getProviderById, providerRequiresApiKey} from '../../core/domain/entities/provider-registry.js'
@@ -70,9 +71,9 @@ export async function clearStaleProviderConfig(
       newConfig = newConfig.withProviderDisconnected(providerId)
     }
 
-    // withProviderDisconnected() falls back to 'byterover' when the active provider is
-    // removed, which causes the TUI to show 'ready' and skip provider setup. Explicitly
-    // set activeProvider to '' so the user is returned to the provider setup flow.
+    // withProviderDisconnected() already sets activeProvider to '' when the active
+    // provider is removed. This call is a no-op but kept for readability — it makes
+    // the "clear active provider" intent explicit at the call site.
     if (staleProviderIds.includes(config.activeProvider)) {
       newConfig = newConfig.withActiveProvider('')
     }
@@ -97,17 +98,29 @@ export async function clearStaleProviderConfig(
  * the API key (keychain → env fallback), and maps provider-specific
  * fields (base URL, headers, location, etc.).
  */
+export type ResolveProviderConfigParams = {
+  authStateStore?: IAuthStateStore
+  providerConfigStore: IProviderConfigStore
+  providerKeychainStore: IProviderKeychainStore
+  tokenRefreshManager?: ITokenRefreshManager
+}
+
 export async function resolveProviderConfig(
-  providerConfigStore: IProviderConfigStore,
-  providerKeychainStore: IProviderKeychainStore,
-  tokenRefreshManager?: ITokenRefreshManager,
+  params: ResolveProviderConfigParams,
 ): Promise<ProviderConfigResponse> {
+  const {authStateStore, providerConfigStore, providerKeychainStore, tokenRefreshManager} = params
   const config = await providerConfigStore.read()
   const {activeProvider} = config
   const activeModel = config.getActiveModel(activeProvider)
   const maxInputTokens = config.getActiveModelContextLength(activeProvider)
 
-  if (!activeProvider || activeProvider === 'byterover') {
+  if (activeProvider === 'byterover') {
+    const authToken = authStateStore?.getToken()
+    const authRequired = authStateStore ? !authToken || !authToken.isValid() : undefined
+    return {activeModel, activeProvider, authRequired: authRequired ? true : undefined, maxInputTokens}
+  }
+
+  if (!activeProvider) {
     return {activeModel, activeProvider, maxInputTokens}
   }
 

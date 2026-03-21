@@ -30,6 +30,7 @@ export default class Provider extends Command {
 
       return {
         activeModel: active.activeModel,
+        authRequired: active.authRequired,
         providerId: active.activeProviderId,
         providerName: provider?.name ?? active.activeProviderId,
       }
@@ -44,7 +45,11 @@ export default class Provider extends Command {
       const info = await this.fetchActiveProvider()
 
       if (format === 'json') {
-        writeJsonResponse({command: 'providers', data: info, success: true})
+        const {authRequired, ...rest} = info
+        const data = authRequired
+          ? {...rest, warning: "Not logged in. Run 'brv login' to authenticate."}
+          : rest
+        writeJsonResponse({command: 'providers', data, success: true})
       } else {
         this.log(`Provider: ${info.providerName} (${info.providerId})`)
         if (info.providerId !== 'byterover') {
@@ -53,6 +58,10 @@ export default class Provider extends Command {
           } else {
             this.log('Model: Not set. Run "brv model list" to see available models, or "brv model switch <model>" to set one.')
           }
+        }
+
+        if (info.authRequired) {
+          this.log("Warning: Not logged in. Run 'brv login' to authenticate.")
         }
       }
     } catch (error) {
