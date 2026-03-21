@@ -8,7 +8,7 @@ import {
 import {Command} from '@oclif/core'
 import {spawnSync} from 'node:child_process'
 import {readdirSync, readFileSync, unlinkSync} from 'node:fs'
-import {dirname, join} from 'node:path'
+import {dirname, join, resolve} from 'node:path'
 
 const KILL_SETTLE_MS = 500
 const KILL_VERIFY_TIMEOUT_MS = 5000
@@ -42,15 +42,16 @@ The daemon will restart automatically on the next brv command.`
    * Set deduplicates when paths overlap (e.g. process.argv[1] is already run.js).
    */
   static buildCliPatterns(): string[] {
-    const brvBinDir = dirname(process.argv[1])
+    const argv1 = resolve(process.argv[1])
+    const brvBinDir = dirname(argv1)
     return [
       ...new Set([
+        argv1,
         join('bin', 'brv'),
         join('byterover-cli', 'bin', 'run.js'),
         join(brvBinDir, 'dev.js'),
         join(brvBinDir, 'run'), // curl install: entry point named 'run' without .js suffix
         join(brvBinDir, 'run.js'),
-        process.argv[1],
       ]),
     ]
   }
@@ -159,29 +160,9 @@ The daemon will restart automatically on the next brv command.`
   }
 
   /**
-   * Polls until the process with the given PID is no longer alive.
+   * Polls until the process is dead, returning true if it exited within the timeout.
    * Uses `process.kill(pid, 0)` — sends no signal, just checks existence.
    * On ESRCH the PID is confirmed dead.
-   */
-  private static async waitForPidToDie(pid: number, timeoutMs: number): Promise<void> {
-    const deadline = Date.now() + timeoutMs
-    while (Date.now() < deadline) {
-      try {
-        process.kill(pid, 0) // throws ESRCH if dead
-      } catch {
-        return // process confirmed dead
-      }
-
-      // eslint-disable-next-line no-await-in-loop -- intentional poll loop
-      await Restart.sleep(KILL_VERIFY_POLL_MS)
-    }
-    // Timed out — continue anyway
-  }
-
-  /**
-   * Polls until the process is dead, returning true if it exited.
-   * Used for SIGTERM → SIGKILL flow where we need to know whether
-   * graceful shutdown succeeded before falling back to force kill.
    */
   private static async waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
     const deadline = Date.now() + timeoutMs
@@ -214,6 +195,10 @@ The daemon will restart automatically on the next brv command.`
     process.exit(code)
   }
 
+  protected loadDaemonInfo(dataDir: string): undefined | {pid: number; port: number} {
+    return new GlobalInstanceManager({dataDir}).load()
+  }
+
   async run(): Promise<void> {
     const dataDir = getGlobalDataDir()
 
@@ -228,7 +213,7 @@ The daemon will restart automatically on the next brv command.`
     // Phase 2: Graceful daemon kill via daemon.json PID.
     // SIGTERM triggers ShutdownHandler → stops agents, transport, releases daemon.json.
     // Safe now because all clients are dead — no one can respawn daemon.
-    const info = new GlobalInstanceManager({dataDir}).load()
+    const info = this.loadDaemonInfo(dataDir)
     if (info !== undefined) {
       this.log(`Stopping daemon (PID ${info.pid})...`)
 
@@ -243,7 +228,7 @@ The daemon will restart automatically on the next brv command.`
       if (!stopped) {
         Restart.killByPid(info.pid)
         if (process.platform !== 'win32') {
-          await Restart.waitForPidToDie(info.pid, KILL_VERIFY_TIMEOUT_MS)
+          await Restart.waitForProcessExit(info.pid, KILL_VERIFY_TIMEOUT_MS)
         }
       }
     }
