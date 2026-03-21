@@ -23,6 +23,7 @@ npm run typecheck                                # TypeScript type checking
 - Avoid `as Type` assertions - use type guards or proper typing instead
 - Avoid `any` type - use `unknown` with type narrowing or proper generics
 - Functions with >3 parameters must use object parameters
+- Prefer `type` for data-only shapes (DTOs, payloads, configs); prefer `interface` for behavioral contracts with method signatures (services, repositories, strategies)
 
 **Testing (Strict TDD — MANDATORY)**:
 - You MUST follow Test-Driven Development. This is non-negotiable.
