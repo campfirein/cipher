@@ -118,11 +118,13 @@ Commands in `src/tui/features/commands/definitions/` (order = UI suggestion orde
 
 ### Oclif Hooks (`src/oclif/hooks/`)
 
+- `init/block-command-update-npm.ts` - Blocks `brv update` when installed via npm
 - `init/welcome.ts` - Node.js version check, ASCII banner
 - `init/update-notifier.ts` - Auto-update notification (1h check)
+- `prerun/validate-brv-config-version.ts` - Config version validation
+- `postrun/restart-after-update.ts` - Restarts daemon after `brv update`
 - `command_not_found/handle-invalid-commands.ts` - Invalid command handler
 - `error/clean-errors.ts` - Error formatting
-- `prerun/validate-brv-config-version.ts` - Config version validation
 
 ## Testing
 
