@@ -355,6 +355,143 @@ describe('HarnessEngine', () => {
     })
   })
 
+  describe('recordOutcomeF1', () => {
+    it('should apply fractional alpha/beta from F1 score', async () => {
+      const treeStore = createMockTreeStore()
+      const node = createNode({alpha: 5, beta: 3, id: 'f1-node'})
+      treeStore.nodes.set('f1-node', node)
+
+      const engine = new HarnessEngine({
+        config: {domain: 'curation'},
+        contentGenerator: createMockContentGenerator(),
+        treeStore,
+      })
+
+      await engine.recordOutcomeF1('f1-node', 0.75, 0.25, {
+        details: {f1: 0.75, mode: 'shadow'},
+        nodeId: 'f1-node',
+        success: true,
+        timestamp: Date.now(),
+      })
+
+      const updated = treeStore.nodes.get('f1-node')!
+      expect(updated.alpha).to.be.closeTo(5.75, 0.001)
+      expect(updated.beta).to.be.closeTo(3.25, 0.001)
+      expect(updated.visitCount).to.equal(1)
+    })
+
+    it('should no-op for non-existent node', async () => {
+      const engine = new HarnessEngine({
+        config: {domain: 'curation'},
+        contentGenerator: createMockContentGenerator(),
+        treeStore: createMockTreeStore(),
+      })
+
+      // Should not throw
+      await engine.recordOutcomeF1('nonexistent', 0.5, 0.5, {
+        details: {},
+        nodeId: 'nonexistent',
+        success: true,
+        timestamp: Date.now(),
+      })
+    })
+  })
+
+  describe('concurrency', () => {
+    it('should serialize concurrent outcome recordings for the same node', async () => {
+      const treeStore = createMockTreeStore()
+      const node = createNode({alpha: 1, beta: 1, id: 'concurrent-node'})
+      treeStore.nodes.set('concurrent-node', node)
+
+      const engine = new HarnessEngine({
+        config: {domain: 'curation'},
+        contentGenerator: createMockContentGenerator(),
+        treeStore,
+      })
+
+      // Fire 10 concurrent updates
+      const promises = Array.from({length: 10}, (_, i) =>
+        engine.recordOutcome({
+          details: {index: i},
+          nodeId: 'concurrent-node',
+          success: true,
+          timestamp: Date.now(),
+        }),
+      )
+      await Promise.all(promises)
+
+      const updated = treeStore.nodes.get('concurrent-node')!
+      // All 10 should be applied: alpha = 1 + 10 = 11
+      expect(updated.alpha).to.equal(11)
+      expect(updated.beta).to.equal(1)
+      expect(updated.visitCount).to.equal(10)
+    })
+
+    it('should allow parallel updates to different nodes', async () => {
+      const treeStore = createMockTreeStore()
+      const node1 = createNode({alpha: 1, beta: 1, id: 'node-a'})
+      const node2 = createNode({alpha: 1, beta: 1, id: 'node-b'})
+      treeStore.nodes.set('node-a', node1)
+      treeStore.nodes.set('node-b', node2)
+
+      const engine = new HarnessEngine({
+        config: {domain: 'curation'},
+        contentGenerator: createMockContentGenerator(),
+        treeStore,
+      })
+
+      await Promise.all([
+        engine.recordOutcome({details: {}, nodeId: 'node-a', success: true, timestamp: Date.now()}),
+        engine.recordOutcome({details: {}, nodeId: 'node-b', success: false, timestamp: Date.now()}),
+      ])
+
+      expect(treeStore.nodes.get('node-a')!.alpha).to.equal(2) // +1 success
+      expect(treeStore.nodes.get('node-b')!.beta).to.equal(2) // +1 failure
+    })
+
+    it('should prevent duplicate refinement cycles for the same node', async () => {
+      const treeStore = createMockTreeStore()
+      const parent = createNode({id: 'dup-parent', templateContent: 'original: true'})
+      treeStore.nodes.set('dup-parent', parent)
+
+      const mockGenerator = createMockContentGenerator()
+      // First call to generateContent is slow (simulates LLM latency)
+      let resolveFirst: (value: unknown) => void
+      const firstCallPromise = new Promise((resolve) => {
+        resolveFirst = resolve
+      })
+      mockGenerator.generateContent.onFirstCall().returns(firstCallPromise)
+      mockGenerator.generateContent.onSecondCall().resolves({content: 'improved: true', finishReason: 'stop'})
+
+      const engine = new HarnessEngine({
+        config: {domain: 'curation', refinementCooldown: 1},
+        contentGenerator: mockGenerator,
+        treeStore,
+      })
+
+      // Record failure to enable refinement
+      await engine.recordOutcome({
+        details: {},
+        nodeId: 'dup-parent',
+        success: false,
+        timestamp: Date.now(),
+      })
+
+      // Start first refinement (will block on LLM call)
+      const first = engine.runRefinementCycle('dup-parent')
+      // Wait for the first call to actually enter the refinement guard
+      await new Promise<void>((resolve) => { setTimeout(resolve, 0) })
+
+      // Second refinement should be skipped (returns null immediately)
+      const second = await engine.runRefinementCycle('dup-parent')
+      expect(second).to.be.null
+
+      // Resolve first call to clean up
+      resolveFirst!({content: 'critic summary', finishReason: 'stop'})
+      await first
+    })
+  })
+
   describe('runRefinementCycle', () => {
     it('should clear consumed feedback after a successful refinement', async () => {
       const treeStore = createMockTreeStore()
