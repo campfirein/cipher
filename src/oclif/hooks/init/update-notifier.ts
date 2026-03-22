@@ -112,6 +112,7 @@ const hook: Hook<'init'> = async function (opts): Promise<void> {
         detached: true,
         shell: true,
         stdio: 'ignore',
+        windowsHide: true,
       }),
   })
 }

@@ -43,6 +43,7 @@ const hook: Hook<'postrun'> = async function (opts) {
         detached: true,
         shell: true,
         stdio: 'ignore',
+        windowsHide: true,
       }),
   })
 }
