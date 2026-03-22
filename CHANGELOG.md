@@ -2,6 +2,14 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.3.1]
+
+### Fixed
+- **OpenRouter provider name format** — OpenRouter models now display as `OpenRouter (<provider>)` instead of a capitalized provider name, making it easier to identify when using an OpenRouter-routed model.
+- **`brv update` blocked for npm installations** — Running `brv update` when installed via npm now shows a clear error directing users to run `npm update -g byterover-cli` instead. Previously produced confusing errors.
+- **`brv restart` no longer kills itself or triggers daemon respawn** — Rewrote restart with a 4-phase shutdown sequence (kill clients, graceful daemon stop, clean orphans, clean state files).
+- **Security dependency updates** — Patched `socket.io` and `@campfirein/brv-transport-client` to address high-severity vulnerabilities.
+
 ## [2.3.0]
 
 ### Added
