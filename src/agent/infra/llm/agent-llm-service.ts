@@ -428,6 +428,16 @@ export class AgentLLMService implements ILLMService {
   }
 
   /**
+   * Get the content generator used for LLM calls.
+   *
+   * Exposes the underlying generator so other services can reuse the
+   * agent's already-configured provider/model transport.
+   */
+  public getContentGenerator(): IContentGenerator {
+    return this.generator
+  }
+
+  /**
    * Get access to the conversation context manager.
    *
    * Provides access to the ContextManager instance that maintains:
@@ -543,6 +553,26 @@ export class AgentLLMService implements ILLMService {
       toolsUsed: [...new Set(toolCalls)],
       totalToolCalls: toolCalls.length,
     })
+  }
+
+  private buildToolResultMetadata(toolName: string, content: unknown): Record<string, unknown> {
+    if (toolName === 'curate') {
+      return {knowledgeMutationAttempted: true}
+    }
+
+    if (toolName !== 'code_exec' || !content || typeof content !== 'object' || Array.isArray(content)) {
+      return {}
+    }
+
+    const {curateResults} = (content as {curateResults?: unknown})
+    if (!Array.isArray(curateResults)) {
+      return {}
+    }
+
+    return {
+      curateResultsCount: curateResults.length,
+      knowledgeMutationAttempted: curateResults.length > 0,
+    }
   }
 
   /**
@@ -1142,6 +1172,11 @@ export class AgentLLMService implements ILLMService {
 
       // Process output (truncation and file saving if needed, with per-command overrides)
       const processedOutput = await this.outputProcessor.processStructuredOutput(toolName, result.content, executionContext?.commandType)
+      const toolResultMetadata = {
+        ...result.metadata,
+        ...this.buildToolResultMetadata(toolName, result.content),
+        ...processedOutput.metadata,
+      }
 
       // Emit truncation event if output was truncated
       if (processedOutput.metadata?.truncated) {
@@ -1158,10 +1193,7 @@ export class AgentLLMService implements ILLMService {
         callId: toolCall.id,
         error: result.errorMessage,
         errorType: result.errorType,
-        metadata: {
-          ...result.metadata,
-          ...processedOutput.metadata,
-        },
+        metadata: toolResultMetadata,
         result: processedOutput.content,
         success: result.success,
         taskId: taskId || undefined,
@@ -1177,10 +1209,7 @@ export class AgentLLMService implements ILLMService {
         toolCall,
         toolResult: {
           errorType: result.errorType,
-          metadata: {
-            ...result.metadata,
-            ...processedOutput.metadata,
-          },
+          metadata: toolResultMetadata,
           processedOutput,
           success: result.success,
         },

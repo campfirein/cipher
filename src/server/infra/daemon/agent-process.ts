@@ -25,6 +25,7 @@ import {appendFileSync} from 'node:fs'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {ProviderConfigResponse, TaskExecute} from '../../core/domain/transport/schemas.js'
+import type {CurationHarnessService} from '../harness/curation/curation-harness-service.js'
 
 import {SESSIONS_DIR} from '../../../agent/core/domain/session/session-metadata.js'
 import {CipherAgent} from '../../../agent/infra/agent/index.js'
@@ -118,6 +119,24 @@ async function activateExistingSession(sessionId: string, providerId: string): P
   }
 }
 
+function syncCurationHarnessGenerator(currentAgent: CipherAgent, harness: CurationHarnessService | null): void {
+  if (!harness) return
+  if (!currentAgent.sessionId) {
+    agentLog('syncCurationHarnessGenerator: no active session — refinement disabled')
+
+    return
+  }
+
+  const session = currentAgent.getSession(currentAgent.sessionId)
+  if (!session) {
+    agentLog(`syncCurationHarnessGenerator: session ${currentAgent.sessionId} not found — refinement disabled`)
+
+    return
+  }
+
+  harness.setContentGenerator(session.getLLMService().getContentGenerator())
+}
+
 // ============================================================================
 // Local Config Cache
 // ============================================================================
@@ -134,6 +153,7 @@ let cachedActiveProvider = ''
 let cachedActiveModel = ''
 let cachedProviderApiKey: string | undefined
 let cachedProviderHeaders: string | undefined
+let curationHarness: CurationHarnessService | null = null
 
 // ============================================================================
 // Provider Config (resolved by daemon via state:getProviderConfig)
@@ -320,6 +340,7 @@ async function start(): Promise<void> {
       const newSessionId = `agent-session-${randomUUID()}`
       await agent.createSession(newSessionId)
       agent.switchDefaultSession(newSessionId)
+      syncCurationHarnessGenerator(agent, curationHarness)
 
       await persistNewSession(newSessionId, cachedActiveProvider)
 
@@ -345,7 +366,11 @@ async function start(): Promise<void> {
   const searchService = createSearchKnowledgeService(fileSystemService, {baseDirectory: projectPath})
 
   // 7. Create executors and listen for task:execute from pool
-  const curateExecutor = new CurateExecutor()
+  // Initialize curation harness (fail-open: null if init fails)
+  const {createCurationHarness} = await import('../harness/curation/create-curation-harness.js')
+  curationHarness = await createCurationHarness(configResult.storagePath).catch(() => null)
+  syncCurationHarnessGenerator(agent, curationHarness)
+  const curateExecutor = new CurateExecutor(undefined, curationHarness ?? undefined)
   const folderPackService = new FolderPackService(fileSystemService)
   await folderPackService.initialize()
   const folderPackExecutor = new FolderPackExecutor(folderPackService)
@@ -625,6 +650,7 @@ async function hotSwapProvider(
       const newSessionId = `agent-session-${randomUUID()}`
       await currentAgent.createSession(newSessionId)
       currentAgent.switchDefaultSession(newSessionId)
+      syncCurationHarnessGenerator(currentAgent, curationHarness)
       await persistNewSession(newSessionId, ap)
     } else {
       // Model-only or credential-only change: reuse session ID for metadata continuity.
@@ -632,6 +658,7 @@ async function hotSwapProvider(
       // Only the session ID and persisted metadata are preserved.
       await currentAgent.createSession(previousSessionId)
       currentAgent.switchDefaultSession(previousSessionId)
+      syncCurationHarnessGenerator(currentAgent, curationHarness)
       await activateExistingSession(previousSessionId, ap)
     }
   } catch (sessionError) {
@@ -643,6 +670,7 @@ async function hotSwapProvider(
       const recoveryId = `agent-session-${randomUUID()}`
       await currentAgent.createSession(recoveryId)
       currentAgent.switchDefaultSession(recoveryId)
+      syncCurationHarnessGenerator(currentAgent, curationHarness)
       await persistNewSession(recoveryId, ap)
       agentLog(`Recovery session created: ${recoveryId}`)
     } catch (error) {

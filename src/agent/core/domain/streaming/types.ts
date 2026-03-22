@@ -1,5 +1,6 @@
 import type {ExecutionContext} from '../../interfaces/i-cipher-agent.js'
 import type {TokenUsage} from '../agent-events/types.js'
+import type {ToolErrorType} from '../tools/tool-error.js'
 
 /**
  * Streaming event names for CipherAgent.stream()
@@ -36,6 +37,8 @@ export type StreamingEvent =
   | {
       callId?: string
       error?: string
+      errorType?: ToolErrorType
+      metadata?: Record<string, unknown>
       name: 'llmservice:toolResult'
       result?: unknown
       sessionId: string
@@ -128,7 +131,7 @@ export interface GenerateResponse {
   toolCalls: Array<{
     args: Record<string, unknown>
     callId: string
-    result?: {data: unknown; success: boolean}
+    result?: {data: unknown; metadata?: Record<string, unknown>; success: boolean}
     toolName: string
   }>
   /** Token usage statistics */

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * CurateExecutor regression tests
  *
@@ -6,16 +7,33 @@
  *
  * 2. Session-leak fix: createTaskSession must not be called before
  *    processFileReferences, so a preprocessing failure cannot leak sessions.
+ *
+ * 3. Fast path should fail open before mutation-capable tools run, but not
+ *    replay after a mutating tool call has started.
  */
 
 import {expect} from 'chai'
+import {mkdtempSync, rmSync} from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import {restore, stub} from 'sinon'
 
+import type {StreamingEvent} from '../../../../src/agent/core/domain/streaming/types.js'
 import type {ICipherAgent} from '../../../../src/agent/core/interfaces/i-cipher-agent.js'
+import type {HarnessNode} from '../../../../src/server/core/interfaces/harness/i-harness-tree-store.js'
 
+import {SessionCancelledError} from '../../../../src/agent/core/domain/errors/session-error.js'
 import {LocalSandbox} from '../../../../src/agent/infra/sandbox/local-sandbox.js'
 import {FileValidationError} from '../../../../src/server/core/domain/errors/task-error.js'
 import {CurateExecutor} from '../../../../src/server/infra/executor/curate-executor.js'
+
+function createEventStream(events: StreamingEvent[]): AsyncIterableIterator<StreamingEvent> {
+  return (async function* () {
+    for (const event of events) {
+      yield event
+    }
+  })()
+}
 
 describe('CurateExecutor (regression)', () => {
   afterEach(() => {
@@ -118,6 +136,1109 @@ describe('CurateExecutor (regression)', () => {
       // Previously, createTaskSession ran first and the session would leak on throw.
       expect(createTaskSession.called).to.be.false
       expect(deleteTaskSession.called).to.be.false
+    })
+  })
+
+  describe('no-harness behavior', () => {
+    it('should execute normally when harnessService is not provided', async () => {
+      const tempDir = mkdtempSync(path.join(os.tmpdir(), 'curate-executor-'))
+      const stream = stub().resolves(createEventStream([
+        {
+          content: 'curation complete',
+          name: 'llmservice:response',
+          sessionId: 'session-id',
+          taskId: 'task-123',
+        },
+        {
+          durationMs: 1,
+          finishReason: 'stop',
+          name: 'run:complete',
+          sessionId: 'session-id',
+          stepCount: 1,
+          taskId: 'task-123',
+        },
+      ]))
+
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession: stub().resolves('session-id'),
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession: stub().resolves(),
+        execute: stub().resolves(''),
+        executeOnSession: stub().resolves(''),
+        generate: stub(),
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession: stub(),
+        start: stub().resolves(),
+        stream,
+      } as unknown as ICipherAgent
+
+      // No harnessService passed — should work without harness
+      const executor = new CurateExecutor()
+      stub((executor as any).preCompactionService, 'compact').resolves({
+        context: 'context',
+      })
+
+      try {
+        const result = await executor.executeWithAgent(agent, {
+          clientCwd: tempDir,
+          content: 'test content',
+          taskId: 'task-123',
+        })
+        expect(result).to.equal('curation complete')
+        expect(stream.calledOnce).to.be.true
+      } finally {
+        rmSync(tempDir, {force: true, recursive: true})
+      }
+    })
+  })
+
+  describe('fast-path clean success', () => {
+    it('should record positive feedback on clean fast-path completion', async () => {
+      const tempDir = mkdtempSync(path.join(os.tmpdir(), 'curate-executor-'))
+      const templateNode: HarnessNode = {
+        alpha: 18,
+        beta: 1,
+        childIds: [],
+        createdAt: Date.now(),
+        heuristic: 0.95,
+        id: 'template-node',
+        metadata: {},
+        parentId: null,
+        templateContent: 'domainRouting: []',
+        visitCount: 10,
+      }
+
+      const harnessService = {
+        recordExecutionFailure: stub().resolves(),
+        recordFeedback: stub().resolves(),
+        recordShadowFeedback: stub().resolves(),
+        refineIfNeeded: stub().resolves(null),
+        selectTemplate: stub().resolves({mode: 'fast', node: templateNode}),
+      }
+
+      const stream = stub().resolves(createEventStream([
+        {
+          args: {code: 'await tools.curate([])'},
+          callId: 'call-1',
+          name: 'llmservice:toolCall',
+          sessionId: 'session-id',
+          taskId: 'task-123',
+          toolName: 'code_exec',
+        },
+        {
+          callId: 'call-1',
+          name: 'llmservice:toolResult',
+          result: JSON.stringify({
+            curateResults: [{applied: [{path: 'architecture/api/endpoints', status: 'success', type: 'ADD'}]}],
+          }),
+          sessionId: 'session-id',
+          success: true,
+          taskId: 'task-123',
+          toolName: 'code_exec',
+        },
+        {
+          content: 'Curated 1 topic successfully.',
+          name: 'llmservice:response',
+          sessionId: 'session-id',
+          taskId: 'task-123',
+        },
+        {
+          durationMs: 500,
+          finishReason: 'stop',
+          name: 'run:complete',
+          sessionId: 'session-id',
+          stepCount: 2,
+          taskId: 'task-123',
+        },
+      ]))
+
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession: stub().resolves('session-id'),
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession: stub().resolves(),
+        execute: stub().resolves(''),
+        executeOnSession: stub().resolves(''),
+        generate: stub(),
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession: stub(),
+        start: stub().resolves(),
+        stream,
+      } as unknown as ICipherAgent
+
+      const executor = new CurateExecutor(undefined, harnessService as never)
+      stub((executor as any).preCompactionService, 'compact').resolves({
+        context: 'context',
+      })
+
+      try {
+        const result = await executor.executeWithAgent(agent, {
+          clientCwd: tempDir,
+          content: 'test content about API endpoints',
+          taskId: 'task-123',
+        })
+        expect(result).to.equal('Curated 1 topic successfully.')
+        // Positive feedback should be recorded (not execution failure)
+        expect(harnessService.recordFeedback.calledOnce).to.be.true
+        expect(harnessService.recordFeedback.firstCall.args[0]).to.equal('template-node')
+        expect(harnessService.recordFeedback.firstCall.args[1]).to.have.length(1)
+        expect(harnessService.recordExecutionFailure.called).to.be.false
+        expect(harnessService.recordShadowFeedback.called).to.be.false
+        // Refinement should still be triggered (non-blocking)
+        expect(harnessService.refineIfNeeded.calledOnce).to.be.true
+      } finally {
+        rmSync(tempDir, {force: true, recursive: true})
+      }
+    })
+  })
+
+  describe('fallback session handling', () => {
+    it('should use a distinct session ID for fallback to avoid dirty session reuse', async () => {
+      const tempDir = mkdtempSync(path.join(os.tmpdir(), 'curate-executor-'))
+      const templateNode: HarnessNode = {
+        alpha: 1,
+        beta: 1,
+        childIds: [],
+        createdAt: Date.now(),
+        heuristic: 0.95,
+        id: 'template-node',
+        metadata: {},
+        parentId: null,
+        templateContent: 'domainRouting: []',
+        visitCount: 0,
+      }
+
+      const harnessService = {
+        recordExecutionFailure: stub().resolves(),
+        recordFeedback: stub().resolves(),
+        recordShadowFeedback: stub().resolves(),
+        refineIfNeeded: stub().resolves(null),
+        selectTemplate: stub().resolves({mode: 'fast', node: templateNode}),
+      }
+
+      const createTaskSession = stub()
+      createTaskSession.onFirstCall().resolves('session-original')
+      createTaskSession.onSecondCall().resolves('session-fallback')
+
+      const generate = stub().resolves({
+        content: 'fallback result',
+        toolCalls: [],
+        usage: {inputTokens: 0, outputTokens: 0},
+      })
+      const stream = stub().resolves(createEventStream([
+        {
+          error: 'template failed',
+          name: 'llmservice:error',
+          recoverable: false,
+          sessionId: 'session-original',
+          taskId: 'task-123',
+        },
+        {
+          durationMs: 1,
+          finishReason: 'error',
+          name: 'run:complete',
+          sessionId: 'session-original',
+          stepCount: 0,
+          taskId: 'task-123',
+        },
+      ]))
+
+      const deleteTaskSession = stub().resolves()
+
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession,
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession,
+        execute: stub().resolves(''),
+        executeOnSession: stub().resolves(''),
+        generate,
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession: stub(),
+        start: stub().resolves(),
+        stream,
+      } as unknown as ICipherAgent
+
+      const executor = new CurateExecutor(undefined, harnessService as never)
+      stub((executor as any).preCompactionService, 'compact').resolves({
+        context: 'context',
+      })
+
+      try {
+        await executor.executeWithAgent(agent, {
+          clientCwd: tempDir,
+          content: 'test content',
+          taskId: 'task-123',
+        })
+
+        // Original session should be deleted before fallback
+        expect(deleteTaskSession.firstCall.args[0]).to.equal('session-original')
+        // Fallback task ID should include '-fallback' suffix
+        expect(createTaskSession.secondCall.args[0]).to.equal('task-123-fallback')
+      } finally {
+        rmSync(tempDir, {force: true, recursive: true})
+      }
+    })
+  })
+
+  describe('fast-path error handling', () => {
+    it('should fall back to the normal loop when fast path fails before mutation-capable tools run', async () => {
+      const tempDir = mkdtempSync(path.join(os.tmpdir(), 'curate-executor-'))
+      const templateNode: HarnessNode = {
+        alpha: 1,
+        beta: 1,
+        childIds: [],
+        createdAt: Date.now(),
+        heuristic: 0.95,
+        id: 'template-node',
+        metadata: {},
+        parentId: null,
+        templateContent: 'domainRouting: []',
+        visitCount: 0,
+      }
+
+      const harnessService = {
+        recordExecutionFailure: stub().resolves(),
+        recordFeedback: stub().resolves(),
+        recordShadowFeedback: stub().resolves(),
+        refineIfNeeded: stub().resolves(null),
+        selectTemplate: stub().resolves({mode: 'fast', node: templateNode}),
+      }
+
+      const generate = stub().resolves({
+        content: 'fallback response',
+        toolCalls: [
+          {
+            args: {},
+            callId: 'fallback-call',
+            result: {
+              data: JSON.stringify({
+                applied: [{path: 'architecture/api/example', status: 'success', type: 'ADD'}],
+              }),
+              success: true,
+            },
+            toolName: 'code_exec',
+          },
+        ],
+        usage: {inputTokens: 0, outputTokens: 0},
+      })
+      const stream = stub().resolves(createEventStream([
+        {
+          args: {code: 'const groups = tools.curation.groupBySubject([])'},
+          callId: 'call-1',
+          name: 'llmservice:toolCall',
+          sessionId: 'session-id',
+          taskId: 'task-123',
+          toolName: 'code_exec',
+        },
+        {
+          error: 'template planner failed',
+          name: 'llmservice:error',
+          recoverable: false,
+          sessionId: 'session-id',
+          taskId: 'task-123',
+        },
+        {
+          durationMs: 1,
+          finishReason: 'error',
+          name: 'run:complete',
+          sessionId: 'session-id',
+          stepCount: 1,
+          taskId: 'task-123',
+        },
+      ]))
+
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession: stub().resolves('session-id'),
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession: stub().resolves(),
+        execute: stub().resolves(''),
+        executeOnSession: stub().resolves(''),
+        generate,
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession: stub(),
+        start: stub().resolves(),
+        stream,
+      } as unknown as ICipherAgent
+
+      const executor = new CurateExecutor(undefined, harnessService as never)
+      stub((executor as any).preCompactionService, 'compact').resolves({
+        context: 'context',
+      })
+
+      try {
+        const result = await executor.executeWithAgent(agent, {
+          clientCwd: tempDir,
+          content: 'test content',
+          taskId: 'task-123',
+        })
+        expect(result).to.equal('fallback response')
+        expect(stream.calledOnce).to.be.true
+        expect(generate.callCount).to.equal(1)
+        // Pre-mutation fallback now penalizes the template
+        expect(harnessService.recordExecutionFailure.calledOnce).to.be.true
+        expect(harnessService.recordExecutionFailure.firstCall.args[0]).to.equal('template-node')
+        expect(harnessService.recordFeedback.called).to.be.false
+        expect(harnessService.recordShadowFeedback.called).to.be.false
+      } finally {
+        rmSync(tempDir, {force: true, recursive: true})
+      }
+    })
+
+    it('should fall back to the normal loop when fast path reaches max iterations before mutation-capable tools run', async () => {
+      const tempDir = mkdtempSync(path.join(os.tmpdir(), 'curate-executor-'))
+      const templateNode: HarnessNode = {
+        alpha: 1,
+        beta: 1,
+        childIds: [],
+        createdAt: Date.now(),
+        heuristic: 0.95,
+        id: 'template-node',
+        metadata: {},
+        parentId: null,
+        templateContent: 'domainRouting: []',
+        visitCount: 0,
+      }
+
+      const harnessService = {
+        recordExecutionFailure: stub().resolves(),
+        recordFeedback: stub().resolves(),
+        recordShadowFeedback: stub().resolves(),
+        refineIfNeeded: stub().resolves(null),
+        selectTemplate: stub().resolves({mode: 'fast', node: templateNode}),
+      }
+
+      const generate = stub().resolves({
+        content: 'fallback response',
+        toolCalls: [
+          {
+            args: {},
+            callId: 'fallback-call',
+            result: {
+              data: JSON.stringify({
+                applied: [{path: 'architecture/api/example', status: 'success', type: 'ADD'}],
+              }),
+              success: true,
+            },
+            toolName: 'code_exec',
+          },
+        ],
+        usage: {inputTokens: 0, outputTokens: 0},
+      })
+      const stream = stub().resolves(createEventStream([
+        {
+          args: {code: 'const groups = tools.curation.groupBySubject([])'},
+          callId: 'call-1',
+          name: 'llmservice:toolCall',
+          sessionId: 'session-id',
+          taskId: 'task-123',
+          toolName: 'code_exec',
+        },
+        {
+          content: 'partial template response',
+          name: 'llmservice:response',
+          partial: true,
+          sessionId: 'session-id',
+          taskId: 'task-123',
+        },
+        {
+          durationMs: 1,
+          finishReason: 'max-iterations',
+          name: 'run:complete',
+          sessionId: 'session-id',
+          stepCount: 10,
+          taskId: 'task-123',
+        },
+      ]))
+
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession: stub().resolves('session-id'),
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession: stub().resolves(),
+        execute: stub().resolves(''),
+        executeOnSession: stub().resolves(''),
+        generate,
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession: stub(),
+        start: stub().resolves(),
+        stream,
+      } as unknown as ICipherAgent
+
+      const executor = new CurateExecutor(undefined, harnessService as never)
+      stub((executor as any).preCompactionService, 'compact').resolves({
+        context: 'context',
+      })
+
+      try {
+        const result = await executor.executeWithAgent(agent, {
+          clientCwd: tempDir,
+          content: 'test content',
+          taskId: 'task-123',
+        })
+        expect(result).to.equal('fallback response')
+        expect(stream.calledOnce).to.be.true
+        expect(generate.calledOnce).to.be.true
+        // Pre-mutation fallback now penalizes the template so it doesn't
+        // stay at high heuristic and keep burning latency on repeated failures
+        expect(harnessService.recordExecutionFailure.calledOnce).to.be.true
+        expect(harnessService.recordExecutionFailure.firstCall.args[0]).to.equal('template-node')
+        expect(harnessService.recordFeedback.called).to.be.false
+        expect(harnessService.recordShadowFeedback.called).to.be.false
+      } finally {
+        rmSync(tempDir, {force: true, recursive: true})
+      }
+    })
+
+    it('should propagate cancellation without retrying the curate run', async () => {
+      const tempDir = mkdtempSync(path.join(os.tmpdir(), 'curate-executor-'))
+      const templateNode: HarnessNode = {
+        alpha: 1,
+        beta: 1,
+        childIds: [],
+        createdAt: Date.now(),
+        heuristic: 0.95,
+        id: 'template-node',
+        metadata: {},
+        parentId: null,
+        templateContent: 'domainRouting: []',
+        visitCount: 0,
+      }
+
+      const harnessService = {
+        recordExecutionFailure: stub().resolves(),
+        recordFeedback: stub().resolves(),
+        recordShadowFeedback: stub().resolves(),
+        refineIfNeeded: stub().resolves(null),
+        selectTemplate: stub().resolves({mode: 'fast', node: templateNode}),
+      }
+
+      const generate = stub()
+      const stream = stub().resolves(createEventStream([
+        {
+          durationMs: 1,
+          finishReason: 'cancelled',
+          name: 'run:complete',
+          sessionId: 'session-id',
+          stepCount: 0,
+          taskId: 'task-123',
+        },
+      ]))
+
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession: stub().resolves('session-id'),
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession: stub().resolves(),
+        execute: stub().resolves(''),
+        executeOnSession: stub().resolves(''),
+        generate,
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession: stub(),
+        start: stub().resolves(),
+        stream,
+      } as unknown as ICipherAgent
+
+      const executor = new CurateExecutor(undefined, harnessService as never)
+      stub((executor as any).preCompactionService, 'compact').resolves({
+        context: 'context',
+      })
+
+      try {
+        await executor.executeWithAgent(agent, {
+          clientCwd: tempDir,
+          content: 'test content',
+          taskId: 'task-123',
+        })
+        expect.fail('Expected SessionCancelledError')
+      } catch (error) {
+        expect(error).to.be.instanceOf(SessionCancelledError)
+        expect(stream.calledOnce).to.be.true
+        expect(generate.called).to.be.false
+        expect(harnessService.recordExecutionFailure.called).to.be.false
+        expect(harnessService.recordFeedback.called).to.be.false
+        expect(harnessService.recordShadowFeedback.called).to.be.false
+        expect(harnessService.refineIfNeeded.called).to.be.false
+        expect((agent.deleteTaskSession as ReturnType<typeof stub>).calledOnce).to.be.true
+      } finally {
+        rmSync(tempDir, {force: true, recursive: true})
+      }
+    })
+
+    it('should not fall back after a mutation-capable tool call has started', async () => {
+      const tempDir = mkdtempSync(path.join(os.tmpdir(), 'curate-executor-'))
+      const templateNode: HarnessNode = {
+        alpha: 1,
+        beta: 1,
+        childIds: [],
+        createdAt: Date.now(),
+        heuristic: 0.95,
+        id: 'template-node',
+        metadata: {},
+        parentId: null,
+        templateContent: 'domainRouting: []',
+        visitCount: 0,
+      }
+
+      const harnessService = {
+        recordExecutionFailure: stub().resolves(),
+        recordFeedback: stub().resolves(),
+        recordShadowFeedback: stub().resolves(),
+        refineIfNeeded: stub().resolves(null),
+        selectTemplate: stub().resolves({mode: 'fast', node: templateNode}),
+      }
+
+      const generate = stub()
+      const stream = stub().resolves(createEventStream([
+        {
+          args: {code: 'await tools.curate([{ type: "UPSERT", path: "auth/jwt" }])'},
+          callId: 'call-1',
+          name: 'llmservice:toolCall',
+          sessionId: 'session-id',
+          taskId: 'task-123',
+          toolName: 'code_exec',
+        },
+        {
+          callId: 'call-1',
+          name: 'llmservice:toolResult',
+          result: JSON.stringify({
+            curateResults: [{applied: [{path: 'auth/jwt', status: 'success', type: 'UPSERT'}]}],
+          }),
+          sessionId: 'session-id',
+          success: true,
+          taskId: 'task-123',
+          toolName: 'code_exec',
+        },
+        {
+          error: 'late tool failure',
+          name: 'llmservice:error',
+          recoverable: false,
+          sessionId: 'session-id',
+          taskId: 'task-123',
+        },
+        {
+          durationMs: 1,
+          finishReason: 'error',
+          name: 'run:complete',
+          sessionId: 'session-id',
+          stepCount: 1,
+          taskId: 'task-123',
+        },
+      ]))
+
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession: stub().resolves('session-id'),
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession: stub().resolves(),
+        execute: stub().resolves(''),
+        executeOnSession: stub().resolves(''),
+        generate,
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession: stub(),
+        start: stub().resolves(),
+        stream,
+      } as unknown as ICipherAgent
+
+      const executor = new CurateExecutor(undefined, harnessService as never)
+      stub((executor as any).preCompactionService, 'compact').resolves({
+        context: 'context',
+      })
+
+      try {
+        await executor.executeWithAgent(agent, {
+          clientCwd: tempDir,
+          content: 'test content',
+          taskId: 'task-123',
+        })
+        expect.fail('Expected error')
+      } catch (error) {
+        expect((error as Error).message).to.include('late tool failure')
+        expect(stream.calledOnce).to.be.true
+        expect(generate.called).to.be.false
+        expect(harnessService.recordExecutionFailure.calledOnce).to.be.true
+        expect(harnessService.recordExecutionFailure.firstCall.args[0]).to.equal('template-node')
+        expect(harnessService.recordExecutionFailure.firstCall.args[2]).to.equal('error')
+        expect(harnessService.recordFeedback.called).to.be.false
+        expect(harnessService.recordShadowFeedback.called).to.be.false
+        expect(harnessService.refineIfNeeded.calledOnce).to.be.true
+      } finally {
+        rmSync(tempDir, {force: true, recursive: true})
+      }
+    })
+
+    it('should not fall back when mutation is only signaled by tool-result metadata', async () => {
+      const tempDir = mkdtempSync(path.join(os.tmpdir(), 'curate-executor-'))
+      const templateNode: HarnessNode = {
+        alpha: 1,
+        beta: 1,
+        childIds: [],
+        createdAt: Date.now(),
+        heuristic: 0.95,
+        id: 'template-node',
+        metadata: {},
+        parentId: null,
+        templateContent: 'domainRouting: []',
+        visitCount: 0,
+      }
+
+      const harnessService = {
+        recordExecutionFailure: stub().resolves(),
+        recordFeedback: stub().resolves(),
+        recordShadowFeedback: stub().resolves(),
+        refineIfNeeded: stub().resolves(null),
+        selectTemplate: stub().resolves({mode: 'fast', node: templateNode}),
+      }
+
+      const generate = stub()
+      const stream = stub().resolves(createEventStream([
+        {
+          args: {code: 'const curate = tools.curate; await curate([{ type: "UPSERT", path: "auth/jwt" }])'},
+          callId: 'call-1',
+          name: 'llmservice:toolCall',
+          sessionId: 'session-id',
+          taskId: 'task-123',
+          toolName: 'code_exec',
+        },
+        {
+          callId: 'call-1',
+          metadata: {
+            curateResultsCount: 1,
+            knowledgeMutationAttempted: true,
+            truncated: true,
+          },
+          name: 'llmservice:toolResult',
+          result: '{"malformed":"truncated',
+          sessionId: 'session-id',
+          success: true,
+          taskId: 'task-123',
+          toolName: 'code_exec',
+        },
+        {
+          error: 'late tool failure',
+          name: 'llmservice:error',
+          recoverable: false,
+          sessionId: 'session-id',
+          taskId: 'task-123',
+        },
+        {
+          durationMs: 1,
+          finishReason: 'error',
+          name: 'run:complete',
+          sessionId: 'session-id',
+          stepCount: 1,
+          taskId: 'task-123',
+        },
+      ]))
+
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession: stub().resolves('session-id'),
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession: stub().resolves(),
+        execute: stub().resolves(''),
+        executeOnSession: stub().resolves(''),
+        generate,
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession: stub(),
+        start: stub().resolves(),
+        stream,
+      } as unknown as ICipherAgent
+
+      const executor = new CurateExecutor(undefined, harnessService as never)
+      stub((executor as any).preCompactionService, 'compact').resolves({
+        context: 'context',
+      })
+
+      try {
+        await executor.executeWithAgent(agent, {
+          clientCwd: tempDir,
+          content: 'test content',
+          taskId: 'task-123',
+        })
+        expect.fail('Expected error')
+      } catch (error) {
+        expect((error as Error).message).to.include('late tool failure')
+        expect(stream.calledOnce).to.be.true
+        expect(generate.called).to.be.false
+        expect(harnessService.recordExecutionFailure.calledOnce).to.be.true
+        expect(harnessService.recordExecutionFailure.firstCall.args[0]).to.equal('template-node')
+        expect(harnessService.recordFeedback.called).to.be.false
+        expect(harnessService.recordShadowFeedback.called).to.be.false
+        expect(harnessService.refineIfNeeded.calledOnce).to.be.true
+      } finally {
+        rmSync(tempDir, {force: true, recursive: true})
+      }
+    })
+
+    it('should record execution failure instead of a clean template success when fast path times out after mutation starts', async () => {
+      const tempDir = mkdtempSync(path.join(os.tmpdir(), 'curate-executor-'))
+      const templateNode: HarnessNode = {
+        alpha: 1,
+        beta: 1,
+        childIds: [],
+        createdAt: Date.now(),
+        heuristic: 0.95,
+        id: 'template-node',
+        metadata: {},
+        parentId: null,
+        templateContent: 'domainRouting: []',
+        visitCount: 0,
+      }
+
+      const harnessService = {
+        recordExecutionFailure: stub().resolves(),
+        recordFeedback: stub().resolves(),
+        recordShadowFeedback: stub().resolves(),
+        refineIfNeeded: stub().resolves(null),
+        selectTemplate: stub().resolves({mode: 'fast', node: templateNode}),
+      }
+
+      const generate = stub()
+      const stream = stub().resolves(createEventStream([
+        {
+          args: {code: 'await tools.curate([{ type: "UPSERT", path: "auth/jwt" }])'},
+          callId: 'call-1',
+          name: 'llmservice:toolCall',
+          sessionId: 'session-id',
+          taskId: 'task-123',
+          toolName: 'code_exec',
+        },
+        {
+          callId: 'call-1',
+          name: 'llmservice:toolResult',
+          result: JSON.stringify({
+            curateResults: [{applied: [{path: 'security/authentication/jwt', status: 'success', type: 'UPSERT'}]}],
+          }),
+          sessionId: 'session-id',
+          success: true,
+          taskId: 'task-123',
+          toolName: 'code_exec',
+        },
+        {
+          content: 'partial template response',
+          name: 'llmservice:response',
+          partial: true,
+          sessionId: 'session-id',
+          taskId: 'task-123',
+        },
+        {
+          durationMs: 1,
+          finishReason: 'timeout',
+          name: 'run:complete',
+          sessionId: 'session-id',
+          stepCount: 10,
+          taskId: 'task-123',
+        },
+      ]))
+
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession: stub().resolves('session-id'),
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession: stub().resolves(),
+        execute: stub().resolves(''),
+        executeOnSession: stub().resolves(''),
+        generate,
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession: stub(),
+        start: stub().resolves(),
+        stream,
+      } as unknown as ICipherAgent
+
+      const executor = new CurateExecutor(undefined, harnessService as never)
+      stub((executor as any).preCompactionService, 'compact').resolves({
+        context: 'context',
+      })
+
+      try {
+        const result = await executor.executeWithAgent(agent, {
+          clientCwd: tempDir,
+          content: 'test content',
+          taskId: 'task-123',
+        })
+        expect(result).to.equal('partial template response')
+        expect(generate.called).to.be.false
+        expect(harnessService.recordFeedback.called).to.be.false
+        expect(harnessService.recordExecutionFailure.calledOnce).to.be.true
+        expect(harnessService.recordExecutionFailure.firstCall.args[0]).to.equal('template-node')
+        expect(harnessService.recordExecutionFailure.firstCall.args[2]).to.equal('timeout')
+        expect(harnessService.refineIfNeeded.calledOnce).to.be.true
+      } finally {
+        rmSync(tempDir, {force: true, recursive: true})
+      }
+    })
+  })
+
+  describe('refinement non-blocking contract', () => {
+    it('should not await refineIfNeeded — refinement must not block the curate response', async () => {
+      const tempDir = mkdtempSync(path.join(os.tmpdir(), 'curate-executor-'))
+      const templateNode: HarnessNode = {
+        alpha: 1,
+        beta: 1,
+        childIds: [],
+        createdAt: Date.now(),
+        heuristic: 0.95,
+        id: 'template-node',
+        metadata: {},
+        parentId: null,
+        templateContent: 'domainRouting: []',
+        visitCount: 0,
+      }
+
+      // refineIfNeeded returns a promise that never resolves.
+      // If the executor awaits it, the test will time out.
+      const neverResolve = new Promise<null>(() => {})
+      const harnessService = {
+        recordExecutionFailure: stub().resolves(),
+        recordFeedback: stub().resolves(),
+        recordShadowFeedback: stub().resolves(),
+        refineIfNeeded: stub().returns(neverResolve),
+        selectTemplate: stub().resolves({mode: 'fast', node: templateNode}),
+      }
+
+      const stream = stub().resolves(createEventStream([
+        {
+          args: {code: 'await tools.curate([])'},
+          callId: 'call-1',
+          name: 'llmservice:toolCall',
+          sessionId: 'session-id',
+          taskId: 'task-123',
+          toolName: 'code_exec',
+        },
+        {
+          callId: 'call-1',
+          name: 'llmservice:toolResult',
+          result: JSON.stringify({
+            curateResults: [{applied: [{path: 'test/path', status: 'success', type: 'ADD'}]}],
+          }),
+          sessionId: 'session-id',
+          success: true,
+          taskId: 'task-123',
+          toolName: 'code_exec',
+        },
+        {
+          content: 'done',
+          name: 'llmservice:response',
+          sessionId: 'session-id',
+          taskId: 'task-123',
+        },
+        {
+          durationMs: 1,
+          finishReason: 'stop',
+          name: 'run:complete',
+          sessionId: 'session-id',
+          stepCount: 1,
+          taskId: 'task-123',
+        },
+      ]))
+
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession: stub().resolves('session-id'),
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession: stub().resolves(),
+        execute: stub().resolves(''),
+        executeOnSession: stub().resolves(''),
+        generate: stub(),
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession: stub(),
+        start: stub().resolves(),
+        stream,
+      } as unknown as ICipherAgent
+
+      const executor = new CurateExecutor(undefined, harnessService as never)
+      stub((executor as any).preCompactionService, 'compact').resolves({
+        context: 'context',
+      })
+
+      try {
+        // If refinement were awaited, this would hang because refineIfNeeded never resolves.
+        // The test passing proves refinement is non-blocking.
+        const result = await executor.executeWithAgent(agent, {
+          clientCwd: tempDir,
+          content: 'test content',
+          taskId: 'task-123',
+        })
+        expect(result).to.equal('done')
+        expect(harnessService.recordFeedback.calledOnce).to.be.true
+        expect(harnessService.refineIfNeeded.calledOnce).to.be.true
+      } finally {
+        rmSync(tempDir, {force: true, recursive: true})
+      }
+    })
+  })
+
+  describe('shadow-mode fatal error feedback', () => {
+    it('should record shadow feedback even when the full agent loop ends in a fatal error', async () => {
+      const tempDir = mkdtempSync(path.join(os.tmpdir(), 'curate-executor-'))
+      const templateNode: HarnessNode = {
+        alpha: 1,
+        beta: 1,
+        childIds: [],
+        createdAt: Date.now(),
+        heuristic: 0.5, // below 0.9 threshold → shadow mode
+        id: 'shadow-node',
+        metadata: {},
+        parentId: null,
+        templateContent: 'domainRouting:\n  - keywords: [auth]\n    domain: security/authentication',
+        visitCount: 5,
+      }
+
+      const harnessService = {
+        recordExecutionFailure: stub().resolves(),
+        recordFeedback: stub().resolves(),
+        recordShadowFeedback: stub().resolves(),
+        refineIfNeeded: stub().resolves(null),
+        selectTemplate: stub().resolves({mode: 'shadow', node: templateNode}),
+      }
+
+      // Stream yields tool results (mutations happened) then fatal error with no response
+      const stream = stub().resolves(createEventStream([
+        {
+          args: {code: 'await tools.curate([{ type: "ADD", path: "security/authentication/jwt" }])'},
+          callId: 'call-1',
+          name: 'llmservice:toolCall',
+          sessionId: 'session-id',
+          taskId: 'task-123',
+          toolName: 'code_exec',
+        },
+        {
+          callId: 'call-1',
+          name: 'llmservice:toolResult',
+          result: JSON.stringify({
+            curateResults: [{applied: [{path: 'security/authentication/jwt', status: 'success', type: 'ADD'}]}],
+          }),
+          sessionId: 'session-id',
+          success: true,
+          taskId: 'task-123',
+          toolName: 'code_exec',
+        },
+        {
+          error: 'provider rate limit exceeded',
+          name: 'llmservice:error',
+          recoverable: false,
+          sessionId: 'session-id',
+          taskId: 'task-123',
+        },
+        {
+          durationMs: 1,
+          finishReason: 'error',
+          name: 'run:complete',
+          sessionId: 'session-id',
+          stepCount: 2,
+          taskId: 'task-123',
+        },
+      ]))
+
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession: stub().resolves('session-id'),
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession: stub().resolves(),
+        execute: stub().resolves(''),
+        executeOnSession: stub().resolves(''),
+        generate: stub(),
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession: stub(),
+        start: stub().resolves(),
+        stream,
+      } as unknown as ICipherAgent
+
+      const executor = new CurateExecutor(undefined, harnessService as never)
+      stub((executor as any).preCompactionService, 'compact').resolves({
+        context: 'context',
+      })
+
+      try {
+        await executor.executeWithAgent(agent, {
+          clientCwd: tempDir,
+          content: 'test content about auth tokens',
+          taskId: 'task-123',
+        })
+        expect.fail('Expected error to be thrown')
+      } catch (error) {
+        // The fatal error should propagate
+        expect((error as Error).message).to.include('provider rate limit exceeded')
+
+        // Shadow feedback must have been recorded BEFORE the error was thrown
+        expect(harnessService.recordShadowFeedback.calledOnce).to.be.true
+        expect(harnessService.recordShadowFeedback.firstCall.args[0]).to.deep.equal(templateNode)
+        // The extracted curate ops should have been passed through
+        const passedOps = harnessService.recordShadowFeedback.firstCall.args[2]
+        expect(passedOps).to.have.length(1)
+        expect(passedOps[0].path).to.equal('security/authentication/jwt')
+      } finally {
+        rmSync(tempDir, {force: true, recursive: true})
+      }
     })
   })
 })
