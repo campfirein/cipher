@@ -5,6 +5,7 @@
  * Used by CurateExecutor as an optional dependency.
  */
 
+import type {IContentGenerator} from '../../../../agent/core/interfaces/i-content-generator.js'
 import type {CurateLogOperation} from '../../../core/domain/entities/curate-log-entry.js'
 import type {HarnessNode} from '../../../core/interfaces/harness/i-harness-tree-store.js'
 
@@ -90,7 +91,7 @@ export class CurationHarnessService {
     const feedback = {
       details: {
         actuals: actuals.length,
-        f1: update.alpha,
+        f1Score: update.alpha,
         mode: 'shadow',
         predictions: predictions.length,
       },
@@ -129,7 +130,7 @@ export class CurationHarnessService {
    * Set the content generator for critic/refiner LLM calls.
    * Call after the agent starts to enable refinement.
    */
-  setContentGenerator(generator: import('../../../../agent/core/interfaces/i-content-generator.js').IContentGenerator): void {
+  setContentGenerator(generator: IContentGenerator): void {
     this.engine.setContentGenerator(generator)
   }
 }

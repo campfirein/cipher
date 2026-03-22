@@ -35,7 +35,7 @@ export async function consolidateErrors(
   const actionable = feedbackBatch.filter((f) => {
     if (!f.success) return true // explicit failure
     // Shadow mode entries with partial matches indicate room for improvement
-    if (f.details.mode === 'shadow' && typeof f.details.f1 === 'number' && f.details.f1 < 1) return true
+    if (f.details.mode === 'shadow' && typeof f.details.f1Score === 'number' && f.details.f1Score < 1) return true
 
     return false
   })
@@ -49,7 +49,7 @@ export async function consolidateErrors(
   }).join('\n')
 
   const prompt = [
-    'You are analyzing performance of a knowledge curation template.',
+    'You are analyzing performance of a knowledge management template.',
     '',
     '## Current Template',
     '```yaml',

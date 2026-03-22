@@ -11,9 +11,9 @@
  * Each node holds a template (YAML config) and its performance statistics.
  */
 export interface HarnessNode {
-  /** Beta distribution failure count (exploration/exploitation) */
-  alpha: number
   /** Beta distribution success count (exploration/exploitation) */
+  alpha: number
+  /** Beta distribution failure count (exploration/exploitation) */
   beta: number
   /** IDs of child nodes (refined versions of this template) */
   childIds: string[]

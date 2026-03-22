@@ -94,7 +94,8 @@ function sampleGamma(shape: number): number {
  * Generate a standard normal random variable using the Box-Muller transform.
  */
 function gaussianRandom(): number {
-  const u1 = Math.random()
+  // Clamp u1 away from 0 to prevent Math.log(0) = -Infinity → NaN
+  const u1 = Math.max(Number.EPSILON, Math.random())
   const u2 = Math.random()
   return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2)
 }

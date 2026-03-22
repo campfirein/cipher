@@ -133,13 +133,25 @@ describe('curation-feedback-collector', () => {
       expect(result!.beta).to.be.closeTo(0, 0.001)
     })
 
-    it('should not give prefix credit — broad domain routes must match exactly', () => {
+    it('should give prefix credit — domain route matches subtopic paths', () => {
       const result = scoreShadow(
         ['security/authentication'],
         [createOp({path: '/security/authentication/jwt.md'})],
       )
 
-      // Exact match only: "security/authentication" !== "security/authentication/jwt"
+      // Prefix match: "security/authentication" matches "security/authentication/jwt"
+      expect(result).to.not.be.null
+      expect(result!.alpha).to.be.closeTo(1, 0.001)
+      expect(result!.beta).to.be.closeTo(0, 0.001)
+    })
+
+    it('should not give prefix credit for partial segment matches', () => {
+      const result = scoreShadow(
+        ['security/auth'],
+        [createOp({path: '/security/authentication/jwt.md'})],
+      )
+
+      // "security/auth" is NOT a prefix of "security/authentication" (partial segment)
       expect(result).to.not.be.null
       expect(result!.alpha).to.equal(0)
       expect(result!.beta).to.equal(1)

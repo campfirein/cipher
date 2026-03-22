@@ -162,6 +162,8 @@ export class CurateExecutor implements ICurateExecutor {
         // Use stream() so we can extract tool results even when the run
         // ends in a fatal error — generate() throws before returning
         // toolCalls, which would lose shadow feedback entirely.
+        // Note: all events are buffered in memory. For very long runs this is a
+        // known trade-off — we need the full event list for tool-result extraction.
         const events: StreamingEvent[] = []
         for await (const event of await agent.stream(prompt, {
           executionContext: {clearHistory: true, commandType: 'curate', maxIterations: 50},

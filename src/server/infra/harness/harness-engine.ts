@@ -270,12 +270,11 @@ export class HarnessEngine implements IHarnessEngine {
     this.contentGenerator = generator
   }
 
-  shouldRefine(domain: string, nodeId?: string): boolean {
+  shouldRefine(domain: string, nodeId: string): boolean {
     const count = this.operationCounts.get(domain) ?? 0
     if (count < this.config.refinementCooldown) return false
 
-    // Use node-specific feedback buffer when nodeId is provided
-    const buffer = nodeId ? (this.recentFeedback.get(nodeId) ?? []) : []
+    const buffer = this.recentFeedback.get(nodeId) ?? []
     if (buffer.length === 0) return false
 
     // Refine when there are explicit failures for this node

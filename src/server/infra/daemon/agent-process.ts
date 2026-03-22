@@ -120,10 +120,19 @@ async function activateExistingSession(sessionId: string, providerId: string): P
 }
 
 function syncCurationHarnessGenerator(currentAgent: CipherAgent, harness: CurationHarnessService | null): void {
-  if (!harness || !currentAgent.sessionId) return
+  if (!harness) return
+  if (!currentAgent.sessionId) {
+    agentLog('syncCurationHarnessGenerator: no active session — refinement disabled')
+
+    return
+  }
 
   const session = currentAgent.getSession(currentAgent.sessionId)
-  if (!session) return
+  if (!session) {
+    agentLog(`syncCurationHarnessGenerator: session ${currentAgent.sessionId} not found — refinement disabled`)
+
+    return
+  }
 
   harness.setContentGenerator(session.getLLMService().getContentGenerator())
 }

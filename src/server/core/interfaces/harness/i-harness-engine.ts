@@ -51,5 +51,5 @@ export interface IHarnessEngine {
   /** Set or replace the content generator used for critic/refiner calls. */
   setContentGenerator(generator: IContentGenerator): void
   /** Check if refinement should be triggered for the domain. */
-  shouldRefine(domain: string, nodeId?: string): boolean
+  shouldRefine(domain: string, nodeId: string): boolean
 }

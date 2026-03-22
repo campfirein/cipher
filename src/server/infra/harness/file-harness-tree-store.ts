@@ -11,6 +11,7 @@
  * - Constructor DI with defaults
  */
 
+import {randomUUID} from 'node:crypto'
 import {mkdir, readFile, rename, rm, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import {z} from 'zod'
@@ -151,7 +152,7 @@ export class FileHarnessTreeStore implements IHarnessTreeStore {
   // ── Private helpers ──────────────────────────────────────────────────────
 
   private async atomicWrite(filePath: string, content: string): Promise<void> {
-    const tmpPath = `${filePath}.tmp.${Date.now()}`
+    const tmpPath = `${filePath}.tmp.${randomUUID()}`
     await writeFile(tmpPath, content, 'utf8')
     await rename(tmpPath, filePath)
   }

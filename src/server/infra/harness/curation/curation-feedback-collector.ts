@@ -30,6 +30,8 @@ export function extractOperationsFromResponse(genResponse: GenerateResponse): Cu
   const ops: CurateLogOperation[] = []
 
   for (const tc of genResponse.toolCalls) {
+    // tc.result.data is `unknown` — extractCurateOperations handles type checking
+    // internally and returns [] for non-string or malformed data.
     if (tc.result?.data && (tc.toolName === 'curate' || tc.toolName === 'code_exec')) {
       const extracted = extractCurateOperations({result: tc.result.data, toolName: tc.toolName})
       ops.push(...extracted)
@@ -106,10 +108,13 @@ export function scoreShadow(
   )
   if (predictedPaths.size === 0) return null // template made no predictions
 
-  // Exact set-match F1: a prediction matches an actual path only if the
-  // normalized paths are identical. No prefix credit — broad domain routes
-  // like "security/authentication" do NOT match "security/authentication/jwt".
-  const matched = [...predictedPaths].filter((p) => actualPaths.has(p)).length
+  // Prefix-match F1: a prediction matches an actual path if the actual path
+  // starts with the predicted domain route. Template predictions are domain-level
+  // (e.g. "security/authentication") while actual paths include subtopics
+  // (e.g. "security/authentication/jwt"). Exact match would always yield F1 ≈ 0.
+  const matched = [...predictedPaths].filter((predicted) =>
+    [...actualPaths].some((actual) => actual === predicted || actual.startsWith(`${predicted}/`)),
+  ).length
   const precision = matched / predictedPaths.size
   const recall = matched / actualPaths.size
   // When matched === 0: precision and recall are both 0, so 0/0 = NaN.
