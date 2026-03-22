@@ -85,10 +85,15 @@ export async function handleUpdateNotification(deps: UpdateNotifierDeps): Promis
   }
 }
 
-const hook: Hook<'init'> = async function (): Promise<void> {
+const hook: Hook<'init'> = async function (opts): Promise<void> {
+  const isNpmGlobalInstalled = isNpmGlobalInstall(execSync)
+
+  if (opts.id === 'update' && isNpmGlobalInstalled) {
+    this.error('brv was installed via npm. Use `npm update -g byterover-cli` to update.', {exit: 1})
+  }
+
   const pkgInfo = {name: this.config.name, version: this.config.version}
   const notifier = updateNotifier({pkg: pkgInfo, updateCheckInterval: UPDATE_CHECK_INTERVAL_MS})
-  const isNpmGlobalInstalled = isNpmGlobalInstall(execSync)
 
   await handleUpdateNotification({
     confirmPrompt: confirm,
