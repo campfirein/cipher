@@ -4,11 +4,13 @@ import {restore, stub} from 'sinon'
 import {handleRestartAfterUpdate} from '../../../src/oclif/hooks/postrun/restart-after-update.js'
 
 describe('restart-after-update hook', () => {
-  let execSyncStub: ReturnType<typeof stub>
+  let spawnRestartStub: ReturnType<typeof stub>
+  let fakeChild: {unref: ReturnType<typeof stub>}
   let logStub: ReturnType<typeof stub>
 
   beforeEach(() => {
-    execSyncStub = stub()
+    fakeChild = {unref: stub()}
+    spawnRestartStub = stub().returns(fakeChild)
     logStub = stub()
   })
 
@@ -16,66 +18,66 @@ describe('restart-after-update hook', () => {
     restore()
   })
 
-  it('should run brv restart after manual brv update', async () => {
+  it('should spawn brv restart after manual brv update', async () => {
     await handleRestartAfterUpdate({
       argv: [],
       commandId: 'update',
-      execSyncFn: execSyncStub,
       log: logStub,
+      spawnRestartFn: spawnRestartStub,
     })
 
     expect(logStub.calledWith('Restarting ByteRover...')).to.be.true
-    expect(execSyncStub.calledOnce).to.be.true
-    expect(execSyncStub.firstCall.args[0]).to.equal('brv restart')
+    expect(spawnRestartStub.calledOnce).to.be.true
+    expect(fakeChild.unref.calledOnce).to.be.true
   })
 
   it('should skip restart for auto-update (--autoupdate flag)', async () => {
     await handleRestartAfterUpdate({
       argv: ['--autoupdate'],
       commandId: 'update',
-      execSyncFn: execSyncStub,
       log: logStub,
+      spawnRestartFn: spawnRestartStub,
     })
 
     expect(logStub.called).to.be.false
-    expect(execSyncStub.called).to.be.false
+    expect(spawnRestartStub.called).to.be.false
   })
 
   it('should skip restart for non-update commands', async () => {
     await handleRestartAfterUpdate({
       argv: [],
       commandId: 'status',
-      execSyncFn: execSyncStub,
       log: logStub,
+      spawnRestartFn: spawnRestartStub,
     })
 
     expect(logStub.called).to.be.false
-    expect(execSyncStub.called).to.be.false
+    expect(spawnRestartStub.called).to.be.false
   })
 
-  it('should not throw if brv restart fails', async () => {
-    execSyncStub.throws(new Error('restart failed'))
+  it('should not throw if spawn fails', async () => {
+    spawnRestartStub.throws(new Error('spawn failed'))
 
     await handleRestartAfterUpdate({
       argv: [],
       commandId: 'update',
-      execSyncFn: execSyncStub,
       log: logStub,
+      spawnRestartFn: spawnRestartStub,
     })
 
     expect(logStub.calledWith('Restarting ByteRover...')).to.be.true
-    expect(execSyncStub.calledOnce).to.be.true
+    expect(spawnRestartStub.calledOnce).to.be.true
   })
 
   it('should skip restart when commandId is undefined', async () => {
     await handleRestartAfterUpdate({
       argv: [],
       commandId: undefined,
-      execSyncFn: execSyncStub,
       log: logStub,
+      spawnRestartFn: spawnRestartStub,
     })
 
     expect(logStub.called).to.be.false
-    expect(execSyncStub.called).to.be.false
+    expect(spawnRestartStub.called).to.be.false
   })
 })

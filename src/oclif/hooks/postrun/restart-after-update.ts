@@ -1,12 +1,12 @@
 import type {Hook} from '@oclif/core'
 
-import {execSync} from 'node:child_process'
+import {spawn} from 'node:child_process'
 
 export type RestartAfterUpdateDeps = {
   argv: string[]
   commandId: string | undefined
-  execSyncFn: (command: string, options: {stdio: 'inherit'}) => void
   log: (msg: string) => void
+  spawnRestartFn: () => {unref(): void}
 }
 
 /**
@@ -25,18 +25,27 @@ export async function handleRestartAfterUpdate(deps: RestartAfterUpdateDeps): Pr
 
   deps.log('Restarting ByteRover...')
   try {
-    deps.execSyncFn('brv restart', {stdio: 'inherit'})
+    const child = deps.spawnRestartFn()
+    child.unref()
   } catch {
-    // best-effort — update already succeeded, process may have been killed by restart
+    deps.log('Failed to restart ByteRover. Please restart it manually by running `brv restart`.')
+    // best-effort — update already succeeded
   }
+
+  deps.log('ByteRover restarted successfully.')
 }
 
 const hook: Hook<'postrun'> = async function (opts) {
   await handleRestartAfterUpdate({
     argv: opts.argv,
     commandId: opts.Command.id,
-    execSyncFn: execSync,
     log: this.log.bind(this),
+    spawnRestartFn: () =>
+      spawn('brv', ['restart'], {
+        detached: true,
+        shell: true,
+        stdio: 'ignore',
+      }),
   })
 }
 
