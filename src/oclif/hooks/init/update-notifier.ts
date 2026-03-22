@@ -1,7 +1,7 @@
 import type {Hook} from '@oclif/core'
 
 import {confirm} from '@inquirer/prompts'
-import {execSync} from 'node:child_process'
+import {execSync, spawn} from 'node:child_process'
 import updateNotifier from 'update-notifier'
 
 /**
@@ -28,6 +28,7 @@ export type UpdateNotifierDeps = {
   isTTY: boolean
   log: (message: string) => void
   notifier: NarrowedUpdateNotifier
+  spawnRestartFn: () => {unref(): void}
 }
 
 /**
@@ -71,11 +72,14 @@ export async function handleUpdateNotification(deps: UpdateNotifierDeps): Promis
     try {
       execSyncFn('npm update -g byterover-cli', {stdio: 'inherit'})
       log('')
-      log(`✓ Updated to ${latest}. Restarting...`)
+      log(`✓ Updated to ${latest}.`)
+      log('')
       try {
-        execSyncFn('brv restart', {stdio: 'inherit'})
+        const child = deps.spawnRestartFn()
+        child.unref()
+        log('Restarting ByteRover in the background. Please wait a few seconds before running brv again.')
       } catch {
-        // best-effort — update already succeeded, process may have been killed by restart
+        log('Failed to restart ByteRover. Please restart it manually by running `brv restart`.')
       }
 
       exitFn(0)
@@ -103,6 +107,12 @@ const hook: Hook<'init'> = async function (opts): Promise<void> {
     isTTY: process.stdout.isTTY ?? false,
     log: this.log.bind(this),
     notifier,
+    spawnRestartFn: () =>
+      spawn('brv', ['restart'], {
+        detached: true,
+        shell: true,
+        stdio: 'ignore',
+      }),
   })
 }
 

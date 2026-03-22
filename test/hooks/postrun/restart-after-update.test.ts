@@ -26,10 +26,13 @@ describe('restart-after-update hook', () => {
       spawnRestartFn: spawnRestartStub,
     })
 
-    expect(logStub.calledWith('Restarting ByteRover...')).to.be.true
     expect(spawnRestartStub.calledOnce).to.be.true
     expect(fakeChild.unref.calledOnce).to.be.true
-    expect(logStub.calledWith('ByteRover restart initiated.')).to.be.true
+    expect(
+      logStub.calledWith(
+        'Restarting ByteRover in the background. Please wait a few seconds before running brv again.',
+      ),
+    ).to.be.true
   })
 
   it('should skip restart for auto-update (--autoupdate flag)', async () => {
@@ -66,7 +69,6 @@ describe('restart-after-update hook', () => {
       spawnRestartFn: spawnRestartStub,
     })
 
-    expect(logStub.calledWith('Restarting ByteRover...')).to.be.true
     expect(spawnRestartStub.calledOnce).to.be.true
     expect(logStub.calledWith('Failed to restart ByteRover. Please restart it manually by running `brv restart`.')).to.be.true
   })

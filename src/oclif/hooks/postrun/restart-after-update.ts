@@ -23,11 +23,10 @@ export async function handleRestartAfterUpdate(deps: RestartAfterUpdateDeps): Pr
   if (deps.commandId !== 'update') return
   if (deps.argv.includes('--autoupdate')) return
 
-  deps.log('Restarting ByteRover...')
   try {
     const child = deps.spawnRestartFn()
     child.unref()
-    deps.log('ByteRover restart initiated.')
+    deps.log('Restarting ByteRover in the background. Please wait a few seconds before running brv again.')
   } catch {
     deps.log('Failed to restart ByteRover. Please restart it manually by running `brv restart`.')
     // best-effort — update already succeeded

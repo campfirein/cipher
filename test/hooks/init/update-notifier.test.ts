@@ -3,7 +3,11 @@ import * as sinon from 'sinon'
 
 import type {NarrowedUpdateNotifier, UpdateNotifierDeps} from '../../../src/oclif/hooks/init/update-notifier.js'
 
-import {handleUpdateNotification, isNpmGlobalInstall, UPDATE_CHECK_INTERVAL_MS} from '../../../src/oclif/hooks/init/update-notifier.js'
+import {
+  handleUpdateNotification,
+  isNpmGlobalInstall,
+  UPDATE_CHECK_INTERVAL_MS,
+} from '../../../src/oclif/hooks/init/update-notifier.js'
 
 describe('update-notifier hook', () => {
   describe('UPDATE_CHECK_INTERVAL_MS', () => {
@@ -18,6 +22,8 @@ describe('update-notifier hook', () => {
     let exitStub: sinon.SinonStub<[number], never>
     let logStub: sinon.SinonStub<[string], void>
     let notifyStub: sinon.SinonStub
+    let spawnRestartStub: sinon.SinonStub
+    let fakeChild: {unref: sinon.SinonStub}
 
     beforeEach(() => {
       confirmStub = sinon.stub()
@@ -25,6 +31,8 @@ describe('update-notifier hook', () => {
       exitStub = sinon.stub<[number], never>()
       logStub = sinon.stub()
       notifyStub = sinon.stub()
+      fakeChild = {unref: sinon.stub()}
+      spawnRestartStub = sinon.stub().returns(fakeChild)
     })
 
     afterEach(() => {
@@ -32,9 +40,9 @@ describe('update-notifier hook', () => {
     })
 
     type CreateDepsParams = {
-      isNpmGlobalInstalled: boolean,
+      isNpmGlobalInstalled: boolean
       isTTY: boolean
-      notifier: NarrowedUpdateNotifier,
+      notifier: NarrowedUpdateNotifier
     }
 
     const createDeps = (params: CreateDepsParams): UpdateNotifierDeps => ({
@@ -44,7 +52,8 @@ describe('update-notifier hook', () => {
       isNpmGlobalInstalled: params.isNpmGlobalInstalled,
       isTTY: params.isTTY,
       log: logStub,
-      notifier: params.notifier
+      notifier: params.notifier,
+      spawnRestartFn: spawnRestartStub,
     })
 
     it('should do nothing when not installed via npm global', async () => {
@@ -116,7 +125,7 @@ describe('update-notifier hook', () => {
       expect(execSyncStub.called).to.be.false
     })
 
-    it('should execute npm update, run brv restart, and exit when user confirms', async () => {
+    it('should execute npm update, spawn brv restart, and exit when user confirms', async () => {
       confirmStub.resolves(true)
 
       await handleUpdateNotification(
@@ -127,19 +136,24 @@ describe('update-notifier hook', () => {
         }),
       )
 
-      expect(execSyncStub.calledTwice).to.be.true
+      expect(execSyncStub.calledOnce).to.be.true
       expect(execSyncStub.firstCall.args[0]).to.equal('npm update -g byterover-cli')
-      expect(execSyncStub.secondCall.args[0]).to.equal('brv restart')
+      expect(spawnRestartStub.calledOnce).to.be.true
+      expect(fakeChild.unref.calledOnce).to.be.true
       expect(logStub.calledWith('Updating byterover-cli...')).to.be.true
-      expect(logStub.calledWith('✓ Updated to 2.0.0. Restarting...')).to.be.true
+      expect(logStub.calledWith('✓ Updated to 2.0.0.')).to.be.true
+      expect(
+        logStub.calledWith(
+          'Restarting ByteRover in the background. Please wait a few seconds before running brv again.',
+        ),
+      ).to.be.true
       expect(exitStub.calledOnce).to.be.true
       expect(exitStub.calledWith(0)).to.be.true
     })
 
-    it('should still exit 0 if brv restart fails after successful npm update', async () => {
+    it('should still exit 0 if brv restart spawn fails after successful npm update', async () => {
       confirmStub.resolves(true)
-      execSyncStub.onFirstCall().returns(undefined as never)
-      execSyncStub.onSecondCall().throws(new Error('restart failed'))
+      spawnRestartStub.throws(new Error('spawn failed'))
 
       await handleUpdateNotification(
         createDeps({
@@ -149,9 +163,11 @@ describe('update-notifier hook', () => {
         }),
       )
 
-      expect(execSyncStub.calledTwice).to.be.true
+      expect(execSyncStub.calledOnce).to.be.true
       expect(execSyncStub.firstCall.args[0]).to.equal('npm update -g byterover-cli')
-      expect(execSyncStub.secondCall.args[0]).to.equal('brv restart')
+      expect(spawnRestartStub.calledOnce).to.be.true
+      expect(logStub.calledWith('Failed to restart ByteRover. Please restart it manually by running `brv restart`.')).to.be
+        .true
       expect(exitStub.calledOnce).to.be.true
       expect(exitStub.calledWith(0)).to.be.true
     })
