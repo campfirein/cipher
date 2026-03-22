@@ -431,7 +431,9 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       return {
         args: tc.args,
         callId: tc.callId ?? `tool_${Date.now()}`,
-        result: toolResult ? {data: toolResult.result, success: toolResult.success} : undefined,
+        result: toolResult
+          ? {data: toolResult.result, metadata: toolResult.metadata, success: toolResult.success}
+          : undefined,
         toolName: tc.toolName,
       }
     })

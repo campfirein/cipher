@@ -136,6 +136,7 @@ describe('Session index exports', () => {
           provider: 'test',
           router: 'test',
         }),
+        getContentGenerator: () => ({}) as ReturnType<ILLMService['getContentGenerator']>,
         getContextManager: () => ({}) as ReturnType<ILLMService['getContextManager']>,
       }
       expect(service).to.exist
@@ -223,6 +224,7 @@ describe('Session index exports', () => {
           provider: 'test',
           router: 'test',
         }),
+        getContentGenerator: () => ({}) as ReturnType<ILLMService['getContentGenerator']>,
         getContextManager: () => ({}) as ReturnType<ILLMService['getContextManager']>,
       }
       expect(session).to.exist

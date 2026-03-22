@@ -2,6 +2,7 @@ import type {LLMServiceConfig} from '../../infra/llm/agent-llm-service.js'
 import type {ContextManager, FileData, ImageData} from '../../infra/llm/context/context-manager.js'
 import type {ToolSet} from '../domain/tools/types.js'
 import type {ExecutionContext} from './i-cipher-agent.js'
+import type {IContentGenerator} from './i-content-generator.js'
 
 /**
  * LLM Service interface.
@@ -56,6 +57,13 @@ export interface ILLMService {
    * @returns Service configuration including model, provider, token limits
    */
   getConfig(): LLMServiceConfig
+
+  /**
+   * Get the content generator used for LLM calls.
+   *
+   * @returns Content generator instance
+   */
+  getContentGenerator(): IContentGenerator
 
   /**
    * Get the context manager instance.
