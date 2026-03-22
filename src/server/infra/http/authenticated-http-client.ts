@@ -169,7 +169,6 @@ export class AuthenticatedHttpClient implements IHttpClient {
 
       const isTimeout = error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT' || error.message.includes('timeout')
       const isRefused = error.code === 'ECONNREFUSED'
-      
       if (isTimeout || isRefused) {
         if (!ProxyConfig.isProxyConfigured()) {
            return new Error(
