@@ -125,12 +125,14 @@
     "commands": "./dist/oclif/commands",
     "hooks": {
       "init": [
+        "./dist/oclif/hooks/init/block-command-update-npm",
         "./dist/oclif/hooks/init/welcome",
         "./dist/oclif/hooks/init/update-notifier"
       ],
       "command_not_found": "./dist/oclif/hooks/command_not_found/handle-invalid-commands",
       "error": "./dist/oclif/hooks/error/clean-errors",
-      "prerun": "./dist/oclif/hooks/prerun/validate-brv-config-version"
+      "prerun": "./dist/oclif/hooks/prerun/validate-brv-config-version",
+      "postrun": "./dist/oclif/hooks/postrun/restart-after-update"
     },
     "plugins": [
       "@oclif/plugin-help",
