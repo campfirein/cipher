@@ -108,7 +108,7 @@ const hook: Hook<'init'> = async function (opts): Promise<void> {
     log: this.log.bind(this),
     notifier,
     spawnRestartFn: () =>
-      spawn('brv', ['restart'], {
+      spawn('brv restart', {
         detached: true,
         shell: true,
         stdio: 'ignore',

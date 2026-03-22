@@ -39,7 +39,7 @@ const hook: Hook<'postrun'> = async function (opts) {
     commandId: opts.Command.id,
     log: this.log.bind(this),
     spawnRestartFn: () =>
-      spawn('brv', ['restart'], {
+      spawn('brv restart', {
         detached: true,
         shell: true,
         stdio: 'ignore',
