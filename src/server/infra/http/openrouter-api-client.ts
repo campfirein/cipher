@@ -12,6 +12,8 @@ import axios, {isAxiosError} from 'axios'
 
 import type {ProviderDefinition} from '../../core/domain/entities/provider-registry.js'
 
+import {ProxyConfig} from './proxy-config.js'
+
 /**
  * OpenRouter model from the /models endpoint.
  * Based on: https://openrouter.ai/docs#models
@@ -204,6 +206,7 @@ export class OpenRouterApiClient {
         'HTTP-Referer': this.httpReferer,
         'X-Title': this.xTitle,
       },
+      httpsAgent: ProxyConfig.getProxyAgent(),
       timeout: 30_000,
     })
 
