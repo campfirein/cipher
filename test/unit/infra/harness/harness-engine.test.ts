@@ -77,7 +77,7 @@ describe('HarnessEngine', () => {
         treeStore,
       })
 
-      const result = await engine.selectTemplate('curation')
+      const result = await engine.selectTemplate()
       expect(result).to.be.null
     })
 
@@ -92,7 +92,7 @@ describe('HarnessEngine', () => {
         treeStore,
       })
 
-      const result = await engine.selectTemplate('curation')
+      const result = await engine.selectTemplate()
       expect(result).to.not.be.null
       expect(result!.node.id).to.equal('high-perf')
       expect(result!.mode).to.equal('fast')
@@ -109,7 +109,7 @@ describe('HarnessEngine', () => {
         treeStore,
       })
 
-      const result = await engine.selectTemplate('curation')
+      const result = await engine.selectTemplate()
       expect(result).to.not.be.null
       expect(result!.mode).to.equal('shadow')
     })
@@ -253,7 +253,7 @@ describe('HarnessEngine', () => {
       })
 
       await engine.recordOutcomeF1('n1', 1, 0, {
-        details: {f1: 1, mode: 'shadow'},
+        details: {f1Score: 1, mode: 'shadow'},
         nodeId: 'n1',
         success: true,
         timestamp: Date.now(),
@@ -274,7 +274,7 @@ describe('HarnessEngine', () => {
       })
 
       await engine.recordOutcomeF1('n1', 0.75, 0.25, {
-        details: {f1: 0.75, mode: 'shadow'},
+        details: {f1Score: 0.75, mode: 'shadow'},
         nodeId: 'n1',
         success: true,
         timestamp: Date.now(),
@@ -368,7 +368,7 @@ describe('HarnessEngine', () => {
       })
 
       await engine.recordOutcomeF1('f1-node', 0.75, 0.25, {
-        details: {f1: 0.75, mode: 'shadow'},
+        details: {f1Score: 0.75, mode: 'shadow'},
         nodeId: 'f1-node',
         success: true,
         timestamp: Date.now(),
