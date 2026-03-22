@@ -27,12 +27,11 @@ export async function handleRestartAfterUpdate(deps: RestartAfterUpdateDeps): Pr
   try {
     const child = deps.spawnRestartFn()
     child.unref()
+    deps.log('ByteRover restart initiated.')
   } catch {
     deps.log('Failed to restart ByteRover. Please restart it manually by running `brv restart`.')
     // best-effort — update already succeeded
   }
-
-  deps.log('ByteRover restarted successfully.')
 }
 
 const hook: Hook<'postrun'> = async function (opts) {
