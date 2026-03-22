@@ -47,7 +47,7 @@ export interface IHarnessEngine {
   /** Refine a node based on consolidated error feedback. Returns new child node. */
   refine(nodeId: string, feedbackSummary: string): Promise<HarnessNode>
   /** Select the best template via Thompson sampling. Returns null if no templates exist. */
-  selectTemplate(domain: string): Promise<HarnessSelection | null>
+  selectTemplate(): Promise<HarnessSelection | null>
   /** Set or replace the content generator used for critic/refiner calls. */
   setContentGenerator(generator: IContentGenerator): void
   /** Check if refinement should be triggered for the domain. */

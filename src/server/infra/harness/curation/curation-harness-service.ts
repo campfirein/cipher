@@ -117,7 +117,7 @@ export class CurationHarnessService {
    * Returns null if no templates exist.
    */
   async selectTemplate(): Promise<CurationTemplateSelection | null> {
-    const selection = await this.engine.selectTemplate('curation')
+    const selection = await this.engine.selectTemplate()
     if (!selection) return null
 
     return {

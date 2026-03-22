@@ -218,6 +218,7 @@ export class HarnessEngine implements IHarnessEngine {
         this.contentGenerator!,
         consumedBuffer,
         node.templateContent,
+        domain,
       )
 
       if (!criticSummary) {
@@ -249,7 +250,8 @@ export class HarnessEngine implements IHarnessEngine {
     }
   }
 
-  async selectTemplate(domain: string): Promise<HarnessSelection | null> {
+  async selectTemplate(): Promise<HarnessSelection | null> {
+    const {domain} = this.config
     const nodes = await this.treeStore.getAllNodes(domain)
     if (nodes.length === 0) return null
 
@@ -287,8 +289,8 @@ export class HarnessEngine implements IHarnessEngine {
     // prevents already-converged nodes from spawning unnecessary children.
     const shadowEntries = buffer.filter((f) =>
       f.details.mode === 'shadow' &&
-      typeof f.details.f1 === 'number' &&
-      f.details.f1 < 1,
+      typeof f.details.f1Score === 'number' &&
+      f.details.f1Score < 1,
     )
 
     return shadowEntries.length >= this.config.refinementCooldown

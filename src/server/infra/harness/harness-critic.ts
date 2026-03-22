@@ -29,6 +29,7 @@ export async function consolidateErrors(
   contentGenerator: IContentGenerator,
   feedbackBatch: HarnessFeedback[],
   templateContent: string,
+  domain?: string,
   model?: string,
 ): Promise<string> {
   // Include failures AND imperfect shadow evaluations (room for improvement)
@@ -49,7 +50,7 @@ export async function consolidateErrors(
   }).join('\n')
 
   const prompt = [
-    'You are analyzing performance of a knowledge management template.',
+    `You are analyzing performance of a ${domain ?? 'knowledge management'} template.`,
     '',
     '## Current Template',
     '```yaml',

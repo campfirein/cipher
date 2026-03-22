@@ -567,7 +567,7 @@ describe('AutoHarness Phase 1 — UAT', () => {
 
       // Seed root
       await createCurationHarness(testDir)
-      const selection = await engine.selectTemplate('curation')
+      const selection = await engine.selectTemplate()
 
       // Record failures
       await engine.recordOutcome({
