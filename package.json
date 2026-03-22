@@ -1,7 +1,7 @@
 {
   "name": "byterover-cli",
   "description": "ByteRover's CLI",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "author": "ByteRover",
   "bin": {
     "brv": "./bin/run.js"
@@ -22,7 +22,7 @@
     "@ai-sdk/vercel": "^1.0.33",
     "@ai-sdk/xai": "^2.0.57",
     "@anthropic-ai/sdk": "^0.70.1",
-    "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#release/0.8.2",
+    "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#release/0.8.4",
     "@google/genai": "^1.29.0",
     "@inkjs/ui": "^2.0.0",
     "@inquirer/prompts": "^7.9.0",
@@ -59,8 +59,8 @@
     "react": "^19.2.1",
     "react-router-dom": "^7.13.0",
     "remark-parse": "^11.0.0",
-    "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
     "stopword": "^3.1.5",
     "unified": "^11.0.5",
     "unpdf": "^1.4.0",
@@ -125,12 +125,14 @@
     "commands": "./dist/oclif/commands",
     "hooks": {
       "init": [
+        "./dist/oclif/hooks/init/block-command-update-npm",
         "./dist/oclif/hooks/init/welcome",
         "./dist/oclif/hooks/init/update-notifier"
       ],
       "command_not_found": "./dist/oclif/hooks/command_not_found/handle-invalid-commands",
       "error": "./dist/oclif/hooks/error/clean-errors",
-      "prerun": "./dist/oclif/hooks/prerun/validate-brv-config-version"
+      "prerun": "./dist/oclif/hooks/prerun/validate-brv-config-version",
+      "postrun": "./dist/oclif/hooks/postrun/restart-after-update"
     },
     "plugins": [
       "@oclif/plugin-help",
