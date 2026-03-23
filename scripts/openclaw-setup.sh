@@ -814,8 +814,8 @@ remove_existing_byterover_plugin() {
 }
 
 configure_context_plugin() {
-  printf "${YELLOW}Feature: ByteRover Context Plugin${RESET}\n"
-  echo "Installs the @byterover/byterover plugin to inject memory context into prompts."
+  printf "${YELLOW}Feature: ByteRover Context Engine - Intelligent Automated Memory Curation and Memory Retrieval${RESET}\n"
+  echo "Installs the ByteRover Context Engine plugin for inject ByteRover memory context into prompts and automatically curate insights."
 
   if ! confirm "Install ByteRover Context Plugin?"; then
     echo "Uninstalling ByteRover Context Plugin..."
@@ -1109,11 +1109,11 @@ main() {
 
   # Phase 2: Configuration
   info "Phase 2: Configuration"
+  info "--- Query Story Options ---"
+  configure_context_plugin
   info "--- Curate Story Options ---"
   configure_memory_flush
   configure_daily_mining
-  info "--- Query Story Options ---"
-  configure_context_plugin
   info "--- Onboarding Options ---"
   configure_onboarding_plugin
 
