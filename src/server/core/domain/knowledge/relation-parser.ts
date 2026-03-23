@@ -7,7 +7,7 @@
  * Regular expression to match relation paths in markdown content.
  * Matches: @domain/topic/title.md or @domain/topic/subtopic/title.md
  */
-const RELATION_PATTERN = /@([\w-]+\/[\w-]+(?:\/[\w-]+)?\/[\w-]+(?:\.[\w]+)?)(?![\w/-])/g
+export const RELATION_PATTERN = /@([\w-]+\/[\w-]+(?:\/[\w-]+)?\/[\w-]+(?:\.[\w]+)?)(?![\w/-])/g
 /**
  * Parse relations from title.md content.
  * Extracts all @domain/topic/title.md or @domain/topic/subtopic/title.md references.
