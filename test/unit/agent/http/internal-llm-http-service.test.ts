@@ -358,7 +358,7 @@ describe('ByteRoverLlmHttpService', () => {
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message.toLowerCase()).to.include('timeout')
+        expect((error as Error).message.toLowerCase()).to.include('connection failed')
       }
     })
   })

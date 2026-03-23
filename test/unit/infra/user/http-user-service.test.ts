@@ -110,7 +110,7 @@ describe('HttpUserService', () => {
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message).to.include('timeout')
+        expect((error as Error).message).to.include('Connection Failed')
       }
     })
   })

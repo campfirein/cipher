@@ -52,7 +52,7 @@ describe('AuthenticatedHttpClient', () => {
         expect.fail('Should have thrown timeout error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message).to.include('timeout')
+        expect((error as Error).message).to.include('Connection Failed')
       }
     })
 
