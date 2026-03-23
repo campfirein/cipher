@@ -306,6 +306,11 @@ When the agent curates knowledge, it produces structured operations that execute
 the same process, with per-operation feedback enabling real-time error recovery.
 When the agent queries knowledge, results are returned from in-process caches and indexes
 before any LLM call is considered.
+Each project is served by a single agent process with its own \contexttree{},
+managed by a per-project agent pool.
+When multiple clients (TUI, CLI, MCP) submit tasks to the same project,
+a sequential, deduplicated task queue serializes all operations,
+eliminating write-write conflicts without file-level locking.
 
 
 \subsection{The Context Tree: Data Structure}
@@ -355,10 +360,10 @@ through an \emph{Adaptive Knowledge Lifecycle} (AKL) mechanism:
     A daily decay factor of $0.995$ prevents unbounded accumulation.
 
   \item \textbf{Maturity tiers}:
-    Entries progress through three tiers based on importance:
-    \emph{draft} ($\iota < 35$), \emph{validated} ($35 \leq \iota < 85$),
-    and \emph{core} ($\iota \geq 85$).
-    A hysteresis gap prevents rapid oscillation between tiers.
+    Entries progress through three tiers based on importance,
+    with hysteresis gaps to prevent rapid oscillation:
+    \emph{draft}~$\to$~\emph{validated} (promotion at $\iota \geq 65$, demotion at $\iota < 35$; gap of 30),
+    \emph{validated}~$\to$~\emph{core} (promotion at $\iota \geq 85$, demotion at $\iota < 60$; gap of 25).
 
   \item \textbf{Recency decay}:
     A time-dependent score $r_i = \exp(-\Delta t_i / \tau)$
@@ -433,7 +438,7 @@ Each curate call returns per-operation status:
     {"type": "MERGE",  "path": "analysis/energy", "status": "failed",
      "message": "Source file not found"}
   ],
-  "summary": {"added": 0, "updated": 1, "merged": 0, "failed": 1}
+  "summary": {"added": 0, "deleted": 0, "updated": 1, "merged": 0, "failed": 1}
 }
 \end{lstlisting}
 
@@ -548,48 +553,12 @@ A hierarchical symbol tree provides O(1) lookup from relative paths to knowledge
 with bidirectional reference tracking (forward links and backlinks).
 The tree supports five symbol kinds:
 \emph{Domain}~(1), \emph{Topic}~(2), \emph{Subtopic}~(3), \emph{Context}~(4), and \emph{Summary}~(5).
-At session start, a lightweight overview of the tree structure (domain names, topic counts,
-most recently updated entries) is injected into the agent's system prompt,
-giving it ambient awareness of what knowledge exists without dumping full contents.
-
-
-\subsection{Multi-Agent Coordination}
-\label{sec:multi-agent}
-
-When multiple agents share a workspace, the \contexttree{} becomes a coordination medium
-without requiring explicit messaging infrastructure.
-
-\subsubsection{Three-Layer Memory Architecture}
-
-\byterover{} operates alongside two lightweight memory layers,
-creating a three-layer architecture:
-
-\begin{table}[h]
-\centering
-\small
-\begin{tabular}{@{}p{2.2cm}p{2.5cm}p{2cm}p{2cm}p{3.5cm}@{}}
-\toprule
-\textbf{Layer} & \textbf{Source} & \textbf{Lifetime} & \textbf{Written By} & \textbf{Purpose} \\
-\midrule
-Context Tree & \byterover{} & Persistent, LLM-curated & Agent (sandbox) & Domain knowledge with structure \\
-Workspace Memory & \texttt{MEMORY.md} & Persistent, manual & Agent or human & Durable preferences \& decisions \\
-Daily Memory & \texttt{YYYY-MM-DD.md} & Append-only & Agent in session & Running session context \\
-\bottomrule
-\end{tabular}
-\caption{The three-layer memory architecture.
-  The \contexttree{} provides structured, LLM-curated domain knowledge;
-  workspace memory holds durable preferences;
-  daily memory captures session context.}
-\label{tab:memory-layers}
-\end{table}
-
-\subsubsection{Isolation and Access Control}
-
-By default, each agent has its own isolated \contexttree{}.
-When agents share a workspace:
-(1)~write access can be scoped to specific subtrees;
-(2)~a sequential, deduplicated task queue eliminates write-write conflicts;
-(3)~atomic writes ensure each operation completes fully or not at all.
+For query and curate operations, a lightweight representation of the tree structure
+is injected into the agent's system prompt: either a directory listing of domain
+and topic names (up to 200 entries) or, when full-text search is available,
+a compact instruction to use the search tool.
+This gives the agent ambient awareness of what knowledge exists
+without dumping full contents.
 
 
 \subsection{Implementation}
