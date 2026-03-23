@@ -2,6 +2,11 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.3.2]
+
+### Removed
+- **`better-sqlite3` dependency** — Removed the unused native SQLite package that was left over after the migration to file-based storage in 2.1.0. This reduces install size and eliminates native compilation requirements on some platforms.
+
 ## [2.3.1]
 
 ### Fixed
