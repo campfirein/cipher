@@ -18,6 +18,10 @@ export default class Status extends Command {
       description: 'Output format',
       options: ['text', 'json'],
     }),
+    'project-root': Flags.string({
+      description: 'Explicit project root path (overrides auto-detection)',
+      required: false,
+    }),
     verbose: Flags.boolean({
       char: 'v',
       default: false,
@@ -25,8 +29,8 @@ export default class Status extends Command {
     }),
   }
 
-  protected async fetchStatus(options?: DaemonClientOptions): Promise<StatusDTO> {
-    const request: StatusGetRequest = {cwd: process.cwd()}
+  protected async fetchStatus(options?: DaemonClientOptions & {projectRootFlag?: string}): Promise<StatusDTO> {
+    const request: StatusGetRequest = {cwd: process.cwd(), projectRootFlag: options?.projectRootFlag}
     return withDaemonRetry<StatusDTO>(async (client) => {
       const response = await client.requestWithAck<StatusGetResponse>(StatusEvents.GET, request)
       return response.status
@@ -36,9 +40,10 @@ export default class Status extends Command {
   public async run(): Promise<void> {
     const {flags} = await this.parse(Status)
     const format = flags.format as 'json' | 'text'
+    const projectRootFlag = flags['project-root']
 
     try {
-      const status = await this.fetchStatus()
+      const status = await this.fetchStatus({projectRootFlag})
 
       if (format === 'json') {
         writeJsonResponse({

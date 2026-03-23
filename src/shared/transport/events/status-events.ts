@@ -6,6 +6,7 @@ export const StatusEvents = {
 
 export interface StatusGetRequest {
   cwd?: string
+  projectRootFlag?: string
   verbose?: boolean
 }
 

@@ -99,7 +99,7 @@ describe('StatusHandler', () => {
     handler.setup()
   }
 
-  async function callGetHandler(data?: {cwd?: string}, clientId = 'client-1'): Promise<{status: StatusDTO}> {
+  async function callGetHandler(data?: {cwd?: string; projectRootFlag?: string}, clientId = 'client-1'): Promise<{status: StatusDTO}> {
     const handler = transport._handlers.get(StatusEvents.GET)
     expect(handler, 'status:get handler should be registered').to.exist
     return handler!(data, clientId) as Promise<{status: StatusDTO}>
@@ -140,6 +140,41 @@ describe('StatusHandler', () => {
       const {status} = await callGetHandler({cwd: noProjectDir})
 
       expect(status.currentDirectory).to.equal(noProjectDir)
+    })
+  })
+
+  describe('projectRootFlag', () => {
+    it('should resolve to the explicit project root when projectRootFlag is provided', async () => {
+      // Create a real project at an explicit path
+      const explicitRoot = join(testDir, 'explicit-project')
+      mkdirSync(join(explicitRoot, '.brv'), {recursive: true})
+      writeFileSync(join(explicitRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+
+      // Create a different project at a cwd location
+      const cwdProject = join(testDir, 'cwd-project')
+      mkdirSync(join(cwdProject, '.brv'), {recursive: true})
+      writeFileSync(join(cwdProject, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+
+      createHandler(cwdProject)
+
+      const {status} = await callGetHandler({cwd: cwdProject, projectRootFlag: explicitRoot})
+
+      // The explicit flag should override the cwd-based resolution
+      expect(status.projectRoot).to.equal(explicitRoot)
+      expect(status.resolutionSource).to.equal('flag')
+    })
+
+    it('should use projectRootFlag even without cwd', async () => {
+      const explicitRoot = join(testDir, 'explicit-project')
+      mkdirSync(join(explicitRoot, '.brv'), {recursive: true})
+      writeFileSync(join(explicitRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+
+      createHandler('/some/other/project')
+
+      const {status} = await callGetHandler({projectRootFlag: explicitRoot})
+
+      expect(status.projectRoot).to.equal(explicitRoot)
+      expect(status.resolutionSource).to.equal('flag')
     })
   })
 })

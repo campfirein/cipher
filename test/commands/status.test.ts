@@ -388,7 +388,7 @@ describe('Status Command', () => {
 
       const [event, payload] = (mockClient.requestWithAck as sinon.SinonStub).firstCall.args
       expect(event).to.equal('status:get')
-      expect(payload).to.deep.equal({cwd: projectRoot})
+      expect(payload).to.have.property('cwd', projectRoot)
     })
   })
 })

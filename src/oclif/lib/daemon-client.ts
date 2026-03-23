@@ -42,14 +42,16 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
 export interface DaemonClientOptions {
   /** Max retry attempts. Default: 3 */
   maxRetries?: number
+  /** Explicit --project-root flag value to override auto-detection */
+  projectRootFlag?: string
   /** Delay between retries in ms. Default: 2000. Set to 0 in tests. */
   retryDelayMs?: number
   /** Optional transport connector for DI/testing */
   transportConnector?: TransportConnector
 }
 
-function resolveRequiredProjectPath(): {projectRoot: string; workspaceRoot: string} {
-  const resolution = resolveProject()
+function resolveRequiredProjectPath(projectRootFlag?: string): {projectRoot: string; workspaceRoot: string} {
+  const resolution = resolveProject({projectRootFlag})
   if (!resolution) {
     throw new Error('No ByteRover project could be resolved before connecting to the daemon.')
   }
@@ -61,10 +63,10 @@ function resolveRequiredProjectPath(): {projectRoot: string; workspaceRoot: stri
  * Connects to the daemon, auto-starting it if needed.
  */
 export async function connectToDaemonClient(
-  options?: Pick<DaemonClientOptions, 'transportConnector'>,
+  options?: Pick<DaemonClientOptions, 'projectRootFlag' | 'transportConnector'>,
 ): Promise<ConnectionResult> {
   const connector = options?.transportConnector ?? createDaemonAwareConnector()
-  const resolution = resolveRequiredProjectPath()
+  const resolution = resolveRequiredProjectPath(options?.projectRootFlag)
   return connector(undefined, resolution.projectRoot)
 }
 
@@ -87,7 +89,7 @@ export async function withDaemonRetry<T>(
 
   // Pre-resolve project (workspace-link-aware) so the connector registers
   // with the correct projectPath and callers get the resolved workspaceRoot.
-  const resolution = resolveRequiredProjectPath()
+  const resolution = resolveRequiredProjectPath(options?.projectRootFlag)
   const resolvedProjectPath = resolution.projectRoot
   const resolvedWorkspaceRoot = resolution.workspaceRoot
 

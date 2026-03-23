@@ -46,13 +46,15 @@ export class StatusHandler {
   setup(): void {
     this.transport.onRequest<StatusGetRequest | void, StatusGetResponse>(StatusEvents.GET, async (data, clientId) => {
       const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
-      const cwd = (data as StatusGetRequest | undefined)?.cwd
-      const status = await this.collectStatus(projectPath, cwd)
+      const request = data as StatusGetRequest | undefined
+      const cwd = request?.cwd
+      const projectRootFlag = request?.projectRootFlag
+      const status = await this.collectStatus(projectPath, cwd, projectRootFlag)
       return {status}
     })
   }
 
-  private async collectStatus(projectPath: string, clientCwd?: string): Promise<StatusDTO> {
+  private async collectStatus(projectPath: string, clientCwd?: string, projectRootFlag?: string): Promise<StatusDTO> {
     const result: StatusDTO = {
       authStatus: 'unknown',
       contextTreeStatus: 'unknown',
@@ -63,9 +65,9 @@ export class StatusHandler {
     // Resolve workspace awareness from client cwd (if provided)
     // Use resolved projectRoot for all downstream checks to avoid inconsistency
     let effectiveProjectPath = projectPath
-    if (clientCwd) {
+    if (clientCwd || projectRootFlag) {
       try {
-        const resolution = resolveProject({cwd: clientCwd})
+        const resolution = resolveProject({cwd: clientCwd, projectRootFlag})
         if (resolution) {
           result.projectRoot = resolution.projectRoot
           result.workspaceRoot = resolution.workspaceRoot
