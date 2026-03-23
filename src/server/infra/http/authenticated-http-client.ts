@@ -173,14 +173,10 @@ export class AuthenticatedHttpClient implements IHttpClient {
       const isTimeout = error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT' || error.message.includes('timeout')
       const isRefused = error.code === 'ECONNREFUSED'
       if (isTimeout || isRefused) {
-        if (!ProxyConfig.isProxyConfigured()) {
-           return new Error(
-             `Connection Failed (${error.code || 'TIMEOUT'}). If you are behind a corporate firewall, please configure your proxy.\n` +
-             `Solution: export HTTPS_PROXY=http://proxy-host:port`
-           )
-        }
-
-        return new Error(`Network error (${error.code || 'TIMEOUT'}): ${error.message}`)
+        return new Error(
+          `Connection Failed (${error.code || 'TIMEOUT'}). If you are behind a corporate firewall, configure your proxy:\n` +
+          `  export HTTPS_PROXY=http://proxy-host:port`
+        )
       }
 
       if (error.request) {

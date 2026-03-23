@@ -8,6 +8,7 @@ import {
   ByteRoverHttpConfig,
   ByteRoverLlmHttpService,
 } from '../../../../src/agent/infra/http/internal-llm-http-service.js'
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 
 // Helper functions to verify request body - extracted to reduce callback nesting
 function verifyProjectId(expectedProjectId: string) {
@@ -92,6 +93,7 @@ describe('ByteRoverLlmHttpService', () => {
 
   beforeEach(() => {
     sandbox = createSandbox()
+    sandbox.stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     nock.cleanAll()
   })
 

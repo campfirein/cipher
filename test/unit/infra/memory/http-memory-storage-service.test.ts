@@ -1,7 +1,9 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 import nock from 'nock'
+import * as sinon from 'sinon'
 
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 import {HttpMemoryStorageService} from '../../../../src/server/infra/memory/http-memory-storage-service.js'
 
 describe('HttpMemoryStorageService', () => {
@@ -13,10 +15,12 @@ describe('HttpMemoryStorageService', () => {
   let service: HttpMemoryStorageService
 
   beforeEach(() => {
+    sinon.stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     service = new HttpMemoryStorageService(config)
   })
 
   afterEach(() => {
+    sinon.restore()
     nock.cleanAll()
   })
 

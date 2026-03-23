@@ -1,8 +1,10 @@
 import {isAxiosError} from 'axios'
 import {expect} from 'chai'
 import nock from 'nock'
+import * as sinon from 'sinon'
 
 import {User} from '../../../../src/server/core/domain/entities/user.js'
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 import {HttpUserService} from '../../../../src/server/infra/user/http-user-service.js'
 
 describe('HttpUserService', () => {
@@ -11,10 +13,12 @@ describe('HttpUserService', () => {
   let service: HttpUserService
 
   beforeEach(() => {
+    sinon.stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     service = new HttpUserService({apiBaseUrl})
   })
 
   afterEach(() => {
+    sinon.restore()
     nock.cleanAll()
   })
 
