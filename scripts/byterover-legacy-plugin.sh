@@ -1,5 +1,5 @@
 #!/bin/sh
-# deprecated-old-byterover-plugin.sh — Legacy ByteRover Context Plugin Installer
+# byterover-legacy-plugin.sh — Legacy ByteRover Context Plugin Installer
 #
 # DEPRECATED: This script installs the old local-file-based ByteRover context plugin.
 # For new installations, use the official plugin CLI instead:
@@ -8,7 +8,7 @@
 # This script is provided for users who need the previous manual plugin installation
 # (e.g. air-gapped environments, custom plugin modifications, or rollback scenarios).
 #
-# Usage: sh scripts/deprecated-old-byterover-plugin.sh [--uninstall]
+# Usage: sh scripts/byterover-legacy-plugin.sh [--uninstall]
 
 set -eu
 
@@ -380,7 +380,7 @@ main() {
   success "Legacy ByteRover Context Plugin installed and enabled."
   echo ""
   warn "To migrate to the official plugin, run:"
-  echo "  sh scripts/deprecated-old-byterover-plugin.sh --uninstall"
+  echo "  sh scripts/byterover-legacy-plugin.sh --uninstall"
   echo "  openclaw plugins install @byterover/byterover"
 }
 

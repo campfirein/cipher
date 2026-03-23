@@ -804,7 +804,7 @@ remove_existing_byterover_plugin() {
             if (config.plugins.allow.length === 0) delete config.plugins.allow;
         }
         if (Array.isArray(config.plugins?.load?.paths)) {
-            config.plugins.load.paths = config.plugins.load.paths.filter(p => !p.endsWith("/byterover"));
+            config.plugins.load.paths = config.plugins.load.paths.filter(p => p !== "~/.openclaw/extensions/byterover");
             if (config.plugins.load.paths.length === 0) delete config.plugins.load.paths;
             if (config.plugins.load && Object.keys(config.plugins.load).length === 0) delete config.plugins.load;
         }
