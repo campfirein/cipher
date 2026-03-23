@@ -256,7 +256,7 @@ find_cron_job_id() {
         const jobs = json.jobs || [];
         const job = jobs.find(j => j.name === process.env.CRON_NAME);
         if (job && (job.jobId || job.id)) console.log(job.jobId || job.id);
-    } catch(e) { /* silent */ }
+    } catch(e) { process.stderr.write("[byterover] cleanup config warning: " + e.message + "\n"); }
   '
 }
 
@@ -815,7 +815,7 @@ remove_existing_byterover_plugin() {
 
 configure_context_plugin() {
   printf "${YELLOW}Feature: ByteRover Context Engine - Intelligent Automated Memory Curation and Memory Retrieval${RESET}\n"
-  echo "Installs the ByteRover Context Engine plugin for inject ByteRover memory context into prompts and automatically curate insights."
+  echo "Installs the ByteRover Context Engine plugin for injecting ByteRover memory context into prompts and automatically curate insights."
 
   if ! confirm "Install ByteRover Context Plugin?"; then
     echo "Uninstalling ByteRover Context Plugin..."
@@ -854,9 +854,7 @@ configure_context_plugin() {
   openclaw config set plugins.slots.contextEngine byterover || warn "Could not set contextEngine slot — run: openclaw config set plugins.slots.contextEngine byterover"
 
   # Configure brvPath if non-standard location
-  if [ "$BRV_CMD" != "brv" ]; then
-    openclaw config set plugins.entries.byterover.config.brvPath "$BRV_CMD" || true
-  fi
+  openclaw config set plugins.entries.byterover.config.brvPath "$BRV_CMD" || true
 
   # Verify installation
   if ! verify_plugin_installed "byterover"; then
