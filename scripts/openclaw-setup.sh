@@ -809,7 +809,7 @@ remove_existing_byterover_plugin() {
             if (config.plugins.load && Object.keys(config.plugins.load).length === 0) delete config.plugins.load;
         }
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-    } catch(e) { /* silent */ }
+    } catch(e) { process.stderr.write("[byterover] cleanup config warning: " + e.message + "\n"); }
   ' 2>/dev/null || true
 }
 
@@ -849,11 +849,11 @@ configure_context_plugin() {
             config.plugins.allow.push("byterover");
         }
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-    } catch(e) { /* silent */ }
+    } catch(e) { process.stderr.write("[byterover] allow-config warning: " + e.message + "\n"); }
   ' || warn "Could not set plugins.allow — add \"byterover\" to plugins.allow in $CONFIG_PATH manually."
   openclaw config set plugins.slots.contextEngine byterover || warn "Could not set contextEngine slot — run: openclaw config set plugins.slots.contextEngine byterover"
 
-  # Configure brvPath if non-standard location
+  # Always configure the resolved brv path so the plugin doesn't need to re-search at runtime
   openclaw config set plugins.entries.byterover.config.brvPath "$BRV_CMD" || true
 
   # Verify installation
