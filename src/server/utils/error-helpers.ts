@@ -35,7 +35,15 @@ export function getErrorMessage(error: unknown): string {
     }
   }
 
-  // Fallback for unknown error types
+  // Fallback: JSON for objects (avoids "[object Object]"), String for primitives
+  if (error && typeof error === 'object') {
+    try {
+      return JSON.stringify(error)
+    } catch {
+      return String(error)
+    }
+  }
+
   return String(error)
 }
 
