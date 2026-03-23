@@ -60,6 +60,7 @@ export class AuthenticatedHttpClient implements IHttpClient {
     try {
       const axiosConfig: AxiosRequestConfig = {
         headers: this.buildHeaders(config?.headers),
+        httpAgent: ProxyConfig.getProxyAgent(),
         httpsAgent: ProxyConfig.getProxyAgent(),
         timeout: config?.timeout,
       }
@@ -87,6 +88,7 @@ export class AuthenticatedHttpClient implements IHttpClient {
     try {
       const axiosConfig: AxiosRequestConfig = {
         headers: this.buildHeaders(config?.headers),
+        httpAgent: ProxyConfig.getProxyAgent(),
         httpsAgent: ProxyConfig.getProxyAgent(),
         timeout: config?.timeout,
       }
@@ -114,6 +116,7 @@ export class AuthenticatedHttpClient implements IHttpClient {
     try {
       const axiosConfig: AxiosRequestConfig = {
         headers: this.buildHeaders(config?.headers),
+        httpAgent: ProxyConfig.getProxyAgent(),
         httpsAgent: ProxyConfig.getProxyAgent(),
         timeout: config?.timeout,
       }

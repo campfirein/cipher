@@ -206,6 +206,7 @@ export class OpenRouterApiClient {
         'HTTP-Referer': this.httpReferer,
         'X-Title': this.xTitle,
       },
+      httpAgent: ProxyConfig.getProxyAgent(),
       httpsAgent: ProxyConfig.getProxyAgent(),
       timeout: 30_000,
     })
