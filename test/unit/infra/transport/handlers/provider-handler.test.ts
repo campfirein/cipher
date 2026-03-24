@@ -226,7 +226,7 @@ describe('ProviderHandler', () => {
   })
 
   describe('provider:getActive', () => {
-    it('should include authRequired when byterover is active and unauthenticated', async () => {
+    it('should include loginRequired when byterover is active and unauthenticated', async () => {
       authStateStore = createMockAuthStateStore(sinon, {isAuthenticated: false})
       providerConfigStore.getActiveProvider.resolves('byterover')
       createHandler()
@@ -234,20 +234,20 @@ describe('ProviderHandler', () => {
       const handler = transport._handlers.get(ProviderEvents.GET_ACTIVE)
       const result = await handler!(undefined, 'client-1')
 
-      expect(result.authRequired).to.be.true
+      expect(result.loginRequired).to.be.true
     })
 
-    it('should not include authRequired when byterover is active and authenticated', async () => {
+    it('should not include loginRequired when byterover is active and authenticated', async () => {
       providerConfigStore.getActiveProvider.resolves('byterover')
       createHandler()
 
       const handler = transport._handlers.get(ProviderEvents.GET_ACTIVE)
       const result = await handler!(undefined, 'client-1')
 
-      expect(result.authRequired).to.be.undefined
+      expect(result.loginRequired).to.be.undefined
     })
 
-    it('should not include authRequired for non-byterover providers', async () => {
+    it('should not include loginRequired for non-byterover providers', async () => {
       authStateStore = createMockAuthStateStore(sinon, {isAuthenticated: false})
       providerConfigStore.getActiveProvider.resolves('openrouter')
       createHandler()
@@ -255,7 +255,7 @@ describe('ProviderHandler', () => {
       const handler = transport._handlers.get(ProviderEvents.GET_ACTIVE)
       const result = await handler!(undefined, 'client-1')
 
-      expect(result.authRequired).to.be.undefined
+      expect(result.loginRequired).to.be.undefined
     })
   })
 

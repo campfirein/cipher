@@ -420,54 +420,54 @@ describe('provider-config-resolver', () => {
     })
   })
 
-  // ==================== authRequired field ====================
+  // ==================== loginRequired field ====================
 
-  describe('authRequired field', () => {
-    it('should set authRequired true for byterover when unauthenticated', async () => {
+  describe('loginRequired field', () => {
+    it('should set loginRequired true for byterover when unauthenticated', async () => {
       const {configStore, keychainStore} = createStubStores(sandbox)
       configStore.read.resolves(createProviderConfig('byterover'))
 
       const result = await resolveProviderConfig({authStateStore: createMockAuthStateStore(sandbox, {isAuthenticated: false}), providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
-      expect(result.authRequired).to.be.true
+      expect(result.loginRequired).to.be.true
     })
 
-    it('should not set authRequired for byterover when authenticated', async () => {
+    it('should not set loginRequired for byterover when authenticated', async () => {
       const {configStore, keychainStore} = createStubStores(sandbox)
       configStore.read.resolves(createProviderConfig('byterover'))
 
       const result = await resolveProviderConfig({authStateStore: createMockAuthStateStore(sandbox, {isAuthenticated: true}), providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
-      expect(result.authRequired).to.be.undefined
+      expect(result.loginRequired).to.be.undefined
     })
 
-    it('should not set authRequired for non-byterover providers', async () => {
+    it('should not set loginRequired for non-byterover providers', async () => {
       const {configStore, keychainStore} = createStubStores(sandbox)
       configStore.read.resolves(createProviderConfig('openrouter', {openrouter: {activeModel: 'gpt-4o'}}))
       keychainStore.getApiKey.resolves('sk-key')
 
       const result = await resolveProviderConfig({authStateStore: createMockAuthStateStore(sandbox, {isAuthenticated: false}), providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
-      expect(result.authRequired).to.be.undefined
+      expect(result.loginRequired).to.be.undefined
     })
 
-    it('should not set authRequired when activeProvider is empty string (post-disconnect)', async () => {
+    it('should not set loginRequired when activeProvider is empty string (post-disconnect)', async () => {
       const {configStore, keychainStore} = createStubStores(sandbox)
       configStore.read.resolves(createProviderConfig(''))
 
       const result = await resolveProviderConfig({authStateStore: createMockAuthStateStore(sandbox, {isAuthenticated: false}), providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
-      expect(result.authRequired).to.be.undefined
+      expect(result.loginRequired).to.be.undefined
       expect(result.activeProvider).to.equal('')
     })
 
-    it('should not set authRequired when authStateStore is not provided (backward compat)', async () => {
+    it('should not set loginRequired when authStateStore is not provided (backward compat)', async () => {
       const {configStore, keychainStore} = createStubStores(sandbox)
       configStore.read.resolves(createProviderConfig('byterover'))
 
       const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
 
-      expect(result.authRequired).to.be.undefined
+      expect(result.loginRequired).to.be.undefined
     })
   })
 

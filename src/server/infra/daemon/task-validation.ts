@@ -38,7 +38,7 @@ export const validateProviderForTask = (config: ProviderConfigResponse): TaskErr
     }
   }
 
-  if (config.authRequired) {
+  if (config.loginRequired) {
     return {
       code: TaskErrorCode.PROVIDER_NOT_CONFIGURED,
       message: 'Provider requires authentication. Run /login or brv login to sign in.',

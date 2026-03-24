@@ -116,8 +116,8 @@ export async function resolveProviderConfig(
 
   if (activeProvider === 'byterover') {
     const authToken = authStateStore?.getToken()
-    const authRequired = authStateStore ? !authToken || !authToken.isValid() : undefined
-    return {activeModel, activeProvider, authRequired: authRequired ? true : undefined, maxInputTokens}
+    const loginRequired = authStateStore ? !authToken || !authToken.isValid() : undefined
+    return {activeModel, activeProvider, loginRequired: loginRequired ? true : undefined, maxInputTokens}
   }
 
   if (!activeProvider) {

@@ -277,8 +277,8 @@ export class ProviderHandler {
     this.transport.onRequest<void, ProviderGetActiveResponse>(ProviderEvents.GET_ACTIVE, async () => {
       const activeProviderId = await this.providerConfigStore.getActiveProvider()
       const activeModel = await this.providerConfigStore.getActiveModel(activeProviderId)
-      const authRequired = activeProviderId === 'byterover' && !this.isByteRoverAuthSatisfied()
-      return {activeModel, activeProviderId, authRequired: authRequired ? true : undefined}
+      const loginRequired = activeProviderId === 'byterover' && !this.isByteRoverAuthSatisfied()
+      return {activeModel, activeProviderId, loginRequired: loginRequired ? true : undefined}
     })
   }
 

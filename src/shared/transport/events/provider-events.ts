@@ -50,8 +50,8 @@ export interface ProviderValidateApiKeyResponse {
 export interface ProviderGetActiveResponse {
   activeModel?: string
   activeProviderId: string
-  /** True when the active provider requires authentication but the user is not logged in. */
-  authRequired?: boolean
+  /** True when the active provider requires login but the user is not logged in. */
+  loginRequired?: boolean
 }
 
 export interface ProviderSetActiveRequest {

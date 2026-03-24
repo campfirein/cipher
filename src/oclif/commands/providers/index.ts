@@ -30,7 +30,7 @@ export default class Provider extends Command {
 
       return {
         activeModel: active.activeModel,
-        authRequired: active.authRequired,
+        loginRequired: active.loginRequired,
         providerId: active.activeProviderId,
         providerName: provider?.name ?? active.activeProviderId,
       }
@@ -45,8 +45,8 @@ export default class Provider extends Command {
       const info = await this.fetchActiveProvider()
 
       if (format === 'json') {
-        const {authRequired, ...rest} = info
-        const data = authRequired
+        const {loginRequired, ...rest} = info
+        const data = loginRequired
           ? {...rest, warning: "Not logged in. Run 'brv login' to authenticate."}
           : rest
         writeJsonResponse({command: 'providers', data, success: true})
@@ -60,7 +60,7 @@ export default class Provider extends Command {
           }
         }
 
-        if (info.authRequired) {
+        if (info.loginRequired) {
           this.log("Warning: Not logged in. Run 'brv login' to authenticate.")
         }
       }

@@ -184,7 +184,7 @@ describe('Provider Command', () => {
   describe('ByteRover auth warning', () => {
     it('should show warning when byterover is active and user is unauthenticated', async () => {
       mockProviderResponses(
-        {activeProviderId: 'byterover', authRequired: true},
+        {activeProviderId: 'byterover', loginRequired: true},
         {providers: [{id: 'byterover', isConnected: true, isCurrent: true, name: 'ByteRover'}]},
       )
 
@@ -196,7 +196,7 @@ describe('Provider Command', () => {
 
     it('should include warning in JSON output when unauthenticated', async () => {
       mockProviderResponses(
-        {activeProviderId: 'byterover', authRequired: true},
+        {activeProviderId: 'byterover', loginRequired: true},
         {providers: [{id: 'byterover', isConnected: true, isCurrent: true, name: 'ByteRover'}]},
       )
 
@@ -205,7 +205,7 @@ describe('Provider Command', () => {
       const json = parseJsonOutput()
       expect(json.success).to.be.true
       expect(json.data).to.have.property('warning')
-      expect(json.data).to.not.have.property('authRequired')
+      expect(json.data).to.not.have.property('loginRequired')
     })
 
     it('should not show warning when byterover is active and user is authenticated', async () => {

@@ -88,9 +88,9 @@ describe('validateProviderForTask', () => {
   })
 
   describe('auth required', () => {
-    it('should return error when authRequired is true', () => {
+    it('should return error when loginRequired is true', () => {
       const result = validateProviderForTask(createConfig({
-        authRequired: true,
+        loginRequired: true,
       }))
 
       expect(result).to.not.be.undefined
@@ -112,7 +112,7 @@ describe('validateProviderForTask', () => {
     it('should return undefined for byterover with no auth required', () => {
       const result = validateProviderForTask(createConfig({
         activeProvider: 'byterover',
-        authRequired: false,
+        loginRequired: false,
       }))
 
       expect(result).to.be.undefined
@@ -132,7 +132,7 @@ describe('validateProviderForTask', () => {
     it('should check key-missing before auth-required', () => {
       const result = validateProviderForTask(createConfig({
         activeProvider: 'openai',
-        authRequired: true,
+        loginRequired: true,
         providerKeyMissing: true,
       }))
 
