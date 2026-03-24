@@ -146,7 +146,6 @@ export class ByteRoverContentGenerator implements IContentGenerator {
     const rawResponse = await this.httpService.generateContent(
       contents as Content[] | MessageCreateParamsNonStreaming,
       config as GenerateContentConfig | RequestOptions,
-      this.config.model,
       executionMetadata,
     )
 
@@ -221,7 +220,6 @@ export class ByteRoverContentGenerator implements IContentGenerator {
     yield* this.httpService.generateContentStream(
       contents as Content[] | MessageCreateParamsNonStreaming,
       config as GenerateContentConfig | RequestOptions,
-      this.config.model,
       executionMetadata,
     )
   }

@@ -1,4 +1,3 @@
-/* eslint-disable camelcase */
 import {isAxiosError} from 'axios'
 import {expect} from 'chai'
 import nock from 'nock'
@@ -13,15 +12,6 @@ import {
 function verifyProjectId(expectedProjectId: string) {
   return (body: Record<string, unknown>) => {
     expect(body.project_id).to.equal(expectedProjectId)
-    return true
-  }
-}
-
-function verifyGeminiRequest() {
-  return (body: Record<string, unknown>) => {
-    expect(body.provider).to.equal('gemini')
-    expect(body.region).to.equal('global')
-    expect((body.params as Record<string, unknown>).model).to.equal('gemini-2.5-flash')
     return true
   }
 }
@@ -42,31 +32,11 @@ function verifyTeamAndSpace(teamId: string, spaceId: string) {
   }
 }
 
-function verifyClaudeRequest() {
-  return (body: Record<string, unknown>) => {
-    expect(body.provider).to.equal('claude')
-    expect(body.region).to.equal('us-east5')
-    expect((body.params as Record<string, unknown>).model).to.equal('claude-3-5-sonnet')
-    return true
-  }
-}
-
-function verifyProvider(expectedProvider: string) {
-  return (body: Record<string, unknown>) => {
-    expect(body.provider).to.equal(expectedProvider)
-    return true
-  }
-}
-
 function verifyExecutionMetadata(expectedMetadata: string) {
   return (body: Record<string, unknown>) => {
     expect(body.executionMetadata).to.equal(expectedMetadata)
     return true
   }
-}
-
-function verifyProviderOnly(expectedProvider: string) {
-  return (body: Record<string, unknown>) => body.provider === expectedProvider
 }
 
 function verifyRegionOnly(expectedRegion: string) {
@@ -113,7 +83,7 @@ describe('ByteRoverLlmHttpService', () => {
 
       nock(baseUrl).post('/api/llm/generate', verifyProjectId('byterover')).reply(200, mockResponse)
 
-      return service.generateContent([{parts: [{text: 'Hi'}], role: 'user'}], {}, 'gemini-2.5-flash').then(() => {
+      return service.generateContent([{parts: [{text: 'Hi'}], role: 'user'}], {}).then(() => {
         expect(nock.isDone()).to.be.true
       })
     })
@@ -128,7 +98,7 @@ describe('ByteRoverLlmHttpService', () => {
 
       nock(baseUrl).post('/api/llm/generate', verifyProjectId('custom-project')).reply(200, mockResponse)
 
-      return service.generateContent([{parts: [{text: 'Hi'}], role: 'user'}], {}, 'gemini-2.5-flash').then(() => {
+      return service.generateContent([{parts: [{text: 'Hi'}], role: 'user'}], {}).then(() => {
         expect(nock.isDone()).to.be.true
       })
     })
@@ -153,30 +123,49 @@ describe('ByteRoverLlmHttpService', () => {
       service = new ByteRoverLlmHttpService(defaultConfig)
     })
 
-    describe('with Gemini model', () => {
-      it('should send request with correct provider and region for Gemini', async () => {
-        const mockResponse = createMockResponse({candidates: [{content: {parts: [{text: 'Hello from Gemini'}]}}]})
+    describe('request format', () => {
+      it('should not include provider or params.model in request body', async () => {
+        const mockResponse = createMockResponse({candidates: [{content: {parts: [{text: 'Hello'}]}}]})
+        let capturedBody: Record<string, unknown> = {}
 
-        nock(baseUrl).post('/api/llm/generate', verifyGeminiRequest()).reply(200, mockResponse)
+        nock(baseUrl)
+          .post('/api/llm/generate', (body: Record<string, unknown>) => {
+            capturedBody = body
+            return true
+          })
+          .reply(200, mockResponse)
 
-        const result = await service.generateContent(
-          [{parts: [{text: 'Hello'}], role: 'user'}],
-          {maxOutputTokens: 1000},
-          'gemini-2.5-flash',
-        )
+        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {maxOutputTokens: 1000})
 
-        expect(result).to.deep.equal({candidates: [{content: {parts: [{text: 'Hello from Gemini'}]}}]})
+        // Verify provider is NOT in request body
+        expect(capturedBody).to.not.have.property('provider')
+
+        // Verify model is NOT in params
+        const params = capturedBody.params as Record<string, unknown>
+        expect(params).to.not.have.property('model')
+      })
+
+      it('should send request with region from config', async () => {
+        const mockResponse = createMockResponse({candidates: [{content: {parts: [{text: 'Hello'}]}}]})
+
+        nock(baseUrl).post('/api/llm/generate', verifyRegionOnly('global')).reply(200, mockResponse)
+
+        const result = await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {
+          maxOutputTokens: 1000,
+        })
+
+        expect(result).to.deep.equal({candidates: [{content: {parts: [{text: 'Hello'}]}}]})
         expect(nock.isDone()).to.be.true
       })
 
-      it('should send contents and config as JSON strings', async () => {
+      it('should send contents and config in params', async () => {
         const mockResponse = createMockResponse({candidates: [{content: {parts: [{text: 'Response'}]}}]})
         const contents = [{parts: [{text: 'Test message'}], role: 'user'}]
         const config = {maxOutputTokens: 500, temperature: 0.7}
 
         nock(baseUrl).post('/api/llm/generate', verifyContentsAndConfig(contents, config)).reply(200, mockResponse)
 
-        await service.generateContent(contents, config, 'gemini-2.5-flash')
+        await service.generateContent(contents, config)
         expect(nock.isDone()).to.be.true
       })
 
@@ -187,33 +176,7 @@ describe('ByteRoverLlmHttpService', () => {
           .post('/api/llm/generate', verifyTeamAndSpace('test-team-id', 'test-space-id'))
           .reply(200, mockResponse)
 
-        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {}, 'gemini-2.5-flash')
-        expect(nock.isDone()).to.be.true
-      })
-    })
-
-    describe('with Claude model', () => {
-      it('should send request with correct provider and region for Claude', async () => {
-        const mockResponse = createMockResponse({candidates: [{content: {parts: [{text: 'Hello from Claude'}]}}]})
-
-        nock(baseUrl).post('/api/llm/generate', verifyClaudeRequest()).reply(200, mockResponse)
-
-        const result = await service.generateContent(
-          {max_tokens: 1000, messages: [{content: 'Hello', role: 'user'}], model: 'claude-3-5-sonnet'},
-          {},
-          'claude-3-5-sonnet',
-        )
-
-        expect(result).to.deep.equal({candidates: [{content: {parts: [{text: 'Hello from Claude'}]}}]})
-        expect(nock.isDone()).to.be.true
-      })
-
-      it('should detect Claude from model name variations', async () => {
-        const mockResponse = createMockResponse({candidates: [{content: {parts: [{text: 'Response'}]}}]})
-
-        nock(baseUrl).post('/api/llm/generate', verifyProvider('claude')).reply(200, mockResponse)
-
-        await service.generateContent({max_tokens: 100, messages: [], model: 'Claude-3-opus'}, {}, 'Claude-3-opus')
+        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {})
         expect(nock.isDone()).to.be.true
       })
     })
@@ -227,7 +190,7 @@ describe('ByteRoverLlmHttpService', () => {
           .post('/api/llm/generate', verifyExecutionMetadata(JSON.stringify(metadata)))
           .reply(200, mockResponse)
 
-        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {}, 'gemini-2.5-flash', metadata)
+        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {}, metadata)
         expect(nock.isDone()).to.be.true
       })
 
@@ -236,7 +199,7 @@ describe('ByteRoverLlmHttpService', () => {
 
         nock(baseUrl).post('/api/llm/generate', verifyExecutionMetadata('{}')).reply(200, mockResponse)
 
-        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {}, 'gemini-2.5-flash')
+        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {})
         expect(nock.isDone()).to.be.true
       })
     })
@@ -250,7 +213,7 @@ describe('ByteRoverLlmHttpService', () => {
           .matchHeader('x-byterover-session-id', 'test-session-key')
           .reply(200, mockResponse)
 
-        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {}, 'gemini-2.5-flash')
+        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {})
         expect(nock.isDone()).to.be.true
       })
     })
@@ -272,7 +235,7 @@ describe('ByteRoverLlmHttpService', () => {
       nock(baseUrl).post('/api/llm/generate').reply(400, errorResponse)
 
       try {
-        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {}, 'gemini-2.5-flash')
+        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {})
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -284,7 +247,7 @@ describe('ByteRoverLlmHttpService', () => {
       nock(baseUrl).post('/api/llm/generate').reply(500, {error: 'Internal Server Error'})
 
       try {
-        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {}, 'gemini-2.5-flash')
+        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {})
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -303,7 +266,7 @@ describe('ByteRoverLlmHttpService', () => {
       nock(baseUrl).post('/api/llm/generate').reply(401, errorResponse)
 
       try {
-        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {}, 'gemini-2.5-flash')
+        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {})
         expect.fail('Should have thrown an error')
       } catch (error) {
         // 401 errors are returned as raw AxiosError to allow callers to distinguish from network errors
@@ -325,7 +288,7 @@ describe('ByteRoverLlmHttpService', () => {
       nock(baseUrl).post('/api/llm/generate').reply(403, errorResponse)
 
       try {
-        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {}, 'gemini-2.5-flash')
+        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {})
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -337,7 +300,7 @@ describe('ByteRoverLlmHttpService', () => {
       nock(baseUrl).post('/api/llm/generate').replyWithError('Network connection failed')
 
       try {
-        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {}, 'gemini-2.5-flash')
+        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {})
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
@@ -354,96 +317,12 @@ describe('ByteRoverLlmHttpService', () => {
       nock(baseUrl).post('/api/llm/generate').delay(200).reply(200, {data: '{}'})
 
       try {
-        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {}, 'gemini-2.5-flash')
+        await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {})
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
         expect((error as Error).message.toLowerCase()).to.include('timeout')
       }
-    })
-  })
-
-  describe('detectProviderFromModel (tested indirectly)', () => {
-    beforeEach(() => {
-      service = new ByteRoverLlmHttpService(defaultConfig)
-    })
-
-    it('should detect gemini provider for gemini-2.5-flash', async () => {
-      const mockResponse = createMockResponse({candidates: []})
-
-      nock(baseUrl).post('/api/llm/generate', verifyProviderOnly('gemini')).reply(200, mockResponse)
-
-      await service.generateContent([], {}, 'gemini-2.5-flash')
-      expect(nock.isDone()).to.be.true
-    })
-
-    it('should detect gemini provider for gemini-2.5-pro', async () => {
-      const mockResponse = createMockResponse({candidates: []})
-
-      nock(baseUrl).post('/api/llm/generate', verifyProviderOnly('gemini')).reply(200, mockResponse)
-
-      await service.generateContent([], {}, 'gemini-2.5-pro')
-      expect(nock.isDone()).to.be.true
-    })
-
-    it('should detect claude provider for claude-3-5-sonnet', async () => {
-      const mockResponse = createMockResponse({candidates: []})
-
-      nock(baseUrl).post('/api/llm/generate', verifyProviderOnly('claude')).reply(200, mockResponse)
-
-      await service.generateContent({max_tokens: 100, messages: [], model: ''}, {}, 'claude-3-5-sonnet')
-      expect(nock.isDone()).to.be.true
-    })
-
-    it('should detect claude provider for claude-3-opus (case insensitive)', async () => {
-      const mockResponse = createMockResponse({candidates: []})
-
-      nock(baseUrl).post('/api/llm/generate', verifyProviderOnly('claude')).reply(200, mockResponse)
-
-      await service.generateContent({max_tokens: 100, messages: [], model: ''}, {}, 'CLAUDE-3-opus')
-      expect(nock.isDone()).to.be.true
-    })
-
-    it('should default to gemini for unknown model names', async () => {
-      const mockResponse = createMockResponse({candidates: []})
-
-      nock(baseUrl).post('/api/llm/generate', verifyProviderOnly('gemini')).reply(200, mockResponse)
-
-      await service.generateContent([], {}, 'unknown-model')
-      expect(nock.isDone()).to.be.true
-    })
-  })
-
-  describe('detectRegionFromModel (tested indirectly)', () => {
-    beforeEach(() => {
-      service = new ByteRoverLlmHttpService(defaultConfig)
-    })
-
-    it('should use global region for Gemini models', async () => {
-      const mockResponse = createMockResponse({candidates: []})
-
-      nock(baseUrl).post('/api/llm/generate', verifyRegionOnly('global')).reply(200, mockResponse)
-
-      await service.generateContent([], {}, 'gemini-2.5-flash')
-      expect(nock.isDone()).to.be.true
-    })
-
-    it('should use us-east5 region for Claude models', async () => {
-      const mockResponse = createMockResponse({candidates: []})
-
-      nock(baseUrl).post('/api/llm/generate', verifyRegionOnly('us-east5')).reply(200, mockResponse)
-
-      await service.generateContent({max_tokens: 100, messages: [], model: ''}, {}, 'claude-3-5-sonnet')
-      expect(nock.isDone()).to.be.true
-    })
-
-    it('should use global region for unknown models (defaults to gemini)', async () => {
-      const mockResponse = createMockResponse({candidates: []})
-
-      nock(baseUrl).post('/api/llm/generate', verifyRegionOnly('global')).reply(200, mockResponse)
-
-      await service.generateContent([], {}, 'some-other-model')
-      expect(nock.isDone()).to.be.true
     })
   })
 
@@ -472,7 +351,7 @@ describe('ByteRoverLlmHttpService', () => {
 
       nock(baseUrl).post('/api/llm/generate').reply(200, createMockResponse(expectedResponse))
 
-      const result = await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {}, 'gemini-2.5-flash')
+      const result = await service.generateContent([{parts: [{text: 'Hello'}], role: 'user'}], {})
 
       expect(result).to.deep.equal(expectedResponse)
     })
@@ -500,11 +379,7 @@ describe('ByteRoverLlmHttpService', () => {
 
       nock(baseUrl).post('/api/llm/generate').reply(200, createMockResponse(expectedResponse))
 
-      const result = await service.generateContent(
-        [{parts: [{text: 'View file'}], role: 'user'}],
-        {},
-        'gemini-2.5-flash',
-      )
+      const result = await service.generateContent([{parts: [{text: 'View file'}], role: 'user'}], {})
 
       expect(result).to.deep.equal(expectedResponse)
     })
