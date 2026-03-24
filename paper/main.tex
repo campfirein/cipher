@@ -250,12 +250,12 @@ what it relates to, and why it matters.
 
 
 % ============================================================
-% 3. BYTEROVER DESIGN
+% 3. THE CONTEXT TREE
 % ============================================================
-\section{\byterover{} Design}
+\section{The \contexttree{}}
 \label{sec:design}
 
-In this section, we introduce the \byterover{} architecture and its components in detail.
+This section introduces the \byterover{} architecture and its core data structure, the \contexttree{}.
 
 \subsection{Architectural Overview}
 \label{sec:arch-overview}
@@ -311,6 +311,10 @@ managed by a per-project agent pool.
 When multiple clients (TUI, CLI, MCP) submit tasks to the same project,
 a sequential, deduplicated task queue serializes all operations,
 eliminating write-write conflicts without file-level locking.
+\byterover{} exposes \texttt{brv-query} and \texttt{brv-curate} as MCP tools,
+enabling integration with any MCP-compatible agent framework.
+All knowledge is stored as human-readable markdown files on the local filesystem---version-controllable,
+portable, and requiring zero external infrastructure.
 
 
 \subsection{The Context Tree: Data Structure}
@@ -336,7 +340,7 @@ $\mathcal{V}_i$ is the narrative (interpreted structure: dependencies, rules, ex
 $\mathcal{S}_i$ contains snippets (code, formulas, raw data),
 and $\mathcal{L}_i$ is the lifecycle metadata.
 
-\subsubsection{Relation Graph}
+\subsubsection{Relation Graph and Symbol Tree}
 
 The edge set $\mathcal{E}$ is constructed from explicit \texttt{@relation} annotations
 in the \texttt{Relations} section of each entry.
@@ -347,6 +351,17 @@ decided that these concepts are related and stated why.
 A bidirectional reference index maintains both forward links
 (source~$\to$~targets it references) and backlinks (target~$\to$~sources that reference it),
 enabling graph traversal in both directions with O(1) lookup per entry.
+
+A hierarchical \emph{symbol tree} provides O(1) lookup from relative paths to knowledge entries
+and hosts the reference index above.
+The tree supports five symbol kinds:
+\emph{Domain}~(1), \emph{Topic}~(2), \emph{Subtopic}~(3), \emph{Context}~(4), and \emph{Summary}~(5).
+For query and curate operations, a lightweight representation of the tree structure
+is injected into the agent's system prompt: either a directory listing of domain
+and topic names (up to 200 entries) or, when full-text search is available,
+a compact instruction to use the search tool.
+This gives the agent ambient awareness of what knowledge exists
+without dumping full contents.
 
 \subsubsection{Adaptive Knowledge Lifecycle (AKL)}
 
@@ -378,6 +393,12 @@ The compound retrieval score combines search relevance with lifecycle signals:
 \end{equation}
 where $\hat{\iota}_i$ is the normalized importance and $w_r, w_\iota, w_t$ are tunable weights.
 
+
+% ============================================================
+% 4. AGENT-NATIVE OPERATIONS
+% ============================================================
+\section{Agent-Native Operations}
+\label{sec:operations}
 
 \subsection{LLM-Curated Knowledge Operations}
 \label{sec:curation}
@@ -547,51 +568,10 @@ a threshold ($\theta_{\text{OOD}} = 0.85$), the system explicitly signals
 This prevents hallucinated answers from tangential results---an
 essential property when agents are making decisions based on retrieved knowledge.
 
-\subsubsection{Symbol Tree}
-
-A hierarchical symbol tree provides O(1) lookup from relative paths to knowledge entries,
-with bidirectional reference tracking (forward links and backlinks).
-The tree supports five symbol kinds:
-\emph{Domain}~(1), \emph{Topic}~(2), \emph{Subtopic}~(3), \emph{Context}~(4), and \emph{Summary}~(5).
-For query and curate operations, a lightweight representation of the tree structure
-is injected into the agent's system prompt: either a directory listing of domain
-and topic names (up to 200 entries) or, when full-text search is available,
-a compact instruction to use the search tool.
-This gives the agent ambient awareness of what knowledge exists
-without dumping full contents.
-
-
-\subsection{Implementation}
-\label{sec:implementation}
-
-\byterover{} is implemented as a modular three-layer architecture:
-
-\begin{itemize}[leftmargin=*]
-  \item \textbf{Knowledge Layer.}
-    The \contexttree{} uses the local filesystem with markdown files.
-    MiniSearch provides in-process full-text indexing.
-    The query cache uses in-memory storage with TTL expiry
-    and SHA-256 fingerprinting for invalidation.
-
-  \item \textbf{Execution Layer.}
-    Curation runs in an isolated sandbox with a \texttt{ToolsSDK} interface.
-    The sequential task queue processes operations one at a time,
-    eliminating concurrency issues without locking.
-
-  \item \textbf{Integration Layer.}
-    \byterover{} exposes \texttt{brv-query} and \texttt{brv-curate} as MCP tools,
-    enabling integration with any MCP-compatible agent framework
-    (Claude~Code, Cursor, custom agents).
-    A CLI interface supports human inspection and manual curation.
-\end{itemize}
-
-The entire system runs locally with zero external dependencies.
-Knowledge is stored as markdown files that are version-controllable (\texttt{git diff}-able),
-human-readable, and portable (copy the directory to move knowledge).
 
 
 % ============================================================
-% 4. EXPERIMENTS
+% 5. EXPERIMENTS
 % ============================================================
 \section{Experiments}
 \label{sec:experiments}
@@ -607,28 +587,43 @@ We evaluate on two widely adopted long-term conversational benchmarks:
 \textbf{(1)~LoCoMo}~\citep{maharana2024locomo},
 which contains ultra-long conversations (average length of $\sim$20K tokens across 35 sessions)
 designed to assess long-range temporal and causal retrieval;
-and \textbf{(2)~LongMemEval}~\citep{wu2024longmemeval},
-a large-scale stress-test benchmark with average context length exceeding 100K tokens,
-used to evaluate scalability and memory retention stability over extended interaction horizons.
+and \textbf{(2)~LongMemEval-S}~\citep{wu2024longmemeval},
+the full-scale variant of LongMemEval with 500 questions spanning six memory-ability categories,
+average context length exceeding 100K tokens across ${\sim}$48 sessions per question,
+designed to stress-test memory retention and scalability under realistic interaction horizons.
 
 \paragraph{Baselines.}
-We compare against five state-of-the-art memory architectures:
-\begin{itemize}[leftmargin=*]
-  \item \textbf{Full Context}: Feeds the entire conversation history into the LLM.
-  \item \textbf{A-MEM}~\citep{xu2025amem}: Linked node graph with evolutionary LLM-based rewriting.
-  \item \textbf{MemoryOS}~\citep{kang2025memoryos}: Hierarchical tiers (STM~$\to$~LTM) with rule-based promotion.
-  \item \textbf{Nemori}~\citep{nan2025nemori}: Dual memory (episodic tree + semantic graph) with gradient-inspired modification.
-  \item \textbf{MAGMA}~\citep{jiang2026magma}: Multi-relational graph with intent-guided traversal.
-  \item \textbf{SimpleMem}~\citep{liu2026simplemem}: Hybrid index with on-the-fly synthesis.
-\end{itemize}
+On LoCoMo, we evaluate six memory systems under a unified protocol
+using our benchmark harness with identical judge configuration,
+enabling direct comparison:
+\textbf{Mem0}~\citep{chhikara2025mem0},
+\textbf{Zep}~\citep{rasmussen2025zep},
+\textbf{Hindsight}~\citep{latimer2025hindsight},
+\textbf{HonCho},\footnote{\url{https://honcho.dev}}
+\textbf{Memobase},\footnote{\url{https://github.com/memodb-io/memobase}}
+and \textbf{OpenAI Memory} (ChatGPT).
+These systems span the spectrum from structured fact extraction
+(Mem0, Memobase) to graph-based memory architectures (Zep, Hindsight)
+and commercial assistants (OpenAI Memory, HonCho).
 
-All systems use \texttt{gpt-4o-mini} as the backbone LLM for fair comparison.
+On LongMemEval-S, we include our own evaluations of Hindsight and HonCho
+alongside published results from
+\textbf{Chronos}~\citep{sen2026chronos},
+\textbf{SmartSearch}~\citep{derehag2026smartsearch},
+\textbf{Memora}~\citep{xia2026memora},
+\textbf{TiMem}~\citep{li2026timem},
+Zep, and a full-context baseline,
+cited from their respective publications.
+Results marked with $\dagger$ use different backbone and judge configurations;
+see Table~\ref{tab:longmemeval} for details.
 
 \paragraph{Metrics.}
-Following standard evaluation protocols~\citep{zheng2023llmjudge},
-we primarily use the LLM-as-a-Judge score (\texttt{gpt-4o-mini}, temperature~0.0)
-to assess semantic accuracy.
-For completeness, we also report token-level F1 and BLEU-1~\citep{papineni2002bleu}.
+We adopt LLM-as-a-Judge~\citep{zheng2023llmjudge} as the primary metric,
+where a judge model evaluates each generated answer against the ground truth
+and returns a binary correctness label.
+For our own evaluations, we use Gemini~3 Flash as the judge
+with a separate justifier model (Gemini~3.1 Pro) that synthesizes
+an answer from retrieved context before scoring.
 
 
 \subsection{Overall Comparison on LoCoMo}
@@ -637,63 +632,89 @@ For completeness, we also report token-level F1 and BLEU-1~\citep{papineni2002bl
 \begin{table}[t]
 \centering
 \small
-\begin{tabular}{@{}lccccc|c@{}}
+\begin{tabular}{@{}lcccc|c@{}}
 \toprule
-\textbf{Method} & \textbf{Multi-Hop} & \textbf{Temporal} & \textbf{Open-Domain} & \textbf{Single-Hop} & \textbf{Adversarial} & \textbf{Overall} \\
+\textbf{Method} & \textbf{Single-Hop} & \textbf{Multi-Hop} & \textbf{Open-Domain} & \textbf{Temporal} & \textbf{Overall} \\
 \midrule
-Full Context      & 0.468 & 0.562 & 0.486 & 0.630 & 0.205 & 0.481 \\
-A-MEM             & 0.495 & 0.474 & 0.385 & 0.653 & 0.616 & 0.580 \\
-MemoryOS          & 0.552 & 0.422 & 0.504 & 0.674 & 0.428 & 0.553 \\
-Nemori            & 0.569 & 0.649 & 0.485 & 0.764 & 0.325 & 0.590 \\
-MAGMA             & 0.528 & 0.650 & 0.517 & 0.776 & 0.742 & 0.700 \\
-SimpleMem         & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} \\
+HonCho          & 93.2 & 84.0 & 77.1 & 88.2 & 89.9 \\
+Hindsight       & 86.2 & 70.8 & \textbf{95.1} & 83.8 & 89.6 \\
+Memobase        & 70.9 & 46.9 & 77.2 & 85.1 & 75.8 \\
+Zep             & 74.1 & 66.0 & 67.7 & 79.8 & 75.1 \\
+Mem0            & 67.1 & 51.2 & 72.9 & 55.5 & 66.9 \\
+OpenAI Memory   & 63.8 & 42.9 & 62.3 & 21.7 & 52.9 \\
 \midrule
-\textbf{\byterover{} (ours)} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} \\
+\textbf{\byterover{} (ours)} & \textbf{97.5} & \textbf{93.3} & 85.9 & \textbf{97.8} & \textbf{96.1} \\
 \bottomrule
 \end{tabular}
-\caption{Performance on the LoCoMo benchmark evaluated using LLM-as-a-Judge.
-  Baseline results for Full Context, A-MEM, MemoryOS, Nemori, and MAGMA
-  are from \citet{jiang2026magma}.
-  \todo{Fill in ByteRover results after running benchmarks.}}
+\caption{LLM-as-Judge accuracy (\%) on LoCoMo (4 categories, 1536 questions).
+  All systems evaluated under identical conditions using our benchmark harness
+  with Gemini~3 Flash as the judge.}
 \label{tab:locomo}
 \end{table}
 
-\todo{Analysis paragraph: Explain why ByteRover's agent-native curation
-helps with multi-hop reasoning (explicit relations provide multi-hop paths),
-adversarial queries (provenance enables verification),
-and temporal queries (structured timestamps in Raw Concept).}
+\byterover{} achieves the highest overall accuracy at 96.1\%,
+outperforming the next-best system (HonCho, 89.9\%) by 6.2 percentage points.
+The gains are particularly pronounced on \emph{multi-hop} questions
+($+$9.3 over HonCho),
+which require synthesizing information across distant sessions---a
+task where the \contexttree{}'s explicit inter-entry relations
+provide navigable paths that flat memory stores lack.
+On \emph{temporal} queries, \byterover{} reaches 97.8\%,
+benefiting from structured timestamps embedded in each entry's metadata
+that enable precise temporal grounding.
+The sole category where \byterover{} does not lead is \emph{open-domain},
+where Hindsight achieves 95.1\% versus 85.9\%.
+Open-domain questions frequently require commonsense reasoning
+that extends beyond the conversation corpus,
+an area where retrieval-augmented approaches can excel
+by leveraging the backbone LLM's parametric knowledge.
 
 
-\subsection{Generalization on LongMemEval}
+\subsection{Generalization on LongMemEval-S}
 \label{sec:longmemeval-results}
 
 \begin{table}[t]
 \centering
 \small
-\begin{tabular}{@{}l|cc|c@{}}
+\begin{tabular}{@{}lcccccc|c@{}}
 \toprule
-\textbf{Question Type} & \textbf{Full-context} & \textbf{MAGMA} & \textbf{\byterover{} (ours)} \\
- & (101K tokens) & (0.7--4.2K tokens) & \todo{(tokens)} \\
+\textbf{Method} & \textbf{KU} & \textbf{SSU} & \textbf{SSA} & \textbf{SSP} & \textbf{TR} & \textbf{MS} & \textbf{Overall} \\
 \midrule
-single-session-preference & 6.7\% & 73.3\% & \todo{--} \\
-single-session-assistant & 89.3\% & 83.9\% & \todo{--} \\
-temporal-reasoning & 42.1\% & 45.1\% & \todo{--} \\
-multi-session & 38.3\% & 50.4\% & \todo{--} \\
-knowledge-update & 78.2\% & 66.7\% & \todo{--} \\
-single-session-user & 78.6\% & 72.9\% & \todo{--} \\
+Chronos$^\dagger$       & 96.2 & 94.3 & \textbf{100.0} & 80.0 & 90.2 & \textbf{91.7} & 92.6 \\
+Hindsight               & 94.9 & 97.1 & 96.4 & 80.0 & 91.0 & 87.2 & 91.4 \\
+HonCho                  & 94.9 & 94.3 & 96.4 & 90.0 & 88.7 & 85.0 & 90.4 \\
+SmartSearch$^\dagger$   & 93.6 & \textbf{100.0} & 85.7 & \textbf{96.7} & 82.7 & 84.2 & 88.4 \\
+Memora$^\dagger$        & 97.4 & 98.6 & 78.6 & 83.3 & 89.5 & 78.2 & 87.4 \\
+TiMem$^\dagger$         & 87.7 & 96.3 & 85.7 & 55.3 & 73.4 & 72.8 & 79.0 \\
+Zep$^\dagger$           & 83.3 & 92.9 & 80.4 & 56.7 & 62.4 & 57.9 & 71.2 \\
+Full-context$^\dagger$  & 78.2 & 81.4 & 94.6 & 20.0 & 45.1 & 44.3 & 60.2 \\
 \midrule
-\textbf{Average} & 55.0\% & 61.2\% & \todo{--} \\
+\textbf{\byterover{} (ours)} & \textbf{98.7} & 98.6 & 98.2 & \textbf{96.7} & \textbf{91.7} & 84.2 & \textbf{92.8} \\
 \bottomrule
 \end{tabular}
-\caption{Performance comparison on LongMemEval.
-  Baseline results from \citet{jiang2026magma} and \citet{jiang2026anatomy}.
-  \todo{Fill in ByteRover results after running benchmarks.}}
+\caption{LLM-as-Judge accuracy (\%) on LongMemEval-S (500 questions).
+  KU\,=\,Knowledge Update, SSU\,=\,Single-Session User, SSA\,=\,Single-Session Assistant,
+  SSP\,=\,Single-Session Preference, TR\,=\,Temporal Reasoning, MS\,=\,Multi-Session.
+  Hindsight and HonCho evaluated with our harness (Gemini~3 Flash judge).
+  $^\dagger$Results from respective papers; backbone and judge configurations differ.}
 \label{tab:longmemeval}
 \end{table}
 
-\todo{Analysis paragraph: Discuss token efficiency---ByteRover resolves
-most queries at Tier~0--2 without LLM calls, achieving competitive accuracy
-with substantially fewer tokens than Full Context.}
+\byterover{} achieves the highest overall accuracy at 92.8\%,
+narrowly outperforming Chronos (92.6\%) despite the latter's use of a GPT-4o backbone.
+The strength profile is distinctive:
+\byterover{} leads on knowledge update (98.7\%),
+temporal reasoning (91.7\%), and single-session preference
+(96.7\%, tied with SmartSearch),
+categories that reward precise fact retrieval and temporal grounding---capabilities
+directly served by the \contexttree{}'s structured entries
+and timestamp-aware indexing.
+The weakest category is multi-session (84.2\%),
+which requires cross-session synthesis over long horizons
+and represents the primary area for improvement.
+Notably, Chronos achieves 91.7\% on multi-session,
+suggesting that its event-ordering approach
+may better capture inter-session dependencies.
 
 
 \subsection{System Efficiency}
@@ -809,7 +830,7 @@ w/o Escalated Compression & \todo{--} & \todo{--} & \todo{--} \\
 
 
 % ============================================================
-% 5. CONCLUSION
+% 6. CONCLUSION
 % ============================================================
 \section{Conclusion}
 \label{sec:conclusion}
@@ -832,7 +853,7 @@ on the local filesystem.
 
 
 % ============================================================
-% 6. LIMITATIONS
+% 7. LIMITATIONS
 % ============================================================
 \section{Limitations}
 \label{sec:limitations}
