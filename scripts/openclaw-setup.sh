@@ -817,6 +817,40 @@ configure_context_plugin() {
   printf "${YELLOW}Feature: ByteRover Context Engine - Intelligent Automated Memory Curation and Memory Retrieval${RESET}\n"
   echo "Installs the ByteRover Context Engine plugin for injecting ByteRover memory context into prompts and automatically curate insights."
 
+  # Requires OpenClaw v2026.3.22+
+  local MIN_OPENCLAW_VERSION="2026.3.22"
+  local openclaw_version
+  openclaw_version=$(openclaw -v 2>/dev/null | grep -oE '[0-9]{4}\.[0-9]+\.[0-9]+' | head -1) || openclaw_version=""
+
+  if [ -z "$openclaw_version" ]; then
+    warn "Could not detect OpenClaw version. Skipping Context Plugin setup."
+    echo ""
+    return
+  fi
+
+  local IFS='.'
+  read -r cur_year cur_month cur_day <<< "$openclaw_version"
+  read -r min_year min_month min_day <<< "$MIN_OPENCLAW_VERSION"
+
+  local version_ok=true
+  if [ "$cur_year" -lt "$min_year" ] 2>/dev/null; then
+    version_ok=false
+  elif [ "$cur_year" -eq "$min_year" ] 2>/dev/null; then
+    if [ "$cur_month" -lt "$min_month" ] 2>/dev/null; then
+      version_ok=false
+    elif [ "$cur_month" -eq "$min_month" ] 2>/dev/null; then
+      if [ "$cur_day" -lt "$min_day" ] 2>/dev/null; then
+        version_ok=false
+      fi
+    fi
+  fi
+
+  if [ "$version_ok" = false ]; then
+    warn "OpenClaw v${MIN_OPENCLAW_VERSION}+ is required for Context Plugin (found v${openclaw_version}). Please upgrade: npm i openclaw@latest -g"
+    echo ""
+    return
+  fi
+
   if ! confirm "Install ByteRover Context Plugin?"; then
     echo "Uninstalling ByteRover Context Plugin..."
     remove_existing_byterover_plugin

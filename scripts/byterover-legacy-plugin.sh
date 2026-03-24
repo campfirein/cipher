@@ -347,6 +347,18 @@ EOF
   success "Plugin files created."
 }
 
+# ─── Gateway Restart ─────────────────────────────────────────────────────────
+
+restart_openclaw_gateway() {
+  echo "Restarting OpenClaw gateway to apply changes..."
+  openclaw gateway stop 2>/dev/null || true
+  if openclaw gateway install; then
+    success "OpenClaw gateway restarted."
+  else
+    warn "Failed to restart OpenClaw gateway. Run 'openclaw gateway install' manually."
+  fi
+}
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 main() {
@@ -359,6 +371,7 @@ main() {
       info "Uninstalling legacy ByteRover context plugin..."
       disable_plugin_in_config
       remove_plugin_files
+      restart_openclaw_gateway
       success "Legacy plugin uninstalled."
       exit 0
       ;;
@@ -386,6 +399,7 @@ main() {
 
   create_plugin_files
   enable_plugin_in_config
+  restart_openclaw_gateway
   success "Legacy ByteRover Context Plugin installed and enabled."
 }
 
