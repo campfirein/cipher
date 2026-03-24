@@ -91,7 +91,7 @@ src/
 
 - Tool definitions: `resources/tools/*.txt`; implementations: `infra/tools/implementations/`
 - Tool registry pattern: `infra/tools/tool-registry.ts` — register/resolve tools by name
-- Multi-provider LLM support (ByteRover internal, OpenRouter) in `infra/llm/`
+- Multi-provider LLM support (20 providers including Anthropic, OpenAI, Google, OpenRouter, etc.) in `infra/llm/`
 - Compression strategies in `infra/llm/context/compression/` (reactive-overflow + escalated-compression)
 - System prompt contributor pattern (XML-style sections) in `infra/system-prompt/`
 - Map/memory subsystem (`infra/map/`): agentic map service, context-tree store, LLM map memory, worker pool
@@ -118,11 +118,13 @@ Commands in `src/tui/features/commands/definitions/` (order = UI suggestion orde
 
 ### Oclif Hooks (`src/oclif/hooks/`)
 
+- `init/block-command-update-npm.ts` - Blocks `brv update` when installed via npm
 - `init/welcome.ts` - Node.js version check, ASCII banner
 - `init/update-notifier.ts` - Auto-update notification (1h check)
+- `prerun/validate-brv-config-version.ts` - Config version validation
+- `postrun/restart-after-update.ts` - Restarts daemon after `brv update`
 - `command_not_found/handle-invalid-commands.ts` - Invalid command handler
 - `error/clean-errors.ts` - Error formatting
-- `prerun/validate-brv-config-version.ts` - Config version validation
 
 ## Testing
 
