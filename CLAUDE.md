@@ -6,6 +6,8 @@ ByteRover CLI (`brv`) - Interactive REPL with React/Ink TUI
 
 ```bash
 npm run build                                    # Compile to dist/
+npm run dev                                      # Kill daemon + build + run dev mode
+npm run dev:kill                                 # Kill daemon process only
 npm test                                         # All tests
 npx mocha --forbid-only "test/path/to/file.test.ts"  # Single test
 npm run lint                                     # ESLint
@@ -28,7 +30,7 @@ npm run typecheck                                # TypeScript type checking
 - Apply TDD; 50% coverage minimum, critical paths must be covered
 - Run `npm run test` after each approved edit
 - Suppress console logging in tests to keep output clean
-- Unit tests must run fast and  run completely in memory. Proper stubbing and mocking must be implemented.
+- Unit tests must run fast and run completely in memory. Proper stubbing and mocking must be implemented.
 
 **Feature Development (Outside-In Approach)**:
 - Start from the consumer (oclif command, REPL command, or TUI component) - understand what it needs
