@@ -212,17 +212,24 @@ function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
   return err instanceof Error && 'code' in err;
 }
 
+// ── Workspace CWD resolution ────────────────────────────────────────────────
+// The OpenClaw gateway runs with cwd=/, so we must derive the correct workspace
+// directory from the sessionKey. Convention: "main" agent → base path, others →
+// base-<agentId>. Same logic as brv-openclaw-plugin/src/message-utils.ts.
+
+function resolveWorkspaceDir(sessionKey?: string, baseCwd?: string): string {
+  const base = baseCwd || join(homedir(), ".openclaw", "workspace");
+  if (!sessionKey) return base;
+  const parts = sessionKey.split(":");
+  const agentId = parts.length >= 2 && parts[0] === "agent" ? parts[1] : undefined;
+  if (!agentId || agentId === "main") return base;
+  return `${base}-${agentId}`;
+}
+
 export default function (api) {
   api.logger.info("[byterover] Loaded!");
 
   api.on("before_prompt_build", async (event, ctx) => {
-    // ── Skip context query during onboarding (handled by byterover-onboarding plugin) ──
-    const onboardedMarker = join(homedir(), ".openclaw", ".byterover-onboarded");
-    if (!existsSync(onboardedMarker)) {
-      api.logger.debug("[byterover] Onboarding not completed — skipping context query.");
-      return;
-    }
-
     // ── Query ByteRover for relevant context ──
     let userPrompt = event.prompt;
 
@@ -246,12 +253,14 @@ export default function (api) {
       `- **Before answering:** context above was retrieved automatically.\n` +
       `- **After completing this task:** if you learned something valuable, run \`${brvPath} curate "<key insight>"\` to save it.\n`;
 
+    const workspaceDir = resolveWorkspaceDir(ctx?.sessionKey);
     try {
-      api.logger.debug(`[byterover] Querying brv (${brvPath}) for: "${queryText}"`);
+      api.logger.debug(`[byterover] Querying brv (${brvPath}) for: "${queryText}" (cwd=${workspaceDir})`);
 
       const { stdout } = await execFileAsync(brvPath, ["query", queryText], {
         timeout: 300000,
         env: buildBrvEnv(),
+        cwd: workspaceDir,
       });
 
       const brvOutput = stdout.trim();
@@ -378,10 +387,6 @@ main() {
   create_plugin_files
   enable_plugin_in_config
   success "Legacy ByteRover Context Plugin installed and enabled."
-  echo ""
-  warn "To migrate to the official plugin, run:"
-  echo "  sh scripts/byterover-legacy-plugin.sh --uninstall"
-  echo "  openclaw plugins install @byterover/byterover"
 }
 
 main "$@"

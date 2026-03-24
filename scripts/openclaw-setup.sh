@@ -855,6 +855,8 @@ configure_context_plugin() {
 
   # Always configure the resolved brv path so the plugin doesn't need to re-search at runtime
   openclaw config set plugins.entries.byterover.config.brvPath "$BRV_CMD" || true
+  # Set cwd to the openclaw workspace so the plugin runs in the correct directory
+  openclaw config set plugins.entries.byterover.config.cwd "$HOME/.openclaw/workspace" || true
 
   # Verify installation
   if ! verify_plugin_installed "byterover"; then
