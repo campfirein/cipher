@@ -411,7 +411,7 @@ async function main(): Promise<void> {
 
     // State endpoint: provider config — agents request this on startup and after provider:updated
     transportServer.onRequest<void, ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG, async () =>
-      resolveProviderConfig(providerConfigStore, providerKeychainStore, tokenRefreshManager),
+      resolveProviderConfig({authStateStore, providerConfigStore, providerKeychainStore, tokenRefreshManager}),
     )
 
     // Feature handlers (auth, init, status, push, pull, etc.) require async OIDC discovery.

@@ -253,7 +253,7 @@ export class ProviderConfig {
   public withProviderDisconnected(providerId: string): ProviderConfig {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const {[providerId]: _removed, ...remainingProviders} = this.providers
-    const newActiveProvider = this.activeProvider === providerId ? 'byterover' : this.activeProvider
+    const newActiveProvider = this.activeProvider === providerId ? '' : this.activeProvider
 
     return new ProviderConfig({
       activeProvider: newActiveProvider,

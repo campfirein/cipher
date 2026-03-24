@@ -238,7 +238,7 @@ export class OpenRouterApiClient {
         inputPerM,
         outputPerM,
       },
-      provider: provider.charAt(0).toUpperCase() + provider.slice(1), // Capitalize
+      provider: `OpenRouter (${provider})`,
     }
   }
 }

@@ -23,12 +23,19 @@ npm run typecheck                                # TypeScript type checking
 - Avoid `as Type` assertions - use type guards or proper typing instead
 - Avoid `any` type - use `unknown` with type narrowing or proper generics
 - Functions with >3 parameters must use object parameters
+- Prefer `type` for data-only shapes (DTOs, payloads, configs); prefer `interface` for behavioral contracts with method signatures (services, repositories, strategies)
 
-**Testing**:
-- Apply TDD; 50% coverage minimum, critical paths must be covered
-- Run `npm run test` after each approved edit
-- Suppress console logging in tests to keep output clean
-- Unit tests must run fast and  run completely in memory. Proper stubbing and mocking must be implemented.
+**Testing (Strict TDD — MANDATORY)**:
+- You MUST follow Test-Driven Development. This is non-negotiable.
+  - **Step 1 — Write failing tests FIRST**: Before writing ANY implementation code, write or update tests that describe the expected behavior. Do NOT write implementation and tests together or in reverse order.
+  - **Step 2 — Run tests to confirm they fail**: Execute the relevant test file to verify the new tests fail for the right reason (missing implementation, not a syntax error).
+  - **Step 3 — Write the minimal implementation**: Write only enough code to make the failing tests pass. Do not add untested behavior.
+  - **Step 4 — Run tests to confirm they pass**: Execute tests again to verify all tests pass.
+  - **Step 5 — Refactor if needed**: Clean up while keeping tests green.
+  - If you catch yourself writing implementation code without a failing test, STOP and write the test first.
+- 50% coverage minimum, critical paths must be covered.
+- Suppress console logging in tests to keep output clean.
+- Unit tests must run fast and run completely in memory. Proper stubbing and mocking must be implemented.
 
 **Feature Development (Outside-In Approach)**:
 - Start from the consumer (oclif command, REPL command, or TUI component) - understand what it needs
@@ -91,7 +98,7 @@ src/
 
 - Tool definitions: `resources/tools/*.txt`; implementations: `infra/tools/implementations/`
 - Tool registry pattern: `infra/tools/tool-registry.ts` — register/resolve tools by name
-- Multi-provider LLM support (ByteRover internal, OpenRouter) in `infra/llm/`
+- Multi-provider LLM support (20 providers including Anthropic, OpenAI, Google, OpenRouter, etc.) in `infra/llm/`
 - Compression strategies in `infra/llm/context/compression/` (reactive-overflow + escalated-compression)
 - System prompt contributor pattern (XML-style sections) in `infra/system-prompt/`
 - Map/memory subsystem (`infra/map/`): agentic map service, context-tree store, LLM map memory, worker pool
@@ -118,11 +125,13 @@ Commands in `src/tui/features/commands/definitions/` (order = UI suggestion orde
 
 ### Oclif Hooks (`src/oclif/hooks/`)
 
+- `init/block-command-update-npm.ts` - Blocks `brv update` when installed via npm
 - `init/welcome.ts` - Node.js version check, ASCII banner
 - `init/update-notifier.ts` - Auto-update notification (1h check)
+- `prerun/validate-brv-config-version.ts` - Config version validation
+- `postrun/restart-after-update.ts` - Restarts daemon after `brv update`
 - `command_not_found/handle-invalid-commands.ts` - Invalid command handler
 - `error/clean-errors.ts` - Error formatting
-- `prerun/validate-brv-config-version.ts` - Config version validation
 
 ## Testing
 
