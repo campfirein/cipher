@@ -22,7 +22,7 @@ export interface TokenRefreshManagerDeps {
   providerConfigStore: IProviderConfigStore
   providerKeychainStore: IProviderKeychainStore
   providerOAuthTokenStore: IProviderOAuthTokenStore
-  transport: ITransportServer
+  transport?: ITransportServer
 }
 
 /**
@@ -108,7 +108,7 @@ export class TokenRefreshManager implements ITokenRefreshManager {
         refreshToken: tokens.refresh_token ?? tokenRecord.refreshToken,
       })
 
-      this.deps.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
+      this.deps.transport?.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
       return true
     } catch (error) {
       // 7. Permanent failure (token revoked, client invalid): disconnect provider, clean up
@@ -116,7 +116,7 @@ export class TokenRefreshManager implements ITokenRefreshManager {
         await this.deps.providerConfigStore.disconnectProvider(providerId).catch(() => {})
         await this.deps.providerOAuthTokenStore.delete(providerId).catch(() => {})
         await this.deps.providerKeychainStore.deleteApiKey(providerId).catch(() => {})
-        this.deps.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
+        this.deps.transport?.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
         return false
       }
 

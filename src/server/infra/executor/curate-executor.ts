@@ -18,6 +18,7 @@ import {
 } from '../../utils/file-content-reader.js'
 import {validateFileForCurate} from '../../utils/file-validator.js'
 import {capturePreState, postTreeMutationMaintenance} from '../context-tree/post-mutation-maintenance.js'
+import {checkTreeHealth} from '../context-tree/tree-health-checker.js'
 import {extractOperationsFromResponse} from '../harness/curation/curation-feedback-collector.js'
 import {buildTemplatePrompt, buildTemplateStreamOptions} from '../harness/curation/curation-template-executor.js'
 import {computeSummary} from '../process/curate-log-handler.js'
@@ -222,7 +223,13 @@ export class CurateExecutor implements ICurateExecutor {
       await postTreeMutationMaintenance(preState, agent, baseDir)
       maintenanceCompleted = true
 
-      return response
+      // --- Phase 5: Tree health check (detect-only, appended to response) ---
+      // Reads the manifest that Phase 4 just rebuilt. Appends a brief note to
+      // the curation response so the user sees it in their terminal.
+      // Cooldown prevents checking on every curate. Fail-open: errors swallowed.
+      const healthNote = await this.getTreeHealthNote(baseDir).catch(() => '')
+
+      return healthNote ? `${response}\n\n${healthNote}` : response
     } catch (error) {
       if (selection?.mode === 'fast' && this.harnessService && error instanceof FastPathExecutionError) {
         await this.harnessService.recordExecutionFailure(
@@ -505,6 +512,26 @@ export class CurateExecutor implements ICurateExecutor {
         return fileType
       }
     }
+  }
+
+  /**
+   * Run a lightweight tree health check and return a user-facing note.
+   * Scans the full context tree (not the lane-budgeted manifest subset).
+   * Returns empty string if no issues or cooldown hasn't elapsed.
+   */
+  private async getTreeHealthNote(baseDir: string): Promise<string> {
+    const report = await checkTreeHealth(baseDir)
+    if (!report || report.issues.length === 0) return ''
+
+    const lines = [
+      '---',
+      `**Tree Health** (${report.entryCount} entries): ${report.issues.length} issue${report.issues.length === 1 ? '' : 's'} detected`,
+      ...report.issues.map((issue) => `- ${issue.message}`),
+      '',
+      'Run `brv reorg --dry-run` to review reorganization candidates.',
+    ]
+
+    return lines.join('\n')
   }
 
   private hasMutationSignal(

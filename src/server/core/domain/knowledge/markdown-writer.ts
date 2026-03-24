@@ -55,7 +55,7 @@ export interface ContextData {
   tags: string[]
 }
 
-interface Frontmatter {
+export interface Frontmatter {
   accessCount?: number
   createdAt?: string
   importance?: number
@@ -69,7 +69,7 @@ interface Frontmatter {
   updatedAt?: string
 }
 
-interface ParsedFrontmatter {
+export interface ParsedFrontmatter {
   body: string
   frontmatter: Frontmatter
 }
@@ -78,7 +78,7 @@ interface ParsedFrontmatter {
  * Generate YAML frontmatter block from context data.
  * Only includes fields that have values.
  */
-function generateFrontmatter(
+export function generateFrontmatter(
   title: string,
   relations?: string[],
   tags: string[] = [],
@@ -142,7 +142,7 @@ function generateFrontmatter(
  * Parse YAML frontmatter from markdown content.
  * Returns null if no frontmatter is found (backward compat with old format).
  */
-function parseFrontmatter(content: string): null | ParsedFrontmatter {
+export function parseFrontmatter(content: string): null | ParsedFrontmatter {
   if (!content.startsWith('---\n') && !content.startsWith('---\r\n')) {
     return null
   }
