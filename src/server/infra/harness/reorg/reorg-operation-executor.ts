@@ -10,7 +10,7 @@ import {dirname, join} from 'node:path'
 
 import type {ReorgCandidate, ReorgQualityMetrics, ReorgResult} from '../../../core/interfaces/executor/i-reorg-executor.js'
 
-import {MarkdownWriter,parseFrontmatter} from '../../../core/domain/knowledge/markdown-writer.js'
+import {MarkdownWriter, parseFrontmatter} from '../../../core/domain/knowledge/markdown-writer.js'
 import {rewriteRelationsInTree} from '../../../core/domain/knowledge/relation-rewriter.js'
 
 // ── Types ───────────────────────────────────────────────────────────────────

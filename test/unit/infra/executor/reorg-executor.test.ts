@@ -89,8 +89,9 @@ describe('ReorgExecutor', () => {
     expect(summary.candidatesDetected).to.equal(1)
     expect(summary.candidatesExecuted).to.equal(0)
     expect(summary.results).to.have.lengthOf(0)
-    // dryRun should report validated count as skipped
-    expect(summary.candidatesSkipped).to.equal(1)
+    // candidatesSkipped = detected - validated (rejected by safety validator)
+    // In this test: 1 detected, 1 validated → 0 skipped
+    expect(summary.candidatesSkipped).to.equal(0)
   })
 
   it('successful execution: begin, execute, commit, maintenance, feedback', async () => {

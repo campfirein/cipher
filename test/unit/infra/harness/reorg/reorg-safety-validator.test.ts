@@ -52,6 +52,21 @@ describe('reorg-safety-validator', () => {
     expect(result.rejected[0].reason).to.include('exist')
   })
 
+  it('merge: rejects when target has core maturity and protectCore is true', async () => {
+    writeFileSync(join(testDir, 'domain', 'topic', 'source.md'), '---\ntitle: Source\nkeywords: []\ntags: []\nrelated: []\nimportance: 30\nmaturity: draft\n---\n# Source')
+    writeFileSync(join(testDir, 'domain', 'topic', 'target.md'), '---\ntitle: Target\nkeywords: []\ntags: []\nrelated: []\nimportance: 90\nmaturity: core\n---\n# Target')
+    const result = await validateCandidates([makeCandidate()], testDir, {protectCore: true})
+    expect(result.rejected).to.have.length(1)
+    expect(result.rejected[0].reason).to.include('core')
+  })
+
+  it('merge: allows core target when protectCore is false', async () => {
+    writeFileSync(join(testDir, 'domain', 'topic', 'source.md'), '---\ntitle: Source\nkeywords: []\ntags: []\nrelated: []\n---\n# Source')
+    writeFileSync(join(testDir, 'domain', 'topic', 'target.md'), '---\ntitle: Target\nkeywords: []\ntags: []\nrelated: []\nimportance: 90\nmaturity: core\n---\n# Target')
+    const result = await validateCandidates([makeCandidate()], testDir, {protectCore: false})
+    expect(result.approved).to.have.length(1)
+  })
+
   it('enforces max batch size', async () => {
     const candidates = Array.from({length: 15}, (_, i) => makeCandidate({
       sourcePaths: [`domain/topic/s${i}.md`],

@@ -6,7 +6,6 @@
  * relation breakage, and overwrite of existing files.
  */
 
-import {glob} from 'glob'
 import {readFile, stat} from 'node:fs/promises'
 import {join} from 'node:path'
 
@@ -39,16 +38,17 @@ async function fileExists(filePath: string): Promise<boolean> {
 }
 
 async function hasArchiveStubs(contextTreeDir: string, relativePath: string): Promise<boolean> {
-  const dir = relativePath.replace(/\/[^/]+$/, '')
-  const archiveDir = join(dir, '_archived')
-  const stubs = await glob('*.stub.md', {cwd: join(contextTreeDir, archiveDir), nodir: true}).catch(() => [])
+  // Archive stubs live at _archived/<relative-path-without-ext>.stub.md
+  // e.g., domain/topic/file.md → _archived/domain/topic/file.stub.md
+  const pathWithoutExt = relativePath.replace(/\.md$/, '')
+  const stubPath = join(contextTreeDir, '_archived', `${pathWithoutExt}.stub.md`)
+  try {
+    await stat(stubPath)
 
-  return stubs.some((stub) => {
-    const stubBase = stub.replace('.stub.md', '')
-    const sourceBase = relativePath.split('/').at(-1)?.replace('.md', '') ?? ''
-
-    return stubBase === sourceBase
-  })
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function getMaturity(contextTreeDir: string, relativePath: string): Promise<string | undefined> {
@@ -61,33 +61,6 @@ async function getMaturity(contextTreeDir: string, relativePath: string): Promis
   } catch {
     return undefined
   }
-}
-
-/**
- * Scan context tree for files that reference the given source path via @relations.
- * Returns the count of files referencing this path.
- */
-async function countRelationReferences(contextTreeDir: string, sourcePath: string): Promise<number> {
-  const mdFiles = await glob('**/*.md', {cwd: contextTreeDir, nodir: true})
-  let count = 0
-
-  // Normalize the source path for matching (without .md extension for flexibility)
-  const sourceWithoutExt = sourcePath.replace(/\.md$/, '')
-
-  for (const relativePath of mdFiles) {
-    const absolutePath = join(contextTreeDir, relativePath)
-    try {
-      const content = await readFile(absolutePath, 'utf8')
-      // Check both frontmatter related arrays and legacy @relation references
-      if (content.includes(sourcePath) || content.includes(sourceWithoutExt)) {
-        count++
-      }
-    } catch {
-      // Skip unreadable files
-    }
-  }
-
-  return count
 }
 
 // ── Validator ───────────────────────────────────────────────────────────────
@@ -170,10 +143,6 @@ export async function validateCandidates(
         }
       }
 
-      // Relation rewrite feasibility — just log the count, don't reject
-      // (rewriteRelationsInTree handles this gracefully)
-      await countRelationReferences(contextTreeDir, sourcePath)
-
       approved.push(candidate)
     } else if (candidate.type === 'move') {
       // Target must NOT exist (would overwrite)
@@ -191,9 +160,6 @@ export async function validateCandidates(
 
         continue
       }
-
-      // Relation rewrite feasibility
-      await countRelationReferences(contextTreeDir, sourcePath)
 
       approved.push(candidate)
     } else {

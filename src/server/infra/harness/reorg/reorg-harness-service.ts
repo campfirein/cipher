@@ -152,6 +152,12 @@ export class ReorgHarnessService {
       }
     }
 
+    // Cold-start edge case: if selectTemplate() still returns null after seeding
+    // (e.g., tree store write succeeded but read-back failed), detection still
+    // runs via the REORG_ROOT_TEMPLATE fallback in detectAndValidate(). However,
+    // no feedback is recorded for this run because there's no nodeId to attribute
+    // it to. This is a one-time startup cost — the next invocation will find the
+    // seeded node and resume normal feedback recording.
     return null
   }
 

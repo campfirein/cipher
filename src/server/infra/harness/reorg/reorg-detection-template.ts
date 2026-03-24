@@ -213,30 +213,42 @@ export async function detectCandidates(params: {
   }
 
   // ── Move detection ──────────────────────────────────────────────────────
-  // Aggregate keywords per domain
-  const domainKeywords = new Map<string, Set<string>>()
+  // Group entries by domain for per-entry similarity (avoids large-domain bias)
+  const domainEntryKeywords = new Map<string, Array<{keywords: Set<string>; path: string}>>()
   for (const entry of entries) {
-    const existing = domainKeywords.get(entry.domain) ?? new Set()
-    for (const kw of entry.keywords) {
-      existing.add(kw)
+    const list = domainEntryKeywords.get(entry.domain) ?? []
+    list.push({keywords: new Set(entry.keywords), path: entry.relativePath})
+    domainEntryKeywords.set(entry.domain, list)
+  }
+
+  // Average per-entry similarity: for each entry, compute Jaccard against
+  // each entry in the target domain, then average. This normalizes by
+  // domain size so large domains don't get inflated similarity scores.
+  function avgSimilarity(entryKeywords: Set<string>, domainEntries: Array<{keywords: Set<string>}>): number {
+    if (domainEntries.length === 0) return 0
+    let sum = 0
+    for (const other of domainEntries) {
+      sum += jaccardSimilarity(entryKeywords, other.keywords)
     }
 
-    domainKeywords.set(entry.domain, existing)
+    return sum / domainEntries.length
   }
 
   for (const entry of entries) {
-    const currentDomainKeywords = domainKeywords.get(entry.domain)
-    const currentSimilarity = currentDomainKeywords
-      ? jaccardSimilarity(entry.keywords, currentDomainKeywords)
-      : 0
+    const entryKw = new Set(entry.keywords)
+    // Exclude the candidate itself from its own domain average to avoid
+    // self-similarity inflating the baseline (would be 1.0 in single-entry domains)
+    const currentDomainPeers = (domainEntryKeywords.get(entry.domain) ?? [])
+      .filter((e) => e.path !== entry.relativePath)
+    const currentSimilarity = avgSimilarity(entryKw, currentDomainPeers)
 
     let bestDomain: null | string = null
     let bestSimilarity = currentSimilarity
 
-    for (const [domain, keywords] of domainKeywords) {
+    for (const [domain, domEntries] of domainEntryKeywords) {
       if (domain === entry.domain) continue
 
-      const similarity = jaccardSimilarity(entry.keywords, keywords)
+      const similarity = avgSimilarity(entryKw, domEntries)
       if (
         similarity >= thresholds.moveDetection.crossDomainKeywordMatchThreshold &&
         similarity > bestSimilarity

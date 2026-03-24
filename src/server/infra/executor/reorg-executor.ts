@@ -32,7 +32,7 @@ export interface ReorgExecutorDeps {
 export class ReorgExecutor implements IReorgExecutor {
   private readonly harnessService: ReorgHarnessService
 
-  constructor(deps: ReorgExecutorDeps) {
+  public constructor(deps: ReorgExecutorDeps) {
     this.harnessService = deps.harnessService
   }
 
@@ -55,7 +55,7 @@ export class ReorgExecutor implements IReorgExecutor {
       return {
         candidatesDetected: candidates.length,
         candidatesExecuted: 0,
-        candidatesSkipped: validated.length,
+        candidatesSkipped: candidates.length - validated.length,
         results: [],
         templateNodeId: selection?.node.id,
       }
@@ -66,7 +66,7 @@ export class ReorgExecutor implements IReorgExecutor {
       return {
         candidatesDetected: candidates.length,
         candidatesExecuted: 0,
-        candidatesSkipped: 0,
+        candidatesSkipped: candidates.length - validated.length,
         results: [],
         templateNodeId: selection?.node.id,
       }
@@ -100,7 +100,8 @@ export class ReorgExecutor implements IReorgExecutor {
       await transaction.rollback()
       const failedResult = results.find((r) => !r.success)
       throw new Error(
-        `Reorg rolled back due to critical failure: ${failedResult?.error ?? 'unknown error'}`,
+        `Reorg rolled back due to critical failure: ${failedResult?.error ?? 'unknown error'}. ` +
+        'Use --dry-run to preview candidates before executing.',
       )
     }
 

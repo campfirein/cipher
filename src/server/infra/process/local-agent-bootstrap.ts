@@ -103,7 +103,7 @@ export async function createLocalAgent(projectPath: string): Promise<LocalAgentR
     apiBaseUrl: envConfig.llmApiBaseUrl,
     fileSystem: {workingDirectory: projectPath},
     llm: {
-      maxIterations: 10,
+      maxIterations: 50,
       maxTokens: 4096,
       temperature: 0.7,
       topK: 10,

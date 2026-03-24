@@ -12,7 +12,12 @@ import {createLocalAgent} from '../../server/infra/process/local-agent-bootstrap
 import {writeJsonResponse} from '../lib/json-response.js'
 
 export default class Reorg extends Command {
-  public static description = 'Reorganize the context tree (merge duplicates, move misclassified entries)'
+  public static description = [
+    'Reorganize the context tree (merge duplicates, move misclassified entries).',
+    '',
+    'Execution is all-or-nothing: if any operation fails, all changes are rolled',
+    'back to the pre-reorg state. Use --dry-run to preview candidates first.',
+  ].join('\n')
   public static flags = {
     directory: Flags.string({char: 'd', description: 'Override working directory'}),
     'dry-run': Flags.boolean({char: 'n', description: 'Detect candidates without executing'}),

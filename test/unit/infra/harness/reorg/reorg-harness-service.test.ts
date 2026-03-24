@@ -47,6 +47,22 @@ describe('ReorgHarnessService', () => {
       expect(result).to.be.null
     })
 
+    it('seeds root node and returns selection on cold start', async () => {
+      const node = createNode()
+      const treeStore = makeMockTreeStore()
+      const engine = makeMockEngine(null)
+      // First call returns null (empty tree), second call returns seeded node
+      engine.selectTemplate.onFirstCall().resolves(null)
+      engine.selectTemplate.onSecondCall().resolves({mode: 'shadow', node})
+
+      const service = new ReorgHarnessService(engine, treeStore)
+      const result = await service.selectTemplate()
+
+      expect(treeStore.saveNode.calledOnce).to.be.true  // root was seeded
+      expect(result).to.not.be.null
+      expect(result!.node.id).to.equal('test-node')
+    })
+
     it('returns selection when template exists', async () => {
       const node = createNode()
       const engine = makeMockEngine({mode: 'shadow', node})
@@ -73,6 +89,22 @@ describe('ReorgHarnessService', () => {
       expect(nodeId).to.equal('node-1')
       expect(alpha).to.be.greaterThan(0.5)  // dedup happened → quality > 0.5
       expect(alpha).to.be.at.most(1)
+    })
+
+    it('scores negative dedup (keyword increase) as low quality', async () => {
+      const engine = makeMockEngine()
+      const service = new ReorgHarnessService(engine, makeMockTreeStore())
+      const results = [{
+        candidate: {confidence: 0.9, detectionMetadata: {}, reason: 'test', sourcePaths: ['a.md'], targetPath: 'b.md', type: 'merge' as const},
+        changedPaths: ['b.md'],
+        qualityMetrics: {postKeywordCount: 15, preKeywordCount: 10},  // keywords increased
+        success: true,
+      }]
+      await service.recordFeedback('node-1', results)
+      expect(engine.recordOutcomeF1.calledOnce).to.be.true
+      const [, alpha] = engine.recordOutcomeF1.firstCall.args
+      // Negative dedup → quality should be low (clamped to 0 by Math.max)
+      expect(alpha).to.be.at.most(0.5)
     })
 
     it('does not call engine when no results', async () => {
