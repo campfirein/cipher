@@ -828,9 +828,13 @@ configure_context_plugin() {
     return
   fi
 
-  local IFS='.'
-  read -r cur_year cur_month cur_day <<< "$openclaw_version"
-  read -r min_year min_month min_day <<< "$MIN_OPENCLAW_VERSION"
+  local cur_year cur_month cur_day min_year min_month min_day
+  cur_year=$(echo "$openclaw_version" | cut -d. -f1)
+  cur_month=$(echo "$openclaw_version" | cut -d. -f2)
+  cur_day=$(echo "$openclaw_version" | cut -d. -f3)
+  min_year=$(echo "$MIN_OPENCLAW_VERSION" | cut -d. -f1)
+  min_month=$(echo "$MIN_OPENCLAW_VERSION" | cut -d. -f2)
+  min_day=$(echo "$MIN_OPENCLAW_VERSION" | cut -d. -f3)
 
   local version_ok=true
   if [ "$cur_year" -lt "$min_year" ] 2>/dev/null; then
