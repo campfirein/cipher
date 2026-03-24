@@ -20,6 +20,7 @@ import type {SessionManager} from '../session/session-manager.js'
 
 import {ContextTreeStore} from '../map/context-tree-store.js'
 import {executeLlmMapMemory} from '../map/llm-map-memory.js'
+import {validateWriteTarget} from '../tools/write-guard.js'
 import {
   chunk,
   type ChunkResult,
@@ -95,6 +96,8 @@ export interface ListDirectoryOptions {
 export interface SearchKnowledgeOptions {
   /** Maximum number of results to return (default: 10) */
   limit?: number
+  /** Path prefix to scope search within (e.g. "auth" or "packages/api") */
+  scope?: string
 }
 
 /**
@@ -112,6 +115,12 @@ export interface SearchKnowledgeResult {
     /** Top backlink source paths (max 3) */
     relatedPaths?: string[]
     score: number
+    /** Alias of the linked project (undefined for local results) */
+    sourceAlias?: string
+    /** Absolute path to the context tree root this result belongs to. Use join(sourceContextTreeRoot, path) to read. */
+    sourceContextTreeRoot?: string
+    /** Source type: 'local' or 'linked' */
+    sourceType?: 'linked' | 'local'
     /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' | 'archive_stub' */
     symbolKind?: string
     /** Resolved hierarchical path in the symbol tree */
@@ -248,6 +257,8 @@ export interface CreateToolsSDKOptions {
   fileSystem: IFileSystem
   /** Parent session ID for creating child sessions (required for agentQuery) */
   parentSessionId?: string
+  /** Project root for write guard validation (blocks writes to linked context trees) */
+  projectRoot?: string
   /** Sandbox service for variable injection into child sessions (optional, enables contextData in agentQuery) */
   sandboxService?: ISandboxService
   /** Search knowledge service */
@@ -266,7 +277,7 @@ export interface CreateToolsSDKOptions {
  * @returns ToolsSDK instance ready to be injected into sandbox context
  */
 export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
-  const {commandType, contentGenerator, curateService, fileSystem, parentSessionId, sandboxService, searchKnowledgeService, sessionManager} = options
+  const {commandType, contentGenerator, curateService, fileSystem, parentSessionId, projectRoot, sandboxService, searchKnowledgeService, sessionManager} = options
   const isReadOnly = commandType === 'query'
   return {
     async agentQuery(prompt: string, options?: { contextData?: Record<string, unknown>; maxIterations?: number }): Promise<string> {
@@ -432,6 +443,14 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
     async writeFile(filePath: string, content: string, options?: WriteFileOptions): Promise<WriteResult> {
       if (isReadOnly) {
         throw new Error('writeFile() is disabled in read-only (query) mode')
+      }
+
+      // Write guard: block writes to knowledge-linked context trees
+      if (projectRoot) {
+        const writeError = validateWriteTarget(filePath, projectRoot)
+        if (writeError) {
+          throw new Error(writeError)
+        }
       }
 
       return fileSystem.writeFile(filePath, content, {

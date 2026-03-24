@@ -110,4 +110,17 @@ export class ClientInfo {
   setAgentName(agentName: string): void {
     this._agentName = agentName
   }
+
+  /**
+   * Update this client's project path, even if already associated.
+   * Used for reassociation after link/unlink operations.
+   *
+   * @returns The previous project path (undefined if not previously associated)
+   */
+  updateProjectPath(projectPath: string): string | undefined {
+    const oldPath = this._projectPath
+    this._projectPath = projectPath
+
+    return oldPath
+  }
 }

@@ -21,6 +21,7 @@ function folderPackLog(message: string): void {
   }
 }
 
+
 /**
  * FolderPackExecutor - Executes folder pack + curate tasks with an injected CipherAgent.
  *
@@ -41,15 +42,24 @@ export class FolderPackExecutor implements IFolderPackExecutor {
   constructor(private readonly folderPackService: IFolderPackService) {}
 
   public async executeWithAgent(agent: ICipherAgent, options: FolderPackExecuteOptions): Promise<string> {
-    const {clientCwd, content, folderPath, taskId} = options
+    const {clientCwd, content, folderPath, projectRoot, taskId, workspaceRoot} = options
 
+    // Resolve folder path:
+    // - Absent folderPath → default to workspaceRoot (implicit workspace default)
+    // - Relative folderPath → resolve from clientCwd (shell semantics)
+    // - Absolute folderPath → use as-is
+    let absoluteFolderPath: string
     if (!folderPath) {
-      throw new Error('folderPath is required for curate-folder tasks')
+      absoluteFolderPath = workspaceRoot ?? clientCwd ?? process.cwd()
+    } else if (path.isAbsolute(folderPath)) {
+      absoluteFolderPath = folderPath
+    } else {
+      const shellCwd = clientCwd ?? process.cwd()
+      absoluteFolderPath = path.resolve(shellCwd, folderPath)
     }
 
-    // Resolve folder path
-    const basePath = clientCwd ?? process.cwd()
-    const absoluteFolderPath = path.isAbsolute(folderPath) ? folderPath : path.resolve(basePath, folderPath)
+    // Temp file location: use projectRoot where .brv/ lives (accessible to sandbox)
+    const tempFileDir = projectRoot ?? clientCwd ?? process.cwd()
 
     // Pack the folder
     const packResult = await this.folderPackService.pack(absoluteFolderPath, {
@@ -61,7 +71,7 @@ export class FolderPackExecutor implements IFolderPackExecutor {
     // Use iterative extraction strategy (inspired by rlm)
     // Stores packed folder in sandbox environment and lets agent iteratively query/extract
     // This avoids token limits entirely - works for folders of any size
-    return this.executeIterative(agent, packResult, content, absoluteFolderPath, taskId, basePath)
+    return this.executeIterative(agent, packResult, content, absoluteFolderPath, taskId, tempFileDir)
   }
 
   /**

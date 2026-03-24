@@ -32,12 +32,39 @@ export function formatStatus(status: StatusDTO, version?: string): string {
     }
   }
 
-  lines.push(`Current Directory: ${status.currentDirectory}`)
+  lines.push(`Project: ${status.projectRoot ?? status.currentDirectory}`)
+
+  if (status.workspaceRoot && status.workspaceRoot !== status.projectRoot) {
+    lines.push(`Workspace: ${status.workspaceRoot} (linked)`)
+  }
+
+  if (status.resolverError) {
+    lines.push(chalk.yellow(`⚠ ${status.resolverError}`))
+  }
+
+  if (status.shadowedLink) {
+    lines.push(chalk.yellow('⚠ Shadowed .brv-workspace.json found — .brv/ takes priority'))
+  }
 
   if (status.teamName && status.spaceName) {
     lines.push(`Space: ${status.teamName}/${status.spaceName}`)
   } else {
     lines.push('Space: Not connected')
+  }
+
+  // Knowledge links
+  if (status.knowledgeLinksError) {
+    lines.push(chalk.yellow(`⚠ ${status.knowledgeLinksError}`))
+  } else if (status.knowledgeLinks && status.knowledgeLinks.length > 0) {
+    lines.push('Knowledge Links:')
+    for (const link of status.knowledgeLinks) {
+      if (link.valid) {
+        const sizeInfo = link.contextTreeSize === undefined ? '' : ` [${link.contextTreeSize} files]`
+        lines.push(`   ${link.alias} → ${link.projectRoot} ${chalk.green('(valid)')}${sizeInfo}`)
+      } else {
+        lines.push(`   ${link.alias} → ${link.projectRoot} ${chalk.red(`[BROKEN - run brv unlink-knowledge ${link.alias}]`)}`)
+      }
+    }
   }
 
   switch (status.contextTreeStatus) {

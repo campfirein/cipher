@@ -752,7 +752,8 @@ describe('Search Knowledge Tool', () => {
 
     it('should prevent duplicate index builds when executed in parallel', async () => {
       // Disable TTL to force index validation path
-      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 0})
+      // Use isolated baseDirectory to avoid picking up real knowledge-links.json from cwd
+      const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 0})
 
       // Add artificial delay to readFile to simulate slow I/O
       readFileStub.callsFake(async () => {
@@ -790,7 +791,7 @@ describe('Search Knowledge Tool', () => {
     })
 
     it('should return same cached index to all parallel callers', async () => {
-      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 60_000})
+      const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 60_000})
 
       // Add delay to make parallel execution overlap
       readFileStub.callsFake(async () => {
@@ -825,7 +826,8 @@ describe('Search Knowledge Tool', () => {
 
     it('should handle parallel execution when cache is invalidated mid-flight', async () => {
       // Use short TTL to test cache validation
-      const tool = createSearchKnowledgeTool(fileSystemMock, {cacheTtlMs: 0})
+      // Use isolated baseDirectory to avoid picking up real knowledge-links.json from cwd
+      const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 0})
 
       let buildCount = 0
       readFileStub.callsFake(async () => {
@@ -877,8 +879,9 @@ describe('Search Knowledge Tool', () => {
       expect((secondBatch[0] as SearchKnowledgeOutput).results).to.be.an('array')
       expect((secondBatch[1] as SearchKnowledgeOutput).results).to.be.an('array')
 
-      // Second batch should trigger exactly one more build (not two)
-      expect(readFileStub.callCount).to.equal(2)
+      // Second batch should trigger exactly one more build (not two).
+      // readFile count = 1 (batch 1 build) + 1 (batch 2 flush access hits) + 1 (batch 2 rebuild) = 3
+      expect(readFileStub.callCount).to.equal(3)
     })
 
     it('should not deadlock when multiple tools execute concurrently', async () => {

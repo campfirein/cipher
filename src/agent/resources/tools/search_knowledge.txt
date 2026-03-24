@@ -17,14 +17,24 @@ This tool enables semantic/fuzzy search across all curated knowledge without nee
   - `title`: Topic title
   - `excerpt`: Relevant content snippet
   - `score`: Relevance score (higher is better)
+  - `sourceType`: `"local"` or `"linked"` (linked = from a knowledge-linked project)
+  - `sourceAlias`: Alias of the linked project (only for linked results)
+  - `sourceContextTreeRoot`: Absolute path to the linked context tree (only for linked results). Use `join(sourceContextTreeRoot, path)` to read full content.
 - `totalFound`: Total number of matches
 - `message`: Status message
+
+**Knowledge linking:**
+- Results may include entries from knowledge-linked projects (read-only)
+- Linked results have `sourceType: "linked"` and `sourceContextTreeRoot` for reading
+- Local results are boosted slightly in relevance scoring
+- You cannot curate or write to linked project context trees
 
 **Usage tips:**
 - Use descriptive queries: "authentication flow" works better than "auth"
 - Search is fuzzy: minor typos are tolerated
 - Results are ranked by relevance to your query
-- Use `read_file` on returned paths to view full content
+- For local results, use `read_file` on returned paths to view full content
+- For linked results, use `read_file` on `join(sourceContextTreeRoot, path)`
 
 **Examples:**
 - Query: "API authentication" - finds topics about auth design

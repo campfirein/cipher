@@ -4,6 +4,9 @@ import type {Config} from '@oclif/core'
 import {ConnectionFailedError, InstanceCrashedError, NoInstanceRunningError} from '@campfirein/brv-transport-client'
 import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
+import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import sinon, {restore, stub} from 'sinon'
 
 import Query from '../../src/oclif/commands/query.js'
@@ -32,9 +35,11 @@ class TestableQueryCommand extends Query {
 describe('Query Command', () => {
   let config: Config
   let loggedMessages: string[]
+  let originalCwd: string
   let stdoutOutput: string[]
   let mockClient: sinon.SinonStubbedInstance<ITransportClient>
   let mockConnector: sinon.SinonStub<[], Promise<ConnectionResult>>
+  let testDir: string
 
   before(async () => {
     config = await OclifConfig.load(import.meta.url)
@@ -42,7 +47,9 @@ describe('Query Command', () => {
 
   beforeEach(() => {
     loggedMessages = []
+    originalCwd = process.cwd()
     stdoutOutput = []
+    testDir = realpathSync(mkdtempSync(join(tmpdir(), 'brv-query-command-')))
 
     mockClient = {
       connect: stub().resolves(),
@@ -66,8 +73,20 @@ describe('Query Command', () => {
   })
 
   afterEach(() => {
+    process.chdir(originalCwd)
+    rmSync(testDir, {force: true, recursive: true})
     restore()
   })
+
+  function createLinkedWorkspace(): {projectRoot: string; workspaceRoot: string} {
+    const projectRoot = join(testDir, 'monorepo')
+    const workspaceRoot = join(projectRoot, 'packages', 'api')
+    mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+    mkdirSync(workspaceRoot, {recursive: true})
+    writeFileSync(join(projectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+    writeFileSync(join(workspaceRoot, '.brv-workspace.json'), JSON.stringify({projectRoot}, null, 2) + '\n')
+    return {projectRoot, workspaceRoot}
+  }
 
   function createCommand(...argv: string[]): TestableQueryCommand {
     const command = new TestableQueryCommand(argv, mockConnector, config)
@@ -177,6 +196,41 @@ describe('Query Command', () => {
       expect(payload).to.have.property('type', 'query')
       expect(payload).to.have.property('taskId').that.is.a('string')
       expect(payload).to.have.property('projectPath', '/test/project')
+    })
+
+    it('should send projectPath, workspaceRoot, and clientCwd from a linked workspace', async () => {
+      const {projectRoot, workspaceRoot} = createLinkedWorkspace()
+      process.chdir(workspaceRoot)
+      mockConnector.resolves({
+        client: mockClient as unknown as ITransportClient,
+        projectRoot,
+      })
+
+      const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        if (!eventHandlers.has(event)) eventHandlers.set(event, [])
+        eventHandlers.get(event)!.push(handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
+        if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        setTimeout(() => {
+          const handlers = eventHandlers.get('task:completed')
+          if (handlers) {
+            for (const handler of handlers) handler({result: 'Scoped response', taskId: payload.taskId})
+          }
+        }, 10)
+        return {taskId: payload.taskId}
+      })
+
+      await createCommand('What is scoped here?').run()
+
+      const [, payload] = (mockClient.requestWithAck as sinon.SinonStub).secondCall.args
+      expect(payload).to.include({
+        clientCwd: workspaceRoot,
+        projectPath: projectRoot,
+        workspaceRoot,
+      })
     })
 
     it('should display result from task:completed fallback', async () => {

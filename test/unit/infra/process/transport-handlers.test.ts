@@ -125,6 +125,7 @@ describe('TransportHandlers', () => {
       register: sandbox.stub(),
       setAgentName: sandbox.stub(),
       unregister: sandbox.stub(),
+      updateProjectPath: sandbox.stub(),
     }
 
     const mockProjectRouter = {
@@ -1146,6 +1147,7 @@ describe('TransportHandlers', () => {
         register: sandbox.stub(),
         setAgentName: sandbox.stub(),
         unregister: sandbox.stub(),
+        updateProjectPath: sandbox.stub(),
       }
 
       const handlersWithCM = new TransportHandlers({
@@ -1173,6 +1175,7 @@ describe('TransportHandlers', () => {
         register: sandbox.stub(),
         setAgentName: sandbox.stub(),
         unregister: sandbox.stub(),
+        updateProjectPath: sandbox.stub(),
       }
 
       const cmHandlers = new TransportHandlers({
@@ -1201,6 +1204,7 @@ describe('TransportHandlers', () => {
         register: sandbox.stub(),
         setAgentName: sandbox.stub(),
         unregister: sandbox.stub(),
+        updateProjectPath: sandbox.stub(),
       }
 
       const cmHandlers = new TransportHandlers({
@@ -1395,7 +1399,7 @@ describe('TransportHandlers', () => {
         expect(mockProjectRouter.addToProjectRoom.calledWith('client-1', 'app')).to.be.true
       })
 
-      it('should be a no-op if client already has project', () => {
+      it('should be idempotent when same project path', () => {
         const {mockClientManager, mockProjectRouter} = createHandlersWithClientManager()
 
         mockClientManager.getClient.returns({
@@ -1408,12 +1412,33 @@ describe('TransportHandlers', () => {
         })
 
         const associateHandler = requestHandlers.get(TransportClientEventNames.ASSOCIATE_PROJECT)
+        const result = associateHandler!({projectPath: '/existing'}, 'client-1')
+
+        expect(result).to.deep.equal({success: true})
+        // Same path — no reassociation needed
+        expect(mockClientManager.updateProjectPath.called).to.be.false
+        expect(mockProjectRouter.addToProjectRoom.called).to.be.false
+      })
+
+      it('should reassociate when project path changes', () => {
+        const {mockClientManager, mockProjectRouter} = createHandlersWithClientManager()
+
+        mockClientManager.getClient.returns({
+          connectedAt: 1000,
+          hasProject: true,
+          id: 'client-1',
+          isExternalClient: true,
+          projectPath: '/existing',
+          type: 'mcp',
+        })
+        mockClientManager.updateProjectPath.returns('/existing')
+
+        const associateHandler = requestHandlers.get(TransportClientEventNames.ASSOCIATE_PROJECT)
         const result = associateHandler!({projectPath: '/new-project'}, 'client-1')
 
         expect(result).to.deep.equal({success: true})
-        // Should NOT call associateProject (already has a project)
-        expect(mockClientManager.associateProject.called).to.be.false
-        expect(mockProjectRouter.addToProjectRoom.called).to.be.false
+        expect(mockClientManager.updateProjectPath.calledWith('client-1', '/new-project')).to.be.true
+        expect(mockProjectRouter.addToProjectRoom.called).to.be.true
       })
 
       it('should return error for unknown client', () => {

@@ -1,6 +1,7 @@
 import {ensureDaemonRunning} from '@campfirein/brv-transport-client'
 import {Command} from '@oclif/core'
 
+import {resolveProject} from '../../server/infra/project/resolve-project.js'
 import {resolveLocalServerMainPath} from '../../server/utils/server-main-resolver.js'
 import {startRepl} from '../../tui/repl-startup.js'
 
@@ -38,9 +39,21 @@ export default class Main extends Command {
       )
     }
 
+    // Resolve project (workspace-link-aware) before starting TUI.
+    // Gracefully handle broken/malformed workspace links so TUI still starts
+    // (user can fix via /unlink from within the REPL).
+    let resolution: ReturnType<typeof resolveProject> = null
+    try {
+      resolution = resolveProject()
+    } catch {
+      // Broken workspace link — start TUI without resolved project (falls back to cwd)
+    }
+
     // Start the interactive REPL (TUI connects via connectToDaemon internally)
     await startRepl({
+      projectPath: resolution?.projectRoot,
       version: this.config.version,
+      workspaceRoot: resolution?.workspaceRoot,
     })
 
     this.exit(0)

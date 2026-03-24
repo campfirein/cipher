@@ -9,6 +9,8 @@ import {
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 
+import type {McpStartupProjectContext} from './tools/mcp-project-context.js'
+
 import {TransportClientEventNames} from '../../core/domain/transport/schemas.js'
 import {resolveLocalServerMainPath} from '../../utils/server-main-resolver.js'
 import {detectMcpMode, type McpMode} from './mcp-mode-detector.js'
@@ -45,12 +47,14 @@ export class ByteRoverMcpServer {
   private reconnectorHandle: DaemonReconnectorHandle | undefined
   private readonly server: McpServer
   private transport: StdioServerTransport | undefined
+  private readonly workspaceRoot: string | undefined
 
   constructor(config: McpServerConfig) {
     this.config = config
-    const {mode, projectRoot} = detectMcpMode(config.workingDirectory)
-    this.mode = mode
-    this.projectRoot = projectRoot
+    const modeResult = detectMcpMode(config.workingDirectory)
+    this.mode = modeResult.mode
+    this.projectRoot = modeResult.mode === 'project' ? modeResult.projectRoot : undefined
+    this.workspaceRoot = modeResult.mode === 'project' ? modeResult.workspaceRoot : undefined
     this.server = new McpServer({
       name: 'byterover',
       version: config.version,
@@ -64,17 +68,24 @@ export class ByteRoverMcpServer {
       ...(this.mode === 'project' && this.projectRoot ? {projectPath: this.projectRoot} : {}),
     }
 
+    const getStartupProjectContext = (): McpStartupProjectContext | undefined =>
+      this.mode === 'project' && this.projectRoot && this.workspaceRoot
+        ? {projectRoot: this.projectRoot, workspaceRoot: this.workspaceRoot}
+        : undefined
+
     // Register tools with lazy client getter
     // Client will be set when start() is called
     registerBrvQueryTool(
       this.server,
       () => this.client,
       () => this.getWorkingDirectory(),
+      getStartupProjectContext,
     )
     registerBrvCurateTool(
       this.server,
       () => this.client,
       () => this.getWorkingDirectory(),
+      getStartupProjectContext,
     )
   }
 
@@ -180,7 +191,7 @@ export class ByteRoverMcpServer {
    * In global mode, returns undefined — each tool call must provide cwd.
    */
   private getWorkingDirectory(): string | undefined {
-    return this.mode === 'project' ? this.projectRoot : undefined
+    return this.mode === 'project' ? this.workspaceRoot : undefined
   }
 
   /**

@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 
 import type { ICipherAgent } from '../../../agent/core/interfaces/i-cipher-agent.js'
 import type { IFileSystem } from '../../../agent/core/interfaces/i-file-system.js'
@@ -6,6 +6,7 @@ import type { ISearchKnowledgeService, SearchKnowledgeResult } from '../../../ag
 import type { IQueryExecutor, QueryExecuteOptions } from '../../core/interfaces/executor/i-query-executor.js'
 
 import { BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR } from '../../constants.js'
+import { loadKnowledgeLinks } from '../../core/domain/knowledge/knowledge-link-schema.js'
 import { isDerivedArtifact } from '../context-tree/derived-artifact.js'
 import { FileContextTreeManifestService } from '../context-tree/file-context-tree-manifest-service.js'
 import {
@@ -63,7 +64,7 @@ export class QueryExecutor implements IQueryExecutor {
   private static readonly FINGERPRINT_CACHE_TTL_MS = 30_000
   private readonly baseDirectory?: string
   private readonly cache?: QueryResultCache
-  private cachedFingerprint?: { expiresAt: number; value: string }
+  private cachedFingerprint?: { expiresAt: number; sourceValidityHash: string; value: string; workspaceRoot?: string }
   private readonly fileSystem?: IFileSystem
   private readonly searchService?: ISearchKnowledgeService
 
@@ -77,17 +78,18 @@ export class QueryExecutor implements IQueryExecutor {
   }
 
   public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string> {
-    const { query, taskId } = options
+    const { query, taskId, workspaceRoot } = options
+    const workspaceScope = this.deriveWorkspaceScope(workspaceRoot)
 
     // Start search early — runs in parallel with fingerprint computation (independent operations)
-    const searchPromise = this.searchService?.search(query, { limit: SMART_ROUTING_MAX_DOCS })
+    const searchPromise = this.searchService?.search(query, { limit: SMART_ROUTING_MAX_DOCS, scope: workspaceScope })
     // Prevent unhandled rejection if we return early (cache hit) while search is still pending
     searchPromise?.catch(() => {})
 
     // === Tier 0: Exact cache hit (0ms) ===
     let fingerprint: string | undefined
     if (this.cache && this.fileSystem) {
-      fingerprint = await this.computeContextTreeFingerprint()
+      fingerprint = await this.computeContextTreeFingerprint(workspaceRoot)
       const cached = this.cache.get(query, fingerprint)
       if (cached) {
         return cached + ATTRIBUTION_FOOTER
@@ -112,7 +114,7 @@ export class QueryExecutor implements IQueryExecutor {
 
     // Supplementary entity-based searches for better multi-session recall
     if (this.searchService && searchResult && searchResult.totalFound < 3) {
-      searchResult = await this.supplementEntitySearches(query, searchResult)
+      searchResult = await this.supplementEntitySearches(query, searchResult, workspaceScope)
     }
 
     // === OOD short-circuit: no results means topic not covered ===
@@ -188,12 +190,19 @@ export class QueryExecutor implements IQueryExecutor {
     agent.setSandboxVariableOnSession(taskSessionId, resultsVar, searchResult?.results ?? [])
     agent.setSandboxVariableOnSession(taskSessionId, metaVar, metadata)
 
+    // Inject workspace scope so agent follow-up searches are workspace-aware
+    const scopeVar = workspaceScope ? `__query_scope_${taskIdSafe}` : undefined
+    if (scopeVar && workspaceScope) {
+      agent.setSandboxVariableOnSession(taskSessionId, scopeVar, workspaceScope)
+    }
+
     const prompt = this.buildQueryPrompt(query, {
       manifestContext,
       metadata,
       metaVar,
       prefetchedContext,
       resultsVar,
+      scopeVar,
     })
 
     // Query-optimized LLM overrides: tokens and lower temperature
@@ -234,7 +243,13 @@ export class QueryExecutor implements IQueryExecutor {
     if (highConfidenceResults.length === 0) return undefined
 
     const sections = highConfidenceResults.map(
-      (r) => `### ${r.title}\n**Source**: .brv/context-tree/${r.path}\n\n${r.excerpt}`,
+      (r) => {
+        const source = r.sourceType === 'linked' && r.sourceAlias
+          ? `[${r.sourceAlias}]:${r.path}`
+          : `.brv/context-tree/${r.path}`
+
+        return `### ${r.title}\n**Source**: ${source}\n\n${r.excerpt}`
+      },
     )
 
     return sections.join('\n\n---\n\n')
@@ -257,11 +272,12 @@ export class QueryExecutor implements IQueryExecutor {
       metaVar: string
       prefetchedContext?: string
       resultsVar: string
+      scopeVar?: string
     },
   ): string {
-    const { manifestContext, metadata, metaVar, prefetchedContext, resultsVar } = options
+    const { manifestContext, metadata, metaVar, prefetchedContext, resultsVar, scopeVar } = options
     const groundingRules = `### Grounding Rules (CRITICAL)
-- ONLY use information from the curated knowledge base (.brv/context-tree/)
+- ONLY use information from the curated knowledge base (local .brv/context-tree/ plus any read-only linked sources)
 - If no relevant knowledge is found, respond: "This topic is not covered in the knowledge base."
 - Do NOT extrapolate, infer, or generate information beyond what is explicitly stated in sources
 - Every claim MUST be traceable to a specific source file
@@ -270,11 +286,16 @@ export class QueryExecutor implements IQueryExecutor {
     const responseFormat = `### Response Format
 - **Summary**: Direct answer (2-3 sentences)
 - **Details**: Key findings with explanations
-- **Sources**: File paths from .brv/context-tree/
+- **Sources**: Use .brv/context-tree/... for local knowledge and [alias]:path for linked knowledge
 - **Gaps**: Note any aspects not covered`
 
     const manifestSection = manifestContext
       ? `\n## Structural Context (from manifest)\nThe following provides broad structural awareness of the knowledge base:\n\n${manifestContext}\n`
+      : ''
+
+    // When workspace scope is active, instruct the agent to pass it to follow-up searches
+    const scopeGuidance = scopeVar
+      ? `\nFor any follow-up \`tools.searchKnowledge()\` calls, pass \`{ scope: ${scopeVar} }\` to scope results to the current workspace.`
       : ''
 
     if (prefetchedContext) {
@@ -294,7 +315,7 @@ Metadata: \`${metaVar}\`
 
 Answer the user's question using the pre-fetched context above.
 If the pre-fetched context does not directly address the user's query topic, respond that the topic is not covered in the knowledge base. Do not attempt to answer from tangentially related content.
-If the context is insufficient but relevant, use \`code_exec\` with \`silent: true\` to read additional documents from the search results variable. Use \`setFinalResult(answer)\` when done.
+If the context is insufficient but relevant, use \`code_exec\` with \`silent: true\` to read additional documents from the search results variable. Use \`setFinalResult(answer)\` when done.${scopeGuidance}
 
 ${groundingRules}
 
@@ -311,7 +332,7 @@ Metadata: \`${metaVar}\`
 ## Instructions
 
 Use \`code_exec\` to examine the search results in \`${resultsVar}\`, read relevant documents with \`tools.readFile()\`, and synthesize an answer.
-Use \`silent: true\` for data-loading code_exec calls. Use \`setFinalResult(answer)\` to return the final answer immediately.
+Use \`silent: true\` for data-loading code_exec calls. Use \`setFinalResult(answer)\` to return the final answer immediately.${scopeGuidance}
 
 ${groundingRules}
 
@@ -322,10 +343,16 @@ ${responseFormat}`
    * Compute a context tree fingerprint cheaply using file mtimes.
    * Used for cache invalidation — if any file in the context tree changes,
    * the fingerprint changes and cached results are invalidated.
+   *
+   * Includes workspaceRoot in the hash so different workspaces produce
+   * different fingerprints, preventing cross-workspace cache bleed.
    */
-  private async computeContextTreeFingerprint(): Promise<string> {
+  private async computeContextTreeFingerprint(workspaceRoot?: string): Promise<string> {
     // Fast path: return cached fingerprint if still valid (avoids globFiles I/O)
-    if (this.cachedFingerprint && Date.now() < this.cachedFingerprint.expiresAt) {
+    // Invalidate if workspaceRoot changed or knowledge link validity changed
+    if (this.cachedFingerprint && Date.now() < this.cachedFingerprint.expiresAt
+      && this.cachedFingerprint.workspaceRoot === workspaceRoot
+      && this.cachedFingerprint.sourceValidityHash === this.computeSourceValidityHash()) {
       return this.cachedFingerprint.value
     }
 
@@ -345,18 +372,86 @@ ${responseFormat}`
         .filter((f) => !isDerivedArtifact(f.path))
         .map((f) => ({
           mtime: f.modified?.getTime() ?? 0,
-          path: f.path,
+          path: workspaceRoot ? `${workspaceRoot}:${f.path}` : f.path,
         }))
+
+      // Include linked knowledge state in fingerprint so edits in linked
+      // projects invalidate cached query answers.
+      const loaded = this.baseDirectory ? loadKnowledgeLinks(this.baseDirectory) : null
+      if (loaded) {
+        // links-file mtime detects link additions/removals
+        if (loaded.mtime) {
+          files.push({mtime: loaded.mtime, path: '__knowledge-links.json__'})
+        }
+
+        // Glob each linked context tree for file-level change detection
+        const linkedResults = await Promise.all(
+          loaded.sources.map(async (source) => {
+            try {
+              const linkedGlob = await this.fileSystem!.globFiles(`**/*${CONTEXT_FILE_EXTENSION}`, {
+                cwd: source.contextTreeRoot,
+                includeMetadata: true,
+                maxResults: 10_000,
+                respectGitignore: false,
+              })
+
+              return linkedGlob.files
+                .filter((f) => !isDerivedArtifact(f.path))
+                .map((f) => ({mtime: f.modified?.getTime() ?? 0, path: `linked:${source.sourceKey}:${f.path}`}))
+            } catch {
+              // Broken link — skip
+              return []
+            }
+          }),
+        )
+        files.push(...linkedResults.flat())
+      }
 
       const fingerprint = QueryResultCache.computeFingerprint(files)
       this.cachedFingerprint = {
         expiresAt: Date.now() + QueryExecutor.FINGERPRINT_CACHE_TTL_MS,
+        sourceValidityHash: this.computeSourceValidityHash(),
         value: fingerprint,
+        workspaceRoot,
       }
       return fingerprint
     } catch {
       return 'unknown'
     }
+  }
+
+  /**
+   * Lightweight hash of currently valid knowledge link source keys.
+   * Used by the fingerprint cache fast path to detect when a link target
+   * becomes broken (directory deleted) within the TTL window.
+   * Cost: one readFileSync + existsSync per link — sub-millisecond for typical setups.
+   */
+  private computeSourceValidityHash(): string {
+    if (!this.baseDirectory) return ''
+    const loaded = loadKnowledgeLinks(this.baseDirectory)
+    if (!loaded) return 'no-links'
+
+    return loaded.sources.map((s) => s.sourceKey).sort().join(',')
+  }
+
+  /**
+   * Derive a workspace scope for search from the workspaceRoot.
+   * Returns the relative path from projectRoot to workspaceRoot,
+   * or undefined if they are the same (no scoping needed).
+   *
+   * KNOWN LIMITATION: Workspace scoping only works if the curated context
+   * tree has a subtree matching the workspace relative path (e.g., 'packages/api').
+   * Since the context tree is organized semantically by the LLM (topic-based),
+   * not by directory structure, scope filtering typically has 0 matches and
+   * falls through to unscoped search. A proper fix requires tagging curated
+   * files with source workspace metadata during curation.
+   */
+  private deriveWorkspaceScope(workspaceRoot?: string): string | undefined {
+    if (!workspaceRoot || !this.baseDirectory) return undefined
+    if (workspaceRoot === this.baseDirectory) return undefined
+    const rel = relative(this.baseDirectory, workspaceRoot)
+
+    return rel || undefined
   }
 
   /**
@@ -386,6 +481,7 @@ ${responseFormat}`
   private async supplementEntitySearches(
     query: string,
     searchResult: SearchKnowledgeResult,
+    scope?: string,
   ): Promise<SearchKnowledgeResult> {
     const entities = this.extractQueryEntities(query)
     if (entities.length <= 1) return searchResult
@@ -393,19 +489,20 @@ ${responseFormat}`
     try {
       const entitySearches = await Promise.allSettled(
         entities.slice(0, 3).map((entity) =>
-          this.searchService!.search(entity, { limit: 3 }),
+          this.searchService!.search(entity, { limit: 3, scope }),
         ),
       )
 
       // Collect existing paths to deduplicate
-      const existingPaths = new Set(searchResult.results.map((r) => r.path))
+      const existingPaths = new Set(searchResult.results.map((r) => `${r.sourceAlias ?? r.sourceType ?? 'local'}::${r.path}`))
       const supplementary = []
 
       for (const settled of entitySearches) {
         if (settled.status === 'fulfilled' && settled.value.results) {
           for (const result of settled.value.results) {
-            if (!existingPaths.has(result.path)) {
-              existingPaths.add(result.path)
+            const resultKey = `${result.sourceAlias ?? result.sourceType ?? 'local'}::${result.path}`
+            if (!existingPaths.has(resultKey)) {
+              existingPaths.add(resultKey)
               supplementary.push(result)
             }
           }
@@ -446,14 +543,21 @@ ${responseFormat}`
           .map(async (result) => {
             let content = result.excerpt
             try {
-              const ctPath = join(BRV_DIR, CONTEXT_TREE_DIR, result.path)
+              // Use sourceContextTreeRoot for linked results, local context tree for local
+              const ctBase = result.sourceContextTreeRoot ?? join(BRV_DIR, CONTEXT_TREE_DIR)
+              const ctPath = join(ctBase, result.path)
               const { content: fullContent } = await this.fileSystem!.readFile(ctPath)
               content = fullContent
             } catch {
               // Use excerpt if full read fails
             }
 
-            return { content, path: result.path, score: result.score, title: result.title }
+            // Include source attribution in path for linked results
+            const displayPath = result.sourceType === 'linked' && result.sourceAlias
+              ? `[${result.sourceAlias}]:${result.path}`
+              : result.path
+
+            return { content, path: displayPath, score: result.score, title: result.title }
           }),
       )
 

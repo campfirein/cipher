@@ -15,6 +15,8 @@
  * Consumed by TransportHandlers (orchestrator).
  */
 
+import {resolve, sep} from 'node:path'
+
 import type {
   LlmChunkEvent,
   LlmErrorEvent,
@@ -44,6 +46,7 @@ import {AgentNotAvailableError, serializeTaskError} from '../../core/domain/erro
 import {LlmEventNames, TransportLlmEventList, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
 import {transportLog} from '../../utils/process-logger.js'
 import {isValidTaskType} from '../../utils/type-guards.js'
+import {resolveProject} from '../project/resolve-project.js'
 import {broadcastToProjectRoom} from './broadcast-utils.js'
 
 type LlmEventName = (typeof TransportLlmEventList)[number]
@@ -79,6 +82,13 @@ type TaskRouterOptions = {
 
 function hasTaskId(data: unknown): data is {[key: string]: unknown; taskId: string} {
   return typeof data === 'object' && data !== null && 'taskId' in data && typeof data.taskId === 'string'
+}
+
+function isDescendantOf(descendant: string, ancestor: string): boolean {
+  const normalizedDescendant = resolve(descendant)
+  const normalizedAncestor = resolve(ancestor)
+  const ancestorPrefix = normalizedAncestor.endsWith(sep) ? normalizedAncestor : normalizedAncestor + sep
+  return normalizedDescendant === normalizedAncestor || normalizedDescendant.startsWith(ancestorPrefix)
 }
 
 export class TaskRouter {
@@ -368,12 +378,43 @@ export class TaskRouter {
       return {taskId}
     }
 
-    // ── Resolve projectPath & store task synchronously ────────────────────────
+    // ── Resolve projectPath & workspaceRoot, store task synchronously ─────────
 
-    // Resolve projectPath: explicit field > client's registered projectPath > clientCwd.
-    // Client's registered projectPath is the walked-up project root (where .brv/ lives),
-    // while clientCwd is the raw working directory (may be a subdirectory).
-    const projectPath = data.projectPath ?? this.resolveClientProjectPath?.(clientId) ?? data.clientCwd
+    let projectPath: string | undefined
+    let workspaceRoot: string | undefined
+
+    try {
+      const taskContext = this.resolveTaskContext(data, clientId)
+      if (taskContext.error) {
+        const error = serializeTaskError(new Error(taskContext.error))
+        this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
+        broadcastToProjectRoom(
+          this.projectRegistry,
+          this.projectRouter,
+          taskContext.projectPath,
+          TransportTaskEventNames.ERROR,
+          {error, taskId},
+          clientId,
+        )
+        return {taskId}
+      }
+
+      projectPath = taskContext.projectPath
+      workspaceRoot = taskContext.workspaceRoot
+    } catch (error_) {
+      const error = serializeTaskError(error_ instanceof Error ? error_ : new Error(String(error_)))
+      const fallbackProjectPath = data.projectPath ?? this.resolveClientProjectPath?.(clientId) ?? data.clientCwd
+      this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
+      broadcastToProjectRoom(
+        this.projectRegistry,
+        this.projectRouter,
+        fallbackProjectPath,
+        TransportTaskEventNames.ERROR,
+        {error, taskId},
+        clientId,
+      )
+      return {taskId}
+    }
 
     transportLog(`Task accepted: ${taskId} (type=${data.type}, client=${clientId})`)
 
@@ -387,6 +428,7 @@ export class TaskRouter {
       ...(projectPath ? {projectPath} : {}),
       taskId,
       type: data.type,
+      ...(workspaceRoot ? {workspaceRoot} : {}),
     })
 
     // ── Send task:created synchronously (before any await) ────────────────────
@@ -436,6 +478,7 @@ export class TaskRouter {
       ...(projectPath ? {projectPath} : {}),
       taskId,
       type: data.type,
+      ...(workspaceRoot ? {workspaceRoot} : {}),
     }
 
     // eslint-disable-next-line no-void
@@ -658,6 +701,51 @@ export class TaskRouter {
       if (!hasTaskId(data)) return
       this.routeLlmEvent(eventName, data)
     })
+  }
+
+  private resolveTaskContext(
+    data: TaskCreateRequest,
+    clientId: string,
+  ): {error?: string; projectPath?: string; workspaceRoot?: string} {
+    // When both projectPath and workspaceRoot are explicitly provided,
+    // skip the resolver entirely — a broken link under clientCwd must not
+    // reject an otherwise valid explicit payload.
+    if (data.projectPath && data.workspaceRoot) {
+      if (!isDescendantOf(data.workspaceRoot, data.projectPath)) {
+        return {
+          error: `workspaceRoot "${data.workspaceRoot}" must be equal to or within projectPath "${data.projectPath}".`,
+          projectPath: data.projectPath,
+        }
+      }
+
+      return {projectPath: data.projectPath, workspaceRoot: data.workspaceRoot}
+    }
+
+    // Resolve from clientCwd (fresh, workspace-link-aware) when needed.
+    let resolvedProjectPath: string | undefined
+    let resolvedWorkspaceRoot: string | undefined
+
+    if (data.clientCwd) {
+      const resolution = resolveProject({cwd: data.clientCwd})
+      resolvedProjectPath = resolution?.projectRoot
+      resolvedWorkspaceRoot = resolution?.workspaceRoot
+    }
+
+    // Fallback order: explicit > fresh cwd resolution > stale registration > raw clientCwd.
+    // Fresh resolution is preferred over registered path because the registered path
+    // may be stale (e.g. in-flight reassociation after link/unlink).
+    const registeredProjectPath = this.resolveClientProjectPath?.(clientId)
+    const projectPath = data.projectPath ?? resolvedProjectPath ?? registeredProjectPath ?? data.clientCwd
+    const workspaceRoot = data.workspaceRoot ?? resolvedWorkspaceRoot ?? projectPath
+
+    if (projectPath && workspaceRoot && !isDescendantOf(workspaceRoot, projectPath)) {
+      return {
+        error: `workspaceRoot "${workspaceRoot}" must be equal to or within projectPath "${projectPath}".`,
+        projectPath,
+      }
+    }
+
+    return {projectPath, workspaceRoot}
   }
 
   /**
