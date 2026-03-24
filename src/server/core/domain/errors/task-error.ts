@@ -112,7 +112,28 @@ export function serializeTaskError(error: unknown): TaskErrorData {
     }
   }
 
-  // Unknown error type
+  // Unknown error type — extract message if possible, JSON.stringify to avoid "[object Object]"
+  if (error && typeof error === 'object') {
+    if ('message' in error) {
+      const msg = (error as Record<string, unknown>).message
+      if (typeof msg === 'string') {
+        return {
+          message: msg,
+          name: 'Error',
+        }
+      }
+    }
+
+    try {
+      return {
+        message: JSON.stringify(error),
+        name: 'Error',
+      }
+    } catch {
+      // circular reference — fall through
+    }
+  }
+
   return {
     message: String(error),
     name: 'Error',

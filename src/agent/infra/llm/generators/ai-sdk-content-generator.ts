@@ -99,9 +99,7 @@ export class AiSdkContentGenerator implements IContentGenerator {
     }
   }
 
-  public async *generateContentStream(
-    request: GenerateContentRequest,
-  ): AsyncGenerator<GenerateContentChunk> {
+  public async *generateContentStream(request: GenerateContentRequest): AsyncGenerator<GenerateContentChunk> {
     const messages = toModelMessages(request.contents)
     const tools = toAiSdkTools(request.tools)
 
@@ -126,7 +124,7 @@ export class AiSdkContentGenerator implements IContentGenerator {
           // Throw the error so RetryableContentGenerator can catch and retry it.
           // Yielding it as content would swallow the error and prevent retry logic
           // from working (e.g., for 429 rate limit errors).
-          throw event.error instanceof Error ? event.error : new Error(String(event.error))
+          throw event.error instanceof Error ? event.error : new Error(extractStreamErrorMessage(event.error))
         }
 
         case 'finish-step': {
@@ -187,12 +185,51 @@ export class AiSdkContentGenerator implements IContentGenerator {
 }
 
 /**
+ * Extract a human-readable message from an AI SDK stream error.
+ *
+ * The @ai-sdk/openai Responses API provider passes the raw SSE chunk
+ * object as the error value (not an Error instance). The actual message
+ * is nested at `.error.message`.
+ */
+export function extractStreamErrorMessage(error: unknown): string {
+  if (typeof error === 'string') {
+    return error
+  }
+
+  if (error && typeof error === 'object') {
+    // OpenAI Responses API shape: { type: "error", error: { message: "..." } }
+    if ('error' in error) {
+      const nested = (error as Record<string, unknown>).error
+      if (nested && typeof nested === 'object' && 'message' in nested) {
+        const msg = (nested as Record<string, unknown>).message
+        if (typeof msg === 'string') {
+          return msg
+        }
+      }
+    }
+
+    // Direct message property: { message: "..." }
+    if ('message' in error) {
+      const msg = (error as Record<string, unknown>).message
+      if (typeof msg === 'string') {
+        return msg
+      }
+    }
+
+    try {
+      return JSON.stringify(error)
+    } catch {
+      // circular reference or other stringify failure
+    }
+  }
+
+  return String(error)
+}
+
+/**
  * Map AI SDK finish reason to our finish reason format.
  */
-function mapFinishReason(
-  aiReason: string,
-  hasToolCalls: boolean,
-): GenerateContentResponse['finishReason'] {
+function mapFinishReason(aiReason: string, hasToolCalls: boolean): GenerateContentResponse['finishReason'] {
   if (hasToolCalls) {
     return 'tool_calls'
   }
