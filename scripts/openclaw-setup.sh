@@ -813,29 +813,6 @@ remove_existing_byterover_plugin() {
   ' 2>/dev/null || true
 }
 
-allow_channel_plugins() {
-  info "Allowing channel plugins..."
-  CONFIG_PATH="$CONFIG_PATH" node -e '
-    const fs = require("fs");
-    const configPath = process.env.CONFIG_PATH;
-    try {
-        const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-        const channels = Object.keys(config.channels || {});
-        if (channels.length > 0) {
-            config.plugins = config.plugins || {};
-            config.plugins.allow = config.plugins.allow || [];
-            for (const ch of channels) {
-                if (!config.plugins.allow.includes(ch)) {
-                    config.plugins.allow.push(ch);
-                }
-            }
-            fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-        }
-    } catch(e) { process.stderr.write("[byterover] allow-channels warning: " + e.message + "\n"); }
-  ' || warn "Could not allow channel plugins in $CONFIG_PATH."
-  success "Channel plugins allowed."
-}
-
 configure_context_plugin() {
   printf "${YELLOW}Feature: ByteRover Context Engine - Intelligent Automated Memory Curation and Memory Retrieval${RESET}\n"
   echo "Installs the ByteRover Context Engine plugin for injecting ByteRover memory context into prompts and automatically curate insights."
@@ -905,10 +882,6 @@ configure_context_plugin() {
     try {
         const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
         config.plugins = config.plugins || {};
-        config.plugins.allow = config.plugins.allow || [];
-        if (!config.plugins.allow.includes("byterover")) {
-            config.plugins.allow.push("byterover");
-        }
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
     } catch(e) { process.stderr.write("[byterover] allow-config warning: " + e.message + "\n"); }
   ' || warn "Could not set plugins.allow — add \"byterover\" to plugins.allow in $CONFIG_PATH manually."
@@ -1181,8 +1154,7 @@ main() {
   configure_daily_mining
   info "--- Onboarding Options ---"
   configure_onboarding_plugin
-
-  allow_channel_plugins
+  
   ensure_plugin_active
 
   # Phase 3: Workspace Updates
