@@ -813,6 +813,29 @@ remove_existing_byterover_plugin() {
   ' 2>/dev/null || true
 }
 
+allow_channel_plugins() {
+  info "Allowing channel plugins..."
+  CONFIG_PATH="$CONFIG_PATH" node -e '
+    const fs = require("fs");
+    const configPath = process.env.CONFIG_PATH;
+    try {
+        const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+        const channels = Object.keys(config.channels || {});
+        if (channels.length > 0) {
+            config.plugins = config.plugins || {};
+            config.plugins.allow = config.plugins.allow || [];
+            for (const ch of channels) {
+                if (!config.plugins.allow.includes(ch)) {
+                    config.plugins.allow.push(ch);
+                }
+            }
+            fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        }
+    } catch(e) { process.stderr.write("[byterover] allow-channels warning: " + e.message + "\n"); }
+  ' || warn "Could not allow channel plugins in $CONFIG_PATH."
+  success "Channel plugins allowed."
+}
+
 configure_context_plugin() {
   printf "${YELLOW}Feature: ByteRover Context Engine - Intelligent Automated Memory Curation and Memory Retrieval${RESET}\n"
   echo "Installs the ByteRover Context Engine plugin for injecting ByteRover memory context into prompts and automatically curate insights."
@@ -996,7 +1019,11 @@ restart_openclaw_gateway() {
   echo "Restarting OpenClaw gateway to apply changes..."
   openclaw gateway stop 2>/dev/null || true
   if openclaw gateway install; then
-    success "OpenClaw gateway restarted."
+    if openclaw gateway start; then
+      success "OpenClaw gateway restarted."
+    else
+      warn "Failed to restart OpenClaw gateway. Run 'openclaw gateway install' manually."
+    fi
   else
     warn "Failed to restart OpenClaw gateway. Run 'openclaw gateway install' manually."
   fi
@@ -1155,6 +1182,7 @@ main() {
   info "--- Onboarding Options ---"
   configure_onboarding_plugin
 
+  allow_channel_plugins
   ensure_plugin_active
 
   # Phase 3: Workspace Updates
