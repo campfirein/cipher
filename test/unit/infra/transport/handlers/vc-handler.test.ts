@@ -2421,6 +2421,42 @@ describe('VcHandler', () => {
       // getTrackingBranch should NOT have been called
       expect(deps.gitService.getTrackingBranch.called).to.be.false
     })
+
+    it('should throw PULL_FAILED when empty repo has no current branch and no explicit branch', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      // Empty repo: getCurrentBranch returns undefined (no HEAD target)
+      deps.gitService.getCurrentBranch.resolves()
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke<IVcPullResponse>(deps, VcEvents.PULL, {})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.PULL_FAILED)
+        }
+      }
+    })
+
+    it('should succeed on empty repo when explicit branch is provided', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      // Empty repo: no current branch, no tracking — but explicit branch bypasses resolution
+      deps.gitService.getCurrentBranch.resolves()
+      deps.gitService.pull.resolves({alreadyUpToDate: false, success: true})
+      makeVcHandler(deps).setup()
+
+      const result = await invoke<IVcPullResponse>(deps, VcEvents.PULL, {branch: 'main', remote: 'origin'})
+
+      expect(result.branch).to.equal('main')
+      expect(result.alreadyUpToDate).to.be.false
+      // Handler should NOT have attempted branch resolution
+      expect(deps.gitService.getTrackingBranch.called).to.be.false
+    })
   })
 
   describe('handleBranch set-upstream', () => {

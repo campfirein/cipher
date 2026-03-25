@@ -476,6 +476,13 @@ export class IsomorphicGitService implements IGitService {
       return {alreadyUpToDate: true, success: true}
     }
 
+    // Empty local repo — fast-forward HEAD to remote tip (like native git pull on empty repo)
+    if (!localSha && remoteSha) {
+      await git.writeRef({dir, force: true, fs, ref: `refs/heads/${localBranch}`, value: remoteSha})
+      await git.checkout({dir, fs, ref: localBranch})
+      return {alreadyUpToDate: false, success: true}
+    }
+
     // Step 2: working tree safety check (isomorphic-git does not do this automatically)
     // Abort if any dirty local file would be overwritten by the incoming changes
     if (localSha && remoteSha) {
