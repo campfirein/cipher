@@ -26,6 +26,7 @@ import {appendFileSync} from 'node:fs'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {ProviderConfigResponse, TaskExecute} from '../../core/domain/transport/schemas.js'
 import type {CurationHarnessService} from '../harness/curation/curation-harness-service.js'
+import type {QueryHarnessService} from '../harness/query/query-harness-service.js'
 
 import {SESSIONS_DIR} from '../../../agent/core/domain/session/session-metadata.js'
 import {CipherAgent} from '../../../agent/infra/agent/index.js'
@@ -122,7 +123,7 @@ async function activateExistingSession(sessionId: string, providerId: string): P
 function syncHarnessGenerators(
   currentAgent: CipherAgent,
   curation: CurationHarnessService | null,
-  query: import('../harness/query/query-harness-service.js').QueryHarnessService | null,
+  query: null | QueryHarnessService,
 ): void {
   if (!curation && !query) return
   if (!currentAgent.sessionId) {
@@ -160,7 +161,7 @@ let cachedActiveModel = ''
 let cachedProviderApiKey: string | undefined
 let cachedProviderHeaders: string | undefined
 let curationHarness: CurationHarnessService | null = null
-let queryHarness: import('../harness/query/query-harness-service.js').QueryHarnessService | null = null
+let queryHarness: null | QueryHarnessService = null
 
 // ============================================================================
 // Provider Config (resolved by daemon via state:getProviderConfig)

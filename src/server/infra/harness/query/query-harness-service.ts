@@ -121,7 +121,8 @@ export class QueryHarnessService {
     const feedbacks = buildQueryFeedback(nodeIds, outcome)
 
     const updatePromises = feedbacks.map((feedback) => {
-      const role = feedback.details.role as string
+      const role = typeof feedback.details.role === 'string' ? feedback.details.role : undefined
+      if (!role) return Promise.resolve()
       const engine = this.getEngineForRole(role)
       if (!engine) return Promise.resolve()
 
@@ -210,6 +211,11 @@ export class QueryHarnessService {
 
   /**
    * Select a template via Thompson sampling, seeding the root node on cold start.
+   *
+   * Concurrent cold-start: two queries on an empty tree may both seed a root node.
+   * This is harmless — Thompson sampling will select between competing roots, and
+   * the weaker one accumulates no visits and eventually falls off. Accepted trade-off
+   * vs adding a domain-scoped lock for a one-time startup event.
    */
   private async selectOrSeed(
     engine: HarnessEngine,

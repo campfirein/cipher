@@ -22,6 +22,9 @@ import {QueryHarnessService} from './query-harness-service.js'
  * @returns Ready QueryHarnessService, or null on failure.
  *   Call service.setContentGenerator() after agent starts to enable refinement.
  */
+/** Minimum operations before refinement can trigger for each query sub-harness */
+const QUERY_REFINEMENT_COOLDOWN = 5
+
 export async function createQueryHarness(
   storagePath: string,
 ): Promise<null | QueryHarnessService> {
@@ -29,17 +32,17 @@ export async function createQueryHarness(
     const treeStore = new FileHarnessTreeStore({getBaseDir: () => storagePath})
 
     const decomposeEngine = new HarnessEngine({
-      config: {domain: 'query/decompose', refinementCooldown: 5},
+      config: {domain: 'query/decompose', refinementCooldown: QUERY_REFINEMENT_COOLDOWN},
       treeStore,
     })
 
     const boostEngine = new HarnessEngine({
-      config: {domain: 'query/boost', refinementCooldown: 5},
+      config: {domain: 'query/boost', refinementCooldown: QUERY_REFINEMENT_COOLDOWN},
       treeStore,
     })
 
     const rerankEngine = new HarnessEngine({
-      config: {domain: 'query/rerank', refinementCooldown: 5},
+      config: {domain: 'query/rerank', refinementCooldown: QUERY_REFINEMENT_COOLDOWN},
       treeStore,
     })
 

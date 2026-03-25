@@ -26,12 +26,13 @@ reranking:
       makeResult({score: 0.4, symbolPath: 'database/models/user'}),
     ]
 
-    rerankResults(results, template, 'test query')
+    const reranked = rerankResults(results, template, 'test query')
 
-    // Second result shares domain with top → gets +0.1
-    expect(results[0].score).to.be.closeTo(0.8, 0.001) // top unchanged
-    expect(results[1].score).to.be.closeTo(0.6, 0.001) // auth match → +0.1
-    expect(results[2].score).to.be.closeTo(0.4, 0.001) // database → no boost
+    expect(reranked[0].score).to.be.closeTo(0.8, 0.001) // top unchanged
+    expect(reranked[1].score).to.be.closeTo(0.6, 0.001) // auth match → +0.1
+    expect(reranked[2].score).to.be.closeTo(0.4, 0.001) // database → no boost
+    // Original not mutated
+    expect(results[1].score).to.equal(0.5)
   })
 
   it('classifies "how" queries as exploratory', () => {
@@ -50,11 +51,10 @@ reranking:
       makeResult({score: 0.5, symbolPath: 'api/auth/handler'}),
     ]
 
-    rerankResults(results, template, 'how to setup auth')
+    const reranked = rerankResults(results, template, 'how to setup auth')
 
-    // "how" → exploratory, guides domain gets +0.15
-    expect(results[0].score).to.be.closeTo(0.75, 0.001)
-    expect(results[1].score).to.be.closeTo(0.5, 0.001)
+    expect(reranked[0].score).to.be.closeTo(0.75, 0.001)
+    expect(reranked[1].score).to.be.closeTo(0.5, 0.001)
   })
 
   it('classifies "what is" queries as factual', () => {
@@ -73,10 +73,10 @@ reranking:
       makeResult({score: 0.5, symbolPath: 'guides/setup/intro'}),
     ]
 
-    rerankResults(results, template, 'what is a REST API')
+    const reranked = rerankResults(results, template, 'what is a REST API')
 
-    expect(results[0].score).to.be.closeTo(0.7, 0.001)
-    expect(results[1].score).to.be.closeTo(0.5, 0.001)
+    expect(reranked[0].score).to.be.closeTo(0.7, 0.001)
+    expect(reranked[1].score).to.be.closeTo(0.5, 0.001)
   })
 
   it('returns results unchanged with zero weights (default)', () => {
@@ -90,10 +90,10 @@ reranking:
       makeResult({score: 0.5, title: 'Second'}),
     ]
 
-    rerankResults(results, template, 'some query')
+    const reranked = rerankResults(results, template, 'some query')
 
-    expect(results[0].score).to.equal(0.8)
-    expect(results[1].score).to.equal(0.5)
+    expect(reranked[0].score).to.equal(0.8)
+    expect(reranked[1].score).to.equal(0.5)
   })
 
   it('clamps reranked scores to [0, 0.9999]', () => {
@@ -107,12 +107,11 @@ reranking:
       makeResult({score: 0.8, symbolPath: 'auth/login/middleware'}),
     ]
 
-    rerankResults(results, template, 'query')
+    const reranked = rerankResults(results, template, 'query')
 
     // 0.8 + 0.5 = 1.3, clamped to 0.9999. After sort it becomes first.
-    expect(results[0].score).to.equal(0.9999)
-    // 0.9 (top result, no self-boost), clamped stays 0.9
-    expect(results[1].score).to.equal(0.9)
+    expect(reranked[0].score).to.equal(0.9999)
+    expect(reranked[1].score).to.equal(0.9)
   })
 
   it('handles empty results', () => {

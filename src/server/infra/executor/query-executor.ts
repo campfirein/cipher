@@ -94,7 +94,9 @@ export class QueryExecutor implements IQueryExecutor {
       try {
         const {decomposed, nodeId} = await this.queryHarnessService.decomposeQuery(query)
         if (decomposed.expandedTerms.length > 0) {
-          effectiveQuery = `${query} ${decomposed.expandedTerms.join(' ')}`
+          // Cap at 10 expanded terms to avoid overly long queries
+          const capped = decomposed.expandedTerms.slice(0, 10)
+          effectiveQuery = `${query} ${capped.join(' ')}`
         }
 
         domainHints = decomposed.domainHints
@@ -171,7 +173,8 @@ export class QueryExecutor implements IQueryExecutor {
         this.cache.set(query, response, fingerprint)
       }
 
-      // OOD — skip harness feedback (not a search quality signal)
+      // OOD — skip harness feedback (not a search quality signal).
+      // tier: 0 is a sentinel (no tier was reached); buildQueryFeedback returns [] for ood=true.
       this.recordQueryOutcome(harnessNodeIds, {directHit: false, ood: true, prefetched: false, supplemented, tier: 0})
 
       return response + ATTRIBUTION_FOOTER
@@ -438,12 +441,13 @@ ${responseFormat}`
   }
 
   /**
-   * Record query outcome for harness feedback. Fire-and-forget.
+   * Record query outcome for harness feedback.
+   * Both recordOutcome and refineIfNeeded are non-blocking from the caller's
+   * perspective (void return, no await). Internally, recordOutcome completes
+   * before refinement starts (chained via .then()).
    */
   private recordQueryOutcome(nodeIds: QueryNodeIds, outcome: QueryOutcome): void {
     if (!this.queryHarnessService) return
-    // Awaited feedback + fire-and-forget refinement (matches curate-executor pattern)
-    // Node IDs are per-query locals, not shared service state — concurrency safe.
     this.queryHarnessService.recordOutcome(nodeIds, outcome)
       .then(() => this.queryHarnessService!.refineIfNeeded(nodeIds).catch(() => {}))
       .catch(() => {})

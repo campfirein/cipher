@@ -94,42 +94,36 @@ export function rerankResults(
   const domainCoherenceWeight = typeof reranking.domainCoherenceWeight === 'number' ? reranking.domainCoherenceWeight : 0
   const classificationRules = reranking.queryClassification ?? {}
 
-  // Domain coherence: boost results sharing the top result's domain
-  if (domainCoherenceWeight !== 0 && results[0].symbolPath) {
-    const topDomain = extractDomain(results[0].symbolPath)
-    for (let i = 1; i < results.length; i++) {
-      const result = results[i]
-      if (result.symbolPath) {
-        const resultDomain = extractDomain(result.symbolPath)
-        if (resultDomain === topDomain) {
-          result.score += domainCoherenceWeight
-        }
-      }
-    }
-  }
-
-  // Query classification: apply matching rule boosts
+  // Build per-result deltas without mutating inputs
+  const topDomain = results[0]?.symbolPath ? extractDomain(results[0].symbolPath) : undefined
   const queryType = classifyQuery(query)
   const rule = queryType === 'unknown' ? undefined : classificationRules[queryType]
-  if (rule && typeof rule.boost === 'number' && Array.isArray(rule.domains)) {
-    const ruleDomains = rule.domains.map((d) => d.toLowerCase())
-    for (const result of results) {
-      if (!result.symbolPath) continue
+  const ruleDomains = rule && typeof rule.boost === 'number' && Array.isArray(rule.domains)
+    ? rule.domains.map((d: string) => d.toLowerCase())
+    : undefined
+
+  const reranked = results.map((result, index) => {
+    let delta = 0
+
+    // Domain coherence: boost same-domain as top result (skip top itself)
+    if (domainCoherenceWeight !== 0 && index > 0 && topDomain && result.symbolPath && extractDomain(result.symbolPath) === topDomain) {
+      delta += domainCoherenceWeight
+    }
+
+    // Query classification boost
+    if (ruleDomains && rule && typeof rule.boost === 'number' && result.symbolPath) {
       const resultDomain = extractDomain(result.symbolPath).toLowerCase()
-      if (ruleDomains.some((rd) => resultDomain.includes(rd))) {
-        result.score += rule.boost
+      if (ruleDomains.some((rd: string) => resultDomain.includes(rd))) {
+        delta += rule.boost
       }
     }
-  }
 
-  // Clamp to [0, 0.9999] — same as boost stage. Prevents learned rerank
-  // weights from pushing weak matches past direct-search-responder thresholds.
-  for (const result of results) {
-    result.score = Math.max(0, Math.min(0.9999, result.score))
-  }
+    // Clamp to [0, 0.9999] — prevents false Tier-2 direct hits
+    return {...result, score: Math.max(0, Math.min(0.9999, result.score + delta))}
+  })
 
   // Re-sort descending by score
-  results.sort((a, b) => b.score - a.score)
+  reranked.sort((a, b) => b.score - a.score)
 
-  return results
+  return reranked
 }

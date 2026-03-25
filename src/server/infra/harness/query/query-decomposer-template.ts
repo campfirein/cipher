@@ -87,18 +87,40 @@ export function decomposeQuery(rawQuery: string, templateContent: string): Decom
   return result
 }
 
+/** Regex cache to avoid recompilation on every call */
+const patternCache = new Map<string, RegExp>()
+
+/** Max cached patterns to prevent unbounded growth */
+const MAX_PATTERN_CACHE = 100
+
 /**
  * Match a query against a pattern that may contain * wildcards.
  * "how does * work" matches "how does auth work".
  * If no wildcards, falls back to substring match.
+ *
+ * Uses bounded repetition (.{0,200}) instead of .* to prevent ReDoS
+ * from LLM-refined templates with pathological patterns like "a*a*a*b".
+ * Compiled regexes are cached for performance at high query throughput.
  */
 function matchesQueryPattern(query: string, pattern: string): boolean {
   if (!pattern.includes('*')) {
     return query.includes(pattern)
   }
 
-  // Escape regex special chars except *, then convert * to .*
-  const escaped = pattern.replaceAll(/[$()+.?[\\\]^{|}]/g, String.raw`\$&`).replaceAll('*', '.*')
+  let regex = patternCache.get(pattern)
+  if (!regex) {
+    // Escape regex special chars except *, then convert * to bounded match
+    const escaped = pattern.replaceAll(/[$()+.?[\\\]^{|}]/g, String.raw`\$&`).replaceAll('*', '.{0,200}')
+    regex = new RegExp(`^${escaped}$`)
 
-  return new RegExp(escaped).test(query)
+    // Evict oldest entries if cache is full
+    if (patternCache.size >= MAX_PATTERN_CACHE) {
+      const firstKey = patternCache.keys().next().value
+      if (firstKey !== undefined) patternCache.delete(firstKey)
+    }
+
+    patternCache.set(pattern, regex)
+  }
+
+  return regex.test(query)
 }

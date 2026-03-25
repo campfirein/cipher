@@ -62,17 +62,13 @@ export function computeBoostAdjustments(templateContent: string): BoostAdjustmen
 
 /**
  * Apply post-search boost adjustments to results and re-sort by score.
+ * Returns a new array with copied result objects — does not mutate inputs.
  *
- * Modifies the `score` field on each result based on:
+ * Adjustments:
  * - Domain match bonus: applied when result's symbolPath contains a domain hint
  * - Title match bonus: applied when result title contains any query term
  * - Cross-reference bonus: applied per backlink count
- *
- * @param results - MiniSearch results to adjust
- * @param adjustments - Boost adjustments from template
- * @param query - Original search query
- * @param domainHints - Preferred domains from query decomposition
- * @returns Re-scored and re-sorted results
+ * - All scores clamped to [0, 0.9999] to prevent false Tier-2 direct hits
  */
 export function applyBoostAdjustments(
   results: SearchKnowledgeResult['results'],
@@ -83,37 +79,35 @@ export function applyBoostAdjustments(
   const queryTermsLower = query.toLowerCase().split(/\s+/).filter(Boolean)
   const domainHintsLower = domainHints.map((d) => d.toLowerCase())
 
-  for (const result of results) {
-    // Domain match bonus: check if result's symbolPath contains any domain hint
+  const adjusted = results.map((result) => {
+    let delta = 0
+
+    // Domain match bonus
     if (adjustments.domainMatchBonus !== 0 && result.symbolPath) {
       const symbolPathLower = result.symbolPath.toLowerCase()
-      const hasDomainMatch = domainHintsLower.some((hint) => symbolPathLower.includes(hint))
-      if (hasDomainMatch) {
-        result.score += adjustments.domainMatchBonus
+      if (domainHintsLower.some((hint) => symbolPathLower.includes(hint))) {
+        delta += adjustments.domainMatchBonus
       }
     }
 
-    // Title match bonus: check if title contains any query term
+    // Title match bonus
     if (adjustments.titleMatchBonus !== 0) {
       const titleLower = result.title.toLowerCase()
-      const hasTitleMatch = queryTermsLower.some((term) => titleLower.includes(term))
-      if (hasTitleMatch) {
-        result.score += adjustments.titleMatchBonus
+      if (queryTermsLower.some((term) => titleLower.includes(term))) {
+        delta += adjustments.titleMatchBonus
       }
     }
 
-    // Cross-reference bonus: applied per backlink
+    // Cross-reference bonus
     if (adjustments.crossReferenceBonus !== 0 && result.backlinkCount) {
-      result.score += adjustments.crossReferenceBonus * result.backlinkCount
+      delta += adjustments.crossReferenceBonus * result.backlinkCount
     }
 
-    // Clamp to [0, 1) — downstream direct-search-responder assumes normalized scores.
-    // Without this, learned positive weights can promote weak matches into false Tier-2 hits.
-    result.score = Math.max(0, Math.min(0.9999, result.score))
-  }
+    return {...result, score: Math.max(0, Math.min(0.9999, result.score + delta))}
+  })
 
-  // Re-sort descending by score
-  results.sort((a, b) => b.score - a.score)
+  // Sort descending by score
+  adjusted.sort((a, b) => b.score - a.score)
 
-  return results
+  return adjusted
 }

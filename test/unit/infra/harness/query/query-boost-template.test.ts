@@ -33,24 +33,26 @@ describe('query-boost-template', () => {
       const results = [makeResult({score: 0.5, symbolPath: 'auth/login/handler'})]
       const adjustments: BoostAdjustments = {crossReferenceBonus: 0, domainMatchBonus: 0.2, titleMatchBonus: 0}
 
-      applyBoostAdjustments(results, adjustments, 'login', ['auth'])
-      expect(results[0].score).to.be.closeTo(0.7, 0.001)
+      const adjusted = applyBoostAdjustments(results, adjustments, 'login', ['auth'])
+      expect(adjusted[0].score).to.be.closeTo(0.7, 0.001)
+      // Original not mutated
+      expect(results[0].score).to.equal(0.5)
     })
 
     it('applies title match bonus when title contains query terms', () => {
       const results = [makeResult({score: 0.5, title: 'Authentication Guide'})]
       const adjustments: BoostAdjustments = {crossReferenceBonus: 0, domainMatchBonus: 0, titleMatchBonus: 0.15}
 
-      applyBoostAdjustments(results, adjustments, 'authentication', [])
-      expect(results[0].score).to.be.closeTo(0.65, 0.001)
+      const adjusted = applyBoostAdjustments(results, adjustments, 'authentication', [])
+      expect(adjusted[0].score).to.be.closeTo(0.65, 0.001)
     })
 
     it('applies cross-reference bonus based on backlinkCount', () => {
       const results = [makeResult({backlinkCount: 3, score: 0.5})]
       const adjustments: BoostAdjustments = {crossReferenceBonus: 0.05, domainMatchBonus: 0, titleMatchBonus: 0}
 
-      applyBoostAdjustments(results, adjustments, 'query', [])
-      expect(results[0].score).to.be.closeTo(0.65, 0.001)
+      const adjusted = applyBoostAdjustments(results, adjustments, 'query', [])
+      expect(adjusted[0].score).to.be.closeTo(0.65, 0.001)
     })
 
     it('returns results unchanged with zero adjustments (default)', () => {
@@ -60,9 +62,9 @@ describe('query-boost-template', () => {
       ]
       const adjustments: BoostAdjustments = {crossReferenceBonus: 0, domainMatchBonus: 0, titleMatchBonus: 0}
 
-      applyBoostAdjustments(results, adjustments, 'test', ['domain'])
-      expect(results[0].score).to.equal(0.8)
-      expect(results[1].score).to.equal(0.5)
+      const adjusted = applyBoostAdjustments(results, adjustments, 'test', ['domain'])
+      expect(adjusted[0].score).to.equal(0.8)
+      expect(adjusted[1].score).to.equal(0.5)
     })
 
     it('re-sorts results after adjustment', () => {
@@ -72,21 +74,19 @@ describe('query-boost-template', () => {
       ]
       const adjustments: BoostAdjustments = {crossReferenceBonus: 0, domainMatchBonus: 0.4, titleMatchBonus: 0}
 
-      applyBoostAdjustments(results, adjustments, 'query', ['auth'])
-      // Second result (0.3 + 0.4 = 0.7) should now be first
-      expect(results[0].title).to.equal('Second')
-      expect(results[0].score).to.be.closeTo(0.7, 0.001)
-      expect(results[1].title).to.equal('First')
-      expect(results[1].score).to.be.closeTo(0.6, 0.001)
+      const adjusted = applyBoostAdjustments(results, adjustments, 'query', ['auth'])
+      expect(adjusted[0].title).to.equal('Second')
+      expect(adjusted[0].score).to.be.closeTo(0.7, 0.001)
+      expect(adjusted[1].title).to.equal('First')
+      expect(adjusted[1].score).to.be.closeTo(0.6, 0.001)
     })
 
     it('clamps adjusted scores to [0, 0.9999]', () => {
       const results = [makeResult({score: 0.8, symbolPath: 'auth/login'})]
       const adjustments: BoostAdjustments = {crossReferenceBonus: 0, domainMatchBonus: 0.5, titleMatchBonus: 0}
 
-      applyBoostAdjustments(results, adjustments, 'query', ['auth'])
-      // 0.8 + 0.5 = 1.3, clamped to 0.9999
-      expect(results[0].score).to.equal(0.9999)
+      const adjusted = applyBoostAdjustments(results, adjustments, 'query', ['auth'])
+      expect(adjusted[0].score).to.equal(0.9999)
     })
   })
 })
