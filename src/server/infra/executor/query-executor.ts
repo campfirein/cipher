@@ -4,6 +4,8 @@ import type { ICipherAgent } from '../../../agent/core/interfaces/i-cipher-agent
 import type { IFileSystem } from '../../../agent/core/interfaces/i-file-system.js'
 import type { ISearchKnowledgeService, SearchKnowledgeResult } from '../../../agent/infra/sandbox/tools-sdk.js'
 import type { IQueryExecutor, QueryExecuteOptions } from '../../core/interfaces/executor/i-query-executor.js'
+import type { QueryOutcome } from '../harness/query/query-feedback-collector.js'
+import type { QueryHarnessService, QueryNodeIds } from '../harness/query/query-harness-service.js'
 
 import { BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR } from '../../constants.js'
 import { isDerivedArtifact } from '../context-tree/derived-artifact.js'
@@ -36,6 +38,8 @@ export interface QueryExecutorDeps {
   enableCache?: boolean
   /** File system for reading full document content and computing fingerprints */
   fileSystem?: IFileSystem
+  /** Query harness service for learned decomposition/boost/rerank (optional, fail-open) */
+  queryHarnessService?: QueryHarnessService
   /** Search service for pre-fetching relevant context before calling the LLM */
   searchService?: ISearchKnowledgeService
 }
@@ -65,11 +69,13 @@ export class QueryExecutor implements IQueryExecutor {
   private readonly cache?: QueryResultCache
   private cachedFingerprint?: { expiresAt: number; value: string }
   private readonly fileSystem?: IFileSystem
+  private readonly queryHarnessService?: QueryHarnessService
   private readonly searchService?: ISearchKnowledgeService
 
   constructor(deps?: QueryExecutorDeps) {
     this.baseDirectory = deps?.baseDirectory
     this.fileSystem = deps?.fileSystem
+    this.queryHarnessService = deps?.queryHarnessService
     this.searchService = deps?.searchService
     if (deps?.enableCache) {
       this.cache = new QueryResultCache()
@@ -79,12 +85,8 @@ export class QueryExecutor implements IQueryExecutor {
   public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string> {
     const { query, taskId } = options
 
-    // Start search early — runs in parallel with fingerprint computation (independent operations)
-    const searchPromise = this.searchService?.search(query, { limit: SMART_ROUTING_MAX_DOCS })
-    // Prevent unhandled rejection if we return early (cache hit) while search is still pending
-    searchPromise?.catch(() => {})
-
     // === Tier 0: Exact cache hit (0ms) ===
+    // Check cache before harness/search work to avoid extra file I/O on hot paths.
     let fingerprint: string | undefined
     if (this.cache && this.fileSystem) {
       fingerprint = await this.computeContextTreeFingerprint()
@@ -102,7 +104,31 @@ export class QueryExecutor implements IQueryExecutor {
       }
     }
 
-    // Await search result (already started in parallel with fingerprint computation)
+    // --- Harness: decompose query (sync, < 5ms) ---
+    // Node IDs are captured per-query (not shared state) for concurrency safety.
+    let effectiveQuery = query
+    let domainHints: string[] = []
+    const harnessNodeIds: QueryNodeIds = {}
+    if (this.queryHarnessService) {
+      try {
+        const {decomposed, nodeId} = await this.queryHarnessService.decomposeQuery(query)
+        if (decomposed.expandedTerms.length > 0) {
+          // Cap at 10 expanded terms to avoid overly long queries
+          const capped = decomposed.expandedTerms.slice(0, 10)
+          effectiveQuery = `${query} ${capped.join(' ')}`
+        }
+
+        domainHints = decomposed.domainHints
+        harnessNodeIds.decompose = nodeId
+      } catch {
+        // Fail-open: decomposition errors never block queries
+      }
+    }
+
+    // Start search after cache miss so hot paths avoid harness/search I/O entirely.
+    const searchPromise = this.searchService?.search(effectiveQuery, { limit: SMART_ROUTING_MAX_DOCS })
+
+    // Await search result
     let searchResult: SearchKnowledgeResult | undefined
     try {
       searchResult = await searchPromise
@@ -111,8 +137,32 @@ export class QueryExecutor implements IQueryExecutor {
     }
 
     // Supplementary entity-based searches for better multi-session recall
+    let supplemented = false
     if (this.searchService && searchResult && searchResult.totalFound < 3) {
+      const prevCount = searchResult.totalFound
       searchResult = await this.supplementEntitySearches(query, searchResult)
+      // Only mark as supplemented if new results were actually added —
+      // otherwise narrow but valid queries get mislabeled as decomposition misses.
+      supplemented = searchResult.totalFound > prevCount
+    }
+
+    // --- Harness: apply boost adjustments + rerank (sync, < 5ms each) ---
+    if (this.queryHarnessService && searchResult && searchResult.results.length > 0) {
+      try {
+        const boostResult = await this.queryHarnessService.adjustBoosts(
+          searchResult.results, query, domainHints,
+        )
+        harnessNodeIds.boost = boostResult.nodeId
+        searchResult = {...searchResult, results: boostResult.results}
+
+        const rerankResult = await this.queryHarnessService.rerankResults(
+          searchResult.results, query,
+        )
+        harnessNodeIds.rerank = rerankResult.nodeId
+        searchResult = {...searchResult, results: rerankResult.results}
+      } catch {
+        // Fail-open: harness errors never block queries
+      }
     }
 
     // === OOD short-circuit: no results means topic not covered ===
@@ -121,6 +171,10 @@ export class QueryExecutor implements IQueryExecutor {
       if (this.cache && fingerprint) {
         this.cache.set(query, response, fingerprint)
       }
+
+      // OOD — skip harness feedback (not a search quality signal).
+      // tier: 0 is a sentinel (no tier was reached); buildQueryFeedback returns [] for ood=true.
+      this.recordQueryOutcome(harnessNodeIds, {directHit: false, ood: true, prefetched: false, supplemented, tier: 0})
 
       return response + ATTRIBUTION_FOOTER
     }
@@ -132,6 +186,8 @@ export class QueryExecutor implements IQueryExecutor {
         if (this.cache && fingerprint) {
           this.cache.set(query, directResult, fingerprint)
         }
+
+        this.recordQueryOutcome(harnessNodeIds, {directHit: true, ood: false, prefetched: false, supplemented, tier: 2})
 
         return directResult + ATTRIBUTION_FOOTER
       }
@@ -211,6 +267,15 @@ export class QueryExecutor implements IQueryExecutor {
       if (this.cache && fingerprint) {
         this.cache.set(query, response, fingerprint)
       }
+
+      const hasPrefetched = Boolean(prefetchedContext)
+      this.recordQueryOutcome(harnessNodeIds, {
+        directHit: false,
+        ood: false,
+        prefetched: hasPrefetched,
+        supplemented,
+        tier: hasPrefetched ? 3 : 4,
+      })
 
       return response + ATTRIBUTION_FOOTER
     } finally {
@@ -372,6 +437,19 @@ ${responseFormat}`
     const words = query.toLowerCase().split(/\s+/)
 
     return words.filter((w) => w.length >= 3 && !stopwords.has(w))
+  }
+
+  /**
+   * Record query outcome for harness feedback.
+   * Both recordOutcome and refineIfNeeded are non-blocking from the caller's
+   * perspective (void return, no await). Internally, recordOutcome completes
+   * before refinement starts (chained via .then()).
+   */
+  private recordQueryOutcome(nodeIds: QueryNodeIds, outcome: QueryOutcome): void {
+    if (!this.queryHarnessService) return
+    this.queryHarnessService.recordOutcome(nodeIds, outcome)
+      .then(() => this.queryHarnessService!.refineIfNeeded(nodeIds).catch(() => {}))
+      .catch(() => {})
   }
 
   /**
