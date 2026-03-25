@@ -906,4 +906,5 @@ describe('IsomorphicGitService', () => {
       expect(result.behind).to.equal(0)
     })
   })
+
 })
