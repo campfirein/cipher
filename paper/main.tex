@@ -625,6 +625,27 @@ For our own evaluations, we use Gemini~3 Flash as the judge
 with a separate justifier model (Gemini~3.1 Pro) that synthesizes
 an answer from retrieved context before scoring.
 
+\paragraph{Evaluation prompts.}
+To enable direct, apple-to-apple comparison with Hindsight~\citep{latimer2025hindsight},
+we reuse their publicly available evaluation prompts.\footnote{%
+  \url{https://github.com/vectorize-io/hindsight/tree/main/hindsight-dev/benchmarks}}
+Specifically, the judge prompts---including the default LoCoMo preamble
+and all five LongMemEval category-specific preambles
+(standard, temporal-reasoning, knowledge-update, and preference)---are
+adopted without modification, ensuring that scoring criteria
+are identical across systems.
+The LoCoMo justifier prompt is likewise reused verbatim.
+For the LongMemEval justifier, we adapt Hindsight's prompt
+to reflect \byterover{}'s single-layer knowledge representation:
+where Hindsight instructs the model to cross-reference
+atomic facts against raw source chunks (a two-layer retrieval output),
+our variant replaces this with guidance for interpreting
+\emph{key facts} with session-level timestamps,
+matching the \contexttree{}'s curated entry format.
+All other instructions---date calculation rules, counting-question
+disambiguation, recommendation handling, and question-type-specific
+guidelines---remain unchanged from the original.
+
 
 \subsection{Overall Comparison on LoCoMo}
 \label{sec:locomo-results}
@@ -646,7 +667,7 @@ OpenAI Memory   & 63.8 & 42.9 & 62.3 & 21.7 & 52.9 \\
 \textbf{\byterover{} (ours)} & \textbf{97.5} & \textbf{93.3} & 85.9 & \textbf{97.8} & \textbf{96.1} \\
 \bottomrule
 \end{tabular}
-\caption{LLM-as-Judge accuracy (\%) on LoCoMo (4 categories, 1536 questions).
+\caption{LLM-as-Judge accuracy (\%) on LoCoMo (4 categories, 1{,}982 questions).
   All systems evaluated under identical conditions using our benchmark harness
   with Gemini~3 Flash as the judge.}
 \label{tab:locomo}
@@ -701,7 +722,9 @@ Full-context$^\dagger$  & 78.2 & 81.4 & 94.6 & 20.0 & 45.1 & 44.3 & 60.2 \\
 \end{table}
 
 \byterover{} achieves the highest overall accuracy at 92.8\%,
-narrowly outperforming Chronos (92.6\%) despite the latter's use of a GPT-4o backbone.
+surpassing Chronos-Low (92.6\%, GPT-4o backbone)
+while remaining below Chronos-High (95.6\%, Claude Opus~4.6 backbone),
+which benefits from a substantially more capable generation model.
 The strength profile is distinctive:
 \byterover{} leads on knowledge update (98.7\%),
 temporal reasoning (91.7\%), and single-session preference
@@ -717,79 +740,38 @@ suggesting that its event-ordering approach
 may better capture inter-session dependencies.
 
 
-\subsection{System Efficiency}
+\subsection{Operational Profile}
 \label{sec:efficiency}
 
 \begin{table}[t]
 \centering
 \small
-\begin{tabular}{@{}l|ccc|cc@{}}
+\begin{tabular}{@{}lcc@{}}
 \toprule
-\multirow{2}{*}{\textbf{Method}} & \multicolumn{3}{c|}{\textbf{User-Facing Latency (per turn)}} & \multicolumn{2}{c}{\textbf{Construction Cost}} \\
- & $T_{\text{read}}$ & $T_{\text{gen}}$ & Total (s) & Time (h) & Tokens (k) \\
+\textbf{Metric} & \textbf{LoCoMo} & \textbf{LongMemEval-S} \\
 \midrule
-Full Context & N/A & 1.726 & 1.726 & N/A & N/A \\
-A-MEM & 0.062 & 1.119 & 1.181 & 15.00 & 1,486 \\
-MemoryOS & 31.247 & 1.125 & 32.372 & 7.83 & 4,043 \\
-Nemori & 0.254 & 0.875 & 1.129 & 3.25 & 7,044 \\
-MAGMA & 0.497 & 0.965 & 1.462 & 7.28 & 2,725 \\
-SimpleMem & 0.009 & 1.048 & 1.057 & 3.45 & 1,308 \\
+Context tree size & 272 docs & 23{,}867 docs \\
+Total queries & 1{,}982 & 500 \\
 \midrule
-\textbf{\byterover{} (ours)} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} \\
+Cold query latency p50 & 1.2\,s & 1.6\,s \\
+Cold query latency p95 & 1.4\,s & 2.3\,s \\
+Cold query latency p99 & 1.7\,s & 2.5\,s \\
 \bottomrule
 \end{tabular}
-\caption{System efficiency comparison.
-  Baseline data from \citet{jiang2026anatomy}.
-  \todo{Fill in ByteRover measurements.}}
+\caption{Operational latency profile.
+  Cold query latency measures end-to-end time from process invocation
+  through response delivery, excluding answer justification and evaluation.}
 \label{tab:efficiency}
 \end{table}
 
-\subsubsection{Query Tier Distribution}
-
-\begin{table}[h]
-\centering
-\small
-\begin{tabular}{@{}clcc@{}}
-\toprule
-\textbf{Tier} & \textbf{Description} & \textbf{p50 Latency} & \textbf{\% Queries Resolved} \\
-\midrule
-0 & Exact cache hit & \todo{--}\,ms & \todo{--}\% \\
-1 & Fuzzy cache match & \todo{--}\,ms & \todo{--}\% \\
-2 & MiniSearch direct & \todo{--}\,ms & \todo{--}\% \\
-3 & Optimized LLM call & \todo{--}\,s & \todo{--}\% \\
-4 & Full agentic loop & \todo{--}\,s & \todo{--}\% \\
-\midrule
-\textbf{Total} & \textbf{All tiers} & \todo{--}\,ms & 100\% \\
-\bottomrule
-\end{tabular}
-\caption{Query tier distribution on LoCoMo.
-  \todo{Fill after benchmarks. Key claim: majority resolve at Tier~0--2.}}
-\label{tab:tier-distribution}
-\end{table}
-
-\subsubsection{Infrastructure Comparison}
-
-\begin{table}[h]
-\centering
-\small
-\begin{tabular}{@{}lp{8cm}@{}}
-\toprule
-\textbf{Method} & \textbf{Infrastructure Requirements} \\
-\midrule
-A-MEM & Embedding service + vector store \\
-MemoryOS & Embedding service + multi-tier storage engine \\
-Nemori & Embedding service + episodic tree storage \\
-MAGMA & Embedding service + vector database + graph index \\
-Zep/Graphiti & Neo4j or FalkorDB + embedding service + application server \\
-\midrule
-\textbf{\byterover{}} & \textbf{None. Local filesystem only.} \\
-\bottomrule
-\end{tabular}
-\caption{Infrastructure requirements.
-  \byterover{} requires zero external services---all
-  knowledge is stored as markdown files on the local filesystem.}
-\label{tab:infrastructure}
-\end{table}
+Despite a substantially larger context tree on LongMemEval-S
+(23{,}867 documents vs.\ 272 on LoCoMo),
+median query latency remains low at 1.6\,s,
+suggesting that the tiered retrieval architecture
+effectively bounds search cost as the corpus grows.
+The tight percentile spread (p50-to-p99 gap of 0.5\,s on LoCoMo,
+0.9\,s on LongMemEval-S) indicates consistent performance
+without long-tail degradation.
 
 
 \subsection{Ablation Study}
@@ -1059,16 +1041,6 @@ Type-only circular imports are severity: low.
   and narrative (interpreted structure).}
 \label{fig:entry-example}
 \end{figure}
-
-
-\section{Prompt Library}
-\label{app:prompts}
-
-\todo{Include the actual system prompts used for:
-  (1)~Curation (event extraction, knowledge structuring),
-  (2)~Query processing (query analysis, response synthesis),
-  (3)~Compression (escalated summarization prompts),
-  (4)~Evaluation (LLM-as-a-Judge grading rubric).}
 
 
 \section{Case Studies}
