@@ -20,6 +20,7 @@
 \usepackage{tabularx}
 \usepackage{float}
 \usepackage{tikz}
+\usetikzlibrary{arrows.meta,decorations.pathreplacing}
 \usepackage[margin=1in]{geometry}
 \usepackage{natbib}
 \usepackage{listings}
@@ -306,26 +307,27 @@ illustrated in Figure~\ref{fig:architecture}:
     % --- Daemon (y=6.0) ---
     \node[layer=gray!8, minimum width=8.0cm, minimum height=1.0cm]
       (daemon) at (0,6.0) {};
-    \node[font=\scriptsize\bfseries, black!40, anchor=west] at (-3.8,6.0) {Daemon};
-    \node[box, fill=white, minimum width=2.6cm] (tq) at (-1.2,6.0)
+    \node[font=\scriptsize\bfseries, black!40] at (0,6.35) {Daemon};
+    \node[box, fill=white, minimum width=2.6cm] (tq) at (-2.0,6.0)
       {Task Queue};
-    \node[box, fill=white, minimum width=2.6cm] (pool) at (1.8,6.0)
+    \node[box, fill=white, minimum width=2.6cm] (pool) at (2.0,6.0)
       {Agent Pool};
 
     % Client to daemon arrows
     \draw[arr, gray!50] (cli-tui.south) -- (cli-tui.south |- daemon.north);
-    \draw[arr, gray!50] (cli-cli.south) -- (cli-cli.south |- daemon.north);
+    \draw[arr, gray!50] (cli-cli.south) --
+      node[right, font=\tiny\sffamily, text=black!50, xshift=1pt] {Socket.IO}
+      (cli-cli.south |- daemon.north);
     \draw[arr, gray!50] (cli-mcp.south) -- (cli-mcp.south |- daemon.north);
-    \node[lbl, font=\tiny, anchor=west] at (3.3,6.6) {Socket.IO};
 
     % --- Agent Process boundary ---
     \draw[thick, rounded corners=6pt, blue!25]
-      (-4.3,4.85) rectangle (4.3,-0.65);
-    \node[font=\scriptsize\bfseries, blue!40, anchor=west] at (-4.1,4.65) {Agent Process};
-    \node[font=\tiny, blue!25, anchor=east] at (4.1,4.65) {\itshape one per project};
+      (-4.3,5.15) rectangle (4.3,-0.85);
+    \node[font=\scriptsize\bfseries, blue!40, anchor=west] at (-4.1,4.9) {Agent Process};
+    \node[font=\tiny, blue!25, anchor=east] at (4.1,4.9) {\itshape one per project};
 
     % Daemon to agent arrow
-    \draw[arr, gray!50] (pool.south) -- (pool.south |- 0,4.85);
+    \draw[arr, gray!50] (pool.south) -- (pool.south |- 0,5.15);
 
     % --- Agent Layer (y=3.9) ---
     \node[layer=blue!6, minimum width=8.0cm, minimum height=1.4cm]
@@ -345,17 +347,25 @@ illustrated in Figure~\ref{fig:architecture}:
     \node[box, fill=white, minimum width=3.4cm] (cexec) at (2.0,1.9)
       {CurateExecutor + Sandbox};
 
-    % --- Knowledge Layer (y=0.3) ---
-    \node[layer=yellow!10, minimum width=8.0cm, minimum height=1.4cm]
-      (kl) at (0,0.3) {};
-    \node[font=\scriptsize\bfseries, yellow!40!black] at (0,0.8) {Knowledge Layer};
-    \node[box, fill=white, minimum width=2.2cm] (ct) at (-1.5,0.05)
+    % --- Knowledge Layer (y=0.15) ---
+    \node[layer=yellow!10, minimum width=8.0cm, minimum height=1.7cm]
+      (kl) at (0,0.15) {};
+
+    % Store sub-group: Context Tree + MiniSearch
+    % Centered at x=-0.2 so both QE(x=-2) and CE(x=2) arrows land inside
+    \node[draw, rounded corners=3pt, gray!50, densely dashed, semithick,
+          minimum width=5.0cm, minimum height=0.8cm,
+          inner sep=6pt] (store) at (-0.2,0.05) {};
+    \node[box, fill=white, minimum width=2.0cm] (ct) at (-1.6,0.05)
       {Context Tree};
-    \node[box, fill=white, minimum width=2.2cm] (ms) at (1.0,0.05)
+    \node[box, fill=white, minimum width=2.0cm] (ms) at (0.9,0.05)
       {MiniSearch};
-    \node[box, fill=white, minimum width=1.4cm] (cache) at (3.0,0.05)
+
+    % Cache sub-group
+    \node[box, fill=white, minimum width=1.2cm] (cache) at (3.1,0.05)
       {Cache};
-    \node[font=\tiny, text=black!35] at (0,-0.5)
+
+    \node[font=\tiny, text=black!35] at (0,-0.6)
       {local filesystem --- no external services};
 
     % --- Arrows ---
@@ -364,13 +374,16 @@ illustrated in Figure~\ref{fig:architecture}:
     % Agent → Exec: straight down (columns aligned at x=-2.0 and x=2.0)
     \draw[arr] (llm.south) -- (qexec.north);
     \draw[arr] (mtools.south) -- (cexec.north);
-    % QueryExecutor → Context Tree, MiniSearch, Cache
-    \draw[arr] ([xshift=-5pt]qexec.south) -- ++(0,-0.25) -| (ct.north);
-    \draw[arr] (qexec.south) -- ++(0,-0.40) -| (ms.north);
-    \draw[arr] ([xshift=5pt]qexec.south) -- ++(0,-0.55) -| (cache.north);
-    % CurateExecutor → Context Tree, MiniSearch
-    \draw[arr] ([xshift=-4pt]cexec.south) -- ++(0,-0.35) -| ([xshift=4pt]ct.north);
-    \draw[arr] ([xshift=4pt]cexec.south) -- ++(0,-0.50) -| ([xshift=4pt]ms.north);
+    % QueryExecutor → Store (straight down, x=-2.0 inside store)
+    \draw[arr] (qexec.south) -- (qexec.south |- store.north);
+    % CurateExecutor → Store (straight down, x=2.0 inside store)
+    \draw[arr] (cexec.south) -- (cexec.south |- store.north);
+    % QueryExecutor → Cache (L-shaped: down, right, down)
+    \draw[arr] ([xshift=10pt]qexec.south) -- ++(0,-0.35) -| (cache.north);
+
+    % Knowledge Layer title (drawn after arrows so it covers arrow lines)
+    \node[font=\scriptsize\bfseries, yellow!40!black, fill=yellow!10,
+          inner sep=2pt, rounded corners=1pt] at (0,0.8) {Knowledge Layer};
 
   \end{tikzpicture}
   \caption{Architectural overview of \byterover{}.
@@ -578,7 +591,7 @@ illustrated in Figure~\ref{fig:retrieval} and formalized in Algorithm~\ref{alg:r
     step/.style={draw, rounded corners=2pt, fill=#1,
                  minimum width=4.2cm, minimum height=0.5cm,
                  text centered, font=\scriptsize},
-    out/.style={draw, rounded corners=2pt, fill=green!10,
+    exitbox/.style={draw, rounded corners=2pt, fill=green!10,
                 minimum width=1.4cm, minimum height=0.4cm,
                 text centered, font=\tiny\bfseries},
     ylbl/.style={font=\tiny\sffamily, text=green!50!black},
@@ -596,30 +609,30 @@ illustrated in Figure~\ref{fig:retrieval} and formalized in Algorithm~\ref{alg:r
 
     \node[step=blue!8] (t0) at (0,-1.8)
       {Tier 0: Exact cache match?};
-    \node[out] (t0y) at (3.6,-1.8) {Return};
+    \node[exitbox] (t0y) at (3.6,-1.8) {Return};
 
     \node[step=blue!8] (t1) at (0,-2.7)
       {Tier 1: Fuzzy cache $\geq$0.6?};
-    \node[out] (t1y) at (3.6,-2.7) {Return};
+    \node[exitbox] (t1y) at (3.6,-2.7) {Return};
 
     \node[step=orange!8] (aw) at (0,-3.6)
       {Await search results};
 
     \node[step=red!6] (ood) at (0,-4.5)
       {Results = 0? (OOD)};
-    \node[out, fill=red!8] (oody) at (3.6,-4.5) {Reject};
+    \node[exitbox, fill=red!8] (oody) at (3.6,-4.5) {Reject};
 
     \node[step=yellow!12] (t2) at (0,-5.4)
       {Tier 2: Score $\geq$0.85 + dominant?};
-    \node[out] (t2y) at (3.6,-5.4) {Return};
+    \node[exitbox] (t2y) at (3.6,-5.4) {Return};
 
     \node[step=green!8] (t3) at (0,-6.3)
       {Tier 3: LLM + pre-fetched context};
-    \node[out] (t3y) at (3.6,-6.3) {Return};
+    \node[exitbox] (t3y) at (3.6,-6.3) {Return};
 
     \node[step=red!6] (t4) at (0,-7.2)
       {Tier 4: Full agentic loop};
-    \node[out] (t4y) at (3.6,-7.2) {Return};
+    \node[exitbox] (t4y) at (3.6,-7.2) {Return};
 
     % --- Main flow (vertical) ---
     \draw[arr] (q) -- (par);
@@ -656,7 +669,7 @@ illustrated in Figure~\ref{fig:retrieval} and formalized in Algorithm~\ref{alg:r
     % --- Bracket: no LLM ---
     \draw[decorate, decoration={brace, amplitude=3pt, mirror},
           thick, gray!40]
-      (-3.6,-1.5) -- (-3.6,-5.7)
+      (-4.0,-0.65) -- (-4.0,-5.65)
       node[midway, left=5pt, font=\tiny, text=black!40, align=right]
         {no LLM\\call};
 
