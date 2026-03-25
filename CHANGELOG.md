@@ -2,6 +2,11 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.3.4]
+
+### Changed
+- **ByteRover provider request format simplified** — Reduced unnecessary fields sent to the server for cleaner request handling.
+
 ## [2.3.3]
 
 ### Fixed
