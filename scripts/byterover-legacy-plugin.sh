@@ -77,10 +77,6 @@ enable_plugin_in_config() {
         config.plugins.entries = config.plugins.entries || {};
         config.plugins.entries["byterover"] = { enabled: true };
         // Pin as trusted to suppress "untracked local code" warning
-        config.plugins.allow = config.plugins.allow || [];
-        if (!config.plugins.allow.includes("byterover")) {
-            config.plugins.allow.push("byterover");
-        }
         // Register extension load path
         config.plugins.load = config.plugins.load || {};
         config.plugins.load.paths = config.plugins.load.paths || [];
@@ -109,11 +105,6 @@ disable_plugin_in_config() {
             process.exit(0);
         }
         delete entries["byterover"];
-        // Also remove from trust list
-        if (Array.isArray(config.plugins?.allow)) {
-            config.plugins.allow = config.plugins.allow.filter(id => id !== "byterover");
-            if (config.plugins.allow.length === 0) delete config.plugins.allow;
-        }
         // Also remove from load paths
         if (Array.isArray(config.plugins?.load?.paths)) {
             config.plugins.load.paths = config.plugins.load.paths.filter(p => p !== "~/.openclaw/extensions/byterover");

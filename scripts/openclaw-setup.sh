@@ -602,11 +602,6 @@ enable_onboarding_plugin_in_config() {
         config.plugins = config.plugins || {};
         config.plugins.entries = config.plugins.entries || {};
         config.plugins.entries["byterover-onboarding"] = { enabled: true };
-        // Pin as trusted to suppress "untracked local code" warning
-        config.plugins.allow = config.plugins.allow || [];
-        if (!config.plugins.allow.includes("byterover-onboarding")) {
-            config.plugins.allow.push("byterover-onboarding");
-        }
         // Register extension load path
         config.plugins.load = config.plugins.load || {};
         config.plugins.load.paths = config.plugins.load.paths || [];
@@ -635,11 +630,6 @@ disable_onboarding_plugin_in_config() {
             process.exit(0);
         }
         delete entries["byterover-onboarding"];
-        // Also remove from trust list
-        if (Array.isArray(config.plugins?.allow)) {
-            config.plugins.allow = config.plugins.allow.filter(id => id !== "byterover-onboarding");
-            if (config.plugins.allow.length === 0) delete config.plugins.allow;
-        }
         // Also remove from load paths
         if (Array.isArray(config.plugins?.load?.paths)) {
             config.plugins.load.paths = config.plugins.load.paths.filter(p => p !== "~/.openclaw/extensions/byterover-onboarding");
@@ -799,10 +789,6 @@ remove_existing_byterover_plugin() {
         const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
         const entries = config.plugins?.entries;
         if (entries && entries["byterover"]) delete entries["byterover"];
-        if (Array.isArray(config.plugins?.allow)) {
-            config.plugins.allow = config.plugins.allow.filter(id => id !== "byterover");
-            if (config.plugins.allow.length === 0) delete config.plugins.allow;
-        }
         if (Array.isArray(config.plugins?.load?.paths)) {
             config.plugins.load.paths = config.plugins.load.paths.filter(p => p !== "~/.openclaw/extensions/byterover");
             if (config.plugins.load.paths.length === 0) delete config.plugins.load.paths;
@@ -875,16 +861,6 @@ configure_context_plugin() {
 
   # Enable, trust, and assign to contextEngine slot
   openclaw plugins enable byterover || warn "Could not enable plugin — run: openclaw plugins enable byterover"
-  # Pin as trusted to suppress "untracked local code" warning (append, don't overwrite)
-  CONFIG_PATH="$CONFIG_PATH" node -e '
-    const fs = require("fs");
-    const configPath = process.env.CONFIG_PATH;
-    try {
-        const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-        config.plugins = config.plugins || {};
-        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-    } catch(e) { process.stderr.write("[byterover] allow-config warning: " + e.message + "\n"); }
-  ' || warn "Could not set plugins.allow — add \"byterover\" to plugins.allow in $CONFIG_PATH manually."
   openclaw config set plugins.slots.contextEngine byterover || warn "Could not set contextEngine slot — run: openclaw config set plugins.slots.contextEngine byterover"
 
   # Always configure the resolved brv path so the plugin doesn't need to re-search at runtime
