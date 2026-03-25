@@ -1,7 +1,11 @@
  
 import {expect} from 'chai'
 
-import {buildQueryFeedback, type QueryOutcome} from '../../../../../src/server/infra/harness/query/query-feedback-collector.js'
+import {
+  buildQueryFeedback,
+  QUERY_PARTIAL_SUCCESS_ALPHA,
+  type QueryOutcome,
+} from '../../../../../src/server/infra/harness/query/query-feedback-collector.js'
 
 function makeOutcome(overrides: Partial<QueryOutcome> = {}): QueryOutcome {
   return {
@@ -32,9 +36,10 @@ describe('buildQueryFeedback', () => {
     const feedback = buildQueryFeedback(allNodeIds, outcome)
 
     expect(feedback).to.have.lengthOf(3)
-    // All marked success=true (caller should use recordOutcomeF1 with alpha=0.7)
     for (const entry of feedback) {
       expect(entry.success).to.equal(true)
+      expect(entry.details.mode).to.equal('shadow')
+      expect(entry.details.f1Score).to.equal(QUERY_PARTIAL_SUCCESS_ALPHA)
     }
   })
 
@@ -59,6 +64,20 @@ describe('buildQueryFeedback', () => {
     expect(decomposeFeedback!.success).to.equal(false)
     expect(boostFeedback!.success).to.equal(true)
     expect(rerankFeedback!.success).to.equal(true)
+  })
+
+  it('does not mark supplemented decompose failures as shadow-mode F1 feedback', () => {
+    const outcome = makeOutcome({prefetched: true, supplemented: true, tier: 3})
+    const feedback = buildQueryFeedback(allNodeIds, outcome)
+
+    const decomposeFeedback = feedback.find((f) => f.nodeId === 'decompose-1')
+    const boostFeedback = feedback.find((f) => f.nodeId === 'boost-1')
+
+    expect(decomposeFeedback!.success).to.equal(false)
+    expect(decomposeFeedback!.details.mode).to.equal(undefined)
+    expect(decomposeFeedback!.details.f1Score).to.equal(undefined)
+    expect(boostFeedback!.details.mode).to.equal('shadow')
+    expect(boostFeedback!.details.f1Score).to.equal(QUERY_PARTIAL_SUCCESS_ALPHA)
   })
 
   it('OOD → returns empty array (no feedback)', () => {

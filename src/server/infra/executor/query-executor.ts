@@ -85,6 +85,25 @@ export class QueryExecutor implements IQueryExecutor {
   public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string> {
     const { query, taskId } = options
 
+    // === Tier 0: Exact cache hit (0ms) ===
+    // Check cache before harness/search work to avoid extra file I/O on hot paths.
+    let fingerprint: string | undefined
+    if (this.cache && this.fileSystem) {
+      fingerprint = await this.computeContextTreeFingerprint()
+      const cached = this.cache.get(query, fingerprint)
+      if (cached) {
+        return cached + ATTRIBUTION_FOOTER
+      }
+    }
+
+    // === Tier 1: Fuzzy cache match (~50ms) ===
+    if (this.cache && fingerprint) {
+      const fuzzyHit = this.cache.findSimilar(query, fingerprint)
+      if (fuzzyHit) {
+        return fuzzyHit + ATTRIBUTION_FOOTER
+      }
+    }
+
     // --- Harness: decompose query (sync, < 5ms) ---
     // Node IDs are captured per-query (not shared state) for concurrency safety.
     let effectiveQuery = query
@@ -106,30 +125,10 @@ export class QueryExecutor implements IQueryExecutor {
       }
     }
 
-    // Start search early — runs in parallel with fingerprint computation (independent operations)
+    // Start search after cache miss so hot paths avoid harness/search I/O entirely.
     const searchPromise = this.searchService?.search(effectiveQuery, { limit: SMART_ROUTING_MAX_DOCS })
-    // Prevent unhandled rejection if we return early (cache hit) while search is still pending
-    searchPromise?.catch(() => {})
 
-    // === Tier 0: Exact cache hit (0ms) ===
-    let fingerprint: string | undefined
-    if (this.cache && this.fileSystem) {
-      fingerprint = await this.computeContextTreeFingerprint()
-      const cached = this.cache.get(query, fingerprint)
-      if (cached) {
-        return cached + ATTRIBUTION_FOOTER
-      }
-    }
-
-    // === Tier 1: Fuzzy cache match (~50ms) ===
-    if (this.cache && fingerprint) {
-      const fuzzyHit = this.cache.findSimilar(query, fingerprint)
-      if (fuzzyHit) {
-        return fuzzyHit + ATTRIBUTION_FOOTER
-      }
-    }
-
-    // Await search result (already started in parallel with fingerprint computation)
+    // Await search result
     let searchResult: SearchKnowledgeResult | undefined
     try {
       searchResult = await searchPromise

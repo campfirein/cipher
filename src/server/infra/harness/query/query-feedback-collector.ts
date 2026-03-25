@@ -14,6 +14,9 @@ import type {HarnessFeedback} from '../../../core/interfaces/harness/i-harness-f
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
+export const QUERY_PARTIAL_SUCCESS_ALPHA = 0.7
+export const QUERY_PARTIAL_SUCCESS_BETA = 0.3
+
 export interface QueryOutcome {
   /** Tier 2 responded directly */
   directHit: boolean
@@ -78,6 +81,12 @@ export function buildQueryFeedback(
     entries.push({
       details: {
         directHit: outcome.directHit,
+        ...(isPrefetched && success
+          ? {
+              f1Score: QUERY_PARTIAL_SUCCESS_ALPHA,
+              mode: 'shadow',
+            }
+          : {}),
         prefetched: outcome.prefetched,
         role,
         supplemented: outcome.supplemented,

@@ -19,7 +19,12 @@ import {HarnessEngine} from '../harness-engine.js'
 import {DEFAULT_ALPHA, DEFAULT_BETA} from '../thompson-sampler.js'
 import {applyBoostAdjustments, computeBoostAdjustments} from './query-boost-template.js'
 import {type DecomposedQuery, decomposeQuery} from './query-decomposer-template.js'
-import {buildQueryFeedback, type QueryOutcome} from './query-feedback-collector.js'
+import {
+  buildQueryFeedback,
+  QUERY_PARTIAL_SUCCESS_ALPHA,
+  QUERY_PARTIAL_SUCCESS_BETA,
+  type QueryOutcome,
+} from './query-feedback-collector.js'
 import {rerankResults} from './query-reranker-template.js'
 
 // ── Cold-start templates ────────────────────────────────────────────────────
@@ -38,12 +43,6 @@ export const RERANK_ROOT_TEMPLATE = `reranking:
   domainCoherenceWeight: 0
   queryClassification: {}
 `
-
-// ── Domain constants ────────────────────────────────────────────────────────
-
-const DOMAIN_DECOMPOSE = 'query/decompose'
-const DOMAIN_BOOST = 'query/boost'
-const DOMAIN_RERANK = 'query/rerank'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -89,7 +88,7 @@ export class QueryHarnessService {
     query: string,
     domainHints: string[],
   ): Promise<{nodeId?: string; results: SearchKnowledgeResult['results']}> {
-    const selection = await this.selectOrSeed(this.boostEngine, DOMAIN_BOOST, BOOST_ROOT_TEMPLATE)
+    const selection = await this.selectOrSeed(this.boostEngine, BOOST_ROOT_TEMPLATE)
     const templateContent = selection?.node.templateContent ?? BOOST_ROOT_TEMPLATE
     const adjustments = computeBoostAdjustments(templateContent)
 
@@ -104,7 +103,7 @@ export class QueryHarnessService {
    * Returns decomposed query and the selected node ID.
    */
   async decomposeQuery(query: string): Promise<{decomposed: DecomposedQuery; nodeId?: string}> {
-    const selection = await this.selectOrSeed(this.decomposeEngine, DOMAIN_DECOMPOSE, DECOMPOSE_ROOT_TEMPLATE)
+    const selection = await this.selectOrSeed(this.decomposeEngine, DECOMPOSE_ROOT_TEMPLATE)
     const templateContent = selection?.node.templateContent ?? DECOMPOSE_ROOT_TEMPLATE
 
     return {
@@ -135,7 +134,12 @@ export class QueryHarnessService {
 
       // Partial success (Tier 3: prefetched but needed LLM)
       return outcome.prefetched && !outcome.directHit
-        ? engine.recordOutcomeF1(feedback.nodeId, 0.7, 0.3, feedback)
+        ? engine.recordOutcomeF1(
+          feedback.nodeId,
+          QUERY_PARTIAL_SUCCESS_ALPHA,
+          QUERY_PARTIAL_SUCCESS_BETA,
+          feedback,
+        )
         : engine.recordOutcome(feedback)
     })
 
@@ -168,7 +172,7 @@ export class QueryHarnessService {
     results: SearchKnowledgeResult['results'],
     query: string,
   ): Promise<{nodeId?: string; results: SearchKnowledgeResult['results']}> {
-    const selection = await this.selectOrSeed(this.rerankEngine, DOMAIN_RERANK, RERANK_ROOT_TEMPLATE)
+    const selection = await this.selectOrSeed(this.rerankEngine, RERANK_ROOT_TEMPLATE)
     const templateContent = selection?.node.templateContent ?? RERANK_ROOT_TEMPLATE
 
     return {
@@ -219,9 +223,9 @@ export class QueryHarnessService {
    */
   private async selectOrSeed(
     engine: HarnessEngine,
-    domain: string,
     defaultTemplate: string,
   ): Promise<null | {mode: 'fast' | 'shadow'; node: HarnessNode}> {
+    const {domain} = engine
     const selection = await engine.selectTemplate()
     if (selection) {
       return {mode: selection.mode, node: selection.node}

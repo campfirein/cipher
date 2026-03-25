@@ -113,7 +113,7 @@ function matchesQueryPattern(query: string, pattern: string): boolean {
     const escaped = pattern.replaceAll(/[$()+.?[\\\]^{|}]/g, String.raw`\$&`).replaceAll('*', '.{0,200}')
     regex = new RegExp(`^${escaped}$`)
 
-    // Evict oldest entries if cache is full
+    // Evict oldest inserted entry (FIFO) if cache is full
     if (patternCache.size >= MAX_PATTERN_CACHE) {
       const firstKey = patternCache.keys().next().value
       if (firstKey !== undefined) patternCache.delete(firstKey)

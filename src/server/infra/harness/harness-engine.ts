@@ -53,6 +53,10 @@ export class HarnessEngine implements IHarnessEngine {
     this.treeStore = deps.treeStore
   }
 
+  public get domain(): string {
+    return this.config.domain
+  }
+
   async recordOutcome(feedback: HarnessFeedback): Promise<void> {
     await this.withNodeLock(feedback.nodeId, async () => {
       const {domain} = this.config
