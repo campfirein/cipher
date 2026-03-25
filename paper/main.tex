@@ -283,27 +283,115 @@ illustrated in Figure~\ref{fig:architecture}:
 
 \begin{figure}[t]
   \centering
-  \fbox{\parbox{0.95\linewidth}{\centering
-    \vspace{6pt}
-    \todo{Insert Figure 1: High-level architecture diagram showing}\\
-    \todo{Agent Loop $\leftrightarrow$ Execution Layer (Sandbox + Task Queue)}\\
-    \todo{$\leftrightarrow$ Knowledge Layer (Context Tree + MiniSearch + Cache)}\\
-    \todo{Contrast with External Service Model on the left side.}
-    \vspace{6pt}
-  }}
+  \begin{tikzpicture}[
+    font=\small,
+    box/.style={draw, rounded corners=2pt, minimum height=0.55cm,
+                text centered, inner sep=3pt, font=\scriptsize},
+    layer/.style={draw, rounded corners=3pt, fill=#1,
+                  inner sep=6pt},
+    arr/.style={-{Stealth[length=4pt]}, semithick},
+    darr/.style={{Stealth[length=4pt]}-{Stealth[length=4pt]}, semithick},
+    lbl/.style={font=\scriptsize\sffamily, text=black!50},
+  ]
+
+    % === GRID: all elements on a strict 8cm-wide, center-aligned grid ===
+    % Column centers: left=-2.0, right=2.0
+    % Full width: 8.0cm, centered at x=0
+
+    % --- Clients row (y=7.2) ---
+    \node[box, fill=gray!6, minimum width=1.8cm] (cli-tui) at (-2.4,7.2) {TUI};
+    \node[box, fill=gray!6, minimum width=1.8cm] (cli-cli) at (0,7.2) {CLI};
+    \node[box, fill=gray!6, minimum width=1.8cm] (cli-mcp) at (2.4,7.2) {MCP};
+
+    % --- Daemon (y=6.0) ---
+    \node[layer=gray!8, minimum width=8.0cm, minimum height=1.0cm]
+      (daemon) at (0,6.0) {};
+    \node[font=\scriptsize\bfseries, black!40, anchor=west] at (-3.8,6.0) {Daemon};
+    \node[box, fill=white, minimum width=2.6cm] (tq) at (-1.2,6.0)
+      {Task Queue};
+    \node[box, fill=white, minimum width=2.6cm] (pool) at (1.8,6.0)
+      {Agent Pool};
+
+    % Client to daemon arrows
+    \draw[arr, gray!50] (cli-tui.south) -- (cli-tui.south |- daemon.north);
+    \draw[arr, gray!50] (cli-cli.south) -- (cli-cli.south |- daemon.north);
+    \draw[arr, gray!50] (cli-mcp.south) -- (cli-mcp.south |- daemon.north);
+    \node[lbl, font=\tiny, anchor=west] at (3.3,6.6) {Socket.IO};
+
+    % --- Agent Process boundary ---
+    \draw[thick, rounded corners=6pt, blue!25]
+      (-4.3,4.85) rectangle (4.3,-0.65);
+    \node[font=\scriptsize\bfseries, blue!40, anchor=west] at (-4.1,4.65) {Agent Process};
+    \node[font=\tiny, blue!25, anchor=east] at (4.1,4.65) {\itshape one per project};
+
+    % Daemon to agent arrow
+    \draw[arr, gray!50] (pool.south) -- (pool.south |- 0,4.85);
+
+    % --- Agent Layer (y=3.9) ---
+    \node[layer=blue!6, minimum width=8.0cm, minimum height=1.4cm]
+      (al) at (0,3.9) {};
+    \node[font=\scriptsize\bfseries, blue!50] at (0,4.4) {Agent Layer};
+    \node[box, fill=white, minimum width=2.8cm] (llm) at (-2.0,3.7)
+      {LLM Loop};
+    \node[box, fill=white, minimum width=3.4cm] (mtools) at (2.0,3.7)
+      {curate / search\_knowledge};
+
+    % --- Execution Layer (y=2.1) ---
+    \node[layer=green!6, minimum width=8.0cm, minimum height=1.4cm]
+      (el) at (0,2.1) {};
+    \node[font=\scriptsize\bfseries, green!40!black] at (0,2.6) {Execution Layer};
+    \node[box, fill=white, minimum width=2.8cm] (qexec) at (-2.0,1.9)
+      {QueryExecutor};
+    \node[box, fill=white, minimum width=3.4cm] (cexec) at (2.0,1.9)
+      {CurateExecutor + Sandbox};
+
+    % --- Knowledge Layer (y=0.3) ---
+    \node[layer=yellow!10, minimum width=8.0cm, minimum height=1.4cm]
+      (kl) at (0,0.3) {};
+    \node[font=\scriptsize\bfseries, yellow!40!black] at (0,0.8) {Knowledge Layer};
+    \node[box, fill=white, minimum width=2.2cm] (ct) at (-1.5,0.05)
+      {Context Tree};
+    \node[box, fill=white, minimum width=2.2cm] (ms) at (1.0,0.05)
+      {MiniSearch};
+    \node[box, fill=white, minimum width=1.4cm] (cache) at (3.0,0.05)
+      {Cache};
+    \node[font=\tiny, text=black!35] at (0,-0.5)
+      {local filesystem --- no external services};
+
+    % --- Arrows ---
+    % Agent layer: LLM ↔ tools
+    \draw[darr] (llm) -- (mtools);
+    % Agent → Exec: straight down (columns aligned at x=-2.0 and x=2.0)
+    \draw[arr] (llm.south) -- (qexec.north);
+    \draw[arr] (mtools.south) -- (cexec.north);
+    % QueryExecutor → Context Tree, MiniSearch, Cache
+    \draw[arr] ([xshift=-5pt]qexec.south) -- ++(0,-0.25) -| (ct.north);
+    \draw[arr] (qexec.south) -- ++(0,-0.40) -| (ms.north);
+    \draw[arr] ([xshift=5pt]qexec.south) -- ++(0,-0.55) -| (cache.north);
+    % CurateExecutor → Context Tree, MiniSearch
+    \draw[arr] ([xshift=-4pt]cexec.south) -- ++(0,-0.35) -| ([xshift=4pt]ct.north);
+    \draw[arr] ([xshift=4pt]cexec.south) -- ++(0,-0.50) -| ([xshift=4pt]ms.north);
+
+  \end{tikzpicture}
   \caption{Architectural overview of \byterover{}.
-    The system is composed of three layers:
-    (1) an Agent Layer where memory operations are first-class tools in the LLM's reasoning loop;
-    (2) an Execution Layer with a sequential task queue and sandboxed curation environment;
-    and (3) a Knowledge Layer with the \contexttree{}, full-text search index, and query cache.
-    Unlike external-service MAG systems (left), all components run in-process with zero external infrastructure.}
+    Clients (TUI, CLI, MCP) connect via Socket.IO to a daemon
+    that manages a per-project task queue and agent pool.
+    Each agent process contains three logical layers:
+    (1)~an \emph{Agent Layer} where \texttt{curate} and
+    \texttt{search\_knowledge} are first-class tools in the LLM's
+    reasoning loop;
+    (2)~an \emph{Execution Layer} with a query executor for 5-tier
+    progressive retrieval and a sandboxed curation environment;
+    and (3)~a \emph{Knowledge Layer} with the \contexttree{},
+    BM25 full-text index, and query cache,
+    all backed by the local filesystem with no external infrastructure.}
   \label{fig:architecture}
 \end{figure}
 
 The key design principle is that memory operations are \emph{tools in the agent's toolkit},
 not API calls to an external service.
 When the agent curates knowledge, it produces structured operations that execute within
-the same process, with per-operation feedback enabling real-time error recovery.
+the agent process, with per-operation feedback enabling real-time error recovery.
 When the agent queries knowledge, results are returned from in-process caches and indexes
 before any LLM call is considered.
 Each project is served by a single agent process with its own \contexttree{},
@@ -624,6 +712,7 @@ and returns a binary correctness label.
 For our own evaluations, we use Gemini~3 Flash as the judge
 with a separate justifier model (Gemini~3.1 Pro) that synthesizes
 an answer from retrieved context before scoring.
+Both models run at temperature~0.0 with top-$k$\,=\,10 results.
 
 \paragraph{Evaluation prompts.}
 To enable direct, apple-to-apple comparison with Hindsight~\citep{latimer2025hindsight},
@@ -1053,31 +1142,6 @@ Type-only circular imports are severity: low.
   (3)~Comparison of ByteRover's curated entry vs.\ RAG chunks
   for the same source document, showing structural richness.}
 
-
-\section{Baseline Configurations}
-\label{app:baselines}
-
-\begin{table}[h]
-\centering
-\small
-\begin{tabular}{@{}llll@{}}
-\toprule
-\textbf{Method} & \textbf{Embedding Model} & \textbf{LLM Temp.} & \textbf{Top-$k$} \\
-\midrule
-Full Context & N/A & 0.3 & N/A \\
-A-MEM & MiniLM-L6-v2 & 0.3 & 10 \\
-MemoryOS & MiniLM-L6-v2 & 0.3 & 10 \\
-Nemori & MiniLM-L6-v2 & 0.3 & 10 \\
-MAGMA & MiniLM-L6-v2 & 0.3 & 10 \\
-SimpleMem & MiniLM-L6-v2 & 0.3 & 10 \\
-\byterover{} & N/A (BM25) & 0.0 & N/A \\
-\bottomrule
-\end{tabular}
-\caption{Baseline configurations.
-  All baselines use unified settings from \citet{jiang2026anatomy}.
-  \byterover{} uses no embedding model---retrieval is BM25-based.}
-\label{tab:baseline-config}
-\end{table}
 
 
 \end{document}
