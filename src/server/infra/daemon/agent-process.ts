@@ -119,22 +119,28 @@ async function activateExistingSession(sessionId: string, providerId: string): P
   }
 }
 
-function syncCurationHarnessGenerator(currentAgent: CipherAgent, harness: CurationHarnessService | null): void {
-  if (!harness) return
+function syncHarnessGenerators(
+  currentAgent: CipherAgent,
+  curation: CurationHarnessService | null,
+  query: import('../harness/query/query-harness-service.js').QueryHarnessService | null,
+): void {
+  if (!curation && !query) return
   if (!currentAgent.sessionId) {
-    agentLog('syncCurationHarnessGenerator: no active session — refinement disabled')
+    agentLog('syncHarnessGenerators: no active session — refinement disabled')
 
     return
   }
 
   const session = currentAgent.getSession(currentAgent.sessionId)
   if (!session) {
-    agentLog(`syncCurationHarnessGenerator: session ${currentAgent.sessionId} not found — refinement disabled`)
+    agentLog(`syncHarnessGenerators: session ${currentAgent.sessionId} not found — refinement disabled`)
 
     return
   }
 
-  harness.setContentGenerator(session.getLLMService().getContentGenerator())
+  const generator = session.getLLMService().getContentGenerator()
+  curation?.setContentGenerator(generator)
+  query?.setContentGenerator(generator)
 }
 
 // ============================================================================
@@ -154,6 +160,7 @@ let cachedActiveModel = ''
 let cachedProviderApiKey: string | undefined
 let cachedProviderHeaders: string | undefined
 let curationHarness: CurationHarnessService | null = null
+let queryHarness: import('../harness/query/query-harness-service.js').QueryHarnessService | null = null
 
 // ============================================================================
 // Provider Config (resolved by daemon via state:getProviderConfig)
@@ -340,7 +347,7 @@ async function start(): Promise<void> {
       const newSessionId = `agent-session-${randomUUID()}`
       await agent.createSession(newSessionId)
       agent.switchDefaultSession(newSessionId)
-      syncCurationHarnessGenerator(agent, curationHarness)
+      syncHarnessGenerators(agent, curationHarness, queryHarness)
 
       await persistNewSession(newSessionId, cachedActiveProvider)
 
@@ -366,18 +373,23 @@ async function start(): Promise<void> {
   const searchService = createSearchKnowledgeService(fileSystemService, {baseDirectory: projectPath})
 
   // 7. Create executors and listen for task:execute from pool
-  // Initialize curation harness (fail-open: null if init fails)
+  // Initialize curation + query harnesses (fail-open: null if init fails)
   const {createCurationHarness} = await import('../harness/curation/create-curation-harness.js')
   curationHarness = await createCurationHarness(configResult.storagePath).catch(() => null)
-  syncCurationHarnessGenerator(agent, curationHarness)
+  const {createQueryHarness} = await import('../harness/query/create-query-harness.js')
+  queryHarness = await createQueryHarness(configResult.storagePath).catch(() => null)
+  // Sync content generators for both harnesses from the active session
+  syncHarnessGenerators(agent, curationHarness, queryHarness)
   const curateExecutor = new CurateExecutor(undefined, curationHarness ?? undefined)
   const folderPackService = new FolderPackService(fileSystemService)
   await folderPackService.initialize()
   const folderPackExecutor = new FolderPackExecutor(folderPackService)
+
   const queryExecutor = new QueryExecutor({
     baseDirectory: projectPath,
     enableCache: true,
     fileSystem: fileSystemService,
+    queryHarnessService: queryHarness ?? undefined,
     searchService,
   })
 
@@ -650,7 +662,7 @@ async function hotSwapProvider(
       const newSessionId = `agent-session-${randomUUID()}`
       await currentAgent.createSession(newSessionId)
       currentAgent.switchDefaultSession(newSessionId)
-      syncCurationHarnessGenerator(currentAgent, curationHarness)
+      syncHarnessGenerators(currentAgent, curationHarness, queryHarness)
       await persistNewSession(newSessionId, ap)
     } else {
       // Model-only or credential-only change: reuse session ID for metadata continuity.
@@ -658,7 +670,7 @@ async function hotSwapProvider(
       // Only the session ID and persisted metadata are preserved.
       await currentAgent.createSession(previousSessionId)
       currentAgent.switchDefaultSession(previousSessionId)
-      syncCurationHarnessGenerator(currentAgent, curationHarness)
+      syncHarnessGenerators(currentAgent, curationHarness, queryHarness)
       await activateExistingSession(previousSessionId, ap)
     }
   } catch (sessionError) {
@@ -670,7 +682,7 @@ async function hotSwapProvider(
       const recoveryId = `agent-session-${randomUUID()}`
       await currentAgent.createSession(recoveryId)
       currentAgent.switchDefaultSession(recoveryId)
-      syncCurationHarnessGenerator(currentAgent, curationHarness)
+      syncHarnessGenerators(currentAgent, curationHarness, queryHarness)
       await persistNewSession(recoveryId, ap)
       agentLog(`Recovery session created: ${recoveryId}`)
     } catch (error) {
