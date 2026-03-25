@@ -572,17 +572,103 @@ illustrated in Figure~\ref{fig:retrieval} and formalized in Algorithm~\ref{alg:r
 
 \begin{figure}[t]
   \centering
-  \fbox{\parbox{0.95\linewidth}{\centering
-    \vspace{6pt}
-    \todo{Insert Figure 3: 5-Tier Progressive Retrieval flowchart}\\
-    \todo{Query $\to$ Tier 0 (exact cache) $\to$ Tier 1 (fuzzy cache)}\\
-    \todo{$\to$ Tier 2 (BM25 direct) $\to$ Tier 3 (optimized LLM)}\\
-    \todo{$\to$ Tier 4 (full agentic loop)}
-    \vspace{6pt}
-  }}
+  \begin{tikzpicture}[
+    font=\scriptsize,
+    arr/.style={-{Stealth[length=3pt]}, semithick},
+    step/.style={draw, rounded corners=2pt, fill=#1,
+                 minimum width=4.2cm, minimum height=0.5cm,
+                 text centered, font=\scriptsize},
+    out/.style={draw, rounded corners=2pt, fill=green!10,
+                minimum width=1.4cm, minimum height=0.4cm,
+                text centered, font=\tiny\bfseries},
+    ylbl/.style={font=\tiny\sffamily, text=green!50!black},
+    nlbl/.style={font=\tiny\sffamily, text=black!50},
+  ]
+
+    % Vertical spacing: 0.9cm between rows
+    % Main column at x=0, output column at x=3.6
+
+    \node[step=gray!10, font=\scriptsize\bfseries] (q) at (0,0)
+      {Query $q$};
+
+    \node[step=blue!5] (par) at (0,-0.9)
+      {Start search $\parallel$ Compute fingerprint};
+
+    \node[step=blue!8] (t0) at (0,-1.8)
+      {Tier 0: Exact cache match?};
+    \node[out] (t0y) at (3.6,-1.8) {Return};
+
+    \node[step=blue!8] (t1) at (0,-2.7)
+      {Tier 1: Fuzzy cache $\geq$0.6?};
+    \node[out] (t1y) at (3.6,-2.7) {Return};
+
+    \node[step=orange!8] (aw) at (0,-3.6)
+      {Await search results};
+
+    \node[step=red!6] (ood) at (0,-4.5)
+      {Results = 0? (OOD)};
+    \node[out, fill=red!8] (oody) at (3.6,-4.5) {Reject};
+
+    \node[step=yellow!12] (t2) at (0,-5.4)
+      {Tier 2: Score $\geq$0.85 + dominant?};
+    \node[out] (t2y) at (3.6,-5.4) {Return};
+
+    \node[step=green!8] (t3) at (0,-6.3)
+      {Tier 3: LLM + pre-fetched context};
+    \node[out] (t3y) at (3.6,-6.3) {Return};
+
+    \node[step=red!6] (t4) at (0,-7.2)
+      {Tier 4: Full agentic loop};
+    \node[out] (t4y) at (3.6,-7.2) {Return};
+
+    % --- Main flow (vertical) ---
+    \draw[arr] (q) -- (par);
+    \draw[arr] (par) -- (t0);
+    \draw[arr] (t0) -- node[nlbl, right] {miss} (t1);
+    \draw[arr] (t1) -- node[nlbl, right] {miss} (aw);
+    \draw[arr] (aw) -- (ood);
+    \draw[arr] (ood) -- node[nlbl, right] {no} (t2);
+    \draw[arr] (t2) -- node[nlbl, right] {miss} (t3);
+    \draw[arr] (t3) -- node[nlbl, right] {no ctx} (t4);
+
+    % --- Hit/match exits (horizontal) ---
+    \draw[arr] (t0) -- node[ylbl, above] {hit} (t0y);
+    \draw[arr] (t1) -- node[ylbl, above] {hit} (t1y);
+    \draw[arr] (ood) -- node[ylbl, above] {yes} (oody);
+    \draw[arr] (t2) -- node[ylbl, above] {hit} (t2y);
+    \draw[arr] (t3) -- (t3y);
+    \draw[arr] (t4) -- (t4y);
+
+    % --- Right-side tier labels ---
+    \node[font=\tiny, text=black!35, anchor=west] at (4.5,-1.8) {0\,ms};
+    \node[font=\tiny, text=black!35, anchor=west] at (4.5,-2.7) {$\sim$50\,ms};
+    \node[font=\tiny, text=black!35, anchor=west] at (4.5,-5.4) {$\sim$200\,ms};
+    \node[font=\tiny, text=black!35, anchor=west] at (4.5,-6.3) {$<$5\,s};
+    \node[font=\tiny, text=black!35, anchor=west] at (4.5,-7.2) {8--15\,s};
+
+    % --- Left-side component labels ---
+    \node[font=\tiny, text=blue!50, anchor=east] at (-2.5,-1.8) {Cache};
+    \node[font=\tiny, text=blue!50, anchor=east] at (-2.5,-2.7) {Cache};
+    \node[font=\tiny, text=yellow!50!black, anchor=east] at (-2.5,-5.4) {MiniSearch};
+    \node[font=\tiny, text=green!50!black, anchor=east] at (-2.5,-6.3) {LLM};
+    \node[font=\tiny, text=red!50!black, anchor=east] at (-2.5,-7.2) {Agent};
+
+    % --- Bracket: no LLM ---
+    \draw[decorate, decoration={brace, amplitude=3pt, mirror},
+          thick, gray!40]
+      (-3.6,-1.5) -- (-3.6,-5.7)
+      node[midway, left=5pt, font=\tiny, text=black!40, align=right]
+        {no LLM\\call};
+
+  \end{tikzpicture}
   \caption{The 5-tier progressive retrieval pipeline.
-    Most queries resolve at Tier~0--2 without any LLM call.
-    Only novel or complex queries escalate to Tier~3--4.}
+    Search is initiated in parallel with fingerprint computation.
+    Tiers~0--1 resolve from cache without awaiting search.
+    Tier~2 serves high-confidence results directly from MiniSearch.
+    Only novel or ambiguous queries escalate to
+    Tier~3 (single optimized LLM call with pre-fetched context) or
+    Tier~4 (full agentic loop with tool access).
+    Approximate latencies shown on right.}
   \label{fig:retrieval}
 \end{figure}
 
