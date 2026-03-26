@@ -3,6 +3,7 @@ import axios, {isAxiosError} from 'axios'
 
 import type {ProviderTokenResponse, TokenExchangeParams} from './types.js'
 
+import {ProxyConfig} from '../http/proxy-config.js'
 import {extractOAuthErrorFields, ProviderTokenExchangeError} from './errors.js'
 import {ProviderTokenResponseSchema} from './types.js'
 
@@ -34,6 +35,8 @@ export async function exchangeCodeForTokens(params: TokenExchangeParams): Promis
         headers: {
           'Content-Type': params.contentType,
         },
+        httpAgent: ProxyConfig.getProxyAgent(),
+        httpsAgent: ProxyConfig.getProxyAgent(),
         timeout: 30_000,
       },
     )

@@ -7,6 +7,7 @@ import {
   ByteRoverHttpConfig,
   ByteRoverLlmHttpService,
 } from '../../../../src/agent/infra/http/internal-llm-http-service.js'
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 
 // Helper functions to verify request body - extracted to reduce callback nesting
 function verifyProjectId(expectedProjectId: string) {
@@ -62,6 +63,7 @@ describe('ByteRoverLlmHttpService', () => {
 
   beforeEach(() => {
     sandbox = createSandbox()
+    sandbox.stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     nock.cleanAll()
   })
 
@@ -321,7 +323,7 @@ describe('ByteRoverLlmHttpService', () => {
         expect.fail('Should have thrown an error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message.toLowerCase()).to.include('timeout')
+        expect((error as Error).message.toLowerCase()).to.include('connection failed')
       }
     })
   })

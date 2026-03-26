@@ -1,13 +1,20 @@
 /* eslint-disable camelcase -- OAuth token fields use snake_case per RFC 6749 */
 import {expect} from 'chai'
 import nock from 'nock'
+import {restore, stub} from 'sinon'
 import {ZodError} from 'zod'
 
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 import {ProviderTokenExchangeError} from '../../../../src/server/infra/provider-oauth/errors.js'
 import {exchangeRefreshToken} from '../../../../src/server/infra/provider-oauth/refresh-token-exchange.js'
 
 describe('exchangeRefreshToken', () => {
+  beforeEach(() => {
+    stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
+  })
+
   afterEach(() => {
+    restore()
     nock.cleanAll()
   })
 

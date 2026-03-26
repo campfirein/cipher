@@ -88,6 +88,7 @@ src/
 - Clients (TUI, CLI, MCP, agent child processes) connect via `@campfirein/brv-transport-client`
 - Agent pool manages forked agent child processes per project
 - `src/server/infra/process/` - Task routing, transport handlers, feature handlers
+- Proxy support: `server/infra/http/proxy-config.ts` (`proxy-agent`) — applied to all HTTP clients
 
 ### Agent (`src/agent/`)
 

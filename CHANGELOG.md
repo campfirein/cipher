@@ -2,6 +2,11 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.4.0]
+
+### Added
+- **Enterprise proxy support** — All HTTP traffic now automatically routes through corporate proxies when standard environment variables are set (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`). For environments with SSL inspection, set `NODE_EXTRA_CA_CERTS` to your corporate CA certificate. The CLI provides clear error messages when proxy or certificate issues are detected.
+
 ## [2.3.4]
 
 ### Changed

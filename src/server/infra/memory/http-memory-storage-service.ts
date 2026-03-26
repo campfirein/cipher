@@ -11,6 +11,7 @@ import {PresignedUrl} from '../../core/domain/entities/presigned-url.js'
 import {PresignedUrlsResponse} from '../../core/domain/entities/presigned-urls-response.js'
 import {getErrorMessage} from '../../utils/error-helpers.js'
 import {AuthenticatedHttpClient} from '../http/authenticated-http-client.js'
+import {ProxyConfig} from '../http/proxy-config.js'
 
 export type MemoryStorageServiceConfig = {
   apiBaseUrl: string
@@ -112,6 +113,8 @@ export class HttpMemoryStorageService implements IMemoryStorageService {
         headers: {
           'Content-Type': 'application/json',
         },
+        httpAgent: ProxyConfig.getProxyAgent(),
+        httpsAgent: ProxyConfig.getProxyAgent(),
         timeout: this.config.timeout,
       })
     } catch (error) {
