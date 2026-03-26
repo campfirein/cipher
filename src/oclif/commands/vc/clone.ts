@@ -1,74 +1,86 @@
-import {Command, Flags} from '@oclif/core'
+import {Args, Command, Flags} from '@oclif/core'
 
-import {SpaceEvents, type SpaceListResponse} from '../../../shared/transport/events/space-events.js'
-import {type IVcCloneProgressEvent, type IVcCloneResponse, VcEvents} from '../../../shared/transport/events/vc-events.js'
+import {
+  type IVcCloneProgressEvent,
+  type IVcCloneResponse,
+  VcEvents,
+} from '../../../shared/transport/events/vc-events.js'
 import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
+function subscribeToProgress(client: {on: <T>(event: string, handler: (data: T) => void) => () => void}): {
+  cleanup: () => void
+} {
+  let lastWasProgress = false
+  const unsub = client.on<IVcCloneProgressEvent>(VcEvents.CLONE_PROGRESS, (evt: IVcCloneProgressEvent) => {
+    const isGitProgress = evt.step === 'cloning' && /^\w[\w\s]*: \d/.test(evt.message)
+    if (isGitProgress) {
+      process.stderr.write(`\r\u001B[K${evt.message}`)
+      lastWasProgress = true
+    } else {
+      if (lastWasProgress) process.stderr.write('\n')
+      process.stderr.write(`${evt.message}\n`)
+      lastWasProgress = false
+    }
+  })
+
+  return {
+    cleanup() {
+      if (lastWasProgress) process.stderr.write('\n')
+      unsub()
+    },
+  }
+}
+
 export default class VcClone extends Command {
+  public static args = {
+    url: Args.string({description: 'Clone URL (e.g. https://byterover.dev/team/space.brv)'}),
+  }
   public static description = 'Clone a ByteRover space repository'
-  public static examples = ['<%= config.bin %> vc clone --team acme --space my-space']
+  public static examples = [
+    '<%= config.bin %> vc clone https://byterover.dev/acme/project.brv',
+    '<%= config.bin %> vc clone https://cogit.byterover.dev/git/teamId/spaceId.git',
+    '<%= config.bin %> vc clone --team acme --space my-space',
+  ]
   public static flags = {
     space: Flags.string({
       char: 's',
       description: 'Name of the space to clone',
-      required: true,
     }),
     team: Flags.string({
       char: 't',
       description: 'Team name',
-      required: true,
     }),
   }
 
   public async run(): Promise<void> {
-    const {flags} = await this.parse(VcClone)
-    const spaceName = flags.space
-    const teamName = flags.team
+    const {args, flags} = await this.parse(VcClone)
+
+    // Resolve URL from args or flags
+    let {url} = args
+    if (!url && flags.team && flags.space) {
+      url = `https://byterover.dev/${flags.team}/${flags.space}.brv`
+    }
+
+    if (!url) {
+      this.error(
+        'Provide a URL or use --team and --space flags.\n' +
+          'Usage: brv vc clone <url>\n' +
+          '       brv vc clone --team <team> --space <space>',
+      )
+    }
 
     try {
       const result = await withDaemonRetry(async (client) => {
-        const {teams} = await client.requestWithAck<SpaceListResponse>(SpaceEvents.LIST)
-        const team = teams.find((t) => t.teamName === teamName)
-
-        if (!team) {
-          const available = teams.map((t) => t.teamName).join(', ')
-          throw new Error(
-            teams.length > 0
-              ? `Team "${teamName}" not found. Available teams: ${available}`
-              : `Team "${teamName}" not found. No teams available.`,
-          )
-        }
-
-        const targetSpace = team.spaces.find((s) => s.name === spaceName)
-        if (!targetSpace) {
-          const available = team.spaces.map((s) => s.name).join(', ')
-          throw new Error(
-            team.spaces.length > 0
-              ? `Space "${spaceName}" not found in team "${teamName}". Available spaces: ${available}`
-              : `Space "${spaceName}" not found in team "${teamName}". No spaces available.`,
-          )
-        }
-
-        // Listen for clone progress events
-        const unsub = client.on<IVcCloneProgressEvent>(VcEvents.CLONE_PROGRESS, (evt) => {
-          process.stderr.write(`\r${evt.message}`)
-        })
-
+        const {cleanup} = subscribeToProgress(client)
         try {
-          const response = await client.requestWithAck<IVcCloneResponse>(VcEvents.CLONE, {
-            spaceId: targetSpace.id,
-            spaceName: targetSpace.name,
-            teamId: targetSpace.teamId,
-            teamName: targetSpace.teamName,
-          }, {timeout: 120_000})
-          process.stderr.write('\n')
-          return response
+          return await client.requestWithAck<IVcCloneResponse>(VcEvents.CLONE, {url}, {timeout: 120_000})
         } finally {
-          unsub()
+          cleanup()
         }
       })
 
-      this.log(`Cloned ${result.teamName}/${result.spaceName} successfully.`)
+      const label = result.teamName && result.spaceName ? `${result.teamName}/${result.spaceName}` : 'repository'
+      this.log(`Cloned ${label} successfully.`)
       this.log(`Git dir: ${result.gitDir}`)
     } catch (error) {
       this.error(formatConnectionError(error))

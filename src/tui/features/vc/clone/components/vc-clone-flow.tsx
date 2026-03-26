@@ -1,6 +1,6 @@
 import {Box, Text} from 'ink'
 import Spinner from 'ink-spinner'
-import React, {useCallback, useEffect, useMemo, useState} from 'react'
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
 import type {IVcCloneProgressEvent} from '../../../../../shared/transport/events/vc-events.js'
 import type {CustomDialogCallbacks} from '../../../../types/commands.js'
@@ -23,17 +23,23 @@ interface SpaceItem {
 
 type CloneStep = 'cloning' | 'selecting'
 
-export function VcCloneFlow({onCancel, onComplete}: CustomDialogCallbacks): React.ReactNode {
+interface VcCloneFlowProps extends CustomDialogCallbacks {
+  url?: string
+}
+
+export function VcCloneFlow({onCancel, onComplete, url}: VcCloneFlowProps): React.ReactNode {
   const {
     theme: {colors},
   } = useTheme()
 
-  const [step, setStep] = useState<CloneStep>('selecting')
+  const [step, setStep] = useState<CloneStep>(url ? 'cloning' : 'selecting')
   const [error, setError] = useState<null | string>(null)
   const [selected, setSelected] = useState<null | SpaceItem>(null)
   const [progressMessages, setProgressMessages] = useState<string[]>([])
+  const mutatedRef = useRef(false)
 
-  const {data, error: fetchError, isLoading} = useGetSpaces()
+  // Only fetch spaces when no URL is provided (space picker mode)
+  const {data, error: fetchError, isLoading} = useGetSpaces({queryConfig: {enabled: !url}})
   const cloneMutation = useExecuteVcClone()
 
   const allSpaces = useMemo(
@@ -42,16 +48,16 @@ export function VcCloneFlow({onCancel, onComplete}: CustomDialogCallbacks): Reac
   )
 
   useEffect(() => {
-    if (fetchError) {
+    if (fetchError && !url) {
       onComplete(formatTransportError(fetchError))
     }
-  }, [fetchError, onComplete])
+  }, [fetchError, onComplete, url])
 
   useEffect(() => {
-    if (!isLoading && allSpaces.length === 0 && data) {
+    if (!url && !isLoading && allSpaces.length === 0 && data) {
       onComplete('No spaces found. Please create a space in the ByteRover dashboard first.')
     }
-  }, [allSpaces.length, data, isLoading, onComplete])
+  }, [allSpaces.length, data, isLoading, onComplete, url])
 
   const spaceItems: SpaceItem[] = useMemo(
     () =>
@@ -66,32 +72,51 @@ export function VcCloneFlow({onCancel, onComplete}: CustomDialogCallbacks): Reac
   )
 
   useEffect(() => {
-    if (step !== 'cloning' || !selected) return
+    if (step !== 'cloning' || mutatedRef.current) return
+    mutatedRef.current = true
 
     const {apiClient} = useTransportStore.getState()
     const unsub = apiClient?.on<IVcCloneProgressEvent>(VcEvents.CLONE_PROGRESS, (evt) => {
       setProgressMessages((prev) => [...prev, evt.message])
     })
 
-    cloneMutation.mutate(
-      {spaceId: selected.spaceId, spaceName: selected.spaceName, teamId: selected.teamId, teamName: selected.teamName},
-      {
-        onError(err) {
-          unsub?.()
+    // Build the clone request based on URL or space selection
+    const request = url
+      ? {url}
+      : selected
+        ? {spaceId: selected.spaceId, spaceName: selected.spaceName, teamId: selected.teamId, teamName: selected.teamName}
+        : null
+
+    if (!request) {
+      mutatedRef.current = false
+      unsub?.()
+      return
+    }
+
+    cloneMutation.mutate(request, {
+      onError(err) {
+        unsub?.()
+        mutatedRef.current = false
+        if (url) {
+          onComplete(formatTransportError(err))
+        } else {
           setStep('selecting')
           setError(formatTransportError(err))
-        },
-        onSuccess(result) {
-          unsub?.()
-          onComplete(`Cloned ${result.teamName}/${result.spaceName} successfully.`)
-        },
+        }
       },
-    )
+      onSuccess(result) {
+        unsub?.()
+        const label = result.teamName && result.spaceName
+          ? `${result.teamName}/${result.spaceName}`
+          : 'repository'
+        onComplete(`Cloned ${label} successfully.`)
+      },
+    })
 
     return () => {
       unsub?.()
     }
-  }, [step, selected])
+  }, [onComplete, step, selected, url])
 
   const handleSelect = useCallback((item: SpaceItem) => {
     setError(null)
@@ -99,24 +124,24 @@ export function VcCloneFlow({onCancel, onComplete}: CustomDialogCallbacks): Reac
     setStep('cloning')
   }, [])
 
-  if (isLoading) {
-    return (
-      <Box>
-        <Text color={colors.dimText}>Fetching spaces...</Text>
-      </Box>
-    )
-  }
-
   if (step === 'cloning') {
     return (
       <>
-        {progressMessages.map((msg) => (
-          <Text key={msg}>{msg}</Text>
+        {progressMessages.map((msg, idx) => (
+          <Text key={idx}>{msg}</Text>
         ))}
         <Text>
           <Spinner type="dots" /> Cloning...
         </Text>
       </>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <Box>
+        <Text color={colors.dimText}>Fetching spaces...</Text>
+      </Box>
     )
   }
 

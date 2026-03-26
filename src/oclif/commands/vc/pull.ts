@@ -29,14 +29,14 @@ export default class VcPull extends Command {
 
     if (args.arg1 && args.arg2) {
       if (args.arg1 !== 'origin') {
-        this.error(`Unknown remote '${args.arg1}'.`)
+        this.error(`Only 'origin' remote is currently supported.`)
       }
 
       remote = args.arg1
       branch = args.arg2
     } else if (args.arg1) {
       if (args.arg1 !== 'origin') {
-        this.error(`Unknown remote '${args.arg1}'.`)
+        this.error(`Only 'origin' remote is currently supported.`)
       }
 
       remote = args.arg1

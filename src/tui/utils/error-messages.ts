@@ -27,6 +27,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_VC_INVALID_ACTION: 'Invalid action.',
   ERR_VC_INVALID_BRANCH_NAME: 'Invalid branch name.',
   ERR_VC_INVALID_CONFIG_KEY: 'Invalid config key. Allowed: user.name, user.email.',
+  ERR_VC_NO_COMMITS: 'No commits yet. Run /vc add and /vc commit first.',
   ERR_VC_NO_REMOTE: 'No remote configured. Run /vc remote add origin <url>.',
   ERR_VC_NON_FAST_FORWARD: 'Remote has changes. Run /vc pull first.',
   ERR_VC_NOTHING_STAGED: 'Nothing staged. Run /vc add first.',

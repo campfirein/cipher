@@ -6,6 +6,7 @@ export const VcErrorCode = {
   CANNOT_DELETE_CURRENT_BRANCH: 'ERR_VC_CANNOT_DELETE_CURRENT_BRANCH',
   CLONE_FAILED: 'ERR_VC_CLONE_FAILED',
   CONFIG_KEY_NOT_SET: 'ERR_VC_CONFIG_KEY_NOT_SET',
+  FETCH_FAILED: 'ERR_VC_FETCH_FAILED',
   GIT_NOT_INITIALIZED: 'ERR_VC_GIT_NOT_INITIALIZED',
   INVALID_ACTION: 'ERR_VC_INVALID_ACTION',
   INVALID_BRANCH_NAME: 'ERR_VC_INVALID_BRANCH_NAME',
@@ -13,6 +14,7 @@ export const VcErrorCode = {
   INVALID_REMOTE_URL: 'ERR_VC_INVALID_REMOTE_URL',
   MERGE_CONFLICT: 'ERR_VC_MERGE_CONFLICT',
   MERGE_IN_PROGRESS: 'ERR_VC_MERGE_IN_PROGRESS',
+  NO_COMMITS: 'ERR_VC_NO_COMMITS',
   NO_MERGE_IN_PROGRESS: 'ERR_VC_NO_MERGE_IN_PROGRESS',
   NO_REMOTE: 'ERR_VC_NO_REMOTE',
   NO_UPSTREAM: 'ERR_VC_NO_UPSTREAM',
@@ -43,9 +45,9 @@ export const VcEvents = {
   PULL: 'vc:pull',
   PUSH: 'vc:push',
   REMOTE: 'vc:remote',
-  // vc-remote-url start
+
   REMOTE_URL: 'vc:remote-url',
-  // vc-remote-url end
+
   STATUS: 'vc:status',
 } as const
 
@@ -58,10 +60,12 @@ export interface IVcStatusResponse {
   ahead?: number
   behind?: number
   branch?: string
+  hasCommits?: boolean
   initialized: boolean
   mergeInProgress?: boolean
   staged: {added: string[]; deleted: string[]; modified: string[]}
   trackingBranch?: string
+  unmerged?: Array<{path: string; type: string}>
   unstaged: {deleted: string[]; modified: string[]}
   untracked: string[]
 }
@@ -173,17 +177,14 @@ export interface IVcRemoteResponse {
   url?: string
 }
 
-export interface IVcCloneRequest {
-  spaceId: string
-  spaceName: string
-  teamId: string
-  teamName: string
-}
+export type IVcCloneRequest =
+  | {spaceId: string; spaceName: string; teamId: string; teamName: string; url?: never}
+  | {spaceId?: string; spaceName?: string; teamId?: string; teamName?: string; url: string}
 
 export interface IVcCloneResponse {
   gitDir: string
-  spaceName: string
-  teamName: string
+  spaceName?: string
+  teamName?: string
 }
 
 export interface IVcCloneProgressEvent {
@@ -233,7 +234,7 @@ export interface IVcMergeResponse {
   defaultMessage?: string
 }
 
-// vc-remote-url start
+
 export interface IVcRemoteUrlRequest {
   spaceId: string
   teamId: string
@@ -242,4 +243,3 @@ export interface IVcRemoteUrlRequest {
 export interface IVcRemoteUrlResponse {
   url: string
 }
-// vc-remote-url end

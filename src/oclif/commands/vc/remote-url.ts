@@ -55,6 +55,7 @@ export default class VcRemoteUrl extends Command {
         })
       })
 
+      this.warn('This URL contains credentials. Do not share or commit it.')
       this.log(result.url)
     } catch (error) {
       this.error(formatConnectionError(error))

@@ -129,7 +129,7 @@ export default class VcMerge extends Command {
     writeFileSync(tmpFile, defaultMessage)
 
     try {
-      execSync(`${editor} ${tmpFile}`, {stdio: 'inherit'})
+      execSync(`${editor} "${tmpFile}"`, {stdio: 'inherit'})
       const content = readFileSync(tmpFile, 'utf8')
       // Strip comment lines and trim
       const cleaned = content

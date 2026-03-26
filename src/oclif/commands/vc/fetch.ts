@@ -23,14 +23,14 @@ export default class VcFetch extends Command {
 
     if (args.arg1 && args.arg2) {
       if (args.arg1 !== 'origin') {
-        this.error(`Unknown remote '${args.arg1}'.`)
+        this.error(`Only 'origin' remote is currently supported.`)
       }
 
       remote = args.arg1
       ref = args.arg2
     } else if (args.arg1) {
       if (args.arg1 !== 'origin') {
-        this.error(`Unknown remote '${args.arg1}'.`)
+        this.error(`Only 'origin' remote is currently supported.`)
       }
 
       remote = args.arg1

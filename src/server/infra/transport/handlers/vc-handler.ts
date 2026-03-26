@@ -4,6 +4,8 @@ import {join} from 'node:path'
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
 import type {GitCommit, IGitService} from '../../../core/interfaces/services/i-git-service.js'
+import type {ISpaceService} from '../../../core/interfaces/services/i-space-service.js'
+import type {ITeamService} from '../../../core/interfaces/services/i-team-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 import type {IVcGitConfig, IVcGitConfigStore} from '../../../core/interfaces/vc/i-vc-git-config-store.js'
@@ -35,10 +37,8 @@ import {
   type IVcPushResponse,
   type IVcRemoteRequest,
   type IVcRemoteResponse,
-  // vc-remote-url start
   type IVcRemoteUrlRequest,
   type IVcRemoteUrlResponse,
-  // vc-remote-url end
   type IVcStatusResponse,
   VcErrorCode,
   VcEvents,
@@ -48,7 +48,7 @@ import {Space} from '../../../core/domain/entities/space.js'
 import {GitAuthError, GitError} from '../../../core/domain/errors/git-error.js'
 import {NotAuthenticatedError} from '../../../core/domain/errors/task-error.js'
 import {VcError} from '../../../core/domain/errors/vc-error.js'
-import {buildCogitRemoteUrl} from '../../git/cogit-url.js'
+import {buildCogitRemoteUrl, isValidBranchName, parseBrvUrl, parseGitPathUrl} from '../../git/cogit-url.js'
 import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 const FIELD_MAP: Record<string, 'email' | 'name'> = {
@@ -63,6 +63,8 @@ export interface IVcHandlerDeps {
   gitService: IGitService
   projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
+  spaceService: ISpaceService
+  teamService: ITeamService
   tokenStore: ITokenStore
   transport: ITransportServer
   vcGitConfigStore: IVcGitConfigStore
@@ -78,6 +80,8 @@ export class VcHandler {
   private readonly gitService: IGitService
   private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
+  private readonly spaceService: ISpaceService
+  private readonly teamService: ITeamService
   private readonly tokenStore: ITokenStore
   private readonly transport: ITransportServer
   private readonly vcGitConfigStore: IVcGitConfigStore
@@ -89,6 +93,8 @@ export class VcHandler {
     this.gitService = deps.gitService
     this.projectConfigStore = deps.projectConfigStore
     this.resolveProjectPath = deps.resolveProjectPath
+    this.spaceService = deps.spaceService
+    this.teamService = deps.teamService
     this.tokenStore = deps.tokenStore
     this.transport = deps.transport
     this.vcGitConfigStore = deps.vcGitConfigStore
@@ -132,11 +138,11 @@ export class VcHandler {
     this.transport.onRequest<IVcRemoteRequest, IVcRemoteResponse>(VcEvents.REMOTE, (data, clientId) =>
       this.handleRemote(data, clientId),
     )
-    // vc-remote-url start
+
     this.transport.onRequest<IVcRemoteUrlRequest, IVcRemoteUrlResponse>(VcEvents.REMOTE_URL, (data) =>
       this.handleRemoteUrl(data),
     )
-    // vc-remote-url end
+
     this.transport.onRequest<void, IVcStatusResponse>(VcEvents.STATUS, (_data, clientId) => this.handleStatus(clientId))
   }
 
@@ -232,6 +238,12 @@ export class VcHandler {
       throw new VcError(`Branch '${name}' already exists.`, VcErrorCode.BRANCH_ALREADY_EXISTS)
     }
 
+    // Block branch creation on empty repo (no commits yet) — matches native git behavior
+    const commits = await this.gitService.log({depth: 1, directory})
+    if (commits.length === 0) {
+      throw new VcError('You must make an initial commit before creating branches.', VcErrorCode.NO_COMMITS)
+    }
+
     await this.gitService.createBranch({branch: name, directory})
     return {action: 'create', created: name}
   }
@@ -324,6 +336,15 @@ export class VcHandler {
       await this.gitService.checkout({directory, force: data.force, ref: data.branch})
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'NotFoundError') {
+        // Distinguish empty repo from branch-not-found
+        const commits = await this.gitService.log({depth: 1, directory})
+        if (commits.length === 0) {
+          throw new VcError(
+            `Your current branch does not have any commits yet. Run '/vc add' and '/vc commit' first.`,
+            VcErrorCode.NO_COMMITS,
+          )
+        }
+
         throw new VcError(
           `Branch '${data.branch}' not found. Use '/vc checkout -b ${data.branch}' to create it.`,
           VcErrorCode.BRANCH_NOT_FOUND,
@@ -337,9 +358,6 @@ export class VcHandler {
   }
 
   private async handleClone(data: IVcCloneRequest, clientId: string): Promise<IVcCloneResponse> {
-    const token = await this.tokenStore.load()
-    if (!token?.isValid()) throw new NotAuthenticatedError()
-
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
     const contextTreeDir = this.contextTreeService.resolvePath(projectPath)
 
@@ -347,25 +365,35 @@ export class VcHandler {
       throw new VcError('Already initialized. Use /vc pull to sync.', VcErrorCode.ALREADY_INITIALIZED)
     }
 
-    const url = buildCogitRemoteUrl(this.cogitGitBaseUrl, data.teamId, data.spaceId)
+    const {spaceId, spaceName, teamId, teamName, url: cloneUrl} = await this.resolveCloneInput(data)
+    const label = teamName && spaceName ? `${teamName}/${spaceName}` : 'repository'
 
     try {
       await this.contextTreeService.initialize(projectPath)
 
       this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
-        message: `Cloning from ${data.teamName}/${data.spaceName}...`,
+        message: `Remote: ${cloneUrl}`,
+        step: 'cloning',
+      })
+      this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
+        message: `Cloning from ${label}...`,
         step: 'cloning',
       })
 
+      let lastPhase = ''
       await this.gitService.clone({
         directory: contextTreeDir,
-        onProgress: ({loaded, phase, total}) => {
-          this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
-            message: `${phase}: ${loaded}${total === undefined ? '' : `/${total}`}`,
-            step: 'cloning',
-          })
+        onProgress: ({phase, total}) => {
+          if (phase !== lastPhase) {
+            lastPhase = phase
+            const totalStr = total === undefined ? '' : ` (${total})`
+            this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
+              message: `${phase}${totalStr}...`,
+              step: 'cloning',
+            })
+          }
         },
-        url,
+        url: cloneUrl,
       })
 
       this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
@@ -373,17 +401,22 @@ export class VcHandler {
         step: 'saving',
       })
 
-      const space = new Space({
-        id: data.spaceId,
-        isDefault: false,
-        name: data.spaceName,
-        teamId: data.teamId,
-        teamName: data.teamName,
-      })
-      const existing = await this.projectConfigStore.read(projectPath)
-      const updated = existing ? existing.withSpace(space) : BrvConfig.partialFromSpace({space})
-      await this.projectConfigStore.write(updated, projectPath)
+      if (spaceId && spaceName && teamId && teamName) {
+        const space = new Space({
+          id: spaceId,
+          isDefault: false,
+          name: spaceName,
+          teamId,
+          teamName,
+        })
+        const existing = await this.projectConfigStore.read(projectPath)
+        const updated = existing ? existing.withSpace(space) : BrvConfig.partialFromSpace({space})
+        await this.projectConfigStore.write(updated, projectPath)
+      }
     } catch (error) {
+      // Rollback partial .git — keep context tree intact
+      await fs.promises.rm(join(contextTreeDir, '.git'), {force: true, recursive: true}).catch(() => {})
+
       if (error instanceof GitAuthError) {
         throw new VcError('Authentication failed. Run /login.', VcErrorCode.AUTH_FAILED)
       }
@@ -394,8 +427,8 @@ export class VcHandler {
 
     return {
       gitDir: join(contextTreeDir, '.git'),
-      spaceName: data.spaceName,
-      teamName: data.teamName,
+      spaceName,
+      teamName,
     }
   }
 
@@ -481,7 +514,7 @@ export class VcHandler {
       }
 
       const message = error instanceof Error ? error.message : 'Fetch failed.'
-      throw new VcError(message, VcErrorCode.PULL_FAILED)
+      throw new VcError(message, VcErrorCode.FETCH_FAILED)
     }
 
     return {remote}
@@ -645,6 +678,11 @@ export class VcHandler {
       throw new VcError('No remote configured.', VcErrorCode.NO_REMOTE)
     }
 
+    // Soft resolve author: use vc config if available, otherwise let pull() fallback to getAuthor() from auth token.
+    // Unlike commit/merge, pull only needs author when creating a merge commit (not for up-to-date or fast-forward).
+    const config = await this.vcGitConfigStore.get(projectPath)
+    const author = config?.name && config?.email ? {email: config.email, name: config.name} : undefined
+
     // If explicit branch provided, use it directly (skip tracking resolution)
     const remote = data?.remote ?? 'origin'
     const branch = data?.branch ?? (await this.resolvePullBranch(directory))
@@ -653,6 +691,7 @@ export class VcHandler {
     try {
       const result = await this.gitService.pull({
         allowUnrelatedHistories: data?.allowUnrelatedHistories,
+        author,
         branch,
         directory,
         remote,
@@ -762,6 +801,8 @@ export class VcHandler {
       throw new VcError('URL is required.', VcErrorCode.INVALID_REMOTE_URL)
     }
 
+    const resolved = await this.resolveFullCogitUrl(data.url)
+
     if (data.subcommand === 'add') {
       const existing = await this.gitService.getRemoteUrl({directory, remote: 'origin'})
       if (existing) {
@@ -771,31 +812,29 @@ export class VcHandler {
         )
       }
 
-      await this.gitService.addRemote({directory, remote: 'origin', url: data.url})
-      return {action: 'add', url: data.url}
+      await this.gitService.addRemote({directory, remote: 'origin', url: resolved.url})
+      return {action: 'add', url: resolved.url}
     }
 
     // set-url
     await this.gitService.removeRemote({directory, remote: 'origin'}).catch(() => {
       // ignore if remote doesn't exist
     })
-    await this.gitService.addRemote({directory, remote: 'origin', url: data.url})
-    return {action: 'set-url', url: data.url}
+    await this.gitService.addRemote({directory, remote: 'origin', url: resolved.url})
+    return {action: 'set-url', url: resolved.url}
   }
 
-  // vc-remote-url start
   private async handleRemoteUrl(data: IVcRemoteUrlRequest): Promise<IVcRemoteUrlResponse> {
     const token = await this.tokenStore.load()
     if (!token?.isValid()) throw new NotAuthenticatedError()
 
     const url = buildCogitRemoteUrl(this.cogitGitBaseUrl, data.teamId, data.spaceId)
+    // Embed credentials for external git tool usage (this is the only place credentials go into a URL)
     const parsed = new URL(url)
     parsed.username = token.userId
     parsed.password = token.sessionKey
-
     return {url: parsed.toString()}
   }
-  // vc-remote-url end
 
   private async handleStatus(clientId: string): Promise<IVcStatusResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
@@ -814,14 +853,26 @@ export class VcHandler {
     const branch = await this.gitService.getCurrentBranch({directory: contextTreeDir})
     const gitStatus = await this.gitService.status({directory: contextTreeDir})
 
+    // Detect empty repo (no commits yet)
+    const hasCommits = await this.gitService
+      .log({depth: 1, directory: contextTreeDir})
+      .then((commits) => commits.length > 0)
+
     // Check if a merge is in progress (MERGE_HEAD exists)
     const mergeInProgress = await fs.promises
       .access(join(contextTreeDir, '.git', 'MERGE_HEAD'))
       .then(() => true)
       .catch(() => false)
 
-    const staged = gitStatus.files.filter((f) => f.staged)
-    const unstaged = gitStatus.files.filter((f) => !f.staged && f.status !== 'untracked')
+    // Detect unresolved conflicts during merge
+    const unmerged = mergeInProgress
+      ? (await this.gitService.getConflicts({directory: contextTreeDir})).map((c) => ({path: c.path, type: c.type}))
+      : undefined
+
+    // Filter out unmerged paths from staged/unstaged — git native only shows them in "Unmerged paths" section
+    const unmergedPaths = unmerged ? new Set(unmerged.map((u) => u.path)) : new Set<string>()
+    const staged = gitStatus.files.filter((f) => f.staged && !unmergedPaths.has(f.path))
+    const unstaged = gitStatus.files.filter((f) => !f.staged && f.status !== 'untracked' && !unmergedPaths.has(f.path))
 
     // Resolve tracking branch and ahead/behind counts
     let trackingBranch: string | undefined
@@ -845,6 +896,7 @@ export class VcHandler {
       ahead,
       behind,
       branch,
+      hasCommits,
       initialized: true,
       mergeInProgress,
       staged: {
@@ -853,12 +905,92 @@ export class VcHandler {
         modified: staged.filter((f) => f.status === 'modified').map((f) => f.path),
       },
       trackingBranch,
+      unmerged,
       unstaged: {
         deleted: unstaged.filter((f) => f.status === 'deleted').map((f) => f.path),
         modified: unstaged.filter((f) => f.status === 'modified').map((f) => f.path),
       },
       untracked: gitStatus.files.filter((f) => f.status === 'untracked').map((f) => f.path),
     }
+  }
+
+  /**
+   * Resolve clone request data into a clean cogit URL + team/space info.
+   * Accepts either a URL (any format) or explicit teamId/spaceId.
+   * Auth is handled by IsomorphicGitService via headers, not URL credentials.
+   */
+  private async resolveCloneInput(data: IVcCloneRequest): Promise<{
+    spaceId?: string
+    spaceName?: string
+    teamId?: string
+    teamName?: string
+    url: string
+  }> {
+    if (data.url) {
+      const resolved = await this.resolveFullCogitUrl(data.url)
+      return {
+        spaceId: resolved.spaceId ?? data.spaceId,
+        spaceName: resolved.spaceName ?? data.spaceName,
+        teamId: resolved.teamId ?? data.teamId,
+        teamName: resolved.teamName ?? data.teamName,
+        url: resolved.url,
+      }
+    }
+
+    if (data.teamId && data.spaceId) {
+      return {
+        spaceId: data.spaceId,
+        spaceName: data.spaceName,
+        teamId: data.teamId,
+        teamName: data.teamName,
+        url: buildCogitRemoteUrl(this.cogitGitBaseUrl, data.teamId, data.spaceId),
+      }
+    }
+
+    throw new VcError('URL or space selection is required.', VcErrorCode.INVALID_REMOTE_URL)
+  }
+
+  /**
+   * Resolve any URL format to a clean cogit URL + team/space info.
+   * Supports:
+   * 1. Cogit URL with UUIDs (/git/{uuid}/{uuid}.git) → strip credentials, return clean
+   * 2. Cogit URL with names (/git/{name}/{name}.git|.brv) → resolve names to IDs
+   * 3. User-facing .brv URL (/{name}/{name}.brv) → resolve names to IDs
+   * 4. Unknown format → reject (no credential leaking to arbitrary URLs)
+   *
+   * Auth is handled by IsomorphicGitService via headers, not URL credentials.
+   */
+  private async resolveFullCogitUrl(url: string): Promise<{
+    spaceId?: string
+    spaceName?: string
+    teamId?: string
+    teamName?: string
+    url: string
+  }> {
+    // /git/{segment1}/{segment2}.git or .brv
+    const gitPath = parseGitPathUrl(url)
+    if (gitPath) {
+      if (gitPath.areUuids) {
+        // UUIDs — build clean URL (strip any credentials that may be in the URL)
+        const cleanUrl = buildCogitRemoteUrl(this.cogitGitBaseUrl, gitPath.segment1, gitPath.segment2)
+        return {spaceId: gitPath.segment2, teamId: gitPath.segment1, url: cleanUrl}
+      }
+
+      // Names — resolve to IDs via API
+      return this.resolveTeamSpaceNames(gitPath.segment1, gitPath.segment2)
+    }
+
+    // User-facing .brv URL (/{teamName}/{spaceName}.brv, no /git/ prefix)
+    const brvParts = parseBrvUrl(url)
+    if (brvParts) {
+      return this.resolveTeamSpaceNames(brvParts.teamName, brvParts.spaceName)
+    }
+
+    // Unknown format — reject to prevent credential leaking to arbitrary URLs
+    throw new VcError(
+      'Invalid URL format. Use: https://host/git/team/space.git or https://host/team/space.brv',
+      VcErrorCode.INVALID_REMOTE_URL,
+    )
   }
 
   private async resolveLogResult(
@@ -942,6 +1074,49 @@ export class VcHandler {
   }
 
   /**
+   * Resolve team/space names to IDs via API, build clean cogit URL.
+   */
+  private async resolveTeamSpaceNames(
+    teamName: string,
+    spaceName: string,
+  ): Promise<{spaceId: string; spaceName: string; teamId: string; teamName: string; url: string}> {
+    const token = await this.tokenStore.load()
+    if (!token?.isValid()) throw new NotAuthenticatedError()
+
+    const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
+    const team = teams.find((t) => t.name === teamName)
+    if (!team) {
+      const available = teams.map((t) => t.name).join(', ')
+      throw new VcError(
+        teams.length > 0
+          ? `Team "${teamName}" not found. Available: ${available}`
+          : `Team "${teamName}" not found. No teams available.`,
+        VcErrorCode.INVALID_REMOTE_URL,
+      )
+    }
+
+    const {spaces} = await this.spaceService.getSpaces(token.sessionKey, team.id, {fetchAll: true})
+    const space = spaces.find((s) => s.name === spaceName)
+    if (!space) {
+      const available = spaces.map((s) => s.name).join(', ')
+      throw new VcError(
+        spaces.length > 0
+          ? `Space "${spaceName}" not found in team "${team.name}". Available: ${available}`
+          : `Space "${spaceName}" not found in team "${team.name}". No spaces available.`,
+        VcErrorCode.INVALID_REMOTE_URL,
+      )
+    }
+
+    return {
+      spaceId: space.id,
+      spaceName: space.name,
+      teamId: space.teamId,
+      teamName: team.name,
+      url: buildCogitRemoteUrl(this.cogitGitBaseUrl, space.teamId, space.id),
+    }
+  }
+
+  /**
    * Validates that branch name is non-empty and well-formed.
    * Throws VcError(INVALID_BRANCH_NAME) on failure.
    */
@@ -954,15 +1129,6 @@ export class VcHandler {
       throw new VcError(`Invalid branch name: '${branch}'.`, VcErrorCode.INVALID_BRANCH_NAME)
     }
   }
-}
-
-function isValidBranchName(name: string): boolean {
-  if (!name) return false
-  if (name.startsWith('-') || name.startsWith('.') || name.startsWith('/')) return false
-  if (name.endsWith('.lock') || name.endsWith('/') || name.endsWith('.')) return false
-  if (name.includes('//') || name.includes('@{') || name.includes(' ')) return false
-  // eslint-disable-next-line no-control-regex
-  return !/\.\.|[~^:?*[\\\u0000-\u001F\u007F]/.test(name)
 }
 
 function maskCredentialsInUrl(url: string): string {

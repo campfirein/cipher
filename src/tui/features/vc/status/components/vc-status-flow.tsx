@@ -25,6 +25,10 @@ function formatVcStatus(result: IVcStatusResponse): string {
 
   const lines: string[] = [chalk.bold(`On branch ${result.branch ?? '(detached HEAD)'}`)]
 
+  if (result.hasCommits === false) {
+    lines.push(chalk.yellow('No commits yet'))
+  }
+
   if (result.trackingBranch) {
     const ahead = result.ahead ?? 0
     const behind = result.behind ?? 0
@@ -49,7 +53,32 @@ function formatVcStatus(result: IVcStatusResponse): string {
     unstaged.deleted.length > 0 ||
     untracked.length > 0
 
-  if (!hasChanges) {
+  if (result.mergeInProgress) {
+    const hasUnmerged = result.unmerged && result.unmerged.length > 0
+    if (hasUnmerged) {
+      lines.push(chalk.yellow('You have unmerged paths.'))
+      // eslint-disable-next-line unicorn/no-array-push-push
+      lines.push(chalk.yellow('  (fix conflicts and run "/vc add", then "/vc merge --continue")'))
+      // eslint-disable-next-line unicorn/no-array-push-push
+      lines.push('')
+      // eslint-disable-next-line unicorn/no-array-push-push
+      lines.push(chalk.bold('Unmerged paths:'))
+      for (const f of result.unmerged!) {
+        const label =
+          f.type === 'deleted_modified'
+            ? 'deleted by them'
+            : f.type === 'both_added'
+              ? 'both added'
+              : 'both modified'
+        lines.push(chalk.red(`   ${label}:   ${f.path}`))
+      }
+    } else {
+      lines.push(chalk.yellow('All conflicts fixed but you are still merging.'))
+      // eslint-disable-next-line unicorn/no-array-push-push
+      lines.push(chalk.yellow('  (use "/vc merge --continue" to conclude merge)'))
+      if (!hasChanges) return lines.join('\n')
+    }
+  } else if (!hasChanges) {
     lines.push('Nothing to commit, working tree clean')
     return lines.join('\n')
   }

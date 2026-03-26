@@ -74,9 +74,33 @@ export class IsomorphicGitService implements IGitService {
     const dir = this.requireDirectory(params)
     const mergeHeadPath = join(dir, '.git', 'MERGE_HEAD')
     const mergeMsgPath = join(dir, '.git', 'MERGE_MSG')
+
+    // Identify files introduced by the merge source (in MERGE_HEAD tree but not in HEAD tree).
+    // These files appeared on disk during merge and must be removed on abort.
+    // We compare tree contents (not statusMatrix) because merge-introduced files and
+    // pre-existing untracked files both show as [0,2,0] in the status matrix.
+    let mergeIntroducedFiles: string[] = []
+    const mergeHeadOid = await fs.promises
+      .readFile(mergeHeadPath, 'utf8')
+      .then((s) => s.trim())
+      .catch(() => null)
+    if (mergeHeadOid) {
+      const branch = await this.getCurrentBranch(params)
+      const headFiles = new Set(await git.listFiles({dir, fs, ref: branch ?? 'HEAD'}))
+      const mergeFiles = await git.listFiles({dir, fs, ref: mergeHeadOid})
+      mergeIntroducedFiles = mergeFiles.filter((f) => !headFiles.has(f))
+    }
+
     // Get current branch BEFORE checkout to avoid detached HEAD
     const branch = await this.getCurrentBranch(params)
     await git.checkout({dir, force: true, fs, ref: branch ?? 'HEAD'})
+
+    // Clean up files that the merge brought in (exist in MERGE_HEAD but not in HEAD)
+    for (const filepath of mergeIntroducedFiles) {
+      // eslint-disable-next-line no-await-in-loop
+      await fs.promises.unlink(join(dir, filepath)).catch(() => {})
+    }
+
     await fs.promises.unlink(mergeHeadPath).catch(() => {})
     await fs.promises.unlink(mergeMsgPath).catch(() => {})
   }
@@ -145,7 +169,27 @@ export class IsomorphicGitService implements IGitService {
 
   async checkout(params: CheckoutGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
+
+    // Snapshot tracked files in current branch BEFORE checkout.
+    // isomorphic-git's checkout only restores target files but does NOT remove
+    // files that are tracked in the source branch but absent in the target.
+    // Native git removes them, so we do it manually after checkout.
+    const sourceBranch = await this.getCurrentBranch(params)
+    const sourceFiles = sourceBranch ? new Set(await git.listFiles({dir, fs, ref: sourceBranch})) : new Set<string>()
+
     await git.checkout({dir, force: params.force, fs, ref: params.ref})
+
+    // Remove files tracked in source but not in target (matches native git behavior).
+    // Untracked files are not in either set, so they are preserved.
+    if (sourceFiles.size > 0) {
+      const targetFiles = new Set(await git.listFiles({dir, fs, ref: params.ref}))
+      for (const filepath of sourceFiles) {
+        if (!targetFiles.has(filepath)) {
+          // eslint-disable-next-line no-await-in-loop
+          await fs.promises.unlink(join(dir, filepath)).catch(() => {})
+        }
+      }
+    }
   }
 
   async clone(params: CloneGitParams): Promise<void> {
@@ -266,11 +310,19 @@ export class IsomorphicGitService implements IGitService {
     const conflicts: GitConflict[] = []
 
     await Promise.all(
-      matrix.map(async ([filepath, head, workdir]) => {
+      matrix.map(async ([filepath, head, workdir, stage]) => {
         const path = String(filepath)
 
         // deleted_modified: file was in HEAD but gone from workdir
         if (head === 1 && workdir === 0) {
+          conflicts.push({path, type: 'deleted_modified'})
+          return
+        }
+
+        // deleted_modified (isomorphic-git variant): file in HEAD, on disk unchanged,
+        // but index differs from both (stage=3). This happens when the other branch
+        // deletes a file that we modified — isomorphic-git keeps our version on disk.
+        if (head === 1 && workdir === 1 && stage === 3) {
           conflicts.push({path, type: 'deleted_modified'})
           return
         }
@@ -518,7 +570,7 @@ export class IsomorphicGitService implements IGitService {
       }
     }
 
-    const author = this.getAuthor()
+    const author = params.author ?? this.getAuthor()
     try {
       const mergeResult = await git.merge({
         abortOnConflict: false,
@@ -533,9 +585,14 @@ export class IsomorphicGitService implements IGitService {
       return {alreadyUpToDate: mergeResult.alreadyMerged, success: true}
     } catch (error) {
       if (error instanceof git.Errors.MergeConflictError) {
-        // isomorphic-git does not write MERGE_HEAD — write it so getConflicts() works post-restart
+        // isomorphic-git does not write MERGE_HEAD/MERGE_MSG — write them so
+        // getConflicts() and --continue work post-restart
         const theirsOid = await git.resolveRef({dir, fs, ref: `refs/remotes/${remote}/${localBranch}`})
         await fs.promises.writeFile(join(dir, '.git', 'MERGE_HEAD'), `${theirsOid}\n`)
+        await fs.promises.writeFile(
+          join(dir, '.git', 'MERGE_MSG'),
+          `Merge remote-tracking branch '${remote}/${localBranch}'\n`,
+        )
 
         // Rewrite conflict markers: isomorphic-git uses branch name, git uses HEAD
         await this.rewriteConflictMarkers(dir, localBranch, this.conflictsFromError(error))
@@ -784,6 +841,9 @@ export class IsomorphicGitService implements IGitService {
         files.push({path, staged: false, status: 'deleted'}) // [1,0,1] unstaged deletion (rm without git rm)
       } else if (head === 1 && workdir === 0 && stage === 2) {
         files.push({path, staged: false, status: 'deleted'}) // [1,0,2] absent from disk, index differs from HEAD (e.g. post-merge-conflict)
+      } else if (head === 1 && workdir === 0 && stage === 3) {
+        // [1,0,3] staged modification then deleted from disk → show both staged mod and unstaged deletion
+        files.push({path, staged: true, status: 'modified'}, {path, staged: false, status: 'deleted'})
       } else if (head === 1 && workdir === 1 && stage === 0) {
         files.push({path, staged: true, status: 'deleted'}, {path, staged: false, status: 'untracked'}) // [1,1,0] git rm --cached: staged deletion + file still in workdir → untracked
       } else if (head === 1 && workdir === 2 && stage === 1) {

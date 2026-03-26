@@ -27,6 +27,10 @@ export default class VcStatus extends Command {
 
     this.log(chalk.bold(`On branch ${result.branch ?? '(detached HEAD)'}`))
 
+    if (result.hasCommits === false) {
+      this.log(chalk.yellow('No commits yet'))
+    }
+
     if (result.trackingBranch) {
       const ahead = result.ahead ?? 0
       const behind = result.behind ?? 0
@@ -52,10 +56,21 @@ export default class VcStatus extends Command {
       untracked.length > 0
 
     if (result.mergeInProgress) {
-      const hasUnstaged = unstaged.modified.length > 0 || unstaged.deleted.length > 0
-      if (hasUnstaged) {
+      const hasUnmerged = result.unmerged && result.unmerged.length > 0
+      if (hasUnmerged) {
         this.log(chalk.yellow('You have unmerged paths.'))
         this.log(chalk.yellow('  (fix conflicts and run "brv vc add", then "brv vc merge --continue")'))
+        this.log('')
+        this.log(chalk.bold('Unmerged paths:'))
+        for (const f of result.unmerged!) {
+          const label =
+            f.type === 'deleted_modified'
+              ? 'deleted by them'
+              : f.type === 'both_added'
+                ? 'both added'
+                : 'both modified'
+          this.log(chalk.red(`   ${label}:   ${f.path}`))
+        }
       } else {
         this.log(chalk.yellow('All conflicts fixed but you are still merging.'))
         this.log(chalk.yellow('  (use "brv vc merge --continue" to conclude merge)'))
