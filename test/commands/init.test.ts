@@ -152,6 +152,24 @@ describe('Init Command', () => {
 
       expect(command.runCommandCalls).to.be.empty
     })
+
+    it('should stop after providers:connect is cancelled by user', async () => {
+      mockEvent('provider:getActive', {activeProviderId: ''})
+      const command = createCommand()
+      // Make providers:connect throw a cancellation error
+      ;(command.config.runCommand as sinon.SinonStub).callsFake(async (id: string) => {
+        command.runCommandCalls.push(id)
+        if (id === 'providers:connect') {
+          const err = new Error('cancelled')
+          err.name = 'ExitPromptError'
+          throw err
+        }
+      })
+      await command.run()
+
+      expect(command.runCommandCalls).to.include('providers:connect')
+      expect(command.runCommandCalls).to.not.include('connectors:install')
+    })
   })
 
   describe('force flag', () => {

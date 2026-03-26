@@ -13,6 +13,7 @@ import {isConnectorType, requiresAgentRestart} from '../../../shared/types/conne
 import {getConnectorName} from '../../../tui/features/connectors/utils/get-connector-name.js'
 import {type DaemonClientOptions, withDaemonRetry} from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
+import { isPromptCancelled } from '../../lib/prompt-utils.js'
 
 const agentTable = AGENT_VALUES.map((agent) => {
   const config = AGENT_CONNECTOR_CONFIG[agent]
@@ -145,7 +146,8 @@ ${agentTable}`
 
       try {
         agentId = await this.promptForAgent()
-      } catch {
+      } catch (error) {
+        if (!isPromptCancelled(error)) throw error
         return
       }
     }

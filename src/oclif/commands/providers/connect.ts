@@ -235,9 +235,7 @@ export default class ProviderConnect extends Command {
   }
 
   protected async promptForProvider(providers: ProviderDTO[], signal?: AbortSignal): Promise<string> {
-    // eslint-disable-next-line unicorn/no-array-reduce
-    const nameMaxChars = providers.reduce((prev, current) => (prev.name.length > current.name.length ? prev : current))
-      .name.length
+    const nameMaxChars = Math.max(...providers.map((p) => p.name.length))
     const popular = providers.filter((p) => p.category === 'popular')
     const other = providers.filter((p) => p.category === 'other')
 
@@ -252,7 +250,7 @@ export default class ProviderConnect extends Command {
     return select(
       {
         choices: [
-          new Separator('---------- Populars ----------'),
+          new Separator('---------- Popular ----------'),
           ...popular.map((p) => formatChoice(p)),
           new Separator('\n---------- Others ----------'),
           ...other.map((p) => formatChoice(p)),
@@ -319,7 +317,14 @@ export default class ProviderConnect extends Command {
         try {
           switch (currentStep) {
             case 'auth': {
-              await this.runAuthStep(providerId!, provider!, esc.signal)
+              // If providerId or provider is not set, go back to provider step
+              // eslint-disable-next-line max-depth
+              if (!providerId || !provider) {
+                stepIndex--
+                break
+              }
+
+              await this.runAuthStep(providerId, provider, esc.signal)
               break
             }
 

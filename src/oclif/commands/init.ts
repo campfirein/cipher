@@ -45,6 +45,7 @@ export default class Init extends Command {
       await this.config.runCommand('vc:init')
     } catch {
       // vc:init logs its own errors
+      return
     }
 
     // Step 3: Provider setup — only if no provider connected yet
@@ -73,7 +74,7 @@ export default class Init extends Command {
     }
 
     this.log(`\nByteRover is ready in ${process.cwd()}`)
-    this.log('  Ask Cursor to curate your project —')
+    this.log('  Ask your coding agent to curate your project —')
     this.log('  try "hey, curate the context for this project"')
   }
 }
