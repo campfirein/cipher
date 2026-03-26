@@ -971,37 +971,58 @@ without long-tail degradation.
 \label{sec:ablation}
 
 To assess the contribution of individual components,
-we conduct a systematic ablation study by selectively disabling key mechanisms.
+we conduct an ablation study on LongMemEval-S by selectively disabling
+three key query-time mechanisms.
+Ablation experiments are conducted on LongMemEval-S,
+where the larger corpus (23{,}867 documents) provides a more demanding
+test of retrieval-side components;
+LoCoMo results (Table~\ref{tab:locomo}) serve as a generalization
+test on a smaller corpus.
 
 \begin{table}[t]
 \centering
 \small
-\begin{tabular}{@{}lccc@{}}
+\begin{tabular}{@{}lcccccc|cc@{}}
 \toprule
-\textbf{Configuration} & \textbf{Judge} & \textbf{F1} & \textbf{BLEU-1} \\
+\textbf{Configuration} & \textbf{KU} & \textbf{SSU} & \textbf{SSA} & \textbf{SSP} & \textbf{TR} & \textbf{MS} & \textbf{Overall} & \textbf{$\Delta$} \\
 \midrule
-w/o Lifecycle Management & \todo{--} & \todo{--} & \todo{--} \\
-w/o Tiered Retrieval (all $\to$ LLM) & \todo{--} & \todo{--} & \todo{--} \\
-w/o Relation Graph & \todo{--} & \todo{--} & \todo{--} \\
-w/o OOD Detection & \todo{--} & \todo{--} & \todo{--} \\
-w/o Curation Feedback Loop & \todo{--} & \todo{--} & \todo{--} \\
-w/o Escalated Compression & \todo{--} & \todo{--} & \todo{--} \\
+w/o Tiered Retrieval   & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} \\
+w/o OOD Detection      & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} \\
+w/o Relation Graph     & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} \\
 \midrule
-\textbf{\byterover{} (Full)} & \todo{--} & \todo{--} & \todo{--} \\
+\textbf{\byterover{} (Full)} & 98.7 & 98.6 & 98.2 & 96.7 & 91.7 & 84.2 & \textbf{92.8} & --- \\
 \bottomrule
 \end{tabular}
-\caption{Ablation study results on LoCoMo.
-  \todo{Fill after running ablation experiments.}}
+\caption{Ablation study on LongMemEval-S (500 questions).
+  Each row disables one query-time component while keeping the curated
+  \contexttree{} unchanged.
+  Category abbreviations follow Table~\ref{tab:longmemeval}.}
 \label{tab:ablation}
 \end{table}
 
-\todo{Analysis paragraph for each ablation:
-  (1) Lifecycle management: without decay, stale knowledge dilutes retrieval quality.
-  (2) Tiered retrieval: removing tiers forces all queries through LLM, increasing latency dramatically.
-  (3) Relation graph: without cross-references, multi-hop reasoning degrades.
-  (4) OOD detection: without it, the system hallucinates from tangential results.
-  (5) Curation feedback: without per-operation status, error recovery is lost.
-  (6) Escalated compression: without it, large inputs may cause curation failures.}
+\paragraph{w/o Tiered Retrieval.}
+All queries are routed directly to the full agentic loop (Tier~4),
+bypassing cache, direct MiniSearch response, and optimized LLM tiers.
+\todo{Insert analysis after experiment.}
+
+\paragraph{w/o OOD Detection.}
+The out-of-domain rejection gate is disabled;
+the system attempts to answer all queries regardless of relevance score.
+\todo{Insert analysis after experiment.}
+
+\paragraph{w/o Relation Graph.}
+Explicit cross-entry relations (\texttt{@relation} annotations) are ignored
+during retrieval, reducing the knowledge graph to isolated entries
+without navigable inter-topic paths.
+\todo{Insert analysis after experiment.}
+
+\paragraph{Components not ablated.}
+Three mechanisms---Adaptive Knowledge Lifecycle (AKL), the curation feedback loop,
+and escalated compression---operate exclusively during the write path (curation).
+Since the curated \contexttree{} is held constant across all ablation conditions,
+their contribution cannot be isolated through query-time ablation on a static benchmark.
+Evaluating these components would require re-curation under degraded conditions,
+which we leave to future work.
 
 
 % ============================================================
