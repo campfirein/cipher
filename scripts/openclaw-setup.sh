@@ -13,7 +13,6 @@ set -eu
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 CONFIG_PATH="$HOME/.openclaw/openclaw.json"
-PLUGIN_DIR="$HOME/.openclaw/extensions/byterover"
 ONBOARDING_PLUGIN_DIR="$HOME/.openclaw/extensions/byterover-onboarding"
 
 # ─── Colors (respects NO_COLOR and non-terminal) ─────────────────────────────
@@ -257,37 +256,7 @@ find_cron_job_id() {
         const jobs = json.jobs || [];
         const job = jobs.find(j => j.name === process.env.CRON_NAME);
         if (job && (job.jobId || job.id)) console.log(job.jobId || job.id);
-    } catch(e) { /* silent */ }
-  '
-}
-
-enable_plugin_in_config() {
-  CONFIG_PATH="$CONFIG_PATH" node -e '
-    const fs = require("fs");
-    const configPath = process.env.CONFIG_PATH;
-    try {
-        const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-        config.plugins = config.plugins || {};
-        config.plugins.entries = config.plugins.entries || {};
-        config.plugins.entries["byterover"] = { enabled: true };
-        // Pin as trusted to suppress "untracked local code" warning
-        config.plugins.allow = config.plugins.allow || [];
-        if (!config.plugins.allow.includes("byterover")) {
-            config.plugins.allow.push("byterover");
-        }
-        // Register extension load path
-        config.plugins.load = config.plugins.load || {};
-        config.plugins.load.paths = config.plugins.load.paths || [];
-        const brvPath = "~/.openclaw/extensions/byterover";
-        if (!config.plugins.load.paths.includes(brvPath)) {
-            config.plugins.load.paths.push(brvPath);
-        }
-        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-        console.log("Plugin enabled in config.");
-    } catch (e) {
-        console.error("Failed to update config for plugin:", e);
-        process.exit(1);
-    }
+    } catch(e) { process.stderr.write("[byterover] cleanup config warning: " + e.message + "\n"); }
   '
 }
 
@@ -346,49 +315,6 @@ remove_cron_job() {
     success "Cron job '$cron_name' removed."
   else
     warn "Failed to remove cron job '$cron_name'. You may need to remove it manually."
-  fi
-}
-
-disable_plugin_in_config() {
-  CONFIG_PATH="$CONFIG_PATH" node -e '
-    const fs = require("fs");
-    const configPath = process.env.CONFIG_PATH;
-    try {
-        const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-        const entries = config.plugins?.entries;
-        if (!entries || !entries["byterover"]) {
-            console.log("No plugin config found.");
-            process.exit(0);
-        }
-        delete entries["byterover"];
-        // Also remove from trust list
-        if (Array.isArray(config.plugins?.allow)) {
-            config.plugins.allow = config.plugins.allow.filter(id => id !== "byterover");
-            if (config.plugins.allow.length === 0) delete config.plugins.allow;
-        }
-        // Also remove from load paths
-        if (Array.isArray(config.plugins?.load?.paths)) {
-            config.plugins.load.paths = config.plugins.load.paths.filter(p => p !== "~/.openclaw/extensions/byterover");
-            if (config.plugins.load.paths.length === 0) delete config.plugins.load.paths;
-            if (config.plugins.load && Object.keys(config.plugins.load).length === 0) delete config.plugins.load;
-        }
-        if (Object.keys(entries).length === 0) delete config.plugins.entries;
-        if (config.plugins && Object.keys(config.plugins).length === 0) delete config.plugins;
-        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-        console.log("Plugin disabled in config.");
-    } catch (e) {
-        console.error("Failed to remove plugin config:", e);
-        process.exit(1);
-    }
-  '
-}
-
-remove_plugin_files() {
-  if [ -d "$PLUGIN_DIR" ]; then
-    rm -rf "$PLUGIN_DIR"
-    success "Removed plugin files from $PLUGIN_DIR"
-  else
-    echo "No plugin files found."
   fi
 }
 
@@ -676,11 +602,6 @@ enable_onboarding_plugin_in_config() {
         config.plugins = config.plugins || {};
         config.plugins.entries = config.plugins.entries || {};
         config.plugins.entries["byterover-onboarding"] = { enabled: true };
-        // Pin as trusted to suppress "untracked local code" warning
-        config.plugins.allow = config.plugins.allow || [];
-        if (!config.plugins.allow.includes("byterover-onboarding")) {
-            config.plugins.allow.push("byterover-onboarding");
-        }
         // Register extension load path
         config.plugins.load = config.plugins.load || {};
         config.plugins.load.paths = config.plugins.load.paths || [];
@@ -709,11 +630,6 @@ disable_onboarding_plugin_in_config() {
             process.exit(0);
         }
         delete entries["byterover-onboarding"];
-        // Also remove from trust list
-        if (Array.isArray(config.plugins?.allow)) {
-            config.plugins.allow = config.plugins.allow.filter(id => id !== "byterover-onboarding");
-            if (config.plugins.allow.length === 0) delete config.plugins.allow;
-        }
         // Also remove from load paths
         if (Array.isArray(config.plugins?.load?.paths)) {
             config.plugins.load.paths = config.plugins.load.paths.filter(p => p !== "~/.openclaw/extensions/byterover-onboarding");
@@ -845,219 +761,119 @@ configure_daily_mining() {
 
 # ─── Feature: ByteRover Context Plugin ───────────────────────────────────────
 
-create_plugin_files() {
-  mkdir -p "$PLUGIN_DIR"
+verify_plugin_installed() {
+  local plugin_id="$1"
+  openclaw plugins list 2>/dev/null | grep -qw "$plugin_id"
+}
 
-  # Fix ownership if directory was created by a different user (e.g. root)
-  if [ -d "$PLUGIN_DIR" ] && [ ! -w "$PLUGIN_DIR" ]; then
-    warn "Plugin directory not writable: $PLUGIN_DIR"
-    warn "This usually happens when the setup was previously run as a different user (e.g. root)."
-    error "Fix with: sudo chown -R \$(whoami) $HOME/.openclaw/extensions"
+ensure_plugin_active() {
+  local plugin_list
+  plugin_list=$(openclaw plugins list 2>/dev/null) || plugin_list=""
+  if ! echo "$plugin_list" | grep -qw "byterover" && ! echo "$plugin_list" | grep -qw "byterover-onboarding"; then
+    warn "No ByteRover plugin appears to be active."
+    warn "Run 'openclaw plugins list' to check status, or 'openclaw plugins doctor' to diagnose."
   fi
-
-  echo "Creating plugin files in $PLUGIN_DIR..."
-
-  # Create index.ts
-  cat > "$PLUGIN_DIR/index.ts" <<'EOF'
-import { execFile } from "child_process";
-import { promisify } from "util";
-import { existsSync } from "fs";
-import { join, delimiter } from "path";
-import { homedir, platform } from "os";
-
-const execFileAsync = promisify(execFile);
-
-// ── brv binary resolution ──────────────────────────────────────────────────
-// Non-interactive processes (Docker gateway, systemd, cron, launchd) don't
-// source shell configs, so ~/.brv-cli/bin may not be in PATH. This function
-// probes well-known install locations and caches the result.
-
-let _cachedBrvPath: string | null = null;
-
-function resolveBrvPath(): string {
-  if (_cachedBrvPath !== null) return _cachedBrvPath;
-
-  const home = homedir();
-  const isWindows = platform() === "win32";
-  const brvName = isWindows ? "brv.cmd" : "brv";
-
-  const candidates: string[] = [
-    join(home, ".brv-cli", "bin", brvName),
-    ...(isWindows
-      ? [process.env.APPDATA ? join(process.env.APPDATA, "npm", brvName) : ""]
-      : [
-          join("/usr", "local", "bin", brvName),
-          join("/usr", "bin", brvName),
-          join(home, ".npm-global", "bin", brvName),
-        ]
-    ),
-  ].filter(Boolean);
-
-  for (const p of candidates) {
-    if (existsSync(p)) {
-      _cachedBrvPath = p;
-      return p;
-    }
-  }
-
-  _cachedBrvPath = brvName;
-  return brvName;
 }
 
-function buildBrvEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  const brvBinDir = join(homedir(), ".brv-cli", "bin");
-  env.PATH = brvBinDir + delimiter + (env.PATH || "");
-  return env;
-}
-
-function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && 'code' in err;
-}
-
-export default function (api) {
-  api.logger.info("[byterover] Loaded!");
-
-  api.on("before_prompt_build", async (event, ctx) => {
-    // ── Skip context query during onboarding (handled by byterover-onboarding plugin) ──
-    const onboardedMarker = join(homedir(), ".openclaw", ".byterover-onboarded");
-    if (!existsSync(onboardedMarker)) {
-      api.logger.debug("[byterover] Onboarding not completed — skipping context query.");
-      return;
-    }
-
-    // ── Query ByteRover for relevant context ──
-    let userPrompt = event.prompt;
-
-    if (!userPrompt) {
-      const messages = ctx?.messages || [];
-      const lastUserMessage = messages.slice().reverse().find(m => m.role === 'user');
-      userPrompt = lastUserMessage?.content || "";
-    }
-
-    // Strip OpenClaw metadata headers if present to get the real user query
-    userPrompt = userPrompt.replace(/^Conversation info \(untrusted metadata\):[\s\S]*?```json[\s\S]*?```\s*/i, "").trim();
-
-    // If still empty, nothing to query
-    if (!userPrompt) return;
-
-    const queryText = userPrompt;
-
-    const brvPath = resolveBrvPath();
-
-    const curateReminder = `\n\n## ByteRover Usage\n` +
-      `- **Before answering:** context above was retrieved automatically.\n` +
-      `- **After completing this task:** if you learned something valuable, run \`${brvPath} curate "<key insight>"\` to save it.\n`;
-
+remove_existing_byterover_plugin() {
+  # Remove CLI-installed plugin
+  openclaw plugins uninstall byterover --force 2>/dev/null || true
+  # Remove old local plugin files (legacy manual install)
+  rm -rf "$HOME/.openclaw/extensions/byterover"
+  # Clean up config entries
+  openclaw config unset plugins.slots.contextEngine 2>/dev/null || true
+  CONFIG_PATH="$CONFIG_PATH" node -e '
+    const fs = require("fs");
+    const configPath = process.env.CONFIG_PATH;
     try {
-      api.logger.debug(`[byterover] Querying brv (${brvPath}) for: "${queryText}"`);
-
-      const { stdout } = await execFileAsync(brvPath, ["query", queryText], {
-        timeout: 300000,
-        env: buildBrvEnv(),
-      });
-
-      const brvOutput = stdout.trim();
-
-      if (brvOutput) {
-        const header = "\n\n## ByteRover Context (Auto-Enriched)\n";
-        const injection = `${header}${brvOutput}${curateReminder}`;
-
-        api.logger.info(`[byterover] Injected ${brvOutput.length} chars of context.`);
-
-        return { prependContext: injection };
-      }
-
-      // No existing context — skip injection to avoid reminder noise on empty context trees
-      return;
-    } catch (err: unknown) {
-      const errCode = isErrnoException(err) ? err.code : undefined;
-      const errMsg = err instanceof Error ? err.message : String(err);
-      if (errCode !== 'ENOENT') {
-        api.logger.warn(`[byterover] Query failed (${brvPath}): ${errMsg}`);
-      } else {
-        api.logger.debug(`[byterover] brv not found at '${brvPath}'. Is ByteRover CLI installed?`);
-      }
-    }
-  });
-
-  // ── Strip raw thinking/reasoning blocks from LLM responses ──────────────
-  // Some models (DeepSeek, Claude with extended thinking, Qwen) emit
-  // <thinking>…</thinking> or <think>…</think> blocks. These are internal
-  // chain-of-thought and must never be shown to the end user.
-  api.on("message_sending", async (event) => {
-    if (!event.content || typeof event.content !== "string") return;
-
-    const original = event.content;
-
-    // Only strip if response starts with a thinking/reasoning block (chain-of-thought preamble).
-    // Avoids silently removing legitimate content when users discuss XML or prompt engineering.
-    let filtered = original;
-    const thinkingPattern = /^<(?:thinking|think|reasoning|reflection)>/i;
-    if (thinkingPattern.test(filtered)) {
-      let prev;
-      do {
-        prev = filtered;
-        filtered = filtered
-          .replace(/^<think>[\s\S]*?<\/think>/i, "")
-          .replace(/^<thinking>[\s\S]*?<\/thinking>/i, "")
-          .replace(/^<reasoning>[\s\S]*?<\/reasoning>/i, "")
-          .replace(/^<reflection>[\s\S]*?<\/reflection>/i, "");
-        filtered = filtered.trimStart();
-      } while (filtered !== prev && thinkingPattern.test(filtered));
-    }
-
-    // Clean up leftover blank lines from removal
-    filtered = filtered.replace(/\n{3,}/g, "\n\n").trim();
-
-    if (filtered !== original) {
-      const strippedChars = original.length - filtered.length;
-      api.logger.debug(`[byterover] Stripped ${strippedChars} chars of thinking/reasoning blocks from response`);
-    }
-
-    // If stripping left nothing meaningful, don't send an empty message
-    if (!filtered) return { cancel: true };
-
-    return filtered !== original ? { content: filtered } : undefined;
-  });
-}
-EOF
-
-  # Create openclaw.plugin.json
-  cat > "$PLUGIN_DIR/openclaw.plugin.json" <<'EOF'
-{
-  "id": "byterover",
-  "name": "ByteRover Context",
-  "version": "1.0.0",
-  "entry": "./index.ts",
-  "description": "Injects ByteRover context into the system prompt based on user queries.",
-  "configSchema": {
-    "type": "object",
-    "additionalProperties": true
-  }
-}
-EOF
-
-  success "Plugin files created."
+        const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+        const entries = config.plugins?.entries;
+        if (entries && entries["byterover"]) delete entries["byterover"];
+        if (Array.isArray(config.plugins?.load?.paths)) {
+            config.plugins.load.paths = config.plugins.load.paths.filter(p => p !== "~/.openclaw/extensions/byterover");
+            if (config.plugins.load.paths.length === 0) delete config.plugins.load.paths;
+            if (config.plugins.load && Object.keys(config.plugins.load).length === 0) delete config.plugins.load;
+        }
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    } catch(e) { process.stderr.write("[byterover] cleanup config warning: " + e.message + "\n"); }
+  ' 2>/dev/null || true
 }
 
 configure_context_plugin() {
-  printf "${YELLOW}Feature: ByteRover Context Hooks (Plugin)${RESET}\n"
-  echo "Installs a custom OpenClaw plugin (byterover) to inject memory context directly into your prompts."
+  printf "${YELLOW}Feature: ByteRover Context Engine - Intelligent Automated Memory Curation and Memory Retrieval${RESET}\n"
+  echo "Installs the ByteRover Context Engine plugin for injecting ByteRover memory context into prompts and automatically curate insights."
 
-  if ! confirm "Install ByteRover Context Plugin?"; then
-    echo "Disabling ByteRover Context Plugin..."
-    disable_plugin_in_config
-    remove_plugin_files
+  # Requires OpenClaw v2026.3.22+
+  local MIN_OPENCLAW_VERSION="2026.3.22"
+  local openclaw_version
+  openclaw_version=$(openclaw -v 2>/dev/null | grep -oE '[0-9]{4}\.[0-9]+\.[0-9]+' | head -1) || openclaw_version=""
+
+  if [ -z "$openclaw_version" ]; then
+    warn "Could not detect OpenClaw version. Skipping Context Plugin setup."
     echo ""
     return
   fi
 
-  create_plugin_files
+  local cur_year cur_month cur_day min_year min_month min_day
+  cur_year=$(echo "$openclaw_version" | cut -d. -f1)
+  cur_month=$(echo "$openclaw_version" | cut -d. -f2)
+  cur_day=$(echo "$openclaw_version" | cut -d. -f3)
+  min_year=$(echo "$MIN_OPENCLAW_VERSION" | cut -d. -f1)
+  min_month=$(echo "$MIN_OPENCLAW_VERSION" | cut -d. -f2)
+  min_day=$(echo "$MIN_OPENCLAW_VERSION" | cut -d. -f3)
 
-  echo "Enabling plugin in $CONFIG_PATH..."
-  enable_plugin_in_config
-  success "Plugin enabled."
+  local version_ok=true
+  if [ "$cur_year" -lt "$min_year" ] 2>/dev/null; then
+    version_ok=false
+  elif [ "$cur_year" -eq "$min_year" ] 2>/dev/null; then
+    if [ "$cur_month" -lt "$min_month" ] 2>/dev/null; then
+      version_ok=false
+    elif [ "$cur_month" -eq "$min_month" ] 2>/dev/null; then
+      if [ "$cur_day" -lt "$min_day" ] 2>/dev/null; then
+        version_ok=false
+      fi
+    fi
+  fi
+
+  if [ "$version_ok" = false ]; then
+    warn "OpenClaw v${MIN_OPENCLAW_VERSION}+ is required for Context Plugin (found v${openclaw_version}). Please upgrade: npm i openclaw@latest -g"
+    echo ""
+    return
+  fi
+
+  if ! confirm "Install ByteRover Context Plugin?"; then
+    echo "Uninstalling ByteRover Context Plugin..."
+    remove_existing_byterover_plugin
+    echo ""
+    return
+  fi
+
+  # Clean slate: remove old local files + previous CLI install to avoid conflicts
+  remove_existing_byterover_plugin
+
+  info "Installing @byterover/byterover plugin..."
+  if ! retry_with_backoff openclaw plugins install @byterover/byterover; then
+    warn "Failed to install @byterover/byterover plugin after multiple attempts."
+    echo ""
+    return
+  fi
+  success "Plugin installed."
+
+  # Enable, trust, and assign to contextEngine slot
+  openclaw plugins enable byterover || warn "Could not enable plugin — run: openclaw plugins enable byterover"
+  openclaw config set plugins.slots.contextEngine byterover || warn "Could not set contextEngine slot — run: openclaw config set plugins.slots.contextEngine byterover"
+
+  # Always configure the resolved brv path so the plugin doesn't need to re-search at runtime
+  openclaw config set plugins.entries.byterover.config.brvPath "$BRV_CMD" || true
+  # Set cwd to the openclaw workspace so the plugin runs in the correct directory
+  openclaw config set plugins.entries.byterover.config.cwd "$HOME/.openclaw/workspace" || true
+
+  # Verify installation
+  if ! verify_plugin_installed "byterover"; then
+    warn "Plugin verification failed. Run 'openclaw plugins doctor' to diagnose."
+  fi
+
+  success "ByteRover Context Plugin enabled."
   echo ""
 }
 
@@ -1150,15 +966,15 @@ TOOLS_EOF
 
 restart_openclaw_gateway() {
   echo "Restarting OpenClaw gateway to apply changes..."
-  if openclaw gateway stop; then
-    success "OpenClaw gateway stopped."
+  openclaw gateway stop 2>/dev/null || true
+  if openclaw gateway install; then
     if openclaw gateway start; then
-      success "OpenClaw gateway started."
+      success "OpenClaw gateway restarted."
     else
-      warn "Failed to start OpenClaw gateway. You may need to start it manually with 'openclaw gateway start'."
+      warn "Failed to restart OpenClaw gateway. Run 'openclaw gateway install' manually."
     fi
   else
-    warn "Failed to stop OpenClaw gateway. You may need to restart it manually."
+    warn "Failed to restart OpenClaw gateway. Run 'openclaw gateway install' manually."
   fi
 }
 
@@ -1307,13 +1123,15 @@ main() {
 
   # Phase 2: Configuration
   info "Phase 2: Configuration"
+  info "--- Query Story Options ---"
+  configure_context_plugin
   info "--- Curate Story Options ---"
   configure_memory_flush
   configure_daily_mining
-  info "--- Query Story Options ---"
-  configure_context_plugin
   info "--- Onboarding Options ---"
   configure_onboarding_plugin
+  
+  ensure_plugin_active
 
   # Phase 3: Workspace Updates
   update_workspace_protocols
