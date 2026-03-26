@@ -2,9 +2,11 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 import nock from 'nock'
+import * as sinon from 'sinon'
 
 import {CogitPushContext} from '../../../../src/server/core/domain/entities/cogit-push-context.js'
 import {HttpCogitPushService} from '../../../../src/server/infra/cogit/http-cogit-push-service.js'
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 
 const createContext = (
   overrides: Partial<{content: string; operation: 'add'; path: string; tags: string[]; title: string}> = {},
@@ -35,10 +37,12 @@ describe('HttpCogitPushService', () => {
   }
 
   beforeEach(() => {
+    sinon.stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     service = new HttpCogitPushService(config)
   })
 
   afterEach(() => {
+    sinon.restore()
     nock.cleanAll()
   })
 
