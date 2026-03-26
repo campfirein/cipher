@@ -421,6 +421,13 @@ export class IsomorphicGitService implements IGitService {
         const theirsOid = await git.resolveRef({dir, fs, ref: params.branch})
         await fs.promises.writeFile(mergeHeadPath, `${theirsOid}\n`)
         await fs.promises.writeFile(mergeMsgPath, `${message}\n`)
+
+        // isomorphic-git uses the branch name as marker label (<<<<<<< main);
+        // native git uses HEAD — rewrite markers to match git convention
+        if (currentBranch) {
+          await this.rewriteConflictMarkers(dir, currentBranch, this.conflictsFromError(error))
+        }
+
         return {conflicts: this.conflictsFromError(error), success: false}
       }
 
@@ -529,6 +536,10 @@ export class IsomorphicGitService implements IGitService {
         // isomorphic-git does not write MERGE_HEAD — write it so getConflicts() works post-restart
         const theirsOid = await git.resolveRef({dir, fs, ref: `refs/remotes/${remote}/${localBranch}`})
         await fs.promises.writeFile(join(dir, '.git', 'MERGE_HEAD'), `${theirsOid}\n`)
+
+        // Rewrite conflict markers: isomorphic-git uses branch name, git uses HEAD
+        await this.rewriteConflictMarkers(dir, localBranch, this.conflictsFromError(error))
+
         return {conflicts: this.conflictsFromError(error), success: false}
       }
 
@@ -720,7 +731,7 @@ export class IsomorphicGitService implements IGitService {
         const theirsContent = Buffer.from(theirsBlob.blob).toString('utf8')
 
         const conflictContent =
-          `<<<<<<< ${oursRef}\n` +
+          `<<<<<<< HEAD\n` +
           oursContent +
           (oursContent.endsWith('\n') ? '' : '\n') +
           `=======\n` +
@@ -804,5 +815,29 @@ export class IsomorphicGitService implements IGitService {
     const token = this.authStateStore.getToken()
     if (!token) throw new GitAuthError()
     return token
+  }
+
+  /**
+   * Fixes conflict markers written by isomorphic-git to match native git:
+   * 1. Replaces `<<<<<<< <branchName>` with `<<<<<<< HEAD`
+   * 2. Ensures `\n` before `=======` and `>>>>>>>` (isomorphic-git omits it when content has no trailing newline)
+   */
+  private async rewriteConflictMarkers(dir: string, branchName: string, conflicts: GitConflict[]): Promise<void> {
+    const marker = `<<<<<<< ${branchName}`
+    await Promise.all(
+      conflicts
+        .filter((c) => c.type !== 'deleted_modified')
+        .map(async (c) => {
+          const filePath = join(dir, c.path)
+          let content = await fs.promises.readFile(filePath, 'utf8').catch(() => null)
+          if (!content) return
+
+          content = content.replaceAll(marker, '<<<<<<< HEAD')
+          // isomorphic-git omits \n before ======= and >>>>>>> when file content has no trailing newline
+          content = content.replaceAll(/([^\n])=======/g, '$1\n=======')
+          content = content.replaceAll(/([^\n])>>>>>>>/g, '$1\n>>>>>>>')
+          await fs.promises.writeFile(filePath, content)
+        }),
+    )
   }
 }

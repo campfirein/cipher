@@ -619,6 +619,25 @@ describe('IsomorphicGitService', () => {
       }
     })
 
+    it('uses <<<<<<< HEAD and >>>>>>> <branch> in conflict markers', async () => {
+      await service.createBranch({branch: 'feature', directory: testDir})
+      await service.checkout({directory: testDir, ref: 'feature'})
+      await writeFile(join(testDir, 'a.md'), 'feature version')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'feature change'})
+
+      await service.checkout({directory: testDir, ref: 'main'})
+      await writeFile(join(testDir, 'a.md'), 'main version')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'main change'})
+
+      await service.merge({branch: 'feature', directory: testDir})
+
+      const content = await readFile(join(testDir, 'a.md'), 'utf8')
+      expect(content).to.include('<<<<<<< HEAD')
+      expect(content).to.include('>>>>>>> feature')
+    })
+
     it('writes MERGE_HEAD after conflict so getConflicts() works post-restart', async () => {
       await service.createBranch({branch: 'feature', directory: testDir})
       await service.checkout({directory: testDir, ref: 'feature'})
