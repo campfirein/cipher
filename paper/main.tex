@@ -430,7 +430,8 @@ declared via \texttt{@domain/topic/file.md} relation annotations.
 
 \subsubsection{Knowledge Entry Structure}
 
-Each entry $n_i \in \mathcal{N}$ is a standalone markdown file with structured content:
+Each entry $n_i \in \mathcal{N}$ is a standalone markdown file with structured content
+(Equation~\ref{eq:entry}, Appendix~\ref{app:entry-example}):
 \begin{equation}
   n_i = \langle \mathcal{R}_i, \mathcal{C}_i, \mathcal{V}_i, \mathcal{S}_i, \mathcal{L}_i \rangle,
   \label{eq:entry}
@@ -487,7 +488,7 @@ through an \emph{Adaptive Knowledge Lifecycle} (AKL) mechanism:
     and $\tau = 30$ is the decay constant ($\sim$21-day half-life).
 \end{itemize}
 
-The compound retrieval score combines search relevance with lifecycle signals:
+The compound retrieval score (Equation~\ref{eq:score}) combines search relevance with lifecycle signals:
 \begin{equation}
   \text{Score}(n_i, q) = w_r \cdot \text{BM25}(n_i, q) + w_\iota \cdot \hat{\iota}_i + w_t \cdot r_i,
   \label{eq:score}
@@ -504,7 +505,7 @@ where $\hat{\iota}_i$ is the normalized importance and $w_r, w_\iota, w_t$ are t
 \subsection{LLM-Curated Knowledge Operations}
 \label{sec:curation}
 
-\byterover{} supports five atomic curate operations that the LLM can compose:
+\byterover{} supports five atomic curate operations (Table~\ref{tab:operations}) that the LLM can compose:
 
 \begin{table}[h]
 \centering
@@ -580,7 +581,7 @@ partial entries or corrupted knowledge.
 \subsection{5-Tier Progressive Retrieval}
 \label{sec:retrieval}
 
-Retrieval uses a tiered strategy that minimizes LLM calls,
+Retrieval uses a tiered strategy (Table~\ref{tab:tiers}) that minimizes LLM calls,
 illustrated in Figure~\ref{fig:retrieval} and formalized in Algorithm~\ref{alg:retrieval}.
 
 \begin{figure}[t]
@@ -738,7 +739,7 @@ with BM25 ranking, fuzzy matching (0.2 character similarity threshold),
 and prefix search.
 Field boosting weights titles at $3\times$ and paths at $1.5\times$ over content.
 
-Score normalization maps raw BM25 scores to $[0, 1)$ via:
+Score normalization (Equation~\ref{eq:score-norm}) maps raw BM25 scores to $[0, 1)$ via:
 \begin{equation}
   \hat{s} = \frac{s_{\text{raw}}}{1 + s_{\text{raw}}},
   \label{eq:score-norm}
@@ -764,7 +765,8 @@ essential property when agents are making decisions based on retrieved knowledge
 \label{sec:experiments}
 
 We conduct comprehensive experiments to evaluate both the reasoning effectiveness
-and system properties of \byterover{} over state-of-the-art baselines.
+and system properties of \byterover{} over state-of-the-art baselines
+(Tables~\ref{tab:locomo}--\ref{tab:efficiency}).
 
 \subsection{Experimental Setup}
 \label{sec:exp-setup}
@@ -812,6 +814,7 @@ For our own evaluations, we use Gemini~3 Flash as the judge
 with a separate justifier model (Gemini~3.1 Pro) that synthesizes
 an answer from retrieved context before scoring.
 Both models run at temperature~0.0 with top-$k$\,=\,10 results.
+Full hyperparameter details are provided in Appendix~\ref{app:hyperparameters}.
 
 \paragraph{Evaluation prompts.}
 To enable direct, apple-to-apple comparison with Hindsight~\citep{latimer2025hindsight},
