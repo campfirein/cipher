@@ -737,7 +737,7 @@ illustrated in Figure~\ref{fig:retrieval} and formalized in Algorithm~\ref{alg:r
 The search engine is MiniSearch---a lightweight full-text search library
 with BM25 ranking, fuzzy matching (0.2 character similarity threshold),
 and prefix search.
-Field boosting weights titles at $3\times$ and paths at $1.5\times$ over content.
+Field boosting weights titles at $5\times$ and paths at $1.5\times$ over content.
 
 Score normalization (Equation~\ref{eq:score-norm}) maps raw BM25 scores to $[0, 1)$ via:
 \begin{equation}
@@ -813,7 +813,9 @@ and returns a binary correctness label.
 For our own evaluations, we use Gemini~3 Flash as the judge
 with a separate justifier model (Gemini~3.1 Pro) that synthesizes
 an answer from retrieved context before scoring.
-Both models run at temperature~0.0 with top-$k$\,=\,10 results.
+Both models run at temperature~0.0.
+The judge uses a token budget of 8{,}192 with thinking disabled,
+while the justifier uses 32{,}768 tokens with low thinking budget.
 Full hyperparameter details are provided in Appendix~\ref{app:hyperparameters}.
 
 \paragraph{Evaluation prompts.}
@@ -1138,8 +1140,10 @@ motivating the use of LLM-as-a-Judge evaluation~\citep{zheng2023llmjudge}.
 \toprule
 \textbf{Module} & \textbf{Parameter} & \textbf{Value} \\
 \midrule
-\multirow{2}{*}{Search Index} & MiniSearch version & v4 \\
- & Fields & title ($3\times$), content ($1\times$), path ($1.5\times$) \\
+\multirow{4}{*}{Search Index} & MiniSearch version & v7 \\
+ & Fields & title ($5\times$), content ($1\times$), path ($1.5\times$) \\
+ & Max retrieval results & 32 \\
+ & Max content length & 8{,}000 chars \\
 \midrule
 \multirow{3}{*}{Search Config} & Fuzzy ratio & 0.2 \\
  & Prefix matching & enabled \\
@@ -1162,11 +1166,24 @@ motivating the use of LLM-as-a-Judge evaluation~\citep{zheng2023llmjudge}.
 \multirow{2}{*}{Compression} & Level 1 (LLM) & Normal summarization \\
  & Level 2 (Aggressive) & $0.6\times$ token budget \\
 \midrule
-Inference & LLM Backbone & \texttt{gpt-4o-mini} \\
+\multirow{2}{*}{Cache} & Query cache TTL & 0 (disabled) \\
+ & Fingerprint cache TTL & 0 (disabled) \\
+\midrule
+\multirow{2}{*}{Inference} & LLM Backbone (curate/query) & Gemini 3 Flash \\
  & Temperature & 0.0 \\
+\midrule
+\multirow{4}{*}{Judge} & Model & Gemini 3 Flash \\
+ & Max tokens & 8{,}192 \\
+ & Thinking budget & 0 (disabled) \\
+ & Prompts & Hindsight (verbatim) \\
+\midrule
+\multirow{4}{*}{Justifier} & Model & Gemini 3.1 Pro \\
+ & Max tokens & 32{,}768 \\
+ & Thinking budget & low \\
+ & Prompts & Hindsight (adapted for LongMemEval) \\
 \bottomrule
 \end{tabular}
-\caption{Hyperparameter configuration for \byterover{}.}
+\caption{Hyperparameter configuration for \byterover{} and evaluation pipeline.}
 \label{tab:hyperparameters}
 \end{table}
 
