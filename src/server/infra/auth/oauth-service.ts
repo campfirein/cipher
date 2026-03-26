@@ -6,6 +6,7 @@ import {OAuthConfig} from '../../config/auth.config.js'
 import {OAuthTokenData} from '../../core/domain/entities/oauth-token-data.js'
 import {AuthenticationError} from '../../core/domain/errors/auth-error.js'
 import {AuthorizationContext, IAuthService} from '../../core/interfaces/auth/i-auth-service.js'
+import {ProxyConfig} from '../http/proxy-config.js'
 
 export const NETWORK_ERROR_CODE = {
   EAI_AGAIN: 'EAI_AGAIN',
@@ -87,6 +88,8 @@ export class OAuthService implements IAuthService {
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
           },
+          httpAgent: ProxyConfig.getProxyAgent(),
+          httpsAgent: ProxyConfig.getProxyAgent(),
         },
       )
 
@@ -141,6 +144,9 @@ export class OAuthService implements IAuthService {
         client_secret: this.config.clientSecret,
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
+      }, {
+        httpAgent: ProxyConfig.getProxyAgent(),
+        httpsAgent: ProxyConfig.getProxyAgent(),
       })
 
       return this.parseTokenResponse(response.data)

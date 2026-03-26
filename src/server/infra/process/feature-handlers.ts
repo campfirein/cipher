@@ -8,6 +8,7 @@
 import type {IConnectorManager} from '../../core/interfaces/connectors/i-connector-manager.js'
 import type {IProviderConfigStore} from '../../core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keychain-store.js'
+import type {IProviderOAuthTokenStore} from '../../core/interfaces/i-provider-oauth-token-store.js'
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
@@ -63,6 +64,7 @@ export interface FeatureHandlersOptions {
   projectRegistry: IProjectRegistry
   providerConfigStore: IProviderConfigStore
   providerKeychainStore: IProviderKeychainStore
+  providerOAuthTokenStore: IProviderOAuthTokenStore
   resolveProjectPath: ProjectPathResolver
   transport: ITransportServer
 }
@@ -79,6 +81,7 @@ export async function setupFeatureHandlers({
   projectRegistry,
   providerConfigStore,
   providerKeychainStore,
+  providerOAuthTokenStore,
   resolveProjectPath,
   transport,
 }: FeatureHandlersOptions): Promise<void> {
@@ -109,8 +112,10 @@ export async function setupFeatureHandlers({
   }).setup()
 
   new ProviderHandler({
+    browserLauncher: new SystemBrowserLauncher(),
     providerConfigStore,
     providerKeychainStore,
+    providerOAuthTokenStore,
     transport,
   }).setup()
 

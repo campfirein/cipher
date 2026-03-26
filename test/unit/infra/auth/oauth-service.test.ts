@@ -1,11 +1,12 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 import nock from 'nock'
-import {restore} from 'sinon'
+import {restore, stub} from 'sinon'
 
 import type {OAuthConfig} from '../../../../src/server/config/auth.config.js'
 
 import {NETWORK_ERROR_CODE, OAuthService} from '../../../../src/server/infra/auth/oauth-service.js'
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 
 describe('OAuthService', () => {
   let service: OAuthService
@@ -18,6 +19,7 @@ describe('OAuthService', () => {
   const tokenUri = '/oauth/token'
 
   beforeEach(() => {
+    stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     config = {
       authorizationUrl: `${basePath}${authorizationUri}`,
       clientId,

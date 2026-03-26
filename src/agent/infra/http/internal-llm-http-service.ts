@@ -16,7 +16,6 @@ import {ThoughtParser} from '../llm/thought-parser.js'
 type GenerateParams = {
   config: GenerateContentConfig | RequestOptions
   contents: Content[] | MessageCreateParamsNonStreaming
-  model: string
 }
 
 /**
@@ -26,7 +25,6 @@ type GenerateRequest = {
   executionMetadata?: string
   params: GenerateParams
   project_id: string
-  provider: 'claude' | 'gemini'
   region: string
   spaceId: string
   teamId: string
@@ -91,7 +89,7 @@ export class ByteRoverLlmHttpService {
     this.config = {
       apiBaseUrl: config.apiBaseUrl,
       projectId: config.projectId ?? 'byterover',
-      region: config.region ?? 'us-east1',
+      region: config.region ?? 'global',
       sessionKey: config.sessionKey,
       spaceId: config.spaceId,
       teamId: config.teamId,
@@ -103,8 +101,6 @@ export class ByteRoverLlmHttpService {
    * Call ByteRover REST LLM service to generate content.
    *
    * Simple forward to remote REST API - delegates all formatting to backend.
-   * Supports both Gemini and Claude formats - the correct format is determined
-   * automatically based on the model name.
    *
    * Parameter structure differs by provider:
    * - Gemini: contents = Content[], config = GenerateContentConfig
@@ -112,14 +108,12 @@ export class ByteRoverLlmHttpService {
    *
    * @param contents - For Gemini: Content[]. For Claude: MessageCreateParamsNonStreaming (complete body)
    * @param config - For Gemini: GenerateContentConfig. For Claude: RequestOptions (optional HTTP options)
-   * @param model - Model to use (detects provider from model name)
    * @param executionMetadata - Optional execution metadata (mode, executionContext)
    * @returns Response in GenerateContentResponse format
    */
   public async generateContent(
     contents: Content[] | MessageCreateParamsNonStreaming,
     config: GenerateContentConfig | RequestOptions,
-    model: string,
     executionMetadata?: Record<string, unknown>,
   ): Promise<GenerateContentResponse> {
     const request: GenerateRequest = {
@@ -127,11 +121,9 @@ export class ByteRoverLlmHttpService {
       params: {
         config,
         contents,
-        model,
       },
       project_id: typeof this.config.projectId === 'function' ? this.config.projectId() : this.config.projectId,
-      provider: this.detectProviderFromModel(model),
-      region: this.detectRegionFromModel(model),
+      region: this.config.region,
       spaceId: typeof this.config.spaceId === 'function' ? this.config.spaceId() : this.config.spaceId,
       teamId: typeof this.config.teamId === 'function' ? this.config.teamId() : this.config.teamId,
     }
@@ -142,27 +134,22 @@ export class ByteRoverLlmHttpService {
   /**
    * Call ByteRover REST LLM service to generate content with streaming.
    *
-   * Currently falls back to non-streaming endpoint since /api/llm/generate/stream
-   * doesn't exist on the backend yet. Extracts thinking/reasoning from the complete
-   * response and yields them as separate chunks.
-   *
-   * When backend streaming is available, this will use SSE for true streaming.
+   * Currently falls back to non-streaming endpoint. Extracts thinking/reasoning
+   * from the complete response and yields them as separate chunks.
    *
    * @param contents - For Gemini: Content[]. For Claude: MessageCreateParamsNonStreaming (complete body)
    * @param config - For Gemini: GenerateContentConfig. For Claude: RequestOptions (optional HTTP options)
-   * @param model - Model to use (detects provider from model name)
    * @param executionMetadata - Optional execution metadata (mode, executionContext)
    * @yields GenerateContentChunk objects as they are generated
    */
   public async *generateContentStream(
     contents: Content[] | MessageCreateParamsNonStreaming,
     config: GenerateContentConfig | RequestOptions,
-    model: string,
     executionMetadata?: Record<string, unknown>,
   ): AsyncGenerator<GenerateContentChunk> {
     // Fall back to non-streaming endpoint and simulate streaming
     // by extracting thinking from the complete response
-    const response = await this.generateContent(contents, config, model, executionMetadata)
+    const response = await this.generateContent(contents, config, executionMetadata)
 
     // Extract and yield thinking/reasoning chunks first
     yield* this.extractThinkingFromResponse(response)
@@ -190,32 +177,6 @@ export class ByteRoverLlmHttpService {
     })
 
     return httpResponse.data
-  }
-
-  /**
-   * Detect LLM provider from model identifier.
-   *
-   * Determines which provider (Claude or Gemini) to use based on the model name.
-   * Defaults to Gemini if the model doesn't match Claude patterns.
-   *
-   * @param model - Model identifier (e.g., 'claude-3-5-sonnet', 'gemini-2.5-flash')
-   * @returns Provider name: 'claude' or 'gemini'
-   */
-  private detectProviderFromModel(model: string): 'claude' | 'gemini' {
-    return model.toLowerCase().startsWith('claude') ? 'claude' : 'gemini'
-  }
-
-  /**
-   * Detect appropriate GCP region from model identifier.
-   *
-   * Routes Claude models to us-east5 and Gemini models to global.
-   * This ensures compatibility with the provider's available regions on Vertex AI.
-   *
-   * @param model - Model identifier (e.g., 'claude-3-5-sonnet', 'gemini-2.5-flash')
-   * @returns GCP region identifier ('us-east5' or 'global')
-   */
-  private detectRegionFromModel(model: string): string {
-    return model.toLowerCase().startsWith('claude') ? 'us-east5' : 'global'
   }
 
   /**
