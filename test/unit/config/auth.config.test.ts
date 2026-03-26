@@ -6,15 +6,45 @@ import {IOidcDiscoveryService} from '../../../src/server/core/interfaces/auth/i-
 
 describe('Auth Configuration', () => {
   let discoveryService: IOidcDiscoveryService
-  let originalEnv: string | undefined
   let consoleWarnStub: sinon.SinonStub
 
-  beforeEach(() => {
-    // Save original environment
-    originalEnv = process.env.BR_ENV
+  const ENV_VARS = {
+    BRV_API_BASE_URL: 'https://api.test',
+    BRV_AUTHORIZATION_URL: 'https://auth.test/authorize',
+    BRV_COGIT_API_BASE_URL: 'https://cogit.test',
+    BRV_ISSUER_URL: 'https://issuer.test',
+    BRV_LLM_API_BASE_URL: 'https://llm.test',
+    BRV_MEMORA_API_BASE_URL: 'https://memora.test',
+    BRV_TOKEN_URL: 'https://auth.test/token',
+    BRV_WEB_APP_URL: 'https://app.test',
+  }
 
-    // Clean environment
-    delete process.env.BR_ENV
+  const ALL_KEYS = ['BRV_ENV', ...Object.keys(ENV_VARS)]
+  const savedEnvVars: Record<string, string | undefined> = {}
+
+  before(() => {
+    for (const key of ALL_KEYS) {
+      savedEnvVars[key] = process.env[key]
+    }
+  })
+
+  after(() => {
+    for (const key of ALL_KEYS) {
+      if (savedEnvVars[key] === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = savedEnvVars[key]
+      }
+    }
+  })
+
+  beforeEach(() => {
+    // Set all required env vars
+    for (const [key, value] of Object.entries(ENV_VARS)) {
+      process.env[key] = value
+    }
+
+    delete process.env.BRV_ENV
 
     // Stub console.warn to suppress output
     consoleWarnStub = stub(console, 'warn')
@@ -31,14 +61,11 @@ describe('Auth Configuration', () => {
   })
 
   afterEach(() => {
-    // Restore console.warn stub
     consoleWarnStub.restore()
 
-    // Restore original environment
-    if (originalEnv === undefined) {
-      delete process.env.BR_ENV
-    } else {
-      process.env.BR_ENV = originalEnv
+    delete process.env.BRV_ENV
+    for (const key of Object.keys(ENV_VARS)) {
+      delete process.env[key]
     }
 
     restore()
@@ -75,24 +102,15 @@ describe('Auth Configuration', () => {
 
   describe('discovery failure fallback', () => {
     beforeEach(() => {
-      // Mock discovery to fail
-      discoveryService.discover = stub().rejects(new Error('Network error'))
+      // Mock discovery to fail with non-network error
+      discoveryService.discover = stub().rejects(new Error('Discovery failed'))
     })
 
-    it('should fallback to hardcoded environment-specific URLs when discovery fails', async () => {
+    it('should fallback to env var URLs when discovery fails', async () => {
       const config = await getAuthConfig(discoveryService)
 
-      expect(config.authorizationUrl).to.equal('https://dev-beta-iam.byterover.dev/api/v1/oidc/authorize')
-      expect(config.tokenUrl).to.equal('https://dev-beta-iam.byterover.dev/api/v1/oidc/token')
-    })
-
-    it('should use development fallback URLs by default', async () => {
-      delete process.env.BR_ENV // Defaults to development
-
-      const config = await getAuthConfig(discoveryService)
-
-      expect(config.authorizationUrl).to.include('dev-beta-iam')
-      expect(config.tokenUrl).to.include('dev-beta-iam')
+      expect(config.authorizationUrl).to.equal('https://auth.test/authorize')
+      expect(config.tokenUrl).to.equal('https://auth.test/token')
     })
 
     it('should still use environment-specific clientId and scopes in fallback', async () => {
@@ -102,6 +120,20 @@ describe('Auth Configuration', () => {
       expect(config.scopes).to.include('read')
       expect(config.scopes).to.include('write')
       expect(config.scopes).to.include('debug')
+    })
+
+    it('should throw on network errors', async () => {
+      discoveryService.discover = stub().rejects(new Error('getaddrinfo ENOTFOUND issuer.test'))
+
+      try {
+        await getAuthConfig(discoveryService)
+        expect.fail('Expected getAuthConfig to throw')
+      } catch (error) {
+        expect(error).to.be.instanceOf(Error)
+        if (error instanceof Error) {
+          expect(error.message).to.include('Network error')
+        }
+      }
     })
   })
 
