@@ -1,7 +1,15 @@
+import {input, password, select, Separator} from '@inquirer/prompts'
 import {Args, Command, Flags} from '@oclif/core'
 
+import type {ProviderDTO} from '../../../shared/transport/types/dto.js'
+
 import {OAUTH_CALLBACK_TIMEOUT_MS} from '../../../shared/constants/oauth.js'
-import {ModelEvents, type ModelSetActiveResponse} from '../../../shared/transport/events/model-events.js'
+import {
+  ModelEvents,
+  type ModelListRequest,
+  type ModelListResponse,
+  type ModelSetActiveResponse,
+} from '../../../shared/transport/events/model-events.js'
 import {
   type ProviderAwaitOAuthCallbackResponse,
   type ProviderConnectResponse,
@@ -14,22 +22,22 @@ import {
 } from '../../../shared/transport/events/provider-events.js'
 import {type DaemonClientOptions, withDaemonRetry} from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
+import {createEscapeSignal, ESC_HINT, isPromptCancelled} from '../../lib/prompt-utils.js'
 
 export default class ProviderConnect extends Command {
   public static args = {
     provider: Args.string({
-      description: 'Provider ID to connect (e.g., anthropic, openai, openrouter)',
-      required: true,
+      description: 'Provider ID to connect (e.g., anthropic, openai, openrouter). Omit for interactive selection.',
+      required: false,
     }),
   }
   public static description = 'Connect or switch to an LLM provider'
   public static examples = [
+    '<%= config.bin %> providers connect',
     '<%= config.bin %> providers connect anthropic --api-key sk-xxx',
-    '<%= config.bin %> providers connect openai --api-key sk-xxx --model gpt-4.1',
     '<%= config.bin %> providers connect openai --oauth',
     '<%= config.bin %> providers connect byterover',
-    '<%= config.bin %> providers connect openai-compatible --base-url http://localhost:11434/v1',
-    '<%= config.bin %> providers connect openai-compatible --base-url http://localhost:11434/v1 --api-key sk-xxx --model llama3',
+    '<%= config.bin %> providers connect openai-compatible --base-url http://localhost:11434/v1 --api-key sk-xxx',
   ]
   public static flags = {
     'api-key': Flags.string({
@@ -134,7 +142,6 @@ export default class ProviderConnect extends Command {
     onProgress?: (msg: string) => void,
   ) {
     return withDaemonRetry(async (client) => {
-      // 1. Verify provider exists and supports OAuth
       const {providers} = await client.requestWithAck<ProviderListResponse>(ProviderEvents.LIST)
       const provider = providers.find((p) => p.id === providerId)
       if (!provider) {
@@ -145,8 +152,6 @@ export default class ProviderConnect extends Command {
         throw new Error(`Provider "${providerId}" does not support OAuth. Use --api-key instead.`)
       }
 
-      // --code is only valid for code-paste providers (e.g., Anthropic).
-      // Browser-callback providers like OpenAI handle the code exchange automatically.
       if (code && provider.oauthCallbackMode !== 'code-paste') {
         throw new Error(
           `Provider "${providerId}" uses browser-based OAuth and does not accept --code.\n` +
@@ -154,7 +159,6 @@ export default class ProviderConnect extends Command {
         )
       }
 
-      // If --code is provided, submit it directly (code-paste providers)
       if (code) {
         const response = await client.requestWithAck<ProviderSubmitOAuthCodeResponse>(
           ProviderEvents.SUBMIT_OAUTH_CODE,
@@ -167,7 +171,6 @@ export default class ProviderConnect extends Command {
         return {providerName: provider.name, showInstructions: false}
       }
 
-      // 2. Start OAuth flow — returns immediately with auth URL
       const startResponse = await client.requestWithAck<ProviderStartOAuthResponse>(ProviderEvents.START_OAUTH, {
         providerId,
       })
@@ -175,10 +178,8 @@ export default class ProviderConnect extends Command {
         throw new Error(startResponse.error ?? 'Failed to start OAuth flow')
       }
 
-      // Always print auth URL (user's machine may not support browser launch)
       onProgress?.(`\nOpen this URL to authenticate:\n  ${startResponse.authUrl}\n`)
 
-      // 3. Handle based on callback mode
       if (startResponse.callbackMode === 'auto') {
         onProgress?.('Waiting for authentication in browser...')
         const awaitResponse = await client.requestWithAck<ProviderAwaitOAuthCallbackResponse>(
@@ -193,22 +194,175 @@ export default class ProviderConnect extends Command {
         return {providerName: provider.name, showInstructions: false}
       }
 
-      // code-paste mode: print instructions and exit
       onProgress?.('Copy the authorization code from the browser and run:')
       onProgress?.(`  brv providers connect ${providerId} --oauth --code <code>`)
       return {providerName: provider.name, showInstructions: true}
     }, options)
   }
 
+  protected async fetchModels(providerId: string, options?: DaemonClientOptions): Promise<ModelListResponse> {
+    return withDaemonRetry(
+      async (client) =>
+        client.requestWithAck<ModelListResponse>(ModelEvents.LIST, {providerId} satisfies ModelListRequest),
+      options,
+    )
+  }
+
+  protected async promptForApiKey(providerName: string, apiKeyUrl?: string, signal?: AbortSignal): Promise<string> {
+    const hint = apiKeyUrl ? ` (get one at ${apiKeyUrl})` : ''
+    return password({message: `Enter API key for ${providerName}${hint}: ${ESC_HINT}`}, {signal})
+  }
+
+  protected async promptForBaseUrl(signal?: AbortSignal): Promise<string> {
+    return input({message: `Enter base URL (e.g., http://localhost:11434/v1): ${ESC_HINT}`}, {signal})
+  }
+
+  protected async promptForModel(
+    models: {id: string; name: string}[],
+    signal?: AbortSignal,
+  ): Promise<string | undefined> {
+    // Add a blank line before the prompt
+    this.log()
+
+    return select(
+      {
+        choices: [{name: 'Skip (use default)', value: ''}, ...models.map((m) => ({name: m.name, value: m.id}))],
+        loop: false,
+        message: `Select a model ${ESC_HINT}`,
+      },
+      {signal},
+    ).then((v) => v || undefined)
+  }
+
+  protected async promptForProvider(providers: ProviderDTO[], signal?: AbortSignal): Promise<string> {
+    // eslint-disable-next-line unicorn/no-array-reduce
+    const nameMaxChars = providers.reduce((prev, current) => (prev.name.length > current.name.length ? prev : current))
+      .name.length
+    const popular = providers.filter((p) => p.category === 'popular')
+    const other = providers.filter((p) => p.category === 'other')
+
+    const formatChoice = (p: ProviderDTO) => ({
+      name: `${p.name.padEnd(nameMaxChars + 3)} ${p.description}`,
+      value: p.id,
+    })
+
+    // Add a blank line before the prompt
+    this.log()
+
+    return select(
+      {
+        choices: [
+          new Separator('---------- Populars ----------'),
+          ...popular.map((p) => formatChoice(p)),
+          new Separator('\n---------- Others ----------'),
+          ...other.map((p) => formatChoice(p)),
+        ],
+        loop: false,
+        message: 'Select a provider',
+      },
+      {signal},
+    )
+  }
+
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(ProviderConnect)
     const providerId = args.provider
-    const apiKey = flags['api-key']
-    const baseUrl = flags['base-url']
-    const {code, model, oauth} = flags
     const format: 'json' | 'text' = flags.format === 'json' ? 'json' : 'text'
 
-    // Validate flag combinations
+    // Interactive mode: no provider arg
+    if (!providerId) {
+      if (format === 'json') {
+        writeJsonResponse({
+          command: 'providers connect',
+          data: {error: 'Provider argument is required for JSON output'},
+          success: false,
+        })
+        return
+      }
+
+      try {
+        await this.runInteractive()
+      } catch (error) {
+        this.log(
+          error instanceof Error
+            ? error.message
+            : 'An unexpected error occurred while connecting the provider. Please try again.',
+        )
+      }
+
+      return
+    }
+
+    // Non-interactive mode: provider arg provided
+    await this.runNonInteractive(providerId, flags, format)
+  }
+
+  /**
+   * Interactive flow with cancel-to-go-back navigation.
+   * Step 1 (provider) ← Step 2 (auth) ← Step 3 (model)
+   */
+  protected async runInteractive(): Promise<void> {
+    const {providers} = await withDaemonRetry(async (client) =>
+      client.requestWithAck<ProviderListResponse>(ProviderEvents.LIST),
+    )
+
+    const esc = createEscapeSignal()
+    const STEPS = ['provider', 'auth', 'model'] as const
+    let stepIndex = 0
+    let providerId: string | undefined
+    let provider: ProviderDTO | undefined
+
+    try {
+      /* eslint-disable no-await-in-loop -- intentional sequential interactive wizard */
+      while (stepIndex < STEPS.length) {
+        const currentStep = STEPS[stepIndex]
+        try {
+          switch (currentStep) {
+            case 'auth': {
+              await this.runAuthStep(providerId!, provider!, esc.signal)
+              break
+            }
+
+            case 'model': {
+              await this.runModelStep(providerId!, esc.signal)
+              break
+            }
+
+            case 'provider': {
+              providerId = await this.promptForProvider(providers, esc.signal)
+              provider = providers.find((p) => p.id === providerId)!
+              break
+            }
+          }
+
+          stepIndex++
+        } catch (error) {
+          if (isPromptCancelled(error)) {
+            if (stepIndex === 0) return // cancel on first step → exit
+            esc.reset()
+            stepIndex--
+          } else {
+            throw error
+          }
+        }
+      }
+      /* eslint-enable no-await-in-loop */
+    } finally {
+      esc.cleanup()
+    }
+  }
+
+  protected async runNonInteractive(
+    providerId: string,
+    flags: {[key: string]: unknown},
+    format: 'json' | 'text',
+  ): Promise<void> {
+    const apiKey = flags['api-key'] as string | undefined
+    const baseUrl = flags['base-url'] as string | undefined
+    const code = flags.code as string | undefined
+    const model = flags.model as string | undefined
+    const oauth = flags.oauth as boolean
+
     if (oauth && apiKey) {
       const msg = 'Cannot use --oauth and --api-key together'
       if (format === 'json') {
@@ -264,5 +418,34 @@ export default class ProviderConnect extends Command {
         this.log(errorMessage)
       }
     }
+  }
+
+  private async runAuthStep(providerId: string, provider: ProviderDTO, signal?: AbortSignal): Promise<void> {
+    let apiKey: string | undefined
+    let baseUrl: string | undefined
+
+    if (providerId === 'openai-compatible' && !provider.isConnected) {
+      baseUrl = await this.promptForBaseUrl(signal)
+    }
+
+    if (provider.requiresApiKey && !provider.isConnected) {
+      apiKey = await this.promptForApiKey(provider.name, provider.apiKeyUrl, signal)
+    }
+
+    const result = await this.connectProvider({apiKey, baseUrl, providerId})
+    this.log(`Connected to ${result.providerName} (${result.providerId})`)
+  }
+
+  private async runModelStep(providerId: string, signal?: AbortSignal): Promise<void> {
+    const modelList = await this.fetchModels(providerId)
+    if (modelList.models.length === 0) return
+
+    const modelId = await this.promptForModel(modelList.models, signal)
+    if (!modelId) return
+
+    await withDaemonRetry(async (client) =>
+      client.requestWithAck<ModelSetActiveResponse>(ModelEvents.SET_ACTIVE, {modelId, providerId}),
+    )
+    this.log(`Model set to: ${modelId}`)
   }
 }

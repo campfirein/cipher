@@ -60,6 +60,8 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
 export interface DaemonClientOptions {
   /** Max retry attempts. Default: 3 */
   maxRetries?: number
+  /** Explicit project path — bypasses walk-up discovery. Use for `init` where .brv/ doesn't exist yet. */
+  projectPath?: string
   /** Delay between retries in ms. Default: 2000. Set to 0 in tests. */
   retryDelayMs?: number
   /** Optional transport connector for DI/testing */
@@ -91,7 +93,7 @@ export async function withDaemonRetry<T>(
 ): Promise<T> {
   const maxRetries = options?.maxRetries ?? MAX_RETRIES
   const retryDelayMs = options?.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS
-  const connector = options?.transportConnector ?? createDaemonAwareConnector()
+  const connector = options?.transportConnector ?? createDaemonAwareConnector(options?.projectPath)
 
   let lastError: unknown
 
