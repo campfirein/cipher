@@ -1,6 +1,7 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 import nock from 'nock'
+import {restore, stub} from 'sinon'
 
 import {
   DiscoveryError,
@@ -8,6 +9,7 @@ import {
   DiscoveryTimeoutError,
 } from '../../../../src/server/core/domain/errors/discovery-error.js'
 import {OidcDiscoveryService} from '../../../../src/server/infra/auth/oidc-discovery-service.js'
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 
 describe('OidcDiscoveryService', () => {
   let service: OidcDiscoveryService
@@ -22,10 +24,12 @@ describe('OidcDiscoveryService', () => {
   }
 
   beforeEach(() => {
+    stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     service = new OidcDiscoveryService()
   })
 
   afterEach(() => {
+    restore()
     nock.cleanAll()
   })
 

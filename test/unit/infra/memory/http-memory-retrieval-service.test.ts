@@ -1,7 +1,9 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 import nock from 'nock'
+import * as sinon from 'sinon'
 
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 import {HttpMemoryRetrievalService} from '../../../../src/server/infra/memory/http-memory-retrieval-service.js'
 
 describe('HttpMemoryRetrievalService', () => {
@@ -13,10 +15,12 @@ describe('HttpMemoryRetrievalService', () => {
   let service: HttpMemoryRetrievalService
 
   beforeEach(() => {
+    sinon.stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     service = new HttpMemoryRetrievalService({apiBaseUrl})
   })
 
   afterEach(() => {
+    sinon.restore()
     nock.cleanAll()
   })
 

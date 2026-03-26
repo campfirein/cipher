@@ -2,6 +2,7 @@ import axios, {isAxiosError} from 'axios'
 
 import {DiscoveryError, DiscoveryNetworkError, DiscoveryTimeoutError} from '../../core/domain/errors/discovery-error.js'
 import {IOidcDiscoveryService, OidcMetadata} from '../../core/interfaces/auth/i-oidc-discovery-service.js'
+import {ProxyConfig} from '../http/proxy-config.js'
 
 /**
  * Response from the OIDC discovery endpoint.
@@ -117,6 +118,8 @@ export class OidcDiscoveryService implements IOidcDiscoveryService {
     try {
       const wellKnownUrl = `${issuerUrl}/.well-known/openid-configuration`
       const response = await axios.get<OidcDiscoveryResponse>(wellKnownUrl, {
+        httpAgent: ProxyConfig.getProxyAgent(),
+        httpsAgent: ProxyConfig.getProxyAgent(),
         timeout: this.timeoutMs,
       })
 
