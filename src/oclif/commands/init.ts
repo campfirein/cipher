@@ -3,7 +3,6 @@ import {Command, Flags} from '@oclif/core'
 import {InitEvents, type InitLocalResponse} from '../../shared/transport/events/init-events.js'
 import {ProviderEvents, type ProviderGetActiveResponse} from '../../shared/transport/events/provider-events.js'
 import {type DaemonClientOptions, formatConnectionError, withDaemonRetry} from '../lib/daemon-client.js'
-import { isPromptCancelled } from '../lib/prompt-utils.js'
 
 export default class Init extends Command {
   public static description = 'Initialize a ByteRover project in the current directory'
@@ -49,19 +48,23 @@ export default class Init extends Command {
     }
 
     // Step 3: Provider setup — only if no provider connected yet
+    let activeProviderId: string
     try {
-      const {activeProviderId} = await withDaemonRetry(
+      const result = await withDaemonRetry(
         async (client) => client.requestWithAck<ProviderGetActiveResponse>(ProviderEvents.GET_ACTIVE),
         daemonOptions,
       )
-
-      if (!activeProviderId) {
-        await this.config.runCommand('providers:connect')
-      }
+      activeProviderId = result.activeProviderId
     } catch (error) {
-      // providers:connect logs its own errors
-      // If the user cancelled the prompt, we should not continue
-      if (isPromptCancelled(error)) {
+      this.log(formatConnectionError(error))
+      return
+    }
+
+    if (!activeProviderId) {
+      try {
+        await this.config.runCommand('providers:connect')
+      } catch {
+        // providers:connect logs its own errors
         return
       }
     }

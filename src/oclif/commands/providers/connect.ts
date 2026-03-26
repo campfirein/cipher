@@ -329,13 +329,20 @@ export default class ProviderConnect extends Command {
             }
 
             case 'model': {
-              await this.runModelStep(providerId!, esc.signal)
+              // If providerId is not set, go back to provider step
+              // eslint-disable-next-line max-depth
+              if (!providerId) {
+                stepIndex = 0
+                break
+              }
+
+              await this.runModelStep(providerId, esc.signal)
               break
             }
 
             case 'provider': {
               providerId = await this.promptForProvider(providers, esc.signal)
-              provider = providers.find((p) => p.id === providerId)!
+              provider = providers.find((p) => p.id === providerId)
               break
             }
           }

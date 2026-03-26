@@ -148,7 +148,7 @@ ${agentTable}`
         agentId = await this.promptForAgent()
       } catch (error) {
         if (!isPromptCancelled(error)) throw error
-        return
+        return // user cancelled agent selection
       }
     }
 

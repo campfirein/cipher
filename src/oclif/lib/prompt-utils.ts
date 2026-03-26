@@ -3,7 +3,7 @@ export const ESC_HINT = '(esc to go back)'
 export function isPromptCancelled(error: unknown): boolean {
   return (
     error instanceof Error &&
-    (error.name === 'AbortPromptError' || error.name === 'CancelPromptError' || error.name === 'ExitPromptError')
+    (error.name === 'AbortPromptError' || error.name === 'CancelPromptError' || error.name === 'ExitPromptError') // @inquirer/prompts error class names as of v7
   )
 }
 

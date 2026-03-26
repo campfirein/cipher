@@ -153,6 +153,8 @@ describe('Init Command', () => {
       expect(command.runCommandCalls).to.be.empty
     })
 
+    // Note: this test bypasses oclif's runCommand to simulate error propagation.
+    // Integration verification needed to confirm ExitPromptError survives the real oclif command runner.
     it('should stop after providers:connect is cancelled by user', async () => {
       mockEvent('provider:getActive', {activeProviderId: ''})
       const command = createCommand()
