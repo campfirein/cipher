@@ -2,6 +2,13 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.4.1]
+
+### Fixed
+- **Agent startup reliability improved** — Increased the timeout for agent child processes to become ready from 15 to 30 seconds, reducing timeout failures on slower machines or under heavy load.
+- **Console window flash on Windows** — Agent child processes no longer briefly flash a console window when spawned on Windows.
+- **Security dependency updates** — Patched npm dependencies to address high-severity vulnerabilities.
+
 ## [2.4.0]
 
 ### Added
