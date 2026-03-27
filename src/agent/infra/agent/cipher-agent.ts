@@ -4,6 +4,7 @@ import {randomUUID} from 'node:crypto'
 import {setMaxListeners} from 'node:events'
 
 import type {BrvConfig} from '../../../server/core/domain/entities/brv-config.js'
+import type {ProviderConfigResponse} from '../../../server/core/domain/transport/schemas.js'
 import type {AgentEventMap} from '../../core/domain/agent-events/types.js'
 import type {GenerateResponse, StreamingEvent, StreamOptions} from '../../core/domain/streaming/types.js'
 import type {CipherAgentServices} from '../../core/interfaces/cipher-services.js'
@@ -20,11 +21,14 @@ import type {ToolProvider} from '../tools/tool-provider.js'
 import type {AgentConfig} from './agent-schemas.js'
 import type {ProviderUpdateConfig} from './provider-update-config.js'
 
+import {TransportStateEventNames} from '../../../server/core/domain/transport/schemas.js'
 import {getEffectiveMaxInputTokens, resolveRegistryProvider} from '../../core/domain/llm/index.js'
 import {STREAMING_EVENT_NAMES} from '../../core/domain/streaming/types.js'
 import {ToolName} from '../../core/domain/tools/constants.js'
 import {AgentEventBus} from '../events/event-emitter.js'
+import {RetryableContentGenerator} from '../llm/generators/index.js'
 import {createGeneratorForProvider} from '../llm/providers/index.js'
+import {DEFAULT_RETRY_POLICY} from '../llm/retry/retry-policy.js'
 import {EventBasedLogger} from '../logger/event-based-logger.js'
 import {deregisterRootEligibleSession, registerRootEligibleSession} from '../map/agentic-map-service.js'
 import {MemoryDeduplicator} from '../memory/memory-deduplicator.js'
@@ -348,15 +352,47 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Compress memories for user-facing sessions before disposal (fail-open).
     if (this.userFacingTaskSessions.has(sessionId) && this.sessionCompressor) {
       try {
+        // Refresh OAuth token and rebuild compressor before compression
+        if (this._transportClient && this.services) {
+          try {
+            const fresh = await this._transportClient.requestWithAck<ProviderConfigResponse>(
+              TransportStateEventNames.GET_PROVIDER_CONFIG,
+            )
+            if (!fresh.providerKeyMissing && fresh.activeProvider) {
+              const provider = fresh.provider ?? (fresh.openRouterApiKey ? 'openrouter' : 'byterover')
+              const freshGen = createGeneratorForProvider(provider, {
+                apiKey: provider === 'openrouter'
+                  ? (fresh.openRouterApiKey ?? fresh.providerApiKey)
+                  : fresh.providerApiKey,
+                baseUrl: fresh.providerBaseUrl,
+                headers: fresh.providerHeaders,
+                maxTokens: 4096,
+                model: fresh.activeModel ?? 'default',
+                temperature: 0,
+              })
+              const retryable = new RetryableContentGenerator(freshGen, {policy: DEFAULT_RETRY_POLICY})
+              const dedup = new MemoryDeduplicator(retryable)
+              this.sessionCompressor = new SessionCompressor(dedup, retryable, this.services.memoryManager)
+            }
+          } catch {
+            // Fail-open: use existing compressor with potentially stale token
+          }
+        }
+
         const session = this.getSessionManagerInternal().getSession(sessionId)
         if (session) {
           const messages = session.getLLMService().getContextManager().getComprehensiveMessages()
           const commandType = this.getSessionManagerInternal().getSessionCommandType(sessionId) ?? 'curate'
-          await this.sessionCompressor.compress(messages, commandType).catch(() => {})
+          await this.sessionCompressor.compress(messages, commandType).catch((error) => {
+            const msg = error instanceof Error ? error.message : String(error)
+            console.debug(`[CipherAgent] Session compression failed for ${sessionId}: ${msg}`)
+          })
         }
-      } catch {
+      } catch (error) {
         // Fail-open: synchronous errors in the session accessor chain (e.g. corrupted
         // session state) must not prevent clearSession + deleteSession from running.
+        const msg = error instanceof Error ? error.message : String(error)
+        console.debug(`[CipherAgent] Session compression setup failed for ${sessionId}: ${msg}`)
       }
 
       this.userFacingTaskSessions.delete(sessionId)
@@ -1077,8 +1113,44 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       temperature: 0,
     })
 
+    // Wrap with retry for background resilience (no event bus — background tasks have no UI)
+    const retryableCurateGenerator = new RetryableContentGenerator(curateGenerator, {
+      policy: DEFAULT_RETRY_POLICY,
+    })
+
     // Wire generator into the abstract queue so background generation can proceed
-    services.abstractQueue.setGenerator(curateGenerator)
+    services.abstractQueue.setGenerator(retryableCurateGenerator)
+
+    // Refresh OAuth token before each background generation (tokens expire between tasks)
+    if (this._transportClient) {
+      const transportClient = this._transportClient
+      services.abstractQueue.setBeforeProcess(async () => {
+        const fresh = await transportClient.requestWithAck<ProviderConfigResponse>(
+          TransportStateEventNames.GET_PROVIDER_CONFIG,
+        )
+        if (fresh.providerKeyMissing || !fresh.activeProvider) {
+          return
+        }
+
+        const provider = fresh.provider ?? (fresh.openRouterApiKey ? 'openrouter' : 'byterover')
+        const freshGen = createGeneratorForProvider(provider, {
+          apiKey: provider === 'openrouter'
+            ? (fresh.openRouterApiKey ?? fresh.providerApiKey)
+            : fresh.providerApiKey,
+          baseUrl: fresh.providerBaseUrl,
+          headers: fresh.providerHeaders,
+          httpConfig: httpConfig as unknown as Record<string, unknown>,
+          httpReferer: sessionLLMConfig.httpReferer,
+          maxTokens: 4096,
+          model: fresh.activeModel ?? sessionLLMConfig.model,
+          siteName: sessionLLMConfig.siteName,
+          temperature: 0,
+        })
+        services.abstractQueue.setGenerator(
+          new RetryableContentGenerator(freshGen, {policy: DEFAULT_RETRY_POLICY}),
+        )
+      })
+    }
 
     // Rebuild sandbox CurateService with the queue — reuses existing hot-swap path
     const newCurateService = createCurateService(services.workingDirectory, services.abstractQueue)
@@ -1087,12 +1159,12 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Atomically rebuild CURATE + INGEST_RESOURCE tools so both enqueue abstracts
     services.toolProvider.replaceTools(
       [ToolName.CURATE, ToolName.INGEST_RESOURCE],
-      {abstractQueue: services.abstractQueue, contentGenerator: curateGenerator},
+      {abstractQueue: services.abstractQueue, contentGenerator: retryableCurateGenerator},
     )
 
     // Rebuild session compressor with the new generator (used in deleteTaskSession)
-    const deduplicator = new MemoryDeduplicator(curateGenerator)
-    this.sessionCompressor = new SessionCompressor(deduplicator, curateGenerator, services.memoryManager)
+    const deduplicator = new MemoryDeduplicator(retryableCurateGenerator)
+    this.sessionCompressor = new SessionCompressor(deduplicator, retryableCurateGenerator, services.memoryManager)
   }
 
   private rebindMapTools(

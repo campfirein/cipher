@@ -14,30 +14,28 @@ import {ToolName} from '../../../core/domain/tools/constants.js'
  * Accepts either a stubPath (archive drill-down) or an overviewPath (L1 overview retrieval).
  */
 const ExpandKnowledgeInputSchema = z
-  .union([
-    z
-      .object({
-        stubPath: z
-          .string()
-          .min(1)
-          .describe(
-            'Path to the .stub.md file in _archived/. ' +
-            'This is the `path` field from search results where symbolKind === "archive_stub".',
-          ),
-      })
-      .strict(),
-    z
-      .object({
-        overviewPath: z
-          .string()
-          .min(1)
-          .describe(
-            'Path to the .overview.md file (relative to context tree). ' +
-            'This is the `overviewPath` field from search results.',
-          ),
-      })
-      .strict(),
-  ])
+  .object({
+    overviewPath: z
+      .string()
+      .min(1)
+      .describe(
+        'Path to the .overview.md file (relative to context tree). ' +
+        'This is the `overviewPath` field from search results.',
+      )
+      .optional(),
+    stubPath: z
+      .string()
+      .min(1)
+      .describe(
+        'Path to the .stub.md file in _archived/. ' +
+        'This is the `path` field from search results where symbolKind === "archive_stub".',
+      )
+      .optional(),
+  })
+  .refine(
+    (data) => (data.stubPath !== undefined) !== (data.overviewPath !== undefined),
+    {message: 'Exactly one of stubPath or overviewPath must be provided'},
+  )
 
 /**
  * Configuration for expand knowledge tool.
@@ -67,7 +65,7 @@ export function createExpandKnowledgeTool(config: ExpandKnowledgeToolConfig = {}
     async execute(input: unknown, _context?: ToolExecutionContext) {
       const parsed = ExpandKnowledgeInputSchema.parse(input)
 
-      if ('overviewPath' in parsed) {
+      if (parsed.overviewPath) {
         const baseDir = config.baseDirectory ?? process.cwd()
         const fullPath = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR, parsed.overviewPath)
         const overviewContent = await readFile(fullPath, 'utf8')
@@ -79,7 +77,7 @@ export function createExpandKnowledgeTool(config: ExpandKnowledgeToolConfig = {}
         }
       }
 
-      const result = await archiveService.drillDown(parsed.stubPath, config.baseDirectory)
+      const result = await archiveService.drillDown(parsed.stubPath!, config.baseDirectory)
       return {
         fullContent: result.fullContent,
         originalPath: result.originalPath,

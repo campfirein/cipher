@@ -37,6 +37,7 @@ export class AbstractGenerationQueue {
   private drainResolvers: Array<() => void> = []
   private failed = 0
   private generator: IContentGenerator | undefined
+  private onBeforeProcess?: () => Promise<void>
   private pending: QueueItem[] = []
   private processed = 0
   private processing = false
@@ -104,6 +105,14 @@ export class AbstractGenerationQueue {
   }
 
   /**
+   * Set a callback that runs before each item is processed.
+   * Used to refresh OAuth tokens before LLM calls.
+   */
+  setBeforeProcess(fn: () => Promise<void>): void {
+    this.onBeforeProcess = fn
+  }
+
+  /**
    * Inject the LLM generator. Triggers processing of any buffered items.
    */
   setGenerator(generator: IContentGenerator): void {
@@ -127,6 +136,9 @@ export class AbstractGenerationQueue {
     const item = this.pending.shift()!
 
     try {
+      // Refresh credentials before each generation (OAuth tokens may expire)
+      await this.onBeforeProcess?.()
+
       const {abstractContent, overviewContent} = await generateFileAbstracts(
         item.fullContent,
         this.generator,
@@ -142,7 +154,9 @@ export class AbstractGenerationQueue {
       ])
 
       this.processed++
-    } catch {
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      console.debug(`[AbstractQueue] ${item.contextPath} attempt ${item.attempts + 1}/${this.maxAttempts}: ${msg}`)
       item.attempts++
       if (item.attempts < this.maxAttempts) {
         // Exponential backoff: 500ms, 1000ms, 2000ms, ...

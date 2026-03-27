@@ -90,15 +90,21 @@ ${existingSummary}
 Decide: CREATE, MERGE (with targetId and mergedContent), or SKIP.`
 
     try {
-      const response = await this.generator.generateContent({
+      // Use streaming — ChatGPT OAuth Codex endpoint requires stream: true
+      const chunks: string[] = []
+      for await (const chunk of this.generator.generateContentStream({
         config: {maxTokens: 300, temperature: 0},
         contents: [{content: prompt, role: 'user'}],
         model: 'default',
         systemPrompt: SYSTEM_PROMPT,
         taskId: randomUUID(),
-      })
+      })) {
+        if (chunk.content) {
+          chunks.push(chunk.content)
+        }
+      }
 
-      const parsed = JSON.parse(response.content.trim()) as {
+      const parsed = JSON.parse(chunks.join('').trim()) as {
         action: 'CREATE' | 'MERGE' | 'SKIP'
         mergedContent?: string
         targetId?: string
@@ -115,8 +121,11 @@ Decide: CREATE, MERGE (with targetId and mergedContent), or SKIP.`
       }
 
       return {action: 'CREATE', memory: draft}
-    } catch {
+    } catch (error) {
       // On any error, default to CREATE (fail-open)
+      const msg = error instanceof Error ? error.message : String(error)
+      console.debug(`[MemoryDeduplicator] Failed for ${draft.category}: ${msg}`)
+
       return {action: 'CREATE', memory: draft}
     }
   }

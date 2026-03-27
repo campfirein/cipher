@@ -119,8 +119,10 @@ export class SessionCompressor {
         } else {
           skipped++
         }
-      } catch {
+      } catch (error) {
         // Fail-open: skip individual memory errors
+        const msg = error instanceof Error ? error.message : String(error)
+        console.debug(`[SessionCompressor] Failed to apply ${action.action} action: ${msg}`)
         skipped++
       }
     }
@@ -139,15 +141,21 @@ ${truncatedDigest}
 
 Extract reusable memories from this session.`
 
-      const response = await this.generator.generateContent({
+      // Use streaming — ChatGPT OAuth Codex endpoint requires stream: true
+      const chunks: string[] = []
+      for await (const chunk of this.generator.generateContentStream({
         config: {maxTokens: 1000, temperature: 0},
         contents: [{content: prompt, role: 'user'}],
         model: 'default',
         systemPrompt: SYSTEM_PROMPT,
         taskId: randomUUID(),
-      })
+      })) {
+        if (chunk.content) {
+          chunks.push(chunk.content)
+        }
+      }
 
-      const parsed = JSON.parse(response.content.trim()) as Array<{
+      const parsed = JSON.parse(chunks.join('').trim()) as Array<{
         category: string
         content: string
         tags?: string[]
@@ -162,7 +170,10 @@ Extract reusable memories from this session.`
           content: item.content.trim(),
           tags: item.tags,
         }))
-    } catch {
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      console.debug(`[SessionCompressor] Failed to extract drafts (${commandType}): ${msg}`)
+
       return []
     }
   }
