@@ -355,25 +355,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
         // Refresh OAuth token and rebuild compressor before compression
         if (this._transportClient && this.services) {
           try {
-            const fresh = await this._transportClient.requestWithAck<ProviderConfigResponse>(
-              TransportStateEventNames.GET_PROVIDER_CONFIG,
-            )
-            if (!fresh.providerKeyMissing && fresh.activeProvider) {
-              const provider = fresh.provider ?? (fresh.openRouterApiKey ? 'openrouter' : 'byterover')
-              const freshGen = createGeneratorForProvider(provider, {
-                apiKey: provider === 'openrouter'
-                  ? (fresh.openRouterApiKey ?? fresh.providerApiKey)
-                  : fresh.providerApiKey,
-                baseUrl: fresh.providerBaseUrl,
-                headers: fresh.providerHeaders,
-                maxTokens: 4096,
-                model: fresh.activeModel ?? 'default',
-                temperature: 0,
-              })
-              const retryable = new RetryableContentGenerator(freshGen, {policy: DEFAULT_RETRY_POLICY})
-              const dedup = new MemoryDeduplicator(retryable)
-              this.sessionCompressor = new SessionCompressor(dedup, retryable, this.services.memoryManager)
-            }
+            await this.refreshSessionCompressorFromTransport()
           } catch {
             // Fail-open: use existing compressor with potentially stale token
           }
@@ -1217,6 +1199,38 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
     // Update sandbox for tools.curation.mapExtract()
     services.sandboxService.setContentGenerator?.(mapGenerator)
+  }
+
+  private async refreshSessionCompressorFromTransport(): Promise<void> {
+    if (!this._transportClient || !this.services) {
+      return
+    }
+
+    const fresh = await this._transportClient.requestWithAck<ProviderConfigResponse>(
+      TransportStateEventNames.GET_PROVIDER_CONFIG,
+    )
+    if (fresh.providerKeyMissing || !fresh.activeProvider) {
+      return
+    }
+
+    const provider = fresh.provider ?? (fresh.openRouterApiKey ? 'openrouter' : 'byterover')
+    const httpConfig = this.buildHttpConfig()
+    const freshGen = createGeneratorForProvider(provider, {
+      apiKey: provider === 'openrouter'
+        ? (fresh.openRouterApiKey ?? fresh.providerApiKey)
+        : fresh.providerApiKey,
+      baseUrl: fresh.providerBaseUrl,
+      headers: fresh.providerHeaders,
+      httpConfig: httpConfig as unknown as Record<string, unknown>,
+      httpReferer: this.config.httpReferer,
+      maxTokens: 4096,
+      model: fresh.activeModel ?? 'default',
+      siteName: this.config.siteName,
+      temperature: 0,
+    })
+    const retryable = new RetryableContentGenerator(freshGen, {policy: DEFAULT_RETRY_POLICY})
+    const deduplicator = new MemoryDeduplicator(retryable)
+    this.sessionCompressor = new SessionCompressor(deduplicator, retryable, this.services.memoryManager)
   }
 
   /**

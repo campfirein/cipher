@@ -3,6 +3,8 @@ import {randomUUID} from 'node:crypto'
 import type {Memory} from '../../core/domain/memory/types.js'
 import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
 
+import {streamToText} from '../llm/stream-to-text.js'
+
 /**
  * A draft memory extracted from a session, before deduplication.
  */
@@ -91,20 +93,15 @@ Decide: CREATE, MERGE (with targetId and mergedContent), or SKIP.`
 
     try {
       // Use streaming — ChatGPT OAuth Codex endpoint requires stream: true
-      const chunks: string[] = []
-      for await (const chunk of this.generator.generateContentStream({
+      const responseText = await streamToText(this.generator, {
         config: {maxTokens: 300, temperature: 0},
         contents: [{content: prompt, role: 'user'}],
         model: 'default',
         systemPrompt: SYSTEM_PROMPT,
         taskId: randomUUID(),
-      })) {
-        if (chunk.content) {
-          chunks.push(chunk.content)
-        }
-      }
+      })
 
-      const parsed = JSON.parse(chunks.join('').trim()) as {
+      const parsed = JSON.parse(responseText.trim()) as {
         action: 'CREATE' | 'MERGE' | 'SKIP'
         mergedContent?: string
         targetId?: string
