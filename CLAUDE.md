@@ -47,12 +47,12 @@ npm run typecheck                                # TypeScript type checking
 src/
 ├── agent/           # LLM agent system
 │   ├── core/        # Agent interfaces and domain types
-│   ├── infra/       # Tools, LLM services, sessions, storage, transport
+│   ├── infra/       # Tools, LLM services, sessions, storage, transport, sandbox, memory, file-system, validation
 │   └── resources/   # Prompt YAML configs, tool definition .txt files
 ├── server/          # Server-side infrastructure
 │   ├── config/      # Auth config, environment
 │   ├── core/        # Domain entities, interfaces, errors
-│   ├── infra/       # Auth, connectors, daemon, hub, transport, etc.
+│   ├── infra/       # Auth, connectors, daemon, hub, transport, MCP, context-tree, provider-oauth, session, workspace, and more (~30 modules)
 │   ├── templates/   # Server templates
 │   └── utils/       # Shared utilities (errors, file helpers, type guards)
 ├── shared/          # Cross-module shared code
@@ -63,7 +63,7 @@ src/
 ├── tui/             # React/Ink TUI
 │   ├── app/         # Router, pages (home, login, config-provider), layouts
 │   ├── components/  # Shared UI components
-│   ├── features/    # Feature modules (commands, curate, query, hub, etc.)
+│   ├── features/    # 20 feature modules (commands, curate, query, hub, auth, connectors, model, provider, session, tasks, etc.)
 │   ├── hooks/       # Shared React hooks
 │   ├── lib/         # API client, environment, react-query setup
 │   ├── providers/   # React context providers
@@ -79,7 +79,7 @@ src/
 - Pages in `src/tui/app/pages/` (home, login, config-provider)
 - Esc key cancels streaming responses and long-running commands
 - Slash commands in `src/tui/features/commands/definitions/` (order in `index.ts` = UI suggestion order)
-- Oclif commands: public (`login`, `logout`, `status`, `locations`, `curate` [`view`], `query`, `push`, `pull`, `restart`, `connectors` [`install`, `list`], `providers` [`connect`, `disconnect`, `list`, `switch`], `model` [`list`, `switch`], `space` [`list`, `switch`], `hub` [`install`, `list`, `registry add`, `registry list`, `registry remove`]) + hidden (`main`, `hook-prompt-submit`, `mcp`, `debug` — dev-only)
+- Oclif commands: public (`login`, `logout`, `status`, `locations`, `curate` [`view`], `query`, `push`, `pull`, `restart`, `connectors` [`install`, `list`], `providers` [`connect`, `disconnect`, `list`, `switch`], `model` [`list`, `switch`], `space` [`list`, `switch`], `hub` [`install`, `list`, `registry add`, `registry list`, `registry remove`]) + hidden (`main`, `hook-prompt-submit`, `mcp`, `debug` — `debug` conditionally hidden via `isDevelopment()`)
 - `/exit` is REPL-only (no oclif command)
 
 ### Daemon Architecture
@@ -94,8 +94,8 @@ src/
 
 - Tool definitions: `resources/tools/*.txt`; implementations: `infra/tools/implementations/`
 - Tool registry pattern: `infra/tools/tool-registry.ts` — register/resolve tools by name
-- Multi-provider LLM support (20 providers including Anthropic, OpenAI, Google, OpenRouter, etc.) in `infra/llm/`
-- Compression strategies in `infra/llm/context/compression/` (reactive-overflow + escalated-compression)
+- Multi-provider LLM support (18 providers including Anthropic, OpenAI, Google, OpenRouter, etc.) in `infra/llm/`
+- Compression strategies in `infra/llm/context/compression/` (7 strategies: reactive-overflow, escalated-compression, enhanced-compaction, filter-compacted, middle-removal, oldest-removal)
 - System prompt contributor pattern (XML-style sections) in `infra/system-prompt/`
 - Map/memory subsystem (`infra/map/`): agentic map service, context-tree store, LLM map memory, worker pool
 - Storage: file-based blob (`infra/blob/file-blob-storage.ts`) and key storage (`infra/storage/file-key-storage.ts`) — no SQLite
