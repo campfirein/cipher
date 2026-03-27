@@ -445,6 +445,7 @@ $BRV_CMD providers list
 Ask the user whether they want to use **cloud sync** or **local-only** memory.
 
 **If they choose CLOUD (or have an API key):**
+Access https://app.byterover.dev/settings/keys to get key.
 1. Run: \`$BRV_CMD login --api-key <their-key>\`
 2. If login succeeds, run: \`$BRV_CMD space list\`
    - If only 1 space → auto-connect with \`$BRV_CMD space switch\` and \`$BRV_CMD pull\`
@@ -456,7 +457,7 @@ Ask the user whether they want to use **cloud sync** or **local-only** memory.
      \`$BRV_CMD space switch\` again."
    - If 0 spaces → run \`$BRV_CMD logout\`, then tell the user: "You don't have any
      spaces yet. Let's continue with local memory for now — you can create a space
-     later from the ByteRover dashboard and then run \`$BRV_CMD login\` +
+     later from the ByteRover dashboard(https://app.byterover.dev/) and then run \`$BRV_CMD login\` +
      \`$BRV_CMD space switch\`." Proceed to PHASE 4 as local.
    - If \`$BRV_CMD space switch\` fails → run \`$BRV_CMD logout\`, then say:
      "Couldn't switch to that space — let's continue with local memory.
