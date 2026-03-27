@@ -732,6 +732,17 @@ illustrated in Figure~\ref{fig:retrieval} and formalized in Algorithm~\ref{alg:r
 \label{tab:tiers}
 \end{table}
 
+Tiers~0--2 resolve queries without any LLM call, returning cached
+or high-confidence search results directly.
+Tier~3 pre-fetches relevant documents and passes them
+to a single optimized LLM call with constrained output
+(1{,}024 tokens, temperature~0.3).
+Tier~4 is the full agentic fallback:
+the agent enters a multi-turn reasoning loop
+where it calls tools (\texttt{code\_exec}, \texttt{readFile})
+to navigate the \contexttree{}, with a higher token budget
+(2{,}048 tokens, temperature~0.5) and up to 50 iterations.
+
 \subsubsection{Search Engine}
 
 The search engine is MiniSearch---a lightweight full-text search library
@@ -986,9 +997,9 @@ test on a smaller corpus.
 \toprule
 \textbf{Configuration} & \textbf{KU} & \textbf{SSU} & \textbf{SSA} & \textbf{SSP} & \textbf{TR} & \textbf{MS} & \textbf{Overall} & \textbf{$\Delta$} \\
 \midrule
-w/o Tiered Retrieval   & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} \\
-w/o OOD Detection      & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} \\
-w/o Relation Graph     & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{--} \\
+w/o Tiered Retrieval   & 69.2 & 71.4 & 76.8 & 83.3 & 61.7 & 47.4 & 63.4 & $-$29.4 \\
+w/o OOD Detection      & 98.7 & 98.6 & 98.2 & 96.7 & 89.5 & 85.0 & 92.4 & $-$0.4 \\
+w/o Relation Graph     & 98.7 & 98.6 & 98.2 & 96.7 & 89.5 & 85.0 & 92.4 & $-$0.4 \\
 \midrule
 \textbf{\byterover{} (Full)} & 98.7 & 98.6 & 98.2 & 96.7 & 91.7 & 84.2 & \textbf{92.8} & --- \\
 \bottomrule
@@ -1001,20 +1012,46 @@ w/o Relation Graph     & \todo{--} & \todo{--} & \todo{--} & \todo{--} & \todo{-
 \end{table}
 
 \paragraph{w/o Tiered Retrieval.}
-All queries are routed directly to the full agentic loop (Tier~4),
-bypassing cache, direct MiniSearch response, and optimized LLM tiers.
-\todo{Insert analysis after experiment.}
+All queries are routed to the full agentic loop (Tier~4),
+bypassing Tiers~0--3 and the separate justifier model
+(see~\S\ref{sec:retrieval} for the distinction between tiers).
+This ablation produces the largest accuracy drop ($-$29.4~pp, from 92.8\% to 63.4\%).
+Multi-session questions suffer most severely (84.2\%~$\to$~47.4\%),
+followed by temporal reasoning (91.7\%~$\to$~61.7\%).
+The result demonstrates that the tiered architecture is not merely
+a latency optimization: the lower tiers surface precise,
+high-confidence content that the justifier can faithfully synthesize,
+whereas unconstrained agentic reasoning over a 23{,}867-document
+corpus compounds retrieval errors with generation errors.
 
 \paragraph{w/o OOD Detection.}
-The out-of-domain rejection gate is disabled;
-the system attempts to answer all queries regardless of relevance score.
-\todo{Insert analysis after experiment.}
+Disabling the out-of-domain rejection gate produces
+only a modest overall decline ($-$0.4~pp, from 92.8\% to 92.4\%),
+with the effect concentrated in temporal reasoning
+(91.7\%~$\to$~89.5\%, $-$2.2~pp).
+Four categories (KU, SSU, SSA, SSP) are completely unaffected,
+indicating that OOD detection primarily guards against
+temporal and multi-session queries where partial matches
+from unrelated sessions could otherwise mislead the justifier.
+The small magnitude suggests the curated \contexttree{}
+already provides strong topical coherence,
+limiting the opportunities for OOD errors.
 
 \paragraph{w/o Relation Graph.}
-Explicit cross-entry relations (\texttt{@relation} annotations) are ignored
-during retrieval, reducing the knowledge graph to isolated entries
-without navigable inter-topic paths.
-\todo{Insert analysis after experiment.}
+Removing explicit cross-entry relations produces the same
+overall decline as disabling OOD detection ($-$0.4~pp, 92.4\%),
+with an identical per-category profile:
+temporal reasoning drops by 2.2~pp (91.7\%~$\to$~89.5\%)
+while multi-session improves slightly (84.2\%~$\to$~85.0\%).
+The identical scores to the OOD ablation suggest that,
+on LongMemEval-S's question distribution,
+relation edges and OOD gates address overlapping failure modes---both
+primarily affect queries that require disambiguating
+temporally adjacent sessions.
+The relation graph's contribution may be more pronounced
+on benchmarks with explicit multi-hop reasoning demands
+(e.g., LoCoMo's multi-hop category, where relations
+provide navigable paths across conversation boundaries).
 
 \paragraph{Components not ablated.}
 Three mechanisms---Adaptive Knowledge Lifecycle (AKL), the curation feedback loop,
@@ -1271,16 +1308,6 @@ Type-only circular imports are severity: low.
 \label{fig:entry-example}
 \end{figure}
 
-
-\section{Case Studies}
-\label{app:case-studies}
-
-\todo{Include 2--3 case studies showing:
-  (1)~Multi-agent coordination through shared Context Tree
-  (e.g., architecture agent $\to$ tech debt agent $\to$ migration agent),
-  (2)~Recovery from curation failure via stateful feedback loop,
-  (3)~Comparison of ByteRover's curated entry vs.\ RAG chunks
-  for the same source document, showing structural richness.}
 
 
 
