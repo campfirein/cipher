@@ -5,6 +5,8 @@ import type {InternalMessage} from '../../core/interfaces/message-types.js'
 import type {DraftMemory,MemoryDeduplicator} from '../memory/memory-deduplicator.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
 
+import {streamToText} from '../llm/stream-to-text.js'
+
 /**
  * Result of a session compression pass.
  */
@@ -68,6 +70,7 @@ export class SessionCompressor {
    * @param messages - Session message history
    * @param commandType - Session command type (e.g. 'curate', 'query')
    * @param options - Compression options
+   * @param options.minMessages - Minimum message count required before compression runs
    * @returns Summary of actions taken
    */
   async compress(
@@ -119,8 +122,10 @@ export class SessionCompressor {
         } else {
           skipped++
         }
-      } catch {
+      } catch (error) {
         // Fail-open: skip individual memory errors
+        const msg = error instanceof Error ? error.message : String(error)
+        console.debug(`[SessionCompressor] Failed to apply ${action.action} action: ${msg}`)
         skipped++
       }
     }
@@ -139,7 +144,8 @@ ${truncatedDigest}
 
 Extract reusable memories from this session.`
 
-      const response = await this.generator.generateContent({
+      // Use streaming — ChatGPT OAuth Codex endpoint requires stream: true
+      const responseText = await streamToText(this.generator, {
         config: {maxTokens: 1000, temperature: 0},
         contents: [{content: prompt, role: 'user'}],
         model: 'default',
@@ -147,7 +153,7 @@ Extract reusable memories from this session.`
         taskId: randomUUID(),
       })
 
-      const parsed = JSON.parse(response.content.trim()) as Array<{
+      const parsed = JSON.parse(responseText.trim()) as Array<{
         category: string
         content: string
         tags?: string[]
@@ -162,7 +168,10 @@ Extract reusable memories from this session.`
           content: item.content.trim(),
           tags: item.tags,
         }))
-    } catch {
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      console.debug(`[SessionCompressor] Failed to extract drafts (${commandType}): ${msg}`)
+
       return []
     }
   }

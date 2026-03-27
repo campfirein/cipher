@@ -6,6 +6,11 @@ import type {IContentGenerator} from '../../../../src/agent/core/interfaces/i-co
 
 import {MemoryDeduplicator} from '../../../../src/agent/infra/memory/memory-deduplicator.js'
 
+async function *streamJsonResponse(content: string) {
+  yield {content, isComplete: false}
+  yield {isComplete: true}
+}
+
 describe('MemoryDeduplicator', () => {
   const sandbox = createSandbox()
 
@@ -17,11 +22,11 @@ describe('MemoryDeduplicator', () => {
     let capturedPrompt = ''
     const generator = {
       estimateTokensSync: () => 10,
-      generateContent: sandbox.stub().callsFake(async ({contents}: {contents: Array<{content: string}>}) => {
+      generateContent: sandbox.stub().rejects(new Error('n/a')),
+      generateContentStream: sandbox.stub().callsFake(({contents}: {contents: Array<{content: string}>}) => {
         capturedPrompt = contents[0].content
-        return {content: '{"action":"SKIP"}', finishReason: 'stop'}
+        return streamJsonResponse('{"action":"SKIP"}')
       }),
-      generateContentStream: sandbox.stub().rejects(new Error('n/a')),
     } as unknown as IContentGenerator
 
     const deduplicator = new MemoryDeduplicator(generator)
@@ -40,11 +45,10 @@ describe('MemoryDeduplicator', () => {
   it('rejects MERGE decisions that target a missing memory id', async () => {
     const generator = {
       estimateTokensSync: () => 10,
-      generateContent: sandbox.stub().resolves({
-        content: '{"action":"MERGE","targetId":"missing","mergedContent":"Merged"}',
-        finishReason: 'stop',
-      }),
-      generateContentStream: sandbox.stub().rejects(new Error('n/a')),
+      generateContent: sandbox.stub().rejects(new Error('n/a')),
+      generateContentStream: sandbox
+        .stub()
+        .callsFake(() => streamJsonResponse('{"action":"MERGE","targetId":"missing","mergedContent":"Merged"}')),
     } as unknown as IContentGenerator
 
     const deduplicator = new MemoryDeduplicator(generator)
@@ -63,13 +67,13 @@ describe('MemoryDeduplicator', () => {
     const seenDrafts: string[] = []
     const generator = {
       estimateTokensSync: () => 10,
-      generateContent: sandbox.stub().callsFake(async ({contents}: {contents: Array<{content: string}>}) => {
+      generateContent: sandbox.stub().rejects(new Error('n/a')),
+      generateContentStream: sandbox.stub().callsFake(({contents}: {contents: Array<{content: string}>}) => {
         const prompt = contents[0].content
         const match = /## Draft Memory \(category: [^)]+\)\n([\s\S]*?)\n\n## Existing Memories/.exec(prompt)
         seenDrafts.push(match?.[1] ?? '')
-        return {content: '{"action":"SKIP"}', finishReason: 'stop'}
+        return streamJsonResponse('{"action":"SKIP"}')
       }),
-      generateContentStream: sandbox.stub().rejects(new Error('n/a')),
     } as unknown as IContentGenerator
 
     const deduplicator = new MemoryDeduplicator(generator)

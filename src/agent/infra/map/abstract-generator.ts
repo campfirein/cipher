@@ -2,6 +2,8 @@ import {randomUUID} from 'node:crypto'
 
 import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
 
+import {streamToText} from '../llm/stream-to-text.js'
+
 /**
  * Result from abstract generation.
  */
@@ -60,15 +62,15 @@ export async function generateFileAbstracts(
   fullContent: string,
   generator: IContentGenerator,
 ): Promise<AbstractGenerateResult> {
-  const [abstractResponse, overviewResponse] = await Promise.all([
-    generator.generateContent({
+  const [abstractText, overviewText] = await Promise.all([
+    streamToText(generator, {
       config: {maxTokens: 150, temperature: 0},
       contents: [{content: buildAbstractPrompt(fullContent), role: 'user'}],
       model: 'default',
       systemPrompt: ABSTRACT_SYSTEM_PROMPT,
       taskId: randomUUID(),
     }),
-    generator.generateContent({
+    streamToText(generator, {
       config: {maxTokens: 2000, temperature: 0},
       contents: [{content: buildOverviewPrompt(fullContent), role: 'user'}],
       model: 'default',
@@ -78,7 +80,7 @@ export async function generateFileAbstracts(
   ])
 
   return {
-    abstractContent: abstractResponse.content.trim(),
-    overviewContent: overviewResponse.content.trim(),
+    abstractContent: abstractText.trim(),
+    overviewContent: overviewText.trim(),
   }
 }

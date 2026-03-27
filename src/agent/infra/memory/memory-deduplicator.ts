@@ -3,6 +3,8 @@ import {randomUUID} from 'node:crypto'
 import type {Memory} from '../../core/domain/memory/types.js'
 import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
 
+import {streamToText} from '../llm/stream-to-text.js'
+
 /**
  * A draft memory extracted from a session, before deduplication.
  */
@@ -90,7 +92,8 @@ ${existingSummary}
 Decide: CREATE, MERGE (with targetId and mergedContent), or SKIP.`
 
     try {
-      const response = await this.generator.generateContent({
+      // Use streaming — ChatGPT OAuth Codex endpoint requires stream: true
+      const responseText = await streamToText(this.generator, {
         config: {maxTokens: 300, temperature: 0},
         contents: [{content: prompt, role: 'user'}],
         model: 'default',
@@ -98,7 +101,7 @@ Decide: CREATE, MERGE (with targetId and mergedContent), or SKIP.`
         taskId: randomUUID(),
       })
 
-      const parsed = JSON.parse(response.content.trim()) as {
+      const parsed = JSON.parse(responseText.trim()) as {
         action: 'CREATE' | 'MERGE' | 'SKIP'
         mergedContent?: string
         targetId?: string
@@ -115,8 +118,11 @@ Decide: CREATE, MERGE (with targetId and mergedContent), or SKIP.`
       }
 
       return {action: 'CREATE', memory: draft}
-    } catch {
+    } catch (error) {
       // On any error, default to CREATE (fail-open)
+      const msg = error instanceof Error ? error.message : String(error)
+      console.debug(`[MemoryDeduplicator] Failed for ${draft.category}: ${msg}`)
+
       return {action: 'CREATE', memory: draft}
     }
   }
