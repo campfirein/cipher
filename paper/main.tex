@@ -86,7 +86,8 @@ provenance, and an Adaptive Knowledge Lifecycle (AKL) with importance scoring, m
 Retrieval uses a 5-tier progressive strategy that resolves most queries at sub-100\,ms latency
 without LLM calls, escalating to agentic reasoning only for novel questions.
 Experiments on LoCoMo and LongMemEval demonstrate that \byterover{} achieves
-state-of-the-art accuracy while requiring \emph{zero external infrastructure}---no vector database,
+state-of-the-art accuracy on LoCoMo and competitive results on LongMemEval
+while requiring \emph{zero external infrastructure}---no vector database,
 no graph database, no embedding service---with all knowledge stored as human-readable markdown files on the local filesystem.
 \end{abstract}
 
@@ -168,8 +169,8 @@ Our contributions are summarized as follows:
     at sub-100\,ms latency without LLM calls, combined with out-of-domain detection
     that explicitly signals when queries fall outside stored knowledge.
 
-  \item We demonstrate that \byterover{} achieves state-of-the-art results on LoCoMo and LongMemEval
-    benchmarks while requiring zero external infrastructure---no vector database, no graph database,
+  \item We demonstrate that \byterover{} achieves state-of-the-art results on LoCoMo and competitive
+    results on LongMemEval benchmarks while requiring zero external infrastructure---no vector database, no graph database,
     no embedding service---with all knowledge stored as human-readable markdown files.
 \end{enumerate}
 
