@@ -27,6 +27,26 @@ interface CreateWebUiMiddlewareOptions {
 export function createWebUiMiddleware({getConfig, webuiDistDir}: CreateWebUiMiddlewareOptions): Express {
   const app = express()
 
+  app.use((_req, res, next) => {
+    res.setHeader(
+      'Content-Security-Policy',
+      [
+        "default-src 'self'",
+        "base-uri 'self'",
+        "connect-src 'self' ws: wss:",
+        "font-src 'self' data: https://fonts.gstatic.com",
+        "frame-ancestors 'none'",
+        "img-src 'self' data:",
+        "object-src 'none'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      ].join('; '),
+    )
+    res.setHeader('Referrer-Policy', 'no-referrer')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    next()
+  })
+
   // Config endpoint for browser to bootstrap Socket.IO connection
   app.get('/api/ui/config', (_req, res) => {
     res.json(getConfig())

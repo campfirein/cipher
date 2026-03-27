@@ -9,23 +9,29 @@ import type {Socket} from 'socket.io-client'
 
 import {create} from 'zustand'
 
+import type {UiConfig} from '../lib/transport'
+
 import {BrvApiClient} from '../lib/api-client'
 
 type ConnectionState = 'connected' | 'connecting' | 'disconnected' | 'reconnecting'
 
-interface TransportState {
+export interface TransportState {
   apiClient: BrvApiClient | null
   connectionState: ConnectionState
   error: Error | null
   isConnected: boolean
+  projectCwd: string
+  reconnectCount: number
   socket: null | Socket
+  version: string
 }
 
 interface TransportActions {
+  incrementReconnectCount: () => void
   reset: () => void
   setConnectionState: (state: ConnectionState) => void
   setError: (error: Error | null) => void
-  setSocket: (socket: Socket) => void
+  setSocket: (socket: Socket, config: UiConfig) => void
 }
 
 const initialState: TransportState = {
@@ -33,11 +39,16 @@ const initialState: TransportState = {
   connectionState: 'disconnected',
   error: null,
   isConnected: false,
+  projectCwd: '',
+  reconnectCount: 0,
   socket: null,
+  version: '',
 }
 
 export const useTransportStore = create<TransportActions & TransportState>()((set) => ({
   ...initialState,
+
+  incrementReconnectCount: () => set((state) => ({reconnectCount: state.reconnectCount + 1})),
 
   reset: () => set(initialState),
 
@@ -54,12 +65,15 @@ export const useTransportStore = create<TransportActions & TransportState>()((se
       isConnected: false,
     }),
 
-  setSocket: (socket: Socket) =>
+  setSocket: (socket: Socket, config: UiConfig) =>
     set({
       apiClient: new BrvApiClient(socket),
       connectionState: 'connected',
       error: null,
       isConnected: true,
+      projectCwd: config.projectCwd,
+      reconnectCount: 0,
       socket,
+      version: config.version,
     }),
 }))

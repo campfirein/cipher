@@ -27,6 +27,18 @@ interface ConnectResult {
   socket: Socket
 }
 
+function registerClient(socket: Socket, config: UiConfig) {
+  socket.emit(
+    'client:register',
+    { clientType: 'webui', projectPath: config.projectCwd },
+    () => {
+      // Registration acknowledged
+    },
+  )
+
+  socket.emit('room:join', 'broadcast-room')
+}
+
 export async function connectToTransport(): Promise<ConnectResult> {
   const config = await fetchUiConfig()
 
@@ -38,34 +50,37 @@ export async function connectToTransport(): Promise<ConnectResult> {
     transports: ['websocket'],
   })
 
+  // Socket.IO fires "connect" after the initial handshake and after reconnects,
+  // so this keeps the client/project association and broadcast room membership fresh.
+  socket.on('connect', () => {
+    registerClient(socket, config)
+  })
+
   await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout)
+      socket.off('connect', handleConnect)
+      socket.off('connect_error', handleError)
+    }
+
+    const handleConnect = () => {
+      cleanup()
+      resolve()
+    }
+
+    const handleError = (error: Error) => {
+      cleanup()
+      reject(error)
+    }
+
     const timeout = setTimeout(() => {
+      cleanup()
       reject(new Error('Connection timeout'))
     }, 5000)
 
-    socket.on('connect', () => {
-      clearTimeout(timeout)
-      resolve()
-    })
-
-    socket.on('connect_error', (err) => {
-      clearTimeout(timeout)
-      reject(err)
-    })
+    socket.once('connect', handleConnect)
+    socket.once('connect_error', handleError)
   })
-
-  // Register as a client with projectPath so daemon can resolve project context.
-  // Using 'cli' as clientType since 'webui' isn't a valid type yet.
-  socket.emit(
-    'client:register',
-    { clientType: 'cli', projectPath: config.projectCwd },
-    () => {
-      // Registration acknowledged
-    },
-  )
-
-  // Join the broadcast room
-  socket.emit('room:join', 'broadcast-room')
 
   return { config, socket }
 }

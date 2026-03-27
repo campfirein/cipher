@@ -14,7 +14,7 @@ import {connectToTransport} from '../lib/transport'
 import {useTransportStore} from '../stores/transport-store'
 
 export function TransportProvider({children}: {children: ReactNode}) {
-  const {setConnectionState, setError, setSocket} = useTransportStore()
+  const {incrementReconnectCount, setConnectionState, setError, setSocket} = useTransportStore()
 
   useEffect(() => {
     let mounted = true
@@ -22,21 +22,24 @@ export function TransportProvider({children}: {children: ReactNode}) {
     async function init() {
       try {
         setConnectionState('connecting')
-        const {socket} = await connectToTransport()
+        const {config, socket} = await connectToTransport()
 
         if (!mounted) {
           socket.disconnect()
           return
         }
 
-        setSocket(socket)
+        setSocket(socket, config)
 
         socket.on('disconnect', () => {
           if (mounted) setConnectionState('disconnected')
         })
 
         socket.io.on('reconnect_attempt', () => {
-          if (mounted) setConnectionState('reconnecting')
+          if (mounted) {
+            incrementReconnectCount()
+            setConnectionState('reconnecting')
+          }
         })
 
         socket.io.on('reconnect', () => {
@@ -56,7 +59,7 @@ export function TransportProvider({children}: {children: ReactNode}) {
       const {socket} = useTransportStore.getState()
       socket?.disconnect()
     }
-  }, [setConnectionState, setError, setSocket])
+  }, [incrementReconnectCount, setConnectionState, setError, setSocket])
 
   return <>{children}</>
 }

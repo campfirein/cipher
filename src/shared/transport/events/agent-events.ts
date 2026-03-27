@@ -16,3 +16,13 @@ export interface AgentRestartRequest {
 export interface AgentRestartResponse {
   success: boolean
 }
+
+export interface AgentNewSessionRequest {
+  reason?: string
+}
+
+export interface AgentNewSessionResponse {
+  error?: string
+  sessionId?: string
+  success: boolean
+}

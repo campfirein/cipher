@@ -22,7 +22,8 @@
     "@ai-sdk/vercel": "^1.0.33",
     "@ai-sdk/xai": "^2.0.57",
     "@anthropic-ai/sdk": "^0.70.1",
-    "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#release/0.8.4",
+    "@campfirein/brv-transport-client": "/Users/ncnthien/Documents/projects/brv-transport-client",
+    "@campfirein/byterover-packages": "^0.0.0",
     "@google/genai": "^1.29.0",
     "@inkjs/ui": "^2.0.0",
     "@inquirer/prompts": "^7.9.0",
@@ -76,6 +77,7 @@
     "@eslint/compat": "^1",
     "@oclif/prettier-config": "^0.2.1",
     "@oclif/test": "^4",
+    "@tailwindcss/vite": "^4.2.2",
     "@types/chai": "^4",
     "@types/express": "^5.0.3",
     "@types/js-yaml": "^4.0.9",
@@ -89,6 +91,7 @@
     "@types/sinon": "^17.0.4",
     "@types/stopword": "^2.0.3",
     "@types/update-notifier": "^6.0.8",
+    "@vitejs/plugin-react": "^5.2.0",
     "chai": "^4",
     "eslint": "^9",
     "eslint-config-oclif": "^6",
@@ -103,11 +106,12 @@
     "pdfkit": "^0.17.2",
     "shx": "^0.3.3",
     "sinon": "^21.0.0",
+    "tailwindcss": "^4.2.2",
     "ts-node": "^10",
     "tsx": "^4.21.0",
+    "tw-animate-css": "^1.4.0",
     "typescript": "^5",
-    "vite": "^8.0.0",
-    "@vitejs/plugin-react": "^5.2.0"
+    "vite": "^8.0.0"
   },
   "engines": {
     "node": ">=20.0.0"

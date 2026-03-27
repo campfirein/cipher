@@ -9,6 +9,7 @@
  * - 'cli': CLI headless commands (brv curate --headless, etc.) — external client, short-lived
  * - 'extension': IDE extension (e.g. VS Code extension) — external client, implemented in separate repo
  * - 'mcp': MCP protocol client (IDEs, external tools) — external client, may be global-scope
+ * - 'webui': Web UI (browser dashboard at /ui) — external client, long-lived
  * - 'agent': Agent worker process — NOT an external client (worker, not user)
  *
  * projectPath is undefined for global-scope MCP clients until
@@ -19,7 +20,7 @@
  * Valid client types (runtime source of truth).
  * Used for validation when registering clients.
  */
-export const VALID_CLIENT_TYPES = ['agent', 'cli', 'extension', 'mcp', 'tui'] as const
+export const VALID_CLIENT_TYPES = ['agent', 'cli', 'extension', 'mcp', 'tui', 'webui'] as const
 
 /**
  * Client type discriminator.

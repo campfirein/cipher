@@ -4,6 +4,10 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@workspace/ui/*": ["../../node_modules/@campfirein/byterover-packages/src/*"]
+    },
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,

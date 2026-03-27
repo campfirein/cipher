@@ -14,6 +14,10 @@ interface AckResponse<T> {
   success: boolean
 }
 
+export interface RequestOptions {
+  timeout?: number
+}
+
 export class BrvApiClient {
   constructor(private readonly socket: Socket) {}
 
@@ -27,9 +31,25 @@ export class BrvApiClient {
   async request<TResponse, TRequest = unknown>(
     event: string,
     data?: TRequest,
+    options?: RequestOptions,
   ): Promise<TResponse> {
     return new Promise<TResponse>((resolve, reject) => {
+      let didFinish = false
+      const timeoutId = options?.timeout
+        ? globalThis.setTimeout(() => {
+            didFinish = true
+            reject(new Error(`Request timed out after ${options.timeout}ms`))
+          }, options.timeout)
+        : undefined
+
       this.socket.emit(event, data, (response: AckResponse<TResponse>) => {
+        if (didFinish) return
+
+        didFinish = true
+        if (timeoutId !== undefined) {
+          globalThis.clearTimeout(timeoutId)
+        }
+
         if (response.success) {
           resolve(response.data)
         } else {
