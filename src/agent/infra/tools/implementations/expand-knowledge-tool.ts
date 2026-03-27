@@ -77,7 +77,11 @@ export function createExpandKnowledgeTool(config: ExpandKnowledgeToolConfig = {}
         }
       }
 
-      const result = await archiveService.drillDown(parsed.stubPath!, config.baseDirectory)
+      if (!parsed.stubPath) {
+        throw new Error('stubPath is required when overviewPath is not provided')
+      }
+
+      const result = await archiveService.drillDown(parsed.stubPath, config.baseDirectory)
       return {
         fullContent: result.fullContent,
         originalPath: result.originalPath,

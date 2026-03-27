@@ -20,6 +20,17 @@ function makeFailingGenerator(sandbox: SinonSandbox): IContentGenerator {
   } as unknown as IContentGenerator
 }
 
+function makeSuccessfulGenerator(sandbox: SinonSandbox): IContentGenerator {
+  return {
+    estimateTokensSync: () => 10,
+    generateContent: sandbox.stub().rejects(new Error('n/a')),
+    generateContentStream: sandbox.stub().callsFake(async function *() {
+      yield {content: 'generated text', isComplete: false}
+      yield {isComplete: true}
+    }),
+  } as unknown as IContentGenerator
+}
+
 /**
  * Returns a generator whose first generateContent call is frozen until
  * `rejectNextCall` is invoked. Useful for inspecting mid-flight queue state.
@@ -33,10 +44,11 @@ function makeControlledGenerator(sandbox: SinonSandbox): {
   return {
     generator: {
       estimateTokensSync: () => 10,
-      generateContent: sandbox.stub().callsFake(
-        () => new Promise<never>((_, rej) => { capturedReject = rej }),
-      ),
-      generateContentStream: sandbox.stub().rejects(new Error('n/a')),
+      generateContent: sandbox.stub().rejects(new Error('n/a')),
+      generateContentStream: sandbox.stub().callsFake(async function *() {
+        await new Promise<never>((_, rej) => { capturedReject = rej })
+        yield {content: '', isComplete: true}
+      }),
     } as unknown as IContentGenerator,
     rejectNextCall: (err: Error) => capturedReject?.(err),
   }
@@ -115,6 +127,23 @@ describe('AbstractGenerationQueue', () => {
     it('resolves immediately when the queue is empty', async () => {
       const q = new AbstractGenerationQueue(tmpDir)
       await q.drain() // must not hang
+    })
+
+    it('fails open when onBeforeProcess throws and still processes the item', async () => {
+      const q = new AbstractGenerationQueue(tmpDir)
+      const contextPath = join(tmpDir, 'file.md')
+      const onBeforeProcess = sandbox.stub().rejects(new Error('refresh unavailable'))
+
+      q.setGenerator(makeSuccessfulGenerator(sandbox))
+      q.setBeforeProcess(onBeforeProcess)
+      q.enqueue({contextPath, fullContent: 'content'})
+
+      await q.drain()
+
+      expect(onBeforeProcess.calledOnce).to.be.true
+      expect(q.getStatus()).to.deep.equal({failed: 0, pending: 0, processed: 1, processing: false})
+      expect(await fs.readFile(contextPath.replace(/\.md$/, '.abstract.md'), 'utf8')).to.equal('generated text')
+      expect(await fs.readFile(contextPath.replace(/\.md$/, '.overview.md'), 'utf8')).to.equal('generated text')
     })
 
     it('resolves after maxAttempts exhausted with no retry (maxAttempts=1)', async function () {

@@ -416,6 +416,44 @@ describe('CipherAgent', () => {
         await agent.stop()
       }
     })
+
+    it('falls back to the current runtime model when transport omits activeModel', async () => {
+      const capturedConfigs: GeneratorFactoryConfig[] = []
+      stub(byteroverProvider, 'createGenerator').callsFake((config) => {
+        capturedConfigs.push(config)
+        return createStubGenerator()
+      })
+      stub(SessionCompressor.prototype, 'compress').resolves({created: 0, merged: 0, skipped: 0})
+
+      const transportClient = {
+        request: stub(),
+        requestWithAck: stub().resolves({
+          activeProvider: 'byterover',
+          providerApiKey: 'fresh-token',
+          providerKeyMissing: false,
+        }),
+      } as unknown as ITransportClient
+
+      const agent = new CipherAgent(agentConfig, undefined, {transportClient})
+
+      try {
+        await agent.start()
+        agent.refreshProviderConfig({
+          model: 'runtime-model',
+          providerApiKey: 'runtime-token',
+        })
+
+        capturedConfigs.length = 0
+
+        const taskSessionId = await agent.createTaskSession('task-runtime-model', 'curate', {userFacing: true})
+        await agent.deleteTaskSession(taskSessionId)
+
+        expect(capturedConfigs.some((config) => config.model === 'runtime-model')).to.equal(true)
+        expect(capturedConfigs.some((config) => config.model === 'default')).to.equal(false)
+      } finally {
+        await agent.stop()
+      }
+    })
   })
 
   describe('agentic_map registry integration', () => {

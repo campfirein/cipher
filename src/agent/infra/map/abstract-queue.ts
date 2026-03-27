@@ -137,7 +137,12 @@ export class AbstractGenerationQueue {
 
     try {
       // Refresh credentials before each generation (OAuth tokens may expire)
-      await this.onBeforeProcess?.()
+      try {
+        await this.onBeforeProcess?.()
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error)
+        console.debug(`[AbstractQueue] token refresh failed, proceeding with existing generator: ${msg}`)
+      }
 
       const {abstractContent, overviewContent} = await generateFileAbstracts(
         item.fullContent,

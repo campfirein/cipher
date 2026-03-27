@@ -1026,6 +1026,37 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
   // === Private Helpers (alphabetical order) ===
 
+  private createFreshRetryableGenerator(
+    fresh: ProviderConfigResponse,
+    options: {
+      httpConfig: ByteRoverHttpConfig
+      httpReferer?: string
+      modelFallback: string
+      siteName?: string
+    },
+  ): RetryableContentGenerator | undefined {
+    if (fresh.providerKeyMissing || !fresh.activeProvider) {
+      return
+    }
+
+    const provider = fresh.provider ?? (fresh.openRouterApiKey ? 'openrouter' : 'byterover')
+    const freshGenerator = createGeneratorForProvider(provider, {
+      apiKey: provider === 'openrouter'
+        ? (fresh.openRouterApiKey ?? fresh.providerApiKey)
+        : fresh.providerApiKey,
+      baseUrl: fresh.providerBaseUrl,
+      headers: fresh.providerHeaders,
+      httpConfig: options.httpConfig as unknown as Record<string, unknown>,
+      httpReferer: options.httpReferer,
+      maxTokens: 4096,
+      model: fresh.activeModel ?? options.modelFallback,
+      siteName: options.siteName,
+      temperature: 0,
+    })
+
+    return new RetryableContentGenerator(freshGenerator, {policy: DEFAULT_RETRY_POLICY})
+  }
+
   private getHistoryStorageInternal(): IHistoryStorage {
     const storage = this.services?.historyStorage
     if (!storage) {
@@ -1110,27 +1141,17 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
         const fresh = await transportClient.requestWithAck<ProviderConfigResponse>(
           TransportStateEventNames.GET_PROVIDER_CONFIG,
         )
-        if (fresh.providerKeyMissing || !fresh.activeProvider) {
+        const retryableFreshGenerator = this.createFreshRetryableGenerator(fresh, {
+          httpConfig,
+          httpReferer: sessionLLMConfig.httpReferer,
+          modelFallback: sessionLLMConfig.model,
+          siteName: sessionLLMConfig.siteName,
+        })
+        if (!retryableFreshGenerator) {
           return
         }
 
-        const provider = fresh.provider ?? (fresh.openRouterApiKey ? 'openrouter' : 'byterover')
-        const freshGen = createGeneratorForProvider(provider, {
-          apiKey: provider === 'openrouter'
-            ? (fresh.openRouterApiKey ?? fresh.providerApiKey)
-            : fresh.providerApiKey,
-          baseUrl: fresh.providerBaseUrl,
-          headers: fresh.providerHeaders,
-          httpConfig: httpConfig as unknown as Record<string, unknown>,
-          httpReferer: sessionLLMConfig.httpReferer,
-          maxTokens: 4096,
-          model: fresh.activeModel ?? sessionLLMConfig.model,
-          siteName: sessionLLMConfig.siteName,
-          temperature: 0,
-        })
-        services.abstractQueue.setGenerator(
-          new RetryableContentGenerator(freshGen, {policy: DEFAULT_RETRY_POLICY}),
-        )
+        services.abstractQueue.setGenerator(retryableFreshGenerator)
       })
     }
 
@@ -1209,26 +1230,16 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     const fresh = await this._transportClient.requestWithAck<ProviderConfigResponse>(
       TransportStateEventNames.GET_PROVIDER_CONFIG,
     )
-    if (fresh.providerKeyMissing || !fresh.activeProvider) {
+    const retryable = this.createFreshRetryableGenerator(fresh, {
+      httpConfig: this.buildHttpConfig(),
+      httpReferer: this.config.httpReferer,
+      modelFallback: this.stateManager?.getModel() ?? this.config.model,
+      siteName: this.config.siteName,
+    })
+    if (!retryable) {
       return
     }
 
-    const provider = fresh.provider ?? (fresh.openRouterApiKey ? 'openrouter' : 'byterover')
-    const httpConfig = this.buildHttpConfig()
-    const freshGen = createGeneratorForProvider(provider, {
-      apiKey: provider === 'openrouter'
-        ? (fresh.openRouterApiKey ?? fresh.providerApiKey)
-        : fresh.providerApiKey,
-      baseUrl: fresh.providerBaseUrl,
-      headers: fresh.providerHeaders,
-      httpConfig: httpConfig as unknown as Record<string, unknown>,
-      httpReferer: this.config.httpReferer,
-      maxTokens: 4096,
-      model: fresh.activeModel ?? 'default',
-      siteName: this.config.siteName,
-      temperature: 0,
-    })
-    const retryable = new RetryableContentGenerator(freshGen, {policy: DEFAULT_RETRY_POLICY})
     const deduplicator = new MemoryDeduplicator(retryable)
     this.sessionCompressor = new SessionCompressor(deduplicator, retryable, this.services.memoryManager)
   }
