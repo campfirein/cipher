@@ -110,6 +110,7 @@
     "node": ">=20.0.0"
   },
   "files": [
+    "./.env",
     "./bin",
     "./dist",
     "./oclif.manifest.json"
