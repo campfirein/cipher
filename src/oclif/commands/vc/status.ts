@@ -76,9 +76,18 @@ export default class VcStatus extends Command {
         this.log(chalk.yellow('  (use "brv vc merge --continue" to conclude merge)'))
         if (!hasChanges) return
       }
-    } else if (!hasChanges) {
+    } else if (!hasChanges && !(result.conflictMarkerFiles && result.conflictMarkerFiles.length > 0)) {
       this.log('Nothing to commit, working directory clean')
       return
+    }
+
+    if (result.conflictMarkerFiles && result.conflictMarkerFiles.length > 0) {
+      this.log(chalk.yellow('Files with conflict markers:'))
+      this.log(chalk.yellow('  (resolve conflicts and run "brv vc add" before pushing)'))
+      this.log('')
+      for (const f of result.conflictMarkerFiles) {
+        this.log(chalk.red(`   ${f} (conflict)`))
+      }
     }
 
     this.printChangeSections(result)

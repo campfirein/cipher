@@ -36,9 +36,10 @@ import {
   type IVcMergeRequest,
   type IVcMergeResponse,
   type IVcPullResponse,
-  
+
   type IVcRemoteUrlResponse,
-  
+  type IVcStatusResponse,
+
   VcErrorCode,
   VcEvents,
 } from '../../../../../src/shared/transport/events/vc-events.js'
@@ -91,6 +92,7 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     getAheadBehind: sandbox.stub().resolves({ahead: 0, behind: 0}),
     getConflicts: sandbox.stub().resolves([]),
     getCurrentBranch: sandbox.stub().resolves('main'),
+    getFilesWithConflictMarkers: sandbox.stub().resolves([]),
     getRemoteUrl: sandbox.stub().resolves(),
     getTrackingBranch: sandbox.stub().resolves(),
     init: sandbox.stub().resolves(),
@@ -1160,24 +1162,18 @@ describe('VcHandler', () => {
       expect(result).to.deep.include({alreadyUpToDate: true, branch: 'main'})
     })
 
-    it('should throw VcError MERGE_CONFLICT when pull has conflicts', async () => {
+    it('should return conflicts when pull has merge conflicts', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
       deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
-      deps.gitService.pull.resolves({conflicts: [{path: 'file.txt'}], success: false})
+      deps.gitService.pull.resolves({conflicts: [{path: 'file.txt', type: 'both_modified'}], success: false})
       makeVcHandler(deps).setup()
 
-      try {
-        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
-        expect.fail('Expected error')
-      } catch (error) {
-        expect(error).to.be.instanceOf(VcError)
-        if (error instanceof VcError) {
-          expect(error.code).to.equal(VcErrorCode.MERGE_CONFLICT)
-          expect(error.message).to.include('file.txt')
-        }
-      }
+      const result = await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID) as IVcPullResponse
+      expect(result.conflicts).to.deep.equal([{path: 'file.txt', type: 'both_modified'}])
+      expect(result.branch).to.equal('main')
+      expect(result.alreadyUpToDate).to.be.undefined
     })
 
     it('should throw VcError GIT_NOT_INITIALIZED when git not initialized', async () => {
@@ -2841,6 +2837,119 @@ describe('VcHandler', () => {
         remote: 'origin',
         remoteBranch: 'main',
       })
+    })
+  })
+
+  describe('handleConflicts', () => {
+    it('should return empty files array when no conflict markers found', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getFilesWithConflictMarkers.resolves([])
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.CONFLICTS]({}, CLIENT_ID)
+
+      expect(result).to.deep.equal({files: []})
+    })
+
+    it('should return files with conflict markers', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getFilesWithConflictMarkers.resolves(['code_style/context.md', 'testing/context.md'])
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.CONFLICTS]({}, CLIENT_ID)
+
+      expect(result).to.deep.equal({files: ['code_style/context.md', 'testing/context.md']})
+    })
+
+    it('should throw VcError GIT_NOT_INITIALIZED when git not initialized', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.CONFLICTS]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.GIT_NOT_INITIALIZED)
+        }
+      }
+    })
+  })
+
+  describe('handleStatus — conflict marker files', () => {
+    it('should include conflictMarkerFiles when files have conflict markers', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.status.resolves({files: [], isClean: true})
+      deps.gitService.getFilesWithConflictMarkers.resolves(['code_style/context.md'])
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.STATUS]({}, CLIENT_ID)
+
+      expect(result).to.have.property('conflictMarkerFiles').that.deep.equals(['code_style/context.md'])
+    })
+
+    it('should set conflictMarkerFiles to undefined when no conflict markers found', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.status.resolves({files: [], isClean: true})
+      deps.gitService.getFilesWithConflictMarkers.resolves([])
+      makeVcHandler(deps).setup()
+
+      const result = await invoke<IVcStatusResponse>(deps, VcEvents.STATUS, {})
+
+      expect(result.conflictMarkerFiles).to.be.undefined
+    })
+  })
+
+  describe('handlePush — conflict marker blocking', () => {
+    it('should throw CONFLICT_MARKERS_PRESENT when conflict markers exist', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.log.resolves([
+        {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
+      ])
+      deps.gitService.getFilesWithConflictMarkers.resolves(['code_style/context.md'])
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.CONFLICT_MARKERS_PRESENT)
+          expect(error.message).to.include('code_style/context.md')
+        }
+      }
+
+      expect(deps.gitService.push.called).to.be.false
+    })
+
+    it('should allow push when no conflict markers exist', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.log.resolves([
+        {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
+      ])
+      deps.gitService.getFilesWithConflictMarkers.resolves([])
+      deps.gitService.push.resolves({success: true})
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
+
+      expect(deps.gitService.push.calledOnce).to.be.true
+      expect(result).to.deep.include({branch: 'main'})
     })
   })
 })

@@ -6,6 +6,7 @@ import type {
   GitConflict,
   GitStatus,
   GitStatusFile,
+  IGitService,
   MergeResult,
   PullResult,
   PushResult,
@@ -83,6 +84,12 @@ describe('IGitService types', () => {
     it('has name and isCurrent', () => {
       expectTypeOf<GitBranch['name']>().toEqualTypeOf<string>()
       expectTypeOf<GitBranch['isCurrent']>().toEqualTypeOf<boolean>()
+    })
+  })
+
+  describe('IGitService', () => {
+    it('getFilesWithConflictMarkers returns Promise<string[]>', () => {
+      expectTypeOf<IGitService['getFilesWithConflictMarkers']>().returns.resolves.toEqualTypeOf<string[]>()
     })
   })
 })

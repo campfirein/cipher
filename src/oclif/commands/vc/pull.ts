@@ -51,7 +51,15 @@ export default class VcPull extends Command {
         }, {timeout: 120_000}),
       )
 
-      this.log(result.alreadyUpToDate ? 'Already up to date.' : `Pulled from origin/${result.branch}.`)
+      if (result.conflicts && result.conflicts.length > 0) {
+        for (const conflict of result.conflicts) {
+          this.log(`CONFLICT (${conflict.type}): ${conflict.path}`)
+        }
+
+        this.log('Automatic merge failed; fix conflicts and then commit the result.')
+      } else {
+        this.log(result.alreadyUpToDate ? 'Already up to date.' : `Pulled from origin/${result.branch}.`)
+      }
     } catch (error) {
       this.error(formatConnectionError(error))
     }

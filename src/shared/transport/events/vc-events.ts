@@ -6,6 +6,7 @@ export const VcErrorCode = {
   CANNOT_DELETE_CURRENT_BRANCH: 'ERR_VC_CANNOT_DELETE_CURRENT_BRANCH',
   CLONE_FAILED: 'ERR_VC_CLONE_FAILED',
   CONFIG_KEY_NOT_SET: 'ERR_VC_CONFIG_KEY_NOT_SET',
+  CONFLICT_MARKERS_PRESENT: 'ERR_VC_CONFLICT_MARKERS_PRESENT',
   FETCH_FAILED: 'ERR_VC_FETCH_FAILED',
   GIT_NOT_INITIALIZED: 'ERR_VC_GIT_NOT_INITIALIZED',
   INVALID_ACTION: 'ERR_VC_INVALID_ACTION',
@@ -38,6 +39,7 @@ export const VcEvents = {
   CLONE_PROGRESS: 'vc:clone:progress',
   COMMIT: 'vc:commit',
   CONFIG: 'vc:config',
+  CONFLICTS: 'vc:conflicts',
   FETCH: 'vc:fetch',
   INIT: 'vc:init',
   LOG: 'vc:log',
@@ -60,6 +62,7 @@ export interface IVcStatusResponse {
   ahead?: number
   behind?: number
   branch?: string
+  conflictMarkerFiles?: string[]
   hasCommits?: boolean
   initialized: boolean
   mergeInProgress?: boolean
@@ -134,6 +137,7 @@ export interface IVcPullRequest {
 export interface IVcPullResponse {
   alreadyUpToDate?: boolean
   branch: string
+  conflicts?: Array<{path: string; type: string}>
 }
 
 export interface IVcLogRequest {
@@ -234,6 +238,10 @@ export interface IVcMergeResponse {
   defaultMessage?: string
 }
 
+
+export interface IVcConflictsResponse {
+  files: string[]
+}
 
 export interface IVcRemoteUrlRequest {
   spaceId: string

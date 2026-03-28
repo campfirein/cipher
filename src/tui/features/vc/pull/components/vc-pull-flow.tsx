@@ -29,7 +29,16 @@ export function VcPullFlow({onCancel, onComplete}: VcPullFlowProps): React.React
           onComplete(`Failed to pull: ${formatTransportError(error)}`)
         },
         onSuccess(result) {
-          onComplete(result.alreadyUpToDate ? 'Already up to date.' : `Pulled from origin/${result.branch}.`)
+          if (result.conflicts && result.conflicts.length > 0) {
+            const conflictLines = result.conflicts
+              .map((c) => `CONFLICT (${c.type}): ${c.path}`)
+              .join('\n')
+            onComplete(
+              `${conflictLines}\nAutomatic merge failed; fix conflicts and then commit the result.`,
+            )
+          } else {
+            onComplete(result.alreadyUpToDate ? 'Already up to date.' : `Pulled from origin/${result.branch}.`)
+          }
         },
       },
     )
