@@ -24,7 +24,10 @@ export function VcInitFlow({onCancel, onComplete}: VcInitFlowProps): React.React
     }
   })
 
+  const fired = React.useRef(false)
   useEffect(() => {
+    if (fired.current) return
+    fired.current = true
     initMutation.mutate(undefined, {
       onError(error) {
         onComplete(`Failed to initialize: ${formatTransportError(error)}`)

@@ -78,9 +78,20 @@ function formatVcStatus(result: IVcStatusResponse): string {
       lines.push(chalk.yellow('  (use "/vc merge --continue" to conclude merge)'))
       if (!hasChanges) return lines.join('\n')
     }
-  } else if (!hasChanges) {
+  } else if (!hasChanges && !(result.conflictMarkerFiles && result.conflictMarkerFiles.length > 0)) {
     lines.push('Nothing to commit, working tree clean')
     return lines.join('\n')
+  }
+
+  if (result.conflictMarkerFiles && result.conflictMarkerFiles.length > 0) {
+    lines.push(chalk.yellow('Files with conflict markers:'))
+    // eslint-disable-next-line unicorn/no-array-push-push
+    lines.push(chalk.yellow('  (resolve conflicts and run "/vc add" before pushing)'))
+    // eslint-disable-next-line unicorn/no-array-push-push
+    lines.push('')
+    for (const f of result.conflictMarkerFiles) {
+      lines.push(chalk.red(`   ${f} (conflict)`))
+    }
   }
 
   if (staged.added.length > 0 || staged.modified.length > 0 || staged.deleted.length > 0) {
@@ -113,7 +124,10 @@ export function VcStatusFlow({onCancel, onComplete}: VcStatusFlowProps): React.R
     }
   })
 
+  const fired = React.useRef(false)
   useEffect(() => {
+    if (fired.current) return
+    fired.current = true
     statusMutation.mutate(undefined, {
       onError(error) {
         onComplete(`Failed to get vc status: ${formatTransportError(error)}`)

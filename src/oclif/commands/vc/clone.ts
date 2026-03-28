@@ -1,5 +1,6 @@
 import {Args, Command, Flags} from '@oclif/core'
 
+import {getCurrentConfig} from '../../../server/config/environment.js'
 import {
   type IVcCloneProgressEvent,
   type IVcCloneResponse,
@@ -33,12 +34,11 @@ function subscribeToProgress(client: {on: <T>(event: string, handler: (data: T) 
 
 export default class VcClone extends Command {
   public static args = {
-    url: Args.string({description: 'Clone URL (e.g. https://byterover.dev/team/space.brv)'}),
+    url: Args.string({description: 'Clone URL (e.g. https://app.byterover.dev/team/space.brv)'}),
   }
   public static description = 'Clone a ByteRover space repository'
   public static examples = [
-    '<%= config.bin %> vc clone https://byterover.dev/acme/project.brv',
-    '<%= config.bin %> vc clone https://cogit.byterover.dev/git/teamId/spaceId.git',
+    '<%= config.bin %> vc clone https://app.byterover.dev/acme/project.brv',
     '<%= config.bin %> vc clone --team acme --space my-space',
   ]
   public static flags = {
@@ -58,7 +58,7 @@ export default class VcClone extends Command {
     // Resolve URL from args or flags
     let {url} = args
     if (!url && flags.team && flags.space) {
-      url = `https://byterover.dev/${flags.team}/${flags.space}.brv`
+      url = `${getCurrentConfig().webAppUrl}/${flags.team}/${flags.space}.brv`
     }
 
     if (!url) {

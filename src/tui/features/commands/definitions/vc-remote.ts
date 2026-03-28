@@ -8,7 +8,7 @@ import {Args, parseReplArgs} from '../utils/arg-parser.js'
 
 const vcRemoteArgs = {
   subcommand: Args.string({description: 'Subcommand: add | set-url (omit to show current remote)'}),
-  url: Args.string({description: 'Remote URL (e.g. https://cogit.byterover.dev/team/space.brv)'}),
+  url: Args.string({description: 'Remote URL (e.g. https://app.byterover.dev/team/space.brv)'}),
 }
 
 export const vcRemoteSubCommand: SlashCommand = {

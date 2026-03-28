@@ -576,6 +576,83 @@ describe('IsomorphicGitService', () => {
     })
   })
 
+  // ---- getFilesWithConflictMarkers() ----
+
+  describe('getFilesWithConflictMarkers()', () => {
+    beforeEach(async () => {
+      await service.init({directory: testDir})
+    })
+
+    it('returns empty array when no files have conflict markers', async () => {
+      await writeFile(join(testDir, 'clean.md'), 'no conflicts here')
+      await service.add({directory: testDir, filePaths: ['clean.md']})
+      await service.commit({directory: testDir, message: 'clean'})
+
+      const files = await service.getFilesWithConflictMarkers({directory: testDir})
+      expect(files).to.be.empty
+    })
+
+    it('detects files with all three conflict markers', async () => {
+      await writeFile(join(testDir, 'file.md'), 'initial')
+      await service.add({directory: testDir, filePaths: ['file.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      await writeFile(join(testDir, 'file.md'), '<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch')
+
+      const files = await service.getFilesWithConflictMarkers({directory: testDir})
+      expect(files).to.deep.equal(['file.md'])
+    })
+
+    it('does not flag files with only partial markers', async () => {
+      await writeFile(join(testDir, 'partial.md'), '<<<<<<< HEAD\nsome content\n=======')
+      await service.add({directory: testDir, filePaths: ['partial.md']})
+      await service.commit({directory: testDir, message: 'partial'})
+
+      // Rewrite without >>>>>>> — should NOT be detected
+      await writeFile(join(testDir, 'partial.md'), '<<<<<<< HEAD\nsome content\n=======')
+
+      const files = await service.getFilesWithConflictMarkers({directory: testDir})
+      expect(files).to.be.empty
+    })
+
+    it('works regardless of merge state (no MERGE_HEAD required)', async () => {
+      await writeFile(join(testDir, 'file.md'), 'initial')
+      await service.add({directory: testDir, filePaths: ['file.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      // No MERGE_HEAD — simulates leftover markers after merge abort/continue
+      await writeFile(join(testDir, 'file.md'), '<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch')
+
+      const files = await service.getFilesWithConflictMarkers({directory: testDir})
+      expect(files).to.deep.equal(['file.md'])
+    })
+
+    it('detects conflict markers in nested directories', async () => {
+      await mkdir(join(testDir, 'sub'), {recursive: true})
+      await writeFile(join(testDir, 'sub', 'nested.md'), 'initial')
+      await service.add({directory: testDir, filePaths: ['sub/nested.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      await writeFile(join(testDir, 'sub', 'nested.md'), '<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch')
+
+      const files = await service.getFilesWithConflictMarkers({directory: testDir})
+      expect(files).to.deep.equal([join('sub', 'nested.md')])
+    })
+
+    it('returns sorted file paths when multiple files have markers', async () => {
+      await writeFile(join(testDir, 'b.md'), 'initial')
+      await writeFile(join(testDir, 'a.md'), 'initial')
+      await service.add({directory: testDir, filePaths: ['a.md', 'b.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      await writeFile(join(testDir, 'b.md'), '<<<<<<< HEAD\n=======\n>>>>>>> x')
+      await writeFile(join(testDir, 'a.md'), '<<<<<<< HEAD\n=======\n>>>>>>> x')
+
+      const files = await service.getFilesWithConflictMarkers({directory: testDir})
+      expect(files).to.deep.equal(['a.md', 'b.md'])
+    })
+  })
+
   // ---- merge() ----
 
   describe('merge()', () => {

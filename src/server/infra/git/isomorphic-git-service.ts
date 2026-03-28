@@ -62,7 +62,7 @@ export class IsomorphicGitService implements IGitService {
   public constructor(private readonly authStateStore: IAuthStateStore) {}
 
   private static isConflictError(error: Error): error is IsomorphicGitMergeConflictError {
-    return 'data' in error
+    return error.name === 'MergeConflictError' && 'data' in error
   }
 
   private static isMergeConflictData(data: unknown): data is IsomorphicGitConflictData {
@@ -79,20 +79,20 @@ export class IsomorphicGitService implements IGitService {
     // These files appeared on disk during merge and must be removed on abort.
     // We compare tree contents (not statusMatrix) because merge-introduced files and
     // pre-existing untracked files both show as [0,2,0] in the status matrix.
+    // Get current branch BEFORE checkout to avoid detached HEAD
+    const branch = await this.getCurrentBranch(params)
+
     let mergeIntroducedFiles: string[] = []
     const mergeHeadOid = await fs.promises
       .readFile(mergeHeadPath, 'utf8')
       .then((s) => s.trim())
       .catch(() => null)
     if (mergeHeadOid) {
-      const branch = await this.getCurrentBranch(params)
       const headFiles = new Set(await git.listFiles({dir, fs, ref: branch ?? 'HEAD'}))
       const mergeFiles = await git.listFiles({dir, fs, ref: mergeHeadOid})
       mergeIntroducedFiles = mergeFiles.filter((f) => !headFiles.has(f))
     }
 
-    // Get current branch BEFORE checkout to avoid detached HEAD
-    const branch = await this.getCurrentBranch(params)
     await git.checkout({dir, force: true, fs, ref: branch ?? 'HEAD'})
 
     // Clean up files that the merge brought in (exist in MERGE_HEAD but not in HEAD)
@@ -349,6 +349,30 @@ export class IsomorphicGitService implements IGitService {
     const dir = this.requireDirectory(params)
     const branch = await git.currentBranch({dir, fs})
     return branch ?? undefined
+  }
+
+  async getFilesWithConflictMarkers(params: BaseGitParams): Promise<string[]> {
+    const dir = this.requireDirectory(params)
+    const matrix = await git.statusMatrix({dir, fs})
+    const conflicted: string[] = []
+
+    await Promise.all(
+      matrix.map(async ([filepath, , workdir]) => {
+        const path = String(filepath)
+        // Only check files that exist in the working directory
+        if (workdir === 0) return
+        try {
+          const content = await fs.promises.readFile(join(dir, path), 'utf8')
+          if (content.includes('<<<<<<<') && content.includes('=======') && content.includes('>>>>>>>')) {
+            conflicted.push(path)
+          }
+        } catch {
+          // skip binary or unreadable files
+        }
+      }),
+    )
+
+    return conflicted.sort()
   }
 
   async getRemoteUrl(params: GetRemoteUrlGitParams): Promise<string | undefined> {

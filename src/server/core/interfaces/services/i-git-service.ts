@@ -107,6 +107,12 @@ export interface IGitService {
   getConflicts(params: BaseGitParams): Promise<GitConflict[]>
   /** Returns the current branch name, or `undefined` when in detached HEAD state. */
   getCurrentBranch(params: BaseGitParams): Promise<string | undefined>
+  /**
+   * Scans tracked files for git conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`).
+   * Unlike `getConflicts()`, this works regardless of merge state — it detects
+   * leftover markers even after a merge is completed or aborted.
+   */
+  getFilesWithConflictMarkers(params: BaseGitParams): Promise<string[]>
   getRemoteUrl(params: GetRemoteUrlGitParams): Promise<string | undefined>
   /** Returns the upstream tracking branch config, or `undefined` if not configured. */
   getTrackingBranch(params: GetTrackingBranchParams): Promise<TrackingBranch | undefined>

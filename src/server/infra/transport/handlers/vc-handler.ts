@@ -24,6 +24,7 @@ import {
   type IVcCommitResponse,
   type IVcConfigRequest,
   type IVcConfigResponse,
+  type IVcConflictsResponse,
   type IVcFetchRequest,
   type IVcFetchResponse,
   type IVcInitResponse,
@@ -115,6 +116,9 @@ export class VcHandler {
     )
     this.transport.onRequest<IVcCommitRequest, IVcCommitResponse>(VcEvents.COMMIT, (data, clientId) =>
       this.handleCommit(data, clientId),
+    )
+    this.transport.onRequest<void, IVcConflictsResponse>(VcEvents.CONFLICTS, (_data, clientId) =>
+      this.handleConflicts(clientId),
     )
     this.transport.onRequest<IVcConfigRequest, IVcConfigResponse>(VcEvents.CONFIG, (data, clientId) =>
       this.handleConfig(data, clientId),
@@ -488,6 +492,19 @@ export class VcHandler {
     return {key: data.key, value}
   }
 
+  private async handleConflicts(clientId: string): Promise<IVcConflictsResponse> {
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const directory = this.contextTreeService.resolvePath(projectPath)
+
+    const gitInitialized = await this.gitService.isInitialized({directory})
+    if (!gitInitialized) {
+      throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
+    }
+
+    const files = await this.gitService.getFilesWithConflictMarkers({directory})
+    return {files}
+  }
+
   private async handleFetch(data: IVcFetchRequest, clientId: string): Promise<IVcFetchResponse> {
     const token = await this.tokenStore.load()
     if (!token?.isValid()) throw new NotAuthenticatedError()
@@ -688,6 +705,7 @@ export class VcHandler {
     const branch = data?.branch ?? (await this.resolvePullBranch(directory))
 
     let alreadyUpToDate = false
+    let conflicts: Array<{path: string; type: string}> | undefined
     try {
       const result = await this.gitService.pull({
         allowUnrelatedHistories: data?.allowUnrelatedHistories,
@@ -697,8 +715,8 @@ export class VcHandler {
         remote,
       })
       if (!result.success) {
-        const paths = result.conflicts.map((c) => c.path).join(', ')
-        throw new VcError(`Merge conflicts in: ${paths}`, VcErrorCode.MERGE_CONFLICT)
+        conflicts = result.conflicts.map((c) => ({path: c.path, type: c.type}))
+        return {branch, conflicts}
       }
 
       alreadyUpToDate = result.alreadyUpToDate ?? false
@@ -736,6 +754,15 @@ export class VcHandler {
     const commits = await this.gitService.log({depth: 1, directory})
     if (commits.length === 0) {
       throw new VcError('No commits to push. Run /vc add and /vc commit first.', VcErrorCode.NOTHING_TO_PUSH)
+    }
+
+    // Block push while conflict markers remain in tracked files
+    const conflictFiles = await this.gitService.getFilesWithConflictMarkers({directory})
+    if (conflictFiles.length > 0) {
+      throw new VcError(
+        `Conflict markers detected in: ${conflictFiles.join(', ')}. Resolve conflicts before pushing.`,
+        VcErrorCode.CONFLICT_MARKERS_PRESENT,
+      )
     }
 
     const branch = await this.resolveTargetBranch(data.branch, directory)
@@ -869,6 +896,9 @@ export class VcHandler {
       ? (await this.gitService.getConflicts({directory: contextTreeDir})).map((c) => ({path: c.path, type: c.type}))
       : undefined
 
+    // Detect files with conflict markers (regardless of merge state)
+    const conflictMarkerFiles = await this.gitService.getFilesWithConflictMarkers({directory: contextTreeDir})
+
     // Filter out unmerged paths from staged/unstaged — git native only shows them in "Unmerged paths" section
     const unmergedPaths = unmerged ? new Set(unmerged.map((u) => u.path)) : new Set<string>()
     const staged = gitStatus.files.filter((f) => f.staged && !unmergedPaths.has(f.path))
@@ -896,6 +926,7 @@ export class VcHandler {
       ahead,
       behind,
       branch,
+      conflictMarkerFiles: conflictMarkerFiles.length > 0 ? conflictMarkerFiles : undefined,
       hasCommits,
       initialized: true,
       mergeInProgress,

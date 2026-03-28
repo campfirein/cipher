@@ -43,6 +43,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [TaskErrorCode.SPACE_NOT_FOUND]: 'Space not found. Check your configuration.',
   [VcErrorCode.AUTH_FAILED]: 'Authentication failed. Run brv login.',
   [VcErrorCode.CONFIG_KEY_NOT_SET]: 'Config key is not set.',
+  [VcErrorCode.CONFLICT_MARKERS_PRESENT]: 'Conflict markers detected. Resolve conflicts and run brv vc add before pushing.',
   [VcErrorCode.GIT_NOT_INITIALIZED]: 'ByteRover version control not initialized. Run brv vc init first.',
   [VcErrorCode.INVALID_BRANCH_NAME]: 'Invalid branch name.',
   [VcErrorCode.INVALID_CONFIG_KEY]: 'Invalid config key. Allowed: user.name, user.email.',
