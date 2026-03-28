@@ -1,5 +1,6 @@
 import {input, password, select, Separator} from '@inquirer/prompts'
 import {Args, Command, Flags} from '@oclif/core'
+import chalk from 'chalk'
 
 import type {ProviderDTO} from '../../../shared/transport/types/dto.js'
 
@@ -22,7 +23,14 @@ import {
 } from '../../../shared/transport/events/provider-events.js'
 import {type DaemonClientOptions, withDaemonRetry} from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
-import {createEscapeSignal, ESC_HINT, isPromptCancelled} from '../../lib/prompt-utils.js'
+import {
+  createEscapeSignal,
+  isEscBack,
+  isPromptCancelled,
+  validateUrl,
+  wizardSelectTheme,
+} from '../../lib/prompt-utils.js'
+import {createSpinner} from '../../lib/spinner.js'
 
 export default class ProviderConnect extends Command {
   public static args = {
@@ -92,15 +100,9 @@ export default class ProviderConnect extends Command {
         }
 
         if (baseUrl) {
-          let parsed: undefined | URL
-          try {
-            parsed = new URL(baseUrl)
-          } catch {
-            throw new Error(`Invalid base URL format: "${baseUrl}". Must be a valid http:// or https:// URL.`)
-          }
-
-          if (!['http:', 'https:'].includes(parsed.protocol)) {
-            throw new Error('URL must start with http:// or https://')
+          const validationResult = validateUrl(baseUrl)
+          if (typeof validationResult === 'string') {
+            throw new TypeError(validationResult)
           }
         }
       }
@@ -208,33 +210,118 @@ export default class ProviderConnect extends Command {
     )
   }
 
+  protected async fetchProviders(options?: DaemonClientOptions): Promise<ProviderDTO[]> {
+    const {providers} = await withDaemonRetry(
+      async (client) => client.requestWithAck<ProviderListResponse>(ProviderEvents.LIST),
+      options,
+    )
+    return providers
+  }
+
+  // All prompt methods emit a blank line before rendering for visual spacing between wizard steps.
+
   protected async promptForApiKey(providerName: string, apiKeyUrl?: string, signal?: AbortSignal): Promise<string> {
-    const hint = apiKeyUrl ? ` (get one at ${apiKeyUrl})` : ''
-    return password({message: `Enter API key for ${providerName}${hint}: ${ESC_HINT}`}, {signal})
+    this.log()
+    const hint = apiKeyUrl ? ` (get one at ${apiKeyUrl}):` : ':'
+    return password(
+      {
+        mask: true,
+        message: `Enter API key for ${providerName}${chalk.dim(hint)}`,
+      },
+      {signal},
+    )
+  }
+
+  protected async promptForAuthMethod(provider: ProviderDTO, signal?: AbortSignal): Promise<'api-key' | 'oauth'> {
+    this.log()
+    const oauthLabel = provider.oauthLabel ?? 'OAuth (browser-based)'
+
+    return select(
+      {
+        choices: [
+          {
+            name: `API Key${provider.apiKeyUrl ? ` — get one at ${provider.apiKeyUrl}` : ''}`,
+            value: 'api-key' as const,
+          },
+          {name: oauthLabel, value: 'oauth' as const},
+        ],
+        message: `How do you want to authenticate with ${provider.name}?`,
+        theme: wizardSelectTheme,
+      },
+      {signal},
+    )
   }
 
   protected async promptForBaseUrl(signal?: AbortSignal): Promise<string> {
-    return input({message: `Enter base URL (e.g., http://localhost:11434/v1): ${ESC_HINT}`}, {signal})
+    this.log()
+    return input(
+      {
+        message: `Enter base URL ${chalk.dim('(e.g. http://localhost:11434/v1):')}`,
+        required: true,
+        validate: validateUrl,
+      },
+      {signal},
+    )
+  }
+
+  protected async promptForConnectedAction(
+    provider: ProviderDTO,
+    signal?: AbortSignal,
+  ): Promise<'activate' | 'disconnect' | 'reconfigure'> {
+    this.log()
+    const choices: {name: string; value: 'activate' | 'disconnect' | 'reconfigure'}[] = []
+
+    if (!provider.isCurrent) {
+      choices.push({name: 'Set as active', value: 'activate'})
+    }
+
+    choices.push({name: `Reconfigure ${provider.authMethod === 'oauth' ? 'OAuth' : 'API key'}`, value: 'reconfigure'})
+
+    return select(
+      {
+        choices,
+        message: `${provider.name} is already connected. What would you like to do?`,
+        theme: wizardSelectTheme,
+      },
+      {signal},
+    )
   }
 
   protected async promptForModel(
     models: {id: string; name: string}[],
     signal?: AbortSignal,
   ): Promise<string | undefined> {
-    // Add a blank line before the prompt
     this.log()
+    if (models.length === 0) {
+      this.log(chalk.dim('No models available. Check your API key or provider configuration.'))
+      // Trigger back-navigation to auth step by throwing cancel
+      const error = new Error('No models available')
+      error.name = 'AbortPromptError'
+      throw error
+    }
 
     return select(
       {
         choices: [{name: 'Skip (use default)', value: ''}, ...models.map((m) => ({name: m.name, value: m.id}))],
         loop: false,
-        message: `Select a model ${ESC_HINT}`,
+        message: 'Select a model',
+        theme: wizardSelectTheme,
       },
       {signal},
     ).then((v) => v || undefined)
   }
 
+  protected async promptForOptionalApiKey(providerName: string, signal?: AbortSignal): Promise<string | undefined> {
+    this.log()
+    const value = await input(
+      {message: `Enter API key for ${providerName} ${chalk.dim('(optional, press Enter to skip):')}`},
+      {signal},
+    )
+    return value.trim() || undefined
+  }
+
   protected async promptForProvider(providers: ProviderDTO[], signal?: AbortSignal): Promise<string> {
+    this.log()
     const nameMaxChars = Math.max(...providers.map((p) => p.name.length))
     const popular = providers.filter((p) => p.category === 'popular')
     const other = providers.filter((p) => p.category === 'other')
@@ -243,9 +330,6 @@ export default class ProviderConnect extends Command {
       name: `${p.name.padEnd(nameMaxChars + 3)} ${p.description}`,
       value: p.id,
     })
-
-    // Add a blank line before the prompt
-    this.log()
 
     return select(
       {
@@ -257,6 +341,7 @@ export default class ProviderConnect extends Command {
         ],
         loop: false,
         message: 'Select a provider',
+        theme: wizardSelectTheme,
       },
       {signal},
     )
@@ -292,7 +377,17 @@ export default class ProviderConnect extends Command {
     }
 
     // Non-interactive mode: provider arg provided
-    await this.runNonInteractive(providerId, flags, format)
+    await this.runNonInteractive(
+      providerId,
+      {
+        apiKey: flags['api-key'],
+        baseUrl: flags['base-url'],
+        code: flags.code,
+        model: flags.model,
+        oauth: flags.oauth,
+      },
+      format,
+    )
   }
 
   /**
@@ -300,13 +395,10 @@ export default class ProviderConnect extends Command {
    * Step 1 (provider) ← Step 2 (auth) ← Step 3 (model)
    */
   protected async runInteractive(): Promise<void> {
-    const {providers} = await withDaemonRetry(async (client) =>
-      client.requestWithAck<ProviderListResponse>(ProviderEvents.LIST),
-    )
-
     const esc = createEscapeSignal()
     const STEPS = ['provider', 'auth', 'model'] as const
     let stepIndex = 0
+    let providers = await this.fetchProviders()
     let providerId: string | undefined
     let provider: ProviderDTO | undefined
 
@@ -349,10 +441,18 @@ export default class ProviderConnect extends Command {
 
           stepIndex++
         } catch (error) {
-          if (isPromptCancelled(error)) {
-            if (stepIndex === 0) return // cancel on first step → exit
+          if (isEscBack(error)) {
+            // Esc → go back one step
+            if (stepIndex === 0) return
             esc.reset()
             stepIndex--
+            // Re-fetch providers on back-navigation so isConnected states are fresh
+            if (STEPS[stepIndex] === 'provider') {
+              providers = await this.fetchProviders()
+            }
+          } else if (isPromptCancelled(error)) {
+            // Ctrl+C → exit wizard
+            return
           } else {
             throw error
           }
@@ -366,14 +466,16 @@ export default class ProviderConnect extends Command {
 
   protected async runNonInteractive(
     providerId: string,
-    flags: {[key: string]: unknown},
+    flags: {
+      apiKey: string | undefined
+      baseUrl: string | undefined
+      code: string | undefined
+      model: string | undefined
+      oauth: boolean
+    },
     format: 'json' | 'text',
   ): Promise<void> {
-    const apiKey = flags['api-key'] as string | undefined
-    const baseUrl = flags['base-url'] as string | undefined
-    const code = flags.code as string | undefined
-    const model = flags.model as string | undefined
-    const oauth = flags.oauth as boolean
+    const {apiKey, baseUrl, code, model, oauth} = flags
 
     if (oauth && apiKey) {
       const msg = 'Cannot use --oauth and --api-key together'
@@ -432,26 +534,80 @@ export default class ProviderConnect extends Command {
     }
   }
 
+  /* eslint-disable no-await-in-loop -- intentional retry loop for interactive auth */
   private async runAuthStep(providerId: string, provider: ProviderDTO, signal?: AbortSignal): Promise<void> {
-    let apiKey: string | undefined
-    let baseUrl: string | undefined
+    // Provider already connected — ask what to do (skip prompt if already current)
+    if (provider.isConnected && !provider.isCurrent) {
+      const action = await this.promptForConnectedAction(provider, signal)
 
-    if (providerId === 'openai-compatible' && !provider.isConnected) {
-      baseUrl = await this.promptForBaseUrl(signal)
+      if (action === 'activate') {
+        const spinner = createSpinner('Connecting...')
+        const result = await this.connectProvider({providerId})
+        spinner.clear()
+        this.log(`Connected to ${result.providerName} (${result.providerId})`)
+        return
+      }
+
+      // reconfigure → fall through to auth flow below
     }
 
-    if (provider.requiresApiKey && !provider.isConnected) {
-      apiKey = await this.promptForApiKey(provider.name, provider.apiKeyUrl, signal)
+    // No API key required (e.g., ByteRover free) but not openai-compatible — connect directly
+    if (!provider.requiresApiKey && !provider.supportsOAuth && providerId !== 'openai-compatible') {
+      const spinner = createSpinner('Connecting...')
+      const result = await this.connectProvider({providerId})
+      spinner.clear()
+      this.log(`Connected to ${result.providerName} (${result.providerId})`)
+      return
     }
 
-    const result = await this.connectProvider({apiKey, baseUrl, providerId})
-    this.log(`Connected to ${result.providerName} (${result.providerId})`)
+    // Retry loop — on connection failure, show error and re-prompt credentials
+    while (true) {
+      // Choose auth method if provider supports both
+      let authMethod: 'api-key' | 'oauth' = 'api-key'
+      if (provider.supportsOAuth && provider.requiresApiKey) {
+        authMethod = await this.promptForAuthMethod(provider, signal)
+      } else if (provider.supportsOAuth) {
+        authMethod = 'oauth'
+      }
+
+      try {
+        if (authMethod === 'oauth') {
+          const result = await this.connectProviderOAuth({providerId}, undefined, (msg) => this.log(msg))
+          if (!result.showInstructions) {
+            this.log(`Connected to ${result.providerName} via OAuth`)
+          }
+
+          return
+        }
+
+        // API key flow
+        const isOpenAiCompatible = providerId === 'openai-compatible'
+        const baseUrl = isOpenAiCompatible ? await this.promptForBaseUrl(signal) : undefined
+        const apiKey = isOpenAiCompatible
+          ? await this.promptForOptionalApiKey(provider.name, signal)
+          : await this.promptForApiKey(provider.name, provider.apiKeyUrl, signal)
+
+        const spinner = createSpinner('Connecting...')
+        const result = await this.connectProvider({apiKey, baseUrl, providerId})
+        spinner.clear()
+        this.log(`Connected to ${result.providerName} (${result.providerId})`)
+        return
+      } catch (error) {
+        // Prompt cancellation → propagate to state machine (go back to provider)
+        if (isPromptCancelled(error)) throw error
+
+        // Connection error → show message and retry auth
+        this.log(error instanceof Error ? error.message : 'Connection failed. Please try again.')
+      }
+    }
   }
 
-  private async runModelStep(providerId: string, signal?: AbortSignal): Promise<void> {
-    const modelList = await this.fetchModels(providerId)
-    if (modelList.models.length === 0) return
+  /* eslint-enable no-await-in-loop */
 
+  private async runModelStep(providerId: string, signal?: AbortSignal): Promise<void> {
+    const spinner = createSpinner('Fetching models...')
+    const modelList = await this.fetchModels(providerId)
+    spinner.clear()
     const modelId = await this.promptForModel(modelList.models, signal)
     if (!modelId) return
 

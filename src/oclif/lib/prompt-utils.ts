@@ -1,10 +1,64 @@
-export const ESC_HINT = '(esc to go back)'
+import chalk from 'chalk'
 
+/**
+ * Shared theme for select prompts in interactive wizards.
+ * Appends "esc back" to the built-in key help tip (↑↓ navigate • ⏎ select).
+ */
+export const wizardSelectTheme = {
+  style: {
+    keysHelpTip: (keys: [string, string][]) =>
+      [...keys, ['esc', 'cancel']].map(([key, action]) => `${key} ${chalk.dim(action)}`).join(chalk.dim(' • ')),
+  },
+}
+
+/**
+ * Shared theme for input/password prompts in interactive wizards.
+ * Appends "esc back" hint to the message line.
+ */
+export const wizardInputTheme = {
+  style: {
+    message(text: string, status: string) {
+      const base = chalk.bold(text)
+      return status === 'done' ? base : `${chalk.bold(text)} ${chalk.dim('(esc back)')}`
+    },
+  },
+}
+
+/** Esc key — go back to previous step */
+export function isEscBack(error: unknown): boolean {
+  // @inquirer/prompts error class names as of v7
+  return error instanceof Error && error.name === 'AbortPromptError'
+}
+
+/** Ctrl+C — exit the wizard entirely */
+export function isForceExit(error: unknown): boolean {
+  // @inquirer/prompts error class names as of v7
+  return error instanceof Error && (error.name === 'ExitPromptError' || error.name === 'CancelPromptError')
+}
+
+/** Any prompt cancellation (Esc or Ctrl+C) */
 export function isPromptCancelled(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.name === 'AbortPromptError' || error.name === 'CancelPromptError' || error.name === 'ExitPromptError') // @inquirer/prompts error class names as of v7
-  )
+  return isEscBack(error) || isForceExit(error)
+}
+
+/**
+ * Validates a URL string.
+ * @param value The URL string to validate.
+ * @returns True if the URL is valid, otherwise an error message.
+ */
+export function validateUrl(value: string): boolean | string {
+  let parsed: undefined | URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    return `Invalid base URL format: "${value}". Must be a valid http:// or https:// URL.`
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return 'URL must start with http:// or https://'
+  }
+
+  return true
 }
 
 /**
