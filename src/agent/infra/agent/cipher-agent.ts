@@ -22,6 +22,7 @@ import type {AgentConfig} from './agent-schemas.js'
 import type {ProviderUpdateConfig} from './provider-update-config.js'
 
 import {TransportStateEventNames} from '../../../server/core/domain/transport/schemas.js'
+import {agentLog} from '../../../server/utils/process-logger.js'
 import {getEffectiveMaxInputTokens, resolveRegistryProvider} from '../../core/domain/llm/index.js'
 import {STREAMING_EVENT_NAMES} from '../../core/domain/streaming/types.js'
 import {ToolName} from '../../core/domain/tools/constants.js'
@@ -40,6 +41,8 @@ import {AgentError} from './agent-error.js'
 import {BaseAgent} from './base-agent.js'
 import {type ByteRoverHttpConfig, createCipherAgentServices, type SessionLLMConfig} from './service-initializer.js'
 
+const QUEUE_TRACE_ENABLED = process.env.BRV_QUEUE_TRACE === '1'
+
 /**
  * CipherAgent - Main agent implementation extending BaseAgent.
  *
@@ -50,7 +53,7 @@ import {type ByteRoverHttpConfig, createCipherAgentServices, type SessionLLMConf
  * - Typed error handling
  * - Configuration validation (Zod)
  *
- * Architecture (DextoAgent pattern):
+ * Architecture:
  * - Agent creates AgentEventBus in constructor (available before start)
  * - Agent creates and owns shared services (ToolManager, SystemPromptManager, etc.)
  * - SessionManager creates session-specific services (LLM, SessionEventBus)
@@ -116,7 +119,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Call parent constructor (validates with Zod)
     super(config)
 
-    // Create event bus early (DextoAgent pattern - available before start)
+    // Create event bus early (available before start)
     this._agentEventBus = new AgentEventBus()
 
     this._brvConfig = brvConfig
@@ -210,9 +213,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
   protected override async cleanupServices(): Promise<void> {
     // Drain abstract generation queue before session disposal
-    if (this.services?.abstractQueue) {
-      await this.services.abstractQueue.drain()
-    }
+    await this.drainAbstractQueue()
 
     // Abort all active streams and clear controllers
     for (const controller of this.activeStreamControllers.values()) {
@@ -365,7 +366,9 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
         if (session) {
           const messages = session.getLLMService().getContextManager().getComprehensiveMessages()
           const commandType = this.getSessionManagerInternal().getSessionCommandType(sessionId) ?? 'curate'
-          await this.sessionCompressor.compress(messages, commandType).catch((error) => {
+          // Task sessions often contain a compact prompt/response trace, so use a
+          // lower threshold than the interactive default to preserve useful memories.
+          await this.sessionCompressor.compress(messages, commandType, {minMessages: 2}).catch((error) => {
             const msg = error instanceof Error ? error.message : String(error)
             console.debug(`[CipherAgent] Session compression failed for ${sessionId}: ${msg}`)
           })
@@ -390,6 +393,15 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       deregisterRootEligibleSession(sessionId, this._instanceId)
       this.rootEligibleSessions.delete(sessionId)
     }
+  }
+
+  /**
+   * Wait for shared background work (such as abstract generation) to finish.
+   * Used by task executors before reporting task completion.
+   */
+  public async drainBackgroundWork(): Promise<void> {
+    this.ensureStarted()
+    await this.drainAbstractQueue()
   }
 
   /**
@@ -558,7 +570,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   }
 
   protected override async initializeServices(): Promise<CipherAgentServices> {
-    // Pass pre-created event bus to service initializer (DextoAgent pattern)
+    // Pass pre-created event bus to service initializer
     return createCipherAgentServices(this.config, this._agentEventBus)
   }
 
@@ -1055,6 +1067,51 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     })
 
     return new RetryableContentGenerator(freshGenerator, {policy: DEFAULT_RETRY_POLICY})
+  }
+
+  private async drainAbstractQueue(): Promise<void> {
+    const abstractQueue = this.services?.abstractQueue
+    if (!abstractQueue) {
+      return
+    }
+
+    const settleDeadline = Date.now() + 5000
+    let idleSince: number | undefined
+    let pass = 0
+
+    /* eslint-disable no-await-in-loop */
+    while (Date.now() <= settleDeadline) {
+      pass++
+      if (QUEUE_TRACE_ENABLED) {
+        agentLog(`drainAbstractQueue:pass:${pass}:start`)
+      }
+
+      await abstractQueue.drain()
+      const status = abstractQueue.getStatus()
+      if (QUEUE_TRACE_ENABLED) {
+        agentLog(`drainAbstractQueue:pass:${pass}:status pending=${status.pending} processing=${status.processing} processed=${status.processed} failed=${status.failed}`)
+      }
+
+      if (!status.processing && status.pending === 0) {
+        idleSince ??= Date.now()
+        if (Date.now() - idleSince >= 250) {
+          if (QUEUE_TRACE_ENABLED) {
+            agentLog(`drainAbstractQueue:settled pass=${pass}`)
+          }
+
+          return
+        }
+      } else {
+        idleSince = undefined
+      }
+
+      await new Promise<void>((resolve) => { setTimeout(resolve, 100) })
+    }
+    /* eslint-enable no-await-in-loop */
+
+    if (QUEUE_TRACE_ENABLED) {
+      agentLog('drainAbstractQueue:deadline-reached')
+    }
   }
 
   private getHistoryStorageInternal(): IHistoryStorage {

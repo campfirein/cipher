@@ -1,9 +1,22 @@
+import {appendFileSync} from 'node:fs'
 import {mkdir, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
 
 import {generateFileAbstracts} from './abstract-generator.js'
+
+const QUEUE_TRACE_ENABLED = process.env.BRV_QUEUE_TRACE === '1'
+const LOG_PATH = process.env.BRV_SESSION_LOG
+
+function queueLog(message: string): void {
+  if (!QUEUE_TRACE_ENABLED || !LOG_PATH) return
+  try {
+    appendFileSync(LOG_PATH, `${new Date().toISOString()} [abstract-queue] ${message}\n`)
+  } catch {
+    // ignore — tracing must never block queue progress
+  }
+}
 
 /**
  * A queued item waiting for abstract generation.
@@ -56,8 +69,10 @@ export class AbstractGenerationQueue {
    * Includes items currently in retry backoff so drain() does not resolve prematurely.
    */
   async drain(): Promise<void> {
+    queueLog(`drain:start idle=${this.isIdle()} pending=${this.pending.length} retrying=${this.retrying} processing=${this.processing}`)
     if (this.isIdle()) {
       await this.statusWritePromise.catch(() => {})
+      queueLog('drain:resolved-immediate')
       return
     }
 
@@ -65,6 +80,7 @@ export class AbstractGenerationQueue {
       this.drainResolvers.push(resolve)
       this.resolveDrainersIfIdle()
     })
+    queueLog('drain:resolved-deferred')
   }
 
   /**
@@ -86,6 +102,7 @@ export class AbstractGenerationQueue {
     }
 
     this.pending.push({attempts: 0, contextPath: item.contextPath, fullContent: item.fullContent})
+    queueLog(`enqueue path=${item.contextPath} pending=${this.pending.length} retrying=${this.retrying} processing=${this.processing}`)
     this.queueStatusWrite()
     this.scheduleNext()
   }
@@ -134,6 +151,7 @@ export class AbstractGenerationQueue {
     this.queueStatusWrite()
 
     const item = this.pending.shift()!
+    queueLog(`process:start path=${item.contextPath} remaining=${this.pending.length} retrying=${this.retrying}`)
 
     try {
       // Refresh credentials before each generation (OAuth tokens may expire)
@@ -159,6 +177,7 @@ export class AbstractGenerationQueue {
       ])
 
       this.processed++
+      queueLog(`process:success path=${item.contextPath} processed=${this.processed}`)
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
       console.debug(`[AbstractQueue] ${item.contextPath} attempt ${item.attempts + 1}/${this.maxAttempts}: ${msg}`)
@@ -171,14 +190,17 @@ export class AbstractGenerationQueue {
         setTimeout(() => {
           this.retrying--
           this.pending.unshift(item)
+          queueLog(`process:retry-requeue path=${item.contextPath} pending=${this.pending.length} retrying=${this.retrying}`)
           this.queueStatusWrite()
           this.scheduleNext()
         }, delay)
       } else {
         this.failed++
+        queueLog(`process:failed path=${item.contextPath} failed=${this.failed}`)
       }
     } finally {
       this.processing = false
+      queueLog(`process:finally path=${item.contextPath} pending=${this.pending.length} retrying=${this.retrying} processed=${this.processed} failed=${this.failed}`)
       this.queueStatusWrite()
     }
 
@@ -197,6 +219,7 @@ export class AbstractGenerationQueue {
       return
     }
 
+    queueLog(`drain:idle pending=${this.pending.length} retrying=${this.retrying} processed=${this.processed} failed=${this.failed}`)
     const resolvers = this.drainResolvers.splice(0)
     const settledStatusWrite = this.statusWritePromise.catch(() => {})
     for (const resolve of resolvers) {

@@ -11,11 +11,9 @@ export interface SessionOverride {
 }
 
 /**
- * Unified agent state manager combining DextoAgent config patterns with execution state tracking.
- *
  * Manages two concerns:
  *
- * 1. Configuration State (DextoAgent pattern):
+ * 1. Configuration State:
  *    - baselineConfig: Original validated config, never mutated
  *    - runtimeConfig: Current active config, can be mutated
  *    - sessionOverrides: Per-session config overrides

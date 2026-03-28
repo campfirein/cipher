@@ -371,6 +371,52 @@ describe('CipherAgent', () => {
   })
 
   describe('deleteTaskSession', () => {
+    it('waits for the abstract queue to stay idle before returning', async () => {
+      const agent = new CipherAgent(agentConfig)
+
+      try {
+        await agent.start()
+
+        const drainStub = stub().resolves()
+        const getStatusStub = stub()
+        getStatusStub.callsFake(() => (
+          getStatusStub.callCount === 0
+            ? {failed: 0, pending: 1, processed: 0, processing: true}
+            : {failed: 0, pending: 0, processed: 1, processing: false}
+        ))
+        ;(
+          agent as unknown as {
+            services?: {abstractQueue?: {drain: () => Promise<void>; getStatus: () => {failed: number; pending: number; processed: number; processing: boolean}}}
+          }
+        ).services!.abstractQueue = {drain: drainStub, getStatus: getStatusStub}
+
+        await agent.drainBackgroundWork()
+
+        expect(drainStub.callCount).to.be.greaterThan(1)
+        expect(getStatusStub.callCount).to.be.greaterThan(1)
+      } finally {
+        await agent.stop()
+      }
+    })
+
+    it('compresses user-facing task sessions with a lower minMessages threshold', async () => {
+      const compressStub = stub(SessionCompressor.prototype, 'compress').resolves({created: 0, merged: 0, skipped: 0})
+
+      const agent = new CipherAgent(agentConfig)
+
+      try {
+        await agent.start()
+
+        const taskSessionId = await agent.createTaskSession('task-compress-threshold', 'curate', {userFacing: true})
+        await agent.deleteTaskSession(taskSessionId)
+
+        expect(compressStub.calledOnce).to.be.true
+        expect(compressStub.firstCall.args[2]).to.deep.equal({minMessages: 2})
+      } finally {
+        await agent.stop()
+      }
+    })
+
     it('passes http config and ranking metadata when refreshing a byterover generator', async () => {
       const capturedConfigs: GeneratorFactoryConfig[] = []
       stub(byteroverProvider, 'createGenerator').callsFake((config) => {
