@@ -55,7 +55,7 @@ export class AuthToken {
       tokenType: json.tokenType,
       userEmail: json.userEmail,
       userId: json.userId,
-      userName: json.userName || undefined,
+      userName: json.userName ?? undefined,
     })
   }
 

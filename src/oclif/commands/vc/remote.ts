@@ -6,13 +6,13 @@ import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js
 export default class VcRemote extends Command {
   public static args = {
     subcommand: Args.string({description: 'Subcommand: add | set-url (omit to show current remote)'}),
-    url: Args.string({description: 'Remote URL (e.g. https://user:token@host/repo.git)'}),
+    url: Args.string({description: 'Remote URL (e.g. https://cogit.byterover.dev/team/space.brv)'}),
   }
   public static description = 'Manage remote origin for ByteRover version control'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> add https://user:token@host/repo.git',
-    '<%= config.bin %> <%= command.id %> set-url https://user:token@host/repo.git',
+    '<%= config.bin %> <%= command.id %> add https://cogit.byterover.dev/team/space.brv',
+    '<%= config.bin %> <%= command.id %> set-url https://cogit.byterover.dev/team/space.brv',
   ]
 
   public async run(): Promise<void> {

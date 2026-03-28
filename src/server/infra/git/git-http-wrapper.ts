@@ -21,12 +21,12 @@ const SERVICE_PREAMBLES: Record<string, string> = {
 /**
  * V2 ls-refs request body (pktline-encoded).
  *
- * Format: command section + delimiter (0000) + argument section + flush (0000)
+ * Format: command section + delimiter (0001) + argument section + flush (0000)
  *   "command=ls-refs\n" = 16 chars + 4 prefix = 20 = 0x14 → "0014"
  *   "peel\n"            =  5 chars + 4 prefix =  9 = 0x09 → "0009"
  *   "symrefs\n"         =  8 chars + 4 prefix = 12 = 0x0c → "000c"
  */
-const LS_REFS_REQUEST = Buffer.from('0014command=ls-refs\n00000009peel\n000csymrefs\n0000')
+const LS_REFS_REQUEST = Buffer.from('0014command=ls-refs\n00010009peel\n000csymrefs\n0000')
 
 async function* singleChunk(buffer: Buffer): AsyncIterableIterator<Uint8Array> {
   yield buffer
@@ -155,12 +155,16 @@ async function translateUploadPackV2ToV1(
     const fetchResponse = await fetch(`${baseUrl}/git-upload-pack`, {
       body: LS_REFS_REQUEST,
       headers: {
-        ...(params.headers as Record<string, string>),
+        ...params.headers,
         'Content-Type': 'application/x-git-upload-pack-request',
         'Git-Protocol': 'version=2',
       },
       method: 'POST',
     })
+    if (!fetchResponse.ok) {
+      throw new Error(`HTTP Error: ${fetchResponse.status} ${fetchResponse.statusText}`)
+    }
+
     lsBody = Buffer.from(await fetchResponse.arrayBuffer())
   } catch (error) {
     throw new Error(
@@ -244,7 +248,7 @@ async function interceptUploadPackPost(params: Parameters<typeof httpRequest>[0]
     const fetchResponse = await fetch(url, {
       body: Buffer.from(v2),
       headers: {
-        ...(params.headers as Record<string, string>),
+        ...params.headers,
         'Content-Type': 'application/x-git-upload-pack-request',
         'Git-Protocol': 'version=2',
       },
@@ -260,9 +264,7 @@ async function interceptUploadPackPost(params: Parameters<typeof httpRequest>[0]
     statusCode = fetchResponse.status
     statusMessage = fetchResponse.statusText
   } catch (error) {
-    throw new Error(
-      `Failed to fetch pack data from ${url}: ${error instanceof Error ? error.message : String(error)}`,
-    )
+    throw new Error(`Failed to fetch pack data from ${url}: ${error instanceof Error ? error.message : String(error)}`)
   }
 
   // Strip the v2 "packfile" section header pktline (if present) so that

@@ -33,12 +33,12 @@ export default class VcPush extends Command {
     let branch: string | undefined
     if (args.arg1 && args.arg2) {
       if (args.arg1 !== 'origin') {
-        this.error(`Unknown remote '${args.arg1}'.`)
+        this.error(`Only 'origin' remote is currently supported.`)
       }
 
       branch = args.arg2
     } else if (args.arg1 && args.arg1 !== 'origin') {
-      this.error(`Unknown remote '${args.arg1}'. Use 'brv vc push origin ${args.arg1}' to push a specific branch.`)
+      this.error(`Only 'origin' remote is currently supported. Use 'brv vc push origin ${args.arg1}' to push a specific branch.`)
     }
 
     try {

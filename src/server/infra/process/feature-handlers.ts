@@ -250,6 +250,8 @@ export async function setupFeatureHandlers({
     gitService,
     projectConfigStore,
     resolveProjectPath,
+    spaceService,
+    teamService,
     tokenStore,
     transport,
     vcGitConfigStore: new FileVcGitConfigStore(),
