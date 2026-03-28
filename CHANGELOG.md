@@ -2,6 +2,97 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.4.1]
+
+### Fixed
+- **Agent startup reliability improved** — Increased the timeout for agent child processes to become ready from 15 to 30 seconds, reducing timeout failures on slower machines or under heavy load.
+- **Console window flash on Windows** — Agent child processes no longer briefly flash a console window when spawned on Windows.
+- **Security dependency updates** — Patched npm dependencies to address high-severity vulnerabilities.
+
+## [2.4.0]
+
+### Added
+- **Enterprise proxy support** — All HTTP traffic now automatically routes through corporate proxies when standard environment variables are set (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`). For environments with SSL inspection, set `NODE_EXTRA_CA_CERTS` to your corporate CA certificate. The CLI provides clear error messages when proxy or certificate issues are detected.
+
+## [2.3.4]
+
+### Changed
+- **ByteRover provider request format simplified** — Reduced unnecessary fields sent to the server for cleaner request handling.
+
+## [2.3.3]
+
+### Fixed
+- **Streaming errors from OAuth providers showed `[object Object]`** — Error messages from LLM provider streaming failures (e.g. OpenAI via OAuth) now display the actual error detail instead of an unhelpful `[object Object]` string.
+
+## [2.3.2]
+
+### Removed
+- **`better-sqlite3` dependency** — Removed the unused native SQLite package that was left over after the migration to file-based storage in 2.1.0. This reduces install size and eliminates native compilation requirements on some platforms.
+
+## [2.3.1]
+
+### Fixed
+- **OpenRouter provider name format** — OpenRouter models now display as `OpenRouter (<provider>)` instead of a capitalized provider name, making it easier to identify when using an OpenRouter-routed model.
+- **`brv update` blocked for npm installations** — Running `brv update` when installed via npm now shows a clear error directing users to run `npm update -g byterover-cli` instead. Previously produced confusing errors.
+- **`brv restart` no longer kills itself or triggers daemon respawn** — Rewrote restart with a 4-phase shutdown sequence (kill clients, graceful daemon stop, clean orphans, clean state files).
+- **Security dependency updates** — Patched `socket.io` and `@campfirein/brv-transport-client` to address high-severity vulnerabilities.
+
+## [2.3.0]
+
+### Added
+
+- **OAuth provider authentication** — Connect to LLM providers by signing in via your browser instead of manually entering API keys. OpenAI is the first supported OAuth provider. Run `/providers` in the REPL or `brv providers connect openai --oauth` from the command line to authenticate through the browser. Tokens are securely stored and automatically refreshed by the daemon.
+
+### Changed
+
+- **Provider list shows authentication method** — `brv providers list` now displays `[OAuth]` or `[API Key]` badges next to connected providers indicating how they were authenticated.
+- **Reconnect option for OAuth providers** — Already-connected OAuth providers show a "Reconnect OAuth" option in `/providers` to re-authenticate or switch accounts.
+
+## [2.2.0]
+
+### Added
+
+- **`brv locations` command** — List all registered projects and their context tree status. Shows which projects are initialized, which is current, and which have active connections. Supports `--format json` for automation. Also available as `/locations` in the REPL.
+
+## [2.1.5]
+
+### Added
+
+- **`brv logout` command** — Disconnect from ByteRover cloud and clear stored credentials from the CLI. Supports `--format json` for headless/automation use cases.
+
+### Fixed
+
+- **Security dependency updates** — Patched `flatted`, `hono`, and `yauzl` to address security vulnerabilities.
+
+## [2.1.4]
+
+### Fixed
+
+- **Local Ollama and OpenAI-compatible providers work without an API key** — Providers that do not require an API key (e.g. local Ollama) no longer trigger a "provider key missing" error. Only providers that actually require a key are flagged when one is absent.
+
+## [2.1.3]
+
+### Fixed
+
+- **`brv restart` killing itself and hanging terminal** — Fixed an issue where `brv restart` could kill its own parent shell wrapper process (used by native binary installations via `install.sh`), causing garbled terminal output and hangs. The restart command now also force-exits after completion to prevent stale oclif plugin handles from blocking the process.
+
+## [2.1.2]
+
+### Changed
+
+- **Default LLM model switched to Gemini 3.1 Flash Lite** — The default model for the ByteRover provider is now `gemini-3.1-flash-lite-preview`, replacing `gemini-3-flash-preview`, for improved performance and cost efficiency.
+
+## [2.1.1]
+
+### Changed
+
+- **Skip update notifier for non-npm installations** - Update notifications are now suppressed when the CLI is not installed via `npm install -g`, preventing irrelevant update prompts for tarball and native binary users.
+- **Auto-update frequency for native installations** - Configured oclif autoupdate with 1-day debounce for more reliable update checks on non-npm installations.
+
+### Fixed
+
+- **Security dependency updates** - Patched `fast-xml-parser`, `@aws-sdk/xml-builder`, and `@hono/node-server` to address security vulnerabilities.
+
 ## [2.1.0]
 
 ### Added

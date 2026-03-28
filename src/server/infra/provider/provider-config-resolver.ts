@@ -8,11 +8,23 @@
 
 import type {IProviderConfigStore} from '../../core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keychain-store.js'
+import type {IProviderOAuthTokenStore} from '../../core/interfaces/i-provider-oauth-token-store.js'
+import type {ITokenRefreshManager} from '../../core/interfaces/i-token-refresh-manager.js'
 
+import {CHATGPT_OAUTH_BASE_URL, CHATGPT_OAUTH_ORIGINATOR} from '../../../shared/constants/oauth.js'
 import {getProviderById, providerRequiresApiKey} from '../../core/domain/entities/provider-registry.js'
 import {type ProviderConfigResponse} from '../../core/domain/transport/schemas.js'
 import {getProviderApiKeyFromEnv} from './env-provider-detector.js'
 
+/**
+ * Check if a provider's credential (API key or OAuth access token) is accessible.
+ *
+ * Note: authMethod is intentionally NOT passed to providerRequiresApiKey() here.
+ * OAuth access tokens are stored in the keychain (as the provider's "API key"),
+ * so the keychain check on the next line correctly handles both auth methods.
+ * If an OAuth token expires and the refresh manager (Issue 5) deletes it from
+ * keychain, this function returns false — correctly marking the provider as stale.
+ */
 async function isProviderCredentialAccessible(
   providerId: string,
   providerKeychainStore: IProviderKeychainStore,
@@ -35,6 +47,7 @@ async function isProviderCredentialAccessible(
 export async function clearStaleProviderConfig(
   providerConfigStore: IProviderConfigStore,
   providerKeychainStore: IProviderKeychainStore,
+  providerOAuthTokenStore?: IProviderOAuthTokenStore,
 ): Promise<void> {
   try {
     const config = await providerConfigStore.read()
@@ -65,6 +78,12 @@ export async function clearStaleProviderConfig(
     }
 
     await providerConfigStore.write(newConfig)
+
+    // Clean up orphaned OAuth tokens for stale providers (consistent with
+    // the 3-store cleanup in TokenRefreshManager and ProviderHandler.setupDisconnect)
+    if (providerOAuthTokenStore) {
+      await Promise.all(staleProviderIds.map((id) => providerOAuthTokenStore.delete(id).catch(() => {})))
+    }
   } catch {
     // Non-critical: if validation fails, daemon continues normally.
     // The user will encounter a provider error when submitting a task instead.
@@ -81,6 +100,7 @@ export async function clearStaleProviderConfig(
 export async function resolveProviderConfig(
   providerConfigStore: IProviderConfigStore,
   providerKeychainStore: IProviderKeychainStore,
+  tokenRefreshManager?: ITokenRefreshManager,
 ): Promise<ProviderConfigResponse> {
   const config = await providerConfigStore.read()
   const {activeProvider} = config
@@ -106,7 +126,7 @@ export async function resolveProviderConfig(
         provider: activeProvider,
         providerApiKey: apiKey || undefined,
         providerBaseUrl: config.getBaseUrl(activeProvider) || undefined,
-        providerKeyMissing: !apiKey,
+        providerKeyMissing: providerRequiresApiKey(activeProvider) && !apiKey,
       }
     }
 
@@ -117,22 +137,67 @@ export async function resolveProviderConfig(
         maxInputTokens,
         openRouterApiKey: apiKey || undefined,
         provider: activeProvider,
-        providerKeyMissing: !apiKey,
+        providerKeyMissing: providerRequiresApiKey(activeProvider) && !apiKey,
       }
     }
 
     default: {
       const providerDef = getProviderById(activeProvider)
+      const providerConfig = config.providers[activeProvider]
+      if (!providerConfig) {
+        return {activeModel, activeProvider, maxInputTokens}
+      }
+
+      const {authMethod} = providerConfig
+
+      // Attempt OAuth token refresh if provider is OAuth-connected
+      if (authMethod === 'oauth' && tokenRefreshManager) {
+        try {
+          const refreshed = await tokenRefreshManager.refreshIfNeeded(activeProvider)
+          if (!refreshed) {
+            return {activeModel, activeProvider, authMethod, maxInputTokens, providerKeyMissing: true}
+          }
+
+          // Re-read API key after potential refresh
+          apiKey = (await providerKeychainStore.getApiKey(activeProvider)) ?? apiKey
+        } catch {
+          return {activeModel, activeProvider, authMethod, maxInputTokens, providerKeyMissing: true}
+        }
+      }
+
+      // OAuth-connected OpenAI: use Codex endpoint + required headers
+      if (activeProvider === 'openai' && authMethod === 'oauth') {
+        const codexHeaders: Record<string, string> = {
+          originator: CHATGPT_OAUTH_ORIGINATOR,
+        }
+        if (providerConfig.oauthAccountId) {
+          codexHeaders['ChatGPT-Account-Id'] = providerConfig.oauthAccountId
+        }
+
+        return {
+          activeModel,
+          activeProvider,
+          authMethod,
+          maxInputTokens,
+          provider: activeProvider,
+          providerApiKey: apiKey || undefined,
+          providerBaseUrl: CHATGPT_OAUTH_BASE_URL,
+          providerHeaders: codexHeaders,
+          providerKeyMissing: providerRequiresApiKey(activeProvider, authMethod) && !apiKey,
+        }
+      }
+
       const headers = providerDef?.headers
       return {
         activeModel,
         activeProvider,
+        authMethod,
         maxInputTokens,
         provider: activeProvider,
         providerApiKey: apiKey || undefined,
-        providerBaseUrl: providerDef?.baseUrl || undefined,
+        providerBaseUrl: config.getBaseUrl(activeProvider) || providerDef?.baseUrl || undefined,
         providerHeaders: headers && Object.keys(headers).length > 0 ? {...headers} : undefined,
-        providerKeyMissing: !apiKey,
+        providerKeyMissing: providerRequiresApiKey(activeProvider, authMethod) && !apiKey,
       }
     }
   }

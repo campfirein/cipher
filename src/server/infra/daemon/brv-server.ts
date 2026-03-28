@@ -22,7 +22,7 @@
  */
 
 import {GlobalInstanceManager} from '@campfirein/brv-transport-client'
-import {fork} from 'node:child_process'
+import {fork, type StdioOptions} from 'node:child_process'
 import {mkdirSync, readdirSync, readFileSync, unlinkSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
@@ -45,6 +45,8 @@ import {CurateLogHandler} from '../process/curate-log-handler.js'
 import {setupFeatureHandlers} from '../process/feature-handlers.js'
 import {TransportHandlers} from '../process/transport-handlers.js'
 import {ProjectRegistry} from '../project/project-registry.js'
+import {createProviderOAuthTokenStore} from '../provider-oauth/provider-oauth-token-store.js'
+import {TokenRefreshManager} from '../provider-oauth/token-refresh-manager.js'
 import {clearStaleProviderConfig, resolveProviderConfig} from '../provider/provider-config-resolver.js'
 import {ProjectRouter} from '../routing/project-router.js'
 import {AuthStateStore} from '../state/auth-state-store.js'
@@ -234,7 +236,11 @@ async function main(): Promise<void> {
     agentPool = new AgentPool({
       agentIdleTimeoutPolicy,
       agentProcessFactory(projectPath) {
-        return fork(agentProcessPath, [], {
+        // Prevent console window flash on Windows when forking agent processes.
+        // windowsHide is supported at runtime (fork delegates to spawn) but not in ForkOptions types,
+        // so we extract the options to a variable to bypass excess property checking.
+        const e2eStdio: StdioOptions = ['ignore', 'inherit', 'inherit', 'ipc']
+        const forkOptions = {
           cwd: projectPath,
           env: {
             ...process.env,
@@ -242,8 +248,10 @@ async function main(): Promise<void> {
             BRV_AGENT_PROJECT_PATH: projectPath,
           },
           // In E2E mode, inherit stderr to see agent errors
-          stdio: process.env.BRV_E2E_MODE === 'true' ? ['ignore', 'inherit', 'inherit', 'ipc'] : undefined,
-        })
+          stdio: process.env.BRV_E2E_MODE === 'true' ? e2eStdio : undefined,
+          windowsHide: true,
+        }
+        return fork(agentProcessPath, [], forkOptions)
       },
       log,
       transportServer,
@@ -392,15 +400,24 @@ async function main(): Promise<void> {
     // Provider config/keychain stores — shared between feature handlers and state endpoint
     const providerConfigStore = new FileProviderConfigStore()
     const providerKeychainStore = createProviderKeychainStore()
+    const providerOAuthTokenStore = createProviderOAuthTokenStore()
+
+    // Token refresh manager — transparently refreshes OAuth tokens before they expire
+    const tokenRefreshManager = new TokenRefreshManager({
+      providerConfigStore,
+      providerKeychainStore,
+      providerOAuthTokenStore,
+      transport: transportServer,
+    })
 
     // Clear stale provider config on startup (e.g. migration from v1 system keychain to v2 file keystore).
     // If a provider is configured but its API key is no longer accessible, disconnect it so the user
     // is returned to the onboarding flow rather than hitting a cryptic API key error mid-task.
-    await clearStaleProviderConfig(providerConfigStore, providerKeychainStore)
+    await clearStaleProviderConfig(providerConfigStore, providerKeychainStore, providerOAuthTokenStore)
 
     // State endpoint: provider config — agents request this on startup and after provider:updated
     transportServer.onRequest<void, ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG, async () =>
-      resolveProviderConfig(providerConfigStore, providerKeychainStore),
+      resolveProviderConfig(providerConfigStore, providerKeychainStore, tokenRefreshManager),
     )
 
     // Feature handlers (auth, init, status, push, pull, etc.) require async OIDC discovery.
@@ -411,9 +428,12 @@ async function main(): Promise<void> {
       broadcastToProject(projectPath, event, data) {
         broadcastToProjectRoom(projectRegistry, projectRouter, projectPath, event, data)
       },
+      getActiveProjectPaths: () => clientManager.getActiveProjects(),
       log,
+      projectRegistry,
       providerConfigStore,
       providerKeychainStore,
+      providerOAuthTokenStore,
       resolveProjectPath: (clientId) => clientManager.getClient(clientId)?.projectPath,
       transport: transportServer,
     })

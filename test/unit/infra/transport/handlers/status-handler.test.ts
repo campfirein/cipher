@@ -6,7 +6,7 @@
  * project root.
  */
 
-import type {SinonStubbedInstance} from 'sinon'
+import type {SinonStub} from 'sinon'
 
 import {expect} from 'chai'
 import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
@@ -14,51 +14,73 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {restore, stub} from 'sinon'
 
-import type {ITokenStore} from '../../../../../src/server/core/interfaces/auth/i-token-store.js'
-import type {IContextTreeService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
-import type {IContextTreeSnapshotService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-snapshot-service.js'
-import type {IProjectConfigStore} from '../../../../../src/server/core/interfaces/storage/i-project-config-store.js'
-import type {ITransportServer} from '../../../../../src/server/core/interfaces/transport/i-transport-server.js'
 import type {StatusDTO} from '../../../../../src/shared/transport/types/dto.js'
 
 import {StatusHandler} from '../../../../../src/server/infra/transport/handlers/status-handler.js'
 import {StatusEvents} from '../../../../../src/shared/transport/events/status-events.js'
+import {createMockTransportServer, type MockTransportServer} from '../../../../helpers/mock-factories.js'
 
 // ==================== Test Helpers ====================
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyHandler = (data: any, clientId: string) => any
+type TestDeps = {
+  contextTreeService: {delete: SinonStub; exists: SinonStub; initialize: SinonStub}
+  contextTreeSnapshotService: {
+    getChanges: SinonStub
+    getCurrentState: SinonStub
+    getSnapshotState: SinonStub
+    hasSnapshot: SinonStub
+    initEmptySnapshot: SinonStub
+    saveSnapshot: SinonStub
+    saveSnapshotFromState: SinonStub
+  }
+  projectConfigStore: {exists: SinonStub; getModifiedTime: SinonStub; read: SinonStub; write: SinonStub}
+  tokenStore: {clear: SinonStub; load: SinonStub; save: SinonStub}
+}
 
-function createMockTransport(): SinonStubbedInstance<ITransportServer> & {_handlers: Map<string, AnyHandler>} {
-  const handlers = new Map<string, AnyHandler>()
+function makeStubs(): TestDeps {
   return {
-    _handlers: handlers,
-    addToRoom: stub(),
-    broadcast: stub(),
-    broadcastTo: stub(),
-    getPort: stub(),
-    isRunning: stub(),
-    onConnection: stub(),
-    onDisconnection: stub(),
-    onRequest: stub().callsFake((event: string, handler: AnyHandler) => {
-      handlers.set(event, handler)
-    }),
-    removeFromRoom: stub(),
-    sendTo: stub(),
-    start: stub(),
-    stop: stub(),
-  } as unknown as SinonStubbedInstance<ITransportServer> & {_handlers: Map<string, AnyHandler>}
+    contextTreeService: {
+      delete: stub(),
+      exists: stub().resolves(false),
+      initialize: stub(),
+    },
+    contextTreeSnapshotService: {
+      getChanges: stub().resolves({added: [], deleted: [], modified: []}),
+      getCurrentState: stub(),
+      getSnapshotState: stub(),
+      hasSnapshot: stub().resolves(true),
+      initEmptySnapshot: stub(),
+      saveSnapshot: stub(),
+      saveSnapshotFromState: stub(),
+    },
+    projectConfigStore: {
+      exists: stub().resolves(false),
+      getModifiedTime: stub().resolves(),
+      read: stub(),
+      write: stub(),
+    },
+    tokenStore: {
+      clear: stub(),
+      load: stub().resolves(),
+      save: stub(),
+    },
+  }
 }
 
 // ==================== Tests ====================
 
 describe('StatusHandler', () => {
+  let deps: TestDeps
+  let resolveProjectPath: SinonStub
   let testDir: string
-  let transport: ReturnType<typeof createMockTransport>
+  let transport: MockTransportServer
 
   beforeEach(() => {
+    deps = makeStubs()
+    resolveProjectPath = stub().returns('/project/current')
+    transport = createMockTransportServer()
     testDir = realpathSync(mkdtempSync(join(tmpdir(), 'brv-status-handler-')))
-    transport = createMockTransport()
+    stub(console, 'error')
   })
 
   afterEach(() => {
@@ -66,44 +88,100 @@ describe('StatusHandler', () => {
     rmSync(testDir, {force: true, recursive: true})
   })
 
-  function createHandler(projectPath?: string): void {
+  function createHandler(projectPath?: string): StatusHandler {
+    if (projectPath) {
+      resolveProjectPath = stub().returns(projectPath)
+    }
+
     const handler = new StatusHandler({
-      contextTreeService: {
-        delete: stub(),
-        exists: stub().resolves(false),
-        initialize: stub().resolves(''),
-      } as unknown as IContextTreeService,
-      contextTreeSnapshotService: {
-        getChanges: stub(),
-        getCurrentState: stub(),
-        getSnapshotState: stub(),
-        hasSnapshot: stub(),
-        initEmptySnapshot: stub(),
-        saveSnapshot: stub(),
-        saveSnapshotFromState: stub(),
-      } as unknown as IContextTreeSnapshotService,
-      projectConfigStore: {
-        exists: stub().resolves(false),
-        getModifiedTime: stub().resolves(Date.now()),
-        read: stub().resolves(),
-        write: stub().resolves(),
-      } as unknown as SinonStubbedInstance<IProjectConfigStore>,
-      resolveProjectPath: stub().returns(projectPath ?? testDir),
-      tokenStore: {
-        clear: stub().resolves(),
-        load: stub().resolves(),
-        save: stub().resolves(),
-      } as unknown as ITokenStore,
+      contextTreeService: deps.contextTreeService,
+      contextTreeSnapshotService: deps.contextTreeSnapshotService,
+      projectConfigStore: deps.projectConfigStore,
+      resolveProjectPath,
+      tokenStore: deps.tokenStore,
       transport,
     })
     handler.setup()
+    return handler
   }
 
-  async function callGetHandler(data?: {cwd?: string; projectRootFlag?: string}, clientId = 'client-1'): Promise<{status: StatusDTO}> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function callGetHandler(data?: any, clientId = 'client-1'): Promise<{status: StatusDTO}> {
     const handler = transport._handlers.get(StatusEvents.GET)
     expect(handler, 'status:get handler should be registered').to.exist
-    return handler!(data, clientId) as Promise<{status: StatusDTO}>
+    return handler!(data, clientId)
   }
+
+  describe('setup', () => {
+    it('should register status:get handler', () => {
+      createHandler()
+      expect(transport.onRequest.calledOnce).to.be.true
+      expect(transport.onRequest.firstCall.args[0]).to.equal(StatusEvents.GET)
+    })
+  })
+
+  describe('auth status', () => {
+    it('should return not_logged_in when no token', async () => {
+      deps.tokenStore.load.resolves()
+      createHandler()
+      const result = await callGetHandler()
+      expect(result.status.authStatus).to.equal('not_logged_in')
+    })
+
+    it('should return logged_in with email when token is valid', async () => {
+      deps.tokenStore.load.resolves({isValid: () => true, userEmail: 'user@test.com'})
+      createHandler()
+      const result = await callGetHandler()
+      expect(result.status.authStatus).to.equal('logged_in')
+      expect(result.status.userEmail).to.equal('user@test.com')
+    })
+
+    it('should return expired when token is invalid', async () => {
+      deps.tokenStore.load.resolves({isValid: () => false, userEmail: 'user@test.com'})
+      createHandler()
+      const result = await callGetHandler()
+      expect(result.status.authStatus).to.equal('expired')
+    })
+
+    it('should return unknown when tokenStore.load throws', async () => {
+      deps.tokenStore.load.rejects(new Error('keychain error'))
+      createHandler()
+      const result = await callGetHandler()
+      expect(result.status.authStatus).to.equal('unknown')
+    })
+  })
+
+  describe('context tree status', () => {
+    it('should return not_initialized when context tree does not exist', async () => {
+      deps.contextTreeService.exists.resolves(false)
+      createHandler()
+      const result = await callGetHandler()
+      expect(result.status.contextTreeStatus).to.equal('not_initialized')
+    })
+
+    it('should return no_changes when context tree exists with no changes', async () => {
+      deps.contextTreeService.exists.resolves(true)
+      deps.contextTreeSnapshotService.getChanges.resolves({added: [], deleted: [], modified: []})
+      createHandler()
+      const result = await callGetHandler()
+      expect(result.status.contextTreeStatus).to.equal('no_changes')
+    })
+
+    it('should return has_changes when there are changes', async () => {
+      deps.contextTreeService.exists.resolves(true)
+      deps.contextTreeSnapshotService.getChanges.resolves({added: ['new.md'], deleted: [], modified: []})
+      createHandler()
+      const result = await callGetHandler()
+      expect(result.status.contextTreeStatus).to.equal('has_changes')
+    })
+
+    it('should return unknown when contextTreeService.exists throws', async () => {
+      deps.contextTreeService.exists.rejects(new Error('FS error'))
+      createHandler()
+      const result = await callGetHandler()
+      expect(result.status.contextTreeStatus).to.equal('unknown')
+    })
+  })
 
   describe('currentDirectory', () => {
     it('should equal projectPath when no cwd is provided', async () => {

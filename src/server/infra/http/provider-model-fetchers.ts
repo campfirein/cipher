@@ -17,7 +17,14 @@ import {APICallError, generateText} from 'ai'
 import axios, {isAxiosError} from 'axios'
 import OpenAI from 'openai'
 
-import type {IProviderModelFetcher, ProviderModelInfo} from '../../core/interfaces/i-provider-model-fetcher.js'
+import type {
+  FetchModelsOptions,
+  IProviderModelFetcher,
+  ProviderModelInfo,
+} from '../../core/interfaces/i-provider-model-fetcher.js'
+
+import {getModelsDevClient as getModelsDevClientDefault, type ModelsDevClient} from './models-dev-client.js'
+import {ProxyConfig} from './proxy-config.js'
 
 // ============================================================================
 // Cache helper
@@ -96,7 +103,8 @@ export class AnthropicModelFetcher implements IProviderModelFetcher {
     this.cacheTtlMs = cacheTtlMs
   }
 
-  async fetchModels(apiKey: string, forceRefresh = false): Promise<ProviderModelInfo[]> {
+  async fetchModels(apiKey: string, options?: FetchModelsOptions): Promise<ProviderModelInfo[]> {
+    const forceRefresh = options?.forceRefresh ?? false
     if (!forceRefresh && this.cache && Date.now() - this.cache.timestamp < this.cacheTtlMs) {
       return this.cache.models
     }
@@ -144,17 +152,68 @@ export class AnthropicModelFetcher implements IProviderModelFetcher {
 // ============================================================================
 
 /**
+ * Strict allowlist of model IDs permitted for OAuth-connected OpenAI (Codex).
+ * Only models verified to work with the ChatGPT Codex endpoint are included.
+ *
+ * NOT supported (Bad Request on chatgpt.com/backend-api/codex):
+ * - codex-mini-latest: standard API model, not a Codex endpoint model
+ * - o4-mini: reasoning model, not supported by the Codex endpoint
+ * - gpt-5.3-codex-spark: reported unsupported (GitHub openai/codex#13469)
+ */
+export const CODEX_ALLOWED_MODELS = new Set([
+  'gpt-5.1-codex',
+  'gpt-5.1-codex-max',
+  'gpt-5.1-codex-mini',
+  'gpt-5.2',
+  'gpt-5.2-codex',
+  'gpt-5.3-codex',
+  'gpt-5.4',
+])
+
+/**
+ * Fallback Codex models used when models.dev is unreachable and no disk cache exists.
+ */
+export const CODEX_FALLBACK_MODELS: readonly ProviderModelInfo[] = [
+  {
+    contextLength: 400_000,
+    id: 'gpt-5.3-codex',
+    isFree: false,
+    name: 'GPT-5.3 Codex',
+    pricing: {inputPerM: 0, outputPerM: 0},
+    provider: 'OpenAI',
+  },
+  {
+    contextLength: 200_000,
+    id: 'gpt-5.1-codex-mini',
+    isFree: false,
+    name: 'GPT-5.1 Codex Mini',
+    pricing: {inputPerM: 0, outputPerM: 0},
+    provider: 'OpenAI',
+  },
+]
+
+/**
  * Fetches models from OpenAI using the official SDK.
+ * For OAuth-connected providers, fetches from models.dev and filters to Codex-allowed models.
  */
 export class OpenAIModelFetcher implements IProviderModelFetcher {
   private cache: ModelCache | undefined
   private readonly cacheTtlMs: number
+  private readonly getModelsDevClient: () => ModelsDevClient
 
-  constructor(cacheTtlMs = DEFAULT_CACHE_TTL) {
-    this.cacheTtlMs = cacheTtlMs
+  constructor(options?: {cacheTtlMs?: number; modelsDevClient?: ModelsDevClient}) {
+    this.cacheTtlMs = options?.cacheTtlMs ?? DEFAULT_CACHE_TTL
+    const injectedClient = options?.modelsDevClient
+    this.getModelsDevClient = injectedClient ? () => injectedClient : () => getModelsDevClientDefault()
   }
 
-  async fetchModels(apiKey: string, forceRefresh = false): Promise<ProviderModelInfo[]> {
+  async fetchModels(apiKey: string, options?: FetchModelsOptions): Promise<ProviderModelInfo[]> {
+    // OAuth-connected OpenAI: fetch from models.dev, filter to Codex models
+    if (options?.authMethod === 'oauth') {
+      return this.fetchCodexModels(options.forceRefresh ?? false)
+    }
+
+    const forceRefresh = options?.forceRefresh ?? false
     if (!forceRefresh && this.cache && Date.now() - this.cache.timestamp < this.cacheTtlMs) {
       return this.cache.models
     }
@@ -236,6 +295,34 @@ export class OpenAIModelFetcher implements IProviderModelFetcher {
 
     return {inputPerM: 0, outputPerM: 0}
   }
+
+  /**
+   * Fetch Codex models from models.dev, filtered by allowlist.
+   * Falls back to CODEX_FALLBACK_MODELS if models.dev is unavailable.
+   */
+  private async fetchCodexModels(forceRefresh?: boolean): Promise<ProviderModelInfo[]> {
+    const client = this.getModelsDevClient()
+    const allModels = await client.getModelsForProvider('openai', forceRefresh)
+
+    if (allModels.length === 0) {
+      return [...CODEX_FALLBACK_MODELS]
+    }
+
+    // Strict allowlist only — dynamic "codex in name" matching is too broad
+    // (e.g. codex-mini-latest, gpt-5.3-codex-spark cause Bad Request)
+    const codexModels = allModels.filter((m) => CODEX_ALLOWED_MODELS.has(m.id))
+
+    if (codexModels.length === 0) {
+      return [...CODEX_FALLBACK_MODELS]
+    }
+
+    // Zero out costs (included in ChatGPT subscription)
+    return codexModels.map((m) => ({
+      ...m,
+      isFree: false,
+      pricing: {inputPerM: 0, outputPerM: 0},
+    }))
+  }
 }
 
 // ============================================================================
@@ -253,7 +340,8 @@ export class GoogleModelFetcher implements IProviderModelFetcher {
     this.cacheTtlMs = cacheTtlMs
   }
 
-  async fetchModels(apiKey: string, forceRefresh = false): Promise<ProviderModelInfo[]> {
+  async fetchModels(apiKey: string, options?: FetchModelsOptions): Promise<ProviderModelInfo[]> {
+    const forceRefresh = options?.forceRefresh ?? false
     if (!forceRefresh && this.cache && Date.now() - this.cache.timestamp < this.cacheTtlMs) {
       return this.cache.models
     }
@@ -314,18 +402,18 @@ export class OpenAICompatibleModelFetcher implements IProviderModelFetcher {
     this.cacheTtlMs = cacheTtlMs
   }
 
-  async fetchModels(apiKey: string, forceRefresh = false): Promise<ProviderModelInfo[]> {
+  async fetchModels(apiKey: string, options?: FetchModelsOptions): Promise<ProviderModelInfo[]> {
+    const forceRefresh = options?.forceRefresh ?? false
     if (!forceRefresh && this.cache && Date.now() - this.cache.timestamp < this.cacheTtlMs) {
       return this.cache.models
     }
 
-    const response = await axios.get(
-      `${this.baseUrl}/models`,
-      {
-        headers: {Authorization: `Bearer ${apiKey}`},
-        timeout: 30_000,
-      },
-    )
+    const response = await axios.get(`${this.baseUrl}/models`, {
+      headers: {Authorization: `Bearer ${apiKey}`},
+      httpAgent: ProxyConfig.getProxyAgent(),
+      httpsAgent: ProxyConfig.getProxyAgent(),
+      timeout: 30_000,
+    })
 
     // Handle different response formats:
     // - OpenAI/DeepInfra: {data: [{id, ...}, ...]}
@@ -360,6 +448,8 @@ export class OpenAICompatibleModelFetcher implements IProviderModelFetcher {
     try {
       await axios.get(`${this.baseUrl}/models`, {
         headers: {Authorization: `Bearer ${apiKey}`},
+        httpAgent: ProxyConfig.getProxyAgent(),
+        httpsAgent: ProxyConfig.getProxyAgent(),
         timeout: 15_000,
       })
       return {isValid: true}
@@ -407,7 +497,7 @@ export class ChatBasedModelFetcher implements IProviderModelFetcher {
     }))
   }
 
-  async fetchModels(_apiKey: string, _forceRefresh = false): Promise<ProviderModelInfo[]> {
+  async fetchModels(_apiKey: string, _options?: FetchModelsOptions): Promise<ProviderModelInfo[]> {
     return this.knownModels
   }
 
@@ -425,6 +515,8 @@ export class ChatBasedModelFetcher implements IProviderModelFetcher {
             Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
+          httpAgent: ProxyConfig.getProxyAgent(),
+          httpsAgent: ProxyConfig.getProxyAgent(),
           timeout: 15_000,
         },
       )
@@ -460,9 +552,9 @@ import {getOpenRouterApiClient, type NormalizedModel} from './openrouter-api-cli
  * Adapts NormalizedModel to ProviderModelInfo.
  */
 export class OpenRouterModelFetcher implements IProviderModelFetcher {
-  async fetchModels(apiKey: string, forceRefresh = false): Promise<ProviderModelInfo[]> {
+  async fetchModels(apiKey: string, options?: FetchModelsOptions): Promise<ProviderModelInfo[]> {
     const client = getOpenRouterApiClient()
-    const models = await client.fetchModels(apiKey, forceRefresh)
+    const models = await client.fetchModels(apiKey, options?.forceRefresh ?? false)
     return models.map((m: NormalizedModel) => ({
       contextLength: m.contextLength,
       description: m.description,
@@ -522,7 +614,12 @@ function handleAiSdkValidationError(error: unknown): {error?: string; isValid: b
 function handleSdkValidationError(error: unknown): {error: string; isValid: boolean} {
   if (error instanceof Error) {
     const message = error.message.toLowerCase()
-    if (message.includes('401') || message.includes('unauthorized') || message.includes('invalid api key') || message.includes('authentication')) {
+    if (
+      message.includes('401') ||
+      message.includes('unauthorized') ||
+      message.includes('invalid api key') ||
+      message.includes('authentication')
+    ) {
       return {error: `Authentication failed: ${error.message}`, isValid: false}
     }
 

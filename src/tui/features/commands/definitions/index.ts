@@ -6,6 +6,7 @@ import {exitCommand} from './exit.js'
 import {hubCommand} from './hub.js'
 import {linkKnowledgeCommand} from './link-knowledge.js'
 import {linkCommand} from './link.js'
+import {locationsCommand} from './locations.js'
 import {loginCommand} from './login.js'
 import {logoutCommand} from './logout.js'
 import {modelCommand} from './model.js'
@@ -29,6 +30,7 @@ import {unlinkCommand} from './unlink.js'
 export const load: () => SlashCommand[] = () => [
   // Core workflow - most frequently used
   statusCommand,
+  locationsCommand,
   curateCommand,
   queryCommand,
 

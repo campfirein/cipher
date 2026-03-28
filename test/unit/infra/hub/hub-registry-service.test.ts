@@ -1,7 +1,9 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 import nock from 'nock'
+import {restore, stub} from 'sinon'
 
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 import {HubRegistryService} from '../../../../src/server/infra/hub/hub-registry-service.js'
 
 const REGISTRY_BASE = 'https://raw.githubusercontent.com'
@@ -58,10 +60,12 @@ describe('HubRegistryService', () => {
   let service: HubRegistryService
 
   beforeEach(() => {
+    stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     service = new HubRegistryService({name: 'official', url: REGISTRY_URL})
   })
 
   afterEach(() => {
+    restore()
     nock.cleanAll()
   })
 

@@ -3,7 +3,11 @@ import chalk from 'chalk'
 
 import type {StatusDTO} from '../../shared/transport/types/dto.js'
 
-import {StatusEvents, type StatusGetRequest, type StatusGetResponse} from '../../shared/transport/events/status-events.js'
+import {
+  StatusEvents,
+  type StatusGetRequest,
+  type StatusGetResponse,
+} from '../../shared/transport/events/status-events.js'
 import {type DaemonClientOptions, formatConnectionError, withDaemonRetry} from '../lib/daemon-client.js'
 import {writeJsonResponse} from '../lib/json-response.js'
 
@@ -39,13 +43,13 @@ export default class Status extends Command {
 
   public async run(): Promise<void> {
     const {flags} = await this.parse(Status)
-    const format = flags.format as 'json' | 'text'
     const projectRootFlag = flags['project-root']
+    const isJson = flags.format === 'json'
 
     try {
       const status = await this.fetchStatus({projectRootFlag})
 
-      if (format === 'json') {
+      if (isJson) {
         writeJsonResponse({
           command: 'status',
           data: {...status, cliVersion: this.config.version},
@@ -55,7 +59,7 @@ export default class Status extends Command {
         this.formatTextOutput(status, flags.verbose)
       }
     } catch (error) {
-      if (format === 'json') {
+      if (isJson) {
         writeJsonResponse({
           command: 'status',
           data: {error: formatConnectionError(error)},
@@ -120,7 +124,9 @@ export default class Status extends Command {
           const sizeInfo = link.contextTreeSize === undefined ? '' : ` [${link.contextTreeSize} files]`
           this.log(`   ${link.alias} → ${link.projectRoot} ${chalk.green('(valid)')}${sizeInfo}`)
         } else {
-          this.log(`   ${link.alias} → ${link.projectRoot} ${chalk.red(`[BROKEN - run brv unlink-knowledge ${link.alias}]`)}`)
+          this.log(
+            `   ${link.alias} → ${link.projectRoot} ${chalk.red(`[BROKEN - run brv unlink-knowledge ${link.alias}]`)}`,
+          )
         }
       }
     }

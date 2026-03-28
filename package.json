@@ -1,7 +1,7 @@
 {
   "name": "byterover-cli",
   "description": "ByteRover's CLI",
-  "version": "2.1.0",
+  "version": "2.4.1",
   "author": "ByteRover",
   "bin": {
     "brv": "./bin/run.js"
@@ -22,7 +22,7 @@
     "@ai-sdk/vercel": "^1.0.33",
     "@ai-sdk/xai": "^2.0.57",
     "@anthropic-ai/sdk": "^0.70.1",
-    "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#release/0.8.2",
+    "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#release/0.8.4",
     "@google/genai": "^1.29.0",
     "@inkjs/ui": "^2.0.0",
     "@inquirer/prompts": "^7.9.0",
@@ -35,7 +35,6 @@
     "@tanstack/react-query": "^5.90.20",
     "ai": "^5.0.129",
     "axios": "^1.12.2",
-    "better-sqlite3": "^11.5.0",
     "chalk": "^5.6.2",
     "esbuild": "^0.27.2",
     "express": "^5.1.0",
@@ -56,11 +55,12 @@
     "officeparser": "^6.0.4",
     "open": "^10.2.0",
     "openai": "^6.9.1",
+    "proxy-agent": "^7.0.0",
     "react": "^19.2.1",
     "react-router-dom": "^7.13.0",
     "remark-parse": "^11.0.0",
-    "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
     "stopword": "^3.1.5",
     "unified": "^11.0.5",
     "unpdf": "^1.4.0",
@@ -76,7 +76,6 @@
     "@eslint/compat": "^1",
     "@oclif/prettier-config": "^0.2.1",
     "@oclif/test": "^4",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/chai": "^4",
     "@types/express": "^5.0.3",
     "@types/js-yaml": "^4.0.9",
@@ -125,12 +124,14 @@
     "commands": "./dist/oclif/commands",
     "hooks": {
       "init": [
+        "./dist/oclif/hooks/init/block-command-update-npm",
         "./dist/oclif/hooks/init/welcome",
         "./dist/oclif/hooks/init/update-notifier"
       ],
       "command_not_found": "./dist/oclif/hooks/command_not_found/handle-invalid-commands",
       "error": "./dist/oclif/hooks/error/clean-errors",
-      "prerun": "./dist/oclif/hooks/prerun/validate-brv-config-version"
+      "prerun": "./dist/oclif/hooks/prerun/validate-brv-config-version",
+      "postrun": "./dist/oclif/hooks/postrun/restart-after-update"
     },
     "plugins": [
       "@oclif/plugin-help",
@@ -153,6 +154,9 @@
     "update": {
       "s3": {
         "host": "https://storage.googleapis.com/brv-releases"
+      },
+      "autoupdate": {
+        "debounce": 1
       },
       "node": {
         "version": "24.13.1"
