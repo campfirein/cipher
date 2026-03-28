@@ -435,47 +435,47 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
 
   describe('list', () => {
     it('should list all memories', async () => {
-      listStub.resolves(['memory-id1', 'memory-id2', 'memory-id3'])
+      listStub.resolves(['memory-id1234567890', 'memory-id2234567890', 'memory-id3234567890'])
 
       const memories = [
-        {content: 'Memory 1', createdAt: 1000, id: 'id1', updatedAt: 3000},
-        {content: 'Memory 2', createdAt: 2000, id: 'id2', updatedAt: 2000},
-        {content: 'Memory 3', createdAt: 3000, id: 'id3', updatedAt: 1000},
+        {content: 'Memory 1', createdAt: 1000, id: 'id1234567890', updatedAt: 3000},
+        {content: 'Memory 2', createdAt: 2000, id: 'id2234567890', updatedAt: 2000},
+        {content: 'Memory 3', createdAt: 3000, id: 'id3234567890', updatedAt: 1000},
       ]
 
       retrieveStub
         .onCall(0)
-        .resolves({content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1', metadata: {}})
+        .resolves({content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1234567890', metadata: {}})
       retrieveStub
         .onCall(1)
-        .resolves({content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2', metadata: {}})
+        .resolves({content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2234567890', metadata: {}})
       retrieveStub
         .onCall(2)
-        .resolves({content: Buffer.from(JSON.stringify(memories[2])), key: 'memory-id3', metadata: {}})
+        .resolves({content: Buffer.from(JSON.stringify(memories[2])), key: 'memory-id3234567890', metadata: {}})
 
       const result = await memoryManager.list()
 
       expect(result).to.have.lengthOf(3)
       // Should be sorted by updatedAt descending
-      expect(result[0].id).to.equal('id1')
-      expect(result[1].id).to.equal('id2')
-      expect(result[2].id).to.equal('id3')
+      expect(result[0].id).to.equal('id1234567890')
+      expect(result[1].id).to.equal('id2234567890')
+      expect(result[2].id).to.equal('id3234567890')
     })
 
     it('should filter by source', async () => {
-      listStub.resolves(['memory-id1', 'memory-id2'])
+      listStub.resolves(['memory-id1234567890', 'memory-id2234567890'])
 
       const memories = [
-        {content: 'Memory 1', createdAt: 1000, id: 'id1', metadata: {source: 'agent'}, updatedAt: 1000},
-        {content: 'Memory 2', createdAt: 2000, id: 'id2', metadata: {source: 'user'}, updatedAt: 2000},
+        {content: 'Memory 1', createdAt: 1000, id: 'id1234567890', metadata: {source: 'agent'}, updatedAt: 1000},
+        {content: 'Memory 2', createdAt: 2000, id: 'id2234567890', metadata: {source: 'user'}, updatedAt: 2000},
       ]
 
       retrieveStub
         .onCall(0)
-        .resolves({content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1', metadata: {}})
+        .resolves({content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1234567890', metadata: {}})
       retrieveStub
         .onCall(1)
-        .resolves({content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2', metadata: {}})
+        .resolves({content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2234567890', metadata: {}})
 
       const result = await memoryManager.list({source: 'agent'})
 
@@ -483,20 +483,42 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
       expect(result[0].metadata?.source).to.equal('agent')
     })
 
+    it('keeps hyphenated 12-character memory ids while excluding attachment keys', async () => {
+      listStub.resolves(['memory-reHfQdz6-6V-', 'memory-reHfQdz6-6V--blob12345'])
+
+      const memory = {
+        content: 'Hyphenated id memory',
+        createdAt: 1000,
+        id: 'reHfQdz6-6V-',
+        metadata: {source: 'agent'},
+        updatedAt: 1000,
+      }
+
+      retrieveStub
+        .onCall(0)
+        .resolves({content: Buffer.from(JSON.stringify(memory)), key: 'memory-reHfQdz6-6V-', metadata: {}})
+
+      const result = await memoryManager.list({source: 'agent'})
+
+      expect(result).to.have.lengthOf(1)
+      expect(result[0].id).to.equal('reHfQdz6-6V-')
+      expect(retrieveStub.calledOnce).to.be.true
+    })
+
     it('should filter by pinned status', async () => {
-      listStub.resolves(['memory-id1', 'memory-id2'])
+      listStub.resolves(['memory-id1234567890', 'memory-id2234567890'])
 
       const memories = [
-        {content: 'Memory 1', createdAt: 1000, id: 'id1', metadata: {pinned: true}, updatedAt: 1000},
-        {content: 'Memory 2', createdAt: 2000, id: 'id2', metadata: {pinned: false}, updatedAt: 2000},
+        {content: 'Memory 1', createdAt: 1000, id: 'id1234567890', metadata: {pinned: true}, updatedAt: 1000},
+        {content: 'Memory 2', createdAt: 2000, id: 'id2234567890', metadata: {pinned: false}, updatedAt: 2000},
       ]
 
       retrieveStub
         .onCall(0)
-        .resolves({content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1', metadata: {}})
+        .resolves({content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1234567890', metadata: {}})
       retrieveStub
         .onCall(1)
-        .resolves({content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2', metadata: {}})
+        .resolves({content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2234567890', metadata: {}})
 
       const result = await memoryManager.list({pinned: true})
 
@@ -505,29 +527,29 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
     })
 
     it('should apply limit and offset', async () => {
-      listStub.resolves(['memory-id1', 'memory-id2', 'memory-id3'])
+      listStub.resolves(['memory-id1234567890', 'memory-id2234567890', 'memory-id3234567890'])
 
       const memories = [
-        {content: 'Memory 1', createdAt: 1000, id: 'id1', updatedAt: 3000},
-        {content: 'Memory 2', createdAt: 2000, id: 'id2', updatedAt: 2000},
-        {content: 'Memory 3', createdAt: 3000, id: 'id3', updatedAt: 1000},
+        {content: 'Memory 1', createdAt: 1000, id: 'id1234567890', updatedAt: 3000},
+        {content: 'Memory 2', createdAt: 2000, id: 'id2234567890', updatedAt: 2000},
+        {content: 'Memory 3', createdAt: 3000, id: 'id3234567890', updatedAt: 1000},
       ]
 
       retrieveStub
         .onCall(0)
-        .resolves({content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1', metadata: {}})
+        .resolves({content: Buffer.from(JSON.stringify(memories[0])), key: 'memory-id1234567890', metadata: {}})
       retrieveStub
         .onCall(1)
-        .resolves({content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2', metadata: {}})
+        .resolves({content: Buffer.from(JSON.stringify(memories[1])), key: 'memory-id2234567890', metadata: {}})
       retrieveStub
         .onCall(2)
-        .resolves({content: Buffer.from(JSON.stringify(memories[2])), key: 'memory-id3', metadata: {}})
+        .resolves({content: Buffer.from(JSON.stringify(memories[2])), key: 'memory-id3234567890', metadata: {}})
 
       const result = await memoryManager.list({limit: 2, offset: 1})
 
       expect(result).to.have.lengthOf(2)
-      expect(result[0].id).to.equal('id2')
-      expect(result[1].id).to.equal('id3')
+      expect(result[0].id).to.equal('id2234567890')
+      expect(result[1].id).to.equal('id3234567890')
     })
   })
 
@@ -555,21 +577,21 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
 
   describe('count', () => {
     it('should return count of all memories', async () => {
-      listStub.resolves(['memory-id1', 'memory-id2', 'memory-id3'])
+      listStub.resolves(['memory-id1234567890', 'memory-id2234567890', 'memory-id3234567890'])
 
       retrieveStub.onCall(0).resolves({
-        content: Buffer.from(JSON.stringify({content: 'Test', createdAt: 1000, id: 'id1', updatedAt: 1000})),
-        key: 'memory-id1',
+        content: Buffer.from(JSON.stringify({content: 'Test', createdAt: 1000, id: 'id1234567890', updatedAt: 1000})),
+        key: 'memory-id1234567890',
         metadata: {},
       })
       retrieveStub.onCall(1).resolves({
-        content: Buffer.from(JSON.stringify({content: 'Test', createdAt: 1000, id: 'id2', updatedAt: 1000})),
-        key: 'memory-id2',
+        content: Buffer.from(JSON.stringify({content: 'Test', createdAt: 1000, id: 'id2234567890', updatedAt: 1000})),
+        key: 'memory-id2234567890',
         metadata: {},
       })
       retrieveStub.onCall(2).resolves({
-        content: Buffer.from(JSON.stringify({content: 'Test', createdAt: 1000, id: 'id3', updatedAt: 1000})),
-        key: 'memory-id3',
+        content: Buffer.from(JSON.stringify({content: 'Test', createdAt: 1000, id: 'id3234567890', updatedAt: 1000})),
+        key: 'memory-id3234567890',
         metadata: {},
       })
 
@@ -579,20 +601,20 @@ describe('MemoryManager - Unit Tests (Mocked)', () => {
     })
 
     it('should return count with filters applied', async () => {
-      listStub.resolves(['memory-id1', 'memory-id2'])
+      listStub.resolves(['memory-id1234567890', 'memory-id2234567890'])
 
       retrieveStub.onCall(0).resolves({
         content: Buffer.from(
-          JSON.stringify({content: 'Test', createdAt: 1000, id: 'id1', metadata: {pinned: true}, updatedAt: 1000}),
+          JSON.stringify({content: 'Test', createdAt: 1000, id: 'id1234567890', metadata: {pinned: true}, updatedAt: 1000}),
         ),
-        key: 'memory-id1',
+        key: 'memory-id1234567890',
         metadata: {},
       })
       retrieveStub.onCall(1).resolves({
         content: Buffer.from(
-          JSON.stringify({content: 'Test', createdAt: 1000, id: 'id2', metadata: {pinned: false}, updatedAt: 1000}),
+          JSON.stringify({content: 'Test', createdAt: 1000, id: 'id2234567890', metadata: {pinned: false}, updatedAt: 1000}),
         ),
-        key: 'memory-id2',
+        key: 'memory-id2234567890',
         metadata: {},
       })
 

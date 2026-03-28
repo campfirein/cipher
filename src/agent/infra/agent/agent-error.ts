@@ -5,7 +5,6 @@ import {AgentErrorCode} from './agent-error-codes.js'
  * Agent-specific error with typed error codes.
  * Extends ExitError for oclif CLI integration.
  *
- * Follows DextoAgent pattern with static factory methods
  * for creating well-typed errors.
  */
 export class AgentError extends ExitError {

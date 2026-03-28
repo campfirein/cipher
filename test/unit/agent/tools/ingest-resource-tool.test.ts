@@ -7,6 +7,7 @@ import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 import type {IContentGenerator} from '../../../../src/agent/core/interfaces/i-content-generator.js'
 import type {IFileSystem} from '../../../../src/agent/core/interfaces/i-file-system.js'
 
+import {FileSystemService} from '../../../../src/agent/infra/file-system/file-system-service.js'
 import {createIngestResourceTool} from '../../../../src/agent/infra/tools/implementations/ingest-resource-tool.js'
 
 // ---------------------------------------------------------------------------
@@ -322,6 +323,95 @@ describe('ingest_resource Tool', () => {
       expect(rootEntries).to.not.include('testdomain')
 
       expect(result.ingested).to.be.greaterThan(0)
+
+      await fs.rm(tmpProject, {force: true, recursive: true}).catch(() => {})
+    })
+
+    it('falls back to direct file ingestion when LLM extraction fails', async function () {
+      this.timeout(10_000)
+
+      const tmpProject = join(tmpdir(), `ingest-fallback-${Date.now()}`)
+      const sourceDir = join(tmpProject, 'src')
+      await fs.mkdir(join(tmpProject, '.brv', 'context-tree'), {recursive: true})
+
+      const {fs: fileSystem, globFilesStub, readFileStub} = makeFileSystem(sandbox)
+
+      globFilesStub.resolves({
+        files: [{isDirectory: false, modified: new Date(), path: join(sourceDir, 'auth.ts'), size: 80}],
+        ignoredCount: 0,
+        message: '',
+        totalFound: 1,
+        truncated: false,
+      })
+
+      readFileStub.resolves({
+        content: 'export const ACCESS_TOKEN_TTL = 900\nexport const REFRESH_TOKEN_TTL = 60 * 60 * 24 * 7',
+        encoding: 'utf8',
+        lines: 2,
+        size: 86,
+        totalLines: 2,
+        truncated: false,
+      })
+
+      const tool = createIngestResourceTool({
+        baseDirectory: tmpProject,
+        contentGenerator: makeGenerator(sandbox, 'not-json'),
+        fileSystem,
+      })
+
+      const result = await tool.execute({domain: 'backend', path: sourceDir}) as {
+        failed: number
+        ingested: number
+      }
+
+      const contextFilePath = join(tmpProject, '.brv', 'context-tree', 'backend', 'auth', 'auth.md')
+      const contextFile = await fs.readFile(contextFilePath, 'utf8')
+
+      expect(result.ingested).to.equal(1)
+      expect(result.failed).to.equal(0)
+      expect(contextFile).to.include('ACCESS_TOKEN_TTL')
+      expect(contextFile).to.include('auth.ts')
+
+      await fs.rm(tmpProject, {force: true, recursive: true}).catch(() => {})
+    })
+
+    it('ingests successfully from a real tmp workspace path', async function () {
+      this.timeout(10_000)
+
+      const tmpProject = join(tmpdir(), `ingest-real-fs-${Date.now()}`)
+      await fs.mkdir(join(tmpProject, '.brv', 'context-tree'), {recursive: true})
+      await fs.mkdir(join(tmpProject, 'src'), {recursive: true})
+      await fs.writeFile(join(tmpProject, 'src', 'index.ts'), 'export const serviceName = "tmp-service"\n')
+
+      const fileSystem = new FileSystemService({workingDirectory: tmpProject})
+      await fileSystem.initialize()
+
+      const tool = createIngestResourceTool({
+        baseDirectory: tmpProject,
+        contentGenerator: makeGenerator(
+          sandbox,
+          '[{"statement": "serviceName identifies the tmp service.", "subject": "serviceName"}]',
+        ),
+        fileSystem,
+      })
+
+      const result = await tool.execute({domain: 'backend', path: './src'}) as {
+        failed: number
+        ingested: number
+      }
+
+      const normalizedProject = await fs.realpath(tmpProject)
+      const contextTreeEntries = await fs.readdir(join(normalizedProject, '.brv', 'context-tree'), {recursive: true})
+      const contextFileEntry = contextTreeEntries.find((entry) => {
+        const entryPath = String(entry)
+        return entryPath.endsWith('.md') && !entryPath.endsWith('context.md')
+      })
+      expect(contextFileEntry).to.exist
+      const contextFile = await fs.readFile(join(normalizedProject, '.brv', 'context-tree', String(contextFileEntry)), 'utf8')
+
+      expect(result.ingested).to.equal(1)
+      expect(result.failed).to.equal(0)
+      expect(contextFile).to.include('serviceName')
 
       await fs.rm(tmpProject, {force: true, recursive: true}).catch(() => {})
     })

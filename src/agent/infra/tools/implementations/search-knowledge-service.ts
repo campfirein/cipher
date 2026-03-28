@@ -1,4 +1,5 @@
 import MiniSearch from 'minisearch'
+import {realpath} from 'node:fs/promises'
 import {join} from 'node:path'
 import {removeStopwords} from 'stopword'
 
@@ -84,6 +85,7 @@ function propagateScoresToParents(
   results: Array<{bm25Score: number; path: string}>,
   symbolTree: MemorySymbolTree,
   summaryMap: Map<string, SummaryDocLike>,
+  documentMap: Map<string, IndexedDocument>,
   propagationFactor = 0.55,
 ): SearchKnowledgeResult['results'] {
   const boosts = new Map<string, number>()
@@ -105,8 +107,7 @@ function propagateScoresToParents(
 
   for (const [parentPath, score] of boosts.entries()) {
     if (existingPaths.has(parentPath)) continue
-    const indexKey = `${parentPath}/_index.md`
-    const doc = summaryMap.get(indexKey)
+    const doc = getSummarySource(parentPath, summaryMap, documentMap)
     if (!doc) continue
 
     // Propagate the strongest child BM25 signal upward, then apply the parent
@@ -118,7 +119,7 @@ function propagateScoresToParents(
 
     boosted.push({
       backlinkCount: 0,
-      excerpt: doc.excerpt ?? '',
+      excerpt: doc.excerpt,
       path: parentPath,
       score: finalScore,
       symbolKind: 'summary',
@@ -152,6 +153,12 @@ interface IndexedDocument {
   path: string
   scoring: FrontmatterScoring
   title: string
+}
+
+interface SummarySource {
+  excerpt: string
+  path: string
+  scoring?: SummaryDocLike['scoring']
 }
 
 interface CachedIndex {
@@ -206,6 +213,40 @@ export interface SearchOptions {
   overviewDepth?: number
   /** Path prefix to scope search within (e.g. "auth" or "auth/jwt-tokens") */
   scope?: string
+}
+
+function getSummaryAccessPath(
+  path: string,
+  summaryMap: Map<string, SummaryDocLike>,
+  documentMap: Map<string, IndexedDocument>,
+): string {
+  return getSummarySource(path, summaryMap, documentMap)?.path ?? `${path}/${SUMMARY_INDEX_FILE}`
+}
+
+function getSummarySource(
+  path: string,
+  summaryMap: Map<string, SummaryDocLike>,
+  documentMap: Map<string, IndexedDocument>,
+): SummarySource | undefined {
+  const summaryDoc = summaryMap.get(`${path}/${SUMMARY_INDEX_FILE}`)
+  if (summaryDoc) {
+    return {
+      excerpt: summaryDoc.excerpt ?? '',
+      path: summaryDoc.path,
+      scoring: summaryDoc.scoring,
+    }
+  }
+
+  const contextDoc = documentMap.get(`${path}/context.md`)
+  if (contextDoc) {
+    return {
+      excerpt: extractExcerpt(contextDoc.content, contextDoc.title),
+      path: contextDoc.path,
+      scoring: contextDoc.scoring,
+    }
+  }
+
+  return undefined
 }
 
 function filterStopWords(query: string): string {
@@ -562,7 +603,7 @@ async function acquireIndex(
   fileSystem: IFileSystem,
   contextTreePath: string,
   ttlMs: number,
-  onBeforeBuild?: (contextTreePath: string) => Promise<void>,
+  onBeforeBuild?: (contextTreePath: string) => Promise<boolean>,
 ): Promise<CachedIndex | {error: true; result: SearchKnowledgeResult}> {
   const now = Date.now()
 
@@ -606,19 +647,34 @@ async function acquireIndex(
       }
     }
 
-    const allFiles = await findMarkdownFilesWithMtime(fileSystem, contextTreePath)
+    let allFiles = await findMarkdownFilesWithMtime(fileSystem, contextTreePath)
     // Exclude non-indexable derived artifacts (.full.md) so that currentFiles
     // matches what buildFreshIndex tracks in fileMtimes. Without this filter,
     // isCacheValid() sees a size mismatch once archives exist, causing cache thrash.
     // _index.md is kept (tracked for summary staleness), .stub.md is kept (BM25 indexed).
     // Keep _index.md (summary tracking) and .overview.md (sibling detection for overviewPath).
     // .full.md, .abstract.md, and _manifest.json remain excluded.
-    const currentFiles = allFiles.filter(
+    let currentFiles = allFiles.filter(
       (f) =>
         !isDerivedArtifact(f.path) ||
         f.path.split('/').at(-1) === SUMMARY_INDEX_FILE ||
         f.path.endsWith(OVERVIEW_EXTENSION),
     )
+
+    // Flush pending access hits before reusing a stale-enough cache entry.
+    // The flush updates frontmatter on disk, so refresh mtimes before the cache-valid check.
+    if (onBeforeBuild) {
+      const wroteScoringUpdates = await onBeforeBuild(contextTreePath)
+      if (wroteScoringUpdates) {
+        allFiles = await findMarkdownFilesWithMtime(fileSystem, contextTreePath)
+        currentFiles = allFiles.filter(
+          (f) =>
+            !isDerivedArtifact(f.path) ||
+            f.path.split('/').at(-1) === SUMMARY_INDEX_FILE ||
+            f.path.endsWith(OVERVIEW_EXTENSION),
+        )
+      }
+    }
 
     // Re-check cache validity after getting file list (another call may have finished)
     if (
@@ -634,11 +690,6 @@ async function acquireIndex(
       }
       state.cachedIndex = updatedCache
       return updatedCache
-    }
-
-    // Flush pending access hits before building so updated scoring is picked up
-    if (onBeforeBuild) {
-      await onBeforeBuild(contextTreePath)
     }
 
     // Build fresh index
@@ -697,9 +748,9 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
    * Called during index rebuild to batch writes and avoid write amplification.
    * Best-effort: errors are swallowed per file.
    */
-  async flushAccessHits(contextTreePath: string): Promise<void> {
+  async flushAccessHits(contextTreePath: string): Promise<boolean> {
     if (this.pendingAccessHits.size === 0) {
-      return
+      return false
     }
 
     const hits = new Map(this.pendingAccessHits)
@@ -723,6 +774,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       }
     })
     await Promise.allSettled(tasks)
+    return true
   }
 
   /**
@@ -735,7 +787,8 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
    */
   async search(query: string, options?: SearchOptions): Promise<SearchKnowledgeResult> {
     const limit = options?.limit ?? 10
-    const contextTreePath = join(this.baseDirectory, BRV_DIR, CONTEXT_TREE_DIR)
+    const resolvedBaseDirectory = await realpath(this.baseDirectory).catch(() => this.baseDirectory)
+    const contextTreePath = join(resolvedBaseDirectory, BRV_DIR, CONTEXT_TREE_DIR)
 
     // Acquire index with parallel-safe locking; flush pending access hits before any rebuild
     const indexResult = await acquireIndex(this.state, this.fileSystem, contextTreePath, this.cacheTtlMs, (ctxPath) =>
@@ -857,15 +910,20 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
     const doc = documentMap.get(result.path)
     const overviewPath = doc?.overviewPath
+    const isContextSummary = doc?.path.endsWith('/context.md') || doc?.path === 'context.md'
+    const summaryPath = isContextSummary
+      ? doc?.path.slice(0, -'/context.md'.length) || doc?.path || result.path
+      : result.path
 
     return {
       ...result,
       ...(archiveFullPath && { archiveFullPath }),
       ...(overviewPath && { overviewPath }),
       backlinkCount: backlinks?.length ?? 0,
+      ...(isContextSummary && {path: summaryPath}),
       relatedPaths: backlinks?.slice(0, 3),
-      symbolKind,
-      symbolPath: symbol?.path,
+      symbolKind: isContextSummary ? 'summary' : symbolKind,
+      symbolPath: isContextSummary ? summaryPath : symbol?.path,
     }
   }
 
@@ -995,8 +1053,11 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
           }
 
           if (options?.minMaturity && enriched.symbolKind) {
-            const symbol = symbolTree.symbolMap.get(document.path)
-            const docMaturity = symbol?.metadata.maturity ?? 'draft'
+            const docMaturity = enriched.symbolKind === 'summary'
+              ? getSummarySource(enriched.path, summaryMap, documentMap)?.scoring?.maturity
+                ?? symbolTree.symbolMap.get(enriched.path)?.metadata.maturity
+                ?? 'draft'
+              : symbolTree.symbolMap.get(document.path)?.metadata.maturity ?? 'draft'
             if ((MATURITY_TIER_RANK[docMaturity] ?? 1) < (MATURITY_TIER_RANK[options.minMaturity] ?? 1)) {
               continue
             }
@@ -1012,13 +1073,13 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     }
 
     // Propagate scores upward to parent domain/topic nodes (hierarchical retrieval)
-    const propagated = propagateScoresToParents(propagationInputs, symbolTree, summaryMap)
+    const propagated = propagateScoresToParents(propagationInputs, symbolTree, summaryMap, documentMap)
     for (const p of propagated) {
       if (scoreFloor !== undefined && p.score < scoreFloor) continue
       if (options?.includeKinds && p.symbolKind && !options.includeKinds.includes(p.symbolKind)) continue
       if (options?.excludeKinds && p.symbolKind && options.excludeKinds.includes(p.symbolKind)) continue
       if (options?.minMaturity && p.symbolKind === 'summary') {
-        const summaryDoc = summaryMap.get(`${p.path}/_index.md`)
+        const summaryDoc = getSummarySource(p.path, summaryMap, documentMap)
         const summaryMaturity = summaryDoc?.scoring?.maturity ?? 'draft'
         if ((MATURITY_TIER_RANK[summaryMaturity] ?? 1) < (MATURITY_TIER_RANK[options.minMaturity] ?? 1)) continue
       }
@@ -1037,7 +1098,9 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     // real files; map them to their _index.md so flushAccessHits can read and update them.
     if (results.length > 0) {
       this.accumulateAccessHits(
-        results.map((r) => (r.symbolKind === 'summary' ? `${r.path}/_index.md` : r.path)),
+        results.map((r) => (r.symbolKind === 'summary'
+          ? getSummaryAccessPath(r.path, summaryMap, documentMap)
+          : r.path)),
       )
     }
 
@@ -1106,6 +1169,21 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     // No text part — return all children of the matched node
     const subtreeIds = getSubtreeDocumentIds(symbolTree, topMatch.path)
     const results: SearchKnowledgeResult['results'] = []
+    const accessHitPaths: string[] = []
+    const summaryDoc = getSummarySource(topMatch.path, summaryMap, documentMap)
+
+    if (summaryDoc) {
+      results.push({
+        backlinkCount: 0,
+        excerpt: summaryDoc.excerpt,
+        path: topMatch.path,
+        score: 1,
+        symbolKind: 'summary',
+        symbolPath: topMatch.path,
+        title: topMatch.name,
+      })
+      accessHitPaths.push(summaryDoc.path)
+    }
 
     for (const docId of subtreeIds) {
       if (results.length >= limit) break
@@ -1117,10 +1195,11 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
         { excerpt: extractExcerpt(doc.content, query), path: doc.path, score: 0.9, title: doc.title },
         symbolTree, referenceIndex, documentMap,
       ))
+      accessHitPaths.push(doc.path)
     }
 
-    if (results.length > 0) {
-      this.accumulateAccessHits(results.map((r) => r.path))
+    if (accessHitPaths.length > 0) {
+      this.accumulateAccessHits(accessHitPaths)
     }
 
     return {

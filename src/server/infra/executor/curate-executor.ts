@@ -17,6 +17,8 @@ import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-s
 import {diffStates} from '../context-tree/snapshot-diff.js'
 import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
+type BackgroundDrainAgent = ICipherAgent & {drainBackgroundWork?: () => Promise<void>}
+
 /**
  * CurateExecutor - Executes curate tasks with an injected CipherAgent.
  *
@@ -145,6 +147,8 @@ export class CurateExecutor implements ICurateExecutor {
           // Fail-open: summary/manifest errors never block curation
         }
       }
+
+      await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
 
       return response
     } finally {

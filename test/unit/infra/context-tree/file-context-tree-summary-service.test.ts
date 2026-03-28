@@ -172,7 +172,7 @@ describe('FileContextTreeSummaryService', () => {
       expect(fm!.summary_level).to.equal('d0')
     })
 
-    it('should fail-open on LLM errors', async () => {
+    it('should fall back to a deterministic summary when LLM generation fails', async () => {
       const failAgent = createMockAgent('')
       failAgent.createTaskSession = async () => { throw new Error('LLM down') }
 
@@ -181,8 +181,29 @@ describe('FileContextTreeSummaryService', () => {
       await writeFile(join(domainDir, 'tokens.md'), '# Tokens')
 
       const result = await service.generateSummary('auth', failAgent, testDir)
-      expect(result.actionTaken).to.be.false
-      expect(result.reason).to.equal('llm_error')
+      expect(result.actionTaken).to.be.true
+
+      const indexContent = await readFile(join(domainDir, SUMMARY_INDEX_FILE), 'utf8')
+      const fm = parseSummaryFrontmatter(indexContent)
+      expect(fm).to.not.be.null
+      expect(indexContent.length).to.be.greaterThan(0)
+    })
+
+    it('should still write _index.md when task-session cleanup fails after generation', async () => {
+      const cleanupFailAgent = createMockAgent('A concise summary of the content.')
+      cleanupFailAgent.deleteTaskSession = async () => { throw new Error('cleanup failed') }
+
+      const domainDir = join(contextTreeDir, 'auth')
+      await mkdir(domainDir, {recursive: true})
+      await writeFile(join(domainDir, 'tokens.md'), '# Tokens\nDetails.')
+
+      const result = await service.generateSummary('auth', cleanupFailAgent, testDir)
+      expect(result.actionTaken).to.be.true
+
+      const indexContent = await readFile(join(domainDir, SUMMARY_INDEX_FILE), 'utf8')
+      const fm = parseSummaryFrontmatter(indexContent)
+      expect(fm).to.not.be.null
+      expect(fm!.type).to.equal('summary')
     })
   })
 
@@ -294,7 +315,7 @@ describe('FileContextTreeSummaryService', () => {
       }
     })
 
-    it('should stop climbing on LLM errors', async () => {
+    it('should fall back and continue climbing when LLM generation fails', async () => {
       let callCount = 0
       const failOnSecondCallAgent = createMockAgent('Summary.')
       failOnSecondCallAgent.createTaskSession = async () => {
@@ -309,8 +330,8 @@ describe('FileContextTreeSummaryService', () => {
       await writeFile(join(topicDir, 'refresh.md'), '# Refresh')
 
       const results = await service.propagateStaleness(['auth/jwt/refresh.md'], failOnSecondCallAgent, testDir)
-      const errorResults = results.filter((r) => r.reason === 'llm_error')
-      expect(errorResults.length).to.be.greaterThan(0)
+      expect(results.some((result) => result.path === 'auth/jwt' && result.actionTaken)).to.equal(true)
+      expect(results.some((result) => result.path === 'auth' && result.actionTaken)).to.equal(true)
     })
   })
 })

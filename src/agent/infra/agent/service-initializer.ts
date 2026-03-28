@@ -4,7 +4,7 @@
  * This module is responsible for initializing and wiring together all core agent services.
  * It provides a single entry point for constructing the service graph.
  *
- * Following DextoAgent pattern:
+ * Following pattern:
  * - Config file is source of truth (ValidatedAgentConfig)
  * - Centralized function (not factory class) for service creation
  * - Explicit dependency order with numbered steps
@@ -104,7 +104,7 @@ export type {CipherAgentServices, SessionManagerConfig, SessionServices} from '.
  * Creates shared services for CipherAgent.
  * These services are singletons shared across all sessions.
  *
- * Initialization order follows DextoAgent pattern (explicit numbered steps):
+ * Initialization order (explicit numbered steps):
  * 1. Logger (uses provided event bus)
  * 2. File system service (no dependencies)
  * 3. Process service (no dependencies)
@@ -119,14 +119,14 @@ export type {CipherAgentServices, SessionManagerConfig, SessionServices} from '.
  * 12. Return all services
  *
  * @param config - Validated agent configuration (Zod-validated)
- * @param agentEventBus - Pre-created event bus from agent constructor (DextoAgent pattern)
+ * @param agentEventBus - Pre-created event bus from agent constructor
  * @returns Initialized shared services
  */
 export async function createCipherAgentServices(
   config: ValidatedAgentConfig,
   agentEventBus: AgentEventBus,
 ): Promise<CipherAgentServices> {
-  // 1. Logger (uses provided event bus - DextoAgent pattern)
+  // 1. Logger (uses provided event bus )
   const logger = new EventBasedLogger(agentEventBus, 'CipherAgent')
 
   // 2. File system service (no dependencies)

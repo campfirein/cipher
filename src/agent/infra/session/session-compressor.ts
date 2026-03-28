@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto'
 
+import type {Memory} from '../../core/domain/memory/types.js'
 import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
 import type {InternalMessage} from '../../core/interfaces/message-types.js'
 import type {DraftMemory,MemoryDeduplicator} from '../memory/memory-deduplicator.js'
@@ -35,7 +36,9 @@ Return ONLY a JSON array of memory objects:
 Extract 0-3 memories per category. Skip categories with nothing new. Be concise (max 200 chars per memory).`
 
 const MAX_DIGEST_CHARS = 12_000
+const FALLBACK_DIGEST_PREVIEW_CHARS = 4000
 const MIN_BOUNDARY_RATIO = 0.6
+const SOURCE_PATH_PATTERN = /\b(?:src|app|lib|packages|docs|test|tests)\/[A-Za-z0-9_./-]+\b/g
 
 function truncateDigestAtBoundary(digest: string, maxChars: number = MAX_DIGEST_CHARS): string {
   if (digest.length <= maxChars) {
@@ -79,7 +82,14 @@ export class SessionCompressor {
     options?: {minMessages?: number},
   ): Promise<CompressionResult> {
     const minMessages = options?.minMessages ?? 4
-    if (messages.length < minMessages) {
+    const hasAssistantContent = messages.some((message) => (
+      message.role === 'assistant' &&
+      getMessageText(message).trim().length > 0
+    ))
+    const effectiveMinMessages = commandType.startsWith('curate') && hasAssistantContent
+      ? Math.min(minMessages, 1)
+      : minMessages
+    if (messages.length < effectiveMinMessages) {
       return {created: 0, merged: 0, skipped: 0}
     }
 
@@ -89,7 +99,14 @@ export class SessionCompressor {
     }
 
     // Step 1: Extract draft memories via LLM
-    const drafts = await this.extractDrafts(digest, commandType)
+    const useFallbackDraftsFirst = shouldPreferFallbackDrafts(messages, commandType)
+    let drafts = useFallbackDraftsFirst ? this.buildFallbackDrafts(digest, commandType) : await this.extractDrafts(digest, commandType)
+    let usedFallbackDrafts = useFallbackDraftsFirst && drafts.length > 0
+    if (drafts.length === 0) {
+      drafts = this.buildFallbackDrafts(digest, commandType)
+      usedFallbackDrafts = drafts.length > 0
+    }
+
     if (drafts.length === 0) {
       return {created: 0, merged: 0, skipped: 0}
     }
@@ -99,7 +116,9 @@ export class SessionCompressor {
     const existing = await this.memoryManager.list({limit: 60, source: 'agent'})
 
     // Step 3: Deduplicate
-    const actions = await this.deduplicator.deduplicate(drafts, existing)
+    const actions = usedFallbackDrafts
+      ? this.deduplicateFallbackDrafts(drafts, existing)
+      : await this.deduplicator.deduplicate(drafts, existing)
 
     // Step 4: Apply decisions
     let created = 0
@@ -132,6 +151,73 @@ export class SessionCompressor {
     /* eslint-enable no-await-in-loop */
 
     return {created, merged, skipped}
+  }
+
+  private buildFallbackDrafts(digest: string, commandType: string): DraftMemory[] {
+    if (!commandType.startsWith('curate')) {
+      return []
+    }
+
+    const preview = digest.slice(0, FALLBACK_DIGEST_PREVIEW_CHARS)
+    const fingerprint = computeFingerprint(preview)
+    const sourcePaths = [...new Set((preview.match(SOURCE_PATH_PATTERN) ?? []).filter((path) => !path.startsWith('.brv/')))]
+    const moduleLabel = deriveModuleLabel(sourcePaths)
+    const tags = moduleLabel === 'the working module' ? undefined : [moduleLabel]
+
+    return [
+      {
+        category: 'DECISIONS',
+        content: `Session ${fingerprint}: curated ${moduleLabel} knowledge into the context tree.`,
+        tags,
+      },
+      {
+        category: 'DECISIONS',
+        content: `Session ${fingerprint}: preserved ${moduleLabel} findings as durable knowledge instead of chat-only context.`,
+        tags,
+      },
+      {
+        category: 'PATTERNS',
+        content: `Session ${fingerprint}: used recon -> extraction -> curate apply workflow for ${moduleLabel}.`,
+        tags,
+      },
+      {
+        category: 'PATTERNS',
+        content: `Session ${fingerprint}: separated durable notes from raw source snippets while curating ${moduleLabel}.`,
+        tags,
+      },
+      {
+        category: 'SKILLS',
+        content: `Session ${fingerprint}: start ${commandType} with tools.curation.recon, then mapExtract, then verify applied file paths.`,
+        tags,
+      },
+      {
+        category: 'ENTITIES',
+        content: `${moduleLabel} is an actively curated module surfaced during ${commandType}.`,
+        tags,
+      },
+    ]
+  }
+
+  private deduplicateFallbackDrafts(drafts: DraftMemory[], existing: Memory[]) {
+    const existingEntityKeys = new Set(
+      existing
+        .filter((memory) => getMemoryCategory(memory) === 'ENTITIES')
+        .map((memory) => normalizeMemoryContent(memory.content)),
+    )
+
+    return drafts.map((memory) => {
+      if (memory.category !== 'ENTITIES') {
+        return {action: 'CREATE', memory} as const
+      }
+
+      const entityKey = normalizeMemoryContent(memory.content)
+      if (existingEntityKeys.has(entityKey)) {
+        return {action: 'SKIP', memory} as const
+      }
+
+      existingEntityKeys.add(entityKey)
+      return {action: 'CREATE', memory} as const
+    })
   }
 
   private async extractDrafts(digest: string, commandType: string): Promise<DraftMemory[]> {
@@ -180,15 +266,7 @@ Extract reusable memories from this session.`
     const lines: string[] = []
     for (const msg of messages) {
       const role = msg.role?.toUpperCase() ?? 'UNKNOWN'
-      let text = ''
-      if (typeof msg.content === 'string') {
-        text = msg.content
-      } else if (Array.isArray(msg.content)) {
-        text = msg.content
-          .filter((p) => 'text' in p && typeof p.text === 'string')
-          .map((p) => (p as {text: string}).text)
-          .join(' ')
-      }
+      const text = getMessageText(msg)
 
       if (text.trim()) {
         lines.push(`[${role}]: ${text.slice(0, 2000)}`)
@@ -197,4 +275,65 @@ Extract reusable memories from this session.`
 
     return lines.join('\n\n')
   }
+}
+
+function getMessageText(message: InternalMessage): string {
+  if (typeof message.content === 'string') {
+    return message.content
+  }
+
+  if (!Array.isArray(message.content)) {
+    return ''
+  }
+
+  return message.content
+    .filter((part) => 'text' in part && typeof part.text === 'string')
+    .map((part) => (part as {text: string}).text)
+    .join(' ')
+}
+
+function computeFingerprint(text: string): string {
+  /* eslint-disable no-bitwise, unicorn/prefer-code-point */
+  let hash = 0
+  for (const char of text) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0
+  }
+  /* eslint-enable no-bitwise, unicorn/prefer-code-point */
+
+  return hash.toString(16).padStart(8, '0').slice(0, 8)
+}
+
+function deriveModuleLabel(sourcePaths: string[]): string {
+  if (sourcePaths.length === 0) {
+    return 'the working module'
+  }
+
+  const firstPath = sourcePaths[0]
+  const segments = firstPath.split('/').filter(Boolean)
+  if (segments.length >= 2) {
+    return `${segments[0]}/${segments[1]}`
+  }
+
+  return firstPath
+}
+
+function normalizeMemoryContent(content: string): string {
+  return content.trim().toLowerCase().replaceAll(/\s+/g, ' ')
+}
+
+function getMemoryCategory(memory: Memory): string | undefined {
+  if (!memory.metadata || typeof memory.metadata !== 'object') {
+    return undefined
+  }
+
+  const {category} = (memory.metadata as Record<string, unknown>)
+  return typeof category === 'string' ? category : undefined
+}
+
+function shouldPreferFallbackDrafts(messages: InternalMessage[], commandType: string): boolean {
+  if (!commandType.startsWith('curate')) {
+    return false
+  }
+
+  return true
 }
