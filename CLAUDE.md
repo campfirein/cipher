@@ -6,6 +6,8 @@ ByteRover CLI (`brv`) - Interactive REPL with React/Ink TUI
 
 ```bash
 npm run build                                    # Compile to dist/
+npm run dev                                      # Kill daemon + build + run dev mode
+npm run dev:kill                                 # Kill daemon process only
 npm test                                         # All tests
 npx mocha --forbid-only "test/path/to/file.test.ts"  # Single test
 npm run lint                                     # ESLint
@@ -28,7 +30,7 @@ npm run typecheck                                # TypeScript type checking
 - Apply TDD; 50% coverage minimum, critical paths must be covered
 - Run `npm run test` after each approved edit
 - Suppress console logging in tests to keep output clean
-- Unit tests must run fast and  run completely in memory. Proper stubbing and mocking must be implemented.
+- Unit tests must run fast and run completely in memory. Proper stubbing and mocking must be implemented.
 
 **Feature Development (Outside-In Approach)**:
 - Start from the consumer (oclif command, REPL command, or TUI component) - understand what it needs
@@ -45,12 +47,12 @@ npm run typecheck                                # TypeScript type checking
 src/
 ├── agent/           # LLM agent system
 │   ├── core/        # Agent interfaces and domain types
-│   ├── infra/       # Tools, LLM services, sessions, storage, transport
+│   ├── infra/       # Tools, LLM services, sessions, storage, transport, sandbox, memory, file-system, validation
 │   └── resources/   # Prompt YAML configs, tool definition .txt files
 ├── server/          # Server-side infrastructure
 │   ├── config/      # Auth config, environment
 │   ├── core/        # Domain entities, interfaces, errors
-│   ├── infra/       # Auth, connectors, daemon, hub, transport, etc.
+│   ├── infra/       # Auth, connectors, daemon, hub, transport, MCP, context-tree, provider-oauth, session, workspace, and more (~30 modules)
 │   ├── templates/   # Server templates
 │   └── utils/       # Shared utilities (errors, file helpers, type guards)
 ├── shared/          # Cross-module shared code
@@ -61,7 +63,7 @@ src/
 ├── tui/             # React/Ink TUI
 │   ├── app/         # Router, pages (home, login, config-provider), layouts
 │   ├── components/  # Shared UI components
-│   ├── features/    # Feature modules (commands, curate, query, hub, etc.)
+│   ├── features/    # 20 feature modules (commands, curate, query, hub, auth, connectors, model, provider, session, tasks, etc.)
 │   ├── hooks/       # Shared React hooks
 │   ├── lib/         # API client, environment, react-query setup
 │   ├── providers/   # React context providers
@@ -77,7 +79,7 @@ src/
 - Pages in `src/tui/app/pages/` (home, login, config-provider)
 - Esc key cancels streaming responses and long-running commands
 - Slash commands in `src/tui/features/commands/definitions/` (order in `index.ts` = UI suggestion order)
-- Oclif commands: public (`login`, `logout`, `status`, `locations`, `curate`, `curate view`, `query`, `push`, `pull`, `restart`, `connectors`, `providers`, `model`, `space`, `hub`) + hidden (`main`, `hook-prompt-submit`, `mcp`, `debug` [dev-only])
+- Oclif commands: public (`login`, `logout`, `status`, `locations`, `curate` [`view`], `query`, `push`, `pull`, `restart`, `connectors` [`install`, `list`], `providers` [`connect`, `disconnect`, `list`, `switch`], `model` [`list`, `switch`], `space` [`list`, `switch`], `hub` [`install`, `list`, `registry add`, `registry list`, `registry remove`]) + hidden (`main`, `hook-prompt-submit`, `mcp`, `debug` — `debug` conditionally hidden via `isDevelopment()`)
 - `/exit` is REPL-only (no oclif command)
 
 ### Daemon Architecture
@@ -86,13 +88,14 @@ src/
 - Clients (TUI, CLI, MCP, agent child processes) connect via `@campfirein/brv-transport-client`
 - Agent pool manages forked agent child processes per project
 - `src/server/infra/process/` - Task routing, transport handlers, feature handlers
+- Proxy support: `server/infra/http/proxy-config.ts` (`proxy-agent`) — applied to all HTTP clients
 
 ### Agent (`src/agent/`)
 
 - Tool definitions: `resources/tools/*.txt`; implementations: `infra/tools/implementations/`
 - Tool registry pattern: `infra/tools/tool-registry.ts` — register/resolve tools by name
-- Multi-provider LLM support (ByteRover internal, OpenRouter) in `infra/llm/`
-- Compression strategies in `infra/llm/context/compression/` (reactive-overflow + escalated-compression)
+- Multi-provider LLM support (18 providers including Anthropic, OpenAI, Google, OpenRouter, etc.) in `infra/llm/`
+- Compression strategies in `infra/llm/context/compression/` (7 strategies: reactive-overflow, escalated-compression, enhanced-compaction, filter-compacted, middle-removal, oldest-removal)
 - System prompt contributor pattern (XML-style sections) in `infra/system-prompt/`
 - Map/memory subsystem (`infra/map/`): agentic map service, context-tree store, LLM map memory, worker pool
 - Storage: file-based blob (`infra/blob/file-blob-storage.ts`) and key storage (`infra/storage/file-key-storage.ts`) — no SQLite
@@ -118,11 +121,13 @@ Commands in `src/tui/features/commands/definitions/` (order = UI suggestion orde
 
 ### Oclif Hooks (`src/oclif/hooks/`)
 
+- `init/block-command-update-npm.ts` - Blocks `brv update` when installed via npm
 - `init/welcome.ts` - Node.js version check, ASCII banner
 - `init/update-notifier.ts` - Auto-update notification (1h check)
+- `prerun/validate-brv-config-version.ts` - Config version validation
+- `postrun/restart-after-update.ts` - Restarts daemon after `brv update`
 - `command_not_found/handle-invalid-commands.ts` - Invalid command handler
 - `error/clean-errors.ts` - Error formatting
-- `prerun/validate-brv-config-version.ts` - Config version validation
 
 ## Testing
 

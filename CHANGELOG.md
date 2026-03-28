@@ -2,6 +2,41 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.4.1]
+
+### Fixed
+- **Agent startup reliability improved** — Increased the timeout for agent child processes to become ready from 15 to 30 seconds, reducing timeout failures on slower machines or under heavy load.
+- **Console window flash on Windows** — Agent child processes no longer briefly flash a console window when spawned on Windows.
+- **Security dependency updates** — Patched npm dependencies to address high-severity vulnerabilities.
+
+## [2.4.0]
+
+### Added
+- **Enterprise proxy support** — All HTTP traffic now automatically routes through corporate proxies when standard environment variables are set (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`). For environments with SSL inspection, set `NODE_EXTRA_CA_CERTS` to your corporate CA certificate. The CLI provides clear error messages when proxy or certificate issues are detected.
+
+## [2.3.4]
+
+### Changed
+- **ByteRover provider request format simplified** — Reduced unnecessary fields sent to the server for cleaner request handling.
+
+## [2.3.3]
+
+### Fixed
+- **Streaming errors from OAuth providers showed `[object Object]`** — Error messages from LLM provider streaming failures (e.g. OpenAI via OAuth) now display the actual error detail instead of an unhelpful `[object Object]` string.
+
+## [2.3.2]
+
+### Removed
+- **`better-sqlite3` dependency** — Removed the unused native SQLite package that was left over after the migration to file-based storage in 2.1.0. This reduces install size and eliminates native compilation requirements on some platforms.
+
+## [2.3.1]
+
+### Fixed
+- **OpenRouter provider name format** — OpenRouter models now display as `OpenRouter (<provider>)` instead of a capitalized provider name, making it easier to identify when using an OpenRouter-routed model.
+- **`brv update` blocked for npm installations** — Running `brv update` when installed via npm now shows a clear error directing users to run `npm update -g byterover-cli` instead. Previously produced confusing errors.
+- **`brv restart` no longer kills itself or triggers daemon respawn** — Rewrote restart with a 4-phase shutdown sequence (kill clients, graceful daemon stop, clean orphans, clean state files).
+- **Security dependency updates** — Patched `socket.io` and `@campfirein/brv-transport-client` to address high-severity vulnerabilities.
+
 ## [2.3.0]
 
 ### Added
