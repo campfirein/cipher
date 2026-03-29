@@ -2,6 +2,8 @@ import axios, {type AxiosRequestConfig, isAxiosError} from 'axios'
 
 import type {HttpRequestConfig, IHttpClient} from '../../core/interfaces/services/i-http-client.js'
 
+import {ProxyConfig} from './proxy-config.js'
+
 /**
  * Standardized API error response from server.
  *
@@ -58,6 +60,8 @@ export class AuthenticatedHttpClient implements IHttpClient {
     try {
       const axiosConfig: AxiosRequestConfig = {
         headers: this.buildHeaders(config?.headers),
+        httpAgent: ProxyConfig.getProxyAgent(),
+        httpsAgent: ProxyConfig.getProxyAgent(),
         timeout: config?.timeout,
       }
 
@@ -84,6 +88,8 @@ export class AuthenticatedHttpClient implements IHttpClient {
     try {
       const axiosConfig: AxiosRequestConfig = {
         headers: this.buildHeaders(config?.headers),
+        httpAgent: ProxyConfig.getProxyAgent(),
+        httpsAgent: ProxyConfig.getProxyAgent(),
         timeout: config?.timeout,
       }
 
@@ -110,6 +116,8 @@ export class AuthenticatedHttpClient implements IHttpClient {
     try {
       const axiosConfig: AxiosRequestConfig = {
         headers: this.buildHeaders(config?.headers),
+        httpAgent: ProxyConfig.getProxyAgent(),
+        httpsAgent: ProxyConfig.getProxyAgent(),
         timeout: config?.timeout,
       }
 
@@ -153,14 +161,27 @@ export class AuthenticatedHttpClient implements IHttpClient {
         return new Error(`HTTP ${error.response.status}: ${error.response.statusText}`)
       }
 
-      if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-        // Request timeout
-        return new Error(`Request timeout: ${error.message}`)
+      // Enterprise Proxy / SSL Checks
+      if (error.code === 'SELF_SIGNED_CERT_IN_CHAIN' || error.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' || error.code === 'CERT_HAS_EXPIRED') {
+        return new Error(
+          `SSL Certificate Validation Failed (${error.code}). Your company may be using SSL Inspection.\n` +
+          `Solution: Set the NODE_EXTRA_CA_CERTS environment variable to your corporate CA certificate path.\n` +
+          `Example: export NODE_EXTRA_CA_CERTS=/path/to/corporate-ca.pem`
+        )
+      }
+
+      const isTimeout = error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT' || error.message.includes('timeout')
+      const isRefused = error.code === 'ECONNREFUSED'
+      if (isTimeout || isRefused) {
+        return new Error(
+          `Connection Failed (${error.code || 'TIMEOUT'}). If you are behind a corporate firewall, configure your proxy:\n` +
+          `  export HTTPS_PROXY=http://proxy-host:port`
+        )
       }
 
       if (error.request) {
         // Request was made but no response received
-        return new Error('Network error: No response received from server')
+        return new Error('Network error: No response received from server. Check your proxy or internet connection.')
       }
     }
 

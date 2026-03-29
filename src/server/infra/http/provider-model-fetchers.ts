@@ -24,6 +24,7 @@ import type {
 } from '../../core/interfaces/i-provider-model-fetcher.js'
 
 import {getModelsDevClient as getModelsDevClientDefault, type ModelsDevClient} from './models-dev-client.js'
+import {ProxyConfig} from './proxy-config.js'
 
 // ============================================================================
 // Cache helper
@@ -409,6 +410,8 @@ export class OpenAICompatibleModelFetcher implements IProviderModelFetcher {
 
     const response = await axios.get(`${this.baseUrl}/models`, {
       headers: {Authorization: `Bearer ${apiKey}`},
+      httpAgent: ProxyConfig.getProxyAgent(),
+      httpsAgent: ProxyConfig.getProxyAgent(),
       timeout: 30_000,
     })
 
@@ -445,6 +448,8 @@ export class OpenAICompatibleModelFetcher implements IProviderModelFetcher {
     try {
       await axios.get(`${this.baseUrl}/models`, {
         headers: {Authorization: `Bearer ${apiKey}`},
+        httpAgent: ProxyConfig.getProxyAgent(),
+        httpsAgent: ProxyConfig.getProxyAgent(),
         timeout: 15_000,
       })
       return {isValid: true}
@@ -510,6 +515,8 @@ export class ChatBasedModelFetcher implements IProviderModelFetcher {
             Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
+          httpAgent: ProxyConfig.getProxyAgent(),
+          httpsAgent: ProxyConfig.getProxyAgent(),
           timeout: 15_000,
         },
       )

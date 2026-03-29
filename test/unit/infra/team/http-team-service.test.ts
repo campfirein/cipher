@@ -1,8 +1,10 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 import nock from 'nock'
+import * as sinon from 'sinon'
 
 import {Team} from '../../../../src/server/core/domain/entities/team.js'
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 import {HttpTeamService} from '../../../../src/server/infra/team/http-team-service.js'
 
 describe('HttpTeamService', () => {
@@ -11,10 +13,12 @@ describe('HttpTeamService', () => {
   let service: HttpTeamService
 
   beforeEach(() => {
+    sinon.stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     service = new HttpTeamService({apiBaseUrl})
   })
 
   afterEach(() => {
+    sinon.restore()
     nock.cleanAll()
   })
 

@@ -2,6 +2,28 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.4.1]
+
+### Fixed
+- **Agent startup reliability improved** — Increased the timeout for agent child processes to become ready from 15 to 30 seconds, reducing timeout failures on slower machines or under heavy load.
+- **Console window flash on Windows** — Agent child processes no longer briefly flash a console window when spawned on Windows.
+- **Security dependency updates** — Patched npm dependencies to address high-severity vulnerabilities.
+
+## [2.4.0]
+
+### Added
+- **Enterprise proxy support** — All HTTP traffic now automatically routes through corporate proxies when standard environment variables are set (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`). For environments with SSL inspection, set `NODE_EXTRA_CA_CERTS` to your corporate CA certificate. The CLI provides clear error messages when proxy or certificate issues are detected.
+
+## [2.3.4]
+
+### Changed
+- **ByteRover provider request format simplified** — Reduced unnecessary fields sent to the server for cleaner request handling.
+
+## [2.3.3]
+
+### Fixed
+- **Streaming errors from OAuth providers showed `[object Object]`** — Error messages from LLM provider streaming failures (e.g. OpenAI via OAuth) now display the actual error detail instead of an unhelpful `[object Object]` string.
+
 ## [2.3.2]
 
 ### Removed
