@@ -14,7 +14,17 @@ import {getProjectDataDir} from '../../../server/utils/path-utils.js'
 /**
  * Commands that should skip auto-init and config version validation.
  */
-export const SKIP_COMMANDS = new Set<string>(['--help', 'help', 'init', 'login', 'logout', 'main', 'restart'])
+export const SKIP_COMMANDS = new Set<string>([
+  '--help',
+  'help',
+  'init',
+  'login',
+  'logout',
+  'main',
+  'restart',
+  'vc:clone',
+  'vc:init',
+])
 
 /**
  * Dependencies for the curate-view patch marker, injected for testability.

@@ -238,7 +238,6 @@ export class InitHandler {
       {contextTreeService: this.contextTreeService, projectConfigStore: this.projectConfigStore},
       projectPath,
     )
-    await this.contextTreeSnapshotService.initEmptySnapshot(projectPath)
 
     return {alreadyInitialized: false, success: true}
   }
