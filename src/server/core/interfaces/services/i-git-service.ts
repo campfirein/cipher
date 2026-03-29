@@ -76,6 +76,17 @@ export type GetRemoteUrlGitParams = BaseGitParams & {remote: string}
 export type GetTrackingBranchParams = BaseGitParams & {branch: string}
 export type SetTrackingBranchParams = BaseGitParams & {branch: string; remote: string; remoteBranch: string}
 export type GetAheadBehindParams = BaseGitParams & {localRef: string; remoteRef: string}
+export type ResetMode = 'hard' | 'mixed' | 'soft'
+export type ResetGitParams = BaseGitParams & {
+  filePaths?: string[]
+  mode?: ResetMode
+  ref?: string
+}
+export type ResetResult = {
+  filesChanged: number
+  headSha: string
+}
+
 export type CloneGitParams = BaseGitParams & {
   onProgress?: (progress: {loaded: number; phase: string; total?: number}) => void
   url: string
@@ -133,6 +144,15 @@ export interface IGitService {
    */
   push(params: PushGitParams): Promise<PushResult>
   removeRemote(params: RemoveRemoteGitParams): Promise<void>
+  /**
+   * Resets the index and/or HEAD.
+   * - filePaths provided: unstages specific files (always mixed, ignores mode)
+   * - mode=mixed (default): resets index to ref. If ref is HEAD, unstages all.
+   *   If ref is a commit (e.g. HEAD~1), moves HEAD back and unstages.
+   * - mode=soft: moves HEAD to ref, keeps index and working tree intact
+   * - mode=hard: moves HEAD to ref, resets index and working tree
+   */
+  reset(params: ResetGitParams): Promise<ResetResult>
   /** Writes upstream tracking config: `branch.<name>.remote` and `branch.<name>.merge`. */
   setTrackingBranch(params: SetTrackingBranchParams): Promise<void>
   status(params: BaseGitParams): Promise<GitStatus>

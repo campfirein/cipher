@@ -37,6 +37,19 @@ function makeAuth(options?: {noAuth: true}): IAuthStateStore {
   }
 }
 
+async function initWithCommit(
+  svc: IsomorphicGitService,
+  dir: string,
+  filename: string,
+  content: string,
+  message: string,
+): Promise<string> {
+  await writeFile(join(dir, filename), content)
+  await svc.add({directory: dir, filePaths: [filename]})
+  const commit = await svc.commit({directory: dir, message})
+  return commit.sha
+}
+
 describe('IsomorphicGitService', () => {
   let testDir: string
   let service: IsomorphicGitService
@@ -1000,6 +1013,213 @@ describe('IsomorphicGitService', () => {
 
       expect(result.ahead).to.equal(2)
       expect(result.behind).to.equal(0)
+    })
+  })
+
+  // ---- reset() ----
+
+  describe('reset()', () => {
+    describe('unstage all (default)', () => {
+      it('unstages a staged new file', async () => {
+        await service.init({directory: testDir})
+        await initWithCommit(service, testDir, 'base.md', 'base', 'initial')
+
+        await writeFile(join(testDir, 'new.md'), 'new content')
+        await service.add({directory: testDir, filePaths: ['new.md']})
+
+        // Verify staged
+        let status = await service.status({directory: testDir})
+        expect(status.files.some((f) => f.path === 'new.md' && f.staged)).to.be.true
+
+        const result = await service.reset({directory: testDir})
+
+        expect(result.filesChanged).to.equal(1)
+
+        // Verify unstaged — file should be untracked now
+        status = await service.status({directory: testDir})
+        const newFile = status.files.find((f) => f.path === 'new.md')
+        expect(newFile).to.exist
+        expect(newFile!.staged).to.be.false
+        expect(newFile!.status).to.equal('untracked')
+      })
+
+      it('unstages a staged modification', async () => {
+        await service.init({directory: testDir})
+        await initWithCommit(service, testDir, 'a.md', 'original', 'initial')
+
+        await writeFile(join(testDir, 'a.md'), 'modified')
+        await service.add({directory: testDir, filePaths: ['a.md']})
+
+        let status = await service.status({directory: testDir})
+        expect(status.files.some((f) => f.path === 'a.md' && f.staged && f.status === 'modified')).to.be.true
+
+        await service.reset({directory: testDir})
+
+        status = await service.status({directory: testDir})
+        const file = status.files.find((f) => f.path === 'a.md')
+        expect(file).to.exist
+        expect(file!.staged).to.be.false
+        expect(file!.status).to.equal('modified')
+      })
+
+      it('unstages a staged deletion', async () => {
+        await service.init({directory: testDir})
+        await initWithCommit(service, testDir, 'a.md', 'content', 'initial')
+
+        await unlink(join(testDir, 'a.md'))
+        await service.add({directory: testDir, filePaths: ['a.md']})
+
+        let status = await service.status({directory: testDir})
+        expect(status.files.some((f) => f.path === 'a.md' && f.staged && f.status === 'deleted')).to.be.true
+
+        await service.reset({directory: testDir})
+
+        status = await service.status({directory: testDir})
+        const file = status.files.find((f) => f.path === 'a.md')
+        expect(file).to.exist
+        expect(file!.staged).to.be.false
+        expect(file!.status).to.equal('deleted')
+      })
+
+      it('returns filesChanged=0 when nothing is staged', async () => {
+        await service.init({directory: testDir})
+        await initWithCommit(service, testDir, 'a.md', 'content', 'initial')
+
+        const result = await service.reset({directory: testDir})
+        expect(result.filesChanged).to.equal(0)
+      })
+    })
+
+    describe('unstage specific file', () => {
+      it('unstages only the specified file', async () => {
+        await service.init({directory: testDir})
+        await initWithCommit(service, testDir, 'a.md', 'a', 'initial')
+
+        await writeFile(join(testDir, 'a.md'), 'modified a')
+        await writeFile(join(testDir, 'b.md'), 'new b')
+        await service.add({directory: testDir, filePaths: ['a.md', 'b.md']})
+
+        await service.reset({directory: testDir, filePaths: ['b.md']})
+
+        const status = await service.status({directory: testDir})
+        // a.md should still be staged
+        expect(status.files.some((f) => f.path === 'a.md' && f.staged)).to.be.true
+        // b.md should be unstaged (untracked)
+        const bFile = status.files.find((f) => f.path === 'b.md')
+        expect(bFile).to.exist
+        expect(bFile!.staged).to.be.false
+      })
+    })
+
+    describe('soft reset', () => {
+      it('moves HEAD back, keeps changes staged', async () => {
+        await service.init({directory: testDir})
+        const sha1 = await initWithCommit(service, testDir, 'a.md', 'v1', 'commit 1')
+        await initWithCommit(service, testDir, 'a.md', 'v2', 'commit 2')
+
+        const result = await service.reset({directory: testDir, mode: 'soft', ref: 'HEAD~1'})
+
+        expect(result.headSha).to.equal(sha1)
+
+        // HEAD should be at sha1
+        const log = await service.log({depth: 1, directory: testDir})
+        expect(log[0].sha).to.equal(sha1)
+
+        // Changes from commit 2 should still be staged
+        const status = await service.status({directory: testDir})
+        expect(status.files.some((f) => f.path === 'a.md' && f.staged && f.status === 'modified')).to.be.true
+
+        // Working tree should have v2 content
+        const content = await readFile(join(testDir, 'a.md'), 'utf8')
+        expect(content).to.equal('v2')
+      })
+    })
+
+    describe('hard reset', () => {
+      it('moves HEAD back and discards all changes', async () => {
+        await service.init({directory: testDir})
+        const sha1 = await initWithCommit(service, testDir, 'a.md', 'v1', 'commit 1')
+        await initWithCommit(service, testDir, 'a.md', 'v2', 'commit 2')
+
+        const result = await service.reset({directory: testDir, mode: 'hard', ref: 'HEAD~1'})
+
+        expect(result.headSha).to.equal(sha1)
+
+        // HEAD should be at sha1
+        const log = await service.log({depth: 1, directory: testDir})
+        expect(log[0].sha).to.equal(sha1)
+
+        // Working tree should be clean with v1 content
+        const content = await readFile(join(testDir, 'a.md'), 'utf8')
+        expect(content).to.equal('v1')
+
+        const status = await service.status({directory: testDir})
+        expect(status.isClean).to.be.true
+      })
+
+      it('removes files that were added in the reset-away commit', async () => {
+        await service.init({directory: testDir})
+        const sha1 = await initWithCommit(service, testDir, 'a.md', 'a', 'commit 1')
+        await initWithCommit(service, testDir, 'b.md', 'b', 'commit 2')
+
+        await service.reset({directory: testDir, mode: 'hard', ref: 'HEAD~1'})
+
+        // b.md should be gone from disk
+        expect(existsSync(join(testDir, 'b.md'))).to.be.false
+
+        // a.md should still exist
+        expect(existsSync(join(testDir, 'a.md'))).to.be.true
+
+        const log = await service.log({depth: 1, directory: testDir})
+        expect(log[0].sha).to.equal(sha1)
+      })
+    })
+
+    describe('mixed reset with ref', () => {
+      it('moves HEAD back and unstages changes', async () => {
+        await service.init({directory: testDir})
+        const sha1 = await initWithCommit(service, testDir, 'a.md', 'v1', 'commit 1')
+        await initWithCommit(service, testDir, 'a.md', 'v2', 'commit 2')
+
+        const result = await service.reset({directory: testDir, mode: 'mixed', ref: 'HEAD~1'})
+
+        expect(result.headSha).to.equal(sha1)
+
+        // HEAD should be at sha1
+        const log = await service.log({depth: 1, directory: testDir})
+        expect(log[0].sha).to.equal(sha1)
+
+        // Working tree should have v2 (untouched)
+        const content = await readFile(join(testDir, 'a.md'), 'utf8')
+        expect(content).to.equal('v2')
+
+        // Changes should be unstaged (not staged)
+        const status = await service.status({directory: testDir})
+        expect(status.files.some((f) => f.path === 'a.md' && !f.staged && f.status === 'modified')).to.be.true
+      })
+    })
+
+    describe('edge cases', () => {
+      it('throws when HEAD~N exceeds history', async () => {
+        await service.init({directory: testDir})
+        await initWithCommit(service, testDir, 'a.md', 'v1', 'commit 1')
+
+        try {
+          await service.reset({directory: testDir, mode: 'soft', ref: 'HEAD~5'})
+          expect.fail('Expected error')
+        } catch (error) {
+          expect(error).to.be.instanceOf(GitError)
+          expect((error as GitError).message).to.include('not enough ancestors')
+        }
+      })
+
+      it('resolves HEAD~0 to current HEAD', async () => {
+        await service.init({directory: testDir})
+        const sha = await initWithCommit(service, testDir, 'a.md', 'v1', 'commit 1')
+
+        const result = await service.reset({directory: testDir, mode: 'soft', ref: 'HEAD~0'})
+        expect(result.headSha).to.equal(sha)
+      })
     })
   })
 

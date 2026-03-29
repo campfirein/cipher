@@ -38,6 +38,7 @@ import {
   type IVcPullResponse,
 
   type IVcRemoteUrlResponse,
+  type IVcResetResponse,
   type IVcStatusResponse,
 
   VcErrorCode,
@@ -104,6 +105,7 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     pull: sandbox.stub().resolves({success: true}),
     push: sandbox.stub().resolves({success: true}),
     removeRemote: sandbox.stub().resolves(),
+    reset: sandbox.stub().resolves({filesChanged: 0, headSha: 'abc123'}),
     setTrackingBranch: sandbox.stub().resolves(),
     status: sandbox.stub().resolves({files: [], isClean: true}),
   }
@@ -2950,6 +2952,162 @@ describe('VcHandler', () => {
 
       expect(deps.gitService.push.calledOnce).to.be.true
       expect(result).to.deep.include({branch: 'main'})
+    })
+  })
+
+  describe('handleReset', () => {
+    it('should throw GIT_NOT_INITIALIZED when git not initialized', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke<IVcResetResponse>(deps, VcEvents.RESET, {})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.GIT_NOT_INITIALIZED)
+        }
+      }
+    })
+
+    it('should delegate unstage all to gitService.reset with no mode/ref', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.reset.resolves({filesChanged: 3, headSha: 'abc123'})
+      makeVcHandler(deps).setup()
+
+      const result = await invoke<IVcResetResponse>(deps, VcEvents.RESET, {})
+
+      expect(deps.gitService.reset.calledOnce).to.be.true
+      expect(result).to.deep.equal({filesUnstaged: 3, headSha: undefined, mode: 'mixed'})
+    })
+
+    it('should delegate unstage specific files to gitService.reset with filePaths', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.reset.resolves({filesChanged: 1, headSha: 'abc123'})
+      makeVcHandler(deps).setup()
+
+      const result = await invoke<IVcResetResponse>(deps, VcEvents.RESET, {filePaths: ['notes.md']})
+
+      expect(deps.gitService.reset.calledOnce).to.be.true
+      const callArgs = deps.gitService.reset.firstCall.args[0]
+      expect(callArgs.filePaths).to.deep.equal(['notes.md'])
+      expect(result).to.deep.equal({filesUnstaged: 1, headSha: undefined, mode: 'mixed'})
+    })
+
+    it('should delegate soft reset to gitService.reset with mode and ref', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.reset.resolves({filesChanged: 0, headSha: 'def456'})
+      makeVcHandler(deps).setup()
+
+      const result = await invoke<IVcResetResponse>(deps, VcEvents.RESET, {mode: 'soft', ref: 'HEAD~1'})
+
+      expect(deps.gitService.reset.calledOnce).to.be.true
+      const callArgs = deps.gitService.reset.firstCall.args[0]
+      expect(callArgs.mode).to.equal('soft')
+      expect(callArgs.ref).to.equal('HEAD~1')
+      expect(result).to.deep.equal({filesUnstaged: undefined, headSha: 'def456', mode: 'soft'})
+    })
+
+    it('should delegate hard reset to gitService.reset with mode and ref', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.reset.resolves({filesChanged: 2, headSha: 'def456'})
+      makeVcHandler(deps).setup()
+
+      const result = await invoke<IVcResetResponse>(deps, VcEvents.RESET, {mode: 'hard', ref: 'HEAD~1'})
+
+      expect(deps.gitService.reset.calledOnce).to.be.true
+      const callArgs = deps.gitService.reset.firstCall.args[0]
+      expect(callArgs.mode).to.equal('hard')
+      expect(callArgs.ref).to.equal('HEAD~1')
+      expect(result).to.deep.equal({filesUnstaged: undefined, headSha: 'def456', mode: 'hard'})
+    })
+
+    it('should map INVALID_REF error from gitService', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.reset.rejects(new GitError("Cannot resolve 'HEAD~5': not enough ancestors."))
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke<IVcResetResponse>(deps, VcEvents.RESET, {mode: 'soft', ref: 'HEAD~5'})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.INVALID_REF)
+        }
+      }
+    })
+
+    it('should map detached HEAD error from gitService', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.reset.rejects(new GitError('Cannot reset in detached HEAD state.'))
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke<IVcResetResponse>(deps, VcEvents.RESET, {mode: 'soft', ref: 'HEAD~1'})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.INVALID_ACTION)
+        }
+      }
+    })
+
+    it('should block soft reset during active merge', async () => {
+      const deps = makeMergeDeps(sandbox, {mergeHead: true})
+      deps.gitService.isInitialized.resolves(true)
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke<IVcResetResponse>(deps, VcEvents.RESET, {mode: 'soft', ref: 'HEAD~1'})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.MERGE_IN_PROGRESS)
+        }
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should allow hard reset during active merge', async () => {
+      const deps = makeMergeDeps(sandbox, {mergeHead: true})
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.reset.resolves({filesChanged: 1, headSha: 'abc123'})
+      makeVcHandler(deps).setup()
+
+      try {
+        const result = await invoke<IVcResetResponse>(deps, VcEvents.RESET, {mode: 'hard', ref: 'HEAD~1'})
+        expect(result.mode).to.equal('hard')
+        expect(result.headSha).to.equal('abc123')
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should allow unstage during active merge', async () => {
+      const deps = makeMergeDeps(sandbox, {mergeHead: true})
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.reset.resolves({filesChanged: 2, headSha: ''})
+      makeVcHandler(deps).setup()
+
+      try {
+        const result = await invoke<IVcResetResponse>(deps, VcEvents.RESET, {})
+        expect(result.mode).to.equal('mixed')
+        expect(result.filesUnstaged).to.equal(2)
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
     })
   })
 })

@@ -40,9 +40,12 @@ import {
   type IVcRemoteResponse,
   type IVcRemoteUrlRequest,
   type IVcRemoteUrlResponse,
+  type IVcResetRequest,
+  type IVcResetResponse,
   type IVcStatusResponse,
   VcErrorCode,
   VcEvents,
+  type VcResetMode,
 } from '../../../../shared/transport/events/vc-events.js'
 import {BrvConfig} from '../../../core/domain/entities/brv-config.js'
 import {Space} from '../../../core/domain/entities/space.js'
@@ -145,6 +148,9 @@ export class VcHandler {
 
     this.transport.onRequest<IVcRemoteUrlRequest, IVcRemoteUrlResponse>(VcEvents.REMOTE_URL, (data) =>
       this.handleRemoteUrl(data),
+    )
+    this.transport.onRequest<IVcResetRequest, IVcResetResponse>(VcEvents.RESET, (data, clientId) =>
+      this.handleReset(data, clientId),
     )
 
     this.transport.onRequest<void, IVcStatusResponse>(VcEvents.STATUS, (_data, clientId) => this.handleStatus(clientId))
@@ -861,6 +867,66 @@ export class VcHandler {
     parsed.username = token.userId
     parsed.password = token.sessionKey
     return {url: parsed.toString()}
+  }
+
+  private async handleReset(data: IVcResetRequest, clientId: string): Promise<IVcResetResponse> {
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const directory = this.contextTreeService.resolvePath(projectPath)
+
+    const gitInitialized = await this.gitService.isInitialized({directory})
+    if (!gitInitialized) {
+      throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
+    }
+
+    const mode: VcResetMode = data.filePaths ? 'mixed' : (data.mode ?? 'mixed')
+
+    // Block soft/hard reset during active merge
+    if (mode !== 'mixed' || (data.ref && data.ref !== 'HEAD')) {
+      const hasMergeHead = await fs.promises
+        .access(join(directory, '.git', 'MERGE_HEAD'))
+        .then(() => true)
+        .catch(() => false)
+
+      if (hasMergeHead && mode !== 'hard') {
+        throw new VcError(
+          'Cannot reset while a merge is in progress. Abort or complete the merge first.',
+          VcErrorCode.MERGE_IN_PROGRESS,
+        )
+      }
+    }
+
+    try {
+      const result = await this.gitService.reset({
+        directory,
+        filePaths: data.filePaths,
+        mode: data.filePaths ? undefined : mode,
+        ref: data.ref,
+      })
+
+      const isUnstage = Boolean(data.filePaths) || (mode === 'mixed' && (!data.ref || data.ref === 'HEAD'))
+
+      return {
+        filesUnstaged: isUnstage ? result.filesChanged : undefined,
+        headSha: isUnstage ? undefined : result.headSha,
+        mode,
+      }
+    } catch (error) {
+      if (error instanceof GitError) {
+        if (error.message.includes('Cannot resolve')) {
+          throw new VcError(error.message, VcErrorCode.INVALID_REF)
+        }
+
+        if (error.message.includes('detached HEAD')) {
+          throw new VcError(error.message, VcErrorCode.INVALID_ACTION)
+        }
+
+        if (error.message.includes('No commits')) {
+          throw new VcError(error.message, VcErrorCode.NO_COMMITS)
+        }
+      }
+
+      throw error
+    }
   }
 
   private async handleStatus(clientId: string): Promise<IVcStatusResponse> {
