@@ -14,6 +14,7 @@ import {
 import {
   type ProviderAwaitOAuthCallbackResponse,
   type ProviderConnectResponse,
+  type ProviderDisconnectResponse,
   ProviderEvents,
   type ProviderListResponse,
   type ProviderSetActiveResponse,
@@ -202,6 +203,12 @@ export default class ProviderConnect extends Command {
     }, options)
   }
 
+  protected async disconnectProvider(providerId: string, options?: DaemonClientOptions): Promise<void> {
+    await withDaemonRetry(async (client) => {
+      await client.requestWithAck<ProviderDisconnectResponse>(ProviderEvents.DISCONNECT, {providerId})
+    }, options)
+  }
+
   protected async fetchModels(providerId: string, options?: DaemonClientOptions): Promise<ModelListResponse> {
     return withDaemonRetry(
       async (client) =>
@@ -275,7 +282,13 @@ export default class ProviderConnect extends Command {
       choices.push({name: 'Set as active', value: 'activate'})
     }
 
-    choices.push({name: `Reconfigure ${provider.authMethod === 'oauth' ? 'OAuth' : 'API key'}`, value: 'reconfigure'})
+    if (provider.isConnected) {
+      choices.push({name: 'Disconnect', value: 'disconnect'})
+    }
+
+    if (provider.requiresApiKey || provider.supportsOAuth) {
+      choices.push({name: `Reconfigure ${provider.authMethod === 'oauth' ? 'OAuth' : 'API key'}`, value: 'reconfigure'})
+    }
 
     return select(
       {
@@ -416,7 +429,12 @@ export default class ProviderConnect extends Command {
                 break
               }
 
-              await this.runAuthStep(providerId, provider, esc.signal)
+              const done = await this.runAuthStep(providerId, provider, esc.signal)
+              // eslint-disable-next-line max-depth
+              if (done) {
+                stepIndex = STEPS.length // skip remaining steps
+              }
+
               break
             }
 
@@ -427,6 +445,10 @@ export default class ProviderConnect extends Command {
                 stepIndex = 0
                 break
               }
+
+              // ByteRover does not need model selection
+              // eslint-disable-next-line max-depth
+              if (providerId === 'byterover') break
 
               await this.runModelStep(providerId, esc.signal)
               break
@@ -535,9 +557,10 @@ export default class ProviderConnect extends Command {
   }
 
   /* eslint-disable no-await-in-loop -- intentional retry loop for interactive auth */
-  private async runAuthStep(providerId: string, provider: ProviderDTO, signal?: AbortSignal): Promise<void> {
-    // Provider already connected — ask what to do (skip prompt if already current)
-    if (provider.isConnected && !provider.isCurrent) {
+  /** Returns true when wizard should end (skip model step), false to continue to model step. */
+  private async runAuthStep(providerId: string, provider: ProviderDTO, signal?: AbortSignal): Promise<boolean> {
+    // Provider already connected — ask what to do
+    if (provider.isConnected) {
       const action = await this.promptForConnectedAction(provider, signal)
 
       if (action === 'activate') {
@@ -545,7 +568,15 @@ export default class ProviderConnect extends Command {
         const result = await this.connectProvider({providerId})
         spinner.clear()
         this.log(`Connected to ${result.providerName} (${result.providerId})`)
-        return
+        return false
+      }
+
+      if (action === 'disconnect') {
+        const spinner = createSpinner('Disconnecting...')
+        await this.disconnectProvider(providerId)
+        spinner.clear()
+        this.log(`Disconnected from ${provider.name}`)
+        return true
       }
 
       // reconfigure → fall through to auth flow below
@@ -557,7 +588,7 @@ export default class ProviderConnect extends Command {
       const result = await this.connectProvider({providerId})
       spinner.clear()
       this.log(`Connected to ${result.providerName} (${result.providerId})`)
-      return
+      return false
     }
 
     // Retry loop — on connection failure, show error and re-prompt credentials
@@ -577,7 +608,7 @@ export default class ProviderConnect extends Command {
             this.log(`Connected to ${result.providerName} via OAuth`)
           }
 
-          return
+          return false
         }
 
         // API key flow
@@ -591,7 +622,7 @@ export default class ProviderConnect extends Command {
         const result = await this.connectProvider({apiKey, baseUrl, providerId})
         spinner.clear()
         this.log(`Connected to ${result.providerName} (${result.providerId})`)
-        return
+        return false
       } catch (error) {
         // Prompt cancellation → propagate to state machine (go back to provider)
         if (isPromptCancelled(error)) throw error
