@@ -1,3 +1,4 @@
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@campfirein/byterover-packages/components/alert'
 import { Badge } from '@campfirein/byterover-packages/components/badge'
 import { Button } from '@campfirein/byterover-packages/components/button'
 import {
@@ -7,8 +8,9 @@ import {
   CardHeader,
   CardTitle,
 } from '@campfirein/byterover-packages/components/card'
+import { Input } from '@campfirein/byterover-packages/components/input'
 import { Tabs, TabsList, TabsTrigger } from '@campfirein/byterover-packages/components/tabs'
-import { useEffect, useState } from 'react'
+import { useDeferredValue, useEffect, useState } from 'react'
 
 import type { AgentDTO, ConnectorDTO } from '../../../../shared/transport/types/dto'
 import type { ConnectorType } from '../../../../shared/types/connector-type'
@@ -36,15 +38,19 @@ export function ConnectorsPanel() {
   const [activeTab, setActiveTab] = useState<ConnectorType>('rules')
   const [selectedAgentId, setSelectedAgentId] = useState<AgentDTO['id'] | null>(null)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
+  const [agentSearch, setAgentSearch] = useState('')
+  const deferredAgentSearch = useDeferredValue(agentSearch)
 
-  const { data: connectorsData, error: connectorsError, isLoading: isLoadingConnectors } = useGetConnectors()
+  const { data: connectorsData, error: connectorsError, isLoading: isLoadingConnectors, refetch: refetchConnectors } = useGetConnectors()
   const { data: agentsData, error: agentsError, isLoading: isLoadingAgents } = useGetAgents()
   const installMutation = useInstallConnector()
 
   const connectors = connectorsData?.connectors ?? []
   const agents = agentsData?.agents ?? []
   const connectorByAgent = new Map(connectors.map((connector) => [connector.agent, connector]))
-  const visibleAgents = agents.filter((agent) => agent.supportedConnectorTypes.includes(activeTab))
+  const visibleAgents = agents
+    .filter((agent) => agent.supportedConnectorTypes.includes(activeTab))
+    .filter((agent) => !deferredAgentSearch || agent.name.toLowerCase().includes(deferredAgentSearch.toLowerCase()))
 
   useEffect(() => {
     if (visibleAgents.length === 0) return
@@ -60,15 +66,22 @@ export function ConnectorsPanel() {
   async function handleInstall(agent: AgentDTO, existingConnector?: ConnectorDTO) {
     try {
       const result = await installMutation.mutateAsync({ agentId: agent.id, connectorType: activeTab })
+      await refetchConnectors()
       setSelectedAgentId(agent.id)
+
+      const needsRestart = existingConnector && requiresAgentRestart(activeTab)
       setFeedback({
-        details: result.requiresManualSetup
-          ? result.manualInstructions?.configContent
-          : result.configPath
-            ? `Config path: ${result.configPath}`
-            : undefined,
-        text: result.message,
-        tone: 'success',
+        details: needsRestart
+          ? undefined
+          : result.requiresManualSetup
+            ? result.manualInstructions?.configContent
+            : result.configPath
+              ? `Config path: ${result.configPath}`
+              : undefined,
+        text: needsRestart
+          ? `${agent.name} switched to ${connectorLabels[activeTab]}. Restart the agent to apply the new connector.`
+          : result.message,
+        tone: needsRestart ? 'info' : 'success',
       })
     } catch (installError) {
       setFeedback({
@@ -76,53 +89,53 @@ export function ConnectorsPanel() {
         tone: 'error',
       })
     }
-
-    if (existingConnector && requiresAgentRestart(activeTab)) {
-      setFeedback({
-        text: `${agent.name} switched to ${connectorLabels[activeTab]}. Restart the agent to apply the new connector.`,
-        tone: 'info',
-      })
-    }
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <Card className="shadow-sm ring-border/70" size="sm">
-        <CardHeader>
-          <div>
-            <CardTitle className="font-semibold">Connector modes</CardTitle>
-            <CardDescription>Tabs are filtered by connector type, with install/switch actions backed by the daemon connector handler.</CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <Tabs onValueChange={(value) => setActiveTab(value as ConnectorType)} value={activeTab}>
-            <TabsList className="h-auto flex-wrap" variant="default">
-              {CONNECTOR_TYPES.map((connectorType) => (
-                <TabsTrigger className="cursor-pointer px-3" key={connectorType} value={connectorType}>
-                  {connectorLabels[connectorType]}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
+    <div className="flex flex-col gap-4 h-full min-h-0">
+      {feedback ? (
+        <Alert className='border-primary' variant={feedback.tone === 'error' ? 'destructive' : 'default'}>
+          <AlertTitle>{feedback.text}</AlertTitle>
+          {feedback.details ? <AlertDescription>{feedback.details}</AlertDescription> : null}
+          <AlertAction>
+            <button className="size-6 flex items-center justify-center text-lg leading-none opacity-60 hover:opacity-100 cursor-pointer" onClick={() => setFeedback(null)} type="button">&times;</button>
+          </AlertAction>
+        </Alert>
+      ) : null}
 
-          {feedback ? <div className={feedback.tone === 'error' ? 'p-4 border border-destructive/20 rounded-xl bg-destructive/5 text-destructive' : feedback.tone === 'info' ? 'p-4 border border-blue-500/20 rounded-xl bg-blue-50 text-blue-700' : 'p-4 border border-primary/20 rounded-xl bg-primary/5 text-primary'}>{feedback.text}</div> : null}
-          {feedback?.details ? <pre className="overflow-auto p-4 border border-border rounded-xl bg-foreground text-background whitespace-pre-wrap font-mono text-sm">{feedback.details}</pre> : null}
-          {isLoadingConnectors || isLoadingAgents ? <div className="p-4 border border-blue-500/20 rounded-xl bg-blue-50 text-blue-700">Loading connectors…</div> : null}
-          {connectorsError ? <div className="p-4 border border-destructive/20 rounded-xl bg-destructive/5 text-destructive">{connectorsError.message}</div> : null}
-          {agentsError ? <div className="p-4 border border-destructive/20 rounded-xl bg-destructive/5 text-destructive">{agentsError.message}</div> : null}
-        </CardContent>
-      </Card>
+      {isLoadingConnectors || isLoadingAgents ? <div className="p-4 border border-blue-500/20 rounded-xl bg-blue-50 text-blue-700">Loading connectors…</div> : null}
 
-      <div className="grid gap-4 grid-cols-2">
-        <Card className="shadow-sm ring-border/70" size="sm">
+      {connectorsError ? <div className="p-4 border border-destructive/20 rounded-xl bg-destructive/5 text-destructive">{connectorsError.message}</div> : null}
+
+      {agentsError ? <div className="p-4 border border-destructive/20 rounded-xl bg-destructive/5 text-destructive">{agentsError.message}</div> : null}
+
+      <div className="grid gap-4 grid-cols-2 items-start flex-1 min-h-0">
+        <Card className="min-h-0 overflow-hidden shadow-sm ring-border/70 h-full" size="sm">
           <CardHeader>
             <div>
               <CardTitle className="font-semibold">Supported agents</CardTitle>
               <CardDescription>{`${visibleAgents.length} agents support ${connectorLabels[activeTab]}.`}</CardDescription>
             </div>
           </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3">
+          <CardContent className="flex flex-col gap-4 min-h-0 overflow-hidden">
+            <div className="flex items-center gap-3 shrink-0 pt-2">
+              <Tabs onValueChange={(value) => setActiveTab(value as ConnectorType)} value={activeTab}>
+                <TabsList className="h-10 flex-wrap" variant="default">
+                  {CONNECTOR_TYPES.map((connectorType) => (
+                    <TabsTrigger className="cursor-pointer px-3" key={connectorType} value={connectorType}>
+                      {connectorLabels[connectorType]}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+              <Input
+                className="h-10 flex-1 rounded-lg bg-background px-3"
+                onChange={(event) => setAgentSearch(event.target.value)}
+                placeholder="Search agents by name..."
+                value={agentSearch}
+              />
+            </div>
+            <div className="flex flex-col gap-3 overflow-y-auto p-px">
               {visibleAgents.map((agent) => {
                 const existingConnector = connectorByAgent.get(agent.id)
                 const isSelected = agent.id === selectedAgentId
@@ -130,12 +143,12 @@ export function ConnectorsPanel() {
 
                 return (
                   <Card
-                    className={isSelected ? 'cursor-pointer gap-3 px-4 shadow-none ring-primary/30 bg-primary/5' : 'cursor-pointer gap-3 px-4 shadow-none ring-border/80'}
+                    className={isSelected ? 'shrink-0 cursor-pointer gap-3 px-4 shadow-none ring-primary/30 bg-primary/5' : 'shrink-0 cursor-pointer gap-3 px-4 shadow-none ring-border/80'}
                     key={agent.id}
                     onClick={() => setSelectedAgentId(agent.id)}
                     size="sm"
                   >
-                    <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-center justify-between gap-4">
                       <div>
                         <CardTitle className="font-semibold">{agent.name}</CardTitle>
                         <CardDescription>
@@ -145,7 +158,7 @@ export function ConnectorsPanel() {
                       <div className="flex flex-wrap gap-2.5">
                         {isActiveConnector ? <Badge className="rounded-sm border-transparent bg-primary/10 text-primary" variant="outline">Installed</Badge> : null}
                         {isActiveConnector ? null : (
-                          <Button className="cursor-pointer" onClick={() => handleInstall(agent, existingConnector)} size="lg">
+                          <Button className="cursor-pointer text-foreground" onClick={() => handleInstall(agent, existingConnector)} size="lg">
                             {existingConnector ? 'Switch' : 'Install'}
                           </Button>
                         )}
@@ -166,7 +179,6 @@ export function ConnectorsPanel() {
             </div>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            {configPathsQuery.isLoading ? <div className="p-4 border border-blue-500/20 rounded-xl bg-blue-50 text-blue-700">Loading config paths…</div> : null}
             {configPathsQuery.error ? <div className="p-4 border border-destructive/20 rounded-xl bg-destructive/5 text-destructive">{configPathsQuery.error.message}</div> : null}
 
             <div className="grid grid-cols-2 gap-3">

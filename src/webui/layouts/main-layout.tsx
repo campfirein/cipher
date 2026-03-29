@@ -1,10 +1,10 @@
-import {Outlet, useLocation} from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 
-import {ConnectionBadge} from './connection-badge'
-import {Sidebar} from './sidebar'
-import {StatusBar} from './status-bar'
+import { ConnectionBadge } from './connection-badge'
+import { Sidebar } from './sidebar'
+import { StatusBar } from './status-bar'
 
-const titleMap: Record<string, {subtitle: string; title: string}> = {
+const titleMap: Record<string, { subtitle: string; title: string }> = {
   '/analytics': {
     subtitle: 'Activity summaries and what is still waiting on task-store wiring.',
     title: 'Analytics',
@@ -50,7 +50,7 @@ export function MainLayout() {
   return (
     <div className="grid grid-cols-[18rem_minmax(0,1fr)] min-h-screen">
       <Sidebar />
-      <div className="grid grid-rows-[auto_1fr_auto] min-w-0">
+      <div className="grid grid-rows-[auto_1fr_auto] min-w-0 max-h-screen">
         <header className="flex items-center justify-between gap-4 px-6 pt-5 pb-4">
           <div className="flex flex-col gap-1">
             <h1 className="text-3xl font-bold leading-none">{page.title}</h1>
@@ -59,7 +59,7 @@ export function MainLayout() {
           <ConnectionBadge />
         </header>
 
-        <main className="px-6 pb-6 min-w-0">
+        <main className="px-6 mb-6 min-w-0 min-h-0 overflow-y-auto">
           <Outlet />
         </main>
 
