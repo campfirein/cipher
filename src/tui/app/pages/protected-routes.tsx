@@ -10,17 +10,26 @@ import React from 'react'
 import {useAppViewMode} from '../../features/onboarding/hooks/use-app-view-mode.js'
 import {ConfigProviderPage} from './config-provider-page.js'
 import {HomePage} from './home-page.js'
+import {InitProjectPage} from './init-project-page.js'
 
 export function ProtectedRoutes(): React.ReactNode {
   const viewMode = useAppViewMode()
 
-  if (viewMode.type === 'loading') {
-    return null
-  }
+  switch (viewMode.type) {
+    case 'config-provider': {
+      return <ConfigProviderPage />
+    }
 
-  if (viewMode.type === 'config-provider') {
-    return <ConfigProviderPage />
-  }
+    case 'init-project': {
+      return <InitProjectPage />
+    }
 
-  return <HomePage />
+    case 'loading': {
+      return null
+    }
+
+    case 'ready': {
+      return <HomePage />
+    }
+  }
 }

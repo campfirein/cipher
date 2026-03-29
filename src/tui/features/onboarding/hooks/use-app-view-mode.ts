@@ -7,32 +7,36 @@
 
 import {useAuthStore} from '../../auth/stores/auth-store.js'
 import {useGetActiveProviderConfig} from '../../provider/api/get-active-provider-config.js'
+import {useGetStatus} from '../../status/api/get-status.js'
 
 /**
- * The 5 valid application view modes as a discriminated union.
+ * Application view modes as a discriminated union.
  */
-export type AppViewMode =
-  | {type: 'config-provider'}
-  | {type: 'loading'}
-  | {type: 'ready'}
+export type AppViewMode = {type: 'config-provider'} | {type: 'init-project'} | {type: 'loading'} | {type: 'ready'}
 
 /**
  * Selector that derives the current view mode from stored state.
  * This is the ONLY way to determine what UI to show.
  *
  * View mode decision tree:
- * 1. Loading auth or onboarding check -> 'loading'
- * 2. New user (hasDismissed) -> 'onboarding'
- * 3. Existing user, no provider config -> provider flow
- * 4. Otherwise -> 'ready'
+ * 1. Loading → loading
+ * 2. Project not initialized → init-project
+ * 3. No provider/model configured → config-provider
+ * 4. Otherwise → ready
  */
 export function useAppViewMode(): AppViewMode {
   const {isLoadingInitial: isLoadingAuth} = useAuthStore()
+  const {data: statusData, isLoading: isLoadingStatus} = useGetStatus()
   const {data: activeData, isLoading: isLoadingActive} = useGetActiveProviderConfig()
 
-  // Still loading auth or active provider check
-  if (isLoadingAuth || isLoadingActive) {
+  // Still loading auth, status, or active provider check
+  if (isLoadingAuth || isLoadingStatus || isLoadingActive) {
     return {type: 'loading'}
+  }
+
+  // Project not initialized — .brv/ doesn't exist at cwd
+  if (['not_initialized', 'unknown'].includes(statusData?.status.contextTreeStatus || '')) {
+    return {type: 'init-project'}
   }
 
   // ByteRover is the default provider and doesn't require model config

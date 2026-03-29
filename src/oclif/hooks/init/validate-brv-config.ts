@@ -6,17 +6,15 @@ import {dirname, join} from 'node:path'
 import type {IProjectConfigStore} from '../../../server/core/interfaces/storage/i-project-config-store.js'
 
 import {BRV_CONFIG_VERSION} from '../../../server/constants.js'
-import {type AutoInitDeps, ensureProjectInitialized} from '../../../server/infra/config/auto-init.js'
 import {ProjectConfigStore} from '../../../server/infra/config/file-config-store.js'
 import {ensureCurateViewPatched} from '../../../server/infra/connectors/shared/rule-segment-patcher.js'
-import {FileContextTreeService} from '../../../server/infra/context-tree/file-context-tree-service.js'
 import {syncConfigToXdg} from '../../../server/utils/config-xdg-sync.js'
 import {getProjectDataDir} from '../../../server/utils/path-utils.js'
 
 /**
  * Commands that should skip auto-init and config version validation.
  */
-export const SKIP_COMMANDS = new Set<string>(['--help', 'help', 'login', 'logout', 'restart'])
+export const SKIP_COMMANDS = new Set<string>(['--help', 'help', 'init', 'login', 'logout', 'main', 'restart'])
 
 /**
  * Dependencies for the curate-view patch marker, injected for testability.
@@ -49,18 +47,16 @@ const defaultPatchMarkerDeps = (cwd: string): PatchMarkerDeps => ({
 
 /**
  * Core validation logic extracted for testability.
- * Auto-initializes .brv/ if it doesn't exist, then migrates config version if needed.
+ * Throws if .brv/ doesn't exist (user must run `brv init`), then migrates config version if needed.
  * Also ensures connector files are patched with `brv curate view` docs (once per project).
  *
  * @param commandId - The command being executed
  * @param configStore - The config store to use for reading config
- * @param autoInitDeps - Dependencies for auto-init (optional, for testing)
  * @param patchMarkerDeps - Dependencies for the curate-view patch marker (optional, for testing)
  */
 export const validateBrvConfigVersion = async (
   commandId: string,
   configStore: IProjectConfigStore,
-  autoInitDeps?: AutoInitDeps,
   patchMarkerDeps?: PatchMarkerDeps,
 ): Promise<void> => {
   // Skip for commands that don't need config
@@ -70,18 +66,13 @@ export const validateBrvConfigVersion = async (
 
   const exists = await configStore.exists()
   if (!exists) {
-    // Auto-init: create .brv/ with minimal local config
-    const deps = autoInitDeps ?? {
-      contextTreeService: new FileContextTreeService(),
-      projectConfigStore: configStore,
-    }
-    await ensureProjectInitialized(deps)
-    return
+    throw new Error('fatal: not a brv project (or any of the parent directories): .brv')
   }
 
-  // Read existing config — fromJson() preserves original version
   const config = await configStore.read()
-  if (!config) return
+  if (!config) {
+    throw new Error('fatal: corrupt or unreadable config: .brv/config.json')
+  }
 
   // ProjectConfigStore checks .brv/ at process.cwd() directly (no walk-up),
   // so configStore.exists() returning true means process.cwd() IS the project root.
@@ -105,10 +96,19 @@ export const validateBrvConfigVersion = async (
 }
 
 /**
- * Prerun hook that auto-initializes .brv/ if missing, then validates config version.
+ * Init hook that ensures .brv/ exists and validates config version.
+ * Runs once during CLI bootstrap — does NOT re-fire for runCommand() calls,
+ * so commands like `init` can safely delegate to sub-commands.
  */
-const hook: Hook<'prerun'> = async function (options): Promise<void> {
-  await validateBrvConfigVersion(options.Command.id, new ProjectConfigStore())
+const hook: Hook<'init'> = async function (options): Promise<void> {
+  try {
+    await validateBrvConfigVersion(options.id ?? '', new ProjectConfigStore())
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    process.stderr.write(`${message}\n`)
+    // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+    process.exit(1)
+  }
 }
 
 export default hook
