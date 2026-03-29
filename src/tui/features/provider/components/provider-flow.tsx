@@ -2,7 +2,7 @@
  * ProviderFlow Component
  *
  * Multi-step React flow for the /providers command.
- * State machine: loading → select → provider_actions → api_key → connecting → done
+ * State machine: loading → select → login_prompt → login → provider_actions → api_key → connecting → done
  *
  * Owns the UX flow — fetches providers, renders selection,
  * handles API key input, and calls connect/setActive mutations.
@@ -54,7 +54,6 @@ export interface ProviderFlowProps {
   providerDialogTitle?: string
 }
 
-// eslint-disable-next-line complexity
 export const ProviderFlow: React.FC<ProviderFlowProps> = ({
   hideCancelButton = false,
   isActive = true,
@@ -213,7 +212,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       setError(formatTransportError(error_))
       setStep('select')
     }
-  }, [connectMutation, isAuthorized, onComplete])
+  }, [connectMutation, isAuthorized, onComplete, setActiveMutation])
 
   const handleAction = useCallback(async (action: ProviderAction) => {
     if (!selectedProvider) return
@@ -427,10 +426,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
     case 'login': {
       return (
         <LoginFlow
-          onCancel={() => {
-            setStep('select')
-            setSelectedProvider(null)
-          }}
+          onCancel={() => {}}
           onComplete={handleLoginComplete}
         />
       )
