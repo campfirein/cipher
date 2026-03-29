@@ -1,8 +1,10 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 import nock from 'nock'
+import * as sinon from 'sinon'
 
 import {Space} from '../../../../src/server/core/domain/entities/space.js'
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 import {HttpSpaceService} from '../../../../src/server/infra/space/http-space-service.js'
 
 describe('HttpSpaceService', () => {
@@ -12,10 +14,12 @@ describe('HttpSpaceService', () => {
   let service: HttpSpaceService
 
   beforeEach(() => {
+    sinon.stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     service = new HttpSpaceService({apiBaseUrl})
   })
 
   afterEach(() => {
+    sinon.restore()
     nock.cleanAll()
   })
 

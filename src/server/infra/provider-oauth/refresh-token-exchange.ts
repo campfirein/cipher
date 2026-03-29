@@ -3,6 +3,7 @@ import axios, {isAxiosError} from 'axios'
 
 import type {ProviderTokenResponse, RefreshTokenExchangeParams} from './types.js'
 
+import {ProxyConfig} from '../http/proxy-config.js'
 import {extractOAuthErrorFields, ProviderTokenExchangeError} from './errors.js'
 import {ProviderTokenResponseSchema} from './types.js'
 
@@ -28,6 +29,8 @@ export async function exchangeRefreshToken(params: RefreshTokenExchangeParams): 
         headers: {
           'Content-Type': params.contentType,
         },
+        httpAgent: ProxyConfig.getProxyAgent(),
+        httpsAgent: ProxyConfig.getProxyAgent(),
         timeout: 30_000,
       },
     )
