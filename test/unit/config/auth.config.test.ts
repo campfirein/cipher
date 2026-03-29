@@ -14,7 +14,6 @@ describe('Auth Configuration', () => {
     BRV_COGIT_API_BASE_URL: 'https://cogit.test',
     BRV_ISSUER_URL: 'https://issuer.test',
     BRV_LLM_API_BASE_URL: 'https://llm.test',
-    BRV_MEMORA_API_BASE_URL: 'https://memora.test',
     BRV_TOKEN_URL: 'https://auth.test/token',
     BRV_WEB_APP_URL: 'https://app.test',
   }

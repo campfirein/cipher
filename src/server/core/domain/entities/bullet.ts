@@ -10,7 +10,6 @@ export interface BulletMetadata {
 export interface BulletJson {
   content?: string
   id: string
-  memoryId?: string
   metadata: {
     relatedFiles: string[]
     tags: string[]
@@ -26,12 +25,10 @@ export interface BulletJson {
 export class Bullet {
   public readonly content: string
   public readonly id: string
-  public readonly memoryId?: string
   public readonly metadata: BulletMetadata
   public readonly section: string
 
-  // eslint-disable-next-line max-params
-  public constructor(id: string, section: string, content: string, metadata: BulletMetadata, memoryId?: string) {
+  public constructor(id: string, section: string, content: string, metadata: BulletMetadata) {
     if (id.trim().length === 0) {
       throw new Error('Bullet ID cannot be empty')
     }
@@ -60,7 +57,6 @@ export class Bullet {
     this.section = section
     this.content = content
     this.metadata = metadata
-    this.memoryId = memoryId
   }
 
   /**
@@ -84,7 +80,6 @@ export class Bullet {
         tags: json.metadata.tags,
         timestamp: json.metadata.timestamp,
       },
-      json.memoryId,
     )
   }
 
@@ -110,7 +105,6 @@ export class Bullet {
   public toJson(includeContent: boolean = true): BulletJson {
     const json: BulletJson = {
       id: this.id,
-      memoryId: this.memoryId,
       metadata: {
         relatedFiles: this.metadata.relatedFiles,
         tags: this.metadata.tags,
@@ -138,7 +132,6 @@ export class Bullet {
         ...this.metadata,
         timestamp: new Date().toISOString(),
       },
-      this.memoryId,
     )
   }
 }

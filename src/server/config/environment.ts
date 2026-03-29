@@ -25,7 +25,6 @@ type EnvironmentConfig = {
   hubRegistryUrl: string
   issuerUrl: string
   llmApiBaseUrl: string
-  memoraApiBaseUrl: string
   scopes: string[]
   tokenUrl: string
   webAppUrl: string
@@ -60,7 +59,6 @@ export const getCurrentConfig = (): EnvironmentConfig => ({
   hubRegistryUrl: DEFAULTS.hubRegistryUrl,
   issuerUrl: readRequiredEnv('BRV_ISSUER_URL'),
   llmApiBaseUrl: readRequiredEnv('BRV_LLM_API_BASE_URL'),
-  memoraApiBaseUrl: readRequiredEnv('BRV_MEMORA_API_BASE_URL'),
   scopes: [...DEFAULTS.scopes[ENVIRONMENT]],
   tokenUrl: readRequiredEnv('BRV_TOKEN_URL'),
   webAppUrl: readRequiredEnv('BRV_WEB_APP_URL'),

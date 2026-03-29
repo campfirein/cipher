@@ -48,7 +48,7 @@ export class Playbook {
       timestamp: now,
     }
 
-    const bullet = new Bullet(id, section, content, bulletMetadata, undefined)
+    const bullet = new Bullet(id, section, content, bulletMetadata)
 
     // Add to bullets map
     this.bullets.set(id, bullet)
@@ -81,7 +81,7 @@ export class Playbook {
       timestamp: new Date().toISOString(),
     }
 
-    const updatedBullet = new Bullet(bullet.id, bullet.section, bullet.content, updatedMetadata, bullet.memoryId)
+    const updatedBullet = new Bullet(bullet.id, bullet.section, bullet.content, updatedMetadata)
 
     this.bullets.set(bulletId, updatedBullet)
     return updatedBullet
@@ -195,7 +195,7 @@ export class Playbook {
       timestamp: new Date().toISOString(),
     }
 
-    const updatedBullet = new Bullet(bullet.id, bullet.section, bullet.content, updatedMetadata, bullet.memoryId)
+    const updatedBullet = new Bullet(bullet.id, bullet.section, bullet.content, updatedMetadata)
 
     this.bullets.set(bulletId, updatedBullet)
     return updatedBullet
@@ -265,7 +265,6 @@ export class Playbook {
       bullet.section,
       options.content ?? bullet.content,
       updatedMetadata,
-      bullet.memoryId,
     )
 
     this.bullets.set(bulletId, updatedBullet)

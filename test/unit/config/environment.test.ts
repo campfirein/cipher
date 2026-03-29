@@ -7,7 +7,6 @@ describe('Environment Configuration', () => {
     BRV_COGIT_API_BASE_URL: 'https://cogit.test',
     BRV_ISSUER_URL: 'https://issuer.test',
     BRV_LLM_API_BASE_URL: 'https://llm.test',
-    BRV_MEMORA_API_BASE_URL: 'https://memora.test',
     BRV_TOKEN_URL: 'https://auth.test/token',
     BRV_WEB_APP_URL: 'https://app.test',
   }
@@ -83,7 +82,6 @@ describe('Environment Configuration', () => {
       expect(config.cogitApiBaseUrl).to.equal('https://cogit.test')
       expect(config.issuerUrl).to.equal('https://issuer.test')
       expect(config.llmApiBaseUrl).to.equal('https://llm.test')
-      expect(config.memoraApiBaseUrl).to.equal('https://memora.test')
       expect(config.tokenUrl).to.equal('https://auth.test/token')
       expect(config.webAppUrl).to.equal('https://app.test')
     })
