@@ -36,6 +36,8 @@ import type {
   PushGitParams,
   PushResult,
   RemoveRemoteGitParams,
+  ResetGitParams,
+  ResetResult,
   SetTrackingBranchParams,
   TrackingBranch,
 } from '../../core/interfaces/services/i-git-service.js'
@@ -694,6 +696,79 @@ export class IsomorphicGitService implements IGitService {
     await git.deleteRemote({dir, fs, remote: params.remote})
   }
 
+  async reset(params: ResetGitParams): Promise<ResetResult> {
+    const dir = this.requireDirectory(params)
+    const mode = params.mode ?? 'mixed'
+    const ref = params.ref ?? 'HEAD'
+
+    // Case 1: Path-scoped unstage — always mixed, ignores mode/ref
+    if (params.filePaths && params.filePaths.length > 0) {
+      return this.resetUnstage(dir, params.filePaths)
+    }
+
+    // Case 2: Whole-tree unstage (mixed mode, ref=HEAD, no filePaths)
+    if (mode === 'mixed' && ref === 'HEAD') {
+      return this.resetUnstage(dir)
+    }
+
+    // Cases 3-5: Reset to a specific ref (soft/mixed/hard)
+    const targetSha = await this.resolveRefExpression(dir, ref)
+    const branch = await this.getCurrentBranch(params)
+    if (!branch) {
+      throw new GitError('Cannot reset in detached HEAD state.')
+    }
+
+    const previousSha = await git.resolveRef({dir, fs, ref: 'HEAD'})
+
+    if (mode === 'soft') {
+      await git.writeRef({dir, force: true, fs, ref: `refs/heads/${branch}`, value: targetSha})
+      return {filesChanged: 0, headSha: targetSha}
+    }
+
+    if (mode === 'hard') {
+      // Snapshot files in current HEAD to detect orphans after reset
+      const currentFiles = new Set(await git.listFiles({dir, fs, ref: previousSha}))
+      const targetFiles = new Set(await git.listFiles({dir, fs, ref: targetSha}))
+
+      // Move branch pointer
+      await git.writeRef({dir, force: true, fs, ref: `refs/heads/${branch}`, value: targetSha})
+
+      // Restore working tree + index
+      await git.checkout({dir, force: true, fs, ref: branch})
+
+      // Delete orphaned files (tracked in old HEAD but not in target)
+      for (const filepath of currentFiles) {
+        if (!targetFiles.has(filepath)) {
+          // eslint-disable-next-line no-await-in-loop
+          await fs.promises.unlink(join(dir, filepath)).catch(() => {})
+        }
+      }
+
+      // Clean up merge state if present
+      await fs.promises.unlink(join(dir, '.git', 'MERGE_HEAD')).catch(() => {})
+      await fs.promises.unlink(join(dir, '.git', 'MERGE_MSG')).catch(() => {})
+
+      const filesChanged =
+        [...currentFiles].filter((f) => !targetFiles.has(f)).length +
+        [...targetFiles].filter((f) => !currentFiles.has(f)).length
+
+      return {filesChanged, headSha: targetSha}
+    }
+
+    // mode === 'mixed' with ref !== HEAD
+    // Move branch pointer, then reset index to match new HEAD (working tree untouched)
+    await git.writeRef({dir, force: true, fs, ref: `refs/heads/${branch}`, value: targetSha})
+
+    // Reset every file in the index to match the target
+    const targetFiles = await git.listFiles({dir, fs, ref: targetSha})
+    const matrix = await git.statusMatrix({dir, fs})
+    const allPaths = new Set<string>([...matrix.map((row) => String(row[0])), ...targetFiles])
+
+    await Promise.all([...allPaths].map((filepath) => git.resetIndex({dir, filepath, fs, ref: targetSha})))
+
+    return {filesChanged: allPaths.size, headSha: targetSha}
+  }
+
   async setTrackingBranch(params: SetTrackingBranchParams): Promise<void> {
     const dir = this.requireDirectory(params)
     await git.setConfig({dir, fs, path: `branch.${params.branch}.remote`, value: params.remote})
@@ -899,6 +974,76 @@ export class IsomorphicGitService implements IGitService {
     const token = this.authStateStore.getToken()
     if (!token) throw new GitAuthError()
     return token
+  }
+
+  /**
+   * Unstage files by resetting their index entries to match HEAD.
+   * When filePaths is omitted, unstages all staged files.
+   */
+  private async resetUnstage(dir: string, filePaths?: string[]): Promise<ResetResult> {
+    const headSha = await git.resolveRef({dir, fs, ref: 'HEAD'}).catch(() => null)
+    const matrix = await git.statusMatrix({dir, fs})
+
+    // Identify staged rows — any file where the index differs from HEAD
+    const stagedRows = matrix.filter(([, head, , stage]) => {
+      if (head === 1 && stage === 0) return true // staged deletion or git rm --cached ([1,0,0] and [1,1,0])
+      if (head === 0 && stage === 2) return true // staged new file ([0,2,2])
+      if (head === 1 && stage === 2) return true // staged modification ([1,2,2])
+      if (stage === 3) return true // partially staged ([*,*,3])
+      return false
+    })
+
+    const toUnstage =
+      filePaths && filePaths.length > 0
+        ? stagedRows
+            .filter(([filepath]) => {
+              const path = String(filepath)
+              return filePaths.some((fp) => {
+                if (path === fp) return true
+                const prefix = fp.endsWith('/') ? fp : `${fp}/`
+                return path.startsWith(prefix)
+              })
+            })
+            .map(([filepath]) => String(filepath))
+        : stagedRows.map(([filepath]) => String(filepath))
+
+    await Promise.all(
+      headSha
+        ? toUnstage.map((filepath) => git.resetIndex({dir, filepath, fs, ref: 'HEAD'}))
+        : toUnstage.map((filepath) => git.remove({dir, filepath, fs})),
+    )
+
+    return {filesChanged: toUnstage.length, headSha: headSha ?? ''}
+  }
+
+  /**
+   * Resolves a ref expression that may include ~N ancestry syntax (e.g. HEAD~2).
+   * Falls back to git.resolveRef for plain refs.
+   */
+  private async resolveRefExpression(dir: string, ref: string): Promise<string> {
+    const tildeMatch = /^(.+)~(\d+)$/.exec(ref)
+    if (!tildeMatch) {
+      return git.resolveRef({dir, fs, ref})
+    }
+
+    const baseRef = tildeMatch[1]
+    const count = Number.parseInt(tildeMatch[2], 10)
+    if (count === 0) {
+      return git.resolveRef({dir, fs, ref: baseRef})
+    }
+
+    let oid = await git.resolveRef({dir, fs, ref: baseRef})
+    for (let i = 0; i < count; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      const commit = await git.readCommit({dir, fs, oid})
+      if (commit.commit.parent.length === 0) {
+        throw new GitError(`Cannot resolve '${ref}': not enough ancestors.`)
+      }
+
+      oid = commit.commit.parent[0]
+    }
+
+    return oid
   }
 
   /**

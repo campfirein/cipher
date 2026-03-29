@@ -12,6 +12,7 @@ export const VcErrorCode = {
   INVALID_ACTION: 'ERR_VC_INVALID_ACTION',
   INVALID_BRANCH_NAME: 'ERR_VC_INVALID_BRANCH_NAME',
   INVALID_CONFIG_KEY: 'ERR_VC_INVALID_CONFIG_KEY',
+  INVALID_REF: 'ERR_VC_INVALID_REF',
   INVALID_REMOTE_URL: 'ERR_VC_INVALID_REMOTE_URL',
   MERGE_CONFLICT: 'ERR_VC_MERGE_CONFLICT',
   MERGE_IN_PROGRESS: 'ERR_VC_MERGE_IN_PROGRESS',
@@ -22,6 +23,7 @@ export const VcErrorCode = {
   NON_FAST_FORWARD: 'ERR_VC_NON_FAST_FORWARD',
   NOTHING_STAGED: 'ERR_VC_NOTHING_STAGED',
   NOTHING_TO_PUSH: 'ERR_VC_NOTHING_TO_PUSH',
+  NOTHING_TO_RESET: 'ERR_VC_NOTHING_TO_RESET',
   PULL_FAILED: 'ERR_VC_PULL_FAILED',
   PUSH_FAILED: 'ERR_VC_PUSH_FAILED',
   REMOTE_ALREADY_EXISTS: 'ERR_VC_REMOTE_ALREADY_EXISTS',
@@ -49,7 +51,7 @@ export const VcEvents = {
   REMOTE: 'vc:remote',
 
   REMOTE_URL: 'vc:remote-url',
-
+  RESET: 'vc:reset',
   STATUS: 'vc:status',
 } as const
 
@@ -250,4 +252,18 @@ export interface IVcRemoteUrlRequest {
 
 export interface IVcRemoteUrlResponse {
   url: string
+}
+
+export type VcResetMode = 'hard' | 'mixed' | 'soft'
+
+export interface IVcResetRequest {
+  filePaths?: string[]
+  mode?: VcResetMode
+  ref?: string
+}
+
+export interface IVcResetResponse {
+  filesUnstaged?: number
+  headSha?: string
+  mode: VcResetMode
 }
