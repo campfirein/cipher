@@ -15,9 +15,11 @@ import React, {useCallback, useEffect, useMemo, useState} from 'react'
 import type {ProviderDTO} from '../../../../shared/transport/types/dto.js'
 import type {CommandSideEffects} from '../../../types/commands.js'
 
+import {InlineConfirm} from '../../../components/inline-prompts/inline-confirm.js'
 import {SelectableList} from '../../../components/selectable-list.js'
 import {useTheme} from '../../../hooks/index.js'
 import {formatTransportError} from '../../../utils/index.js'
+import {LoginFlow} from '../../auth/components/login-flow.js'
 import {useAuthStore} from '../../auth/stores/auth-store.js'
 import {useConnectProvider} from '../api/connect-provider.js'
 import {useDisconnectProvider} from '../api/disconnect-provider.js'
@@ -31,7 +33,7 @@ import {ModelSelectStep} from './model-select-step.js'
 import {OAuthDialog} from './oauth-dialog.js'
 import {ProviderDialog} from './provider-dialog.js'
 
-type FlowStep = 'api_key' | 'auth_method' | 'base_url' | 'connecting' | 'done' | 'loading' | 'model_select' | 'oauth' | 'provider_actions' | 'select'
+type FlowStep = 'api_key' | 'auth_method' | 'base_url' | 'connecting' | 'done' | 'loading' | 'login' | 'login_prompt' | 'model_select' | 'oauth' | 'provider_actions' | 'select'
 
 interface ProviderAction {
   description: string
@@ -52,6 +54,7 @@ export interface ProviderFlowProps {
   providerDialogTitle?: string
 }
 
+// eslint-disable-next-line complexity
 export const ProviderFlow: React.FC<ProviderFlowProps> = ({
   hideCancelButton = false,
   isActive = true,
@@ -152,8 +155,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
 
     // ByteRover requires authentication
     if (provider.id === 'byterover' && !isAuthorized) {
-      setError('ByteRover Provider requires authentication. Run /login to sign in.')
-      setStep('select')
+      setStep('login_prompt')
       return
     }
 
@@ -169,11 +171,12 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       return
     }
 
-    // ByteRover + not connected → connect directly, no model select
+    // ByteRover + not connected → connect + activate directly, no model select
     if (provider.id === 'byterover') {
       setStep('connecting')
       try {
         await connectMutation.mutateAsync({providerId: provider.id})
+        await setActiveMutation.mutateAsync({providerId: provider.id})
         onComplete(`Connected to ${provider.name}`)
       } catch (error_) {
         setError(formatTransportError(error_))
@@ -218,8 +221,7 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
     switch (action.id) {
       case 'activate': {
         if (selectedProvider.id === 'byterover' && !isAuthorized) {
-          setError('ByteRover requires authentication. Run /login to sign in.')
-          setStep('select')
+          setStep('login_prompt')
           return
         }
 
@@ -279,6 +281,15 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       }
     }
   }, [disconnectMutation, isAuthorized, onComplete, selectedProvider, setActiveMutation])
+
+  const handleLoginComplete = useCallback((message: string) => {
+    const nowAuthorized = useAuthStore.getState().isAuthorized
+    if (!nowAuthorized) {
+      setError(message)
+    }
+
+    setStep('select')
+  }, [])
 
   const handleBaseUrlSubmit = useCallback((url: string) => {
     setBaseUrl(url)
@@ -410,6 +421,35 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
             Connecting to {selectedProvider?.name}...
           </Text>
         </Box>
+      )
+    }
+
+    case 'login': {
+      return (
+        <LoginFlow
+          onCancel={() => {
+            setStep('select')
+            setSelectedProvider(null)
+          }}
+          onComplete={handleLoginComplete}
+        />
+      )
+    }
+
+    case 'login_prompt': {
+      return (
+        <InlineConfirm
+          default={true}
+          message="ByteRover requires authentication. Sign in now"
+          onConfirm={(confirmed) => {
+            if (confirmed) {
+              setStep('login')
+            } else {
+              setStep('select')
+              setSelectedProvider(null)
+            }
+          }}
+        />
       )
     }
 
