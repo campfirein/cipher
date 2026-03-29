@@ -9,7 +9,6 @@ process.env.BRV_ENV = 'development'
 // eslint-disable-next-line n/no-unsupported-features/node-builtins
 const root = resolve(import.meta.dirname, '..')
 loadEnv({path: resolve(root, '.env.development')})
-loadEnv({override: true, path: resolve(root, '.env')})
 
 
 // Inject default command 'main' (represents logic of a single 'brv' run) when no args provided

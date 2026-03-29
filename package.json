@@ -111,7 +111,7 @@
     "node": ">=20.0.0"
   },
   "files": [
-    "./.env",
+    "./.env.production",
     "./bin",
     "./dist",
     "./oclif.manifest.json"

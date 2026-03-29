@@ -26,7 +26,6 @@ linear-tmp
 agent-tmp
 
 # Environment files (dotenv)
-.env
 .env.development
 .env.production
 !.env.example
