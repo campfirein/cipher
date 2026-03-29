@@ -1,6 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
 
 import {getCurrentConfig} from '../../../server/config/environment.js'
+import {InitEvents, type InitLocalResponse} from '../../../shared/transport/events/init-events.js'
 import {
   type IVcCloneProgressEvent,
   type IVcCloneResponse,
@@ -69,7 +70,15 @@ export default class VcClone extends Command {
       )
     }
 
+    const daemonOptions = {projectPath: process.cwd()}
+
     try {
+      // Ensure .brv/config.json exists so the daemon registers this cwd as the project root
+      await withDaemonRetry(
+        async (client) => client.requestWithAck<InitLocalResponse>(InitEvents.LOCAL, {}),
+        daemonOptions,
+      )
+
       const result = await withDaemonRetry(async (client) => {
         const {cleanup} = subscribeToProgress(client)
         try {
@@ -77,7 +86,7 @@ export default class VcClone extends Command {
         } finally {
           cleanup()
         }
-      })
+      }, daemonOptions)
 
       const label = result.teamName && result.spaceName ? `${result.teamName}/${result.spaceName}` : 'repository'
       this.log(`Cloned ${label} successfully.`)
