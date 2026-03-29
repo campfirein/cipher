@@ -8,7 +8,7 @@ process.env.BRV_ENV = 'production'
 
 // eslint-disable-next-line n/no-unsupported-features/node-builtins
 const root = resolve(import.meta.dirname, '..')
-loadEnv({path: resolve(root, '.env.production')})
+loadEnv({path: resolve(root, '.env.production'), quiet: true})
 
 
 // Inject default command 'main' (represents logic of a single 'brv' run) when no args provided
