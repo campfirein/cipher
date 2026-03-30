@@ -2,6 +2,11 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.5.1]
+
+### Fixed
+- **Provider connect/switch showed false success on auth errors** — `brv providers connect` and `brv providers switch` now correctly detect when the server rejects the request and display the actual error message (e.g., authentication required) instead of falsely reporting success.
+
 ## [2.5.0]
 
 ### Added
