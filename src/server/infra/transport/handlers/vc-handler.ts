@@ -47,6 +47,7 @@ import {
   VcEvents,
   type VcResetMode,
 } from '../../../../shared/transport/events/vc-events.js'
+import {CONTEXT_TREE_GITIGNORE} from '../../../constants.js'
 import {BrvConfig} from '../../../core/domain/entities/brv-config.js'
 import {Space} from '../../../core/domain/entities/space.js'
 import {GitAuthError, GitError} from '../../../core/domain/errors/git-error.js'
@@ -172,6 +173,18 @@ export class VcHandler {
   }
 
   /**
+   * Writes a .gitignore to the context-tree directory only if one does not already exist.
+   */
+  private async ensureGitignore(contextTreeDir: string): Promise<void> {
+    const gitignorePath = join(contextTreeDir, '.gitignore')
+    try {
+      await fs.promises.access(gitignorePath)
+    } catch {
+      await fs.promises.writeFile(gitignorePath, CONTEXT_TREE_GITIGNORE, 'utf8')
+    }
+  }
+
+  /**
    * When force is NOT set, checks for uncommitted changes and throws
    * VcError(UNCOMMITTED_CHANGES) if the working tree is dirty.
    * When force IS set, skips the check entirely (changes will be discarded).
@@ -277,10 +290,7 @@ export class VcHandler {
         directory,
       })
       if (!isMerged) {
-        throw new VcError(
-          `The branch '${name}' is not fully merged.`,
-          VcErrorCode.BRANCH_NOT_MERGED,
-        )
+        throw new VcError(`The branch '${name}' is not fully merged.`, VcErrorCode.BRANCH_NOT_MERGED)
       }
     }
 
@@ -335,10 +345,7 @@ export class VcHandler {
     // Validate the remote-tracking branch exists
     const remoteBranches = await this.gitService.listBranches({directory, remote})
     if (!remoteBranches.some((b) => b.isRemote && b.name === remoteBranch)) {
-      throw new VcError(
-        `The requested upstream branch '${upstream}' does not exist.`,
-        VcErrorCode.BRANCH_NOT_FOUND,
-      )
+      throw new VcError(`The requested upstream branch '${upstream}' does not exist.`, VcErrorCode.BRANCH_NOT_FOUND)
     }
 
     await this.gitService.setTrackingBranch({branch: currentBranch, directory, remote, remoteBranch})
@@ -453,6 +460,9 @@ export class VcHandler {
         const updated = existing ? existing.withSpace(space) : BrvConfig.partialFromSpace({space})
         await this.projectConfigStore.write(updated, projectPath)
       }
+
+      // Ensure .gitignore exists (remote may not have one)
+      await this.ensureGitignore(contextTreeDir)
     } catch (error) {
       // Rollback partial .git — keep context tree intact
       await fs.promises.rm(join(contextTreeDir, '.git'), {force: true, recursive: true}).catch(() => {})
@@ -548,9 +558,7 @@ export class VcHandler {
     const files = [...allPaths].sort()
 
     // Include structured conflict info for paths not already covered by markers
-    const conflicts = indexConflicts
-      .filter((c) => !markerPaths.has(c.path))
-      .map((c) => ({path: c.path, type: c.type}))
+    const conflicts = indexConflicts.filter((c) => !markerPaths.has(c.path)).map((c) => ({path: c.path, type: c.type}))
 
     return {
       ...(conflicts.length > 0 ? {conflicts} : {}),
@@ -601,6 +609,9 @@ export class VcHandler {
     const reinitialized = await this.gitService.isInitialized({directory: contextTreeDir})
     await this.gitService.init({defaultBranch: 'main', directory: contextTreeDir})
 
+    // 3. Ensure .gitignore exists with correct content (idempotent)
+    await this.ensureGitignore(contextTreeDir)
+
     return {
       gitDir: join(contextTreeDir, '.git'),
       reinitialized,
@@ -616,9 +627,7 @@ export class VcHandler {
       throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
     }
 
-    const hasCommits = await this.gitService
-      .log({depth: 1, directory: contextTreeDir})
-      .then((c) => c.length > 0)
+    const hasCommits = await this.gitService.log({depth: 1, directory: contextTreeDir}).then((c) => c.length > 0)
     if (!hasCommits) {
       const branch = await this.gitService.getCurrentBranch({directory: contextTreeDir})
       throw new VcError(

@@ -5,7 +5,7 @@
  */
 
 import {expect} from 'chai'
-import {existsSync, mkdirSync, rmSync, writeFileSync} from 'node:fs'
+import fs, {existsSync, mkdirSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
@@ -22,7 +22,7 @@ import type {
 } from '../../../../../src/server/core/interfaces/transport/i-transport-server.js'
 import type {IVcGitConfigStore} from '../../../../../src/server/core/interfaces/vc/i-vc-git-config-store.js'
 
-import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../../../src/server/constants.js'
+import {BRV_DIR, CONTEXT_TREE_DIR, CONTEXT_TREE_GITIGNORE} from '../../../../../src/server/constants.js'
 import {AuthToken} from '../../../../../src/server/core/domain/entities/auth-token.js'
 import {GitAuthError, GitError} from '../../../../../src/server/core/domain/errors/git-error.js'
 import {NotAuthenticatedError} from '../../../../../src/server/core/domain/errors/task-error.js'
@@ -232,6 +232,7 @@ describe('VcHandler', () => {
 
   beforeEach(() => {
     sandbox = createSandbox()
+    sandbox.stub(fs.promises, 'writeFile').resolves()
   })
 
   afterEach(() => {
@@ -320,6 +321,32 @@ describe('VcHandler', () => {
       expect(deps.gitService.commit.called).to.be.false
       expect(deps.gitService.addRemote.called).to.be.false
     })
+
+    it('should write .gitignore to context tree directory', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
+
+      await deps.requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
+
+      const writeFileStub = fs.promises.writeFile as SinonStub
+      expect(writeFileStub.calledOnce).to.be.true
+      expect(writeFileStub.firstCall.args[0]).to.equal(join(deps.contextTreeDirPath, '.gitignore'))
+      expect(writeFileStub.firstCall.args[1]).to.equal(CONTEXT_TREE_GITIGNORE)
+      expect(writeFileStub.firstCall.args[2]).to.equal('utf8')
+    })
+
+    it('should not overwrite existing .gitignore', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      sandbox.stub(fs.promises, 'access').resolves()
+      makeVcHandler(deps).setup()
+
+      await deps.requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
+
+      const writeFileStub = fs.promises.writeFile as SinonStub
+      expect(writeFileStub.called).to.be.false
+    })
   })
 
   describe('handleInit — repo already exists (isInitialized=true)', () => {
@@ -344,6 +371,18 @@ describe('VcHandler', () => {
         gitDir: join(deps.contextTreeDirPath, '.git'),
         reinitialized: true,
       })
+    })
+
+    it('should write .gitignore on reinit', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      makeVcHandler(deps).setup()
+
+      await deps.requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
+
+      const writeFileStub = fs.promises.writeFile as SinonStub
+      expect(writeFileStub.calledOnce).to.be.true
+      expect(writeFileStub.firstCall.args[0]).to.equal(join(deps.contextTreeDirPath, '.gitignore'))
     })
   })
 
@@ -1688,6 +1727,40 @@ describe('VcHandler', () => {
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.ALREADY_INITIALIZED)
         }
+      }
+    })
+
+    it('should write .gitignore after successful clone', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      deps.tokenStore.load.resolves(validToken)
+      makeVcHandler(deps).setup()
+
+      await invoke(deps, VcEvents.CLONE, {
+        url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+      })
+
+      const writeFileStub = fs.promises.writeFile as SinonStub
+      expect(writeFileStub.calledOnce).to.be.true
+      expect(writeFileStub.firstCall.args[0]).to.equal(join(deps.contextTreeDirPath, '.gitignore'))
+      expect(writeFileStub.firstCall.args[1]).to.equal(CONTEXT_TREE_GITIGNORE)
+    })
+
+    it('should not write .gitignore when clone fails', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      deps.tokenStore.load.resolves(validToken)
+      deps.gitService.clone.rejects(new Error('network error'))
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke(deps, VcEvents.CLONE, {
+          url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+        })
+        expect.fail('Expected error')
+      } catch {
+        const writeFileStub = fs.promises.writeFile as SinonStub
+        expect(writeFileStub.called).to.be.false
       }
     })
   })

@@ -109,3 +109,11 @@ export const FULL_ARCHIVE_EXTENSION = '.full.md'
 export const MANIFEST_FILE = '_manifest.json'
 export const ARCHIVE_IMPORTANCE_THRESHOLD = 35
 export const DEFAULT_GHOST_CUE_MAX_TOKENS = 220
+
+/** .gitignore content for the context tree — ignore derived artifacts only */
+export const CONTEXT_TREE_GITIGNORE = `# Derived artifacts — do not track
+.gitignore
+.snapshot.json
+_manifest.json
+_index.md
+`
