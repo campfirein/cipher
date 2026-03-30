@@ -10,7 +10,13 @@ import type {
   IFolderPackExecutor,
 } from '../../core/interfaces/executor/i-folder-pack-executor.js'
 
+import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
+import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
+import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-summary-service.js'
+import {diffStates} from '../context-tree/snapshot-diff.js'
+
 const LOG_PATH = process.env.BRV_SESSION_LOG
+type BackgroundDrainAgent = ICipherAgent & {drainBackgroundWork?: () => Promise<void>}
 
 function folderPackLog(message: string): void {
   if (!LOG_PATH) return
@@ -51,6 +57,14 @@ export class FolderPackExecutor implements IFolderPackExecutor {
     const basePath = clientCwd ?? process.cwd()
     const absoluteFolderPath = path.isAbsolute(folderPath) ? folderPath : path.resolve(basePath, folderPath)
 
+    const snapshotService = new FileContextTreeSnapshotService({baseDirectory: basePath})
+    let preState: Map<string, import('../../core/domain/entities/context-tree-snapshot.js').FileState> | undefined
+    try {
+      preState = await snapshotService.getCurrentState(basePath)
+    } catch {
+      // Fail-open: if snapshot fails, skip summary propagation
+    }
+
     // Pack the folder
     const packResult = await this.folderPackService.pack(absoluteFolderPath, {
       extractDocuments: true,
@@ -61,7 +75,29 @@ export class FolderPackExecutor implements IFolderPackExecutor {
     // Use iterative extraction strategy (inspired by rlm)
     // Stores packed folder in sandbox environment and lets agent iteratively query/extract
     // This avoids token limits entirely - works for folders of any size
-    return this.executeIterative(agent, packResult, content, absoluteFolderPath, taskId, basePath)
+    const response = await this.executeIterative(agent, packResult, content, absoluteFolderPath, taskId, basePath)
+
+    if (preState) {
+      try {
+        const postState = await snapshotService.getCurrentState(basePath)
+        const changedPaths = diffStates(preState, postState)
+        if (changedPaths.length > 0) {
+          const summaryService = new FileContextTreeSummaryService()
+          const results = await summaryService.propagateStaleness(changedPaths, agent, basePath)
+
+          if (results.some((result) => result.actionTaken)) {
+            const manifestService = new FileContextTreeManifestService({baseDirectory: basePath})
+            await manifestService.buildManifest(basePath)
+          }
+        }
+      } catch {
+        // Fail-open: summary/manifest errors never block curation
+      }
+    }
+
+    await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
+
+    return response
   }
 
   /**
@@ -151,6 +187,15 @@ Use **code_exec with tools.readFile/tools.grep** to extract knowledge:
 5. **Process in batches**: Handle 5-10 files at a time to manage output size
 
 **Important**: All tools.* methods are async - always use \`await\`!
+
+## Curate Shape Constraints
+
+- Prefer one concrete knowledge entry per relevant source file when curating a small leaf folder.
+- For folders with 3 or fewer relevant source files, keep the number of curated leaf entries at or below the number of curated source files by default.
+- Do **NOT** create an extra module/folder "overview" leaf at the bare topic path just because the folder has multiple files.
+- Treat bare topic paths as scopes for \`topicContext\`, not as default destinations for standalone knowledge files.
+- If you need topic-level framing, provide \`topicContext\` on the operation that creates the topic. The system will create/update \`context.md\` and higher-level summaries separately.
+- Only add a standalone overview leaf when the user explicitly asks for it or when there is a distinct cross-file concept that cannot be represented by the per-file entries.
 
 ## Common Mistakes to Avoid
 
@@ -804,7 +849,7 @@ await tools.curate([{
     }
 
     // Create per-task session for parallel isolation (own sandbox + history + LLM service)
-    const taskSessionId = await agent.createTaskSession(taskId, 'curate', {mapRootEligible: true})
+    const taskSessionId = await agent.createTaskSession(taskId, 'curate', {mapRootEligible: true, userFacing: true})
 
     // Step 3: Store full instructions as sandbox variable (lazy prompt loading).
     // This saves ~12-15K tokens by keeping the massive instruction set out of the prompt.
@@ -821,16 +866,46 @@ await tools.curate([{
     const taskIdSafe = taskId.replaceAll('-', '_')
     const instructionsVar = `__curate_instructions_${taskIdSafe}`
     agent.setSandboxVariableOnSession(taskSessionId, instructionsVar, fullInstructions)
+    const smallFolderFilesVar = `__curate_files_${taskIdSafe}`
+    const shouldExposePackedFiles = packResult.files.length > 0 && packResult.files.length <= 10 && packResult.totalCharacters <= 80_000
+    if (shouldExposePackedFiles) {
+      agent.setSandboxVariableOnSession(taskSessionId, smallFolderFilesVar, packResult.files.map((file) => ({
+        content: file.content,
+        fileType: file.fileType,
+        lineCount: file.lineCount,
+        path: file.path,
+        size: file.size,
+        truncated: file.truncated,
+      })))
+    }
 
     // Compact prompt with variable reference and essential metadata
     const contextSection = userContext?.trim() ? `\nUser context: ${userContext}\n` : ''
+    const sourceFilePaths = packResult.files.map((file) => file.path)
+    const sourceFilesSection = sourceFilePaths.length > 0
+      ? `Relevant source files: ${sourceFilePaths.join(', ')} (these paths are relative to the packed folder root; do not prefix them with parent directories like src/auth/)`
+      : undefined
+    const smallFolderLeafQuota = sourceFilePaths.length > 0 && sourceFilePaths.length <= 3
+      ? `Leaf quota: create no more than ${sourceFilePaths.length} curated leaf knowledge files for this folder unless the user explicitly asks for more.`
+      : undefined
+    const smallFolderQuotaWarning = sourceFilePaths.length > 0 && sourceFilePaths.length <= 3
+      ? `A topic-level overview leaf counts toward that quota and is usually incorrect here; keep folder-level framing in topicContext instead.`
+      : undefined
     const compactPrompt = [
       `# Folder Curation Task`,
       ``,
       `Folder: ${folderPath} (${packResult.fileCount} files, ${packResult.totalLines} lines)`,
       `Data file: \`${tmpFilePath}\` (repomix-style XML format)`,
       `Full instructions: variable \`${instructionsVar}\``,
+      shouldExposePackedFiles
+        ? `Relevant files variable: \`${smallFolderFilesVar}\` (array of packed files; for this small folder, prefer using it directly instead of parsing XML with brittle regexes).`
+        : undefined,
       contextSection,
+      sourceFilesSection,
+      `Small-folder rule: for folders with 3 or fewer relevant source files, create at most one leaf knowledge entry per file by default.`,
+      smallFolderLeafQuota,
+      smallFolderQuotaWarning,
+      `Do not create an extra overview leaf at the bare topic path; use topicContext for topic-level framing instead.`,
       `**Start by reading instructions**: Use code_exec to read \`${instructionsVar}.slice(0, 5000)\` for the strategy section, then \`${instructionsVar}.slice(5000, 10000)\` for content rules.`,
       `Use \`tools.readFile()\` and \`tools.grep()\` inside code_exec to process the XML data file.`,
       `Use \`tools.curate()\` to create knowledge topics. Use \`setFinalResult()\` when done.`,

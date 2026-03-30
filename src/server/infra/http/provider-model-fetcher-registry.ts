@@ -165,12 +165,19 @@ export function clearModelFetcherCache(): void {
  *
  * @param apiKey - API key to validate
  * @param providerId - Provider identifier
+ * @param authMethod - How this provider is authenticated (OAuth providers skip validation)
  * @returns Validation result, or {isValid: false} if no fetcher exists
  */
 export async function validateApiKey(
   apiKey: string,
   providerId: string,
+  authMethod?: 'api-key' | 'oauth',
 ): Promise<{error?: string; isValid: boolean}> {
+  // OAuth tokens are validated via the token exchange flow, not API key validation
+  if (authMethod === 'oauth') {
+    return {isValid: true}
+  }
+
   const fetcher = await getModelFetcher(providerId)
   if (!fetcher) {
     return {error: `No model fetcher available for provider: ${providerId}`, isValid: false}

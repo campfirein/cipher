@@ -29,13 +29,13 @@ export const ACCESS_IMPORTANCE_BONUS = 3
 export const UPDATE_IMPORTANCE_BONUS = 5
 
 /** BM25 relevance weight in compound score */
-export const W_RELEVANCE = 1
+export const W_RELEVANCE = 0.6
 
 /** Importance weight in compound score */
-export const W_IMPORTANCE = 0.15
+export const W_IMPORTANCE = 0.2
 
 /** Recency weight in compound score */
-export const W_RECENCY = 0.05
+export const W_RECENCY = 0.2
 
 /** Importance threshold to promote draft -> validated */
 export const PROMOTE_TO_VALIDATED = 65
@@ -55,8 +55,8 @@ export const DEMOTE_FROM_VALIDATED = 35
  * but does not yet add a ranking boost until tuned with real retrieval data.
  */
 export const TIER_BOOST: Record<string, number> = {
-  core: 1,
-  draft: 1,
+  core: 1.15,
+  draft: 0.85,
   validated: 1,
 }
 

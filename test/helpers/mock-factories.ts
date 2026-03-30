@@ -33,6 +33,7 @@ import type {AgentEventBus} from '../../src/agent/infra/events/event-emitter.js'
 import type {FileSystemService} from '../../src/agent/infra/file-system/file-system-service.js'
 import type {CompactionService} from '../../src/agent/infra/llm/context/compaction/compaction-service.js'
 import type {ContextManager} from '../../src/agent/infra/llm/context/context-manager.js'
+import type {AbstractGenerationQueue} from '../../src/agent/infra/map/abstract-queue.js'
 import type {MemoryManager} from '../../src/agent/infra/memory/memory-manager.js'
 import type {ProcessService} from '../../src/agent/infra/process/process-service.js'
 import type {MessageStorageService} from '../../src/agent/infra/storage/message-storage-service.js'
@@ -41,6 +42,7 @@ import type {ToolManager} from '../../src/agent/infra/tools/tool-manager.js'
 import type {ToolProvider} from '../../src/agent/infra/tools/tool-provider.js'
 import type {IProviderConfigStore} from '../../src/server/core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../src/server/core/interfaces/i-provider-keychain-store.js'
+import type {IProviderOAuthTokenStore} from '../../src/server/core/interfaces/i-provider-oauth-token-store.js'
 import type {ITerminal} from '../../src/server/core/interfaces/services/i-terminal.js'
 import type {ITransportServer} from '../../src/server/core/interfaces/transport/i-transport-server.js'
 
@@ -215,10 +217,7 @@ export function createMockProcessService(sandbox: SinonSandbox, overrides?: Part
  * @param overrides - Optional overrides for specific methods
  * @returns Mock ISandboxService (cast to full type for test usage)
  */
-export function createMockSandboxService(
-  sandbox: SinonSandbox,
-  overrides?: Partial<ISandboxService>,
-): ISandboxService {
+export function createMockSandboxService(sandbox: SinonSandbox, overrides?: Partial<ISandboxService>): ISandboxService {
   const mock: Partial<ISandboxService> = {
     cleanup: sandbox.stub().resolves(),
     clearSession: sandbox.stub().resolves(),
@@ -365,6 +364,7 @@ export function createMockCipherAgentServices(
   overrides?: Partial<CipherAgentServices>,
 ): CipherAgentServices {
   return {
+    abstractQueue: {} as unknown as AbstractGenerationQueue,
     agentEventBus,
     blobStorage: createMockBlobStorage(sandbox),
     compactionService: {} as unknown as CompactionService,
@@ -379,6 +379,7 @@ export function createMockCipherAgentServices(
     toolManager: createMockToolManager(sandbox),
     toolProvider: createMockToolProvider(sandbox),
     toolScheduler: createMockToolScheduler(sandbox),
+    workingDirectory: process.cwd(),
     ...overrides,
   }
 }
@@ -490,6 +491,26 @@ export function createMockProviderKeychainStore(
   return mock as unknown as SinonStubbedInstance<IProviderKeychainStore>
 }
 
+/**
+ * Creates a mock IProviderOAuthTokenStore with commonly-used methods stubbed.
+ *
+ * @param overrides - Optional overrides for specific methods
+ * @returns Mock IProviderOAuthTokenStore (cast to full type for test usage)
+ */
+export function createMockProviderOAuthTokenStore(
+  overrides?: Partial<SinonStubbedInstance<IProviderOAuthTokenStore>>,
+): SinonStubbedInstance<IProviderOAuthTokenStore> {
+  const mock = {
+    delete: stub().resolves(),
+    get: stub().resolves(),
+    has: stub().resolves(false),
+    set: stub().resolves(),
+    ...overrides,
+  }
+
+  return mock as unknown as SinonStubbedInstance<IProviderOAuthTokenStore>
+}
+
 // ============================================================================
 // Transport Server Mock (for handler tests)
 // ============================================================================
@@ -501,10 +522,17 @@ export function createMockProviderKeychainStore(
 type AnyRequestHandler = (data: any, clientId: string) => any
 
 /**
+ * Handler type for transport server disconnection handlers.
+ */
+type DisconnectionHandler = (clientId: string, metadata?: Record<string, unknown>) => void
+
+/**
  * Extended mock transport server with handler introspection.
  */
 export type MockTransportServer = SinonStubbedInstance<ITransportServer> & {
+  _disconnectionHandlers: DisconnectionHandler[]
   _handlers: Map<string, AnyRequestHandler>
+  _simulateDisconnect: (clientId: string) => void
 }
 
 /**
@@ -523,15 +551,24 @@ export type MockTransportServer = SinonStubbedInstance<ITransportServer> & {
  */
 export function createMockTransportServer(): MockTransportServer {
   const handlers = new Map<string, AnyRequestHandler>()
+  const disconnectionHandlers: DisconnectionHandler[] = []
   return {
+    _disconnectionHandlers: disconnectionHandlers,
     _handlers: handlers,
+    _simulateDisconnect(clientId: string) {
+      for (const handler of disconnectionHandlers) {
+        handler(clientId)
+      }
+    },
     addToRoom: stub(),
     broadcast: stub(),
     broadcastTo: stub(),
     getPort: stub(),
     isRunning: stub(),
     onConnection: stub(),
-    onDisconnection: stub(),
+    onDisconnection: stub().callsFake((handler: DisconnectionHandler) => {
+      disconnectionHandlers.push(handler)
+    }),
     onRequest: stub().callsFake((event: string, handler: AnyRequestHandler) => {
       handlers.set(event, handler)
     }),

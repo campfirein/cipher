@@ -8,6 +8,7 @@ import {
   recordAccessHits,
   recordConsolidation,
   recordCurateUpdate,
+  TIER_BOOST,
   W_IMPORTANCE,
   W_RECENCY,
   W_RELEVANCE,
@@ -48,16 +49,17 @@ describe('memory-scoring', () => {
 
     it('W_RELEVANCE + W_IMPORTANCE + W_RECENCY are the active weights', () => {
       // Verify the weight constants are what we expect so a future change is caught
-      expect(W_RELEVANCE).to.equal(1)
-      expect(W_IMPORTANCE).to.equal(0.15)
-      expect(W_RECENCY).to.equal(0.05)
+      expect(W_RELEVANCE).to.equal(0.6)
+      expect(W_IMPORTANCE).to.equal(0.2)
+      expect(W_RECENCY).to.equal(0.2)
     })
 
     it('importance=100 and recency=1 add the expected bonus on top of BM25', () => {
       const bm25Only = compoundScore(0.5, 0, 0, 'draft')
       const withBonus = compoundScore(0.5, 100, 1, 'draft')
-      // Difference should equal W_IMPORTANCE * 1.0 + W_RECENCY * 1.0
-      expect(withBonus - bm25Only).to.be.closeTo(W_IMPORTANCE + W_RECENCY, 1e-9)
+      // Difference equals (W_IMPORTANCE + W_RECENCY) * TIER_BOOST.draft because
+      // compoundScore multiplies the entire base by the tier boost.
+      expect(withBonus - bm25Only).to.be.closeTo((W_IMPORTANCE + W_RECENCY) * TIER_BOOST.draft, 1e-9)
     })
   })
 

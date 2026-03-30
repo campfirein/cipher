@@ -12,6 +12,7 @@ export interface ModelListRequest {
 
 export interface ModelListResponse {
   activeModel?: string
+  error?: string
   favorites: string[]
   models: ModelDTO[]
   recent: string[]
@@ -33,5 +34,6 @@ export interface ModelSetActiveRequest {
 }
 
 export interface ModelSetActiveResponse {
+  error?: string
   success: boolean
 }

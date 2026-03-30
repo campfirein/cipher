@@ -5,6 +5,7 @@ import type {ICogitPushService, PushParams} from '../../core/interfaces/services
 
 import {CogitPushResponse} from '../../core/domain/entities/cogit-push-response.js'
 import {getErrorMessage} from '../../utils/error-helpers.js'
+import {ProxyConfig} from '../http/proxy-config.js'
 
 export type HttpCogitPushServiceConfig = {
   apiBaseUrl: string
@@ -150,6 +151,8 @@ export class HttpCogitPushService implements ICogitPushService {
       headers: {
         'x-byterover-session-id': params.sessionKey,
       },
+      httpAgent: ProxyConfig.getProxyAgent(),
+      httpsAgent: ProxyConfig.getProxyAgent(),
       timeout: this.config.timeout,
     })
 

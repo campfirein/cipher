@@ -137,6 +137,8 @@ let cachedTeamId = ''
 let cachedSpaceId = ''
 let cachedActiveProvider = ''
 let cachedActiveModel = ''
+let cachedProviderApiKey: string | undefined
+let cachedProviderHeaders: string | undefined
 
 // ============================================================================
 // Provider Config (resolved by daemon via state:getProviderConfig)
@@ -234,6 +236,8 @@ async function start(): Promise<void> {
   const {activeModel, activeProvider} = providerResult
   cachedActiveProvider = activeProvider
   cachedActiveModel = activeModel ?? DEFAULT_LLM_MODEL
+  cachedProviderApiKey = providerResult.providerApiKey
+  cachedProviderHeaders = providerResult.providerHeaders ? JSON.stringify(providerResult.providerHeaders) : undefined
 
   agentLog(`Provider: ${activeProvider}, Model: ${activeModel ?? 'default'}`)
 
@@ -433,10 +437,9 @@ async function executeTask(
 
   if (freshProviderConfig.providerKeyMissing) {
     const modelInfo = freshProviderConfig.activeModel ? ` (model: ${freshProviderConfig.activeModel})` : ''
-    const errorMessage = `${freshProviderConfig.activeProvider} API key is missing${modelInfo}. Use /provider in the REPL to reconnect.`
-    const error = serializeTaskError(
-      new TaskError(errorMessage, TaskErrorCode.PROVIDER_NOT_CONFIGURED),
-    )
+    const credentialType = freshProviderConfig.authMethod === 'oauth' ? 'authentication has expired' : 'API key is missing'
+    const errorMessage = `${freshProviderConfig.activeProvider} ${credentialType}${modelInfo}. Use /provider in the REPL to reconnect.`
+    const error = serializeTaskError(new TaskError(errorMessage, TaskErrorCode.PROVIDER_NOT_CONFIGURED))
     transport.request(TransportTaskEventNames.ERROR, {clientId, error, taskId})
     return
   }
@@ -574,6 +577,9 @@ async function executeTask(
  *
  * If only the model changed (same provider), the session ID is reused on the
  * fresh SessionManager for metadata continuity (in-memory history is not preserved).
+ * If only credentials changed (same provider and model), the session ID is reused
+ * and the SessionManager is rebuilt with the new credentials. This covers token refresh,
+ * auth method switches (API Key ↔ OAuth), and API key re-entry.
  * If the provider changed, a new session is created (history format is incompatible).
  */
 async function hotSwapProvider(
@@ -610,12 +616,21 @@ async function hotSwapProvider(
   const newModel = freshProvider.activeModel ?? DEFAULT_LLM_MODEL
   const isProviderChange = ap !== cachedActiveProvider
   const isModelChange = newModel !== cachedActiveModel
+  const isCredentialChange =
+    freshProvider.providerApiKey !== cachedProviderApiKey ||
+    (freshProvider.providerHeaders ? JSON.stringify(freshProvider.providerHeaders) : undefined) !==
+      cachedProviderHeaders
 
   // Nothing actually changed (duplicate event) — skip
-  if (!isProviderChange && !isModelChange) {
+  if (!isProviderChange && !isModelChange && !isCredentialChange) {
     providerConfigDirty = false
     return {}
   }
+
+  // TODO: Credential-only changes (e.g., OAuth token refresh) currently rebuild the entire
+  // SessionManager, which destroys in-memory conversation history. A future
+  // SessionManager.updateCredentials() method could swap LLM config in-place,
+  // preserving sessions and avoiding history loss on hourly token refreshes.
 
   // Phase 2a: Replace SessionManager (if this throws, old SM remains intact)
   const previousSessionId = currentAgent.sessionId
@@ -654,7 +669,7 @@ async function hotSwapProvider(
       currentAgent.switchDefaultSession(newSessionId)
       await persistNewSession(newSessionId, ap)
     } else {
-      // Model-only change: reuse session ID for metadata continuity.
+      // Model-only or credential-only change: reuse session ID for metadata continuity.
       // Note: in-memory conversation history is lost (new SessionManager has no sessions).
       // Only the session ID and persisted metadata are preserved.
       await currentAgent.createSession(previousSessionId)
@@ -688,8 +703,11 @@ async function hotSwapProvider(
   providerConfigDirty = false
   cachedActiveProvider = ap
   cachedActiveModel = newModel
+  cachedProviderApiKey = freshProvider.providerApiKey
+  cachedProviderHeaders = freshProvider.providerHeaders ? JSON.stringify(freshProvider.providerHeaders) : undefined
 
-  agentLog(`Provider hot-switched: ${ap}, Model: ${newModel}`)
+  const changeType = isProviderChange ? 'provider' : isModelChange ? 'model' : 'credentials'
+  agentLog(`Provider hot-swapped (${changeType}): ${ap}, Model: ${newModel}`)
   return {}
 }
 

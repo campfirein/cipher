@@ -331,6 +331,8 @@ export const TransportDaemonEventNames = {
 export interface ProviderConfigResponse {
   activeModel?: string
   activeProvider: string
+  /** How the provider was authenticated ('api-key' | 'oauth'). Undefined for internal providers. */
+  authMethod?: 'api-key' | 'oauth'
   maxInputTokens?: number
   openRouterApiKey?: string
   provider?: string

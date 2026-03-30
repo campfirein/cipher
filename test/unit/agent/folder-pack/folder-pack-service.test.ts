@@ -1,4 +1,5 @@
 import {expect} from 'chai'
+import fs from 'node:fs/promises'
 import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {
@@ -127,6 +128,55 @@ describe('FolderPackService', () => {
       expect(result.skippedFiles).to.have.length(0)
       expect(result.directoryTree).to.include('index.ts')
       expect(result.totalCharacters).to.be.greaterThan(0)
+    })
+
+    it('normalizes the packed root before filtering discovered file paths', async () => {
+      const mockFiles: FileMetadata[] = [
+        {
+          isDirectory: false,
+          modified: new Date(),
+          path: '/private/var/test/folder/jwt.ts',
+          size: 100,
+        },
+      ]
+
+      const mockGlobResult: GlobResult = {
+        files: mockFiles,
+        ignoredCount: 0,
+        totalFound: 1,
+        truncated: false,
+      }
+
+      const mockFileContent: FileContent = {
+        content: 'export const sign = () => {}',
+        encoding: 'utf8',
+        formattedContent: '00001| export const sign = () => {}',
+        lines: 1,
+        message: 'OK',
+        size: 29,
+        totalLines: 1,
+        truncated: false,
+      }
+
+      const mockTreeResult: ListDirectoryResult = {
+        count: 1,
+        entries: [],
+        tree: '.',
+        truncated: false,
+      }
+
+      sandbox.stub(fs, 'realpath').callsFake(async (input: unknown) => {
+        const value = String(input)
+        return value === '/var/test/folder' ? '/private/var/test/folder' : value
+      })
+      globFilesStub.resolves(mockGlobResult)
+      readFileStub.resolves(mockFileContent)
+      listDirectoryStub.resolves(mockTreeResult)
+
+      const result = await service.pack('/var/test/folder')
+
+      expect(result.fileCount).to.equal(1)
+      expect(result.files[0].path).to.equal('jwt.ts')
     })
 
     it('should skip files exceeding size limit', async () => {
@@ -453,6 +503,48 @@ describe('FolderPackService', () => {
       // Only src/app.ts should be included
       expect(result.fileCount).to.equal(1)
       expect(result.files[0].path).to.equal('src/app.ts')
+    })
+
+    it('should apply ignore patterns against paths relative to the packed root', async () => {
+      const projectRoot = '/private/tmp/brv-project'
+      const mockFiles: FileMetadata[] = [
+        {isDirectory: false, modified: new Date(), path: `${projectRoot}/src/auth.ts`, size: 100},
+      ]
+
+      const mockGlobResult: GlobResult = {
+        files: mockFiles,
+        ignoredCount: 0,
+        totalFound: 1,
+        truncated: false,
+      }
+
+      const mockFileContent: FileContent = {
+        content: 'export const auth = true',
+        encoding: 'utf8',
+        formattedContent: '00001| export const auth = true',
+        lines: 1,
+        message: 'OK',
+        size: 24,
+        totalLines: 1,
+        truncated: false,
+      }
+
+      const mockTreeResult: ListDirectoryResult = {
+        count: 1,
+        entries: [],
+        tree: 'src/\n└── auth.ts',
+        truncated: false,
+      }
+
+      globFilesStub.resolves(mockGlobResult)
+      readFileStub.resolves(mockFileContent)
+      listDirectoryStub.resolves(mockTreeResult)
+
+      const result = await service.pack(projectRoot)
+
+      expect(result.fileCount).to.equal(1)
+      expect(result.files[0].path).to.equal('src/auth.ts')
+      expect(readFileStub.firstCall.args[0]).to.equal(`${projectRoot}/src/auth.ts`)
     })
 
     it('should handle truncated file content', async () => {

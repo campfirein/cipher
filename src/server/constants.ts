@@ -94,7 +94,7 @@ export const AUTH_STATE_POLL_INTERVAL_MS = 5000 // Poll token store every 5s
 // Agent Pool (T6)
 export const AGENT_MAX_CONCURRENT_TASKS = 5 // Max parallel curate/query tasks per agent process
 export const AGENT_POOL_MAX_SIZE = 10
-export const AGENT_PROCESS_READY_TIMEOUT_MS = 15_000 // 15s max wait for child process to register
+export const AGENT_PROCESS_READY_TIMEOUT_MS = 30_000 // 30s max wait for child process to register
 export const AGENT_PROCESS_STOP_TIMEOUT_MS = 5000 // 5s max wait for child process to stop gracefully
 
 // Curate log
@@ -106,6 +106,8 @@ export const SUMMARY_INDEX_FILE = '_index.md'
 export const ARCHIVE_DIR = '_archived'
 export const STUB_EXTENSION = '.stub.md'
 export const FULL_ARCHIVE_EXTENSION = '.full.md'
+export const ABSTRACT_EXTENSION = '.abstract.md'
+export const OVERVIEW_EXTENSION = '.overview.md'
 export const MANIFEST_FILE = '_manifest.json'
 export const ARCHIVE_IMPORTANCE_THRESHOLD = 35
 export const DEFAULT_GHOST_CUE_MAX_TOKENS = 220

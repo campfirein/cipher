@@ -26,6 +26,7 @@ import type {
 import type {IContextTreeManifestService} from '../../core/interfaces/context-tree/i-context-tree-manifest-service.js'
 
 import {
+  ABSTRACT_EXTENSION,
   ARCHIVE_DIR,
   BRV_DIR,
   CONTEXT_FILE_EXTENSION,
@@ -149,8 +150,22 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
     /* eslint-disable no-await-in-loop */
     for (const entry of ordered) {
       try {
-        const fullPath = join(contextTreeDir, entry.path)
-        const content = await readFile(fullPath, 'utf8')
+        let content: string
+        // For context entries, prefer .abstract.md sibling if it exists on disk
+        // (dynamic read avoids stale-manifest issues since .abstract.md is a derived artifact)
+        if (entry.type === 'context') {
+          const abstractRelPath = entry.path.replace(/\.md$/, ABSTRACT_EXTENSION)
+          const abstractFullPath = join(contextTreeDir, abstractRelPath)
+          try {
+            content = await readFile(abstractFullPath, 'utf8')
+          } catch {
+            // Abstract not ready yet — fall back to full content
+            content = await readFile(join(contextTreeDir, entry.path), 'utf8')
+          }
+        } else {
+          content = await readFile(join(contextTreeDir, entry.path), 'utf8')
+        }
+
         resolved.push({
           content,
           path: entry.path,
@@ -256,6 +271,15 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
       return
     }
 
+    // Build a set of abstract sibling paths present in this directory so we can
+    // check existence without throwing ENOENT for every context file that has
+    // no abstract yet (the common case early in a project's lifetime).
+    const abstractsInDir = new Set(
+      entries
+        .filter((e) => e.isFile() && (e.name as string).endsWith(ABSTRACT_EXTENSION))
+        .map((e) => join(currentDir, e.name as string)),
+    )
+
     /* eslint-disable no-await-in-loop */
     for (const entry of entries) {
       const entryName = entry.name as string
@@ -288,10 +312,25 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
           try {
             const content = await readFile(fullPath, 'utf8')
             const scoring = parseFrontmatterScoring(content)
+
+            // Use abstract sibling for token budgeting only if it is known to exist
+            // (checked via abstractsInDir set, avoiding ENOENT as control flow).
+            const abstractRelPath = relativePath.replace(/\.md$/, ABSTRACT_EXTENSION)
+            const abstractFullPath = join(contextTreeDir, abstractRelPath)
+            let abstractTokens: number | undefined
+            if (abstractsInDir.has(abstractFullPath)) {
+              try {
+                const abstractContent = await readFile(abstractFullPath, 'utf8')
+                abstractTokens = estimateTokens(abstractContent)
+              } catch { /* unreadable — treat as absent */ }
+            }
+
             contexts.push({
+              abstractPath: abstractTokens === undefined ? undefined : abstractRelPath,
+              abstractTokens,
               importance: scoring?.importance ?? 50,
               path: relativePath,
-              tokens: estimateTokens(content),
+              tokens: abstractTokens ?? estimateTokens(content),
               type: 'context',
             })
           } catch {
@@ -305,7 +344,8 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
 
   /**
    * Recursively collect stat data for all source files (for fingerprint).
-   * Excludes derived artifacts.
+   * Excludes derived artifacts except .abstract.md siblings, which are included
+   * so abstract generation invalidates the manifest without a second tree walk.
    */
   private async scanSourceStats(
     currentDir: string,
@@ -328,8 +368,8 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
         await this.scanSourceStats(fullPath, contextTreeDir, entries)
       } else if (entry.isFile() && entryName.endsWith(CONTEXT_FILE_EXTENSION)) {
         const relativePath = toUnixPath(relative(contextTreeDir, fullPath))
-        // Include all non-derived files (contexts + stubs) in fingerprint
-        if (isDerivedArtifact(relativePath)) continue
+        const isAbstractSibling = entryName.endsWith(ABSTRACT_EXTENSION)
+        if (!isAbstractSibling && isDerivedArtifact(relativePath)) continue
 
         try {
           const fileStat = await stat(fullPath)
