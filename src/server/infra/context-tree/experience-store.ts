@@ -73,7 +73,7 @@ export function generateEntryFilename(text: string): string {
   return `${date}--${slug || 'entry'}.md`
 }
 
-function buildEntryContent(frontmatter: ExperienceEntryFrontmatter, body: string): string {
+export function buildEntryContent(frontmatter: ExperienceEntryFrontmatter, body: string): string {
   const fm = [
     '---',
     `title: "${frontmatter.title.replaceAll('"', String.raw`\"`)}"`,

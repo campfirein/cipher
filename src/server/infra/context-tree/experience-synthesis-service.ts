@@ -7,11 +7,10 @@ import {
   EXPERIENCE_DEAD_ENDS_DIR,
   EXPERIENCE_HINTS_DIR,
   EXPERIENCE_LESSONS_DIR,
-  EXPERIENCE_REFLECTIONS_DIR,
   EXPERIENCE_STRATEGIES_DIR,
 } from '../../constants.js'
 import {applyDefaultScoring} from '../../core/domain/knowledge/memory-scoring.js'
-import {computeContentHash, type ExperienceStore} from './experience-store.js'
+import {buildEntryContent, computeContentHash, type ExperienceStore} from './experience-store.js'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -143,38 +142,9 @@ export class ExperienceSynthesisService {
 
     // Use a predictable filename so re-synthesis overwrites rather than accumulates
     const filename = `${date}--${subfolder}-synthesis.md`
-    const reflectionDir = EXPERIENCE_REFLECTIONS_DIR
-    const existingEntries = await store.listEntries(reflectionDir)
-
-    // Check if a synthesis for this subfolder already exists today — overwrite via writeEntry
-    if (existingEntries.includes(filename)) {
-      const content = buildReflectionContent(frontmatter, response)
-      await store.writeEntry(reflectionDir, filename, content)
-    } else {
-      await store.createEntry(reflectionDir, response, frontmatter)
-    }
+    const content = buildEntryContent(frontmatter, response)
+    await store.writeEntry('reflections', filename, content)
 
     return true
   }
-}
-
-function buildReflectionContent(frontmatter: ExperienceEntryFrontmatter, body: string): string {
-  const fm = [
-    '---',
-    `title: "${frontmatter.title.replaceAll('"', String.raw`\"`)}"`,
-    `tags: [${frontmatter.tags.map((t) => `"${t}"`).join(', ')}]`,
-    `type: ${frontmatter.type}`,
-    `contentHash: "${frontmatter.contentHash}"`,
-    `importance: ${frontmatter.importance}`,
-    `recency: ${frontmatter.recency}`,
-    `maturity: ${frontmatter.maturity}`,
-  ]
-
-  if (frontmatter.derived_from && frontmatter.derived_from.length > 0) {
-    fm.push(`derived_from: [${frontmatter.derived_from.map((d) => `"${d}"`).join(', ')}]`)
-  }
-
-  fm.push(`createdAt: "${frontmatter.createdAt}"`, `updatedAt: "${frontmatter.updatedAt}"`, '---', '')
-
-  return fm.join('\n') + body.trim() + '\n'
 }

@@ -98,6 +98,31 @@ describe('ExperienceSynthesisService', () => {
       }
     })
 
+    it('overwrites the same-day synthesis file instead of creating duplicates', async () => {
+      const llm1 = makeLlm('First synthesis content')
+      const service1 = new ExperienceSynthesisService(llm1)
+      const {baseDir, store} = await makeStoreWithEntries('lessons', 4)
+
+      try {
+        await service1.synthesize(store, 5)
+        const reflectionsAfterFirst = await store.listEntries('reflections')
+        expect(reflectionsAfterFirst).to.have.length(1)
+
+        const llm2 = makeLlm('Second synthesis content')
+        const service2 = new ExperienceSynthesisService(llm2)
+        await service2.synthesize(store, 5)
+
+        const reflectionsAfterSecond = await store.listEntries('reflections')
+        expect(reflectionsAfterSecond).to.have.length(1)
+
+        const content = await store.readEntry('reflections', reflectionsAfterSecond[0])
+        expect(content).to.include('Second synthesis content')
+        expect(content).not.to.include('First synthesis content')
+      } finally {
+        await rm(baseDir, {force: true, recursive: true})
+      }
+    })
+
     it('does not update lastConsolidatedAt when all subfolders are skipped', async () => {
       const llm = makeLlm()
       const service = new ExperienceSynthesisService(llm)
