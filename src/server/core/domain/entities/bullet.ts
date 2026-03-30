@@ -19,7 +19,7 @@ export interface BulletJson {
 }
 
 /**
- * Represents a single knowledge entry in the playbook.
+ * Represents a single knowledge entry.
  * Bullets contain reusable insights, strategies, or lessons learned.
  */
 export class Bullet {
@@ -84,7 +84,7 @@ export class Bullet {
   }
 
   /**
-   * Formats the bullet for display in a playbook
+   * Formats the bullet for display
    */
   public toDisplayString(): string {
     const tags = this.metadata.tags.join(', ')
