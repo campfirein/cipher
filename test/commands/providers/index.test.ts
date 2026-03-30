@@ -81,11 +81,19 @@ describe('Provider Command', () => {
     stub(command, 'log').callsFake((msg?: string) => {
       if (msg) loggedMessages.push(msg)
     })
-    stub(process.stdout, 'write').callsFake((chunk: string | Uint8Array) => {
+    return command
+  }
+
+  async function runJsonCommand(command: TestableProviderCommand): Promise<void> {
+    const stdoutStub = stub(process.stdout, 'write').callsFake((chunk: string | Uint8Array) => {
       stdoutOutput.push(String(chunk))
       return true
     })
-    return command
+    try {
+      await command.run()
+    } finally {
+      stdoutStub.restore()
+    }
   }
 
   function parseJsonOutput(): {command: string; data: Record<string, unknown>; success: boolean} {
@@ -93,7 +101,10 @@ describe('Provider Command', () => {
     return JSON.parse(output.trim())
   }
 
-  function mockProviderResponses(activeResponse: Record<string, unknown>, listResponse: Record<string, unknown>): void {
+  function mockProviderResponses(
+    activeResponse: Record<string, unknown>,
+    listResponse: Record<string, unknown>,
+  ): void {
     const requestStub = mockClient.requestWithAck as sinon.SinonStub
     requestStub.onFirstCall().resolves(activeResponse)
     requestStub.onSecondCall().resolves(listResponse)
@@ -148,7 +159,7 @@ describe('Provider Command', () => {
         {providers: [{id: 'anthropic', isConnected: true, isCurrent: true, name: 'Anthropic'}]},
       )
 
-      await createJsonCommand().run()
+      await runJsonCommand(createJsonCommand())
 
       const json = parseJsonOutput()
       expect(json.command).to.equal('providers')
@@ -159,12 +170,53 @@ describe('Provider Command', () => {
     it('should output JSON error on connection failure', async () => {
       mockConnector.rejects(new Error('Connection failed'))
 
-      await createJsonCommand().run()
+      await runJsonCommand(createJsonCommand())
 
       const json = parseJsonOutput()
       expect(json.command).to.equal('providers')
       expect(json.success).to.be.false
       expect(json.data).to.have.property('error')
+    })
+  })
+
+  // ==================== ByteRover Auth Warning ====================
+
+  describe('ByteRover auth warning', () => {
+    it('should show warning when byterover is active and user is unauthenticated', async () => {
+      mockProviderResponses(
+        {activeProviderId: 'byterover', loginRequired: true},
+        {providers: [{id: 'byterover', isConnected: true, isCurrent: true, name: 'ByteRover'}]},
+      )
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Warning'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv login'))).to.be.true
+    })
+
+    it('should include warning in JSON output when unauthenticated', async () => {
+      mockProviderResponses(
+        {activeProviderId: 'byterover', loginRequired: true},
+        {providers: [{id: 'byterover', isConnected: true, isCurrent: true, name: 'ByteRover'}]},
+      )
+
+      await runJsonCommand(createJsonCommand())
+
+      const json = parseJsonOutput()
+      expect(json.success).to.be.true
+      expect(json.data).to.have.property('warning')
+      expect(json.data).to.not.have.property('loginRequired')
+    })
+
+    it('should not show warning when byterover is active and user is authenticated', async () => {
+      mockProviderResponses(
+        {activeProviderId: 'byterover'},
+        {providers: [{id: 'byterover', isConnected: true, isCurrent: true, name: 'ByteRover'}]},
+      )
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Warning'))).to.be.false
     })
   })
 

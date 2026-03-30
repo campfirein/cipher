@@ -412,6 +412,7 @@ export class OpenAICompatibleModelFetcher implements IProviderModelFetcher {
       headers: {Authorization: `Bearer ${apiKey}`},
       httpAgent: ProxyConfig.getProxyAgent(),
       httpsAgent: ProxyConfig.getProxyAgent(),
+      proxy: false,
       timeout: 30_000,
     })
 
@@ -450,6 +451,7 @@ export class OpenAICompatibleModelFetcher implements IProviderModelFetcher {
         headers: {Authorization: `Bearer ${apiKey}`},
         httpAgent: ProxyConfig.getProxyAgent(),
         httpsAgent: ProxyConfig.getProxyAgent(),
+        proxy: false,
         timeout: 15_000,
       })
       return {isValid: true}
@@ -517,6 +519,7 @@ export class ChatBasedModelFetcher implements IProviderModelFetcher {
           },
           httpAgent: ProxyConfig.getProxyAgent(),
           httpsAgent: ProxyConfig.getProxyAgent(),
+          proxy: false,
           timeout: 15_000,
         },
       )

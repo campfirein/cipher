@@ -112,6 +112,7 @@ export async function setupFeatureHandlers({
   }).setup()
 
   new ProviderHandler({
+    authStateStore,
     browserLauncher: new SystemBrowserLauncher(),
     providerConfigStore,
     providerKeychainStore,
