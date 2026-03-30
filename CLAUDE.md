@@ -104,7 +104,7 @@ src/
 - Tool definitions: `resources/tools/*.txt`; implementations: `infra/tools/implementations/`
 - Tool registry pattern: `infra/tools/tool-registry.ts` — register/resolve tools by name
 - Multi-provider LLM support (18 providers including Anthropic, OpenAI, Google, OpenRouter, etc.) in `infra/llm/`
-- Compression strategies in `infra/llm/context/compression/` (7 strategies: reactive-overflow, escalated-compression, enhanced-compaction, filter-compacted, middle-removal, oldest-removal)
+- Compression strategies in `infra/llm/context/compression/` (6 strategies: reactive-overflow, escalated-compression, enhanced-compaction, filter-compacted, middle-removal, oldest-removal)
 - System prompt contributor pattern (XML-style sections) in `infra/system-prompt/`
 - Map/memory subsystem (`infra/map/`): agentic map service, context-tree store, LLM map memory, worker pool
 - Storage: file-based blob (`infra/blob/file-blob-storage.ts`) and key storage (`infra/storage/file-key-storage.ts`) — no SQLite
