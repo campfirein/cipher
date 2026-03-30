@@ -269,6 +269,21 @@ export class VcHandler {
       throw new VcError(`Branch '${name}' not found.`, VcErrorCode.BRANCH_NOT_FOUND)
     }
 
+    // Safe delete: verify branch is fully merged into current branch
+    if (current) {
+      const isMerged = await this.gitService.isAncestor({
+        ancestor: `refs/heads/${name}`,
+        commit: `refs/heads/${current}`,
+        directory,
+      })
+      if (!isMerged) {
+        throw new VcError(
+          `The branch '${name}' is not fully merged.`,
+          VcErrorCode.BRANCH_NOT_MERGED,
+        )
+      }
+    }
+
     await this.gitService.deleteBranch({branch: name, directory})
     return {action: 'delete', deleted: name}
   }
@@ -309,6 +324,21 @@ export class VcHandler {
     const currentBranch = await this.gitService.getCurrentBranch({directory})
     if (!currentBranch) {
       throw new VcError('Cannot set upstream in detached HEAD state.', VcErrorCode.INVALID_BRANCH_NAME)
+    }
+
+    // Validate the remote exists
+    const remotes = await this.gitService.listRemotes({directory})
+    if (!remotes.some((r) => r.remote === remote)) {
+      throw new VcError(`Remote '${remote}' not found.`, VcErrorCode.NO_REMOTE)
+    }
+
+    // Validate the remote-tracking branch exists
+    const remoteBranches = await this.gitService.listBranches({directory, remote})
+    if (!remoteBranches.some((b) => b.isRemote && b.name === remoteBranch)) {
+      throw new VcError(
+        `The requested upstream branch '${upstream}' does not exist.`,
+        VcErrorCode.BRANCH_NOT_FOUND,
+      )
     }
 
     await this.gitService.setTrackingBranch({branch: currentBranch, directory, remote, remoteBranch})
@@ -507,8 +537,25 @@ export class VcHandler {
       throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
     }
 
-    const files = await this.gitService.getFilesWithConflictMarkers({directory})
-    return {files}
+    const [markerFiles, indexConflicts] = await Promise.all([
+      this.gitService.getFilesWithConflictMarkers({directory}),
+      this.gitService.getConflicts({directory}),
+    ])
+
+    // Merge both sources, deduplicating by path
+    const markerPaths = new Set(markerFiles)
+    const allPaths = new Set([...indexConflicts.map((c) => c.path), ...markerFiles])
+    const files = [...allPaths].sort()
+
+    // Include structured conflict info for paths not already covered by markers
+    const conflicts = indexConflicts
+      .filter((c) => !markerPaths.has(c.path))
+      .map((c) => ({path: c.path, type: c.type}))
+
+    return {
+      ...(conflicts.length > 0 ? {conflicts} : {}),
+      files,
+    }
   }
 
   private async handleFetch(data: IVcFetchRequest, clientId: string): Promise<IVcFetchResponse> {
@@ -567,6 +614,17 @@ export class VcHandler {
     const gitInitialized = await this.gitService.isInitialized({directory: contextTreeDir})
     if (!gitInitialized) {
       throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
+    }
+
+    const hasCommits = await this.gitService
+      .log({depth: 1, directory: contextTreeDir})
+      .then((c) => c.length > 0)
+    if (!hasCommits) {
+      const branch = await this.gitService.getCurrentBranch({directory: contextTreeDir})
+      throw new VcError(
+        `Your current branch '${branch ?? 'main'}' does not have any commits yet.`,
+        VcErrorCode.NO_COMMITS,
+      )
     }
 
     const {commits, displayBranch} = await this.resolveLogResult(data, contextTreeDir)
@@ -662,6 +720,12 @@ export class VcHandler {
 
     await this.guardUncommittedChanges(false, directory)
 
+    // Self-merge check
+    const currentBranch = await this.gitService.getCurrentBranch({directory})
+    if (currentBranch && data.branch === currentBranch) {
+      return {action: 'merge', alreadyUpToDate: true, branch: data.branch}
+    }
+
     // Validate branch exists (check both local and remote-tracking branches)
     const branches = await this.gitService.listBranches({directory, remote: 'origin'})
     if (!branches.some((b) => b.name === data.branch)) {
@@ -682,6 +746,10 @@ export class VcHandler {
         branch: data.branch,
         conflicts: result.conflicts.map((c) => ({path: c.path, type: c.type})),
       }
+    }
+
+    if (result.alreadyUpToDate) {
+      return {action: 'merge', alreadyUpToDate: true, branch: data.branch}
     }
 
     return {action: 'merge', branch: data.branch}
@@ -912,6 +980,10 @@ export class VcHandler {
       }
     } catch (error) {
       if (error instanceof GitError) {
+        if (error.message.includes('pathspec')) {
+          throw new VcError(error.message, VcErrorCode.FILE_NOT_FOUND)
+        }
+
         if (error.message.includes('Cannot resolve')) {
           throw new VcError(error.message, VcErrorCode.INVALID_REF)
         }

@@ -12,16 +12,26 @@ import {useExecuteVcConflicts} from '../api/execute-vc-conflicts.js'
 type VcConflictsFlowProps = CustomDialogCallbacks
 
 function formatConflicts(result: IVcConflictsResponse): string {
-  if (result.files.length === 0) {
+  const hasMarkers = result.files.length > 0
+  const hasIndexConflicts = result.conflicts && result.conflicts.length > 0
+
+  if (!hasMarkers && !hasIndexConflicts) {
     return 'No conflict markers found.'
   }
 
+  const totalCount = result.files.length + (result.conflicts?.length ?? 0)
   const lines: string[] = [
-    chalk.bold(`Found ${result.files.length} file${result.files.length === 1 ? '' : 's'} with conflict markers:`),
+    chalk.bold(`Found ${totalCount} conflicted file${totalCount === 1 ? '' : 's'}:`),
     '',
   ]
   for (const f of result.files) {
     lines.push(chalk.red(`   ${f}`))
+  }
+
+  if (result.conflicts) {
+    for (const c of result.conflicts) {
+      lines.push(chalk.red(`   ${c.path} (${c.type})`))
+    }
   }
 
   lines.push('')

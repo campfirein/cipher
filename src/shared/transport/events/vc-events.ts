@@ -3,11 +3,13 @@ export const VcErrorCode = {
   AUTH_FAILED: 'ERR_VC_AUTH_FAILED',
   BRANCH_ALREADY_EXISTS: 'ERR_VC_BRANCH_ALREADY_EXISTS',
   BRANCH_NOT_FOUND: 'ERR_VC_BRANCH_NOT_FOUND',
+  BRANCH_NOT_MERGED: 'ERR_VC_BRANCH_NOT_MERGED',
   CANNOT_DELETE_CURRENT_BRANCH: 'ERR_VC_CANNOT_DELETE_CURRENT_BRANCH',
   CLONE_FAILED: 'ERR_VC_CLONE_FAILED',
   CONFIG_KEY_NOT_SET: 'ERR_VC_CONFIG_KEY_NOT_SET',
   CONFLICT_MARKERS_PRESENT: 'ERR_VC_CONFLICT_MARKERS_PRESENT',
   FETCH_FAILED: 'ERR_VC_FETCH_FAILED',
+  FILE_NOT_FOUND: 'ERR_VC_FILE_NOT_FOUND',
   GIT_NOT_INITIALIZED: 'ERR_VC_GIT_NOT_INITIALIZED',
   INVALID_ACTION: 'ERR_VC_INVALID_ACTION',
   INVALID_BRANCH_NAME: 'ERR_VC_INVALID_BRANCH_NAME',
@@ -235,6 +237,7 @@ export interface IVcMergeRequest {
 
 export interface IVcMergeResponse {
   action: VcMergeAction
+  alreadyUpToDate?: boolean
   branch?: string
   conflicts?: Array<{path: string; type: string}>
   defaultMessage?: string
@@ -242,6 +245,7 @@ export interface IVcMergeResponse {
 
 
 export interface IVcConflictsResponse {
+  conflicts?: Array<{path: string; type: string}>
   files: string[]
 }
 
