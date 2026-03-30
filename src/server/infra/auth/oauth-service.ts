@@ -90,6 +90,7 @@ export class OAuthService implements IAuthService {
           },
           httpAgent: ProxyConfig.getProxyAgent(),
           httpsAgent: ProxyConfig.getProxyAgent(),
+          proxy: false,
         },
       )
 
@@ -147,6 +148,7 @@ export class OAuthService implements IAuthService {
       }, {
         httpAgent: ProxyConfig.getProxyAgent(),
         httpsAgent: ProxyConfig.getProxyAgent(),
+        proxy: false,
       })
 
       return this.parseTokenResponse(response.data)
