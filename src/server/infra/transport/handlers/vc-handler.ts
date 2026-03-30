@@ -1262,7 +1262,7 @@ export class VcHandler {
     if (!token?.isValid()) throw new NotAuthenticatedError()
 
     const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
-    const team = teams.find((t) => t.name === teamName)
+    const team = teams.find((t) => t.name.toLowerCase() === teamName.toLowerCase())
     if (!team) {
       const available = teams.map((t) => t.name).join(', ')
       throw new VcError(
@@ -1274,7 +1274,7 @@ export class VcHandler {
     }
 
     const {spaces} = await this.spaceService.getSpaces(token.sessionKey, team.id, {fetchAll: true})
-    const space = spaces.find((s) => s.name === spaceName)
+    const space = spaces.find((s) => s.name.toLowerCase() === spaceName.toLowerCase())
     if (!space) {
       const available = spaces.map((s) => s.name).join(', ')
       throw new VcError(
