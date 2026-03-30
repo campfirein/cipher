@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
+import {mkdir, readFile, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -264,91 +264,4 @@ describe('ExperienceStore (v2 entry-based)', () => {
     })
   })
 
-  describe('migration', () => {
-    it('migrates legacy bullet files to individual entries', async () => {
-      // Seed a legacy lessons.md file
-      const expDir = experienceDir(baseDir)
-      await mkdir(expDir, {recursive: true})
-      const legacyContent = [
-        '---',
-        'title: "Experience: Lessons"',
-        'tags: ["experience", "lessons"]',
-        'keywords: ["lesson"]',
-        'importance: 70',
-        'recency: 1',
-        'maturity: validated',
-        'accessCount: 0',
-        'updateCount: 0',
-        `createdAt: "${new Date().toISOString()}"`,
-        `updatedAt: "${new Date().toISOString()}"`,
-        '---',
-        '',
-        '## Facts',
-        '',
-        '- First lesson learned',
-        '- Second lesson learned',
-      ].join('\n')
-      await writeFile(join(expDir, 'lessons.md'), legacyContent, 'utf8')
-      await writeFile(join(expDir, '_meta.json'), JSON.stringify({curationCount: 5, lastConsolidatedAt: ''}), 'utf8')
-
-      // Run initialization which triggers migration
-      await store.ensureInitialized()
-
-      // Verify entries were created
-      const entries = await store.listEntries(EXPERIENCE_LESSONS_DIR)
-      expect(entries).to.have.length(2)
-
-      // Verify legacy file was removed from experience dir
-      const {existsSync} = await import('node:fs')
-      expect(existsSync(join(expDir, 'lessons.md'))).to.equal(false)
-
-      // Verify legacy file was archived outside context-tree
-      const legacyArchive = join(baseDir, BRV_DIR, '_legacy', 'experience', 'lessons.migrated.json')
-      expect(existsSync(legacyArchive)).to.equal(true)
-
-      // Verify version was set
-      const meta = await store.readMeta()
-      expect(meta.version).to.equal(2)
-    })
-
-    it('is replay-safe via contentHash dedup', async () => {
-      const expDir = experienceDir(baseDir)
-      await mkdir(expDir, {recursive: true})
-      const legacyContent = [
-        '---',
-        'title: "Experience: Lessons"',
-        'tags: ["experience"]',
-        'keywords: []',
-        'importance: 70',
-        'recency: 1',
-        'maturity: validated',
-        'accessCount: 0',
-        'updateCount: 0',
-        `createdAt: "${new Date().toISOString()}"`,
-        `updatedAt: "${new Date().toISOString()}"`,
-        '---',
-        '',
-        '## Facts',
-        '',
-        '- Duplicate lesson',
-      ].join('\n')
-      await writeFile(join(expDir, 'lessons.md'), legacyContent, 'utf8')
-      await writeFile(join(expDir, '_meta.json'), JSON.stringify({curationCount: 0, lastConsolidatedAt: ''}), 'utf8')
-
-      // First migration
-      await store.ensureInitialized()
-      const entries1 = await store.listEntries(EXPERIENCE_LESSONS_DIR)
-      expect(entries1).to.have.length(1)
-
-      // Simulate crash: recreate legacy file but keep migrated entries
-      await writeFile(join(expDir, 'lessons.md'), legacyContent, 'utf8')
-      await writeFile(join(expDir, '_meta.json'), JSON.stringify({curationCount: 0, lastConsolidatedAt: ''}), 'utf8')
-
-      // Second migration should not create duplicates
-      const store2 = new ExperienceStore(baseDir)
-      await store2.ensureInitialized()
-      const entries2 = await store2.listEntries(EXPERIENCE_LESSONS_DIR)
-      expect(entries2).to.have.length(1)
-    })
-  })
 })

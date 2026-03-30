@@ -130,6 +130,3 @@ export const EXPERIENCE_REFLECTIONS_DIR = 'reflections'
 export const EXPERIENCE_PERFORMANCE_DIR = 'performance'
 export const EXPERIENCE_PERFORMANCE_LOG_FILE = 'performance-log.jsonl'
 export const EXPERIENCE_ENTRY_CONSOLIDATION_THRESHOLD = 15
-export const EXPERIENCE_LEGACY_DIR = '_legacy'
-export const EXPERIENCE_STORE_VERSION = 2
-export const EXPERIENCE_MIGRATION_FILE = '.migration.json'

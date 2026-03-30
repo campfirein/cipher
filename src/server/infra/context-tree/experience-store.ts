@@ -2,43 +2,23 @@ import {createHash} from 'node:crypto'
 import {appendFile} from 'node:fs/promises'
 import {join, resolve} from 'node:path'
 
-import type {ExperienceEntryFrontmatter, ExperienceMeta, MigrationState, PerformanceLogEntry} from '../../core/domain/experience/experience-types.js'
+import type {ExperienceEntryFrontmatter, ExperienceMeta, PerformanceLogEntry} from '../../core/domain/experience/experience-types.js'
 
 import {
   BRV_DIR,
   CONTEXT_TREE_DIR,
   EXPERIENCE_DEAD_ENDS_DIR,
-  EXPERIENCE_DEAD_ENDS_FILE,
   EXPERIENCE_DIR,
   EXPERIENCE_HINTS_DIR,
-  EXPERIENCE_HINTS_FILE,
-  EXPERIENCE_LEGACY_DIR,
   EXPERIENCE_LESSONS_DIR,
-  EXPERIENCE_LESSONS_FILE,
   EXPERIENCE_META_FILE,
-  EXPERIENCE_MIGRATION_FILE,
   EXPERIENCE_PERFORMANCE_DIR,
   EXPERIENCE_PERFORMANCE_LOG_FILE,
-  EXPERIENCE_PLAYBOOK_FILE,
   EXPERIENCE_REFLECTIONS_DIR,
-  EXPERIENCE_STORE_VERSION,
   EXPERIENCE_STRATEGIES_DIR,
 } from '../../constants.js'
 import {DirectoryManager} from '../../core/domain/knowledge/directory-manager.js'
 import {parseFrontmatterScoring} from '../../core/domain/knowledge/markdown-writer.js'
-import {applyDefaultScoring} from '../../core/domain/knowledge/memory-scoring.js'
-import {readSectionLinesFromContent} from './experience-section-parser.js'
-
-// ---------------------------------------------------------------------------
-// Legacy file → subfolder mapping (for migration)
-// ---------------------------------------------------------------------------
-
-const LEGACY_FILE_SECTIONS: Record<string, {section: string; subfolder: string}> = {
-  [EXPERIENCE_DEAD_ENDS_FILE]: {section: 'Dead Ends', subfolder: EXPERIENCE_DEAD_ENDS_DIR},
-  [EXPERIENCE_HINTS_FILE]: {section: 'Hints', subfolder: EXPERIENCE_HINTS_DIR},
-  [EXPERIENCE_LESSONS_FILE]: {section: 'Facts', subfolder: EXPERIENCE_LESSONS_DIR},
-  [EXPERIENCE_PLAYBOOK_FILE]: {section: 'Strategies', subfolder: EXPERIENCE_STRATEGIES_DIR},
-}
 
 // ---------------------------------------------------------------------------
 // All experience subfolders
@@ -112,14 +92,10 @@ export function buildEntryContent(frontmatter: ExperienceEntryFrontmatter, body:
  */
 export class ExperienceStore {
   private readonly experienceDir: string
-  private readonly legacyDir: string
-  private readonly projectBase: string
 
   constructor(baseDirectory?: string) {
     const base = baseDirectory ?? process.cwd()
-    this.projectBase = resolve(base)
     this.experienceDir = resolve(base, BRV_DIR, CONTEXT_TREE_DIR, EXPERIENCE_DIR)
-    this.legacyDir = resolve(base, BRV_DIR, EXPERIENCE_LEGACY_DIR, EXPERIENCE_DIR)
   }
 
   // ---------------------------------------------------------------------------
@@ -196,9 +172,6 @@ export class ExperienceStore {
       await DirectoryManager.writeFileAtomic(metaPath, JSON.stringify(meta, null, 2))
       anyCreated = true
     }
-
-    // Run migration if needed
-    await this.migrateIfNeeded()
 
     return anyCreated
   }
@@ -279,8 +252,6 @@ export class ExperienceStore {
       curationCount: typeof parsed.curationCount === 'number' ? parsed.curationCount : 0,
       lastConsolidatedAt:
         typeof parsed.lastConsolidatedAt === 'string' ? parsed.lastConsolidatedAt : '',
-      lastMigratedAt: typeof parsed.lastMigratedAt === 'string' ? parsed.lastMigratedAt : undefined,
-      version: typeof parsed.version === 'number' ? parsed.version : undefined,
     }
   }
 
@@ -341,182 +312,5 @@ export class ExperienceStore {
     const updated: ExperienceMeta = {...current, ...patch}
     const metaPath = join(this.experienceDir, EXPERIENCE_META_FILE)
     await DirectoryManager.writeFileAtomic(metaPath, JSON.stringify(updated, null, 2))
-  }
-
-  // ---------------------------------------------------------------------------
-  // Migration (v1 bullet files → v2 entry files)
-  // ---------------------------------------------------------------------------
-
-  private async deleteMigrationState(): Promise<void> {
-    const migPath = join(this.experienceDir, EXPERIENCE_MIGRATION_FILE)
-    await DirectoryManager.deleteFile(migPath)
-  }
-
-  private async migrateIfNeeded(): Promise<void> {
-    const meta = await this.readMeta()
-
-    // Stale sidecar cleanup
-    if (meta.version !== undefined && meta.version >= EXPERIENCE_STORE_VERSION) {
-      await this.deleteMigrationState().catch(() => {})
-
-      return
-    }
-
-    // Check for legacy files to migrate
-    const legacyFiles = Object.keys(LEGACY_FILE_SECTIONS)
-    const existingLegacy: string[] = []
-
-    for (const file of legacyFiles) {
-      const filePath = join(this.experienceDir, file)
-      // eslint-disable-next-line no-await-in-loop
-      if (await DirectoryManager.fileExists(filePath)) {
-        existingLegacy.push(file)
-      }
-    }
-
-    // Also check for in-progress migration
-    const migrationState = await this.readMigrationState()
-
-    if (existingLegacy.length === 0 && !migrationState) {
-      // No legacy files and no in-progress migration — set version and done
-      await this.writeMeta({version: EXPERIENCE_STORE_VERSION})
-
-      return
-    }
-
-    // Start or resume migration
-    const state: MigrationState = migrationState ?? {
-      completedFiles: [],
-      startedAt: new Date().toISOString(),
-    }
-    await this.writeMigrationState(state)
-
-    let allSucceeded = true
-
-    for (const file of legacyFiles) {
-      if (state.completedFiles.includes(file)) {
-        continue
-      }
-
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await this.migrateLegacyFile(file)
-        state.completedFiles.push(file)
-        // eslint-disable-next-line no-await-in-loop
-        await this.writeMigrationState(state)
-      } catch {
-        // File-level error — do not mark as complete, do not finalize
-        allSucceeded = false
-      }
-    }
-
-    // Finalize only on full success
-    if (allSucceeded) {
-      await this.writeMeta({
-        lastMigratedAt: new Date().toISOString(),
-        version: EXPERIENCE_STORE_VERSION,
-      })
-      await this.deleteMigrationState().catch(() => {})
-    }
-  }
-
-  private async migrateLegacyFile(filename: string): Promise<void> {
-    const config = LEGACY_FILE_SECTIONS[filename]
-    if (!config) return
-
-    const filePath = join(this.experienceDir, filename)
-
-    if (!(await DirectoryManager.fileExists(filePath))) {
-      return
-    }
-
-    const content = await DirectoryManager.readFile(filePath)
-    const bullets = readSectionLinesFromContent(content, config.section)
-
-    // Get existing hashes to make replay idempotent
-    const existingHashes = await this.readEntryContentHashes(config.subfolder)
-
-    for (const bullet of bullets) {
-      const hash = computeContentHash(bullet)
-      if (existingHashes.has(hash)) {
-        continue
-      }
-
-      const iso = new Date().toISOString()
-      const scoring = applyDefaultScoring()
-      const frontmatter: ExperienceEntryFrontmatter = {
-        contentHash: hash,
-        createdAt: iso,
-        importance: scoring.importance ?? 50,
-        maturity: (scoring.maturity as 'core' | 'draft' | 'validated') ?? 'draft',
-        recency: scoring.recency ?? 1,
-        tags: ['experience', config.subfolder, 'migrated'],
-        title: bullet.slice(0, 80),
-        type: this.subfolderToSignalType(config.subfolder),
-        updatedAt: iso,
-      }
-
-      // Any write error propagates up → file stays incomplete (replay-safe)
-      // eslint-disable-next-line no-await-in-loop
-      await this.createEntry(config.subfolder, bullet, frontmatter)
-      existingHashes.add(hash)
-    }
-
-    // Archive the legacy file outside context-tree
-    await DirectoryManager.createOrUpdateDomain(this.legacyDir)
-    const archivePath = join(this.legacyDir, `${filename.replace('.md', '')}.migrated.json`)
-    await DirectoryManager.writeFileAtomic(
-      archivePath,
-      JSON.stringify({migratedAt: new Date().toISOString(), originalContent: content}, null, 2),
-    )
-
-    // Delete original
-    await DirectoryManager.deleteFile(join(this.experienceDir, filename))
-  }
-
-  // ---------------------------------------------------------------------------
-  // Migration state sidecar (.migration.json)
-  // ---------------------------------------------------------------------------
-
-  private async readMigrationState(): Promise<MigrationState | null> {
-    const migPath = join(this.experienceDir, EXPERIENCE_MIGRATION_FILE)
-
-    try {
-      const raw = await DirectoryManager.readFile(migPath)
-      return JSON.parse(raw) as MigrationState
-    } catch {
-      return null
-    }
-  }
-
-  private subfolderToSignalType(subfolder: string): ExperienceEntryFrontmatter['type'] {
-    switch (subfolder) {
-      case EXPERIENCE_DEAD_ENDS_DIR: {
-        return 'dead-end'
-      }
-
-      case EXPERIENCE_HINTS_DIR: {
-        return 'hint'
-      }
-
-      case EXPERIENCE_LESSONS_DIR: {
-        return 'lesson'
-      }
-
-      case EXPERIENCE_STRATEGIES_DIR: {
-        return 'strategy'
-      }
-
-      default: {
-        // Only reached during migration of legacy bullet files, which never
-        // produce 'performance' or 'reflection' subfolders.
-        return 'lesson'
-      }
-    }
-  }
-
-  private async writeMigrationState(state: MigrationState): Promise<void> {
-    const migPath = join(this.experienceDir, EXPERIENCE_MIGRATION_FILE)
-    await DirectoryManager.writeFileAtomic(migPath, JSON.stringify(state, null, 2))
   }
 }

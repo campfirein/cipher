@@ -68,41 +68,13 @@ describe('ConnectorsHandler', () => {
   }
 
   describe('setup', () => {
-    it('should register all connector handlers', () => {
+    it('should register connector handlers (no SYNC)', () => {
       createHandler()
-      expect(transport._handlers.has(ConnectorEvents.SYNC)).to.be.true
       expect(transport._handlers.has(ConnectorEvents.GET_AGENTS)).to.be.true
       expect(transport._handlers.has(ConnectorEvents.LIST)).to.be.true
       expect(transport._handlers.has(ConnectorEvents.INSTALL)).to.be.true
       expect(transport._handlers.has(ConnectorEvents.GET_AGENT_CONFIG_PATHS)).to.be.true
-    })
-  })
-
-  describe('handleSync (disabled)', () => {
-    it('should throw "Skill export is disabled" error', async () => {
-      createHandler()
-      const handler = transport._handlers.get(ConnectorEvents.SYNC)
-      expect(handler).to.exist
-
-      try {
-        await handler!(undefined, 'client-1')
-        expect.fail('should have thrown')
-      } catch (error) {
-        expect((error as Error).message).to.include('Skill export is disabled')
-      }
-    })
-
-    it('should still resolve the project path before throwing', async () => {
-      createHandler()
-      const handler = transport._handlers.get(ConnectorEvents.SYNC)
-
-      try {
-        await handler!(undefined, 'client-42')
-      } catch {
-        // Expected
-      }
-
-      expect(resolveProjectPath.calledWith('client-42')).to.be.true
+      expect(transport._handlers.has(ConnectorEvents.SYNC)).to.be.false
     })
   })
 })

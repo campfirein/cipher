@@ -11,7 +11,6 @@ import {
   type ConnectorInstallRequest,
   type ConnectorInstallResponse,
   type ConnectorListResponse,
-  type ConnectorSyncResponse,
 } from '../../../../shared/transport/events/connector-events.js'
 import {isConnectorType} from '../../../../shared/types/connector-type.js'
 import {AGENT_CONNECTOR_CONFIG, isAgent} from '../../../core/domain/entities/agent.js'
@@ -54,10 +53,6 @@ export class ConnectorsHandler {
     this.transport.onRequest<ConnectorInstallRequest, ConnectorInstallResponse>(
       ConnectorEvents.INSTALL,
       (data, clientId) => this.handleInstall(data, clientId),
-    )
-
-    this.transport.onRequest<void, ConnectorSyncResponse>(ConnectorEvents.SYNC, (_data, clientId) =>
-      this.handleSync(clientId),
     )
   }
 
@@ -124,10 +119,4 @@ export class ConnectorsHandler {
 
     return {connectors}
   }
-
-  private async handleSync(clientId: string): Promise<ConnectorSyncResponse> {
-    resolveRequiredProjectPath(this.resolveProjectPath, clientId)
-    throw new Error('Skill export is disabled.')
-  }
-
 }

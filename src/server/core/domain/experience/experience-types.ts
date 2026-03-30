@@ -71,15 +71,4 @@ export interface PerformanceLogEntry {
 export interface ExperienceMeta {
   curationCount: number
   lastConsolidatedAt: string
-  lastMigratedAt?: string
-  version?: number
-}
-
-// ---------------------------------------------------------------------------
-// Migration state (separate .migration.json sidecar)
-// ---------------------------------------------------------------------------
-
-export interface MigrationState {
-  completedFiles: string[]
-  startedAt: string
 }
