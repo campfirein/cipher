@@ -1,7 +1,7 @@
 /**
- * IConsolidationLlm — minimal LLM abstraction for ExperienceConsolidationService.
+ * IConsolidationLlm — minimal LLM abstraction for ExperienceSynthesisService.
  *
- * A thin, single-method interface so that the consolidation service remains
+ * A thin, single-method interface so that the synthesis service remains
  * testable without pulling in the full agent layer. In production, the adapter
  * in agent-process.ts wraps ICipherAgent.executeOnSession to fulfil this contract.
  *

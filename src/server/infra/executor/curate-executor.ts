@@ -119,11 +119,14 @@ export class CurateExecutor implements ICurateExecutor {
         `IMPORTANT: Any code_exec call containing mapExtract MUST use timeout: 300000 on the code_exec tool call itself (not inside mapExtract options).`,
         `Use tools.curation.groupBySubject() and tools.curation.dedup() to organize extractions.`,
         `Verify via result.applied[].filePath — do NOT call readFile for verification.`,
-        `After verification, append an experience block to your response with up to 5 signals you observed during this curation (skip if none apply):`,
+        `After verification, append an experience block with up to 5 signals plus an optional performance assessment:`,
         `\`\`\`experience`,
-        `[{"type":"lesson","text":"<what you learned>"},{"type":"hint","text":"<forward-looking tip>"},{"type":"dead-end","text":"<approach that failed>"},{"type":"strategy","text":"<reusable pattern>"}]`,
+        `[{"type":"lesson","text":"<what you learned>"},{"type":"hint","text":"<forward-looking tip>"},{"type":"dead-end","text":"<approach that failed>"},{"type":"strategy","text":"<reusable pattern>"},{"type":"performance","text":"<summary of quality>","score":0.85,"domain":"<task domain>"},{"type":"reflection","text":"<free-form insight about patterns noticed>"}]`,
         `\`\`\``,
-        `Valid types: lesson, hint, dead-end, strategy. Omit entries that do not apply. Emit the block only once, at the end.`,
+        `Valid types: lesson, hint, dead-end, strategy, performance, reflection.`,
+        `For performance: include score (0-1) and domain. Assess task quality, not just completion.`,
+        `For reflection: include a free-form insight about patterns noticed during this curation.`,
+        `Omit entries that do not apply. Emit the block only once, at the end.`,
       ].join('\n')
 
       // Execute on the task session (isolated sandbox + history)

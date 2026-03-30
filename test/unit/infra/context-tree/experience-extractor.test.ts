@@ -1,12 +1,15 @@
 import {expect} from 'chai'
 
 import {
-  EXPERIENCE_DEAD_ENDS_FILE,
-  EXPERIENCE_HINTS_FILE,
-  EXPERIENCE_LESSONS_FILE,
-  EXPERIENCE_PLAYBOOK_FILE,
+  EXPERIENCE_DEAD_ENDS_DIR,
+  EXPERIENCE_HINTS_DIR,
+  EXPERIENCE_LESSONS_DIR,
+  EXPERIENCE_PERFORMANCE_DIR,
+  EXPERIENCE_REFLECTIONS_DIR,
+  EXPERIENCE_STRATEGIES_DIR,
 } from '../../../../src/server/constants.js'
-import {extractExperienceSignals, signalTarget} from '../../../../src/server/infra/context-tree/experience-extractor.js'
+import {signalTypeToSubfolder} from '../../../../src/server/core/domain/experience/experience-types.js'
+import {extractExperienceSignals} from '../../../../src/server/infra/context-tree/experience-extractor.js'
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -41,17 +44,56 @@ describe('ExperienceExtractor', () => {
       expect(signals[0]).to.deep.equal({text: 'Always initialize before write', type: 'lesson'})
     })
 
-    it('extracts all four signal types', () => {
+    it('extracts all six signal types', () => {
       const payload = JSON.stringify([
         {text: 'lesson text', type: 'lesson'},
         {text: 'hint text', type: 'hint'},
         {text: 'dead-end text', type: 'dead-end'},
         {text: 'strategy text', type: 'strategy'},
+        {domain: 'code-review', score: 0.85, text: 'good quality', type: 'performance'},
+        {text: 'pattern noticed', type: 'reflection'},
       ])
       const response = `\`\`\`experience\n${payload}\n\`\`\``
       const signals = extractExperienceSignals(response)
-      expect(signals).to.have.length(4)
-      expect(signals.map((s) => s.type)).to.deep.equal(['lesson', 'hint', 'dead-end', 'strategy'])
+      expect(signals).to.have.length(6)
+      expect(signals.map((s) => s.type)).to.deep.equal(['lesson', 'hint', 'dead-end', 'strategy', 'performance', 'reflection'])
+    })
+
+    it('extracts performance signals with score and domain', () => {
+      const payload = JSON.stringify([
+        {domain: 'valuation', score: 0.72, text: 'DCF analysis quality', type: 'performance'},
+      ])
+      const response = `\`\`\`experience\n${payload}\n\`\`\``
+      const signals = extractExperienceSignals(response)
+      expect(signals).to.have.length(1)
+      const signal = signals[0] as {domain: string; score: number; text: string; type: string}
+      expect(signal.type).to.equal('performance')
+      expect(signal.score).to.equal(0.72)
+      expect(signal.domain).to.equal('valuation')
+    })
+
+    it('rejects performance signals without score', () => {
+      const payload = JSON.stringify([
+        {domain: 'code-review', text: 'missing score', type: 'performance'},
+      ])
+      const response = `\`\`\`experience\n${payload}\n\`\`\``
+      expect(extractExperienceSignals(response)).to.deep.equal([])
+    })
+
+    it('rejects performance signals without domain', () => {
+      const payload = JSON.stringify([
+        {score: 0.5, text: 'missing domain', type: 'performance'},
+      ])
+      const response = `\`\`\`experience\n${payload}\n\`\`\``
+      expect(extractExperienceSignals(response)).to.deep.equal([])
+    })
+
+    it('rejects performance signals with score out of range', () => {
+      const payload = JSON.stringify([
+        {domain: 'test', score: 1.5, text: 'bad score', type: 'performance'},
+      ])
+      const response = `\`\`\`experience\n${payload}\n\`\`\``
+      expect(extractExperienceSignals(response)).to.deep.equal([])
     })
 
     it('filters out entries with unknown types', () => {
@@ -115,29 +157,29 @@ describe('ExperienceExtractor', () => {
     })
   })
 
-  describe('signalTarget()', () => {
-    it('maps lesson → lessons.md / Facts', () => {
-      const target = signalTarget('lesson')
-      expect(target.file).to.equal(EXPERIENCE_LESSONS_FILE)
-      expect(target.section).to.equal('Facts')
+  describe('signalTypeToSubfolder()', () => {
+    it('maps lesson → lessons dir', () => {
+      expect(signalTypeToSubfolder('lesson')).to.equal(EXPERIENCE_LESSONS_DIR)
     })
 
-    it('maps hint → hints.md / Hints', () => {
-      const target = signalTarget('hint')
-      expect(target.file).to.equal(EXPERIENCE_HINTS_FILE)
-      expect(target.section).to.equal('Hints')
+    it('maps hint → hints dir', () => {
+      expect(signalTypeToSubfolder('hint')).to.equal(EXPERIENCE_HINTS_DIR)
     })
 
-    it('maps dead-end → dead-ends.md / Dead Ends', () => {
-      const target = signalTarget('dead-end')
-      expect(target.file).to.equal(EXPERIENCE_DEAD_ENDS_FILE)
-      expect(target.section).to.equal('Dead Ends')
+    it('maps dead-end → dead-ends dir', () => {
+      expect(signalTypeToSubfolder('dead-end')).to.equal(EXPERIENCE_DEAD_ENDS_DIR)
     })
 
-    it('maps strategy → playbook.md / Strategies', () => {
-      const target = signalTarget('strategy')
-      expect(target.file).to.equal(EXPERIENCE_PLAYBOOK_FILE)
-      expect(target.section).to.equal('Strategies')
+    it('maps strategy → strategies dir', () => {
+      expect(signalTypeToSubfolder('strategy')).to.equal(EXPERIENCE_STRATEGIES_DIR)
+    })
+
+    it('maps performance → performance dir', () => {
+      expect(signalTypeToSubfolder('performance')).to.equal(EXPERIENCE_PERFORMANCE_DIR)
+    })
+
+    it('maps reflection → reflections dir', () => {
+      expect(signalTypeToSubfolder('reflection')).to.equal(EXPERIENCE_REFLECTIONS_DIR)
     })
   })
 })

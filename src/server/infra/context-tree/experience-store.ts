@@ -1,109 +1,98 @@
+import {createHash} from 'node:crypto'
+import {appendFile} from 'node:fs/promises'
 import {join, resolve} from 'node:path'
+
+import type {ExperienceEntryFrontmatter, ExperienceMeta, PerformanceLogEntry} from '../../core/domain/experience/experience-types.js'
 
 import {
   BRV_DIR,
   CONTEXT_TREE_DIR,
-  EXPERIENCE_DEAD_ENDS_FILE,
+  EXPERIENCE_DEAD_ENDS_DIR,
   EXPERIENCE_DIR,
-  EXPERIENCE_HINTS_FILE,
-  EXPERIENCE_LESSONS_FILE,
+  EXPERIENCE_HINTS_DIR,
+  EXPERIENCE_LESSONS_DIR,
   EXPERIENCE_META_FILE,
-  EXPERIENCE_PLAYBOOK_FILE,
+  EXPERIENCE_PERFORMANCE_DIR,
+  EXPERIENCE_PERFORMANCE_LOG_FILE,
+  EXPERIENCE_REFLECTIONS_DIR,
+  EXPERIENCE_STRATEGIES_DIR,
 } from '../../constants.js'
 import {DirectoryManager} from '../../core/domain/knowledge/directory-manager.js'
-import {parseFrontmatterScoring, updateScoringInContent} from '../../core/domain/knowledge/markdown-writer.js'
-import {determineTier, recordCurateUpdate} from '../../core/domain/knowledge/memory-scoring.js'
+import {parseFrontmatterScoring} from '../../core/domain/knowledge/markdown-writer.js'
 
 // ---------------------------------------------------------------------------
-// Types
+// All experience subfolders
 // ---------------------------------------------------------------------------
 
-export interface ExperienceMeta {
-  curationCount: number
-  lastConsolidatedAt: string
+const ALL_SUBFOLDERS = [
+  EXPERIENCE_DEAD_ENDS_DIR,
+  EXPERIENCE_HINTS_DIR,
+  EXPERIENCE_LESSONS_DIR,
+  EXPERIENCE_PERFORMANCE_DIR,
+  EXPERIENCE_REFLECTIONS_DIR,
+  EXPERIENCE_STRATEGIES_DIR,
+]
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Generate a SHA-256 content hash (first 12 hex chars) for dedup. */
+export function computeContentHash(text: string): string {
+  return createHash('sha256').update(text.toLowerCase().trim()).digest('hex').slice(0, 12)
 }
 
-// ---------------------------------------------------------------------------
-// Section header map — locked to seed templates
-// ---------------------------------------------------------------------------
-
-/** Maps each experience filename to its expected section header. */
-export const EXPERIENCE_SECTIONS: Record<string, string> = {
-  [EXPERIENCE_DEAD_ENDS_FILE]: 'Dead Ends',
-  [EXPERIENCE_HINTS_FILE]: 'Hints',
-  [EXPERIENCE_LESSONS_FILE]: 'Facts',
-  [EXPERIENCE_PLAYBOOK_FILE]: 'Strategies',
+/** Generate a date-prefixed slug filename from text. */
+export function generateEntryFilename(text: string): string {
+  const date = new Date().toISOString().slice(0, 10)
+  const slug = text
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/g, '-')
+    .replaceAll(/^-+|-+$/g, '')
+    .slice(0, 50)
+  return `${date}--${slug || 'entry'}.md`
 }
 
-// ---------------------------------------------------------------------------
-// Seed template builder
-// ---------------------------------------------------------------------------
-
-function buildSeedFile(title: string, tags: string[], keywords: string[], section: string): string {
-  const iso = new Date().toISOString()
-  return [
+export function buildEntryContent(frontmatter: ExperienceEntryFrontmatter, body: string): string {
+  const serializedTitle = frontmatter.title
+    .replaceAll('\r', '')
+    .replaceAll('\n', ' ')
+    .replaceAll('"', String.raw`\"`)
+  const fm = [
     '---',
-    `title: "${title}"`,
-    `tags: [${tags.map((t) => `"${t}"`).join(', ')}]`,
-    `keywords: [${keywords.map((k) => `"${k}"`).join(', ')}]`,
-    'importance: 70',
-    'recency: 1',
-    'maturity: validated',
-    'accessCount: 0',
-    'updateCount: 0',
-    `createdAt: "${iso}"`,
-    `updatedAt: "${iso}"`,
-    '---',
-    '',
-    `## ${section}`,
-    '',
-  ].join('\n')
-}
+    `title: "${serializedTitle}"`,
+    `tags: [${frontmatter.tags.map((t) => `"${t}"`).join(', ')}]`,
+    `type: ${frontmatter.type}`,
+    `contentHash: "${frontmatter.contentHash}"`,
+    `importance: ${frontmatter.importance}`,
+    `recency: ${frontmatter.recency}`,
+    `maturity: ${frontmatter.maturity}`,
+  ]
 
-// ---------------------------------------------------------------------------
-// Private helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Append bullets to the end of the given section.
- * Preserves chronological order across repeated appends so later consolidation
- * reads bullets in the same order they were originally added.
- * Throws if the section header is not found — missing header indicates
- * corruption or a bad consolidation output, not a graceful no-op.
- */
-function appendBulletsToSection(content: string, sectionHeader: string, bullets: string[]): string {
-  const marker = `\n## ${sectionHeader}\n`
-  const idx = content.indexOf(marker)
-  if (idx === -1) {
-    throw new Error(
-      `Section "## ${sectionHeader}" not found in experience file — file may be corrupted or missing the expected template`,
-    )
+  if (frontmatter.confidence) {
+    fm.push(`confidence: "${frontmatter.confidence}"`)
   }
 
-  const sectionStart = idx + marker.length
-  const nextHeading = content.indexOf('\n## ', sectionStart)
-  const insertAt = nextHeading === -1 ? content.length : nextHeading
-  const newLines = bullets.map((b) => `- ${b}`).join('\n') + '\n'
-  return content.slice(0, insertAt) + newLines + content.slice(insertAt)
+  if (frontmatter.derived_from && frontmatter.derived_from.length > 0) {
+    fm.push(`derived_from: [${frontmatter.derived_from.map((d) => `"${d}"`).join(', ')}]`)
+  }
+
+  fm.push(`createdAt: "${frontmatter.createdAt}"`, `updatedAt: "${frontmatter.updatedAt}"`, '---', '')
+
+  return fm.join('\n') + body.trim() + '\n'
 }
 
-function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && 'code' in error
-}
 
 // ---------------------------------------------------------------------------
-// ExperienceStore
+// ExperienceStore (v2 — entry-based)
 // ---------------------------------------------------------------------------
 
 /**
- * Manages read/write operations for the experience domain files under
- * .brv/context-tree/experience/.
+ * Manages read/write operations for the entry-based experience domain
+ * under .brv/context-tree/experience/.
  *
- * Responsibilities:
- * - Idempotent seeding of the experience directory
- * - Batch bullet appends (one recordCurateUpdate per file write)
- * - Meta persistence via _meta.json (local-only, not synced)
- * - Raw file access for consolidation
+ * Each experience signal is stored as an individual markdown file with
+ * frontmatter in a type-based subfolder (lessons/, hints/, etc.).
  */
 export class ExperienceStore {
   private readonly experienceDir: string
@@ -113,104 +102,73 @@ export class ExperienceStore {
     this.experienceDir = resolve(base, BRV_DIR, CONTEXT_TREE_DIR, EXPERIENCE_DIR)
   }
 
+  // ---------------------------------------------------------------------------
+  // Entry CRUD
+  // ---------------------------------------------------------------------------
+
   /**
-   * Append multiple bullets to a file's section in a single atomic write.
-   * Applies recordCurateUpdate() + determineTier() once per call — matching
-   * the one-write-per-file pattern used in curate-tool.ts.
-   *
-   * @throws if the section header is missing (corruption guard)
+   * Append a JSON line to the performance log.
+   * Creates the file if it does not exist.
    */
-  async appendBulkToFile(filename: string, section: string, bullets: string[]): Promise<void> {
-    if (bullets.length === 0) return
-
-    const filePath = join(this.experienceDir, filename)
-    const content = await DirectoryManager.readFile(filePath)
-
-    const existingScoring = parseFrontmatterScoring(content)
-    if (!existingScoring) {
-      throw new Error(
-        `Experience file "${filename}" is missing frontmatter — file may be corrupted`,
-      )
-    }
-
-    const updated = recordCurateUpdate(existingScoring)
-    const tier = determineTier(
-      updated.importance ?? 50,
-      (updated.maturity ?? 'draft') as 'core' | 'draft' | 'validated',
-    )
-    const finalScoring = {...updated, maturity: tier}
-
-    // Throws if section header not found — caller owns fail-open behavior
-    const withBullets = appendBulletsToSection(content, section, bullets)
-    const final = updateScoringInContent(withBullets, finalScoring)
-
-    await DirectoryManager.writeFileAtomic(filePath, final)
+  async appendPerformanceLog(entry: PerformanceLogEntry): Promise<void> {
+    const logPath = join(this.experienceDir, EXPERIENCE_PERFORMANCE_DIR, EXPERIENCE_PERFORMANCE_LOG_FILE)
+    await DirectoryManager.ensureParentDirectory(logPath)
+    const line = JSON.stringify(entry) + '\n'
+    await appendFile(logPath, line, 'utf8')
   }
 
   /**
-   * Ensure the experience directory and all seed files exist.
-   * Idempotent — safe to call on every curation.
+   * Create an individual entry file in the given subfolder.
+   * Returns the generated filename.
    *
-   * @returns true if any file was newly created, false if all already existed
+   * @throws if the write fails (caller decides fail-open behavior)
+   */
+  async createEntry(subfolder: string, body: string, frontmatter: ExperienceEntryFrontmatter): Promise<string> {
+    const dir = join(this.experienceDir, subfolder)
+    await DirectoryManager.createOrUpdateDomain(dir)
+
+    let filename = generateEntryFilename(frontmatter.title)
+    let filePath = join(dir, filename)
+    const baseFilename = filename.replace(/\.md$/, '')
+
+    // Dedup by filename collision — append -2, -3, etc.
+    let counter = 2
+    // eslint-disable-next-line no-await-in-loop
+    while (await DirectoryManager.fileExists(filePath)) {
+      filename = `${baseFilename}-${counter}.md`
+      filePath = join(dir, filename)
+      counter++
+    }
+
+    const content = buildEntryContent(frontmatter, body)
+    await DirectoryManager.writeFileAtomic(filePath, content)
+    return filename
+  }
+
+  /**
+   * Ensure the experience directory and all subfolders exist.
+   * Runs migration from legacy bullet files if needed.
+   *
+   * @returns true if any directory or file was newly created
    */
   async ensureInitialized(): Promise<boolean> {
     await DirectoryManager.createOrUpdateDomain(this.experienceDir)
 
-    const seeds: Array<{content: string; file: string}> = [
-      {
-        content: buildSeedFile(
-          'Experience: Lessons',
-          ['experience', 'lessons'],
-          ['lesson', 'learned', 'pattern', 'insight', 'discovered'],
-          'Facts',
-        ),
-        file: EXPERIENCE_LESSONS_FILE,
-      },
-      {
-        content: buildSeedFile(
-          'Experience: Hints',
-          ['experience', 'hints'],
-          ['hint', 'tip', 'note', 'remember', 'forward'],
-          'Hints',
-        ),
-        file: EXPERIENCE_HINTS_FILE,
-      },
-      {
-        content: buildSeedFile(
-          'Experience: Dead Ends',
-          ['experience', 'dead-ends'],
-          ['dead-end', 'failed', 'avoid', 'blocked'],
-          'Dead Ends',
-        ),
-        file: EXPERIENCE_DEAD_ENDS_FILE,
-      },
-      {
-        content: buildSeedFile(
-          'Experience: Playbook',
-          ['experience', 'playbook'],
-          ['strategy', 'pattern', 'approach', 'best-practice'],
-          'Strategies',
-        ),
-        file: EXPERIENCE_PLAYBOOK_FILE,
-      },
-    ]
+    let anyCreated = false
 
-    const seedResults = await Promise.all(
-      seeds.map(async ({content, file}) => {
-        const filePath = join(this.experienceDir, file)
-        const exists = await DirectoryManager.fileExists(filePath)
-        if (!exists) {
-          await DirectoryManager.writeFileAtomic(filePath, content)
-          return true
-        }
+    // Create all subfolders (sequential to avoid race conditions on shared parent dir)
+    for (const subfolder of ALL_SUBFOLDERS) {
+      const subPath = join(this.experienceDir, subfolder)
+      // eslint-disable-next-line no-await-in-loop
+      const exists = await DirectoryManager.folderExists(subPath)
+      if (!exists) {
+        // eslint-disable-next-line no-await-in-loop
+        await DirectoryManager.createOrUpdateDomain(subPath)
+        anyCreated = true
+      }
+    }
 
-        return false
-      }),
-    )
-
-    let anyCreated = seedResults.some(Boolean)
-
-    // Seed _meta.json (plain JSON, not .md — never synced or indexed)
+    // Seed _meta.json if missing
     const metaPath = join(this.experienceDir, EXPERIENCE_META_FILE)
     const metaExists = await DirectoryManager.fileExists(metaPath)
     if (!metaExists) {
@@ -233,18 +191,55 @@ export class ExperienceStore {
   }
 
   /**
-   * Read raw file content. Used by ExperienceConsolidationService.
+   * List .md entry files in a subfolder, excluding _index.md.
    */
-  async readFile(filename: string): Promise<string> {
-    const filePath = join(this.experienceDir, filename)
+  async listEntries(subfolder: string): Promise<string[]> {
+    const dir = join(this.experienceDir, subfolder)
+    try {
+      const files = await DirectoryManager.listMarkdownFiles(dir)
+      // listMarkdownFiles returns relative paths — extract filenames
+      return files
+        .map((f) => f.split('/').pop() ?? f)
+        .filter((f) => f !== '_index.md')
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Read raw content of an entry file.
+   */
+  async readEntry(subfolder: string, filename: string): Promise<string> {
+    const filePath = join(this.experienceDir, subfolder, filename)
     return DirectoryManager.readFile(filePath)
   }
 
   /**
+   * Scan all entries in a subfolder and return the set of contentHash values
+   * found in their frontmatter. Used for dedup before createEntry().
+   */
+  async readEntryContentHashes(subfolder: string): Promise<Set<string>> {
+    const entries = await this.listEntries(subfolder)
+    const hashes = new Set<string>()
+
+    for (const entry of entries) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const content = await this.readEntry(subfolder, entry)
+        const hashMatch = /contentHash:\s*"([a-f0-9]+)"/.exec(content)
+        if (hashMatch) {
+          hashes.add(hashMatch[1])
+        }
+      } catch {
+        // Fail-open: skip unreadable entries
+      }
+    }
+
+    return hashes
+  }
+
+  /**
    * Read the local-only meta state (_meta.json).
-   *
-   * - Missing file → safe default (first run before ensureInitialized).
-   * - Malformed JSON → throws; do not silently reset the curation counter.
    */
   async readMeta(): Promise<ExperienceMeta> {
     const metaPath = join(this.experienceDir, EXPERIENCE_META_FILE)
@@ -253,11 +248,9 @@ export class ExperienceStore {
     try {
       raw = await DirectoryManager.readFile(metaPath)
     } catch {
-      // File does not exist — expected on first run
       return {curationCount: 0, lastConsolidatedAt: ''}
     }
 
-    // JSON.parse throws on malformed content — intentionally not caught here
     const parsed = JSON.parse(raw) as Partial<ExperienceMeta>
     return {
       curationCount: typeof parsed.curationCount === 'number' ? parsed.curationCount : 0,
@@ -267,60 +260,51 @@ export class ExperienceStore {
   }
 
   /**
-   * Read bullet lines from a named section, stripped of the leading "- ".
-   * Returns an empty array if the file or section does not exist.
-   * Re-throws non-ENOENT read errors so callers do not mistake I/O failures
-   * for genuinely empty knowledge.
-   * Used by ExperienceHookService for in-memory deduplication.
+   * Read and parse the performance log JSONL file.
+   * Returns the last N entries (all entries if lastN is omitted).
    */
-  async readSectionLines(filename: string, section: string): Promise<string[]> {
-    const filePath = join(this.experienceDir, filename)
+  async readPerformanceLog(lastN?: number): Promise<PerformanceLogEntry[]> {
+    const logPath = join(this.experienceDir, EXPERIENCE_PERFORMANCE_DIR, EXPERIENCE_PERFORMANCE_LOG_FILE)
 
-    let content: string
+    let raw: string
     try {
-      content = await DirectoryManager.readFile(filePath)
-    } catch (error) {
-      if (!isErrnoException(error) || error.code !== 'ENOENT') {
-        throw error
-      }
-
+      raw = await DirectoryManager.readFile(logPath)
+    } catch {
       return []
     }
 
-    const marker = `\n## ${section}\n`
-    const start = content.indexOf(marker)
-    if (start === -1) return []
+    const lines = raw.trim().split('\n').filter(Boolean)
+    const entries: PerformanceLogEntry[] = []
 
-    const sectionStart = start + marker.length
-    const nextHeading = content.indexOf('\n## ', sectionStart)
-    const sectionContent =
-      nextHeading === -1 ? content.slice(sectionStart) : content.slice(sectionStart, nextHeading)
+    for (const line of lines) {
+      try {
+        entries.push(JSON.parse(line) as PerformanceLogEntry)
+      } catch {
+        // Skip malformed lines
+      }
+    }
 
-    return sectionContent
-      .split('\n')
-      .filter((line) => line.startsWith('- '))
-      .map((line) => line.slice(2))
+    if (lastN !== undefined && lastN > 0) {
+      return entries.slice(-lastN)
+    }
+
+    return entries
   }
 
   /**
-   * Write raw file content. Used by ExperienceConsolidationService to persist
-   * consolidated output.
+   * Write an entry file atomically with frontmatter validation.
    *
-   * @throws if content is missing frontmatter — protects against bad LLM output
+   * @throws if content is missing frontmatter
    */
-  async writeFile(filename: string, content: string): Promise<void> {
-    // Use parseFrontmatterScoring: validates frontmatter at file start (not anywhere in body)
-    // and handles both LF and CRLF line endings — same logic as the rest of the pipeline.
+  async writeEntry(subfolder: string, filename: string, content: string): Promise<void> {
     if (!parseFrontmatterScoring(content)) {
       throw new Error(
-        `Refusing to write experience file "${filename}": content is missing a valid frontmatter block`,
+        `Refusing to write experience entry "${subfolder}/${filename}": content is missing a valid frontmatter block`,
       )
     }
 
-    // Normalize to LF so appendBulletsToSection() and readSectionLines() section markers
-    // (\n## <section>\n) work correctly on all content written through this method.
     const normalized = content.replaceAll('\r\n', '\n')
-    const filePath = join(this.experienceDir, filename)
+    const filePath = join(this.experienceDir, subfolder, filename)
     await DirectoryManager.writeFileAtomic(filePath, normalized)
   }
 

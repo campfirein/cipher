@@ -120,3 +120,13 @@ export const EXPERIENCE_HINTS_FILE = 'hints.md'
 export const EXPERIENCE_DEAD_ENDS_FILE = 'dead-ends.md'
 export const EXPERIENCE_META_FILE = '_meta.json'          // local-only, not .md → never synced/indexed
 export const EXPERIENCE_CONSOLIDATION_INTERVAL = 5
+
+// === Experience domain v2 constants (entry-based) ===
+export const EXPERIENCE_LESSONS_DIR = 'lessons'
+export const EXPERIENCE_HINTS_DIR = 'hints'
+export const EXPERIENCE_DEAD_ENDS_DIR = 'dead-ends'
+export const EXPERIENCE_STRATEGIES_DIR = 'strategies'
+export const EXPERIENCE_REFLECTIONS_DIR = 'reflections'
+export const EXPERIENCE_PERFORMANCE_DIR = 'performance'
+export const EXPERIENCE_PERFORMANCE_LOG_FILE = 'performance-log.jsonl'
+export const EXPERIENCE_ENTRY_CONSOLIDATION_THRESHOLD = 15

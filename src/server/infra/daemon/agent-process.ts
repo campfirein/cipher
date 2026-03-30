@@ -34,7 +34,7 @@ import {SessionMetadataStore} from '../../../agent/infra/session/session-metadat
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {getCurrentConfig} from '../../config/environment.js'
-import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
+import {DEFAULT_LLM_MODEL, EXPERIENCE_ENTRY_CONSOLIDATION_THRESHOLD,PROJECT} from '../../constants.js'
 import {serializeTaskError, TaskError, TaskErrorCode} from '../../core/domain/errors/task-error.js'
 import {
   TransportAgentEventNames,
@@ -42,11 +42,9 @@ import {
   TransportStateEventNames,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
-import {createSkillExportStack} from '../connectors/skill/create-skill-export-stack.js'
 import {BackpressureGate} from '../context-tree/backpressure-gate.js'
-import {ConsolidationQualityEvaluator} from '../context-tree/consolidation-quality.js'
-import {ExperienceConsolidationService} from '../context-tree/experience-consolidation-service.js'
 import {ExperienceHookService} from '../context-tree/experience-hook-service.js'
+import {ExperienceSynthesisService} from '../context-tree/experience-synthesis-service.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
@@ -353,11 +351,10 @@ async function start(): Promise<void> {
   //    Consolidation LLM adapter: uses an isolated one-shot task session so it
   //    never pollutes the user's default session history.
   const startedAgent = agent
-  const qualityEvaluator = new ConsolidationQualityEvaluator()
-  const consolidationService = new ExperienceConsolidationService({
+  const synthesisService = new ExperienceSynthesisService({
     async generate(instructions: string, userMessage: string): Promise<string> {
       const taskId = randomUUID()
-      const sessionId = await startedAgent.createTaskSession(taskId, 'consolidation')
+      const sessionId = await startedAgent.createTaskSession(taskId, 'synthesis')
       try {
         return await startedAgent.executeOnSession(sessionId, `${instructions}\n\n${userMessage}`, {
           executionContext: {clearHistory: true, maxIterations: 1},
@@ -368,24 +365,13 @@ async function start(): Promise<void> {
         void startedAgent.deleteTaskSession(sessionId).catch(() => {})
       }
     },
-  }, qualityEvaluator)
-  const gate = new BackpressureGate()
-
-  // Skill export: auto-sync accumulated experience into agent SKILL.md files
-  let exportCoordinator
-  try {
-    const stack = await createSkillExportStack(projectPath)
-    exportCoordinator = stack.coordinator
-  } catch {
-    // Fail-open: if skill export wiring fails, curations still work without export
-    agentLog('Skill export wiring failed — curations will proceed without SKILL.md export')
-  }
+  })
+  const gate = new BackpressureGate({maxEntriesPerFile: EXPERIENCE_ENTRY_CONSOLIDATION_THRESHOLD})
 
   const experienceHookService = new ExperienceHookService({
     baseDirectory: projectPath,
-    consolidationService,
-    exportCoordinator,
     gate,
+    synthesisService,
   })
   const curateExecutor = new CurateExecutor(undefined, experienceHookService)
   const folderPackService = new FolderPackService(fileSystemService)

@@ -1,72 +1,52 @@
 import {MultiStrategyParser} from '../../../agent/infra/llm/parsing/multi-strategy-parser.js'
-import {
-  EXPERIENCE_DEAD_ENDS_FILE,
-  EXPERIENCE_HINTS_FILE,
-  EXPERIENCE_LESSONS_FILE,
-  EXPERIENCE_PLAYBOOK_FILE,
-} from '../../constants.js'
-import {EXPERIENCE_SECTIONS} from './experience-store.js'
+import {type ExperienceSignalType} from '../../core/domain/experience/experience-types.js'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-export type ExperienceSignalType = 'dead-end' | 'hint' | 'lesson' | 'strategy'
 
 export interface ExperienceSignal {
   text: string
   type: ExperienceSignalType
 }
 
-/** Maps a signal type to its target file and section header. */
-export interface SignalTarget {
-  file: string
-  section: string
+export interface ExperiencePerformanceSignal extends ExperienceSignal {
+  domain: string
+  score: number
+  type: 'performance'
 }
 
 // ---------------------------------------------------------------------------
 // Internal constants
 // ---------------------------------------------------------------------------
 
-const SIGNAL_TYPE_MAP: Record<ExperienceSignalType, SignalTarget> = {
-  'dead-end': {
-    file: EXPERIENCE_DEAD_ENDS_FILE,
-    section: EXPERIENCE_SECTIONS[EXPERIENCE_DEAD_ENDS_FILE],
-  },
-  hint: {
-    file: EXPERIENCE_HINTS_FILE,
-    section: EXPERIENCE_SECTIONS[EXPERIENCE_HINTS_FILE],
-  },
-  lesson: {
-    file: EXPERIENCE_LESSONS_FILE,
-    section: EXPERIENCE_SECTIONS[EXPERIENCE_LESSONS_FILE],
-  },
-  strategy: {
-    file: EXPERIENCE_PLAYBOOK_FILE,
-    section: EXPERIENCE_SECTIONS[EXPERIENCE_PLAYBOOK_FILE],
-  },
-}
-
-const VALID_TYPES = new Set<string>(['dead-end', 'hint', 'lesson', 'strategy'])
+const VALID_TYPES = new Set<string>(['dead-end', 'hint', 'lesson', 'performance', 'reflection', 'strategy'])
 
 /** Parser for extracting signal arrays from fence body when JSON.parse fails. */
-const experienceBodyParser = new MultiStrategyParser<ExperienceSignal[]>({
+const experienceBodyParser = new MultiStrategyParser<Array<ExperiencePerformanceSignal | ExperienceSignal>>({
   enabledTiers: ['raw-json'],
-  validator: (v): v is ExperienceSignal[] => Array.isArray(v) && v.every((item) => isValidSignal(item)),
+  validator: (v): v is Array<ExperiencePerformanceSignal | ExperienceSignal> =>
+    Array.isArray(v) && v.every((item) => isValidSignal(item)),
 })
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function isValidSignal(value: unknown): value is ExperienceSignal {
+function isValidSignal(value: unknown): value is ExperiencePerformanceSignal | ExperienceSignal {
   if (!value || typeof value !== 'object') return false
   const obj = value as Record<string, unknown>
-  return (
-    VALID_TYPES.has(obj.type as string) &&
-    typeof obj.text === 'string' &&
-    obj.text.trim().length > 0
-  )
+
+  if (!VALID_TYPES.has(obj.type as string)) return false
+  if (typeof obj.text !== 'string' || obj.text.trim().length === 0) return false
+
+  // Performance signals require score and domain
+  if (obj.type === 'performance') {
+    if (typeof obj.score !== 'number' || obj.score < 0 || obj.score > 1) return false
+    if (typeof obj.domain !== 'string' || obj.domain.trim().length === 0) return false
+  }
+
+  return true
 }
 
 // ---------------------------------------------------------------------------
@@ -80,12 +60,10 @@ function isValidSignal(value: unknown): value is ExperienceSignal {
  * {type, text} objects. Returns an empty array on any parse error or
  * absent block — extraction is always fail-safe.
  *
- * Example block the agent is expected to emit:
- * ```experience
- * [{"type":"lesson","text":"Always call ensureInitialized before appendBulkToFile"}]
- * ```
+ * Supported types: lesson, hint, dead-end, strategy, performance, reflection.
+ * Performance signals additionally require score (0-1) and domain fields.
  */
-export function extractExperienceSignals(curateResponse: string): ExperienceSignal[] {
+export function extractExperienceSignals(curateResponse: string): Array<ExperiencePerformanceSignal | ExperienceSignal> {
   try {
     const match = /```experience\r?\n([\s\S]*?)\r?\n```/.exec(curateResponse)
     if (!match) {
@@ -94,7 +72,7 @@ export function extractExperienceSignals(curateResponse: string): ExperienceSign
 
     const body = match[1]
 
-    // Try direct JSON.parse first (current behavior)
+    // Try direct JSON.parse first
     try {
       const parsed: unknown = JSON.parse(body)
       if (Array.isArray(parsed)) {
@@ -104,19 +82,11 @@ export function extractExperienceSignals(curateResponse: string): ExperienceSign
       // JSON parse failed on fence body — fall through to parser
     }
 
-    // Fallback: use MultiStrategyParser on the fence body only (not full response).
-    // Handles malformed JSON inside the fence (extra whitespace, trailing commas).
+    // Fallback: use MultiStrategyParser on the fence body only
     const result = experienceBodyParser.parse(body)
 
     return result ? result.parsed.filter((v) => isValidSignal(v)) : []
   } catch {
     return []
   }
-}
-
-/**
- * Return the target file and section for a given signal type.
- */
-export function signalTarget(type: ExperienceSignalType): SignalTarget {
-  return SIGNAL_TYPE_MAP[type]
 }
