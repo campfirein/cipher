@@ -62,6 +62,7 @@ export class AuthenticatedHttpClient implements IHttpClient {
         headers: this.buildHeaders(config?.headers),
         httpAgent: ProxyConfig.getProxyAgent(),
         httpsAgent: ProxyConfig.getProxyAgent(),
+        proxy: false,
         timeout: config?.timeout,
       }
 
@@ -90,6 +91,7 @@ export class AuthenticatedHttpClient implements IHttpClient {
         headers: this.buildHeaders(config?.headers),
         httpAgent: ProxyConfig.getProxyAgent(),
         httpsAgent: ProxyConfig.getProxyAgent(),
+        proxy: false,
         timeout: config?.timeout,
       }
 
@@ -118,6 +120,7 @@ export class AuthenticatedHttpClient implements IHttpClient {
         headers: this.buildHeaders(config?.headers),
         httpAgent: ProxyConfig.getProxyAgent(),
         httpsAgent: ProxyConfig.getProxyAgent(),
+        proxy: false,
         timeout: config?.timeout,
       }
 

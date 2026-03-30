@@ -120,6 +120,7 @@ export class OidcDiscoveryService implements IOidcDiscoveryService {
       const response = await axios.get<OidcDiscoveryResponse>(wellKnownUrl, {
         httpAgent: ProxyConfig.getProxyAgent(),
         httpsAgent: ProxyConfig.getProxyAgent(),
+        proxy: false,
         timeout: this.timeoutMs,
       })
 
