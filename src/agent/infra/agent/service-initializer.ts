@@ -46,6 +46,7 @@ import { GranularHistoryStorage } from '../storage/granular-history-storage.js'
 import { MessageStorageService } from '../storage/message-storage-service.js'
 import { ContextTreeStructureContributor } from '../system-prompt/contributors/context-tree-structure-contributor.js'
 import { MapSelectionContributor } from '../system-prompt/contributors/map-selection-contributor.js'
+import { PerformanceTrendContributor } from '../system-prompt/contributors/performance-trend-contributor.js'
 import { ProgressTrajectoryContributor } from '../system-prompt/contributors/progress-trajectory-contributor.js'
 import { SystemPromptManager } from '../system-prompt/system-prompt-manager.js'
 import { CoreToolScheduler } from '../tools/core-tool-scheduler.js'
@@ -210,6 +211,13 @@ export async function createCipherAgentServices(
   // Priority 16 — right after context tree structure, before memories
   const mapSelectionContributor = new MapSelectionContributor('mapSelection', 16)
   systemPromptManager.registerContributor(mapSelectionContributor)
+
+  // Register performance trend contributor for curate/query commands
+  // Priority 17 — after map selection, before memories
+  const performanceTrendContributor = new PerformanceTrendContributor('performanceTrend', 17, {
+    workingDirectory,
+  })
+  systemPromptManager.registerContributor(performanceTrendContributor)
 
   // 7. Abstract generation queue (generator injected later via rebindCurateTools)
   const abstractQueue = new AbstractGenerationQueue(workingDirectory)

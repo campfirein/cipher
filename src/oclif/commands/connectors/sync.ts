@@ -2,12 +2,13 @@ import {Command, Flags} from '@oclif/core'
 
 import type {ConnectorSyncResponse} from '../../../shared/transport/events/connector-events.js'
 
-import {createSkillExportStack} from '../../../server/infra/connectors/skill/create-skill-export-stack.js'
 import {detectMcpMode} from '../../../server/infra/mcp/mcp-mode-detector.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
 
+const SKILL_EXPORT_DISABLED_MESSAGE = 'Skill export is disabled.'
+
 export default class ConnectorsSync extends Command {
-  static description = 'Sync project knowledge into installed agent SKILL.md files'
+  static description = 'Skill export is disabled'
   static examples = [
     '<%= config.bin %> connectors sync',
     '<%= config.bin %> connectors sync --format json',
@@ -30,12 +31,11 @@ export default class ConnectorsSync extends Command {
   }
 
   /**
-   * Build knowledge block and sync to installed targets.
+   * Skill export is disabled; the command is retained only to return a clear error.
    * Protected for test overriding.
    */
-  protected async performSync(projectRoot: string): Promise<ConnectorSyncResponse> {
-    const stack = await createSkillExportStack(projectRoot)
-    return stack.coordinator.buildAndSync()
+  protected async performSync(_projectRoot: string): Promise<ConnectorSyncResponse> {
+    throw new Error(SKILL_EXPORT_DISABLED_MESSAGE)
   }
 
   async run(): Promise<void> {

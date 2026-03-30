@@ -2,7 +2,6 @@ import type {ConnectorDTO} from '../../../../shared/transport/types/dto.js'
 import type {ConnectorType} from '../../../../shared/types/connector-type.js'
 import type {IConnectorManager} from '../../../core/interfaces/connectors/i-connector-manager.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
-import type {SkillExportStack} from '../../connectors/skill/create-skill-export-stack.js'
 
 import {
   ConnectorEvents,
@@ -22,7 +21,6 @@ import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-ty
 export interface ConnectorsHandlerDeps {
   connectorManagerFactory: (projectRoot: string) => IConnectorManager
   resolveProjectPath: ProjectPathResolver
-  skillExportStackFactory: (projectRoot: string) => Promise<SkillExportStack>
   transport: ITransportServer
 }
 
@@ -33,13 +31,11 @@ export interface ConnectorsHandlerDeps {
 export class ConnectorsHandler {
   private readonly connectorManagerFactory: (projectRoot: string) => IConnectorManager
   private readonly resolveProjectPath: ProjectPathResolver
-  private readonly skillExportStackFactory: (projectRoot: string) => Promise<SkillExportStack>
   private readonly transport: ITransportServer
 
   constructor(deps: ConnectorsHandlerDeps) {
     this.connectorManagerFactory = deps.connectorManagerFactory
     this.resolveProjectPath = deps.resolveProjectPath
-    this.skillExportStackFactory = deps.skillExportStackFactory
     this.transport = deps.transport
   }
 
@@ -130,9 +126,8 @@ export class ConnectorsHandler {
   }
 
   private async handleSync(clientId: string): Promise<ConnectorSyncResponse> {
-    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
-    const stack = await this.skillExportStackFactory(projectPath)
-    return stack.coordinator.buildAndSync()
+    resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    throw new Error('Skill export is disabled.')
   }
 
 }

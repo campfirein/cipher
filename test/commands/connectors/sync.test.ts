@@ -4,39 +4,28 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import type {ConnectorSyncResponse} from '../../../src/shared/transport/events/connector-events.js'
-
 import ConnectorsSync from '../../../src/oclif/commands/connectors/sync.js'
 
 // ==================== TestableConnectorsSyncCommand ====================
 
 class TestableConnectorsSyncCommand extends ConnectorsSync {
   private readonly mockProjectRoot: string | undefined
-  private readonly mockSyncResult: ConnectorSyncResponse
 
-  constructor(
-    argv: string[],
-    config: Config,
-    mockProjectRoot: string | undefined,
-    mockSyncResult: ConnectorSyncResponse,
-  ) {
+  constructor(argv: string[], config: Config, mockProjectRoot: string | undefined) {
     super(argv, config)
     this.mockProjectRoot = mockProjectRoot
-    this.mockSyncResult = mockSyncResult
   }
 
   override getProjectRoot(): string | undefined {
     return this.mockProjectRoot
   }
 
-  override async performSync(_projectRoot: string): Promise<ConnectorSyncResponse> {
-    return this.mockSyncResult
-  }
+  // performSync is NOT overridden — tests exercise the real disabled contract
 }
 
 // ==================== Tests ====================
 
-describe('Connectors Sync Command', () => {
+describe('Connectors Sync Command (disabled)', () => {
   let config: Config
   let loggedMessages: string[]
   let stdoutOutput: string[]
@@ -54,46 +43,32 @@ describe('Connectors Sync Command', () => {
     restore()
   })
 
-  const EMPTY_RESULT: ConnectorSyncResponse = {block: '', failed: [], updated: []}
-
-  function makeResult(overrides: Partial<ConnectorSyncResponse> = {}): ConnectorSyncResponse {
-    return {block: 'built knowledge', failed: [], updated: [], ...overrides}
-  }
-
-  function createCommand(
-    mockProjectRoot: string | undefined,
-    mockSyncResult: ConnectorSyncResponse,
-    ...argv: string[]
-  ): TestableConnectorsSyncCommand {
-    const command = new TestableConnectorsSyncCommand(argv, config, mockProjectRoot, mockSyncResult)
+  function createCommand(mockProjectRoot: string | undefined, ...argv: string[]): TestableConnectorsSyncCommand {
+    const command = new TestableConnectorsSyncCommand(argv, config, mockProjectRoot)
     stub(command, 'log').callsFake((msg?: string) => {
       if (msg !== undefined) loggedMessages.push(msg)
     })
+
     return command
   }
 
-  function createJsonCommand(
-    mockProjectRoot: string | undefined,
-    mockSyncResult: ConnectorSyncResponse,
-  ): TestableConnectorsSyncCommand {
-    const command = new TestableConnectorsSyncCommand(
-      ['--format', 'json'],
-      config,
-      mockProjectRoot,
-      mockSyncResult,
-    )
+  function createJsonCommand(mockProjectRoot: string | undefined): TestableConnectorsSyncCommand {
+    const command = new TestableConnectorsSyncCommand(['--format', 'json'], config, mockProjectRoot)
     stub(command, 'log').callsFake((msg?: string) => {
       if (msg !== undefined) loggedMessages.push(msg)
     })
     stub(process.stdout, 'write').callsFake((chunk: string | Uint8Array) => {
       stdoutOutput.push(String(chunk))
+
       return true
     })
+
     return command
   }
 
   function parseJsonOutput(): {command: string; data: Record<string, unknown>; success: boolean} {
     const output = stdoutOutput.join('')
+
     return JSON.parse(output.trim())
   }
 
@@ -101,7 +76,7 @@ describe('Connectors Sync Command', () => {
 
   describe('strict project detection', () => {
     it('errors when no project root found (outside a project)', async () => {
-      const command = createCommand(undefined, EMPTY_RESULT)
+      const command = createCommand()
       let errorMessage = ''
       sinon.stub(command, 'error').callsFake((msg: Error | string) => {
         errorMessage = typeof msg === 'string' ? msg : msg.message
@@ -119,7 +94,7 @@ describe('Connectors Sync Command', () => {
     })
 
     it('outputs JSON error when no project root and --format json', async () => {
-      const command = createJsonCommand(undefined, EMPTY_RESULT)
+      const command = createJsonCommand()
 
       await command.run()
 
@@ -130,108 +105,40 @@ describe('Connectors Sync Command', () => {
     })
   })
 
-  // ==================== Text output ====================
+  // ==================== Disabled behavior (text mode) ====================
 
-  describe('text output', () => {
-    it('shows no-knowledge message when block is empty', async () => {
-      const result = makeResult({block: '', failed: [], updated: []})
-      await createCommand('/project', result).run()
-
-      expect(loggedMessages.some((m) => m.includes('No project knowledge accumulated yet'))).to.be.true
-    })
-
-    it('shows no-connectors message when targets are empty', async () => {
-      const result = makeResult({failed: [], updated: []})
-      await createCommand('/project', result).run()
-
-      expect(loggedMessages.some((m) => m.includes('No skill connectors installed'))).to.be.true
-    })
-
-    it('shows updated targets with agent, scope, and path', async () => {
-      const result = makeResult({
-        updated: [{agent: 'Claude Code', path: '/project/.claude/skills/byterover/SKILL.md', scope: 'project'}],
+  describe('disabled behavior (text mode)', () => {
+    it('throws "Skill export is disabled" when performSync is called', async () => {
+      const command = createCommand('/project')
+      let errorMessage = ''
+      sinon.stub(command, 'error').callsFake((msg: Error | string) => {
+        errorMessage = typeof msg === 'string' ? msg : msg.message
+        throw new Error(errorMessage)
       })
-      await createCommand('/project', result).run()
 
-      expect(loggedMessages.some((m) => m.includes('Synced to 1 target(s)'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('Claude Code') && m.includes('project'))).to.be.true
-    })
+      try {
+        await command.run()
+        expect.fail('should have thrown')
+      } catch {
+        // expected
+      }
 
-    it('shows failed targets with agent, scope, and error', async () => {
-      const result = makeResult({
-        failed: [{agent: 'Cursor', error: 'disk full', scope: 'project'}],
-        updated: [],
-      })
-      await createCommand('/project', result).run()
-
-      expect(loggedMessages.some((m) => m.includes('Failed 1 target(s)'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('Cursor') && m.includes('disk full'))).to.be.true
-    })
-
-    it('shows both updated and failed when mixed results', async () => {
-      const result = makeResult({
-        failed: [{agent: 'Cursor', error: 'permission denied', scope: 'project'}],
-        updated: [{agent: 'Claude Code', path: '/p/SKILL.md', scope: 'project'}],
-      })
-      await createCommand('/project', result).run()
-
-      expect(loggedMessages.some((m) => m.includes('Synced to 1 target(s)'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('Failed 1 target(s)'))).to.be.true
-    })
-
-    it('shows empty-block message AND target results (post-reset cleanup)', async () => {
-      // Empty block but installed targets still get their markers cleaned up
-      const result = makeResult({
-        block: '',
-        updated: [{agent: 'Claude Code', path: '/p/SKILL.md', scope: 'project'}],
-      })
-      await createCommand('/project', result).run()
-
-      expect(loggedMessages.some((m) => m.includes('No project knowledge accumulated yet'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('Synced to 1 target(s)'))).to.be.true
+      expect(errorMessage).to.include('Skill export is disabled')
     })
   })
 
-  // ==================== JSON output ====================
+  // ==================== Disabled behavior (JSON mode) ====================
 
-  describe('json output', () => {
-    it('outputs JSON with success and block + updated + failed fields', async () => {
-      const result = makeResult({
-        updated: [{agent: 'Claude Code', path: '/p/SKILL.md', scope: 'project'}],
-      })
-      const command = createJsonCommand('/project', result)
-      await command.run()
-
-      const json = parseJsonOutput()
-      expect(json.success).to.be.true
-      expect(json.command).to.equal('connectors sync')
-      expect(json.data).to.have.property('block')
-      expect(json.data).to.have.property('updated').that.is.an('array')
-      expect(json.data).to.have.property('failed').that.is.an('array')
-    })
-
-    it('outputs JSON error when performSync throws', async () => {
-      const command = new TestableConnectorsSyncCommand(
-        ['--format', 'json'],
-        config,
-        '/project',
-        EMPTY_RESULT,
-      )
-      stub(command, 'log').callsFake((msg?: string) => {
-        if (msg !== undefined) loggedMessages.push(msg)
-      })
-      stub(process.stdout, 'write').callsFake((chunk: string | Uint8Array) => {
-        stdoutOutput.push(String(chunk))
-        return true
-      })
-      const performSyncStub = sinon.stub(command, 'performSync')
-      performSyncStub.rejects(new Error('store broken'))
+  describe('disabled behavior (json mode)', () => {
+    it('outputs JSON error with disabled message', async () => {
+      const command = createJsonCommand('/project')
 
       await command.run()
 
       const json = parseJsonOutput()
       expect(json.success).to.be.false
-      expect((json.data as {error: string}).error).to.include('store broken')
+      expect(json.command).to.equal('connectors sync')
+      expect((json.data as {error: string}).error).to.include('Skill export is disabled')
     })
   })
 })
