@@ -100,6 +100,33 @@ describe('IsomorphicGitService', () => {
     })
   })
 
+  // ---- isEmptyRepository() ----
+
+  describe('isEmptyRepository()', () => {
+    it('returns true for freshly initialized repo', async () => {
+      await service.init({directory: testDir})
+      expect(await service.isEmptyRepository({directory: testDir})).to.be.true
+    })
+
+    it('returns false when repo has commits', async () => {
+      await service.init({directory: testDir})
+      await initWithCommit(service, testDir, 'hello.md', 'content', 'first commit')
+      expect(await service.isEmptyRepository({directory: testDir})).to.be.false
+    })
+
+    it('returns false when repo has remotes', async () => {
+      await service.init({directory: testDir})
+      await service.addRemote({directory: testDir, remote: 'origin', url: 'https://example.com/repo.git'})
+      expect(await service.isEmptyRepository({directory: testDir})).to.be.false
+    })
+
+    it('returns false when repo has untracked files', async () => {
+      await service.init({directory: testDir})
+      await writeFile(join(testDir, 'notes.md'), 'some content')
+      expect(await service.isEmptyRepository({directory: testDir})).to.be.false
+    })
+  })
+
   // ---- add() + commit() ----
 
   describe('add() and commit()', () => {

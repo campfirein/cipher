@@ -98,6 +98,7 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     getTrackingBranch: sandbox.stub().resolves(),
     init: sandbox.stub().resolves(),
     isAncestor: sandbox.stub().resolves(true),
+    isEmptyRepository: sandbox.stub().resolves(false),
     isInitialized: sandbox.stub().resolves(true),
     listBranches: sandbox.stub().resolves([]),
     listRemotes: sandbox.stub().resolves([{remote: 'origin', url: 'https://example.com/repo.git'}]),
@@ -1758,9 +1759,10 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should throw ALREADY_INITIALIZED when context tree exists', async () => {
+    it('should throw ALREADY_INITIALIZED when repo is initialized and not empty', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
+      deps.gitService.isEmptyRepository.resolves(false)
       makeVcHandler(deps).setup()
 
       try {
@@ -1772,6 +1774,35 @@ describe('VcHandler', () => {
           expect(error.code).to.equal(VcErrorCode.ALREADY_INITIALIZED)
         }
       }
+    })
+
+    it('should allow clone when repo is empty (fresh auto-init)', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.isEmptyRepository.resolves(true)
+      deps.tokenStore.load.resolves(validToken)
+      const rmStub = sandbox.stub(fs.promises, 'rm').resolves()
+      makeVcHandler(deps).setup()
+
+      await invoke(deps, VcEvents.CLONE, {
+        url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+      })
+
+      expect(rmStub.calledWith(join(deps.contextTreeDirPath, '.git'))).to.be.true
+      expect(deps.gitService.clone.calledOnce).to.be.true
+    })
+
+    it('should not check isEmptyRepository when not initialized', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      deps.tokenStore.load.resolves(validToken)
+      makeVcHandler(deps).setup()
+
+      await invoke(deps, VcEvents.CLONE, {
+        url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+      })
+
+      expect(deps.gitService.isEmptyRepository.called).to.be.false
     })
 
     it('should write .gitignore after successful clone', async () => {

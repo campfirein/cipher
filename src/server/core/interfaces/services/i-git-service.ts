@@ -130,6 +130,8 @@ export interface IGitService {
   init(params: InitGitParams): Promise<void>
   /** Returns true if `ancestor` commit is reachable from `commit`. */
   isAncestor(params: BaseGitParams & {ancestor: string; commit: string}): Promise<boolean>
+  /** Returns true if the repository is freshly initialized with no commits, remotes, branches, tags, or untracked files. */
+  isEmptyRepository(params: BaseGitParams): Promise<boolean>
   /** Returns true if a git repository (.git directory) exists at the given directory. */
   isInitialized(params: BaseGitParams): Promise<boolean>
   /** Lists local branches. When `remote` is specified, also includes remote-tracking branches. */
