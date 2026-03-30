@@ -76,9 +76,8 @@ build_target() {
 
   # Validate against known supported targets
   case "$TARGET" in
-    darwin-arm64|linux-x64|linux-arm64) ;;
-    darwin-x64)  error "macOS x86_64 (Intel) is not currently supported. ByteRover CLI requires Apple Silicon (arm64)." ;;
-    *)           error "Unsupported platform/architecture combination: $TARGET" ;;
+    darwin-arm64|darwin-x64|linux-x64|linux-arm64) ;;
+    *)  error "Unsupported platform/architecture combination: $TARGET" ;;
   esac
 }
 
