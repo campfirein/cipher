@@ -140,7 +140,9 @@ export class ExperienceSynthesisService {
       updatedAt: iso,
     }
 
-    // Use a predictable filename so re-synthesis overwrites rather than accumulates
+    // Keep one synthesis snapshot per day/subfolder. Re-running on the same day
+    // overwrites that day's file, while later days intentionally accumulate
+    // versioned reflection entries for historical comparison.
     const filename = `${date}--${subfolder}-synthesis.md`
     const content = buildEntryContent(frontmatter, response)
     await store.writeEntry('reflections', filename, content)
