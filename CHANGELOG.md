@@ -2,6 +2,15 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.5.0]
+
+### Added
+- **Inline login for ByteRover provider** — When selecting or activating ByteRover without being logged in, the CLI now shows an inline login prompt instead of failing. Users authenticate through the browser without leaving the provider setup flow. Tasks also validate authentication before execution and show a clear message if login is needed.
+
+### Fixed
+- **Proxy double-routing on corporate networks** — Fixed an issue where HTTP requests could be routed through a proxy twice when `HTTPS_PROXY` was set, causing connection failures. Axios's built-in proxy is now explicitly disabled in favor of the custom `proxy-agent` already in use.
+- **Security dependency updates** — Patched npm dependencies to address high-severity vulnerabilities.
+
 ## [2.4.1]
 
 ### Fixed

@@ -115,6 +115,7 @@ export class HttpMemoryStorageService implements IMemoryStorageService {
         },
         httpAgent: ProxyConfig.getProxyAgent(),
         httpsAgent: ProxyConfig.getProxyAgent(),
+        proxy: false,
         timeout: this.config.timeout,
       })
     } catch (error) {

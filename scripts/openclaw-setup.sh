@@ -853,7 +853,7 @@ configure_context_plugin() {
   remove_existing_byterover_plugin
 
   info "Installing @byterover/byterover plugin..."
-  if ! retry_with_backoff openclaw plugins install @byterover/byterover; then
+  if ! retry_with_backoff openclaw plugins install @byterover/byterover@latest; then
     warn "Failed to install @byterover/byterover plugin after multiple attempts."
     echo ""
     return
