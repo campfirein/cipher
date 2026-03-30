@@ -98,7 +98,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
   byterover: {
     baseUrl: '',
     category: 'popular',
-    description: 'Built-in LLM, no API key required. Free tier available.',
+    description: 'Built-in LLM, logged-in ByteRover account required. Limited free usage.',
     headers: {},
     id: 'byterover',
     modelsEndpoint: '',

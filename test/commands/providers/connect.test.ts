@@ -354,6 +354,19 @@ describe('Provider Connect Command', () => {
 
       expect(loggedMessages.some((m) => m.includes('API key provided is invalid'))).to.be.true
     })
+
+    it('should show auth error when connecting byterover and server rejects', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({
+        providers: [{id: 'byterover', isConnected: false, name: 'ByteRover', requiresApiKey: false}],
+      })
+      requestStub.onSecondCall().rejects(new Error('ByteRover Provider requires authentication. Run /login or brv login to sign in'))
+
+      await createCommand('byterover').run()
+
+      expect(loggedMessages.some((m) => m.includes('authentication'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('login'))).to.be.true
+    })
   })
 
   // ==================== JSON Output ====================
