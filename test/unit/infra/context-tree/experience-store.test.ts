@@ -95,6 +95,39 @@ describe('ExperienceStore (v2 entry-based)', () => {
       expect(content).to.include('type: lesson')
       expect(content).to.include('Test lesson body')
     })
+
+    it('appends flat numeric suffixes on repeated filename collisions', async () => {
+      await store.ensureInitialized()
+      const iso = new Date().toISOString()
+      const baseFrontmatter = {
+        createdAt: iso,
+        importance: 50,
+        maturity: 'draft' as const,
+        recency: 1,
+        tags: ['experience', 'lesson'],
+        title: 'Repeated title',
+        type: 'lesson' as const,
+        updatedAt: iso,
+      }
+
+      const first = await store.createEntry(EXPERIENCE_LESSONS_DIR, 'First body', {
+        ...baseFrontmatter,
+        contentHash: computeContentHash('First body'),
+      })
+      const second = await store.createEntry(EXPERIENCE_LESSONS_DIR, 'Second body', {
+        ...baseFrontmatter,
+        contentHash: computeContentHash('Second body'),
+      })
+      const third = await store.createEntry(EXPERIENCE_LESSONS_DIR, 'Third body', {
+        ...baseFrontmatter,
+        contentHash: computeContentHash('Third body'),
+      })
+
+      expect(first).to.match(/^\d{4}-\d{2}-\d{2}--repeated-title\.md$/)
+      expect(second).to.match(/^\d{4}-\d{2}-\d{2}--repeated-title-2\.md$/)
+      expect(third).to.match(/^\d{4}-\d{2}-\d{2}--repeated-title-3\.md$/)
+      expect(third).not.to.include('-2-3')
+    })
   })
 
   describe('listEntries()', () => {
@@ -152,7 +185,6 @@ describe('ExperienceStore (v2 entry-based)', () => {
       await store.appendPerformanceLog({
         curationId: 1,
         domain: 'test',
-        insightsActive: [],
         score: 0.8,
         summary: 'good',
         ts: '2026-03-30T10:00:00Z',
@@ -179,7 +211,6 @@ describe('ExperienceStore (v2 entry-based)', () => {
         await store.appendPerformanceLog({
           curationId: i,
           domain: 'test',
-          insightsActive: [],
           score: i / 10,
           summary: `entry ${i}`,
           ts: new Date().toISOString(),

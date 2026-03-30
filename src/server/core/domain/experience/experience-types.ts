@@ -59,7 +59,6 @@ export interface ExperienceEntryFrontmatter {
 export interface PerformanceLogEntry {
   curationId: number
   domain: string
-  insightsActive: string[]
   score: number
   summary: string
   ts: string

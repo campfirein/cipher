@@ -108,6 +108,20 @@ describe('ExperienceHookService (v2 entry-based)', () => {
       }
     })
 
+    it('deduplicates reflection signals via contentHash', async () => {
+      const {baseDir, service, store} = await makeService()
+      try {
+        const response = buildResponse([{text: 'Repeated reflection', type: 'reflection'}])
+        await service.onCurateComplete(response)
+        await service.onCurateComplete(response)
+
+        const entries = await store.listEntries('reflections')
+        expect(entries).to.have.length(1)
+      } finally {
+        await rm(baseDir, {force: true, recursive: true})
+      }
+    })
+
     it('trims signal text before persisting', async () => {
       const {baseDir, service, store} = await makeService()
       try {

@@ -5,11 +5,17 @@
  * Used by migration code to read bullets from legacy experience files.
  */
 export function readSectionLinesFromContent(content: string, section: string): string[] {
-  const marker = `\n## ${section}\n`
-  const start = content.indexOf(marker)
-  if (start === -1) return []
+  const heading = `## ${section}\n`
+  const marker = `\n${heading}`
+  const sectionStart = content.startsWith(heading)
+    ? heading.length
+    : (() => {
+        const start = content.indexOf(marker)
+        return start === -1 ? -1 : start + marker.length
+      })()
 
-  const sectionStart = start + marker.length
+  if (sectionStart === -1) return []
+
   const nextHeading = content.indexOf('\n## ', sectionStart)
   const sectionContent =
     nextHeading === -1 ? content.slice(sectionStart) : content.slice(sectionStart, nextHeading)

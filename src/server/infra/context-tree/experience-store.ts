@@ -149,13 +149,13 @@ export class ExperienceStore {
 
     let filename = generateEntryFilename(frontmatter.title)
     let filePath = join(dir, filename)
+    const baseFilename = filename.replace(/\.md$/, '')
 
     // Dedup by filename collision — append -2, -3, etc.
     let counter = 2
     // eslint-disable-next-line no-await-in-loop
     while (await DirectoryManager.fileExists(filePath)) {
-      const base = filename.replace(/\.md$/, '')
-      filename = `${base}-${counter}.md`
+      filename = `${baseFilename}-${counter}.md`
       filePath = join(dir, filename)
       counter++
     }
@@ -508,6 +508,8 @@ export class ExperienceStore {
       }
 
       default: {
+        // Only reached during migration of legacy bullet files, which never
+        // produce 'performance' or 'reflection' subfolders.
         return 'lesson'
       }
     }

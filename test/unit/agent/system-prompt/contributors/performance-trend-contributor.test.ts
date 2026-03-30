@@ -29,7 +29,7 @@ async function makeContributor(options?: {entries?: Array<{domain: string; score
   if (options?.entries && options.entries.length > 0) {
     const logPath = join(logDir, EXPERIENCE_PERFORMANCE_LOG_FILE)
     const lines = options.entries.map((e, i) =>
-      JSON.stringify({curationId: i, domain: e.domain, insightsActive: [], score: e.score, summary: `entry ${i}`, ts: new Date().toISOString()}),
+      JSON.stringify({curationId: i, domain: e.domain, score: e.score, summary: `entry ${i}`, ts: new Date().toISOString()}),
     )
     await writeFile(logPath, lines.join('\n') + '\n', 'utf8')
   }

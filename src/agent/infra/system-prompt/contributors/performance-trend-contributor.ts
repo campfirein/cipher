@@ -1,10 +1,6 @@
-import {readFile} from 'node:fs/promises'
-import {join} from 'node:path'
-
-import type {PerformanceLogEntry} from '../../../../server/core/domain/experience/experience-types.js'
 import type {ContributorContext, SystemPromptContributor} from '../../../core/domain/system-prompt/types.js'
 
-import {BRV_DIR, CONTEXT_TREE_DIR, EXPERIENCE_DIR, EXPERIENCE_PERFORMANCE_DIR, EXPERIENCE_PERFORMANCE_LOG_FILE} from '../../../../server/constants.js'
+import {ExperienceStore} from '../../../../server/infra/context-tree/experience-store.js'
 
 export interface PerformanceTrendContributorOptions {
   maxEntries?: number
@@ -21,13 +17,13 @@ export class PerformanceTrendContributor implements SystemPromptContributor {
   public readonly id: string
   public readonly priority: number
   private readonly maxEntries: number
-  private readonly workingDirectory: string
+  private readonly store: ExperienceStore
 
   public constructor(id: string, priority: number, options: PerformanceTrendContributorOptions = {}) {
     this.id = id
     this.priority = priority
     this.maxEntries = options.maxEntries ?? 10
-    this.workingDirectory = options.workingDirectory ?? process.cwd()
+    this.store = new ExperienceStore(options.workingDirectory ?? process.cwd())
   }
 
   public async getContent(context: ContributorContext): Promise<string> {
@@ -36,36 +32,7 @@ export class PerformanceTrendContributor implements SystemPromptContributor {
       return ''
     }
 
-    const logPath = join(
-      this.workingDirectory,
-      BRV_DIR,
-      CONTEXT_TREE_DIR,
-      EXPERIENCE_DIR,
-      EXPERIENCE_PERFORMANCE_DIR,
-      EXPERIENCE_PERFORMANCE_LOG_FILE,
-    )
-
-    let raw: string
-    try {
-      raw = await readFile(logPath, 'utf8')
-    } catch {
-      return ''
-    }
-
-    const lines = raw.trim().split('\n').filter(Boolean)
-    if (lines.length < 3) {
-      return ''
-    }
-
-    // Parse all entries, then take the last N per domain (not globally)
-    const allEntries: PerformanceLogEntry[] = []
-    for (const line of lines) {
-      try {
-        allEntries.push(JSON.parse(line) as PerformanceLogEntry)
-      } catch {
-        // Skip malformed lines
-      }
-    }
+    const allEntries = await this.store.readPerformanceLog()
 
     if (allEntries.length < 3) {
       return ''

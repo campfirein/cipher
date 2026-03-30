@@ -125,10 +125,10 @@ export class ExperienceHookService implements IExperienceHookService {
     const signals = extractExperienceSignals(response)
     const grouped = this.groupBySubfolder(signals)
 
-    // 3. Dedup: build content hash sets per standard subfolder
+    // 3. Dedup: build content hash sets for all entry-backed subfolders
     const hashSets = new Map<string, Set<string>>()
     for (const [subfolder, subSignals] of Object.entries(grouped)) {
-      if (subSignals.some((s) => this.isStandardType(s.type))) {
+      if (subSignals.some((s) => s.type !== 'performance')) {
         try {
           // eslint-disable-next-line no-await-in-loop
           const hashes = await this.store.readEntryContentHashes(subfolder)
@@ -142,17 +142,24 @@ export class ExperienceHookService implements IExperienceHookService {
     // 4. Evaluate backpressure gate (standard subfolders only, D6)
     let gateTriggered = false
     let preIncrementCount = 0
-    if (this.gate && signals.length > 0) {
-      const meta = await this.store.readMeta()
-      preIncrementCount = meta.curationCount
+    let currentMeta: ExperienceMeta | null = null
+    if (signals.length > 0) {
+      try {
+        currentMeta = await this.store.readMeta()
+        preIncrementCount = currentMeta.curationCount
+      } catch {
+        currentMeta = null
+      }
+    }
 
+    if (this.gate && currentMeta) {
       let maxProjected = 0
       for (const [subfolder, subSignals] of Object.entries(grouped)) {
         const standardSignals = subSignals.filter((s) => this.isStandardType(s.type))
         if (standardSignals.length === 0) continue
 
         const existingHashes = hashSets.get(subfolder) ?? new Set()
-        const newCount = standardSignals.filter((s) => !existingHashes.has(computeContentHash(s.text))).length
+        const newCount = standardSignals.filter((s) => !existingHashes.has(computeContentHash(s.text.trim()))).length
 
         try {
           // eslint-disable-next-line no-await-in-loop
@@ -164,7 +171,7 @@ export class ExperienceHookService implements IExperienceHookService {
       }
 
       const decision = this.gate.evaluate({
-        lastConsolidatedAt: meta.lastConsolidatedAt,
+        lastConsolidatedAt: currentMeta.lastConsolidatedAt,
         projectedEntryCount: maxProjected,
       })
       gateTriggered = decision === 'trigger-consolidation'
@@ -174,21 +181,18 @@ export class ExperienceHookService implements IExperienceHookService {
     await Promise.allSettled(
       Object.entries(grouped).map(async ([subfolder, subSignals]) => {
         for (const signal of subSignals) {
+          const trimmedText = signal.text.trim()
           if (signal.type === 'performance') {
             const perfSignal = signal as ExperiencePerformanceSignal
             // eslint-disable-next-line no-await-in-loop
-            const currentMeta = await this.store.readMeta()
-            // eslint-disable-next-line no-await-in-loop
             await this.store.appendPerformanceLog({
-              curationId: currentMeta.curationCount,
+              curationId: preIncrementCount,
               domain: perfSignal.domain,
-              insightsActive: [],
               score: perfSignal.score,
-              summary: perfSignal.text,
+              summary: trimmedText,
               ts: new Date().toISOString(),
             })
           } else {
-            const trimmedText = signal.text.trim()
             const hash = computeContentHash(trimmedText)
             const existingHashes = hashSets.get(subfolder)
             if (existingHashes?.has(hash)) {

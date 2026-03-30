@@ -43,7 +43,7 @@ describe('Connectors Sync Command (disabled)', () => {
     restore()
   })
 
-  function createCommand(mockProjectRoot: string | undefined, ...argv: string[]): TestableConnectorsSyncCommand {
+  function createCommand(mockProjectRoot: string | undefined = undefined, ...argv: string[]): TestableConnectorsSyncCommand {
     const command = new TestableConnectorsSyncCommand(argv, config, mockProjectRoot)
     stub(command, 'log').callsFake((msg?: string) => {
       if (msg !== undefined) loggedMessages.push(msg)
@@ -52,7 +52,7 @@ describe('Connectors Sync Command (disabled)', () => {
     return command
   }
 
-  function createJsonCommand(mockProjectRoot: string | undefined): TestableConnectorsSyncCommand {
+  function createJsonCommand(mockProjectRoot: string | undefined = undefined): TestableConnectorsSyncCommand {
     const command = new TestableConnectorsSyncCommand(['--format', 'json'], config, mockProjectRoot)
     stub(command, 'log').callsFake((msg?: string) => {
       if (msg !== undefined) loggedMessages.push(msg)
