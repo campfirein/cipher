@@ -68,7 +68,7 @@ export function generateEntryFilename(text: string): string {
   const slug = text
     .toLowerCase()
     .replaceAll(/[^a-z0-9]+/g, '-')
-    .replaceAll(/^-|-$/g, '')
+    .replaceAll(/^-+|-+$/g, '')
     .slice(0, 50)
   return `${date}--${slug || 'entry'}.md`
 }

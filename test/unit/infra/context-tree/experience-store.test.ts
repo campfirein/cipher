@@ -240,6 +240,11 @@ describe('ExperienceStore (v2 entry-based)', () => {
       expect(name).to.match(/^\d{4}-\d{2}-\d{2}--hello-world-test\.md$/)
     })
 
+    it('strips repeated leading and trailing dashes after slug normalization', () => {
+      const name = generateEntryFilename('---hello---')
+      expect(name).to.match(/^\d{4}-\d{2}-\d{2}--hello\.md$/)
+    })
+
     it('truncates slug to 50 chars', () => {
       const longText = 'a'.repeat(100)
       const name = generateEntryFilename(longText)

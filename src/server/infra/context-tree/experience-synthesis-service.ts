@@ -7,6 +7,7 @@ import {
   EXPERIENCE_DEAD_ENDS_DIR,
   EXPERIENCE_HINTS_DIR,
   EXPERIENCE_LESSONS_DIR,
+  EXPERIENCE_REFLECTIONS_DIR,
   EXPERIENCE_STRATEGIES_DIR,
 } from '../../constants.js'
 import {applyDefaultScoring} from '../../core/domain/knowledge/memory-scoring.js'
@@ -145,7 +146,7 @@ export class ExperienceSynthesisService {
     // versioned reflection entries for historical comparison.
     const filename = `${date}--${subfolder}-synthesis.md`
     const content = buildEntryContent(frontmatter, response)
-    await store.writeEntry('reflections', filename, content)
+    await store.writeEntry(EXPERIENCE_REFLECTIONS_DIR, filename, content)
 
     return true
   }
