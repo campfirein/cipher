@@ -1622,6 +1622,50 @@ describe('VcHandler', () => {
       expect(cloneArgs.url).to.equal('https://test-cogit.byterover.dev/git/tid-1/sid-1.git')
     })
 
+    it('should resolve team name case-insensitively in cogit-style URL', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      deps.tokenStore.load.resolves(validToken)
+      deps.teamService.getTeams.resolves({
+        teams: [{displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'Teambao1'}],
+        total: 1,
+      })
+      deps.spaceService.getSpaces.resolves({
+        spaces: [{id: 'sid-1', isDefault: false, name: 'test-git', teamId: 'tid-1', teamName: 'Teambao1'}],
+        total: 1,
+      })
+      makeVcHandler(deps).setup()
+
+      const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(
+        deps, VcEvents.CLONE, {url: 'https://dev-beta-cgit.byterover.dev/git/teambao1/TEST-GIT.git'},
+      )
+
+      expect(result.teamName).to.equal('Teambao1')
+      expect(result.spaceName).to.equal('test-git')
+    })
+
+    it('should resolve team/space name case-insensitively in .brv URL', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      deps.tokenStore.load.resolves(validToken)
+      deps.teamService.getTeams.resolves({
+        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme'}],
+        total: 1,
+      })
+      deps.spaceService.getSpaces.resolves({
+        spaces: [{id: 'sid-1', isDefault: false, name: 'project', teamId: 'tid-1', teamName: 'acme'}],
+        total: 1,
+      })
+      makeVcHandler(deps).setup()
+
+      const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(
+        deps, VcEvents.CLONE, {url: 'https://byterover.dev/ACME/PROJECT.brv'},
+      )
+
+      expect(result.teamName).to.equal('acme')
+      expect(result.spaceName).to.equal('project')
+    })
+
     it('should throw when .brv URL team not found', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
