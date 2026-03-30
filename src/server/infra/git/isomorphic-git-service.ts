@@ -402,6 +402,13 @@ export class IsomorphicGitService implements IGitService {
     await git.init({defaultBranch: params.defaultBranch ?? 'main', dir, fs})
   }
 
+  async isAncestor(params: BaseGitParams & {ancestor: string; commit: string}): Promise<boolean> {
+    const dir = this.requireDirectory(params)
+    const commitOid = await git.resolveRef({dir, fs, ref: params.commit})
+    const ancestorOid = await git.resolveRef({dir, fs, ref: params.ancestor})
+    return git.isDescendent({ancestor: ancestorOid, depth: -1, dir, fs, oid: commitOid})
+  }
+
   async isInitialized(params: BaseGitParams): Promise<boolean> {
     const dir = this.requireDirectory(params)
     return fs.promises
@@ -467,7 +474,7 @@ export class IsomorphicGitService implements IGitService {
       : null
 
     try {
-      await git.merge({
+      const mergeResult = await git.merge({
         abortOnConflict: false,
         author,
         committer: author,
@@ -476,6 +483,10 @@ export class IsomorphicGitService implements IGitService {
         message,
         theirs: params.branch,
       })
+
+      if (mergeResult.alreadyMerged) {
+        return {alreadyUpToDate: true, success: true}
+      }
 
       // isomorphic-git merge only updates refs — checkout to apply changes to working tree
       if (currentBranch) {
@@ -1006,6 +1017,19 @@ export class IsomorphicGitService implements IGitService {
             })
             .map(([filepath]) => String(filepath))
         : stagedRows.map(([filepath]) => String(filepath))
+
+    // Validate that every requested path is known to the repository
+    if (filePaths && filePaths.length > 0) {
+      const allKnownPaths = new Set(matrix.map(([filepath]) => String(filepath)))
+      for (const fp of filePaths) {
+        const isKnown = fp.endsWith('/')
+          ? [...allKnownPaths].some((p) => p.startsWith(fp))
+          : allKnownPaths.has(fp)
+        if (!isKnown) {
+          throw new GitError(`pathspec '${fp}' did not match any file(s) known to git`)
+        }
+      }
+    }
 
     await Promise.all(
       headSha

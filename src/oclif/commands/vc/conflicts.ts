@@ -14,15 +14,25 @@ export default class VcConflicts extends Command {
         client.requestWithAck<IVcConflictsResponse>(VcEvents.CONFLICTS, {}),
       )
 
-      if (result.files.length === 0) {
+      const hasMarkers = result.files.length > 0
+      const hasIndexConflicts = result.conflicts && result.conflicts.length > 0
+
+      if (!hasMarkers && !hasIndexConflicts) {
         this.log('No conflict markers found.')
         return
       }
 
-      this.log(chalk.bold(`Found ${result.files.length} file${result.files.length === 1 ? '' : 's'} with conflict markers:`))
+      const totalCount = result.files.length + (result.conflicts?.length ?? 0)
+      this.log(chalk.bold(`Found ${totalCount} conflicted file${totalCount === 1 ? '' : 's'}:`))
       this.log('')
       for (const f of result.files) {
         this.log(chalk.red(`   ${f}`))
+      }
+
+      if (result.conflicts) {
+        for (const c of result.conflicts) {
+          this.log(chalk.red(`   ${c.path} (${c.type})`))
+        }
       }
 
       this.log('')

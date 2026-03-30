@@ -107,7 +107,9 @@ export default class VcMerge extends Command {
         }),
       )
 
-      if (result.conflicts && result.conflicts.length > 0) {
+      if (result.alreadyUpToDate) {
+        this.log('Already up to date.')
+      } else if (result.conflicts && result.conflicts.length > 0) {
         for (const conflict of result.conflicts) {
           this.log(`CONFLICT (${conflict.type}): ${conflict.path}`)
         }

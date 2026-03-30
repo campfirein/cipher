@@ -45,7 +45,7 @@ export type PushResult =
 
 export type PullResult = {alreadyUpToDate?: boolean; success: true} | {conflicts: GitConflict[]; success: false}
 
-export type MergeResult = {conflicts: GitConflict[]; success: false} | {success: true}
+export type MergeResult = {alreadyUpToDate?: boolean; success: true} | {conflicts: GitConflict[]; success: false}
 
 export type TrackingBranch = {remote: string; remoteBranch: string}
 
@@ -128,6 +128,8 @@ export interface IGitService {
   /** Returns the upstream tracking branch config, or `undefined` if not configured. */
   getTrackingBranch(params: GetTrackingBranchParams): Promise<TrackingBranch | undefined>
   init(params: InitGitParams): Promise<void>
+  /** Returns true if `ancestor` commit is reachable from `commit`. */
+  isAncestor(params: BaseGitParams & {ancestor: string; commit: string}): Promise<boolean>
   /** Returns true if a git repository (.git directory) exists at the given directory. */
   isInitialized(params: BaseGitParams): Promise<boolean>
   /** Lists local branches. When `remote` is specified, also includes remote-tracking branches. */

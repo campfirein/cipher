@@ -71,7 +71,9 @@ export function VcMergeFlow({action, branch, message, onCancel, onComplete}: VcM
         }
 
         // action: 'merge'
-        if (result.conflicts && result.conflicts.length > 0) {
+        if (result.alreadyUpToDate) {
+          onComplete('Already up to date.')
+        } else if (result.conflicts && result.conflicts.length > 0) {
           const conflictLines = result.conflicts
             .map((c) => `CONFLICT (${c.type}): ${c.path}`)
             .join('\n')

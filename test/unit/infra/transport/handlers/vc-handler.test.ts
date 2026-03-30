@@ -97,6 +97,7 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     getRemoteUrl: sandbox.stub().resolves(),
     getTrackingBranch: sandbox.stub().resolves(),
     init: sandbox.stub().resolves(),
+    isAncestor: sandbox.stub().resolves(true),
     isInitialized: sandbox.stub().resolves(true),
     listBranches: sandbox.stub().resolves([]),
     listRemotes: sandbox.stub().resolves([{remote: 'origin', url: 'https://example.com/repo.git'}]),
@@ -1388,10 +1389,31 @@ describe('VcHandler', () => {
       }
     })
 
+    it('should throw VcError NO_COMMITS when repo has no commits', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.log.resolves([])
+      deps.gitService.getCurrentBranch.resolves('main')
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.LOG]({all: false, limit: 10}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.NO_COMMITS)
+        }
+      }
+    })
+
     it('should throw VcError BRANCH_NOT_FOUND when ref branch does not exist', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.log.resolves([
+        {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
+      ])
       deps.gitService.listBranches.resolves([{name: 'main'}])
       makeVcHandler(deps).setup()
 
@@ -1427,6 +1449,8 @@ describe('VcHandler', () => {
         sha: 'sha2',
         timestamp: new Date('2024-01-01'),
       }
+      // hasCommits check (depth: 1) must return at least one commit
+      deps.gitService.log.resolves([commit1])
       // main returns both commits; feature returns commit1 (duplicate) + commit2
       deps.gitService.log.withArgs({directory: deps.contextTreeDirPath, ref: 'main'}).resolves([commit1, commit2])
       deps.gitService.log.withArgs({directory: deps.contextTreeDirPath, ref: 'feature'}).resolves([commit1])
@@ -2053,6 +2077,24 @@ describe('VcHandler', () => {
       }
     })
 
+    it('delete should throw BRANCH_NOT_MERGED when branch is not fully merged', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.listBranches.resolves([
+        {isCurrent: true, isRemote: false, name: 'main'},
+        {isCurrent: false, isRemote: false, name: 'unmerged-feat'},
+      ])
+      deps.gitService.isAncestor.resolves(false)
+      makeVcHandler(deps).setup()
+      try {
+        await deps.requestHandlers[VcEvents.BRANCH]({action: 'delete', name: 'unmerged-feat'}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.BRANCH_NOT_MERGED)
+      }
+    })
+
     it('delete should throw INVALID_BRANCH_NAME when name is missing at runtime', async () => {
       const deps = makeDeps(sandbox, projectPath)
       makeVcHandler(deps).setup()
@@ -2282,6 +2324,42 @@ describe('VcHandler', () => {
         expect(result.conflicts).to.have.length(1)
         expect(result.conflicts![0].path).to.equal('file.md')
         expect(deps.gitService.checkout.called).to.be.false
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should return alreadyUpToDate when merging branch into itself', async () => {
+      const deps = makeMergeDeps(sandbox)
+      try {
+        deps.gitService.getCurrentBranch.resolves('main')
+
+        makeVcHandler(deps).setup()
+        const result = await invoke<IVcMergeResponse>(deps, VcEvents.MERGE, {
+          action: 'merge',
+          branch: 'main',
+        } satisfies IVcMergeRequest)
+
+        expect(result.alreadyUpToDate).to.be.true
+        expect(deps.gitService.merge.called).to.be.false
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should return alreadyUpToDate when target branch is already merged', async () => {
+      const deps = makeMergeDeps(sandbox)
+      try {
+        deps.gitService.listBranches.resolves([{isCurrent: false, isRemote: false, name: 'feature'}])
+        deps.gitService.merge.resolves({alreadyUpToDate: true, success: true})
+
+        makeVcHandler(deps).setup()
+        const result = await invoke<IVcMergeResponse>(deps, VcEvents.MERGE, {
+          action: 'merge',
+          branch: 'feature',
+        } satisfies IVcMergeRequest)
+
+        expect(result.alreadyUpToDate).to.be.true
       } finally {
         cleanupDir(deps.tmpDir)
       }
@@ -2776,6 +2854,7 @@ describe('VcHandler', () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.listBranches.resolves([{isCurrent: false, isRemote: true, name: 'main'}])
       deps.gitService.setTrackingBranch.resolves()
       makeVcHandler(deps).setup()
 
@@ -2807,6 +2886,45 @@ describe('VcHandler', () => {
       } catch (error) {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.INVALID_BRANCH_NAME)
+      }
+    })
+
+    it('should throw NO_REMOTE when remote does not exist', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.listRemotes.resolves([])
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke<IVcBranchResponse>(deps, VcEvents.BRANCH, {
+          action: 'set-upstream',
+          upstream: 'origin/main',
+        } satisfies IVcBranchRequest)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.NO_REMOTE)
+      }
+    })
+
+    it('should throw BRANCH_NOT_FOUND when remote-tracking branch does not exist', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.listBranches.resolves([])
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke<IVcBranchResponse>(deps, VcEvents.BRANCH, {
+          action: 'set-upstream',
+          upstream: 'origin/nonexistent',
+        } satisfies IVcBranchRequest)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.BRANCH_NOT_FOUND)
       }
     })
   })
@@ -2863,6 +2981,33 @@ describe('VcHandler', () => {
       const result = await deps.requestHandlers[VcEvents.CONFLICTS]({}, CLIENT_ID)
 
       expect(result).to.deep.equal({files: ['code_style/context.md', 'testing/context.md']})
+    })
+
+    it('should include index-level conflicts like delete/modify', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getFilesWithConflictMarkers.resolves([])
+      deps.gitService.getConflicts.resolves([{path: 's.txt', type: 'deleted_modified'}])
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.CONFLICTS]({}, CLIENT_ID)
+
+      expect(result).to.deep.equal({
+        conflicts: [{path: 's.txt', type: 'deleted_modified'}],
+        files: ['s.txt'],
+      })
+    })
+
+    it('should deduplicate files that appear in both markers and index conflicts', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getFilesWithConflictMarkers.resolves(['shared.txt'])
+      deps.gitService.getConflicts.resolves([{path: 'shared.txt', type: 'both_modified'}])
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.CONFLICTS]({}, CLIENT_ID)
+
+      expect(result).to.deep.equal({files: ['shared.txt']})
     })
 
     it('should throw VcError GIT_NOT_INITIALIZED when git not initialized', async () => {
@@ -3058,6 +3203,23 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.INVALID_ACTION)
+        }
+      }
+    })
+
+    it('should map FILE_NOT_FOUND error when resetting non-existent file', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.reset.rejects(new GitError("pathspec 'ghost.txt' did not match any file(s) known to git"))
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke<IVcResetResponse>(deps, VcEvents.RESET, {filePaths: ['ghost.txt']})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.FILE_NOT_FOUND)
         }
       }
     })
