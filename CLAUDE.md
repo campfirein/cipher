@@ -59,7 +59,7 @@ src/
 ├── server/          # Server-side infrastructure
 │   ├── config/      # Auth config, environment
 │   ├── core/        # Domain entities, interfaces, errors
-│   ├── infra/       # Auth, connectors, daemon, hub, transport, MCP, context-tree, provider-oauth, session, workspace, and more (~30 modules)
+│   ├── infra/       # Auth, cogit, connectors, daemon, hub, transport, MCP, context-tree, provider-oauth, session, workspace, and more (~30 modules)
 │   ├── templates/   # Server templates
 │   └── utils/       # Shared utilities (errors, file helpers, type guards)
 ├── shared/          # Cross-module shared code
@@ -79,6 +79,8 @@ src/
 │   └── utils/       # TUI utility functions
 └── oclif/           # Oclif commands, hooks, and lib/ (daemon-client, JSON response utils)
 ```
+
+- **TUI import boundary** (ESLint-enforced): TUI must not import from `server/`, `agent/`, or `oclif/`. Use transport events or `shared/` instead.
 
 ### REPL + TUI
 
