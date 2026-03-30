@@ -96,6 +96,26 @@ describe('ExperienceStore (v2 entry-based)', () => {
       expect(content).to.include('Test lesson body')
     })
 
+    it('sanitizes newlines in titles before writing frontmatter', async () => {
+      await store.ensureInitialized()
+      const iso = new Date().toISOString()
+      const filename = await store.createEntry(EXPERIENCE_LESSONS_DIR, 'Body', {
+        contentHash: computeContentHash('Body'),
+        createdAt: iso,
+        importance: 50,
+        maturity: 'draft',
+        recency: 1,
+        tags: ['experience', 'lesson'],
+        title: 'Line 1\nLine 2\rLine 3',
+        type: 'lesson',
+        updatedAt: iso,
+      })
+
+      const content = await store.readEntry(EXPERIENCE_LESSONS_DIR, filename)
+      expect(content).to.include('title: "Line 1 Line 2Line 3"')
+      expect(content).not.to.include('title: "Line 1\nLine 2')
+    })
+
     it('appends flat numeric suffixes on repeated filename collisions', async () => {
       await store.ensureInitialized()
       const iso = new Date().toISOString()

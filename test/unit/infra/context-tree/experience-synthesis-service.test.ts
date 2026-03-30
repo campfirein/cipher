@@ -90,6 +90,7 @@ describe('ExperienceSynthesisService', () => {
         expect(reflections).to.have.length(1)
 
         const content = await store.readEntry('reflections', reflections[0])
+        expect(content).to.include('importance: 60')
         expect(content).to.include('type: reflection')
         expect(content).to.include('derived_from:')
         expect(content).to.include('This is the synthesized insight.')

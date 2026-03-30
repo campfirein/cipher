@@ -54,9 +54,13 @@ export function generateEntryFilename(text: string): string {
 }
 
 export function buildEntryContent(frontmatter: ExperienceEntryFrontmatter, body: string): string {
+  const serializedTitle = frontmatter.title
+    .replaceAll('\r', '')
+    .replaceAll('\n', ' ')
+    .replaceAll('"', String.raw`\"`)
   const fm = [
     '---',
-    `title: "${frontmatter.title.replaceAll('"', String.raw`\"`)}"`,
+    `title: "${serializedTitle}"`,
     `tags: [${frontmatter.tags.map((t) => `"${t}"`).join(', ')}]`,
     `type: ${frontmatter.type}`,
     `contentHash: "${frontmatter.contentHash}"`,

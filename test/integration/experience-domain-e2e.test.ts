@@ -11,12 +11,13 @@
  * 7. All 6 signal types parse and route correctly
  * 8. Reflection signals create entries in reflections subfolder
  *
- * Artifacts are intentionally left in /tmp for manual review.
+ * Artifacts are cleaned up by default. Set BRV_KEEP_TEST_ARTIFACTS=1 to preserve
+ * them for manual inspection, and BRV_VERBOSE_TESTS=1 to print their paths.
  */
 
 import {expect} from 'chai'
 import {existsSync} from 'node:fs'
-import {mkdtemp} from 'node:fs/promises'
+import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -24,7 +25,8 @@ import type {ContributorContext} from '../../src/agent/core/domain/system-prompt
 import type {IConsolidationLlm} from '../../src/server/core/interfaces/experience/i-consolidation-llm.js'
 
 import {PerformanceTrendContributor} from '../../src/agent/infra/system-prompt/contributors/performance-trend-contributor.js'
-import {extractExperienceSignals, signalSubfolder} from '../../src/server/infra/context-tree/experience-extractor.js'
+import {signalTypeToSubfolder} from '../../src/server/core/domain/experience/experience-types.js'
+import {extractExperienceSignals} from '../../src/server/infra/context-tree/experience-extractor.js'
 import {ExperienceHookService} from '../../src/server/infra/context-tree/experience-hook-service.js'
 import {computeContentHash, ExperienceStore} from '../../src/server/infra/context-tree/experience-store.js'
 import {ExperienceSynthesisService} from '../../src/server/infra/context-tree/experience-synthesis-service.js'
@@ -54,10 +56,15 @@ describe('Experience Domain E2E', function () {
   // These tests hit the filesystem — allow more time
   this.timeout(10_000)
 
-  after(() => {
-    console.log('\n  📂 Test artifacts left for review:')
-    for (const dir of testDirs) {
-      console.log(`     ${dir}`)
+  after(async () => {
+    if (process.env.BRV_VERBOSE_TESTS) {
+      for (const dir of testDirs) {
+        process.stderr.write(`Experience E2E artifact: ${dir}\n`)
+      }
+    }
+
+    if (!process.env.BRV_KEEP_TEST_ARTIFACTS) {
+      await Promise.all(testDirs.map(async (dir) => rm(dir, {force: true, recursive: true})))
     }
   })
 
@@ -280,12 +287,12 @@ describe('Experience Domain E2E', function () {
     ])
 
     // Subfolder routing
-    expect(signalSubfolder('lesson')).to.equal('lessons')
-    expect(signalSubfolder('hint')).to.equal('hints')
-    expect(signalSubfolder('dead-end')).to.equal('dead-ends')
-    expect(signalSubfolder('strategy')).to.equal('strategies')
-    expect(signalSubfolder('performance')).to.equal('performance')
-    expect(signalSubfolder('reflection')).to.equal('reflections')
+    expect(signalTypeToSubfolder('lesson')).to.equal('lessons')
+    expect(signalTypeToSubfolder('hint')).to.equal('hints')
+    expect(signalTypeToSubfolder('dead-end')).to.equal('dead-ends')
+    expect(signalTypeToSubfolder('strategy')).to.equal('strategies')
+    expect(signalTypeToSubfolder('performance')).to.equal('performance')
+    expect(signalTypeToSubfolder('reflection')).to.equal('reflections')
 
     // Invalid performance signal rejected
     const badPerf = buildCurateResponse([

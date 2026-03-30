@@ -8,7 +8,8 @@ import {
   EXPERIENCE_REFLECTIONS_DIR,
   EXPERIENCE_STRATEGIES_DIR,
 } from '../../../../src/server/constants.js'
-import {extractExperienceSignals, signalSubfolder} from '../../../../src/server/infra/context-tree/experience-extractor.js'
+import {signalTypeToSubfolder} from '../../../../src/server/core/domain/experience/experience-types.js'
+import {extractExperienceSignals} from '../../../../src/server/infra/context-tree/experience-extractor.js'
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -156,29 +157,29 @@ describe('ExperienceExtractor', () => {
     })
   })
 
-  describe('signalSubfolder()', () => {
+  describe('signalTypeToSubfolder()', () => {
     it('maps lesson → lessons dir', () => {
-      expect(signalSubfolder('lesson')).to.equal(EXPERIENCE_LESSONS_DIR)
+      expect(signalTypeToSubfolder('lesson')).to.equal(EXPERIENCE_LESSONS_DIR)
     })
 
     it('maps hint → hints dir', () => {
-      expect(signalSubfolder('hint')).to.equal(EXPERIENCE_HINTS_DIR)
+      expect(signalTypeToSubfolder('hint')).to.equal(EXPERIENCE_HINTS_DIR)
     })
 
     it('maps dead-end → dead-ends dir', () => {
-      expect(signalSubfolder('dead-end')).to.equal(EXPERIENCE_DEAD_ENDS_DIR)
+      expect(signalTypeToSubfolder('dead-end')).to.equal(EXPERIENCE_DEAD_ENDS_DIR)
     })
 
     it('maps strategy → strategies dir', () => {
-      expect(signalSubfolder('strategy')).to.equal(EXPERIENCE_STRATEGIES_DIR)
+      expect(signalTypeToSubfolder('strategy')).to.equal(EXPERIENCE_STRATEGIES_DIR)
     })
 
     it('maps performance → performance dir', () => {
-      expect(signalSubfolder('performance')).to.equal(EXPERIENCE_PERFORMANCE_DIR)
+      expect(signalTypeToSubfolder('performance')).to.equal(EXPERIENCE_PERFORMANCE_DIR)
     })
 
     it('maps reflection → reflections dir', () => {
-      expect(signalSubfolder('reflection')).to.equal(EXPERIENCE_REFLECTIONS_DIR)
+      expect(signalTypeToSubfolder('reflection')).to.equal(EXPERIENCE_REFLECTIONS_DIR)
     })
   })
 })

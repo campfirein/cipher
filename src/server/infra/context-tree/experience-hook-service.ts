@@ -6,8 +6,8 @@ import type {BackpressureGate} from './backpressure-gate.js'
 import type {ExperienceSynthesisService} from './experience-synthesis-service.js'
 
 import {EXPERIENCE_CONSOLIDATION_INTERVAL} from '../../constants.js'
-import {STANDARD_SIGNAL_TYPES} from '../../core/domain/experience/experience-types.js'
-import {type ExperiencePerformanceSignal, type ExperienceSignal, extractExperienceSignals, signalSubfolder} from './experience-extractor.js'
+import {signalTypeToSubfolder, STANDARD_SIGNAL_TYPES} from '../../core/domain/experience/experience-types.js'
+import {type ExperiencePerformanceSignal, type ExperienceSignal, extractExperienceSignals} from './experience-extractor.js'
 import {computeContentHash, ExperienceStore} from './experience-store.js'
 
 type ExperienceHookServiceOptions = {
@@ -98,7 +98,7 @@ export class ExperienceHookService implements IExperienceHookService {
     const result: Record<string, Array<ExperiencePerformanceSignal | ExperienceSignal>> = {}
 
     for (const signal of signals) {
-      const sub = signalSubfolder(signal.type)
+      const sub = signalTypeToSubfolder(signal.type)
       if (!result[sub]) {
         result[sub] = []
       }

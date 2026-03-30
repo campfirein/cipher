@@ -10,7 +10,6 @@ import {
   EXPERIENCE_REFLECTIONS_DIR,
   EXPERIENCE_STRATEGIES_DIR,
 } from '../../constants.js'
-import {applyDefaultScoring} from '../../core/domain/knowledge/memory-scoring.js'
 import {buildEntryContent, computeContentHash, type ExperienceStore} from './experience-store.js'
 
 // ---------------------------------------------------------------------------
@@ -125,14 +124,13 @@ export class ExperienceSynthesisService {
     // Create/update reflection entry
     const iso = new Date().toISOString()
     const date = iso.slice(0, 10)
-    const scoring = applyDefaultScoring()
     const hash = computeContentHash(response)
 
     const frontmatter: ExperienceEntryFrontmatter = {
       contentHash: hash,
       createdAt: iso,
       derived_from: entryBodies.map((e) => e.path),
-      importance: scoring.importance ?? 60,
+      importance: 60,
       maturity: 'validated',
       recency: 1,
       tags: ['experience', 'reflection', subfolder, 'synthesis'],

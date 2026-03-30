@@ -1,5 +1,5 @@
 import {MultiStrategyParser} from '../../../agent/infra/llm/parsing/multi-strategy-parser.js'
-import {type ExperienceSignalType, signalTypeToSubfolder} from '../../core/domain/experience/experience-types.js'
+import {type ExperienceSignalType} from '../../core/domain/experience/experience-types.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -89,11 +89,4 @@ export function extractExperienceSignals(curateResponse: string): Array<Experien
   } catch {
     return []
   }
-}
-
-/**
- * Return the experience subfolder for a given signal type.
- */
-export function signalSubfolder(type: ExperienceSignalType): string {
-  return signalTypeToSubfolder(type)
 }
