@@ -9,31 +9,6 @@ export class TransportError extends Error {
 }
 
 /**
- * Error thrown when connection to server fails.
- */
-export class TransportConnectionError extends TransportError {
-  public readonly originalError?: Error
-  public readonly url: string
-
-  public constructor(url: string, originalError?: Error) {
-    super(`Connection failed to ${url}${originalError ? `: ${originalError.message}` : ''}`)
-    this.name = 'TransportConnectionError'
-    this.url = url
-    this.originalError = originalError
-  }
-}
-
-/**
- * Error thrown when client is not connected to server.
- */
-export class TransportNotConnectedError extends TransportError {
-  public constructor(operation = 'operation') {
-    super(`Not connected to server. Cannot perform: ${operation}`)
-    this.name = 'TransportNotConnectedError'
-  }
-}
-
-/**
  * Error thrown when server is not started.
  */
 export class TransportServerNotStartedError extends TransportError {
@@ -94,37 +69,5 @@ export class TransportRequestError extends TransportError {
     super(`${message} for event '${event}'`)
     this.name = 'TransportRequestError'
     this.event = event
-  }
-}
-
-/**
- * Error thrown when room operations fail.
- */
-export class TransportRoomError extends TransportError {
-  public readonly operation: 'join' | 'leave'
-  public readonly room: string
-
-  public constructor(room: string, operation: 'join' | 'leave') {
-    super(`Failed to ${operation} room '${room}'`)
-    this.name = 'TransportRoomError'
-    this.room = room
-    this.operation = operation
-  }
-}
-
-/**
- * Error thrown when room operation times out.
- */
-export class TransportRoomTimeoutError extends TransportError {
-  public readonly operation: 'join' | 'leave'
-  public readonly room: string
-  public readonly timeoutMs: number
-
-  public constructor(room: string, operation: 'join' | 'leave', timeoutMs: number) {
-    super(`${operation === 'join' ? 'Join' : 'Leave'} room '${room}' timed out after ${timeoutMs}ms`)
-    this.name = 'TransportRoomTimeoutError'
-    this.room = room
-    this.operation = operation
-    this.timeoutMs = timeoutMs
   }
 }
