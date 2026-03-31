@@ -41,7 +41,7 @@ export interface FileReadResult {
 /**
  * Configuration options for file reading.
  */
-export interface FileContentReaderConfig {
+interface FileContentReaderConfig {
   /** Maximum content length per file in characters (default: 40000) */
   maxContentLength?: number
 
