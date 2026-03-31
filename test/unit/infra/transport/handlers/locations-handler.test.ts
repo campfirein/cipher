@@ -14,7 +14,7 @@ import {createMockTransportServer, type MockTransportServer} from '../../../../h
 type ProjectInfoLike = {projectPath: string; registeredAt: number; sanitizedPath: string; storagePath: string}
 
 type TestDeps = {
-  contextTreeService: {delete: SinonStub; exists: SinonStub; initialize: SinonStub; resolvePath: SinonStub}
+  contextTreeService: {delete: SinonStub; exists: SinonStub; hasGitRepo: SinonStub; initialize: SinonStub; resolvePath: SinonStub}
   projectRegistry: {get: SinonStub; getAll: SinonStub; register: SinonStub; unregister: SinonStub}
 }
 
@@ -27,6 +27,7 @@ function makeStubs(): TestDeps {
     contextTreeService: {
       delete: stub(),
       exists: stub().resolves(false),
+      hasGitRepo: stub().resolves(false),
       initialize: stub(),
       resolvePath: stub().callsFake((p: string) => p),
     },

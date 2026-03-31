@@ -30,6 +30,7 @@ describe('ensureProjectInitialized', () => {
     mockContextTreeService = {
       delete: stub().resolves(),
       exists: stub().resolves(false),
+      hasGitRepo: stub().resolves(false),
       initialize: initializeStub,
       resolvePath: stub().returns(''),
     }

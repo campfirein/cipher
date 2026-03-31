@@ -7,6 +7,7 @@ import type {IContextTreeService} from '../../../../../src/server/core/interface
 import type {IContextTreeSnapshotService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {ITransportServer} from '../../../../../src/server/core/interfaces/transport/i-transport-server.js'
 
+import {GitVcInitializedError} from '../../../../../src/server/core/domain/errors/task-error.js'
 import {ResetHandler} from '../../../../../src/server/infra/transport/handlers/reset-handler.js'
 import {ResetEvents} from '../../../../../src/shared/transport/events/reset-events.js'
 
@@ -48,6 +49,7 @@ describe('ResetHandler', () => {
     contextTreeService = {
       delete: stub(),
       exists: stub(),
+      hasGitRepo: stub<[directory: string], Promise<boolean>>().resolves(false),
       initialize: stub<[directory?: string], Promise<string>>().resolves('/test/.brv/context-tree'),
       resolvePath: stub<[directory: string], string>().returns(''),
     }
@@ -167,6 +169,32 @@ describe('ResetHandler', () => {
 
       expect(contextTreeService.exists.called).to.be.false
       expect(contextTreeService.delete.called).to.be.false
+    })
+  })
+
+  describe('git vc guard', () => {
+    it('should throw GitVcInitializedError when .git exists in context tree', async () => {
+      contextTreeService.hasGitRepo.resolves(true)
+      createHandler()
+
+      try {
+        await callExecuteHandler()
+        expect.fail('should have thrown')
+      } catch (error) {
+        expect(error).to.be.instanceOf(GitVcInitializedError)
+      }
+
+      expect(contextTreeService.exists.called).to.be.false
+      expect(contextTreeService.delete.called).to.be.false
+    })
+
+    it('should proceed normally when .git does not exist', async () => {
+      contextTreeService.hasGitRepo.resolves(false)
+      contextTreeService.exists.resolves(true)
+      createHandler()
+
+      const result = await callExecuteHandler()
+      expect(result.success).to.be.true
     })
   })
 })

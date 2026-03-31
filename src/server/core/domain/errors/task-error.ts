@@ -33,6 +33,9 @@ export const TaskErrorCode = {
 
   // Unknown
   UNKNOWN: 'ERR_UNKNOWN',
+
+  // Version control
+  VC_GIT_INITIALIZED: 'ERR_VC_GIT_INITIALIZED',
 } as const
 
 export type TaskErrorCodeType = (typeof TaskErrorCode)[keyof typeof TaskErrorCode]
@@ -213,6 +216,13 @@ export class SpaceNotConfiguredError extends TaskError {
       TaskErrorCode.SPACE_NOT_CONFIGURED,
     )
     this.name = 'SpaceNotConfiguredError'
+  }
+}
+
+export class GitVcInitializedError extends TaskError {
+  public constructor(message: string) {
+    super(message, TaskErrorCode.VC_GIT_INITIALIZED)
+    this.name = 'GitVcInitializedError'
   }
 }
 

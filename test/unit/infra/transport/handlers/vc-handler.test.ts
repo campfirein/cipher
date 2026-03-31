@@ -71,6 +71,7 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
   const contextTreeService: Stubbed<IContextTreeService> = {
     delete: sandbox.stub().resolves(),
     exists: sandbox.stub().resolves(false),
+    hasGitRepo: sandbox.stub().resolves(false),
     initialize: sandbox.stub().resolves(contextTreeDirPath),
     resolvePath: sandbox.stub().returns(contextTreeDirPath),
   }

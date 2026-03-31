@@ -18,6 +18,13 @@ export interface IContextTreeService {
   exists(directory?: string): Promise<boolean>
 
   /**
+   * Checks if a git repository (.git directory) exists in the context tree.
+   * @param directory - Base directory
+   * @returns True if .git directory exists inside the context tree
+   */
+  hasGitRepo(directory: string): Promise<boolean>
+
+  /**
    * Initializes the context tree directory structure.
    * Creates .brv/context-tree/ directory with domain subdirectories and context.md files.
    * @param directory - Optional base directory (defaults to current working directory)

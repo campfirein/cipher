@@ -5,6 +5,7 @@ import {restore, stub} from 'sinon'
 
 import type {StatusDTO} from '../../../../../src/shared/transport/types/dto.js'
 
+import {GitVcInitializedError} from '../../../../../src/server/core/domain/errors/task-error.js'
 import {StatusHandler} from '../../../../../src/server/infra/transport/handlers/status-handler.js'
 import {StatusEvents} from '../../../../../src/shared/transport/events/status-events.js'
 import {createMockTransportServer, type MockTransportServer} from '../../../../helpers/mock-factories.js'
@@ -12,7 +13,7 @@ import {createMockTransportServer, type MockTransportServer} from '../../../../h
 // ==================== Test Helpers ====================
 
 type TestDeps = {
-  contextTreeService: {delete: SinonStub; exists: SinonStub; initialize: SinonStub; resolvePath: SinonStub}
+  contextTreeService: {delete: SinonStub; exists: SinonStub; hasGitRepo: SinonStub; initialize: SinonStub; resolvePath: SinonStub}
   contextTreeSnapshotService: {
     getChanges: SinonStub
     getCurrentState: SinonStub
@@ -31,6 +32,7 @@ function makeStubs(): TestDeps {
     contextTreeService: {
       delete: stub(),
       exists: stub().resolves(false),
+      hasGitRepo: stub().resolves(false),
       initialize: stub(),
       resolvePath: stub().callsFake((p: string) => p),
     },
@@ -162,6 +164,28 @@ describe('StatusHandler', () => {
       createHandler()
       const result = await callGetHandler()
       expect(result.status.contextTreeStatus).to.equal('unknown')
+    })
+  })
+
+  describe('git vc guard', () => {
+    it('should throw GitVcInitializedError when .git exists in context tree', async () => {
+      deps.contextTreeService.hasGitRepo.resolves(true)
+      createHandler()
+
+      try {
+        await callGetHandler()
+        expect.fail('should have thrown')
+      } catch (error) {
+        expect(error).to.be.instanceOf(GitVcInitializedError)
+      }
+    })
+
+    it('should proceed normally when .git does not exist', async () => {
+      deps.contextTreeService.hasGitRepo.resolves(false)
+      createHandler()
+
+      const result = await callGetHandler()
+      expect(result.status).to.exist
     })
   })
 })

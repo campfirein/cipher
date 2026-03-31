@@ -1,5 +1,6 @@
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeMerger} from '../../../core/interfaces/context-tree/i-context-tree-merger.js'
+import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {IContextTreeWriterService} from '../../../core/interfaces/context-tree/i-context-tree-writer-service.js'
 import type {ICogitPullService} from '../../../core/interfaces/services/i-cogit-pull-service.js'
@@ -25,6 +26,7 @@ import {
 } from '../../../core/domain/errors/task-error.js'
 import {syncConfigToXdg} from '../../../utils/config-xdg-sync.js'
 import {
+  guardAgainstGitVc,
   hasAnyChanges,
   type ProjectBroadcaster,
   type ProjectPathResolver,
@@ -35,6 +37,7 @@ export interface SpaceHandlerDeps {
   broadcastToProject: ProjectBroadcaster
   cogitPullService: ICogitPullService
   contextTreeMerger: IContextTreeMerger
+  contextTreeService: IContextTreeService
   contextTreeSnapshotService: IContextTreeSnapshotService
   contextTreeWriterService: IContextTreeWriterService
   projectConfigStore: IProjectConfigStore
@@ -53,6 +56,7 @@ export class SpaceHandler {
   private readonly broadcastToProject: ProjectBroadcaster
   private readonly cogitPullService: ICogitPullService
   private readonly contextTreeMerger: IContextTreeMerger
+  private readonly contextTreeService: IContextTreeService
   private readonly contextTreeSnapshotService: IContextTreeSnapshotService
   private readonly contextTreeWriterService: IContextTreeWriterService
   private readonly projectConfigStore: IProjectConfigStore
@@ -66,6 +70,7 @@ export class SpaceHandler {
     this.broadcastToProject = deps.broadcastToProject
     this.cogitPullService = deps.cogitPullService
     this.contextTreeMerger = deps.contextTreeMerger
+    this.contextTreeService = deps.contextTreeService
     this.contextTreeSnapshotService = deps.contextTreeSnapshotService
     this.contextTreeWriterService = deps.contextTreeWriterService
     this.projectConfigStore = deps.projectConfigStore
@@ -86,6 +91,7 @@ export class SpaceHandler {
 
   private async handleList(clientId: string): Promise<SpaceListResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    await guardAgainstGitVc({contextTreeService: this.contextTreeService, projectPath})
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
@@ -121,6 +127,7 @@ export class SpaceHandler {
 
   private async handleSwitch(data: SpaceSwitchRequest, clientId: string): Promise<SpaceSwitchResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    await guardAgainstGitVc({contextTreeService: this.contextTreeService, projectPath})
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {

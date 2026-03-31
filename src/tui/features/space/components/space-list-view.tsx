@@ -10,6 +10,7 @@ import React, {useEffect, useMemo} from 'react'
 
 import type {CustomDialogCallbacks} from '../../../types/commands.js'
 
+import {formatTransportError} from '../../../utils/error-messages.js'
 import {useGetSpaces} from '../api/get-spaces.js'
 
 interface SpaceListViewProps extends CustomDialogCallbacks {
@@ -61,7 +62,7 @@ export function SpaceListView({json, onComplete}: SpaceListViewProps): React.Rea
 
   useEffect(() => {
     if (result) onComplete(result)
-    if (error) onComplete(`Failed to list spaces: ${error.message}`)
+    if (error) onComplete(`Failed to list spaces: ${formatTransportError(error)}`)
   }, [error, onComplete, result])
 
   if (isLoading) {
