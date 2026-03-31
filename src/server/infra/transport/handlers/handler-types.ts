@@ -1,4 +1,7 @@
 import type {ContextTreeChanges} from '../../../../shared/types/context-tree-changes.js'
+import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
+
+import {GitVcInitializedError} from '../../../core/domain/errors/task-error.js'
 
 /**
  * Resolves a transport client ID to its associated project path.
@@ -36,4 +39,18 @@ export type ProjectBroadcaster = <T = unknown>(projectPath: string, event: strin
  */
 export function hasAnyChanges(changes: ContextTreeChanges): boolean {
   return changes.added.length > 0 || changes.modified.length > 0 || changes.deleted.length > 0
+}
+
+/**
+ * Throws GitVcInitializedError if the project has Git-based version control initialized.
+ * Used by old snapshot-based handlers to block operations when the user has switched to /vc commands.
+ */
+export async function guardAgainstGitVc(params: {
+  contextTreeService: IContextTreeService
+  projectPath: string
+}): Promise<void> {
+  const hasGitVc = await params.contextTreeService.hasGitRepo(params.projectPath)
+  if (hasGitVc) {
+    throw new GitVcInitializedError('Git-based version control is initialized')
+  }
 }

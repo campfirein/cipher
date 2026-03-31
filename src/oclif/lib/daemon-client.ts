@@ -41,6 +41,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [TaskErrorCode.SPACE_NOT_CONFIGURED]:
     'No space configured. Run "brv space list" to see available spaces, then "brv space switch --team <team> --name <space>" to select one.',
   [TaskErrorCode.SPACE_NOT_FOUND]: 'Space not found. Check your configuration.',
+  [TaskErrorCode.VC_GIT_INITIALIZED]: 'Git-based version control is active. Use brv vc commands instead of legacy sync commands.',
   [VcErrorCode.AUTH_FAILED]: 'Authentication failed. Run brv login.',
   [VcErrorCode.CONFIG_KEY_NOT_SET]: 'Config key is not set.',
   [VcErrorCode.CONFLICT_MARKERS_PRESENT]: 'Conflict markers detected. Resolve conflicts and run brv vc add before pushing.',

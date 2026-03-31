@@ -9,7 +9,7 @@ import type {ITransportServer} from '../../../core/interfaces/transport/i-transp
 
 import {StatusEvents, type StatusGetResponse} from '../../../../shared/transport/events/status-events.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
-import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
+import {guardAgainstGitVc, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 export interface StatusHandlerDeps {
   contextTreeService: IContextTreeService
@@ -44,6 +44,7 @@ export class StatusHandler {
   setup(): void {
     this.transport.onRequest<void, StatusGetResponse>(StatusEvents.GET, async (_data, clientId) => {
       const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+      await guardAgainstGitVc({contextTreeService: this.contextTreeService, projectPath})
       const status = await this.collectStatus(projectPath)
       return {status}
     })

@@ -1,5 +1,6 @@
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextFileReader} from '../../../core/interfaces/context-tree/i-context-file-reader.js'
+import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {ICogitPushService} from '../../../core/interfaces/services/i-cogit-push-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
@@ -18,12 +19,18 @@ import {
   SpaceNotConfiguredError,
 } from '../../../core/domain/errors/task-error.js'
 import {mapToPushContexts} from '../../cogit/context-tree-to-push-context-mapper.js'
-import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
+import {
+  guardAgainstGitVc,
+  type ProjectBroadcaster,
+  type ProjectPathResolver,
+  resolveRequiredProjectPath,
+} from './handler-types.js'
 
 export interface PushHandlerDeps {
   broadcastToProject: ProjectBroadcaster
   cogitPushService: ICogitPushService
   contextFileReader: IContextFileReader
+  contextTreeService: IContextTreeService
   contextTreeSnapshotService: IContextTreeSnapshotService
   projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
@@ -40,6 +47,7 @@ export class PushHandler {
   private readonly broadcastToProject: ProjectBroadcaster
   private readonly cogitPushService: ICogitPushService
   private readonly contextFileReader: IContextFileReader
+  private readonly contextTreeService: IContextTreeService
   private readonly contextTreeSnapshotService: IContextTreeSnapshotService
   private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
@@ -51,6 +59,7 @@ export class PushHandler {
     this.broadcastToProject = deps.broadcastToProject
     this.cogitPushService = deps.cogitPushService
     this.contextFileReader = deps.contextFileReader
+    this.contextTreeService = deps.contextTreeService
     this.contextTreeSnapshotService = deps.contextTreeSnapshotService
     this.projectConfigStore = deps.projectConfigStore
     this.resolveProjectPath = deps.resolveProjectPath
@@ -71,6 +80,7 @@ export class PushHandler {
 
   private async handleExecute(data: PushExecuteRequest, clientId: string): Promise<PushExecuteResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    await guardAgainstGitVc({contextTreeService: this.contextTreeService, projectPath})
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
@@ -126,6 +136,7 @@ export class PushHandler {
 
   private async handlePrepare(_data: PushPrepareRequest, clientId: string): Promise<PushPrepareResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    await guardAgainstGitVc({contextTreeService: this.contextTreeService, projectPath})
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
@@ -160,5 +171,4 @@ export class PushHandler {
       summary: parts.length > 0 ? parts.join(', ') : 'No changes',
     }
   }
-
 }

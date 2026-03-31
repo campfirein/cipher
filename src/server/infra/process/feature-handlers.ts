@@ -169,6 +169,7 @@ export async function setupFeatureHandlers({
     broadcastToProject,
     cogitPushService,
     contextFileReader,
+    contextTreeService,
     contextTreeSnapshotService,
     projectConfigStore,
     resolveProjectPath,
@@ -180,6 +181,7 @@ export async function setupFeatureHandlers({
   new PullHandler({
     broadcastToProject,
     cogitPullService,
+    contextTreeService,
     contextTreeSnapshotService,
     contextTreeWriterService,
     projectConfigStore,
@@ -199,6 +201,7 @@ export async function setupFeatureHandlers({
     broadcastToProject,
     cogitPullService,
     contextTreeMerger,
+    contextTreeService,
     contextTreeSnapshotService,
     contextTreeWriterService,
     projectConfigStore,
