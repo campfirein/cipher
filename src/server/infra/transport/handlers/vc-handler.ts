@@ -409,7 +409,14 @@ export class VcHandler {
     const contextTreeDir = this.contextTreeService.resolvePath(projectPath)
 
     if (await this.gitService.isInitialized({directory: contextTreeDir})) {
-      throw new VcError('Already initialized. Use /vc pull to sync.', VcErrorCode.ALREADY_INITIALIZED)
+      const isEmpty = await this.gitService.isEmptyRepository({directory: contextTreeDir})
+      if (!isEmpty) {
+        throw new VcError('Already initialized. Use /vc pull to sync.', VcErrorCode.ALREADY_INITIALIZED)
+      }
+
+      // Fresh auto-init — remove .git and .gitignore so clone starts clean
+      await fs.promises.rm(join(contextTreeDir, '.git'), {force: true, recursive: true})
+      await fs.promises.rm(join(contextTreeDir, '.gitignore'), {force: true}).catch(() => {})
     }
 
     const {spaceId, spaceName, teamId, teamName, url: cloneUrl} = await this.resolveCloneInput(data)

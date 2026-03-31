@@ -409,6 +409,25 @@ export class IsomorphicGitService implements IGitService {
     return git.isDescendent({ancestor: ancestorOid, depth: -1, dir, fs, oid: commitOid})
   }
 
+  async isEmptyRepository(params: BaseGitParams): Promise<boolean> {
+    const dir = this.requireDirectory(params)
+
+    const commits = await this.log({depth: 1, directory: dir})
+    if (commits.length > 0) return false
+
+    const remotes = await this.listRemotes({directory: dir})
+    if (remotes.length > 0) return false
+
+    const branches = await git.listBranches({dir, fs})
+    if (branches.length > 0) return false
+
+    const tags = await git.listTags({dir, fs})
+    if (tags.length > 0) return false
+
+    const {isClean} = await this.status({directory: dir})
+    return isClean
+  }
+
   async isInitialized(params: BaseGitParams): Promise<boolean> {
     const dir = this.requireDirectory(params)
     return fs.promises
