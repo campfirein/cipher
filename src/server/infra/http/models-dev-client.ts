@@ -183,10 +183,3 @@ export function getModelsDevClient(): ModelsDevClient {
 
   return clientInstance
 }
-
-/**
- * Reset the singleton (for testing).
- */
-export function resetModelsDevClient(): void {
-  clientInstance = undefined
-}

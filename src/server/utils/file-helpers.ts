@@ -1,38 +1,3 @@
-import fs from 'node:fs'
-import {readdir, unlink} from 'node:fs/promises'
-import {join} from 'node:path'
-
-/**
- * Removes all files from a directory while preserving the directory itself.
- * Returns the number of files removed.
- * Silently succeeds if directory doesn't exist.
- * @param dirPath - Absolute path to directory to clear
- * @returns Number of files removed
- */
-export async function clearDirectory(dirPath: string): Promise<number> {
-  try {
-    const entries = await readdir(dirPath, {withFileTypes: true})
-
-    // Filter to only get files (not subdirectories)
-    const files = entries.filter((entry) => entry.isFile())
-
-    // Remove each file
-    await Promise.all(
-      files.map((file) => unlink(join(dirPath, file.name))),
-    )
-
-    return files.length
-  } catch (error) {
-    // If directory doesn't exist (ENOENT), return 0
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return 0
-    }
-
-    // Re-throw other errors
-    throw error
-  }
-}
-
 /**
  * Sanitizes a folder path by replacing all special characters with a hyphen.
  * @param folderName - The folder path need to sanitize
@@ -62,41 +27,4 @@ export function toSnakeCase(name: string): string {
     .replaceAll(/[^\w]+/g, '_')
     .replaceAll(/_{2,}/g, '_')
     .replaceAll(/^_|_$/g, '');
-}
-
-/**
- * Lists all immediate children (files and directories) of the given directory,
- * and, for each child folder, shows its own immediate children.
- * @param dirPath The directory path whose children to list.
- * @returns An object where keys are child names, and values are:
- *   - for files: undefined
- *   - for directories: an array of their immediate children
- */
-export function listDirectoryChildren(
-  dirPath: string = '.brv/context-tree',
-): Record<string, string[] | undefined> {
-  const result: Record<string, string[] | undefined> = {};
-  const children = fs.readdirSync(dirPath);
-  for (const child of children) {
-    const childPath = `${dirPath}/${child}`;
-    let stat;
-    try {
-      stat = fs.statSync(childPath);
-    } catch {
-      result[child] = undefined;
-      continue;
-    }
-
-    if (stat.isDirectory()) {
-      try {
-        result[child] = fs.readdirSync(childPath);
-      } catch {
-        result[child] = undefined;
-      }
-    } else {
-      result[child] = undefined;
-    }
-  }
-  
-  return result;
 }
