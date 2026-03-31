@@ -9,7 +9,7 @@
  * Each session creates a new log file with timestamp.
  */
 
-import {appendFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync} from 'node:fs'
+import {appendFileSync, existsSync, mkdirSync} from 'node:fs'
 import {join} from 'node:path'
 
 import {getGlobalLogsDir} from './global-logs-path.js'
@@ -37,37 +37,6 @@ function ensureLogDir(): void {
   } catch {
     // Silently ignore - directory creation may fail due to permissions
     // Logging will fail gracefully later when trying to write
-  }
-}
-
-/** Max age for log files in milliseconds (30 days) */
-const LOG_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
-
-/**
- * Clean up log files older than 30 days.
- * Runs silently - errors are ignored to not affect the main process.
- */
-function cleanupOldLogs(): void {
-  try {
-    const logsDir = getLogsDir()
-    if (!existsSync(logsDir)) return
-
-    const now = Date.now()
-    const files = readdirSync(logsDir)
-
-    for (const file of files) {
-      if (!file.endsWith('.log')) continue
-
-      const filePath = join(logsDir, file)
-      const stats = statSync(filePath)
-      const age = now - stats.mtimeMs
-
-      if (age > LOG_MAX_AGE_MS) {
-        unlinkSync(filePath)
-      }
-    }
-  } catch {
-    // Silently ignore - don't crash the process
   }
 }
 
@@ -116,33 +85,6 @@ function getLogPath(): string {
 }
 
 /**
- * Initialize session log - creates a new log file for this session.
- * Should be called once when the main process starts.
- */
-export function initSessionLog(): void {
-  if (sessionLogPath) return
-
-  try {
-    ensureLogDir()
-    cleanupOldLogs()
-    sessionLogPath = join(getLogsDir(), generateSessionLogFilename())
-
-    const timestamp = formatTimestamp()
-    const header = [
-      '='.repeat(70),
-      `BRV Session Log - Started: ${timestamp}`,
-      `CWD: ${process.cwd()}`,
-      `Node: ${process.version} | Platform: ${process.platform} | PID: ${process.pid}`,
-      '='.repeat(70),
-      '',
-    ].join('\n')
-    writeFileSync(sessionLogPath, header)
-  } catch {
-    // Silently ignore - don't crash the process
-  }
-}
-
-/**
  * Write a log entry to the log file.
  * Uses synchronous append for reliability in process shutdown scenarios.
  */
@@ -172,37 +114,11 @@ export function agentLog(message: string): void {
 }
 
 /**
- * Log with [ProcessManager] prefix.
- */
-export function processManagerLog(message: string): void {
-  processLog(`[ProcessManager] ${message}`)
-}
-
-/**
  * Log a transport event (for TUI monitoring).
  */
 export function eventLog(eventName: string, data?: unknown): void {
   const dataStr = data ? ` ${JSON.stringify(data)}` : ''
   processLog(`[Event] ${eventName}${dataStr}`)
-}
-
-/**
- * Log an error with full details.
- */
-export function errorLog(error: Error | string, context?: string): void {
-  const errorMessage = error instanceof Error ? error.message : error
-  const errorStack = error instanceof Error ? error.stack : undefined
-  const contextStr = context ? ` (${context})` : ''
-
-  processLog(`[ERROR]${contextStr} ${errorMessage}`)
-  if (errorStack) {
-    const indentedStack = errorStack
-      .split('\n')
-      .slice(1)
-      .map((line) => `         ${line}`)
-      .join('\n')
-    processLog(indentedStack)
-  }
 }
 
 /**

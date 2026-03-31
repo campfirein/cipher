@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__claude_ai_Linear__get_issue",
+      "mcp__claude_ai_Linear__get_project",
+      "mcp__claude_ai_Linear__list_issues",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(npm list:*)",
+      "Bash(npm view:*)"
+    ]
+  }
+}
