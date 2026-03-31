@@ -87,6 +87,7 @@ function propagateScoresToParents(
   summaryMap: Map<string, SummaryDocLike>,
   documentMap: Map<string, IndexedDocument>,
   propagationFactor = 0.55,
+  perfFactors?: {domainFactors: Map<string, number>; pathFactors: Map<string, number>},
 ): SearchKnowledgeResult['results'] {
   const boosts = new Map<string, number>()
 
@@ -113,8 +114,14 @@ function propagateScoresToParents(
     // Propagate the strongest child BM25 signal upward, then apply the parent
     // summary's own scoring exactly once. This avoids double-counting lifecycle
     // weights that are already baked into child compound scores.
+    // Performance boost applied to parent importance (Ship 2).
+    const parentImportance = doc.scoring?.importance ?? 50
+    const parentPerfFactor = perfFactors
+      ? (perfFactors.pathFactors.get(doc.path) ?? perfFactors.pathFactors.get(`${parentPath}/_index.md`) ?? perfFactors.pathFactors.get(`${parentPath}/context.md`) ?? perfFactors.domainFactors.get(extractDomainFromPath(parentPath)) ?? 0)
+      : 0
+    const boostedParentImportance = Math.min(100, parentImportance * (1 + parentPerfFactor))
     const finalScore = doc.scoring
-      ? compoundScore(score, doc.scoring.importance ?? 50, doc.scoring.recency ?? 0.5, doc.scoring.maturity ?? 'draft')
+      ? compoundScore(score, boostedParentImportance, doc.scoring.recency ?? 0.5, doc.scoring.maturity ?? 'draft')
       : score
 
     boosted.push({
@@ -273,6 +280,12 @@ function hasUnmatchedSignificantTerms(queryTerms: string[], searchResults: Array
   }
 
   return significantTerms.some((t) => !allMatchedQueryTerms.has(t))
+}
+
+/** Extract domain (first path segment) from a context-tree-relative path. */
+function extractDomainFromPath(path: string): string {
+  const firstSlash = path.indexOf('/')
+  return firstSlash === -1 ? path : path.slice(0, firstSlash)
 }
 
 function extractTitle(content: string, fallbackTitle: string): string {
@@ -734,6 +747,8 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
   /** In-flight flush promise shared across concurrent callers so they all receive the same scoring map. */
   private flushingPromise: Promise<Map<string, FrontmatterScoring>> | undefined
   private readonly pendingAccessHits: Map<string, number> = new Map()
+  /** Cached performance factors with mtime-based staleness */
+  private perfFactorCache?: {domainFactors: Map<string, number>; mtime: number; pathFactors: Map<string, number>}
   private readonly state: IndexState = {
     buildingPromise: undefined,
     cachedIndex: undefined,
@@ -893,14 +908,17 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     const effectiveScope = options?.scope ?? parsed.scopePath
     const effectiveQuery = parsed.scopePath ? parsed.textQuery : query
 
+    // Load performance factors for retrieval boost (Ship 2)
+    const perfFactors = await this.getPerformanceFactors()
+
     // Run text-based MiniSearch (existing pipeline), optionally scoped to a subtree
     const textResult = this.runTextSearch(
-      effectiveQuery || query, documentMap, index, limit, effectiveScope, symbolTree, referenceIndex, summaryMap, options,
+      effectiveQuery || query, documentMap, index, limit, effectiveScope, symbolTree, referenceIndex, summaryMap, options, perfFactors,
     )
 
     // If scoped search returned nothing and we had a scope, fall back to global search
     if (textResult.results.length === 0 && effectiveScope && effectiveQuery) {
-      return this.runTextSearch(query, documentMap, index, limit, undefined, symbolTree, referenceIndex, summaryMap, options)
+      return this.runTextSearch(query, documentMap, index, limit, undefined, symbolTree, referenceIndex, summaryMap, options, perfFactors)
     }
 
     return textResult
@@ -990,6 +1008,56 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
   }
 
   /**
+   * Get cached performance factors, recomputing only if the log file changed.
+   * Uses file stat (mtime) to avoid reading the full JSONL on every search.
+   * Returns empty maps when insufficient data (graceful degradation).
+   */
+  private async getPerformanceFactors(): Promise<{domainFactors: Map<string, number>; pathFactors: Map<string, number>}> {
+    const empty = {domainFactors: new Map<string, number>(), pathFactors: new Map<string, number>()}
+
+    try {
+      const {stat} = await import('node:fs/promises')
+      const logPath = join(
+        this.baseDirectory,
+        BRV_DIR,
+        CONTEXT_TREE_DIR,
+        'experience',
+        'performance',
+        'performance-log.jsonl',
+      )
+
+      // Check file mtime without reading content — fast stat-only path
+      let fileMtime: number
+      try {
+        const stats = await stat(logPath)
+        fileMtime = stats.mtimeMs
+      } catch {
+        // File doesn't exist yet — no performance data
+        return empty
+      }
+
+      // Return cached factors if log file hasn't changed
+      if (this.perfFactorCache && this.perfFactorCache.mtime === fileMtime) {
+        return this.perfFactorCache
+      }
+
+      // File changed — read and recompute
+      const {computeDomainFactors, computePerformanceFactors} = await import('../../../../server/core/domain/knowledge/performance-correlation.js')
+      const {ExperienceStore} = await import('../../../../server/infra/context-tree/experience-store.js')
+      const store = new ExperienceStore(this.baseDirectory)
+      const log = await store.readPerformanceLog()
+
+      const pathFactors = computePerformanceFactors(log)
+      const domainFactors = computeDomainFactors(log)
+      this.perfFactorCache = {domainFactors, mtime: fileMtime, pathFactors}
+
+      return {domainFactors, pathFactors}
+    } catch {
+      return empty
+    }
+  }
+
+  /**
    * Run the standard text-based MiniSearch pipeline, optionally scoped to a subtree.
    */
   private runTextSearch(
@@ -1002,6 +1070,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     referenceIndex: ReferenceIndex,
     summaryMap: Map<string, SummaryDocLike>,
     options?: SearchOptions,
+    perfFactors?: {domainFactors: Map<string, number>; pathFactors: Map<string, number>},
   ): SearchKnowledgeResult {
     const filteredQuery = filterStopWords(query)
     const filteredWords = filteredQuery.split(/\s+/).filter((w) => w.length >= 2)
@@ -1046,10 +1115,15 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       const decayed = applyDecay(scoring, daysSince)
       const bm25 = normalizeScore(r.score)
 
+      // Apply performance correlation boost (Ship 2)
+      const baseImportance = decayed.importance ?? 50
+      const perfFactor = perfFactors?.pathFactors.get(r.id) ?? perfFactors?.domainFactors.get(extractDomainFromPath(r.id)) ?? 0
+      const boostedImportance = Math.min(100, baseImportance * (1 + perfFactor))
+
       return {
         ...r,
         bm25Score: bm25,
-        score: compoundScore(bm25, decayed.importance ?? 50, decayed.recency ?? 1, decayed.maturity ?? 'draft'),
+        score: compoundScore(bm25, boostedImportance, decayed.recency ?? 1, decayed.maturity ?? 'draft'),
       }
     })
     let topBm25 = 0
@@ -1147,7 +1221,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     }
 
     // Propagate scores upward to parent domain/topic nodes (hierarchical retrieval)
-    const propagated = propagateScoresToParents(propagationInputs, symbolTree, summaryMap, documentMap)
+    const propagated = propagateScoresToParents(propagationInputs, symbolTree, summaryMap, documentMap, 0.55, perfFactors)
     for (const p of propagated) {
       if (scoreFloor !== undefined && p.score < scoreFloor) continue
       if (options?.includeKinds && p.symbolKind && !options.includeKinds.includes(p.symbolKind)) continue
@@ -1171,11 +1245,15 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     // Synthetic 'summary' results carry folder-style paths (e.g. 'auth') that are not
     // real files; map them to their _index.md so flushAccessHits can read and update them.
     if (results.length > 0) {
-      this.accumulateAccessHits(
-        results.map((r) => (r.symbolKind === 'summary'
-          ? getSummaryAccessPath(r.path, summaryMap, documentMap)
-          : r.path)),
-      )
+      const accessPaths = results.map((r) => (r.symbolKind === 'summary'
+        ? getSummaryAccessPath(r.path, summaryMap, documentMap)
+        : r.path))
+      this.accumulateAccessHits(accessPaths)
+
+      // Set canonical path on each result for downstream correlation tracking
+      for (const [i, result] of results.entries()) {
+        result.canonicalPath = accessPaths[i]
+      }
     }
 
     return {
@@ -1220,6 +1298,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
         { excerpt: extractExcerpt(doc.content, query), path: doc.path, score: 1, title: doc.title },
         symbolTree, referenceIndex, documentMap,
       )
+      result.canonicalPath = doc.path
 
       this.accumulateAccessHits([doc.path])
 
@@ -1249,6 +1328,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     if (summaryDoc) {
       results.push({
         backlinkCount: 0,
+        canonicalPath: summaryDoc.path,
         excerpt: summaryDoc.excerpt,
         path: topMatch.path,
         score: 1,
@@ -1265,10 +1345,12 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       const doc = documentMap.get(docId)
       if (!doc) continue
 
-      results.push(this.enrichResult(
+      const enriched = this.enrichResult(
         { excerpt: extractExcerpt(doc.content, query), path: doc.path, score: 0.9, title: doc.title },
         symbolTree, referenceIndex, documentMap,
-      ))
+      )
+      enriched.canonicalPath = doc.path
+      results.push(enriched)
       accessHitPaths.push(doc.path)
     }
 

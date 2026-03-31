@@ -1,5 +1,5 @@
 /* eslint-disable camelcase */
-import type {ExperienceEntryFrontmatter} from '../../core/domain/experience/experience-types.js'
+import type {ExperienceEntryFrontmatter, NormalizedPerformanceLogEntry} from '../../core/domain/experience/experience-types.js'
 import type {IConsolidationLlm} from '../../core/interfaces/experience/i-consolidation-llm.js'
 
 import {
@@ -25,6 +25,7 @@ Your synthesis should:
 2. Note contradictions or tensions between entries
 3. Highlight what has been validated through repeated experience
 4. Suggest what should be kept, deprecated, or needs more evidence
+5. Reflect on performance correlation — which patterns associate with better task outcomes
 
 Be concise but thorough.`
 
@@ -63,8 +64,16 @@ export class ExperienceSynthesisService {
       targets.push(EXPERIENCE_STRATEGIES_DIR)
     }
 
+    // Read performance log for Ship 3 context injection
+    let perfLog: NormalizedPerformanceLogEntry[] = []
+    try {
+      perfLog = await store.readPerformanceLog()
+    } catch {
+      // Fail-open: synthesis works without performance data
+    }
+
     const results = await Promise.allSettled(
-      targets.map((subfolder) => this.synthesizeSubfolder(store, subfolder)),
+      targets.map((subfolder) => this.synthesizeSubfolder(store, subfolder, perfLog)),
     )
 
     // Only update watermark if at least one synthesis actually wrote a reflection.
@@ -76,7 +85,7 @@ export class ExperienceSynthesisService {
     }
   }
 
-  private async synthesizeSubfolder(store: ExperienceStore, subfolder: string): Promise<boolean> {
+  private async synthesizeSubfolder(store: ExperienceStore, subfolder: string, perfLog: NormalizedPerformanceLogEntry[] = []): Promise<boolean> {
     const entries = await store.listEntries(subfolder)
 
     // Nothing meaningful to synthesize
@@ -112,7 +121,10 @@ export class ExperienceSynthesisService {
       .map((e) => `### ${e.title}\n${e.body}`)
       .join('\n\n')
 
-    const userMessage = `Below are individual experience entries from the "${subfolder}" category.\n\n${entriesBlock}\n\nWrite your synthesis:`
+    // Build performance context section (Ship 3)
+    const perfContext = buildPerformanceContext(perfLog, subfolder, entryBodies.map((e) => e.path))
+
+    const userMessage = `Below are individual experience entries from the "${subfolder}" category.\n\n${entriesBlock}${perfContext}\n\nWrite your synthesis:`
 
     // One-pass LLM call — no multi-round quality loop
     const response = await this.llm.generate(SYNTHESIS_SYSTEM_PROMPT, userMessage)
@@ -148,4 +160,71 @@ export class ExperienceSynthesisService {
 
     return true
   }
+}
+
+/**
+ * Build a performance context section for the synthesis prompt.
+ * Returns empty string when insufficient data (< 3 entries referencing this subfolder).
+ */
+function buildPerformanceContext(
+  log: NormalizedPerformanceLogEntry[],
+  subfolder: string,
+  entryPaths: string[],
+): string {
+  if (log.length < 3) return ''
+
+  // Filter log entries that reference paths in this subfolder
+  const entryPathSet = new Set(entryPaths)
+  const relevant = log.filter((e) =>
+    e.insightsActive.some((p) => entryPathSet.has(p) || p.includes(`/${subfolder}/`)),
+  )
+
+  if (relevant.length < 3) return ''
+
+  // Compute domain-level stats
+  const scores = relevant.map((e) => e.score)
+  const avg = scores.reduce((a, b) => a + b, 0) / scores.length
+  const mid = Math.floor(scores.length / 2)
+  const firstHalf = scores.slice(0, mid)
+  const secondHalf = scores.slice(mid)
+  const avgFirst = firstHalf.reduce((a, b) => a + b, 0) / (firstHalf.length || 1)
+  const avgSecond = secondHalf.reduce((a, b) => a + b, 0) / (secondHalf.length || 1)
+  const diff = avgSecond - avgFirst
+  const trend = diff > 0.05 ? 'trending up' : diff < -0.05 ? 'trending down' : 'stable'
+
+  // Find entries that appear most in high/low scoring curations
+  const domainAvg = avg
+  const highEntries = new Map<string, number>()
+  const lowEntries = new Map<string, number>()
+
+  for (const entry of relevant) {
+    const bucket = entry.score > domainAvg ? highEntries : lowEntries
+    for (const path of entry.insightsActive) {
+      if (entryPathSet.has(path) || path.includes(`/${subfolder}/`)) {
+        bucket.set(path, (bucket.get(path) ?? 0) + 1)
+      }
+    }
+  }
+
+  const topHigh = [...highEntries.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([p]) => p.split('/').pop() ?? p)
+  const topLow = [...lowEntries.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([p]) => p.split('/').pop() ?? p)
+
+  const lines = [
+    '',
+    `## Performance Context`,
+    `Recent curations referencing "${subfolder}" entries:`,
+    `- Average score: ${avg.toFixed(2)} (${relevant.length} tasks), ${trend}`,
+  ]
+
+  if (topHigh.length > 0) {
+    lines.push(`- Entries frequently active in high-scoring tasks: ${topHigh.join(', ')}`)
+  }
+
+  if (topLow.length > 0) {
+    lines.push(`- Entries frequently active in lower-scoring tasks: ${topLow.join(', ')}`)
+  }
+
+  lines.push('Consider which patterns correlate with better task outcomes.')
+
+  return '\n' + lines.join('\n')
 }

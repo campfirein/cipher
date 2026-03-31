@@ -689,6 +689,15 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   }
 
   /**
+   * Set the session insights tracker for performance-memory correlation.
+   * Forwarded to sandboxService so ToolsSDK.searchKnowledge() records surfaced paths.
+   */
+  public setInsightsTracker(tracker: import('../../../server/infra/context-tree/session-insights-tracker.js').SessionInsightsTracker): void {
+    this.ensureStarted()
+    this.services!.sandboxService.setInsightsTracker?.(tracker)
+  }
+
+  /**
    * Set a variable in the agent's default session sandbox.
    */
   public setSandboxVariable(key: string, value: unknown): void {

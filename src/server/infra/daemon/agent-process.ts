@@ -373,7 +373,14 @@ async function start(): Promise<void> {
     gate,
     synthesisService,
   })
-  const curateExecutor = new CurateExecutor(undefined, experienceHookService)
+
+  // Session insights tracker: bridges search (via sandbox ToolsSDK) and curation (via hook service)
+  // for performance-memory correlation. Injected into sandbox service so ToolsSDK records surfaced paths.
+  const {SessionInsightsTracker} = await import('../context-tree/session-insights-tracker.js')
+  const insightsTracker = new SessionInsightsTracker()
+  startedAgent.setInsightsTracker(insightsTracker)
+
+  const curateExecutor = new CurateExecutor(undefined, experienceHookService, insightsTracker)
   const folderPackService = new FolderPackService(fileSystemService)
   await folderPackService.initialize()
   const folderPackExecutor = new FolderPackExecutor(folderPackService)

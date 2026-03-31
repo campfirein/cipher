@@ -4,6 +4,7 @@ import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.j
 import type {CurationStatus} from '../../core/domain/entities/curation-status.js'
 import type {CurateExecuteOptions, ICurateExecutor} from '../../core/interfaces/executor/i-curate-executor.js'
 import type {IExperienceHookService} from '../../core/interfaces/experience/i-experience-hook-service.js'
+import type {SessionInsightsTracker} from '../context-tree/session-insights-tracker.js'
 
 import {FileValidationError} from '../../core/domain/errors/task-error.js'
 import {
@@ -45,11 +46,13 @@ export class CurateExecutor implements ICurateExecutor {
   public lastStatus?: CurationStatus
   private readonly fileContentReader: FileContentReader
   private readonly hookService?: IExperienceHookService
+  private readonly insightsTracker?: SessionInsightsTracker
   private readonly preCompactionService = new PreCompactionService()
 
-  constructor(fileContentReader?: FileContentReader, hookService?: IExperienceHookService) {
+  constructor(fileContentReader?: FileContentReader, hookService?: IExperienceHookService, insightsTracker?: SessionInsightsTracker) {
     this.fileContentReader = fileContentReader ?? createFileContentReader()
     this.hookService = hookService
+    this.insightsTracker = insightsTracker
   }
 
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
@@ -139,12 +142,15 @@ export class CurateExecutor implements ICurateExecutor {
       // Parse curation status from agent response for status tracking
       this.lastStatus = this.parseCurationStatus(taskId, response)
 
+      // Drain insights tracker before hook call — captures which entries the curate agent consulted
+      const insightsActive = this.insightsTracker?.drainSession(taskSessionId)
+
       // Experience hook — awaited so written files are visible to Phase 4's snapshot diff
       // (summary propagation and manifest prewarm pick up the new experience files).
       // Fail-open: hook errors never block the curation result.
       if (this.hookService) {
         try {
-          await this.hookService.onCurateComplete(response)
+          await this.hookService.onCurateComplete(response, insightsActive)
         } catch {
           // fail-open
         }
@@ -174,6 +180,8 @@ export class CurateExecutor implements ICurateExecutor {
 
       return response
     } finally {
+      // Clear insights tracker for this session (prevents leaks on failure)
+      this.insightsTracker?.clearSession(taskSessionId)
       // Clean up entire task session (sandbox + history) in one call
       await agent.deleteTaskSession(taskSessionId)
     }

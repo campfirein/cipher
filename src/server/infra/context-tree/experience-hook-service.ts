@@ -54,14 +54,14 @@ export class ExperienceHookService implements IExperienceHookService {
    * Background synthesis may continue after this promise settles.
    * Never rejects — errors are swallowed inside process().
    */
-  onCurateComplete(response: string): Promise<void> {
+  onCurateComplete(response: string, insightsActive?: string[]): Promise<void> {
     const current = ExperienceHookService.queues.get(this.projectKey) ?? Promise.resolve()
     let settleProcessDone!: () => void
     const processDone = new Promise<void>((resolve) => {
       settleProcessDone = resolve
     })
     const next = current.then(async () => {
-      const {gateTriggered, meta, preIncrementCount} = await this.process(response)
+      const {gateTriggered, meta, preIncrementCount} = await this.process(response, insightsActive)
       settleProcessDone()
 
       // Background synthesis:
@@ -113,7 +113,7 @@ export class ExperienceHookService implements IExperienceHookService {
     return (STANDARD_SIGNAL_TYPES as readonly string[]).includes(type)
   }
 
-  private async process(response: string): Promise<{gateTriggered: boolean; meta: ExperienceMeta; preIncrementCount: number}> {
+  private async process(response: string, insightsActive?: string[]): Promise<{gateTriggered: boolean; meta: ExperienceMeta; preIncrementCount: number}> {
     // 1. Ensure store is seeded (idempotent — fast no-op after first run)
     try {
       await this.store.ensureInitialized()
@@ -188,6 +188,7 @@ export class ExperienceHookService implements IExperienceHookService {
             await this.store.appendPerformanceLog({
               curationId: preIncrementCount,
               domain: perfSignal.domain,
+              insightsActive: insightsActive ?? [],
               score: perfSignal.score,
               summary: trimmedText,
               ts: new Date().toISOString(),

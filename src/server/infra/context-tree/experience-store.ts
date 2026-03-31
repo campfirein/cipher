@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto'
 import {appendFile} from 'node:fs/promises'
 import {join, resolve} from 'node:path'
 
-import type {ExperienceEntryFrontmatter, ExperienceMeta, PerformanceLogEntry} from '../../core/domain/experience/experience-types.js'
+import type {ExperienceEntryFrontmatter, ExperienceMeta, NormalizedPerformanceLogEntry, PerformanceLogEntry} from '../../core/domain/experience/experience-types.js'
 
 import {
   BRV_DIR,
@@ -261,9 +261,11 @@ export class ExperienceStore {
 
   /**
    * Read and parse the performance log JSONL file.
+   * Returns normalized entries with required `insightsActive: string[]`.
+   * Historical entries missing the field are normalized to `[]`.
    * Returns the last N entries (all entries if lastN is omitted).
    */
-  async readPerformanceLog(lastN?: number): Promise<PerformanceLogEntry[]> {
+  async readPerformanceLog(lastN?: number): Promise<NormalizedPerformanceLogEntry[]> {
     const logPath = join(this.experienceDir, EXPERIENCE_PERFORMANCE_DIR, EXPERIENCE_PERFORMANCE_LOG_FILE)
 
     let raw: string
@@ -274,11 +276,15 @@ export class ExperienceStore {
     }
 
     const lines = raw.trim().split('\n').filter(Boolean)
-    const entries: PerformanceLogEntry[] = []
+    const entries: NormalizedPerformanceLogEntry[] = []
 
     for (const line of lines) {
       try {
-        entries.push(JSON.parse(line) as PerformanceLogEntry)
+        const parsed = JSON.parse(line) as PerformanceLogEntry
+        entries.push({
+          ...parsed,
+          insightsActive: Array.isArray(parsed.insightsActive) ? parsed.insightsActive : [],
+        })
       } catch {
         // Skip malformed lines
       }

@@ -1,3 +1,4 @@
+import type { SessionInsightsTracker } from '../../../server/infra/context-tree/session-insights-tracker.js'
 import type { EnvironmentContext } from '../../core/domain/environment/types.js'
 import type { REPLResult, SandboxConfig } from '../../core/domain/sandbox/types.js'
 import type { IContentGenerator } from '../../core/interfaces/i-content-generator.js'
@@ -34,6 +35,8 @@ export class SandboxService implements ISandboxService {
   private sandboxes = new Map<string, LocalSandbox>()
   /** Search knowledge service for Tools SDK */
   private searchKnowledgeService?: ISearchKnowledgeService
+  /** Session insights tracker for performance correlation */
+  private sessionInsightsTracker?: SessionInsightsTracker
   /** Session manager for sub-agent delegation via tools.agentQuery() */
   private sessionManager?: SessionManager
 
@@ -188,6 +191,20 @@ export class SandboxService implements ISandboxService {
   }
 
   /**
+   * Set the search knowledge service for Tools SDK injection.
+   * When set, new sandboxes will have access to knowledge search via `tools.searchKnowledge()`.
+   *
+   * @param searchKnowledgeService - Search knowledge service instance
+   */
+  setInsightsTracker(tracker: SessionInsightsTracker): void {
+    this.sessionInsightsTracker = tracker
+    // No invalidateSandboxes — tracker is session-scoped, not sandbox-scoped.
+    // Existing ToolsSDKs will pick it up on next search call since buildToolsSDK passes it.
+    // But new sandboxes need it, so invalidate so they get rebuilt with the tracker.
+    this.invalidateSandboxes()
+  }
+
+  /**
    * Set a variable in a session's sandbox.
    * If the sandbox doesn't exist yet, the variable is buffered and injected
    * when the sandbox is created on the first executeCode() call.
@@ -212,12 +229,6 @@ export class SandboxService implements ISandboxService {
     }
   }
 
-  /**
-   * Set the search knowledge service for Tools SDK injection.
-   * When set, new sandboxes will have access to knowledge search via `tools.searchKnowledge()`.
-   *
-   * @param searchKnowledgeService - Search knowledge service instance
-   */
   setSearchKnowledgeService(searchKnowledgeService: ISearchKnowledgeService): void {
     this.searchKnowledgeService = searchKnowledgeService
     this.invalidateSandboxes()
@@ -250,6 +261,7 @@ export class SandboxService implements ISandboxService {
       parentSessionId: sessionId,
       sandboxService: this,
       searchKnowledgeService: this.searchKnowledgeService,
+      sessionInsightsTracker: this.sessionInsightsTracker,
       sessionManager: this.sessionManager,
     })
   }

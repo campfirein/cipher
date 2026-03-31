@@ -1,3 +1,4 @@
+import type { SessionInsightsTracker } from '../../../server/infra/context-tree/session-insights-tracker.js'
 import type { ISearchKnowledgeService } from '../../infra/sandbox/tools-sdk.js'
 import type { SessionManager } from '../../infra/session/session-manager.js'
 import type { EnvironmentContext } from '../domain/environment/types.js'
@@ -73,6 +74,14 @@ export interface ISandboxService {
    * @param fileSystem - File system service instance
    */
   setFileSystem?(fileSystem: IFileSystem): void
+
+  /**
+   * Set the session insights tracker for performance correlation.
+   * When set, ToolsSDK.searchKnowledge() records surfaced paths per session.
+   *
+   * @param tracker - Session insights tracker instance
+   */
+  setInsightsTracker?(tracker: SessionInsightsTracker): void
 
   /**
    * Set a variable in a session's sandbox.

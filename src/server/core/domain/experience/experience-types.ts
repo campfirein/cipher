@@ -56,9 +56,28 @@ export interface ExperienceEntryFrontmatter {
 // Performance log
 // ---------------------------------------------------------------------------
 
+/**
+ * Raw serialization type for JSONL. `insightsActive` is optional for
+ * backward compatibility with entries written before Ship 1.
+ */
 export interface PerformanceLogEntry {
   curationId: number
   domain: string
+  insightsActive?: string[]
+  score: number
+  summary: string
+  ts: string
+}
+
+/**
+ * Normalized domain type with required `insightsActive`.
+ * Returned by `ExperienceStore.readPerformanceLog()` which normalizes
+ * missing values to `[]`. Consumed by Ship 2/3 correlation functions.
+ */
+export interface NormalizedPerformanceLogEntry {
+  curationId: number
+  domain: string
+  insightsActive: string[]
   score: number
   summary: string
   ts: string

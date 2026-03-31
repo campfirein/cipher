@@ -107,6 +107,8 @@ export interface SearchKnowledgeResult {
     archiveFullPath?: string
     /** Number of other memories that reference this one */
     backlinkCount?: number
+    /** Canonical file path for access-hit tracking and performance correlation (may differ from display path for summary/context results) */
+    canonicalPath?: string
     excerpt: string
     /** Path to .overview.md for this entry; present when L1 overview exists */
     overviewPath?: string
@@ -254,6 +256,8 @@ export interface CreateToolsSDKOptions {
   sandboxService?: ISandboxService
   /** Search knowledge service */
   searchKnowledgeService?: ISearchKnowledgeService
+  /** Session insights tracker for performance correlation */
+  sessionInsightsTracker?: import('../../../server/infra/context-tree/session-insights-tracker.js').SessionInsightsTracker
   /** Session manager for sub-agent delegation (required for agentQuery) */
   sessionManager?: SessionManager
 }
@@ -268,7 +272,7 @@ export interface CreateToolsSDKOptions {
  * @returns ToolsSDK instance ready to be injected into sandbox context
  */
 export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
-  const {commandType, contentGenerator, curateService, fileSystem, parentSessionId, sandboxService, searchKnowledgeService, sessionManager} = options
+  const {commandType, contentGenerator, curateService, fileSystem, parentSessionId, sandboxService, searchKnowledgeService, sessionInsightsTracker, sessionManager} = options
   const isReadOnly = commandType === 'query'
   return {
     async agentQuery(prompt: string, options?: { contextData?: Record<string, unknown>; maxIterations?: number }): Promise<string> {
@@ -428,7 +432,19 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
         }
       }
 
-      return searchKnowledgeService.search(query, options)
+      const result = await searchKnowledgeService.search(query, options)
+
+      // Record surfaced paths for performance correlation (Ship 1).
+      // Only for curate sessions — query sessions are user-facing, not scored,
+      // and their sessions are deleted without draining the tracker.
+      if (sessionInsightsTracker && parentSessionId && !isReadOnly && result.results.length > 0) {
+        sessionInsightsTracker.recordSurfacedPaths(
+          parentSessionId,
+          result.results.map((r) => r.canonicalPath ?? r.path),
+        )
+      }
+
+      return result
     },
 
     async writeFile(filePath: string, content: string, options?: WriteFileOptions): Promise<WriteResult> {

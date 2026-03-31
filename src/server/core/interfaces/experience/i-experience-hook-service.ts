@@ -14,6 +14,7 @@ export interface IExperienceHookService {
    * Implementations must be fail-open — any internal errors are swallowed.
    *
    * @param response - Full agent response from the curation task
+   * @param insightsActive - Canonical paths of knowledge entries surfaced during this curation session
    */
-  onCurateComplete(response: string): Promise<void>
+  onCurateComplete(response: string, insightsActive?: string[]): Promise<void>
 }
