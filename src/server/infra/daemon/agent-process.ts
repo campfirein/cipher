@@ -45,6 +45,7 @@ import {
 import {BackpressureGate} from '../context-tree/backpressure-gate.js'
 import {ExperienceHookService} from '../context-tree/experience-hook-service.js'
 import {ExperienceSynthesisService} from '../context-tree/experience-synthesis-service.js'
+import {SessionInsightsTracker} from '../context-tree/session-insights-tracker.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
@@ -376,7 +377,6 @@ async function start(): Promise<void> {
 
   // Session insights tracker: bridges search (via sandbox ToolsSDK) and curation (via hook service)
   // for performance-memory correlation. Injected into sandbox service so ToolsSDK records surfaced paths.
-  const {SessionInsightsTracker} = await import('../context-tree/session-insights-tracker.js')
   const insightsTracker = new SessionInsightsTracker()
   startedAgent.setInsightsTracker(insightsTracker)
 

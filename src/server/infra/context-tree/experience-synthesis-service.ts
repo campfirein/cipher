@@ -182,7 +182,8 @@ function buildPerformanceContext(
   if (relevant.length < 3) return ''
 
   // Compute domain-level stats
-  const scores = relevant.map((e) => e.score)
+  const sorted = [...relevant].sort((a, b) => a.ts.localeCompare(b.ts))
+  const scores = sorted.map((e) => e.score)
   const avg = scores.reduce((a, b) => a + b, 0) / scores.length
   const mid = Math.floor(scores.length / 2)
   const firstHalf = scores.slice(0, mid)
@@ -211,7 +212,7 @@ function buildPerformanceContext(
 
   const lines = [
     '',
-    `## Performance Context`,
+    `**Performance Context**`,
     `Recent curations referencing "${subfolder}" entries:`,
     `- Average score: ${avg.toFixed(2)} (${relevant.length} tasks), ${trend}`,
   ]

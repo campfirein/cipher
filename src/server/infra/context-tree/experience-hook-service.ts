@@ -184,6 +184,8 @@ export class ExperienceHookService implements IExperienceHookService {
           const trimmedText = signal.text.trim()
           if (signal.type === 'performance') {
             const perfSignal = signal as ExperiencePerformanceSignal
+            // insightsActive is only meaningful paired with a score; we skip it for
+            // sessions where the LLM did not emit a performance signal.
             // eslint-disable-next-line no-await-in-loop
             await this.store.appendPerformanceLog({
               curationId: preIncrementCount,

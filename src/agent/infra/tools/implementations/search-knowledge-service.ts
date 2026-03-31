@@ -1,5 +1,5 @@
 import MiniSearch from 'minisearch'
-import {realpath} from 'node:fs/promises'
+import {realpath, stat} from 'node:fs/promises'
 import {join} from 'node:path'
 import {removeStopwords} from 'stopword'
 
@@ -1028,7 +1028,6 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     const empty = {domainFactors: new Map<string, number>(), pathFactors: new Map<string, number>()}
 
     try {
-      const {stat} = await import('node:fs/promises')
       const logPath = join(
         this.baseDirectory,
         BRV_DIR,

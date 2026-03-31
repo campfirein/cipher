@@ -10,7 +10,10 @@
 
 import type {NormalizedPerformanceLogEntry} from '../experience/experience-types.js'
 
-/** Minimum number of log entries with non-empty insightsActive before factors activate */
+/**
+ * Minimum number of log entries with non-empty insightsActive before factors activate.
+ * Below this count the per-domain average is too noisy to produce meaningful deltas.
+ */
 const MIN_ENTRIES_FOR_ACTIVATION = 5
 
 /** Maximum magnitude of the performance factor (±15% importance multiplier) */
@@ -29,23 +32,12 @@ const TANH_STEEPNESS = 3
  *          Empty map when fewer than MIN_ENTRIES_FOR_ACTIVATION entries have data.
  */
 export function computePerformanceFactors(log: NormalizedPerformanceLogEntry[]): Map<string, number> {
-  const withInsights = log.filter((e) => e.insightsActive.length > 0)
-  if (withInsights.length < MIN_ENTRIES_FOR_ACTIVATION) {
+  const prepared = prepareCorrelationInputs(log)
+  if (!prepared) {
     return new Map()
   }
 
-  // Compute per-domain average scores
-  const domainScores = new Map<string, number[]>()
-  for (const entry of withInsights) {
-    const scores = domainScores.get(entry.domain) ?? []
-    scores.push(entry.score)
-    domainScores.set(entry.domain, scores)
-  }
-
-  const domainAvg = new Map<string, number>()
-  for (const [domain, scores] of domainScores) {
-    domainAvg.set(domain, scores.reduce((a, b) => a + b, 0) / scores.length)
-  }
+  const {domainAvg, withInsights} = prepared
 
   // Accumulate deltas per entry path
   const pathDeltas = new Map<string, {count: number; sum: number}>()
@@ -79,23 +71,12 @@ export function computePerformanceFactors(log: NormalizedPerformanceLogEntry[]):
  * @returns Map<domain, factor> where factor ∈ [-0.15, +0.15].
  */
 export function computeDomainFactors(log: NormalizedPerformanceLogEntry[]): Map<string, number> {
-  const withInsights = log.filter((e) => e.insightsActive.length > 0)
-  if (withInsights.length < MIN_ENTRIES_FOR_ACTIVATION) {
+  const prepared = prepareCorrelationInputs(log)
+  if (!prepared) {
     return new Map()
   }
 
-  // Compute per-domain average
-  const domainScores = new Map<string, number[]>()
-  for (const entry of withInsights) {
-    const scores = domainScores.get(entry.domain) ?? []
-    scores.push(entry.score)
-    domainScores.set(entry.domain, scores)
-  }
-
-  const domainAvg = new Map<string, number>()
-  for (const [domain, scores] of domainScores) {
-    domainAvg.set(domain, scores.reduce((a, b) => a + b, 0) / scores.length)
-  }
+  const {domainAvg, withInsights} = prepared
 
   // Accumulate deltas per domain (from path segments)
   const domainDeltas = new Map<string, {count: number; sum: number}>()
@@ -120,6 +101,36 @@ export function computeDomainFactors(log: NormalizedPerformanceLogEntry[]): Map<
   }
 
   return factors
+}
+
+function prepareCorrelationInputs(
+  log: NormalizedPerformanceLogEntry[],
+): undefined | {domainAvg: Map<string, number>; withInsights: NormalizedPerformanceLogEntry[]} {
+  const withInsights = log.filter((e) => e.insightsActive.length > 0)
+  if (withInsights.length < MIN_ENTRIES_FOR_ACTIVATION) {
+    return undefined
+  }
+
+  return {
+    domainAvg: buildDomainAverages(withInsights),
+    withInsights,
+  }
+}
+
+function buildDomainAverages(entries: NormalizedPerformanceLogEntry[]): Map<string, number> {
+  const domainScores = new Map<string, number[]>()
+  for (const entry of entries) {
+    const scores = domainScores.get(entry.domain) ?? []
+    scores.push(entry.score)
+    domainScores.set(entry.domain, scores)
+  }
+
+  const domainAvg = new Map<string, number>()
+  for (const [domain, scores] of domainScores) {
+    domainAvg.set(domain, scores.reduce((a, b) => a + b, 0) / scores.length)
+  }
+
+  return domainAvg
 }
 
 /**
