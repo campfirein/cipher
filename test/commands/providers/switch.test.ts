@@ -143,6 +143,22 @@ describe('Provider Switch Command', () => {
       expect(loggedMessages.some((m) => m.includes('is not connected'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('brv providers connect openai'))).to.be.true
     })
+
+    it('should show auth error when server resolves SET_ACTIVE with success:false', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({
+        providers: [{id: 'byterover', isConnected: true, name: 'ByteRover'}],
+      })
+      requestStub.onSecondCall().resolves({
+        error: 'ByteRover Provider requires authentication. Run /login or brv login to sign in',
+        success: false,
+      })
+
+      await createCommand('byterover').run()
+
+      expect(loggedMessages.some((m) => m.includes('authentication'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('login'))).to.be.true
+    })
   })
 
   // ==================== JSON Output ====================
@@ -170,6 +186,23 @@ describe('Provider Switch Command', () => {
 
       const json = parseJsonOutput()
       expect(json.command).to.equal('providers switch')
+      expect(json.success).to.be.false
+      expect(json.data).to.have.property('error')
+    })
+
+    it('should output JSON error when SET_ACTIVE resolves with success:false', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({
+        providers: [{id: 'byterover', isConnected: true, name: 'ByteRover'}],
+      })
+      requestStub.onSecondCall().resolves({
+        error: 'ByteRover Provider requires authentication. Run /login or brv login to sign in',
+        success: false,
+      })
+
+      await createJsonCommand('byterover').run()
+
+      const json = parseJsonOutput()
       expect(json.success).to.be.false
       expect(json.data).to.have.property('error')
     })

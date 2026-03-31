@@ -25,11 +25,18 @@ npm run typecheck                                # TypeScript type checking
 - Avoid `as Type` assertions - use type guards or proper typing instead
 - Avoid `any` type - use `unknown` with type narrowing or proper generics
 - Functions with >3 parameters must use object parameters
+- Prefer `type` for data-only shapes (DTOs, payloads, configs); prefer `interface` for behavioral contracts with method signatures (services, repositories, strategies)
 
-**Testing**:
-- Apply TDD; 50% coverage minimum, critical paths must be covered
-- Run `npm run test` after each approved edit
-- Suppress console logging in tests to keep output clean
+**Testing (Strict TDD — MANDATORY)**:
+- You MUST follow Test-Driven Development. This is non-negotiable.
+  - **Step 1 — Write failing tests FIRST**: Before writing ANY implementation code, write or update tests that describe the expected behavior. Do NOT write implementation and tests together or in reverse order.
+  - **Step 2 — Run tests to confirm they fail**: Execute the relevant test file to verify the new tests fail for the right reason (missing implementation, not a syntax error).
+  - **Step 3 — Write the minimal implementation**: Write only enough code to make the failing tests pass. Do not add untested behavior.
+  - **Step 4 — Run tests to confirm they pass**: Execute tests again to verify all tests pass.
+  - **Step 5 — Refactor if needed**: Clean up while keeping tests green.
+  - If you catch yourself writing implementation code without a failing test, STOP and write the test first.
+- 50% coverage minimum, critical paths must be covered.
+- Suppress console logging in tests to keep output clean.
 - Unit tests must run fast and run completely in memory. Proper stubbing and mocking must be implemented.
 
 **Feature Development (Outside-In Approach)**:
@@ -52,7 +59,7 @@ src/
 ├── server/          # Server-side infrastructure
 │   ├── config/      # Auth config, environment
 │   ├── core/        # Domain entities, interfaces, errors
-│   ├── infra/       # Auth, connectors, daemon, hub, transport, MCP, context-tree, provider-oauth, session, workspace, and more (~30 modules)
+│   ├── infra/       # Auth, cogit, connectors, daemon, hub, transport, MCP, context-tree, provider-oauth, session, workspace, and more (~30 modules)
 │   ├── templates/   # Server templates
 │   └── utils/       # Shared utilities (errors, file helpers, type guards)
 ├── shared/          # Cross-module shared code
@@ -72,6 +79,8 @@ src/
 │   └── utils/       # TUI utility functions
 └── oclif/           # Oclif commands, hooks, and lib/ (daemon-client, JSON response utils)
 ```
+
+- **TUI import boundary** (ESLint-enforced): TUI must not import from `server/`, `agent/`, or `oclif/`. Use transport events or `shared/` instead.
 
 ### REPL + TUI
 
@@ -95,7 +104,7 @@ src/
 - Tool definitions: `resources/tools/*.txt`; implementations: `infra/tools/implementations/`
 - Tool registry pattern: `infra/tools/tool-registry.ts` — register/resolve tools by name
 - Multi-provider LLM support (18 providers including Anthropic, OpenAI, Google, OpenRouter, etc.) in `infra/llm/`
-- Compression strategies in `infra/llm/context/compression/` (7 strategies: reactive-overflow, escalated-compression, enhanced-compaction, filter-compacted, middle-removal, oldest-removal)
+- Compression strategies in `infra/llm/context/compression/` (6 strategies: reactive-overflow, escalated-compression, enhanced-compaction, filter-compacted, middle-removal, oldest-removal)
 - System prompt contributor pattern (XML-style sections) in `infra/system-prompt/`
 - Map/memory subsystem (`infra/map/`): agentic map service, context-tree store, LLM map memory, worker pool
 - Storage: file-based blob (`infra/blob/file-blob-storage.ts`) and key storage (`infra/storage/file-key-storage.ts`) — no SQLite
