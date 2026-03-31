@@ -36,8 +36,6 @@ import {
   type IVcMergeRequest,
   type IVcMergeResponse,
   type IVcPullResponse,
-
-  type IVcRemoteUrlResponse,
   type IVcResetResponse,
   type IVcStatusResponse,
 
@@ -266,9 +264,6 @@ describe('VcHandler', () => {
       expect(registeredEvents).to.include(VcEvents.PULL)
       expect(registeredEvents).to.include(VcEvents.PUSH)
       expect(registeredEvents).to.include(VcEvents.REMOTE)
-      
-      expect(registeredEvents).to.include(VcEvents.REMOTE_URL)
-      
       expect(registeredEvents).to.include(VcEvents.STATUS)
       expect(registeredEvents).to.include(VcEvents.CHECKOUT)
     })
@@ -2820,71 +2815,6 @@ describe('VcHandler', () => {
       }
     })
   })
-
-  
-  describe('handleRemoteUrl', () => {
-    it('should return URL with embedded credentials when authenticated', async () => {
-      const deps = makeDeps(sandbox, projectPath)
-      const mockToken = new AuthToken({
-        accessToken: 'test-acc',
-        expiresAt: new Date(Date.now() + 3_600_000),
-        refreshToken: 'test-ref',
-        sessionKey: 'sess-123',
-        userEmail: 'test@example.com',
-        userId: 'u1',
-      })
-      deps.tokenStore.load.resolves(mockToken)
-      makeVcHandler(deps).setup()
-
-      const result = await invoke<IVcRemoteUrlResponse>(deps, VcEvents.REMOTE_URL, {
-        spaceId: 'space-1',
-        teamId: 'team-1',
-      })
-
-      expect(result.url).to.equal('https://u1:sess-123@test-cogit.byterover.dev/git/team-1/space-1.git')
-    })
-
-    it('should throw NotAuthenticatedError when no token', async () => {
-      const deps = makeDeps(sandbox, projectPath)
-      deps.tokenStore.load.resolves()
-      makeVcHandler(deps).setup()
-
-      try {
-        await invoke<IVcRemoteUrlResponse>(deps, VcEvents.REMOTE_URL, {
-          spaceId: 'space-1',
-          teamId: 'team-1',
-        })
-        expect.fail('Expected error')
-      } catch (error) {
-        expect(error).to.be.instanceOf(NotAuthenticatedError)
-      }
-    })
-
-    it('should throw NotAuthenticatedError when token is expired', async () => {
-      const deps = makeDeps(sandbox, projectPath)
-      const expiredToken = new AuthToken({
-        accessToken: 'test-acc',
-        expiresAt: new Date(Date.now() - 1000),
-        refreshToken: 'test-ref',
-        sessionKey: 'sess-123',
-        userEmail: 'test@example.com',
-        userId: 'u1',
-      })
-      deps.tokenStore.load.resolves(expiredToken)
-      makeVcHandler(deps).setup()
-
-      try {
-        await invoke<IVcRemoteUrlResponse>(deps, VcEvents.REMOTE_URL, {
-          spaceId: 'space-1',
-          teamId: 'team-1',
-        })
-        expect.fail('Expected error')
-      } catch (error) {
-        expect(error).to.be.instanceOf(NotAuthenticatedError)
-      }
-    })
-  })
-  
 
   describe('handleFetch', () => {
     it('should fetch from origin when authenticated', async () => {

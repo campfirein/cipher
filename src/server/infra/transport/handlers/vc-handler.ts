@@ -38,8 +38,6 @@ import {
   type IVcPushResponse,
   type IVcRemoteRequest,
   type IVcRemoteResponse,
-  type IVcRemoteUrlRequest,
-  type IVcRemoteUrlResponse,
   type IVcResetRequest,
   type IVcResetResponse,
   type IVcStatusResponse,
@@ -145,10 +143,6 @@ export class VcHandler {
     )
     this.transport.onRequest<IVcRemoteRequest, IVcRemoteResponse>(VcEvents.REMOTE, (data, clientId) =>
       this.handleRemote(data, clientId),
-    )
-
-    this.transport.onRequest<IVcRemoteUrlRequest, IVcRemoteUrlResponse>(VcEvents.REMOTE_URL, (data) =>
-      this.handleRemoteUrl(data),
     )
     this.transport.onRequest<IVcResetRequest, IVcResetResponse>(VcEvents.RESET, (data, clientId) =>
       this.handleReset(data, clientId),
@@ -947,18 +941,6 @@ export class VcHandler {
     })
     await this.gitService.addRemote({directory, remote: 'origin', url: resolved.url})
     return {action: 'set-url', url: resolved.url}
-  }
-
-  private async handleRemoteUrl(data: IVcRemoteUrlRequest): Promise<IVcRemoteUrlResponse> {
-    const token = await this.tokenStore.load()
-    if (!token?.isValid()) throw new NotAuthenticatedError()
-
-    const url = buildCogitRemoteUrl(this.cogitGitBaseUrl, data.teamId, data.spaceId)
-    // Embed credentials for external git tool usage (this is the only place credentials go into a URL)
-    const parsed = new URL(url)
-    parsed.username = token.userId
-    parsed.password = token.sessionKey
-    return {url: parsed.toString()}
   }
 
   private async handleReset(data: IVcResetRequest, clientId: string): Promise<IVcResetResponse> {
