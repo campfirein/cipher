@@ -290,7 +290,7 @@ describe('Status Command', () => {
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('Context Tree: Byterover version control (use brv vc commands)'))).to
+      expect(loggedMessages.some((m) => m.includes('Context Tree: Managed by Byterover version control (use brv vc commands)'))).to
         .be.true
     })
 
