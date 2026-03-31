@@ -191,16 +191,15 @@ export class SandboxService implements ISandboxService {
   }
 
   /**
-   * Set the search knowledge service for Tools SDK injection.
-   * When set, new sandboxes will have access to knowledge search via `tools.searchKnowledge()`.
+   * Set the session insights tracker for Tools SDK injection.
+   * When set, sandbox sessions can record surfaced knowledge paths for correlation.
    *
-   * @param searchKnowledgeService - Search knowledge service instance
+   * @param tracker - Session insights tracker instance
    */
   setInsightsTracker(tracker: SessionInsightsTracker): void {
     this.sessionInsightsTracker = tracker
-    // No invalidateSandboxes — tracker is session-scoped, not sandbox-scoped.
-    // Existing ToolsSDKs will pick it up on next search call since buildToolsSDK passes it.
-    // But new sandboxes need it, so invalidate so they get rebuilt with the tracker.
+    // Invalidate sandboxes so each session gets a ToolsSDK rebuilt with the tracker injected.
+    // The tracker itself is session-scoped, but the ToolsSDK reference is created per sandbox.
     this.invalidateSandboxes()
   }
 

@@ -6,7 +6,16 @@ import {removeStopwords} from 'stopword'
 import type {IFileSystem} from '../../../core/interfaces/i-file-system.js'
 import type {ISearchKnowledgeService, SearchKnowledgeResult} from '../../sandbox/tools-sdk.js'
 
-import {BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR, OVERVIEW_EXTENSION, SUMMARY_INDEX_FILE} from '../../../../server/constants.js'
+import {
+  BRV_DIR,
+  CONTEXT_FILE_EXTENSION,
+  CONTEXT_TREE_DIR,
+  EXPERIENCE_DIR,
+  EXPERIENCE_PERFORMANCE_DIR,
+  EXPERIENCE_PERFORMANCE_LOG_FILE,
+  OVERVIEW_EXTENSION,
+  SUMMARY_INDEX_FILE,
+} from '../../../../server/constants.js'
 import {
   type FrontmatterScoring,
   parseFrontmatterScoring,
@@ -19,7 +28,14 @@ import {
   determineTier,
   recordAccessHits,
 } from '../../../../server/core/domain/knowledge/memory-scoring.js'
+import {
+  computeDomainFactors,
+  computePerformanceFactors,
+  extractDomain,
+  lookupParentFactor,
+} from '../../../../server/core/domain/knowledge/performance-correlation.js'
 import { isArchiveStub, isDerivedArtifact } from '../../../../server/infra/context-tree/derived-artifact.js'
+import {ExperienceStore} from '../../../../server/infra/context-tree/experience-store.js'
 import { parseArchiveStubFrontmatter, parseSummaryFrontmatter } from '../../../../server/infra/context-tree/summary-frontmatter.js'
 import { isPathLikeQuery, matchMemoryPath, parseSymbolicQuery } from './memory-path-matcher.js'
 import {
@@ -78,7 +94,9 @@ function normalizeScore(rawScore: number): number {
  * @param results - Already-enriched search results (gap-ratio filtered)
  * @param symbolTree - Symbol tree for parent-chain traversal
  * @param summaryMap - Map of _index.md file paths → SummaryDocLike (for excerpt/metadata)
+ * @param documentMap - Indexed documents for resolving context.md fallback summaries
  * @param propagationFactor - Score multiplier per level up (default 0.55)
+ * @param perfFactors - Optional performance-correlation factors for parent summary boosts
  * @returns New parent entries only — caller merges and re-sorts
  */
 function propagateScoresToParents(
@@ -117,7 +135,7 @@ function propagateScoresToParents(
     // Performance boost applied to parent importance (Ship 2).
     const parentImportance = doc.scoring?.importance ?? 50
     const parentPerfFactor = perfFactors
-      ? (perfFactors.pathFactors.get(doc.path) ?? perfFactors.pathFactors.get(`${parentPath}/_index.md`) ?? perfFactors.pathFactors.get(`${parentPath}/context.md`) ?? perfFactors.domainFactors.get(extractDomainFromPath(parentPath)) ?? 0)
+      ? lookupParentFactor(parentPath, perfFactors.pathFactors, perfFactors.domainFactors)
       : 0
     const boostedParentImportance = Math.min(100, parentImportance * (1 + parentPerfFactor))
     const finalScore = doc.scoring
@@ -280,12 +298,6 @@ function hasUnmatchedSignificantTerms(queryTerms: string[], searchResults: Array
   }
 
   return significantTerms.some((t) => !allMatchedQueryTerms.has(t))
-}
-
-/** Extract domain (first path segment) from a context-tree-relative path. */
-function extractDomainFromPath(path: string): string {
-  const firstSlash = path.indexOf('/')
-  return firstSlash === -1 ? path : path.slice(0, firstSlash)
 }
 
 function extractTitle(content: string, fallbackTitle: string): string {
@@ -894,7 +906,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
     // Symbolic path resolution: try path-based query first
     if (isPathLikeQuery(query, symbolTree)) {
-      const symbolicResult = this.trySymbolicSearch(
+      const symbolicResult = await this.trySymbolicSearch(
         query, symbolTree, referenceIndex, documentMap, index, limit, summaryMap, options,
       )
 
@@ -1021,9 +1033,9 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
         this.baseDirectory,
         BRV_DIR,
         CONTEXT_TREE_DIR,
-        'experience',
-        'performance',
-        'performance-log.jsonl',
+        EXPERIENCE_DIR,
+        EXPERIENCE_PERFORMANCE_DIR,
+        EXPERIENCE_PERFORMANCE_LOG_FILE,
       )
 
       // Check file mtime without reading content — fast stat-only path
@@ -1042,8 +1054,6 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       }
 
       // File changed — read and recompute
-      const {computeDomainFactors, computePerformanceFactors} = await import('../../../../server/core/domain/knowledge/performance-correlation.js')
-      const {ExperienceStore} = await import('../../../../server/infra/context-tree/experience-store.js')
       const store = new ExperienceStore(this.baseDirectory)
       const log = await store.readPerformanceLog()
 
@@ -1117,7 +1127,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
       // Apply performance correlation boost (Ship 2)
       const baseImportance = decayed.importance ?? 50
-      const perfFactor = perfFactors?.pathFactors.get(r.id) ?? perfFactors?.domainFactors.get(extractDomainFromPath(r.id)) ?? 0
+      const perfFactor = perfFactors?.pathFactors.get(r.id) ?? perfFactors?.domainFactors.get(extractDomain(r.id)) ?? 0
       const boostedImportance = Math.min(100, baseImportance * (1 + perfFactor))
 
       return {
@@ -1269,7 +1279,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
   /**
    * Try to resolve the query as a symbolic path. Returns null if no path match found.
    */
-  private trySymbolicSearch(
+  private async trySymbolicSearch(
     query: string,
     symbolTree: MemorySymbolTree,
     referenceIndex: ReferenceIndex,
@@ -1278,7 +1288,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     limit: number,
     summaryMap: Map<string, SummaryDocLike>,
     options?: SearchOptions,
-  ): null | SearchKnowledgeResult {
+  ): Promise<null | SearchKnowledgeResult> {
     const pathMatches = matchMemoryPath(symbolTree, query.split(/\s+/)[0].includes('/') ? query.split(/\s+/)[0] : query)
 
     if (pathMatches.length === 0) {
@@ -1316,7 +1326,20 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
     if (textPart) {
       // Scoped search: search text within the matched subtree
-      return this.runTextSearch(textPart, documentMap, index, limit, topMatch.path, symbolTree, referenceIndex, summaryMap, options)
+      const perfFactors = await this.getPerformanceFactors()
+
+      return this.runTextSearch(
+        textPart,
+        documentMap,
+        index,
+        limit,
+        topMatch.path,
+        symbolTree,
+        referenceIndex,
+        summaryMap,
+        options,
+        perfFactors,
+      )
     }
 
     // No text part — return all children of the matched node
