@@ -2,6 +2,16 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.5.2]
+
+### Fixed
+- **Pinned axios to exact version 1.14.0** — Locked the axios dependency to an exact known-good version to mitigate supply-chain security risks. Previously used a caret range (`^1.12.2`) that could pull in untrusted future releases.
+
+## [2.5.1]
+
+### Fixed
+- **Provider connect/switch showed false success on auth errors** — `brv providers connect` and `brv providers switch` now correctly detect when the server rejects the request and display the actual error message (e.g., authentication required) instead of falsely reporting success.
+
 ## [2.5.0]
 
 ### Added

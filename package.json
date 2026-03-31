@@ -1,7 +1,7 @@
 {
   "name": "byterover-cli",
   "description": "ByteRover's CLI",
-  "version": "2.5.0",
+  "version": "2.5.2",
   "author": "ByteRover",
   "bin": {
     "brv": "./bin/run.js"
@@ -34,7 +34,7 @@
     "@socket.io/admin-ui": "^0.5.1",
     "@tanstack/react-query": "^5.90.20",
     "ai": "^5.0.129",
-    "axios": "^1.12.2",
+    "axios": "1.14.0",
     "chalk": "^5.6.2",
     "esbuild": "^0.27.2",
     "express": "^5.1.0",
