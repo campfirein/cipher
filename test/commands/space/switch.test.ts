@@ -10,6 +10,7 @@ import type {SpaceSwitchResponse, TeamWithSpacesDTO} from '../../../src/shared/t
 
 import SpaceSwitch from '../../../src/oclif/commands/space/switch.js'
 import {SpaceEvents} from '../../../src/shared/transport/events/space-events.js'
+import {StatusEvents} from '../../../src/shared/transport/events/status-events.js'
 
 // ==================== TestableSpaceSwitchCommand ====================
 
@@ -82,6 +83,11 @@ describe('Space Switch Command', () => {
       client: mockClient as unknown as ITransportClient,
       projectRoot: '/test/project',
     })
+
+    // Default: git vc not active
+    ;(mockClient.requestWithAck as sinon.SinonStub)
+      .withArgs(StatusEvents.GET)
+      .resolves({status: {authStatus: 'unknown', contextTreeStatus: 'no_changes', currentDirectory: '/test'}})
 
     stub(process.stdout, 'write').callsFake((chunk: string | Uint8Array) => {
       stdoutOutput.push(String(chunk))
@@ -200,6 +206,35 @@ describe('Space Switch Command', () => {
       const parsed = JSON.parse(output)
       expect(parsed.success).to.be.false
       expect(parsed.data.error).to.be.a('string')
+    })
+  })
+
+  // ==================== Git VC Guard ====================
+
+  describe('git vc guard', () => {
+    it('should block switch when git vc is active', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub
+        .withArgs(StatusEvents.GET)
+        .resolves({status: {authStatus: 'logged_in', contextTreeStatus: 'git_vc', currentDirectory: '/test'}})
+
+      await createCommand(['--team', 'acme', '--name', 'frontend-app']).run()
+
+      expect(loggedMessages.some((m) => m.includes('ByteRover version control is active'))).to.be.true
+      expect(requestStub.calledWith(SpaceEvents.LIST)).to.be.false
+    })
+
+    it('should proceed when git vc is not active', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub
+        .withArgs(StatusEvents.GET)
+        .resolves({status: {authStatus: 'logged_in', contextTreeStatus: 'no_changes', currentDirectory: '/test'}})
+      requestStub.withArgs(SpaceEvents.LIST).resolves({teams: testTeams})
+      requestStub.withArgs(SpaceEvents.SWITCH, match.any).resolves(switchSuccessResponse)
+
+      await createCommand(['--team', 'acme', '--name', 'frontend-app']).run()
+
+      expect(loggedMessages.some((m) => m.includes('Successfully switched'))).to.be.true
     })
   })
 

@@ -278,6 +278,22 @@ describe('Status Command', () => {
         .true
     })
 
+    it('should display git vc message when context tree is Byterover version control', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'git_vc',
+        currentDirectory: '/test',
+        spaceName: 'backend-api',
+        teamName: 'acme-corp',
+        userEmail: 'user@example.com',
+      })
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Context Tree: Byterover version control (use brv vc commands)'))).to
+        .be.true
+    })
+
     it('should display all change types sorted by path', async () => {
       mockStatusResponse({
         authStatus: 'logged_in',

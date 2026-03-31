@@ -5,7 +5,6 @@ import {restore, stub} from 'sinon'
 
 import type {StatusDTO} from '../../../../../src/shared/transport/types/dto.js'
 
-import {GitVcInitializedError} from '../../../../../src/server/core/domain/errors/task-error.js'
 import {StatusHandler} from '../../../../../src/server/infra/transport/handlers/status-handler.js'
 import {StatusEvents} from '../../../../../src/shared/transport/events/status-events.js'
 import {createMockTransportServer, type MockTransportServer} from '../../../../helpers/mock-factories.js'
@@ -167,25 +166,41 @@ describe('StatusHandler', () => {
     })
   })
 
-  describe('git vc guard', () => {
-    it('should throw GitVcInitializedError when .git exists in context tree', async () => {
+  describe('git vc mode', () => {
+    it('should return git_vc context tree status when .git exists in context tree', async () => {
+      deps.contextTreeService.exists.resolves(true)
       deps.contextTreeService.hasGitRepo.resolves(true)
       createHandler()
 
-      try {
-        await callGetHandler()
-        expect.fail('should have thrown')
-      } catch (error) {
-        expect(error).to.be.instanceOf(GitVcInitializedError)
-      }
+      const result = await callGetHandler()
+      expect(result.status.contextTreeStatus).to.equal('git_vc')
+      expect(deps.contextTreeSnapshotService.hasSnapshot.called).to.be.false
+      expect(deps.contextTreeSnapshotService.getChanges.called).to.be.false
+    })
+
+    it('should still return auth and project info when git vc is active', async () => {
+      deps.contextTreeService.exists.resolves(true)
+      deps.contextTreeService.hasGitRepo.resolves(true)
+      deps.tokenStore.load.resolves({isValid: () => true, userEmail: 'user@test.com'})
+      deps.projectConfigStore.exists.resolves(true)
+      deps.projectConfigStore.read.resolves({spaceName: 'space-1', teamName: 'team-1'})
+      createHandler()
+
+      const result = await callGetHandler()
+      expect(result.status.authStatus).to.equal('logged_in')
+      expect(result.status.userEmail).to.equal('user@test.com')
+      expect(result.status.teamName).to.equal('team-1')
+      expect(result.status.spaceName).to.equal('space-1')
+      expect(result.status.contextTreeStatus).to.equal('git_vc')
     })
 
     it('should proceed normally when .git does not exist', async () => {
+      deps.contextTreeService.exists.resolves(true)
       deps.contextTreeService.hasGitRepo.resolves(false)
       createHandler()
 
       const result = await callGetHandler()
-      expect(result.status).to.exist
+      expect(result.status.contextTreeStatus).to.not.equal('git_vc')
     })
   })
 })

@@ -42,7 +42,7 @@ export function hasAnyChanges(changes: ContextTreeChanges): boolean {
 }
 
 /**
- * Throws GitVcInitializedError if the project has Git-based version control initialized.
+ * Throws GitVcInitializedError if the project has ByteRover version control initialized.
  * Used by old snapshot-based handlers to block operations when the user has switched to /vc commands.
  */
 export async function guardAgainstGitVc(params: {
@@ -51,6 +51,6 @@ export async function guardAgainstGitVc(params: {
 }): Promise<void> {
   const hasGitVc = await params.contextTreeService.hasGitRepo(params.projectPath)
   if (hasGitVc) {
-    throw new GitVcInitializedError('Git-based version control is initialized')
+    throw new GitVcInitializedError('ByteRover version control is initialized')
   }
 }

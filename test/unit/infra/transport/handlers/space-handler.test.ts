@@ -955,16 +955,16 @@ describe('SpaceHandler', () => {
   })
 
   describe('git vc guard', () => {
-    it('should throw GitVcInitializedError on list when .git exists', async () => {
+    it('should allow list when git vc is active', async () => {
       contextTreeService.hasGitRepo.resolves(true)
+      tokenStore.load.resolves(createMockToken())
+      projectConfigStore.read.resolves(createMockConfig())
+      teamService.getTeams.resolves({teams: createMockTeams(), total: 2})
+      spaceService.getSpaces.resolves({spaces: createMockSpaces(), total: 2})
       createHandler()
 
-      try {
-        await callListHandler()
-        expect.fail('should have thrown')
-      } catch (error) {
-        expect(error).to.be.instanceOf(GitVcInitializedError)
-      }
+      const result = await callListHandler()
+      expect(result.teams).to.exist
     })
 
     it('should throw GitVcInitializedError on switch when .git exists', async () => {

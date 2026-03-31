@@ -48,5 +48,10 @@ describe('formatStatus', () => {
       const output = stripAnsi(formatStatus(makeStatus({contextTreeStatus: 'not_initialized'})))
       expect(output).to.include('Context Tree: Not initialized')
     })
+
+    it('should show git vc message when context tree is Byterover version control', () => {
+      const output = stripAnsi(formatStatus(makeStatus({contextTreeStatus: 'git_vc'})))
+      expect(output).to.include('Context Tree: Byterover version control')
+    })
   })
 })
