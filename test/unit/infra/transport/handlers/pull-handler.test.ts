@@ -72,7 +72,7 @@ describe('PullHandler', () => {
         expect.fail('should have thrown')
       } catch (error) {
         expect(error).to.be.instanceOf(GitVcInitializedError)
-        expect((error as Error).message).to.include('Git-based version control')
+        expect((error as Error).message).to.include('ByteRover version control')
       }
     })
 
@@ -85,7 +85,7 @@ describe('PullHandler', () => {
         expect.fail('should have thrown')
       } catch (error) {
         expect(error).to.be.instanceOf(GitVcInitializedError)
-        expect((error as Error).message).to.include('Git-based version control')
+        expect((error as Error).message).to.include('ByteRover version control')
       }
     })
 

@@ -234,7 +234,6 @@ export class InitHandler {
 
   private async handleLocalInit(data: InitLocalRequest, clientId: string): Promise<InitLocalResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
-    await guardAgainstGitVc({contextTreeService: this.contextTreeService, projectPath})
 
     const exists = await this.projectConfigStore.exists(projectPath)
     if (exists && !data.force) {

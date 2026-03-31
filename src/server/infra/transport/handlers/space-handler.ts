@@ -91,7 +91,6 @@ export class SpaceHandler {
 
   private async handleList(clientId: string): Promise<SpaceListResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
-    await guardAgainstGitVc({contextTreeService: this.contextTreeService, projectPath})
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {

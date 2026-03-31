@@ -85,7 +85,10 @@ describe('InitHandler', () => {
 
   const defaultLocalData = {}
 
-  async function callLocalInitHandler(data: Record<string, unknown> = defaultLocalData, clientId = 'client-1'): Promise<unknown> {
+  async function callLocalInitHandler(
+    data: Record<string, unknown> = defaultLocalData,
+    clientId = 'client-1',
+  ): Promise<unknown> {
     const handler = transport._handlers.get(InitEvents.LOCAL)
     expect(handler, 'init:local handler should be registered').to.exist
     return handler!(data, clientId)
@@ -101,21 +104,16 @@ describe('InitHandler', () => {
         expect.fail('should have thrown')
       } catch (error) {
         expect(error).to.be.instanceOf(GitVcInitializedError)
-        expect((error as Error).message).to.include('Git-based version control')
+        expect((error as Error).message).to.include('ByteRover version control')
       }
     })
 
-    it('should throw GitVcInitializedError on local init when .git exists', async () => {
+    it('should allow local init when .git exists (used by new git-semantics flow)', async () => {
       contextTreeService.hasGitRepo.resolves(true)
       createHandler()
 
-      try {
-        await callLocalInitHandler()
-        expect.fail('should have thrown')
-      } catch (error) {
-        expect(error).to.be.instanceOf(GitVcInitializedError)
-        expect((error as Error).message).to.include('Git-based version control')
-      }
+      const result = await callLocalInitHandler()
+      expect(result).to.have.property('success', true)
     })
 
     it('should not throw on execute when .git does not exist', async () => {

@@ -150,7 +150,7 @@ export interface StatusDTO {
   contextTreeDir?: string
   /** Relative path to the context tree directory from project root (e.g., '.brv/context-tree') */
   contextTreeRelativeDir?: string
-  contextTreeStatus: 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
+  contextTreeStatus: 'git_vc' | 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
   currentDirectory: string
   spaceName?: string
   teamName?: string

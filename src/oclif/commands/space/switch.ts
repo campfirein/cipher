@@ -6,6 +6,7 @@ import {
   type SpaceListResponse,
   type SpaceSwitchResponse,
 } from '../../../shared/transport/events/space-events.js'
+import {StatusEvents, type StatusGetResponse} from '../../../shared/transport/events/status-events.js'
 import {type DaemonClientOptions, formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
 
@@ -39,6 +40,11 @@ export default class SpaceSwitch extends Command {
     options?: DaemonClientOptions,
   ): Promise<SpaceSwitchResponse> {
     return withDaemonRetry<SpaceSwitchResponse>(async (client) => {
+      const {status} = await client.requestWithAck<StatusGetResponse>(StatusEvents.GET)
+      if (status.contextTreeStatus === 'git_vc') {
+        throw new Error('ByteRover version control is active. Use brv vc commands instead of legacy sync commands.')
+      }
+
       const {teams} = await client.requestWithAck<SpaceListResponse>(SpaceEvents.LIST)
       const team = teams.find((t) => t.teamName === params.teamName)
 
