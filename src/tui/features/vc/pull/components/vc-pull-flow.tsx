@@ -7,9 +7,13 @@ import type {CustomDialogCallbacks} from '../../../../types/commands.js'
 import {formatTransportError} from '../../../../utils/error-messages.js'
 import {useExecuteVcPull} from '../api/execute-vc-pull.js'
 
-type VcPullFlowProps = CustomDialogCallbacks
+type VcPullFlowProps = CustomDialogCallbacks & {
+  allowUnrelatedHistories?: boolean
+  branch?: string
+  remote?: string
+}
 
-export function VcPullFlow({onCancel, onComplete}: VcPullFlowProps): React.ReactNode {
+export function VcPullFlow({allowUnrelatedHistories, branch, onCancel, onComplete, remote}: VcPullFlowProps): React.ReactNode {
   const pullMutation = useExecuteVcPull()
 
   useInput((_, key) => {
@@ -23,7 +27,7 @@ export function VcPullFlow({onCancel, onComplete}: VcPullFlowProps): React.React
     if (fired.current) return
     fired.current = true
     pullMutation.mutate(
-      undefined,
+      {allowUnrelatedHistories, branch, remote},
       {
         onError(error) {
           onComplete(`Failed to pull: ${formatTransportError(error)}`)

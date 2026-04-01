@@ -6,15 +6,18 @@ import {isVcRemoteSubcommand} from '../../../../shared/transport/events/vc-event
 import {VcRemoteFlow} from '../../vc/remote/components/vc-remote-flow.js'
 import {Args, parseReplArgs} from '../utils/arg-parser.js'
 
+/* eslint-disable perfectionist/sort-objects -- positional order matters: subcommand, name, url */
 const vcRemoteArgs = {
   subcommand: Args.string({description: 'Subcommand: add | set-url (omit to show current remote)'}),
+  name: Args.string({description: 'Remote name (e.g. origin)'}),
   url: Args.string({description: 'Remote URL (e.g. https://app.byterover.dev/team/space.brv)'}),
 }
+/* eslint-enable perfectionist/sort-objects */
 
 export const vcRemoteSubCommand: SlashCommand = {
   async action(_context, rawArgs) {
     const parsed = await parseReplArgs(rawArgs, {args: vcRemoteArgs, strict: false})
-    const {subcommand: rawSubcommand, url} = parsed.args
+    const {name, subcommand: rawSubcommand, url} = parsed.args
 
     if (!rawSubcommand) {
       return {
@@ -25,16 +28,25 @@ export const vcRemoteSubCommand: SlashCommand = {
 
     if (!isVcRemoteSubcommand(rawSubcommand)) {
       const errorMsg: MessageActionReturn = {
-        content: `Unknown subcommand '${rawSubcommand}'. Usage: /vc remote [add|set-url] <url>`,
+        content: `Unknown subcommand '${rawSubcommand}'. Usage: /vc remote [add|set-url] <name> <url>`,
         messageType: 'error',
         type: 'message',
       }
       return errorMsg
     }
 
-    if (!url) {
+    if (!name || !url) {
       const errorMsg: MessageActionReturn = {
-        content: `Usage: /vc remote ${rawSubcommand} <url>`,
+        content: `Usage: /vc remote ${rawSubcommand} <name> <url>`,
+        messageType: 'error',
+        type: 'message',
+      }
+      return errorMsg
+    }
+
+    if (name !== 'origin') {
+      const errorMsg: MessageActionReturn = {
+        content: `Only 'origin' remote is currently supported.`,
         messageType: 'error',
         type: 'message',
       }
@@ -48,6 +60,7 @@ export const vcRemoteSubCommand: SlashCommand = {
   },
   args: [
     {description: 'Subcommand: add | set-url (omit to show current remote)', name: 'subcommand'},
+    {description: 'Remote name (e.g. origin)', name: 'name'},
     {description: 'Remote URL', name: 'url'},
   ],
   description: 'Manage remote origin for ByteRover version control',

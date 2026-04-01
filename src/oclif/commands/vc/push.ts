@@ -4,10 +4,12 @@ import {type IVcPushResponse, VcEvents} from '../../../shared/transport/events/v
 import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
 export default class VcPush extends Command {
+  /* eslint-disable perfectionist/sort-objects -- positional order matters: remote before branch */
   public static args = {
-    arg1: Args.string({description: 'Remote name or branch', required: false}),
-    arg2: Args.string({description: 'Branch to push', required: false}),
+    remote: Args.string({description: 'Remote name (only origin supported)', required: false}),
+    branch: Args.string({description: 'Branch to push', required: false}),
   }
+  /* eslint-enable perfectionist/sort-objects */
   public static description = 'Push commits to ByteRover cloud'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
@@ -31,14 +33,14 @@ export default class VcPush extends Command {
     //   brv vc push origin feat/x  → feat/x
     //   brv vc push feat/x         → error (unknown remote)
     let branch: string | undefined
-    if (args.arg1 && args.arg2) {
-      if (args.arg1 !== 'origin') {
+    if (args.remote && args.branch) {
+      if (args.remote !== 'origin') {
         this.error(`Only 'origin' remote is currently supported.`)
       }
 
-      branch = args.arg2
-    } else if (args.arg1 && args.arg1 !== 'origin') {
-      this.error(`Only 'origin' remote is currently supported. Use 'brv vc push origin ${args.arg1}' to push a specific branch.`)
+      branch = args.branch
+    } else if (args.remote && args.remote !== 'origin') {
+      this.error(`Only 'origin' remote is currently supported. Use 'brv vc push origin ${args.remote}' to push a specific branch.`)
     }
 
     try {

@@ -10,11 +10,12 @@ import {useExecuteVcMerge} from '../api/execute-vc-merge.js'
 
 type VcMergeFlowProps = CustomDialogCallbacks & {
   action: VcMergeAction
+  allowUnrelatedHistories?: boolean
   branch?: string
   message?: string
 }
 
-export function VcMergeFlow({action, branch, message, onCancel, onComplete}: VcMergeFlowProps): React.ReactNode {
+export function VcMergeFlow({action, allowUnrelatedHistories, branch, message, onCancel, onComplete}: VcMergeFlowProps): React.ReactNode {
   const mergeMutation = useExecuteVcMerge()
 
   useInput((_, key) => {
@@ -28,7 +29,7 @@ export function VcMergeFlow({action, branch, message, onCancel, onComplete}: VcM
     if (fired.current) return
     fired.current = true
 
-    const request: IVcMergeRequest = {action, branch, message}
+    const request: IVcMergeRequest = {action, allowUnrelatedHistories, branch, message}
 
     // For TUI --continue without message: send first to get defaultMessage, then commit with it
     if (action === 'continue' && !message) {

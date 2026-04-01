@@ -13,9 +13,14 @@ const vcBranchArgs = {
 const vcBranchFlags = {
   all: Flags.boolean({char: 'a', default: false, description: 'List all branches including remote-tracking'}),
   delete: Flags.string({char: 'd', description: 'Delete a branch by name'}),
+  'set-upstream-to': Flags.string({description: 'Set upstream tracking (e.g. origin/main)'}),
 }
 
-function resolveRequest(parsed: {args: {name?: string}; flags: {all?: boolean; delete?: string}}): IVcBranchRequest {
+function resolveRequest(parsed: {
+  args: {name?: string}
+  flags: {all?: boolean; delete?: string; 'set-upstream-to'?: string}
+}): IVcBranchRequest {
+  if (parsed.flags['set-upstream-to']) return {action: 'set-upstream', upstream: parsed.flags['set-upstream-to']}
   if (parsed.flags.delete) return {action: 'delete', name: parsed.flags.delete}
   if (parsed.args.name) return {action: 'create', name: parsed.args.name}
   return {action: 'list', all: parsed.flags.all}
