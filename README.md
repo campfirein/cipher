@@ -1,8 +1,8 @@
 # ByteRover CLI
 
-<!-- TODO: Add logo when available -->
-
 <div align="center">
+
+<img src="./assets/images/logo/byterover-logo.svg" alt="ByteRover Logo" width="280" />
 
 <p align="center">
 <em>Interactive REPL CLI for AI-powered context memory</em>
