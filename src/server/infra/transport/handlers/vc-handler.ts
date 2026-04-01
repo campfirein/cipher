@@ -51,6 +51,7 @@ import {Space} from '../../../core/domain/entities/space.js'
 import {GitAuthError, GitError} from '../../../core/domain/errors/git-error.js'
 import {NotAuthenticatedError} from '../../../core/domain/errors/task-error.js'
 import {VcError} from '../../../core/domain/errors/vc-error.js'
+import {ensureGitignoreEntries} from '../../../utils/gitignore.js'
 import {buildCogitRemoteUrl, isValidBranchName, parseBrvUrl, parseGitPathUrl} from '../../git/cogit-url.js'
 import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
@@ -472,6 +473,9 @@ export class VcHandler {
 
       // Ensure .gitignore exists (remote may not have one)
       await this.ensureGitignore(contextTreeDir)
+
+      // Add .brv entries to project .gitignore (prevents `git add .` fatal error from nested .git)
+      await ensureGitignoreEntries(projectPath)
     } catch (error) {
       // Rollback partial .git — keep context tree intact
       await fs.promises.rm(join(contextTreeDir, '.git'), {force: true, recursive: true}).catch(() => {})
@@ -620,6 +624,9 @@ export class VcHandler {
 
     // 3. Ensure .gitignore exists with correct content (idempotent)
     await this.ensureGitignore(contextTreeDir)
+
+    // 4. Add .brv entries to project .gitignore (prevents `git add .` fatal error from nested .git)
+    await ensureGitignoreEntries(projectPath)
 
     return {
       gitDir: join(contextTreeDir, '.git'),
