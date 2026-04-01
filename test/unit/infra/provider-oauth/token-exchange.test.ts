@@ -1,11 +1,12 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 import nock from 'nock'
-import {restore} from 'sinon'
+import {restore, stub} from 'sinon'
 import {ZodError} from 'zod'
 
 import type {TokenExchangeParams} from '../../../../src/server/infra/provider-oauth/types.js'
 
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 import {ProviderTokenExchangeError} from '../../../../src/server/infra/provider-oauth/errors.js'
 import {exchangeCodeForTokens} from '../../../../src/server/infra/provider-oauth/token-exchange.js'
 
@@ -31,6 +32,10 @@ describe('exchangeCodeForTokens', () => {
     scope: 'openid profile',
     token_type: 'Bearer',
   }
+
+  beforeEach(() => {
+    stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
+  })
 
   afterEach(() => {
     nock.cleanAll()

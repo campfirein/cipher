@@ -3,7 +3,11 @@ import * as sinon from 'sinon'
 
 import type {NarrowedUpdateNotifier, UpdateNotifierDeps} from '../../../src/oclif/hooks/init/update-notifier.js'
 
-import {handleUpdateNotification, isNpmGlobalInstall, UPDATE_CHECK_INTERVAL_MS} from '../../../src/oclif/hooks/init/update-notifier.js'
+import {
+  handleUpdateNotification,
+  isNpmGlobalInstall,
+  UPDATE_CHECK_INTERVAL_MS,
+} from '../../../src/oclif/hooks/init/update-notifier.js'
 
 describe('update-notifier hook', () => {
   describe('UPDATE_CHECK_INTERVAL_MS', () => {
@@ -18,6 +22,8 @@ describe('update-notifier hook', () => {
     let exitStub: sinon.SinonStub<[number], never>
     let logStub: sinon.SinonStub<[string], void>
     let notifyStub: sinon.SinonStub
+    let spawnRestartStub: sinon.SinonStub
+    let fakeChild: {unref: sinon.SinonStub}
 
     beforeEach(() => {
       confirmStub = sinon.stub()
@@ -25,6 +31,8 @@ describe('update-notifier hook', () => {
       exitStub = sinon.stub<[number], never>()
       logStub = sinon.stub()
       notifyStub = sinon.stub()
+      fakeChild = {unref: sinon.stub()}
+      spawnRestartStub = sinon.stub().returns(fakeChild)
     })
 
     afterEach(() => {
@@ -32,9 +40,9 @@ describe('update-notifier hook', () => {
     })
 
     type CreateDepsParams = {
-      isNpmGlobalInstalled: boolean,
+      isNpmGlobalInstalled: boolean
       isTTY: boolean
-      notifier: NarrowedUpdateNotifier,
+      notifier: NarrowedUpdateNotifier
     }
 
     const createDeps = (params: CreateDepsParams): UpdateNotifierDeps => ({
@@ -44,7 +52,8 @@ describe('update-notifier hook', () => {
       isNpmGlobalInstalled: params.isNpmGlobalInstalled,
       isTTY: params.isTTY,
       log: logStub,
-      notifier: params.notifier
+      notifier: params.notifier,
+      spawnRestartFn: spawnRestartStub,
     })
 
     it('should do nothing when not installed via npm global', async () => {
@@ -83,6 +92,19 @@ describe('update-notifier hook', () => {
       expect(execSyncStub.called).to.be.false
     })
 
+    it('should do nothing when isTTY is false even if update is available', async () => {
+      await handleUpdateNotification(
+        createDeps({
+          isNpmGlobalInstalled: true,
+          isTTY: false,
+          notifier: {notify: notifyStub, update: {current: '1.0.0', latest: '2.0.0'}},
+        }),
+      )
+
+      expect(confirmStub.called).to.be.false
+      expect(execSyncStub.called).to.be.false
+    })
+
     it('should show notification and prompt when update is available in TTY', async () => {
       confirmStub.resolves(false)
 
@@ -98,12 +120,12 @@ describe('update-notifier hook', () => {
       expect(confirmStub.calledOnce).to.be.true
       expect(confirmStub.firstCall.args[0]).to.deep.equal({
         default: true,
-        message: 'Update available: 1.0.0 → 2.0.0. Would you like to update now?',
+        message: 'Update available: 1.0.0 → 2.0.0. Update now? (active sessions will be restarted)',
       })
       expect(execSyncStub.called).to.be.false
     })
 
-    it('should execute npm update and exit when user confirms', async () => {
+    it('should execute npm update, spawn brv restart, and exit when user confirms', async () => {
       confirmStub.resolves(true)
 
       await handleUpdateNotification(
@@ -116,9 +138,36 @@ describe('update-notifier hook', () => {
 
       expect(execSyncStub.calledOnce).to.be.true
       expect(execSyncStub.firstCall.args[0]).to.equal('npm update -g byterover-cli')
+      expect(spawnRestartStub.calledOnce).to.be.true
+      expect(fakeChild.unref.calledOnce).to.be.true
       expect(logStub.calledWith('Updating byterover-cli...')).to.be.true
-      expect(logStub.calledWith('✓ Successfully updated to 2.0.0')).to.be.true
-      expect(logStub.calledWith(`The update will take effect on next launch. Run 'brv' when ready.`)).to.be.true
+      expect(logStub.calledWith('✓ Updated to 2.0.0.')).to.be.true
+      expect(
+        logStub.calledWith(
+          'Restarting ByteRover in the background. Please wait a few seconds before running brv again.',
+        ),
+      ).to.be.true
+      expect(exitStub.calledOnce).to.be.true
+      expect(exitStub.calledWith(0)).to.be.true
+    })
+
+    it('should still exit 0 if brv restart spawn fails after successful npm update', async () => {
+      confirmStub.resolves(true)
+      spawnRestartStub.throws(new Error('spawn failed'))
+
+      await handleUpdateNotification(
+        createDeps({
+          isNpmGlobalInstalled: true,
+          isTTY: true,
+          notifier: {notify: notifyStub, update: {current: '1.0.0', latest: '2.0.0'}},
+        }),
+      )
+
+      expect(execSyncStub.calledOnce).to.be.true
+      expect(execSyncStub.firstCall.args[0]).to.equal('npm update -g byterover-cli')
+      expect(spawnRestartStub.calledOnce).to.be.true
+      expect(logStub.calledWith('Failed to restart ByteRover. Please restart it manually by running `brv restart`.')).to.be
+        .true
       expect(exitStub.calledOnce).to.be.true
       expect(exitStub.calledWith(0)).to.be.true
     })

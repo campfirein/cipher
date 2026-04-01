@@ -115,9 +115,13 @@ export default class ProviderConnect extends Command {
 
       // 4. Connect or switch active provider
       const hasNewConfig = apiKey || baseUrl
-      await (provider.isConnected && !hasNewConfig
+      const response = await (provider.isConnected && !hasNewConfig
         ? client.requestWithAck<ProviderSetActiveResponse>(ProviderEvents.SET_ACTIVE, {providerId})
         : client.requestWithAck<ProviderConnectResponse>(ProviderEvents.CONNECT, {apiKey, baseUrl, providerId}))
+
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to connect provider. Please try again.')
+      }
 
       // 5. Set model if specified
       if (model) {

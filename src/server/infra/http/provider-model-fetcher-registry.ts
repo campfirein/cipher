@@ -152,14 +152,6 @@ export async function getModelFetcher(providerId: string): Promise<IProviderMode
 }
 
 /**
- * Clear all cached fetcher instances.
- * Useful for testing or when provider configs change.
- */
-export function clearModelFetcherCache(): void {
-  fetchers.clear()
-}
-
-/**
  * Validate an API key for a specific provider.
  * Convenience function that gets the right fetcher and validates.
  *

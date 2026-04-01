@@ -8,6 +8,7 @@ import type {IFileService} from '../../../../src/server/core/interfaces/services
 import type {SkillConnector} from '../../../../src/server/infra/connectors/skill/skill-connector.js'
 import type {HubEntryDTO} from '../../../../src/shared/transport/types/dto.js'
 
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 import {HubInstallService} from '../../../../src/server/infra/hub/hub-install-service.js'
 
 const FILE_HOST = 'https://raw.githubusercontent.com'
@@ -83,6 +84,7 @@ describe('HubInstallService', () => {
 
   beforeEach(() => {
     sandbox = createSandbox()
+    sandbox.stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     fileService = {
       createBackup: sandbox.stub().resolves(''),
       delete: sandbox.stub().resolves(),
