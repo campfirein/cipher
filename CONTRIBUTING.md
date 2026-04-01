@@ -30,6 +30,9 @@ npm run test
 ### Development Mode
 
 ```bash
+# Copy .env.example to .env.development
+cp .env.example .env.development
+
 # Run in dev mode (ts-node, BRV_ENV=development)
 ./bin/dev.js
 
