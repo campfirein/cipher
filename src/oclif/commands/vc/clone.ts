@@ -1,6 +1,5 @@
-import {Args, Command, Flags} from '@oclif/core'
+import {Args, Command} from '@oclif/core'
 
-import {getCurrentConfig} from '../../../server/config/environment.js'
 import {InitEvents, type InitLocalResponse} from '../../../shared/transport/events/init-events.js'
 import {
   type IVcCloneProgressEvent,
@@ -38,36 +37,15 @@ export default class VcClone extends Command {
     url: Args.string({description: 'Clone URL (e.g. https://app.byterover.dev/team/space.brv)'}),
   }
   public static description = 'Clone a ByteRover space repository'
-  public static examples = [
-    '<%= config.bin %> vc clone https://app.byterover.dev/acme/project.brv',
-    '<%= config.bin %> vc clone --team acme --space my-space',
-  ]
-  public static flags = {
-    space: Flags.string({
-      char: 's',
-      description: 'Name of the space to clone',
-    }),
-    team: Flags.string({
-      char: 't',
-      description: 'Team name',
-    }),
-  }
+  public static examples = ['<%= config.bin %> vc clone https://app.byterover.dev/acme/project.brv']
 
   public async run(): Promise<void> {
-    const {args, flags} = await this.parse(VcClone)
-
-    // Resolve URL from args or flags
-    let {url} = args
-    if (!url && flags.team && flags.space) {
-      url = `${getCurrentConfig().webAppUrl}/${flags.team}/${flags.space}.brv`
-    }
+    const {args} = await this.parse(VcClone)
+    const {url} = args
 
     if (!url) {
-      this.error(
-        'Provide a URL or use --team and --space flags.\n' +
-          'Usage: brv vc clone <url>\n' +
-          '       brv vc clone --team <team> --space <space>',
-      )
+      // eslint-disable-next-line no-useless-concat
+      this.error('URL is required.\n' + 'Usage: brv vc clone <url>')
     }
 
     const daemonOptions = {projectPath: process.cwd()}

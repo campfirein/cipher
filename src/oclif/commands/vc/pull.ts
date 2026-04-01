@@ -4,10 +4,12 @@ import {type IVcPullResponse, VcEvents} from '../../../shared/transport/events/v
 import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
 export default class VcPull extends Command {
+  /* eslint-disable perfectionist/sort-objects -- positional order matters: remote before branch */
   public static args = {
-    arg1: Args.string({description: 'Remote name (only origin supported)', required: false}),
-    arg2: Args.string({description: 'Branch to pull', required: false}),
+    remote: Args.string({description: 'Remote name (only origin supported)', required: false}),
+    branch: Args.string({description: 'Branch to pull', required: false}),
   }
+  /* eslint-enable perfectionist/sort-objects */
   public static description = 'Pull commits from ByteRover cloud'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
@@ -27,19 +29,19 @@ export default class VcPull extends Command {
     let remote: string | undefined
     let branch: string | undefined
 
-    if (args.arg1 && args.arg2) {
-      if (args.arg1 !== 'origin') {
+    if (args.remote && args.branch) {
+      if (args.remote !== 'origin') {
         this.error(`Only 'origin' remote is currently supported.`)
       }
 
-      remote = args.arg1
-      branch = args.arg2
-    } else if (args.arg1) {
-      if (args.arg1 !== 'origin') {
+      remote = args.remote
+      branch = args.branch
+    } else if (args.remote) {
+      if (args.remote !== 'origin') {
         this.error(`Only 'origin' remote is currently supported.`)
       }
 
-      remote = args.arg1
+      remote = args.remote
     }
 
     try {

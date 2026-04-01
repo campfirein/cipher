@@ -38,8 +38,6 @@ import {
   type IVcPushResponse,
   type IVcRemoteRequest,
   type IVcRemoteResponse,
-  type IVcRemoteUrlRequest,
-  type IVcRemoteUrlResponse,
   type IVcResetRequest,
   type IVcResetResponse,
   type IVcStatusResponse,
@@ -146,10 +144,6 @@ export class VcHandler {
     this.transport.onRequest<IVcRemoteRequest, IVcRemoteResponse>(VcEvents.REMOTE, (data, clientId) =>
       this.handleRemote(data, clientId),
     )
-
-    this.transport.onRequest<IVcRemoteUrlRequest, IVcRemoteUrlResponse>(VcEvents.REMOTE_URL, (data) =>
-      this.handleRemoteUrl(data),
-    )
     this.transport.onRequest<IVcResetRequest, IVcResetResponse>(VcEvents.RESET, (data, clientId) =>
       this.handleReset(data, clientId),
     )
@@ -163,13 +157,13 @@ export class VcHandler {
       if (token?.isValid()) {
         const email = existing?.email ?? token.userEmail
         const name = existing?.name ?? token.userName ?? token.userEmail
-        return `Run: /vc config user.name '${name}' and /vc config user.email '${email}'.`
+        return `Run: brv vc config user.name '${name}' and brv vc config user.email '${email}'.`
       }
     } catch {
       // not logged in
     }
 
-    return 'Run: /vc config user.name <value> and /vc config user.email <value>.'
+    return 'Run: brv vc config user.name <value> and brv vc config user.email <value>.'
   }
 
   /**
@@ -381,19 +375,27 @@ export class VcHandler {
 
     try {
       await this.gitService.checkout({directory, force: data.force, ref: data.branch})
+
+      // Clear merge state after force checkout (like git checkout --force)
+      if (data.force) {
+        const mergeHeadPath = join(directory, '.git', 'MERGE_HEAD')
+        const mergeMsgPath = join(directory, '.git', 'MERGE_MSG')
+        await fs.promises.rm(mergeHeadPath, {force: true}).catch(() => {})
+        await fs.promises.rm(mergeMsgPath, {force: true}).catch(() => {})
+      }
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'NotFoundError') {
         // Distinguish empty repo from branch-not-found
         const commits = await this.gitService.log({depth: 1, directory})
         if (commits.length === 0) {
           throw new VcError(
-            `Your current branch does not have any commits yet. Run '/vc add' and '/vc commit' first.`,
+            `Your current branch does not have any commits yet. Run 'brv vc add' and 'brv vc commit' first.`,
             VcErrorCode.NO_COMMITS,
           )
         }
 
         throw new VcError(
-          `Branch '${data.branch}' not found. Use '/vc checkout -b ${data.branch}' to create it.`,
+          `Branch '${data.branch}' not found. Use 'brv vc checkout -b ${data.branch}' to create it.`,
           VcErrorCode.BRANCH_NOT_FOUND,
         )
       }
@@ -411,7 +413,7 @@ export class VcHandler {
     if (await this.gitService.isInitialized({directory: contextTreeDir})) {
       const isEmpty = await this.gitService.isEmptyRepository({directory: contextTreeDir})
       if (!isEmpty) {
-        throw new VcError('Already initialized. Use /vc pull to sync.', VcErrorCode.ALREADY_INITIALIZED)
+        throw new VcError('Already initialized. Use brv vc pull to sync.', VcErrorCode.ALREADY_INITIALIZED)
       }
 
       // Fresh auto-init — remove .git and .gitignore so clone starts clean
@@ -475,7 +477,7 @@ export class VcHandler {
       await fs.promises.rm(join(contextTreeDir, '.git'), {force: true, recursive: true}).catch(() => {})
 
       if (error instanceof GitAuthError) {
-        throw new VcError('Authentication failed. Run /login.', VcErrorCode.AUTH_FAILED)
+        throw new VcError('Authentication failed. Run brv login.', VcErrorCode.AUTH_FAILED)
       }
 
       const msg = error instanceof Error ? error.message : String(error)
@@ -595,7 +597,7 @@ export class VcHandler {
       await this.gitService.fetch({directory, ref: data.ref, remote})
     } catch (error) {
       if (error instanceof GitAuthError) {
-        throw new VcError('Authentication failed. Run /login.', VcErrorCode.AUTH_FAILED)
+        throw new VcError('Authentication failed. Run brv login.', VcErrorCode.AUTH_FAILED)
       }
 
       const message = error instanceof Error ? error.message : 'Fetch failed.'
@@ -813,7 +815,7 @@ export class VcHandler {
     } catch (error) {
       if (error instanceof VcError) throw error
       if (error instanceof GitAuthError) {
-        throw new VcError('Authentication failed. Run /login.', VcErrorCode.AUTH_FAILED)
+        throw new VcError('Authentication failed. Run brv login.', VcErrorCode.AUTH_FAILED)
       }
 
       if (error instanceof GitError) {
@@ -843,7 +845,7 @@ export class VcHandler {
 
     const commits = await this.gitService.log({depth: 1, directory})
     if (commits.length === 0) {
-      throw new VcError('No commits to push. Run /vc add and /vc commit first.', VcErrorCode.NOTHING_TO_PUSH)
+      throw new VcError('No commits to push. Run brv vc add and brv vc commit first.', VcErrorCode.NOTHING_TO_PUSH)
     }
 
     // Block push while conflict markers remain in tracked files
@@ -867,7 +869,7 @@ export class VcHandler {
       throw new VcError(
         `The current branch '${branch}' has no upstream branch.\n` +
           `To push the current branch and set the remote as upstream, use\n\n` +
-          `    /vc push -u origin ${branch}`,
+          `    brv vc push -u origin ${branch}`,
         VcErrorCode.NO_UPSTREAM,
       )
     }
@@ -883,14 +885,14 @@ export class VcHandler {
     try {
       const result = await this.gitService.push({branch, directory, remote: 'origin'})
       if (!result.success && result.reason === 'non_fast_forward') {
-        throw new VcError('Remote has changes. Pull first with /vc pull.', VcErrorCode.NON_FAST_FORWARD)
+        throw new VcError('Remote has changes. Pull first with brv vc pull.', VcErrorCode.NON_FAST_FORWARD)
       }
 
       if (result.success) alreadyUpToDate = result.alreadyUpToDate ?? false
     } catch (error) {
       if (error instanceof VcError) throw error
       if (error instanceof GitAuthError) {
-        throw new VcError('Authentication failed. Run /login.', VcErrorCode.AUTH_FAILED)
+        throw new VcError('Authentication failed. Run brv login.', VcErrorCode.AUTH_FAILED)
       }
 
       const message = error instanceof Error ? error.message : 'Push failed. Check your connection and try again.'
@@ -924,7 +926,7 @@ export class VcHandler {
       const existing = await this.gitService.getRemoteUrl({directory, remote: 'origin'})
       if (existing) {
         throw new VcError(
-          "Remote 'origin' already exists. Use /vc remote set-url <url> to update.",
+          "Remote 'origin' already exists. Use brv vc remote set-url <url> to update.",
           VcErrorCode.REMOTE_ALREADY_EXISTS,
         )
       }
@@ -939,18 +941,6 @@ export class VcHandler {
     })
     await this.gitService.addRemote({directory, remote: 'origin', url: resolved.url})
     return {action: 'set-url', url: resolved.url}
-  }
-
-  private async handleRemoteUrl(data: IVcRemoteUrlRequest): Promise<IVcRemoteUrlResponse> {
-    const token = await this.tokenStore.load()
-    if (!token?.isValid()) throw new NotAuthenticatedError()
-
-    const url = buildCogitRemoteUrl(this.cogitGitBaseUrl, data.teamId, data.spaceId)
-    // Embed credentials for external git tool usage (this is the only place credentials go into a URL)
-    const parsed = new URL(url)
-    parsed.username = token.userId
-    parsed.password = token.sessionKey
-    return {url: parsed.toString()}
   }
 
   private async handleReset(data: IVcResetRequest, clientId: string): Promise<IVcResetResponse> {
@@ -1232,7 +1222,7 @@ export class VcHandler {
       throw new VcError(
         `There is no tracking information for the current branch '${currentTrimmed}'.\n` +
           `To set upstream tracking, use:\n\n` +
-          `    /vc push -u origin ${currentTrimmed}`,
+          `    brv vc push -u origin ${currentTrimmed}`,
         VcErrorCode.NO_UPSTREAM,
       )
     }

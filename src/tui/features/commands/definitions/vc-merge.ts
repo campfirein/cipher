@@ -7,6 +7,7 @@ import {Flags, parseReplArgs, toCommandFlags} from '../utils/arg-parser.js'
 
 const vcMergeFlags = {
   abort: Flags.boolean({description: 'Abort the current merge', exclusive: ['continue']}),
+  'allow-unrelated-histories': Flags.boolean({default: false, description: 'Allow merging unrelated histories'}),
   continue: Flags.boolean({description: 'Continue after resolving conflicts', exclusive: ['abort']}),
   message: Flags.string({char: 'm', description: 'Merge commit message'}),
 }
@@ -42,7 +43,14 @@ export const vcMergeSubCommand: SlashCommand = {
 
     return {
       render: ({onCancel, onComplete}) =>
-        React.createElement(VcMergeFlow, {action: 'merge', branch, message, onCancel, onComplete}),
+        React.createElement(VcMergeFlow, {
+          action: 'merge',
+          allowUnrelatedHistories: parsed.flags['allow-unrelated-histories'],
+          branch,
+          message,
+          onCancel,
+          onComplete,
+        }),
     }
   },
   args: [{description: 'Branch to merge', name: 'branch', required: false}],

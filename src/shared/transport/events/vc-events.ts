@@ -51,8 +51,6 @@ export const VcEvents = {
   PULL: 'vc:pull',
   PUSH: 'vc:push',
   REMOTE: 'vc:remote',
-
-  REMOTE_URL: 'vc:remote-url',
   RESET: 'vc:reset',
   STATUS: 'vc:status',
 } as const
@@ -243,19 +241,9 @@ export interface IVcMergeResponse {
   defaultMessage?: string
 }
 
-
 export interface IVcConflictsResponse {
   conflicts?: Array<{path: string; type: string}>
   files: string[]
-}
-
-export interface IVcRemoteUrlRequest {
-  spaceId: string
-  teamId: string
-}
-
-export interface IVcRemoteUrlResponse {
-  url: string
 }
 
 export type VcResetMode = 'hard' | 'mixed' | 'soft'
