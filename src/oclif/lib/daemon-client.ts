@@ -51,8 +51,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [VcErrorCode.GIT_NOT_INITIALIZED]: 'ByteRover version control not initialized. Run brv vc init first.',
   [VcErrorCode.INVALID_BRANCH_NAME]: 'Invalid branch name.',
   [VcErrorCode.INVALID_CONFIG_KEY]: 'Invalid config key. Allowed: user.name, user.email.',
-  [VcErrorCode.NO_REMOTE]:
-    `No remote configured.\n\nTo connect to cloud:\n  1. Go to ${getCurrentConfig().webAppUrl} → create or open a Space\n  2. Copy the remote URL\n  3. Run: brv vc remote add origin <url>\n  4. Then: brv vc push -u origin main`,
+  [VcErrorCode.NO_REMOTE]: '', // placeholder — built lazily in formatConnectionError to avoid top-level env read
   [VcErrorCode.NON_FAST_FORWARD]: 'Remote has changes. Run brv vc pull first.',
   [VcErrorCode.NOTHING_STAGED]: 'Nothing staged. Run brv vc add first.',
   [VcErrorCode.NOTHING_TO_PUSH]: 'No commits to push. Run brv vc add and brv vc commit first.',
@@ -218,6 +217,10 @@ export function formatConnectionError(error: unknown, providerContext?: Provider
     const baseMessage = error.message.replace(/ for event '[^']+'$/, '')
 
     if (error.code && typeof error.code === 'string') {
+      if (error.code === VcErrorCode.NO_REMOTE) {
+        return buildNoRemoteMessage()
+      }
+
       return USER_FRIENDLY_MESSAGES[error.code] ?? baseMessage
     }
 
@@ -236,6 +239,17 @@ export function formatConnectionError(error: unknown, providerContext?: Provider
   }
 
   return `Unexpected error: ${message}`
+}
+
+function buildNoRemoteMessage(): string {
+  const {webAppUrl} = getCurrentConfig()
+  return (
+    `No remote configured.\n\nTo connect to cloud:\n` +
+    `  1. Go to ${webAppUrl} → create or open a Space\n` +
+    `  2. Copy the remote URL\n` +
+    `  3. Run: brv vc remote add origin <url>\n` +
+    `  4. Then: brv vc push -u origin main`
+  )
 }
 
 function formatApiKeyError(providerContext?: ProviderErrorContext): string {
