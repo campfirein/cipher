@@ -30,7 +30,7 @@ export async function ensureGitignoreEntries(directory: string): Promise<void> {
     }
 
     // Idempotent: skip if already present
-    if (existing.includes('.brv/*')) return
+    if (existing.includes('.brv/')) return
 
     // Ensure a blank line separates existing content from new entries
     let content: string

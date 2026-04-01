@@ -29,9 +29,7 @@ describe('ensureGitignoreEntries', () => {
 
     const content = readFileSync(path.join(testDir, '.gitignore'), 'utf8')
     expect(content).to.include('# ByteRover')
-    expect(content).to.include('.brv/*')
-    expect(content).to.include('!.brv/context-tree/')
-    expect(content).to.include('.brv/context-tree/.git')
+    expect(content).to.include('.brv/')
   })
 
   it('should append to an existing .gitignore preserving original content', async () => {
@@ -44,9 +42,7 @@ describe('ensureGitignoreEntries', () => {
     expect(content).to.include('node_modules/')
     expect(content).to.include('dist/')
     expect(content).to.include('# ByteRover')
-    expect(content).to.include('.brv/*')
-    expect(content).to.include('!.brv/context-tree/')
-    expect(content).to.include('.brv/context-tree/.git')
+    expect(content).to.include('.brv/')
   })
 
   it('should be idempotent — no duplicates on re-run', async () => {
@@ -56,7 +52,7 @@ describe('ensureGitignoreEntries', () => {
     await ensureGitignoreEntries(testDir)
 
     const content = readFileSync(path.join(testDir, '.gitignore'), 'utf8')
-    const matches = content.match(/\.brv\/\*/g)
+    const matches = content.match(/^\.brv\/$/gm)
     expect(matches).to.have.lengthOf(1)
   })
 
@@ -85,8 +81,6 @@ describe('ensureGitignoreEntries', () => {
 
     const content = readFileSync(path.join(testDir, '.gitignore'), 'utf8')
     expect(content).to.include('# ByteRover')
-    expect(content).to.include('.brv/*')
-    expect(content).to.include('!.brv/context-tree/')
-    expect(content).to.include('.brv/context-tree/.git')
+    expect(content).to.include('.brv/')
   })
 })
