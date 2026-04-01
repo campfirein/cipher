@@ -49,6 +49,7 @@ body:
         - LLM Providers
         - Context Tree / Knowledge
         - Cloud Sync (push/pull)
+        - Authentication (login/logout)
         - Hub / Connectors
         - MCP Integration
         - CLI Commands

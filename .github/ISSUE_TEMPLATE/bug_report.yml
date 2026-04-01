@@ -85,10 +85,8 @@ body:
       label: Operating system
       options:
         - macOS (ARM64 / Apple Silicon)
-        - macOS (x64 / Intel)
         - Linux (x64)
         - Linux (ARM64)
-        - Windows (WSL)
         - Other
     validations:
       required: true
@@ -104,5 +102,5 @@ body:
     id: logs
     attributes:
       label: Relevant logs
-      description: Paste any relevant log output. Run with `brv debug` for verbose output.
+      description: Paste any relevant log output. Run `brv status` to include project and daemon state.
       render: shell
