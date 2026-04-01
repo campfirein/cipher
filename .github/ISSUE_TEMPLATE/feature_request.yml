@@ -1,0 +1,72 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for ByteRover CLI
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! Please describe the problem you're trying to solve and your proposed solution.
+
+  - type: checkboxes
+    id: existing-issues
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: I have searched [existing issues](https://github.com/campfirein/byterover-cli/issues) and this feature has not been requested yet
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What problem does this feature solve? Describe the use case.
+      placeholder: I'm always frustrated when ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like this to work? Be as specific as possible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you considered any alternative solutions or workarounds?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of ByteRover CLI does this relate to?
+      options:
+        - REPL / TUI
+        - Agent / Tools
+        - LLM Providers
+        - Context Tree / Knowledge
+        - Cloud Sync (push/pull)
+        - Hub / Connectors
+        - MCP Integration
+        - CLI Commands
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add any other context, mockups, or screenshots about the feature request.
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      description: Would you like to help implement this feature?
+      options:
+        - label: I am willing to submit a pull request for this feature

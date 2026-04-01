@@ -1,0 +1,108 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in ByteRover CLI
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the sections below so we can reproduce and fix it.
+
+  - type: checkboxes
+    id: existing-issues
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: I have searched [existing issues](https://github.com/campfirein/byterover-cli/issues) and this bug has not been reported yet
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug description
+      description: A clear and concise description of what the bug is.
+      placeholder: When I run `brv curate ...`, the CLI crashes with ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to reproduce the behavior.
+      placeholder: |
+        1. Run `brv` in a project directory
+        2. Type `/curate "some context" @src/file.ts`
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened. Include error messages or screenshots if applicable.
+    validations:
+      required: true
+
+  - type: input
+    id: cli-version
+    attributes:
+      label: CLI version
+      description: Output of `brv --version`
+      placeholder: "2.6.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Installation method
+      options:
+        - Shell script (curl)
+        - npm
+        - Built from source
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      description: Output of `node --version` (skip if installed via shell script)
+      placeholder: "v22.0.0"
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (ARM64 / Apple Silicon)
+        - macOS (x64 / Intel)
+        - Linux (x64)
+        - Linux (ARM64)
+        - Windows (WSL)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: llm-provider
+    attributes:
+      label: LLM provider and model
+      description: Which provider/model were you using when this occurred? (if relevant)
+      placeholder: "Anthropic / Claude 3.5 Sonnet"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste any relevant log output. Run with `brv debug` for verbose output.
+      render: shell
