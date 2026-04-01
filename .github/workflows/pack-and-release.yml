@@ -40,9 +40,6 @@ jobs:
             echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
             exit 1
           fi
-      - uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.TRANSPORT_CLIENT_DEPLOY_KEY }}
       - run: npm ci
       - run: npm run prepack
       - name: Pack tarballs
