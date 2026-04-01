@@ -911,6 +911,7 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.NO_REMOTE)
+          expect(error.message).to.equal('No remote configured.')
         }
       }
     })
@@ -1244,6 +1245,7 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.NO_REMOTE)
+          expect(error.message).to.equal('No remote configured.')
         }
       }
     })
@@ -2871,6 +2873,33 @@ describe('VcHandler', () => {
         expect.fail('Expected error')
       } catch (error) {
         expect(error).to.be.instanceOf(NotAuthenticatedError)
+      }
+    })
+
+    it('should throw VcError NO_REMOTE when no remote configured', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      const mockToken = new AuthToken({
+        accessToken: 'test-acc',
+        expiresAt: new Date(Date.now() + 3_600_000),
+        refreshToken: 'test-ref',
+        sessionKey: 'sess-123',
+        userEmail: 'test@example.com',
+        userId: 'u1',
+      })
+      deps.tokenStore.load.resolves(mockToken)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([])
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke<IVcFetchResponse>(deps, VcEvents.FETCH, {})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.NO_REMOTE)
+          expect(error.message).to.equal('No remote configured.')
+        }
       }
     })
   })

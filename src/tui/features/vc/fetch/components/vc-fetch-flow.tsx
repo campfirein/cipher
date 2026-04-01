@@ -10,13 +10,13 @@ import {useTheme} from '../../../../hooks/index.js'
 import {getWebAppUrl} from '../../../../lib/environment.js'
 import {formatTransportError, getTransportErrorCode} from '../../../../utils/error-messages.js'
 import {useExecuteVcRemote} from '../../remote/api/execute-vc-remote.js'
-import {useExecuteVcPush} from '../api/execute-vc-push.js'
+import {useExecuteVcFetch} from '../api/execute-vc-fetch.js'
 
-type PushStep = 'configuring_remote' | 'pushing'
+type FetchStep = 'configuring_remote' | 'fetching'
 
-type VcPushFlowProps = CustomDialogCallbacks & {
-  branch?: string
-  setUpstream?: boolean
+type VcFetchFlowProps = CustomDialogCallbacks & {
+  ref?: string
+  remote?: string
 }
 
 function validateRemoteUrl(value: string): boolean | string {
@@ -33,54 +33,45 @@ function validateRemoteUrl(value: string): boolean | string {
   }
 }
 
-export function VcPushFlow({branch, onCancel, onComplete, setUpstream}: VcPushFlowProps): React.ReactNode {
+export function VcFetchFlow({onCancel, onComplete, ref: refProp, remote}: VcFetchFlowProps): React.ReactNode {
   const {
     theme: {colors},
   } = useTheme()
 
-  const [step, setStep] = useState<PushStep>('pushing')
-  const pushMutation = useExecuteVcPush()
+  const [step, setStep] = useState<FetchStep>('fetching')
+  const fetchMutation = useExecuteVcFetch()
   const remoteMutation = useExecuteVcRemote()
 
   useInput((_, key) => {
-    if (key.escape && !pushMutation.isPending && !remoteMutation.isPending) {
+    if (key.escape && !fetchMutation.isPending && !remoteMutation.isPending) {
       onCancel()
     }
   })
 
-  const executePush = useCallback(
-    (overrideSetUpstream?: boolean) => {
-      pushMutation.mutate(
-        {branch, setUpstream: overrideSetUpstream ?? setUpstream},
-        {
-          onError(error) {
-            if (getTransportErrorCode(error) === VcErrorCode.NO_REMOTE) {
-              setStep('configuring_remote')
-              return
-            }
+  const executeFetch = useCallback(() => {
+    fetchMutation.mutate(
+      {ref: refProp, remote},
+      {
+        onError(error) {
+          if (getTransportErrorCode(error) === VcErrorCode.NO_REMOTE) {
+            setStep('configuring_remote')
+            return
+          }
 
-            onComplete(`Failed to push: ${formatTransportError(error)}`)
-          },
-          onSuccess(result) {
-            if (result.alreadyUpToDate) {
-              onComplete('Everything up-to-date.')
-            } else if (result.upstreamSet) {
-              onComplete(`Pushed to origin/${result.branch} and set upstream.`)
-            } else {
-              onComplete(`Pushed to origin/${result.branch}.`)
-            }
-          },
+          onComplete(`Failed to fetch: ${formatTransportError(error)}`)
         },
-      )
-    },
-    [branch, onComplete, pushMutation, setUpstream],
-  )
+        onSuccess(result) {
+          onComplete(`Fetched from ${result.remote}.`)
+        },
+      },
+    )
+  }, [fetchMutation, onComplete, refProp, remote])
 
   const fired = useRef(false)
   useEffect(() => {
     if (fired.current) return
     fired.current = true
-    executePush()
+    executeFetch()
   }, [])
 
   const handleUrlSubmit = useCallback(
@@ -92,13 +83,13 @@ export function VcPushFlow({branch, onCancel, onComplete, setUpstream}: VcPushFl
             onComplete(`Failed to add remote: ${formatTransportError(error)}`)
           },
           onSuccess() {
-            setStep('pushing')
-            executePush(true)
+            setStep('fetching')
+            executeFetch()
           },
         },
       )
     },
-    [executePush, onComplete, remoteMutation],
+    [executeFetch, onComplete, remoteMutation],
   )
 
   if (step === 'configuring_remote') {
@@ -130,7 +121,7 @@ export function VcPushFlow({branch, onCancel, onComplete, setUpstream}: VcPushFl
 
   return (
     <Text>
-      <Spinner type="dots" /> {branch ? `Pushing to origin/${branch}...` : 'Pushing...'}
+      <Spinner type="dots" /> Fetching...
     </Text>
   )
 }

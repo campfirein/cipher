@@ -1,3 +1,5 @@
+import {getWebAppUrl} from '../lib/environment.js'
+
 /**
  * User-friendly error messages for TUI.
  *
@@ -30,7 +32,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_VC_INVALID_BRANCH_NAME: 'Invalid branch name.',
   ERR_VC_INVALID_CONFIG_KEY: 'Invalid config key. Allowed: user.name, user.email.',
   ERR_VC_NO_COMMITS: 'No commits yet. Run /vc add and /vc commit first.',
-  ERR_VC_NO_REMOTE: 'No remote configured. Run /vc remote add origin <url>.',
+  ERR_VC_NO_REMOTE: `No remote configured.\n\nTo connect to cloud:\n  1. Go to ${getWebAppUrl()} → create or open a Space\n  2. Copy the remote URL\n  3. Run: /vc remote add origin <url>\n  4. Then: /vc push -u origin main`,
   ERR_VC_NON_FAST_FORWARD: 'Remote has changes. Run /vc pull first.',
   ERR_VC_NOTHING_STAGED: 'Nothing staged. Run /vc add first.',
   ERR_VC_NOTHING_TO_PUSH: 'No commits to push. Run /vc add and /vc commit first.',
@@ -54,6 +56,15 @@ export function formatTaskError(error?: {code?: string; message: string}): strin
 }
 
 /**
+ * Extract the error code from a transport error, if present.
+ */
+export function getTransportErrorCode(error: unknown): string | undefined {
+  if (!(error instanceof Error)) return undefined
+  const errorRecord = error as unknown as Record<string, unknown>
+  return 'code' in error && typeof errorRecord.code === 'string' ? errorRecord.code : undefined
+}
+
+/**
  * Format a transport error (from request/response calls) into a user-friendly message.
  * Checks for a `code` property on the error and looks up a friendly message.
  * Strips the " for event '...'" suffix that TransportRequestError appends automatically.
@@ -61,8 +72,7 @@ export function formatTaskError(error?: {code?: string; message: string}): strin
 export function formatTransportError(error: unknown): string {
   if (!(error instanceof Error)) return String(error)
 
-  const errorRecord = error as unknown as Record<string, unknown>
-  const code = 'code' in error && typeof errorRecord.code === 'string' ? errorRecord.code : undefined
+  const code = getTransportErrorCode(error)
   if (code && code in USER_FRIENDLY_MESSAGES) {
     return USER_FRIENDLY_MESSAGES[code]
   }
