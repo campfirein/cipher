@@ -41,6 +41,10 @@ jobs:
             exit 1
           fi
       - run: npm ci
+      - name: Create .env.production
+        run: echo "$ENV_PRODUCTION" > .env.production
+        env:
+          ENV_PRODUCTION: ${{ secrets.ENV_PRODUCTION }}
       - run: npm run prepack
       - name: Pack tarballs
         run: npx oclif pack tarballs --targets=${{ matrix.target }} --no-xz
