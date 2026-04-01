@@ -2,6 +2,11 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.6.0]
+
+### Changed
+- Refactor and major code cleanup.
+
 ## [2.5.2]
 
 ### Fixed
