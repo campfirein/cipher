@@ -1,32 +1,21 @@
-# ByteRover Research Paper — Draft
+# ByteRover: Agent-Native Memory Through LLM-Curated Hierarchical Context
 
-**Status:** Draft v0.1 — Not ready for submission
+Research paper for [ByteRover](https://www.byterover.dev/) - an agent-native memory architecture where the LLM itself curates, structures, and retrieves knowledge through a hierarchical Context Tree, requiring zero external infrastructure.
 
-## Notes for Contributors
+All benchmarks are run using the production `byterover-cli` codebase in this repository - no separate research prototype.
 
-### 1. This is a draft version
-The paper structure, writing, and formalization are in place but all experimental results are placeholder `[TODO]` markers. Figures (architecture diagrams, retrieval pipeline, context tree) also need to be created.
+## Results
 
-### 2. Experiments need adjustment
-The current experiment section is modeled after MAGMA and the Anatomy survey benchmarks (LoCoMo, LongMemEval). **These need to be adjusted to match our actual benchmark setup.** Specifically:
-- Choose which benchmarks we can realistically run against (LoCoMo, LongMemEval, or our own)
-- Decide which baselines we compare against and whether we use published numbers or re-run them
-- Define our efficiency metrics based on our actual tiered retrieval implementation
-- Fill in all `[TODO]` placeholders with real data
+We evaluate on two long-term conversational memory benchmarks:
 
-### 3. Feel free to remove sections
-If any section feels unnecessary or doesn't fit the final narrative, remove it. Candidates to consider:
-- Multi-agent coordination (Section 3.5) — could move to appendix if it dilutes the core contribution
-- Infrastructure comparison table — may be better as a discussion point than a standalone table
-- Some appendix sections (case studies, prompt library) — include only if we have concrete content
+- **LoCoMo** - ultra-long conversations (~20K tokens, 35 sessions) testing single-hop, multi-hop, temporal, and open-domain retrieval.
+- **LongMemEval-S** - large-scale benchmark (23,867 docs, ~48 sessions per question) testing 6 memory abilities including knowledge update, temporal reasoning, and multi-session synthesis.
 
-### 4. Limitations → Limitations and Future Work
-The current "Limitations" section (Section 6) should be expanded into **"Limitations and Future Work"** with proposed future directions. Some starting points:
-- Adaptive write-path optimization (reducing curation cost via incremental updates)
-- Hybrid retrieval combining BM25 with lightweight embeddings for Tier 2
-- Cross-workspace federation for multi-team knowledge sharing
-- Learned lifecycle parameters (auto-tuning decay rates and maturity thresholds)
-- Benchmark contribution: a new saturation-aware benchmark designed for agent-native memory
+**LoCoMo** - 96.1% overall accuracy (1,982 questions, 272 docs).
+
+**LongMemEval-S** - 92.8% overall accuracy (500 questions, 23,867 docs).
+
+All metrics are LLM-as-Judge accuracy (%).
 
 ## Building the PDF
 
@@ -35,15 +24,16 @@ The current "Limitations" section (Section 6) should be expanded into **"Limitat
 # Install: brew install --cask basictex
 # Then: sudo tlmgr install multirow algorithms algorithmic enumitem float tcolorbox environ trimspaces listings subcaption natbib tabularx
 
-make          # Build PDF
-make clean    # Remove build artifacts
+bash build.sh    # Build PDF
+make clean       # Remove build artifacts
 ```
 
 ## File Structure
 
 | File | Description |
 |------|-------------|
-| `main.tex` | Full paper source (~750 lines) |
-| `references.bib` | Bibliography (45+ entries) |
+| `main.tex` | Full paper source (~1,300 lines) |
+| `references.bib` | Bibliography (32 entries) |
+| `build.sh` | Build script (pdflatex + bibtex) |
 | `Makefile` | Build automation |
 | `.gitignore` | Excludes PDF and LaTeX build artifacts |
