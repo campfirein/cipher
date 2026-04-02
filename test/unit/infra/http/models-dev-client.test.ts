@@ -3,8 +3,10 @@ import nock from 'nock'
 import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+import {restore, stub} from 'sinon'
 
 import {ModelsDevClient} from '../../../../src/server/infra/http/models-dev-client.js'
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 
 const SAMPLE_MODELS_DEV_DATA = {
   openai: {
@@ -37,6 +39,7 @@ describe('ModelsDevClient', () => {
   let cachePath: string
 
   beforeEach(async () => {
+    stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     testDir = join(tmpdir(), `brv-test-models-dev-${Date.now()}`)
     await mkdir(testDir, {recursive: true})
     cachePath = join(testDir, 'models-dev.json')
@@ -44,6 +47,7 @@ describe('ModelsDevClient', () => {
   })
 
   afterEach(async () => {
+    restore()
     nock.cleanAll()
     await rm(testDir, {force: true, recursive: true})
   })

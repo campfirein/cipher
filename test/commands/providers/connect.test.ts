@@ -354,6 +354,49 @@ describe('Provider Connect Command', () => {
 
       expect(loggedMessages.some((m) => m.includes('API key provided is invalid'))).to.be.true
     })
+
+    it('should show auth error when server resolves CONNECT with success:false', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({
+        providers: [{id: 'byterover', isConnected: false, name: 'ByteRover', requiresApiKey: false}],
+      })
+      requestStub.onSecondCall().resolves({
+        error: 'ByteRover Provider requires authentication. Run /login or brv login to sign in',
+        success: false,
+      })
+
+      await createCommand('byterover').run()
+
+      expect(loggedMessages.some((m) => m.includes('authentication'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('login'))).to.be.true
+    })
+
+    it('should show auth error when server resolves SET_ACTIVE with success:false', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({
+        providers: [{id: 'byterover', isConnected: true, name: 'ByteRover', requiresApiKey: false}],
+      })
+      requestStub.onSecondCall().resolves({
+        error: 'ByteRover Provider requires authentication. Run /login or brv login to sign in',
+        success: false,
+      })
+
+      await createCommand('byterover').run()
+
+      expect(loggedMessages.some((m) => m.includes('authentication'))).to.be.true
+    })
+
+    it('should show fallback error when CONNECT resolves with success:false and no error message', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({
+        providers: [{id: 'byterover', isConnected: false, name: 'ByteRover', requiresApiKey: false}],
+      })
+      requestStub.onSecondCall().resolves({success: false})
+
+      await createCommand('byterover').run()
+
+      expect(loggedMessages.some((m) => m.includes('Failed to connect provider'))).to.be.true
+    })
   })
 
   // ==================== JSON Output ====================
@@ -381,6 +424,23 @@ describe('Provider Connect Command', () => {
 
       const json = parseJsonOutput()
       expect(json.command).to.equal('providers connect')
+      expect(json.success).to.be.false
+      expect(json.data).to.have.property('error')
+    })
+
+    it('should output JSON error when CONNECT resolves with success:false', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({
+        providers: [{id: 'byterover', isConnected: false, name: 'ByteRover', requiresApiKey: false}],
+      })
+      requestStub.onSecondCall().resolves({
+        error: 'ByteRover Provider requires authentication. Run /login or brv login to sign in',
+        success: false,
+      })
+
+      await createJsonCommand('byterover').run()
+
+      const json = parseJsonOutput()
       expect(json.success).to.be.false
       expect(json.data).to.have.property('error')
     })

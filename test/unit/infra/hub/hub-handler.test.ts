@@ -8,6 +8,7 @@ import type {IHubRegistryConfigStore} from '../../../../src/server/core/interfac
 import type {ITransportServer} from '../../../../src/server/core/interfaces/transport/i-transport-server.js'
 import type {HubInstallService} from '../../../../src/server/infra/hub/hub-install-service.js'
 
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 import {HubHandler} from '../../../../src/server/infra/transport/handlers/hub-handler.js'
 
 const VALID_REGISTRY_RESPONSE = {
@@ -60,6 +61,7 @@ describe('HubHandler', () => {
 
   beforeEach(async () => {
     sandbox = createSandbox()
+    sandbox.stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
 
     handlers = {}
     transport = {

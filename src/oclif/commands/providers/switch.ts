@@ -64,7 +64,11 @@ export default class ProviderSwitch extends Command {
         throw new Error(`Provider "${providerId}" is not connected. Use "brv providers connect ${providerId}" instead.`)
       }
 
-      await client.requestWithAck<ProviderSetActiveResponse>(ProviderEvents.SET_ACTIVE, {providerId})
+      const response = await client.requestWithAck<ProviderSetActiveResponse>(ProviderEvents.SET_ACTIVE, {providerId})
+
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to switch provider. Please try again.')
+      }
 
       return {providerId, providerName: provider.name}
     }, options)

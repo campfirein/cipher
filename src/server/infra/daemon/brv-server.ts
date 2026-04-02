@@ -22,7 +22,7 @@
  */
 
 import {GlobalInstanceManager} from '@campfirein/brv-transport-client'
-import {fork} from 'node:child_process'
+import {fork, type StdioOptions} from 'node:child_process'
 import {mkdirSync, readdirSync, readFileSync, unlinkSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
@@ -236,7 +236,11 @@ async function main(): Promise<void> {
     agentPool = new AgentPool({
       agentIdleTimeoutPolicy,
       agentProcessFactory(projectPath) {
-        return fork(agentProcessPath, [], {
+        // Prevent console window flash on Windows when forking agent processes.
+        // windowsHide is supported at runtime (fork delegates to spawn) but not in ForkOptions types,
+        // so we extract the options to a variable to bypass excess property checking.
+        const e2eStdio: StdioOptions = ['ignore', 'inherit', 'inherit', 'ipc']
+        const forkOptions = {
           cwd: projectPath,
           env: {
             ...process.env,
@@ -244,8 +248,10 @@ async function main(): Promise<void> {
             BRV_AGENT_PROJECT_PATH: projectPath,
           },
           // In E2E mode, inherit stderr to see agent errors
-          stdio: process.env.BRV_E2E_MODE === 'true' ? ['ignore', 'inherit', 'inherit', 'ipc'] : undefined,
-        })
+          stdio: process.env.BRV_E2E_MODE === 'true' ? e2eStdio : undefined,
+          windowsHide: true,
+        }
+        return fork(agentProcessPath, [], forkOptions)
       },
       log,
       transportServer,
@@ -411,7 +417,7 @@ async function main(): Promise<void> {
 
     // State endpoint: provider config — agents request this on startup and after provider:updated
     transportServer.onRequest<void, ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG, async () =>
-      resolveProviderConfig(providerConfigStore, providerKeychainStore, tokenRefreshManager),
+      resolveProviderConfig({authStateStore, providerConfigStore, providerKeychainStore, tokenRefreshManager}),
     )
 
     // Feature handlers (auth, init, status, push, pull, etc.) require async OIDC discovery.
