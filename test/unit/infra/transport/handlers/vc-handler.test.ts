@@ -1234,6 +1234,9 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.NO_UPSTREAM)
+          expect(error.message).to.include('brv vc pull origin main')
+          expect(error.message).to.include('brv vc branch --set-upstream-to origin/main')
+          expect(error.message).to.not.include('pull -u')
         }
       }
     })
@@ -1453,6 +1456,9 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.NO_UPSTREAM)
+          expect(error.message).to.include('brv vc pull origin feat/x')
+          expect(error.message).to.include('brv vc branch --set-upstream-to origin/feat/x')
+          expect(error.message).to.not.include('pull -u')
         }
       }
     })

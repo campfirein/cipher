@@ -1273,8 +1273,10 @@ export class VcHandler {
       // No tracking configured — error like native git
       throw new VcError(
         `There is no tracking information for the current branch '${currentTrimmed}'.\n` +
-          `To set upstream tracking, use:\n\n` +
-          `    brv vc pull -u origin ${currentTrimmed}`,
+          `To pull from remote, use:\n\n` +
+          `    brv vc pull origin ${currentTrimmed}\n\n` +
+          `Or set upstream tracking with:\n\n` +
+          `    brv vc branch --set-upstream-to origin/${currentTrimmed}`,
         VcErrorCode.NO_UPSTREAM,
       )
     }
