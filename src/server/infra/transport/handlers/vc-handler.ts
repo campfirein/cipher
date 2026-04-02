@@ -775,12 +775,6 @@ export class VcHandler {
       throw new VcError(`Invalid branch name: '${data.branch}'.`, VcErrorCode.INVALID_BRANCH_NAME)
     }
 
-    const config = await this.vcGitConfigStore.get(projectPath)
-    if (!config?.name || !config.email) {
-      const hint = await this.buildAuthorHint(config)
-      throw new VcError(`Commit author not configured. ${hint}`, VcErrorCode.USER_NOT_CONFIGURED)
-    }
-
     if (hasMergeHead) {
       throw new VcError('You have not concluded your merge (MERGE_HEAD exists).', VcErrorCode.MERGE_IN_PROGRESS)
     }
@@ -797,6 +791,12 @@ export class VcHandler {
     const branches = await this.gitService.listBranches({directory, remote: 'origin'})
     if (!branches.some((b) => b.name === data.branch)) {
       throw new VcError(`merge: ${data.branch} - not something we can merge`, VcErrorCode.BRANCH_NOT_FOUND)
+    }
+
+    const config = await this.vcGitConfigStore.get(projectPath)
+    if (!config?.name || !config.email) {
+      const hint = await this.buildAuthorHint(config)
+      throw new VcError(`Commit author not configured. ${hint}`, VcErrorCode.USER_NOT_CONFIGURED)
     }
 
     const result = await this.gitService.merge({

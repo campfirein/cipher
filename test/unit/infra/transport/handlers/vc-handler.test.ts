@@ -2890,6 +2890,31 @@ describe('VcHandler', () => {
       }
     })
 
+    it('should throw BRANCH_NOT_FOUND before USER_NOT_CONFIGURED on empty repo', async () => {
+      const deps = makeMergeDeps(sandbox)
+      try {
+        deps.gitService.listBranches.resolves([])
+        deps.vcGitConfigStore.get.resolves()
+
+        makeVcHandler(deps).setup()
+        try {
+          await deps.requestHandlers[VcEvents.MERGE](
+            {action: 'merge', branch: 'feat'} satisfies IVcMergeRequest,
+            CLIENT_ID,
+          )
+          expect.fail('Expected error')
+        } catch (error) {
+          expect(error).to.be.instanceOf(VcError)
+          if (error instanceof VcError) {
+            expect(error.code).to.equal(VcErrorCode.BRANCH_NOT_FOUND)
+            expect(error.message).to.include('feat')
+          }
+        }
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
     it('should pass author from vcGitConfigStore to merge', async () => {
       const deps = makeMergeDeps(sandbox)
       try {
