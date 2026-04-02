@@ -249,8 +249,8 @@ export async function setupFeatureHandlers({
 
   new VcHandler({
     broadcastToProject,
-    cogitGitBaseUrl: envConfig.cogitGitBaseUrl,
     contextTreeService,
+    gitApiBaseUrl: envConfig.gitApiBaseUrl,
     gitService,
     projectConfigStore,
     resolveProjectPath,

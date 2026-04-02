@@ -109,6 +109,8 @@ function formatVcStatus(result: IVcStatusResponse): string {
 
   if (untracked.length > 0) {
     lines.push(chalk.bold('Untracked files:'))
+    // eslint-disable-next-line unicorn/no-array-push-push
+    lines.push(chalk.bold('(use "/vc add ‹file>..." to include in what will be committed)'))
     for (const f of untracked) lines.push(chalk.red(`   ${f}`))
   }
 

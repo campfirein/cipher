@@ -31,14 +31,16 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_VC_INVALID_ACTION: 'Invalid action.',
   ERR_VC_INVALID_BRANCH_NAME: 'Invalid branch name.',
   ERR_VC_INVALID_CONFIG_KEY: 'Invalid config key. Allowed: user.name, user.email.',
+  ERR_VC_NETWORK_ERROR: 'Network error. Check your connection and try again.',
+  ERR_VC_NO_BRANCH_RESOLVED: 'Cannot determine branch. Check out a branch first.',
   ERR_VC_NO_COMMITS: 'No commits yet. Run /vc add and /vc commit first.',
   ERR_VC_NO_REMOTE: `No remote configured.\n\nTo connect to cloud:\n  1. Go to ${getWebAppUrl()} → create or open a Space\n  2. Copy the remote URL\n  3. Run: /vc remote add origin <url>\n  4. Then: /vc push -u origin main`,
   ERR_VC_NON_FAST_FORWARD: 'Remote has changes. Run /vc pull first.',
   ERR_VC_NOTHING_STAGED: 'Nothing staged. Run /vc add first.',
   ERR_VC_NOTHING_TO_PUSH: 'No commits to push. Run /vc add and /vc commit first.',
-  ERR_VC_PUSH_FAILED: 'Push failed. Check your connection and try again.',
   ERR_VC_REMOTE_ALREADY_EXISTS: "Remote 'origin' already exists. Use /vc remote set-url <url> to update.",
   ERR_VC_UNCOMMITTED_CHANGES: 'You have uncommitted changes. Commit or use --force to discard.',
+  ERR_VC_UNRELATED_HISTORIES: 'Cannot merge unrelated histories. Use --allow-unrelated-histories to force.',
   // ERR_VC_USER_NOT_CONFIGURED intentionally omitted: fall through to server's specific hint with actual values
 }
 

@@ -51,11 +51,11 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [VcErrorCode.GIT_NOT_INITIALIZED]: 'ByteRover version control not initialized. Run brv vc init first.',
   [VcErrorCode.INVALID_BRANCH_NAME]: 'Invalid branch name.',
   [VcErrorCode.INVALID_CONFIG_KEY]: 'Invalid config key. Allowed: user.name, user.email.',
+  [VcErrorCode.NETWORK_ERROR]: 'Network error. Check your connection and try again.',
   [VcErrorCode.NO_REMOTE]: '', // placeholder — built lazily in formatConnectionError to avoid top-level env read
   [VcErrorCode.NON_FAST_FORWARD]: 'Remote has changes. Run brv vc pull first.',
   [VcErrorCode.NOTHING_STAGED]: 'Nothing staged. Run brv vc add first.',
   [VcErrorCode.NOTHING_TO_PUSH]: 'No commits to push. Run brv vc add and brv vc commit first.',
-  [VcErrorCode.PUSH_FAILED]: 'Push failed. Check your connection and try again.',
   [VcErrorCode.REMOTE_ALREADY_EXISTS]: "Remote 'origin' already exists. Use brv vc remote set-url <url> to update.",
   [VcErrorCode.UNCOMMITTED_CHANGES]: 'You have uncommitted changes. Commit or use --force to discard.',
   // USER_NOT_CONFIGURED intentionally omitted: fall through to server's specific hint with actual values

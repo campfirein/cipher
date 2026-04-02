@@ -42,6 +42,7 @@ import {
   type IVcResetResponse,
   type IVcStatusResponse,
   VcErrorCode,
+  type VcErrorCodeType,
   VcEvents,
   type VcResetMode,
 } from '../../../../shared/transport/events/vc-events.js'
@@ -55,6 +56,28 @@ import {ensureGitignoreEntries} from '../../../utils/gitignore.js'
 import {buildCogitRemoteUrl, isValidBranchName, parseBrvUrl, parseGitPathUrl} from '../../git/cogit-url.js'
 import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
+/**
+ * Classify a raw isomorphic-git error into a specific VcError by its `.code` property.
+ * Returns undefined if the error is not a recognized isomorphic-git error.
+ */
+function classifyIsomorphicGitError(error: unknown, notFoundCode: VcErrorCodeType): undefined | VcError {
+  if (!(error instanceof Error) || !('code' in error)) return undefined
+  const {code} = error as {code: string}
+  if (code === 'HttpError' || code === 'SmartHttpError') {
+    return new VcError(error.message, VcErrorCode.NETWORK_ERROR)
+  }
+
+  if (code === 'NotFoundError') {
+    return new VcError(error.message, notFoundCode)
+  }
+
+  if (code === 'UrlParseError') {
+    return new VcError(error.message, VcErrorCode.INVALID_REMOTE_URL)
+  }
+
+  return undefined
+}
+
 const FIELD_MAP: Record<string, 'email' | 'name'> = {
   'user.email': 'email',
   'user.name': 'name',
@@ -62,8 +85,8 @@ const FIELD_MAP: Record<string, 'email' | 'name'> = {
 
 export interface IVcHandlerDeps {
   broadcastToProject: ProjectBroadcaster
-  cogitGitBaseUrl: string
   contextTreeService: IContextTreeService
+  gitApiBaseUrl: string
   gitService: IGitService
   projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
@@ -79,8 +102,8 @@ export interface IVcHandlerDeps {
  */
 export class VcHandler {
   private readonly broadcastToProject: ProjectBroadcaster
-  private readonly cogitGitBaseUrl: string
   private readonly contextTreeService: IContextTreeService
+  private readonly gitApiBaseUrl: string
   private readonly gitService: IGitService
   private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
@@ -92,7 +115,7 @@ export class VcHandler {
 
   constructor(deps: IVcHandlerDeps) {
     this.broadcastToProject = deps.broadcastToProject
-    this.cogitGitBaseUrl = deps.cogitGitBaseUrl
+    this.gitApiBaseUrl = deps.gitApiBaseUrl
     this.contextTreeService = deps.contextTreeService
     this.gitService = deps.gitService
     this.projectConfigStore = deps.projectConfigStore
@@ -484,6 +507,9 @@ export class VcHandler {
         throw new VcError('Authentication failed. Run brv login.', VcErrorCode.AUTH_FAILED)
       }
 
+      const classified = classifyIsomorphicGitError(error, VcErrorCode.INVALID_REMOTE_URL)
+      if (classified) throw classified
+
       const msg = error instanceof Error ? error.message : String(error)
       throw new VcError(`Clone failed: ${msg}`, VcErrorCode.CLONE_FAILED)
     }
@@ -603,6 +629,9 @@ export class VcHandler {
       if (error instanceof GitAuthError) {
         throw new VcError('Authentication failed. Run brv login.', VcErrorCode.AUTH_FAILED)
       }
+
+      const classified = classifyIsomorphicGitError(error, VcErrorCode.INVALID_REF)
+      if (classified) throw classified
 
       const message = error instanceof Error ? error.message : 'Fetch failed.'
       throw new VcError(message, VcErrorCode.FETCH_FAILED)
@@ -826,8 +855,21 @@ export class VcHandler {
       }
 
       if (error instanceof GitError) {
-        throw new VcError(error.message, VcErrorCode.PULL_FAILED)
+        if (error.message.includes('unresolved merge conflicts')) {
+          throw new VcError(error.message, VcErrorCode.MERGE_IN_PROGRESS)
+        }
+
+        if (error.message.includes('would be overwritten')) {
+          throw new VcError(error.message, VcErrorCode.UNCOMMITTED_CHANGES)
+        }
+
+        if (error.message.includes('unrelated histories')) {
+          throw new VcError(error.message, VcErrorCode.UNRELATED_HISTORIES)
+        }
       }
+
+      const classified = classifyIsomorphicGitError(error, VcErrorCode.INVALID_REF)
+      if (classified) throw classified
 
       const message = error instanceof Error ? error.message : 'Pull failed. Check your connection and try again.'
       throw new VcError(message, VcErrorCode.PULL_FAILED)
@@ -901,6 +943,9 @@ export class VcHandler {
       if (error instanceof GitAuthError) {
         throw new VcError('Authentication failed. Run brv login.', VcErrorCode.AUTH_FAILED)
       }
+
+      const classified = classifyIsomorphicGitError(error, VcErrorCode.INVALID_REF)
+      if (classified) throw classified
 
       const message = error instanceof Error ? error.message : 'Push failed. Check your connection and try again.'
       throw new VcError(message, VcErrorCode.PUSH_FAILED)
@@ -1125,7 +1170,7 @@ export class VcHandler {
         spaceName: data.spaceName,
         teamId: data.teamId,
         teamName: data.teamName,
-        url: buildCogitRemoteUrl(this.cogitGitBaseUrl, data.teamId, data.spaceId),
+        url: buildCogitRemoteUrl(this.gitApiBaseUrl, data.teamId, data.spaceId),
       }
     }
 
@@ -1154,7 +1199,7 @@ export class VcHandler {
     if (gitPath) {
       if (gitPath.areUuids) {
         // UUIDs — build clean URL (strip any credentials that may be in the URL)
-        const cleanUrl = buildCogitRemoteUrl(this.cogitGitBaseUrl, gitPath.segment1, gitPath.segment2)
+        const cleanUrl = buildCogitRemoteUrl(this.gitApiBaseUrl, gitPath.segment1, gitPath.segment2)
         return {spaceId: gitPath.segment2, teamId: gitPath.segment1, url: cleanUrl}
       }
 
@@ -1229,12 +1274,12 @@ export class VcHandler {
       throw new VcError(
         `There is no tracking information for the current branch '${currentTrimmed}'.\n` +
           `To set upstream tracking, use:\n\n` +
-          `    brv vc push -u origin ${currentTrimmed}`,
+          `    brv vc pull -u origin ${currentTrimmed}`,
         VcErrorCode.NO_UPSTREAM,
       )
     }
 
-    throw new VcError('Cannot determine branch for pull. Check out a branch first.', VcErrorCode.PULL_FAILED)
+    throw new VcError('Cannot determine branch for pull. Check out a branch first.', VcErrorCode.NO_BRANCH_RESOLVED)
   }
 
   private async resolveTargetBranch(requestedBranch: string | undefined, directory: string): Promise<string> {
@@ -1294,7 +1339,7 @@ export class VcHandler {
       spaceName: space.name,
       teamId: space.teamId,
       teamName: team.name,
-      url: buildCogitRemoteUrl(this.cogitGitBaseUrl, space.teamId, space.id),
+      url: buildCogitRemoteUrl(this.gitApiBaseUrl, space.teamId, space.id),
     }
   }
 
