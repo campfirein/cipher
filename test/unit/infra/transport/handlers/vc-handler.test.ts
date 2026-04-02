@@ -125,9 +125,18 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     getSpaces: sandbox.stub().resolves({spaces: [], total: 0}),
   }
 
+  const defaultToken = new AuthToken({
+    accessToken: 'test-acc',
+    expiresAt: new Date(Date.now() + 3_600_000),
+    refreshToken: 'test-ref',
+    sessionKey: 'sess-123',
+    userEmail: 'test@example.com',
+    userId: 'u1',
+  })
+
   const tokenStore: Stubbed<ITokenStore> = {
     clear: sandbox.stub().resolves(),
-    load: sandbox.stub().resolves(),
+    load: sandbox.stub().resolves(defaultToken),
     save: sandbox.stub().resolves(),
   }
 
@@ -974,6 +983,25 @@ describe('VcHandler', () => {
       }
     })
 
+    it('should throw NotAuthenticatedError when token is missing', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.log.resolves([
+        {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
+      ])
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
+      deps.tokenStore.load.resolves()
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(NotAuthenticatedError)
+      }
+    })
+
     it('should throw VcError AUTH_FAILED when gitService.push throws GitAuthError', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
@@ -1284,6 +1312,22 @@ describe('VcHandler', () => {
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.GIT_NOT_INITIALIZED)
         }
+      }
+    })
+
+    it('should throw NotAuthenticatedError when token is missing', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
+      deps.tokenStore.load.resolves()
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(NotAuthenticatedError)
       }
     })
 

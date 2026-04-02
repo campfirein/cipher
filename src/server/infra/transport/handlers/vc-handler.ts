@@ -845,6 +845,9 @@ export class VcHandler {
     const remote = data?.remote ?? 'origin'
     const branch = data?.branch ?? (await this.resolvePullBranch(directory))
 
+    const token = await this.tokenStore.load()
+    if (!token?.isValid()) throw new NotAuthenticatedError()
+
     let alreadyUpToDate = false
     let conflicts: Array<{path: string; type: string}> | undefined
     try {
@@ -942,6 +945,9 @@ export class VcHandler {
       await this.gitService.setTrackingBranch({branch, directory, remote: 'origin', remoteBranch: branch})
       upstreamSet = true
     }
+
+    const token = await this.tokenStore.load()
+    if (!token?.isValid()) throw new NotAuthenticatedError()
 
     let alreadyUpToDate = false
     try {
