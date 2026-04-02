@@ -188,6 +188,7 @@ function makeVcHandler(deps: TestDeps): VcHandler {
     tokenStore: deps.tokenStore,
     transport: deps.transport,
     vcGitConfigStore: deps.vcGitConfigStore,
+    webAppUrl: 'https://test-app.byterover.dev',
   })
 }
 
@@ -910,7 +911,9 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.NO_REMOTE)
-          expect(error.message).to.equal('No remote configured.')
+          expect(error.message).to.include('No remote configured.')
+          expect(error.message).to.include('brv vc push -u origin main')
+          expect(error.message).to.include('https://test-app.byterover.dev')
         }
       }
     })
@@ -1284,7 +1287,7 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should throw VcError NO_REMOTE when no remote configured', async () => {
+    it('should throw VcError NO_REMOTE with pull hint when no remote configured', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([])
@@ -1297,7 +1300,9 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.NO_REMOTE)
-          expect(error.message).to.equal('No remote configured.')
+          expect(error.message).to.include('No remote configured.')
+          expect(error.message).to.include('brv vc pull origin main')
+          expect(error.message).to.not.include('brv vc push')
         }
       }
     })
@@ -3071,7 +3076,7 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should throw VcError NO_REMOTE when no remote configured', async () => {
+    it('should throw VcError NO_REMOTE with fetch hint when no remote configured', async () => {
       const deps = makeDeps(sandbox, projectPath)
       const mockToken = new AuthToken({
         accessToken: 'test-acc',
@@ -3093,7 +3098,9 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.NO_REMOTE)
-          expect(error.message).to.equal('No remote configured.')
+          expect(error.message).to.include('No remote configured.')
+          expect(error.message).to.include('brv vc fetch')
+          expect(error.message).to.not.include('brv vc push')
         }
       }
     })

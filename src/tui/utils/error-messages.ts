@@ -1,5 +1,3 @@
-import {getWebAppUrl} from '../lib/environment.js'
-
 /**
  * User-friendly error messages for TUI.
  *
@@ -34,7 +32,6 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_VC_NETWORK_ERROR: 'Network error. Check your connection and try again.',
   ERR_VC_NO_BRANCH_RESOLVED: 'Cannot determine branch. Check out a branch first.',
   ERR_VC_NO_COMMITS: 'No commits yet. Run /vc add and /vc commit first.',
-  ERR_VC_NO_REMOTE: `No remote configured.\n\nTo connect to cloud:\n  1. Go to ${getWebAppUrl()} → create or open a Space\n  2. Copy the remote URL\n  3. Run: /vc remote add origin <url>\n  4. Then: /vc push -u origin main`,
   ERR_VC_NON_FAST_FORWARD: 'Remote has changes. Run /vc pull first.',
   ERR_VC_NOTHING_STAGED: 'Nothing staged. Run /vc add first.',
   ERR_VC_NOTHING_TO_PUSH: 'No commits to push. Run /vc add and /vc commit first.',

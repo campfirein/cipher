@@ -259,6 +259,7 @@ export async function setupFeatureHandlers({
     tokenStore,
     transport,
     vcGitConfigStore: new FileVcGitConfigStore(),
+    webAppUrl: envConfig.webAppUrl,
   }).setup()
 
   log('Feature handlers registered')

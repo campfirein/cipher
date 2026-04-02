@@ -95,6 +95,7 @@ export interface IVcHandlerDeps {
   tokenStore: ITokenStore
   transport: ITransportServer
   vcGitConfigStore: IVcGitConfigStore
+  webAppUrl: string
 }
 
 /**
@@ -112,6 +113,7 @@ export class VcHandler {
   private readonly tokenStore: ITokenStore
   private readonly transport: ITransportServer
   private readonly vcGitConfigStore: IVcGitConfigStore
+  private readonly webAppUrl: string
 
   constructor(deps: IVcHandlerDeps) {
     this.broadcastToProject = deps.broadcastToProject
@@ -125,6 +127,7 @@ export class VcHandler {
     this.tokenStore = deps.tokenStore
     this.transport = deps.transport
     this.vcGitConfigStore = deps.vcGitConfigStore
+    this.webAppUrl = deps.webAppUrl
   }
 
   setup(): void {
@@ -188,6 +191,16 @@ export class VcHandler {
     }
 
     return 'Run: brv vc config user.name <value> and brv vc config user.email <value>.'
+  }
+
+  private buildNoRemoteMessage(nextStep: string): string {
+    return (
+      `No remote configured.\n\nTo connect to cloud:\n` +
+      `  1. Go to ${this.webAppUrl} → create or open a Space\n` +
+      `  2. Copy the remote URL\n` +
+      `  3. Run: brv vc remote add origin <url>\n` +
+      `  4. Then: ${nextStep}`
+    )
   }
 
   /**
@@ -619,7 +632,7 @@ export class VcHandler {
 
     const remotes = await this.gitService.listRemotes({directory})
     if (remotes.length === 0) {
-      throw new VcError('No remote configured.', VcErrorCode.NO_REMOTE)
+      throw new VcError(this.buildNoRemoteMessage('brv vc fetch'), VcErrorCode.NO_REMOTE)
     }
 
     const remote = data.remote ?? 'origin'
@@ -820,7 +833,7 @@ export class VcHandler {
 
     const remotes = await this.gitService.listRemotes({directory})
     if (remotes.length === 0) {
-      throw new VcError('No remote configured.', VcErrorCode.NO_REMOTE)
+      throw new VcError(this.buildNoRemoteMessage('brv vc pull origin main'), VcErrorCode.NO_REMOTE)
     }
 
     // Soft resolve author: use vc config if available, otherwise let pull() fallback to getAuthor() from auth token.
@@ -889,7 +902,7 @@ export class VcHandler {
 
     const remotes = await this.gitService.listRemotes({directory})
     if (remotes.length === 0) {
-      throw new VcError('No remote configured.', VcErrorCode.NO_REMOTE)
+      throw new VcError(this.buildNoRemoteMessage('brv vc push -u origin main'), VcErrorCode.NO_REMOTE)
     }
 
     const commits = await this.gitService.log({depth: 1, directory})
