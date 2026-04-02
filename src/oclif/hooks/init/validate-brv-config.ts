@@ -76,7 +76,10 @@ export const validateBrvConfigVersion = async (
 
   const exists = await configStore.exists()
   if (!exists) {
-    throw new Error('fatal: not a brv project (or any of the parent directories): .brv')
+    const message = commandId.startsWith('vc:')
+      ? 'ByteRover version control not initialized. Run brv vc init first.'
+      : 'fatal: not a brv project (or any of the parent directories): .brv'
+    throw new Error(message)
   }
 
   const config = await configStore.read()

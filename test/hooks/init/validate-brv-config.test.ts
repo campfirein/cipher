@@ -69,6 +69,23 @@ describe('validateBrvConfigVersion', () => {
         expect((error as Error).message).to.include('not a brv project')
       }
     })
+
+    it('throws user-friendly message for vc commands when config does not exist', async () => {
+      existsStub.resolves(false)
+
+      await Promise.all(['vc:status', 'vc:commit', 'vc:push', 'vc:add'].map(async (vcCommand) => {
+        try {
+          await validateBrvConfigVersion(vcCommand, mockConfigStore, mockPatchMarkerDeps)
+          expect.fail(`Expected error for ${vcCommand}`)
+        } catch (error) {
+          expect(error).to.be.instanceof(Error)
+          const {message} = error as Error
+          expect(message).to.include('ByteRover version control not initialized')
+          expect(message).to.include('brv vc init')
+          expect(message).to.not.include('fatal:')
+        }
+      }))
+    })
   })
 
   describe('should allow commands when config has valid version', () => {
