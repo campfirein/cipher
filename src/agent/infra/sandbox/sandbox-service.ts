@@ -8,7 +8,7 @@ import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js
 import type { SessionManager } from '../session/session-manager.js'
 import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
 
-import {CurateResultCollector} from './curate-result-collector.js'
+import { CurateResultCollector } from './curate-result-collector.js'
 import { LocalSandbox } from './local-sandbox.js'
 import { createToolsSDK } from './tools-sdk.js'
 

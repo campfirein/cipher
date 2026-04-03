@@ -218,6 +218,48 @@ describe('ExperienceSynthesisService', () => {
       }
     })
 
+    it('matches subfolder references by exact path segment in performance context', async () => {
+      const llm = makeLlm('Segment-safe synthesis')
+      const service = new ExperienceSynthesisService(llm)
+      const {baseDir, store} = await makeStoreWithEntries('lessons', 4)
+
+      try {
+        sinon.stub(store, 'readPerformanceLog').resolves([
+          {
+            curationId: 1,
+            domain: 'experience',
+            insightsActive: ['experience/dead-end-lessons/alpha.md'],
+            score: 0.2,
+            summary: 'alpha',
+            ts: '2026-03-31T00:00:00.000Z',
+          },
+          {
+            curationId: 2,
+            domain: 'experience',
+            insightsActive: ['experience/dead-end-lessons/beta.md'],
+            score: 0.3,
+            summary: 'beta',
+            ts: '2026-03-31T01:00:00.000Z',
+          },
+          {
+            curationId: 3,
+            domain: 'experience',
+            insightsActive: ['experience/dead-end-lessons/gamma.md'],
+            score: 0.4,
+            summary: 'gamma',
+            ts: '2026-03-31T02:00:00.000Z',
+          },
+        ])
+
+        await service.synthesize(store, 5)
+
+        const userMessage = (llm.generate as sinon.SinonStub).firstCall.args[1] as string
+        expect(userMessage).to.not.include('**Performance Context**')
+      } finally {
+        await rm(baseDir, {force: true, recursive: true})
+      }
+    })
+
     it('is fail-open per subfolder — one failure does not block others', async () => {
       let callCount = 0
       const llm: IConsolidationLlm = {

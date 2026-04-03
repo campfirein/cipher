@@ -175,8 +175,9 @@ function buildPerformanceContext(
 
   // Filter log entries that reference paths in this subfolder
   const entryPathSet = new Set(entryPaths)
+  const referencesSubfolder = (path: string) => matchesSubfolderPath(path, subfolder, entryPathSet)
   const relevant = log.filter((e) =>
-    e.insightsActive.some((p) => entryPathSet.has(p) || p.includes(`/${subfolder}/`)),
+    e.insightsActive.some((path) => referencesSubfolder(path)),
   )
 
   if (relevant.length < 3) return ''
@@ -188,8 +189,8 @@ function buildPerformanceContext(
   const mid = Math.floor(scores.length / 2)
   const firstHalf = scores.slice(0, mid)
   const secondHalf = scores.slice(mid)
-  const avgFirst = firstHalf.reduce((a, b) => a + b, 0) / (firstHalf.length || 1)
-  const avgSecond = secondHalf.reduce((a, b) => a + b, 0) / (secondHalf.length || 1)
+  const avgFirst = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length
+  const avgSecond = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length
   const diff = avgSecond - avgFirst
   const trend = diff > 0.05 ? 'trending up' : diff < -0.05 ? 'trending down' : 'stable'
 
@@ -201,7 +202,7 @@ function buildPerformanceContext(
   for (const entry of relevant) {
     const bucket = entry.score > domainAvg ? highEntries : lowEntries
     for (const path of entry.insightsActive) {
-      if (entryPathSet.has(path) || path.includes(`/${subfolder}/`)) {
+      if (referencesSubfolder(path)) {
         bucket.set(path, (bucket.get(path) ?? 0) + 1)
       }
     }
@@ -228,4 +229,12 @@ function buildPerformanceContext(
   lines.push('Consider which patterns correlate with better task outcomes.')
 
   return '\n' + lines.join('\n')
+}
+
+function matchesSubfolderPath(path: string, subfolder: string, entryPathSet: Set<string>): boolean {
+  if (entryPathSet.has(path)) {
+    return true
+  }
+
+  return path.split('/').includes(subfolder)
 }

@@ -755,6 +755,7 @@ async function acquireIndex(
 export class SearchKnowledgeService implements ISearchKnowledgeService {
   private readonly baseDirectory: string
   private readonly cacheTtlMs: number
+  private readonly experienceStore: ExperienceStore
   private readonly fileSystem: IFileSystem
   /** In-flight flush promise shared across concurrent callers so they all receive the same scoring map. */
   private flushingPromise: Promise<Map<string, FrontmatterScoring>> | undefined
@@ -770,6 +771,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     this.fileSystem = fileSystem
     this.baseDirectory = config.baseDirectory ?? process.cwd()
     this.cacheTtlMs = config.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS
+    this.experienceStore = new ExperienceStore(this.baseDirectory)
   }
 
   /**
@@ -1048,13 +1050,12 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       }
 
       // Return cached factors if log file hasn't changed
-      if (this.perfFactorCache && this.perfFactorCache.mtime === fileMtime) {
+      if (this.perfFactorCache && this.perfFactorCache.mtime >= fileMtime) {
         return this.perfFactorCache
       }
 
       // File changed — read and recompute
-      const store = new ExperienceStore(this.baseDirectory)
-      const log = await store.readPerformanceLog()
+      const log = await this.experienceStore.readPerformanceLog()
 
       const pathFactors = computePerformanceFactors(log)
       const domainFactors = computeDomainFactors(log)

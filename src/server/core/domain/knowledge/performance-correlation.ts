@@ -66,7 +66,8 @@ export function computePerformanceFactors(log: NormalizedPerformanceLogEntry[]):
 /**
  * Compute domain-level performance factors as a fallback when path-level data is sparse.
  *
- * Domain key is extracted from the first path segment of insightsActive entries.
+ * Domain key is extracted from the first path segment of insightsActive entries,
+ * not from the task-level entry.domain field.
  *
  * @returns Map<domain, factor> where factor ∈ [-0.15, +0.15].
  */
@@ -96,6 +97,7 @@ export function computeDomainFactors(log: NormalizedPerformanceLogEntry[]): Map<
 
   const factors = new Map<string, number>()
   for (const [domain, {count, sum}] of domainDeltas) {
+    // This "domain" is the first path segment from insightsActive, not entry.domain.
     const normalized = Math.tanh((sum / count) * TANH_STEEPNESS) * MAX_FACTOR_MAGNITUDE
     factors.set(domain, normalized)
   }
@@ -112,7 +114,7 @@ function prepareCorrelationInputs(
   }
 
   return {
-    domainAvg: buildDomainAverages(withInsights),
+    domainAvg: buildDomainAverages(log),
     withInsights,
   }
 }

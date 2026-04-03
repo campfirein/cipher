@@ -1,3 +1,4 @@
+import type {SessionInsightsTracker} from '../../../server/infra/context-tree/session-insights-tracker.js'
 import type {
   FileContent,
   GlobResult,
@@ -257,7 +258,7 @@ export interface CreateToolsSDKOptions {
   /** Search knowledge service */
   searchKnowledgeService?: ISearchKnowledgeService
   /** Session insights tracker for performance correlation */
-  sessionInsightsTracker?: import('../../../server/infra/context-tree/session-insights-tracker.js').SessionInsightsTracker
+  sessionInsightsTracker?: SessionInsightsTracker
   /** Session manager for sub-agent delegation (required for agentQuery) */
   sessionManager?: SessionManager
 }

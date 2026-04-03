@@ -24,7 +24,7 @@ function makeEntry(
 
 describe('performance-correlation', () => {
   describe('computePerformanceFactors()', () => {
-    it('returns an empty map when fewer than five entries have insightsActive', () => {
+    it('returns an empty map when fewer than five entries have non-empty insightsActive', () => {
       const log = [
         makeEntry({curationId: 1}),
         makeEntry({curationId: 2}),
@@ -34,6 +34,42 @@ describe('performance-correlation', () => {
 
       expect(computePerformanceFactors(log).size).to.equal(0)
       expect(computeDomainFactors(log).size).to.equal(0)
+    })
+
+    it('activates once exactly five entries have non-empty insightsActive', () => {
+      const log = [
+        makeEntry({curationId: 1, insightsActive: ['auth/good.md'], score: 0.9}),
+        makeEntry({curationId: 2, insightsActive: ['auth/good.md'], score: 0.88}),
+        makeEntry({curationId: 3, insightsActive: ['auth/good.md'], score: 0.86}),
+        makeEntry({curationId: 4, insightsActive: ['auth/bad.md'], score: 0.35}),
+        makeEntry({curationId: 5, insightsActive: ['auth/bad.md'], score: 0.3}),
+      ]
+
+      const factors = computePerformanceFactors(log)
+
+      expect(factors.size).to.be.greaterThan(0)
+      expect(factors.get('auth/good.md') ?? 0).to.be.greaterThan(0)
+    })
+
+    it('builds domain baselines from the full log, not only insight-tagged entries', () => {
+      const log = [
+        makeEntry({curationId: 1, insightsActive: ['auth/good.md'], score: 0.9}),
+        makeEntry({curationId: 2, insightsActive: ['auth/good.md'], score: 0.9}),
+        makeEntry({curationId: 3, insightsActive: ['auth/good.md'], score: 0.9}),
+        makeEntry({curationId: 4, insightsActive: ['auth/good.md'], score: 0.9}),
+        makeEntry({curationId: 5, insightsActive: ['auth/good.md'], score: 0.9}),
+        makeEntry({curationId: 6, insightsActive: [], score: 0.1}),
+        makeEntry({curationId: 7, insightsActive: [], score: 0.1}),
+        makeEntry({curationId: 8, insightsActive: [], score: 0.1}),
+        makeEntry({curationId: 9, insightsActive: [], score: 0.1}),
+        makeEntry({curationId: 10, insightsActive: [], score: 0.1}),
+      ]
+
+      const pathFactors = computePerformanceFactors(log)
+      const domainFactors = computeDomainFactors(log)
+
+      expect(pathFactors.get('auth/good.md') ?? 0).to.be.greaterThan(0)
+      expect(domainFactors.get('auth') ?? 0).to.be.greaterThan(0)
     })
 
     it('gives positive factors to paths correlated with above-average scores', () => {
