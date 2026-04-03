@@ -28,7 +28,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_VC_GIT_INITIALIZED: 'ByteRover version control is active. Use /vc commands instead of legacy sync commands.',
   ERR_VC_GIT_NOT_INITIALIZED: 'ByteRover version control not initialized. Run /vc init first.',
   ERR_VC_INVALID_ACTION: 'Invalid action.',
-  ERR_VC_INVALID_BRANCH_NAME: 'Invalid branch name.',
+  // ERR_VC_INVALID_BRANCH_NAME intentionally omitted: fall through to server's message with actual branch name
   ERR_VC_INVALID_CONFIG_KEY: 'Invalid config key. Allowed: user.name, user.email.',
   ERR_VC_NETWORK_ERROR: 'Network error. Check your connection and try again.',
   ERR_VC_NO_BRANCH_RESOLVED: 'Cannot determine branch. Check out a branch first.',

@@ -998,8 +998,7 @@ export class VcHandler {
       throw new VcError('URL is required.', VcErrorCode.INVALID_REMOTE_URL)
     }
 
-    const resolved = await this.resolveFullCogitUrl(data.url)
-
+    // Check local state before hitting the server — fail fast for duplicate remote
     if (data.subcommand === 'add') {
       const existing = await this.gitService.getRemoteUrl({directory, remote: 'origin'})
       if (existing) {
@@ -1008,7 +1007,11 @@ export class VcHandler {
           VcErrorCode.REMOTE_ALREADY_EXISTS,
         )
       }
+    }
 
+    const resolved = await this.resolveFullCogitUrl(data.url)
+
+    if (data.subcommand === 'add') {
       await this.gitService.addRemote({directory, remote: 'origin', url: resolved.url})
       return {action: 'add', url: resolved.url}
     }

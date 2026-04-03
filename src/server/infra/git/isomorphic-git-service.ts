@@ -760,6 +760,12 @@ export class IsomorphicGitService implements IGitService {
     }
 
     // Cases 3-5: Reset to a specific ref (soft/mixed/hard)
+    // Empty repo (no commits) — HEAD doesn't exist. Git treats this as a silent no-op.
+    const headExists = await git.resolveRef({dir, fs, ref: 'HEAD'}).then(() => true, () => false)
+    if (!headExists) {
+      return {filesChanged: 0, headSha: ''}
+    }
+
     const targetSha = await this.resolveRefExpression(dir, ref)
     const branch = await this.getCurrentBranch(params)
     if (!branch) {

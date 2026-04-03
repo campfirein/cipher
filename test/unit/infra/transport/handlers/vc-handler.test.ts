@@ -3603,6 +3603,21 @@ describe('VcHandler', () => {
       expect(result).to.deep.equal({filesUnstaged: undefined, headSha: 'def456', mode: 'soft'})
     })
 
+    it('should delegate soft reset without ref (defaults to HEAD)', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.reset.resolves({filesChanged: 0, headSha: 'abc123'})
+      makeVcHandler(deps).setup()
+
+      const result = await invoke<IVcResetResponse>(deps, VcEvents.RESET, {mode: 'soft'})
+
+      expect(deps.gitService.reset.calledOnce).to.be.true
+      const callArgs = deps.gitService.reset.firstCall.args[0]
+      expect(callArgs.mode).to.equal('soft')
+      expect(callArgs.ref).to.be.undefined
+      expect(result).to.deep.equal({filesUnstaged: undefined, headSha: 'abc123', mode: 'soft'})
+    })
+
     it('should delegate hard reset to gitService.reset with mode and ref', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
@@ -3616,6 +3631,21 @@ describe('VcHandler', () => {
       expect(callArgs.mode).to.equal('hard')
       expect(callArgs.ref).to.equal('HEAD~1')
       expect(result).to.deep.equal({filesUnstaged: undefined, headSha: 'def456', mode: 'hard'})
+    })
+
+    it('should delegate hard reset without ref (defaults to HEAD)', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.reset.resolves({filesChanged: 2, headSha: 'abc123'})
+      makeVcHandler(deps).setup()
+
+      const result = await invoke<IVcResetResponse>(deps, VcEvents.RESET, {mode: 'hard'})
+
+      expect(deps.gitService.reset.calledOnce).to.be.true
+      const callArgs = deps.gitService.reset.firstCall.args[0]
+      expect(callArgs.mode).to.equal('hard')
+      expect(callArgs.ref).to.be.undefined
+      expect(result).to.deep.equal({filesUnstaged: undefined, headSha: 'abc123', mode: 'hard'})
     })
 
     it('should map INVALID_REF error from gitService', async () => {

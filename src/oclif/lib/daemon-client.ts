@@ -48,7 +48,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [VcErrorCode.CONFLICT_MARKERS_PRESENT]:
     'Conflict markers detected. Resolve conflicts and run brv vc add before pushing.',
   [VcErrorCode.GIT_NOT_INITIALIZED]: 'ByteRover version control not initialized. Run brv vc init first.',
-  [VcErrorCode.INVALID_BRANCH_NAME]: 'Invalid branch name.',
+  // INVALID_BRANCH_NAME intentionally omitted: fall through to server's message with actual branch name
   [VcErrorCode.INVALID_CONFIG_KEY]: 'Invalid config key. Allowed: user.name, user.email.',
   [VcErrorCode.NETWORK_ERROR]: 'Network error. Check your connection and try again.',
   [VcErrorCode.NON_FAST_FORWARD]: 'Remote has changes. Run brv vc pull first.',
