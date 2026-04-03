@@ -1,8 +1,8 @@
 # ByteRover CLI
 
-<!-- TODO: Add logo when available -->
-
 <div align="center">
+
+<img src="./assets/images/logo/byterover-logo.svg" alt="ByteRover Logo" width="280" />
 
 <p align="center">
 <em>Interactive REPL CLI for AI-powered context memory</em>
@@ -24,6 +24,8 @@ ByteRover CLI (`brv`) gives AI coding agents persistent, structured memory. It l
 
 Run `brv` in any project directory to start an interactive REPL powered by your choice of LLM. The agent understands your codebase through an agentic map, can read and write files, execute code, and store knowledge for future sessions.
 
+📄 Read the [paper](https://byterover.dev/paper) for the full technical details.
+
 **Key Features:**
 
 - 🖥️ Interactive TUI with REPL interface (React/Ink)
@@ -35,6 +37,25 @@ Run `brv` in any project directory to start an interactive REPL powered by your 
 - 📦 Hub and connectors ecosystem for skills and bundles
 - 🤝 Works with 22+ AI coding agents (Cursor, Claude Code, Windsurf, Cline, and more)
 - 🏢 Enterprise proxy support
+
+## Benchmark Results
+
+All benchmarks are run using the production `byterover-cli` codebase in this repository - no separate research prototype.
+
+We evaluate on two long-term conversational memory benchmarks:
+
+- **LoCoMo** - ultra-long conversations (~20K tokens, 35 sessions) testing single-hop, multi-hop, temporal, and open-domain retrieval.
+- **LongMemEval-S** - large-scale benchmark (23,867 docs, ~48 sessions per question) testing 6 memory abilities including knowledge update, temporal reasoning, and multi-session synthesis.
+
+**LoCoMo** - 96.1% overall accuracy (1,982 questions, 272 docs).
+
+**LongMemEval-S** - 92.8% overall accuracy (500 questions, 23,867 docs).
+
+<p align="center">
+<img src="assets/images/benchmarks/longmemeval-s-by-category.png" alt="LongMemEval-S Benchmark by Category" width="700" />
+</p>
+
+All metrics are LLM-as-Judge accuracy (%). See the [paper](https://byterover.dev/paper) for full details.
 
 ## Quick Start
 
