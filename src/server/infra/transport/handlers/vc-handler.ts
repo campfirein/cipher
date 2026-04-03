@@ -53,7 +53,7 @@ import {GitAuthError, GitError} from '../../../core/domain/errors/git-error.js'
 import {NotAuthenticatedError} from '../../../core/domain/errors/task-error.js'
 import {VcError} from '../../../core/domain/errors/vc-error.js'
 import {ensureGitignoreEntries} from '../../../utils/gitignore.js'
-import {buildCogitRemoteUrl, isValidBranchName, parseBrvUrl, parseGitPathUrl} from '../../git/cogit-url.js'
+import {buildCogitRemoteUrl, isValidBranchName, parseGitPathUrl, parseUserFacingUrl} from '../../git/cogit-url.js'
 import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 /**
@@ -1203,8 +1203,8 @@ export class VcHandler {
    * Resolve any URL format to a clean cogit URL + team/space info.
    * Supports:
    * 1. Cogit URL with UUIDs (/git/{uuid}/{uuid}.git) → strip credentials, return clean
-   * 2. Cogit URL with names (/git/{name}/{name}.git|.brv) → resolve names to IDs
-   * 3. User-facing .brv URL (/{name}/{name}.brv) → resolve names to IDs
+   * 2. Cogit URL with names (/git/{name}/{name}.git) → resolve names to IDs
+   * 3. User-facing .git URL (/{name}/{name}.git) → resolve names to IDs
    * 4. Unknown format → reject (no credential leaking to arbitrary URLs)
    *
    * Auth is handled by IsomorphicGitService via headers, not URL credentials.
@@ -1219,7 +1219,7 @@ export class VcHandler {
     // Validate the URL domain against known hosts
     this.validateRemoteUrlDomain(url)
 
-    // /git/{segment1}/{segment2}.git or .brv
+    // /git/{segment1}/{segment2}.git
     const gitPath = parseGitPathUrl(url)
     if (gitPath) {
       if (gitPath.areUuids) {
@@ -1232,15 +1232,15 @@ export class VcHandler {
       return this.resolveTeamSpaceNames(gitPath.segment1, gitPath.segment2)
     }
 
-    // User-facing .brv URL (/{teamName}/{spaceName}.brv, no /git/ prefix)
-    const brvParts = parseBrvUrl(url)
-    if (brvParts) {
-      return this.resolveTeamSpaceNames(brvParts.teamName, brvParts.spaceName)
+    // User-facing .git URL (/{teamName}/{spaceName}.git, no /git/ prefix)
+    const userFacingParts = parseUserFacingUrl(url)
+    if (userFacingParts) {
+      return this.resolveTeamSpaceNames(userFacingParts.teamName, userFacingParts.spaceName)
     }
 
     // Unknown format — reject to prevent credential leaking to arbitrary URLs
     throw new VcError(
-      `Invalid URL format. Use: ${this.gitRemoteBaseUrl}/<team>/<space>.brv`,
+      `Invalid URL format. Use: ${this.gitRemoteBaseUrl}/<team>/<space>.git`,
       VcErrorCode.INVALID_REMOTE_URL,
     )
   }
@@ -1377,18 +1377,17 @@ export class VcHandler {
   private validateRemoteUrlDomain(url: string): void {
     try {
       const parsed = new URL(url)
-      const allowedHosts = [this.gitRemoteBaseUrl, this.gitApiBaseUrl, this.webAppUrl]
-        .map((u) => new URL(u).host)
+      const allowedHosts = [this.gitRemoteBaseUrl, this.gitApiBaseUrl, this.webAppUrl].map((u) => new URL(u).host)
       if (!allowedHosts.includes(parsed.host)) {
         throw new VcError(
-          `Invalid remote URL. Use: ${this.gitRemoteBaseUrl}/<team>/<space>.brv`,
+          `Invalid remote URL. Use: ${this.gitRemoteBaseUrl}/<team>/<space>.git`,
           VcErrorCode.INVALID_REMOTE_URL,
         )
       }
     } catch (error) {
       if (error instanceof VcError) throw error
       throw new VcError(
-        `Invalid remote URL. Use: ${this.gitRemoteBaseUrl}/<team>/<space>.brv`,
+        `Invalid remote URL. Use: ${this.gitRemoteBaseUrl}/<team>/<space>.git`,
         VcErrorCode.INVALID_REMOTE_URL,
       )
     }

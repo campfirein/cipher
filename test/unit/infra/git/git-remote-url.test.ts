@@ -2,8 +2,8 @@ import {expect} from 'chai'
 
 import {
   buildCogitRemoteUrl,
-  parseBrvUrl,
   parseGitPathUrl,
+  parseUserFacingUrl,
   stripCredentialsFromUrl,
 } from '../../../../src/server/infra/git/cogit-url.js'
 
@@ -70,17 +70,12 @@ describe('cogit-url', () => {
       expect(result).to.deep.equal({areUuids: false, segment1: 'team-1', segment2: 'space-2'})
     })
 
-    it('should also match .brv extension in /git/ path', () => {
-      const result = parseGitPathUrl('https://dev-beta-cgit.byterover.dev/git/Team2/test-git.brv')
-      expect(result).to.deep.equal({areUuids: false, segment1: 'Team2', segment2: 'test-git'})
+    it('should return null for .brv extension in /git/ path', () => {
+      expect(parseGitPathUrl('https://dev-beta-cgit.byterover.dev/git/Team2/test-git.brv')).to.be.null
     })
 
     it('should return null for non-cogit URL', () => {
       expect(parseGitPathUrl('https://example.com/repo.git')).to.be.null
-    })
-
-    it('should return null for .brv URL without /git/ prefix', () => {
-      expect(parseGitPathUrl('https://byterover.dev/acme/project.brv')).to.be.null
     })
 
     it('should return null for invalid URL', () => {
@@ -88,27 +83,31 @@ describe('cogit-url', () => {
     })
   })
 
-  describe('parseBrvUrl', () => {
-    it('should extract teamName and spaceName from valid .brv URL', () => {
-      const result = parseBrvUrl('https://byterover.dev/acme/project.brv')
+  describe('parseUserFacingUrl', () => {
+    it('should extract teamName and spaceName from valid .git URL', () => {
+      const result = parseUserFacingUrl('https://byterover.dev/acme/project.git')
       expect(result).to.deep.equal({spaceName: 'project', teamName: 'acme'})
     })
 
     it('should handle names with hyphens', () => {
-      const result = parseBrvUrl('https://byterover.dev/my-team/my-space.brv')
+      const result = parseUserFacingUrl('https://byterover.dev/my-team/my-space.git')
       expect(result).to.deep.equal({spaceName: 'my-space', teamName: 'my-team'})
     })
 
-    it('should return null for cogit URL', () => {
-      expect(parseBrvUrl('https://example.com/git/team/space.git')).to.be.null
+    it('should return null for cogit URL with /git/ prefix', () => {
+      expect(parseUserFacingUrl('https://example.com/git/team/space.git')).to.be.null
     })
 
-    it('should return null for URL without .brv extension', () => {
-      expect(parseBrvUrl('https://byterover.dev/acme/project')).to.be.null
+    it('should return null for URL without .git extension', () => {
+      expect(parseUserFacingUrl('https://byterover.dev/acme/project')).to.be.null
+    })
+
+    it('should return null for .brv URL', () => {
+      expect(parseUserFacingUrl('https://byterover.dev/acme/project.brv')).to.be.null
     })
 
     it('should return null for invalid URL', () => {
-      expect(parseBrvUrl('not-a-url')).to.be.null
+      expect(parseUserFacingUrl('not-a-url')).to.be.null
     })
   })
 })

@@ -11,7 +11,7 @@ import {Args, parseReplArgs} from '../utils/arg-parser.js'
 const vcRemoteArgs = {
   subcommand: Args.string({description: 'Subcommand: add | set-url (omit to show current remote)'}),
   name: Args.string({description: 'Remote name (e.g. origin)'}),
-  url: Args.string({description: `Remote URL (e.g. ${getGitRemoteBaseUrl()}/<team>/<space>.brv)`}),
+  url: Args.string({description: `Remote URL (e.g. ${getGitRemoteBaseUrl()}/<team>/<space>.git)`}),
 }
 /* eslint-enable perfectionist/sort-objects */
 

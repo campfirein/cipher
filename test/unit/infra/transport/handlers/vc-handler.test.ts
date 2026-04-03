@@ -1769,7 +1769,7 @@ describe('VcHandler', () => {
       expect(cloneArgs.url).to.equal('https://test-cogit.byterover.dev/git/tid-1/sid-1.git')
     })
 
-    it('should clone with .brv URL by resolving team/space names to IDs', async () => {
+    it('should clone with user-facing .git URL by resolving team/space names to IDs', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
@@ -1784,7 +1784,7 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
 
       const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(deps, VcEvents.CLONE, {
-        url: 'https://byterover.dev/acme/project.brv',
+        url: 'https://byterover.dev/acme/project.git',
       })
 
       expect(result.gitDir).to.include('.git')
@@ -1816,7 +1816,7 @@ describe('VcHandler', () => {
       expect(result.spaceName).to.equal('test-git')
     })
 
-    it('should resolve team/space name case-insensitively in .brv URL', async () => {
+    it('should resolve team/space name case-insensitively in user-facing .git URL', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
@@ -1831,14 +1831,14 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
 
       const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(deps, VcEvents.CLONE, {
-        url: 'https://byterover.dev/ACME/PROJECT.brv',
+        url: 'https://byterover.dev/ACME/PROJECT.git',
       })
 
       expect(result.teamName).to.equal('acme')
       expect(result.spaceName).to.equal('project')
     })
 
-    it('should throw when .brv URL team not found', async () => {
+    it('should throw when user-facing .git URL team not found', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
@@ -1846,7 +1846,7 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
 
       try {
-        await invoke(deps, VcEvents.CLONE, {url: 'https://byterover.dev/unknown/project.brv'})
+        await invoke(deps, VcEvents.CLONE, {url: 'https://byterover.dev/unknown/project.git'})
         expect.fail('Expected error')
       } catch (error) {
         expect(error).to.be.instanceOf(VcError)
@@ -1857,7 +1857,7 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should throw when .brv URL space not found', async () => {
+    it('should throw when user-facing .git URL space not found', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
@@ -1869,7 +1869,7 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
 
       try {
-        await invoke(deps, VcEvents.CLONE, {url: 'https://byterover.dev/acme/missing.brv'})
+        await invoke(deps, VcEvents.CLONE, {url: 'https://byterover.dev/acme/missing.git'})
         expect.fail('Expected error')
       } catch (error) {
         expect(error).to.be.instanceOf(VcError)
@@ -2142,7 +2142,7 @@ describe('VcHandler', () => {
       expect(storedUrl).to.equal(cleanUrl)
     })
 
-    it('should resolve .brv URL and store clean URL when adding remote', async () => {
+    it('should resolve user-facing .git URL and store clean URL when adding remote', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.getRemoteUrl.resolves()
@@ -2168,7 +2168,7 @@ describe('VcHandler', () => {
       const result = await invoke<{action: string; url: string}>(
         deps,
         VcEvents.REMOTE,
-        {subcommand: 'add', url: 'https://byterover.dev/acme/project.brv'},
+        {subcommand: 'add', url: 'https://byterover.dev/acme/project.git'},
         CLIENT_ID,
       )
 

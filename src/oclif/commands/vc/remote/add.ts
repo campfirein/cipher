@@ -7,10 +7,15 @@ import {formatConnectionError, withDaemonRetry} from '../../../lib/daemon-client
 export default class VcRemoteAdd extends Command {
   public static args = {
     name: Args.string({description: 'Remote name', required: true}),
-    url: Args.string({description: `Remote URL (e.g. ${getCurrentConfig().gitRemoteBaseUrl}/<team>/<space>.brv)`, required: true}),
+    url: Args.string({
+      description: `Remote URL (e.g. ${getCurrentConfig().gitRemoteBaseUrl}/<team>/<space>.git)`,
+      required: true,
+    }),
   }
   public static description = 'Add a named remote'
-  public static examples = [`<%= config.bin %> <%= command.id %> origin ${getCurrentConfig().gitRemoteBaseUrl}/acme/project.brv`]
+  public static examples = [
+    `<%= config.bin %> <%= command.id %> origin ${getCurrentConfig().gitRemoteBaseUrl}/acme/project.git`,
+  ]
 
   public async run(): Promise<void> {
     const {args} = await this.parse(VcRemoteAdd)
