@@ -251,6 +251,7 @@ export async function setupFeatureHandlers({
     broadcastToProject,
     contextTreeService,
     gitApiBaseUrl: envConfig.gitApiBaseUrl,
+    gitRemoteBaseUrl: envConfig.gitRemoteBaseUrl,
     gitService,
     projectConfigStore,
     resolveProjectPath,

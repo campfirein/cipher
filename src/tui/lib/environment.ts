@@ -25,3 +25,9 @@ export const CONTEXT_TREE_CONFLICT_DIR = 'context-tree-conflicts'
  */
 export const getWebAppUrl = (): string =>
   isDevelopment() ? 'https://dev-beta-app.byterover.dev' : 'https://app.byterover.dev'
+
+/**
+ * Git remote base URL for the current environment.
+ */
+export const getGitRemoteBaseUrl = (): string =>
+  process.env.BRV_GIT_REMOTE_BASE_URL ?? (isDevelopment() ? 'https://dev-beta-app.byterover.dev' : 'https://byterover.dev')

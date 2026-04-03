@@ -1,15 +1,16 @@
 import {Args, Command} from '@oclif/core'
 
+import {getCurrentConfig} from '../../../../server/config/environment.js'
 import {type IVcRemoteResponse, VcEvents} from '../../../../shared/transport/events/vc-events.js'
 import {formatConnectionError, withDaemonRetry} from '../../../lib/daemon-client.js'
 
 export default class VcRemoteSetUrl extends Command {
   public static args = {
     name: Args.string({description: 'Remote name', required: true}),
-    url: Args.string({description: 'Remote URL (e.g. https://app.byterover.dev/team/space.brv)', required: true}),
+    url: Args.string({description: `Remote URL (e.g. ${getCurrentConfig().gitRemoteBaseUrl}/<team>/<space>.brv)`, required: true}),
   }
   public static description = 'Update a remote URL'
-  public static examples = ['<%= config.bin %> <%= command.id %> origin https://app.byterover.dev/team/space.brv']
+  public static examples = [`<%= config.bin %> <%= command.id %> origin ${getCurrentConfig().gitRemoteBaseUrl}/acme/project.brv`]
 
   public async run(): Promise<void> {
     const {args} = await this.parse(VcRemoteSetUrl)

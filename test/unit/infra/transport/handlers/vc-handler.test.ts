@@ -189,6 +189,7 @@ function makeVcHandler(deps: TestDeps): VcHandler {
     broadcastToProject: deps.broadcastToProject,
     contextTreeService: deps.contextTreeService,
     gitApiBaseUrl: 'https://test-cogit.byterover.dev',
+    gitRemoteBaseUrl: 'https://byterover.dev',
     gitService: deps.gitService,
     projectConfigStore: deps.projectConfigStore,
     resolveProjectPath: deps.resolveProjectPath,
@@ -983,14 +984,10 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should throw NotAuthenticatedError when token is missing', async () => {
+    it('should throw NotAuthenticatedError when token is missing before checking remotes', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
-      deps.gitService.log.resolves([
-        {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
-      ])
-      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
       deps.tokenStore.load.resolves()
       makeVcHandler(deps).setup()
 
@@ -999,6 +996,8 @@ describe('VcHandler', () => {
         expect.fail('Expected error')
       } catch (error) {
         expect(error).to.be.instanceOf(NotAuthenticatedError)
+        // listRemotes should NOT have been called — auth blocks first
+        expect(deps.gitService.listRemotes.called).to.be.false
       }
     })
 
@@ -1315,11 +1314,10 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should throw NotAuthenticatedError when token is missing', async () => {
+    it('should throw NotAuthenticatedError when token is missing before checking remotes', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
-      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
       deps.tokenStore.load.resolves()
       makeVcHandler(deps).setup()
 
@@ -1328,6 +1326,7 @@ describe('VcHandler', () => {
         expect.fail('Expected error')
       } catch (error) {
         expect(error).to.be.instanceOf(NotAuthenticatedError)
+        expect(deps.gitService.listRemotes.called).to.be.false
       }
     })
 
@@ -1760,7 +1759,7 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
 
       const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(deps, VcEvents.CLONE, {
-        url: 'https://dev-beta-cgit.byterover.dev/git/Teambao1/test-git.git',
+        url: 'https://test-cogit.byterover.dev/git/Teambao1/test-git.git',
       })
 
       expect(result.gitDir).to.include('.git')
@@ -1810,7 +1809,7 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
 
       const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(deps, VcEvents.CLONE, {
-        url: 'https://dev-beta-cgit.byterover.dev/git/teambao1/TEST-GIT.git',
+        url: 'https://test-cogit.byterover.dev/git/teambao1/TEST-GIT.git',
       })
 
       expect(result.teamName).to.equal('Teambao1')
@@ -1889,7 +1888,7 @@ describe('VcHandler', () => {
 
       try {
         await invoke(deps, VcEvents.CLONE, {
-          url: 'https://dev-beta-cgit.byterover.dev/git/TeamName/space-name.git',
+          url: 'https://test-cogit.byterover.dev/git/TeamName/space-name.git',
         })
         expect.fail('Expected error')
       } catch (error) {
@@ -2187,7 +2186,7 @@ describe('VcHandler', () => {
 
       try {
         await deps.requestHandlers[VcEvents.REMOTE](
-          {subcommand: 'add', url: 'https://dev-beta-cgit.byterover.dev/git/TeamName/space-name.git'},
+          {subcommand: 'add', url: 'https://test-cogit.byterover.dev/git/TeamName/space-name.git'},
           CLIENT_ID,
         )
         expect.fail('Expected error')

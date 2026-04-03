@@ -423,6 +423,39 @@ describe('arg-parser', () => {
       })
     })
 
+    describe('commit message with -m flag', () => {
+      it('should parse -m flag with quoted multi-word message', async () => {
+        const result = await parseReplArgs('-m "abc def"', {
+          flags: {message: Flags.string({char: 'm'})},
+          strict: false,
+        })
+        expect(result.flags.message).to.equal('abc def')
+      })
+
+      it('should parse -m flag with single-quoted multi-word message', async () => {
+        const result = await parseReplArgs("-m 'fix login bug'", {
+          flags: {message: Flags.string({char: 'm'})},
+          strict: false,
+        })
+        expect(result.flags.message).to.equal('fix login bug')
+      })
+
+      it('should parse --message flag with quoted value', async () => {
+        const result = await parseReplArgs('--message "add new feature"', {
+          flags: {message: Flags.string({char: 'm'})},
+          strict: false,
+        })
+        expect(result.flags.message).to.equal('add new feature')
+      })
+
+      it('should parse positional quoted message without flag', async () => {
+        const result = await parseReplArgs('"abc def"', {
+          strict: false,
+        })
+        expect(result.argv[0]).to.equal('abc def')
+      })
+    })
+
     describe('real-world scenarios', () => {
       it('should parse /query command style input', async () => {
         const result = await parseReplArgs('how does authentication work @src/auth.ts', {

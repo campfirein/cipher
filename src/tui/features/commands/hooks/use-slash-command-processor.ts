@@ -149,15 +149,15 @@ export function useSlashCommandProcessor(
         }
       }
 
-      // Extract file and folder references from args
-      const {args: argsWithoutFiles, files, folders} = splitArgs(args)
-      const cleanArgs = argsWithoutFiles.join(' ')
+      // Extract file and folder references from args for context metadata.
+      // Pass the original args string to the action — parseReplArgs handles quote-aware splitting internally.
+      const {files, folders} = splitArgs(args)
 
       // Build execution context with invocation details
       const execContext: CommandContext = {
         ...context,
         invocation: {
-          args: cleanArgs,
+          args,
           files,
           folders,
           name: commandNameForContext,
@@ -168,7 +168,7 @@ export function useSlashCommandProcessor(
       setIsProcessing(true)
 
       try {
-        const result = await actionToExecute(execContext, cleanArgs)
+        const result = await actionToExecute(execContext, args)
         return result
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)

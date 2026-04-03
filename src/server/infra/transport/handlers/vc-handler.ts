@@ -87,6 +87,7 @@ export interface IVcHandlerDeps {
   broadcastToProject: ProjectBroadcaster
   contextTreeService: IContextTreeService
   gitApiBaseUrl: string
+  gitRemoteBaseUrl: string
   gitService: IGitService
   projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
@@ -105,6 +106,7 @@ export class VcHandler {
   private readonly broadcastToProject: ProjectBroadcaster
   private readonly contextTreeService: IContextTreeService
   private readonly gitApiBaseUrl: string
+  private readonly gitRemoteBaseUrl: string
   private readonly gitService: IGitService
   private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
@@ -118,6 +120,7 @@ export class VcHandler {
   constructor(deps: IVcHandlerDeps) {
     this.broadcastToProject = deps.broadcastToProject
     this.gitApiBaseUrl = deps.gitApiBaseUrl
+    this.gitRemoteBaseUrl = deps.gitRemoteBaseUrl
     this.contextTreeService = deps.contextTreeService
     this.gitService = deps.gitService
     this.projectConfigStore = deps.projectConfigStore
@@ -465,7 +468,7 @@ export class VcHandler {
       await this.contextTreeService.initialize(projectPath)
 
       this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
-        message: `Remote: ${cloneUrl}`,
+        message: `Remote: ${data.url ?? label}`,
         step: 'cloning',
       })
       this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
@@ -831,6 +834,9 @@ export class VcHandler {
       throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
     }
 
+    const token = await this.tokenStore.load()
+    if (!token?.isValid()) throw new NotAuthenticatedError()
+
     const remotes = await this.gitService.listRemotes({directory})
     if (remotes.length === 0) {
       throw new VcError(this.buildNoRemoteMessage('brv vc pull origin main'), VcErrorCode.NO_REMOTE)
@@ -844,9 +850,6 @@ export class VcHandler {
     // If explicit branch provided, use it directly (skip tracking resolution)
     const remote = data?.remote ?? 'origin'
     const branch = data?.branch ?? (await this.resolvePullBranch(directory))
-
-    const token = await this.tokenStore.load()
-    if (!token?.isValid()) throw new NotAuthenticatedError()
 
     let alreadyUpToDate = false
     let conflicts: Array<{path: string; type: string}> | undefined
@@ -903,6 +906,9 @@ export class VcHandler {
       throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
     }
 
+    const token = await this.tokenStore.load()
+    if (!token?.isValid()) throw new NotAuthenticatedError()
+
     const remotes = await this.gitService.listRemotes({directory})
     if (remotes.length === 0) {
       throw new VcError(this.buildNoRemoteMessage('brv vc push -u origin main'), VcErrorCode.NO_REMOTE)
@@ -945,9 +951,6 @@ export class VcHandler {
       await this.gitService.setTrackingBranch({branch, directory, remote: 'origin', remoteBranch: branch})
       upstreamSet = true
     }
-
-    const token = await this.tokenStore.load()
-    if (!token?.isValid()) throw new NotAuthenticatedError()
 
     let alreadyUpToDate = false
     try {
@@ -1213,6 +1216,9 @@ export class VcHandler {
     teamName?: string
     url: string
   }> {
+    // Validate the URL domain against known hosts
+    this.validateRemoteUrlDomain(url)
+
     // /git/{segment1}/{segment2}.git or .brv
     const gitPath = parseGitPathUrl(url)
     if (gitPath) {
@@ -1234,7 +1240,7 @@ export class VcHandler {
 
     // Unknown format — reject to prevent credential leaking to arbitrary URLs
     throw new VcError(
-      'Invalid URL format. Use: https://host/git/team/space.git or https://host/team/space.brv',
+      `Invalid URL format. Use: ${this.gitRemoteBaseUrl}/<team>/<space>.brv`,
       VcErrorCode.INVALID_REMOTE_URL,
     )
   }
@@ -1334,11 +1340,8 @@ export class VcHandler {
     const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
     const team = teams.find((t) => t.name.toLowerCase() === teamName.toLowerCase())
     if (!team) {
-      const available = teams.map((t) => t.name).join(', ')
       throw new VcError(
-        teams.length > 0
-          ? `Team "${teamName}" not found. Available: ${available}`
-          : `Team "${teamName}" not found. No teams available.`,
+        `Team "${teamName}" not found. Check the URL and your access permissions.`,
         VcErrorCode.INVALID_REMOTE_URL,
       )
     }
@@ -1346,11 +1349,8 @@ export class VcHandler {
     const {spaces} = await this.spaceService.getSpaces(token.sessionKey, team.id, {fetchAll: true})
     const space = spaces.find((s) => s.name.toLowerCase() === spaceName.toLowerCase())
     if (!space) {
-      const available = spaces.map((s) => s.name).join(', ')
       throw new VcError(
-        spaces.length > 0
-          ? `Space "${spaceName}" not found in team "${team.name}". Available: ${available}`
-          : `Space "${spaceName}" not found in team "${team.name}". No spaces available.`,
+        `Space "${spaceName}" not found in team "${team.name}". Check the URL and your access permissions.`,
         VcErrorCode.INVALID_REMOTE_URL,
       )
     }
@@ -1364,10 +1364,6 @@ export class VcHandler {
     }
   }
 
-  /**
-   * Validates that branch name is non-empty and well-formed.
-   * Throws VcError(INVALID_BRANCH_NAME) on failure.
-   */
   private validateBranchName(branch: string): void {
     if (!branch) {
       throw new VcError('Branch name is required.', VcErrorCode.INVALID_BRANCH_NAME)
@@ -1375,6 +1371,26 @@ export class VcHandler {
 
     if (!isValidBranchName(branch)) {
       throw new VcError(`Invalid branch name: '${branch}'.`, VcErrorCode.INVALID_BRANCH_NAME)
+    }
+  }
+
+  private validateRemoteUrlDomain(url: string): void {
+    try {
+      const parsed = new URL(url)
+      const allowedHosts = [this.gitRemoteBaseUrl, this.gitApiBaseUrl, this.webAppUrl]
+        .map((u) => new URL(u).host)
+      if (!allowedHosts.includes(parsed.host)) {
+        throw new VcError(
+          `Invalid remote URL. Use: ${this.gitRemoteBaseUrl}/<team>/<space>.brv`,
+          VcErrorCode.INVALID_REMOTE_URL,
+        )
+      }
+    } catch (error) {
+      if (error instanceof VcError) throw error
+      throw new VcError(
+        `Invalid remote URL. Use: ${this.gitRemoteBaseUrl}/<team>/<space>.brv`,
+        VcErrorCode.INVALID_REMOTE_URL,
+      )
     }
   }
 }

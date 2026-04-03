@@ -23,7 +23,8 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_VC_BRANCH_ALREADY_EXISTS: 'Branch already exists.',
   ERR_VC_CANNOT_DELETE_CURRENT_BRANCH: 'Cannot delete the currently checked-out branch.',
   ERR_VC_CONFIG_KEY_NOT_SET: 'Config key is not set.',
-  ERR_VC_CONFLICT_MARKERS_PRESENT: 'Conflict markers detected. Resolve conflicts and run /vc add before pushing.',
+  ERR_VC_CONFLICT_MARKERS_PRESENT:
+    'Conflict markers detected. Run /vc conflicts to view them. Resolve conflicts and run /vc add before pushing.',
   ERR_VC_GIT_INITIALIZED: 'ByteRover version control is active. Use /vc commands instead of legacy sync commands.',
   ERR_VC_GIT_NOT_INITIALIZED: 'ByteRover version control not initialized. Run /vc init first.',
   ERR_VC_INVALID_ACTION: 'Invalid action.',
