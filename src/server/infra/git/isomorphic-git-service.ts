@@ -179,7 +179,25 @@ export class IsomorphicGitService implements IGitService {
     const sourceBranch = await this.getCurrentBranch(params)
     const sourceFiles = sourceBranch ? new Set(await git.listFiles({dir, fs, ref: sourceBranch})) : new Set<string>()
 
-    await git.checkout({dir, force: params.force, fs, ref: params.ref})
+    // isomorphic-git's checkout detects unstaged conflicts (CheckoutConflictError)
+    // but silently overwrites staged changes — a data-loss bug. Guard staged
+    // conflicts here to match native git behavior.
+    if (!params.force && sourceBranch) {
+      await this.guardStagedConflicts(dir, sourceBranch, params.ref)
+    }
+
+    try {
+      await git.checkout({dir, force: params.force, fs, ref: params.ref})
+    } catch (error) {
+      if (error instanceof git.Errors.CheckoutConflictError) {
+        throw new GitError(
+          'Your local changes to the following files would be overwritten by checkout. ' +
+            'Commit your changes or stash them before you switch branches.',
+        )
+      }
+
+      throw error
+    }
 
     // Remove files tracked in source but not in target (matches native git behavior).
     // Untracked files are not in either set, so they are preserved.
@@ -866,6 +884,44 @@ export class IsomorphicGitService implements IGitService {
   }
 
   /**
+   * Guard against staged changes that would be overwritten by checkout.
+   * isomorphic-git's checkout only detects unstaged conflicts — it silently
+   * overwrites staged changes, causing data loss. This method fills that gap
+   * to match native git behavior.
+   */
+  private async guardStagedConflicts(dir: string, sourceBranch: string, targetRef: string): Promise<void> {
+    const matrix = await git.statusMatrix({dir, fs})
+
+    // Staged files: index (col 3) differs from HEAD (col 1)
+    // [1,_,2] modified+staged, [1,_,0] deleted+staged, [0,_,2] new+staged
+    const stagedFiles = matrix.filter(([, head, , stage]) => stage !== head).map(([filepath]) => String(filepath))
+
+    if (stagedFiles.length === 0) return
+
+    const sourceOid = await git.resolveRef({dir, fs, ref: sourceBranch})
+    const targetOid = await git.resolveRef({dir, fs, ref: targetRef})
+
+    const conflicting: string[] = []
+    /* eslint-disable no-await-in-loop -- sequential file I/O is intentional here */
+    for (const filepath of stagedFiles) {
+      const sourceBlobOid = await this.readBlobOid(dir, sourceOid, filepath)
+      const targetBlobOid = await this.readBlobOid(dir, targetOid, filepath)
+      if (sourceBlobOid !== targetBlobOid) {
+        conflicting.push(filepath)
+      }
+    }
+    /* eslint-enable no-await-in-loop */
+
+    if (conflicting.length > 0) {
+      throw new GitError(
+        'Your local changes to the following files would be overwritten by checkout:\n' +
+          conflicting.map((f) => `\t${f}`).join('\n') +
+          '\nPlease commit your changes or stash them before you switch branches.',
+      )
+    }
+  }
+
+  /**
    * Manual merge for unrelated histories (no common ancestor).
    * isomorphic-git throws MergeNotSupportedError because it can't handle
    * base=null at the root tree level. We bypass by combining both trees directly.
@@ -994,6 +1050,15 @@ export class IsomorphicGitService implements IGitService {
     return files
   }
 
+  private async readBlobOid(dir: string, commitOid: string, filepath: string): Promise<null | string> {
+    try {
+      const result = await git.readBlob({dir, filepath, fs, oid: commitOid})
+      return result.oid
+    } catch {
+      return null
+    }
+  }
+
   private requireDirectory(params: BaseGitParams): string {
     // Guard against empty string — undefined/null are caught by TypeScript at compile time
     if (!params.directory) throw new GitError('directory is required for git operations')
@@ -1041,9 +1106,7 @@ export class IsomorphicGitService implements IGitService {
     if (filePaths && filePaths.length > 0) {
       const allKnownPaths = new Set(matrix.map(([filepath]) => String(filepath)))
       for (const fp of filePaths) {
-        const isKnown = fp.endsWith('/')
-          ? [...allKnownPaths].some((p) => p.startsWith(fp))
-          : allKnownPaths.has(fp)
+        const isKnown = fp.endsWith('/') ? [...allKnownPaths].some((p) => p.startsWith(fp)) : allKnownPaths.has(fp)
         if (!isKnown) {
           throw new GitError(`pathspec '${fp}' did not match any file(s) known to git`)
         }

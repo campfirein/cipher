@@ -2512,7 +2512,6 @@ describe('VcHandler', () => {
     it('should switch to an existing branch', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.getCurrentBranch.resolves('main')
-      deps.gitService.status.resolves({files: [], isClean: true})
       makeVcHandler(deps).setup()
 
       const result = await invoke<IVcCheckoutResponse>(deps, VcEvents.CHECKOUT, {branch: 'feature'})
@@ -2539,7 +2538,6 @@ describe('VcHandler', () => {
     it('should throw BRANCH_NOT_FOUND when branch does not exist', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.getCurrentBranch.resolves('main')
-      deps.gitService.status.resolves({files: [], isClean: true})
       deps.gitService.log.resolves([
         {author: {email: 'a@b.c', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
       ])
@@ -2559,12 +2557,15 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should throw UNCOMMITTED_CHANGES when working tree is dirty without force', async () => {
+    it('should throw UNCOMMITTED_CHANGES when checkout would overwrite dirty files', async () => {
       const deps = makeDeps(sandbox, projectPath)
-      deps.gitService.status.resolves({
-        files: [{path: 'file.md', staged: false, status: 'modified'}],
-        isClean: false,
-      })
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.checkout.rejects(
+        new GitError(
+          'Your local changes to the following files would be overwritten by checkout. ' +
+            'Commit your changes or stash them before you switch branches.',
+        ),
+      )
       makeVcHandler(deps).setup()
 
       try {
@@ -2576,13 +2577,9 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should allow checkout when only untracked files exist', async () => {
+    it('should allow checkout when dirty files do not conflict with target branch', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.getCurrentBranch.resolves('main')
-      deps.gitService.status.resolves({
-        files: [{path: 'new-file.md', staged: false, status: 'untracked'}],
-        isClean: false,
-      })
       makeVcHandler(deps).setup()
 
       const result = await invoke<IVcCheckoutResponse>(deps, VcEvents.CHECKOUT, {branch: 'feature'})
@@ -2600,7 +2597,6 @@ describe('VcHandler', () => {
 
       expect(result).to.deep.equal({branch: 'feature', created: false, previousBranch: 'main'})
       expect(deps.gitService.checkout.firstCall.args[0]).to.deep.include({force: true, ref: 'feature'})
-      expect(deps.gitService.status.called).to.be.false
     })
 
     it('should clear merge state when force checkout during merge conflict', async () => {
@@ -2621,7 +2617,6 @@ describe('VcHandler', () => {
     it('should create and switch with create flag', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.getCurrentBranch.resolves('main')
-      deps.gitService.status.resolves({files: [], isClean: true})
       deps.gitService.listBranches.resolves([{isCurrent: true, isRemote: false, name: 'main'}])
       makeVcHandler(deps).setup()
 
@@ -2634,7 +2629,6 @@ describe('VcHandler', () => {
 
     it('should throw BRANCH_ALREADY_EXISTS when create flag used on existing branch', async () => {
       const deps = makeDeps(sandbox, projectPath)
-      deps.gitService.status.resolves({files: [], isClean: true})
       deps.gitService.listBranches.resolves([
         {isCurrent: true, isRemote: false, name: 'main'},
         {isCurrent: false, isRemote: false, name: 'existing'},

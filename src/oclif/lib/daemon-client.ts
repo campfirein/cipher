@@ -55,7 +55,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [VcErrorCode.NOTHING_STAGED]: 'Nothing staged. Run brv vc add first.',
   [VcErrorCode.NOTHING_TO_PUSH]: 'No commits to push. Run brv vc add and brv vc commit first.',
   [VcErrorCode.REMOTE_ALREADY_EXISTS]: "Remote 'origin' already exists. Use brv vc remote set-url <url> to update.",
-  [VcErrorCode.UNCOMMITTED_CHANGES]: 'You have uncommitted changes. Commit or use --force to discard.',
+  // UNCOMMITTED_CHANGES intentionally omitted: fall through to server's detailed message with file paths
   // USER_NOT_CONFIGURED intentionally omitted: fall through to server's specific hint with actual values
 }
 

@@ -37,7 +37,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_VC_NOTHING_STAGED: 'Nothing staged. Run /vc add first.',
   ERR_VC_NOTHING_TO_PUSH: 'No commits to push. Run /vc add and /vc commit first.',
   ERR_VC_REMOTE_ALREADY_EXISTS: "Remote 'origin' already exists. Use /vc remote set-url <url> to update.",
-  ERR_VC_UNCOMMITTED_CHANGES: 'You have uncommitted changes. Commit or use --force to discard.',
+  // ERR_VC_UNCOMMITTED_CHANGES intentionally omitted: fall through to server's detailed message with file paths
   ERR_VC_UNRELATED_HISTORIES: 'Cannot merge unrelated histories. Use --allow-unrelated-histories to force.',
   // ERR_VC_USER_NOT_CONFIGURED intentionally omitted: fall through to server's specific hint with actual values
 }

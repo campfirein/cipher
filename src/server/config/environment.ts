@@ -67,4 +67,7 @@ export const getCurrentConfig = (): EnvironmentConfig => ({
   webAppUrl: readRequiredEnv('BRV_WEB_APP_URL'),
 })
 
+export const getGitRemoteBaseUrl = (): string =>
+  process.env.BRV_GIT_REMOTE_BASE_URL ?? 'https://byterover.dev'
+
 export const isDevelopment = (): boolean => ENVIRONMENT === 'development'

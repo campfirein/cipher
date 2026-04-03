@@ -398,9 +398,8 @@ export class VcHandler {
 
     this.validateBranchName(data.branch)
 
-    // ── Phase 2: Safety checks ──
+    // ── Phase 2: Resolve current branch ──
     const previousBranch = await this.gitService.getCurrentBranch({directory})
-    await this.guardUncommittedChanges(data.force, directory)
 
     // ── Phase 3: Create or switch ──
     if (data.create) {
@@ -424,6 +423,11 @@ export class VcHandler {
         await fs.promises.rm(mergeMsgPath, {force: true}).catch(() => {})
       }
     } catch (error) {
+      // Dirty files that conflict with target branch (matches native git behavior)
+      if (error instanceof GitError && error.message.includes('would be overwritten')) {
+        throw new VcError(error.message, VcErrorCode.UNCOMMITTED_CHANGES)
+      }
+
       if (error instanceof Error && 'code' in error && error.code === 'NotFoundError') {
         // Distinguish empty repo from branch-not-found
         const commits = await this.gitService.log({depth: 1, directory})

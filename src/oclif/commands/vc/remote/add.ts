@@ -1,6 +1,6 @@
 import {Args, Command} from '@oclif/core'
 
-import {getCurrentConfig} from '../../../../server/config/environment.js'
+import {getGitRemoteBaseUrl} from '../../../../server/config/environment.js'
 import {type IVcRemoteResponse, VcEvents} from '../../../../shared/transport/events/vc-events.js'
 import {formatConnectionError, withDaemonRetry} from '../../../lib/daemon-client.js'
 
@@ -8,13 +8,13 @@ export default class VcRemoteAdd extends Command {
   public static args = {
     name: Args.string({description: 'Remote name', required: true}),
     url: Args.string({
-      description: `Remote URL (e.g. ${getCurrentConfig().gitRemoteBaseUrl}/<team>/<space>.git)`,
+      description: `Remote URL (e.g. ${getGitRemoteBaseUrl()}/<team>/<space>.git)`,
       required: true,
     }),
   }
   public static description = 'Add a named remote'
   public static examples = [
-    `<%= config.bin %> <%= command.id %> origin ${getCurrentConfig().gitRemoteBaseUrl}/acme/project.git`,
+    `<%= config.bin %> <%= command.id %> origin ${getGitRemoteBaseUrl()}/acme/project.git`,
   ]
 
   public async run(): Promise<void> {

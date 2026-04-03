@@ -103,6 +103,8 @@ function formatVcStatus(result: IVcStatusResponse): string {
 
   if (unstaged.modified.length > 0 || unstaged.deleted.length > 0) {
     lines.push(chalk.bold('Changes not staged for commit:'))
+    // eslint-disable-next-line unicorn/no-array-push-push
+    lines.push(chalk.bold('(use "/vc add ‹file>..." to include in what will be committed)'))
     for (const f of unstaged.modified) lines.push(chalk.red(`   modified:   ${f}`))
     for (const f of unstaged.deleted) lines.push(chalk.red(`   deleted:    ${f}`))
   }

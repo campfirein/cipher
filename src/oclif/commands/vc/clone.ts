@@ -1,6 +1,6 @@
 import {Args, Command} from '@oclif/core'
 
-import {getCurrentConfig} from '../../../server/config/environment.js'
+import {getGitRemoteBaseUrl} from '../../../server/config/environment.js'
 import {InitEvents, type InitLocalResponse} from '../../../shared/transport/events/init-events.js'
 import {
   type IVcCloneProgressEvent,
@@ -35,18 +35,16 @@ function subscribeToProgress(client: {on: <T>(event: string, handler: (data: T) 
 
 export default class VcClone extends Command {
   public static args = {
-    url: Args.string({description: `Clone URL (e.g. ${getCurrentConfig().gitRemoteBaseUrl}/<team>/<space>.git)`}),
+    url: Args.string({description: `Clone URL (e.g. ${getGitRemoteBaseUrl()}/<team>/<space>.git)`}),
   }
   public static description = 'Clone a ByteRover space repository'
-  public static examples = [`<%= config.bin %> vc clone ${getCurrentConfig().gitRemoteBaseUrl}/acme/project.git`]
+  public static examples = [`<%= config.bin %> vc clone ${getGitRemoteBaseUrl()}/acme/project.git`]
 
   public async run(): Promise<void> {
     const {args} = await this.parse(VcClone)
     const {url} = args
-    const {gitRemoteBaseUrl} = getCurrentConfig()
-
     if (!url) {
-      this.error(`URL is required.\nUsage: brv vc clone ${gitRemoteBaseUrl}/<team>/<space>.git`)
+      this.error(`URL is required.\nUsage: brv vc clone ${getGitRemoteBaseUrl()}/<team>/<space>.git`)
     }
 
     const daemonOptions = {projectPath: process.cwd()}

@@ -101,6 +101,7 @@ export default class VcStatus extends Command {
 
     if (unstaged.modified.length > 0 || unstaged.deleted.length > 0) {
       this.log(chalk.bold('Changes not staged for commit:'))
+      this.log(chalk.bold('(use "brv vc add ‹file>..." to include in what will be committed)'))
       for (const f of unstaged.modified) this.log(chalk.red(`   modified:   ${f}`))
       for (const f of unstaged.deleted) this.log(chalk.red(`   deleted:    ${f}`))
     }
