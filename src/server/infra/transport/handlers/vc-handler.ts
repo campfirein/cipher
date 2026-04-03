@@ -24,7 +24,6 @@ import {
   type IVcCommitResponse,
   type IVcConfigRequest,
   type IVcConfigResponse,
-  type IVcConflictsResponse,
   type IVcFetchRequest,
   type IVcFetchResponse,
   type IVcInitResponse,
@@ -119,9 +118,6 @@ export class VcHandler {
     )
     this.transport.onRequest<IVcCommitRequest, IVcCommitResponse>(VcEvents.COMMIT, (data, clientId) =>
       this.handleCommit(data, clientId),
-    )
-    this.transport.onRequest<void, IVcConflictsResponse>(VcEvents.CONFLICTS, (_data, clientId) =>
-      this.handleConflicts(clientId),
     )
     this.transport.onRequest<IVcConfigRequest, IVcConfigResponse>(VcEvents.CONFIG, (data, clientId) =>
       this.handleConfig(data, clientId),
@@ -549,34 +545,6 @@ export class VcHandler {
     }
 
     return {key: data.key, value}
-  }
-
-  private async handleConflicts(clientId: string): Promise<IVcConflictsResponse> {
-    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
-    const directory = this.contextTreeService.resolvePath(projectPath)
-
-    const gitInitialized = await this.gitService.isInitialized({directory})
-    if (!gitInitialized) {
-      throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
-    }
-
-    const [markerFiles, indexConflicts] = await Promise.all([
-      this.gitService.getFilesWithConflictMarkers({directory}),
-      this.gitService.getConflicts({directory}),
-    ])
-
-    // Merge both sources, deduplicating by path
-    const markerPaths = new Set(markerFiles)
-    const allPaths = new Set([...indexConflicts.map((c) => c.path), ...markerFiles])
-    const files = [...allPaths].sort()
-
-    // Include structured conflict info for paths not already covered by markers
-    const conflicts = indexConflicts.filter((c) => !markerPaths.has(c.path)).map((c) => ({path: c.path, type: c.type}))
-
-    return {
-      ...(conflicts.length > 0 ? {conflicts} : {}),
-      files,
-    }
   }
 
   private async handleFetch(data: IVcFetchRequest, clientId: string): Promise<IVcFetchResponse> {

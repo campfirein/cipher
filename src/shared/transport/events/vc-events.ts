@@ -43,7 +43,6 @@ export const VcEvents = {
   CLONE_PROGRESS: 'vc:clone:progress',
   COMMIT: 'vc:commit',
   CONFIG: 'vc:config',
-  CONFLICTS: 'vc:conflicts',
   FETCH: 'vc:fetch',
   INIT: 'vc:init',
   LOG: 'vc:log',
@@ -239,11 +238,6 @@ export interface IVcMergeResponse {
   branch?: string
   conflicts?: Array<{path: string; type: string}>
   defaultMessage?: string
-}
-
-export interface IVcConflictsResponse {
-  conflicts?: Array<{path: string; type: string}>
-  files: string[]
 }
 
 export type VcResetMode = 'hard' | 'mixed' | 'soft'
