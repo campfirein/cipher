@@ -1,6 +1,11 @@
 {
   "name": "byterover-cli",
   "description": "ByteRover's CLI",
+  "keywords": [
+    "cli", "ai", "llm", "mcp", "developer-tools",
+    "context-memory", "autonomous-agents", "coding-assistant",
+    "knowledge-management"
+  ],
   "version": "2.6.0",
   "author": "ByteRover",
   "bin": {
