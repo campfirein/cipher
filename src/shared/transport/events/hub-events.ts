@@ -3,6 +3,7 @@ import type {HubEntryDTO} from '../types/dto.js'
 
 export const HubEvents = {
   INSTALL: 'hub:install',
+  INSTALL_ALL: 'hub:install-all',
   LIST: 'hub:list',
   LIST_PROGRESS: 'hub:list:progress',
   REGISTRY_ADD: 'hub:registry:add',
@@ -10,6 +11,7 @@ export const HubEvents = {
   REGISTRY_LIST: 'hub:registry:list',
   REGISTRY_LIST_PROGRESS: 'hub:registry:list:progress',
   REGISTRY_REMOVE: 'hub:registry:remove',
+  UNINSTALL: 'hub:uninstall',
 } as const
 
 export interface HubProgressEvent {
@@ -32,6 +34,21 @@ export interface HubInstallRequest {
 export interface HubInstallResponse {
   installedFiles: string[]
   installedPath: string
+  message: string
+  success: boolean
+}
+
+export interface HubInstallAllResponse {
+  message: string
+  results: Array<{entryId: string; message: string; success: boolean}>
+  success: boolean
+}
+
+export interface HubUninstallRequest {
+  entryId: string
+}
+
+export interface HubUninstallResponse {
   message: string
   success: boolean
 }

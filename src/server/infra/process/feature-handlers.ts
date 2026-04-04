@@ -63,6 +63,7 @@ import {
   SpaceHandler,
   StatusHandler,
   VcHandler,
+  WorkspaceHandler,
 } from '../transport/handlers/index.js'
 import {HttpUserService} from '../user/http-user-service.js'
 import {FileVcGitConfigStore} from '../vc/file-vc-git-config-store.js'
@@ -251,6 +252,11 @@ export async function setupFeatureHandlers({
     hubKeychainStore,
     hubRegistryConfigStore,
     officialRegistryUrl: envConfig.hubRegistryUrl,
+    resolveProjectPath,
+    transport,
+  }).setup()
+
+  new WorkspaceHandler({
     resolveProjectPath,
     transport,
   }).setup()

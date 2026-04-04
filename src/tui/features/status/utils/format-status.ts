@@ -81,6 +81,23 @@ export function formatStatus(status: StatusDTO, version?: string): string {
     }
   }
 
+  // Knowledge workspaces
+  if (status.workspaces && status.workspaces.length > 0) {
+    lines.push(`Workspaces: ${status.workspaces.length} linked`)
+    for (const ws of status.workspaces) {
+      lines.push(`   ${ws}`)
+    }
+  }
+
+  // Hub dependencies
+  if (status.dependencies && Object.keys(status.dependencies).length > 0) {
+    const deps = Object.entries(status.dependencies)
+    lines.push(`Dependencies: ${deps.length} installed`)
+    for (const [name, version] of deps) {
+      lines.push(`   ${name}@${version}`)
+    }
+  }
+
   if (status.pendingReviewCount && status.pendingReviewCount > 0) {
     const fileLabel = status.pendingReviewCount === 1 ? 'file' : 'files'
     lines.push(

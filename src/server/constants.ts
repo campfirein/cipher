@@ -13,6 +13,12 @@ export const GLOBAL_DATA_DIR = 'brv'
 
 export const PROJECT = 'byterover'
 
+// Knowledge sharing
+export const WORKSPACES_FILE = 'workspaces.json'
+export const DEPENDENCIES_FILE = 'dependencies.json'
+export const BUNDLES_DIR = 'bundles'
+export const KNOWLEDGE_LINK_LOCAL_SCORE_BOOST = 0.1
+
 // Context Tree directory structure constants
 export const CONTEXT_TREE_DIR = 'context-tree'
 export const CONTEXT_TREE_BACKUP_DIR = 'context-tree-backup'
@@ -106,4 +112,5 @@ export const CONTEXT_TREE_GITIGNORE = `# Derived artifacts — do not track
 .snapshot.json
 _manifest.json
 _index.md
+bundles
 `

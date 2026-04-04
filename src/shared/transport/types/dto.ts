@@ -152,6 +152,8 @@ export interface StatusDTO {
   contextTreeRelativeDir?: string
   contextTreeStatus: 'git_vc' | 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
   currentDirectory: string
+  /** Installed hub bundle dependencies (name → version) */
+  dependencies?: Record<string, string>
   /** Number of files with pending HITL review (0 if none or unavailable). */
   pendingReviewCount?: number
   /** URL to the local review UI (only set when pendingReviewCount > 0). */
@@ -159,4 +161,6 @@ export interface StatusDTO {
   spaceName?: string
   teamName?: string
   userEmail?: string
+  /** Configured knowledge workspaces (relative paths) */
+  workspaces?: string[]
 }
