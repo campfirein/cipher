@@ -1,10 +1,17 @@
 import type {ProviderDTO} from '../../../../shared/transport/types/dto.js'
+import type {ProviderOAuthConfig} from '../../../core/domain/entities/provider-registry.js'
 import type {IProviderConfigStore} from '../../../core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../../core/interfaces/i-provider-keychain-store.js'
 import type {IProviderOAuthTokenStore} from '../../../core/interfaces/i-provider-oauth-token-store.js'
 import type {IBrowserLauncher} from '../../../core/interfaces/services/i-browser-launcher.js'
 import type {IAuthStateStore} from '../../../core/interfaces/state/i-auth-state-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
+import type {
+  CopilotTokenResponse,
+  DeviceCodeResponse,
+  PollForAccessTokenParams,
+  RequestDeviceCodeParams,
+} from '../../provider-oauth/device-flow.js'
 import type {
   PkceParameters,
   ProviderTokenResponse,
@@ -43,6 +50,11 @@ import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {processLog} from '../../../utils/process-logger.js'
 import {validateApiKey as validateApiKeyViaFetcher} from '../../http/provider-model-fetcher-registry.js'
 import {
+  exchangeForCopilotToken as defaultExchangeForCopilotToken,
+  pollForAccessToken as defaultPollForAccessToken,
+  requestDeviceCode as defaultRequestDeviceCode,
+} from '../../provider-oauth/device-flow.js'
+import {
   computeExpiresAt,
   exchangeCodeForTokens as defaultExchangeCodeForTokens,
   generatePkce as defaultGeneratePkce,
@@ -55,22 +67,25 @@ type OAuthFlowState = {
   awaitInProgress?: boolean
   callbackServer?: ProviderCallbackServer
   clientId: string
-  codeVerifier: string
-  state: string
+  codeVerifier?: string
+  deviceCode?: string
+  expiresIn?: number
+  interval?: number
+  state?: string
 }
 
 export interface ProviderHandlerDeps {
   authStateStore: IAuthStateStore
   browserLauncher: IBrowserLauncher
-  /** Factory for creating callback servers (injectable for testing) */
   createCallbackServer?: (options: {callbackPath?: string; port: number}) => ProviderCallbackServer
-  /** Token exchange function (injectable for testing) */
   exchangeCodeForTokens?: (params: TokenExchangeParams) => Promise<ProviderTokenResponse>
-  /** PKCE generator function (injectable for testing) */
+  exchangeForCopilotToken?: (githubToken: string) => Promise<CopilotTokenResponse>
   generatePkce?: () => PkceParameters
+  pollForAccessToken?: (params: PollForAccessTokenParams) => Promise<string>
   providerConfigStore: IProviderConfigStore
   providerKeychainStore: IProviderKeychainStore
   providerOAuthTokenStore: IProviderOAuthTokenStore
+  requestDeviceCode?: (params: RequestDeviceCodeParams) => Promise<DeviceCodeResponse>
   transport: ITransportServer
 }
 
@@ -83,11 +98,14 @@ export class ProviderHandler {
   private readonly browserLauncher: IBrowserLauncher
   private readonly createCallbackServer: (options: {callbackPath?: string; port: number}) => ProviderCallbackServer
   private readonly exchangeCodeForTokens: (params: TokenExchangeParams) => Promise<ProviderTokenResponse>
+  private readonly exchangeForCopilotToken: (githubToken: string) => Promise<CopilotTokenResponse>
   private readonly generatePkce: () => PkceParameters
   private readonly oauthFlows = new Map<string, OAuthFlowState>()
+  private readonly pollForAccessToken: (params: PollForAccessTokenParams) => Promise<string>
   private readonly providerConfigStore: IProviderConfigStore
   private readonly providerKeychainStore: IProviderKeychainStore
   private readonly providerOAuthTokenStore: IProviderOAuthTokenStore
+  private readonly requestDeviceCode: (params: RequestDeviceCodeParams) => Promise<DeviceCodeResponse>
   private readonly transport: ITransportServer
 
   constructor(deps: ProviderHandlerDeps) {
@@ -95,10 +113,13 @@ export class ProviderHandler {
     this.browserLauncher = deps.browserLauncher
     this.createCallbackServer = deps.createCallbackServer ?? ((options) => new ProviderCallbackServer(options))
     this.exchangeCodeForTokens = deps.exchangeCodeForTokens ?? defaultExchangeCodeForTokens
+    this.exchangeForCopilotToken = deps.exchangeForCopilotToken ?? defaultExchangeForCopilotToken
     this.generatePkce = deps.generatePkce ?? defaultGeneratePkce
+    this.pollForAccessToken = deps.pollForAccessToken ?? defaultPollForAccessToken
     this.providerConfigStore = deps.providerConfigStore
     this.providerKeychainStore = deps.providerKeychainStore
     this.providerOAuthTokenStore = deps.providerOAuthTokenStore
+    this.requestDeviceCode = deps.requestDeviceCode ?? defaultRequestDeviceCode
     this.transport = deps.transport
   }
 
@@ -120,6 +141,84 @@ export class ProviderHandler {
     })
   }
 
+  private async awaitCallbackFlow(
+    providerId: string,
+    flow: OAuthFlowState,
+  ): Promise<ProviderAwaitOAuthCallbackResponse> {
+    const callbackResult = await flow.callbackServer!.waitForCallback(flow.state!)
+
+    const providerDef = getProviderById(providerId)
+    if (!providerDef?.oauth) {
+      return {error: 'Provider does not support OAuth', success: false}
+    }
+
+    const oauthConfig = providerDef.oauth
+    const contentType: TokenRequestContentType =
+      oauthConfig.tokenContentType === 'form' ? 'application/x-www-form-urlencoded' : 'application/json'
+
+    const tokens = await this.exchangeCodeForTokens({
+      clientId: oauthConfig.clientId,
+      code: callbackResult.code,
+      codeVerifier: flow.codeVerifier!,
+      contentType,
+      redirectUri: oauthConfig.redirectUri,
+      tokenUrl: oauthConfig.tokenUrl,
+    })
+
+    const oauthAccountId = tokens.id_token ? parseAccountIdFromIdToken(tokens.id_token) : undefined
+
+    await this.providerKeychainStore.setApiKey(providerId, tokens.access_token)
+
+    if (tokens.refresh_token) {
+      const expiresAt = tokens.expires_in ? computeExpiresAt(tokens.expires_in) : computeExpiresAt(3600)
+      await this.providerOAuthTokenStore.set(providerId, {
+        expiresAt,
+        refreshToken: tokens.refresh_token,
+      })
+    }
+
+    const defaultModel = oauthConfig.defaultModel ?? providerDef.defaultModel
+    await this.providerConfigStore.connectProvider(providerId, {
+      activeModel: defaultModel,
+      authMethod: 'oauth',
+      oauthAccountId,
+    })
+
+    this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
+    return {success: true}
+  }
+
+  private async awaitDeviceFlow(
+    providerId: string,
+    flow: OAuthFlowState,
+  ): Promise<ProviderAwaitOAuthCallbackResponse> {
+    const githubToken = await this.pollForAccessToken({
+      clientId: getProviderById(providerId)!.oauth!.clientId,
+      deviceCode: flow.deviceCode!,
+      expiresIn: flow.expiresIn!,
+      interval: flow.interval!,
+    })
+
+    const copilotToken = await this.exchangeForCopilotToken(githubToken)
+
+    await this.providerKeychainStore.setApiKey(providerId, copilotToken.token)
+
+    const expiresAt = new Date(copilotToken.expiresAt * 1000).toISOString()
+    await this.providerOAuthTokenStore.set(providerId, {
+      expiresAt,
+      refreshToken: githubToken,
+    })
+
+    const providerDef = getProviderById(providerId)
+    await this.providerConfigStore.connectProvider(providerId, {
+      activeModel: providerDef?.defaultModel,
+      authMethod: 'oauth',
+    })
+
+    this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
+    return {success: true}
+  }
+
   private cleanupFlowsForClient(clientId: string): void {
     for (const [providerId, flow] of this.oauthFlows.entries()) {
       if (flow.clientId === clientId) {
@@ -139,7 +238,12 @@ export class ProviderHandler {
       ProviderEvents.AWAIT_OAUTH_CALLBACK,
       async (data) => {
         const flow = this.oauthFlows.get(data.providerId)
-        if (!flow?.callbackServer) {
+        if (!flow) {
+          return {error: 'No active OAuth flow for this provider', success: false}
+        }
+
+        const isDeviceFlow = Boolean(flow.deviceCode)
+        if (!isDeviceFlow && !flow.callbackServer) {
           return {error: 'No active OAuth flow for this provider', success: false}
         }
 
@@ -150,56 +254,11 @@ export class ProviderHandler {
         flow.awaitInProgress = true
 
         try {
-          // Block until callback or timeout (5 min default in ProviderCallbackServer)
-          const callbackResult = await flow.callbackServer.waitForCallback(flow.state)
-
-          // Exchange code for tokens
-          const providerDef = getProviderById(data.providerId)
-          if (!providerDef?.oauth) {
-            return {error: 'Provider does not support OAuth', success: false}
+          if (isDeviceFlow) {
+            return await this.awaitDeviceFlow(data.providerId, flow)
           }
 
-          const oauthConfig = providerDef.oauth
-          const contentType: TokenRequestContentType =
-            oauthConfig.tokenContentType === 'form' ? 'application/x-www-form-urlencoded' : 'application/json'
-
-          const tokens = await this.exchangeCodeForTokens({
-            clientId: oauthConfig.clientId,
-            code: callbackResult.code,
-            codeVerifier: flow.codeVerifier,
-            contentType,
-            redirectUri: oauthConfig.redirectUri,
-            tokenUrl: oauthConfig.tokenUrl,
-          })
-
-          // Parse JWT id_token for account ID
-          const oauthAccountId = tokens.id_token ? parseAccountIdFromIdToken(tokens.id_token) : undefined
-
-          // Store access token as the "API key" in keychain
-          await this.providerKeychainStore.setApiKey(data.providerId, tokens.access_token)
-
-          // Store refresh token + expiry in encrypted OAuth token store
-          if (tokens.refresh_token) {
-            const expiresAt = tokens.expires_in ? computeExpiresAt(tokens.expires_in) : computeExpiresAt(3600) // 1-hour default when provider omits expires_in
-            await this.providerOAuthTokenStore.set(data.providerId, {
-              expiresAt,
-              refreshToken: tokens.refresh_token,
-            })
-          }
-
-          // Connect provider — secrets stored in keychain + encrypted token store, not config
-          // OAuth providers may define their own default model (e.g., Codex for OpenAI OAuth)
-          const defaultModel = oauthConfig.defaultModel ?? providerDef.defaultModel
-          await this.providerConfigStore.connectProvider(data.providerId, {
-            activeModel: defaultModel,
-            authMethod: 'oauth',
-            oauthAccountId,
-          })
-
-          // Broadcast update
-          this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
-
-          return {success: true}
+          return await this.awaitCallbackFlow(data.providerId, flow)
         } catch (error) {
           if (error instanceof ProviderCallbackTimeoutError) {
             return {error: 'Authentication timed out. Please try again.', success: false}
@@ -207,7 +266,6 @@ export class ProviderHandler {
 
           return {error: getErrorMessage(error), success: false}
         } finally {
-          // Only clean up if this is still the same flow (guard against concurrent START_OAUTH)
           if (this.oauthFlows.get(data.providerId) === flow) {
             await flow.callbackServer?.stop().catch(() => {})
             this.oauthFlows.delete(data.providerId)
@@ -367,10 +425,12 @@ export class ProviderHandler {
 
           this.oauthFlows.delete(data.providerId)
 
-          // Generate PKCE parameters
+          if (oauthConfig.callbackMode === 'device') {
+            return await this.startDeviceFlow(data.providerId, oauthConfig, clientId)
+          }
+
           const pkce = this.generatePkce()
 
-          // Build auth URL
           const mode = oauthConfig.modes.find((m) => m.id === (data.mode ?? 'default')) ?? oauthConfig.modes[0]
           const params = new URLSearchParams({
             client_id: oauthConfig.clientId,
@@ -382,7 +442,6 @@ export class ProviderHandler {
             state: pkce.state,
           })
 
-          // Provider-specific extra params (e.g. OpenAI's codex_cli_simplified_flow)
           if (oauthConfig.extraParams) {
             for (const [key, value] of Object.entries(oauthConfig.extraParams)) {
               params.set(key, value)
@@ -391,14 +450,12 @@ export class ProviderHandler {
 
           const authUrl = `${mode.authUrl}?${params.toString()}`
 
-          // Start callback server for auto mode
           let callbackServer: ProviderCallbackServer | undefined
           if (oauthConfig.callbackMode === 'auto' && oauthConfig.callbackPort) {
             callbackServer = this.createCallbackServer({port: oauthConfig.callbackPort})
             await callbackServer.start()
           }
 
-          // Store flow state
           this.oauthFlows.set(data.providerId, {
             callbackServer,
             clientId,
@@ -406,7 +463,6 @@ export class ProviderHandler {
             state: pkce.state,
           })
 
-          // Open browser (non-fatal on failure)
           try {
             await this.browserLauncher.open(authUrl)
           } catch {
@@ -415,7 +471,6 @@ export class ProviderHandler {
 
           return {authUrl, callbackMode: oauthConfig.callbackMode, success: true}
         } catch (error) {
-          // Clean up callback server if it was started but flow setup failed
           const partialFlow = this.oauthFlows.get(data.providerId)
           if (partialFlow?.callbackServer) {
             await partialFlow.callbackServer.stop().catch(() => {})
@@ -434,7 +489,6 @@ export class ProviderHandler {
       },
     )
   }
-  /* eslint-enable camelcase */
 
   private setupSubmitOAuthCode(): void {
     this.transport.onRequest<ProviderSubmitOAuthCodeRequest, ProviderSubmitOAuthCodeResponse>(
@@ -443,6 +497,7 @@ export class ProviderHandler {
       async () => ({error: 'Code submission is not yet supported for this provider', success: false}),
     )
   }
+  /* eslint-enable camelcase */
 
   private setupValidateApiKey(): void {
     this.transport.onRequest<ProviderValidateApiKeyRequest, ProviderValidateApiKeyResponse>(
@@ -456,5 +511,37 @@ export class ProviderHandler {
         }
       },
     )
+  }
+
+  private async startDeviceFlow(
+    providerId: string,
+    oauthConfig: ProviderOAuthConfig,
+    clientId: string,
+  ): Promise<ProviderStartOAuthResponse> {
+    const deviceCodeResponse = await this.requestDeviceCode({
+      clientId: oauthConfig.clientId,
+      scope: oauthConfig.scopes,
+    })
+
+    this.oauthFlows.set(providerId, {
+      clientId,
+      deviceCode: deviceCodeResponse.deviceCode,
+      expiresIn: deviceCodeResponse.expiresIn,
+      interval: deviceCodeResponse.interval,
+    })
+
+    try {
+      await this.browserLauncher.open(deviceCodeResponse.verificationUri)
+    } catch {
+      processLog(`[ProviderHandler] Browser launch failed for device flow — user can navigate manually`)
+    }
+
+    return {
+      authUrl: deviceCodeResponse.verificationUri,
+      callbackMode: 'device',
+      success: true,
+      userCode: deviceCodeResponse.userCode,
+      verificationUri: deviceCodeResponse.verificationUri,
+    }
   }
 }

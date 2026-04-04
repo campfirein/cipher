@@ -5,6 +5,7 @@ import sinon, {restore, stub} from 'sinon'
 import type {IBrowserLauncher} from '../../../../../src/server/core/interfaces/services/i-browser-launcher.js'
 import type {IAuthStateStore} from '../../../../../src/server/core/interfaces/state/i-auth-state-store.js'
 import type {ProviderCallbackServer} from '../../../../../src/server/infra/provider-oauth/callback-server.js'
+import type {CopilotTokenResponse, DeviceCodeResponse, PollForAccessTokenParams, RequestDeviceCodeParams} from '../../../../../src/server/infra/provider-oauth/device-flow.js'
 import type {
   PkceParameters,
   ProviderTokenResponse,
@@ -66,6 +67,9 @@ describe('ProviderHandler', () => {
   let mockCallbackServer: sinon.SinonStubbedInstance<ProviderCallbackServer>
   let generatePkceStub: sinon.SinonStub<[], PkceParameters>
   let exchangeCodeStub: sinon.SinonStub<[TokenExchangeParams], Promise<ProviderTokenResponse>>
+  let requestDeviceCodeStub: sinon.SinonStub<[RequestDeviceCodeParams], Promise<DeviceCodeResponse>>
+  let pollForAccessTokenStub: sinon.SinonStub<[PollForAccessTokenParams], Promise<string>>
+  let exchangeForCopilotTokenStub: sinon.SinonStub<[string], Promise<CopilotTokenResponse>>
 
   beforeEach(() => {
     authStateStore = createMockAuthStateStore(sinon)
@@ -77,6 +81,18 @@ describe('ProviderHandler', () => {
     mockCallbackServer = createMockCallbackServer()
     generatePkceStub = stub<[], PkceParameters>().returns(TEST_PKCE)
     exchangeCodeStub = stub<[TokenExchangeParams], Promise<ProviderTokenResponse>>().resolves(TEST_TOKEN_RESPONSE)
+    requestDeviceCodeStub = stub<[RequestDeviceCodeParams], Promise<DeviceCodeResponse>>().resolves({
+      deviceCode: 'test-device-code',
+      expiresIn: 900,
+      interval: 5,
+      userCode: 'TEST-CODE',
+      verificationUri: 'https://github.com/login/device',
+    })
+    pollForAccessTokenStub = stub<[PollForAccessTokenParams], Promise<string>>().resolves('gho_test_github_token')
+    exchangeForCopilotTokenStub = stub<[string], Promise<CopilotTokenResponse>>().resolves({
+      expiresAt: Math.floor(Date.now() / 1000) + 1800,
+      token: 'tid=copilot-session-token',
+    })
   })
 
   afterEach(() => {
@@ -89,10 +105,13 @@ describe('ProviderHandler', () => {
       browserLauncher,
       createCallbackServer: () => mockCallbackServer as unknown as ProviderCallbackServer,
       exchangeCodeForTokens: exchangeCodeStub,
+      exchangeForCopilotToken: exchangeForCopilotTokenStub,
       generatePkce: generatePkceStub,
+      pollForAccessToken: pollForAccessTokenStub,
       providerConfigStore,
       providerKeychainStore,
       providerOAuthTokenStore,
+      requestDeviceCode: requestDeviceCodeStub,
       transport,
     })
     handler.setup()
@@ -857,6 +876,265 @@ describe('ProviderHandler', () => {
 
         expect(result.success).to.be.true
       })
+    })
+  })
+
+  // ==================== OAuth: START_OAUTH (device flow) ====================
+
+  describe('provider:startOAuth (device flow)', () => {
+    it('should return device flow response for github-copilot', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      const result = await handler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(result.success).to.be.true
+      expect(result.callbackMode).to.equal('device')
+      expect(result.userCode).to.equal('TEST-CODE')
+      expect(result.verificationUri).to.equal('https://github.com/login/device')
+    })
+
+    it('should not start callback server for device flow', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      await handler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(mockCallbackServer.start.notCalled).to.be.true
+    })
+
+    it('should not generate PKCE for device flow', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      await handler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(generatePkceStub.notCalled).to.be.true
+    })
+
+    it('should open browser to verification URI', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      await handler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(browserLauncher.open.calledOnce).to.be.true
+      expect(browserLauncher.open.firstCall.args[0]).to.equal('https://github.com/login/device')
+    })
+
+    it('should return userCode and verificationUri in response', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      const result = await handler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(result.userCode).to.equal('TEST-CODE')
+      expect(result.verificationUri).to.equal('https://github.com/login/device')
+      expect(result.authUrl).to.equal('https://github.com/login/device')
+    })
+
+    it('should handle device code request failure', async () => {
+      requestDeviceCodeStub.rejects(new Error('GitHub API unavailable'))
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      const result = await handler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(result.success).to.be.false
+      expect(result.error).to.include('GitHub API unavailable')
+    })
+
+    it('should call requestDeviceCode with correct clientId and scope', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      await handler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(requestDeviceCodeStub.calledOnce).to.be.true
+      const params = requestDeviceCodeStub.firstCall.args[0]
+      expect(params.clientId).to.equal('Ov23li8tweQw6odWQebz')
+      expect(params.scope).to.equal('read:user')
+    })
+  })
+
+  // ==================== OAuth: AWAIT_OAUTH_CALLBACK (device flow) ====================
+
+  async function startDeviceFlow(): Promise<void> {
+    const startHandler = transport._handlers.get(ProviderEvents.START_OAUTH)
+    await startHandler!({providerId: 'github-copilot'}, 'client-1')
+  }
+
+  describe('provider:awaitOAuthCallback (device flow)', () => {
+    it('should poll for access token and exchange for Copilot token', async () => {
+      createHandler()
+      await startDeviceFlow()
+
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+      const result = await awaitHandler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(result.success).to.be.true
+      expect(pollForAccessTokenStub.calledOnce).to.be.true
+      expect(exchangeForCopilotTokenStub.calledOnce).to.be.true
+      expect(exchangeForCopilotTokenStub.firstCall.args[0]).to.equal('gho_test_github_token')
+    })
+
+    it('should store Copilot token in keychain', async () => {
+      createHandler()
+      await startDeviceFlow()
+
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+      await awaitHandler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(providerKeychainStore.setApiKey.calledWith('github-copilot', 'tid=copilot-session-token')).to.be.true
+    })
+
+    it('should store GitHub token as refresh token in OAuth token store', async () => {
+      createHandler()
+      await startDeviceFlow()
+
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+      await awaitHandler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(providerOAuthTokenStore.set.calledOnce).to.be.true
+      const [providerId, tokenRecord] = providerOAuthTokenStore.set.firstCall.args
+      expect(providerId).to.equal('github-copilot')
+      expect(tokenRecord.refreshToken).to.equal('gho_test_github_token')
+      expect(tokenRecord.expiresAt).to.be.a('string')
+    })
+
+    it('should connect provider with authMethod oauth', async () => {
+      createHandler()
+      await startDeviceFlow()
+
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+      await awaitHandler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(providerConfigStore.connectProvider.calledOnce).to.be.true
+      const connectArgs = providerConfigStore.connectProvider.firstCall.args
+      expect(connectArgs[0]).to.equal('github-copilot')
+      expect(connectArgs[1]).to.deep.include({authMethod: 'oauth'})
+    })
+
+    it('should broadcast PROVIDER_UPDATED on success', async () => {
+      createHandler()
+      await startDeviceFlow()
+
+      transport.broadcast.resetHistory()
+
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+      await awaitHandler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(transport.broadcast.calledWith(TransportDaemonEventNames.PROVIDER_UPDATED, {})).to.be.true
+    })
+
+    it('should return error when polling fails', async () => {
+      pollForAccessTokenStub.rejects(new Error('Authorization denied by user'))
+      createHandler()
+      await startDeviceFlow()
+
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+      const result = await awaitHandler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(result.success).to.be.false
+      expect(result.error).to.include('Authorization denied by user')
+    })
+
+    it('should clean up flow state on success', async () => {
+      createHandler()
+      await startDeviceFlow()
+
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+      await awaitHandler!({providerId: 'github-copilot'}, 'client-1')
+
+      // Second await should fail — flow cleaned up
+      const result = await awaitHandler!({providerId: 'github-copilot'}, 'client-1')
+      expect(result.success).to.be.false
+    })
+
+    it('should clean up flow state on failure', async () => {
+      pollForAccessTokenStub.rejects(new Error('Device code expired'))
+      createHandler()
+      await startDeviceFlow()
+
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+      const result = await awaitHandler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(result.success).to.be.false
+
+      // Second await should also fail (flow cleaned up)
+      const result2 = await awaitHandler!({providerId: 'github-copilot'}, 'client-1')
+      expect(result2.success).to.be.false
+      expect(result2.error).to.include('No active OAuth flow')
+    })
+
+    it('should return error when no active device flow exists', async () => {
+      createHandler()
+
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+      const result = await awaitHandler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(result.success).to.be.false
+      expect(result.error).to.include('No active OAuth flow')
+    })
+
+    it('should pass correct params to pollForAccessToken', async () => {
+      createHandler()
+      await startDeviceFlow()
+
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+      await awaitHandler!({providerId: 'github-copilot'}, 'client-1')
+
+      const params = pollForAccessTokenStub.firstCall.args[0]
+      expect(params.deviceCode).to.equal('test-device-code')
+      expect(params.clientId).to.equal('Ov23li8tweQw6odWQebz')
+      expect(params.expiresIn).to.equal(900)
+      expect(params.interval).to.equal(5)
+    })
+  })
+
+  // ==================== OAuth: CANCEL_OAUTH (device flow) ====================
+
+  describe('provider:cancelOAuth (device flow)', () => {
+    it('should delete device flow state', async () => {
+      createHandler()
+
+      const startHandler = transport._handlers.get(ProviderEvents.START_OAUTH)
+      await startHandler!({providerId: 'github-copilot'}, 'client-1')
+
+      const cancelHandler = transport._handlers.get(ProviderEvents.CANCEL_OAUTH)
+      const result = await cancelHandler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(result).to.deep.equal({success: true})
+
+      // Flow should be gone — await should fail
+      const awaitHandler = transport._handlers.get(ProviderEvents.AWAIT_OAUTH_CALLBACK)
+      const awaitResult = await awaitHandler!({providerId: 'github-copilot'}, 'client-1')
+      expect(awaitResult.success).to.be.false
+    })
+
+    it('should return success when no active flow exists', async () => {
+      createHandler()
+
+      const cancelHandler = transport._handlers.get(ProviderEvents.CANCEL_OAUTH)
+      const result = await cancelHandler!({providerId: 'github-copilot'}, 'client-1')
+
+      expect(result).to.deep.equal({success: true})
+    })
+  })
+
+  // ==================== List: device flow fields ====================
+
+  describe('provider:list (device flow fields)', () => {
+    it('should include supportsOAuth and callbackMode device for github-copilot', async () => {
+      providerConfigStore.read.resolves(ProviderConfig.createDefault())
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.LIST)
+      const result = await handler!(undefined, 'client-1')
+
+      const copilot = result.providers.find((p: {id: string}) => p.id === 'github-copilot')
+      expect(copilot?.supportsOAuth).to.be.true
+      expect(copilot?.oauthCallbackMode).to.equal('device')
     })
   })
 })
