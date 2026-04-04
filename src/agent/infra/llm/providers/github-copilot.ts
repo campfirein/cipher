@@ -3,7 +3,7 @@ import {createOpenAICompatible} from '@ai-sdk/openai-compatible'
 
 import type {GeneratorFactoryConfig, ProviderModule} from './types.js'
 
-import {COPILOT_API_BASE_URL} from '../../../../shared/constants/copilot.js'
+import {COPILOT_API_BASE_URL, COPILOT_REQUEST_HEADERS} from '../../../../shared/constants/copilot.js'
 import {AiSdkContentGenerator} from '../generators/ai-sdk-content-generator.js'
 
 export function isCopilotClaudeModel(model: string): boolean {
@@ -18,8 +18,7 @@ export const githubCopilotProvider: ProviderModule = {
     const apiKey = config.apiKey || ''
     const headers = {
       ...config.headers,
-      'Copilot-Integration-Id': 'vscode-chat',
-      'Editor-Version': 'vscode/1.99.0',
+      ...COPILOT_REQUEST_HEADERS,
     }
 
     if (isCopilotClaudeModel(config.model)) {

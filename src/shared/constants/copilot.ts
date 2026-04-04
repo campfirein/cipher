@@ -27,3 +27,12 @@ export const DEVICE_FLOW_INTERVAL_BUFFER = 3
 
 /** Copilot models endpoint for listing available models. */
 export const COPILOT_MODELS_ENDPOINT = '/models'
+
+/** Editor version header value sent with Copilot API requests. */
+export const COPILOT_EDITOR_VERSION = 'vscode/1.99.0'
+
+/** Standard headers required for Copilot API requests. */
+export const COPILOT_REQUEST_HEADERS = {
+  'Copilot-Integration-Id': 'vscode-chat',
+  'Editor-Version': COPILOT_EDITOR_VERSION,
+} as const

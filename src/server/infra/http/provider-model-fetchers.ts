@@ -23,6 +23,7 @@ import type {
   ProviderModelInfo,
 } from '../../core/interfaces/i-provider-model-fetcher.js'
 
+import {COPILOT_API_BASE_URL, COPILOT_REQUEST_HEADERS} from '../../../shared/constants/copilot.js'
 import {getModelsDevClient as getModelsDevClientDefault, type ModelsDevClient} from './models-dev-client.js'
 import {ProxyConfig} from './proxy-config.js'
 
@@ -568,11 +569,10 @@ export class CopilotModelFetcher implements IProviderModelFetcher {
       return this.cache.models
     }
 
-    const response = await axios.get('https://api.githubcopilot.com/models', {
+    const response = await axios.get(`${COPILOT_API_BASE_URL}/models`, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        'Copilot-Integration-Id': 'vscode-chat',
-        'Editor-Version': 'vscode/1.99.0',
+        ...COPILOT_REQUEST_HEADERS,
       },
       httpAgent: ProxyConfig.getProxyAgent(),
       httpsAgent: ProxyConfig.getProxyAgent(),
@@ -604,11 +604,10 @@ export class CopilotModelFetcher implements IProviderModelFetcher {
 
   async validateApiKey(apiKey: string): Promise<{error?: string; isValid: boolean}> {
     try {
-      await axios.get('https://api.githubcopilot.com/models', {
+      await axios.get(`${COPILOT_API_BASE_URL}/models`, {
         headers: {
           Authorization: `Bearer ${apiKey}`,
-          'Copilot-Integration-Id': 'vscode-chat',
-          'Editor-Version': 'vscode/1.99.0',
+          ...COPILOT_REQUEST_HEADERS,
         },
         httpAgent: ProxyConfig.getProxyAgent(),
         httpsAgent: ProxyConfig.getProxyAgent(),

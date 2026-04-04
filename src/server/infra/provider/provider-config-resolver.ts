@@ -12,6 +12,7 @@ import type {IProviderOAuthTokenStore} from '../../core/interfaces/i-provider-oa
 import type {ITokenRefreshManager} from '../../core/interfaces/i-token-refresh-manager.js'
 import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
 
+import {COPILOT_API_BASE_URL, COPILOT_REQUEST_HEADERS} from '../../../shared/constants/copilot.js'
 import {CHATGPT_OAUTH_BASE_URL, CHATGPT_OAUTH_ORIGINATOR} from '../../../shared/constants/oauth.js'
 import {getProviderById, providerRequiresApiKey} from '../../core/domain/entities/provider-registry.js'
 import {type ProviderConfigResponse} from '../../core/domain/transport/schemas.js'
@@ -159,10 +160,9 @@ export async function resolveProviderConfig(
         maxInputTokens,
         provider: activeProvider,
         providerApiKey: apiKey || undefined,
-        providerBaseUrl: 'https://api.githubcopilot.com',
+        providerBaseUrl: COPILOT_API_BASE_URL,
         providerHeaders: {
-          'Copilot-Integration-Id': 'vscode-chat',
-          'Editor-Version': 'vscode/1.99.0',
+          ...COPILOT_REQUEST_HEADERS,
         },
         providerKeyMissing: !apiKey,
       }
