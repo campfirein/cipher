@@ -80,9 +80,13 @@ export interface ProviderStartOAuthRequest {
 
 export interface ProviderStartOAuthResponse {
   authUrl: string
-  callbackMode: 'auto' | 'code-paste'
+  callbackMode: 'auto' | 'code-paste' | 'device'
   error?: string
   success: boolean
+  /** Device flow only: the user code to enter at verificationUri */
+  userCode?: string
+  /** Device flow only: URL where the user enters the code (e.g. github.com/login/device) */
+  verificationUri?: string
 }
 
 export interface ProviderAwaitOAuthCallbackRequest {

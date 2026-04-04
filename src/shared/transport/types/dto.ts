@@ -86,7 +86,7 @@ export interface ProviderDTO {
   isConnected: boolean
   isCurrent: boolean
   name: string
-  oauthCallbackMode?: 'auto' | 'code-paste'
+  oauthCallbackMode?: 'auto' | 'code-paste' | 'device'
   oauthLabel?: string
   requiresApiKey: boolean
   supportsOAuth: boolean
