@@ -106,6 +106,7 @@ export class HubRegistryService implements IHubRegistryService {
         headers,
         httpAgent: ProxyConfig.getProxyAgent(),
         httpsAgent: ProxyConfig.getProxyAgent(),
+        proxy: false,
         timeout: this.timeoutMs,
       })
 

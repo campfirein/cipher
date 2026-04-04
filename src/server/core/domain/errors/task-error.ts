@@ -156,18 +156,6 @@ export class AgentDisconnectedError extends TaskError {
   }
 }
 
-export class AgentNotInitializedError extends TaskError {
-  public constructor(reason?: string) {
-    super(
-      reason
-        ? `Agent failed to initialize: ${reason}`
-        : "Agent failed to initialize. Run 'brv restart' to force a clean restart.",
-      TaskErrorCode.AGENT_NOT_INITIALIZED,
-    )
-    this.name = 'AgentNotInitializedError'
-  }
-}
-
 export class NotAuthenticatedError extends TaskError {
   public constructor() {
     super(

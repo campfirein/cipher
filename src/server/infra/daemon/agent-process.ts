@@ -52,6 +52,7 @@ import {QueryExecutor} from '../executor/query-executor.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {createAgentLogger} from './agent-logger.js'
 import {resolveSessionId} from './session-resolver.js'
+import {validateProviderForTask} from './task-validation.js'
 
 // ============================================================================
 // Environment
@@ -417,23 +418,9 @@ async function executeTask(
   const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
     TransportStateEventNames.GET_PROVIDER_CONFIG,
   )
-  if (!freshProviderConfig.activeProvider) {
-    const error = serializeTaskError(
-      new TaskError(
-        'No provider connected. Use /provider in the REPL to configure a provider.',
-        TaskErrorCode.PROVIDER_NOT_CONFIGURED,
-      ),
-    )
-    transport.request(TransportTaskEventNames.ERROR, {clientId, error, taskId})
-    return
-  }
-
-  if (freshProviderConfig.providerKeyMissing) {
-    const modelInfo = freshProviderConfig.activeModel ? ` (model: ${freshProviderConfig.activeModel})` : ''
-    const credentialType = freshProviderConfig.authMethod === 'oauth' ? 'authentication has expired' : 'API key is missing'
-    const errorMessage = `${freshProviderConfig.activeProvider} ${credentialType}${modelInfo}. Use /provider in the REPL to reconnect.`
-    const error = serializeTaskError(new TaskError(errorMessage, TaskErrorCode.PROVIDER_NOT_CONFIGURED))
-    transport.request(TransportTaskEventNames.ERROR, {clientId, error, taskId})
+  const validationError = validateProviderForTask(freshProviderConfig)
+  if (validationError) {
+    transport.request(TransportTaskEventNames.ERROR, {clientId, error: validationError, taskId})
     return
   }
 

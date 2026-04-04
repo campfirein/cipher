@@ -3,12 +3,16 @@
  */
 type Environment = 'development' | 'production'
 
+const isEnvironment = (value: unknown): value is Environment =>
+  value === 'development' || value === 'production'
+
 /**
  * Current environment - set at runtime by the launcher scripts.
  * - `./bin/dev.js` sets BRV_ENV=development
  * - `./bin/run.js` sets BRV_ENV=production
  */
-export const ENVIRONMENT = (process.env.BRV_ENV as Environment) ?? 'development'
+const envValue = process.env.BRV_ENV
+export const ENVIRONMENT: Environment = isEnvironment(envValue) ? envValue : 'development'
 
 /**
  * Environment-specific configuration.
@@ -21,53 +25,43 @@ type EnvironmentConfig = {
   hubRegistryUrl: string
   issuerUrl: string
   llmApiBaseUrl: string
-  memoraApiBaseUrl: string
   scopes: string[]
   tokenUrl: string
   webAppUrl: string
 }
 
 /**
- * Configuration for each environment.
- * These values are bundled at build time.
+ * Non-infrastructure config that stays in source (same across envs or not sensitive).
  */
-export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
-  development: {
-    apiBaseUrl: 'https://dev-beta-iam.byterover.dev/api/v1',
-    authorizationUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/authorize',
-    clientId: 'byterover-cli-client',
-    cogitApiBaseUrl: 'https://dev-beta-cgit.byterover.dev/api/v1',
-    hubRegistryUrl: 'https://hub.byterover.dev/r/registry.json',
-    issuerUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc',
-    llmApiBaseUrl: 'https://dev-beta-llm.byterover.dev',
-    memoraApiBaseUrl: 'https://dev-beta-memora-retrieve.byterover.dev/api/v3',
-    scopes: ['read', 'write', 'debug'],
-    tokenUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/token',
-    webAppUrl: 'https://dev-beta-app.byterover.dev',
+const DEFAULTS = {
+  clientId: 'byterover-cli-client',
+  hubRegistryUrl: 'https://hub.byterover.dev/r/registry.json',
+  scopes: {
+    development: ['read', 'write', 'debug'],
+    production: ['read', 'write'],
   },
-  production: {
-    apiBaseUrl: 'https://iam.byterover.dev/api/v1',
-    authorizationUrl: 'https://iam.byterover.dev/api/v1/oidc/authorize',
-    clientId: 'byterover-cli-client',
-    cogitApiBaseUrl: 'https://v3-cgit.byterover.dev/api/v1',
-    hubRegistryUrl: 'https://hub.byterover.dev/r/registry.json',
-    issuerUrl: 'https://iam.byterover.dev/api/v1/oidc',
-    llmApiBaseUrl: 'https://llm.byterover.dev',
-    memoraApiBaseUrl: 'https://beta-memora-retrieve.byterover.dev/api/v3',
-    scopes: ['read', 'write'],
-    tokenUrl: 'https://iam.byterover.dev/api/v1/oidc/token',
-    webAppUrl: 'https://app.byterover.dev',
-  },
+} as const
+
+const readRequiredEnv = (name: string): string => {
+  const value = process.env[name]
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}. Ensure .env files are loaded via dotenv.`)
+  }
+
+  return value
 }
 
-/**
- * Get the configuration for the current environment.
- * @returns The environment configuration.
- */
-export const getCurrentConfig = (): EnvironmentConfig => ENV_CONFIG[ENVIRONMENT]
+export const getCurrentConfig = (): EnvironmentConfig => ({
+  apiBaseUrl: readRequiredEnv('BRV_API_BASE_URL'),
+  authorizationUrl: readRequiredEnv('BRV_AUTHORIZATION_URL'),
+  clientId: DEFAULTS.clientId,
+  cogitApiBaseUrl: readRequiredEnv('BRV_COGIT_API_BASE_URL'),
+  hubRegistryUrl: DEFAULTS.hubRegistryUrl,
+  issuerUrl: readRequiredEnv('BRV_ISSUER_URL'),
+  llmApiBaseUrl: readRequiredEnv('BRV_LLM_API_BASE_URL'),
+  scopes: [...DEFAULTS.scopes[ENVIRONMENT]],
+  tokenUrl: readRequiredEnv('BRV_TOKEN_URL'),
+  webAppUrl: readRequiredEnv('BRV_WEB_APP_URL'),
+})
 
-/**
- * Check if the current environment is development.
- * @returns True if in development mode, false otherwise.
- */
 export const isDevelopment = (): boolean => ENVIRONMENT === 'development'

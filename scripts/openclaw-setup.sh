@@ -48,7 +48,7 @@ warn() {
 }
 
 error() {
-  printf "${RED}[X] %s${RESET}\n" "$1" >&2
+  printf "${RED}[X] %b${RESET}\n" "$1" >&2
   exit 1
 }
 
@@ -163,6 +163,27 @@ check_brv_cli() {
     error "ByteRover-cli is missing. Please install it first (https://docs.byterover.dev)."
   fi
   success "ByteRover-cli found at $BRV_CMD"
+}
+
+check_brv_providers() {
+  local providers_json
+  if ! providers_json="$("$BRV_CMD" providers list --format json 2>/dev/null)"; then
+    error "Failed to list ByteRover providers. Make sure ByteRover daemon is running."
+  fi
+
+  local has_active
+  has_active="$(echo "$providers_json" | node -e "
+    const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+    const providers = (data.data && data.data.providers) || [];
+    const active = providers.find(p => p.isConnected === true && p.isCurrent === true);
+    process.stdout.write(active ? active.name : '');
+  " 2>/dev/null)"
+
+  if [ -z "$has_active" ]; then
+    error "No active provider found.\nPlease connect a provider first: brv providers connect <your-provider>\nOr log-in and try ByteRover's Provider for free: brv providers connect byterover"
+  fi
+
+  success "ByteRover provider active: $has_active"
 }
 
 check_openclaw_cli() {
@@ -853,7 +874,7 @@ configure_context_plugin() {
   remove_existing_byterover_plugin
 
   info "Installing @byterover/byterover plugin..."
-  if ! retry_with_backoff openclaw plugins install @byterover/byterover; then
+  if ! retry_with_backoff openclaw plugins install @byterover/byterover@latest; then
     warn "Failed to install @byterover/byterover plugin after multiple attempts."
     echo ""
     return
@@ -1113,6 +1134,7 @@ main() {
   check_node
   check_clawhub
   check_brv_cli
+  check_brv_providers
   setup_brv_openclaw_integration
   check_openclaw_cli
   check_config

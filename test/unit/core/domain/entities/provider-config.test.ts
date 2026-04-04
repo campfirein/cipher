@@ -163,5 +163,26 @@ describe('ProviderConfig', () => {
       expect(disconnected.isProviderConnected('openai')).to.be.false
       expect(disconnected.providers.openai).to.be.undefined
     })
+
+    it('should set activeProvider to empty string when disconnecting active provider', () => {
+      const config = ProviderConfig.createDefault()
+        .withProviderConnected('openrouter', {authMethod: 'api-key'})
+        .withActiveProvider('openrouter')
+
+      const disconnected = config.withProviderDisconnected('openrouter')
+
+      expect(disconnected.activeProvider).to.equal('')
+    })
+
+    it('should keep activeProvider unchanged when disconnecting non-active provider', () => {
+      const config = ProviderConfig.createDefault()
+        .withProviderConnected('openrouter', {authMethod: 'api-key'})
+        .withProviderConnected('anthropic', {authMethod: 'api-key'})
+        .withActiveProvider('anthropic')
+
+      const disconnected = config.withProviderDisconnected('openrouter')
+
+      expect(disconnected.activeProvider).to.equal('anthropic')
+    })
   })
 })
