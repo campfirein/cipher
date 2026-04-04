@@ -1,28 +1,18 @@
-import React from 'react'
+import type {MessageActionReturn, SlashCommand} from '../../../types/commands.js'
 
-import type {SlashCommand} from '../../../types/commands.js'
-
-import {SpaceListView} from '../../space/components/space-list-view.js'
-import {Flags, parseReplArgs, toCommandFlags} from '../utils/arg-parser.js'
-
-const listFlags = {
-  json: Flags.boolean({
-    char: 'j',
-    default: false,
-    description: 'Output in JSON format',
-  }),
-}
+import {getStatus} from '../../status/api/get-status.js'
 
 export const spaceListCommand: SlashCommand = {
-  async action(_context, args) {
-    const parsed = await parseReplArgs(args, {flags: listFlags, strict: false})
-    const json = parsed.flags.json ?? false
+  async action() {
+    const {status} = await getStatus()
+    const isVc = status.contextTreeStatus === 'git_vc'
 
-    return {
-      render: ({onCancel, onComplete}) => React.createElement(SpaceListView, {json, onCancel, onComplete}),
-    }
+    const content = isVc
+      ? 'The space list command has been deprecated. Visit the ByteRover web dashboard to view your spaces.'
+      : 'The space list command has been deprecated. Visit the ByteRover web dashboard to view your spaces and follow the migration guide to version control.'
+
+    return {content, messageType: 'error', type: 'message'} satisfies MessageActionReturn
   },
-  description: 'List all spaces for the current team',
-  flags: toCommandFlags(listFlags),
+  description: 'List all spaces (deprecated)',
   name: 'list',
 }
