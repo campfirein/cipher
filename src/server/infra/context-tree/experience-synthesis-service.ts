@@ -189,6 +189,8 @@ function buildPerformanceContext(
   const mid = Math.floor(scores.length / 2)
   const firstHalf = scores.slice(0, mid)
   const secondHalf = scores.slice(mid)
+  // Note: for odd-length arrays firstHalf is 1 element shorter than secondHalf —
+  // acceptable bias for a heuristic prompt hint.
   const avgFirst = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length
   const avgSecond = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length
   const diff = avgSecond - avgFirst
@@ -200,7 +202,7 @@ function buildPerformanceContext(
   const lowEntries = new Map<string, number>()
 
   for (const entry of relevant) {
-    const bucket = entry.score > domainAvg ? highEntries : lowEntries
+    const bucket = entry.score >= domainAvg ? highEntries : lowEntries
     for (const path of entry.insightsActive) {
       if (referencesSubfolder(path)) {
         bucket.set(path, (bucket.get(path) ?? 0) + 1)

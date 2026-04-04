@@ -1325,7 +1325,10 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     const textPart = query.slice(query.indexOf(pathPart) + pathPart.length).trim()
 
     if (textPart) {
-      // Scoped search: search text within the matched subtree
+      // Scoped search: search text within the matched subtree.
+      // Fetch performance factors here rather than receiving them as a parameter:
+      // the outer search() path computes perfFactors *after* this method returns null,
+      // so passing them in would require eagerly computing them even for direct-match exits.
       const perfFactors = await this.getPerformanceFactors()
 
       return this.runTextSearch(

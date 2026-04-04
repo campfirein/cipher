@@ -5,6 +5,7 @@ import {setMaxListeners} from 'node:events'
 
 import type {BrvConfig} from '../../../server/core/domain/entities/brv-config.js'
 import type {ProviderConfigResponse} from '../../../server/core/domain/transport/schemas.js'
+import type {SessionInsightsTracker} from '../../../server/infra/context-tree/session-insights-tracker.js'
 import type {AgentEventMap} from '../../core/domain/agent-events/types.js'
 import type {GenerateResponse, StreamingEvent, StreamOptions} from '../../core/domain/streaming/types.js'
 import type {CipherAgentServices} from '../../core/interfaces/cipher-services.js'
@@ -692,7 +693,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * Set the session insights tracker for performance-memory correlation.
    * Forwarded to sandboxService so ToolsSDK.searchKnowledge() records surfaced paths.
    */
-  public setInsightsTracker(tracker: import('../../../server/infra/context-tree/session-insights-tracker.js').SessionInsightsTracker): void {
+  public setInsightsTracker(tracker: SessionInsightsTracker): void {
     this.ensureStarted()
     this.services!.sandboxService.setInsightsTracker?.(tracker)
   }
