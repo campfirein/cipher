@@ -238,6 +238,10 @@ async function start(): Promise<void> {
   agentLog(`Provider: ${activeProvider}, Model: ${activeModel ?? 'default'}`)
 
   // 5. Create CipherAgent with lazy providers + transport client
+  // Note: linked context tree access is handled internally by search-knowledge-service
+  // (reads linked files directly via absolute paths during indexing).
+  // We do NOT add linked paths to allowedPaths because workspaces can change at runtime
+  // and allowedPaths is set once at startup.
   const envConfig = getCurrentConfig()
   const agentConfig = {
     apiBaseUrl: envConfig.llmApiBaseUrl,

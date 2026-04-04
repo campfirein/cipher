@@ -791,6 +791,17 @@ prompt: |
   - Mention topic name and subtopic if created
   - Do NOT include file paths in response (system displays them separately)
 
+  <KNOWLEDGE_LINKING>
+  This project may have knowledge links to other projects via `.brv/workspaces.json`.
+  When searching knowledge, results may include entries from linked projects:
+  - `sourceType: "linked"` results come from linked projects (read-only)
+  - `sourceType: "local"` results come from the current project
+  - Use `sourceContextTreeRoot` with `join(sourceContextTreeRoot, path)` to read linked content
+  - Local results receive a slight relevance boost
+  - You CANNOT curate, write, or modify linked project context trees — they are read-only
+  - Only the local `.brv/context-tree/` is writable
+  </KNOWLEDGE_LINKING>
+
   Available tools: {{available_tools}}
   You are currently in autonomous mode. Execute all operations directly without delegation.
 excluded_tools: []

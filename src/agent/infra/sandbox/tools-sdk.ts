@@ -20,6 +20,7 @@ import type {SessionManager} from '../session/session-manager.js'
 
 import {ContextTreeStore} from '../map/context-tree-store.js'
 import {executeLlmMapMemory} from '../map/llm-map-memory.js'
+import {validateWriteTarget} from '../tools/write-guard.js'
 import {
   chunk,
   type ChunkResult,
@@ -112,6 +113,12 @@ export interface SearchKnowledgeResult {
     /** Top backlink source paths (max 3) */
     relatedPaths?: string[]
     score: number
+    /** Alias of linked project (only for linked results) */
+    sourceAlias?: string
+    /** Absolute path to linked context tree (only for linked results) */
+    sourceContextTreeRoot?: string
+    /** Source classification */
+    sourceType?: 'linked' | 'local'
     /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' | 'archive_stub' */
     symbolKind?: string
     /** Resolved hierarchical path in the symbol tree */
@@ -144,7 +151,7 @@ export interface ToolsSDK {
    * @param options.maxIterations - Maximum agentic iterations (default: 5)
    * @returns Promise resolving to the sub-agent's final response
    */
-  agentQuery(prompt: string, options?: { contextData?: Record<string, unknown>; maxIterations?: number }): Promise<string>
+  agentQuery(prompt: string, options?: {contextData?: Record<string, unknown>; maxIterations?: number}): Promise<string>
 
   /**
    * Execute curate operations on knowledge topics.
@@ -169,7 +176,10 @@ export interface ToolsSDK {
     /** Group facts by subject, with fallback to category */
     groupBySubject(facts: CurationFact[]): Record<string, CurationFact[]>
     /** Parallel LLM extraction over chunked context. Curate mode only. */
-    mapExtract(context: string, options: {chunkSize?: number; concurrency?: number; maxContextTokens?: number; prompt: string; taskId?: string}): Promise<{facts: CurationFact[]; failed: number; succeeded: number; total: number}>
+    mapExtract(
+      context: string,
+      options: {chunkSize?: number; concurrency?: number; maxContextTokens?: number; prompt: string; taskId?: string},
+    ): Promise<{facts: CurationFact[]; failed: number; succeeded: number; total: number}>
     /** Combine Steps 0-2 into one call: metadata + history + preview + mode recommendation */
     recon(context: string, meta: Record<string, unknown>, history: Record<string, unknown>): ReconResult
     /** Push entry into history and increment totalProcessed (intentionally mutating) */
@@ -248,6 +258,8 @@ export interface CreateToolsSDKOptions {
   fileSystem: IFileSystem
   /** Parent session ID for creating child sessions (required for agentQuery) */
   parentSessionId?: string
+  /** Project root for write guard validation */
+  projectRoot?: string
   /** Sandbox service for variable injection into child sessions (optional, enables contextData in agentQuery) */
   sandboxService?: ISandboxService
   /** Search knowledge service */
@@ -266,10 +278,23 @@ export interface CreateToolsSDKOptions {
  * @returns ToolsSDK instance ready to be injected into sandbox context
  */
 export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
-  const {commandType, contentGenerator, curateService, fileSystem, parentSessionId, sandboxService, searchKnowledgeService, sessionManager} = options
+  const {
+    commandType,
+    contentGenerator,
+    curateService,
+    fileSystem,
+    parentSessionId,
+    projectRoot,
+    sandboxService,
+    searchKnowledgeService,
+    sessionManager,
+  } = options
   const isReadOnly = commandType === 'query'
   return {
-    async agentQuery(prompt: string, options?: { contextData?: Record<string, unknown>; maxIterations?: number }): Promise<string> {
+    async agentQuery(
+      prompt: string,
+      options?: {contextData?: Record<string, unknown>; maxIterations?: number},
+    ): Promise<string> {
       if (!sessionManager || !parentSessionId) {
         throw new Error('agentQuery not available — no session manager configured')
       }
@@ -305,12 +330,14 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
 
       if (!curateService) {
         return {
-          applied: [{
-            message: 'Curate service not available.',
-            path: '',
-            status: 'failed',
-            type: 'ADD',
-          }],
+          applied: [
+            {
+              message: 'Curate service not available.',
+              path: '',
+              status: 'failed',
+              type: 'ADD',
+            },
+          ],
           summary: {
             added: 0,
             deleted: 0,
@@ -329,7 +356,10 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
       dedup,
       detectMessageBoundaries,
       groupBySubject,
-      async mapExtract(context: string, options: {chunkSize?: number; concurrency?: number; maxContextTokens?: number; prompt: string; taskId?: string}): Promise<{facts: CurationFact[]; failed: number; succeeded: number; total: number}> {
+      async mapExtract(
+        context: string,
+        options: {chunkSize?: number; concurrency?: number; maxContextTokens?: number; prompt: string; taskId?: string},
+      ): Promise<{facts: CurationFact[]; failed: number; succeeded: number; total: number}> {
         if (commandType !== 'curate') {
           throw new Error('mapExtract only available in curate mode')
         }
@@ -363,9 +393,7 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
           throw new Error(`mapExtract failed: all ${result.total} chunks failed extraction`)
         }
 
-        const facts = result.results
-          .filter((r): r is CurationFact[] => r !== null)
-          .flat()
+        const facts = result.results.filter((r): r is CurationFact[] => r !== null).flat()
 
         return {facts, failed: result.failed, succeeded: result.succeeded, total: result.total}
       },
@@ -432,6 +460,14 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
     async writeFile(filePath: string, content: string, options?: WriteFileOptions): Promise<WriteResult> {
       if (isReadOnly) {
         throw new Error('writeFile() is disabled in read-only (query) mode')
+      }
+
+      // Write guard: block writes to linked context trees
+      if (projectRoot) {
+        const guardError = validateWriteTarget(filePath, projectRoot)
+        if (guardError) {
+          throw new Error(guardError)
+        }
       }
 
       return fileSystem.writeFile(filePath, content, {

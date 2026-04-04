@@ -11,7 +11,8 @@ import type {
 import type {IFileService} from '../../core/interfaces/services/i-file-service.js'
 import type {SkillConnector} from '../connectors/skill/skill-connector.js'
 
-import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
+import {BRV_DIR, BUNDLES_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
+import {loadDependenciesFile, writeDependenciesFile} from '../../core/domain/knowledge/dependencies-schema.js'
 import {ProxyConfig} from '../http/proxy-config.js'
 import {buildAuthHeaders} from './hub-auth-headers.js'
 
@@ -94,25 +95,34 @@ export class HubInstallService implements IHubInstallService {
     projectPath: string,
     auth?: HubInstallAuthParams,
   ): Promise<{installedFiles: string[]; installedPath: string; message: string}> {
-    const contextTreeDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
+    const bundleDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR, BUNDLES_DIR, entry.id)
     const contentFiles = this.getContentFiles(entry)
 
     if (contentFiles.length > 0) {
-      const firstFilePath = join(contextTreeDir, contentFiles[0].name)
+      const firstFilePath = join(bundleDir, contentFiles[0].name)
       if (await this.fileService.exists(firstFilePath)) {
         return {
           installedFiles: [],
-          installedPath: contextTreeDir,
+          installedPath: bundleDir,
           message: `${entry.name} is already installed in context tree`,
         }
       }
     }
 
-    const installedFiles = await this.downloadAndWrite(contentFiles, contextTreeDir, auth)
+    const installedFiles = await this.downloadAndWrite(contentFiles, bundleDir, auth)
+
+    // Track in dependencies.json (best-effort — dir may not exist in test environments)
+    try {
+      const deps = loadDependenciesFile(projectPath) ?? {}
+      deps[entry.id] = entry.version
+      writeDependenciesFile(projectPath, deps)
+    } catch {
+      // Silently skip if dependencies.json cannot be written
+    }
 
     return {
       installedFiles,
-      installedPath: contextTreeDir,
+      installedPath: bundleDir,
       message: `Installed ${entry.name} bundle to context tree.`,
     }
   }
