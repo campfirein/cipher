@@ -438,7 +438,11 @@ describe('provider-config-resolver', () => {
       expect(result.providerBaseUrl).to.equal('https://api.githubcopilot.com')
       expect(result.providerHeaders).to.deep.equal({
         'Copilot-Integration-Id': 'vscode-chat',
+        'Editor-Plugin-Version': 'copilot-chat/0.26.7',
         'Editor-Version': 'vscode/1.99.0',
+        'openai-intent': 'conversation-panel',
+        'User-Agent': 'GitHubCopilotChat/0.26.7',
+        'x-github-api-version': '2025-04-01',
       })
       expect(result.providerKeyMissing).to.be.false
     })

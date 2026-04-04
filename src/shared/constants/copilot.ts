@@ -10,7 +10,7 @@ export const GITHUB_OAUTH_TOKEN_URL = 'https://github.com/login/oauth/access_tok
 /** GitHub Copilot internal token exchange endpoint. */
 export const COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token'
 
-/** Copilot API base URL (serves both OpenAI-compatible and Anthropic-compatible endpoints). */
+/** Copilot API base URL (serves OpenAI-compatible chat completions for all models). */
 export const COPILOT_API_BASE_URL = 'https://api.githubcopilot.com'
 
 /** OAuth scope required for Copilot access. */
@@ -33,8 +33,13 @@ export const GITHUB_API_VERSION = '2025-04-01'
 /** Editor version header value sent with Copilot API requests. */
 export const COPILOT_EDITOR_VERSION = 'vscode/1.99.0'
 
-/** Standard headers required for Copilot API requests. */
+export const COPILOT_EDITOR_PLUGIN_VERSION = 'copilot-chat/0.26.7'
+
 export const COPILOT_REQUEST_HEADERS = {
   'Copilot-Integration-Id': 'vscode-chat',
+  'Editor-Plugin-Version': COPILOT_EDITOR_PLUGIN_VERSION,
   'Editor-Version': COPILOT_EDITOR_VERSION,
+  'openai-intent': 'conversation-panel',
+  'User-Agent': `GitHubCopilotChat/${COPILOT_EDITOR_PLUGIN_VERSION.split('/')[1]}`,
+  'x-github-api-version': GITHUB_API_VERSION,
 } as const

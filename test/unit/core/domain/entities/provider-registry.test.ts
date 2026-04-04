@@ -132,7 +132,7 @@ describe('Provider Registry', () => {
       expect(copilot?.name).to.equal('GitHub Copilot')
       expect(copilot?.baseUrl).to.equal('https://api.githubcopilot.com')
       expect(copilot?.category).to.equal('popular')
-      expect(copilot?.defaultModel).to.equal('claude-sonnet-4')
+      expect(copilot?.defaultModel).to.equal('claude-sonnet-4.6')
       expect(copilot?.priority).to.equal(8)
     })
 

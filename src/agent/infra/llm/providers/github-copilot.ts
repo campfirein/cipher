@@ -1,4 +1,3 @@
-import {createAnthropic} from '@ai-sdk/anthropic'
 import {createOpenAICompatible} from '@ai-sdk/openai-compatible'
 
 import type {GeneratorFactoryConfig, ProviderModule} from './types.js'
@@ -21,31 +20,19 @@ export const githubCopilotProvider: ProviderModule = {
       ...COPILOT_REQUEST_HEADERS,
     }
 
-    if (isCopilotClaudeModel(config.model)) {
-      const provider = createAnthropic({
-        apiKey,
-        baseURL: `${baseUrl}/v1`,
-        headers,
-      })
-
-      return new AiSdkContentGenerator({
-        charsPerToken: 3.5,
-        model: provider(config.model),
-      })
-    }
-
     const provider = createOpenAICompatible({
       apiKey,
-      baseURL: `${baseUrl}/v1`,
+      baseURL: baseUrl,
       headers,
       name: 'github-copilot',
     })
 
     return new AiSdkContentGenerator({
+      charsPerToken: isCopilotClaudeModel(config.model) ? 3.5 : undefined,
       model: provider.chatModel(config.model),
     })
   },
-  defaultModel: 'claude-sonnet-4',
+  defaultModel: 'claude-sonnet-4.6',
   description: 'All models via GitHub Copilot subscription',
   envVars: [],
   id: 'github-copilot',

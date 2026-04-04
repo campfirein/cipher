@@ -147,7 +147,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
   'github-copilot': {
     baseUrl: 'https://api.githubcopilot.com',
     category: 'popular',
-    defaultModel: 'claude-sonnet-4',
+    defaultModel: 'claude-sonnet-4.6',
     description: 'All models via GitHub Copilot subscription',
     headers: {},
     id: 'github-copilot',

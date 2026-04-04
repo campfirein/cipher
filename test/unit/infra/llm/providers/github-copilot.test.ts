@@ -25,7 +25,7 @@ describe('GitHub Copilot Provider', () => {
     })
 
     it('should have correct default model', () => {
-      expect(githubCopilotProvider.defaultModel).to.equal('claude-sonnet-4')
+      expect(githubCopilotProvider.defaultModel).to.equal('claude-sonnet-4.6')
     })
 
     it('should have popular category', () => {
@@ -92,30 +92,45 @@ describe('GitHub Copilot Provider', () => {
       })
       expect(generator).to.be.instanceOf(AiSdkContentGenerator)
     })
+
+    it('should use OpenAI-compatible format for all models including Claude', () => {
+      const claudeGen = githubCopilotProvider.createGenerator({
+        ...BASE_FACTORY_CONFIG,
+        apiKey: 'test-token',
+        model: 'claude-sonnet-4',
+      })
+      const gptGen = githubCopilotProvider.createGenerator({
+        ...BASE_FACTORY_CONFIG,
+        apiKey: 'test-token',
+        model: 'gpt-4.1',
+      })
+      expect(claudeGen).to.be.instanceOf(AiSdkContentGenerator)
+      expect(gptGen).to.be.instanceOf(AiSdkContentGenerator)
+    })
   })
 
-  describe('model routing', () => {
-    it('should route claude-sonnet-4 as Claude model', () => {
+  describe('isCopilotClaudeModel()', () => {
+    it('should return true for claude-sonnet-4', () => {
       expect(isCopilotClaudeModel('claude-sonnet-4')).to.be.true
     })
 
-    it('should route claude-opus-4.5 as Claude model', () => {
+    it('should return true for claude-opus-4.5', () => {
       expect(isCopilotClaudeModel('claude-opus-4.5')).to.be.true
     })
 
-    it('should route claude-haiku-4.5 as Claude model', () => {
+    it('should return true for claude-haiku-4.5', () => {
       expect(isCopilotClaudeModel('claude-haiku-4.5')).to.be.true
     })
 
-    it('should route gpt-4.1 as non-Claude model', () => {
+    it('should return false for gpt-4.1', () => {
       expect(isCopilotClaudeModel('gpt-4.1')).to.be.false
     })
 
-    it('should route gemini-2.5-pro as non-Claude model', () => {
+    it('should return false for gemini-2.5-pro', () => {
       expect(isCopilotClaudeModel('gemini-2.5-pro')).to.be.false
     })
 
-    it('should route o3 as non-Claude model', () => {
+    it('should return false for o3', () => {
       expect(isCopilotClaudeModel('o3')).to.be.false
     })
   })
