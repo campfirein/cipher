@@ -119,4 +119,42 @@ describe('Provider Registry', () => {
       }
     })
   })
+
+  describe('GitHub Copilot provider', () => {
+    it('should be in the registry', () => {
+      expect(PROVIDER_REGISTRY).to.have.property('github-copilot')
+    })
+
+    it('should have correct fields', () => {
+      const copilot = getProviderById('github-copilot')
+      expect(copilot).to.not.be.undefined
+      expect(copilot?.id).to.equal('github-copilot')
+      expect(copilot?.name).to.equal('GitHub Copilot')
+      expect(copilot?.baseUrl).to.equal('https://api.githubcopilot.com')
+      expect(copilot?.category).to.equal('popular')
+      expect(copilot?.defaultModel).to.equal('claude-sonnet-4')
+      expect(copilot?.priority).to.equal(8)
+    })
+
+    it('providerRequiresApiKey should return false', () => {
+      expect(providerRequiresApiKey('github-copilot')).to.be.false
+    })
+
+    it('should have oauth config with callbackMode device', () => {
+      const copilot = getProviderById('github-copilot')
+      expect(copilot?.oauth).to.not.be.undefined
+      expect(copilot?.oauth?.callbackMode).to.equal('device')
+    })
+
+    it('should have correct oauth clientId', () => {
+      const copilot = getProviderById('github-copilot')
+      expect(copilot?.oauth?.clientId).to.equal('Ov23li8tweQw6odWQebz')
+    })
+
+    it('should have oauth modes with GitHub device auth URL', () => {
+      const copilot = getProviderById('github-copilot')
+      expect(copilot?.oauth?.modes).to.have.length.greaterThanOrEqual(1)
+      expect(copilot?.oauth?.modes[0].authUrl).to.include('github.com/login/device')
+    })
+  })
 })

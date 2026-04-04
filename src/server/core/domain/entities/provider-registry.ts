@@ -23,8 +23,8 @@ export interface OAuthModeConfig {
  * OAuth configuration for a provider.
  */
 export interface ProviderOAuthConfig {
-  /** How the callback is received: local server ('auto') or user pastes code ('code-paste') */
-  readonly callbackMode: 'auto' | 'code-paste'
+  /** How the callback is received: local server ('auto'), user pastes code ('code-paste'), or device flow polling ('device') */
+  readonly callbackMode: 'auto' | 'code-paste' | 'device'
   /** Port for local callback server (auto mode only) */
   readonly callbackPort?: number
   /** OAuth client ID */
@@ -143,6 +143,26 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
     modelsEndpoint: '/models',
     name: 'DeepInfra',
     priority: 10,
+  },
+  'github-copilot': {
+    baseUrl: 'https://api.githubcopilot.com',
+    category: 'popular',
+    defaultModel: 'claude-sonnet-4',
+    description: 'All models via GitHub Copilot subscription',
+    headers: {},
+    id: 'github-copilot',
+    modelsEndpoint: '/models',
+    name: 'GitHub Copilot',
+    oauth: {
+      callbackMode: 'device',
+      clientId: 'Ov23li8tweQw6odWQebz',
+      modes: [{authUrl: 'https://github.com/login/device', id: 'default', label: 'Sign in with GitHub'}],
+      redirectUri: '',
+      scopes: 'read:user',
+      tokenContentType: 'json',
+      tokenUrl: '',
+    },
+    priority: 8,
   },
   glm: {
     apiKeyUrl: 'https://open.z.ai',
@@ -375,7 +395,7 @@ export function providerRequiresApiKey(id: string, authMethod?: 'api-key' | 'oau
   if (!provider) return false
   // Internal providers (byterover) don't need API keys.
   // OpenAI Compatible has optional API key (handled in provider-command).
-  if (id === 'byterover' || id === 'openai-compatible') return false
+  if (id === 'byterover' || id === 'openai-compatible' || id === 'github-copilot') return false
 
   return true
 }
