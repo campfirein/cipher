@@ -3,6 +3,7 @@ import React from 'react'
 import type {MessageActionReturn, SlashCommand} from '../../../types/commands.js'
 
 import {isVcRemoteSubcommand} from '../../../../shared/transport/events/vc-events.js'
+import {getGitRemoteBaseUrl} from '../../../lib/environment.js'
 import {VcRemoteFlow} from '../../vc/remote/components/vc-remote-flow.js'
 import {Args, parseReplArgs} from '../utils/arg-parser.js'
 
@@ -10,7 +11,7 @@ import {Args, parseReplArgs} from '../utils/arg-parser.js'
 const vcRemoteArgs = {
   subcommand: Args.string({description: 'Subcommand: add | set-url (omit to show current remote)'}),
   name: Args.string({description: 'Remote name (e.g. origin)'}),
-  url: Args.string({description: 'Remote URL (e.g. https://app.byterover.dev/team/space.brv)'}),
+  url: Args.string({description: `Remote URL (e.g. ${getGitRemoteBaseUrl()}/<team>/<space>.git)`}),
 }
 /* eslint-enable perfectionist/sort-objects */
 

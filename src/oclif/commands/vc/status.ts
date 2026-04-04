@@ -64,11 +64,7 @@ export default class VcStatus extends Command {
         this.log(chalk.bold('Unmerged paths:'))
         for (const f of result.unmerged!) {
           const label =
-            f.type === 'deleted_modified'
-              ? 'deleted by them'
-              : f.type === 'both_added'
-                ? 'both added'
-                : 'both modified'
+            f.type === 'deleted_modified' ? 'deleted by them' : f.type === 'both_added' ? 'both added' : 'both modified'
           this.log(chalk.red(`   ${label}:   ${f.path}`))
         }
       } else {
@@ -105,12 +101,14 @@ export default class VcStatus extends Command {
 
     if (unstaged.modified.length > 0 || unstaged.deleted.length > 0) {
       this.log(chalk.bold('Changes not staged for commit:'))
+      this.log(chalk.bold('(use "brv vc add ‹file>..." to include in what will be committed)'))
       for (const f of unstaged.modified) this.log(chalk.red(`   modified:   ${f}`))
       for (const f of unstaged.deleted) this.log(chalk.red(`   deleted:    ${f}`))
     }
 
     if (untracked.length > 0) {
       this.log(chalk.bold('Untracked files:'))
+      this.log(chalk.bold('(use "brv vc add ‹file>..." to include in what will be committed)'))
       for (const f of untracked) this.log(chalk.red(`   ${f}`))
     }
   }

@@ -10,13 +10,14 @@ export default class VcReset extends Command {
     '<%= config.bin %> <%= command.id %> notes.md',
     '<%= config.bin %> <%= command.id %> --soft HEAD~1',
     '<%= config.bin %> <%= command.id %> --hard HEAD~1',
+    '<%= config.bin %> <%= command.id %> --hard',
   ]
   public static flags = {
-    hard: Flags.string({
-      description: 'Reset HEAD, index, and working tree to the given ref',
+    hard: Flags.boolean({
+      description: 'Reset HEAD, index, and working tree',
       exclusive: ['soft'],
     }),
-    soft: Flags.string({
+    soft: Flags.boolean({
       description: 'Reset HEAD only, keep changes staged',
       exclusive: ['hard'],
     }),
@@ -25,22 +26,22 @@ export default class VcReset extends Command {
 
   public async run(): Promise<void> {
     const {argv, flags} = await this.parse(VcReset)
-    const filePaths = argv.filter((a): a is string => typeof a === 'string')
+    const args = argv.filter((a): a is string => typeof a === 'string')
+
+    // When --soft or --hard is set, first arg is the optional ref (default HEAD)
+    const mode = flags.soft ? 'soft' : flags.hard ? 'hard' : undefined
+    const ref = mode ? args[0] : undefined
+    const filePaths = mode ? undefined : args.length > 0 ? args : undefined
 
     try {
-      if (filePaths.length > 0) {
+      if (filePaths) {
         const result = await withDaemonRetry(async (client) =>
           client.requestWithAck<IVcResetResponse>(VcEvents.RESET, {filePaths}),
         )
         this.formatUnstageResult(result)
-      } else if (flags.soft) {
+      } else if (mode) {
         const result = await withDaemonRetry(async (client) =>
-          client.requestWithAck<IVcResetResponse>(VcEvents.RESET, {mode: 'soft', ref: flags.soft}),
-        )
-        this.formatRefResult(result)
-      } else if (flags.hard) {
-        const result = await withDaemonRetry(async (client) =>
-          client.requestWithAck<IVcResetResponse>(VcEvents.RESET, {mode: 'hard', ref: flags.hard}),
+          client.requestWithAck<IVcResetResponse>(VcEvents.RESET, {mode, ref}),
         )
         this.formatRefResult(result)
       } else {
@@ -55,8 +56,8 @@ export default class VcReset extends Command {
   }
 
   private formatRefResult(result: IVcResetResponse): void {
-    const sha = result.headSha ? result.headSha.slice(0, 7) : 'unknown'
-    this.log(`HEAD is now at ${sha}`)
+    if (!result.headSha) return // Empty repo — silent no-op, matches git
+    this.log(`HEAD is now at ${result.headSha.slice(0, 7)}`)
   }
 
   private formatUnstageResult(result: IVcResetResponse): void {

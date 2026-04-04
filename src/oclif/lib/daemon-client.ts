@@ -10,7 +10,6 @@ import {
   TransportRequestTimeoutError,
 } from '@campfirein/brv-transport-client'
 
-import {getCurrentConfig} from '../../server/config/environment.js'
 import {TaskErrorCode} from '../../server/core/domain/errors/task-error.js'
 import {createDaemonAwareConnector, type TransportConnector} from '../../server/infra/transport/transport-connector.js'
 import {
@@ -49,15 +48,14 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [VcErrorCode.CONFLICT_MARKERS_PRESENT]:
     'Conflict markers detected. Resolve conflicts and run brv vc add before pushing.',
   [VcErrorCode.GIT_NOT_INITIALIZED]: 'ByteRover version control not initialized. Run brv vc init first.',
-  [VcErrorCode.INVALID_BRANCH_NAME]: 'Invalid branch name.',
+  // INVALID_BRANCH_NAME intentionally omitted: fall through to server's message with actual branch name
   [VcErrorCode.INVALID_CONFIG_KEY]: 'Invalid config key. Allowed: user.name, user.email.',
-  [VcErrorCode.NO_REMOTE]: '', // placeholder — built lazily in formatConnectionError to avoid top-level env read
+  [VcErrorCode.NETWORK_ERROR]: 'Network error. Check your connection and try again.',
   [VcErrorCode.NON_FAST_FORWARD]: 'Remote has changes. Run brv vc pull first.',
   [VcErrorCode.NOTHING_STAGED]: 'Nothing staged. Run brv vc add first.',
   [VcErrorCode.NOTHING_TO_PUSH]: 'No commits to push. Run brv vc add and brv vc commit first.',
-  [VcErrorCode.PUSH_FAILED]: 'Push failed. Check your connection and try again.',
   [VcErrorCode.REMOTE_ALREADY_EXISTS]: "Remote 'origin' already exists. Use brv vc remote set-url <url> to update.",
-  [VcErrorCode.UNCOMMITTED_CHANGES]: 'You have uncommitted changes. Commit or use --force to discard.',
+  // UNCOMMITTED_CHANGES intentionally omitted: fall through to server's detailed message with file paths
   // USER_NOT_CONFIGURED intentionally omitted: fall through to server's specific hint with actual values
 }
 
@@ -217,10 +215,6 @@ export function formatConnectionError(error: unknown, providerContext?: Provider
     const baseMessage = error.message.replace(/ for event '[^']+'$/, '')
 
     if (error.code && typeof error.code === 'string') {
-      if (error.code === VcErrorCode.NO_REMOTE) {
-        return buildNoRemoteMessage()
-      }
-
       return USER_FRIENDLY_MESSAGES[error.code] ?? baseMessage
     }
 
@@ -239,17 +233,6 @@ export function formatConnectionError(error: unknown, providerContext?: Provider
   }
 
   return `Unexpected error: ${message}`
-}
-
-function buildNoRemoteMessage(): string {
-  const {webAppUrl} = getCurrentConfig()
-  return (
-    `No remote configured.\n\nTo connect to cloud:\n` +
-    `  1. Go to ${webAppUrl} → create or open a Space\n` +
-    `  2. Copy the remote URL\n` +
-    `  3. Run: brv vc remote add origin <url>\n` +
-    `  4. Then: brv vc push -u origin main`
-  )
 }
 
 function formatApiKeyError(providerContext?: ProviderErrorContext): string {

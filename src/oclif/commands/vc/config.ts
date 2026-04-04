@@ -29,7 +29,7 @@ export default class VcConfig extends Command {
         client.requestWithAck<IVcConfigResponse>(VcEvents.CONFIG, {key, value}),
       )
 
-      this.log(`${result.key} = ${result.value}`)
+      this.log(`${result.value}`)
     } catch (error) {
       this.error(formatConnectionError(error))
     }

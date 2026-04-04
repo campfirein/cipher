@@ -1,6 +1,6 @@
 /**
  * Build the CoGit Git remote URL for a given team and space.
- * Format: {cogitGitBaseUrl}/git/{teamId}/{spaceId}.git
+ * Format: {gitApiBaseUrl}/git/{teamId}/{spaceId}.git
  */
 export function buildCogitRemoteUrl(baseUrl: string, teamId: string, spaceId: string): string {
   const base = baseUrl.replace(/\/$/, '')
@@ -22,7 +22,7 @@ export function stripCredentialsFromUrl(url: string): string {
 }
 
 /**
- * Parse a URL that contains /git/{segment1}/{segment2}.git or /git/{segment1}/{segment2}.brv
+ * Parse a URL that contains /git/{segment1}/{segment2}.git
  * Returns the two segments and whether they look like UUIDs.
  */
 export function parseGitPathUrl(url: string): null | {
@@ -32,7 +32,7 @@ export function parseGitPathUrl(url: string): null | {
 } {
   try {
     const parsed = new URL(url)
-    const match = parsed.pathname.match(/^\/git\/([^/]+)\/([^/]+?)\.(?:git|brv)$/)
+    const match = parsed.pathname.match(/^\/git\/([^/]+)\/([^/]+?)\.git$/)
     if (!match) return null
     const segment1 = match[1]
     const segment2 = match[2]
@@ -43,13 +43,13 @@ export function parseGitPathUrl(url: string): null | {
 }
 
 /**
- * Parse a user-facing .brv URL to extract team and space names.
- * Expected path: /{teamName}/{spaceName}.brv (no /git/ prefix)
+ * Parse a user-facing .git URL to extract team and space names.
+ * Expected path: /{teamName}/{spaceName}.git (no /git/ prefix)
  */
-export function parseBrvUrl(url: string): null | {spaceName: string; teamName: string} {
+export function parseUserFacingUrl(url: string): null | {spaceName: string; teamName: string} {
   try {
     const parsed = new URL(url)
-    const match = parsed.pathname.match(/^\/([^/]+)\/([^/]+?)\.brv$/)
+    const match = parsed.pathname.match(/^\/([^/]+)\/([^/]+?)\.git$/)
     if (!match) return null
     return {spaceName: match[2], teamName: match[1]}
   } catch {

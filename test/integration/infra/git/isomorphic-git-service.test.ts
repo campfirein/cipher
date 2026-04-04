@@ -540,6 +540,73 @@ describe('IsomorphicGitService', () => {
       const branch = await service.getCurrentBranch({directory: testDir})
       expect(branch).to.equal('feature')
     })
+
+    it('blocks checkout when staged changes conflict with target branch', async () => {
+      // Setup: feature branch has a.txt="v2", main has a.txt="v1"
+      await service.checkout({directory: testDir, ref: 'feature'})
+      await writeFile(join(testDir, 'a.txt'), 'v2')
+      await service.add({directory: testDir, filePaths: ['a.txt']})
+      await service.commit({directory: testDir, message: 'feature: add a.txt'})
+
+      await service.checkout({directory: testDir, ref: 'main'})
+      // Stage a change to a.txt on main (not committed)
+      await writeFile(join(testDir, 'a.txt'), 'staged-change')
+      await service.add({directory: testDir, filePaths: ['a.txt']})
+
+      // Checkout feature should block — staged a.txt would be overwritten
+      try {
+        await service.checkout({directory: testDir, ref: 'feature'})
+        expect.fail('Expected GitError for staged conflict')
+      } catch (error) {
+        expect(error).to.be.instanceOf(GitError)
+        expect((error as GitError).message).to.include('would be overwritten')
+        expect((error as GitError).message).to.include('a.txt')
+      }
+
+      // Verify staged change is preserved (no data loss)
+      const content = await readFile(join(testDir, 'a.txt'), 'utf8')
+      expect(content).to.equal('staged-change')
+    })
+
+    it('allows checkout when staged changes do not conflict with target branch', async () => {
+      // Setup: both branches have seed.md="seed" (same content).
+      // Feature adds a.txt (unrelated change). Main stages seed.md modification.
+      await service.checkout({directory: testDir, ref: 'feature'})
+      await writeFile(join(testDir, 'a.txt'), 'feature-only')
+      await service.add({directory: testDir, filePaths: ['a.txt']})
+      await service.commit({directory: testDir, message: 'feature: add a.txt'})
+
+      await service.checkout({directory: testDir, ref: 'main'})
+      // Stage a modification to seed.md — same content on both branches, so no conflict
+      await writeFile(join(testDir, 'seed.md'), 'staged-seed')
+      await service.add({directory: testDir, filePaths: ['seed.md']})
+
+      // Checkout feature should succeed — staged seed.md doesn't conflict (same on both branches)
+      await service.checkout({directory: testDir, ref: 'feature'})
+      const branch = await service.getCurrentBranch({directory: testDir})
+      expect(branch).to.equal('feature')
+    })
+
+    it('allows checkout with force even when staged changes conflict', async () => {
+      // Setup: feature branch has a.txt="v2", main stages a.txt="staged"
+      await service.checkout({directory: testDir, ref: 'feature'})
+      await writeFile(join(testDir, 'a.txt'), 'v2')
+      await service.add({directory: testDir, filePaths: ['a.txt']})
+      await service.commit({directory: testDir, message: 'feature: add a.txt'})
+
+      await service.checkout({directory: testDir, ref: 'main'})
+      await writeFile(join(testDir, 'a.txt'), 'staged-change')
+      await service.add({directory: testDir, filePaths: ['a.txt']})
+
+      // Force checkout should succeed — discards staged changes
+      await service.checkout({directory: testDir, force: true, ref: 'feature'})
+      const branch = await service.getCurrentBranch({directory: testDir})
+      expect(branch).to.equal('feature')
+
+      // a.txt now has feature branch content
+      const content = await readFile(join(testDir, 'a.txt'), 'utf8')
+      expect(content).to.equal('v2')
+    })
   })
 
   // ---- getConflicts() ----

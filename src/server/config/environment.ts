@@ -21,7 +21,8 @@ type EnvironmentConfig = {
   authorizationUrl: string
   clientId: string
   cogitApiBaseUrl: string
-  cogitGitBaseUrl: string
+  gitApiBaseUrl: string
+  gitRemoteBaseUrl: string
   hubRegistryUrl: string
   issuerUrl: string
   llmApiBaseUrl: string
@@ -56,7 +57,8 @@ export const getCurrentConfig = (): EnvironmentConfig => ({
   authorizationUrl: readRequiredEnv('BRV_AUTHORIZATION_URL'),
   clientId: DEFAULTS.clientId,
   cogitApiBaseUrl: readRequiredEnv('BRV_COGIT_API_BASE_URL'),
-  cogitGitBaseUrl: readRequiredEnv('BRV_COGIT_GIT_BASE_URL'),
+  gitApiBaseUrl: readRequiredEnv('BRV_GIT_API_BASE_URL'),
+  gitRemoteBaseUrl: readRequiredEnv('BRV_GIT_REMOTE_BASE_URL'),
   hubRegistryUrl: DEFAULTS.hubRegistryUrl,
   issuerUrl: readRequiredEnv('BRV_ISSUER_URL'),
   llmApiBaseUrl: readRequiredEnv('BRV_LLM_API_BASE_URL'),
@@ -64,5 +66,8 @@ export const getCurrentConfig = (): EnvironmentConfig => ({
   tokenUrl: readRequiredEnv('BRV_TOKEN_URL'),
   webAppUrl: readRequiredEnv('BRV_WEB_APP_URL'),
 })
+
+export const getGitRemoteBaseUrl = (): string =>
+  process.env.BRV_GIT_REMOTE_BASE_URL ?? 'https://byterover.dev'
 
 export const isDevelopment = (): boolean => ENVIRONMENT === 'development'

@@ -40,9 +40,9 @@ export default class VcCheckout extends Command {
       })
 
       if (result.created) {
-        this.log(`Created and switched to branch '${result.branch}'.`)
+        this.log(`Switched to a new branch '${result.branch}'`)
       } else {
-        this.log(`Switched to branch '${result.branch}'.`)
+        this.log(`Switched to branch '${result.branch}'`)
       }
     } catch (error) {
       this.error(formatConnectionError(error))

@@ -29,9 +29,9 @@ export function VcCheckoutFlow({onCancel, onComplete, request}: VcCheckoutFlowPr
       },
       onSuccess(result) {
         if (result.created) {
-          onComplete(`Created and switched to branch '${result.branch}'.`)
+          onComplete(`Switched to a new branch '${result.branch}'`)
         } else {
-          onComplete(`Switched to branch '${result.branch}'.`)
+          onComplete(`Switched to branch '${result.branch}'`)
         }
       },
     })

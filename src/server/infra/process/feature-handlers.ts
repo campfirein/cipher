@@ -249,8 +249,9 @@ export async function setupFeatureHandlers({
 
   new VcHandler({
     broadcastToProject,
-    cogitGitBaseUrl: envConfig.cogitGitBaseUrl,
     contextTreeService,
+    gitApiBaseUrl: envConfig.gitApiBaseUrl,
+    gitRemoteBaseUrl: envConfig.gitRemoteBaseUrl,
     gitService,
     projectConfigStore,
     resolveProjectPath,
@@ -259,6 +260,7 @@ export async function setupFeatureHandlers({
     tokenStore,
     transport,
     vcGitConfigStore: new FileVcGitConfigStore(),
+    webAppUrl: envConfig.webAppUrl,
   }).setup()
 
   log('Feature handlers registered')

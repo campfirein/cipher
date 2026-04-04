@@ -6,7 +6,7 @@ import {VcCloneFlow} from '../../vc/clone/components/vc-clone-flow.js'
 import {Args, parseReplArgs} from '../utils/arg-parser.js'
 
 const vcCloneArgs = {
-  url: Args.string({description: 'Clone URL (optional — opens space picker if omitted)'}),
+  url: Args.string({description: 'Clone URL (optional — prompts for URL if omitted)'}),
 }
 
 export const vcCloneSubCommand: SlashCommand = {

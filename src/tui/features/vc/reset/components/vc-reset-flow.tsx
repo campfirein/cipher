@@ -41,8 +41,11 @@ export function VcResetFlow({filePaths, mode, onCancel, onComplete, ref}: VcRese
       },
       onSuccess(result) {
         if (result.filesUnstaged === undefined) {
-          const sha = result.headSha ? result.headSha.slice(0, 7) : 'unknown'
-          onComplete(`HEAD is now at ${sha}`)
+          if (result.headSha) {
+            onComplete(`HEAD is now at ${result.headSha.slice(0, 7)}`)
+          } else {
+            onComplete('') // Empty repo — silent no-op, matches git
+          }
         } else if (result.filesUnstaged === 0) {
           onComplete('Nothing to unstage.')
         } else {

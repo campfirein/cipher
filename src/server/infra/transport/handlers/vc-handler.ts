@@ -41,6 +41,7 @@ import {
   type IVcResetResponse,
   type IVcStatusResponse,
   VcErrorCode,
+  type VcErrorCodeType,
   VcEvents,
   type VcResetMode,
 } from '../../../../shared/transport/events/vc-events.js'
@@ -51,8 +52,30 @@ import {GitAuthError, GitError} from '../../../core/domain/errors/git-error.js'
 import {NotAuthenticatedError} from '../../../core/domain/errors/task-error.js'
 import {VcError} from '../../../core/domain/errors/vc-error.js'
 import {ensureGitignoreEntries} from '../../../utils/gitignore.js'
-import {buildCogitRemoteUrl, isValidBranchName, parseBrvUrl, parseGitPathUrl} from '../../git/cogit-url.js'
+import {buildCogitRemoteUrl, isValidBranchName, parseGitPathUrl, parseUserFacingUrl} from '../../git/cogit-url.js'
 import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
+
+/**
+ * Classify a raw isomorphic-git error into a specific VcError by its `.code` property.
+ * Returns undefined if the error is not a recognized isomorphic-git error.
+ */
+function classifyIsomorphicGitError(error: unknown, notFoundCode: VcErrorCodeType): undefined | VcError {
+  if (!(error instanceof Error) || !('code' in error)) return undefined
+  const {code} = error as {code: string}
+  if (code === 'HttpError' || code === 'SmartHttpError') {
+    return new VcError(error.message, VcErrorCode.NETWORK_ERROR)
+  }
+
+  if (code === 'NotFoundError') {
+    return new VcError(error.message, notFoundCode)
+  }
+
+  if (code === 'UrlParseError') {
+    return new VcError(error.message, VcErrorCode.INVALID_REMOTE_URL)
+  }
+
+  return undefined
+}
 
 const FIELD_MAP: Record<string, 'email' | 'name'> = {
   'user.email': 'email',
@@ -61,8 +84,9 @@ const FIELD_MAP: Record<string, 'email' | 'name'> = {
 
 export interface IVcHandlerDeps {
   broadcastToProject: ProjectBroadcaster
-  cogitGitBaseUrl: string
   contextTreeService: IContextTreeService
+  gitApiBaseUrl: string
+  gitRemoteBaseUrl: string
   gitService: IGitService
   projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
@@ -71,6 +95,7 @@ export interface IVcHandlerDeps {
   tokenStore: ITokenStore
   transport: ITransportServer
   vcGitConfigStore: IVcGitConfigStore
+  webAppUrl: string
 }
 
 /**
@@ -78,8 +103,9 @@ export interface IVcHandlerDeps {
  */
 export class VcHandler {
   private readonly broadcastToProject: ProjectBroadcaster
-  private readonly cogitGitBaseUrl: string
   private readonly contextTreeService: IContextTreeService
+  private readonly gitApiBaseUrl: string
+  private readonly gitRemoteBaseUrl: string
   private readonly gitService: IGitService
   private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
@@ -88,10 +114,12 @@ export class VcHandler {
   private readonly tokenStore: ITokenStore
   private readonly transport: ITransportServer
   private readonly vcGitConfigStore: IVcGitConfigStore
+  private readonly webAppUrl: string
 
   constructor(deps: IVcHandlerDeps) {
     this.broadcastToProject = deps.broadcastToProject
-    this.cogitGitBaseUrl = deps.cogitGitBaseUrl
+    this.gitApiBaseUrl = deps.gitApiBaseUrl
+    this.gitRemoteBaseUrl = deps.gitRemoteBaseUrl
     this.contextTreeService = deps.contextTreeService
     this.gitService = deps.gitService
     this.projectConfigStore = deps.projectConfigStore
@@ -101,6 +129,7 @@ export class VcHandler {
     this.tokenStore = deps.tokenStore
     this.transport = deps.transport
     this.vcGitConfigStore = deps.vcGitConfigStore
+    this.webAppUrl = deps.webAppUrl
   }
 
   setup(): void {
@@ -161,6 +190,16 @@ export class VcHandler {
     }
 
     return 'Run: brv vc config user.name <value> and brv vc config user.email <value>.'
+  }
+
+  private buildNoRemoteMessage(nextStep: string): string {
+    return (
+      `No remote configured.\n\nTo connect to cloud:\n` +
+      `  1. Go to ${this.webAppUrl} → create or open a Space\n` +
+      `  2. Copy the remote URL\n` +
+      `  3. Run: brv vc remote add origin <url>\n` +
+      `  4. Then: ${nextStep}`
+    )
   }
 
   /**
@@ -355,9 +394,8 @@ export class VcHandler {
 
     this.validateBranchName(data.branch)
 
-    // ── Phase 2: Safety checks ──
+    // ── Phase 2: Resolve current branch ──
     const previousBranch = await this.gitService.getCurrentBranch({directory})
-    await this.guardUncommittedChanges(data.force, directory)
 
     // ── Phase 3: Create or switch ──
     if (data.create) {
@@ -381,6 +419,11 @@ export class VcHandler {
         await fs.promises.rm(mergeMsgPath, {force: true}).catch(() => {})
       }
     } catch (error) {
+      // Dirty files that conflict with target branch (matches native git behavior)
+      if (error instanceof GitError && error.message.includes('would be overwritten')) {
+        throw new VcError(error.message, VcErrorCode.UNCOMMITTED_CHANGES)
+      }
+
       if (error instanceof Error && 'code' in error && error.code === 'NotFoundError') {
         // Distinguish empty repo from branch-not-found
         const commits = await this.gitService.log({depth: 1, directory})
@@ -425,7 +468,7 @@ export class VcHandler {
       await this.contextTreeService.initialize(projectPath)
 
       this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
-        message: `Remote: ${cloneUrl}`,
+        message: `Remote: ${data.url ?? label}`,
         step: 'cloning',
       })
       this.broadcastToProject<IVcCloneProgressEvent>(projectPath, VcEvents.CLONE_PROGRESS, {
@@ -479,6 +522,9 @@ export class VcHandler {
       if (error instanceof GitAuthError) {
         throw new VcError('Authentication failed. Run brv login.', VcErrorCode.AUTH_FAILED)
       }
+
+      const classified = classifyIsomorphicGitError(error, VcErrorCode.INVALID_REMOTE_URL)
+      if (classified) throw classified
 
       const msg = error instanceof Error ? error.message : String(error)
       throw new VcError(`Clone failed: ${msg}`, VcErrorCode.CLONE_FAILED)
@@ -561,7 +607,7 @@ export class VcHandler {
 
     const remotes = await this.gitService.listRemotes({directory})
     if (remotes.length === 0) {
-      throw new VcError('No remote configured.', VcErrorCode.NO_REMOTE)
+      throw new VcError(this.buildNoRemoteMessage('brv vc fetch'), VcErrorCode.NO_REMOTE)
     }
 
     const remote = data.remote ?? 'origin'
@@ -571,6 +617,9 @@ export class VcHandler {
       if (error instanceof GitAuthError) {
         throw new VcError('Authentication failed. Run brv login.', VcErrorCode.AUTH_FAILED)
       }
+
+      const classified = classifyIsomorphicGitError(error, VcErrorCode.INVALID_REF)
+      if (classified) throw classified
 
       const message = error instanceof Error ? error.message : 'Fetch failed.'
       throw new VcError(message, VcErrorCode.FETCH_FAILED)
@@ -701,12 +750,6 @@ export class VcHandler {
       throw new VcError(`Invalid branch name: '${data.branch}'.`, VcErrorCode.INVALID_BRANCH_NAME)
     }
 
-    const config = await this.vcGitConfigStore.get(projectPath)
-    if (!config?.name || !config.email) {
-      const hint = await this.buildAuthorHint(config)
-      throw new VcError(`Commit author not configured. ${hint}`, VcErrorCode.USER_NOT_CONFIGURED)
-    }
-
     if (hasMergeHead) {
       throw new VcError('You have not concluded your merge (MERGE_HEAD exists).', VcErrorCode.MERGE_IN_PROGRESS)
     }
@@ -723,6 +766,12 @@ export class VcHandler {
     const branches = await this.gitService.listBranches({directory, remote: 'origin'})
     if (!branches.some((b) => b.name === data.branch)) {
       throw new VcError(`merge: ${data.branch} - not something we can merge`, VcErrorCode.BRANCH_NOT_FOUND)
+    }
+
+    const config = await this.vcGitConfigStore.get(projectPath)
+    if (!config?.name || !config.email) {
+      const hint = await this.buildAuthorHint(config)
+      throw new VcError(`Commit author not configured. ${hint}`, VcErrorCode.USER_NOT_CONFIGURED)
     }
 
     const result = await this.gitService.merge({
@@ -757,9 +806,12 @@ export class VcHandler {
       throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
     }
 
+    const token = await this.tokenStore.load()
+    if (!token?.isValid()) throw new NotAuthenticatedError()
+
     const remotes = await this.gitService.listRemotes({directory})
     if (remotes.length === 0) {
-      throw new VcError('No remote configured.', VcErrorCode.NO_REMOTE)
+      throw new VcError(this.buildNoRemoteMessage('brv vc pull origin main'), VcErrorCode.NO_REMOTE)
     }
 
     // Soft resolve author: use vc config if available, otherwise let pull() fallback to getAuthor() from auth token.
@@ -794,8 +846,21 @@ export class VcHandler {
       }
 
       if (error instanceof GitError) {
-        throw new VcError(error.message, VcErrorCode.PULL_FAILED)
+        if (error.message.includes('unresolved merge conflicts')) {
+          throw new VcError(error.message, VcErrorCode.MERGE_IN_PROGRESS)
+        }
+
+        if (error.message.includes('would be overwritten')) {
+          throw new VcError(error.message, VcErrorCode.UNCOMMITTED_CHANGES)
+        }
+
+        if (error.message.includes('unrelated histories')) {
+          throw new VcError(error.message, VcErrorCode.UNRELATED_HISTORIES)
+        }
       }
+
+      const classified = classifyIsomorphicGitError(error, VcErrorCode.INVALID_REF)
+      if (classified) throw classified
 
       const message = error instanceof Error ? error.message : 'Pull failed. Check your connection and try again.'
       throw new VcError(message, VcErrorCode.PULL_FAILED)
@@ -813,9 +878,12 @@ export class VcHandler {
       throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
     }
 
+    const token = await this.tokenStore.load()
+    if (!token?.isValid()) throw new NotAuthenticatedError()
+
     const remotes = await this.gitService.listRemotes({directory})
     if (remotes.length === 0) {
-      throw new VcError('No remote configured.', VcErrorCode.NO_REMOTE)
+      throw new VcError(this.buildNoRemoteMessage('brv vc push -u origin main'), VcErrorCode.NO_REMOTE)
     }
 
     const commits = await this.gitService.log({depth: 1, directory})
@@ -870,6 +938,9 @@ export class VcHandler {
         throw new VcError('Authentication failed. Run brv login.', VcErrorCode.AUTH_FAILED)
       }
 
+      const classified = classifyIsomorphicGitError(error, VcErrorCode.INVALID_REF)
+      if (classified) throw classified
+
       const message = error instanceof Error ? error.message : 'Push failed. Check your connection and try again.'
       throw new VcError(message, VcErrorCode.PUSH_FAILED)
     }
@@ -895,8 +966,7 @@ export class VcHandler {
       throw new VcError('URL is required.', VcErrorCode.INVALID_REMOTE_URL)
     }
 
-    const resolved = await this.resolveFullCogitUrl(data.url)
-
+    // Check local state before hitting the server — fail fast for duplicate remote
     if (data.subcommand === 'add') {
       const existing = await this.gitService.getRemoteUrl({directory, remote: 'origin'})
       if (existing) {
@@ -905,7 +975,11 @@ export class VcHandler {
           VcErrorCode.REMOTE_ALREADY_EXISTS,
         )
       }
+    }
 
+    const resolved = await this.resolveFullCogitUrl(data.url)
+
+    if (data.subcommand === 'add') {
       await this.gitService.addRemote({directory, remote: 'origin', url: resolved.url})
       return {action: 'add', url: resolved.url}
     }
@@ -1093,7 +1167,7 @@ export class VcHandler {
         spaceName: data.spaceName,
         teamId: data.teamId,
         teamName: data.teamName,
-        url: buildCogitRemoteUrl(this.cogitGitBaseUrl, data.teamId, data.spaceId),
+        url: buildCogitRemoteUrl(this.gitApiBaseUrl, data.teamId, data.spaceId),
       }
     }
 
@@ -1104,8 +1178,8 @@ export class VcHandler {
    * Resolve any URL format to a clean cogit URL + team/space info.
    * Supports:
    * 1. Cogit URL with UUIDs (/git/{uuid}/{uuid}.git) → strip credentials, return clean
-   * 2. Cogit URL with names (/git/{name}/{name}.git|.brv) → resolve names to IDs
-   * 3. User-facing .brv URL (/{name}/{name}.brv) → resolve names to IDs
+   * 2. Cogit URL with names (/git/{name}/{name}.git) → resolve names to IDs
+   * 3. User-facing .git URL (/{name}/{name}.git) → resolve names to IDs
    * 4. Unknown format → reject (no credential leaking to arbitrary URLs)
    *
    * Auth is handled by IsomorphicGitService via headers, not URL credentials.
@@ -1117,12 +1191,15 @@ export class VcHandler {
     teamName?: string
     url: string
   }> {
-    // /git/{segment1}/{segment2}.git or .brv
+    // Validate the URL domain against known hosts
+    this.validateRemoteUrlDomain(url)
+
+    // /git/{segment1}/{segment2}.git
     const gitPath = parseGitPathUrl(url)
     if (gitPath) {
       if (gitPath.areUuids) {
         // UUIDs — build clean URL (strip any credentials that may be in the URL)
-        const cleanUrl = buildCogitRemoteUrl(this.cogitGitBaseUrl, gitPath.segment1, gitPath.segment2)
+        const cleanUrl = buildCogitRemoteUrl(this.gitApiBaseUrl, gitPath.segment1, gitPath.segment2)
         return {spaceId: gitPath.segment2, teamId: gitPath.segment1, url: cleanUrl}
       }
 
@@ -1130,15 +1207,15 @@ export class VcHandler {
       return this.resolveTeamSpaceNames(gitPath.segment1, gitPath.segment2)
     }
 
-    // User-facing .brv URL (/{teamName}/{spaceName}.brv, no /git/ prefix)
-    const brvParts = parseBrvUrl(url)
-    if (brvParts) {
-      return this.resolveTeamSpaceNames(brvParts.teamName, brvParts.spaceName)
+    // User-facing .git URL (/{teamName}/{spaceName}.git, no /git/ prefix)
+    const userFacingParts = parseUserFacingUrl(url)
+    if (userFacingParts) {
+      return this.resolveTeamSpaceNames(userFacingParts.teamName, userFacingParts.spaceName)
     }
 
     // Unknown format — reject to prevent credential leaking to arbitrary URLs
     throw new VcError(
-      'Invalid URL format. Use: https://host/git/team/space.git or https://host/team/space.brv',
+      `Invalid URL format. Use: ${this.gitRemoteBaseUrl}/<team>/<space>.git`,
       VcErrorCode.INVALID_REMOTE_URL,
     )
   }
@@ -1196,13 +1273,15 @@ export class VcHandler {
       // No tracking configured — error like native git
       throw new VcError(
         `There is no tracking information for the current branch '${currentTrimmed}'.\n` +
-          `To set upstream tracking, use:\n\n` +
-          `    brv vc push -u origin ${currentTrimmed}`,
+          `To pull from remote, use:\n\n` +
+          `    brv vc pull origin ${currentTrimmed}\n\n` +
+          `Or set upstream tracking with:\n\n` +
+          `    brv vc branch --set-upstream-to origin/${currentTrimmed}`,
         VcErrorCode.NO_UPSTREAM,
       )
     }
 
-    throw new VcError('Cannot determine branch for pull. Check out a branch first.', VcErrorCode.PULL_FAILED)
+    throw new VcError('Cannot determine branch for pull. Check out a branch first.', VcErrorCode.NO_BRANCH_RESOLVED)
   }
 
   private async resolveTargetBranch(requestedBranch: string | undefined, directory: string): Promise<string> {
@@ -1236,11 +1315,8 @@ export class VcHandler {
     const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
     const team = teams.find((t) => t.name.toLowerCase() === teamName.toLowerCase())
     if (!team) {
-      const available = teams.map((t) => t.name).join(', ')
       throw new VcError(
-        teams.length > 0
-          ? `Team "${teamName}" not found. Available: ${available}`
-          : `Team "${teamName}" not found. No teams available.`,
+        `Team "${teamName}" not found. Check the URL and your access permissions.`,
         VcErrorCode.INVALID_REMOTE_URL,
       )
     }
@@ -1248,11 +1324,8 @@ export class VcHandler {
     const {spaces} = await this.spaceService.getSpaces(token.sessionKey, team.id, {fetchAll: true})
     const space = spaces.find((s) => s.name.toLowerCase() === spaceName.toLowerCase())
     if (!space) {
-      const available = spaces.map((s) => s.name).join(', ')
       throw new VcError(
-        spaces.length > 0
-          ? `Space "${spaceName}" not found in team "${team.name}". Available: ${available}`
-          : `Space "${spaceName}" not found in team "${team.name}". No spaces available.`,
+        `Space "${spaceName}" not found in team "${team.name}". Check the URL and your access permissions.`,
         VcErrorCode.INVALID_REMOTE_URL,
       )
     }
@@ -1262,14 +1335,10 @@ export class VcHandler {
       spaceName: space.name,
       teamId: space.teamId,
       teamName: team.name,
-      url: buildCogitRemoteUrl(this.cogitGitBaseUrl, space.teamId, space.id),
+      url: buildCogitRemoteUrl(this.gitApiBaseUrl, space.teamId, space.id),
     }
   }
 
-  /**
-   * Validates that branch name is non-empty and well-formed.
-   * Throws VcError(INVALID_BRANCH_NAME) on failure.
-   */
   private validateBranchName(branch: string): void {
     if (!branch) {
       throw new VcError('Branch name is required.', VcErrorCode.INVALID_BRANCH_NAME)
@@ -1277,6 +1346,25 @@ export class VcHandler {
 
     if (!isValidBranchName(branch)) {
       throw new VcError(`Invalid branch name: '${branch}'.`, VcErrorCode.INVALID_BRANCH_NAME)
+    }
+  }
+
+  private validateRemoteUrlDomain(url: string): void {
+    try {
+      const parsed = new URL(url)
+      const allowedHosts = [this.gitRemoteBaseUrl, this.gitApiBaseUrl, this.webAppUrl].map((u) => new URL(u).host)
+      if (!allowedHosts.includes(parsed.host)) {
+        throw new VcError(
+          `Invalid remote URL. Use: ${this.gitRemoteBaseUrl}/<team>/<space>.git`,
+          VcErrorCode.INVALID_REMOTE_URL,
+        )
+      }
+    } catch (error) {
+      if (error instanceof VcError) throw error
+      throw new VcError(
+        `Invalid remote URL. Use: ${this.gitRemoteBaseUrl}/<team>/<space>.git`,
+        VcErrorCode.INVALID_REMOTE_URL,
+      )
     }
   }
 }

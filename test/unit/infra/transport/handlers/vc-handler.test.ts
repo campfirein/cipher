@@ -38,7 +38,6 @@ import {
   type IVcPullResponse,
   type IVcResetResponse,
   type IVcStatusResponse,
-
   VcErrorCode,
   VcEvents,
 } from '../../../../../src/shared/transport/events/vc-events.js'
@@ -126,9 +125,18 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     getSpaces: sandbox.stub().resolves({spaces: [], total: 0}),
   }
 
+  const defaultToken = new AuthToken({
+    accessToken: 'test-acc',
+    expiresAt: new Date(Date.now() + 3_600_000),
+    refreshToken: 'test-ref',
+    sessionKey: 'sess-123',
+    userEmail: 'test@example.com',
+    userId: 'u1',
+  })
+
   const tokenStore: Stubbed<ITokenStore> = {
     clear: sandbox.stub().resolves(),
-    load: sandbox.stub().resolves(),
+    load: sandbox.stub().resolves(defaultToken),
     save: sandbox.stub().resolves(),
   }
 
@@ -179,8 +187,9 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
 function makeVcHandler(deps: TestDeps): VcHandler {
   return new VcHandler({
     broadcastToProject: deps.broadcastToProject,
-    cogitGitBaseUrl: 'https://test-cogit.byterover.dev',
     contextTreeService: deps.contextTreeService,
+    gitApiBaseUrl: 'https://test-cogit.byterover.dev',
+    gitRemoteBaseUrl: 'https://byterover.dev',
     gitService: deps.gitService,
     projectConfigStore: deps.projectConfigStore,
     resolveProjectPath: deps.resolveProjectPath,
@@ -189,6 +198,7 @@ function makeVcHandler(deps: TestDeps): VcHandler {
     tokenStore: deps.tokenStore,
     transport: deps.transport,
     vcGitConfigStore: deps.vcGitConfigStore,
+    webAppUrl: 'https://test-app.byterover.dev',
   })
 }
 
@@ -911,7 +921,9 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.NO_REMOTE)
-          expect(error.message).to.equal('No remote configured.')
+          expect(error.message).to.include('No remote configured.')
+          expect(error.message).to.include('brv vc push -u origin main')
+          expect(error.message).to.include('https://test-app.byterover.dev')
         }
       }
     })
@@ -972,6 +984,23 @@ describe('VcHandler', () => {
       }
     })
 
+    it('should throw NotAuthenticatedError when token is missing before checking remotes', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.tokenStore.load.resolves()
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(NotAuthenticatedError)
+        // listRemotes should NOT have been called — auth blocks first
+        expect(deps.gitService.listRemotes.called).to.be.false
+      }
+    })
+
     it('should throw VcError AUTH_FAILED when gitService.push throws GitAuthError', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
@@ -1012,6 +1041,56 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.PUSH_FAILED)
+        }
+      }
+    })
+
+    it('should throw VcError NETWORK_ERROR when push fails with HttpError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.log.resolves([
+        {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
+      ])
+      const httpError = Object.assign(new Error('HTTP Error: 500 Internal Server Error'), {code: 'HttpError'})
+      deps.gitService.push.rejects(httpError)
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.NETWORK_ERROR)
+          expect(error.message).to.equal('HTTP Error: 500 Internal Server Error')
+        }
+      }
+    })
+
+    it('should throw VcError INVALID_REF when push fails with NotFoundError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.log.resolves([
+        {author: {email: 'a@b.com', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
+      ])
+      const notFoundError = Object.assign(new Error('Could not find ref "refs/heads/nonexistent"'), {
+        code: 'NotFoundError',
+      })
+      deps.gitService.push.rejects(notFoundError)
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PUSH]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.INVALID_REF)
+          expect(error.message).to.include('nonexistent')
         }
       }
     })
@@ -1185,6 +1264,9 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.NO_UPSTREAM)
+          expect(error.message).to.include('brv vc pull origin main')
+          expect(error.message).to.include('brv vc branch --set-upstream-to origin/main')
+          expect(error.message).to.not.include('pull -u')
         }
       }
     })
@@ -1210,7 +1292,7 @@ describe('VcHandler', () => {
       deps.gitService.pull.resolves({conflicts: [{path: 'file.txt', type: 'both_modified'}], success: false})
       makeVcHandler(deps).setup()
 
-      const result = await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID) as IVcPullResponse
+      const result = (await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)) as IVcPullResponse
       expect(result.conflicts).to.deep.equal([{path: 'file.txt', type: 'both_modified'}])
       expect(result.branch).to.equal('main')
       expect(result.alreadyUpToDate).to.be.undefined
@@ -1232,7 +1314,23 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should throw VcError NO_REMOTE when no remote configured', async () => {
+    it('should throw NotAuthenticatedError when token is missing before checking remotes', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.tokenStore.load.resolves()
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(NotAuthenticatedError)
+        expect(deps.gitService.listRemotes.called).to.be.false
+      }
+    })
+
+    it('should throw VcError NO_REMOTE with pull hint when no remote configured', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([])
@@ -1245,7 +1343,9 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.NO_REMOTE)
-          expect(error.message).to.equal('No remote configured.')
+          expect(error.message).to.include('No remote configured.')
+          expect(error.message).to.include('brv vc pull origin main')
+          expect(error.message).to.not.include('brv vc push')
         }
       }
     })
@@ -1269,7 +1369,7 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should throw VcError PULL_FAILED with original message for GitError', async () => {
+    it('should throw VcError MERGE_IN_PROGRESS when pull fails with unresolved merge conflicts GitError', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
@@ -1283,8 +1383,73 @@ describe('VcHandler', () => {
       } catch (error) {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
-          expect(error.code).to.equal(VcErrorCode.PULL_FAILED)
+          expect(error.code).to.equal(VcErrorCode.MERGE_IN_PROGRESS)
           expect(error.message).to.equal('You have unresolved merge conflicts.')
+        }
+      }
+    })
+
+    it('should throw VcError UNCOMMITTED_CHANGES when pull fails with overwrite GitError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.rejects(
+        new GitError('Local changes would be overwritten by pull. Commit or discard your changes first.'),
+      )
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.UNCOMMITTED_CHANGES)
+          expect(error.message).to.include('would be overwritten')
+        }
+      }
+    })
+
+    it('should throw VcError UNRELATED_HISTORIES when pull fails with unrelated histories GitError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.rejects(
+        new GitError('Refusing to merge unrelated histories. Use --allow-unrelated-histories to force.'),
+      )
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.UNRELATED_HISTORIES)
+          expect(error.message).to.include('unrelated histories')
+        }
+      }
+    })
+
+    it('should throw VcError NETWORK_ERROR when pull fails with HttpError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      const httpError = Object.assign(new Error('HTTP Error: 502 Bad Gateway'), {code: 'HttpError'})
+      deps.gitService.pull.rejects(httpError)
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.NETWORK_ERROR)
+          expect(error.message).to.equal('HTTP Error: 502 Bad Gateway')
         }
       }
     })
@@ -1339,6 +1504,9 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.NO_UPSTREAM)
+          expect(error.message).to.include('brv vc pull origin feat/x')
+          expect(error.message).to.include('brv vc branch --set-upstream-to origin/feat/x')
+          expect(error.message).to.not.include('pull -u')
         }
       }
     })
@@ -1554,7 +1722,9 @@ describe('VcHandler', () => {
       expect(result.gitDir).to.include('.git')
       expect(deps.gitService.clone.calledOnce).to.be.true
       const cloneArgs = deps.gitService.clone.firstCall.args[0]
-      expect(cloneArgs.url).to.equal('https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git')
+      expect(cloneArgs.url).to.equal(
+        'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+      )
     })
 
     it('should clone with full URL that already has credentials', async () => {
@@ -1563,12 +1733,15 @@ describe('VcHandler', () => {
       deps.tokenStore.load.resolves(validToken)
       makeVcHandler(deps).setup()
 
-      const fullUrl = 'https://uid:key@test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
+      const fullUrl =
+        'https://uid:key@test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
       await invoke(deps, VcEvents.CLONE, {url: fullUrl})
 
       // Credentials stripped — clean URL used for clone (auth via headers)
       const cloneArgs = deps.gitService.clone.firstCall.args[0]
-      expect(cloneArgs.url).to.equal('https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git')
+      expect(cloneArgs.url).to.equal(
+        'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+      )
     })
 
     it('should clone with names in cogit-style URL by resolving to IDs', async () => {
@@ -1585,9 +1758,9 @@ describe('VcHandler', () => {
       })
       makeVcHandler(deps).setup()
 
-      const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(
-        deps, VcEvents.CLONE, {url: 'https://dev-beta-cgit.byterover.dev/git/Teambao1/test-git.git'},
-      )
+      const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(deps, VcEvents.CLONE, {
+        url: 'https://test-cogit.byterover.dev/git/Teambao1/test-git.git',
+      })
 
       expect(result.gitDir).to.include('.git')
       expect(result.teamName).to.equal('Teambao1')
@@ -1596,7 +1769,7 @@ describe('VcHandler', () => {
       expect(cloneArgs.url).to.equal('https://test-cogit.byterover.dev/git/tid-1/sid-1.git')
     })
 
-    it('should clone with .brv URL by resolving team/space names to IDs', async () => {
+    it('should clone with user-facing .git URL by resolving team/space names to IDs', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
@@ -1610,9 +1783,9 @@ describe('VcHandler', () => {
       })
       makeVcHandler(deps).setup()
 
-      const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(
-        deps, VcEvents.CLONE, {url: 'https://byterover.dev/acme/project.brv'},
-      )
+      const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(deps, VcEvents.CLONE, {
+        url: 'https://byterover.dev/acme/project.git',
+      })
 
       expect(result.gitDir).to.include('.git')
       expect(result.teamName).to.equal('acme')
@@ -1635,15 +1808,15 @@ describe('VcHandler', () => {
       })
       makeVcHandler(deps).setup()
 
-      const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(
-        deps, VcEvents.CLONE, {url: 'https://dev-beta-cgit.byterover.dev/git/teambao1/TEST-GIT.git'},
-      )
+      const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(deps, VcEvents.CLONE, {
+        url: 'https://test-cogit.byterover.dev/git/teambao1/TEST-GIT.git',
+      })
 
       expect(result.teamName).to.equal('Teambao1')
       expect(result.spaceName).to.equal('test-git')
     })
 
-    it('should resolve team/space name case-insensitively in .brv URL', async () => {
+    it('should resolve team/space name case-insensitively in user-facing .git URL', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
@@ -1657,15 +1830,15 @@ describe('VcHandler', () => {
       })
       makeVcHandler(deps).setup()
 
-      const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(
-        deps, VcEvents.CLONE, {url: 'https://byterover.dev/ACME/PROJECT.brv'},
-      )
+      const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(deps, VcEvents.CLONE, {
+        url: 'https://byterover.dev/ACME/PROJECT.git',
+      })
 
       expect(result.teamName).to.equal('acme')
       expect(result.spaceName).to.equal('project')
     })
 
-    it('should throw when .brv URL team not found', async () => {
+    it('should throw when user-facing .git URL team not found', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
@@ -1673,7 +1846,7 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
 
       try {
-        await invoke(deps, VcEvents.CLONE, {url: 'https://byterover.dev/unknown/project.brv'})
+        await invoke(deps, VcEvents.CLONE, {url: 'https://byterover.dev/unknown/project.git'})
         expect.fail('Expected error')
       } catch (error) {
         expect(error).to.be.instanceOf(VcError)
@@ -1684,7 +1857,7 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should throw when .brv URL space not found', async () => {
+    it('should throw when user-facing .git URL space not found', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
@@ -1696,7 +1869,7 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
 
       try {
-        await invoke(deps, VcEvents.CLONE, {url: 'https://byterover.dev/acme/missing.brv'})
+        await invoke(deps, VcEvents.CLONE, {url: 'https://byterover.dev/acme/missing.git'})
         expect.fail('Expected error')
       } catch (error) {
         expect(error).to.be.instanceOf(VcError)
@@ -1715,7 +1888,7 @@ describe('VcHandler', () => {
 
       try {
         await invoke(deps, VcEvents.CLONE, {
-          url: 'https://dev-beta-cgit.byterover.dev/git/TeamName/space-name.git',
+          url: 'https://test-cogit.byterover.dev/git/TeamName/space-name.git',
         })
         expect.fail('Expected error')
       } catch (error) {
@@ -1729,11 +1902,12 @@ describe('VcHandler', () => {
       deps.tokenStore.load.resolves(validToken)
       makeVcHandler(deps).setup()
 
-      const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(
-        deps, VcEvents.CLONE, {
-          spaceId: 'space-1', spaceName: 'my-space', teamId: 'team-1', teamName: 'my-team',
-        },
-      )
+      const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(deps, VcEvents.CLONE, {
+        spaceId: 'space-1',
+        spaceName: 'my-space',
+        teamId: 'team-1',
+        teamName: 'my-team',
+      })
 
       expect(result.gitDir).to.include('.git')
       expect(result.spaceName).to.equal('my-space')
@@ -1764,7 +1938,9 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
 
       try {
-        await invoke(deps, VcEvents.CLONE, {url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'})
+        await invoke(deps, VcEvents.CLONE, {
+          url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+        })
         expect.fail('Expected error')
       } catch (error) {
         expect(error).to.be.instanceOf(VcError)
@@ -1836,6 +2012,50 @@ describe('VcHandler', () => {
         expect(writeFileStub.called).to.be.false
       }
     })
+
+    it('should throw VcError NETWORK_ERROR when clone fails with HttpError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      deps.tokenStore.load.resolves(validToken)
+      const httpError = Object.assign(new Error('HTTP Error: 404 Not Found'), {code: 'HttpError'})
+      deps.gitService.clone.rejects(httpError)
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke(deps, VcEvents.CLONE, {
+          url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+        })
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.NETWORK_ERROR)
+          expect(error.message).to.equal('HTTP Error: 404 Not Found')
+        }
+      }
+    })
+
+    it('should throw VcError INVALID_REMOTE_URL when clone fails with NotFoundError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      deps.tokenStore.load.resolves(validToken)
+      const notFoundError = Object.assign(new Error('Could not find repository'), {code: 'NotFoundError'})
+      deps.gitService.clone.rejects(notFoundError)
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke(deps, VcEvents.CLONE, {
+          url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+        })
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.INVALID_REMOTE_URL)
+          expect(error.message).to.include('Could not find repository')
+        }
+      }
+    })
   })
 
   describe('vc:remote', () => {
@@ -1880,8 +2100,10 @@ describe('VcHandler', () => {
       deps.tokenStore.load.resolves(mockToken)
       makeVcHandler(deps).setup()
 
-      const url = 'https://user:token@test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
-      const expectedCleanUrl = 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
+      const url =
+        'https://user:token@test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
+      const expectedCleanUrl =
+        'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
       const result = await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'add', url}, CLIENT_ID)
       expect(result).to.deep.equal({action: 'add', url: expectedCleanUrl})
       expect(deps.gitService.addRemote.calledOnce).to.be.true
@@ -1903,9 +2125,13 @@ describe('VcHandler', () => {
       deps.tokenStore.load.resolves(mockToken)
       makeVcHandler(deps).setup()
 
-      const cleanUrl = 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
+      const cleanUrl =
+        'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
       const result = await invoke<{action: string; url: string}>(
-        deps, VcEvents.REMOTE, {subcommand: 'add', url: cleanUrl}, CLIENT_ID,
+        deps,
+        VcEvents.REMOTE,
+        {subcommand: 'add', url: cleanUrl},
+        CLIENT_ID,
       )
 
       expect(result.action).to.equal('add')
@@ -1916,7 +2142,7 @@ describe('VcHandler', () => {
       expect(storedUrl).to.equal(cleanUrl)
     })
 
-    it('should resolve .brv URL and store clean URL when adding remote', async () => {
+    it('should resolve user-facing .git URL and store clean URL when adding remote', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.getRemoteUrl.resolves()
@@ -1940,7 +2166,10 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
 
       const result = await invoke<{action: string; url: string}>(
-        deps, VcEvents.REMOTE, {subcommand: 'add', url: 'https://byterover.dev/acme/project.brv'}, CLIENT_ID,
+        deps,
+        VcEvents.REMOTE,
+        {subcommand: 'add', url: 'https://byterover.dev/acme/project.git'},
+        CLIENT_ID,
       )
 
       expect(result.action).to.equal('add')
@@ -1957,7 +2186,8 @@ describe('VcHandler', () => {
 
       try {
         await deps.requestHandlers[VcEvents.REMOTE](
-          {subcommand: 'add', url: 'https://dev-beta-cgit.byterover.dev/git/TeamName/space-name.git'}, CLIENT_ID,
+          {subcommand: 'add', url: 'https://test-cogit.byterover.dev/git/TeamName/space-name.git'},
+          CLIENT_ID,
         )
         expect.fail('Expected error')
       } catch (error) {
@@ -1981,7 +2211,13 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
 
       try {
-        await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'add', url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'}, CLIENT_ID)
+        await deps.requestHandlers[VcEvents.REMOTE](
+          {
+            subcommand: 'add',
+            url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+          },
+          CLIENT_ID,
+        )
         expect.fail('Expected error')
       } catch (error) {
         expect(error).to.be.instanceOf(VcError)
@@ -1996,7 +2232,8 @@ describe('VcHandler', () => {
       deps.gitService.isInitialized.resolves(true)
       makeVcHandler(deps).setup()
 
-      const url = 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
+      const url =
+        'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
       const result = await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'set-url', url}, CLIENT_ID)
       expect(result).to.deep.equal({action: 'set-url', url})
       expect(deps.gitService.removeRemote.calledOnce).to.be.true
@@ -2099,7 +2336,9 @@ describe('VcHandler', () => {
     it('create should create a branch and return created name', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.listBranches.resolves([{isCurrent: true, isRemote: false, name: 'main'}])
-      deps.gitService.log.resolves([{author: {email: 'a@b.c', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()}])
+      deps.gitService.log.resolves([
+        {author: {email: 'a@b.c', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
+      ])
       makeVcHandler(deps).setup()
       const result = await invoke<IVcBranchResponse>(deps, VcEvents.BRANCH, {action: 'create', name: 'feature'})
       expect(result).to.deep.equal({action: 'create', created: 'feature'})
@@ -2109,7 +2348,9 @@ describe('VcHandler', () => {
     it('create with slash name (feature/test) should succeed', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.listBranches.resolves([{isCurrent: true, isRemote: false, name: 'main'}])
-      deps.gitService.log.resolves([{author: {email: 'a@b.c', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()}])
+      deps.gitService.log.resolves([
+        {author: {email: 'a@b.c', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
+      ])
       makeVcHandler(deps).setup()
       const result = await invoke<Extract<IVcBranchResponse, {action: 'create'}>>(deps, VcEvents.BRANCH, {
         action: 'create',
@@ -2271,7 +2512,6 @@ describe('VcHandler', () => {
     it('should switch to an existing branch', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.getCurrentBranch.resolves('main')
-      deps.gitService.status.resolves({files: [], isClean: true})
       makeVcHandler(deps).setup()
 
       const result = await invoke<IVcCheckoutResponse>(deps, VcEvents.CHECKOUT, {branch: 'feature'})
@@ -2298,8 +2538,9 @@ describe('VcHandler', () => {
     it('should throw BRANCH_NOT_FOUND when branch does not exist', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.getCurrentBranch.resolves('main')
-      deps.gitService.status.resolves({files: [], isClean: true})
-      deps.gitService.log.resolves([{author: {email: 'a@b.c', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()}])
+      deps.gitService.log.resolves([
+        {author: {email: 'a@b.c', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
+      ])
       const notFoundError = Object.assign(new Error('Could not find origin/nonexistent.'), {code: 'NotFoundError'})
       deps.gitService.checkout.rejects(notFoundError)
       makeVcHandler(deps).setup()
@@ -2316,12 +2557,15 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should throw UNCOMMITTED_CHANGES when working tree is dirty without force', async () => {
+    it('should throw UNCOMMITTED_CHANGES when checkout would overwrite dirty files', async () => {
       const deps = makeDeps(sandbox, projectPath)
-      deps.gitService.status.resolves({
-        files: [{path: 'file.md', staged: false, status: 'modified'}],
-        isClean: false,
-      })
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.checkout.rejects(
+        new GitError(
+          'Your local changes to the following files would be overwritten by checkout. ' +
+            'Commit your changes or stash them before you switch branches.',
+        ),
+      )
       makeVcHandler(deps).setup()
 
       try {
@@ -2333,13 +2577,9 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should allow checkout when only untracked files exist', async () => {
+    it('should allow checkout when dirty files do not conflict with target branch', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.getCurrentBranch.resolves('main')
-      deps.gitService.status.resolves({
-        files: [{path: 'new-file.md', staged: false, status: 'untracked'}],
-        isClean: false,
-      })
       makeVcHandler(deps).setup()
 
       const result = await invoke<IVcCheckoutResponse>(deps, VcEvents.CHECKOUT, {branch: 'feature'})
@@ -2357,7 +2597,6 @@ describe('VcHandler', () => {
 
       expect(result).to.deep.equal({branch: 'feature', created: false, previousBranch: 'main'})
       expect(deps.gitService.checkout.firstCall.args[0]).to.deep.include({force: true, ref: 'feature'})
-      expect(deps.gitService.status.called).to.be.false
     })
 
     it('should clear merge state when force checkout during merge conflict', async () => {
@@ -2378,7 +2617,6 @@ describe('VcHandler', () => {
     it('should create and switch with create flag', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.getCurrentBranch.resolves('main')
-      deps.gitService.status.resolves({files: [], isClean: true})
       deps.gitService.listBranches.resolves([{isCurrent: true, isRemote: false, name: 'main'}])
       makeVcHandler(deps).setup()
 
@@ -2391,7 +2629,6 @@ describe('VcHandler', () => {
 
     it('should throw BRANCH_ALREADY_EXISTS when create flag used on existing branch', async () => {
       const deps = makeDeps(sandbox, projectPath)
-      deps.gitService.status.resolves({files: [], isClean: true})
       deps.gitService.listBranches.resolves([
         {isCurrent: true, isRemote: false, name: 'main'},
         {isCurrent: false, isRemote: false, name: 'existing'},
@@ -2690,6 +2927,31 @@ describe('VcHandler', () => {
       }
     })
 
+    it('should throw BRANCH_NOT_FOUND before USER_NOT_CONFIGURED on empty repo', async () => {
+      const deps = makeMergeDeps(sandbox)
+      try {
+        deps.gitService.listBranches.resolves([])
+        deps.vcGitConfigStore.get.resolves()
+
+        makeVcHandler(deps).setup()
+        try {
+          await deps.requestHandlers[VcEvents.MERGE](
+            {action: 'merge', branch: 'feat'} satisfies IVcMergeRequest,
+            CLIENT_ID,
+          )
+          expect.fail('Expected error')
+        } catch (error) {
+          expect(error).to.be.instanceOf(VcError)
+          if (error instanceof VcError) {
+            expect(error.code).to.equal(VcErrorCode.BRANCH_NOT_FOUND)
+            expect(error.message).to.include('feat')
+          }
+        }
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
     it('should pass author from vcGitConfigStore to merge', async () => {
       const deps = makeMergeDeps(sandbox)
       try {
@@ -2876,7 +3138,7 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should throw VcError NO_REMOTE when no remote configured', async () => {
+    it('should throw VcError NO_REMOTE with fetch hint when no remote configured', async () => {
       const deps = makeDeps(sandbox, projectPath)
       const mockToken = new AuthToken({
         accessToken: 'test-acc',
@@ -2898,7 +3160,67 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.NO_REMOTE)
-          expect(error.message).to.equal('No remote configured.')
+          expect(error.message).to.include('No remote configured.')
+          expect(error.message).to.include('brv vc fetch')
+          expect(error.message).to.not.include('brv vc push')
+        }
+      }
+    })
+
+    it('should throw VcError NETWORK_ERROR when fetch fails with HttpError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      const mockToken = new AuthToken({
+        accessToken: 'test-acc',
+        expiresAt: new Date(Date.now() + 3_600_000),
+        refreshToken: 'test-ref',
+        sessionKey: 'sess-123',
+        userEmail: 'test@example.com',
+        userId: 'u1',
+      })
+      deps.tokenStore.load.resolves(mockToken)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      const httpError = Object.assign(new Error('HTTP Error: 503 Service Unavailable'), {code: 'HttpError'})
+      deps.gitService.fetch.rejects(httpError)
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke<IVcFetchResponse>(deps, VcEvents.FETCH, {})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.NETWORK_ERROR)
+          expect(error.message).to.equal('HTTP Error: 503 Service Unavailable')
+        }
+      }
+    })
+
+    it('should throw VcError INVALID_REF when fetch fails with NotFoundError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      const mockToken = new AuthToken({
+        accessToken: 'test-acc',
+        expiresAt: new Date(Date.now() + 3_600_000),
+        refreshToken: 'test-ref',
+        sessionKey: 'sess-123',
+        userEmail: 'test@example.com',
+        userId: 'u1',
+      })
+      deps.tokenStore.load.resolves(mockToken)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      const notFoundError = Object.assign(new Error('Could not find ref "refs/heads/missing"'), {code: 'NotFoundError'})
+      deps.gitService.fetch.rejects(notFoundError)
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke<IVcFetchResponse>(deps, VcEvents.FETCH, {})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.INVALID_REF)
+          expect(error.message).to.include('missing')
         }
       }
     })
@@ -2935,7 +3257,7 @@ describe('VcHandler', () => {
       expect(deps.gitService.getTrackingBranch.called).to.be.false
     })
 
-    it('should throw PULL_FAILED when empty repo has no current branch and no explicit branch', async () => {
+    it('should throw NO_BRANCH_RESOLVED when empty repo has no current branch and no explicit branch', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
@@ -2949,7 +3271,7 @@ describe('VcHandler', () => {
       } catch (error) {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
-          expect(error.code).to.equal(VcErrorCode.PULL_FAILED)
+          expect(error.code).to.equal(VcErrorCode.NO_BRANCH_RESOLVED)
         }
       }
     })
@@ -3214,6 +3536,21 @@ describe('VcHandler', () => {
       expect(result).to.deep.equal({filesUnstaged: undefined, headSha: 'def456', mode: 'soft'})
     })
 
+    it('should delegate soft reset without ref (defaults to HEAD)', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.reset.resolves({filesChanged: 0, headSha: 'abc123'})
+      makeVcHandler(deps).setup()
+
+      const result = await invoke<IVcResetResponse>(deps, VcEvents.RESET, {mode: 'soft'})
+
+      expect(deps.gitService.reset.calledOnce).to.be.true
+      const callArgs = deps.gitService.reset.firstCall.args[0]
+      expect(callArgs.mode).to.equal('soft')
+      expect(callArgs.ref).to.be.undefined
+      expect(result).to.deep.equal({filesUnstaged: undefined, headSha: 'abc123', mode: 'soft'})
+    })
+
     it('should delegate hard reset to gitService.reset with mode and ref', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
@@ -3227,6 +3564,21 @@ describe('VcHandler', () => {
       expect(callArgs.mode).to.equal('hard')
       expect(callArgs.ref).to.equal('HEAD~1')
       expect(result).to.deep.equal({filesUnstaged: undefined, headSha: 'def456', mode: 'hard'})
+    })
+
+    it('should delegate hard reset without ref (defaults to HEAD)', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.reset.resolves({filesChanged: 2, headSha: 'abc123'})
+      makeVcHandler(deps).setup()
+
+      const result = await invoke<IVcResetResponse>(deps, VcEvents.RESET, {mode: 'hard'})
+
+      expect(deps.gitService.reset.calledOnce).to.be.true
+      const callArgs = deps.gitService.reset.firstCall.args[0]
+      expect(callArgs.mode).to.equal('hard')
+      expect(callArgs.ref).to.be.undefined
+      expect(result).to.deep.equal({filesUnstaged: undefined, headSha: 'abc123', mode: 'hard'})
     })
 
     it('should map INVALID_REF error from gitService', async () => {

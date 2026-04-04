@@ -40,15 +40,11 @@ describe('error-messages', () => {
       )
     })
 
-    it('returns multi-line cloud guidance for ERR_VC_NO_REMOTE', () => {
-      const err = Object.assign(new Error('No remote configured.'), {code: 'ERR_VC_NO_REMOTE'})
+    it('falls through to server message for ERR_VC_NO_REMOTE', () => {
+      const serverMessage = 'No remote configured.\n\nTo connect to cloud:\n  1. Go to https://app.byterover.dev\n  2. Copy the remote URL\n  3. Run: brv vc remote add origin <url>\n  4. Then: brv vc push -u origin main'
+      const err = Object.assign(new Error(serverMessage), {code: 'ERR_VC_NO_REMOTE'})
       const result = formatTransportError(err)
-      expect(result).to.include('No remote configured.')
-      expect(result).to.include('To connect to cloud:')
-      expect(result).to.match(/https:\/\/.*app\.byterover\.dev/)
-      expect(result).to.include('Copy the remote URL')
-      expect(result).to.include('/vc remote add origin <url>')
-      expect(result).to.include('/vc push -u origin main')
+      expect(result).to.equal(serverMessage)
     })
 
     it('returns /vc pull hint for ERR_VC_NON_FAST_FORWARD', () => {
