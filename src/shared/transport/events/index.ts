@@ -20,6 +20,7 @@ export * from './session-events.js'
 export * from './space-events.js'
 export * from './status-events.js'
 export * from './task-events.js'
+export * from './workspace-events.js'
 
 // Utility exports
 import {AgentEvents} from './agent-events.js'
@@ -40,6 +41,7 @@ import {SessionEvents} from './session-events.js'
 import {SpaceEvents} from './space-events.js'
 import {StatusEvents} from './status-events.js'
 import {TaskEvents} from './task-events.js'
+import {WorkspaceEvents} from './workspace-events.js'
 
 /**
  * Array of all event group objects for iteration.
@@ -64,6 +66,7 @@ export const AllEventGroups = [
   SpaceEvents,
   StatusEvents,
   TaskEvents,
+  WorkspaceEvents,
 ] as const
 
 /**

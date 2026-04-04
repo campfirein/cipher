@@ -16,6 +16,7 @@ import type {
 } from '../../core/interfaces/i-curate-service.js'
 
 import {executeCurate} from '../tools/implementations/curate-tool.js'
+import {validateWriteTarget} from '../tools/write-guard.js'
 
 /**
  * Default base path for knowledge storage.
@@ -114,6 +115,20 @@ export class CurateService implements ICurateService {
     // Resolve relative basePath against the working directory to ensure
     // files are written to the correct project directory, not process.cwd()
     const basePath = resolve(this.workingDirectory, rawBasePath)
+
+    // Write guard: block writes to linked context trees
+    const guardError = validateWriteTarget(basePath, this.workingDirectory)
+    if (guardError) {
+      return {
+        applied: operations.map((op) => ({
+          message: guardError,
+          path: op.path,
+          status: 'failed' as const,
+          type: op.type,
+        })),
+        summary: {added: 0, deleted: 0, failed: operations.length, merged: 0, updated: 0},
+      }
+    }
 
     // Pre-validate operations to catch common mistakes early
     const validationFailures = validateOperations(operations)

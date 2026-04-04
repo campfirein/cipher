@@ -9,6 +9,8 @@ import type {ITransportServer} from '../../../core/interfaces/transport/i-transp
 
 import {StatusEvents, type StatusGetResponse} from '../../../../shared/transport/events/status-events.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
+import {loadDependenciesFile} from '../../../core/domain/knowledge/dependencies-schema.js'
+import {loadWorkspacesFile} from '../../../core/domain/knowledge/workspaces-schema.js'
 import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 export interface StatusHandlerDeps {
@@ -119,6 +121,22 @@ export class StatusHandler {
     } catch {
       result.contextTreeStatus = 'unknown'
     }
+
+    // Knowledge workspaces
+    try {
+      const workspaces = loadWorkspacesFile(projectPath)
+      if (workspaces && workspaces.length > 0) {
+        result.workspaces = workspaces
+      }
+    } catch {}
+
+    // Hub dependencies
+    try {
+      const deps = loadDependenciesFile(projectPath)
+      if (deps && Object.keys(deps).length > 0) {
+        result.dependencies = deps
+      }
+    } catch {}
 
     return result
   }

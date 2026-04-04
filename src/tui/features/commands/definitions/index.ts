@@ -17,6 +17,7 @@ import {resetCommand} from './reset.js'
 import {spaceCommand} from './space.js'
 import {statusCommand} from './status.js'
 import {vcCommand} from './vc.js'
+import {workspaceCommand} from './workspace.js'
 
 /**
  * Load all REPL slash commands.
@@ -33,6 +34,9 @@ export const load: () => SlashCommand[] = () => [
 
   // Connectors management
   connectorsCommand,
+
+  // Knowledge workspaces
+  workspaceCommand,
 
   // Hub - Registry
   hubCommand,

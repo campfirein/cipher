@@ -6,6 +6,7 @@ import type { ISearchKnowledgeService, SearchKnowledgeResult } from '../../../ag
 import type { IQueryExecutor, QueryExecuteOptions } from '../../core/interfaces/executor/i-query-executor.js'
 
 import { BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR } from '../../constants.js'
+import { loadKnowledgeSources } from '../../core/domain/knowledge/load-knowledge-sources.js'
 import { isDerivedArtifact } from '../context-tree/derived-artifact.js'
 import { FileContextTreeManifestService } from '../context-tree/file-context-tree-manifest-service.js'
 import {
@@ -233,9 +234,10 @@ export class QueryExecutor implements IQueryExecutor {
 
     if (highConfidenceResults.length === 0) return undefined
 
-    const sections = highConfidenceResults.map(
-      (r) => `### ${r.title}\n**Source**: .brv/context-tree/${r.path}\n\n${r.excerpt}`,
-    )
+    const sections = highConfidenceResults.map((r) => {
+      const source = r.sourceAlias ? `[${r.sourceAlias}]:${r.path}` : `.brv/context-tree/${r.path}`
+      return `### ${r.title}\n**Source**: ${source}\n\n${r.excerpt}`
+    })
 
     return sections.join('\n\n---\n\n')
   }
@@ -347,6 +349,42 @@ ${responseFormat}`
           mtime: f.modified?.getTime() ?? 0,
           path: f.path,
         }))
+
+      // Include linked workspace files in fingerprint for cache invalidation
+      if (this.baseDirectory) {
+        const loaded = loadKnowledgeSources(this.baseDirectory)
+        if (loaded) {
+          // Include workspaces.json mtime
+          files.push({mtime: loaded.mtime, path: '__workspaces_mtime__'})
+
+          // Include linked context tree files
+          const linkedGlobResults = await Promise.all(
+            loaded.sources.map(async (source) => {
+              try {
+                const linkedGlob = await this.fileSystem!.globFiles(`**/*${CONTEXT_FILE_EXTENSION}`, {
+                  cwd: source.contextTreeRoot,
+                  includeMetadata: true,
+                  maxResults: 10_000,
+                  respectGitignore: false,
+                })
+
+                return linkedGlob.files
+                  .filter((f) => !isDerivedArtifact(f.path))
+                  .map((f) => ({
+                    mtime: f.modified?.getTime() ?? 0,
+                    path: `${source.sourceKey}::${f.path}`,
+                  }))
+              } catch {
+                return []
+              }
+            }),
+          )
+
+          for (const linkedFiles of linkedGlobResults) {
+            files.push(...linkedFiles)
+          }
+        }
+      }
 
       const fingerprint = QueryResultCache.computeFingerprint(files)
       this.cachedFingerprint = {
