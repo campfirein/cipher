@@ -155,7 +155,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
     name: 'GitHub Copilot',
     oauth: {
       callbackMode: 'device',
-      clientId: 'Ov23li8tweQw6odWQebz',
+      clientId: 'Iv1.b507a08c87ecfe98',
       modes: [{authUrl: 'https://github.com/login/device', id: 'default', label: 'Sign in with GitHub'}],
       redirectUri: '',
       scopes: 'read:user',

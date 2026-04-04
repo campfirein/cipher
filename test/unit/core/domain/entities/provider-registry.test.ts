@@ -148,7 +148,7 @@ describe('Provider Registry', () => {
 
     it('should have correct oauth clientId', () => {
       const copilot = getProviderById('github-copilot')
-      expect(copilot?.oauth?.clientId).to.equal('Ov23li8tweQw6odWQebz')
+      expect(copilot?.oauth?.clientId).to.equal('Iv1.b507a08c87ecfe98')
     })
 
     it('should have oauth modes with GitHub device auth URL', () => {

@@ -270,6 +270,7 @@ describe('device-flow', () => {
         .get(COPILOT_TOKEN_PATH)
         .matchHeader('Authorization', 'token gho_my_token')
         .matchHeader('Accept', 'application/json')
+        .matchHeader('X-GitHub-Api-Version', '2025-04-01')
         .reply(200, {
           expires_at: expiresAt,
           token: 'tid=some_token',

@@ -952,7 +952,7 @@ describe('ProviderHandler', () => {
 
       expect(requestDeviceCodeStub.calledOnce).to.be.true
       const params = requestDeviceCodeStub.firstCall.args[0]
-      expect(params.clientId).to.equal('Ov23li8tweQw6odWQebz')
+      expect(params.clientId).to.equal('Iv1.b507a08c87ecfe98')
       expect(params.scope).to.equal('read:user')
     })
   })
@@ -1086,7 +1086,7 @@ describe('ProviderHandler', () => {
 
       const params = pollForAccessTokenStub.firstCall.args[0]
       expect(params.deviceCode).to.equal('test-device-code')
-      expect(params.clientId).to.equal('Ov23li8tweQw6odWQebz')
+      expect(params.clientId).to.equal('Iv1.b507a08c87ecfe98')
       expect(params.expiresIn).to.equal(900)
       expect(params.interval).to.equal(5)
     })

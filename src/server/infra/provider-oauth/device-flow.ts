@@ -4,6 +4,7 @@ import axios, {isAxiosError} from 'axios'
 import {
   COPILOT_TOKEN_URL,
   DEVICE_FLOW_INTERVAL_BUFFER,
+  GITHUB_API_VERSION,
   GITHUB_DEVICE_CODE_URL,
   GITHUB_OAUTH_TOKEN_URL,
 } from '../../../shared/constants/copilot.js'
@@ -153,6 +154,7 @@ export async function exchangeForCopilotToken(githubToken: string): Promise<Copi
       headers: {
         Accept: 'application/json',
         Authorization: `token ${githubToken}`,
+        'X-GitHub-Api-Version': GITHUB_API_VERSION,
       },
     })
   } catch (error) {
