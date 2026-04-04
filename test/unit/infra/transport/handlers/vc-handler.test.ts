@@ -24,6 +24,7 @@ import type {IVcGitConfigStore} from '../../../../../src/server/core/interfaces/
 
 import {BRV_DIR, CONTEXT_TREE_DIR, CONTEXT_TREE_GITIGNORE} from '../../../../../src/server/constants.js'
 import {AuthToken} from '../../../../../src/server/core/domain/entities/auth-token.js'
+import {BrvConfig} from '../../../../../src/server/core/domain/entities/brv-config.js'
 import {GitAuthError, GitError} from '../../../../../src/server/core/domain/errors/git-error.js'
 import {NotAuthenticatedError} from '../../../../../src/server/core/domain/errors/task-error.js'
 import {VcError} from '../../../../../src/server/core/domain/errors/vc-error.js'
@@ -2272,6 +2273,90 @@ describe('VcHandler', () => {
           expect(error.code).to.equal(VcErrorCode.INVALID_REMOTE_URL)
         }
       }
+    })
+
+    it('should persist space/team to config on remote add with name-based URL', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getRemoteUrl.resolves()
+      const mockToken = new AuthToken({
+        accessToken: 'test-acc',
+        expiresAt: new Date(Date.now() + 3_600_000),
+        refreshToken: 'test-ref',
+        sessionKey: 'sess-123',
+        userEmail: 'test@example.com',
+        userId: 'u1',
+      })
+      deps.tokenStore.load.resolves(mockToken)
+      deps.teamService.getTeams.resolves({
+        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme'}],
+        total: 1,
+      })
+      deps.spaceService.getSpaces.resolves({
+        spaces: [{id: 'sid-1', isDefault: false, name: 'project', teamId: 'tid-1', teamName: 'acme'}],
+        total: 1,
+      })
+      makeVcHandler(deps).setup()
+
+      await deps.requestHandlers[VcEvents.REMOTE](
+        {subcommand: 'add', url: 'https://byterover.dev/acme/project.git'},
+        CLIENT_ID,
+      )
+
+      expect(deps.projectConfigStore.write.calledOnce).to.be.true
+      const writtenConfig: BrvConfig = deps.projectConfigStore.write.firstCall.args[0]
+      expect(writtenConfig.spaceId).to.equal('sid-1')
+      expect(writtenConfig.teamId).to.equal('tid-1')
+      expect(writtenConfig.spaceName).to.equal('project')
+      expect(writtenConfig.teamName).to.equal('acme')
+    })
+
+    it('should persist space/team to config on remote set-url with name-based URL', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      const mockToken = new AuthToken({
+        accessToken: 'test-acc',
+        expiresAt: new Date(Date.now() + 3_600_000),
+        refreshToken: 'test-ref',
+        sessionKey: 'sess-123',
+        userEmail: 'test@example.com',
+        userId: 'u1',
+      })
+      deps.tokenStore.load.resolves(mockToken)
+      deps.teamService.getTeams.resolves({
+        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme'}],
+        total: 1,
+      })
+      deps.spaceService.getSpaces.resolves({
+        spaces: [{id: 'sid-1', isDefault: false, name: 'project', teamId: 'tid-1', teamName: 'acme'}],
+        total: 1,
+      })
+      makeVcHandler(deps).setup()
+
+      await deps.requestHandlers[VcEvents.REMOTE](
+        {subcommand: 'set-url', url: 'https://byterover.dev/acme/project.git'},
+        CLIENT_ID,
+      )
+
+      expect(deps.projectConfigStore.write.calledOnce).to.be.true
+      const writtenConfig: BrvConfig = deps.projectConfigStore.write.firstCall.args[0]
+      expect(writtenConfig.spaceId).to.equal('sid-1')
+      expect(writtenConfig.teamId).to.equal('tid-1')
+      expect(writtenConfig.spaceName).to.equal('project')
+      expect(writtenConfig.teamName).to.equal('acme')
+    })
+
+    it('should not write config when URL has UUIDs only (no space/team names)', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getRemoteUrl.resolves()
+      makeVcHandler(deps).setup()
+
+      const url =
+        'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
+      await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'add', url}, CLIENT_ID)
+
+      expect(deps.projectConfigStore.write.called).to.be.false
     })
   })
 
