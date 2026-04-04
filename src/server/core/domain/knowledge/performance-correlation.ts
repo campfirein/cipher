@@ -56,6 +56,8 @@ export function computePerformanceFactors(log: NormalizedPerformanceLogEntry[]):
   // Normalize via tanh
   const factors = new Map<string, number>()
   for (const [path, {count, sum}] of pathDeltas) {
+    // Each entry contributes equally regardless of age. Tanh saturation keeps
+    // stale data bounded until recency weighting proves necessary.
     const normalized = Math.tanh((sum / count) * TANH_STEEPNESS) * MAX_FACTOR_MAGNITUDE
     factors.set(path, normalized)
   }

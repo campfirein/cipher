@@ -74,6 +74,9 @@ const CHUNK_SIZE_CHARS = 800
 /** Overlap between chunks in characters (15% of chunk size) */
 const CHUNK_OVERLAP_CHARS = 120
 
+/** Bound performance-factor recomputation to recent signals; older data saturates quickly. */
+const PERFORMANCE_FACTOR_LOG_WINDOW = 500
+
 /**
  * Normalize raw MiniSearch BM25 score to [0, 1) range.
  * Uses the monotonic formula: score / (1 + score)
@@ -1055,7 +1058,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       }
 
       // File changed — read and recompute
-      const log = await this.experienceStore.readPerformanceLog()
+      const log = await this.experienceStore.readPerformanceLog(PERFORMANCE_FACTOR_LOG_WINDOW)
 
       const pathFactors = computePerformanceFactors(log)
       const domainFactors = computeDomainFactors(log)

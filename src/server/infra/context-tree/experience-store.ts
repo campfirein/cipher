@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto'
-import {appendFile} from 'node:fs/promises'
+import {appendFile, open} from 'node:fs/promises'
 import {join, resolve} from 'node:path'
 
 import type {ExperienceEntryFrontmatter, ExperienceMeta, NormalizedPerformanceLogEntry, PerformanceLogEntry} from '../../core/domain/experience/experience-types.js'
@@ -33,6 +33,8 @@ const ALL_SUBFOLDERS = [
   EXPERIENCE_STRATEGIES_DIR,
 ]
 
+const PERFORMANCE_LOG_TAIL_CHUNK_BYTES = 64 * 1024
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -51,6 +53,48 @@ export function generateEntryFilename(text: string): string {
     .replaceAll(/^-+|-+$/g, '')
     .slice(0, 50)
   return `${date}--${slug || 'entry'}.md`
+}
+
+function countNewlines(buffer: Uint8Array): number {
+  let count = 0
+  for (const byte of buffer) {
+    if (byte === 10) {
+      count++
+    }
+  }
+
+  return count
+}
+
+async function readLastLines(filePath: string, lastN: number): Promise<string[]> {
+  const handle = await open(filePath, 'r')
+  try {
+    const {size} = await handle.stat()
+    if (size === 0) {
+      return []
+    }
+
+    const chunks: Buffer[] = []
+    let newlineCount = 0
+    let position = size
+    while (position > 0 && newlineCount <= lastN) {
+      const chunkSize = Math.min(PERFORMANCE_LOG_TAIL_CHUNK_BYTES, position)
+      position -= chunkSize
+
+      const buffer = Buffer.alloc(chunkSize)
+      // eslint-disable-next-line no-await-in-loop
+      const {bytesRead} = await handle.read(buffer, 0, chunkSize, position)
+      const chunk = bytesRead === chunkSize ? buffer : buffer.subarray(0, bytesRead)
+      chunks.unshift(chunk)
+      newlineCount += countNewlines(chunk)
+    }
+
+    const lines = Buffer.concat(chunks).toString('utf8').split('\n').filter(Boolean)
+    const completeLines = position > 0 ? lines.slice(1) : lines
+    return completeLines.slice(-lastN)
+  } finally {
+    await handle.close()
+  }
 }
 
 export function buildEntryContent(frontmatter: ExperienceEntryFrontmatter, body: string): string {
@@ -268,14 +312,15 @@ export class ExperienceStore {
   async readPerformanceLog(lastN?: number): Promise<NormalizedPerformanceLogEntry[]> {
     const logPath = join(this.experienceDir, EXPERIENCE_PERFORMANCE_DIR, EXPERIENCE_PERFORMANCE_LOG_FILE)
 
-    let raw: string
+    let lines: string[]
     try {
-      raw = await DirectoryManager.readFile(logPath)
+      lines = lastN !== undefined && lastN > 0
+        ? await readLastLines(logPath, lastN)
+        : (await DirectoryManager.readFile(logPath)).trim().split('\n').filter(Boolean)
     } catch {
       return []
     }
 
-    const lines = raw.trim().split('\n').filter(Boolean)
     const entries: NormalizedPerformanceLogEntry[] = []
 
     for (const line of lines) {
@@ -288,10 +333,6 @@ export class ExperienceStore {
       } catch {
         // Skip malformed lines
       }
-    }
-
-    if (lastN !== undefined && lastN > 0) {
-      return entries.slice(-lastN)
     }
 
     return entries

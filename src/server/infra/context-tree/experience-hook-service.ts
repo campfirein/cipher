@@ -195,6 +195,9 @@ export class ExperienceHookService implements IExperienceHookService {
               summary: trimmedText,
               ts: new Date().toISOString(),
             })
+            // Multiple performance signals in one response would reuse the same
+            // insights snapshot. That is redundant but safe because downstream
+            // correlation logic averages the resulting entries.
           } else {
             const hash = computeContentHash(trimmedText)
             const existingHashes = hashSets.get(subfolder)

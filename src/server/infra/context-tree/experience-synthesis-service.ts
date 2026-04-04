@@ -197,12 +197,12 @@ function buildPerformanceContext(
   const trend = diff > 0.05 ? 'trending up' : diff < -0.05 ? 'trending down' : 'stable'
 
   // Find entries that appear most in high/low scoring curations
-  const domainAvg = avg
+  const relevantAvg = avg
   const highEntries = new Map<string, number>()
   const lowEntries = new Map<string, number>()
 
   for (const entry of relevant) {
-    const bucket = entry.score >= domainAvg ? highEntries : lowEntries
+    const bucket = entry.score >= relevantAvg ? highEntries : lowEntries
     for (const path of entry.insightsActive) {
       if (referencesSubfolder(path)) {
         bucket.set(path, (bucket.get(path) ?? 0) + 1)
@@ -210,6 +210,8 @@ function buildPerformanceContext(
     }
   }
 
+  // Note: topHigh/topLow are derived from the full performance log, not just entryBodies.
+  // Some filenames may not appear in the synthesis prompt when the content budget is exceeded.
   const topHigh = [...highEntries.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([p]) => p.split('/').pop() ?? p)
   const topLow = [...lowEntries.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([p]) => p.split('/').pop() ?? p)
 

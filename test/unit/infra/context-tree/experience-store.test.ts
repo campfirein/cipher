@@ -242,6 +242,27 @@ describe('ExperienceStore (v2 entry-based)', () => {
       expect(last2[0].curationId).to.equal(3)
       expect(last2[1].curationId).to.equal(4)
     })
+
+    it('returns last N entries when the requested tail spans multiple read chunks', async () => {
+      await store.ensureInitialized()
+      const largeSummary = 'x'.repeat(40_000)
+
+      for (let i = 0; i < 4; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await store.appendPerformanceLog({
+          curationId: i,
+          domain: 'test',
+          score: i / 10,
+          summary: `${largeSummary}-${i}`,
+          ts: new Date().toISOString(),
+        })
+      }
+
+      const last2 = await store.readPerformanceLog(2)
+      expect(last2).to.have.length(2)
+      expect(last2[0].curationId).to.equal(2)
+      expect(last2[1].curationId).to.equal(3)
+    })
   })
 
   describe('meta operations', () => {
