@@ -1,12 +1,14 @@
 import {Command, Flags} from '@oclif/core'
 
-import {SpaceEvents, type SpaceListResponse} from '../../../shared/transport/events/space-events.js'
+import type {StatusGetResponse} from '../../../shared/transport/events/status-events.js'
+
+import {StatusEvents} from '../../../shared/transport/events/status-events.js'
 import {type DaemonClientOptions, formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
 
 export default class SpaceList extends Command {
-  public static description = 'List all teams and spaces'
-  public static examples = ['<%= config.bin %> space list', '<%= config.bin %> space list --format json']
+  public static description = 'List all teams and spaces (deprecated)'
+  public static examples = ['<%= config.bin %> space list']
   public static flags = {
     format: Flags.string({
       char: 'f',
@@ -16,9 +18,9 @@ export default class SpaceList extends Command {
     }),
   }
 
-  protected async fetchSpaces(options?: DaemonClientOptions): Promise<SpaceListResponse> {
-    return withDaemonRetry<SpaceListResponse>(
-      async (client) => client.requestWithAck<SpaceListResponse>(SpaceEvents.LIST),
+  protected async checkDeprecation(options?: DaemonClientOptions): Promise<StatusGetResponse> {
+    return withDaemonRetry<StatusGetResponse>(
+      async (client) => client.requestWithAck<StatusGetResponse>(StatusEvents.GET),
       options,
     )
   }
@@ -28,40 +30,17 @@ export default class SpaceList extends Command {
     const format = flags.format as 'json' | 'text'
 
     try {
-      const {teams} = await this.fetchSpaces()
+      const {status} = await this.checkDeprecation()
+      const isVc = status.contextTreeStatus === 'git_vc'
+
+      const message = isVc
+        ? 'The space list command has been deprecated. Visit the ByteRover web dashboard to view your spaces.'
+        : 'The space list command has been deprecated. Visit the ByteRover web dashboard to view your spaces and follow the migration guide to version control.'
 
       if (format === 'json') {
-        const data = {
-          teams: teams.map((t) => ({
-            teamId: t.teamId,
-            teamName: t.teamName,
-            // eslint-disable-next-line perfectionist/sort-objects
-            spaces: t.spaces.map((s) => ({
-              isDefault: s.isDefault,
-              spaceId: s.id,
-              spaceName: s.name,
-            })),
-          })),
-        }
-        writeJsonResponse({command: 'space list', data, success: true})
-        return
-      }
-
-      if (teams.length === 0) {
-        this.log('No teams found.')
-        return
-      }
-
-      for (const [index, team] of teams.entries()) {
-        this.log(`${index + 1}. ${team.teamName} (team)`)
-        if (team.spaces.length === 0) {
-          this.log('   No spaces')
-        } else {
-          for (const space of team.spaces) {
-            const defaultMarker = space.isDefault ? ' (default)' : ''
-            this.log(`   - ${space.name}${defaultMarker} (space)`)
-          }
-        }
+        writeJsonResponse({command: 'space list', data: {message}, success: true})
+      } else {
+        this.log(message)
       }
     } catch (error) {
       if (format === 'json') {
