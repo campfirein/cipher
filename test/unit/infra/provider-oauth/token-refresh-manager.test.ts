@@ -2,6 +2,7 @@
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
+import type {CopilotTokenResponse} from '../../../../src/server/infra/provider-oauth/device-flow.js'
 import type {
   ProviderTokenResponse,
   RefreshTokenExchangeParams,
@@ -21,11 +22,16 @@ import {
   createMockTransportServer,
 } from '../../../helpers/mock-factories.js'
 
-// Helper to create a provider config with OAuth
 function oauthConfig(providerId: string): ProviderConfig {
   return ProviderConfig.createDefault().withProviderConnected(providerId, {
     authMethod: 'oauth',
     oauthAccountId: 'acct_123',
+  })
+}
+
+function copilotOAuthConfig(): ProviderConfig {
+  return ProviderConfig.createDefault().withProviderConnected('github-copilot', {
+    authMethod: 'oauth',
   })
 }
 
@@ -35,6 +41,7 @@ describe('TokenRefreshManager', () => {
   let providerOAuthTokenStore: ReturnType<typeof createMockProviderOAuthTokenStore>
   let transport: ReturnType<typeof createMockTransportServer>
   let exchangeStub: sinon.SinonStub<[RefreshTokenExchangeParams], Promise<ProviderTokenResponse>>
+  let exchangeForCopilotTokenStub: sinon.SinonStub<[string], Promise<CopilotTokenResponse>>
 
   beforeEach(() => {
     providerConfigStore = createMockProviderConfigStore()
@@ -42,6 +49,7 @@ describe('TokenRefreshManager', () => {
     providerOAuthTokenStore = createMockProviderOAuthTokenStore()
     transport = createMockTransportServer()
     exchangeStub = stub<[RefreshTokenExchangeParams], Promise<ProviderTokenResponse>>()
+    exchangeForCopilotTokenStub = stub<[string], Promise<CopilotTokenResponse>>()
   })
 
   afterEach(() => {
@@ -50,6 +58,7 @@ describe('TokenRefreshManager', () => {
 
   function createManager(): TokenRefreshManager {
     return new TokenRefreshManager({
+      exchangeForCopilotToken: exchangeForCopilotTokenStub,
       exchangeRefreshToken: exchangeStub,
       providerConfigStore,
       providerKeychainStore,
@@ -339,6 +348,166 @@ describe('TokenRefreshManager', () => {
 
       expect(result).to.be.false
       expect(exchangeStub.notCalled).to.be.true
+    })
+  })
+
+  describe('Copilot token refresh (device flow)', () => {
+    it('should use exchangeForCopilotToken instead of standard refresh for github-copilot', async () => {
+      providerConfigStore.read.resolves(copilotOAuthConfig())
+      providerOAuthTokenStore.get.resolves({
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        refreshToken: 'gho_github_access_token',
+      })
+      exchangeForCopilotTokenStub.resolves({
+        expiresAt: Math.floor(Date.now() / 1000) + 1800,
+        token: 'tid=copilot-session-token-new',
+      })
+
+      const manager = createManager()
+      const result = await manager.refreshIfNeeded('github-copilot')
+
+      expect(result).to.be.true
+      expect(exchangeForCopilotTokenStub.calledOnce).to.be.true
+      expect(exchangeForCopilotTokenStub.firstCall.args[0]).to.equal('gho_github_access_token')
+      expect(exchangeStub.notCalled).to.be.true
+    })
+
+    it('should store new Copilot session token in keychain', async () => {
+      providerConfigStore.read.resolves(copilotOAuthConfig())
+      providerOAuthTokenStore.get.resolves({
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        refreshToken: 'gho_github_access_token',
+      })
+      exchangeForCopilotTokenStub.resolves({
+        expiresAt: Math.floor(Date.now() / 1000) + 1800,
+        token: 'tid=copilot-session-token-new',
+      })
+
+      const manager = createManager()
+      await manager.refreshIfNeeded('github-copilot')
+
+      expect(providerKeychainStore.setApiKey.calledWith('github-copilot', 'tid=copilot-session-token-new')).to.be.true
+    })
+
+    it('should update token store with new expiry while preserving GitHub token as refreshToken', async () => {
+      const copilotExpiresAt = Math.floor(Date.now() / 1000) + 1800
+      providerConfigStore.read.resolves(copilotOAuthConfig())
+      providerOAuthTokenStore.get.resolves({
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        refreshToken: 'gho_github_access_token',
+      })
+      exchangeForCopilotTokenStub.resolves({
+        expiresAt: copilotExpiresAt,
+        token: 'tid=copilot-session-token-new',
+      })
+
+      const manager = createManager()
+      await manager.refreshIfNeeded('github-copilot')
+
+      expect(providerOAuthTokenStore.set.calledOnce).to.be.true
+      const [providerId, tokenRecord] = providerOAuthTokenStore.set.firstCall.args
+      expect(providerId).to.equal('github-copilot')
+      expect(tokenRecord.refreshToken).to.equal('gho_github_access_token')
+      expect(tokenRecord.expiresAt).to.equal(new Date(copilotExpiresAt * 1000).toISOString())
+    })
+
+    it('should broadcast PROVIDER_UPDATED on successful Copilot refresh', async () => {
+      providerConfigStore.read.resolves(copilotOAuthConfig())
+      providerOAuthTokenStore.get.resolves({
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        refreshToken: 'gho_github_access_token',
+      })
+      exchangeForCopilotTokenStub.resolves({
+        expiresAt: Math.floor(Date.now() / 1000) + 1800,
+        token: 'tid=copilot-session-token-new',
+      })
+
+      const manager = createManager()
+      await manager.refreshIfNeeded('github-copilot')
+
+      expect(transport.broadcast.calledWith(TransportDaemonEventNames.PROVIDER_UPDATED, {})).to.be.true
+    })
+
+    it('should disconnect provider on permanent Copilot exchange failure', async () => {
+      providerConfigStore.read.resolves(copilotOAuthConfig())
+      providerOAuthTokenStore.get.resolves({
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        refreshToken: 'gho_revoked_token',
+      })
+      exchangeForCopilotTokenStub.rejects(
+        new ProviderTokenExchangeError({errorCode: 'invalid_grant', message: 'Bad credentials', statusCode: 401}),
+      )
+
+      const manager = createManager()
+      const result = await manager.refreshIfNeeded('github-copilot')
+
+      expect(result).to.be.false
+      expect(providerConfigStore.disconnectProvider.calledWith('github-copilot')).to.be.true
+      expect(providerOAuthTokenStore.delete.calledWith('github-copilot')).to.be.true
+      expect(providerKeychainStore.deleteApiKey.calledWith('github-copilot')).to.be.true
+    })
+
+    it('should return true and keep credentials on transient Copilot exchange failure', async () => {
+      providerConfigStore.read.resolves(copilotOAuthConfig())
+      providerOAuthTokenStore.get.resolves({
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        refreshToken: 'gho_github_access_token',
+      })
+      exchangeForCopilotTokenStub.rejects(new Error('Network timeout'))
+
+      const manager = createManager()
+      const result = await manager.refreshIfNeeded('github-copilot')
+
+      expect(result).to.be.true
+      expect(providerConfigStore.disconnectProvider.notCalled).to.be.true
+      expect(providerOAuthTokenStore.delete.notCalled).to.be.true
+      expect(providerKeychainStore.deleteApiKey.notCalled).to.be.true
+    })
+
+    it('should skip refresh when Copilot token is not expiring (> 5 min)', async () => {
+      providerConfigStore.read.resolves(copilotOAuthConfig())
+      providerOAuthTokenStore.get.resolves({
+        expiresAt: new Date(Date.now() + REFRESH_THRESHOLD_MS + 60_000).toISOString(),
+        refreshToken: 'gho_github_access_token',
+      })
+
+      const manager = createManager()
+      const result = await manager.refreshIfNeeded('github-copilot')
+
+      expect(result).to.be.true
+      expect(exchangeForCopilotTokenStub.notCalled).to.be.true
+      expect(exchangeStub.notCalled).to.be.true
+    })
+
+    it('should serialize concurrent Copilot refresh calls', async () => {
+      providerConfigStore.read.resolves(copilotOAuthConfig())
+      providerOAuthTokenStore.get.resolves({
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        refreshToken: 'gho_github_access_token',
+      })
+      exchangeForCopilotTokenStub.callsFake(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(
+              () =>
+                resolve({
+                  expiresAt: Math.floor(Date.now() / 1000) + 1800,
+                  token: 'tid=copilot-session-token-new',
+                }),
+              10,
+            )
+          }),
+      )
+
+      const manager = createManager()
+      const [r1, r2] = await Promise.all([
+        manager.refreshIfNeeded('github-copilot'),
+        manager.refreshIfNeeded('github-copilot'),
+      ])
+
+      expect(r1).to.be.true
+      expect(r2).to.be.true
+      expect(exchangeForCopilotTokenStub.callCount).to.equal(1)
     })
   })
 })

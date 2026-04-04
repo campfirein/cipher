@@ -3,11 +3,13 @@ import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keyc
 import type {IProviderOAuthTokenStore} from '../../core/interfaces/i-provider-oauth-token-store.js'
 import type {ITokenRefreshManager} from '../../core/interfaces/i-token-refresh-manager.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
+import type {CopilotTokenResponse} from './device-flow.js'
 import type {ProviderTokenResponse, RefreshTokenExchangeParams, TokenRequestContentType} from './types.js'
 
 import {getProviderById} from '../../core/domain/entities/provider-registry.js'
 import {TransportDaemonEventNames} from '../../core/domain/transport/schemas.js'
 import {processLog} from '../../utils/process-logger.js'
+import {exchangeForCopilotToken as defaultExchangeForCopilotToken} from './device-flow.js'
 import {isPermanentOAuthError} from './errors.js'
 import {exchangeRefreshToken as defaultExchangeRefreshToken} from './refresh-token-exchange.js'
 import {computeExpiresAt} from './types.js'
@@ -18,6 +20,7 @@ export {type ITokenRefreshManager} from '../../core/interfaces/i-token-refresh-m
 export const REFRESH_THRESHOLD_MS = 5 * 60 * 1000
 
 export interface TokenRefreshManagerDeps {
+  exchangeForCopilotToken?: (githubToken: string) => Promise<CopilotTokenResponse>
   exchangeRefreshToken?: (params: RefreshTokenExchangeParams) => Promise<ProviderTokenResponse>
   providerConfigStore: IProviderConfigStore
   providerKeychainStore: IProviderKeychainStore
@@ -34,12 +37,14 @@ export interface TokenRefreshManagerDeps {
  */
 export class TokenRefreshManager implements ITokenRefreshManager {
   private readonly deps: TokenRefreshManagerDeps
+  private readonly exchangeForCopilotToken: (githubToken: string) => Promise<CopilotTokenResponse>
   private readonly exchangeRefreshToken: (params: RefreshTokenExchangeParams) => Promise<ProviderTokenResponse>
   /** Per-provider mutex to serialize concurrent refresh attempts */
   private readonly pendingRefreshes = new Map<string, Promise<boolean>>()
 
   constructor(deps: TokenRefreshManagerDeps) {
     this.deps = deps
+    this.exchangeForCopilotToken = deps.exchangeForCopilotToken ?? defaultExchangeForCopilotToken
     this.exchangeRefreshToken = deps.exchangeRefreshToken ?? defaultExchangeRefreshToken
   }
 
@@ -56,6 +61,24 @@ export class TokenRefreshManager implements ITokenRefreshManager {
 
     this.pendingRefreshes.set(providerId, promise)
     return promise
+  }
+
+  private async doCopilotRefresh(providerId: string, githubToken: string): Promise<boolean> {
+    try {
+      const copilotToken = await this.exchangeForCopilotToken(githubToken)
+
+      await this.deps.providerKeychainStore.setApiKey(providerId, copilotToken.token)
+
+      await this.deps.providerOAuthTokenStore.set(providerId, {
+        expiresAt: new Date(copilotToken.expiresAt * 1000).toISOString(),
+        refreshToken: githubToken,
+      })
+
+      this.deps.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
+      return true
+    } catch (error) {
+      return this.handleRefreshError(providerId, error)
+    }
   }
 
   private async doRefresh(providerId: string): Promise<boolean> {
@@ -86,10 +109,14 @@ export class TokenRefreshManager implements ITokenRefreshManager {
     }
 
     const oauthConfig = providerDef.oauth
+
+    if (oauthConfig.callbackMode === 'device') {
+      return this.doCopilotRefresh(providerId, tokenRecord.refreshToken)
+    }
+
     const contentType: TokenRequestContentType =
       oauthConfig.tokenContentType === 'form' ? 'application/x-www-form-urlencoded' : 'application/json'
 
-    // 5. Attempt refresh
     try {
       const tokens = await this.exchangeRefreshToken({
         clientId: oauthConfig.clientId,
@@ -98,7 +125,6 @@ export class TokenRefreshManager implements ITokenRefreshManager {
         tokenUrl: oauthConfig.tokenUrl,
       })
 
-      // 6. Success: update keychain + encrypted store
       await this.deps.providerKeychainStore.setApiKey(providerId, tokens.access_token)
 
       const newExpiresAt = tokens.expires_in ? computeExpiresAt(tokens.expires_in) : tokenRecord.expiresAt
@@ -111,22 +137,22 @@ export class TokenRefreshManager implements ITokenRefreshManager {
       this.deps.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
       return true
     } catch (error) {
-      // 7. Permanent failure (token revoked, client invalid): disconnect provider, clean up
-      if (isPermanentOAuthError(error)) {
-        await this.deps.providerConfigStore.disconnectProvider(providerId).catch(() => {})
-        await this.deps.providerOAuthTokenStore.delete(providerId).catch(() => {})
-        await this.deps.providerKeychainStore.deleteApiKey(providerId).catch(() => {})
-        this.deps.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
-        return false
-      }
-
-      // Transient errors (network timeout, 5xx): keep credentials intact.
-      // Return true so the caller uses the existing access token from the keychain,
-      // which may still be valid until it actually expires.
-      processLog(
-        `[TokenRefreshManager] Transient refresh error for ${providerId}: ${error instanceof Error ? error.message : String(error)}`,
-      )
-      return true
+      return this.handleRefreshError(providerId, error)
     }
+  }
+
+  private async handleRefreshError(providerId: string, error: unknown): Promise<boolean> {
+    if (isPermanentOAuthError(error)) {
+      await this.deps.providerConfigStore.disconnectProvider(providerId).catch(() => {})
+      await this.deps.providerOAuthTokenStore.delete(providerId).catch(() => {})
+      await this.deps.providerKeychainStore.deleteApiKey(providerId).catch(() => {})
+      this.deps.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
+      return false
+    }
+
+    processLog(
+      `[TokenRefreshManager] Transient refresh error for ${providerId}: ${error instanceof Error ? error.message : String(error)}`,
+    )
+    return true
   }
 }
