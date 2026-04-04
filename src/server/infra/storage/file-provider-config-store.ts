@@ -190,10 +190,3 @@ export class FileProviderConfigStore implements IProviderConfigStore {
     this.cachedConfig = config
   }
 }
-
-/**
- * Creates a file-based provider config store instance.
- */
-export function createProviderConfigStore(): IProviderConfigStore {
-  return new FileProviderConfigStore()
-}

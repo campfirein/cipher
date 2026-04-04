@@ -3,6 +3,7 @@ import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
 import type {IBrowserLauncher} from '../../../../../src/server/core/interfaces/services/i-browser-launcher.js'
+import type {IAuthStateStore} from '../../../../../src/server/core/interfaces/state/i-auth-state-store.js'
 import type {ProviderCallbackServer} from '../../../../../src/server/infra/provider-oauth/callback-server.js'
 import type {
   PkceParameters,
@@ -17,6 +18,7 @@ import {ProviderCallbackTimeoutError} from '../../../../../src/server/infra/prov
 import {ProviderHandler} from '../../../../../src/server/infra/transport/handlers/provider-handler.js'
 import {ProviderEvents} from '../../../../../src/shared/transport/events/provider-events.js'
 import {
+  createMockAuthStateStore,
   createMockProviderConfigStore,
   createMockProviderKeychainStore,
   createMockProviderOAuthTokenStore,
@@ -55,6 +57,7 @@ const TEST_TOKEN_RESPONSE: ProviderTokenResponse = {
 // ==================== Tests ====================
 
 describe('ProviderHandler', () => {
+  let authStateStore: IAuthStateStore
   let providerConfigStore: ReturnType<typeof createMockProviderConfigStore>
   let providerKeychainStore: ReturnType<typeof createMockProviderKeychainStore>
   let providerOAuthTokenStore: ReturnType<typeof createMockProviderOAuthTokenStore>
@@ -65,6 +68,7 @@ describe('ProviderHandler', () => {
   let exchangeCodeStub: sinon.SinonStub<[TokenExchangeParams], Promise<ProviderTokenResponse>>
 
   beforeEach(() => {
+    authStateStore = createMockAuthStateStore(sinon)
     providerConfigStore = createMockProviderConfigStore()
     providerKeychainStore = createMockProviderKeychainStore()
     providerOAuthTokenStore = createMockProviderOAuthTokenStore()
@@ -81,6 +85,7 @@ describe('ProviderHandler', () => {
 
   function createHandler(): ProviderHandler {
     const handler = new ProviderHandler({
+      authStateStore,
       browserLauncher,
       createCallbackServer: () => mockCallbackServer as unknown as ProviderCallbackServer,
       exchangeCodeForTokens: exchangeCodeStub,
@@ -220,6 +225,40 @@ describe('ProviderHandler', () => {
     })
   })
 
+  describe('provider:getActive', () => {
+    it('should include loginRequired when byterover is active and unauthenticated', async () => {
+      authStateStore = createMockAuthStateStore(sinon, {isAuthenticated: false})
+      providerConfigStore.getActiveProvider.resolves('byterover')
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.GET_ACTIVE)
+      const result = await handler!(undefined, 'client-1')
+
+      expect(result.loginRequired).to.be.true
+    })
+
+    it('should not include loginRequired when byterover is active and authenticated', async () => {
+      providerConfigStore.getActiveProvider.resolves('byterover')
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.GET_ACTIVE)
+      const result = await handler!(undefined, 'client-1')
+
+      expect(result.loginRequired).to.be.undefined
+    })
+
+    it('should not include loginRequired for non-byterover providers', async () => {
+      authStateStore = createMockAuthStateStore(sinon, {isAuthenticated: false})
+      providerConfigStore.getActiveProvider.resolves('openrouter')
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.GET_ACTIVE)
+      const result = await handler!(undefined, 'client-1')
+
+      expect(result.loginRequired).to.be.undefined
+    })
+  })
+
   // ==================== OAuth: START_OAUTH ====================
 
   describe('provider:startOAuth', () => {
@@ -295,6 +334,7 @@ describe('ProviderHandler', () => {
       let callCount = 0
 
       const handler = new ProviderHandler({
+        authStateStore,
         browserLauncher,
         createCallbackServer() {
           callCount++
@@ -330,6 +370,7 @@ describe('ProviderHandler', () => {
       })
 
       const handler = new ProviderHandler({
+        authStateStore,
         browserLauncher,
         createCallbackServer: () => failingServer as unknown as ProviderCallbackServer,
         exchangeCodeForTokens: exchangeCodeStub,
@@ -758,6 +799,64 @@ describe('ProviderHandler', () => {
 
       expect(result.success).to.be.true
       expect(mockCallbackServer.start.calledOnce).to.be.true
+    })
+  })
+
+  // ==================== ByteRover Auth Gate ====================
+
+  describe('ByteRover auth gate', () => {
+    describe('provider:connect', () => {
+      it('should return error when connecting byterover without auth', async () => {
+        authStateStore = createMockAuthStateStore(sinon, {isAuthenticated: false})
+        createHandler()
+
+        const handler = transport._handlers.get(ProviderEvents.CONNECT)
+        const result = await handler!({providerId: 'byterover'}, 'client-1')
+
+        expect(result.success).to.be.false
+        expect(result.error).to.include('authentication')
+      })
+
+      it('should succeed when connecting byterover with valid auth', async () => {
+        createHandler()
+
+        const handler = transport._handlers.get(ProviderEvents.CONNECT)
+        const result = await handler!({providerId: 'byterover'}, 'client-1')
+
+        expect(result.success).to.be.true
+      })
+
+      it('should not check auth when connecting non-byterover provider', async () => {
+        authStateStore = createMockAuthStateStore(sinon, {isAuthenticated: false})
+        createHandler()
+
+        const handler = transport._handlers.get(ProviderEvents.CONNECT)
+        const result = await handler!({apiKey: 'key-123', providerId: 'openrouter'}, 'client-1')
+
+        expect(result.success).to.be.true
+      })
+    })
+
+    describe('provider:setActive', () => {
+      it('should return error when setting byterover active without auth', async () => {
+        authStateStore = createMockAuthStateStore(sinon, {isAuthenticated: false})
+        createHandler()
+
+        const handler = transport._handlers.get(ProviderEvents.SET_ACTIVE)
+        const result = await handler!({providerId: 'byterover'}, 'client-1')
+
+        expect(result.success).to.be.false
+        expect(result.error).to.include('authentication')
+      })
+
+      it('should succeed when setting byterover active with valid auth', async () => {
+        createHandler()
+
+        const handler = transport._handlers.get(ProviderEvents.SET_ACTIVE)
+        const result = await handler!({providerId: 'byterover'}, 'client-1')
+
+        expect(result.success).to.be.true
+      })
     })
   })
 })

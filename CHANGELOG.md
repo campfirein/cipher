@@ -2,6 +2,30 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [2.6.0]
+
+### Changed
+- Refactor and major code cleanup.
+
+## [2.5.2]
+
+### Fixed
+- **Pinned axios to exact version 1.14.0** — Locked the axios dependency to an exact known-good version to mitigate supply-chain security risks. Previously used a caret range (`^1.12.2`) that could pull in untrusted future releases.
+
+## [2.5.1]
+
+### Fixed
+- **Provider connect/switch showed false success on auth errors** — `brv providers connect` and `brv providers switch` now correctly detect when the server rejects the request and display the actual error message (e.g., authentication required) instead of falsely reporting success.
+
+## [2.5.0]
+
+### Added
+- **Inline login for ByteRover provider** — When selecting or activating ByteRover without being logged in, the CLI now shows an inline login prompt instead of failing. Users authenticate through the browser without leaving the provider setup flow. Tasks also validate authentication before execution and show a clear message if login is needed.
+
+### Fixed
+- **Proxy double-routing on corporate networks** — Fixed an issue where HTTP requests could be routed through a proxy twice when `HTTPS_PROXY` was set, causing connection failures. Axios's built-in proxy is now explicitly disabled in favor of the custom `proxy-agent` already in use.
+- **Security dependency updates** — Patched npm dependencies to address high-severity vulnerabilities.
+
 ## [2.4.1]
 
 ### Fixed

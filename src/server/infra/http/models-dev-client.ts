@@ -104,6 +104,7 @@ export class ModelsDevClient {
     const response = await axios.get<ModelsDevData>(MODELS_DEV_URL, {
       httpAgent: ProxyConfig.getProxyAgent(),
       httpsAgent: ProxyConfig.getProxyAgent(),
+      proxy: false,
       timeout: FETCH_TIMEOUT_MS,
     })
 
@@ -181,11 +182,4 @@ export function getModelsDevClient(): ModelsDevClient {
   }
 
   return clientInstance
-}
-
-/**
- * Reset the singleton (for testing).
- */
-export function resetModelsDevClient(): void {
-  clientInstance = undefined
 }
