@@ -223,6 +223,12 @@ ByteRover CLI is built and maintained by the [ByteRover team](https://byterover.
 <!-- TODO: ENG-1575 -->
 [![Contributors](https://contrib.rocks/image?repo=campfirein/byterover-cli&max=40&columns=10)](https://github.com/campfirein/byterover-cli/graphs/contributors)
 
+## Star History
+
+<a href="https://star-history.com/#campfirein/byterover-cli&Date">
+  <img width="500" alt="Star History Chart" src="https://api.star-history.com/svg?repos=campfirein/byterover-cli&type=Date&v=2">
+</a>
+
 ## License
 
 Elastic License 2.0. See [LICENSE](LICENSE) for full terms.
