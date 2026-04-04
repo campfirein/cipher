@@ -185,10 +185,20 @@ export default class ProviderConnect extends Command {
         throw new Error(startResponse.error ?? 'Failed to start OAuth flow')
       }
 
-      onProgress?.(`\nOpen this URL to authenticate:\n  ${startResponse.authUrl}\n`)
+      if (startResponse.callbackMode === 'device') {
+        onProgress?.(`\nOpen this URL and enter the code below:`)
+        onProgress?.(`  ${startResponse.verificationUri ?? startResponse.authUrl}`)
+        onProgress?.(`\n  Code: ${startResponse.userCode}\n`)
+        onProgress?.('Waiting for authorization...')
+      } else {
+        onProgress?.(`\nOpen this URL to authenticate:\n  ${startResponse.authUrl}\n`)
+      }
 
-      if (startResponse.callbackMode === 'auto') {
-        onProgress?.('Waiting for authentication in browser...')
+      if (startResponse.callbackMode === 'auto' || startResponse.callbackMode === 'device') {
+        if (startResponse.callbackMode === 'auto') {
+          onProgress?.('Waiting for authentication in browser...')
+        }
+
         const awaitResponse = await client.requestWithAck<ProviderAwaitOAuthCallbackResponse>(
           ProviderEvents.AWAIT_OAUTH_CALLBACK,
           {providerId},

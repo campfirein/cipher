@@ -33,6 +33,7 @@ export const OAuthDialog: React.FC<OAuthDialogProps> = ({
   const {theme: {colors}} = useTheme()
   const [step, setStep] = useState<OAuthStep>('starting')
   const [authUrl, setAuthUrl] = useState<null | string>(null)
+  const [userCode, setUserCode] = useState<null | string>(null)
   const [error, setError] = useState<null | string>(null)
   const mounted = useRef(true)
   const flowStarted = useRef(false)
@@ -60,6 +61,10 @@ export const OAuthDialog: React.FC<OAuthDialogProps> = ({
 
       flowStarted.current = true
       setAuthUrl(startResult.authUrl)
+      if (startResult.callbackMode === 'device') {
+        setUserCode(startResult.userCode ?? null)
+      }
+
       setStep('waiting')
 
       const callbackResult = await awaitCallbackMutation.mutateAsync({providerId: provider.id})
@@ -147,12 +152,25 @@ export const OAuthDialog: React.FC<OAuthDialogProps> = ({
     case 'waiting': {
       return (
         <Box flexDirection="column" gap={1}>
-          <Text color={colors.primary}>Opening browser for authentication...</Text>
-          {authUrl && (
+          {userCode ? (
             <Box flexDirection="column">
-              <Text color={colors.dimText}>If the browser did not open, visit this URL:</Text>
+              <Text color={colors.primary}>Open this URL and enter the code below:</Text>
               <Text color={colors.info}>{authUrl}</Text>
+              <Box marginTop={1}>
+                <Text color={colors.dimText}>Code: </Text>
+                <Text bold color={colors.warning}>{userCode}</Text>
+              </Box>
             </Box>
+          ) : (
+            <>
+              <Text color={colors.primary}>Opening browser for authentication...</Text>
+              {authUrl && (
+                <Box flexDirection="column">
+                  <Text color={colors.dimText}>If the browser did not open, visit this URL:</Text>
+                  <Text color={colors.info}>{authUrl}</Text>
+                </Box>
+              )}
+            </>
           )}
           <Text color={colors.dimText}>Waiting for authorization... (press Esc to cancel)</Text>
         </Box>

@@ -623,6 +623,97 @@ describe('Provider Connect Command', () => {
       expect(loggedMessages.some((m) => m.includes('OAuth callback timed out'))).to.be.true
     })
 
+    // ==================== Device Flow ====================
+
+    const deviceFlowProvider = {
+      id: 'github-copilot',
+      isConnected: false,
+      name: 'GitHub Copilot',
+      oauthCallbackMode: 'device',
+      requiresApiKey: false,
+      supportsOAuth: true,
+    }
+
+    it('should display user code and verification URI for device flow', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({providers: [deviceFlowProvider]})
+      requestStub.onSecondCall().resolves({
+        authUrl: 'https://github.com/login/device',
+        callbackMode: 'device',
+        success: true,
+        userCode: 'ABCD-1234',
+        verificationUri: 'https://github.com/login/device',
+      })
+      requestStub.onThirdCall().resolves({success: true})
+
+      await createCommand('github-copilot', '--oauth').run()
+
+      expect(loggedMessages.some((m) => m.includes('ABCD-1234'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('https://github.com/login/device'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Connected to GitHub Copilot via OAuth'))).to.be.true
+    })
+
+    it('should await callback for device flow (like auto mode)', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({providers: [deviceFlowProvider]})
+      requestStub.onSecondCall().resolves({
+        authUrl: 'https://github.com/login/device',
+        callbackMode: 'device',
+        success: true,
+        userCode: 'WXYZ-5678',
+        verificationUri: 'https://github.com/login/device',
+      })
+      requestStub.onThirdCall().resolves({success: true})
+
+      await createCommand('github-copilot', '--oauth').run()
+
+      expect(requestStub.thirdCall.args[0]).to.equal('provider:awaitOAuthCallback')
+      expect(requestStub.thirdCall.args[2]).to.deep.equal({timeout: 300_000})
+    })
+
+    it('should handle device flow AWAIT_OAUTH_CALLBACK failure', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({providers: [deviceFlowProvider]})
+      requestStub.onSecondCall().resolves({
+        authUrl: 'https://github.com/login/device',
+        callbackMode: 'device',
+        success: true,
+        userCode: 'FAIL-0000',
+        verificationUri: 'https://github.com/login/device',
+      })
+      requestStub.onThirdCall().resolves({error: 'Device flow timed out', success: false})
+
+      await createCommand('github-copilot', '--oauth').run()
+
+      expect(loggedMessages.some((m) => m.includes('Device flow timed out'))).to.be.true
+    })
+
+    it('should not print code-paste instructions for device flow', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({providers: [deviceFlowProvider]})
+      requestStub.onSecondCall().resolves({
+        authUrl: 'https://github.com/login/device',
+        callbackMode: 'device',
+        success: true,
+        userCode: 'ABCD-1234',
+        verificationUri: 'https://github.com/login/device',
+      })
+      requestStub.onThirdCall().resolves({success: true})
+
+      await createCommand('github-copilot', '--oauth').run()
+
+      expect(loggedMessages.some((m) => m.includes('--code'))).to.be.false
+      expect(loggedMessages.some((m) => m.includes('Copy the authorization code'))).to.be.false
+    })
+
+    it('should error when --code is used with a device flow provider', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub).resolves({providers: [deviceFlowProvider]})
+
+      await createCommand('github-copilot', '--oauth', '--code', 'some-code').run()
+
+      expect(loggedMessages.some((m) => m.includes('does not accept --code'))).to.be.true
+    })
+
     it('should error when --oauth and --api-key are both provided', async () => {
       await createCommand('openai', '--oauth', '--api-key', 'sk-test').run()
 
