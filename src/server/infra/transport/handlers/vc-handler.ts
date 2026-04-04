@@ -981,15 +981,29 @@ export class VcHandler {
 
     if (data.subcommand === 'add') {
       await this.gitService.addRemote({directory, remote: 'origin', url: resolved.url})
-      return {action: 'add', url: resolved.url}
+    } else {
+      // set-url
+      await this.gitService.removeRemote({directory, remote: 'origin'}).catch(() => {
+        // ignore if remote doesn't exist
+      })
+      await this.gitService.addRemote({directory, remote: 'origin', url: resolved.url})
     }
 
-    // set-url
-    await this.gitService.removeRemote({directory, remote: 'origin'}).catch(() => {
-      // ignore if remote doesn't exist
-    })
-    await this.gitService.addRemote({directory, remote: 'origin', url: resolved.url})
-    return {action: 'set-url', url: resolved.url}
+    // Persist space/team to config (same pattern as handleClone)
+    if (resolved.spaceId && resolved.spaceName && resolved.teamId && resolved.teamName) {
+      const space = new Space({
+        id: resolved.spaceId,
+        isDefault: false,
+        name: resolved.spaceName,
+        teamId: resolved.teamId,
+        teamName: resolved.teamName,
+      })
+      const existing = await this.projectConfigStore.read(projectPath)
+      const updated = existing ? existing.withSpace(space) : BrvConfig.partialFromSpace({space})
+      await this.projectConfigStore.write(updated, projectPath)
+    }
+
+    return {action: data.subcommand === 'add' ? 'add' : 'set-url', url: resolved.url}
   }
 
   private async handleReset(data: IVcResetRequest, clientId: string): Promise<IVcResetResponse> {
