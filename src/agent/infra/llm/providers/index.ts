@@ -14,6 +14,7 @@ import {byteroverProvider} from './byterover.js'
 import {cerebrasProvider} from './cerebras.js'
 import {cohereProvider} from './cohere.js'
 import {deepinfraProvider} from './deepinfra.js'
+import {githubCopilotProvider} from './github-copilot.js'
 import {glmProvider} from './glm.js'
 import {googleProvider} from './google.js'
 import {groqProvider} from './groq.js'
@@ -38,6 +39,7 @@ const PROVIDER_MODULES: Readonly<Record<string, ProviderModule>> = {
   cerebras: cerebrasProvider,
   cohere: cohereProvider,
   deepinfra: deepinfraProvider,
+  'github-copilot': githubCopilotProvider,
   glm: glmProvider,
   google: googleProvider,
   groq: groqProvider,
