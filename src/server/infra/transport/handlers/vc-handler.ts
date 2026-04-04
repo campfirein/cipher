@@ -374,7 +374,7 @@ export class VcHandler {
 
     // Validate the remote-tracking branch exists
     const remoteBranches = await this.gitService.listBranches({directory, remote})
-    if (!remoteBranches.some((b) => b.isRemote && b.name === remoteBranch)) {
+    if (!remoteBranches.some((b) => b.isRemote && b.name === `${remote}/${remoteBranch}`)) {
       throw new VcError(`The requested upstream branch '${upstream}' does not exist.`, VcErrorCode.BRANCH_NOT_FOUND)
     }
 

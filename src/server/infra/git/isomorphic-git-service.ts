@@ -726,7 +726,7 @@ export class IsomorphicGitService implements IGitService {
         http,
         onAuth: this.getOnAuth(),
         onAuthFailure: this.getOnAuthFailure(),
-        ref: params.branch,
+        ref: branch,
         remote,
       })
       return {alreadyUpToDate: false, success: true}

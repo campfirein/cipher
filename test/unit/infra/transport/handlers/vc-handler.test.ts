@@ -3299,7 +3299,7 @@ describe('VcHandler', () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.getCurrentBranch.resolves('main')
-      deps.gitService.listBranches.resolves([{isCurrent: false, isRemote: true, name: 'main'}])
+      deps.gitService.listBranches.resolves([{isCurrent: false, isRemote: true, name: 'origin/main'}])
       deps.gitService.setTrackingBranch.resolves()
       makeVcHandler(deps).setup()
 
