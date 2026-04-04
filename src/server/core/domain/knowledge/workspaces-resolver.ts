@@ -32,8 +32,15 @@ export function resolveWorkspaces(projectRoot: string, workspaces: string[]): Kn
 }
 
 function resolveEntry(projectRoot: string, entry: string): string[] {
+  // Only prefix/* globs are supported
   if (entry.endsWith('/*')) {
     return expandGlob(projectRoot, entry)
+  }
+
+  // Warn on unsupported glob patterns that would silently resolve to a literal path
+  if (entry.includes('*')) {
+    console.warn(`Warning: unsupported glob pattern "${entry}" in workspaces.json — only "prefix/*" is supported`)
+    return []
   }
 
   return [resolve(projectRoot, entry)]

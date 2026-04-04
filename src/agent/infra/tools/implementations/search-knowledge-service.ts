@@ -517,9 +517,7 @@ async function buildFreshIndex(
 
   // Build symbolic structures using symbolPath for tree paths
   // Create a view where doc.path is replaced by doc.symbolPath for tree construction
-  const treeDocMap = new Map(
-    allDocuments.map((doc) => [doc.id, {...doc, path: doc.symbolPath}]),
-  )
+  const treeDocMap = new Map(allDocuments.map((doc) => [doc.id, {...doc, path: doc.symbolPath}]))
   const symbolTree = buildSymbolTree(treeDocMap, summaryMap)
 
   // Reference index only tracks local-to-local references
