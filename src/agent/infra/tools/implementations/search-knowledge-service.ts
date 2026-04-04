@@ -2,10 +2,22 @@ import MiniSearch from 'minisearch'
 import {join} from 'node:path'
 import {removeStopwords} from 'stopword'
 
+import type {
+  KnowledgeSource,
+  LoadedKnowledgeSources,
+} from '../../../../server/core/domain/knowledge/knowledge-source.js'
 import type {IFileSystem} from '../../../core/interfaces/i-file-system.js'
 import type {ISearchKnowledgeService, SearchKnowledgeResult} from '../../sandbox/tools-sdk.js'
 
-import {BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR, SUMMARY_INDEX_FILE} from '../../../../server/constants.js'
+import {
+  BRV_DIR,
+  CONTEXT_FILE_EXTENSION,
+  CONTEXT_TREE_DIR,
+  KNOWLEDGE_LINK_LOCAL_SCORE_BOOST,
+  SUMMARY_INDEX_FILE,
+} from '../../../../server/constants.js'
+import {deriveSourceKey} from '../../../../server/core/domain/knowledge/knowledge-source.js'
+import {loadKnowledgeSources} from '../../../../server/core/domain/knowledge/load-knowledge-sources.js'
 import {
   type FrontmatterScoring,
   parseFrontmatterScoring,
@@ -18,9 +30,12 @@ import {
   determineTier,
   recordAccessHits,
 } from '../../../../server/core/domain/knowledge/memory-scoring.js'
-import { isArchiveStub, isDerivedArtifact } from '../../../../server/infra/context-tree/derived-artifact.js'
-import { parseArchiveStubFrontmatter, parseSummaryFrontmatter } from '../../../../server/infra/context-tree/summary-frontmatter.js'
-import { isPathLikeQuery, matchMemoryPath, parseSymbolicQuery } from './memory-path-matcher.js'
+import {isArchiveStub, isDerivedArtifact} from '../../../../server/infra/context-tree/derived-artifact.js'
+import {
+  parseArchiveStubFrontmatter,
+  parseSummaryFrontmatter,
+} from '../../../../server/infra/context-tree/summary-frontmatter.js'
+import {isPathLikeQuery, matchMemoryPath, parseSymbolicQuery} from './memory-path-matcher.js'
 import {
   buildReferenceIndex,
   buildSymbolTree,
@@ -37,7 +52,7 @@ const MAX_CONTEXT_TREE_FILES = 10_000
 const DEFAULT_CACHE_TTL_MS = 5000
 
 /** Bump when MINISEARCH_OPTIONS fields/boost change to invalidate cached indexes */
-const INDEX_SCHEMA_VERSION = 4
+const INDEX_SCHEMA_VERSION = 5
 
 /** Only include results whose normalized score is at least this fraction of the top result's score */
 const SCORE_GAP_RATIO = 0.75
@@ -84,6 +99,11 @@ interface IndexedDocument {
   mtime: number
   path: string
   scoring: FrontmatterScoring
+  sourceAlias?: string
+  sourceContextTreeRoot: string
+  sourceKey: string
+  sourceType: 'linked' | 'local'
+  symbolPath: string
   title: string
 }
 
@@ -92,7 +112,11 @@ interface CachedIndex {
   documentMap: Map<string, IndexedDocument>
   fileMtimes: Map<string, number>
   index: MiniSearch<IndexedDocument>
+  knowledgeSources: KnowledgeSource[]
   lastValidatedAt: number
+  linksFileMtime?: number
+  /** Maps symbol path → qualified document ID for scope filtering */
+  pathToDocumentId: Map<string, string>
   referenceIndex: ReferenceIndex
   schemaVersion: number
   /** _index.md files collected separately for symbol tree annotation */
@@ -139,6 +163,112 @@ export interface SearchOptions {
   overviewDepth?: number
   /** Path prefix to scope search within (e.g. "auth" or "auth/jwt-tokens") */
   scope?: string
+}
+
+/**
+ * Returns a namespaced symbol path for linked sources: `[alias]:relativePath`.
+ * Local sources return bare `relativePath`.
+ */
+function getSymbolPath(source: KnowledgeSource | {type: 'local'}, relativePath: string): string {
+  if (source.type === 'linked' && 'alias' in source && source.alias) {
+    return `[${source.alias}]:${relativePath}`
+  }
+
+  return relativePath
+}
+
+/**
+ * Indexes documents from a single source (local or linked).
+ * Returns documents, file mtimes, and summary map for merging.
+ */
+async function indexSourceDocuments(
+  fileSystem: IFileSystem,
+  source: KnowledgeSource,
+  filesWithMtime: Array<{mtime: number; path: string}>,
+): Promise<{
+  documents: IndexedDocument[]
+  fileMtimes: Map<string, number>
+  summaryMap: Map<string, SummaryDocLike>
+}> {
+  const summaryFiles: Array<{mtime: number; path: string}> = []
+  const indexableFiles: Array<{mtime: number; path: string}> = []
+
+  for (const file of filesWithMtime) {
+    const fileName = file.path.split('/').at(-1) ?? ''
+    if (fileName === SUMMARY_INDEX_FILE) {
+      summaryFiles.push(file)
+    } else if (!isDerivedArtifact(file.path)) {
+      indexableFiles.push(file)
+    }
+  }
+
+  const documentPromises = indexableFiles.map(async ({mtime, path: filePath}) => {
+    try {
+      const fullPath = join(source.contextTreeRoot, filePath)
+      const {content} = await fileSystem.readFile(fullPath)
+      const title = extractTitle(content, filePath.replace(/\.md$/, '').split('/').pop() || filePath)
+      const scoring = parseFrontmatterScoring(content) ?? applyDefaultScoring()
+      const qualifiedId = `${source.sourceKey}::${filePath}`
+      const symbolPath = getSymbolPath(source, filePath)
+
+      return {
+        content,
+        id: qualifiedId,
+        mtime,
+        path: filePath,
+        scoring,
+        sourceAlias: source.alias,
+        sourceContextTreeRoot: source.contextTreeRoot,
+        sourceKey: source.sourceKey,
+        sourceType: source.type,
+        symbolPath,
+        title,
+      } satisfies IndexedDocument
+    } catch {
+      return null
+    }
+  })
+
+  const summaryPromises = summaryFiles.map(async ({path: filePath}) => {
+    try {
+      const fullPath = join(source.contextTreeRoot, filePath)
+      const {content} = await fileSystem.readFile(fullPath)
+      const fm = parseSummaryFrontmatter(content)
+      if (!fm) return null
+
+      const symbolPath = getSymbolPath(source, filePath)
+      return {
+        condensationOrder: fm.condensation_order,
+        path: symbolPath,
+        tokenCount: fm.token_count,
+      } satisfies SummaryDocLike
+    } catch {
+      return null
+    }
+  })
+
+  const [docResults, summaryResults] = await Promise.all([Promise.all(documentPromises), Promise.all(summaryPromises)])
+
+  const documents = docResults.filter((doc): doc is NonNullable<typeof doc> => doc !== null)
+
+  const fileMtimes = new Map<string, number>()
+  const mtimeKeyPrefix = source.type === 'local' ? 'local::' : `${source.sourceKey}::`
+  for (const doc of documents) {
+    fileMtimes.set(`${mtimeKeyPrefix}${doc.path}`, doc.mtime)
+  }
+
+  for (const sf of summaryFiles) {
+    fileMtimes.set(`${mtimeKeyPrefix}${sf.path}`, sf.mtime)
+  }
+
+  const summaryMap = new Map<string, SummaryDocLike>()
+  for (const summary of summaryResults) {
+    if (summary) {
+      summaryMap.set(summary.path, summary)
+    }
+  }
+
+  return {documents, fileMtimes, summaryMap}
 }
 
 function filterStopWords(query: string): string {
@@ -319,14 +449,14 @@ async function findMarkdownFilesWithMtime(
   }
 }
 
-function isCacheValid(cache: CachedIndex, currentFiles: Array<{mtime: number; path: string}>): boolean {
-  if (cache.fileMtimes.size !== currentFiles.length) {
+function isCacheValid(cache: CachedIndex, currentFileMtimes: Map<string, number>): boolean {
+  if (cache.fileMtimes.size !== currentFileMtimes.size) {
     return false
   }
 
-  for (const file of currentFiles) {
-    const cachedMtime = cache.fileMtimes.get(file.path)
-    if (cachedMtime === undefined || cachedMtime !== file.mtime) {
+  for (const [key, mtime] of currentFileMtimes) {
+    const cachedMtime = cache.fileMtimes.get(key)
+    if (cachedMtime === undefined || cachedMtime !== mtime) {
       return false
     }
   }
@@ -337,118 +467,74 @@ function isCacheValid(cache: CachedIndex, currentFiles: Array<{mtime: number; pa
 async function buildFreshIndex(
   fileSystem: IFileSystem,
   contextTreePath: string,
-  filesWithMtime: Array<{mtime: number; path: string}>,
+  localFiles: Array<{mtime: number; path: string}>,
+  knowledgeSources: KnowledgeSource[],
+  linksFileMtime?: number,
 ): Promise<CachedIndex> {
   const now = Date.now()
 
-  if (filesWithMtime.length === 0) {
-    const index = new MiniSearch<IndexedDocument>(MINISEARCH_OPTIONS)
-    return {
-      contextTreePath,
-      documentMap: new Map(),
-      fileMtimes: new Map(),
-      index,
-      lastValidatedAt: now,
-      referenceIndex: { backlinks: new Map(), forwardLinks: new Map() },
-      schemaVersion: INDEX_SCHEMA_VERSION,
-      summaryMap: new Map(),
-      symbolTree: { root: [], symbolMap: new Map() },
-    }
+  // Build local source descriptor
+  const localSource: KnowledgeSource = {
+    contextTreeRoot: contextTreePath,
+    sourceKey: deriveSourceKey(contextTreePath),
+    type: 'local',
   }
 
-  // Partition files: _index.md → summaryFiles, derived artifacts → skip, rest → indexable
-  const summaryFiles: Array<{mtime: number; path: string}> = []
-  const indexableFiles: Array<{mtime: number; path: string}> = []
+  // Index local documents
+  const localResult = await indexSourceDocuments(fileSystem, localSource, localFiles)
 
-  for (const file of filesWithMtime) {
-    const fileName = file.path.split('/').at(-1) ?? ''
-    if (fileName === SUMMARY_INDEX_FILE) {
-      summaryFiles.push(file)
-    } else if (!isDerivedArtifact(file.path)) {
-      // Includes regular .md files AND .stub.md files (stubs are searchable)
-      indexableFiles.push(file)
-    }
-    // .full.md and _manifest.json are skipped (isDerivedArtifact returns true)
+  // Index all linked sources in parallel
+  const linkedResults = await Promise.all(
+    knowledgeSources.map(async (source) => {
+      const files = await findMarkdownFilesWithMtime(fileSystem, source.contextTreeRoot)
+      const filtered = files.filter(
+        (f) => !isDerivedArtifact(f.path) || f.path.split('/').at(-1) === SUMMARY_INDEX_FILE,
+      )
+      return indexSourceDocuments(fileSystem, source, filtered)
+    }),
+  )
+
+  // Merge all documents, fileMtimes, and summaryMaps
+  const allDocuments: IndexedDocument[] = [...localResult.documents]
+  const fileMtimes = new Map(localResult.fileMtimes)
+  const summaryMap = new Map(localResult.summaryMap)
+
+  for (const linked of linkedResults) {
+    allDocuments.push(...linked.documents)
+    for (const [k, v] of linked.fileMtimes) fileMtimes.set(k, v)
+    for (const [k, v] of linked.summaryMap) summaryMap.set(k, v)
   }
-
-  // Read indexable documents for BM25 index
-  const documentPromises = indexableFiles.map(async ({mtime, path: filePath}) => {
-    try {
-      const fullPath = join(contextTreePath, filePath)
-      const {content} = await fileSystem.readFile(fullPath)
-      const title = extractTitle(content, filePath.replace(/\.md$/, '').split('/').pop() || filePath)
-      const scoring = parseFrontmatterScoring(content) ?? applyDefaultScoring()
-
-      return {
-        content,
-        id: filePath,
-        mtime,
-        path: filePath,
-        scoring,
-        title,
-      }
-    } catch {
-      return null
-    }
-  })
-
-  // Read _index.md files separately for summaryMap (not indexed in BM25)
-  const summaryPromises = summaryFiles.map(async ({ path: filePath }) => {
-    try {
-      const fullPath = join(contextTreePath, filePath)
-      const { content } = await fileSystem.readFile(fullPath)
-      const fm = parseSummaryFrontmatter(content)
-      if (!fm) return null
-
-      return {
-        condensationOrder: fm.condensation_order,
-        path: filePath,
-        tokenCount: fm.token_count,
-      } satisfies SummaryDocLike
-    } catch {
-      return null
-    }
-  })
-
-  const [docResults, summaryResults] = await Promise.all([
-    Promise.all(documentPromises),
-    Promise.all(summaryPromises),
-  ])
-
-  const documents = docResults.filter((doc): doc is IndexedDocument => doc !== null)
 
   const documentMap = new Map<string, IndexedDocument>()
-  const fileMtimes = new Map<string, number>()
-  for (const doc of documents) {
+  const pathToDocumentId = new Map<string, string>()
+  for (const doc of allDocuments) {
     documentMap.set(doc.id, doc)
-    fileMtimes.set(doc.path, doc.mtime)
-  }
-
-  // Also track summary file mtimes for cache invalidation
-  for (const sf of summaryFiles) {
-    fileMtimes.set(sf.path, sf.mtime)
-  }
-
-  const summaryMap = new Map<string, SummaryDocLike>()
-  for (const summary of summaryResults) {
-    if (summary) {
-      summaryMap.set(summary.path, summary)
-    }
+    pathToDocumentId.set(doc.symbolPath, doc.id)
   }
 
   const index = new MiniSearch<IndexedDocument>(MINISEARCH_OPTIONS)
-  index.addAll(documents)
+  index.addAll(allDocuments)
 
-  // Build symbolic structures from the document map, with summary annotations
-  const symbolTree = buildSymbolTree(documentMap, summaryMap)
-  const referenceIndex = buildReferenceIndex(documentMap)
+  // Build symbolic structures using symbolPath for tree paths
+  // Create a view where doc.path is replaced by doc.symbolPath for tree construction
+  const treeDocMap = new Map(
+    allDocuments.map((doc) => [doc.id, {...doc, path: doc.symbolPath}]),
+  )
+  const symbolTree = buildSymbolTree(treeDocMap, summaryMap)
+
+  // Reference index only tracks local-to-local references
+  const localDocMap = new Map([...documentMap].filter(([, doc]) => doc.sourceType === 'local'))
+  const referenceIndex = buildReferenceIndex(localDocMap)
 
   return {
     contextTreePath,
     documentMap,
     fileMtimes,
     index,
+    knowledgeSources,
     lastValidatedAt: now,
+    linksFileMtime,
+    pathToDocumentId,
     referenceIndex,
     schemaVersion: INDEX_SCHEMA_VERSION,
     summaryMap,
@@ -465,6 +551,7 @@ async function acquireIndex(
   fileSystem: IFileSystem,
   contextTreePath: string,
   ttlMs: number,
+  baseDirectory: string,
   onBeforeBuild?: (contextTreePath: string) => Promise<void>,
 ): Promise<CachedIndex | {error: true; result: SearchKnowledgeResult}> {
   const now = Date.now()
@@ -500,13 +587,25 @@ async function acquireIndex(
           documentMap: new Map(),
           fileMtimes: new Map(),
           index: emptyIndex,
+          knowledgeSources: [],
           lastValidatedAt: 0,
-          referenceIndex: { backlinks: new Map(), forwardLinks: new Map() },
+          pathToDocumentId: new Map(),
+          referenceIndex: {backlinks: new Map(), forwardLinks: new Map()},
           schemaVersion: INDEX_SCHEMA_VERSION,
           summaryMap: new Map(),
-          symbolTree: { root: [], symbolMap: new Map() },
+          symbolTree: {root: [], symbolMap: new Map()},
         }
       }
+    }
+
+    // Load knowledge sources from workspaces.json
+    const loadedLinks: LoadedKnowledgeSources | null = loadKnowledgeSources(baseDirectory)
+    const knowledgeSources = loadedLinks?.sources ?? []
+    const linksFileMtime = loadedLinks?.mtime
+
+    // Check if links file changed — invalidate cache if so
+    if (state.cachedIndex && state.cachedIndex.linksFileMtime !== linksFileMtime) {
+      state.cachedIndex = undefined
     }
 
     const allFiles = await findMarkdownFilesWithMtime(fileSystem, contextTreePath)
@@ -514,14 +613,41 @@ async function acquireIndex(
     // matches what buildFreshIndex tracks in fileMtimes. Without this filter,
     // isCacheValid() sees a size mismatch once archives exist, causing cache thrash.
     // _index.md is kept (tracked for summary staleness), .stub.md is kept (BM25 indexed).
-    const currentFiles = allFiles.filter((f) => !isDerivedArtifact(f.path) || f.path.split('/').at(-1) === SUMMARY_INDEX_FILE)
+    const localFiles = allFiles.filter(
+      (f) => !isDerivedArtifact(f.path) || f.path.split('/').at(-1) === SUMMARY_INDEX_FILE,
+    )
+
+    // Build qualified mtime map for local files
+    const currentFileMtimes = new Map<string, number>()
+    for (const f of localFiles) {
+      currentFileMtimes.set(`local::${f.path}`, f.mtime)
+    }
+
+    // Also glob linked context trees for cache validation
+    const linkedFileResults = await Promise.all(
+      knowledgeSources.map(async (source) => {
+        const linkedFiles = await findMarkdownFilesWithMtime(fileSystem, source.contextTreeRoot)
+        return {
+          files: linkedFiles.filter(
+            (f) => !isDerivedArtifact(f.path) || f.path.split('/').at(-1) === SUMMARY_INDEX_FILE,
+          ),
+          sourceKey: source.sourceKey,
+        }
+      }),
+    )
+
+    for (const {files, sourceKey} of linkedFileResults) {
+      for (const f of files) {
+        currentFileMtimes.set(`${sourceKey}::${f.path}`, f.mtime)
+      }
+    }
 
     // Re-check cache validity after getting file list (another call may have finished)
     if (
       state.cachedIndex &&
       state.cachedIndex.contextTreePath === contextTreePath &&
       state.cachedIndex.schemaVersion === INDEX_SCHEMA_VERSION &&
-      isCacheValid(state.cachedIndex, currentFiles)
+      isCacheValid(state.cachedIndex, currentFileMtimes)
     ) {
       // Update timestamp atomically by creating a new object
       const updatedCache: CachedIndex = {
@@ -537,8 +663,8 @@ async function acquireIndex(
       await onBeforeBuild(contextTreePath)
     }
 
-    // Build fresh index
-    const freshIndex = await buildFreshIndex(fileSystem, contextTreePath, currentFiles)
+    // Build fresh index with all sources
+    const freshIndex = await buildFreshIndex(fileSystem, contextTreePath, localFiles, knowledgeSources, linksFileMtime)
     state.cachedIndex = freshIndex
     return freshIndex
   })()
@@ -634,8 +760,13 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     const contextTreePath = join(this.baseDirectory, BRV_DIR, CONTEXT_TREE_DIR)
 
     // Acquire index with parallel-safe locking; flush pending access hits before any rebuild
-    const indexResult = await acquireIndex(this.state, this.fileSystem, contextTreePath, this.cacheTtlMs, (ctxPath) =>
-      this.flushAccessHits(ctxPath),
+    const indexResult = await acquireIndex(
+      this.state,
+      this.fileSystem,
+      contextTreePath,
+      this.cacheTtlMs,
+      this.baseDirectory,
+      (ctxPath) => this.flushAccessHits(ctxPath),
     )
 
     // Handle error case (context tree not initialized)
@@ -643,7 +774,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       return indexResult.result
     }
 
-    const { documentMap, index, referenceIndex, symbolTree } = indexResult
+    const {documentMap, index, pathToDocumentId, referenceIndex, symbolTree} = indexResult
 
     if (documentMap.size === 0) {
       return {
@@ -661,7 +792,14 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     // Symbolic path resolution: try path-based query first
     if (isPathLikeQuery(query, symbolTree)) {
       const symbolicResult = this.trySymbolicSearch(
-        query, symbolTree, referenceIndex, documentMap, index, limit, options,
+        query,
+        symbolTree,
+        referenceIndex,
+        documentMap,
+        pathToDocumentId,
+        index,
+        limit,
+        options,
       )
 
       if (symbolicResult) {
@@ -676,12 +814,30 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
     // Run text-based MiniSearch (existing pipeline), optionally scoped to a subtree
     const textResult = this.runTextSearch(
-      effectiveQuery || query, documentMap, index, limit, effectiveScope, symbolTree, referenceIndex, options,
+      effectiveQuery || query,
+      documentMap,
+      index,
+      limit,
+      effectiveScope,
+      symbolTree,
+      referenceIndex,
+      options,
+      pathToDocumentId,
     )
 
     // If scoped search returned nothing and we had a scope, fall back to global search
     if (textResult.results.length === 0 && effectiveScope && effectiveQuery) {
-      return this.runTextSearch(query, documentMap, index, limit, undefined, symbolTree, referenceIndex, options)
+      return this.runTextSearch(
+        query,
+        documentMap,
+        index,
+        limit,
+        undefined,
+        symbolTree,
+        referenceIndex,
+        options,
+        pathToDocumentId,
+      )
     }
 
     return textResult
@@ -729,7 +885,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
    * For archive stubs, extracts points_to path into archiveFullPath.
    */
   private enrichResult(
-    result: { excerpt: string; path: string; score: number; title: string },
+    result: {excerpt: string; id?: string; path: string; score: number; title: string},
     symbolTree: MemorySymbolTree,
     referenceIndex: ReferenceIndex,
     documentMap: Map<string, IndexedDocument>,
@@ -751,11 +907,24 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       }
     }
 
+    // Look up source metadata from document
+    const doc = documentMap.get(result.id ?? result.path)
+    const sourceType = doc?.sourceType
+    const sourceAlias = doc?.sourceAlias
+    const sourceContextTreeRoot = doc?.sourceType === 'linked' ? doc.sourceContextTreeRoot : undefined
+
+    // Strip internal `id` field from output
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const {id: _id, ...rest} = result
+
     return {
-      ...result,
-      ...(archiveFullPath && { archiveFullPath }),
+      ...rest,
+      ...(archiveFullPath && {archiveFullPath}),
       backlinkCount: backlinks?.length ?? 0,
       relatedPaths: backlinks?.slice(0, 3),
+      ...(sourceAlias && {sourceAlias}),
+      ...(sourceContextTreeRoot && {sourceContextTreeRoot}),
+      ...(sourceType && {sourceType}),
       symbolKind,
       symbolPath: symbol?.path,
     }
@@ -773,16 +942,27 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     symbolTree: MemorySymbolTree,
     referenceIndex: ReferenceIndex,
     options?: SearchOptions,
+    pathToDocumentId?: Map<string, string>,
   ): SearchKnowledgeResult {
     const filteredQuery = filterStopWords(query)
     const filteredWords = filteredQuery.split(/\s+/).filter((w) => w.length >= 2)
 
     // Build scope filter if a subtree is specified
-    let scopeFilter: ((result: { id: string }) => boolean) | undefined
+    // Translate symbol paths → qualified doc IDs via pathToDocumentId
+    let scopeFilter: ((result: {id: string}) => boolean) | undefined
     if (scopePath) {
-      const subtreeIds = getSubtreeDocumentIds(symbolTree, scopePath)
-      if (subtreeIds.size > 0) {
-        scopeFilter = (result) => subtreeIds.has(result.id)
+      const subtreeSymPaths = getSubtreeDocumentIds(symbolTree, scopePath)
+      if (subtreeSymPaths.size > 0 && pathToDocumentId) {
+        const qualifiedIds = new Set<string>()
+        for (const sp of subtreeSymPaths) {
+          const qid = pathToDocumentId.get(sp)
+          if (qid) qualifiedIds.add(qid)
+        }
+
+        scopeFilter = (result) => qualifiedIds.has(result.id)
+      } else if (subtreeSymPaths.size > 0) {
+        // Fallback for no pathToDocumentId (shouldn't happen)
+        scopeFilter = (result) => subtreeSymPaths.has(result.id)
       }
     }
 
@@ -790,20 +970,21 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     // If AND returns no results, fall back to OR to ensure no regression.
     let rawResults: Array<{id: string; queryTerms: string[]; score: number}>
     let andSearchFailed = false
-    const searchOpts = scopeFilter ? { filter: scopeFilter } : {}
+    const searchOpts = scopeFilter ? {filter: scopeFilter} : {}
 
     if (filteredWords.length >= 2) {
-      rawResults = index.search(filteredQuery, { combineWith: 'AND', ...searchOpts })
+      rawResults = index.search(filteredQuery, {combineWith: 'AND', ...searchOpts})
       if (rawResults.length === 0) {
         andSearchFailed = true
-        rawResults = index.search(filteredQuery, { combineWith: 'OR', ...searchOpts })
+        rawResults = index.search(filteredQuery, {combineWith: 'OR', ...searchOpts})
       }
     } else {
-      rawResults = index.search(filteredQuery, { combineWith: 'OR', ...searchOpts })
+      rawResults = index.search(filteredQuery, {combineWith: 'OR', ...searchOpts})
     }
 
     // Normalize BM25 scores to [0, 1) then blend with importance + recency via compound scoring.
     // Decay is computed lazily from file mtime — no disk writes during search.
+    // Local results get a slight boost to prefer local knowledge over linked.
     const now = Date.now()
     const searchResults = rawResults.map((r) => {
       const doc = documentMap.get(r.id)
@@ -811,10 +992,16 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       const daysSince = doc ? Math.max(0, (now - doc.mtime) / 86_400_000) : 0
       const decayed = applyDecay(scoring, daysSince)
       const bm25 = normalizeScore(r.score)
+      let finalScore = compoundScore(bm25, decayed.importance ?? 50, decayed.recency ?? 1, decayed.maturity ?? 'draft')
+
+      // Boost local results slightly
+      if (doc?.sourceType === 'local') {
+        finalScore = Math.min(finalScore + KNOWLEDGE_LINK_LOCAL_SCORE_BOOST, 1)
+      }
 
       return {
         ...r,
-        score: compoundScore(bm25, decayed.importance ?? 50, decayed.recency ?? 1, decayed.maturity ?? 'draft'),
+        score: finalScore,
       }
     })
     searchResults.sort((a, b) => b.score - a.score)
@@ -865,11 +1052,14 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
           const enriched = this.enrichResult(
             {
               excerpt: extractExcerpt(document.content, query),
+              id: document.id,
               path: document.path,
               score: Math.round(result.score * 100) / 100,
               title: document.title,
             },
-            symbolTree, referenceIndex, documentMap,
+            symbolTree,
+            referenceIndex,
+            documentMap,
           )
 
           // Apply kind/maturity filters if specified
@@ -882,7 +1072,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
           }
 
           if (options?.minMaturity && enriched.symbolKind) {
-            const tierRank: Record<string, number> = { core: 3, draft: 1, validated: 2 }
+            const tierRank: Record<string, number> = {core: 3, draft: 1, validated: 2}
             const symbol = symbolTree.symbolMap.get(document.path)
             const docMaturity = symbol?.metadata.maturity ?? 'draft'
             if ((tierRank[docMaturity] ?? 1) < (tierRank[options.minMaturity] ?? 1)) {
@@ -919,6 +1109,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     symbolTree: MemorySymbolTree,
     referenceIndex: ReferenceIndex,
     documentMap: Map<string, IndexedDocument>,
+    pathToDocumentId: Map<string, string>,
     index: MiniSearch<IndexedDocument>,
     limit: number,
     options?: SearchOptions,
@@ -933,17 +1124,22 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
     // If the matched symbol is a leaf Context, return it directly
     if (topMatch.kind === MemorySymbolKind.Context) {
-      const doc = documentMap.get(topMatch.path)
+      const docId = pathToDocumentId.get(topMatch.path)
+      const doc = docId ? documentMap.get(docId) : undefined
       if (!doc) {
         return null
       }
 
       const result = this.enrichResult(
-        { excerpt: extractExcerpt(doc.content, query), path: doc.path, score: 1, title: doc.title },
-        symbolTree, referenceIndex, documentMap,
+        {excerpt: extractExcerpt(doc.content, query), id: doc.id, path: doc.path, score: 1, title: doc.title},
+        symbolTree,
+        referenceIndex,
+        documentMap,
       )
 
-      this.accumulateAccessHits([doc.path])
+      if (doc.sourceType === 'local') {
+        this.accumulateAccessHits([doc.path])
+      }
 
       return {
         message: `Found exact match: ${topMatch.path}`,
@@ -959,27 +1155,44 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
     if (textPart) {
       // Scoped search: search text within the matched subtree
-      return this.runTextSearch(textPart, documentMap, index, limit, topMatch.path, symbolTree, referenceIndex, options)
+      return this.runTextSearch(
+        textPart,
+        documentMap,
+        index,
+        limit,
+        topMatch.path,
+        symbolTree,
+        referenceIndex,
+        options,
+        pathToDocumentId,
+      )
     }
 
     // No text part — return all children of the matched node
-    const subtreeIds = getSubtreeDocumentIds(symbolTree, topMatch.path)
+    const subtreeSymbolPaths = getSubtreeDocumentIds(symbolTree, topMatch.path)
     const results: SearchKnowledgeResult['results'] = []
 
-    for (const docId of subtreeIds) {
+    for (const symPath of subtreeSymbolPaths) {
       if (results.length >= limit) break
 
-      const doc = documentMap.get(docId)
+      const qualifiedId = pathToDocumentId.get(symPath)
+      const doc = qualifiedId ? documentMap.get(qualifiedId) : undefined
       if (!doc) continue
 
-      results.push(this.enrichResult(
-        { excerpt: extractExcerpt(doc.content, query), path: doc.path, score: 0.9, title: doc.title },
-        symbolTree, referenceIndex, documentMap,
-      ))
+      results.push(
+        this.enrichResult(
+          {excerpt: extractExcerpt(doc.content, query), id: doc.id, path: doc.path, score: 0.9, title: doc.title},
+          symbolTree,
+          referenceIndex,
+          documentMap,
+        ),
+      )
     }
 
-    if (results.length > 0) {
-      this.accumulateAccessHits(results.map((r) => r.path))
+    // Only accumulate access hits for local documents
+    const localPaths = results.filter((r) => !r.sourceType || r.sourceType === 'local').map((r) => r.path)
+    if (localPaths.length > 0) {
+      this.accumulateAccessHits(localPaths)
     }
 
     return {

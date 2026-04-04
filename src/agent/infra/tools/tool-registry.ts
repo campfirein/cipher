@@ -252,7 +252,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.WRITE_FILE]: {
     descriptionFile: 'write_file',
-    factory: (services) => createWriteFileTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
+    factory: (services) => createWriteFileTool(getRequiredService(services.fileSystemService, 'fileSystemService'), services.environmentContext),
     markers: [ToolMarker.Modification],
     requiredServices: ['fileSystemService'],
   },

@@ -248,6 +248,7 @@ export class SandboxService implements ISandboxService {
       curateService: this.curateService,
       fileSystem: this.fileSystem,
       parentSessionId: sessionId,
+      projectRoot: this.environmentContext?.workingDirectory,
       sandboxService: this,
       searchKnowledgeService: this.searchKnowledgeService,
       sessionManager: this.sessionManager,

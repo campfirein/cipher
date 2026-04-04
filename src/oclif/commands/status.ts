@@ -130,5 +130,22 @@ export default class Status extends Command {
         this.log('Context Tree: Unable to check status')
       }
     }
+
+    // Knowledge workspaces
+    if (status.workspaces && status.workspaces.length > 0) {
+      this.log(`Workspaces: ${status.workspaces.length} linked`)
+      for (const ws of status.workspaces) {
+        this.log(`   ${ws}`)
+      }
+    }
+
+    // Hub dependencies
+    if (status.dependencies && Object.keys(status.dependencies).length > 0) {
+      const deps = Object.entries(status.dependencies)
+      this.log(`Dependencies: ${deps.length} installed`)
+      for (const [name, version] of deps) {
+        this.log(`   ${name}@${version}`)
+      }
+    }
   }
 }

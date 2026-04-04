@@ -1,3 +1,6 @@
+import {existsSync, rmSync} from 'node:fs'
+import {join} from 'node:path'
+
 import type {AuthScheme} from '../../../../shared/transport/types/auth-scheme.js'
 import type {HubEntryDTO} from '../../../../shared/transport/types/dto.js'
 import type {HubInstallAuthParams, IHubInstallService} from '../../../core/interfaces/hub/i-hub-install-service.js'
@@ -9,6 +12,7 @@ import type {ProjectPathResolver} from './handler-types.js'
 
 import {
   HubEvents,
+  type HubInstallAllResponse,
   type HubInstallRequest,
   type HubInstallResponse,
   type HubListResponse,
@@ -18,8 +22,12 @@ import {
   type HubRegistryListResponse,
   type HubRegistryRemoveRequest,
   type HubRegistryRemoveResponse,
+  type HubUninstallRequest,
+  type HubUninstallResponse,
 } from '../../../../shared/transport/events/hub-events.js'
+import {BRV_DIR, BUNDLES_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
 import {type Agent, isAgent} from '../../../core/domain/entities/agent.js'
+import {loadDependenciesFile, writeDependenciesFile} from '../../../core/domain/knowledge/dependencies-schema.js'
 import {CompositeHubRegistryService} from '../../hub/composite-hub-registry-service.js'
 import {HubRegistryService} from '../../hub/hub-registry-service.js'
 
@@ -81,6 +89,14 @@ export class HubHandler {
     )
 
     this.transport.onRequest<void, HubRegistryListResponse>(HubEvents.REGISTRY_LIST, () => this.handleRegistryList())
+
+    this.transport.onRequest<void, HubInstallAllResponse>(HubEvents.INSTALL_ALL, (_data, clientId) =>
+      this.handleInstallAll(clientId),
+    )
+
+    this.transport.onRequest<HubUninstallRequest, HubUninstallResponse>(HubEvents.UNINSTALL, (data, clientId) =>
+      this.handleUninstall(data, clientId),
+    )
   }
 
   private async handleInstall(data: HubInstallRequest, clientId: string): Promise<HubInstallResponse> {
@@ -121,6 +137,48 @@ export class HubHandler {
           success: false,
         }
       }
+    }
+  }
+
+  private async handleInstallAll(clientId: string): Promise<HubInstallAllResponse> {
+    const projectPath = this.resolveEffectivePath(clientId)
+
+    const deps = loadDependenciesFile(projectPath)
+    if (!deps || Object.keys(deps).length === 0) {
+      return {message: 'No dependencies declared. Nothing to install.', results: [], success: true}
+    }
+
+    const entries = Object.keys(deps)
+
+    // Check which are already installed
+    const toInstall = entries.filter((id) => {
+      const bundleDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR, BUNDLES_DIR, id)
+      return !existsSync(bundleDir)
+    })
+
+    if (toInstall.length === 0) {
+      return {message: `All ${entries.length} dependencies already installed.`, results: [], success: true}
+    }
+
+    const settled = await Promise.allSettled(
+      toInstall.map(async (entryId) => {
+        const installResult = await this.handleInstall({entryId}, clientId)
+        return {entryId, message: installResult.message, success: installResult.success}
+      }),
+    )
+
+    const results: HubInstallAllResponse['results'] = settled.map((s, i) =>
+      s.status === 'fulfilled'
+        ? s.value
+        : {entryId: toInstall[i], message: s.reason instanceof Error ? s.reason.message : 'Unknown error', success: false},
+    )
+
+    const allSuccess = results.every((r) => r.success)
+    const installed = results.filter((r) => r.success).length
+    return {
+      message: `Installed ${installed}/${toInstall.length} dependencies.`,
+      results,
+      success: allSuccess,
     }
   }
 
@@ -228,6 +286,27 @@ export class HubHandler {
         success: false,
       }
     }
+  }
+
+  private handleUninstall(data: HubUninstallRequest, clientId: string): HubUninstallResponse {
+    const projectPath = this.resolveEffectivePath(clientId)
+
+    // Remove from dependencies.json
+    const deps = loadDependenciesFile(projectPath)
+    if (!deps || !(data.entryId in deps)) {
+      return {message: `Dependency "${data.entryId}" not found in dependencies.json`, success: false}
+    }
+
+    delete deps[data.entryId]
+    writeDependenciesFile(projectPath, deps)
+
+    // Delete installed files from bundles/ directory
+    const bundleDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR, BUNDLES_DIR, data.entryId)
+    if (existsSync(bundleDir)) {
+      rmSync(bundleDir, {force: true, recursive: true})
+    }
+
+    return {message: `Uninstalled "${data.entryId}" and removed from dependencies.`, success: true}
   }
 
   private async performInstall(

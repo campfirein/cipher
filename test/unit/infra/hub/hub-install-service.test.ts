@@ -210,7 +210,7 @@ describe('HubInstallService', () => {
       expect(result.message).to.include('context tree')
 
       expect(fileService.write.calledOnce).to.be.true
-      expect(fileService.write.calledWith('# Context', join(projectPath, '.brv/context-tree/context.md'), 'overwrite'))
+      expect(fileService.write.calledWith('# Context', join(projectPath, '.brv/context-tree/bundles/test-bundle/context.md'), 'overwrite'))
         .to.be.true
     })
 
@@ -243,10 +243,10 @@ describe('HubInstallService', () => {
 
       expect(result.installedFiles).to.have.lengthOf(2)
       expect(
-        fileService.write.calledWith('# Auth', join(projectPath, '.brv/context-tree/auth/context.md'), 'overwrite'),
+        fileService.write.calledWith('# Auth', join(projectPath, '.brv/context-tree/bundles/test-bundle/auth/context.md'), 'overwrite'),
       ).to.be.true
       expect(
-        fileService.write.calledWith('# Test', join(projectPath, '.brv/context-tree/test/context.md'), 'overwrite'),
+        fileService.write.calledWith('# Test', join(projectPath, '.brv/context-tree/bundles/test-bundle/test/context.md'), 'overwrite'),
       ).to.be.true
     })
 
@@ -279,7 +279,7 @@ describe('HubInstallService', () => {
       expect(result.installedFiles).to.have.lengthOf(1)
       expect(result.message).to.include('context tree')
       // Scope should not affect bundle install — still goes to context tree
-      expect(fileService.write.calledWith('# Context', join(projectPath, '.brv/context-tree/context.md'), 'overwrite'))
+      expect(fileService.write.calledWith('# Context', join(projectPath, '.brv/context-tree/bundles/test-bundle/context.md'), 'overwrite'))
         .to.be.true
     })
   })

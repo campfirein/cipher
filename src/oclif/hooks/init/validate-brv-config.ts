@@ -6,6 +6,7 @@ import {dirname, join} from 'node:path'
 import type {IProjectConfigStore} from '../../../server/core/interfaces/storage/i-project-config-store.js'
 
 import {BRV_CONFIG_VERSION} from '../../../server/constants.js'
+import {findProjectRoot} from '../../../server/core/domain/knowledge/find-project-root.js'
 import {ProjectConfigStore} from '../../../server/infra/config/file-config-store.js'
 import {ensureCurateViewPatched} from '../../../server/infra/connectors/shared/rule-segment-patcher.js'
 import {syncConfigToXdg} from '../../../server/utils/config-xdg-sync.js'
@@ -74,37 +75,35 @@ export const validateBrvConfigVersion = async (
     return
   }
 
-  const exists = await configStore.exists()
-  if (!exists) {
+  // Check cwd first (via config store), then walk up directory tree (git-like behavior)
+  const cwdExists = await configStore.exists()
+  const projectRoot = cwdExists ? process.cwd() : findProjectRoot(process.cwd())
+  if (!projectRoot) {
     const message = commandId.startsWith('vc:')
       ? 'ByteRover version control not initialized. Run brv vc init first.'
       : 'fatal: not a brv project (or any of the parent directories): .brv'
     throw new Error(message)
   }
 
-  const config = await configStore.read()
+  const config = await configStore.read(projectRoot)
   if (!config) {
     throw new Error('fatal: corrupt or unreadable config: .brv/config.json')
   }
 
-  // ProjectConfigStore checks .brv/ at process.cwd() directly (no walk-up),
-  // so configStore.exists() returning true means process.cwd() IS the project root.
-  const cwd = process.cwd()
-
   // Gate the connector-file patch behind a per-project marker file in the XDG data dir.
   // This keeps internal bookkeeping out of the user-facing .brv/config.json.
-  const marker = patchMarkerDeps ?? defaultPatchMarkerDeps(cwd)
+  const marker = patchMarkerDeps ?? defaultPatchMarkerDeps(projectRoot)
   const alreadyPatched = await marker.isPatched()
   if (!alreadyPatched) {
     const patchFn = patchMarkerDeps?.patchFn ?? ensureCurateViewPatched
-    await patchFn(cwd).catch(() => {})
+    await patchFn(projectRoot).catch(() => {})
     await marker.markPatched().catch(() => {})
   }
 
   if (config.version !== BRV_CONFIG_VERSION) {
     const updated = config.withVersion(BRV_CONFIG_VERSION)
-    await configStore.write(updated)
-    await syncConfigToXdg(updated, cwd)
+    await configStore.write(updated, projectRoot)
+    await syncConfigToXdg(updated, projectRoot)
   }
 }
 
