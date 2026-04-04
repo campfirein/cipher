@@ -12,6 +12,7 @@ import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
 import {
   AnthropicModelFetcher,
   ChatBasedModelFetcher,
+  CopilotModelFetcher,
   GoogleModelFetcher,
   OpenAICompatibleModelFetcher,
   OpenAIModelFetcher,
@@ -71,6 +72,12 @@ export async function getModelFetcher(providerId: string): Promise<IProviderMode
       if (provider?.baseUrl) {
         fetcher = new OpenAICompatibleModelFetcher(provider.baseUrl, provider.name)
       }
+
+      break
+    }
+
+    case 'github-copilot': {
+      fetcher = new CopilotModelFetcher()
 
       break
     }

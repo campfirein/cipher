@@ -131,6 +131,43 @@ export async function resolveProviderConfig(
   }
 
   switch (activeProvider) {
+    case 'github-copilot': {
+      const providerConfig = config.providers[activeProvider]
+      if (!providerConfig) {
+        return {activeModel, activeProvider, maxInputTokens}
+      }
+
+      const {authMethod} = providerConfig
+
+      if (authMethod === 'oauth' && tokenRefreshManager) {
+        try {
+          const refreshed = await tokenRefreshManager.refreshIfNeeded(activeProvider)
+          if (!refreshed) {
+            return {activeModel, activeProvider, authMethod, maxInputTokens, providerKeyMissing: true}
+          }
+
+          apiKey = (await providerKeychainStore.getApiKey(activeProvider)) ?? apiKey
+        } catch {
+          return {activeModel, activeProvider, authMethod, maxInputTokens, providerKeyMissing: true}
+        }
+      }
+
+      return {
+        activeModel,
+        activeProvider,
+        authMethod,
+        maxInputTokens,
+        provider: activeProvider,
+        providerApiKey: apiKey || undefined,
+        providerBaseUrl: 'https://api.githubcopilot.com',
+        providerHeaders: {
+          'Copilot-Integration-Id': 'vscode-chat',
+          'Editor-Version': 'vscode/1.99.0',
+        },
+        providerKeyMissing: !apiKey,
+      }
+    }
+
     case 'openai-compatible': {
       return {
         activeModel,

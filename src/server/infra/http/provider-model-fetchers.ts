@@ -550,10 +550,93 @@ export class ChatBasedModelFetcher implements IProviderModelFetcher {
 
 import {getOpenRouterApiClient, type NormalizedModel} from './openrouter-api-client.js'
 
-/**
- * Model fetcher that wraps the existing OpenRouterApiClient.
- * Adapts NormalizedModel to ProviderModelInfo.
- */
+// ============================================================================
+// Copilot Model Fetcher
+// ============================================================================
+
+export class CopilotModelFetcher implements IProviderModelFetcher {
+  private cache: ModelCache | undefined
+  private readonly cacheTtlMs: number
+
+  constructor(cacheTtlMs = DEFAULT_CACHE_TTL) {
+    this.cacheTtlMs = cacheTtlMs
+  }
+
+  async fetchModels(apiKey: string, options?: FetchModelsOptions): Promise<ProviderModelInfo[]> {
+    const forceRefresh = options?.forceRefresh ?? false
+    if (!forceRefresh && this.cache && Date.now() - this.cache.timestamp < this.cacheTtlMs) {
+      return this.cache.models
+    }
+
+    const response = await axios.get('https://api.githubcopilot.com/models', {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Copilot-Integration-Id': 'vscode-chat',
+        'Editor-Version': 'vscode/1.99.0',
+      },
+      httpAgent: ProxyConfig.getProxyAgent(),
+      httpsAgent: ProxyConfig.getProxyAgent(),
+      proxy: false,
+      timeout: 30_000,
+    })
+
+    const responseData = response.data
+    const modelList: Array<Record<string, unknown>> = Array.isArray(responseData)
+      ? responseData
+      : (responseData.data ?? responseData.models ?? [])
+
+    const models: ProviderModelInfo[] = modelList.map((model) => {
+      const id = String(model.id ?? model.name ?? '')
+      return {
+        contextLength: typeof model.context_length === 'number' ? model.context_length : 200_000,
+        id,
+        isFree: false,
+        name: typeof model.name === 'string' ? model.name : id,
+        pricing: {inputPerM: 0, outputPerM: 0},
+        provider: 'GitHub Copilot',
+      }
+    })
+
+    models.sort((a, b) => a.id.localeCompare(b.id))
+    this.cache = {models, timestamp: Date.now()}
+    return models
+  }
+
+  async validateApiKey(apiKey: string): Promise<{error?: string; isValid: boolean}> {
+    try {
+      await axios.get('https://api.githubcopilot.com/models', {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Copilot-Integration-Id': 'vscode-chat',
+          'Editor-Version': 'vscode/1.99.0',
+        },
+        httpAgent: ProxyConfig.getProxyAgent(),
+        httpsAgent: ProxyConfig.getProxyAgent(),
+        proxy: false,
+        timeout: 15_000,
+      })
+      return {isValid: true}
+    } catch (error) {
+      if (isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          return {error: 'Invalid or expired Copilot token', isValid: false}
+        }
+
+        if (error.response?.status === 403) {
+          return {error: 'Copilot token does not have required permissions', isValid: false}
+        }
+
+        return {error: `API error: ${error.response?.statusText ?? error.message}`, isValid: false}
+      }
+
+      return {error: error instanceof Error ? error.message : 'Unknown error', isValid: false}
+    }
+  }
+}
+
+// ============================================================================
+// OpenRouter Model Fetcher (wraps existing client)
+// ============================================================================
 export class OpenRouterModelFetcher implements IProviderModelFetcher {
   async fetchModels(apiKey: string, options?: FetchModelsOptions): Promise<ProviderModelInfo[]> {
     const client = getOpenRouterApiClient()

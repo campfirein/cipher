@@ -418,6 +418,82 @@ describe('provider-config-resolver', () => {
       expect(result.providerKeyMissing).to.be.true
       expect(result.providerApiKey).to.be.undefined
     })
+
+    // ==================== GitHub Copilot ====================
+
+    it('should resolve github-copilot with Copilot headers and base URL', async () => {
+      const {configStore, keychainStore} = createStubStores(sandbox)
+      configStore.read.resolves(
+        createProviderConfig('github-copilot', {
+          'github-copilot': {activeModel: 'claude-sonnet-4', authMethod: 'oauth'},
+        }),
+      )
+      keychainStore.getApiKey.resolves('ghu_copilot-token')
+
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
+
+      expect(result.activeProvider).to.equal('github-copilot')
+      expect(result.provider).to.equal('github-copilot')
+      expect(result.providerApiKey).to.equal('ghu_copilot-token')
+      expect(result.providerBaseUrl).to.equal('https://api.githubcopilot.com')
+      expect(result.providerHeaders).to.deep.equal({
+        'Copilot-Integration-Id': 'vscode-chat',
+        'Editor-Version': 'vscode/1.99.0',
+      })
+      expect(result.providerKeyMissing).to.be.false
+    })
+
+    it('should return providerKeyMissing true for github-copilot when no API key available', async () => {
+      const {configStore, keychainStore} = createStubStores(sandbox)
+      configStore.read.resolves(
+        createProviderConfig('github-copilot', {
+          'github-copilot': {activeModel: 'claude-sonnet-4', authMethod: 'oauth'},
+        }),
+      )
+      keychainStore.getApiKey.resolves()
+
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore})
+
+      expect(result.providerKeyMissing).to.be.true
+      expect(result.providerApiKey).to.be.undefined
+    })
+
+    it('should attempt token refresh for OAuth-connected github-copilot', async () => {
+      const {configStore, keychainStore} = createStubStores(sandbox)
+      configStore.read.resolves(
+        createProviderConfig('github-copilot', {
+          'github-copilot': {activeModel: 'claude-sonnet-4', authMethod: 'oauth'},
+        }),
+      )
+      keychainStore.getApiKey.resolves('refreshed-copilot-token')
+
+      const refreshManager: ITokenRefreshManager = {
+        refreshIfNeeded: sandbox.stub().resolves(true),
+      }
+
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore, tokenRefreshManager: refreshManager})
+
+      expect((refreshManager.refreshIfNeeded as sinon.SinonStub).calledWith('github-copilot')).to.be.true
+      expect(result.providerApiKey).to.equal('refreshed-copilot-token')
+      expect(result.providerKeyMissing).to.be.false
+    })
+
+    it('should return providerKeyMissing when github-copilot token refresh returns false', async () => {
+      const {configStore, keychainStore} = createStubStores(sandbox)
+      configStore.read.resolves(
+        createProviderConfig('github-copilot', {
+          'github-copilot': {activeModel: 'claude-sonnet-4', authMethod: 'oauth'},
+        }),
+      )
+
+      const refreshManager: ITokenRefreshManager = {
+        refreshIfNeeded: sandbox.stub().resolves(false),
+      }
+
+      const result = await resolveProviderConfig({providerConfigStore: configStore, providerKeychainStore: keychainStore, tokenRefreshManager: refreshManager})
+
+      expect(result.providerKeyMissing).to.be.true
+    })
   })
 
   // ==================== loginRequired field ====================
