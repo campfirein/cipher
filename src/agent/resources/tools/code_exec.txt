@@ -88,6 +88,9 @@ When calling `tools.*` methods, you **MUST** wrap code in an async IIFE:
     path: 'design/alert_engine',
     title: 'Alert Engine',
     reason: 'Document alert engine architecture',
+    summary: 'Alert Engine consuming events with dedup, escalation, and SLA-based routing to PagerDuty/Slack/Email',
+    confidence: 'high',
+    impact: 'low',
     content: {
       rawConcept: {
         task: 'Document the Alert Engine component',
