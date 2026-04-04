@@ -31,6 +31,7 @@ import {FileContextTreeService} from '../context-tree/file-context-tree-service.
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeWriterService} from '../context-tree/file-context-tree-writer-service.js'
 import {FsFileService} from '../file/fs-file-service.js'
+import {IsomorphicGitService} from '../git/isomorphic-git-service.js'
 import {CallbackHandler} from '../http/callback-handler.js'
 import {HubInstallService} from '../hub/hub-install-service.js'
 import {createHubKeychainStore} from '../hub/hub-keychain-store.js'
@@ -53,8 +54,10 @@ import {
   ResetHandler,
   SpaceHandler,
   StatusHandler,
+  VcHandler,
 } from '../transport/handlers/index.js'
 import {HttpUserService} from '../user/http-user-service.js'
+import {FileVcGitConfigStore} from '../vc/file-vc-git-config-store.js'
 
 export interface FeatureHandlersOptions {
   authStateStore: IAuthStateStore
@@ -143,6 +146,8 @@ export async function setupFeatureHandlers({
     new ConnectorManager({fileService, projectRoot, templateService})
 
   // Project-scoped handlers (receive resolveProjectPath for client → project resolution)
+  const gitService = new IsomorphicGitService(authStateStore)
+
   new StatusHandler({
     contextTreeService,
     contextTreeSnapshotService,
@@ -164,6 +169,7 @@ export async function setupFeatureHandlers({
     broadcastToProject,
     cogitPushService,
     contextFileReader,
+    contextTreeService,
     contextTreeSnapshotService,
     projectConfigStore,
     resolveProjectPath,
@@ -175,6 +181,7 @@ export async function setupFeatureHandlers({
   new PullHandler({
     broadcastToProject,
     cogitPullService,
+    contextTreeService,
     contextTreeSnapshotService,
     contextTreeWriterService,
     projectConfigStore,
@@ -194,6 +201,7 @@ export async function setupFeatureHandlers({
     broadcastToProject,
     cogitPullService,
     contextTreeMerger,
+    contextTreeService,
     contextTreeSnapshotService,
     contextTreeWriterService,
     projectConfigStore,
@@ -237,6 +245,22 @@ export async function setupFeatureHandlers({
     teamService,
     tokenStore,
     transport,
+  }).setup()
+
+  new VcHandler({
+    broadcastToProject,
+    contextTreeService,
+    gitApiBaseUrl: envConfig.gitApiBaseUrl,
+    gitRemoteBaseUrl: envConfig.gitRemoteBaseUrl,
+    gitService,
+    projectConfigStore,
+    resolveProjectPath,
+    spaceService,
+    teamService,
+    tokenStore,
+    transport,
+    vcGitConfigStore: new FileVcGitConfigStore(),
+    webAppUrl: envConfig.webAppUrl,
   }).setup()
 
   log('Feature handlers registered')

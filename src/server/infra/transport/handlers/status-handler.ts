@@ -87,26 +87,31 @@ export class StatusHandler {
     try {
       const contextTreeExists = await this.contextTreeService.exists(projectPath)
       if (contextTreeExists) {
-        result.contextTreeDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
-        result.contextTreeRelativeDir = join(BRV_DIR, CONTEXT_TREE_DIR)
-
-        const hasSnapshot = await this.contextTreeSnapshotService.hasSnapshot(projectPath)
-        if (!hasSnapshot) {
-          await this.contextTreeSnapshotService.initEmptySnapshot(projectPath)
-        }
-
-        const changes = await this.contextTreeSnapshotService.getChanges(projectPath)
-        const hasChanges = changes.added.length > 0 || changes.modified.length > 0 || changes.deleted.length > 0
-
-        if (hasChanges) {
-          result.contextTreeStatus = 'has_changes'
-          result.contextTreeChanges = {
-            added: changes.added,
-            deleted: changes.deleted,
-            modified: changes.modified,
-          }
+        const hasGitVc = await this.contextTreeService.hasGitRepo(projectPath)
+        if (hasGitVc) {
+          result.contextTreeStatus = 'git_vc'
         } else {
-          result.contextTreeStatus = 'no_changes'
+          result.contextTreeDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
+          result.contextTreeRelativeDir = join(BRV_DIR, CONTEXT_TREE_DIR)
+
+          const hasSnapshot = await this.contextTreeSnapshotService.hasSnapshot(projectPath)
+          if (!hasSnapshot) {
+            await this.contextTreeSnapshotService.initEmptySnapshot(projectPath)
+          }
+
+          const changes = await this.contextTreeSnapshotService.getChanges(projectPath)
+          const hasChanges = changes.added.length > 0 || changes.modified.length > 0 || changes.deleted.length > 0
+
+          if (hasChanges) {
+            result.contextTreeStatus = 'has_changes'
+            result.contextTreeChanges = {
+              added: changes.added,
+              deleted: changes.deleted,
+              modified: changes.modified,
+            }
+          } else {
+            result.contextTreeStatus = 'no_changes'
+          }
         }
       } else {
         result.contextTreeStatus = 'not_initialized'

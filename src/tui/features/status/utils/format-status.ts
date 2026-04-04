@@ -41,6 +41,11 @@ export function formatStatus(status: StatusDTO, version?: string): string {
   }
 
   switch (status.contextTreeStatus) {
+    case 'git_vc': {
+      lines.push('Context Tree: Byterover version control (use /vc commands)')
+      break
+    }
+
     case 'has_changes': {
       if (status.contextTreeChanges && status.contextTreeRelativeDir) {
         const {added, deleted, modified} = status.contextTreeChanges

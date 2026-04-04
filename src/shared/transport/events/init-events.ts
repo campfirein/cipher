@@ -8,6 +8,7 @@ export const InitEvents = {
   GET_AGENTS: 'init:getAgents',
   GET_SPACES: 'init:getSpaces',
   GET_TEAMS: 'init:getTeams',
+  LOCAL: 'init:local',
   PROGRESS: 'init:progress',
 } as const
 
@@ -36,6 +37,15 @@ export interface InitExecuteRequest {
 }
 
 export interface InitExecuteResponse {
+  success: boolean
+}
+
+export interface InitLocalRequest {
+  force?: boolean
+}
+
+export interface InitLocalResponse {
+  alreadyInitialized: boolean
   success: boolean
 }
 
