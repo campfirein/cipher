@@ -1,5 +1,5 @@
 /* eslint-disable camelcase */
-import axios from 'axios'
+import axios, {isAxiosError} from 'axios'
 
 import {
   COPILOT_TOKEN_URL,
@@ -7,6 +7,7 @@ import {
   GITHUB_DEVICE_CODE_URL,
   GITHUB_OAUTH_TOKEN_URL,
 } from '../../../shared/constants/copilot.js'
+import {extractOAuthErrorFields, ProviderTokenExchangeError} from './errors.js'
 
 export type DeviceCodeResponse = {
   deviceCode: string
@@ -146,16 +147,30 @@ export async function pollForAccessToken(params: PollForAccessTokenParams): Prom
 }
 
 export async function exchangeForCopilotToken(githubToken: string): Promise<CopilotTokenResponse> {
-  const response = await axios.get<CopilotTokenApiResponse>(COPILOT_TOKEN_URL, {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `token ${githubToken}`,
-    },
-  })
+  let response: {data: CopilotTokenApiResponse}
+  try {
+    response = await axios.get<CopilotTokenApiResponse>(COPILOT_TOKEN_URL, {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `token ${githubToken}`,
+      },
+    })
+  } catch (error) {
+    if (isAxiosError(error)) {
+      const data: unknown = error.response?.data
+      const errorFields = extractOAuthErrorFields(data)
+      throw new ProviderTokenExchangeError({
+        errorCode: errorFields.error ?? error.code,
+        message: errorFields.error_description ?? `Copilot token exchange failed: ${error.message}`,
+        statusCode: error.response?.status,
+      })
+    }
 
-  const {data} = response
+    throw error
+  }
+
   return {
-    expiresAt: data.expires_at,
-    token: data.token,
+    expiresAt: response.data.expires_at,
+    token: response.data.token,
   }
 }

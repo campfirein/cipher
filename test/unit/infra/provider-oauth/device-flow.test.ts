@@ -8,6 +8,7 @@ import {
   pollForAccessToken,
   requestDeviceCode,
 } from '../../../../src/server/infra/provider-oauth/device-flow.js'
+import {ProviderTokenExchangeError} from '../../../../src/server/infra/provider-oauth/errors.js'
 import {
   COPILOT_TOKEN_URL,
   GITHUB_DEVICE_CODE_URL,
@@ -221,14 +222,44 @@ describe('device-flow', () => {
       expect(result.expiresAt).to.equal(expiresAt)
     })
 
-    it('throws on HTTP error (401 for invalid token)', async () => {
+    it('throws ProviderTokenExchangeError with status code on 401', async () => {
       nock(GITHUB_API_BASE).get(COPILOT_TOKEN_PATH).reply(401, {message: 'Bad credentials'})
 
       try {
         await exchangeForCopilotToken('invalid_token')
         expect.fail('Should have thrown')
       } catch (error) {
-        expect(error).to.be.instanceOf(Error)
+        expect(error).to.be.instanceOf(ProviderTokenExchangeError)
+        if (error instanceof ProviderTokenExchangeError) {
+          expect(error.statusCode).to.equal(401)
+        }
+      }
+    })
+
+    it('throws ProviderTokenExchangeError with status code on 403', async () => {
+      nock(GITHUB_API_BASE).get(COPILOT_TOKEN_PATH).reply(403, {error: 'forbidden', error_description: 'No Copilot subscription'})
+
+      try {
+        await exchangeForCopilotToken('gho_no_subscription')
+        expect.fail('Should have thrown')
+      } catch (error) {
+        expect(error).to.be.instanceOf(ProviderTokenExchangeError)
+        if (error instanceof ProviderTokenExchangeError) {
+          expect(error.statusCode).to.equal(403)
+          expect(error.message).to.equal('No Copilot subscription')
+          expect(error.errorCode).to.equal('forbidden')
+        }
+      }
+    })
+
+    it('re-throws non-axios errors unchanged', async () => {
+      nock(GITHUB_API_BASE).get(COPILOT_TOKEN_PATH).replyWithError('socket hang up')
+
+      try {
+        await exchangeForCopilotToken('gho_token')
+        expect.fail('Should have thrown')
+      } catch (error) {
+        expect(error).to.be.instanceOf(ProviderTokenExchangeError)
       }
     })
 
