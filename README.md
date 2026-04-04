@@ -24,7 +24,9 @@ ByteRover CLI (`brv`) gives AI coding agents persistent, structured memory. It l
 
 Run `brv` in any project directory to start an interactive REPL powered by your choice of LLM. The agent understands your codebase through an agentic map, can read and write files, execute code, and store knowledge for future sessions.
 
-📄 Read the [paper](https://byterover.dev/paper) for the full technical details.
+📄 Read the [paper](https://arxiv.org/abs/2604.01599) for the full technical details.
+
+Or download our self-hosted PDF version of the paper [here](https://byterover.dev/paper).
 
 **Key Features:**
 
@@ -55,7 +57,7 @@ We evaluate on two long-term conversational memory benchmarks:
 <img src="assets/images/benchmarks/longmemeval-s-by-category.png" alt="LongMemEval-S Benchmark by Category" width="700" />
 </p>
 
-All metrics are LLM-as-Judge accuracy (%). See the [paper](https://byterover.dev/paper) for full details.
+All metrics are LLM-as-Judge accuracy (%). See the [paper](https://arxiv.org/abs/2604.01599), or self-hosted [PDF](https://byterover.dev/paper) for full details.
 
 ## Quick Start
 
