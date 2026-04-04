@@ -4,6 +4,7 @@ import type {StatusDTO} from '../../../../shared/transport/types/dto.js'
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
+import type {ICurateLogStore} from '../../../core/interfaces/storage/i-curate-log-store.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
@@ -11,9 +12,13 @@ import {StatusEvents, type StatusGetResponse} from '../../../../shared/transport
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
 import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
+/** Factory that creates a curate log store scoped to a project directory. */
+export type CurateLogStoreFactory = (projectPath: string) => ICurateLogStore
+
 export interface StatusHandlerDeps {
   contextTreeService: IContextTreeService
   contextTreeSnapshotService: IContextTreeSnapshotService
+  curateLogStoreFactory: CurateLogStoreFactory
   projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
   tokenStore: ITokenStore
@@ -27,6 +32,7 @@ export interface StatusHandlerDeps {
 export class StatusHandler {
   private readonly contextTreeService: IContextTreeService
   private readonly contextTreeSnapshotService: IContextTreeSnapshotService
+  private readonly curateLogStoreFactory: CurateLogStoreFactory
   private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
   private readonly tokenStore: ITokenStore
@@ -35,6 +41,7 @@ export class StatusHandler {
   constructor(deps: StatusHandlerDeps) {
     this.contextTreeService = deps.contextTreeService
     this.contextTreeSnapshotService = deps.contextTreeSnapshotService
+    this.curateLogStoreFactory = deps.curateLogStoreFactory
     this.projectConfigStore = deps.projectConfigStore
     this.resolveProjectPath = deps.resolveProjectPath
     this.tokenStore = deps.tokenStore
@@ -118,6 +125,35 @@ export class StatusHandler {
       }
     } catch {
       result.contextTreeStatus = 'unknown'
+    }
+
+    // Pending review count (best-effort)
+    try {
+      const store = this.curateLogStoreFactory(projectPath)
+      const entries = await store.list({limit: 100, status: ['completed']})
+      const pendingFiles = new Set<string>()
+      const contextTreeRoot = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
+
+      for (const entry of entries) {
+        for (const op of entry.operations) {
+          if (op.reviewStatus === 'pending' && op.filePath) {
+            const prefix = contextTreeRoot + '/'
+            const relativePath = op.filePath.startsWith(prefix) ? op.filePath.slice(prefix.length) : op.filePath
+            pendingFiles.add(relativePath)
+          }
+        }
+      }
+
+      if (pendingFiles.size > 0) {
+        result.pendingReviewCount = pendingFiles.size
+        const port = this.transport.getPort()
+        if (port) {
+          const encoded = Buffer.from(projectPath).toString('base64url')
+          result.reviewUrl = `http://127.0.0.1:${port}/review?project=${encoded}`
+        }
+      }
+    } catch {
+      // Best-effort — if the log is unavailable, skip review info
     }
 
     return result
