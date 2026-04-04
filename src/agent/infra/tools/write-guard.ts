@@ -1,5 +1,5 @@
 import {existsSync, realpathSync} from 'node:fs'
-import {basename, dirname, join, resolve} from 'node:path'
+import {basename, dirname, isAbsolute, join, relative, resolve} from 'node:path'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../server/constants.js'
 import {loadKnowledgeSources} from '../../../server/core/domain/knowledge/load-knowledge-sources.js'
@@ -68,7 +68,6 @@ function tryRealpath(p: string): string {
 }
 
 function isWithin(target: string, parent: string): boolean {
-  const sep = '/'
-  const normalizedParent = parent.endsWith(sep) ? parent : parent + sep
-  return target === parent || target.startsWith(normalizedParent)
+  const rel = relative(parent, target)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }

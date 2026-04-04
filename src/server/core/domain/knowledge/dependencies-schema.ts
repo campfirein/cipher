@@ -23,11 +23,13 @@ export function loadDependenciesFile(projectRoot: string): null | Record<string,
   try {
     raw = JSON.parse(readFileSync(filePath, 'utf8'))
   } catch {
+    console.warn(`Warning: ${filePath} contains invalid JSON — ignoring dependencies`)
     return {}
   }
 
   const result = DependenciesFileSchema.safeParse(raw)
   if (!result.success) {
+    console.warn(`Warning: ${filePath} has invalid schema (expected {name: version} object) — ignoring dependencies`)
     return {}
   }
 

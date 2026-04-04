@@ -8,7 +8,6 @@ import type {IHubKeychainStore} from '../../../core/interfaces/hub/i-hub-keychai
 import type {IHubRegistryConfigStore} from '../../../core/interfaces/hub/i-hub-registry-config-store.js'
 import type {IHubRegistryService} from '../../../core/interfaces/hub/i-hub-registry-service.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
-import type {ProjectPathResolver} from './handler-types.js'
 
 import {
   HubEvents,
@@ -30,6 +29,7 @@ import {type Agent, isAgent} from '../../../core/domain/entities/agent.js'
 import {loadDependenciesFile, writeDependenciesFile} from '../../../core/domain/knowledge/dependencies-schema.js'
 import {CompositeHubRegistryService} from '../../hub/composite-hub-registry-service.js'
 import {HubRegistryService} from '../../hub/hub-registry-service.js'
+import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 const OFFICIAL_REGISTRY_NAME = 'official'
 
@@ -141,7 +141,7 @@ export class HubHandler {
   }
 
   private async handleInstallAll(clientId: string): Promise<HubInstallAllResponse> {
-    const projectPath = this.resolveEffectivePath(clientId)
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
 
     const deps = loadDependenciesFile(projectPath)
     if (!deps || Object.keys(deps).length === 0) {
@@ -150,33 +150,55 @@ export class HubHandler {
 
     const entries = Object.keys(deps)
 
-    // Check which are already installed
-    const toInstall = entries.filter((id) => {
+    // Partition into already-installed and to-install
+    const toInstall: string[] = []
+    const skipped: string[] = []
+    for (const id of entries) {
       const bundleDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR, BUNDLES_DIR, id)
-      return !existsSync(bundleDir)
-    })
-
-    if (toInstall.length === 0) {
-      return {message: `All ${entries.length} dependencies already installed.`, results: [], success: true}
+      if (existsSync(bundleDir)) {
+        skipped.push(id)
+      } else {
+        toInstall.push(id)
+      }
     }
 
-    const settled = await Promise.allSettled(
-      toInstall.map(async (entryId) => {
-        const installResult = await this.handleInstall({entryId}, clientId)
-        return {entryId, message: installResult.message, success: installResult.success}
-      }),
-    )
+    // Build results — include skipped as already-installed entries
+    const results: HubInstallAllResponse['results'] = skipped.map((entryId) => ({
+      entryId,
+      message: 'Already installed',
+      success: true,
+    }))
 
-    const results: HubInstallAllResponse['results'] = settled.map((s, i) =>
-      s.status === 'fulfilled'
-        ? s.value
-        : {entryId: toInstall[i], message: s.reason instanceof Error ? s.reason.message : 'Unknown error', success: false},
-    )
+    if (toInstall.length > 0) {
+      const settled = await Promise.allSettled(
+        toInstall.map(async (entryId) => {
+          const installResult = await this.handleInstall({entryId}, clientId)
+          return {entryId, message: installResult.message, success: installResult.success}
+        }),
+      )
 
+      for (const [i, s] of settled.entries()) {
+        results.push(
+          s.status === 'fulfilled'
+            ? s.value
+            : {
+                entryId: toInstall[i],
+                message: s.reason instanceof Error ? s.reason.message : 'Unknown error',
+                success: false,
+              },
+        )
+      }
+    }
+
+    const installed = results.filter((r) => r.success && r.message !== 'Already installed').length
     const allSuccess = results.every((r) => r.success)
-    const installed = results.filter((r) => r.success).length
+    const summary =
+      toInstall.length === 0
+        ? `All ${entries.length} dependencies already installed.`
+        : `Installed ${installed}/${toInstall.length} new (${skipped.length} already installed).`
+
     return {
-      message: `Installed ${installed}/${toInstall.length} dependencies.`,
+      message: summary,
       results,
       success: allSuccess,
     }
@@ -289,7 +311,7 @@ export class HubHandler {
   }
 
   private handleUninstall(data: HubUninstallRequest, clientId: string): HubUninstallResponse {
-    const projectPath = this.resolveEffectivePath(clientId)
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
 
     // Remove from dependencies.json
     const deps = loadDependenciesFile(projectPath)

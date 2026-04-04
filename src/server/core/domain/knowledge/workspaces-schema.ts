@@ -23,11 +23,13 @@ export function loadWorkspacesFile(projectRoot: string): null | string[] {
   try {
     raw = JSON.parse(readFileSync(filePath, 'utf8'))
   } catch {
+    console.warn(`Warning: ${filePath} contains invalid JSON — ignoring workspaces`)
     return []
   }
 
   const result = WorkspacesFileSchema.safeParse(raw)
   if (!result.success) {
+    console.warn(`Warning: ${filePath} has invalid schema (expected string array) — ignoring workspaces`)
     return []
   }
 
