@@ -89,6 +89,8 @@ export const AGENT_PROCESS_STOP_TIMEOUT_MS = 5000 // 5s max wait for child proce
 export const CURATE_LOG_DIR = 'curate-log'
 export const CURATE_LOG_ID_PREFIX = 'cur'
 
+// Review backups (stores pre-curate file content for local HITL review diffs)
+export const REVIEW_BACKUPS_DIR = 'review-backups'
 // === Hierarchical DAG (summary, archive, manifest) ===
 export const SUMMARY_INDEX_FILE = '_index.md'
 export const ARCHIVE_DIR = '_archived'
@@ -97,3 +99,11 @@ export const FULL_ARCHIVE_EXTENSION = '.full.md'
 export const MANIFEST_FILE = '_manifest.json'
 export const ARCHIVE_IMPORTANCE_THRESHOLD = 35
 export const DEFAULT_GHOST_CUE_MAX_TOKENS = 220
+
+/** .gitignore content for the context tree — ignore derived artifacts only */
+export const CONTEXT_TREE_GITIGNORE = `# Derived artifacts — do not track
+.gitignore
+.snapshot.json
+_manifest.json
+_index.md
+`

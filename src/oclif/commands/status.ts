@@ -92,6 +92,11 @@ export default class Status extends Command {
 
     // Context tree status
     switch (status.contextTreeStatus) {
+      case 'git_vc': {
+        this.log('Context Tree: Managed by Byterover version control (use brv vc commands)')
+        break
+      }
+
       case 'has_changes': {
         if (status.contextTreeChanges && status.contextTreeRelativeDir) {
           const formatPath = (file: string) => `${status.contextTreeRelativeDir}/${file}`

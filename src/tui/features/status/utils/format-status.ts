@@ -41,6 +41,11 @@ export function formatStatus(status: StatusDTO, version?: string): string {
   }
 
   switch (status.contextTreeStatus) {
+    case 'git_vc': {
+      lines.push('Context Tree: Byterover version control (use /vc commands)')
+      break
+    }
+
     case 'has_changes': {
       if (status.contextTreeChanges && status.contextTreeRelativeDir) {
         const {added, deleted, modified} = status.contextTreeChanges
@@ -74,6 +79,14 @@ export function formatStatus(status: StatusDTO, version?: string): string {
     default: {
       lines.push('Context Tree: Unable to check status')
     }
+  }
+
+  if (status.pendingReviewCount && status.pendingReviewCount > 0) {
+    const fileLabel = status.pendingReviewCount === 1 ? 'file' : 'files'
+    lines.push(
+      chalk.yellow(`Pending Reviews: ${status.pendingReviewCount} ${fileLabel} need review`) +
+        (status.reviewUrl ? `\n  Review: ${chalk.blue(status.reviewUrl)}` : ''),
+    )
   }
 
   return lines.join('\n')
