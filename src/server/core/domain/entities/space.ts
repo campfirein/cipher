@@ -5,8 +5,10 @@ interface SpaceParams {
   id: string
   isDefault: boolean
   name: string
+  slug?: string
   teamId: string
   teamName: string
+  teamSlug?: string
 }
 
 /**
@@ -17,8 +19,10 @@ export class Space {
   public readonly id: string
   public readonly isDefault: boolean
   public readonly name: string
+  public readonly slug: string
   public readonly teamId: string
   public readonly teamName: string
+  public readonly teamSlug: string
 
   public constructor(params: SpaceParams) {
     if (params.id.trim().length === 0) {
@@ -40,8 +44,10 @@ export class Space {
     this.id = params.id
     this.isDefault = params.isDefault
     this.name = params.name
+    this.slug = params.slug ?? params.name
     this.teamId = params.teamId
     this.teamName = params.teamName
+    this.teamSlug = params.teamSlug ?? params.teamName
   }
 
   /**
@@ -72,8 +78,10 @@ export class Space {
       id: json.id,
       isDefault: json.is_default,
       name: json.name,
+      slug: typeof json.slug === 'string' ? json.slug : json.name,
       teamId: json.team_id,
       teamName: json.team_name,
+      teamSlug: typeof json.team_slug === 'string' ? json.team_slug : json.team_name,
     })
   }
 
@@ -93,8 +101,10 @@ export class Space {
       id: this.id,
       isDefault: this.isDefault,
       name: this.name,
+      slug: this.slug,
       teamId: this.teamId,
       teamName: this.teamName,
+      teamSlug: this.teamSlug,
     }
   }
 }

@@ -204,11 +204,11 @@ function makeVcHandler(deps: TestDeps): VcHandler {
 
 function stubDefaultTeamSpace(deps: TestDeps): void {
   deps.teamService.getTeams.resolves({
-    teams: [{displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'teambao1'}],
+    teams: [{displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'teambao1', slug: 'teambao1'}],
     total: 1,
   })
   deps.spaceService.getSpaces.resolves({
-    spaces: [{id: 'sid-1', isDefault: false, name: 'test-space', teamId: 'tid-1', teamName: 'teambao1'}],
+    spaces: [{id: 'sid-1', isDefault: false, name: 'test-space', slug: 'test-space', teamId: 'tid-1', teamName: 'teambao1', teamSlug: 'teambao1'}],
     total: 1,
   })
 }
@@ -1762,11 +1762,11 @@ describe('VcHandler', () => {
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
       deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'Teambao1'}],
+        teams: [{displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'Teambao1', slug: 'teambao1'}],
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'test-git', teamId: 'tid-1', teamName: 'Teambao1'}],
+        spaces: [{id: 'sid-1', isDefault: false, name: 'test-git', slug: 'test-git', teamId: 'tid-1', teamName: 'Teambao1', teamSlug: 'teambao1'}],
         total: 1,
       })
       makeVcHandler(deps).setup()
@@ -1779,7 +1779,7 @@ describe('VcHandler', () => {
       expect(result.teamName).to.equal('Teambao1')
       expect(result.spaceName).to.equal('test-git')
       const cloneArgs = deps.gitService.clone.firstCall.args[0]
-      expect(cloneArgs.url).to.equal('https://byterover.dev/Teambao1/test-git.git')
+      expect(cloneArgs.url).to.equal('https://byterover.dev/teambao1/test-git.git')
     })
 
     it('should clone with user-facing .git URL by resolving team/space names', async () => {
@@ -1787,11 +1787,11 @@ describe('VcHandler', () => {
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
       deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme'}],
+        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme', slug: 'acme'}],
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'project', teamId: 'tid-1', teamName: 'acme'}],
+        spaces: [{id: 'sid-1', isDefault: false, name: 'project', slug: 'project', teamId: 'tid-1', teamName: 'acme', teamSlug: 'acme'}],
         total: 1,
       })
       makeVcHandler(deps).setup()
@@ -1812,11 +1812,11 @@ describe('VcHandler', () => {
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
       deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'Teambao1'}],
+        teams: [{displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'Teambao1', slug: 'teambao1'}],
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'test-git', teamId: 'tid-1', teamName: 'Teambao1'}],
+        spaces: [{id: 'sid-1', isDefault: false, name: 'test-git', slug: 'test-git', teamId: 'tid-1', teamName: 'Teambao1', teamSlug: 'teambao1'}],
         total: 1,
       })
       makeVcHandler(deps).setup()
@@ -1834,11 +1834,11 @@ describe('VcHandler', () => {
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
       deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme'}],
+        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme', slug: 'acme'}],
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'project', teamId: 'tid-1', teamName: 'acme'}],
+        spaces: [{id: 'sid-1', isDefault: false, name: 'project', slug: 'project', teamId: 'tid-1', teamName: 'acme', teamSlug: 'acme'}],
         total: 1,
       })
       makeVcHandler(deps).setup()
@@ -1875,7 +1875,7 @@ describe('VcHandler', () => {
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
       deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme'}],
+        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme', slug: 'acme'}],
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({spaces: [], total: 0})
@@ -1891,6 +1891,53 @@ describe('VcHandler', () => {
           expect(error.message).to.include('missing')
         }
       }
+    })
+
+    it('should match team by slug when name differs from URL segment', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      deps.tokenStore.load.resolves(validToken)
+      deps.teamService.getTeams.resolves({
+        teams: [{displayName: 'Test Release 2.0.0', id: 'tid-1', isActive: true, isDefault: false, name: 'test-release-2.0.0', slug: 'test-release-2-0-0'}],
+        total: 1,
+      })
+      deps.spaceService.getSpaces.resolves({
+        spaces: [{id: 'sid-1', isDefault: false, name: 'normal-space', slug: 'normal-space', teamId: 'tid-1', teamName: 'test-release-2.0.0', teamSlug: 'test-release-2-0-0'}],
+        total: 1,
+      })
+      makeVcHandler(deps).setup()
+
+      const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(deps, VcEvents.CLONE, {
+        url: 'https://byterover.dev/test-release-2-0-0/normal-space.git',
+      })
+
+      expect(result.teamName).to.equal('test-release-2.0.0')
+      expect(result.spaceName).to.equal('normal-space')
+      const cloneArgs = deps.gitService.clone.firstCall.args[0]
+      expect(cloneArgs.url).to.equal('https://byterover.dev/test-release-2-0-0/normal-space.git')
+    })
+
+    it('should match space by slug when name differs from URL segment', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      deps.tokenStore.load.resolves(validToken)
+      deps.teamService.getTeams.resolves({
+        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme', slug: 'acme'}],
+        total: 1,
+      })
+      deps.spaceService.getSpaces.resolves({
+        spaces: [{id: 'sid-1', isDefault: false, name: 'my-space-v2.0', slug: 'my-space-v2-0', teamId: 'tid-1', teamName: 'acme', teamSlug: 'acme'}],
+        total: 1,
+      })
+      makeVcHandler(deps).setup()
+
+      const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(deps, VcEvents.CLONE, {
+        url: 'https://byterover.dev/acme/my-space-v2-0.git',
+      })
+
+      expect(result.spaceName).to.equal('my-space-v2.0')
+      const cloneArgs = deps.gitService.clone.firstCall.args[0]
+      expect(cloneArgs.url).to.equal('https://byterover.dev/acme/my-space-v2-0.git')
     })
 
     it('should throw NotAuthenticatedError when URL clone without auth (name resolution)', async () => {
@@ -2177,11 +2224,11 @@ describe('VcHandler', () => {
       })
       deps.tokenStore.load.resolves(mockToken)
       deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme'}],
+        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme', slug: 'acme'}],
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'project', teamId: 'tid-1', teamName: 'acme'}],
+        spaces: [{id: 'sid-1', isDefault: false, name: 'project', slug: 'project', teamId: 'tid-1', teamName: 'acme', teamSlug: 'acme'}],
         total: 1,
       })
       makeVcHandler(deps).setup()
@@ -2319,11 +2366,11 @@ describe('VcHandler', () => {
       })
       deps.tokenStore.load.resolves(mockToken)
       deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme'}],
+        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme', slug: 'acme'}],
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'project', teamId: 'tid-1', teamName: 'acme'}],
+        spaces: [{id: 'sid-1', isDefault: false, name: 'project', slug: 'project', teamId: 'tid-1', teamName: 'acme', teamSlug: 'acme'}],
         total: 1,
       })
       makeVcHandler(deps).setup()
@@ -2354,11 +2401,11 @@ describe('VcHandler', () => {
       })
       deps.tokenStore.load.resolves(mockToken)
       deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme'}],
+        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme', slug: 'acme'}],
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'project', teamId: 'tid-1', teamName: 'acme'}],
+        spaces: [{id: 'sid-1', isDefault: false, name: 'project', slug: 'project', teamId: 'tid-1', teamName: 'acme', teamSlug: 'acme'}],
         total: 1,
       })
       makeVcHandler(deps).setup()
