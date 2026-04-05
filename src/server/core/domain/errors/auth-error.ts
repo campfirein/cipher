@@ -7,17 +7,3 @@ export class AuthenticationError extends Error {
     this.code = code
   }
 }
-
-export class TokenExpiredError extends Error {
-  public constructor(message = 'Token has expired') {
-    super(message)
-    this.name = 'TokenExpiredError'
-  }
-}
-
-export class InvalidTokenError extends Error {
-  public constructor(message = 'Token is invalid') {
-    super(message)
-    this.name = 'InvalidTokenError'
-  }
-}

@@ -112,7 +112,28 @@ export function serializeTaskError(error: unknown): TaskErrorData {
     }
   }
 
-  // Unknown error type
+  // Unknown error type — extract message if possible, JSON.stringify to avoid "[object Object]"
+  if (error && typeof error === 'object') {
+    if ('message' in error) {
+      const msg = (error as Record<string, unknown>).message
+      if (typeof msg === 'string') {
+        return {
+          message: msg,
+          name: 'Error',
+        }
+      }
+    }
+
+    try {
+      return {
+        message: JSON.stringify(error),
+        name: 'Error',
+      }
+    } catch {
+      // circular reference — fall through
+    }
+  }
+
   return {
     message: String(error),
     name: 'Error',
@@ -132,18 +153,6 @@ export class AgentDisconnectedError extends TaskError {
   public constructor() {
     super('Agent disconnected', TaskErrorCode.AGENT_DISCONNECTED)
     this.name = 'AgentDisconnectedError'
-  }
-}
-
-export class AgentNotInitializedError extends TaskError {
-  public constructor(reason?: string) {
-    super(
-      reason
-        ? `Agent failed to initialize: ${reason}`
-        : "Agent failed to initialize. Run 'brv restart' to force a clean restart.",
-      TaskErrorCode.AGENT_NOT_INITIALIZED,
-    )
-    this.name = 'AgentNotInitializedError'
   }
 }
 

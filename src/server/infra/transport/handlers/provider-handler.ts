@@ -3,6 +3,7 @@ import type {IProviderConfigStore} from '../../../core/interfaces/i-provider-con
 import type {IProviderKeychainStore} from '../../../core/interfaces/i-provider-keychain-store.js'
 import type {IProviderOAuthTokenStore} from '../../../core/interfaces/i-provider-oauth-token-store.js'
 import type {IBrowserLauncher} from '../../../core/interfaces/services/i-browser-launcher.js'
+import type {IAuthStateStore} from '../../../core/interfaces/state/i-auth-state-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 import type {
   PkceParameters,
@@ -59,6 +60,7 @@ type OAuthFlowState = {
 }
 
 export interface ProviderHandlerDeps {
+  authStateStore: IAuthStateStore
   browserLauncher: IBrowserLauncher
   /** Factory for creating callback servers (injectable for testing) */
   createCallbackServer?: (options: {callbackPath?: string; port: number}) => ProviderCallbackServer
@@ -77,6 +79,7 @@ export interface ProviderHandlerDeps {
  * Business logic for provider management — no terminal/UI calls.
  */
 export class ProviderHandler {
+  private readonly authStateStore: IAuthStateStore
   private readonly browserLauncher: IBrowserLauncher
   private readonly createCallbackServer: (options: {callbackPath?: string; port: number}) => ProviderCallbackServer
   private readonly exchangeCodeForTokens: (params: TokenExchangeParams) => Promise<ProviderTokenResponse>
@@ -88,6 +91,7 @@ export class ProviderHandler {
   private readonly transport: ITransportServer
 
   constructor(deps: ProviderHandlerDeps) {
+    this.authStateStore = deps.authStateStore
     this.browserLauncher = deps.browserLauncher
     this.createCallbackServer = deps.createCallbackServer ?? ((options) => new ProviderCallbackServer(options))
     this.exchangeCodeForTokens = deps.exchangeCodeForTokens ?? defaultExchangeCodeForTokens
@@ -123,6 +127,11 @@ export class ProviderHandler {
         this.oauthFlows.delete(providerId)
       }
     }
+  }
+
+  private isByteRoverAuthSatisfied(): boolean {
+    const token = this.authStateStore.getToken()
+    return token !== undefined && token.isValid()
   }
 
   private setupAwaitOAuthCallback(): void {
@@ -227,6 +236,10 @@ export class ProviderHandler {
     this.transport.onRequest<ProviderConnectRequest, ProviderConnectResponse>(ProviderEvents.CONNECT, async (data) => {
       const {apiKey, baseUrl, providerId} = data
 
+      if (providerId === 'byterover' && !this.isByteRoverAuthSatisfied()) {
+        return {error: 'ByteRover Provider requires authentication. Run /login or brv login to sign in', success: false}
+      }
+
       // Store API key if provided (supports optional keys for openai-compatible)
       if (apiKey) {
         await this.providerKeychainStore.setApiKey(providerId, apiKey)
@@ -264,7 +277,8 @@ export class ProviderHandler {
     this.transport.onRequest<void, ProviderGetActiveResponse>(ProviderEvents.GET_ACTIVE, async () => {
       const activeProviderId = await this.providerConfigStore.getActiveProvider()
       const activeModel = await this.providerConfigStore.getActiveModel(activeProviderId)
-      return {activeModel, activeProviderId}
+      const loginRequired = activeProviderId === 'byterover' && !this.isByteRoverAuthSatisfied()
+      return {activeModel, activeProviderId, loginRequired: loginRequired ? true : undefined}
     })
   }
 
@@ -315,6 +329,10 @@ export class ProviderHandler {
     this.transport.onRequest<ProviderSetActiveRequest, ProviderSetActiveResponse>(
       ProviderEvents.SET_ACTIVE,
       async (data) => {
+        if (data.providerId === 'byterover' && !this.isByteRoverAuthSatisfied()) {
+          return {error: 'ByteRover Provider requires authentication. Run /login or brv login to sign in', success: false}
+        }
+
         await this.providerConfigStore.setActiveProvider(data.providerId)
         this.transport.broadcast(TransportDaemonEventNames.PROVIDER_UPDATED, {})
         return {success: true}

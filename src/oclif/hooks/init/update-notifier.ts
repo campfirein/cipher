@@ -1,7 +1,7 @@
 import type {Hook} from '@oclif/core'
 
 import {confirm} from '@inquirer/prompts'
-import {execSync} from 'node:child_process'
+import {execSync, spawn} from 'node:child_process'
 import updateNotifier from 'update-notifier'
 
 /**
@@ -28,6 +28,7 @@ export type UpdateNotifierDeps = {
   isTTY: boolean
   log: (message: string) => void
   notifier: NarrowedUpdateNotifier
+  spawnRestartFn: () => {unref(): void}
 }
 
 /**
@@ -63,7 +64,7 @@ export async function handleUpdateNotification(deps: UpdateNotifierDeps): Promis
 
   const shouldUpdate = await confirmPrompt({
     default: true,
-    message: `Update available: ${current} → ${latest}. Would you like to update now?`,
+    message: `Update available: ${current} → ${latest}. Update now? (active sessions will be restarted)`,
   })
 
   if (shouldUpdate) {
@@ -71,9 +72,16 @@ export async function handleUpdateNotification(deps: UpdateNotifierDeps): Promis
     try {
       execSyncFn('npm update -g byterover-cli', {stdio: 'inherit'})
       log('')
-      log(`✓ Successfully updated to ${latest}`)
+      log(`✓ Updated to ${latest}.`)
       log('')
-      log(`The update will take effect on next launch. Run 'brv' when ready.`)
+      try {
+        const child = deps.spawnRestartFn()
+        child.unref()
+        log('Restarting ByteRover in the background. Please wait a few seconds before running brv again.')
+      } catch {
+        log('Failed to restart ByteRover. Please restart it manually by running `brv restart`.')
+      }
+
       exitFn(0)
     } catch {
       log('⚠️  Automatic update failed. Please run manually: npm update -g byterover-cli')
@@ -94,6 +102,13 @@ const hook: Hook<'init'> = async function (): Promise<void> {
     isTTY: process.stdout.isTTY ?? false,
     log: this.log.bind(this),
     notifier,
+    spawnRestartFn: () =>
+      spawn('brv restart', {
+        detached: true,
+        shell: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      }),
   })
 }
 
