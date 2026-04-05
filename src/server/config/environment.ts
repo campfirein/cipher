@@ -21,7 +21,6 @@ type EnvironmentConfig = {
   authorizationUrl: string
   clientId: string
   cogitApiBaseUrl: string
-  gitApiBaseUrl: string
   gitRemoteBaseUrl: string
   hubRegistryUrl: string
   issuerUrl: string
@@ -57,7 +56,6 @@ export const getCurrentConfig = (): EnvironmentConfig => ({
   authorizationUrl: readRequiredEnv('BRV_AUTHORIZATION_URL'),
   clientId: DEFAULTS.clientId,
   cogitApiBaseUrl: readRequiredEnv('BRV_COGIT_API_BASE_URL'),
-  gitApiBaseUrl: readRequiredEnv('BRV_GIT_API_BASE_URL'),
   gitRemoteBaseUrl: readRequiredEnv('BRV_GIT_REMOTE_BASE_URL'),
   hubRegistryUrl: DEFAULTS.hubRegistryUrl,
   issuerUrl: readRequiredEnv('BRV_ISSUER_URL'),

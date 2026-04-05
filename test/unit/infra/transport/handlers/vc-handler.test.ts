@@ -189,7 +189,6 @@ function makeVcHandler(deps: TestDeps): VcHandler {
   return new VcHandler({
     broadcastToProject: deps.broadcastToProject,
     contextTreeService: deps.contextTreeService,
-    gitApiBaseUrl: 'https://test-cogit.byterover.dev',
     gitRemoteBaseUrl: 'https://byterover.dev',
     gitService: deps.gitService,
     projectConfigStore: deps.projectConfigStore,
@@ -200,6 +199,17 @@ function makeVcHandler(deps: TestDeps): VcHandler {
     transport: deps.transport,
     vcGitConfigStore: deps.vcGitConfigStore,
     webAppUrl: 'https://test-app.byterover.dev',
+  })
+}
+
+function stubDefaultTeamSpace(deps: TestDeps): void {
+  deps.teamService.getTeams.resolves({
+    teams: [{displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'teambao1'}],
+    total: 1,
+  })
+  deps.spaceService.getSpaces.resolves({
+    spaces: [{id: 'sid-1', isDefault: false, name: 'test-space', teamId: 'tid-1', teamName: 'teambao1'}],
+    total: 1,
   })
 }
 
@@ -1710,42 +1720,44 @@ describe('VcHandler', () => {
       userId: 'u1',
     })
 
-    it('should clone with cogit URL and inject credentials when missing', async () => {
+    it('should clone with name-based URL', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
+      stubDefaultTeamSpace(deps)
       makeVcHandler(deps).setup()
 
       const result = await invoke<{gitDir: string}>(deps, VcEvents.CLONE, {
-        url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+        url: 'https://byterover.dev/teambao1/test-space.git',
       })
 
       expect(result.gitDir).to.include('.git')
       expect(deps.gitService.clone.calledOnce).to.be.true
       const cloneArgs = deps.gitService.clone.firstCall.args[0]
       expect(cloneArgs.url).to.equal(
-        'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+        'https://byterover.dev/teambao1/test-space.git',
       )
     })
 
-    it('should clone with full URL that already has credentials', async () => {
+    it('should strip credentials from URL when cloning', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
+      stubDefaultTeamSpace(deps)
       makeVcHandler(deps).setup()
 
       const fullUrl =
-        'https://uid:key@test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
+        'https://uid:key@byterover.dev/teambao1/test-space.git'
       await invoke(deps, VcEvents.CLONE, {url: fullUrl})
 
       // Credentials stripped — clean URL used for clone (auth via headers)
       const cloneArgs = deps.gitService.clone.firstCall.args[0]
       expect(cloneArgs.url).to.equal(
-        'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+        'https://byterover.dev/teambao1/test-space.git',
       )
     })
 
-    it('should clone with names in cogit-style URL by resolving to IDs', async () => {
+    it('should clone with names in URL by resolving team/space names', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
@@ -1760,17 +1772,17 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
 
       const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(deps, VcEvents.CLONE, {
-        url: 'https://test-cogit.byterover.dev/git/Teambao1/test-git.git',
+        url: 'https://byterover.dev/Teambao1/test-git.git',
       })
 
       expect(result.gitDir).to.include('.git')
       expect(result.teamName).to.equal('Teambao1')
       expect(result.spaceName).to.equal('test-git')
       const cloneArgs = deps.gitService.clone.firstCall.args[0]
-      expect(cloneArgs.url).to.equal('https://test-cogit.byterover.dev/git/tid-1/sid-1.git')
+      expect(cloneArgs.url).to.equal('https://byterover.dev/Teambao1/test-git.git')
     })
 
-    it('should clone with user-facing .git URL by resolving team/space names to IDs', async () => {
+    it('should clone with user-facing .git URL by resolving team/space names', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
@@ -1792,7 +1804,7 @@ describe('VcHandler', () => {
       expect(result.teamName).to.equal('acme')
       expect(result.spaceName).to.equal('project')
       const cloneArgs = deps.gitService.clone.firstCall.args[0]
-      expect(cloneArgs.url).to.equal('https://test-cogit.byterover.dev/git/tid-1/sid-1.git')
+      expect(cloneArgs.url).to.equal('https://byterover.dev/acme/project.git')
     })
 
     it('should resolve team name case-insensitively in cogit-style URL', async () => {
@@ -1810,7 +1822,7 @@ describe('VcHandler', () => {
       makeVcHandler(deps).setup()
 
       const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(deps, VcEvents.CLONE, {
-        url: 'https://test-cogit.byterover.dev/git/teambao1/TEST-GIT.git',
+        url: 'https://byterover.dev/teambao1/TEST-GIT.git',
       })
 
       expect(result.teamName).to.equal('Teambao1')
@@ -1889,7 +1901,7 @@ describe('VcHandler', () => {
 
       try {
         await invoke(deps, VcEvents.CLONE, {
-          url: 'https://test-cogit.byterover.dev/git/TeamName/space-name.git',
+          url: 'https://byterover.dev/TeamName/space-name.git',
         })
         expect.fail('Expected error')
       } catch (error) {
@@ -1940,7 +1952,7 @@ describe('VcHandler', () => {
 
       try {
         await invoke(deps, VcEvents.CLONE, {
-          url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+          url: 'https://byterover.dev/teambao1/test-space.git',
         })
         expect.fail('Expected error')
       } catch (error) {
@@ -1956,11 +1968,12 @@ describe('VcHandler', () => {
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.isEmptyRepository.resolves(true)
       deps.tokenStore.load.resolves(validToken)
+      stubDefaultTeamSpace(deps)
       const rmStub = sandbox.stub(fs.promises, 'rm').resolves()
       makeVcHandler(deps).setup()
 
       await invoke(deps, VcEvents.CLONE, {
-        url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+        url: 'https://byterover.dev/teambao1/test-space.git',
       })
 
       expect(rmStub.calledWith(join(deps.contextTreeDirPath, '.git'))).to.be.true
@@ -1971,10 +1984,11 @@ describe('VcHandler', () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
+      stubDefaultTeamSpace(deps)
       makeVcHandler(deps).setup()
 
       await invoke(deps, VcEvents.CLONE, {
-        url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+        url: 'https://byterover.dev/teambao1/test-space.git',
       })
 
       expect(deps.gitService.isEmptyRepository.called).to.be.false
@@ -1984,10 +1998,11 @@ describe('VcHandler', () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
+      stubDefaultTeamSpace(deps)
       makeVcHandler(deps).setup()
 
       await invoke(deps, VcEvents.CLONE, {
-        url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+        url: 'https://byterover.dev/teambao1/test-space.git',
       })
 
       const writeFileStub = fs.promises.writeFile as SinonStub
@@ -2000,12 +2015,13 @@ describe('VcHandler', () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
+      stubDefaultTeamSpace(deps)
       deps.gitService.clone.rejects(new Error('network error'))
       makeVcHandler(deps).setup()
 
       try {
         await invoke(deps, VcEvents.CLONE, {
-          url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+          url: 'https://byterover.dev/teambao1/test-space.git',
         })
         expect.fail('Expected error')
       } catch {
@@ -2018,13 +2034,14 @@ describe('VcHandler', () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
+      stubDefaultTeamSpace(deps)
       const httpError = Object.assign(new Error('HTTP Error: 404 Not Found'), {code: 'HttpError'})
       deps.gitService.clone.rejects(httpError)
       makeVcHandler(deps).setup()
 
       try {
         await invoke(deps, VcEvents.CLONE, {
-          url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+          url: 'https://byterover.dev/teambao1/test-space.git',
         })
         expect.fail('Expected error')
       } catch (error) {
@@ -2040,13 +2057,14 @@ describe('VcHandler', () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
+      stubDefaultTeamSpace(deps)
       const notFoundError = Object.assign(new Error('Could not find repository'), {code: 'NotFoundError'})
       deps.gitService.clone.rejects(notFoundError)
       makeVcHandler(deps).setup()
 
       try {
         await invoke(deps, VcEvents.CLONE, {
-          url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+          url: 'https://byterover.dev/teambao1/test-space.git',
         })
         expect.fail('Expected error')
       } catch (error) {
@@ -2099,19 +2117,20 @@ describe('VcHandler', () => {
         userId: 'u1',
       })
       deps.tokenStore.load.resolves(mockToken)
+      stubDefaultTeamSpace(deps)
       makeVcHandler(deps).setup()
 
       const url =
-        'https://user:token@test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
+        'https://user:token@byterover.dev/teambao1/test-space.git'
       const expectedCleanUrl =
-        'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
+        'https://byterover.dev/teambao1/test-space.git'
       const result = await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'add', url}, CLIENT_ID)
       expect(result).to.deep.equal({action: 'add', url: expectedCleanUrl})
       expect(deps.gitService.addRemote.calledOnce).to.be.true
       expect(deps.gitService.addRemote.firstCall.args[0]).to.include({remote: 'origin', url: expectedCleanUrl})
     })
 
-    it('should inject credentials when adding remote with clean cogit URL', async () => {
+    it('should resolve name-based URL and store clean URL on add', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.getRemoteUrl.resolves()
@@ -2124,10 +2143,11 @@ describe('VcHandler', () => {
         userId: 'u1',
       })
       deps.tokenStore.load.resolves(mockToken)
+      stubDefaultTeamSpace(deps)
       makeVcHandler(deps).setup()
 
       const cleanUrl =
-        'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
+        'https://byterover.dev/teambao1/test-space.git'
       const result = await invoke<{action: string; url: string}>(
         deps,
         VcEvents.REMOTE,
@@ -2175,7 +2195,7 @@ describe('VcHandler', () => {
 
       expect(result.action).to.equal('add')
       const storedUrl = deps.gitService.addRemote.firstCall.args[0].url
-      expect(storedUrl).to.equal('https://test-cogit.byterover.dev/git/tid-1/sid-1.git')
+      expect(storedUrl).to.equal('https://byterover.dev/acme/project.git')
     })
 
     it('should throw NotAuthenticatedError when adding remote without auth (name resolution)', async () => {
@@ -2187,7 +2207,7 @@ describe('VcHandler', () => {
 
       try {
         await deps.requestHandlers[VcEvents.REMOTE](
-          {subcommand: 'add', url: 'https://test-cogit.byterover.dev/git/TeamName/space-name.git'},
+          {subcommand: 'add', url: 'https://byterover.dev/TeamName/space-name.git'},
           CLIENT_ID,
         )
         expect.fail('Expected error')
@@ -2215,7 +2235,7 @@ describe('VcHandler', () => {
         await deps.requestHandlers[VcEvents.REMOTE](
           {
             subcommand: 'add',
-            url: 'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git',
+            url: 'https://byterover.dev/teambao1/test-space.git',
           },
           CLIENT_ID,
         )
@@ -2231,10 +2251,20 @@ describe('VcHandler', () => {
     it('should call removeRemote + addRemote on set-url with clean URL', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
+      const mockToken = new AuthToken({
+        accessToken: 'test-acc',
+        expiresAt: new Date(Date.now() + 3_600_000),
+        refreshToken: 'test-ref',
+        sessionKey: 'sess-123',
+        userEmail: 'test@example.com',
+        userId: 'u1',
+      })
+      deps.tokenStore.load.resolves(mockToken)
+      stubDefaultTeamSpace(deps)
       makeVcHandler(deps).setup()
 
       const url =
-        'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
+        'https://byterover.dev/teambao1/test-space.git'
       const result = await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'set-url', url}, CLIENT_ID)
       expect(result).to.deep.equal({action: 'set-url', url})
       expect(deps.gitService.removeRemote.calledOnce).to.be.true
@@ -2346,18 +2376,6 @@ describe('VcHandler', () => {
       expect(writtenConfig.teamName).to.equal('acme')
     })
 
-    it('should not write config when URL has UUIDs only (no space/team names)', async () => {
-      const deps = makeDeps(sandbox, projectPath)
-      deps.gitService.isInitialized.resolves(true)
-      deps.gitService.getRemoteUrl.resolves()
-      makeVcHandler(deps).setup()
-
-      const url =
-        'https://test-cogit.byterover.dev/git/019b0001-0000-0000-0000-000000000001/019b0002-0000-0000-0000-000000000002.git'
-      await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'add', url}, CLIENT_ID)
-
-      expect(deps.projectConfigStore.write.called).to.be.false
-    })
   })
 
   // ---- handleBranch ----
