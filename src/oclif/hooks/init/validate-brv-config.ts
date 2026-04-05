@@ -17,7 +17,6 @@ import {getProjectDataDir} from '../../../server/utils/path-utils.js'
 export const SKIP_COMMANDS = new Set<string>([
   '--help',
   'help',
-  'init',
   'login',
   'logout',
   'main',
