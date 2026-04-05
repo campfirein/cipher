@@ -80,11 +80,11 @@ export async function createLocalAgent(projectPath: string): Promise<LocalAgentR
     transport: undefined,
   })
 
-  const providerResult = await resolveProviderConfig(
+  const providerResult = await resolveProviderConfig({
     providerConfigStore,
     providerKeychainStore,
     tokenRefreshManager,
-  )
+  })
 
   const {activeModel, activeProvider} = providerResult
   if (!activeProvider) {
