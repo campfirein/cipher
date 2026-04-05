@@ -1,3 +1,4 @@
+/* eslint-disable no-unreachable */
 import {Command, Flags} from '@oclif/core'
 
 import {InitEvents, type InitLocalResponse} from '../../shared/transport/events/init-events.js'
@@ -14,12 +15,16 @@ export default class Init extends Command {
       description: 'Force re-initialization even if already initialized',
     }),
   }
+  public static hidden = true
 
   protected getDaemonOptions(): DaemonClientOptions {
     return {projectPath: process.cwd()}
   }
 
   public async run(): Promise<void> {
+    this.log('The init command is not available. Use: brv vc init')
+    return
+
     const {flags} = await this.parse(Init)
     const daemonOptions = this.getDaemonOptions()
 
