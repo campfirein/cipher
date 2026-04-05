@@ -12,7 +12,7 @@ export default class VcCommit extends Command {
       description: 'Commit message',
     }),
   }
-public static strict = false
+  public static strict = false
 
   public async run(): Promise<void> {
     const {argv, flags} = await this.parse(VcCommit)
