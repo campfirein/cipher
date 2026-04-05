@@ -948,12 +948,12 @@ describe('IsomorphicGitService', () => {
     })
 
     it('addRemote + listRemotes', async () => {
-      await service.addRemote({directory: testDir, remote: 'origin', url: `${COGIT_BASE}/git/team-1/space-1.git`})
+      await service.addRemote({directory: testDir, remote: 'origin', url: `${COGIT_BASE}/team-1/space-1.git`})
       const remotes = await service.listRemotes({directory: testDir})
 
       expect(remotes).to.have.length(1)
       expect(remotes[0].remote).to.equal('origin')
-      expect(remotes[0].url).to.equal(`${COGIT_BASE}/git/team-1/space-1.git`)
+      expect(remotes[0].url).to.equal(`${COGIT_BASE}/team-1/space-1.git`)
     })
 
     it('listRemotes returns empty array when no remotes', async () => {
@@ -962,7 +962,7 @@ describe('IsomorphicGitService', () => {
     })
 
     it('getRemoteUrl returns URL for existing remote', async () => {
-      const url = `${COGIT_BASE}/git/team-1/space-1.git`
+      const url = `${COGIT_BASE}/team-1/space-1.git`
       await service.addRemote({directory: testDir, remote: 'origin', url})
       expect(await service.getRemoteUrl({directory: testDir, remote: 'origin'})).to.equal(url)
     })
@@ -995,7 +995,7 @@ describe('IsomorphicGitService', () => {
 
       await service.init({directory: testDir})
       // Remote is required — onAuth is only invoked when isomorphic-git has a URL to connect to
-      await service.addRemote({directory: testDir, remote: 'origin', url: `${COGIT_BASE}/git/team-1/space-1.git`})
+      await service.addRemote({directory: testDir, remote: 'origin', url: `${COGIT_BASE}/team-1/space-1.git`})
       await writeFile(join(testDir, 'f.md'), 'x')
       await service.add({directory: testDir, filePaths: ['f.md']})
       await service.commit({directory: testDir, message: 'init'})
