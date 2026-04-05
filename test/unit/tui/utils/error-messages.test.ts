@@ -24,7 +24,7 @@ describe('error-messages', () => {
         {code: 'ERR_VC_USER_NOT_CONFIGURED'},
       )
       expect(formatTransportError(err)).to.equal(
-        'Commit author not configured. Run: brv vc config user.name "bao@b.dev" and brv vc config user.email "bao@b.dev".',
+        'Commit author not configured. Run: /vc config user.name "bao@b.dev" and /vc config user.email "bao@b.dev".',
       )
     })
 
@@ -36,15 +36,16 @@ describe('error-messages', () => {
         {code: 'ERR_VC_USER_NOT_CONFIGURED'},
       )
       expect(formatTransportError(err)).to.equal(
-        'Commit author not configured. Run: brv vc config user.name <value> and brv vc config user.email <value>.',
+        'Commit author not configured. Run: /vc config user.name <value> and /vc config user.email <value>.',
       )
     })
 
-    it('falls through to server message for ERR_VC_NO_REMOTE', () => {
+    it('falls through to server message for ERR_VC_NO_REMOTE and rewrites brv to slash commands', () => {
       const serverMessage = 'No remote configured.\n\nTo connect to cloud:\n  1. Go to https://app.byterover.dev\n  2. Copy the remote URL\n  3. Run: brv vc remote add origin <url>\n  4. Then: brv vc push -u origin main'
       const err = Object.assign(new Error(serverMessage), {code: 'ERR_VC_NO_REMOTE'})
       const result = formatTransportError(err)
-      expect(result).to.equal(serverMessage)
+      const expected = 'No remote configured.\n\nTo connect to cloud:\n  1. Go to https://app.byterover.dev\n  2. Copy the remote URL\n  3. Run: /vc remote add origin <url>\n  4. Then: /vc push -u origin main'
+      expect(result).to.equal(expected)
     })
 
     it('returns /vc pull hint for ERR_VC_NON_FAST_FORWARD', () => {
