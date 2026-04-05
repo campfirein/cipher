@@ -1,4 +1,5 @@
 /* eslint-disable camelcase */
+import axios from 'axios'
 import {expect} from 'chai'
 import nock from 'nock'
 import {restore, stub} from 'sinon'
@@ -157,6 +158,16 @@ describe('CopilotModelFetcher', () => {
       const result = await fetcher.validateApiKey('token')
 
       expect(result.isValid).to.be.false
+    })
+
+    it('should return isValid false with error message for non-Axios errors', async () => {
+      stub(axios, 'get').rejects(new TypeError('Cannot read properties of undefined'))
+
+      const fetcher = new CopilotModelFetcher()
+      const result = await fetcher.validateApiKey('token')
+
+      expect(result.isValid).to.be.false
+      expect(result.error).to.equal('Cannot read properties of undefined')
     })
   })
 })

@@ -22,6 +22,7 @@ import {
   createMockTransportServer,
 } from '../../../helpers/mock-factories.js'
 
+// Helper to create a provider config with OAuth
 function oauthConfig(providerId: string): ProviderConfig {
   return ProviderConfig.createDefault().withProviderConnected(providerId, {
     authMethod: 'oauth',

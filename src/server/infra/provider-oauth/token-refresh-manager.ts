@@ -117,6 +117,7 @@ export class TokenRefreshManager implements ITokenRefreshManager {
     const contentType: TokenRequestContentType =
       oauthConfig.tokenContentType === 'form' ? 'application/x-www-form-urlencoded' : 'application/json'
 
+    // 5. Attempt refresh
     try {
       const tokens = await this.exchangeRefreshToken({
         clientId: oauthConfig.clientId,
@@ -125,6 +126,7 @@ export class TokenRefreshManager implements ITokenRefreshManager {
         tokenUrl: oauthConfig.tokenUrl,
       })
 
+      // 6. Success: update keychain + encrypted store
       await this.deps.providerKeychainStore.setApiKey(providerId, tokens.access_token)
 
       const newExpiresAt = tokens.expires_in ? computeExpiresAt(tokens.expires_in) : tokenRecord.expiresAt
@@ -142,6 +144,7 @@ export class TokenRefreshManager implements ITokenRefreshManager {
   }
 
   private async handleRefreshError(providerId: string, error: unknown): Promise<boolean> {
+    // 7. Permanent failure (token revoked, client invalid): disconnect provider, clean up
     if (isPermanentOAuthError(error)) {
       await this.deps.providerConfigStore.disconnectProvider(providerId).catch(() => {})
       await this.deps.providerOAuthTokenStore.delete(providerId).catch(() => {})
@@ -150,6 +153,9 @@ export class TokenRefreshManager implements ITokenRefreshManager {
       return false
     }
 
+    // Transient errors (network timeout, 5xx): keep credentials intact.
+    // Return true so the caller uses the existing access token from the keychain,
+    // which may still be valid until it actually expires.
     processLog(
       `[TokenRefreshManager] Transient refresh error for ${providerId}: ${error instanceof Error ? error.message : String(error)}`,
     )

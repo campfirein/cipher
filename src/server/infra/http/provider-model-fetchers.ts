@@ -546,15 +546,13 @@ export class ChatBasedModelFetcher implements IProviderModelFetcher {
 }
 
 // ============================================================================
-// OpenRouter Model Fetcher (wraps existing client)
-// ============================================================================
-
-import {getOpenRouterApiClient, type NormalizedModel} from './openrouter-api-client.js'
-
-// ============================================================================
 // Copilot Model Fetcher
 // ============================================================================
 
+/**
+ * Model fetcher for GitHub Copilot.
+ * Queries the Copilot API for available models using the session token.
+ */
 export class CopilotModelFetcher implements IProviderModelFetcher {
   private cache: ModelCache | undefined
   private readonly cacheTtlMs: number
@@ -636,6 +634,13 @@ export class CopilotModelFetcher implements IProviderModelFetcher {
 // ============================================================================
 // OpenRouter Model Fetcher (wraps existing client)
 // ============================================================================
+
+import {getOpenRouterApiClient, type NormalizedModel} from './openrouter-api-client.js'
+
+/**
+ * Model fetcher that wraps the existing OpenRouterApiClient.
+ * Adapts NormalizedModel to ProviderModelInfo.
+ */
 export class OpenRouterModelFetcher implements IProviderModelFetcher {
   async fetchModels(apiKey: string, options?: FetchModelsOptions): Promise<ProviderModelInfo[]> {
     const client = getOpenRouterApiClient()

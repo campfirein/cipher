@@ -159,6 +159,8 @@ export default class ProviderConnect extends Command {
         throw new Error(`Provider "${providerId}" does not support OAuth. Use --api-key instead.`)
       }
 
+      // --code is only valid for code-paste providers (e.g., Anthropic).
+      // Browser-callback providers like OpenAI handle the code exchange automatically.
       if (code && provider.oauthCallbackMode !== 'code-paste') {
         throw new Error(
           `Provider "${providerId}" uses browser-based OAuth and does not accept --code.\n` +
@@ -185,6 +187,7 @@ export default class ProviderConnect extends Command {
         throw new Error(startResponse.error ?? 'Failed to start OAuth flow')
       }
 
+      // Always print auth URL (user's machine may not support browser launch)
       if (startResponse.callbackMode === 'device') {
         onProgress?.(`\nOpen this URL and enter the code below:`)
         onProgress?.(`  ${startResponse.verificationUri ?? startResponse.authUrl}`)
@@ -194,6 +197,7 @@ export default class ProviderConnect extends Command {
         onProgress?.(`\nOpen this URL to authenticate:\n  ${startResponse.authUrl}\n`)
       }
 
+      // 3. Handle based on callback mode
       if (startResponse.callbackMode === 'auto' || startResponse.callbackMode === 'device') {
         if (startResponse.callbackMode === 'auto') {
           onProgress?.('Waiting for authentication in browser...')
@@ -211,6 +215,7 @@ export default class ProviderConnect extends Command {
         return {providerName: provider.name, showInstructions: false}
       }
 
+      // code-paste mode: print instructions and exit
       onProgress?.('Copy the authorization code from the browser and run:')
       onProgress?.(`  brv providers connect ${providerId} --oauth --code <code>`)
       return {providerName: provider.name, showInstructions: true}
