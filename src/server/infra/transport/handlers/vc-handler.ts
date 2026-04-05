@@ -458,7 +458,7 @@ export class VcHandler {
       await fs.promises.rm(join(contextTreeDir, '.gitignore'), {force: true}).catch(() => {})
     }
 
-    const {spaceId, spaceName, teamId, teamName, url: cloneUrl} = await this.resolveCloneInput(data)
+    const {spaceId, spaceName, spaceSlug, teamId, teamName, teamSlug, url: cloneUrl} = await this.resolveCloneInput(data)
     const label = teamName && spaceName ? `${teamName}/${spaceName}` : 'repository'
 
     try {
@@ -499,8 +499,10 @@ export class VcHandler {
           id: spaceId,
           isDefault: false,
           name: spaceName,
+          slug: spaceSlug,
           teamId,
           teamName,
+          teamSlug,
         })
         const existing = await this.projectConfigStore.read(projectPath)
         const updated = existing ? existing.withSpace(space) : BrvConfig.partialFromSpace({space})
@@ -992,8 +994,10 @@ export class VcHandler {
         id: resolved.spaceId,
         isDefault: false,
         name: resolved.spaceName,
+        slug: resolved.spaceSlug,
         teamId: resolved.teamId,
         teamName: resolved.teamName,
+        teamSlug: resolved.teamSlug,
       })
       const existing = await this.projectConfigStore.read(projectPath)
       const updated = existing ? existing.withSpace(space) : BrvConfig.partialFromSpace({space})
@@ -1157,8 +1161,10 @@ export class VcHandler {
   private async resolveCloneInput(data: IVcCloneRequest): Promise<{
     spaceId?: string
     spaceName?: string
+    spaceSlug?: string
     teamId?: string
     teamName?: string
+    teamSlug?: string
     url: string
   }> {
     if (data.url) {
@@ -1166,8 +1172,10 @@ export class VcHandler {
       return {
         spaceId: resolved.spaceId ?? data.spaceId,
         spaceName: resolved.spaceName ?? data.spaceName,
+        spaceSlug: resolved.spaceSlug,
         teamId: resolved.teamId ?? data.teamId,
         teamName: resolved.teamName ?? data.teamName,
+        teamSlug: resolved.teamSlug,
         url: resolved.url,
       }
     }
@@ -1195,8 +1203,10 @@ export class VcHandler {
   private async resolveFullCogitUrl(url: string): Promise<{
     spaceId?: string
     spaceName?: string
+    spaceSlug?: string
     teamId?: string
     teamName?: string
+    teamSlug?: string
     url: string
   }> {
     this.validateRemoteUrlDomain(url)
@@ -1298,26 +1308,26 @@ export class VcHandler {
    * Resolve team/space names to IDs via API, build clean cogit URL.
    */
   private async resolveTeamSpaceNames(
-    teamName: string,
-    spaceName: string,
-  ): Promise<{spaceId: string; spaceName: string; teamId: string; teamName: string; url: string}> {
+    teamSlug: string,
+    spaceSlug: string,
+  ): Promise<{spaceId: string; spaceName: string; spaceSlug: string; teamId: string; teamName: string; teamSlug: string; url: string}> {
     const token = await this.tokenStore.load()
     if (!token?.isValid()) throw new NotAuthenticatedError()
 
     const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
-    const team = teams.find((t) => t.name.toLowerCase() === teamName.toLowerCase())
+    const team = teams.find((t) => t.slug.toLowerCase() === teamSlug.toLowerCase())
     if (!team) {
       throw new VcError(
-        `Team "${teamName}" not found. Check the URL and your access permissions.`,
+        `Team "${teamSlug}" not found. Check the URL and your access permissions.`,
         VcErrorCode.INVALID_REMOTE_URL,
       )
     }
 
     const {spaces} = await this.spaceService.getSpaces(token.sessionKey, team.id, {fetchAll: true})
-    const space = spaces.find((s) => s.name.toLowerCase() === spaceName.toLowerCase())
+    const space = spaces.find((s) => s.slug.toLowerCase() === spaceSlug.toLowerCase())
     if (!space) {
       throw new VcError(
-        `Space "${spaceName}" not found in team "${team.name}". Check the URL and your access permissions.`,
+        `Space "${spaceSlug}" not found in team "${team.name}". Check the URL and your access permissions.`,
         VcErrorCode.INVALID_REMOTE_URL,
       )
     }
@@ -1325,9 +1335,11 @@ export class VcHandler {
     return {
       spaceId: space.id,
       spaceName: space.name,
+      spaceSlug: space.slug,
       teamId: space.teamId,
       teamName: team.name,
-      url: buildCogitRemoteUrl(this.gitRemoteBaseUrl, team.name, space.name),
+      teamSlug: team.slug,
+      url: buildCogitRemoteUrl(this.gitRemoteBaseUrl, team.slug, space.slug),
     }
   }
 

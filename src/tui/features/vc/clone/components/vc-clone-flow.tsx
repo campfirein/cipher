@@ -7,6 +7,7 @@ import type {CustomDialogCallbacks} from '../../../../types/commands.js'
 
 import {VcEvents} from '../../../../../shared/transport/events/vc-events.js'
 import {InlineInput} from '../../../../components/inline-prompts/inline-input.js'
+import {useTheme} from '../../../../hooks/index.js'
 import {getWebAppUrl} from '../../../../lib/environment.js'
 import {useTransportStore} from '../../../../stores/transport-store.js'
 import {formatTransportError} from '../../../../utils/error-messages.js'
@@ -33,8 +34,12 @@ function validateRemoteUrl(value: string): boolean | string {
 }
 
 export function VcCloneFlow({onCancel, onComplete, url}: VcCloneFlowProps): React.ReactNode {
+  const {
+    theme: {colors},
+  } = useTheme()
   const [step, setStep] = useState<CloneStep>(url ? 'cloning' : 'entering_url')
   const [cloneUrl, setCloneUrl] = useState<null | string>(url ?? null)
+  const [cloneError, setCloneError] = useState<null | string>(null)
   const [progressMessages, setProgressMessages] = useState<string[]>([])
   const mutatedRef = useRef(false)
 
@@ -64,6 +69,7 @@ export function VcCloneFlow({onCancel, onComplete, url}: VcCloneFlowProps): Reac
           if (url) {
             onComplete(formatTransportError(err))
           } else {
+            setCloneError(formatTransportError(err))
             setStep('entering_url')
           }
         },
@@ -82,6 +88,8 @@ export function VcCloneFlow({onCancel, onComplete, url}: VcCloneFlowProps): Reac
   }, [onComplete, step, cloneUrl, url])
 
   const handleUrlSubmit = useCallback((submittedUrl: string) => {
+    setCloneError(null)
+    setProgressMessages([])
     setCloneUrl(submittedUrl)
     setStep('cloning')
   }, [])
@@ -101,6 +109,7 @@ export function VcCloneFlow({onCancel, onComplete, url}: VcCloneFlowProps): Reac
 
   return (
     <Box flexDirection="column" gap={1}>
+      {cloneError && <Text color={colors.errorText}>{cloneError}</Text>}
       <Box flexDirection="column">
         <Text>To clone a space:</Text>
         <Text>
