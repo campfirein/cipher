@@ -2,8 +2,14 @@
   "name": "byterover-cli",
   "description": "ByteRover's CLI",
   "keywords": [
-    "cli", "ai", "llm", "mcp", "developer-tools",
-    "context-memory", "autonomous-agents", "coding-assistant",
+    "cli",
+    "ai",
+    "llm",
+    "mcp",
+    "developer-tools",
+    "context-memory",
+    "autonomous-agents",
+    "coding-assistant",
     "knowledge-management"
   ],
   "version": "2.6.0",
@@ -54,6 +60,7 @@
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
     "inquirer-file-selector": "^1.0.1",
+    "isomorphic-git": "^1.37.2",
     "js-yaml": "^4.1.1",
     "lodash-es": "^4.17.22",
     "minisearch": "^7.2.0",
@@ -102,7 +109,7 @@
     "expect-type": "^1.2.2",
     "husky": "^9.1.7",
     "lint-staged": "^16.3.1",
-    "mocha": "^10",
+    "mocha": "^7.2.0",
     "nock": "^14.0.10",
     "oclif": "^4",
     "pdfkit": "^0.17.2",
@@ -133,11 +140,11 @@
       "init": [
         "./dist/oclif/hooks/init/block-command-update-npm",
         "./dist/oclif/hooks/init/welcome",
-        "./dist/oclif/hooks/init/update-notifier"
+        "./dist/oclif/hooks/init/update-notifier",
+        "./dist/oclif/hooks/init/validate-brv-config"
       ],
       "command_not_found": "./dist/oclif/hooks/command_not_found/handle-invalid-commands",
       "error": "./dist/oclif/hooks/error/clean-errors",
-      "prerun": "./dist/oclif/hooks/prerun/validate-brv-config-version",
       "postrun": "./dist/oclif/hooks/postrun/restart-after-update"
     },
     "plugins": [
@@ -146,6 +153,9 @@
     ],
     "topicSeparator": " ",
     "topics": {
+      "vc": {
+        "description": "Version control commands for the context tree"
+      },
       "hub": {
         "description": "Browse and manage skills & bundles registry",
         "subtopics": {

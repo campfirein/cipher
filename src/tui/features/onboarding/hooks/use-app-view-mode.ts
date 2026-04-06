@@ -7,14 +7,12 @@
 
 import {useAuthStore} from '../../auth/stores/auth-store.js'
 import {useGetActiveProviderConfig} from '../../provider/api/get-active-provider-config.js'
+import {useGetStatus} from '../../status/api/get-status.js'
 
 /**
- * The valid application view modes as a discriminated union.
+ * Application view modes as a discriminated union.
  */
-export type AppViewMode =
-  | {type: 'config-provider'}
-  | {type: 'loading'}
-  | {type: 'ready'}
+export type AppViewMode = {type: 'config-provider'} | {type: 'init-project'} | {type: 'loading'} | {type: 'ready'}
 
 /**
  * Parameters for the pure view mode derivation function.
@@ -22,6 +20,7 @@ export type AppViewMode =
 export type DeriveAppViewModeParams = {
   activeModel?: string
   activeProviderId?: string
+  contextTreeStatus?: string
   isAuthorized: boolean
   isLoading: boolean
 }
@@ -32,14 +31,19 @@ export type DeriveAppViewModeParams = {
  *
  * Decision tree:
  * 1. Loading → 'loading'
- * 2. ByteRover + unauthenticated → 'config-provider'
- * 3. ByteRover + authenticated → 'ready'
- * 4. Non-byterover + no active model → 'config-provider'
- * 5. Otherwise → 'ready'
+ * 2. Project not initialized → 'init-project'
+ * 3. ByteRover + unauthenticated → 'config-provider'
+ * 4. ByteRover + authenticated → 'ready'
+ * 5. Non-byterover + no active model → 'config-provider'
+ * 6. Otherwise → 'ready'
  */
 export function deriveAppViewMode(params: DeriveAppViewModeParams): AppViewMode {
   if (params.isLoading) {
     return {type: 'loading'}
+  }
+
+  if (['not_initialized', 'unknown'].includes(params.contextTreeStatus || '')) {
+    return {type: 'init-project'}
   }
 
   if (params.activeProviderId === 'byterover' && !params.isAuthorized) {
@@ -63,12 +67,14 @@ export function deriveAppViewMode(params: DeriveAppViewModeParams): AppViewMode 
  */
 export function useAppViewMode(): AppViewMode {
   const {isAuthorized, isLoadingInitial: isLoadingAuth} = useAuthStore()
+  const {data: statusData, isLoading: isLoadingStatus} = useGetStatus()
   const {data: activeData, isLoading: isLoadingActive} = useGetActiveProviderConfig()
 
   return deriveAppViewMode({
     activeModel: activeData?.activeModel,
     activeProviderId: activeData?.activeProviderId,
+    contextTreeStatus: statusData?.status.contextTreeStatus,
     isAuthorized,
-    isLoading: isLoadingAuth || isLoadingActive,
+    isLoading: isLoadingAuth || isLoadingStatus || isLoadingActive,
   })
 }

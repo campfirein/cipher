@@ -10,6 +10,7 @@ import React, {useEffect} from 'react'
 
 import type {CustomDialogCallbacks} from '../../../types/commands.js'
 
+import {formatTransportError} from '../../../utils/error-messages.js'
 import {useGetStatus} from '../api/get-status.js'
 import {formatStatus} from '../utils/format-status.js'
 
@@ -26,7 +27,7 @@ export function StatusView({onComplete, version}: StatusViewProps): React.ReactN
     }
 
     if (error) {
-      onComplete(`Failed to get status: ${error.message}`)
+      onComplete(`Failed to get status: ${formatTransportError(error)}`)
     }
   }, [data, error, onComplete, version])
 

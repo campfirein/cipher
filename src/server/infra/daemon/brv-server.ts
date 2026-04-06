@@ -22,6 +22,7 @@
  */
 
 import {GlobalInstanceManager} from '@campfirein/brv-transport-client'
+import express from 'express'
 import {fork, type StdioOptions} from 'node:child_process'
 import {mkdirSync, readdirSync, readFileSync, unlinkSync} from 'node:fs'
 import {dirname, join} from 'node:path'
@@ -29,17 +30,21 @@ import {fileURLToPath} from 'node:url'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 
+import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
 import {
   AGENT_IDLE_CHECK_INTERVAL_MS,
   AGENT_IDLE_TIMEOUT_MS,
   AGENT_POOL_MAX_SIZE,
+  BRV_DIR,
   HEARTBEAT_FILE,
 } from '../../constants.js'
 import {type ProviderConfigResponse, TransportStateEventNames} from '../../core/domain/transport/schemas.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
+import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
 import {ClientManager} from '../client/client-manager.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
+import {createReviewApiRouter} from '../http/review-api-handler.js'
 import {broadcastToProjectRoom} from '../process/broadcast-utils.js'
 import {CurateLogHandler} from '../process/curate-log-handler.js'
 import {setupFeatureHandlers} from '../process/feature-handlers.js'
@@ -51,7 +56,9 @@ import {clearStaleProviderConfig, resolveProviderConfig} from '../provider/provi
 import {ProjectRouter} from '../routing/project-router.js'
 import {AuthStateStore} from '../state/auth-state-store.js'
 import {ProjectStateLoader} from '../state/project-state-loader.js'
+import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
+import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {SocketIOTransportServer} from '../transport/socket-io-transport-server.js'
@@ -167,8 +174,18 @@ async function main(): Promise<void> {
   let agentPool: AgentPool | undefined
 
   try {
-    // 4. Start Socket.IO transport server
+    // 4. Start Socket.IO transport server (with Express for HTTP routes)
     transportServer = new SocketIOTransportServer()
+
+    const app = express()
+    app.use(
+      createReviewApiRouter({
+        curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
+        reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
+      }),
+    )
+    transportServer.setHttpRequestHandler(app)
+
     await transportServer.start(port)
     log(`Transport server started on port ${port}`)
 
@@ -260,7 +277,22 @@ async function main(): Promise<void> {
     // Start agent idle timeout policy
     agentIdleTimeoutPolicy.start()
 
-    const curateLogHandler = new CurateLogHandler()
+    const curateLogHandler = new CurateLogHandler(undefined, (info) => {
+      const encoded = Buffer.from(info.projectPath).toString('base64url')
+      const reviewUrl = `http://127.0.0.1:${port}/review?project=${encoded}`
+      const payload = {pendingCount: info.pendingCount, reviewUrl, taskId: info.taskId}
+      // Send directly to the task originator (covers CLI clients not in the project room)
+      transportServer!.sendTo(info.clientId, ReviewEvents.NOTIFY, payload)
+      // Also broadcast to the project room so TUI and other connected clients are notified
+      broadcastToProjectRoom(
+        projectRegistry,
+        projectRouter,
+        info.projectPath,
+        ReviewEvents.NOTIFY,
+        payload,
+        info.clientId,
+      )
+    })
 
     const transportHandlers = new TransportHandlers({
       agentPool,

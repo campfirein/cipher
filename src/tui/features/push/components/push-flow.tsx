@@ -41,7 +41,16 @@ export function PushFlow({branch, onComplete, skipConfirm}: PushFlowProps): Reac
     }
 
     if (prepareData && !prepareData.hasChanges) {
-      onComplete('No context changes to push.')
+      if (prepareData.excludedReviewCount > 0) {
+        const fileLabel = prepareData.excludedReviewCount === 1 ? 'file is' : 'files are'
+        onComplete(
+          `No pushable changes. ${prepareData.excludedReviewCount} ${fileLabel} pending review.` +
+            (prepareData.reviewUrl ? `\n  Review: ${prepareData.reviewUrl}` : ''),
+        )
+      } else {
+        onComplete('No context changes to push.')
+      }
+
       return
     }
 
@@ -102,6 +111,12 @@ export function PushFlow({branch, onComplete, skipConfirm}: PushFlowProps): Reac
     return (
       <>
         <Text>{`Changes found: ${prepareData.summary} (${prepareData.fileCount} files)`}</Text>
+        {prepareData.excludedReviewCount > 0 && (
+          <Text color="yellow">
+            {`⚠ ${prepareData.excludedReviewCount} file(s) excluded from push (pending/rejected review).`}
+            {prepareData.reviewUrl ? `\n  Review: ${prepareData.reviewUrl}` : ''}
+          </Text>
+        )}
         <Text>{`\nYou are about to push to ByteRover memory storage:`}</Text>
         <Text>{`  Branch: ${branch}`}</Text>
         <InlineConfirm

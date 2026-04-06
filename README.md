@@ -99,6 +99,26 @@ The REPL auto-configures on first run - no setup needed. Type `/` to discover al
 /query How is authentication implemented?
 ```
 
+## ByteRover Cloud
+
+ByteRover Cloud is a hosted platform for teams to sync, share, and manage context knowledge across projects and machines.
+Everything works locally by default - Cloud adds collaboration and persistence without changing your workflow.
+
+<p>
+<a href="https://app.byterover.dev"><img src="https://img.shields.io/badge/Try%20ByteRover%20Cloud-Free-blue?style=for-the-badge" alt="Try ByteRover Cloud" /></a>
+</p>
+
+Sign in with your ByteRover account via `/login` (TUI) or
+an [API key](https://app.byterover.dev/settings/keys) (`brv login`) to get started.
+
+- 🔄 **Team context sync** — push and pull shared knowledge across teammates
+- 📂 **Shared spaces** — organize context across multiple projects and teams
+- 💻 **Multi-machine access** — sync your context tree across devices with cloud backup
+- 🧠 **Built-in hosted LLM** — start immediately with limited free usage
+- 👥 **Team management** — manage members, spaces, and permissions via the web app
+- 📊 **Usage analytics** — track seat allocation and monthly credit consumption
+- 🔒 **SOC 2 Type II** certified infrastructure with privacy mode
+
 <details>
 <summary><h2>CLI Usage</h2></summary>
 
@@ -222,6 +242,12 @@ ByteRover CLI is built and maintained by the [ByteRover team](https://byterover.
 
 <!-- TODO: ENG-1575 -->
 [![Contributors](https://contrib.rocks/image?repo=campfirein/byterover-cli&max=40&columns=10)](https://github.com/campfirein/byterover-cli/graphs/contributors)
+
+## Star History
+
+<a href="https://star-history.com/#campfirein/byterover-cli&Date">
+  <img width="500" alt="Star History Chart" src="https://api.star-history.com/svg?repos=campfirein/byterover-cli&type=Date&v=2">
+</a>
 
 ## License
 
