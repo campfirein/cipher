@@ -104,10 +104,12 @@ function buildOperation(
     const highlights = usableFacts.map((fact) => `**${fact.subject ?? 'Concept'}**: ${fact.statement}`).join('\n\n')
 
     return {
+      confidence: 'high',
       content: {
         narrative: {highlights},
         rawConcept: {files: [sourcePath]},
       },
+      impact: 'low',
       path: `${domain}/${topic}`,
       reason: `Ingested from ${file.path}`,
       title: fileBaseName,
@@ -122,12 +124,14 @@ function buildOperation(
   }
 
   return {
+    confidence: 'low',
     content: {
       facts: fallbackFacts,
       ...(fallbackHighlights && {narrative: {highlights: fallbackHighlights}}),
       rawConcept: {files: [sourcePath]},
       snippets: [file.content],
     },
+    impact: 'low',
     path: `${domain}/${topic}`,
     reason: `Fallback ingest from ${file.path}`,
     title: fileBaseName,
