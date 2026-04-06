@@ -16,6 +16,13 @@ permissions:
   pull-requests: write
 
 jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "draft: ${{ github.event.pull_request.draft }}"
+          echo "author_association: ${{ github.event.pull_request.author_association }}"
+
   auto-review:
     if: >-
       ${{
