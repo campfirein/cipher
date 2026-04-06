@@ -25,6 +25,9 @@ export const SKIP_COMMANDS = new Set<string>([
   'vc:init',
 ])
 
+export const isVcHelpRequest = (commandId: string | undefined, argv: string[]): boolean =>
+  commandId === 'vc' && (argv.includes('--help') || argv.includes('-h'))
+
 /**
  * Dependencies for the curate-view patch marker, injected for testability.
  * The marker file lives in the XDG/global data dir scoped to the current project,
@@ -113,6 +116,10 @@ export const validateBrvConfigVersion = async (
  * so commands like `init` can safely delegate to sub-commands.
  */
 const hook: Hook<'init'> = async function (options): Promise<void> {
+  if (isVcHelpRequest(options.id, options.argv)) {
+    return
+  }
+
   try {
     await validateBrvConfigVersion(options.id ?? '', new ProjectConfigStore())
   } catch (error) {

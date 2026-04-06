@@ -5,7 +5,7 @@ import {type IVcInitResponse, VcEvents} from '../../../shared/transport/events/v
 import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
 export default class VcInit extends Command {
-  public static description = 'Initialize ByteRover version control'
+  public static description = 'Initialize ByteRover version control for context tree'
   public static examples = ['<%= config.bin %> <%= command.id %>']
 
   public async run(): Promise<void> {
