@@ -18,6 +18,7 @@ type TeamApiResponse = {
   is_active: boolean
   is_default: boolean
   name: string
+  slug?: string
   updated_at: string
 }
 

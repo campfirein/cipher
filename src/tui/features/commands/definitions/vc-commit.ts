@@ -12,7 +12,13 @@ const vcCommitFlags = {
 export const vcCommitSubCommand: SlashCommand = {
   async action(_context, rawArgs) {
     const parsed = await parseReplArgs(rawArgs, {flags: vcCommitFlags, strict: false})
-    const message = parsed.flags.message ?? parsed.argv[0]
+    // Join remaining argv with the flag value to support unquoted multi-word messages
+    // e.g. /vc commit -m hello world → message = "hello world"
+    // e.g. /vc commit hello world    → message = "hello world"
+    const extra = parsed.argv.join(' ')
+    const message = parsed.flags.message
+      ? (extra ? `${parsed.flags.message} ${extra}` : parsed.flags.message)
+      : (extra || undefined)
 
     if (!message) {
       const errorMsg: MessageActionReturn = {

@@ -5,7 +5,6 @@ describe('Environment Configuration', () => {
     BRV_API_BASE_URL: 'https://api.test',
     BRV_AUTHORIZATION_URL: 'https://auth.test/authorize',
     BRV_COGIT_API_BASE_URL: 'https://cogit.test',
-    BRV_GIT_API_BASE_URL: 'https://cogit-git.test',
     BRV_GIT_REMOTE_BASE_URL: 'https://cogit-git.test',
     BRV_ISSUER_URL: 'https://issuer.test',
     BRV_LLM_API_BASE_URL: 'https://llm.test',

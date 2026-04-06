@@ -424,6 +424,7 @@ export class IsomorphicGitService implements IGitService {
     const dir = this.requireDirectory(params)
     const commitOid = await git.resolveRef({dir, fs, ref: params.commit})
     const ancestorOid = await git.resolveRef({dir, fs, ref: params.ancestor})
+    if (commitOid === ancestorOid) return true
     return git.isDescendent({ancestor: ancestorOid, depth: -1, dir, fs, oid: commitOid})
   }
 
