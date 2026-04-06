@@ -17,7 +17,11 @@ permissions:
 
 jobs:
   auto-review:
-    if: ${{ !github.event.pull_request.draft && github.event.pull_request.author_association == 'MEMBER' }}
+    if: >-
+      ${{
+        !github.event.pull_request.draft &&
+        contains(fromJSON('["MEMBER", "OWNER"]'), github.event.pull_request.author_association)
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -35,5 +39,8 @@ jobs:
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
-            
-            Perform code review. Provide detailed feedback using inline comments for specific issues. Apply Conventional Comments.
+
+            Review this PR for correctness, security, and code quality. Use Conventional Comments.
+
+            Always provide inline comments for specific issues.
+            Post a general summary comment with an overall score (0-5, where 0 is poor and 5 is excellent).
