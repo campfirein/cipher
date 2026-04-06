@@ -181,6 +181,55 @@ describe('SessionCompressor', () => {
     expect(deduplicateStub.called).to.equal(false)
   })
 
+  it('parses LLM-extracted drafts wrapped in ```json code fences (query path)', async () => {
+    const fencedJson = '```json\n[{"category":"ENTITIES","content":"auth module","tags":["auth"]}]\n```'
+    const deduplicateStub = stub().callsFake(async (drafts: Array<{category: string; content: string}>) =>
+      drafts.map((memory) => ({action: 'CREATE' as const, memory})),
+    )
+    const deduplicator = {
+      deduplicate: deduplicateStub,
+    } as unknown as MemoryDeduplicator
+    const generator = {
+      estimateTokensSync: () => 0,
+      generateContent: stub().resolves({content: '', finishReason: 'stop'}),
+      async *generateContentStream() {
+        yield {content: fencedJson}
+      },
+    } as unknown as IContentGenerator
+    const created: Memory[] = []
+    const memoryManager = {
+      create: stub().callsFake(async (input: {content: string; metadata?: {category?: string}; tags?: string[]}) => {
+        const memory = {
+          content: input.content,
+          createdAt: Date.now(),
+          id: `memory-${created.length + 1}`,
+          metadata: input.metadata,
+          tags: input.tags,
+          updatedAt: Date.now(),
+        } as Memory
+        created.push(memory)
+        return memory
+      }),
+      list: stub().resolves([]),
+      update: stub().resolves(),
+    } as unknown as MemoryManager
+
+    const queryMessages: InternalMessage[] = [
+      {content: 'How does JWT auth work?', role: 'user'},
+      {content: 'JWT uses access and refresh tokens...', role: 'assistant'},
+      {content: 'What about session rotation?', role: 'user'},
+      {content: 'Session rotation appends :rotated suffix...', role: 'assistant'},
+    ]
+    const compressor = new SessionCompressor(deduplicator, generator, memoryManager)
+    const result = await compressor.compress(queryMessages, 'query', {minMessages: 2})
+
+    expect(result.created).to.equal(1)
+    expect(created).to.have.length(1)
+    expect(created[0].content).to.equal('auth module')
+    expect(created[0].metadata?.category).to.equal('ENTITIES')
+    expect(deduplicateStub.calledOnce).to.equal(true)
+  })
+
   it('keeps user-only short curate sessions below the compression threshold', async () => {
     const deduplicateStub = stub().resolves([])
     const deduplicator = {

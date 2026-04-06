@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {createSandbox} from 'sinon'
+import {createSandbox, stub} from 'sinon'
 
 import type {Memory} from '../../../../src/agent/core/domain/memory/types.js'
 import type {IContentGenerator} from '../../../../src/agent/core/interfaces/i-content-generator.js'
@@ -61,6 +61,52 @@ describe('MemoryDeduplicator', () => {
 
     const [action] = await deduplicator.deduplicate([{category: 'PATTERNS', content: 'New draft'}], existing)
     expect(action.action).to.equal('CREATE')
+  })
+
+  it('parses JSON wrapped in ```json code fences', async () => {
+    const generator = {
+      estimateTokensSync: () => 10,
+      generateContent: stub().rejects(new Error('n/a')),
+      generateContentStream: stub()
+        .callsFake(() => streamJsonResponse('```json\n{"action":"SKIP"}\n```')),
+    } as unknown as IContentGenerator
+
+    const deduplicator = new MemoryDeduplicator(generator)
+    const existing = [{
+      content: 'Existing memory',
+      createdAt: 0,
+      id: 'm1',
+      updatedAt: 0,
+    }] satisfies Memory[]
+
+    const [result] = await deduplicator.deduplicate(
+      [{category: 'PATTERNS', content: 'New draft'}],
+      existing,
+    )
+    expect(result.action).to.equal('SKIP')
+  })
+
+  it('parses JSON wrapped in bare ``` fences without language tag', async () => {
+    const generator = {
+      estimateTokensSync: () => 10,
+      generateContent: stub().rejects(new Error('n/a')),
+      generateContentStream: stub()
+        .callsFake(() => streamJsonResponse('```\n{"action":"MERGE","targetId":"m1","mergedContent":"Combined"}\n```')),
+    } as unknown as IContentGenerator
+
+    const deduplicator = new MemoryDeduplicator(generator)
+    const existing = [{
+      content: 'Existing memory',
+      createdAt: 0,
+      id: 'm1',
+      updatedAt: 0,
+    }] satisfies Memory[]
+
+    const [result] = await deduplicator.deduplicate(
+      [{category: 'PATTERNS', content: 'New draft'}],
+      existing,
+    )
+    expect(result.action).to.equal('MERGE')
   })
 
   it('processes each draft exactly once across concurrent workers', async () => {
