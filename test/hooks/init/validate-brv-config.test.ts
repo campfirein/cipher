@@ -6,39 +6,11 @@ import {stub} from 'sinon'
 import type {PatchMarkerDeps} from '../../../src/oclif/hooks/init/validate-brv-config.js'
 import type {IProjectConfigStore} from '../../../src/server/core/interfaces/storage/i-project-config-store.js'
 
-import {
-  isVcHelpRequest,
-  SKIP_COMMANDS,
-  validateBrvConfigVersion,
-} from '../../../src/oclif/hooks/init/validate-brv-config.js'
+import {SKIP_COMMANDS, validateBrvConfigVersion} from '../../../src/oclif/hooks/init/validate-brv-config.js'
 import {BRV_CONFIG_VERSION} from '../../../src/server/constants.js'
 import {BrvConfig, BrvConfigParams} from '../../../src/server/core/domain/entities/brv-config.js'
 
 describe('validate-brv-config', () => {
-  describe('isVcHelpRequest', () => {
-    it('returns true for brv vc --help', () => {
-      expect(isVcHelpRequest('vc', ['--help'])).to.be.true
-    })
-
-    it('returns true for brv vc -h', () => {
-      expect(isVcHelpRequest('vc', ['-h'])).to.be.true
-    })
-
-    it('returns false for normal vc subcommands', () => {
-      expect(isVcHelpRequest('vc:status', ['--help'])).to.be.false
-      expect(isVcHelpRequest('vc:commit', ['-m', 'msg'])).to.be.false
-    })
-
-    it('returns false for non-vc commands with --help', () => {
-      expect(isVcHelpRequest('connectors', ['--help'])).to.be.false
-      expect(isVcHelpRequest('status', ['--help'])).to.be.false
-    })
-
-    it('returns false when argv has no help flag', () => {
-      expect(isVcHelpRequest('vc', [])).to.be.false
-    })
-  })
-
   describe('validateBrvConfigVersion', () => {
     let existsStub: SinonStub
     let readStub: SinonStub
