@@ -252,7 +252,9 @@ Extract reusable memories from this session.`
         taskId: randomUUID(),
       })
 
+      // Strip markdown code fences — some providers wrap JSON in ```json ... ```
       const jsonText = responseText.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+
       const parsed = JSON.parse(jsonText) as Array<{
         category: string
         content: string
