@@ -1,4 +1,4 @@
-import {issueTokenPair} from './jwt'
+import {issueTokenPair} from './jwt.js'
 
 export interface SessionRecord {
   refreshToken: string

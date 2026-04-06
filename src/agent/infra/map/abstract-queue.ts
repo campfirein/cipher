@@ -56,6 +56,7 @@ export class AbstractGenerationQueue {
   private processing = false
   /** Number of items currently in retry backoff (removed from pending but not yet re-enqueued). */
   private retrying = 0
+  private statusDirCreated = false
   private statusWriteFailed = false
   private statusWritePromise: Promise<void> = Promise.resolve()
 
@@ -240,7 +241,11 @@ export class AbstractGenerationQueue {
   private async writeStatusFile(): Promise<void> {
     const statusPath = join(this.projectRoot, '.brv', '_queue_status.json')
     try {
-      await mkdir(join(this.projectRoot, '.brv'), {recursive: true})
+      if (!this.statusDirCreated) {
+        await mkdir(join(this.projectRoot, '.brv'), {recursive: true})
+        this.statusDirCreated = true
+      }
+
       await writeFile(statusPath, JSON.stringify(this.getStatus()), 'utf8')
       this.statusWriteFailed = false
     } catch (error) {

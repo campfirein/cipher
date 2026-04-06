@@ -205,7 +205,7 @@ export function createIngestResourceTool(config: IngestResourceConfig = {}): Too
 
           if (getDirectoryDepth(relativePath) > params.depth) continue
 
-          const excluded = exclude.some((pattern) => matchesExcludePattern(relativePath, pattern))
+          const excluded = exclude.some((excludePattern) => matchesExcludePattern(relativePath, excludePattern))
           if (!excluded && !seenPaths.has(file.path)) {
             seenPaths.add(file.path)
             rawPaths.push(file.path)
@@ -247,17 +247,11 @@ export function createIngestResourceTool(config: IngestResourceConfig = {}): Too
           'Each fact should be a terse technical statement.',
         taskId: context?.taskId,
       })
-      if (mapResult.results.length !== fileItems.length) {
-        throw new Error(
-          `ingest_resource expected ${fileItems.length} mapped result(s), received ${mapResult.results.length}`,
-        )
-      }
-
-      // Step 4: Convert to CurateOperations
+      // Step 4: Convert to CurateOperations (fail-open: use whichever results are available)
       const operations: CurateOperation[] = []
       let unresolvedCount = 0
       for (const [i, file] of fileItems.entries()) {
-        const operation = buildOperation(domain, normalizedAbsPath, file, mapResult.results[i])
+        const operation = buildOperation(domain, normalizedAbsPath, file, mapResult.results[i] ?? null)
         if (operation) {
           operations.push(operation)
         } else {

@@ -99,7 +99,7 @@ export class SessionCompressor {
     }
 
     // Step 1: Extract draft memories via LLM
-    const useFallbackDraftsFirst = shouldPreferFallbackDrafts(messages, commandType)
+    const useFallbackDraftsFirst = shouldPreferFallbackDrafts(commandType)
     let drafts = useFallbackDraftsFirst ? this.buildFallbackDrafts(digest, commandType) : await this.extractDrafts(digest, commandType)
     let usedFallbackDrafts = useFallbackDraftsFirst && drafts.length > 0
     if (drafts.length === 0) {
@@ -357,10 +357,10 @@ function getMemoryCategory(memory: Memory): string | undefined {
   return typeof category === 'string' ? category : undefined
 }
 
-function shouldPreferFallbackDrafts(messages: InternalMessage[], commandType: string): boolean {
-  if (!commandType.startsWith('curate')) {
-    return false
-  }
-
-  return true
+// Curate sessions always use deterministic fallback drafts instead of LLM extraction.
+// Fallback drafts are faster (no LLM call), cheaper, and produce consistent categorized
+// memories that can be deduped via string matching. LLM extraction is reserved for
+// non-curate sessions (e.g., query) where conversation content is unpredictable.
+function shouldPreferFallbackDrafts(commandType: string): boolean {
+  return commandType.startsWith('curate')
 }
