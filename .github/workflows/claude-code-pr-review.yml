@@ -24,10 +24,13 @@ jobs:
           echo "author_association: ${{ github.event.pull_request.author_association }}"
 
   auto-review:
+    # CONTRIBUTOR: GitHub reports CONTRIBUTOR instead of MEMBER for org members
+    # whose repo access comes from org base permissions rather than team assignment.
+    # TODO: Remove CONTRIBUTOR once all org members are assigned to repo teams.
     if: >-
       ${{
         !github.event.pull_request.draft &&
-        contains(fromJSON('["MEMBER", "OWNER"]'), github.event.pull_request.author_association)
+        contains(fromJSON('["MEMBER", "OWNER", "CONTRIBUTOR"]'), github.event.pull_request.author_association)
       }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
