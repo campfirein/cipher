@@ -199,23 +199,36 @@ export class SessionCompressor {
   }
 
   private deduplicateFallbackDrafts(drafts: DraftMemory[], existing: Memory[]) {
-    const existingEntityKeys = new Set(
-      existing
-        .filter((memory) => getMemoryCategory(memory) === 'ENTITIES')
-        .map((memory) => normalizeMemoryContent(memory.content)),
-    )
+    const dedupCategories = ['ENTITIES', 'PATTERNS', 'SKILLS'] as const
+    const existingKeys = new Map<string, Set<string>>()
+    for (const category of dedupCategories) {
+      existingKeys.set(
+        category,
+        new Set(
+          existing
+            .filter((memory) => getMemoryCategory(memory) === category)
+            .map((memory) => normalizeForFallbackDedup(memory.content, category)),
+        ),
+      )
+    }
 
     return drafts.map((memory) => {
-      if (memory.category !== 'ENTITIES') {
+      // DECISIONS always CREATE — temporal audit records that should accumulate
+      if (memory.category === 'DECISIONS') {
         return {action: 'CREATE', memory} as const
       }
 
-      const entityKey = normalizeMemoryContent(memory.content)
-      if (existingEntityKeys.has(entityKey)) {
+      const categorySet = existingKeys.get(memory.category)
+      if (!categorySet) {
+        return {action: 'CREATE', memory} as const
+      }
+
+      const key = normalizeForFallbackDedup(memory.content, memory.category)
+      if (categorySet.has(key)) {
         return {action: 'SKIP', memory} as const
       }
 
-      existingEntityKeys.add(entityKey)
+      categorySet.add(key)
       return {action: 'CREATE', memory} as const
     })
   }
@@ -239,7 +252,8 @@ Extract reusable memories from this session.`
         taskId: randomUUID(),
       })
 
-      const parsed = JSON.parse(responseText.trim()) as Array<{
+      const jsonText = responseText.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+      const parsed = JSON.parse(jsonText) as Array<{
         category: string
         content: string
         tags?: string[]
@@ -319,6 +333,17 @@ function deriveModuleLabel(sourcePaths: string[]): string {
 
 function normalizeMemoryContent(content: string): string {
   return content.trim().toLowerCase().replaceAll(/\s+/g, ' ')
+}
+
+function normalizeForFallbackDedup(content: string, category: string): string {
+  let normalized = normalizeMemoryContent(content)
+  // PATTERNS and SKILLS are session-fingerprinted ("Session abc123: ...").
+  // Strip the prefix so repeated curate sessions on the same module are detected as duplicates.
+  if (category === 'PATTERNS' || category === 'SKILLS') {
+    normalized = normalized.replace(/^session\s+\S+:\s*/, '')
+  }
+
+  return normalized
 }
 
 function getMemoryCategory(memory: Memory): string | undefined {

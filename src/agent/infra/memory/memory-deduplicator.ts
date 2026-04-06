@@ -101,7 +101,8 @@ Decide: CREATE, MERGE (with targetId and mergedContent), or SKIP.`
         taskId: randomUUID(),
       })
 
-      const parsed = JSON.parse(responseText.trim()) as {
+      const jsonText = responseText.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+      const parsed = JSON.parse(jsonText) as {
         action: 'CREATE' | 'MERGE' | 'SKIP'
         mergedContent?: string
         targetId?: string
