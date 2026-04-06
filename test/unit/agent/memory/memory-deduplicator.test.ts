@@ -39,7 +39,8 @@ describe('MemoryDeduplicator', () => {
 
     await deduplicator.deduplicate([{category: 'PATTERNS', content: 'New draft'}], existing)
 
-    expect(capturedPrompt).to.include('[id:m25] Existing memory 25')
+    expect(capturedPrompt).to.include('"id":"m25"')
+    expect(capturedPrompt).to.include('"content":"Existing memory 25"')
   })
 
   it('rejects MERGE decisions that target a missing memory id', async () => {

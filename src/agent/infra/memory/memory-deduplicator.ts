@@ -79,14 +79,14 @@ export class MemoryDeduplicator {
   }
 
   private async deduplicateSingle(draft: DraftMemory, existing: Memory[]): Promise<DeduplicationAction> {
-    const existingSummary = existing
-      .map((m) => `[id:${m.id}] ${m.content.slice(0, 300)}`)
-      .join('\n---\n')
+    const existingSummary = JSON.stringify(
+      existing.map((m) => ({content: m.content.slice(0, 300), id: m.id})),
+    )
 
     const prompt = `## Draft Memory (category: ${draft.category})
 ${draft.content}
 
-## Existing Memories
+## Existing Memories (JSON)
 ${existingSummary}
 
 Decide: CREATE, MERGE (with targetId and mergedContent), or SKIP.`

@@ -47,6 +47,9 @@ ${content}
 </document>`
 }
 
+/** Truncate content before embedding in LLM prompts to avoid exceeding model context windows during bulk ingest. */
+const MAX_ABSTRACT_CONTENT_CHARS = 20_000
+
 /**
  * Generate L0 abstract and L1 overview for a knowledge file.
  *
@@ -62,17 +65,18 @@ export async function generateFileAbstracts(
   fullContent: string,
   generator: IContentGenerator,
 ): Promise<AbstractGenerateResult> {
+  const truncated = fullContent.slice(0, MAX_ABSTRACT_CONTENT_CHARS)
   const [abstractText, overviewText] = await Promise.all([
     streamToText(generator, {
       config: {maxTokens: 150, temperature: 0},
-      contents: [{content: buildAbstractPrompt(fullContent), role: 'user'}],
+      contents: [{content: buildAbstractPrompt(truncated), role: 'user'}],
       model: 'default',
       systemPrompt: ABSTRACT_SYSTEM_PROMPT,
       taskId: randomUUID(),
     }),
     streamToText(generator, {
       config: {maxTokens: 2000, temperature: 0},
-      contents: [{content: buildOverviewPrompt(fullContent), role: 'user'}],
+      contents: [{content: buildOverviewPrompt(truncated), role: 'user'}],
       model: 'default',
       systemPrompt: OVERVIEW_SYSTEM_PROMPT,
       taskId: randomUUID(),

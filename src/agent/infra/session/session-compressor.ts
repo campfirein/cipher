@@ -281,7 +281,7 @@ Extract reusable memories from this session.`
   private serializeMessages(messages: InternalMessage[]): string {
     const lines: string[] = []
     for (const msg of messages) {
-      const role = msg.role?.toUpperCase() ?? 'UNKNOWN'
+      const role = msg.role.toUpperCase()
       const text = getMessageText(msg)
 
       if (text.trim()) {

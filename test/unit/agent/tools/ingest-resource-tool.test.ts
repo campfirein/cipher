@@ -37,6 +37,8 @@ function makeGenerator(sandbox: SinonSandbox, factsJson = '[]'): IContentGenerat
   return {
     estimateTokensSync: () => 10,
     generateContent: sandbox.stub().resolves({content: factsJson, finishReason: 'stop'}),
+    // Stubbed to reject — safe because executeLlmMapMemory → callLlm uses generateContent (not streaming).
+    // If callLlm is refactored to use streaming, this stub must be updated to return an async iterable.
     generateContentStream: sandbox.stub().rejects(new Error('n/a')),
   } as unknown as IContentGenerator
 }
