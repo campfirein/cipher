@@ -203,5 +203,6 @@ describe('BrvConfig', () => {
       expect(config.teamName).to.equal('my-team')
       expect(config.createdAt).to.be.a('string')
     })
+
   })
 })

@@ -12,11 +12,16 @@ export default class VcCommit extends Command {
       description: 'Commit message',
     }),
   }
+  public static strict = false
 
   public async run(): Promise<void> {
-    const {flags} = await this.parse(VcCommit)
+    const {argv, flags} = await this.parse(VcCommit)
 
-    const {message} = flags
+    // Support unquoted multi-word messages: brv vc commit -m hello world
+    const extra = (argv as string[]).join(' ')
+    const message = flags.message
+      ? (extra ? `${flags.message} ${extra}` : flags.message)
+      : (extra || undefined)
     if (!message) {
       this.error('Usage: brv vc commit -m "<message>"')
     }

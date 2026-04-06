@@ -81,5 +81,6 @@ export function formatTransportError(error: unknown): string {
     return 'Request timed out. Please try again.'
   }
 
-  return error.message.replace(/ for event '[^']+'(?: after \d+ms)?$/, '')
+  // Strip transport suffix and rewrite CLI-style hints (brv vc ...) to TUI slash commands (/vc ...)
+  return error.message.replace(/ for event '[^']+'(?: after \d+ms)?$/, '').replaceAll(/\bbrv\s+/g, '/')
 }

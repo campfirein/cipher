@@ -111,6 +111,7 @@ const createMockTeams = (): Team[] => [
     isActive: true,
     isDefault: true,
     name: 'acme-corp',
+    slug: 'acme-corp',
     updatedAt: new Date(),
   }),
   new Team({
@@ -122,6 +123,7 @@ const createMockTeams = (): Team[] => [
     isActive: true,
     isDefault: false,
     name: 'other-team',
+    slug: 'other-team',
     updatedAt: new Date(),
   }),
 ]

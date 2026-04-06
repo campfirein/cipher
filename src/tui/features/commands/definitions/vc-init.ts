@@ -10,6 +10,6 @@ export const vcInitSubCommand: SlashCommand = {
       render: ({onCancel, onComplete}) => React.createElement(VcInitFlow, {onCancel, onComplete}),
     }
   },
-  description: 'Initialize ByteRover version control',
+  description: 'Initialize ByteRover version control for context tree',
   name: 'init',
 }

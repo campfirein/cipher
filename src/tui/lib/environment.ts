@@ -30,4 +30,4 @@ export const getWebAppUrl = (): string =>
  * Git remote base URL for the current environment.
  */
 export const getGitRemoteBaseUrl = (): string =>
-  process.env.BRV_GIT_REMOTE_BASE_URL ?? (isDevelopment() ? 'https://dev-beta-app.byterover.dev' : 'https://byterover.dev')
+  process.env.BRV_GIT_REMOTE_BASE_URL ?? (isDevelopment() ? 'https://dev-beta.byterover.dev' : 'https://byterover.dev')
