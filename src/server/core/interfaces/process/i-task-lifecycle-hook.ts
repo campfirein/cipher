@@ -13,6 +13,12 @@ import type {TaskInfo} from '../../domain/transport/task-info.js'
 export interface ITaskLifecycleHook {
   /** Called after onTaskCompleted, onTaskError, or onTaskCancelled to release in-memory resources. */
   cleanup?(taskId: string): void
+  /**
+   * Synchronous hook called just before task:completed is emitted.
+   * Returns extra data to merge into the task:completed payload (e.g. {pendingReviewCount: 2}).
+   * Must be synchronous and must not throw.
+   */
+  getTaskCompletionData?(taskId: string): Record<string, unknown>
   /** Called when a task is cancelled by the user. Distinct from onTaskError. */
   onTaskCancelled?(taskId: string, task: TaskInfo): Promise<void>
   /** Called when a task completes successfully. */

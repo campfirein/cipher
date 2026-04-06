@@ -35,7 +35,7 @@ brv query "How is authentication implemented?"
 ```
 
 ### 2. Curate Context
-**Overview**: Analyze and save knowledge to the local knowledge base. Uses a configured LLM provider to categorize and structure the context you provide.
+**Overview:** Analyze and save knowledge to the local knowledge base. Uses a configured LLM provider to categorize and structure the context you provide.
 
 **Use this skill when:**
 - The user wants you to remember something
@@ -79,7 +79,70 @@ brv curate view --since 1h --status completed
 brv curate view --help
 ```
 
-### 3. LLM Provider Setup
+### 3. Review Pending Changes
+**Overview:** After a curate operation, some changes may require human review before being applied. Use `brv review` to list, approve, or reject pending operations.
+
+**Use this when:**
+- A curate operation reports pending reviews (shown in curate output)
+- The user wants to check, approve, or reject pending changes
+
+**Do NOT use this skill when:**
+- There are no pending reviews (check with `brv review pending` first)
+
+**Commands:**
+
+List all pending reviews for the current project:
+```bash
+brv review pending
+```
+
+Sample output:
+```
+2 operations pending review
+
+  Task: ddcb3dc6-d957-4a56-b9c3-d0bdc04317f3
+  [UPSERT · HIGH IMPACT] - path: architecture/context/context_compression_pipeline.md
+  Why:    Documenting switch to token-budget sliding window
+  After:  Context compression pipeline switching from reactive-overflow to token-budget sliding window in src/agent/infra/llm/context/compression/
+
+  [UPSERT · HIGH IMPACT] - path: architecture/tools/agent_tool_registry.md
+  Why:    Documenting tool registry rewrite with capability-based permissions
+  After:  Agent tool registry rewrite in src/agent/infra/tools/tool-registry.ts using capability-based permissions
+
+  To approve all:  brv review approve ddcb3dc6-d957-4a56-b9c3-d0bdc04317f3
+  To reject all:   brv review reject ddcb3dc6-d957-4a56-b9c3-d0bdc04317f3
+  Per file:        brv review <approve|reject> ddcb3dc6-d957-4a56-b9c3-d0bdc04317f3 --file <path> [--file <path>]
+```
+
+Each pending task shows: operation type (ADD/UPDATE/DELETE/MERGE/UPSERT), file path, reason, and before/after summaries. High-impact operations are flagged.
+
+Approve all operations for a task (applies the changes):
+```bash
+brv review approve <taskId>
+```
+
+Reject all operations for a task (discards pending changes; restores backup for UPDATE/DELETE operations):
+```bash
+brv review reject <taskId>
+```
+
+Approve or reject specific files within a task:
+```bash
+brv review approve <taskId> --file <path> --file <path>
+brv review reject <taskId> --file <path>
+```
+File paths are relative to context tree (as shown in `brv review pending` output).
+
+**Note**: Always ask the user before approving or rejecting critical changes.
+
+**JSON output** (useful for agent-driven workflows):
+```bash
+brv review pending --format json
+brv review approve <taskId> --format json
+brv review reject <taskId> --format json
+```
+
+### 4. LLM Provider Setup
 `brv query` and `brv curate` require a configured LLM provider. Connect the default ByteRover provider (no API key needed):
 
 ```bash
@@ -93,7 +156,7 @@ brv providers list
 brv providers connect openai --api-key sk-xxx --model gpt-4.1
 ```
 
-### 4. Project Locations
+### 5. Project Locations
 **Overview:** List registered projects and their context tree paths. Returns project metadata including initialization status and active state. Use `-f json` for machine-readable output.
 
 **Use this when:**
@@ -111,7 +174,7 @@ brv locations -f json
 
 JSON fields: `projectPath`, `contextTreePath`, `isCurrent`, `isActive`, `isInitialized`.
 
-### 5. Cloud Sync (Optional)
+### 6. Cloud Sync (Optional)
 **Overview:** Sync your local knowledge with a team via ByteRover's cloud service. Requires ByteRover authentication.
 
 **Setup steps:**

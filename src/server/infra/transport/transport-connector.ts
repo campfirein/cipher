@@ -14,11 +14,12 @@ export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
  * projectPath is auto-filled by the transport library from the discovered
  * project root (walks up from fromDir to find .brv/).
  */
-export function createDaemonAwareConnector(): TransportConnector {
+export function createDaemonAwareConnector(projectPath?: string): TransportConnector {
   return (fromDir?: string) =>
     connectToDaemon({
       clientType: 'cli',
       fromDir,
+      projectPath,
       serverPath: resolveLocalServerMainPath(),
     })
 }

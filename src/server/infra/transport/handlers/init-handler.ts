@@ -17,6 +17,8 @@ import {
   type InitGetSpacesRequest,
   type InitGetSpacesResponse,
   type InitGetTeamsResponse,
+  type InitLocalRequest,
+  type InitLocalResponse,
 } from '../../../../shared/transport/events/init-events.js'
 import {isConnectorType} from '../../../../shared/types/connector-type.js'
 import {isAgent} from '../../../core/domain/entities/agent.js'
@@ -24,8 +26,14 @@ import {BrvConfig} from '../../../core/domain/entities/brv-config.js'
 import {NotAuthenticatedError, SpaceNotFoundError} from '../../../core/domain/errors/task-error.js'
 import {syncConfigToXdg} from '../../../utils/config-xdg-sync.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
+import {ensureProjectInitialized} from '../../config/auto-init.js'
 import {mapAgentsToDTOs} from './agent-dto-mapper.js'
-import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
+import {
+  guardAgainstGitVc,
+  type ProjectBroadcaster,
+  type ProjectPathResolver,
+  resolveRequiredProjectPath,
+} from './handler-types.js'
 
 export interface InitHandlerDeps {
   broadcastToProject: ProjectBroadcaster
@@ -88,10 +96,15 @@ export class InitHandler {
     this.transport.onRequest<InitExecuteRequest, InitExecuteResponse>(InitEvents.EXECUTE, (data, clientId) =>
       this.handleExecute(data, clientId),
     )
+
+    this.transport.onRequest<InitLocalRequest, InitLocalResponse>(InitEvents.LOCAL, (data, clientId) =>
+      this.handleLocalInit(data, clientId),
+    )
   }
 
   private async handleExecute(data: InitExecuteRequest, clientId: string): Promise<InitExecuteResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    await guardAgainstGitVc({contextTreeService: this.contextTreeService, projectPath})
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
@@ -219,4 +232,19 @@ export class InitHandler {
     }
   }
 
+  private async handleLocalInit(data: InitLocalRequest, clientId: string): Promise<InitLocalResponse> {
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+
+    const exists = await this.projectConfigStore.exists(projectPath)
+    if (exists && !data.force) {
+      return {alreadyInitialized: true, success: true}
+    }
+
+    await ensureProjectInitialized(
+      {contextTreeService: this.contextTreeService, projectConfigStore: this.projectConfigStore},
+      projectPath,
+    )
+
+    return {alreadyInitialized: false, success: true}
+  }
 }

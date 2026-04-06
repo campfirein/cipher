@@ -4,7 +4,6 @@ import {expect} from 'chai'
 import {stub} from 'sinon'
 
 import type {IContextTreeService} from '../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
-import type {IContextTreeSnapshotService} from '../../../src/server/core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {IProjectConfigStore} from '../../../src/server/core/interfaces/storage/i-project-config-store.js'
 
 import {ensureProjectInitialized} from '../../../src/server/infra/config/auto-init.js'
@@ -13,16 +12,13 @@ describe('ensureProjectInitialized', () => {
   let existsStub: SinonStub
   let writeStub: SinonStub
   let initializeStub: SinonStub
-  let initEmptySnapshotStub: SinonStub
   let mockConfigStore: IProjectConfigStore
   let mockContextTreeService: IContextTreeService
-  let mockContextTreeSnapshotService: IContextTreeSnapshotService
 
   beforeEach(() => {
     existsStub = stub()
     writeStub = stub().resolves()
     initializeStub = stub().resolves()
-    initEmptySnapshotStub = stub().resolves()
 
     mockConfigStore = {
       exists: existsStub,
@@ -34,17 +30,9 @@ describe('ensureProjectInitialized', () => {
     mockContextTreeService = {
       delete: stub().resolves(),
       exists: stub().resolves(false),
+      hasGitRepo: stub().resolves(false),
       initialize: initializeStub,
-    }
-
-    mockContextTreeSnapshotService = {
-      getChanges: stub().resolves({added: [], deleted: [], modified: []}),
-      getCurrentState: stub().resolves(new Map()),
-      getSnapshotState: stub().resolves(new Map()),
-      hasSnapshot: stub().resolves(false),
-      initEmptySnapshot: initEmptySnapshotStub,
-      saveSnapshot: stub().resolves(),
-      saveSnapshotFromState: stub().resolves(),
+      resolvePath: stub().returns(''),
     }
   })
 
@@ -53,27 +41,23 @@ describe('ensureProjectInitialized', () => {
 
     await ensureProjectInitialized({
       contextTreeService: mockContextTreeService,
-      contextTreeSnapshotService: mockContextTreeSnapshotService,
       projectConfigStore: mockConfigStore,
     })
 
     expect(writeStub.called).to.be.false
     expect(initializeStub.called).to.be.false
-    expect(initEmptySnapshotStub.called).to.be.false
   })
 
-  it('should create config, context tree, and snapshot when project does not exist', async () => {
+  it('should create config and context tree when project does not exist', async () => {
     existsStub.resolves(false)
 
     await ensureProjectInitialized({
       contextTreeService: mockContextTreeService,
-      contextTreeSnapshotService: mockContextTreeSnapshotService,
       projectConfigStore: mockConfigStore,
     })
 
     expect(writeStub.calledOnce).to.be.true
     expect(initializeStub.calledOnce).to.be.true
-    expect(initEmptySnapshotStub.calledOnce).to.be.true
 
     // Verify the config written is a local-only BrvConfig
     const writtenConfig = writeStub.firstCall.args[0]
@@ -90,7 +74,6 @@ describe('ensureProjectInitialized', () => {
     await ensureProjectInitialized(
       {
         contextTreeService: mockContextTreeService,
-        contextTreeSnapshotService: mockContextTreeSnapshotService,
         projectConfigStore: mockConfigStore,
       },
       '/custom/dir',
@@ -99,6 +82,5 @@ describe('ensureProjectInitialized', () => {
     expect(existsStub.firstCall.args[0]).to.equal('/custom/dir')
     expect(writeStub.firstCall.args[1]).to.equal('/custom/dir')
     expect(initializeStub.firstCall.args[0]).to.equal('/custom/dir')
-    expect(initEmptySnapshotStub.firstCall.args[0]).to.equal('/custom/dir')
   })
 })

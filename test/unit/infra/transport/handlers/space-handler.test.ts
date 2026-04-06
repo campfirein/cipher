@@ -5,6 +5,7 @@ import {restore, stub} from 'sinon'
 
 import type {ITokenStore} from '../../../../../src/server/core/interfaces/auth/i-token-store.js'
 import type {IContextTreeMerger} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-merger.js'
+import type {IContextTreeService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {IContextTreeWriterService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-writer-service.js'
 import type {ICogitPullService} from '../../../../../src/server/core/interfaces/services/i-cogit-pull-service.js'
@@ -23,6 +24,7 @@ import {CogitSnapshot} from '../../../../../src/server/core/domain/entities/cogi
 import {Space} from '../../../../../src/server/core/domain/entities/space.js'
 import {Team} from '../../../../../src/server/core/domain/entities/team.js'
 import {
+  GitVcInitializedError,
   LocalChangesExistError,
   NotAuthenticatedError,
   ProjectNotInitError,
@@ -147,6 +149,7 @@ describe('SpaceHandler', () => {
   let broadcastToProject: ReturnType<typeof stub>
   let cogitPullService: SinonStubbedInstance<ICogitPullService>
   let contextTreeMerger: SinonStubbedInstance<IContextTreeMerger>
+  let contextTreeService: {hasGitRepo: ReturnType<typeof stub>}
   let contextTreeSnapshotService: SinonStubbedInstance<IContextTreeSnapshotService>
   let contextTreeWriterService: SinonStubbedInstance<IContextTreeWriterService>
   let projectConfigStore: SinonStubbedInstance<IProjectConfigStore>
@@ -171,6 +174,10 @@ describe('SpaceHandler', () => {
         edited: [],
         restoredFromRemote: [],
       }),
+    }
+
+    contextTreeService = {
+      hasGitRepo: stub().resolves(false),
     }
 
     contextTreeSnapshotService = {
@@ -221,6 +228,7 @@ describe('SpaceHandler', () => {
       broadcastToProject,
       cogitPullService,
       contextTreeMerger,
+      contextTreeService: contextTreeService as unknown as IContextTreeService,
       contextTreeSnapshotService,
       contextTreeWriterService,
       projectConfigStore,
@@ -943,6 +951,44 @@ describe('SpaceHandler', () => {
 
       expect(result.success).to.be.true
       expect(contextTreeSnapshotService.getChanges.called).to.be.false
+    })
+  })
+
+  describe('git vc guard', () => {
+    it('should allow list when git vc is active', async () => {
+      contextTreeService.hasGitRepo.resolves(true)
+      tokenStore.load.resolves(createMockToken())
+      projectConfigStore.read.resolves(createMockConfig())
+      teamService.getTeams.resolves({teams: createMockTeams(), total: 2})
+      spaceService.getSpaces.resolves({spaces: createMockSpaces(), total: 2})
+      createHandler()
+
+      const result = await callListHandler()
+      expect(result.teams).to.exist
+    })
+
+    it('should throw GitVcInitializedError on switch when .git exists', async () => {
+      contextTreeService.hasGitRepo.resolves(true)
+      createHandler()
+
+      try {
+        await callSwitchHandler({spaceId: 'space-2'})
+        expect.fail('should have thrown')
+      } catch (error) {
+        expect(error).to.be.instanceOf(GitVcInitializedError)
+      }
+    })
+
+    it('should proceed normally on list when .git does not exist', async () => {
+      contextTreeService.hasGitRepo.resolves(false)
+      tokenStore.load.resolves(createMockToken())
+      projectConfigStore.read.resolves(createMockConfig())
+      teamService.getTeams.resolves({teams: createMockTeams(), total: 2})
+      spaceService.getSpaces.resolves({spaces: createMockSpaces(), total: 2})
+      createHandler()
+
+      const result = await callListHandler()
+      expect(result.teams).to.exist
     })
   })
 })
