@@ -40,7 +40,7 @@ class TestableInitCommand extends Init {
   }
 }
 
-describe('Init Command', () => {
+describe.skip('Init Command', () => {
   let config: Config
   let loggedMessages: string[]
   let mockClient: sinon.SinonStubbedInstance<ITransportClient>

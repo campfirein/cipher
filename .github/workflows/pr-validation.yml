@@ -3,10 +3,9 @@ name: PR Validation
 on:
   pull_request:
     branches:
-      - 'proj/**'
-      - develop
-      - 'release/**'
       - main
+      - 'release/**'
+      - 'proj/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}

@@ -52,7 +52,7 @@ import {GitAuthError, GitError} from '../../../core/domain/errors/git-error.js'
 import {NotAuthenticatedError} from '../../../core/domain/errors/task-error.js'
 import {VcError} from '../../../core/domain/errors/vc-error.js'
 import {ensureGitignoreEntries} from '../../../utils/gitignore.js'
-import {buildCogitRemoteUrl, isValidBranchName, parseGitPathUrl, parseUserFacingUrl} from '../../git/cogit-url.js'
+import {buildCogitRemoteUrl, isValidBranchName, parseUserFacingUrl} from '../../git/cogit-url.js'
 import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 /**
@@ -85,7 +85,6 @@ const FIELD_MAP: Record<string, 'email' | 'name'> = {
 export interface IVcHandlerDeps {
   broadcastToProject: ProjectBroadcaster
   contextTreeService: IContextTreeService
-  gitApiBaseUrl: string
   gitRemoteBaseUrl: string
   gitService: IGitService
   projectConfigStore: IProjectConfigStore
@@ -104,7 +103,6 @@ export interface IVcHandlerDeps {
 export class VcHandler {
   private readonly broadcastToProject: ProjectBroadcaster
   private readonly contextTreeService: IContextTreeService
-  private readonly gitApiBaseUrl: string
   private readonly gitRemoteBaseUrl: string
   private readonly gitService: IGitService
   private readonly projectConfigStore: IProjectConfigStore
@@ -118,7 +116,6 @@ export class VcHandler {
 
   constructor(deps: IVcHandlerDeps) {
     this.broadcastToProject = deps.broadcastToProject
-    this.gitApiBaseUrl = deps.gitApiBaseUrl
     this.gitRemoteBaseUrl = deps.gitRemoteBaseUrl
     this.contextTreeService = deps.contextTreeService
     this.gitService = deps.gitService
@@ -461,7 +458,7 @@ export class VcHandler {
       await fs.promises.rm(join(contextTreeDir, '.gitignore'), {force: true}).catch(() => {})
     }
 
-    const {spaceId, spaceName, teamId, teamName, url: cloneUrl} = await this.resolveCloneInput(data)
+    const {spaceId, spaceName, spaceSlug, teamId, teamName, teamSlug, url: cloneUrl} = await this.resolveCloneInput(data)
     const label = teamName && spaceName ? `${teamName}/${spaceName}` : 'repository'
 
     try {
@@ -502,8 +499,10 @@ export class VcHandler {
           id: spaceId,
           isDefault: false,
           name: spaceName,
+          slug: spaceSlug,
           teamId,
           teamName,
+          teamSlug,
         })
         const existing = await this.projectConfigStore.read(projectPath)
         const updated = existing ? existing.withSpace(space) : BrvConfig.partialFromSpace({space})
@@ -981,15 +980,31 @@ export class VcHandler {
 
     if (data.subcommand === 'add') {
       await this.gitService.addRemote({directory, remote: 'origin', url: resolved.url})
-      return {action: 'add', url: resolved.url}
+    } else {
+      // set-url
+      await this.gitService.removeRemote({directory, remote: 'origin'}).catch(() => {
+        // ignore if remote doesn't exist
+      })
+      await this.gitService.addRemote({directory, remote: 'origin', url: resolved.url})
     }
 
-    // set-url
-    await this.gitService.removeRemote({directory, remote: 'origin'}).catch(() => {
-      // ignore if remote doesn't exist
-    })
-    await this.gitService.addRemote({directory, remote: 'origin', url: resolved.url})
-    return {action: 'set-url', url: resolved.url}
+    // Persist space/team to config (same pattern as handleClone)
+    if (resolved.spaceId && resolved.spaceName && resolved.teamId && resolved.teamName) {
+      const space = new Space({
+        id: resolved.spaceId,
+        isDefault: false,
+        name: resolved.spaceName,
+        slug: resolved.spaceSlug,
+        teamId: resolved.teamId,
+        teamName: resolved.teamName,
+        teamSlug: resolved.teamSlug,
+      })
+      const existing = await this.projectConfigStore.read(projectPath)
+      const updated = existing ? existing.withSpace(space) : BrvConfig.partialFromSpace({space})
+      await this.projectConfigStore.write(updated, projectPath)
+    }
+
+    return {action: data.subcommand === 'add' ? 'add' : 'set-url', url: resolved.url}
   }
 
   private async handleReset(data: IVcResetRequest, clientId: string): Promise<IVcResetResponse> {
@@ -1140,14 +1155,16 @@ export class VcHandler {
 
   /**
    * Resolve clone request data into a clean cogit URL + team/space info.
-   * Accepts either a URL (any format) or explicit teamId/spaceId.
+   * Accepts either a URL or explicit teamName/spaceName.
    * Auth is handled by IsomorphicGitService via headers, not URL credentials.
    */
   private async resolveCloneInput(data: IVcCloneRequest): Promise<{
     spaceId?: string
     spaceName?: string
+    spaceSlug?: string
     teamId?: string
     teamName?: string
+    teamSlug?: string
     url: string
   }> {
     if (data.url) {
@@ -1155,19 +1172,21 @@ export class VcHandler {
       return {
         spaceId: resolved.spaceId ?? data.spaceId,
         spaceName: resolved.spaceName ?? data.spaceName,
+        spaceSlug: resolved.spaceSlug,
         teamId: resolved.teamId ?? data.teamId,
         teamName: resolved.teamName ?? data.teamName,
+        teamSlug: resolved.teamSlug,
         url: resolved.url,
       }
     }
 
-    if (data.teamId && data.spaceId) {
+    if (data.teamName && data.spaceName) {
       return {
         spaceId: data.spaceId,
         spaceName: data.spaceName,
         teamId: data.teamId,
         teamName: data.teamName,
-        url: buildCogitRemoteUrl(this.gitApiBaseUrl, data.teamId, data.spaceId),
+        url: buildCogitRemoteUrl(this.gitRemoteBaseUrl, data.teamName, data.spaceName),
       }
     }
 
@@ -1175,45 +1194,28 @@ export class VcHandler {
   }
 
   /**
-   * Resolve any URL format to a clean cogit URL + team/space info.
-   * Supports:
-   * 1. Cogit URL with UUIDs (/git/{uuid}/{uuid}.git) → strip credentials, return clean
-   * 2. Cogit URL with names (/git/{name}/{name}.git) → resolve names to IDs
-   * 3. User-facing .git URL (/{name}/{name}.git) → resolve names to IDs
-   * 4. Unknown format → reject (no credential leaking to arbitrary URLs)
+   * Resolve a remote URL to a clean cogit URL + team/space info.
+   * Expected format: {domain}/{teamName}/{spaceName}.git
+   * Resolves names to IDs via API; rejects unknown formats.
    *
    * Auth is handled by IsomorphicGitService via headers, not URL credentials.
    */
   private async resolveFullCogitUrl(url: string): Promise<{
     spaceId?: string
     spaceName?: string
+    spaceSlug?: string
     teamId?: string
     teamName?: string
+    teamSlug?: string
     url: string
   }> {
-    // Validate the URL domain against known hosts
     this.validateRemoteUrlDomain(url)
 
-    // /git/{segment1}/{segment2}.git
-    const gitPath = parseGitPathUrl(url)
-    if (gitPath) {
-      if (gitPath.areUuids) {
-        // UUIDs — build clean URL (strip any credentials that may be in the URL)
-        const cleanUrl = buildCogitRemoteUrl(this.gitApiBaseUrl, gitPath.segment1, gitPath.segment2)
-        return {spaceId: gitPath.segment2, teamId: gitPath.segment1, url: cleanUrl}
-      }
-
-      // Names — resolve to IDs via API
-      return this.resolveTeamSpaceNames(gitPath.segment1, gitPath.segment2)
+    const parsed = parseUserFacingUrl(url)
+    if (parsed) {
+      return this.resolveTeamSpaceNames(parsed.teamName, parsed.spaceName)
     }
 
-    // User-facing .git URL (/{teamName}/{spaceName}.git, no /git/ prefix)
-    const userFacingParts = parseUserFacingUrl(url)
-    if (userFacingParts) {
-      return this.resolveTeamSpaceNames(userFacingParts.teamName, userFacingParts.spaceName)
-    }
-
-    // Unknown format — reject to prevent credential leaking to arbitrary URLs
     throw new VcError(
       `Invalid URL format. Use: ${this.gitRemoteBaseUrl}/<team>/<space>.git`,
       VcErrorCode.INVALID_REMOTE_URL,
@@ -1306,26 +1308,26 @@ export class VcHandler {
    * Resolve team/space names to IDs via API, build clean cogit URL.
    */
   private async resolveTeamSpaceNames(
-    teamName: string,
-    spaceName: string,
-  ): Promise<{spaceId: string; spaceName: string; teamId: string; teamName: string; url: string}> {
+    teamSlug: string,
+    spaceSlug: string,
+  ): Promise<{spaceId: string; spaceName: string; spaceSlug: string; teamId: string; teamName: string; teamSlug: string; url: string}> {
     const token = await this.tokenStore.load()
     if (!token?.isValid()) throw new NotAuthenticatedError()
 
     const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
-    const team = teams.find((t) => t.name.toLowerCase() === teamName.toLowerCase())
+    const team = teams.find((t) => t.slug.toLowerCase() === teamSlug.toLowerCase())
     if (!team) {
       throw new VcError(
-        `Team "${teamName}" not found. Check the URL and your access permissions.`,
+        `Team "${teamSlug}" not found. Check the URL and your access permissions.`,
         VcErrorCode.INVALID_REMOTE_URL,
       )
     }
 
     const {spaces} = await this.spaceService.getSpaces(token.sessionKey, team.id, {fetchAll: true})
-    const space = spaces.find((s) => s.name.toLowerCase() === spaceName.toLowerCase())
+    const space = spaces.find((s) => s.slug.toLowerCase() === spaceSlug.toLowerCase())
     if (!space) {
       throw new VcError(
-        `Space "${spaceName}" not found in team "${team.name}". Check the URL and your access permissions.`,
+        `Space "${spaceSlug}" not found in team "${team.name}". Check the URL and your access permissions.`,
         VcErrorCode.INVALID_REMOTE_URL,
       )
     }
@@ -1333,9 +1335,11 @@ export class VcHandler {
     return {
       spaceId: space.id,
       spaceName: space.name,
+      spaceSlug: space.slug,
       teamId: space.teamId,
       teamName: team.name,
-      url: buildCogitRemoteUrl(this.gitApiBaseUrl, space.teamId, space.id),
+      teamSlug: team.slug,
+      url: buildCogitRemoteUrl(this.gitRemoteBaseUrl, team.slug, space.slug),
     }
   }
 
@@ -1352,7 +1356,7 @@ export class VcHandler {
   private validateRemoteUrlDomain(url: string): void {
     try {
       const parsed = new URL(url)
-      const allowedHosts = [this.gitRemoteBaseUrl, this.gitApiBaseUrl, this.webAppUrl].map((u) => new URL(u).host)
+      const allowedHosts = [this.gitRemoteBaseUrl].map((u) => new URL(u).host)
       if (!allowedHosts.includes(parsed.host)) {
         throw new VcError(
           `Invalid remote URL. Use: ${this.gitRemoteBaseUrl}/<team>/<space>.git`,

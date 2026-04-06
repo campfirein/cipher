@@ -279,7 +279,6 @@ export async function setupFeatureHandlers({
   new VcHandler({
     broadcastToProject,
     contextTreeService,
-    gitApiBaseUrl: envConfig.gitApiBaseUrl,
     gitRemoteBaseUrl: envConfig.gitRemoteBaseUrl,
     gitService,
     projectConfigStore,
