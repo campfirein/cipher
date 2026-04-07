@@ -290,8 +290,11 @@ describe('Status Command', () => {
 
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('Context Tree: Managed by Byterover version control (use brv vc commands)'))).to
-        .be.true
+      expect(
+        loggedMessages.some((m) =>
+          m.includes('Context Tree: Managed by Byterover version control (use brv vc commands)'),
+        ),
+      ).to.be.true
     })
 
     it('should display all change types sorted by path', async () => {
@@ -318,6 +321,55 @@ describe('Status Command', () => {
       expect(changeMessages[0]).to.include('a-deleted')
       expect(changeMessages[1]).to.include('m-modified')
       expect(changeMessages[2]).to.include('z-new')
+    })
+  })
+
+  // ==================== VC Hint ====================
+
+  describe('vc hint', () => {
+    it('should display vc hint after text output', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'no_changes',
+        currentDirectory: '/test',
+        userEmail: 'user@example.com',
+      })
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Version control is now available'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('https://docs.byterover.dev/git-semantic/overview'))).to.be.true
+    })
+
+    it('should display vc hint after error output', async () => {
+      mockConnector.rejects(new Error('Connection failed'))
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Version control is now available'))).to.be.true
+    })
+
+    it('should not display vc hint for json format', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'no_changes',
+        currentDirectory: '/test',
+        userEmail: 'user@example.com',
+      })
+
+      let captured = ''
+      const writeStub = stub(process.stdout, 'write').callsFake((chunk) => {
+        captured += chunk
+        return true
+      })
+
+      try {
+        await new TestableStatusCommand(mockConnector, config, ['--format', 'json']).run()
+      } finally {
+        writeStub.restore()
+      }
+
+      expect(captured).to.not.include('Version control')
     })
   })
 

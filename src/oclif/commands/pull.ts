@@ -48,6 +48,7 @@ Downloads the context tree from the ByteRover cloud to your local project.`
           writeJsonResponse({command: 'pull', data: {error: pullResult.summary}, success: false})
         } else {
           this.log(pullResult.summary)
+          this.logVcHint()
         }
 
         return
@@ -62,6 +63,7 @@ Downloads the context tree from the ByteRover cloud to your local project.`
         this.log(`  Branch: ${branch}`)
         this.log(`  Commit: ${result.commitSha.slice(0, 7)}`)
         this.log(`  Added: ${result.added}, Edited: ${result.edited}, Deleted: ${result.deleted}`)
+        this.logVcHint()
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Pull failed'
@@ -70,6 +72,7 @@ Downloads the context tree from the ByteRover cloud to your local project.`
         writeJsonResponse({command: 'pull', data: {error: errorMessage}, success: false})
       } else {
         this.log(formatConnectionError(error))
+        this.logVcHint()
       }
     }
   }
@@ -85,5 +88,10 @@ Downloads the context tree from the ByteRover cloud to your local project.`
       const result = await client.requestWithAck<PullExecuteResponse>(PullEvents.EXECUTE, {branch})
       return {hasChanges: false, result}
     })
+  }
+
+  private logVcHint(): void {
+    this.log('\nTip: Version control is now available for your context tree.')
+    this.log('Learn more: https://docs.byterover.dev/git-semantic/overview')
   }
 }
