@@ -32,7 +32,7 @@ export default class Status extends Command {
     const isJson = flags.format === 'json'
 
     try {
-      const status = await this.fetchStatus()
+      const status = await this.fetchStatus({projectPath: process.cwd()})
 
       if (isJson) {
         writeJsonResponse({
