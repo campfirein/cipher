@@ -38,6 +38,11 @@ export interface TaskErrorData {
   message: string
 }
 
+export interface ReviewNotification {
+  pendingCount: number
+  reviewUrl: string
+}
+
 export interface Task {
   completedAt?: number
   content: string
@@ -49,6 +54,8 @@ export interface Task {
   isStreaming?: boolean
   reasoningContents?: ReasoningContentItem[]
   result?: string
+  /** Set when curate completes with pending HITL review operations. */
+  reviewNotification?: ReviewNotification
   sessionId?: string
   startedAt?: number
   status: TaskStatus
@@ -80,6 +87,8 @@ export interface TasksActions {
     taskId: string
     type: 'reasoning' | 'text'
   }) => void
+  /** Clear the review notification on a task (called after approve/reject) */
+  clearReviewNotification: (taskId: string) => void
   /** Clear all tasks */
   clearTasks: () => void
   /** Create a new task */
@@ -94,6 +103,8 @@ export interface TasksActions {
   setError: (taskId: string, error: TaskErrorData) => void
   /** Set task LLM response (final) */
   setResponse: (taskId: string, content: string, sessionId?: string) => void
+  /** Set review notification on a completed curate task */
+  setReviewNotification: (taskId: string, notification: ReviewNotification) => void
   /** Set task to started */
   setStarted: (taskId: string) => void
   /** Update a tool call result */
@@ -210,6 +221,16 @@ export const useTasksStore = create<TasksActions & TasksState>()((set, get) => (
         })
       }
 
+      return {stats: computeStats(tasks), tasks}
+    }),
+
+  clearReviewNotification: (taskId) =>
+    set((state) => {
+      const task = state.tasks.get(taskId)
+      if (!task?.reviewNotification) return state
+
+      const tasks = new Map(state.tasks)
+      tasks.set(taskId, {...task, reviewNotification: undefined})
       return {stats: computeStats(tasks), tasks}
     }),
 
@@ -344,6 +365,16 @@ export const useTasksStore = create<TasksActions & TasksState>()((set, get) => (
         sessionId: sessionId ?? task.sessionId,
         streamingContent: undefined,
       })
+      return {stats: computeStats(tasks), tasks}
+    }),
+
+  setReviewNotification: (taskId, notification) =>
+    set((state) => {
+      const task = state.tasks.get(taskId)
+      if (!task) return state
+
+      const tasks = new Map(state.tasks)
+      tasks.set(taskId, {...task, reviewNotification: notification})
       return {stats: computeStats(tasks), tasks}
     }),
 

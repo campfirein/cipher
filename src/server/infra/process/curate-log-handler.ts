@@ -53,8 +53,12 @@ export function computeSummary(operations: CurateLogOperation[]): CurateLogSumma
       }
 
       case 'UPSERT': {
-        // UPSERT is intentionally counted as "updated" — CurateLogSummary has no separate upserted field.
-        summary.updated++
+        if (op.message?.includes('created new')) {
+          summary.added++
+        } else {
+          summary.updated++
+        }
+
         break
       }
     }
@@ -72,6 +76,15 @@ export function computeSummary(operations: CurateLogOperation[]): CurateLogSumma
  * per-project FileCurateLogStore. All I/O errors are swallowed — logging
  * must never block or affect curate task execution.
  */
+/** Info passed to the onPendingReviews callback after curate completes with pending review ops. */
+export type PendingReviewsInfo = {
+  /** Transport client ID of the task originator — used for direct sendTo delivery. */
+  clientId: string
+  pendingCount: number
+  projectPath: string
+  taskId: string
+}
+
 export class CurateLogHandler implements ITaskLifecycleHook {
   /** Active task count per projectPath — used to evict idle stores. */
   private readonly activeTaskCount = new Map<string, number>()
@@ -82,8 +95,12 @@ export class CurateLogHandler implements ITaskLifecycleHook {
 
   /**
    * @param createStore - Optional factory for testing. Default: FileCurateLogStore.
+   * @param onPendingReviews - Optional callback fired when curate completes with pending review ops.
    */
-  constructor(private readonly createStore?: (projectPath: string) => ICurateLogStore) {}
+  constructor(
+    private readonly createStore?: (projectPath: string) => ICurateLogStore,
+    private readonly onPendingReviews?: (info: PendingReviewsInfo) => void,
+  ) {}
 
   cleanup(taskId: string): void {
     const state = this.tasks.get(taskId)
@@ -98,6 +115,18 @@ export class CurateLogHandler implements ITaskLifecycleHook {
         this.activeTaskCount.set(state.projectPath, remaining)
       }
     }
+  }
+
+  /**
+   * Synchronously returns the pending review count from in-memory state.
+   * Included in the task:completed payload so the client receives it atomically
+   * without relying on a separate review:notify event that arrives after disk I/O.
+   */
+  getTaskCompletionData(taskId: string): Record<string, unknown> {
+    const state = this.tasks.get(taskId)
+    if (!state) return {}
+    const pendingReviewCount = state.operations.filter((op) => op.reviewStatus === 'pending').length
+    return pendingReviewCount > 0 ? {pendingReviewCount} : {}
   }
 
   async onTaskCancelled(taskId: string, _task: TaskInfo): Promise<void> {
@@ -121,7 +150,7 @@ export class CurateLogHandler implements ITaskLifecycleHook {
     })
   }
 
-  async onTaskCompleted(taskId: string, result: string, _task: TaskInfo): Promise<void> {
+  async onTaskCompleted(taskId: string, result: string, task: TaskInfo): Promise<void> {
     const state = this.tasks.get(taskId)
     if (!state) return
 
@@ -141,6 +170,18 @@ export class CurateLogHandler implements ITaskLifecycleHook {
         `CurateLogHandler: failed to save completed entry for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
       )
     })
+
+    // Notify about pending reviews (fire-and-forget)
+    if (this.onPendingReviews) {
+      const pendingCount = state.operations.filter((op) => op.reviewStatus === 'pending').length
+      if (pendingCount > 0) {
+        try {
+          this.onPendingReviews({clientId: task.clientId, pendingCount, projectPath: state.projectPath, taskId})
+        } catch {
+          // Best-effort notification — never block task completion
+        }
+      }
+    }
   }
 
   async onTaskCreate(task: TaskInfo): Promise<void | {logId?: string}> {
@@ -210,7 +251,23 @@ export class CurateLogHandler implements ITaskLifecycleHook {
     if (!state) return
 
     const ops = extractCurateOperations(payload)
-    state.operations.push(...ops)
+    for (const op of ops) {
+      if (op.needsReview && op.status === 'success') {
+        op.reviewStatus = 'pending'
+      }
+
+      // Deduplicate by filePath: keep only the latest operation per file.
+      // This ensures the reviewer sees the final version, not intermediate states.
+      if (op.filePath) {
+        const existingIndex = state.operations.findIndex((existing) => existing.filePath === op.filePath)
+        if (existingIndex !== -1) {
+          state.operations[existingIndex] = op
+          continue
+        }
+      }
+
+      state.operations.push(op)
+    }
   }
 
   // ── Private helpers ─────────────────────────────────────────────────────────

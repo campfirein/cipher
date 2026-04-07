@@ -123,10 +123,14 @@ export type CurateOperationType = 'ADD' | 'DELETE' | 'MERGE' | 'UPDATE' | 'UPSER
  * Single curate operation.
  */
 export interface CurateOperation {
+  /** LLM-assessed confidence in the accuracy and completeness of this operation */
+  confidence?: 'high' | 'low'
   /** Content for ADD/UPDATE operations */
   content?: CurateContent
   /** Domain-level context for new domains */
   domainContext?: CurateDomainContext
+  /** Estimated scope of impact of this knowledge change */
+  impact?: 'high' | 'low'
   /** Target path for MERGE operation */
   mergeTarget?: string
   /** Title of the target file for MERGE operation */
@@ -137,6 +141,8 @@ export interface CurateOperation {
   reason: string
   /** Subtopic-level context for new subtopics */
   subtopicContext?: CurateSubtopicContext
+  /** One-line semantic summary of what the knowledge file contains after this operation */
+  summary?: string
   /** Title for the context file (becomes {title}.md) */
   title?: string
   /** Topic-level context for new topics */

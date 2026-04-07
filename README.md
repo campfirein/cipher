@@ -1,8 +1,8 @@
 # ByteRover CLI
 
-<!-- TODO: Add logo when available -->
-
 <div align="center">
+
+<img src="./assets/images/logo/byterover-logo.svg" alt="ByteRover Logo" width="280" />
 
 <p align="center">
 <em>Interactive REPL CLI for AI-powered context memory</em>
@@ -24,6 +24,10 @@ ByteRover CLI (`brv`) gives AI coding agents persistent, structured memory. It l
 
 Run `brv` in any project directory to start an interactive REPL powered by your choice of LLM. The agent understands your codebase through an agentic map, can read and write files, execute code, and store knowledge for future sessions.
 
+📄 Read the [paper](https://arxiv.org/abs/2604.01599) for the full technical details.
+
+Or download our self-hosted PDF version of the paper [here](https://byterover.dev/paper).
+
 **Key Features:**
 
 - 🖥️ Interactive TUI with REPL interface (React/Ink)
@@ -35,6 +39,25 @@ Run `brv` in any project directory to start an interactive REPL powered by your 
 - 📦 Hub and connectors ecosystem for skills and bundles
 - 🤝 Works with 22+ AI coding agents (Cursor, Claude Code, Windsurf, Cline, and more)
 - 🏢 Enterprise proxy support
+
+## Benchmark Results
+
+All benchmarks are run using the production `byterover-cli` codebase in this repository - no separate research prototype.
+
+We evaluate on two long-term conversational memory benchmarks:
+
+- **LoCoMo** - ultra-long conversations (~20K tokens, 35 sessions) testing single-hop, multi-hop, temporal, and open-domain retrieval.
+- **LongMemEval-S** - large-scale benchmark (23,867 docs, ~48 sessions per question) testing 6 memory abilities including knowledge update, temporal reasoning, and multi-session synthesis.
+
+**LoCoMo** - 96.1% overall accuracy (1,982 questions, 272 docs).
+
+**LongMemEval-S** - 92.8% overall accuracy (500 questions, 23,867 docs).
+
+<p align="center">
+<img src="assets/images/benchmarks/longmemeval-s-by-category.png" alt="LongMemEval-S Benchmark by Category" width="700" />
+</p>
+
+All metrics are LLM-as-Judge accuracy (%). See the [paper](https://arxiv.org/abs/2604.01599), or self-hosted [PDF](https://byterover.dev/paper) for full details.
 
 ## Quick Start
 
@@ -75,6 +98,26 @@ The REPL auto-configures on first run - no setup needed. Type `/` to discover al
 /curate "Auth uses JWT with 24h expiry" @src/middleware/auth.ts
 /query How is authentication implemented?
 ```
+
+## ByteRover Cloud
+
+ByteRover Cloud is a hosted platform for teams to sync, share, and manage context knowledge across projects and machines.
+Everything works locally by default - Cloud adds collaboration and persistence without changing your workflow.
+
+<p>
+<a href="https://app.byterover.dev"><img src="https://img.shields.io/badge/Try%20ByteRover%20Cloud-Free-blue?style=for-the-badge" alt="Try ByteRover Cloud" /></a>
+</p>
+
+Sign in with your ByteRover account via `/login` (TUI) or
+an [API key](https://app.byterover.dev/settings/keys) (`brv login`) to get started.
+
+- 🔄 **Team context sync** — push and pull shared knowledge across teammates
+- 📂 **Shared spaces** — organize context across multiple projects and teams
+- 💻 **Multi-machine access** — sync your context tree across devices with cloud backup
+- 🧠 **Built-in hosted LLM** — start immediately with limited free usage
+- 👥 **Team management** — manage members, spaces, and permissions via the web app
+- 📊 **Usage analytics** — track seat allocation and monthly credit consumption
+- 🔒 **SOC 2 Type II** certified infrastructure with privacy mode
 
 <details>
 <summary><h2>CLI Usage</h2></summary>
@@ -199,6 +242,12 @@ ByteRover CLI is built and maintained by the [ByteRover team](https://byterover.
 
 <!-- TODO: ENG-1575 -->
 [![Contributors](https://contrib.rocks/image?repo=campfirein/byterover-cli&max=40&columns=10)](https://github.com/campfirein/byterover-cli/graphs/contributors)
+
+## Star History
+
+<a href="https://star-history.com/#campfirein/byterover-cli&Date">
+  <img width="500" alt="Star History Chart" src="https://api.star-history.com/svg?repos=campfirein/byterover-cli&type=Date&v=2">
+</a>
 
 ## License
 

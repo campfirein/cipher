@@ -94,6 +94,12 @@ describe('Curate Command', () => {
     return JSON.parse(output.trim())
   }
 
+  /** Parses the last JSON line emitted — used for non-detach mode which emits multiple events. */
+  function parseLastJsonLine(): {command: string; data: Record<string, unknown>; success: boolean} {
+    const lines = stdoutOutput.join('').trim().split('\n').filter(Boolean)
+    return JSON.parse(lines.at(-1)!)
+  }
+
   // ==================== Input Validation ====================
 
   describe('input validation', () => {
@@ -249,6 +255,208 @@ describe('Curate Command', () => {
       expect(json.command).to.equal('curate')
       expect(json.success).to.be.false
       expect(json.data).to.have.property('error')
+    })
+  })
+
+  // ==================== Pending Review Output ====================
+
+  /**
+   * Configures mock client to simulate task completion with the given tool results.
+   * Fires LLM events (toolCall, toolResult), optionally review:notify, and task:completed
+   * on the next tick after task:create is acknowledged, matching the real daemon event sequence.
+   *
+   * @param toolResults - Curate tool outputs to emit as llmservice:toolResult events.
+   * @param pendingCount - When provided, fires review:notify before task:completed.
+   *   The server broadcasts this event when curate completes with operations requiring review.
+   */
+  function simulateTaskCompletion(toolResults: unknown[], pendingCount?: number): void {
+    const eventHandlers = new Map<string, (data: unknown) => void>()
+
+    ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+      eventHandlers.set(event, handler)
+      return () => {}
+    })
+
+    ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, data: unknown) => {
+      if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+
+      // task:create — capture taskId, fire events on next tick
+      const {taskId} = data as {taskId: string}
+      setImmediate(() => {
+        for (const [i, toolResult] of toolResults.entries()) {
+          const callId = `call-${i}`
+          // Use 'curate' toolName — extractCurateOperations handles {applied:[...]} directly
+          eventHandlers.get('llmservice:toolCall')?.({args: {}, callId, taskId, toolName: 'curate'})
+          eventHandlers.get('llmservice:toolResult')?.({
+            callId,
+            result: JSON.stringify(toolResult),
+            success: true,
+            taskId,
+            toolName: 'curate',
+          })
+        }
+
+        // Server fires review:notify before task:completed when pending reviews exist
+        if (pendingCount !== undefined && pendingCount > 0) {
+          eventHandlers.get('review:notify')?.({
+            pendingCount,
+            reviewUrl: 'http://localhost:3000/review',
+            taskId,
+          })
+        }
+
+        const completedPayload: Record<string, unknown> = {logId: 'log-1', taskId}
+        if (pendingCount !== undefined && pendingCount > 0) {
+          completedPayload.pendingReviewCount = pendingCount
+        }
+
+        eventHandlers.get('task:completed')?.(completedPayload)
+      })
+
+      return {logId: 'log-1'}
+    })
+  }
+
+  describe('pending review output', () => {
+
+    it('should print review summary for high-impact pending ops', async () => {
+      simulateTaskCompletion(
+        [
+          {
+            applied: [
+              {
+                confidence: 'high',
+                filePath: '/project/.brv/context-tree/auth/jwt.md',
+                impact: 'high',
+                needsReview: true,
+                path: 'auth/jwt.md',
+                previousSummary: 'Basic JWT validation',
+                reason: 'Core auth strategy change',
+                status: 'success',
+                summary: 'JWT with refresh tokens',
+                type: 'UPDATE',
+              },
+            ],
+          },
+        ],
+        1,
+      )
+
+      await createCommand('test context').run()
+
+      expect(loggedMessages.some((m) => m.includes('require'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('auth/jwt.md'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Core auth strategy change'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Basic JWT validation'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('JWT with refresh tokens'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv review approve'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv review reject'))).to.be.true
+    })
+
+    it('should print review summary for delete pending ops', async () => {
+      simulateTaskCompletion(
+        [
+          {
+            applied: [
+              {
+                filePath: '/project/.brv/context-tree/old/guide.md',
+                impact: 'low',
+                needsReview: true,
+                path: 'old/guide.md',
+                previousSummary: 'Old guide content',
+                reason: 'Duplicate removed',
+                status: 'success',
+                type: 'DELETE',
+              },
+            ],
+          },
+        ],
+        1,
+      )
+
+      await createCommand('test context').run()
+
+      expect(loggedMessages.some((m) => m.includes('old/guide.md'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Duplicate removed'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv review approve'))).to.be.true
+    })
+
+    it('should not print review summary when no ops need review', async () => {
+      simulateTaskCompletion([
+        {
+          applied: [
+            {
+              filePath: '/project/.brv/context-tree/auth/jwt.md',
+              impact: 'low',
+              needsReview: false,
+              path: 'auth/jwt.md',
+              status: 'success',
+              type: 'ADD',
+            },
+          ],
+        },
+      ])
+
+      await createCommand('test context').run()
+
+      expect(loggedMessages.some((m) => m.includes('require'))).to.be.false
+      expect(loggedMessages.some((m) => m.includes('brv review'))).to.be.false
+    })
+
+    it('should include pendingReview in JSON output when ops need review', async () => {
+      simulateTaskCompletion(
+        [
+          {
+            applied: [
+              {
+                impact: 'high',
+                needsReview: true,
+                path: 'auth/jwt.md',
+                reason: 'Core auth strategy change',
+                status: 'success',
+                summary: 'JWT with refresh tokens',
+                type: 'UPDATE',
+              },
+            ],
+          },
+        ],
+        1,
+      )
+
+      await createJsonCommand('test context').run()
+
+      // Non-detach mode emits multiple events (toolCall, toolResult, completed) — read the last line
+      const json = parseLastJsonLine()
+      expect(json.success).to.be.true
+      expect(json.data).to.have.property('pendingReview')
+      const pr = json.data.pendingReview as Record<string, unknown>
+      expect(pr).to.have.property('count', 1)
+      expect(pr).to.have.property('taskId').that.is.a('string')
+      expect(pr).to.have.property('files').that.is.an('array').with.lengthOf(1)
+      const file = (pr.files as Record<string, unknown>[])[0]
+      expect(file).to.have.property('path', 'auth/jwt.md')
+      expect(file).to.have.property('reason', 'Core auth strategy change')
+    })
+
+    it('should not include pendingReview in JSON output when no review needed', async () => {
+      simulateTaskCompletion([
+        {
+          applied: [
+            {
+              needsReview: false,
+              path: 'auth/jwt.md',
+              status: 'success',
+              type: 'ADD',
+            },
+          ],
+        },
+      ])
+
+      await createJsonCommand('test context').run()
+
+      const json = parseLastJsonLine()
+      expect(json.success).to.be.true
+      expect(json.data).to.not.have.property('pendingReview')
     })
   })
 })
