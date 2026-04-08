@@ -26,6 +26,7 @@ type CurateFlags = {
   files?: string[]
   folder?: string[]
   format?: 'json' | 'text'
+  timeout?: number
 }
 
 export default class Curate extends Command {
@@ -59,6 +60,9 @@ Bad examples:
     '# Folder pack with context',
     '<%= config.bin %> <%= command.id %> "Analyze authentication module" -d src/auth/',
     '',
+    '# Increase timeout for slow models (in seconds)',
+    '<%= config.bin %> <%= command.id %> "context here" --timeout 600',
+    '',
     '# View curate history',
     '<%= config.bin %> curate view',
     '<%= config.bin %> curate view --status completed --since 1h',
@@ -83,6 +87,11 @@ Bad examples:
       description: 'Output format (text or json)',
       options: ['text', 'json'],
     }),
+    timeout: Flags.integer({
+      default: 300,
+      description: 'Task completion timeout in seconds (default: 300)',
+      min: 10,
+    }),
   }
 
   protected getDaemonClientOptions(): DaemonClientOptions {
@@ -96,6 +105,7 @@ Bad examples:
       files: rawFlags.files,
       folder: rawFlags.folder,
       format: rawFlags.format === 'json' ? 'json' : rawFlags.format === 'text' ? 'text' : undefined,
+      timeout: rawFlags.timeout,
     }
     const format: 'json' | 'text' = flags.format ?? 'text'
 
@@ -366,6 +376,7 @@ Bad examples:
             }
           },
           taskId,
+          timeoutMs: (flags.timeout ?? 300) * 1000,
         },
         (msg) => this.log(msg),
       )

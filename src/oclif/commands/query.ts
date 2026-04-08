@@ -19,6 +19,7 @@ import {waitForTaskCompletion} from '../lib/task-client.js'
 /** Parsed flags type */
 type QueryFlags = {
   format?: 'json' | 'text'
+  timeout?: number
 }
 
 export default class Query extends Command {
@@ -49,6 +50,11 @@ Bad:
       default: 'text',
       description: 'Output format (text or json)',
       options: ['text', 'json'],
+    }),
+    timeout: Flags.integer({
+      default: 300,
+      description: 'Task completion timeout in seconds (default: 300)',
+      min: 10,
     }),
   }
   public static strict = false
@@ -84,7 +90,7 @@ Bad:
             throw new Error(providerMissingMessage(active.activeProvider, active.authMethod))
           }
 
-          await this.submitTask({client, format, projectRoot, query: args.query, worktreeRoot})
+          await this.submitTask({client, format, projectRoot, query: args.query, timeoutMs: (flags.timeout ?? 300) * 1000, worktreeRoot})
         },
         {
           ...this.getDaemonClientOptions(),
@@ -120,9 +126,10 @@ Bad:
     format: 'json' | 'text'
     projectRoot?: string
     query: string
+    timeoutMs?: number
     worktreeRoot?: string
   }): Promise<void> {
-    const {client, format, projectRoot, query, worktreeRoot} = props
+    const {client, format, projectRoot, query, timeoutMs, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
       clientCwd: process.cwd(),
@@ -199,6 +206,7 @@ Bad:
           }
         },
         taskId,
+        timeoutMs,
       },
       (msg) => this.log(msg),
     )

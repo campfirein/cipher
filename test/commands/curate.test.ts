@@ -517,4 +517,41 @@ describe('Curate Command', () => {
       expect(json.data).to.not.have.property('pendingReview')
     })
   })
+
+  // ==================== Timeout Flag ====================
+
+  describe('timeout flag', () => {
+    it('should accept --timeout flag without error', async () => {
+      await createCommand('test context', '--detach', '--timeout', '600').run()
+
+      expect(loggedMessages).to.include('✓ Context queued for processing.')
+    })
+
+    it('should accept --timeout flag in JSON mode', async () => {
+      await createJsonCommand('test context', '--detach', '--timeout', '600').run()
+
+      const json = parseJsonOutput()
+      expect(json.success).to.be.true
+      expect(json.data).to.have.property('status', 'queued')
+    })
+
+    it('should work with default timeout when flag is not provided', async () => {
+      simulateTaskCompletion([
+        {
+          applied: [
+            {
+              needsReview: false,
+              path: 'auth/jwt.md',
+              status: 'success',
+              type: 'ADD',
+            },
+          ],
+        },
+      ])
+
+      await createCommand('test context').run()
+
+      expect(loggedMessages.some((m) => m.includes('✓ Context curated successfully'))).to.be.true
+    })
+  })
 })

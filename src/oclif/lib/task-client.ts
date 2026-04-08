@@ -155,12 +155,13 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
       if (!completed) {
         completed = true
         cleanup()
+        const timeoutMessage = `Task timed out after ${timeoutMs / 1000}s`
         if (isText) {
-          reject(new Error('Task timed out after 5 minutes'))
+          reject(new Error(timeoutMessage))
         } else {
           writeJsonResponse({
             command,
-            data: {event: 'error', message: 'Task timed out after 5 minutes', status: 'error'},
+            data: {event: 'error', message: timeoutMessage, status: 'error'},
             success: false,
           })
           resolve()
