@@ -34,16 +34,18 @@ npm run typecheck                    # TypeScript type checking
   - **Step 4 — Run tests to confirm they pass**: Execute tests again to verify all tests pass.
   - **Step 5 — Refactor if needed**: Clean up while keeping tests green.
   - If you catch yourself writing implementation code without a failing test, STOP and write the test first.
-- 50% coverage minimum, critical paths must be covered.
+- 80% coverage minimum, critical paths must be covered.
 - Suppress console logging in tests to keep output clean.
 - Unit tests must run fast and run completely in memory. Proper stubbing and mocking must be implemented.
 
-**Feature Development (Outside-In Approach)**:
-- Start from the consumer (oclif command, REPL command, or TUI component) - understand what it needs
-- Define the minimal interface - only what the consumer actually requires
-- Implement the service - fulfill the interface contract
-- Extract entities only if needed - when shared structure emerges across multiple consumers
-- Avoid designing in isolation - always have a concrete consumer driving requirements
+**Feature Development (Outside-In Approach — applies to ALL work: planning, reviewing, coding, and auditing)**:
+- This is a foundational principle, not just a coding guideline. Apply it when writing code, reviewing plans, designing milestones, evaluating project structure, or auditing existing work. If a plan, project, or milestone ordering violates Outside-In, flag it.
+- Start from the consumer (oclif command, REPL command, or TUI component) — understand what it needs
+- Define the minimal interface — only what the consumer actually requires
+- Implement the service — fulfill the interface contract
+- Extract entities only if needed — when shared structure emerges across multiple consumers
+- Avoid designing in isolation — always have a concrete consumer driving requirements
+- When reviewing or planning: if entities, types, or store interfaces are designed before any consumer exists to validate them, that is Inside-Out and must be flagged
 
 ## Architecture
 
