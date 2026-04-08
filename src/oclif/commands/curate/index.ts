@@ -5,6 +5,7 @@ import {randomUUID} from 'node:crypto'
 
 import type {CurateLogOperation} from '../../../server/core/domain/entities/curate-log-entry.js'
 
+import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../server/constants.js'
 import {ProviderConfigResponse, TransportStateEventNames} from '../../../server/core/domain/transport/index.js'
 import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
 import {TaskEvents} from '../../../shared/transport/events/index.js'
@@ -144,6 +145,49 @@ Bad examples:
   }
 
   /**
+   * Build the pendingReview JSON payload for --format json output.
+   * Uses server-authoritative count; files list is best-effort enrichment from tool results.
+   */
+  private buildPendingReviewJson(
+    pendingCount: number,
+    pendingOps: CurateLogOperation[],
+    taskId: string,
+  ): {count: number; files: unknown[]; taskId: string} {
+    return {
+      count: pendingCount,
+      files: pendingOps.map((op) => ({
+        after: op.summary,
+        before: op.previousSummary,
+        filePath: this.extractContextTreeRelativePath(op.filePath) ?? op.path,
+        impact: op.impact,
+        path: op.path,
+        reason: op.reason,
+        type: op.type,
+      })),
+      taskId,
+    }
+  }
+
+  /**
+   * Collect all operations requiring review from the completed tool calls.
+   * Best-effort enrichment: returns per-file detail when tool results include needsReview.
+   * The authoritative signal for whether review is required comes from ReviewEvents.NOTIFY.
+   */
+  private collectPendingReviewOps(toolCalls: ToolCallRecord[]): CurateLogOperation[] {
+    const pending: CurateLogOperation[] = []
+
+    for (const tc of toolCalls) {
+      if (tc.status !== 'completed') continue
+      const ops = extractCurateOperations({result: tc.result, toolName: tc.toolName})
+      for (const op of ops) {
+        if (op.needsReview === true) pending.push(op)
+      }
+    }
+
+    return pending
+  }
+
+  /**
    * Extract file changes from collected tool calls (same logic as TUI useActivityLogs).
    */
   private composeChangesFromToolCalls(toolCalls: ToolCallRecord[]): {created: string[]; updated: string[]} {
@@ -182,6 +226,38 @@ Bad examples:
         }
       }
     }
+  }
+
+  private extractContextTreeRelativePath(filePath?: string): string | undefined {
+    if (!filePath) return undefined
+    const marker = `${BRV_DIR}/${CONTEXT_TREE_DIR}/`
+    const idx = filePath.indexOf(marker)
+    if (idx === -1) return undefined
+    return filePath.slice(idx + marker.length)
+  }
+
+  /**
+   * Print a human-readable pending review summary to stdout.
+   * Called after successful curate completion when review is required.
+   * pendingCount is server-authoritative; pendingOps provides best-effort per-file detail.
+   */
+  private printPendingReviewSummary(pendingCount: number, pendingOps: CurateLogOperation[], taskId: string): void {
+    this.log(
+      `\n⚠  ${pendingCount} operation${pendingCount === 1 ? '' : 's'} require${pendingCount === 1 ? 's' : ''} review (task: ${taskId})`,
+    )
+
+    for (const op of pendingOps) {
+      const impact = op.impact === 'high' ? ' · HIGH IMPACT' : ''
+      const displayPath = this.extractContextTreeRelativePath(op.filePath) ?? op.path
+      this.log(`\n  [${op.type}${impact}] - path: ${displayPath}`)
+      if (op.reason) this.log(`  Why:   ${op.reason}`)
+      if (op.previousSummary) this.log(`  Before: ${op.previousSummary.replaceAll('\n', '\n          ')}`)
+      if (op.summary) this.log(`  After:  ${op.summary.replaceAll('\n', '\n          ')}`)
+    }
+
+    this.log(`\n  To approve all:  brv review approve ${taskId}`)
+    this.log(`  To reject all:   brv review reject ${taskId}`)
+    this.log(`  Per file:        brv review approve/reject ${taskId} --file <path> [--file <path>]`)
   }
 
   private reportError(error: unknown, format: 'json' | 'text', providerContext?: ProviderErrorContext): void {
@@ -242,8 +318,10 @@ Bad examples:
           client,
           command: 'curate',
           format,
-          onCompleted: ({logId, taskId: tid, toolCalls}) => {
+          onCompleted: ({logId, pendingReview, taskId: tid, toolCalls}) => {
             const changes = this.composeChangesFromToolCalls(toolCalls)
+            // Per-file detail is best-effort enrichment; server notify is authoritative
+            const pendingOps = pendingReview ? this.collectPendingReviewOps(toolCalls) : []
 
             if (format === 'text') {
               for (const file of changes.created) {
@@ -256,6 +334,10 @@ Bad examples:
 
               const logSuffix = logId ? ` (Log: ${logId})` : ''
               this.log(`✓ Context curated successfully.${logSuffix}`)
+
+              if (pendingReview) {
+                this.printPendingReviewSummary(pendingReview.pendingCount, pendingOps, tid)
+              }
             } else {
               writeJsonResponse({
                 command: 'curate',
@@ -264,6 +346,9 @@ Bad examples:
                   event: 'completed',
                   logId,
                   message: 'Context curated successfully',
+                  ...(pendingReview
+                    ? {pendingReview: this.buildPendingReviewJson(pendingReview.pendingCount, pendingOps, tid)}
+                    : {}),
                   status: 'completed',
                   taskId: tid,
                 },

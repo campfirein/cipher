@@ -24,12 +24,14 @@ function makeTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
 }
 
 function makeStore(sandbox: SinonSandbox): ICurateLogStore & {
+  batchUpdateOperationReviewStatus: SinonStub
   getById: SinonStub
   getNextId: SinonStub
   list: SinonStub
   save: SinonStub
 } {
   return {
+    batchUpdateOperationReviewStatus: sandbox.stub().resolves(true),
     getById: sandbox.stub().resolves(null),
     getNextId: sandbox.stub().resolves('cur-1000'),
     list: sandbox.stub().resolves([]),
@@ -74,15 +76,15 @@ describe('computeSummary', () => {
     expect(computeSummary(ops).deleted).to.equal(1)
   })
 
-  it('should count UPSERT operations as updated', () => {
+  it('should count UPSERT operations as added or updated based on message', () => {
     const ops: CurateLogOperation[] = [
-      {message: 'created new topic', path: '/a.md', status: 'success', type: 'UPSERT'},
-      {message: 'updated existing', path: '/b.md', status: 'success', type: 'UPSERT'},
+      {message: 'Upserted (created new) auth/jwt.md', path: '/a.md', status: 'success', type: 'UPSERT'},
+      {message: 'Upserted (updated existing) auth/oauth.md', path: '/b.md', status: 'success', type: 'UPSERT'},
       {path: '/c.md', status: 'success', type: 'UPSERT'},
     ]
     const summary = computeSummary(ops)
-    expect(summary.updated).to.equal(3)
-    expect(summary.added).to.equal(0)
+    expect(summary.added).to.equal(1)
+    expect(summary.updated).to.equal(2)
   })
 
   it('should count failed operations regardless of type', () => {
@@ -224,6 +226,175 @@ describe('CurateLogHandler', () => {
 
       // Operations should be stored internally
       // Verified by checking onTaskCompleted uses them
+    })
+
+    it('should set reviewStatus=pending for operations with needsReview=true', async () => {
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [
+            {confidence: 'low', impact: 'high', needsReview: true, path: '/a.md', reason: 'uncertain', status: 'success', type: 'UPDATE'},
+            {confidence: 'high', impact: 'low', needsReview: false, path: '/b.md', reason: 'clear', status: 'success', type: 'ADD'},
+            {confidence: 'high', impact: 'high', needsReview: true, path: '/c.md', reason: 'irreversible', status: 'success', type: 'DELETE'},
+          ],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handler.onTaskCompleted('task-abc', 'done', makeTask())
+
+      const completedEntry: CurateLogEntry = store.save.secondCall.args[0]
+      expect(completedEntry.operations[0].reviewStatus).to.equal('pending')
+      expect(completedEntry.operations[1].reviewStatus).to.be.undefined
+      expect(completedEntry.operations[2].reviewStatus).to.equal('pending')
+    })
+
+    it('should NOT set reviewStatus=pending for failed operations even with needsReview=true', async () => {
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [
+            {confidence: 'low', impact: 'high', needsReview: true, path: '/a.md', reason: 'uncertain', status: 'failed', type: 'UPDATE'},
+            {confidence: 'high', impact: 'high', needsReview: true, path: '/b.md', reason: 'irreversible', status: 'success', type: 'DELETE'},
+          ],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handler.onTaskCompleted('task-abc', 'done', makeTask())
+
+      const completedEntry: CurateLogEntry = store.save.secondCall.args[0]
+      // Failed operation should NOT have reviewStatus=pending
+      expect(completedEntry.operations[0].reviewStatus).to.be.undefined
+      expect(completedEntry.operations[0].status).to.equal('failed')
+      // Successful operation should still have reviewStatus=pending
+      expect(completedEntry.operations[1].reviewStatus).to.equal('pending')
+      expect(completedEntry.operations[1].status).to.equal('success')
+    })
+
+    it('should not set reviewStatus for operations without needsReview', async () => {
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [
+            {confidence: 'high', impact: 'low', needsReview: false, path: '/a.md', status: 'success', type: 'ADD'},
+          ],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handler.onTaskCompleted('task-abc', 'done', makeTask())
+
+      const completedEntry: CurateLogEntry = store.save.secondCall.args[0]
+      expect(completedEntry.operations[0].reviewStatus).to.be.undefined
+    })
+
+    it('should deduplicate operations by filePath, keeping the latest', async () => {
+      // First tool result: initial UPSERT for a file
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [{
+            confidence: 'low',
+            filePath: '/app/.brv/context-tree/design/caching/caching_strategy.md',
+            impact: 'low',
+            needsReview: true,
+            path: 'design/caching',
+            reason: 'first pass',
+            status: 'success',
+            type: 'UPSERT',
+          }],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      // Second tool result: same file updated again
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [{
+            confidence: 'low',
+            filePath: '/app/.brv/context-tree/design/caching/caching_strategy.md',
+            impact: 'high',
+            needsReview: true,
+            path: 'design/caching',
+            reason: 'second pass - final version',
+            status: 'success',
+            type: 'UPSERT',
+          }],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handler.onTaskCompleted('task-abc', 'done', makeTask())
+
+      const completedEntry: CurateLogEntry = store.save.secondCall.args[0]
+      // Should have only 1 operation, not 2
+      expect(completedEntry.operations).to.have.lengthOf(1)
+      expect(completedEntry.operations[0].reason).to.equal('second pass - final version')
+      expect(completedEntry.operations[0].impact).to.equal('high')
+    })
+
+    it('should keep separate operations for different filePaths', async () => {
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [
+            {filePath: '/app/.brv/context-tree/design/caching/redis.md', path: 'design/caching', status: 'success', type: 'ADD'},
+            {filePath: '/app/.brv/context-tree/design/caching/memcache.md', path: 'design/caching', status: 'success', type: 'ADD'},
+          ],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handler.onTaskCompleted('task-abc', 'done', makeTask())
+
+      const completedEntry: CurateLogEntry = store.save.secondCall.args[0]
+      expect(completedEntry.operations).to.have.lengthOf(2)
+    })
+
+    it('should not deduplicate operations without filePath', async () => {
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [
+            {path: 'design/caching', status: 'failed', type: 'ADD'},
+          ],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      handler.onToolResult('task-abc', {
+        result: {
+          applied: [
+            {path: 'design/caching', status: 'failed', type: 'ADD'},
+          ],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handler.onTaskCompleted('task-abc', 'done', makeTask())
+
+      const completedEntry: CurateLogEntry = store.save.secondCall.args[0]
+      // Both kept since no filePath to deduplicate on
+      expect(completedEntry.operations).to.have.lengthOf(2)
     })
 
     it('should silently skip unknown taskId', () => {
@@ -387,6 +558,93 @@ describe('CurateLogHandler', () => {
       })
       await evictedHandler.onTaskCreate(makeTask({projectPath: '/proj-a', taskId: 'task-new'}))
       expect(freshStoreCalled).to.be.true
+    })
+  })
+
+  // ==========================================================================
+  // onPendingReviews callback
+  // ==========================================================================
+
+  describe('onPendingReviews callback', () => {
+    it('should call onPendingReviews when curate completes with pending review ops', async () => {
+      const notifications: Array<{clientId: string; pendingCount: number; projectPath: string; taskId: string}> = []
+      const handlerWithCallback = new CurateLogHandler(
+        () => store,
+        (info) => notifications.push(info),
+      )
+
+      await handlerWithCallback.onTaskCreate(makeTask())
+
+      // Inject operation with reviewStatus=pending
+      handlerWithCallback.onToolResult('task-abc', {
+        result: {
+          applied: [{
+            confidence: 'low',
+            impact: 'high',
+            needsReview: true,
+            path: '/a.md',
+            status: 'success',
+            type: 'DELETE',
+          }],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handlerWithCallback.onTaskCompleted('task-abc', 'done', makeTask())
+
+      expect(notifications).to.have.lengthOf(1)
+      expect(notifications[0].clientId).to.equal('client-1')
+      expect(notifications[0].pendingCount).to.equal(1)
+      expect(notifications[0].projectPath).to.equal('/app')
+      expect(notifications[0].taskId).to.equal('task-abc')
+    })
+
+    it('should NOT call onPendingReviews when no pending review ops exist', async () => {
+      const notifications: Array<{clientId: string; pendingCount: number; projectPath: string; taskId: string}> = []
+      const handlerWithCallback = new CurateLogHandler(
+        () => store,
+        (info) => notifications.push(info),
+      )
+
+      await handlerWithCallback.onTaskCreate(makeTask())
+
+      // Inject operation without needsReview
+      handlerWithCallback.onToolResult('task-abc', {
+        result: {applied: [{path: '/a.md', status: 'success', type: 'ADD'}]},
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handlerWithCallback.onTaskCompleted('task-abc', 'done', makeTask())
+
+      expect(notifications).to.have.lengthOf(0)
+    })
+
+    it('should not throw if onPendingReviews callback throws', async () => {
+      const handlerWithBadCallback = new CurateLogHandler(
+        () => store,
+        () => { throw new Error('callback error') },
+      )
+
+      await handlerWithBadCallback.onTaskCreate(makeTask())
+
+      handlerWithBadCallback.onToolResult('task-abc', {
+        result: {
+          applied: [{needsReview: true, path: '/a.md', status: 'success', type: 'DELETE'}],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      // Should not throw
+      await handlerWithBadCallback.onTaskCompleted('task-abc', 'done', makeTask())
     })
   })
 })

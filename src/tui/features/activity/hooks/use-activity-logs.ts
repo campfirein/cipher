@@ -229,9 +229,16 @@ export function useActivityLogs(): UseActivityLogsReturn {
 
         const changes = composeChangesFromToolCalls(task.toolCalls)
 
+        let content = task.status === 'error' ? formatTaskError(task.error) : (task.result ?? '')
+        if (task.reviewNotification) {
+          const {pendingCount, reviewUrl} = task.reviewNotification
+          const fileLabel = pendingCount === 1 ? 'file needs' : 'files need'
+          content += `\n\n⚠ ${pendingCount} ${fileLabel} review: ${reviewUrl}`
+        }
+
         const activityLog: ActivityLog = {
           changes,
-          content: task.status === 'error' ? formatTaskError(task.error) : (task.result ?? ''),
+          content,
           files: task.files,
           folders: task.folders,
           id: task.taskId,

@@ -16,6 +16,7 @@ export interface UserDTO {
   email: string
   hasOnboardedCli: boolean
   id: string
+  name?: string
 }
 
 export interface AuthTokenDTO {
@@ -155,19 +156,23 @@ export interface StatusDTO {
   contextTreeDir?: string
   /** Relative path to the context tree directory from project root (e.g., '.brv/context-tree') */
   contextTreeRelativeDir?: string
-  contextTreeStatus: 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
+  contextTreeStatus: 'git_vc' | 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
   /** @deprecated Use projectRoot instead. Kept for backward compatibility. */
   currentDirectory: string
   /** Knowledge links to other projects' context trees (read-only) */
   knowledgeLinks?: KnowledgeLinkStatusDTO[]
   /** Error message when knowledge-links.json is malformed */
   knowledgeLinksError?: string
+  /** Number of files with pending HITL review (0 if none or unavailable). */
+  pendingReviewCount?: number
   /** Absolute path to the project root (directory containing .brv/) */
   projectRoot?: string
   /** How the project root was discovered */
   resolutionSource?: 'direct' | 'flag' | 'linked' | 'walked-up'
   /** Actionable error message when resolver fails (broken/malformed workspace link) */
   resolverError?: string
+  /** URL to the local review UI (only set when pendingReviewCount > 0). */
+  reviewUrl?: string
   /** True if cwd has both .brv/config.json and .brv-workspace.json */
   shadowedLink?: boolean
   spaceName?: string

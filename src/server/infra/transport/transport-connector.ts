@@ -20,8 +20,8 @@ export type TransportConnector = (fromDir: string | undefined, projectPath: stri
  * When an explicit projectPath is provided it takes priority over the
  * transport library's walk-up discovery, making the connector workspace-link-aware.
  */
-export function createDaemonAwareConnector(): TransportConnector {
-  return (fromDir: string | undefined, projectPath: string) =>
+export function createDaemonAwareConnector(projectPath?: string): TransportConnector {
+  return (fromDir?: string) =>
     connectToDaemon({
       clientType: 'cli',
       fromDir,

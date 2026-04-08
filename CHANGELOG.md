@@ -2,6 +2,46 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.0.0]
+
+### Added
+- **`brv vc` — Git version control commands** — A full suite of Git-like commands (`init`, `clone`, `status`, `commit`, `push`, `pull`, `branch`, `checkout`, `merge`, `reset`, `remote`, `log`, `fetch`) that sync context alongside code through ByteRover's remote.
+- **Human-in-the-loop review system** — Review pending curate operations before they are applied. Use `brv review pending` to list, `brv review approve` to accept, and `brv review reject` to discard.
+
+### Changed
+- **Legacy commands show `brv vc` hints** — Running `brv status`, `brv pull`, or `brv push` now displays a tip about the corresponding `brv vc` command.
+- **Name-based remote URLs** — Remote URLs now use human-readable names.
+- **Team and space persisted on remote add** — `brv vc remote add` and `brv vc remote set-url` now persist team and space identifiers to `config.json`.
+- **(Deprecated) `brv space list` and `brv space switch`** — These commands still work but show a deprecation notice directing users to the web dashboard.
+
+### Fixed
+- **Provider error messages** — CLI text-mode commands now show the actual backend error message instead of a misleading "API key is missing or invalid" fallback.
+- **Security dependency updates** — Patched `hono`, `@hono/node-server`, `@xmldom/xmldom`, `lodash`, and `lodash-es` to address known vulnerabilities.
+
+## [2.6.0]
+
+### Changed
+- Refactor and major code cleanup.
+
+## [2.5.2]
+
+### Fixed
+- **Pinned axios to exact version 1.14.0** — Locked the axios dependency to an exact known-good version to mitigate supply-chain security risks. Previously used a caret range (`^1.12.2`) that could pull in untrusted future releases.
+
+## [2.5.1]
+
+### Fixed
+- **Provider connect/switch showed false success on auth errors** — `brv providers connect` and `brv providers switch` now correctly detect when the server rejects the request and display the actual error message (e.g., authentication required) instead of falsely reporting success.
+
+## [2.5.0]
+
+### Added
+- **Inline login for ByteRover provider** — When selecting or activating ByteRover without being logged in, the CLI now shows an inline login prompt instead of failing. Users authenticate through the browser without leaving the provider setup flow. Tasks also validate authentication before execution and show a clear message if login is needed.
+
+### Fixed
+- **Proxy double-routing on corporate networks** — Fixed an issue where HTTP requests could be routed through a proxy twice when `HTTPS_PROXY` was set, causing connection failures. Axios's built-in proxy is now explicitly disabled in favor of the custom `proxy-agent` already in use.
+- **Security dependency updates** — Patched npm dependencies to address high-severity vulnerabilities.
+
 ## [2.4.1]
 
 ### Fixed

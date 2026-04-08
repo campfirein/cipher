@@ -20,6 +20,7 @@ import {spaceCommand} from './space.js'
 import {statusCommand} from './status.js'
 import {unlinkKnowledgeCommand} from './unlink-knowledge.js'
 import {unlinkCommand} from './unlink.js'
+import {vcCommand} from './vc.js'
 
 /**
  * Load all REPL slash commands.
@@ -50,6 +51,9 @@ export const load: () => SlashCommand[] = () => [
 
   // Space management
   spaceCommand,
+
+  // Git semantic (vc commands)
+  vcCommand,
 
   // Workspace management
   linkCommand,

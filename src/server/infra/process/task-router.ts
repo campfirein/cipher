@@ -290,9 +290,24 @@ export class TaskRouter {
 
     transportLog(`Task completed: ${taskId}`)
 
+    // Collect synchronous completion data from hooks (e.g. pendingReviewCount from CurateLogHandler).
+    // This runs before task:completed is emitted so the client receives everything atomically,
+    // avoiding the race where review:notify would otherwise arrive after task:completed.
+    const hookData: Record<string, unknown> = {}
+    for (const hook of this.lifecycleHooks) {
+      if (hook.getTaskCompletionData) {
+        try {
+          Object.assign(hookData, hook.getTaskCompletionData(taskId))
+        } catch {
+          // Best-effort: never block task:completed delivery
+        }
+      }
+    }
+
     if (task) {
       this.transport.sendTo(task.clientId, TransportTaskEventNames.COMPLETED, {
         ...(task.logId ? {logId: task.logId} : {}),
+        ...hookData,
         result,
         taskId,
       })
@@ -305,6 +320,7 @@ export class TaskRouter {
       TransportTaskEventNames.COMPLETED,
       {
         ...(task?.logId ? {logId: task.logId} : {}),
+        ...hookData,
         result,
         taskId,
       },

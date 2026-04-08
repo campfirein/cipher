@@ -18,6 +18,7 @@ import {
   isSandboxEnvironment,
   isSandboxNetworkError,
 } from '../../server/utils/sandbox-detector.js'
+import {VcErrorCode} from '../../shared/transport/events/vc-events.js'
 
 /** Max retry attempts when daemon disconnects mid-task */
 const MAX_RETRIES = 3
@@ -41,11 +42,29 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [TaskErrorCode.SPACE_NOT_CONFIGURED]:
     'No space configured. Run "brv space list" to see available spaces, then "brv space switch --team <team> --name <space>" to select one.',
   [TaskErrorCode.SPACE_NOT_FOUND]: 'Space not found. Check your configuration.',
+  [TaskErrorCode.VC_GIT_INITIALIZED]:
+    'ByteRover version control is active. Use brv vc commands instead of legacy sync commands.',
+  [VcErrorCode.AUTH_FAILED]: 'Authentication failed. Run brv login.',
+  [VcErrorCode.CONFIG_KEY_NOT_SET]: 'Config key is not set.',
+  [VcErrorCode.CONFLICT_MARKERS_PRESENT]:
+    'Conflict markers detected. Resolve conflicts and run brv vc add before pushing.',
+  [VcErrorCode.GIT_NOT_INITIALIZED]: 'ByteRover version control not initialized. Run brv vc init first.',
+  // INVALID_BRANCH_NAME intentionally omitted: fall through to server's message with actual branch name
+  [VcErrorCode.INVALID_CONFIG_KEY]: 'Invalid config key. Allowed: user.name, user.email.',
+  [VcErrorCode.NETWORK_ERROR]: 'Network error. Check your connection and try again.',
+  [VcErrorCode.NON_FAST_FORWARD]: 'Remote has changes. Run brv vc pull first.',
+  [VcErrorCode.NOTHING_STAGED]: 'Nothing staged. Run brv vc add first.',
+  [VcErrorCode.NOTHING_TO_PUSH]: 'No commits to push. Run brv vc add and brv vc commit first.',
+  [VcErrorCode.REMOTE_ALREADY_EXISTS]: "Remote 'origin' already exists. Use brv vc remote set-url <url> to update.",
+  // UNCOMMITTED_CHANGES intentionally omitted: fall through to server's detailed message with file paths
+  // USER_NOT_CONFIGURED intentionally omitted: fall through to server's specific hint with actual values
 }
 
 export interface DaemonClientOptions {
   /** Max retry attempts. Default: 3 */
   maxRetries?: number
+  /** Explicit project path — bypasses walk-up discovery. Use for `init` where .brv/ doesn't exist yet. */
+  projectPath?: string
   /** Explicit --project-root flag value to override auto-detection */
   projectRootFlag?: string
   /** Delay between retries in ms. Default: 2000. Set to 0 in tests. */
@@ -89,7 +108,7 @@ export async function withDaemonRetry<T>(
 ): Promise<T> {
   const maxRetries = options?.maxRetries ?? MAX_RETRIES
   const retryDelayMs = options?.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS
-  const connector = options?.transportConnector ?? createDaemonAwareConnector()
+  const connector = options?.transportConnector ?? createDaemonAwareConnector(options?.projectPath)
 
   // Pre-resolve project (workspace-link-aware) so the connector registers
   // with the correct projectPath and callers get the resolved workspaceRoot.
@@ -221,6 +240,15 @@ export function formatConnectionError(error: unknown, providerContext?: Provider
     return baseMessage
   }
 
+  // Task errors (from task-client.ts waitForTaskCompletion) arrive as plain Error with .code property.
+  // Check code-based lookup before text-matching — mirrors TUI's formatTaskError behavior.
+  if (error instanceof Error && 'code' in error) {
+    const {code} = error as unknown as Record<string, unknown>
+    if (typeof code === 'string') {
+      return USER_FRIENDLY_MESSAGES[code] ?? error.message
+    }
+  }
+
   const message = error instanceof Error ? error.message : String(error)
   const lowerMessage = message.toLowerCase()
 
@@ -229,19 +257,23 @@ export function formatConnectionError(error: unknown, providerContext?: Provider
   }
 
   if (lowerMessage.includes('api key') || lowerMessage.includes('invalid key')) {
-    const provider = providerContext?.activeProvider ?? '<provider>'
-    const model = providerContext?.activeModel
-    const currentInfo = model ? `Provider: ${provider}  Model: ${model}\n\n` : `Provider: ${provider}\n\n`
-
-    return (
-      `LLM provider credentials are missing or invalid.\n${currentInfo}` +
-      '  Reconnect your provider:\n' +
-      `    brv providers connect ${provider}\n\n` +
-      '  Switch to a different provider:\n' +
-      '    brv providers switch <provider>\n\n' +
-      '  See all options:  brv providers --help'
-    )
+    return formatApiKeyError(providerContext)
   }
 
   return `Unexpected error: ${message}`
+}
+
+function formatApiKeyError(providerContext?: ProviderErrorContext): string {
+  const provider = providerContext?.activeProvider ?? '<provider>'
+  const model = providerContext?.activeModel
+  const currentInfo = model ? `Provider: ${provider}  Model: ${model}\n\n` : `Provider: ${provider}\n\n`
+
+  return (
+    `LLM provider API key is missing or invalid.\n${currentInfo}` +
+    '  Reconnect with your API key:\n' +
+    `    brv providers connect ${provider} --api-key <key>\n\n` +
+    '  Switch to a different provider:\n' +
+    '    brv providers switch <provider>\n\n' +
+    '  See all options:  brv providers --help'
+  )
 }

@@ -63,6 +63,7 @@ export class HubInstallService implements IHubInstallService {
         headers,
         httpAgent: ProxyConfig.getProxyAgent(),
         httpsAgent: ProxyConfig.getProxyAgent(),
+        proxy: false,
         responseType: 'text',
         timeout: 15_000,
       })

@@ -33,6 +33,9 @@ export const TaskErrorCode = {
 
   // Unknown
   UNKNOWN: 'ERR_UNKNOWN',
+
+  // Version control
+  VC_GIT_INITIALIZED: 'ERR_VC_GIT_INITIALIZED',
 } as const
 
 export type TaskErrorCodeType = (typeof TaskErrorCode)[keyof typeof TaskErrorCode]
@@ -156,18 +159,6 @@ export class AgentDisconnectedError extends TaskError {
   }
 }
 
-export class AgentNotInitializedError extends TaskError {
-  public constructor(reason?: string) {
-    super(
-      reason
-        ? `Agent failed to initialize: ${reason}`
-        : "Agent failed to initialize. Run 'brv restart' to force a clean restart.",
-      TaskErrorCode.AGENT_NOT_INITIALIZED,
-    )
-    this.name = 'AgentNotInitializedError'
-  }
-}
-
 export class NotAuthenticatedError extends TaskError {
   public constructor() {
     super(
@@ -213,6 +204,13 @@ export class SpaceNotConfiguredError extends TaskError {
       TaskErrorCode.SPACE_NOT_CONFIGURED,
     )
     this.name = 'SpaceNotConfiguredError'
+  }
+}
+
+export class GitVcInitializedError extends TaskError {
+  public constructor(message: string) {
+    super(message, TaskErrorCode.VC_GIT_INITIALIZED)
+    this.name = 'GitVcInitializedError'
   }
 }
 

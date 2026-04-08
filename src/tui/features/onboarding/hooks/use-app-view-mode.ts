@@ -7,44 +7,74 @@
 
 import {useAuthStore} from '../../auth/stores/auth-store.js'
 import {useGetActiveProviderConfig} from '../../provider/api/get-active-provider-config.js'
+import {useGetStatus} from '../../status/api/get-status.js'
 
 /**
- * The 5 valid application view modes as a discriminated union.
+ * Application view modes as a discriminated union.
  */
-export type AppViewMode =
-  | {type: 'config-provider'}
-  | {type: 'loading'}
-  | {type: 'ready'}
+export type AppViewMode = {type: 'config-provider'} | {type: 'init-project'} | {type: 'loading'} | {type: 'ready'}
 
 /**
- * Selector that derives the current view mode from stored state.
- * This is the ONLY way to determine what UI to show.
+ * Parameters for the pure view mode derivation function.
+ */
+export type DeriveAppViewModeParams = {
+  activeModel?: string
+  activeProviderId?: string
+  contextTreeStatus?: string
+  isAuthorized: boolean
+  isLoading: boolean
+}
+
+/**
+ * Pure decision logic for determining the app view mode.
+ * Extracted from useAppViewMode for testability.
  *
- * View mode decision tree:
- * 1. Loading auth or onboarding check -> 'loading'
- * 2. New user (hasDismissed) -> 'onboarding'
- * 3. Existing user, no provider config -> provider flow
- * 4. Otherwise -> 'ready'
+ * Decision tree:
+ * 1. Loading → 'loading'
+ * 2. Project not initialized → 'init-project'
+ * 3. ByteRover + unauthenticated → 'config-provider'
+ * 4. ByteRover + authenticated → 'ready'
+ * 5. Non-byterover + no active model → 'config-provider'
+ * 6. Otherwise → 'ready'
  */
-export function useAppViewMode(): AppViewMode {
-  const {isLoadingInitial: isLoadingAuth} = useAuthStore()
-  const {data: activeData, isLoading: isLoadingActive} = useGetActiveProviderConfig()
-
-  // Still loading auth or active provider check
-  if (isLoadingAuth || isLoadingActive) {
+export function deriveAppViewMode(params: DeriveAppViewModeParams): AppViewMode {
+  if (params.isLoading) {
     return {type: 'loading'}
   }
 
-  // ByteRover is the default provider and doesn't require model config
-  if (activeData?.activeProviderId === 'byterover') {
-    return {type: 'ready'}
-  }
+  // if (['not_initialized', 'unknown'].includes(params.contextTreeStatus || '')) {
+  //   return {type: 'init-project'}
+  // }
 
-  // No active model configured for non-byterover provider — need provider setup
-  if (!activeData?.activeModel) {
+  if (params.activeProviderId === 'byterover' && !params.isAuthorized) {
     return {type: 'config-provider'}
   }
 
-  // Normal app state
+  if (params.activeProviderId === 'byterover') {
+    return {type: 'ready'}
+  }
+
+  if (!params.activeModel) {
+    return {type: 'config-provider'}
+  }
+
   return {type: 'ready'}
+}
+
+/**
+ * React hook that derives the current view mode from stored state.
+ * Thin wrapper around deriveAppViewMode — reads from stores, delegates logic.
+ */
+export function useAppViewMode(): AppViewMode {
+  const {isAuthorized, isLoadingInitial: isLoadingAuth} = useAuthStore()
+  const {data: statusData, isLoading: isLoadingStatus} = useGetStatus()
+  const {data: activeData, isLoading: isLoadingActive} = useGetActiveProviderConfig()
+
+  return deriveAppViewMode({
+    activeModel: activeData?.activeModel,
+    activeProviderId: activeData?.activeProviderId,
+    contextTreeStatus: statusData?.status.contextTreeStatus,
+    isAuthorized,
+    isLoading: isLoadingAuth || isLoadingStatus || isLoadingActive,
+  })
 }

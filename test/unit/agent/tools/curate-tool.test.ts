@@ -7,9 +7,13 @@ import {createCurateTool} from '../../../../src/agent/infra/tools/implementation
 
 interface CurateOutput {
   applied: Array<{
+    confidence?: 'high' | 'low'
     filePath?: string
+    impact?: 'high' | 'low'
     message?: string
+    needsReview?: boolean
     path: string
+    previousSummary?: string
     status: 'failed' | 'success'
     type: 'ADD' | 'DELETE' | 'MERGE' | 'UPDATE'
   }>
@@ -76,7 +80,9 @@ describe('Curate Tool', () => {
             basePath,
             operations: [
               {
+                confidence: 'high',
                 content: {keywords: [], snippets: ['test snippet'], tags: []},
+                impact: 'low',
                 path: `${domain}/test_topic`,
                 reason: 'testing predefined domain',
                 title: 'Test Context',
@@ -105,7 +111,9 @@ describe('Curate Tool', () => {
               basePath,
               operations: [
                 {
+                  confidence: 'high',
                   content: {keywords: [], snippets: ['test'], tags: []},
+                  impact: 'low',
                   path: `custom_domain_${i}/topic`,
                   reason: 'testing custom domain',
                   title: 'Test',
@@ -140,7 +148,9 @@ describe('Curate Tool', () => {
               basePath,
               operations: [
                 {
+                  confidence: 'high',
                   content: {keywords: [], snippets: ['test content'], tags: []},
+                  impact: 'low',
                   path: `${domain}/topic`,
                   reason: 'testing semantic domain',
                   title: 'Test',
@@ -175,7 +185,9 @@ describe('Curate Tool', () => {
             basePath,
             operations: [
               {
+                confidence: 'high',
                 content: {keywords: [], snippets: ['test'], tags: []},
+                impact: 'low',
                 path: `custom_domain_${i}/topic`,
                 reason: 'testing',
                 title: 'Test',
@@ -191,7 +203,9 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['code style rules'], tags: []},
+              impact: 'low',
               path: 'code_style/formatting',
               reason: 'testing predefined after custom',
               title: 'Code Style Rules',
@@ -211,7 +225,9 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['test'], tags: []},
+              impact: 'low',
               path: 'authentication/login',
               reason: 'testing',
               title: 'Login Flow',
@@ -225,7 +241,9 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['logout content'], tags: []},
+              impact: 'low',
               path: 'authentication/logout',
               reason: 'testing additional topic',
               title: 'Logout Flow',
@@ -251,7 +269,9 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['test'], tags: []},
+              impact: 'low',
               path: 'Code Style/error-handling',
               reason: 'testing normalization',
               title: 'Best Practices',
@@ -276,7 +296,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test snippet'], tags: []},
+            impact: 'low',
             path: 'code_style/formatting',
             reason: 'testing filePath',
             title: 'Formatting Rules',
@@ -300,7 +322,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['original'], tags: []},
+            impact: 'low',
             path: 'code_style/formatting',
             reason: 'create',
             title: 'Formatting Rules',
@@ -314,7 +338,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['updated'], tags: []},
+            impact: 'low',
             path: 'code_style/formatting',
             reason: 'update',
             title: 'Formatting Rules',
@@ -335,14 +361,18 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['source content'], tags: []},
+            impact: 'low',
             path: 'code_style/old_topic',
             reason: 'create source',
             title: 'Old Guide',
             type: 'ADD',
           },
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['target content'], tags: []},
+            impact: 'low',
             path: 'code_style/new_topic',
             reason: 'create target',
             title: 'New Guide',
@@ -356,6 +386,8 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
+            impact: 'low',
             mergeTarget: 'code_style/new_topic',
             mergeTargetTitle: 'New Guide',
             path: 'code_style/old_topic',
@@ -379,7 +411,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['updated'], tags: []},
+            impact: 'low',
             path: 'code_style/nonexistent',
             reason: 'update',
             title: 'Nonexistent',
@@ -401,7 +435,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test'], tags: []},
+            impact: 'low',
             path: 'code_style/error_handling',
             reason: 'testing naming',
             title: 'Best Practices for Errors',
@@ -425,7 +461,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test'], tags: []},
+            impact: 'low',
             path: 'code_style/formatting',
             reason: 'testing special chars',
             title: 'Error-Handling & Best_Practices',
@@ -448,7 +486,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['subtopic content'], tags: []},
+            impact: 'low',
             path: 'code_style/error_handling/logging',
             reason: 'testing subtopic',
             title: 'Logging Best Practices',
@@ -474,7 +514,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test'], tags: []},
+            impact: 'low',
             path: 'code_style/topic',
             reason: 'testing',
             type: 'ADD',
@@ -493,6 +535,8 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
+            impact: 'low',
             path: 'code_style/topic',
             reason: 'testing',
             title: 'Test',
@@ -512,7 +556,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test'], tags: []},
+            impact: 'low',
             path: 'invalid', // Only one segment
             reason: 'testing',
             title: 'Test',
@@ -534,20 +580,26 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['first'], tags: []},
+            impact: 'low',
             path: 'code_style/topic1',
             reason: 'add 1',
             title: 'First',
             type: 'ADD',
           },
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['second'], tags: []},
+            impact: 'low',
             path: 'design/topic2',
             reason: 'add 2',
             title: 'Second',
             type: 'ADD',
           },
           {
+            confidence: 'high',
+            impact: 'low',
             path: 'invalid',
             reason: 'should fail',
             title: 'Fail',
@@ -571,6 +623,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['test content'], tags: []},
               domainContext: {
                 ownership: 'Platform Security Team',
@@ -581,6 +634,7 @@ describe('Curate Tool', () => {
                 },
                 usage: 'Use this domain for documenting authentication flows and identity verification.',
               },
+              impact: 'low',
               path: 'authentication/jwt',
               reason: 'testing domain context creation',
               title: 'Token Handling',
@@ -617,7 +671,9 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['test content'], tags: []},
+              impact: 'low',
               path: 'caching/redis',
               reason: 'testing no context creation without domainContext',
               title: 'Redis Setup',
@@ -647,6 +703,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['first content'], tags: []},
               domainContext: {
                 purpose: 'Original purpose description.',
@@ -654,6 +711,7 @@ describe('Curate Tool', () => {
                   included: ['Original included item'],
                 },
               },
+              impact: 'low',
               path: 'testing/unit',
               reason: 'first add',
               title: 'First Topic',
@@ -672,6 +730,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['second content'], tags: []},
               domainContext: {
                 purpose: 'This should NOT overwrite the original.',
@@ -679,6 +738,7 @@ describe('Curate Tool', () => {
                   included: ['New included item'],
                 },
               },
+              impact: 'low',
               path: 'testing/integration',
               reason: 'second add',
               title: 'Second Topic',
@@ -711,6 +771,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['updated content'], tags: []},
               domainContext: {
                 purpose: 'API design patterns and guidelines.',
@@ -718,6 +779,7 @@ describe('Curate Tool', () => {
                   included: ['REST API endpoints', 'GraphQL schemas'],
                 },
               },
+              impact: 'low',
               path: 'api_design/endpoints',
               reason: 'updating with domain context',
               title: 'Rest Api',
@@ -755,12 +817,14 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               domainContext: {
                 purpose: 'Shared domain context for merge test.',
                 scope: {
                   included: ['Merged content'],
                 },
               },
+              impact: 'low',
               mergeTarget: 'new_domain/new_topic',
               mergeTargetTitle: 'Target File',
               path: 'old_domain/old_topic',
@@ -790,6 +854,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['test'], tags: []},
               domainContext: {
                 ownership: 'Core Infrastructure Team\nMaintained by DevOps group.',
@@ -801,6 +866,7 @@ describe('Curate Tool', () => {
                 usage:
                   'Backend engineers should reference this domain when:\n- Setting up new database connections\n- Writing complex queries\n- Creating migrations',
               },
+              impact: 'low',
               path: 'database/connections',
               reason: 'full domainContext test',
               title: 'Connection Pool',
@@ -831,6 +897,7 @@ describe('Curate Tool', () => {
           basePath,
           operations: [
             {
+              confidence: 'high',
               content: {keywords: [], snippets: ['test'], tags: []},
               domainContext: {
                 purpose: 'Minimal domain with only required fields.',
@@ -838,6 +905,7 @@ describe('Curate Tool', () => {
                   included: ['Required item 1', 'Required item 2'],
                 },
               },
+              impact: 'low',
               path: 'minimal_domain/topic',
               reason: 'minimal domainContext test',
               title: 'Test Topic',
@@ -869,7 +937,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test'], tags: []},
+            impact: 'low',
             path: 'invalid', // Invalid path - only one segment
             reason: 'testing',
             title: 'Test',
@@ -892,7 +962,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test'], tags: []},
+            impact: 'low',
             path: 'code_style/new_topic',
             reason: 'testing',
             type: 'ADD',
@@ -915,6 +987,8 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
+            impact: 'low',
             path: 'design/patterns',
             reason: 'testing',
             title: 'Test',
@@ -939,7 +1013,9 @@ describe('Curate Tool', () => {
         basePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test'], tags: []},
+            impact: 'low',
             path: '/topic', // Invalid - empty domain
             reason: 'testing empty domain',
             title: 'Test',
@@ -965,7 +1041,9 @@ describe('Curate Tool', () => {
         basePath: freshBasePath,
         operations: [
           {
+            confidence: 'high',
             content: {keywords: [], snippets: ['test content'], tags: []},
+            impact: 'low',
             path: 'code_style/error_handling/logging',
             reason: 'testing directory creation',
             title: 'Logging Guide',
@@ -984,6 +1062,262 @@ describe('Curate Tool', () => {
       // Verify parent directories exist (they should be created along with the file)
       const loggingDirExists = await pathExists(join(freshBasePath, 'code_style/error_handling/logging'))
       expect(loggingDirExists).to.be.true
+    })
+  })
+
+  describe('Conflict detection and auto-resolution (UPDATE)', () => {
+    it('should auto-merge lost snippets back into the written file', async () => {
+      const tool = createCurateTool()
+
+      // Create file with two snippets
+      await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: ['snippet-one', 'snippet-two'], tags: []},
+            impact: 'low',
+            path: 'auth/jwt',
+            reason: 'initial',
+            title: 'Token Handling',
+            type: 'ADD',
+          },
+        ],
+      })
+
+      // Update with only one snippet (drops snippet-two)
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'low',
+            content: {keywords: [], snippets: ['snippet-one'], tags: []},
+            impact: 'low',
+            path: 'auth/jwt',
+            reason: 'update',
+            title: 'Token Handling',
+            type: 'UPDATE',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+
+      // Verify the file still contains both snippets (auto-merge preserved snippet-two)
+      const filePath = join(basePath, 'auth/jwt/token_handling.md')
+      const content = await fs.readFile(filePath, 'utf8')
+      expect(content).to.include('snippet-one')
+      expect(content).to.include('snippet-two')
+    })
+
+    it('should elevate impact to "high" when snippets are lost', async () => {
+      const tool = createCurateTool()
+
+      // Create file with snippets
+      await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: ['important-snippet'], tags: []},
+            impact: 'low',
+            path: 'auth/session',
+            reason: 'initial',
+            title: 'Session Flow',
+            type: 'ADD',
+          },
+        ],
+      })
+
+      // Update without any snippets (drops important-snippet)
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: ['updated'], snippets: [], tags: []},
+            impact: 'low', // LLM says low — but structural loss should elevate to high
+            path: 'auth/session',
+            reason: 'update',
+            title: 'Session Flow',
+            type: 'UPDATE',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].impact).to.equal('high')
+    })
+
+    it('should set needsReview=true when confidence=low and structural loss elevates impact to high', async () => {
+      const tool = createCurateTool()
+
+      // Create file with snippets
+      await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: ['critical-info'], tags: []},
+            impact: 'low',
+            path: 'security/tokens',
+            reason: 'initial',
+            title: 'Token Policy',
+            type: 'ADD',
+          },
+        ],
+      })
+
+      // Update: low confidence + drops snippets (structural → high impact)
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'low',
+            content: {keywords: [], snippets: [], tags: []},
+            impact: 'low',
+            path: 'security/tokens',
+            reason: 'inferred update',
+            title: 'Token Policy',
+            type: 'UPDATE',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].needsReview).to.be.true
+    })
+
+    it('should not elevate impact when no structural loss occurs', async () => {
+      const tool = createCurateTool()
+
+      // Create file with snippets
+      await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: ['snippet-a'], tags: []},
+            impact: 'low',
+            path: 'config/settings',
+            reason: 'initial',
+            title: 'App Config',
+            type: 'ADD',
+          },
+        ],
+      })
+
+      // Update that includes the original snippet plus more
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: ['snippet-a', 'snippet-b'], tags: []},
+            impact: 'low',
+            path: 'config/settings',
+            reason: 'adding more info',
+            title: 'App Config',
+            type: 'UPDATE',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].impact).to.equal('low')
+      expect(result.applied[0].needsReview).to.be.false
+    })
+
+    it('should not downgrade LLM-provided high impact', async () => {
+      const tool = createCurateTool()
+
+      await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: [], tags: []},
+            impact: 'low',
+            path: 'infra/database',
+            reason: 'initial',
+            title: 'DB Config',
+            type: 'ADD',
+          },
+        ],
+      })
+
+      // LLM explicitly marks this as high impact (even though no structural loss)
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: [], tags: []},
+            impact: 'high', // LLM says high — should remain high
+            path: 'infra/database',
+            reason: 'major architectural change',
+            title: 'DB Config',
+            type: 'UPDATE',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].impact).to.equal('high')
+    })
+  })
+
+  describe('Folder DELETE previousSummary', () => {
+    it('should populate previousSummary with bullet list of file summaries', async () => {
+      const tool = createCurateTool()
+      const folderPath = join(basePath, 'test_domain', 'handlers')
+      await fs.mkdir(folderPath, {recursive: true})
+
+      // Create content files with summary in frontmatter
+      await fs.writeFile(
+        join(folderPath, 'auth_handler.md'),
+        '---\nsummary: Handles authentication requests\n---\n# Auth Handler\nContent',
+      )
+      await fs.writeFile(
+        join(folderPath, 'status_handler.md'),
+        '---\nsummary: Aggregates system status\n---\n# Status Handler\nContent',
+      )
+      // _index.md and context.md should be excluded from the bullet list
+      await fs.writeFile(join(folderPath, '_index.md'), '---\ntype: summary\n---\n# Handlers')
+      await fs.writeFile(join(folderPath, 'context.md'), '# Topic: handlers')
+
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {confidence: 'high', impact: 'low', path: 'test_domain/handlers', reason: 'outdated', type: 'DELETE'},
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].previousSummary).to.be.a('string')
+      expect(result.applied[0].previousSummary).to.include('auth handler: Handles authentication requests')
+      expect(result.applied[0].previousSummary).to.include('status handler: Aggregates system status')
+      expect(result.applied[0].previousSummary).to.not.include('_index')
+      expect(result.applied[0].previousSummary).to.not.include('context')
+    })
+
+    it('should return no previousSummary when folder only contains _index.md and context.md', async () => {
+      const tool = createCurateTool()
+      const folderPath = join(basePath, 'test_domain', 'empty_topic')
+      await fs.mkdir(folderPath, {recursive: true})
+
+      await fs.writeFile(join(folderPath, '_index.md'), '---\ntype: summary\n---\n# Empty')
+      await fs.writeFile(join(folderPath, 'context.md'), '# Topic: empty_topic')
+
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {confidence: 'high', impact: 'low', path: 'test_domain/empty_topic', reason: 'cleanup', type: 'DELETE'},
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].previousSummary).to.be.undefined
     })
   })
 })

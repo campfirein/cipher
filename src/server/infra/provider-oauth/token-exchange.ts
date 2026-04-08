@@ -37,6 +37,7 @@ export async function exchangeCodeForTokens(params: TokenExchangeParams): Promis
         },
         httpAgent: ProxyConfig.getProxyAgent(),
         httpsAgent: ProxyConfig.getProxyAgent(),
+        proxy: false,
         timeout: 30_000,
       },
     )

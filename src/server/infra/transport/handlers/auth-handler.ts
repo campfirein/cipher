@@ -86,7 +86,7 @@ export class AuthHandler {
 
       this.transport.broadcast(AuthEvents.STATE_CHANGED, {
         isAuthorized: true,
-        user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id},
+        user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id, name: user.name},
       })
     } catch {
       // Network/API error fetching user info — broadcast authorized state without user details.
@@ -112,18 +112,19 @@ export class AuthHandler {
         tokenType: tokenData.tokenType,
         userEmail: user.email,
         userId: user.id,
+        userName: user.name,
       })
 
       await this.tokenStore.save(authToken)
 
       this.transport.broadcast(AuthEvents.LOGIN_COMPLETED, {
         success: true,
-        user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id},
+        user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id, name: user.name},
       })
 
       this.transport.broadcast(AuthEvents.STATE_CHANGED, {
         isAuthorized: true,
-        user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id},
+        user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id, name: user.name},
       })
     } catch (error) {
       this.transport.broadcast(AuthEvents.LOGIN_COMPLETED, {
@@ -201,6 +202,7 @@ export class AuthHandler {
             email: user.email,
             hasOnboardedCli: user.hasOnboardedCli,
             id: user.id,
+            name: user.name,
           },
         }
       } catch {
@@ -223,13 +225,14 @@ export class AuthHandler {
             tokenType: 'unnecessary',
             userEmail: user.email,
             userId: user.id,
+            userName: user.name,
           })
 
           await this.tokenStore.save(authToken)
 
           this.transport.broadcast(AuthEvents.STATE_CHANGED, {
             isAuthorized: true,
-            user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id},
+            user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id, name: user.name},
           })
 
           return {success: true, userEmail: user.email}
@@ -270,13 +273,14 @@ export class AuthHandler {
           tokenType: refreshedTokenData.tokenType,
           userEmail: user.email,
           userId: user.id,
+          userName: user.name,
         })
 
         await this.tokenStore.save(newToken)
 
         this.transport.broadcast(AuthEvents.STATE_CHANGED, {
           isAuthorized: true,
-          user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id},
+          user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id, name: user.name},
         })
 
         return {success: true}

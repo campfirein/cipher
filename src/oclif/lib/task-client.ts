@@ -18,10 +18,11 @@ import type {
 
 import {TaskErrorCode} from '../../server/core/domain/errors/task-error.js'
 import {LlmEvents, TaskEvents} from '../../shared/transport/events/index.js'
+import {ReviewEvents, type ReviewNotifyEvent} from '../../shared/transport/events/review-events.js'
 import {writeJsonResponse} from './json-response.js'
 
-/** Extends brv-transport-client's TaskCompleted with logId from ENG-1259 */
-type TaskCompletedWithLogId = TaskCompleted & {logId?: string}
+/** Extends brv-transport-client's TaskCompleted with logId from ENG-1259 and pendingReviewCount from HITL */
+type TaskCompletedWithLogId = TaskCompleted & {logId?: string; pendingReviewCount?: number}
 
 /** Extends brv-transport-client's TaskError with logId from ENG-1259 */
 type TaskErrorWithLogId = TaskError & {logId?: string}
@@ -40,6 +41,8 @@ export interface ToolCallRecord {
 /** Completion result passed to onCompleted callback */
 export interface TaskCompletionResult {
   logId?: string
+  /** Pending review notification from the server, present when review is required after task completion. */
+  pendingReview?: {pendingCount: number; reviewUrl: string}
   result?: string
   taskId: string
   toolCalls: ToolCallRecord[]
@@ -139,6 +142,7 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
     let completed = false
     let disconnectTimer: NodeJS.Timeout | undefined
     const toolCalls: ToolCallRecord[] = []
+    let pendingReview: undefined | {pendingCount: number; reviewUrl: string}
 
     const rejectRetryable = (message: string): void => {
       if (completed) return
@@ -257,12 +261,25 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
         onResponse(data.content, data.taskId)
       }),
 
+      // Pending review notification — emitted by server after curate completes with review-required ops
+      client.on<ReviewNotifyEvent>(ReviewEvents.NOTIFY, (data) => {
+        if (data.taskId === taskId) {
+          pendingReview = {pendingCount: data.pendingCount, reviewUrl: data.reviewUrl}
+        }
+      }),
+
       // Task completed
       client.on<TaskCompletedWithLogId>(TaskEvents.COMPLETED, (payload) => {
         if (payload.taskId !== taskId || completed) return
         completed = true
         cleanup()
-        onCompleted({logId: payload.logId, result: payload.result, taskId, toolCalls})
+        // Prefer pendingReviewCount embedded in payload (set synchronously by server before task:completed).
+        // Falls back to review:notify capture for backward compatibility.
+        const resolvedPendingReview =
+          payload.pendingReviewCount !== undefined && payload.pendingReviewCount > 0
+            ? {pendingCount: payload.pendingReviewCount, reviewUrl: pendingReview?.reviewUrl ?? ''}
+            : pendingReview
+        onCompleted({logId: payload.logId, pendingReview: resolvedPendingReview, result: payload.result, taskId, toolCalls})
         resolve()
       }),
 
@@ -273,7 +290,7 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
         cleanup()
         onError({error: payload.error, logId: payload.logId, taskId, toolCalls})
         if (isText) {
-          reject(Object.assign(new Error(payload.error.message), {code: payload.error.code}))
+          reject(Object.assign(new Error(payload.error.message), {code: payload.error.code ?? TaskErrorCode.TASK_EXECUTION}))
         } else {
           resolve()
         }

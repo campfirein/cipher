@@ -104,8 +104,3 @@ export const RULES_CONNECTOR_CONFIGS = {
     writeMode: 'overwrite',
   },
 } as const satisfies Partial<Record<Agent, RulesConnectorConfig>>
-
-/**
- * Type for agents that have rules connector configurations.
- */
-export type RulesSupportedAgent = keyof typeof RULES_CONNECTOR_CONFIGS

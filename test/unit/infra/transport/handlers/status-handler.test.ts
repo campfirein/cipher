@@ -14,6 +14,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {restore, stub} from 'sinon'
 
+import type {CurateLogEntry} from '../../../../../src/server/core/domain/entities/curate-log-entry.js'
 import type {StatusDTO} from '../../../../../src/shared/transport/types/dto.js'
 
 import {StatusHandler} from '../../../../../src/server/infra/transport/handlers/status-handler.js'
@@ -23,7 +24,7 @@ import {createMockTransportServer, type MockTransportServer} from '../../../../h
 // ==================== Test Helpers ====================
 
 type TestDeps = {
-  contextTreeService: {delete: SinonStub; exists: SinonStub; initialize: SinonStub}
+  contextTreeService: {delete: SinonStub; exists: SinonStub; hasGitRepo: SinonStub; initialize: SinonStub; resolvePath: SinonStub}
   contextTreeSnapshotService: {
     getChanges: SinonStub
     getCurrentState: SinonStub
@@ -32,6 +33,13 @@ type TestDeps = {
     initEmptySnapshot: SinonStub
     saveSnapshot: SinonStub
     saveSnapshotFromState: SinonStub
+  }
+  curateLogStore: {
+    batchUpdateOperationReviewStatus: SinonStub
+    getById: SinonStub
+    getNextId: SinonStub
+    list: SinonStub
+    save: SinonStub
   }
   projectConfigStore: {exists: SinonStub; getModifiedTime: SinonStub; read: SinonStub; write: SinonStub}
   tokenStore: {clear: SinonStub; load: SinonStub; save: SinonStub}
@@ -42,7 +50,9 @@ function makeStubs(): TestDeps {
     contextTreeService: {
       delete: stub(),
       exists: stub().resolves(false),
+      hasGitRepo: stub().resolves(false),
       initialize: stub(),
+      resolvePath: stub().callsFake((p: string) => p),
     },
     contextTreeSnapshotService: {
       getChanges: stub().resolves({added: [], deleted: [], modified: []}),
@@ -52,6 +62,13 @@ function makeStubs(): TestDeps {
       initEmptySnapshot: stub(),
       saveSnapshot: stub(),
       saveSnapshotFromState: stub(),
+    },
+    curateLogStore: {
+      batchUpdateOperationReviewStatus: stub().resolves(true),
+      getById: stub().resolves(null),
+      getNextId: stub().resolves('cur-1'),
+      list: stub().resolves([]),
+      save: stub().resolves(),
     },
     projectConfigStore: {
       exists: stub().resolves(false),
@@ -65,6 +82,19 @@ function makeStubs(): TestDeps {
       save: stub(),
     },
   }
+}
+
+function makeCompletedEntry(ops: CurateLogEntry['operations']): CurateLogEntry {
+  return {
+    completedAt: Date.now(),
+    id: 'cur-1',
+    input: {},
+    operations: ops,
+    startedAt: Date.now() - 1000,
+    status: 'completed' as const,
+    summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0},
+    taskId: 'task-1',
+  } as CurateLogEntry
 }
 
 // ==================== Tests ====================
@@ -96,6 +126,7 @@ describe('StatusHandler', () => {
     const handler = new StatusHandler({
       contextTreeService: deps.contextTreeService,
       contextTreeSnapshotService: deps.contextTreeSnapshotService,
+      curateLogStoreFactory: () => deps.curateLogStore,
       projectConfigStore: deps.projectConfigStore,
       resolveProjectPath,
       tokenStore: deps.tokenStore,
@@ -180,6 +211,190 @@ describe('StatusHandler', () => {
       createHandler()
       const result = await callGetHandler()
       expect(result.status.contextTreeStatus).to.equal('unknown')
+    })
+  })
+
+  describe('git vc mode', () => {
+    it('should return git_vc context tree status when .git exists in context tree', async () => {
+      deps.contextTreeService.exists.resolves(true)
+      deps.contextTreeService.hasGitRepo.resolves(true)
+      createHandler()
+
+      const result = await callGetHandler()
+      expect(result.status.contextTreeStatus).to.equal('git_vc')
+      expect(deps.contextTreeSnapshotService.hasSnapshot.called).to.be.false
+      expect(deps.contextTreeSnapshotService.getChanges.called).to.be.false
+    })
+
+    it('should still return auth and project info when git vc is active', async () => {
+      deps.contextTreeService.exists.resolves(true)
+      deps.contextTreeService.hasGitRepo.resolves(true)
+      deps.tokenStore.load.resolves({isValid: () => true, userEmail: 'user@test.com'})
+      deps.projectConfigStore.exists.resolves(true)
+      deps.projectConfigStore.read.resolves({spaceName: 'space-1', teamName: 'team-1'})
+      createHandler()
+
+      const result = await callGetHandler()
+      expect(result.status.authStatus).to.equal('logged_in')
+      expect(result.status.userEmail).to.equal('user@test.com')
+      expect(result.status.teamName).to.equal('team-1')
+      expect(result.status.spaceName).to.equal('space-1')
+      expect(result.status.contextTreeStatus).to.equal('git_vc')
+    })
+
+    it('should proceed normally when .git does not exist', async () => {
+      deps.contextTreeService.exists.resolves(true)
+      deps.contextTreeService.hasGitRepo.resolves(false)
+      createHandler()
+
+      const result = await callGetHandler()
+      expect(result.status.contextTreeStatus).to.not.equal('git_vc')
+    })
+  })
+
+  describe('pending review', () => {
+    it('should include pendingReviewCount when curate log has pending ops', async () => {
+      transport.getPort.returns(54_321)
+      createHandler()
+
+      deps.curateLogStore.list.resolves([
+        makeCompletedEntry([
+          {
+            filePath: '/project/current/.brv/context-tree/auth/jwt.md',
+            needsReview: true,
+            path: 'auth/jwt',
+            reviewStatus: 'pending',
+            status: 'success',
+            type: 'DELETE',
+          },
+          {
+            filePath: '/project/current/.brv/context-tree/auth/oauth.md',
+            needsReview: true,
+            path: 'auth/oauth',
+            reviewStatus: 'pending',
+            status: 'success',
+            type: 'DELETE',
+          },
+        ]),
+      ])
+
+      const result = await callGetHandler()
+      expect(result.status.pendingReviewCount).to.equal(2)
+    })
+
+    it('should include reviewUrl when pending reviews exist', async () => {
+      transport.getPort.returns(54_321)
+      createHandler()
+
+      deps.curateLogStore.list.resolves([
+        makeCompletedEntry([
+          {
+            filePath: '/project/current/.brv/context-tree/auth/jwt.md',
+            needsReview: true,
+            path: 'auth/jwt',
+            reviewStatus: 'pending',
+            status: 'success',
+            type: 'DELETE',
+          },
+        ]),
+      ])
+
+      const result = await callGetHandler()
+      expect(result.status.reviewUrl).to.be.a('string')
+      expect(result.status.reviewUrl).to.include('http://127.0.0.1:54321/review?project=')
+    })
+
+    it('should NOT include pendingReviewCount when no pending ops exist', async () => {
+      createHandler()
+
+      deps.curateLogStore.list.resolves([
+        makeCompletedEntry([
+          {
+            filePath: '/project/current/.brv/context-tree/auth/jwt.md',
+            needsReview: true,
+            path: 'auth/jwt',
+            reviewStatus: 'approved',
+            status: 'success',
+            type: 'DELETE',
+          },
+        ]),
+      ])
+
+      const result = await callGetHandler()
+      expect(result.status.pendingReviewCount).to.be.undefined
+      expect(result.status.reviewUrl).to.be.undefined
+    })
+
+    it('should NOT include pendingReviewCount when curate log is empty', async () => {
+      createHandler()
+      deps.curateLogStore.list.resolves([])
+
+      const result = await callGetHandler()
+      expect(result.status.pendingReviewCount).to.be.undefined
+    })
+
+    it('should count unique files, not operations', async () => {
+      transport.getPort.returns(54_321)
+      createHandler()
+
+      // Same file appears in two entries
+      deps.curateLogStore.list.resolves([
+        makeCompletedEntry([
+          {
+            filePath: '/project/current/.brv/context-tree/auth/jwt.md',
+            needsReview: true,
+            path: 'auth/jwt',
+            reviewStatus: 'pending',
+            status: 'success',
+            type: 'DELETE',
+          },
+        ]),
+        makeCompletedEntry([
+          {
+            filePath: '/project/current/.brv/context-tree/auth/jwt.md',
+            needsReview: true,
+            path: 'auth/jwt',
+            reviewStatus: 'pending',
+            status: 'success',
+            type: 'UPDATE',
+          },
+        ]),
+      ])
+
+      const result = await callGetHandler()
+      expect(result.status.pendingReviewCount).to.equal(1)
+    })
+
+    it('should detect pending ops even when needsReview is undefined', async () => {
+      transport.getPort.returns(54_321)
+      createHandler()
+
+      deps.curateLogStore.list.resolves([
+        makeCompletedEntry([
+          {
+            filePath: '/project/current/.brv/context-tree/auth/jwt.md',
+            path: 'auth/jwt',
+            reviewStatus: 'pending',
+            status: 'success',
+            type: 'DELETE',
+          },
+        ]),
+      ])
+
+      const result = await callGetHandler()
+      expect(result.status.pendingReviewCount).to.equal(1)
+      expect(result.status.reviewUrl).to.be.a('string')
+    })
+
+    it('should gracefully handle curate log errors', async () => {
+      createHandler()
+      deps.curateLogStore.list.rejects(new Error('disk error'))
+
+      const result = await callGetHandler()
+      // Should still return valid status without review fields
+      expect(result.status.pendingReviewCount).to.be.undefined
+      expect(result.status.reviewUrl).to.be.undefined
+      expect(result.status.currentDirectory).to.equal('/project/current')
     })
   })
 
