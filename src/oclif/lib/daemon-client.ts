@@ -221,6 +221,15 @@ export function formatConnectionError(error: unknown, providerContext?: Provider
     return baseMessage
   }
 
+  // Task errors (from task-client.ts waitForTaskCompletion) arrive as plain Error with .code property.
+  // Check code-based lookup before text-matching — mirrors TUI's formatTaskError behavior.
+  if (error instanceof Error && 'code' in error) {
+    const {code} = error as unknown as Record<string, unknown>
+    if (typeof code === 'string') {
+      return USER_FRIENDLY_MESSAGES[code] ?? error.message
+    }
+  }
+
   const message = error instanceof Error ? error.message : String(error)
   const lowerMessage = message.toLowerCase()
 
