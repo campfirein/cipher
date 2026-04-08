@@ -290,7 +290,7 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
         cleanup()
         onError({error: payload.error, logId: payload.logId, taskId, toolCalls})
         if (isText) {
-          reject(Object.assign(new Error(payload.error.message), {code: payload.error.code}))
+          reject(Object.assign(new Error(payload.error.message), {code: payload.error.code ?? TaskErrorCode.TASK_EXECUTION}))
         } else {
           resolve()
         }

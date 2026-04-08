@@ -42,9 +42,9 @@ export function deriveAppViewMode(params: DeriveAppViewModeParams): AppViewMode 
     return {type: 'loading'}
   }
 
-  if (['not_initialized', 'unknown'].includes(params.contextTreeStatus || '')) {
-    return {type: 'init-project'}
-  }
+  // if (['not_initialized', 'unknown'].includes(params.contextTreeStatus || '')) {
+  //   return {type: 'init-project'}
+  // }
 
   if (params.activeProviderId === 'byterover' && !params.isAuthorized) {
     return {type: 'config-provider'}

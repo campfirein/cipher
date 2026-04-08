@@ -3,10 +3,10 @@ import type {SinonStub} from 'sinon'
 import {expect} from 'chai'
 import {stub} from 'sinon'
 
-import type {PatchMarkerDeps} from '../../../src/oclif/hooks/init/validate-brv-config.js'
 import type {IProjectConfigStore} from '../../../src/server/core/interfaces/storage/i-project-config-store.js'
+import type {AutoInitDeps} from '../../../src/server/infra/config/auto-init.js'
 
-import {SKIP_COMMANDS, validateBrvConfigVersion} from '../../../src/oclif/hooks/init/validate-brv-config.js'
+import {COMMANDS_NEED_AUTO_INIT, validateBrvConfigVersion} from '../../../src/oclif/hooks/init/validate-brv-config.js'
 import {BRV_CONFIG_VERSION} from '../../../src/server/constants.js'
 import {BrvConfig, BrvConfigParams} from '../../../src/server/core/domain/entities/brv-config.js'
 
@@ -15,8 +15,9 @@ describe('validate-brv-config', () => {
     let existsStub: SinonStub
     let readStub: SinonStub
     let writeStub: SinonStub
+    let initializeStub: SinonStub
     let mockConfigStore: IProjectConfigStore
-    let mockPatchMarkerDeps: PatchMarkerDeps
+    let mockAutoInitDeps: AutoInitDeps
 
     const validConfigParams: BrvConfigParams = {
       chatLogPath: '/path/to/chat.log',
@@ -34,158 +35,112 @@ describe('validate-brv-config', () => {
       existsStub = stub()
       readStub = stub()
       writeStub = stub().resolves()
+      initializeStub = stub().resolves('/path/.brv/context-tree')
       mockConfigStore = {
         exists: existsStub,
         getModifiedTime: stub(),
         read: readStub,
         write: writeStub,
       }
-      // Default: already patched — keeps existing tests focused on version migration
-      mockPatchMarkerDeps = {
-        isPatched: stub().resolves(true),
-        markPatched: stub().resolves(),
+      mockAutoInitDeps = {
+        contextTreeService: {
+          delete: stub().resolves(),
+          exists: stub().resolves(false),
+          hasGitRepo: stub().resolves(false),
+          initialize: initializeStub,
+          resolvePath: stub().returns('/path/.brv/context-tree'),
+        },
+        projectConfigStore: mockConfigStore,
       }
     })
 
-    describe('should skip validation for excluded commands', () => {
-      for (const commandId of SKIP_COMMANDS) {
-        it(`skips validation for '${commandId}' command`, async () => {
-          await validateBrvConfigVersion(commandId, mockConfigStore, mockPatchMarkerDeps)
+    describe('should skip when help flags are present', () => {
+      for (const flag of ['--help', '-h', '--h', '-help']) {
+        it(`skips auto-init when '${flag}' is in argv`, async () => {
+          existsStub.resolves(false)
+
+          await validateBrvConfigVersion('curate', mockConfigStore, [flag], mockAutoInitDeps)
 
           expect(existsStub.called).to.be.false
-          expect(readStub.called).to.be.false
+          expect(initializeStub.called).to.be.false
         })
       }
     })
 
-    describe('should throw when project not initialized', () => {
-      it('throws instructive error when config does not exist', async () => {
-        existsStub.resolves(false)
+    describe('should not auto-init for commands not in COMMANDS_NEED_AUTO_INIT', () => {
+      const nonAutoInitCommands = ['status', 'push', 'pull', 'vc:status', 'providers']
 
-        try {
-          await validateBrvConfigVersion('status', mockConfigStore, mockPatchMarkerDeps)
-          expect.fail('Expected error to be thrown')
-        } catch (error) {
-          expect(error).to.be.instanceof(Error)
-          expect((error as Error).message).to.include('not a brv project')
-        }
-      })
+      for (const commandId of nonAutoInitCommands) {
+        it(`does not auto-init for '${commandId}' command`, async () => {
+          existsStub.resolves(false)
 
-      it('throws user-friendly message for vc commands when config does not exist', async () => {
-        existsStub.resolves(false)
+          await validateBrvConfigVersion(commandId, mockConfigStore, [], mockAutoInitDeps)
 
-        await Promise.all(
-          ['vc:status', 'vc:commit', 'vc:push', 'vc:add'].map(async (vcCommand) => {
-            try {
-              await validateBrvConfigVersion(vcCommand, mockConfigStore, mockPatchMarkerDeps)
-              expect.fail(`Expected error for ${vcCommand}`)
-            } catch (error) {
-              expect(error).to.be.instanceof(Error)
-              const {message} = error as Error
-              expect(message).to.include('ByteRover version control not initialized')
-              expect(message).to.include('brv vc init')
-              expect(message).to.not.include('fatal:')
-            }
-          }),
-        )
-      })
-    })
-
-    describe('should allow commands when config has valid version', () => {
-      it('allows command to proceed when config version matches', async () => {
-        existsStub.resolves(true)
-        readStub.resolves(new BrvConfig(validConfigParams))
-
-        await validateBrvConfigVersion('status', mockConfigStore, mockPatchMarkerDeps)
-
-        expect(existsStub.called).to.be.true
-        expect(readStub.called).to.be.true
-        expect(writeStub.called).to.be.false
-      })
-    })
-
-    describe('should migrate config when version is outdated', () => {
-      it('migrates config when version is missing (empty string)', async () => {
-        existsStub.resolves(true)
-        const oldConfig = new BrvConfig({
-          ...validConfigParams,
-          version: '',
+          expect(initializeStub.called).to.be.false
         })
-        readStub.resolves(oldConfig)
+      }
+    })
 
-        await validateBrvConfigVersion('status', mockConfigStore, mockPatchMarkerDeps)
+    describe('should auto-init for commands in COMMANDS_NEED_AUTO_INIT', () => {
+      for (const commandId of COMMANDS_NEED_AUTO_INIT) {
+        it(`auto-initializes .brv/ for '${commandId}' when config does not exist`, async () => {
+          existsStub.resolves(false)
+          readStub.resolves(new BrvConfig(validConfigParams))
 
-        expect(writeStub.called).to.be.true
-        const writtenConfig = writeStub.firstCall.args[0] as BrvConfig
-        expect(writtenConfig.version).to.equal(BRV_CONFIG_VERSION)
-        // Preserves existing cloud fields
-        expect(writtenConfig.spaceId).to.equal('space-123')
-        expect(writtenConfig.spaceName).to.equal('test-space')
-        expect(writtenConfig.teamId).to.equal('team-456')
-        expect(writtenConfig.teamName).to.equal('test-team')
-      })
+          await validateBrvConfigVersion(commandId, mockConfigStore, [], mockAutoInitDeps)
 
-      it('migrates config when version is mismatched', async () => {
+          expect(initializeStub.calledOnce).to.be.true
+        })
+      }
+
+      it('skips auto-init when config already exists', async () => {
         existsStub.resolves(true)
+
+        await validateBrvConfigVersion('curate', mockConfigStore, [], mockAutoInitDeps)
+
+        expect(initializeStub.called).to.be.false
+      })
+    })
+
+    describe('should migrate config version after auto-init', () => {
+      it('migrates config when version is outdated', async () => {
+        existsStub.resolves(false)
         const oldConfig = new BrvConfig({
           ...validConfigParams,
           version: '0.0.0',
         })
         readStub.resolves(oldConfig)
 
-        await validateBrvConfigVersion('push', mockConfigStore, mockPatchMarkerDeps)
+        await validateBrvConfigVersion('curate', mockConfigStore, [], mockAutoInitDeps)
 
-        expect(writeStub.called).to.be.true
-        const writtenConfig = writeStub.firstCall.args[0] as BrvConfig
-        expect(writtenConfig.version).to.equal(BRV_CONFIG_VERSION)
-        // Preserves existing cloud fields
-        expect(writtenConfig.spaceId).to.equal('space-123')
-        expect(writtenConfig.teamId).to.equal('team-456')
+        // writeStub called twice: once by ensureProjectInitialized, once for version migration
+        expect(writeStub.callCount).to.equal(2)
+        const migratedConfig = writeStub.secondCall.args[0] as BrvConfig
+        expect(migratedConfig.version).to.equal(BRV_CONFIG_VERSION)
+      })
+
+      it('does not migrate when version matches', async () => {
+        existsStub.resolves(false)
+        readStub.resolves(new BrvConfig(validConfigParams))
+
+        await validateBrvConfigVersion('curate', mockConfigStore, [], mockAutoInitDeps)
+
+        // writeStub called once: only by ensureProjectInitialized, no version migration
+        expect(writeStub.callCount).to.equal(1)
       })
     })
 
-    describe('should apply curate-view patch when marker is absent', () => {
-      it('calls markPatched after patching when not yet patched', async () => {
-        existsStub.resolves(true)
-        readStub.resolves(new BrvConfig(validConfigParams))
-        const isPatchedStub = stub().resolves(false)
-        const markPatchedStub = stub().resolves()
-
-        await validateBrvConfigVersion('status', mockConfigStore, {
-          isPatched: isPatchedStub,
-          markPatched: markPatchedStub,
-          patchFn: stub().resolves(),
-        })
-
-        expect(isPatchedStub.calledOnce).to.be.true
-        expect(markPatchedStub.calledOnce).to.be.true
-      })
-
-      it('skips patch when marker already exists', async () => {
-        existsStub.resolves(true)
-        readStub.resolves(new BrvConfig(validConfigParams))
-        const markPatchedStub = stub().resolves()
-
-        await validateBrvConfigVersion('status', mockConfigStore, {
-          isPatched: stub().resolves(true),
-          markPatched: markPatchedStub,
-        })
-
-        expect(markPatchedStub.called).to.be.false
-      })
-    })
-
-    describe('should re-throw errors from read', () => {
-      it('re-throws errors', async () => {
-        existsStub.resolves(true)
-        readStub.rejects(new Error('Corrupted JSON'))
+    describe('should throw when config is corrupt after auto-init', () => {
+      it('throws when read returns null', async () => {
+        existsStub.resolves(false)
+        readStub.resolves(null)
 
         try {
-          await validateBrvConfigVersion('status', mockConfigStore, mockPatchMarkerDeps)
+          await validateBrvConfigVersion('curate', mockConfigStore, [], mockAutoInitDeps)
           expect.fail('Expected error to be thrown')
         } catch (error) {
           expect(error).to.be.instanceof(Error)
-          expect((error as Error).message).to.equal('Corrupted JSON')
+          expect((error as Error).message).to.include('corrupt or unreadable config')
         }
       })
     })
