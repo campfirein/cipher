@@ -2,6 +2,22 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.0.0]
+
+### Added
+- **`brv vc` — Git version control commands** — A full suite of Git-like commands (`init`, `clone`, `status`, `commit`, `push`, `pull`, `branch`, `checkout`, `merge`, `reset`, `remote`, `log`, `fetch`) that sync context alongside code through ByteRover's remote.
+- **Human-in-the-loop review system** — Review pending curate operations before they are applied. Use `brv review pending` to list, `brv review approve` to accept, and `brv review reject` to discard.
+
+### Changed
+- **Legacy commands show `brv vc` hints** — Running `brv status`, `brv pull`, or `brv push` now displays a tip about the corresponding `brv vc` command.
+- **Name-based remote URLs** — Remote URLs now use human-readable names.
+- **Team and space persisted on remote add** — `brv vc remote add` and `brv vc remote set-url` now persist team and space identifiers to `config.json`.
+- **(Deprecated) `brv space list` and `brv space switch`** — These commands still work but show a deprecation notice directing users to the web dashboard.
+
+### Fixed
+- **Provider error messages** — CLI text-mode commands now show the actual backend error message instead of a misleading "API key is missing or invalid" fallback.
+- **Security dependency updates** — Patched `hono`, `@hono/node-server`, `@xmldom/xmldom`, `lodash`, and `lodash-es` to address known vulnerabilities.
+
 ## [2.6.0]
 
 ### Changed

@@ -32,9 +32,11 @@ Or download our self-hosted PDF version of the paper [here](https://byterover.de
 
 - 🖥️ Interactive TUI with REPL interface (React/Ink)
 - 🧠 Context tree and knowledge storage management
-- 🤖 20+ LLM providers (Anthropic, OpenAI, Google, Groq, Mistral, xAI, and more)
+- 🔀 Git-like version control for the context tree (branch, commit, merge, push/pull)
+- 🤖 18 LLM providers (Anthropic, OpenAI, Google, Groq, Mistral, xAI, and more)
 - 🛠️ 24 built-in agent tools (code exec, file ops, knowledge search, memory management)
 - 🔄 Cloud sync with push/pull
+- 👀 Review workflow for curate operations (approve/reject pending changes)
 - 🔌 MCP (Model Context Protocol) integration
 - 📦 Hub and connectors ecosystem for skills and bundles
 - 🤝 Works with 22+ AI coding agents (Cursor, Claude Code, Windsurf, Cline, and more)
@@ -130,13 +132,40 @@ brv status           # Show project and daemon status
 brv curate           # Add context to knowledge storage
 brv curate view      # View curate history
 brv query            # Query context tree and knowledge
+brv review pending   # List pending review operations
+brv review approve   # Approve curate operations
+brv review reject    # Reject curate operations
 ```
 
-### Sync
+### Sync (Legacy)
 
 ```bash
-brv push             # Sync local context to cloud
-brv pull             # Sync from cloud to local
+brv push             # Legacy — migrate or snapshot context to cloud
+brv pull             # Legacy — restore context from cloud snapshot
+```
+
+> Use `brv vc push` / `brv vc pull` for version-controlled sync going forward.
+
+### Version Control
+
+```bash
+brv vc init              # Initialize version control for context tree
+brv vc status            # Show version control status
+brv vc add               # Stage files for the next commit
+brv vc commit            # Save staged changes as a commit
+brv vc log               # Show commit history
+brv vc branch            # List, create, or delete branches
+brv vc checkout          # Switch branches
+brv vc merge             # Merge a branch into the current branch
+brv vc clone             # Clone a ByteRover space repository
+brv vc push              # Push commits to ByteRover cloud
+brv vc pull              # Pull commits from ByteRover cloud
+brv vc fetch             # Fetch refs from ByteRover cloud
+brv vc remote            # Show current remote origin
+brv vc remote add        # Add a named remote
+brv vc remote set-url    # Update a remote URL
+brv vc config            # Get or set commit author
+brv vc reset             # Unstage files or undo commits
 ```
 
 ### Providers & Models
@@ -162,11 +191,11 @@ brv connectors list      # List connectors
 brv connectors install   # Install a connector
 ```
 
-### Spaces
+### Spaces (Deprecated)
 
 ```bash
-brv space list       # List spaces
-brv space switch     # Switch active space
+brv space list       # Deprecated — use web dashboard
+brv space switch     # Deprecated — use brv vc clone
 ```
 
 ### Other
@@ -220,6 +249,7 @@ Visit [**docs.byterover.dev**](https://docs.byterover.dev) for full guides on se
 |-------|-------------|
 | [Getting Started](https://docs.byterover.dev) | Installation, first run, and basic usage |
 | [Cloud Sync](https://docs.byterover.dev) | Push/pull workflows and team sharing |
+| [Version Control](https://docs.byterover.dev) | Context tree branching, commits, and collaboration |
 | [LLM Providers](https://docs.byterover.dev) | Provider setup and model configuration |
 | [AI Agent Integrations](https://docs.byterover.dev) | Using ByteRover with Cursor, Claude Code, Windsurf, etc. |
 | [Hub & Connectors](https://docs.byterover.dev) | Skills, bundles, and the connector ecosystem |
