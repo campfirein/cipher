@@ -50,9 +50,9 @@ npm run typecheck                    # TypeScript type checking
 ### Source Layout (`src/`)
 
 - `agent/` — LLM agent: `core/` (interfaces/domain), `infra/` (22 modules), `resources/` (prompt YAML, tool `.txt`)
-- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (27 modules), `utils/`
+- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (29 modules), `utils/`
 - `shared/` — Cross-module: constants, types, transport events, utils
-- `tui/` — React/Ink TUI: app (router/pages), components, features (20 modules), hooks, lib, providers, stores
+- `tui/` — React/Ink TUI: app (router/pages), components, features (21 modules), hooks, lib, providers, stores
 - `oclif/` — Commands, hooks, lib (daemon-client, JSON response utils)
 
 **Import boundary** (ESLint-enforced): `tui/` must not import from `server/`, `agent/`, or `oclif/`. Use transport events or `shared/`.
@@ -71,7 +71,7 @@ npm run typecheck                    # TypeScript type checking
 ### Agent (`src/agent/`)
 
 - Tools: definitions in `resources/tools/*.txt`, implementations in `infra/tools/implementations/`, registry in `infra/tools/tool-registry.ts`
-- LLM: 18 providers in `infra/llm/providers/`; 6 compression strategies in `infra/llm/context/compression/`
+- LLM: 18 providers in `infra/llm/providers/`; 7 compression strategies in `infra/llm/context/compression/`
 - System prompts: contributor pattern (XML sections) in `infra/system-prompt/`
 - Map/memory: `infra/map/` (agentic map, context-tree store, LLM map memory, worker pool)
 - Storage: file-based blob (`infra/blob/`) and key storage (`infra/storage/`) — no SQLite
