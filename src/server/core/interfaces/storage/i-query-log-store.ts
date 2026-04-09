@@ -7,6 +7,8 @@ export type {QueryLogStatus, QueryLogTier} from '../../domain/entities/query-log
 export interface IQueryLogStore {
   /** Retrieve an entry by ID. Returns null if not found or if the file is corrupt. */
   getById(id: string): Promise<null | QueryLogEntry>
+  /** Generate the next monotonic log entry ID. */
+  getNextId(): Promise<string>
   /** List entries sorted newest-first. Filters are applied before limit. */
   list(options?: {
     /** Include only entries with startedAt >= after (ms timestamp). */
@@ -19,4 +21,6 @@ export interface IQueryLogStore {
     /** Include only entries matching these tiers. */
     tier?: QueryLogTier[]
   }): Promise<QueryLogEntry[]>
+  /** Persist (create or overwrite) a log entry. Best-effort — callers should handle errors. */
+  save(entry: QueryLogEntry): Promise<void>
 }

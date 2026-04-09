@@ -76,11 +76,15 @@ function makeCancelledEntry(overrides: Partial<CancelledEntry> = {}): CancelledE
 
 function makeStore(sandbox: SinonSandbox): IQueryLogStore & {
   getById: SinonStub
+  getNextId: SinonStub
   list: SinonStub
+  save: SinonStub
 } {
   return {
     getById: sandbox.stub().resolves(null),
+    getNextId: sandbox.stub().resolves('qry-9999'),
     list: sandbox.stub().resolves([]),
+    save: sandbox.stub().resolves(),
   }
 }
 
