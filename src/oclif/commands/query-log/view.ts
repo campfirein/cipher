@@ -1,7 +1,7 @@
 import {findProjectRoot} from '@campfirein/brv-transport-client'
 import {Args, Command, Flags} from '@oclif/core'
 
-import {QUERY_LOG_STATUSES, QUERY_LOG_TIERS, type QueryLogStatus, type QueryLogTier} from '../../../server/core/interfaces/storage/i-query-log-store.js'
+import {QUERY_LOG_STATUSES, QUERY_LOG_TIERS, type QueryLogStatus, type QueryLogTier} from '../../../server/core/domain/entities/query-log-entry.js'
 import {FileQueryLogStore} from '../../../server/infra/storage/file-query-log-store.js'
 import {QueryLogUseCase} from '../../../server/infra/usecase/query-log-use-case.js'
 import {getProjectDataDir} from '../../../server/utils/path-utils.js'
@@ -30,7 +30,7 @@ export default class QueryLogView extends Command {
   ]
   static flags = {
     before: Flags.string({
-      description: 'Show entries started before this time (ISO date or relative: 1h, 24h, 7d, 2w)',
+      description: 'Show entries started before this time (ISO date or relative: 30m, 1h, 24h, 7d, 2w)',
     }),
     detail: Flags.boolean({
       default: false,
@@ -47,7 +47,7 @@ export default class QueryLogView extends Command {
       min: 1,
     }),
     since: Flags.string({
-      description: 'Show entries started after this time (ISO date or relative: 1h, 24h, 7d, 2w)',
+      description: 'Show entries started after this time (ISO date or relative: 30m, 1h, 24h, 7d, 2w)',
     }),
     status: Flags.string({
       description: `Filter by status (can be repeated). Options: ${QUERY_LOG_STATUSES.join(', ')}`,
@@ -97,7 +97,7 @@ export default class QueryLogView extends Command {
     const ts = parseTimeFilter(value)
     if (ts === null) {
       this.error(
-        `Invalid time value for ${flagName}: "${value}". Use ISO date (2024-01-15) or relative (1h, 24h, 7d, 2w).`,
+        `Invalid time value for ${flagName}: "${value}". Use ISO date (2024-01-15) or relative (30m, 1h, 24h, 7d, 2w).`,
         {exit: 2},
       )
     }
