@@ -1,8 +1,8 @@
 import {Args, Command} from '@oclif/core'
 import {resolve} from 'node:path'
 
-import {isWorktreePointer, removeWorktree} from '../../../server/infra/project/resolve-project.js'
-import {resolvePath} from '../../../server/utils/path-utils.js'
+import {WorktreeEvents, type WorktreeRemoveResponse} from '../../../shared/transport/events/worktree-events.js'
+import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
 export default class WorktreeRemove extends Command {
   static args = {
@@ -19,24 +19,24 @@ export default class WorktreeRemove extends Command {
 
   async run(): Promise<void> {
     const {args} = await this.parse(WorktreeRemove)
-    const cwd = resolvePath(process.cwd())
+    const targetPath = args.path ? resolve(args.path) : resolve(process.cwd())
 
-    const targetPath = args.path
-      ? resolvePath(resolve(args.path))
-      : cwd
+    try {
+      const result = await withDaemonRetry<WorktreeRemoveResponse>(
+        async (client) =>
+          client.requestWithAck<WorktreeRemoveResponse>(WorktreeEvents.REMOVE, {
+            worktreePath: targetPath,
+          }),
+        {projectPath: process.cwd()},
+      )
 
-    if (!isWorktreePointer(targetPath)) {
-      this.log(`"${targetPath}" is not a worktree (no .brv pointer file found).`)
-
-      return
-    }
-
-    const result = removeWorktree(targetPath)
-
-    if (result.success) {
-      this.log(result.message)
-    } else {
-      this.error(result.message, {exit: 1})
+      if (result.success) {
+        this.log(result.message)
+      } else {
+        this.error(result.message, {exit: 1})
+      }
+    } catch (error) {
+      this.error(formatConnectionError(error), {exit: 1})
     }
   }
 }

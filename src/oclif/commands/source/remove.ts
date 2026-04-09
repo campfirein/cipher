@@ -1,7 +1,7 @@
 import {Args, Command} from '@oclif/core'
 
-import {removeSource} from '../../../server/core/domain/source/source-operations.js'
-import {resolveProject} from '../../../server/infra/project/resolve-project.js'
+import {SourceEvents, type SourceRemoveResponse} from '../../../shared/transport/events/source-events.js'
+import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
 export default class SourceRemove extends Command {
   static args = {
@@ -19,30 +19,22 @@ export default class SourceRemove extends Command {
   async run(): Promise<void> {
     const {args} = await this.parse(SourceRemove)
 
-    // Resolve local project root
-    let projectRoot: string
     try {
-      const resolution = resolveProject()
-      if (!resolution) {
-        this.error("No ByteRover project found. Run 'brv' first to initialize.", {exit: 1})
+      const result = await withDaemonRetry<SourceRemoveResponse>(
+        async (client) =>
+          client.requestWithAck<SourceRemoveResponse>(SourceEvents.REMOVE, {
+            aliasOrPath: args.aliasOrPath,
+          }),
+        {projectPath: process.cwd()},
+      )
 
-        return
+      if (result.success) {
+        this.log(result.message)
+      } else {
+        this.error(result.message, {exit: 1})
       }
-
-      projectRoot = resolution.projectRoot
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      this.error(`Failed to resolve project: ${message}`, {exit: 1})
-
-      return
-    }
-
-    const result = removeSource(projectRoot, args.aliasOrPath)
-
-    if (result.success) {
-      this.log(result.message)
-    } else {
-      this.error(result.message, {exit: 1})
+      this.error(formatConnectionError(error), {exit: 1})
     }
   }
 }

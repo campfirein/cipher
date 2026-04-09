@@ -1,8 +1,8 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {resolve} from 'node:path'
 
-import {addWorktree, findParentProject, hasBrvConfig} from '../../../server/infra/project/resolve-project.js'
-import {resolvePath} from '../../../server/utils/path-utils.js'
+import {type WorktreeAddResponse, WorktreeEvents} from '../../../shared/transport/events/worktree-events.js'
+import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
 export default class WorktreeAdd extends Command {
   static args = {
@@ -26,43 +26,26 @@ export default class WorktreeAdd extends Command {
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(WorktreeAdd)
-    const cwd = resolvePath(process.cwd())
+    const cwd = resolve(process.cwd())
+    const worktreePath = args.path ? resolve(args.path) : cwd
 
-    if (args.path) {
-      // Mode A: run from parent — brv worktree add <path>
-      if (!hasBrvConfig(cwd)) {
-        this.error(
-          'Current directory is not a ByteRover project (no .brv/config.json). ' +
-          "Run 'brv' here first to initialize, or run 'brv worktree add' from a subdirectory to auto-detect the parent.",
-          {exit: 1},
-        )
-      }
-
-      const targetPath = resolvePath(resolve(args.path))
-      const result = addWorktree(cwd, targetPath, {force: flags.force})
+    try {
+      const result = await withDaemonRetry<WorktreeAddResponse>(
+        async (client) =>
+          client.requestWithAck<WorktreeAddResponse>(WorktreeEvents.ADD, {
+            force: flags.force,
+            worktreePath,
+          }),
+        {projectPath: cwd},
+      )
 
       if (result.success) {
         this.log(result.message)
       } else {
         this.error(result.message, {exit: 1})
       }
-    } else {
-      // Mode B: run from subdirectory — brv worktree add (auto-detect parent)
-      const parentProject = findParentProject(cwd)
-      if (!parentProject) {
-        this.error(
-          'No parent project found. Run from the project root and provide a path: brv worktree add <path>',
-          {exit: 1},
-        )
-      }
-
-      const result = addWorktree(parentProject, cwd, {force: flags.force})
-
-      if (result.success) {
-        this.log(result.message)
-      } else {
-        this.error(result.message, {exit: 1})
-      }
+    } catch (error) {
+      this.error(formatConnectionError(error), {exit: 1})
     }
   }
 }

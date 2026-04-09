@@ -1,13 +1,13 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {resolve} from 'node:path'
 
-import {addSource} from '../../../server/core/domain/source/source-operations.js'
-import {resolveProject} from '../../../server/infra/project/resolve-project.js'
+import {type SourceAddResponse, SourceEvents} from '../../../shared/transport/events/source-events.js'
+import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
 export default class SourceAdd extends Command {
   static args = {
     path: Args.string({
-      description: "Path to the target project containing .brv/",
+      description: 'Path to the target project containing .brv/',
       required: true,
     }),
   }
@@ -25,32 +25,25 @@ export default class SourceAdd extends Command {
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(SourceAdd)
-
-    // Resolve local project root
-    let projectRoot: string
-    try {
-      const resolution = resolveProject()
-      if (!resolution) {
-        this.error("No ByteRover project found. Run 'brv' first to initialize.", {exit: 1})
-
-        return
-      }
-
-      projectRoot = resolution.projectRoot
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      this.error(`Failed to resolve project: ${message}`, {exit: 1})
-
-      return
-    }
-
     const targetPath = resolve(args.path)
-    const result = addSource(projectRoot, targetPath, flags.alias)
 
-    if (result.success) {
-      this.log(result.message)
-    } else {
-      this.error(result.message, {exit: 1})
+    try {
+      const result = await withDaemonRetry<SourceAddResponse>(
+        async (client) =>
+          client.requestWithAck<SourceAddResponse>(SourceEvents.ADD, {
+            alias: flags.alias,
+            targetPath,
+          }),
+        {projectPath: process.cwd()},
+      )
+
+      if (result.success) {
+        this.log(result.message)
+      } else {
+        this.error(result.message, {exit: 1})
+      }
+    } catch (error) {
+      this.error(formatConnectionError(error), {exit: 1})
     }
   }
 }
