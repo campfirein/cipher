@@ -121,6 +121,48 @@ describe('CurateExecutor (regression)', () => {
     })
   })
 
+  describe('background queue drain', () => {
+    it('waits for background work before returning curate results', async () => {
+      const createTaskSession = stub().resolves('session-id')
+      const deleteTaskSession = stub().resolves()
+      const drainBackgroundWork = stub().resolves()
+      const executeOnSession = stub().resolves('curated')
+
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession,
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession,
+        drainBackgroundWork,
+        execute: stub().resolves(''),
+        executeOnSession,
+        generate: stub().resolves({content: '', toolCalls: [], usage: {inputTokens: 0, outputTokens: 0}}),
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession: stub(),
+        start: stub().resolves(),
+        stream: stub().resolves({[Symbol.asyncIterator]: () => ({next: () => Promise.resolve({done: true, value: undefined})})}),
+      } as unknown as ICipherAgent
+
+      const executor = new CurateExecutor()
+      const response = await executor.executeWithAgent(agent, {
+        clientCwd: '/workspace',
+        content: 'capture auth knowledge',
+        taskId: 'task-123',
+      })
+
+      expect(response).to.equal('curated')
+      expect(drainBackgroundWork.calledOnce).to.be.true
+      expect(deleteTaskSession.calledOnceWithExactly('session-id')).to.be.true
+      expect(drainBackgroundWork.calledBefore(deleteTaskSession)).to.be.true
+    })
+  })
+
   describe('workspace scoping - projectRoot for post-processing (PR3)', () => {
     it('should use projectRoot (not worktreeRoot) as baseDir for snapshot service', async () => {
       // The curate executor uses baseDir for FileContextTreeSnapshotService,

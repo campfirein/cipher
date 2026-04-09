@@ -34,26 +34,28 @@ npm run typecheck                    # TypeScript type checking
   - **Step 4 — Run tests to confirm they pass**: Execute tests again to verify all tests pass.
   - **Step 5 — Refactor if needed**: Clean up while keeping tests green.
   - If you catch yourself writing implementation code without a failing test, STOP and write the test first.
-- 50% coverage minimum, critical paths must be covered.
+- 80% coverage minimum, critical paths must be covered.
 - Suppress console logging in tests to keep output clean.
 - Unit tests must run fast and run completely in memory. Proper stubbing and mocking must be implemented.
 
-**Feature Development (Outside-In Approach)**:
-- Start from the consumer (oclif command, REPL command, or TUI component) - understand what it needs
-- Define the minimal interface - only what the consumer actually requires
-- Implement the service - fulfill the interface contract
-- Extract entities only if needed - when shared structure emerges across multiple consumers
-- Avoid designing in isolation - always have a concrete consumer driving requirements
+**Feature Development (Outside-In Approach — applies to ALL work: planning, reviewing, coding, and auditing)**:
+- This is a foundational principle, not just a coding guideline. Apply it when writing code, reviewing plans, designing milestones, evaluating project structure, or auditing existing work. If a plan, project, or milestone ordering violates Outside-In, flag it.
+- Start from the consumer (oclif command, REPL command, or TUI component) — understand what it needs
+- Define the minimal interface — only what the consumer actually requires
+- Implement the service — fulfill the interface contract
+- Extract entities only if needed — when shared structure emerges across multiple consumers
+- Avoid designing in isolation — always have a concrete consumer driving requirements
+- When reviewing or planning: if entities, types, or store interfaces are designed before any consumer exists to validate them, that is Inside-Out and must be flagged
 
 ## Architecture
 
 ### Source Layout (`src/`)
 
-- `agent/` — LLM agent: `core/` (interfaces/domain), `infra/` (22 modules), `resources/` (prompt YAML, tool `.txt`)
-- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (29 modules), `utils/`
+- `agent/` — LLM agent: `core/` (interfaces/domain), `infra/` (22 modules, including memory, document-parser), `resources/` (prompts YAML, tools `.txt`)
+- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (29 modules, including vc, hub, mcp, cogit), `utils/`
 - `shared/` — Cross-module: constants, types, transport events, utils
-- `tui/` — React/Ink TUI: app (router/pages), components, features (21 modules), hooks, lib, providers, stores
-- `oclif/` — Commands, hooks, lib (daemon-client, JSON response utils)
+- `tui/` — React/Ink TUI: app (router/pages), components, features (21 modules, including vc, hub, curate), hooks, lib, providers, stores
+- `oclif/` — Commands (`vc/`, `review/`, top-level), hooks, lib (daemon-client, JSON response utils)
 
 **Import boundary** (ESLint-enforced): `tui/` must not import from `server/`, `agent/`, or `oclif/`. Use transport events or `shared/`.
 
@@ -67,13 +69,21 @@ npm run typecheck                    # TypeScript type checking
 
 - Global daemon (`server/infra/daemon/`) hosts Socket.IO transport; clients connect via `@campfirein/brv-transport-client`
 - Agent pool manages forked child processes per project; task routing in `server/infra/process/`
+- MCP server in `server/infra/mcp/` exposes tools via Model Context Protocol
+
+### VC (Version Control)
+
+- `brv vc` — isomorphic-git-based version control (add, branch, checkout, clone, commit, config, fetch, init, log, merge, pull, push, remote, reset, status)
+- Oclif commands: `src/oclif/commands/vc/`, TUI feature: `src/tui/features/vc/`, server infra: `src/server/infra/vc/`
+- Slash commands: `vc-*` definitions in `src/tui/features/commands/definitions/`
 
 ### Agent (`src/agent/`)
 
 - Tools: definitions in `resources/tools/*.txt`, implementations in `infra/tools/implementations/`, registry in `infra/tools/tool-registry.ts`
-- LLM: 18 providers in `infra/llm/providers/`; 7 compression strategies in `infra/llm/context/compression/`
+- Tool categories: file ops (read/write/glob/grep), knowledge (create/expand/search), memory (read/write/edit/delete/list), curate, code exec, map
+- LLM: 18 providers in `infra/llm/providers/`; 6 compression strategies in `infra/llm/context/compression/`
 - System prompts: contributor pattern (XML sections) in `infra/system-prompt/`
-- Map/memory: `infra/map/` (agentic map, context-tree store, LLM map memory, worker pool)
+- Map/memory: `infra/map/` (agentic map, context-tree store, LLM map memory, worker pool); `infra/memory/` (memory-manager, deduplicator)
 - Storage: file-based blob (`infra/blob/`) and key storage (`infra/storage/`) — no SQLite
 
 ## Testing Gotchas
@@ -93,4 +103,4 @@ npm run typecheck                    # TypeScript type checking
 
 ## Stack
 
-oclif v4, TypeScript (ES2022, Node16 modules, strict), React/Ink (TUI), Zustand, axios, socket.io, Mocha + Chai + Sinon + Nock
+oclif v4, TypeScript (ES2022, Node16 modules, strict), React/Ink (TUI), Zustand, axios, socket.io, isomorphic-git, Mocha + Chai + Sinon + Nock

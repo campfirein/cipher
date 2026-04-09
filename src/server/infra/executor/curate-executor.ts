@@ -17,6 +17,8 @@ import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-s
 import {diffStates} from '../context-tree/snapshot-diff.js'
 import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
+type BackgroundDrainAgent = ICipherAgent & {drainBackgroundWork?: () => Promise<void>}
+
 /**
  * CurateExecutor - Executes curate tasks with an injected CipherAgent.
  *
@@ -71,7 +73,7 @@ export class CurateExecutor implements ICurateExecutor {
       // Fail-open: if snapshot fails, skip summary propagation
     }
 
-    const taskSessionId = await agent.createTaskSession(taskId, 'curate', {mapRootEligible: true})
+    const taskSessionId = await agent.createTaskSession(taskId, 'curate', {mapRootEligible: true, userFacing: true})
     try {
       // Task-scoped variable names for RLM pattern.
       // Replace hyphens with underscores: UUIDs have hyphens which are invalid in JS identifiers,
@@ -147,6 +149,8 @@ export class CurateExecutor implements ICurateExecutor {
           // Fail-open: summary/manifest errors never block curation
         }
       }
+
+      await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
 
       return response
     } finally {

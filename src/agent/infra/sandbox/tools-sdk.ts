@@ -111,17 +111,19 @@ export interface SearchKnowledgeResult {
     /** Number of other memories that reference this one */
     backlinkCount?: number
     excerpt: string
-    /** Origin: 'local' for this project, 'shared' for results from a knowledge source */
+    /** Origin: 'local' for this project, 'shared' for results from knowledge source */
     origin?: 'local' | 'shared'
     /** Alias of the shared source (undefined for local results) */
     originAlias?: string
     /** Absolute path to the context tree root this result belongs to. Use join(originContextTreeRoot, path) to read. */
     originContextTreeRoot?: string
+    /** Path to .overview.md for this entry; present when L1 overview exists */
+    overviewPath?: string
     path: string
     /** Top backlink source paths (max 3) */
     relatedPaths?: string[]
     score: number
-    /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' | 'archive_stub' */
+    /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' | 'archive_stub' | 'summary' */
     symbolKind?: string
     /** Resolved hierarchical path in the symbol tree */
     symbolPath?: string

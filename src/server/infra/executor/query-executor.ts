@@ -5,7 +5,7 @@ import type { IFileSystem } from '../../../agent/core/interfaces/i-file-system.j
 import type { ISearchKnowledgeService, SearchKnowledgeResult } from '../../../agent/infra/sandbox/tools-sdk.js'
 import type { IQueryExecutor, QueryExecuteOptions } from '../../core/interfaces/executor/i-query-executor.js'
 
-import { BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR } from '../../constants.js'
+import { ABSTRACT_EXTENSION, BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR } from '../../constants.js'
 import { loadSources } from '../../core/domain/source/source-schema.js'
 import { isDerivedArtifact } from '../context-tree/derived-artifact.js'
 import { FileContextTreeManifestService } from '../context-tree/file-context-tree-manifest-service.js'
@@ -169,7 +169,7 @@ export class QueryExecutor implements IQueryExecutor {
     }
 
     // Create per-task session for parallel isolation (own sandbox + history + LLM service)
-    const taskSessionId = await agent.createTaskSession(taskId, 'query')
+    const taskSessionId = await agent.createTaskSession(taskId, 'query', {userFacing: true})
 
     // Task-scoped variable names for sandbox injection (RLM pattern).
     // Replace hyphens with underscores: UUIDs have hyphens which are invalid in JS identifiers,
@@ -407,7 +407,16 @@ ${responseFormat}`
         files.push(...sharedResults.flat())
       }
 
-      const fingerprint = QueryResultCache.computeFingerprint(files)
+      // Include .abstract.md siblings so newly-written abstracts invalidate the cache.
+      // They are excluded by isDerivedArtifact() above, so we append them separately.
+      const abstractFiles = globResult.files
+        .filter((f) => f.path.endsWith(ABSTRACT_EXTENSION))
+        .map((f) => ({
+          mtime: f.modified?.getTime() ?? 0,
+          path: f.path,
+        }))
+
+      const fingerprint = QueryResultCache.computeFingerprint([...files, ...abstractFiles])
       this.cachedFingerprint = {
         expiresAt: Date.now() + QueryExecutor.FINGERPRINT_CACHE_TTL_MS,
         sourceValidityHash: this.computeSourceValidityHash(),

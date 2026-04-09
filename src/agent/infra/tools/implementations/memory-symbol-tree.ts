@@ -60,8 +60,12 @@ export interface SymbolMetadata {
  */
 export interface SummaryDocLike {
   condensationOrder: number
+  /** First 400 chars of _index.md content, used as excerpt for propagated parent hits */
+  excerpt?: string
   /** Path to the _index.md file, e.g. "domain/topic/_index.md" */
   path: string
+  /** Frontmatter scoring parsed from _index.md — used to apply hotness/importance to propagated hits */
+  scoring?: {importance?: number; maturity?: string; recency?: number}
   tokenCount: number
 }
 

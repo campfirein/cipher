@@ -6,7 +6,7 @@ import {AgentConfigSchema, type LLMUpdates, LLMUpdatesSchema, type ValidatedAgen
 import {AgentStateManager} from './agent-state-manager.js'
 
 /**
- * Abstract base agent class encapsulating DextoAgent patterns.
+ * Abstract base agent class encapsulating.
  *
  * Provides:
  * - Two-phase initialization (constructor + start)
