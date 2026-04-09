@@ -527,6 +527,18 @@ describe('Curate Command', () => {
       expect(loggedMessages).to.include('✓ Context queued for processing.')
     })
 
+    it('should warn when --timeout is used with --detach', async () => {
+      await createCommand('test context', '--detach', '--timeout', '600').run()
+
+      expect(loggedMessages).to.include('Note: --timeout has no effect with --detach')
+    })
+
+    it('should not warn about --timeout with --detach when using default', async () => {
+      await createCommand('test context', '--detach').run()
+
+      expect(loggedMessages).to.not.include('Note: --timeout has no effect with --detach')
+    })
+
     it('should accept --timeout flag in JSON mode', async () => {
       await createJsonCommand('test context', '--detach', '--timeout', '600').run()
 
