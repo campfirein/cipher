@@ -256,7 +256,7 @@ ByteRover can run from a linked subdirectory without creating a nested `.brv/`.
 
 When you run `brv query` or `brv curate` from a linked worktree, implicit defaults use `worktreeRoot` so scope stays stable even if `clientCwd` drifts deeper into the package. Explicit relative paths that you pass yourself, such as `brv curate -f ./src/auth.ts`, still resolve from `clientCwd` to match normal shell behavior.
 
-Use `brv worktree add` from a subdirectory to create a `.brv-worktree.json` link back to the project root, `brv worktree remove` to remove it, and `brv worktree list` to inspect the current link. To search another project's knowledge from here, use `brv source add <path>` (with `brv source list` / `brv source remove` to inspect or detach).
+Use `brv worktree add` from the project root to register a subdirectory (or sibling) as a worktree. This creates a `.brv` pointer file in the target directory that redirects to the parent project — the same pattern git uses for `git worktree`. Use `brv worktree remove` to unregister, and `brv worktree list` to inspect. To search another project's knowledge from here, use `brv source add <path>` (with `brv source list` / `brv source remove` to inspect or detach).
 
 ## Documentation
 
