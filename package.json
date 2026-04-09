@@ -6,7 +6,7 @@
     "context-memory", "autonomous-agents", "coding-assistant",
     "knowledge-management"
   ],
-  "version": "3.0.0",
+  "version": "3.0.1",
   "author": "ByteRover",
   "bin": {
     "brv": "./bin/run.js"
