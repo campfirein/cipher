@@ -21,7 +21,12 @@ function projectKey(projectPath: string): string {
 function isIVcGitConfig(value: unknown): value is IVcGitConfig {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
-  return (v.name === undefined || typeof v.name === 'string') && (v.email === undefined || typeof v.email === 'string')
+  return (
+    (v.name === undefined || typeof v.name === 'string') &&
+    (v.email === undefined || typeof v.email === 'string') &&
+    (v.signingKey === undefined || typeof v.signingKey === 'string') &&
+    (v.commitSign === undefined || typeof v.commitSign === 'boolean')
+  )
 }
 
 export class FileVcGitConfigStore implements IVcGitConfigStore {

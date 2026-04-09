@@ -17,6 +17,14 @@ export type HttpRequestConfig = {
  */
 export interface IHttpClient {
   /**
+   * Performs an HTTP DELETE request.
+   * @param url The URL to request
+   * @param config Optional request configuration (headers, timeout)
+   * @returns A promise that resolves to the response data
+   */
+  delete: <T = void>(url: string, config?: HttpRequestConfig) => Promise<T>
+
+  /**
    * Performs an HTTP GET request.
    * @param url The URL to request
    * @param config Optional request configuration (headers, timeout)

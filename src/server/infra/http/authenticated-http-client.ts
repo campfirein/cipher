@@ -50,6 +50,30 @@ export class AuthenticatedHttpClient implements IHttpClient {
   }
 
   /**
+   * Performs an HTTP DELETE request with authentication headers.
+   * @param url The URL to request
+   * @param config Optional request configuration (headers, timeout)
+   * @returns A promise that resolves to the response data
+   * @throws Error if the request fails
+   */
+  public async delete<T = void>(url: string, config?: HttpRequestConfig): Promise<T> {
+    try {
+      const axiosConfig: AxiosRequestConfig = {
+        headers: this.buildHeaders(config?.headers),
+        httpAgent: ProxyConfig.getProxyAgent(),
+        httpsAgent: ProxyConfig.getProxyAgent(),
+        proxy: false,
+        timeout: config?.timeout,
+      }
+
+      const response = await axios.delete<T>(url, axiosConfig)
+      return response.data
+    } catch (error) {
+      throw this.handleError(error)
+    }
+  }
+
+  /**
    * Performs an HTTP GET request with authentication headers.
    * @param url The URL to request
    * @param config Optional request configuration (headers, timeout)

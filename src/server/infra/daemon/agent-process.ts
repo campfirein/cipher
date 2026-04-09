@@ -240,7 +240,7 @@ async function start(): Promise<void> {
   // 5. Create CipherAgent with lazy providers + transport client
   const envConfig = getCurrentConfig()
   const agentConfig = {
-    apiBaseUrl: envConfig.llmApiBaseUrl,
+    apiBaseUrl: envConfig.llmBaseUrl,
     fileSystem: {workingDirectory: projectPath},
     llm: {
       maxIterations: 10,

@@ -14,6 +14,7 @@ export const VcErrorCode = {
   INVALID_ACTION: 'ERR_VC_INVALID_ACTION',
   INVALID_BRANCH_NAME: 'ERR_VC_INVALID_BRANCH_NAME',
   INVALID_CONFIG_KEY: 'ERR_VC_INVALID_CONFIG_KEY',
+  INVALID_CONFIG_VALUE: 'ERR_VC_INVALID_CONFIG_VALUE',
   INVALID_REF: 'ERR_VC_INVALID_REF',
   INVALID_REMOTE_URL: 'ERR_VC_INVALID_REMOTE_URL',
   MERGE_CONFLICT: 'ERR_VC_MERGE_CONFLICT',
@@ -28,9 +29,12 @@ export const VcErrorCode = {
   NOTHING_STAGED: 'ERR_VC_NOTHING_STAGED',
   NOTHING_TO_PUSH: 'ERR_VC_NOTHING_TO_PUSH',
   NOTHING_TO_RESET: 'ERR_VC_NOTHING_TO_RESET',
+  PASSPHRASE_REQUIRED: 'ERR_VC_PASSPHRASE_REQUIRED',
   PULL_FAILED: 'ERR_VC_PULL_FAILED',
   PUSH_FAILED: 'ERR_VC_PUSH_FAILED',
   REMOTE_ALREADY_EXISTS: 'ERR_VC_REMOTE_ALREADY_EXISTS',
+  SIGNING_KEY_NOT_CONFIGURED: 'ERR_VC_SIGNING_KEY_NOT_CONFIGURED',
+  SIGNING_KEY_NOT_FOUND: 'ERR_VC_SIGNING_KEY_NOT_FOUND',
   UNCOMMITTED_CHANGES: 'ERR_VC_UNCOMMITTED_CHANGES',
   UNRELATED_HISTORIES: 'ERR_VC_UNRELATED_HISTORIES',
   USER_NOT_CONFIGURED: 'ERR_VC_USER_NOT_CONFIGURED',
@@ -54,6 +58,7 @@ export const VcEvents = {
   PUSH: 'vc:push',
   REMOTE: 'vc:remote',
   RESET: 'vc:reset',
+  SIGNING_KEY: 'vc:signing-key',
   STATUS: 'vc:status',
 } as const
 
@@ -87,6 +92,10 @@ export interface IVcAddResponse {
 
 export interface IVcCommitRequest {
   message: string
+  /** Passphrase for encrypted SSH key — only sent on retry after PASSPHRASE_REQUIRED error */
+  passphrase?: string
+  /** Override signing config: true = force sign, false = force no-sign, undefined = use config */
+  sign?: boolean
 }
 
 export interface IVcCommitResponse {
@@ -94,23 +103,58 @@ export interface IVcCommitResponse {
   sha: string
 }
 
-export type VcConfigKey = 'user.email' | 'user.name'
+export type VcConfigKey = 'commit.sign' | 'user.email' | 'user.name' | 'user.signingkey'
 
-export const VC_CONFIG_KEYS: readonly string[] = ['user.name', 'user.email'] satisfies readonly VcConfigKey[]
+export const VC_CONFIG_KEYS: readonly string[] = [
+  'user.name',
+  'user.email',
+  'user.signingkey',
+  'commit.sign',
+] satisfies readonly VcConfigKey[]
 
 export function isVcConfigKey(key: string): key is VcConfigKey {
   return VC_CONFIG_KEYS.includes(key)
 }
 
 export interface IVcConfigRequest {
+  /** If true, import SSH signing config from local/global git config */
+  importGitSigning?: boolean
+  /** Config key (e.g., 'user.email', 'user.signingkey') */
   key: VcConfigKey
+  /** Value to set. Omit for GET. For 'commit.sign': 'true' or 'false'. */
   value?: string
 }
 
 export interface IVcConfigResponse {
+  /** Optional display hint (e.g., fingerprint after setting signingkey) */
+  hint?: string
   key: string
   value: string
 }
+
+// ── Signing Key Management ─────────────────────────────────────────────────
+
+export type VcSigningKeyAction = 'add' | 'list' | 'remove'
+
+export type IVcSigningKeyRequest =
+  | {action: 'add'; publicKey: string; title: string}
+  | {action: 'list'}
+  | {action: 'remove'; keyId: string}
+
+export interface SigningKeyItem {
+  createdAt: string
+  fingerprint: string
+  id: string
+  keyType: string
+  lastUsedAt?: string
+  publicKey: string
+  title: string
+}
+
+export type IVcSigningKeyResponse =
+  | {action: 'add'; key: SigningKeyItem}
+  | {action: 'list'; keys: SigningKeyItem[]}
+  | {action: 'remove'}
 
 export interface IVcPushRequest {
   branch?: string

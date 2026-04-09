@@ -60,6 +60,7 @@ import {
   PushHandler,
   ResetHandler,
   ReviewHandler,
+  SigningKeyHandler,
   SpaceHandler,
   StatusHandler,
   VcHandler,
@@ -99,9 +100,10 @@ export async function setupFeatureHandlers({
   const envConfig = getCurrentConfig()
   const tokenStore = createTokenStore()
   const projectConfigStore = new ProjectConfigStore()
-  const userService = new HttpUserService({apiBaseUrl: envConfig.apiBaseUrl})
-  const teamService = new HttpTeamService({apiBaseUrl: envConfig.apiBaseUrl})
-  const spaceService = new HttpSpaceService({apiBaseUrl: envConfig.apiBaseUrl})
+  const iamApiV1 = `${envConfig.iamBaseUrl}/api/v1`
+  const userService = new HttpUserService({apiBaseUrl: iamApiV1})
+  const teamService = new HttpTeamService({apiBaseUrl: iamApiV1})
+  const spaceService = new HttpSpaceService({apiBaseUrl: iamApiV1})
 
   // Auth handler requires async OIDC discovery
   const discoveryService = new OidcDiscoveryService()
@@ -143,8 +145,9 @@ export async function setupFeatureHandlers({
   const contextTreeWriterService = new FileContextTreeWriterService({snapshotService: contextTreeSnapshotService})
   const contextTreeMerger = new FileContextTreeMerger({snapshotService: contextTreeSnapshotService})
   const contextFileReader = new FileContextFileReader()
-  const cogitPushService = new HttpCogitPushService({apiBaseUrl: envConfig.cogitApiBaseUrl})
-  const cogitPullService = new HttpCogitPullService({apiBaseUrl: envConfig.cogitApiBaseUrl})
+  const cogitApiV1 = `${envConfig.cogitBaseUrl}/api/v1`
+  const cogitPushService = new HttpCogitPushService({apiBaseUrl: cogitApiV1})
+  const cogitPullService = new HttpCogitPullService({apiBaseUrl: cogitApiV1})
 
   // ConnectorManager factory — creates per-project instances since constructor binds to projectRoot
   const fileService = new FsFileService()
@@ -283,6 +286,14 @@ export async function setupFeatureHandlers({
     transport,
     vcGitConfigStore: new FileVcGitConfigStore(),
     webAppUrl: envConfig.webAppUrl,
+  }).setup()
+
+  // Signing Key handler — creates a fresh authenticated HTTP client per request
+  // using the current session key from tokenStore (consistent with PushHandler pattern).
+  new SigningKeyHandler({
+    iamBaseUrl: envConfig.iamBaseUrl,
+    tokenStore,
+    transport,
   }).setup()
 
   log('Feature handlers registered')
