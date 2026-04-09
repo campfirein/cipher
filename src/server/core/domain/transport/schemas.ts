@@ -391,7 +391,7 @@ export const TaskExecuteSchema = z.object({
   /** Task type */
   type: z.enum(['curate', 'curate-folder', 'query']),
   /** Workspace root for scoped query/curate */
-  workspaceRoot: z.string().optional(),
+  worktreeRoot: z.string().optional(),
 })
 
 /**
@@ -650,7 +650,7 @@ export const TaskCreateRequestSchema = z.object({
   /** Task type */
   type: TaskTypeSchema,
   /** Workspace root for scoped query/curate (stable linked root or projectRoot if unlinked) */
-  workspaceRoot: z.string().optional(),
+  worktreeRoot: z.string().optional(),
 })
 
 /**

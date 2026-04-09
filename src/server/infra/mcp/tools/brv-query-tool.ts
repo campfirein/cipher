@@ -89,7 +89,7 @@ export function registerBrvQueryTool(
           projectPath: taskContext.projectRoot,
           taskId,
           type: 'query',
-          workspaceRoot: taskContext.workspaceRoot,
+          worktreeRoot: taskContext.worktreeRoot,
         })
 
         // Wait for the already-listening result promise

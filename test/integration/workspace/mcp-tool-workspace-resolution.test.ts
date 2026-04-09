@@ -20,7 +20,7 @@ import {
   associateProjectWithRetry,
   resolveMcpTaskContext,
 } from '../../../src/server/infra/mcp/tools/mcp-project-context.js'
-import {BrokenWorkspaceLinkError} from '../../../src/server/infra/project/resolve-project.js'
+import {BrokenWorktreeLinkError} from '../../../src/server/infra/project/resolve-project.js'
 
 // ============================================================================
 // Helpers
@@ -32,7 +32,7 @@ function createBrvConfig(dir: string): void {
 }
 
 function createWorkspaceLink(dir: string, projectRoot: string): void {
-  writeFileSync(join(dir, '.brv-workspace.json'), JSON.stringify({projectRoot}, null, 2) + '\n')
+  writeFileSync(join(dir, '.brv-worktree.json'), JSON.stringify({projectRoot}, null, 2) + '\n')
 }
 
 function makeStubTransportClient(sandbox: SinonSandbox): ITransportClient & {requestWithAck: SinonStub} {
@@ -80,7 +80,7 @@ describe('MCP tool workspace resolution (integration)', () => {
 
       const result = resolveMcpTaskContext(workspace)
       expect(result.projectRoot).to.equal(projectRoot)
-      expect(result.workspaceRoot).to.equal(workspace)
+      expect(result.worktreeRoot).to.equal(workspace)
     })
 
     it('should resolve direct project from cwd', () => {
@@ -90,7 +90,7 @@ describe('MCP tool workspace resolution (integration)', () => {
 
       const result = resolveMcpTaskContext(projectRoot)
       expect(result.projectRoot).to.equal(projectRoot)
-      expect(result.workspaceRoot).to.equal(projectRoot)
+      expect(result.worktreeRoot).to.equal(projectRoot)
     })
 
     it('should resolve fresh per call — picks up link creation', () => {
@@ -101,14 +101,14 @@ describe('MCP tool workspace resolution (integration)', () => {
 
       // Before link: walked-up
       const before = resolveMcpTaskContext(workspace)
-      expect(before.workspaceRoot).to.equal(projectRoot) // walked-up: workspaceRoot === projectRoot
+      expect(before.worktreeRoot).to.equal(projectRoot) // walked-up: worktreeRoot === projectRoot
 
       // Create link
       createWorkspaceLink(workspace, projectRoot)
 
       // After link: linked
       const after = resolveMcpTaskContext(workspace)
-      expect(after.workspaceRoot).to.equal(workspace) // linked: workspaceRoot === workspace
+      expect(after.worktreeRoot).to.equal(workspace) // linked: worktreeRoot === workspace
     })
 
     it('should resolve fresh per call — picks up link deletion', () => {
@@ -120,14 +120,14 @@ describe('MCP tool workspace resolution (integration)', () => {
 
       // Before unlink: linked
       const before = resolveMcpTaskContext(workspace)
-      expect(before.workspaceRoot).to.equal(workspace)
+      expect(before.worktreeRoot).to.equal(workspace)
 
       // Remove link
-      unlinkSync(join(workspace, '.brv-workspace.json'))
+      unlinkSync(join(workspace, '.brv-worktree.json'))
 
       // After unlink: reverts to walked-up
       const after = resolveMcpTaskContext(workspace)
-      expect(after.workspaceRoot).to.equal(projectRoot)
+      expect(after.worktreeRoot).to.equal(projectRoot)
     })
 
     it('should throw on broken workspace link', () => {
@@ -135,7 +135,7 @@ describe('MCP tool workspace resolution (integration)', () => {
       mkdirSync(workspace, {recursive: true})
       createWorkspaceLink(workspace, '/nonexistent/project')
 
-      expect(() => resolveMcpTaskContext(workspace)).to.throw(BrokenWorkspaceLinkError)
+      expect(() => resolveMcpTaskContext(workspace)).to.throw(BrokenWorktreeLinkError)
     })
 
     it('should fall back to startup context when resolver returns null', () => {
@@ -144,12 +144,12 @@ describe('MCP tool workspace resolution (integration)', () => {
 
       const startupContext = {
         projectRoot: '/startup/project',
-        workspaceRoot: emptyDir,
+        worktreeRoot: emptyDir,
       }
 
       const result = resolveMcpTaskContext(emptyDir, startupContext)
       expect(result.projectRoot).to.equal('/startup/project')
-      expect(result.workspaceRoot).to.equal(emptyDir)
+      expect(result.worktreeRoot).to.equal(emptyDir)
     })
 
     it('should throw when resolver returns null and no startup context', () => {
@@ -168,13 +168,13 @@ describe('MCP tool workspace resolution (integration)', () => {
 
       const staleStartup = {
         projectRoot: '/stale/project',
-        workspaceRoot: workspace,
+        worktreeRoot: workspace,
       }
 
       // Fresh resolution should win over startup context
       const result = resolveMcpTaskContext(workspace, staleStartup)
       expect(result.projectRoot).to.equal(projectRoot) // from fresh resolver, not stale startup
-      expect(result.workspaceRoot).to.equal(workspace)
+      expect(result.worktreeRoot).to.equal(workspace)
     })
   })
 

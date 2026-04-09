@@ -113,7 +113,7 @@ export class ClientInfo {
 
   /**
    * Update this client's project path, even if already associated.
-   * Used for reassociation after link/unlink operations.
+   * Used for reassociation after worktree add/remove operations.
    *
    * @returns The previous project path (undefined if not previously associated)
    */

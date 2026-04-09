@@ -29,7 +29,7 @@ describe('detectMcpMode', () => {
     expect(result.mode).to.equal('project')
     if (result.mode === 'project') {
       expect(result.projectRoot).to.equal(canonicalTestDir)
-      expect(result.workspaceRoot).to.equal(canonicalTestDir)
+      expect(result.worktreeRoot).to.equal(canonicalTestDir)
     }
   })
 
@@ -46,35 +46,35 @@ describe('detectMcpMode', () => {
     expect(result.mode).to.equal('project')
     if (result.mode === 'project') {
       expect(result.projectRoot).to.equal(canonicalTestDir)
-      expect(result.workspaceRoot).to.equal(canonicalTestDir)
+      expect(result.worktreeRoot).to.equal(canonicalTestDir)
     }
   })
 
-  it('should return linked workspaceRoot when cwd is inside a linked workspace', () => {
+  it('should return linked worktreeRoot when cwd is inside a linked workspace', () => {
     const projectRoot = join(testDir, 'repo')
-    const workspaceRoot = join(projectRoot, 'packages', 'api')
-    const cwd = join(workspaceRoot, 'src')
+    const worktreeRoot = join(projectRoot, 'packages', 'api')
+    const cwd = join(worktreeRoot, 'src')
     mkdirSync(join(projectRoot, '.brv'), {recursive: true})
     writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
     mkdirSync(cwd, {recursive: true})
-    writeFileSync(join(workspaceRoot, '.brv-workspace.json'), JSON.stringify({projectRoot}))
+    writeFileSync(join(worktreeRoot, '.brv-worktree.json'), JSON.stringify({projectRoot}))
     const canonicalProjectRoot = realpathSync(projectRoot)
-    const canonicalWorkspaceRoot = realpathSync(workspaceRoot)
+    const canonicalWorkspaceRoot = realpathSync(worktreeRoot)
 
     const result = detectMcpMode(cwd)
     expect(result.mode).to.equal('project')
     if (result.mode === 'project') {
       expect(result.projectRoot).to.equal(canonicalProjectRoot)
-      expect(result.workspaceRoot).to.equal(canonicalWorkspaceRoot)
+      expect(result.worktreeRoot).to.equal(canonicalWorkspaceRoot)
     }
   })
 
   it('should surface broken workspace link errors', () => {
-    const workspaceRoot = join(testDir, 'packages', 'api')
-    mkdirSync(workspaceRoot, {recursive: true})
-    writeFileSync(join(workspaceRoot, '.brv-workspace.json'), JSON.stringify({projectRoot: '/missing/project'}))
+    const worktreeRoot = join(testDir, 'packages', 'api')
+    mkdirSync(worktreeRoot, {recursive: true})
+    writeFileSync(join(worktreeRoot, '.brv-worktree.json'), JSON.stringify({projectRoot: '/missing/project'}))
 
-    expect(() => detectMcpMode(workspaceRoot)).to.throw('Workspace link broken')
+    expect(() => detectMcpMode(worktreeRoot)).to.throw('Worktree link broken')
   })
 
   it('should return "global" with no projectRoot when no .brv/config.json exists in any ancestor', () => {

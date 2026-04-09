@@ -129,7 +129,7 @@ export interface IClientManager {
 
   /**
    * Update a client's project path, even if already associated.
-   * Used for reassociation after link/unlink operations.
+   * Used for reassociation after worktree add/remove operations.
    * Moves the client from the old project index to the new one,
    * and fires onProjectEmpty if the old project has no remaining external clients.
    *

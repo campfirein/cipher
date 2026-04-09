@@ -3,11 +3,11 @@ import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {BRV_DIR, PROJECT_CONFIG_FILE, WORKSPACE_LINK_FILE} from '../../../../src/server/constants.js'
+import {BRV_DIR, PROJECT_CONFIG_FILE, WORKTREE_LINK_FILE} from '../../../../src/server/constants.js'
 import {
-  BrokenWorkspaceLinkError,
-  findNearestWorkspaceLink,
-  MalformedWorkspaceLinkError,
+  BrokenWorktreeLinkError,
+  findNearestWorktreeLink,
+  MalformedWorktreeLinkError,
   resolveProject,
 } from '../../../../src/server/infra/project/resolve-project.js'
 
@@ -18,7 +18,7 @@ function createBrvConfig(dir: string): void {
 }
 
 function createWorkspaceLink(dir: string, projectRoot: string): void {
-  writeFileSync(join(dir, WORKSPACE_LINK_FILE), JSON.stringify({projectRoot}))
+  writeFileSync(join(dir, WORKTREE_LINK_FILE), JSON.stringify({projectRoot}))
 }
 
 function createGitRoot(dir: string): void {
@@ -45,7 +45,7 @@ describe('resolve-project', () => {
       expect(result).to.not.be.null
       expect(result!.source).to.equal('flag')
       expect(result!.projectRoot).to.equal(testDir)
-      expect(result!.workspaceRoot).to.equal(testDir)
+      expect(result!.worktreeRoot).to.equal(testDir)
     })
 
     it('should return null when flag points to dir without .brv/', () => {
@@ -64,11 +64,11 @@ describe('resolve-project', () => {
       expect(result).to.not.be.null
       expect(result!.source).to.equal('direct')
       expect(result!.projectRoot).to.equal(testDir)
-      expect(result!.workspaceRoot).to.equal(testDir)
+      expect(result!.worktreeRoot).to.equal(testDir)
       expect(result!.shadowedLink).to.be.undefined
     })
 
-    it('should detect shadowed link when both .brv/ and .brv-workspace.json exist', () => {
+    it('should detect shadowed link when both .brv/ and .brv-worktree.json exist', () => {
       createBrvConfig(testDir)
       createWorkspaceLink(testDir, testDir)
 
@@ -80,7 +80,7 @@ describe('resolve-project', () => {
     })
   })
 
-  describe('step 3: linked via .brv-workspace.json', () => {
+  describe('step 3: linked via .brv-worktree.json', () => {
     it('should resolve linked workspace from subdirectory', () => {
       createBrvConfig(testDir)
       const subDir = join(testDir, 'packages', 'api')
@@ -92,8 +92,8 @@ describe('resolve-project', () => {
       expect(result).to.not.be.null
       expect(result!.source).to.equal('linked')
       expect(result!.projectRoot).to.equal(testDir)
-      expect(result!.workspaceRoot).to.equal(subDir)
-      expect(result!.linkFile).to.equal(join(subDir, WORKSPACE_LINK_FILE))
+      expect(result!.worktreeRoot).to.equal(subDir)
+      expect(result!.linkFile).to.equal(join(subDir, WORKTREE_LINK_FILE))
     })
 
     it('should pick nearest link in multi-link ambiguity', () => {
@@ -110,18 +110,18 @@ describe('resolve-project', () => {
 
       expect(result).to.not.be.null
       expect(result!.source).to.equal('linked')
-      expect(result!.workspaceRoot).to.equal(api)
+      expect(result!.worktreeRoot).to.equal(api)
     })
 
-    it('should throw BrokenWorkspaceLinkError when target has no .brv/', () => {
+    it('should throw BrokenWorktreeLinkError when target has no .brv/', () => {
       const subDir = join(testDir, 'packages', 'api')
       mkdirSync(subDir, {recursive: true})
       createWorkspaceLink(subDir, join(testDir, 'nonexistent'))
 
-      expect(() => resolveProject({cwd: subDir})).to.throw(BrokenWorkspaceLinkError)
+      expect(() => resolveProject({cwd: subDir})).to.throw(BrokenWorktreeLinkError)
     })
 
-    it('should throw BrokenWorkspaceLinkError when target .brv/ is gone', () => {
+    it('should throw BrokenWorktreeLinkError when target .brv/ is gone', () => {
       const projectDir = join(testDir, 'project')
       mkdirSync(projectDir, {recursive: true})
       // No .brv/ created at projectDir
@@ -130,23 +130,23 @@ describe('resolve-project', () => {
       mkdirSync(subDir, {recursive: true})
       createWorkspaceLink(subDir, projectDir)
 
-      expect(() => resolveProject({cwd: subDir})).to.throw(BrokenWorkspaceLinkError)
+      expect(() => resolveProject({cwd: subDir})).to.throw(BrokenWorktreeLinkError)
     })
 
-    it('should throw MalformedWorkspaceLinkError for invalid JSON', () => {
+    it('should throw MalformedWorktreeLinkError for invalid JSON', () => {
       const subDir = join(testDir, 'packages', 'api')
       mkdirSync(subDir, {recursive: true})
-      writeFileSync(join(subDir, WORKSPACE_LINK_FILE), 'not json{{{')
+      writeFileSync(join(subDir, WORKTREE_LINK_FILE), 'not json{{{')
 
-      expect(() => resolveProject({cwd: subDir})).to.throw(MalformedWorkspaceLinkError, /invalid JSON/)
+      expect(() => resolveProject({cwd: subDir})).to.throw(MalformedWorktreeLinkError, /invalid JSON/)
     })
 
-    it('should throw MalformedWorkspaceLinkError for missing projectRoot field', () => {
+    it('should throw MalformedWorktreeLinkError for missing projectRoot field', () => {
       const subDir = join(testDir, 'packages', 'api')
       mkdirSync(subDir, {recursive: true})
-      writeFileSync(join(subDir, WORKSPACE_LINK_FILE), JSON.stringify({wrong: 'field'}))
+      writeFileSync(join(subDir, WORKTREE_LINK_FILE), JSON.stringify({wrong: 'field'}))
 
-      expect(() => resolveProject({cwd: subDir})).to.throw(MalformedWorkspaceLinkError, /missing or invalid/)
+      expect(() => resolveProject({cwd: subDir})).to.throw(MalformedWorktreeLinkError, /missing or invalid/)
     })
   })
 
@@ -161,7 +161,7 @@ describe('resolve-project', () => {
       expect(result).to.not.be.null
       expect(result!.source).to.equal('walked-up')
       expect(result!.projectRoot).to.equal(testDir)
-      expect(result!.workspaceRoot).to.equal(testDir)
+      expect(result!.worktreeRoot).to.equal(testDir)
     })
   })
 
@@ -223,27 +223,27 @@ describe('resolve-project', () => {
     })
   })
 
-  describe('findNearestWorkspaceLink', () => {
+  describe('findNearestWorktreeLink', () => {
     it('should find link file at cwd', () => {
-    writeFileSync(join(testDir, WORKSPACE_LINK_FILE), JSON.stringify({projectRoot: '/some/path'}))
+    writeFileSync(join(testDir, WORKTREE_LINK_FILE), JSON.stringify({projectRoot: '/some/path'}))
 
-    const result = findNearestWorkspaceLink(testDir)
+    const result = findNearestWorktreeLink(testDir)
 
-    expect(result).to.equal(join(testDir, WORKSPACE_LINK_FILE))
+    expect(result).to.equal(join(testDir, WORKTREE_LINK_FILE))
   })
 
   it('should find link file in ancestor', () => {
-    writeFileSync(join(testDir, WORKSPACE_LINK_FILE), JSON.stringify({projectRoot: '/some/path'}))
+    writeFileSync(join(testDir, WORKTREE_LINK_FILE), JSON.stringify({projectRoot: '/some/path'}))
     const deep = join(testDir, 'a', 'b')
     mkdirSync(deep, {recursive: true})
 
-    const result = findNearestWorkspaceLink(deep)
+    const result = findNearestWorktreeLink(deep)
 
-    expect(result).to.equal(join(testDir, WORKSPACE_LINK_FILE))
+    expect(result).to.equal(join(testDir, WORKTREE_LINK_FILE))
   })
 
   it('should return null when no link file exists', () => {
-    const result = findNearestWorkspaceLink(testDir)
+    const result = findNearestWorktreeLink(testDir)
 
     expect(result).to.be.null
   })

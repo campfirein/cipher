@@ -5,7 +5,7 @@
  *    ReferenceError when the LLM calls instructionsVar.slice(...) in code-exec.
  *
  * 2. Workspace path resolution (PR3): relative folderPath resolves from clientCwd,
- *    absent folderPath defaults to workspaceRoot, absolute folderPath used as-is.
+ *    absent folderPath defaults to worktreeRoot, absolute folderPath used as-is.
  */
 
 import {expect} from 'chai'
@@ -110,7 +110,7 @@ describe('FolderPackExecutor', () => {
     })
 
     describe('relative folderPath resolves from clientCwd (shell semantics)', () => {
-      it('should resolve relative folderPath from clientCwd, not workspaceRoot', async () => {
+      it('should resolve relative folderPath from clientCwd, not worktreeRoot', async () => {
         const packStub = stub().resolves({fileCount: 1, files: [], totalLines: 10})
         const service = createMockFolderPackService(packStub)
         const executor = new FolderPackExecutor(service)
@@ -124,7 +124,7 @@ describe('FolderPackExecutor', () => {
           folderPath: './src',
           projectRoot: testDir,
           taskId: 'task-1',
-          workspaceRoot: path.join(testDir, 'packages/api'),
+          worktreeRoot: path.join(testDir, 'packages/api'),
         })
 
         const resolvedPath = packStub.firstCall.args[0]
@@ -154,28 +154,28 @@ describe('FolderPackExecutor', () => {
       })
     })
 
-    describe('absent folderPath defaults to workspaceRoot', () => {
-      it('should default to workspaceRoot when folderPath is not provided', async () => {
+    describe('absent folderPath defaults to worktreeRoot', () => {
+      it('should default to worktreeRoot when folderPath is not provided', async () => {
         const packStub = stub().resolves({fileCount: 1, files: [], totalLines: 10})
         const service = createMockFolderPackService(packStub)
         const executor = new FolderPackExecutor(service)
         const agent = createMockAgent()
 
-        const workspaceRoot = path.join(testDir, 'packages/api')
-        await mkdir(workspaceRoot, {recursive: true})
+        const worktreeRoot = path.join(testDir, 'packages/api')
+        await mkdir(worktreeRoot, {recursive: true})
 
         await executor.executeWithAgent(agent, {
-          clientCwd: path.join(workspaceRoot, 'src'),
+          clientCwd: path.join(worktreeRoot, 'src'),
           projectRoot: testDir,
           taskId: 'task-3',
-          workspaceRoot,
+          worktreeRoot,
         })
 
         const resolvedPath = packStub.firstCall.args[0]
-        expect(resolvedPath).to.equal(workspaceRoot)
+        expect(resolvedPath).to.equal(worktreeRoot)
       })
 
-      it('should fall back to clientCwd when both folderPath and workspaceRoot are absent', async () => {
+      it('should fall back to clientCwd when both folderPath and worktreeRoot are absent', async () => {
         const packStub = stub().resolves({fileCount: 1, files: [], totalLines: 10})
         const service = createMockFolderPackService(packStub)
         const executor = new FolderPackExecutor(service)

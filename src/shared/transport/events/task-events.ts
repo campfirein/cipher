@@ -16,7 +16,7 @@ export interface TaskCreateRequest {
   projectPath?: string
   taskId: string
   type: 'curate' | 'curate-folder' | 'query'
-  workspaceRoot?: string
+  worktreeRoot?: string
 }
 
 export interface TaskAckResponse {

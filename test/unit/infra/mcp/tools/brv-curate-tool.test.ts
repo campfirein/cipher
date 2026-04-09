@@ -123,7 +123,7 @@ function setupCurateHandler(options: {
       (() => {
         const workingDirectory = options.getWorkingDirectory()
         return workingDirectory
-          ? {projectRoot: workingDirectory, workspaceRoot: workingDirectory}
+          ? {projectRoot: workingDirectory, worktreeRoot: workingDirectory}
           : undefined
       }),
   )
@@ -352,7 +352,7 @@ describe('brv-curate-tool', () => {
         expect(createCall).to.exist
         expect(createCall!.args[1]).to.have.property('clientCwd', projectRoot)
         expect(createCall!.args[1]).to.have.property('projectPath', canonicalProjectRoot)
-        expect(createCall!.args[1]).to.have.property('workspaceRoot', canonicalProjectRoot)
+        expect(createCall!.args[1]).to.have.property('worktreeRoot', canonicalProjectRoot)
       } finally {
         rmSync(projectRoot, {force: true, recursive: true})
       }
@@ -572,7 +572,7 @@ describe('brv-curate-tool', () => {
       const projectRoot = mkdtempSync(join(tmpdir(), 'brv-curate-broken-link-'))
       const workspace = join(projectRoot, 'packages', 'api')
       mkdirSync(workspace, {recursive: true})
-      writeFileSync(join(workspace, '.brv-workspace.json'), JSON.stringify({projectRoot: '/missing/project'}))
+      writeFileSync(join(workspace, '.brv-worktree.json'), JSON.stringify({projectRoot: '/missing/project'}))
 
       try {
         const {client} = createMockClient()
@@ -584,7 +584,7 @@ describe('brv-curate-tool', () => {
         const result = await handler({context: 'Auth pattern', cwd: workspace})
 
         expect(result.isError).to.be.true
-        expect(result.content[0].text).to.include('Workspace link broken')
+        expect(result.content[0].text).to.include('Worktree link broken')
       } finally {
         rmSync(projectRoot, {force: true, recursive: true})
       }

@@ -100,8 +100,8 @@ export default class Status extends Command {
 
     this.log(`Project: ${status.projectRoot ?? status.currentDirectory}`)
 
-    if (status.workspaceRoot && status.workspaceRoot !== status.projectRoot) {
-      this.log(`Workspace: ${status.workspaceRoot} (linked)`)
+    if (status.worktreeRoot && status.worktreeRoot !== status.projectRoot) {
+      this.log(`Worktree: ${status.worktreeRoot} (linked)`)
     }
 
     if (status.resolverError) {
@@ -109,25 +109,25 @@ export default class Status extends Command {
     }
 
     if (status.shadowedLink) {
-      this.log(chalk.yellow('⚠ Shadowed .brv-workspace.json found — .brv/ takes priority'))
+      this.log(chalk.yellow('⚠ Shadowed .brv-worktree.json found — .brv/ takes priority'))
     }
 
     if (verbose && status.resolutionSource) {
       this.log(`Resolution: ${status.resolutionSource}`)
     }
 
-    // Knowledge links
-    if (status.knowledgeLinksError) {
-      this.log(chalk.yellow(`⚠ ${status.knowledgeLinksError}`))
-    } else if (status.knowledgeLinks && status.knowledgeLinks.length > 0) {
-      this.log('Knowledge Links:')
-      for (const link of status.knowledgeLinks) {
-        if (link.valid) {
-          const sizeInfo = link.contextTreeSize === undefined ? '' : ` [${link.contextTreeSize} files]`
-          this.log(`   ${link.alias} → ${link.projectRoot} ${chalk.green('(valid)')}${sizeInfo}`)
+    // Knowledge sources
+    if (status.sourcesError) {
+      this.log(chalk.yellow(`⚠ ${status.sourcesError}`))
+    } else if (status.sources && status.sources.length > 0) {
+      this.log('Knowledge Sources:')
+      for (const source of status.sources) {
+        if (source.valid) {
+          const sizeInfo = source.contextTreeSize === undefined ? '' : ` [${source.contextTreeSize} files]`
+          this.log(`   ${source.alias} → ${source.projectRoot} ${chalk.green('(valid)')}${sizeInfo}`)
         } else {
           this.log(
-            `   ${link.alias} → ${link.projectRoot} ${chalk.red(`[BROKEN - run brv unlink-knowledge ${link.alias}]`)}`,
+            `   ${source.alias} → ${source.projectRoot} ${chalk.red(`[BROKEN - run brv source remove ${source.alias}]`)}`,
           )
         }
       }

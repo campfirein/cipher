@@ -1,9 +1,9 @@
 /**
- * Link command validation tests
+ * Worktree add command validation tests
  *
- * Tests the exported helpers from resolve-project.ts used by `brv link`:
+ * Tests the exported helpers from resolve-project.ts used by `brv worktree add`:
  * - hasBrvConfig: checks for .brv/config.json
- * - hasWorkspaceLink: checks for .brv-workspace.json
+ * - hasWorktreeLink: checks for .brv-worktree.json
  * - isDescendantOf: validates ancestor relationship
  *
  * Also tests the link file creation flow (write + read-back validation).
@@ -14,11 +14,11 @@ import {mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSyn
 import {tmpdir} from 'node:os'
 import {join, sep} from 'node:path'
 
-import {BRV_DIR, PROJECT_CONFIG_FILE, WORKSPACE_LINK_FILE} from '../../../../src/server/constants.js'
-import {WorkspaceLinkSchema} from '../../../../src/server/core/domain/project/workspace-link-schema.js'
+import {BRV_DIR, PROJECT_CONFIG_FILE, WORKTREE_LINK_FILE} from '../../../../src/server/constants.js'
+import {WorktreeLinkSchema} from '../../../../src/server/core/domain/project/worktree-link-schema.js'
 import {
   hasBrvConfig,
-  hasWorkspaceLink,
+  hasWorktreeLink,
   isDescendantOf,
   isGitRoot,
 } from '../../../../src/server/infra/project/resolve-project.js'
@@ -30,10 +30,10 @@ function createBrvConfig(dir: string): void {
 }
 
 function createWorkspaceLink(dir: string, projectRoot: string): void {
-  writeFileSync(join(dir, WORKSPACE_LINK_FILE), JSON.stringify({projectRoot}))
+  writeFileSync(join(dir, WORKTREE_LINK_FILE), JSON.stringify({projectRoot}))
 }
 
-describe('link command validation helpers', () => {
+describe('worktree add command validation helpers', () => {
   let testDir: string
 
   beforeEach(() => {
@@ -62,15 +62,15 @@ describe('link command validation helpers', () => {
     })
   })
 
-  describe('hasWorkspaceLink', () => {
-    it('should return true when .brv-workspace.json exists', () => {
+  describe('hasWorktreeLink', () => {
+    it('should return true when .brv-worktree.json exists', () => {
       createWorkspaceLink(testDir, '/some/project')
 
-      expect(hasWorkspaceLink(testDir)).to.be.true
+      expect(hasWorktreeLink(testDir)).to.be.true
     })
 
-    it('should return false when .brv-workspace.json does not exist', () => {
-      expect(hasWorkspaceLink(testDir)).to.be.false
+    it('should return false when .brv-worktree.json does not exist', () => {
+      expect(hasWorktreeLink(testDir)).to.be.false
     })
   })
 
@@ -102,33 +102,33 @@ describe('link command validation helpers', () => {
   })
 
   describe('link file creation flow', () => {
-    it('should create a valid .brv-workspace.json that passes schema validation', () => {
+    it('should create a valid .brv-worktree.json that passes schema validation', () => {
       const projectRoot = testDir
       const workspaceDir = join(testDir, 'packages', 'api')
       mkdirSync(workspaceDir, {recursive: true})
 
       // Simulate link creation (same as oclif command does)
       const linkContent = JSON.stringify({projectRoot}, null, 2) + '\n'
-      writeFileSync(join(workspaceDir, WORKSPACE_LINK_FILE), linkContent, 'utf8')
+      writeFileSync(join(workspaceDir, WORKTREE_LINK_FILE), linkContent, 'utf8')
 
       // Read back and validate with schema
-      const raw = readFileSync(join(workspaceDir, WORKSPACE_LINK_FILE), 'utf8')
+      const raw = readFileSync(join(workspaceDir, WORKTREE_LINK_FILE), 'utf8')
       const parsed = JSON.parse(raw)
-      const result = WorkspaceLinkSchema.safeParse(parsed)
+      const result = WorktreeLinkSchema.safeParse(parsed)
 
       expect(result.success).to.be.true
       expect(result.data?.projectRoot).to.equal(projectRoot)
     })
 
-    it('should be detectable by hasWorkspaceLink after creation', () => {
+    it('should be detectable by hasWorktreeLink after creation', () => {
       const workspaceDir = join(testDir, 'sub')
       mkdirSync(workspaceDir, {recursive: true})
 
-      expect(hasWorkspaceLink(workspaceDir)).to.be.false
+      expect(hasWorktreeLink(workspaceDir)).to.be.false
 
       createWorkspaceLink(workspaceDir, testDir)
 
-      expect(hasWorkspaceLink(workspaceDir)).to.be.true
+      expect(hasWorktreeLink(workspaceDir)).to.be.true
     })
 
     it('should not create link when cwd has .brv/config.json (shadow guard)', () => {
@@ -163,14 +163,14 @@ describe('link command validation helpers', () => {
       createWorkspaceLink(workspaceDir, testDir)
 
       // Read existing link
-      const raw = readFileSync(join(workspaceDir, WORKSPACE_LINK_FILE), 'utf8')
+      const raw = readFileSync(join(workspaceDir, WORKTREE_LINK_FILE), 'utf8')
       const existing = JSON.parse(raw)
 
       expect(existing.projectRoot).to.equal(testDir)
 
       // Overwrite with same target — should succeed silently
       createWorkspaceLink(workspaceDir, testDir)
-      const rawAfter = readFileSync(join(workspaceDir, WORKSPACE_LINK_FILE), 'utf8')
+      const rawAfter = readFileSync(join(workspaceDir, WORKTREE_LINK_FILE), 'utf8')
       const after = JSON.parse(rawAfter)
 
       expect(after.projectRoot).to.equal(testDir)
@@ -188,7 +188,7 @@ describe('link command validation helpers', () => {
       createWorkspaceLink(workspaceDir, oldTarget)
       createWorkspaceLink(workspaceDir, newTarget)
 
-      const raw = readFileSync(join(workspaceDir, WORKSPACE_LINK_FILE), 'utf8')
+      const raw = readFileSync(join(workspaceDir, WORKTREE_LINK_FILE), 'utf8')
       const result = JSON.parse(raw)
 
       expect(result.projectRoot).to.equal(newTarget)

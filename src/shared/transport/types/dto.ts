@@ -127,7 +127,7 @@ export interface HubEntryDTO {
   version: string
 }
 
-export interface KnowledgeLinkStatusDTO {
+export interface SourceStatusDTO {
   alias: string
   contextTreeSize?: number
   projectRoot: string
@@ -159,10 +159,6 @@ export interface StatusDTO {
   contextTreeStatus: 'git_vc' | 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
   /** @deprecated Use projectRoot instead. Kept for backward compatibility. */
   currentDirectory: string
-  /** Knowledge links to other projects' context trees (read-only) */
-  knowledgeLinks?: KnowledgeLinkStatusDTO[]
-  /** Error message when knowledge-links.json is malformed */
-  knowledgeLinksError?: string
   /** Number of files with pending HITL review (0 if none or unavailable). */
   pendingReviewCount?: number
   /** Absolute path to the project root (directory containing .brv/) */
@@ -173,11 +169,15 @@ export interface StatusDTO {
   resolverError?: string
   /** URL to the local review UI (only set when pendingReviewCount > 0). */
   reviewUrl?: string
-  /** True if cwd has both .brv/config.json and .brv-workspace.json */
+  /** True if cwd has both .brv/config.json and .brv-worktree.json */
   shadowedLink?: boolean
+  /** Knowledge sources from other projects' context trees (read-only) */
+  sources?: SourceStatusDTO[]
+  /** Error message when sources.json is malformed */
+  sourcesError?: string
   spaceName?: string
   teamName?: string
   userEmail?: string
   /** Stable workspace root (link directory), or projectRoot if unlinked */
-  workspaceRoot?: string
+  worktreeRoot?: string
 }

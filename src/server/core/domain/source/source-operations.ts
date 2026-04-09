@@ -1,15 +1,15 @@
 import {existsSync, readFileSync, realpathSync, writeFileSync} from 'node:fs'
 import {basename, join} from 'node:path'
 
-import {BRV_DIR, KNOWLEDGE_LINKS_FILE, PROJECT_CONFIG_FILE} from '../../../constants.js'
+import {BRV_DIR, PROJECT_CONFIG_FILE, SOURCES_FILE} from '../../../constants.js'
 import {
-  getKnowledgeLinkStatuses,
-  type KnowledgeLink,
-  type KnowledgeLinksFile,
-  KnowledgeLinksFileSchema,
-  type KnowledgeLinkStatus,
-  loadKnowledgeLinks,
-} from './knowledge-link-schema.js'
+  getSourceStatuses,
+  loadSources,
+  type Source,
+  type SourcesFile,
+  SourcesFileSchema,
+  type SourceStatus,
+} from './source-schema.js'
 
 // ============================================================================
 // Result type
@@ -21,16 +21,16 @@ export interface OperationResult {
 }
 
 // ============================================================================
-// Add knowledge link
+// Add source
 // ============================================================================
 
 /**
- * Adds a read-only knowledge link to another project's context tree.
+ * Adds a read-only knowledge source from another project's context tree.
  *
  * Validates: target is a brv project, not self, not duplicate, not circular.
- * Writes to `.brv/knowledge-links.json`.
+ * Writes to `.brv/sources.json`.
  */
-export function addKnowledgeLink(projectRoot: string, targetPath: string, alias?: string): OperationResult {
+export function addSource(projectRoot: string, targetPath: string, alias?: string): OperationResult {
   // 1. Local project must have .brv/
   const localConfigPath = join(projectRoot, BRV_DIR, PROJECT_CONFIG_FILE)
   if (!existsSync(localConfigPath)) {
@@ -60,32 +60,32 @@ export function addKnowledgeLink(projectRoot: string, targetPath: string, alias?
   }
 
   if (targetRoot === canonicalProjectRoot) {
-    return {message: 'Cannot link to self.', success: false}
+    return {message: 'Cannot add a source pointing to the current project.', success: false}
   }
 
   // 5. Read existing file — refuse to mutate if malformed
-  const existing = readKnowledgeLinksFile(projectRoot)
+  const existing = readSourcesFile(projectRoot)
   if (existing.error) {
     return {message: existing.error, success: false}
   }
 
   // 6. Not duplicate
-  const isDuplicate = existing.data.links.some((link) => {
+  const isDuplicate = existing.data.sources.some((source) => {
     try {
-      return realpathSync(link.projectRoot) === targetRoot
+      return realpathSync(source.projectRoot) === targetRoot
     } catch {
-      return link.projectRoot === targetRoot
+      return source.projectRoot === targetRoot
     }
   })
 
   if (isDuplicate) {
-    return {message: `Already linked to "${targetRoot}".`, success: false}
+    return {message: `Source "${targetRoot}" already added.`, success: false}
   }
 
   // 7. Not circular
-  if (detectCircularLink(canonicalProjectRoot, targetRoot)) {
+  if (detectCircularSource(canonicalProjectRoot, targetRoot)) {
     return {
-      message: `Circular link detected: "${basename(targetRoot)}" already links back to this project.`,
+      message: `Circular source detected: "${basename(targetRoot)}" already references this project as a source.`,
       success: false,
     }
   }
@@ -98,41 +98,41 @@ export function addKnowledgeLink(projectRoot: string, targetPath: string, alias?
   const derivedAlias = alias ?? basename(targetRoot)
 
   // 9. Ensure alias uniqueness — append suffix if collision
-  const finalAlias = ensureUniqueAlias(derivedAlias, existing.data.links)
+  const finalAlias = ensureUniqueAlias(derivedAlias, existing.data.sources)
 
   // 10. Append and write
-  const newLink: KnowledgeLink = {
+  const newSource: Source = {
     addedAt: new Date().toISOString(),
     alias: finalAlias,
     projectRoot: targetRoot,
     readOnly: true,
   }
 
-  existing.data.links.push(newLink)
-  writeKnowledgeLinksFile(projectRoot, existing.data)
+  existing.data.sources.push(newSource)
+  writeSourcesFile(projectRoot, existing.data)
 
-  return {message: `Linked to "${targetRoot}" as "${finalAlias}".`, success: true}
+  return {message: `Added source "${targetRoot}" as "${finalAlias}".`, success: true}
 }
 
 // ============================================================================
-// Remove knowledge link
+// Remove source
 // ============================================================================
 
 /**
- * Removes a knowledge link by alias or path.
+ * Removes a knowledge source by alias or path.
  */
-export function removeKnowledgeLink(projectRoot: string, aliasOrPath: string): OperationResult {
-  const existing = readKnowledgeLinksFile(projectRoot)
+export function removeSource(projectRoot: string, aliasOrPath: string): OperationResult {
+  const existing = readSourcesFile(projectRoot)
   if (existing.error) {
     return {message: existing.error, success: false}
   }
 
-  if (existing.data.links.length === 0) {
-    return {message: 'No knowledge links configured.', success: false}
+  if (existing.data.sources.length === 0) {
+    return {message: 'No knowledge sources configured.', success: false}
   }
 
   // Try match by alias first, then by canonical path
-  let matchIndex = existing.data.links.findIndex((link) => link.alias === aliasOrPath)
+  let matchIndex = existing.data.sources.findIndex((source) => source.alias === aliasOrPath)
 
   if (matchIndex === -1) {
     // Try matching by path
@@ -143,71 +143,71 @@ export function removeKnowledgeLink(projectRoot: string, aliasOrPath: string): O
       canonicalTarget = aliasOrPath
     }
 
-    matchIndex = existing.data.links.findIndex((link) => {
+    matchIndex = existing.data.sources.findIndex((source) => {
       try {
-        return realpathSync(link.projectRoot) === canonicalTarget
+        return realpathSync(source.projectRoot) === canonicalTarget
       } catch {
-        return link.projectRoot === canonicalTarget
+        return source.projectRoot === canonicalTarget
       }
     })
   }
 
   if (matchIndex === -1) {
-    return {message: `No knowledge link found matching "${aliasOrPath}".`, success: false}
+    return {message: `No source found matching "${aliasOrPath}".`, success: false}
   }
 
-  const removed = existing.data.links.splice(matchIndex, 1)[0]
-  writeKnowledgeLinksFile(projectRoot, existing.data)
+  const removed = existing.data.sources.splice(matchIndex, 1)[0]
+  writeSourcesFile(projectRoot, existing.data)
 
-  return {message: `Removed knowledge link "${removed.alias}" (${removed.projectRoot}).`, success: true}
+  return {message: `Removed source "${removed.alias}" (${removed.projectRoot}).`, success: true}
 }
 
 // ============================================================================
-// List knowledge links
+// List sources
 // ============================================================================
 
-export interface ListKnowledgeLinksResult {
+export interface ListSourcesResult {
   error?: string
-  statuses: KnowledgeLinkStatus[]
+  statuses: SourceStatus[]
 }
 
 /**
- * Returns status for all knowledge links in the project.
+ * Returns status for all sources in the project.
  * Surfaces malformed file errors instead of silently returning empty.
  */
-export function listKnowledgeLinkStatuses(projectRoot: string): ListKnowledgeLinksResult {
-  const existing = readKnowledgeLinksFile(projectRoot)
+export function listSourceStatuses(projectRoot: string): ListSourcesResult {
+  const existing = readSourcesFile(projectRoot)
   if (existing.error) {
     return {error: existing.error, statuses: []}
   }
 
-  if (existing.data.links.length === 0) {
+  if (existing.data.sources.length === 0) {
     return {statuses: []}
   }
 
-  return {statuses: getKnowledgeLinkStatuses(existing.data.links)}
+  return {statuses: getSourceStatuses(existing.data.sources)}
 }
 
 // ============================================================================
-// Circular link detection
+// Circular source detection
 // ============================================================================
 
 /**
- * Checks if linking projectRoot → targetRoot would create a circular dependency.
- * A circular link exists if the target project has a knowledge link pointing back
- * to the current project (direct cycle only — no transitive check in v1).
+ * Checks if adding projectRoot → targetRoot would create a circular dependency.
+ * A circular reference exists if the target project already has a source pointing
+ * back to the current project (direct cycle only — no transitive check in v1).
  */
-export function detectCircularLink(projectRoot: string, targetRoot: string): boolean {
-  const targetLinks = loadKnowledgeLinks(targetRoot)
-  if (!targetLinks) {
+export function detectCircularSource(projectRoot: string, targetRoot: string): boolean {
+  const targetSources = loadSources(targetRoot)
+  if (!targetSources) {
     return false
   }
 
-  return targetLinks.links.some((link) => {
+  return targetSources.sources.some((source) => {
     try {
-      return realpathSync(link.projectRoot) === projectRoot
+      return realpathSync(source.projectRoot) === projectRoot
     } catch {
-      return link.projectRoot === projectRoot
+      return source.projectRoot === projectRoot
     }
   })
 }
@@ -217,20 +217,20 @@ export function detectCircularLink(projectRoot: string, targetRoot: string): boo
 // ============================================================================
 
 /**
- * Result of reading the knowledge links file.
+ * Result of reading the sources file.
  * When the file exists but is malformed, `error` contains a description
  * so callers can surface the problem instead of silently overwriting.
  */
 interface ReadResult {
-  data: KnowledgeLinksFile
+  data: SourcesFile
   error?: string
 }
 
-function readKnowledgeLinksFile(projectRoot: string): ReadResult {
-  const filePath = join(projectRoot, BRV_DIR, KNOWLEDGE_LINKS_FILE)
+function readSourcesFile(projectRoot: string): ReadResult {
+  const filePath = join(projectRoot, BRV_DIR, SOURCES_FILE)
 
   if (!existsSync(filePath)) {
-    return {data: {links: [], version: 1}}
+    return {data: {sources: [], version: 1}}
   }
 
   let raw: unknown
@@ -238,29 +238,29 @@ function readKnowledgeLinksFile(projectRoot: string): ReadResult {
     raw = JSON.parse(readFileSync(filePath, 'utf8'))
   } catch {
     return {
-      data: {links: [], version: 1},
-      error: `Malformed ${KNOWLEDGE_LINKS_FILE}: file is not valid JSON. Back up or delete the file to recover.`,
+      data: {sources: [], version: 1},
+      error: `Malformed ${SOURCES_FILE}: file is not valid JSON. Back up or delete the file to recover.`,
     }
   }
 
-  const result = KnowledgeLinksFileSchema.safeParse(raw)
+  const result = SourcesFileSchema.safeParse(raw)
   if (!result.success) {
     return {
-      data: {links: [], version: 1},
-      error: `Malformed ${KNOWLEDGE_LINKS_FILE}: schema validation failed. Back up or delete the file to recover.`,
+      data: {sources: [], version: 1},
+      error: `Malformed ${SOURCES_FILE}: schema validation failed. Back up or delete the file to recover.`,
     }
   }
 
   return {data: result.data}
 }
 
-function writeKnowledgeLinksFile(projectRoot: string, data: KnowledgeLinksFile): void {
-  const filePath = join(projectRoot, BRV_DIR, KNOWLEDGE_LINKS_FILE)
+function writeSourcesFile(projectRoot: string, data: SourcesFile): void {
+  const filePath = join(projectRoot, BRV_DIR, SOURCES_FILE)
   writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', 'utf8')
 }
 
-function ensureUniqueAlias(baseAlias: string, existingLinks: KnowledgeLink[]): string {
-  const existingAliases = new Set(existingLinks.map((link) => link.alias))
+function ensureUniqueAlias(baseAlias: string, existingSources: Source[]): string {
+  const existingAliases = new Set(existingSources.map((source) => source.alias))
 
   if (!existingAliases.has(baseAlias)) {
     return baseAlias

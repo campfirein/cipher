@@ -6,12 +6,12 @@ import {type ProjectResolution, resolveProject} from '../../project/resolve-proj
 
 export type McpStartupProjectContext = {
   projectRoot: string
-  workspaceRoot: string
+  worktreeRoot: string
 }
 
 export type ResolvedMcpTaskContext = {
   projectRoot: string
-  workspaceRoot: string
+  worktreeRoot: string
 }
 
 function describeError(error: unknown): string {
@@ -67,7 +67,7 @@ export function resolveMcpTaskContext(
     return projectResolutionToTaskContext(resolution)
   }
 
-  if (startupProjectContext && clientCwd === startupProjectContext.workspaceRoot) {
+  if (startupProjectContext && clientCwd === startupProjectContext.worktreeRoot) {
     return startupProjectContext
   }
 
@@ -77,6 +77,6 @@ export function resolveMcpTaskContext(
 function projectResolutionToTaskContext(resolution: ProjectResolution): ResolvedMcpTaskContext {
   return {
     projectRoot: resolution.projectRoot,
-    workspaceRoot: resolution.workspaceRoot,
+    worktreeRoot: resolution.worktreeRoot,
   }
 }

@@ -1,8 +1,8 @@
 import {existsSync, readFileSync, statSync} from 'node:fs'
 import {dirname, join, resolve, sep} from 'node:path'
 
-import {BRV_DIR, PROJECT_CONFIG_FILE, WORKSPACE_LINK_FILE} from '../../constants.js'
-import {WorkspaceLinkSchema} from '../../core/domain/project/workspace-link-schema.js'
+import {BRV_DIR, PROJECT_CONFIG_FILE, WORKTREE_LINK_FILE} from '../../constants.js'
+import {WorktreeLinkSchema} from '../../core/domain/project/worktree-link-schema.js'
 import {resolvePath} from '../../utils/path-utils.js'
 
 /**
@@ -13,43 +13,43 @@ export interface ProjectResolution {
   linkFile?: string
   /** Directory containing .brv/config.json */
   projectRoot: string
-  /** True if cwd has both .brv/config.json and .brv-workspace.json */
+  /** True if cwd has both .brv/config.json and .brv-worktree.json */
   shadowedLink?: boolean
   /** How the project root was discovered */
   source: 'direct' | 'flag' | 'linked' | 'walked-up'
   /** Stable linked workspace root, or projectRoot if unlinked */
-  workspaceRoot: string
+  worktreeRoot: string
 }
 
 /**
- * Error thrown when a workspace link file points to a project root that no longer has .brv/.
+ * Error thrown when a worktree link file points to a project root that no longer has .brv/.
  */
-export class BrokenWorkspaceLinkError extends Error {
+export class BrokenWorktreeLinkError extends Error {
   constructor(
     public readonly linkFile: string,
     public readonly targetProjectRoot: string,
   ) {
     super(
-      `Workspace link broken: "${targetProjectRoot}" no longer has ${BRV_DIR}/${PROJECT_CONFIG_FILE}. ` +
-        `Run 'brv unlink' to remove the stale link file at "${linkFile}".`,
+      `Worktree link broken: "${targetProjectRoot}" no longer has ${BRV_DIR}/${PROJECT_CONFIG_FILE}. ` +
+        `Run 'brv worktree remove' to remove the stale link file at "${linkFile}".`,
     )
-    this.name = 'BrokenWorkspaceLinkError'
+    this.name = 'BrokenWorktreeLinkError'
   }
 }
 
 /**
- * Error thrown when a .brv-workspace.json file exists but contains malformed/invalid content.
+ * Error thrown when a .brv-worktree.json file exists but contains malformed/invalid content.
  */
-export class MalformedWorkspaceLinkError extends Error {
+export class MalformedWorktreeLinkError extends Error {
   constructor(
     public readonly linkFile: string,
     public readonly reason: string,
   ) {
     super(
-      `Workspace link file "${linkFile}" is malformed: ${reason}. ` +
-        `Fix the file or run 'brv unlink' to remove it.`,
+      `Worktree link file "${linkFile}" is malformed: ${reason}. ` +
+        `Fix the file or run 'brv worktree remove' to remove it.`,
     )
-    this.name = 'MalformedWorkspaceLinkError'
+    this.name = 'MalformedWorktreeLinkError'
   }
 }
 
@@ -57,8 +57,8 @@ export function hasBrvConfig(dir: string): boolean {
   return existsSync(join(dir, BRV_DIR, PROJECT_CONFIG_FILE))
 }
 
-export function hasWorkspaceLink(dir: string): boolean {
-  return existsSync(join(dir, WORKSPACE_LINK_FILE))
+export function hasWorktreeLink(dir: string): boolean {
+  return existsSync(join(dir, WORKTREE_LINK_FILE))
 }
 
 /**
@@ -75,28 +75,28 @@ export function isGitRoot(dir: string): boolean {
 }
 
 /**
- * Reads and validates a .brv-workspace.json file.
- * @throws MalformedWorkspaceLinkError if the file exists but contains invalid content
+ * Reads and validates a .brv-worktree.json file.
+ * @throws MalformedWorktreeLinkError if the file exists but contains invalid content
  */
-function readWorkspaceLink(linkFilePath: string): string {
+function readWorktreeLink(linkFilePath: string): string {
   let raw: string
   try {
     raw = readFileSync(linkFilePath, 'utf8')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    throw new MalformedWorkspaceLinkError(linkFilePath, `cannot read file: ${message}`)
+    throw new MalformedWorktreeLinkError(linkFilePath, `cannot read file: ${message}`)
   }
 
   let json: unknown
   try {
     json = JSON.parse(raw)
   } catch {
-    throw new MalformedWorkspaceLinkError(linkFilePath, 'invalid JSON')
+    throw new MalformedWorktreeLinkError(linkFilePath, 'invalid JSON')
   }
 
-  const result = WorkspaceLinkSchema.safeParse(json)
+  const result = WorktreeLinkSchema.safeParse(json)
   if (!result.success) {
-    throw new MalformedWorkspaceLinkError(linkFilePath, 'missing or invalid "projectRoot" field')
+    throw new MalformedWorktreeLinkError(linkFilePath, 'missing or invalid "projectRoot" field')
   }
 
   return result.data.projectRoot
@@ -112,32 +112,32 @@ export function isDescendantOf(descendant: string, ancestor: string): boolean {
 }
 
 /**
- * Validates and resolves a workspace link file, returning a ProjectResolution.
- * @throws BrokenWorkspaceLinkError if the link target is invalid
+ * Validates and resolves a worktree link file, returning a ProjectResolution.
+ * @throws BrokenWorktreeLinkError if the link target is invalid
  */
-function resolveWorkspaceLink(linkFile: string, workspaceDir: string): ProjectResolution {
-  const targetRoot = readWorkspaceLink(linkFile)
+function resolveWorktreeLink(linkFile: string, workspaceDir: string): ProjectResolution {
+  const targetRoot = readWorktreeLink(linkFile)
 
   let canonicalTarget: string
   try {
     canonicalTarget = resolvePath(targetRoot)
   } catch {
-    throw new BrokenWorkspaceLinkError(linkFile, targetRoot)
+    throw new BrokenWorktreeLinkError(linkFile, targetRoot)
   }
 
   if (!hasBrvConfig(canonicalTarget)) {
-    throw new BrokenWorkspaceLinkError(linkFile, canonicalTarget)
+    throw new BrokenWorktreeLinkError(linkFile, canonicalTarget)
   }
 
   if (!isDescendantOf(workspaceDir, canonicalTarget)) {
-    throw new BrokenWorkspaceLinkError(linkFile, canonicalTarget)
+    throw new BrokenWorktreeLinkError(linkFile, canonicalTarget)
   }
 
   return {
     linkFile,
     projectRoot: canonicalTarget,
     source: 'linked',
-    workspaceRoot: workspaceDir,
+    worktreeRoot: workspaceDir,
   }
 }
 
@@ -155,11 +155,11 @@ export interface ResolveProjectOptions {
  * Resolution priority:
  * 1. --project-root flag
  * 2. .brv/config.json at cwd (direct)
- * 3. nearest .brv-workspace.json at cwd/ancestor (linked)
+ * 3. nearest .brv-worktree.json at cwd/ancestor (linked)
  * 4. walked-up .brv/config.json (walked-up)
  * 5. null (no project found)
  *
- * @throws BrokenWorkspaceLinkError if a workspace link points to a missing project
+ * @throws BrokenWorktreeLinkError if a worktree link points to a missing project
  */
 export function resolveProject(options?: ResolveProjectOptions): null | ProjectResolution {
   const cwd = options?.cwd ?? process.cwd()
@@ -175,7 +175,7 @@ export function resolveProject(options?: ResolveProjectOptions): null | ProjectR
     return {
       projectRoot: canonical,
       source: 'flag',
-      workspaceRoot: canonical,
+      worktreeRoot: canonical,
     }
   }
 
@@ -188,28 +188,28 @@ export function resolveProject(options?: ResolveProjectOptions): null | ProjectR
 
   // Step 2: .brv/config.json at cwd (direct)
   if (hasBrvConfig(startDir)) {
-    const shadowedLink = hasWorkspaceLink(startDir) || undefined
+    const shadowedLink = hasWorktreeLink(startDir) || undefined
     return {
       projectRoot: startDir,
       shadowedLink,
       source: 'direct',
-      workspaceRoot: startDir,
+      worktreeRoot: startDir,
     }
   }
 
-  // Step 3: Walk up looking for .brv-workspace.json (linked)
+  // Step 3: Walk up looking for .brv-worktree.json (linked)
   // Also walk up for .brv/config.json (walked-up) simultaneously,
-  // but nearest .brv-workspace.json takes priority.
+  // but nearest .brv-worktree.json takes priority.
   let current = startDir
   let walkedUpRoot: string | undefined
   const root = resolve('/')
 
   while (current !== root) {
-    // Check for workspace link
-    if (hasWorkspaceLink(current)) {
-      const linkFile = join(current, WORKSPACE_LINK_FILE)
+    // Check for worktree link
+    if (hasWorktreeLink(current)) {
+      const linkFile = join(current, WORKTREE_LINK_FILE)
 
-      return resolveWorkspaceLink(linkFile, current)
+      return resolveWorktreeLink(linkFile, current)
     }
 
     // Check for .brv/config.json (walked-up candidate)
@@ -237,7 +237,7 @@ export function resolveProject(options?: ResolveProjectOptions): null | ProjectR
     return {
       projectRoot: walkedUpRoot,
       source: 'walked-up',
-      workspaceRoot: walkedUpRoot,
+      worktreeRoot: walkedUpRoot,
     }
   }
 
@@ -246,10 +246,10 @@ export function resolveProject(options?: ResolveProjectOptions): null | ProjectR
 }
 
 /**
- * Finds the nearest .brv-workspace.json file at cwd or any ancestor.
- * Used by `brv unlink` to bypass the resolver and directly locate the link file.
+ * Finds the nearest .brv-worktree.json file at cwd or any ancestor.
+ * Used by `brv worktree remove` to bypass the resolver and directly locate the link file.
  */
-export function findNearestWorkspaceLink(cwd?: string): null | string {
+export function findNearestWorktreeLink(cwd?: string): null | string {
   let current: string
   try {
     current = resolvePath(cwd ?? process.cwd())
@@ -260,7 +260,7 @@ export function findNearestWorkspaceLink(cwd?: string): null | string {
   const root = resolve('/')
 
   while (current !== root) {
-    const linkFile = join(current, WORKSPACE_LINK_FILE)
+    const linkFile = join(current, WORKTREE_LINK_FILE)
     if (existsSync(linkFile)) {
       return linkFile
     }

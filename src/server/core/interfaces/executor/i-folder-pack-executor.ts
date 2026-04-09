@@ -9,14 +9,14 @@ export interface FolderPackExecuteOptions {
   clientCwd?: string
   /** Optional context to guide the analysis */
   content?: string
-  /** Folder path to pack (relative to clientCwd or absolute). When absent, defaults to workspaceRoot. */
+  /** Folder path to pack (relative to clientCwd or absolute). When absent, defaults to worktreeRoot. */
   folderPath?: string
   /** Canonical project root where .brv/ lives (for temp file location) */
   projectRoot?: string
   /** Task ID for event routing (required for concurrent task isolation) */
   taskId: string
   /** Workspace root — linked subdir or same as projectRoot. Used as default folderPath when none supplied. */
-  workspaceRoot?: string
+  worktreeRoot?: string
 }
 
 /**

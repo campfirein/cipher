@@ -2,14 +2,14 @@ import {Args, Command} from '@oclif/core'
 import {writeFileSync} from 'node:fs'
 import {join, resolve, sep} from 'node:path'
 
-import {WORKSPACE_LINK_FILE} from '../../server/constants.js'
+import {WORKTREE_LINK_FILE} from '../../../server/constants.js'
 import {
-  findNearestWorkspaceLink,
+  findNearestWorktreeLink,
   hasBrvConfig,
   isDescendantOf,
   isGitRoot,
-} from '../../server/infra/project/resolve-project.js'
-import {resolvePath} from '../../server/utils/path-utils.js'
+} from '../../../server/infra/project/resolve-project.js'
+import {resolvePath} from '../../../server/utils/path-utils.js'
 
 /**
  * Walk up from startDir looking for the nearest directory with .brv/config.json.
@@ -37,21 +37,21 @@ function findNearestProjectRoot(startDir: string): string | undefined {
   return undefined
 }
 
-export default class Link extends Command {
+export default class WorktreeAdd extends Command {
   static args = {
     projectRoot: Args.string({
       description: 'Path to the project root containing .brv/ (auto-detected if omitted)',
       required: false,
     }),
   }
-  static description = 'Link current directory to a ByteRover project (.brv-workspace.json)'
+  static description = 'Link current directory to a ByteRover project (.brv-worktree.json)'
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> /path/to/monorepo',
   ]
 
   async run(): Promise<void> {
-    const {args} = await this.parse(Link)
+    const {args} = await this.parse(WorktreeAdd)
     const cwd = resolvePath(process.cwd())
 
     // Guard: cwd already has .brv/config.json — linking would be shadowed
@@ -73,7 +73,7 @@ export default class Link extends Command {
       const detected = findNearestProjectRoot(cwd)
       if (!detected) {
         this.error(
-          'No project root found. Provide a path: brv link /path/to/project',
+          'No project root found. Provide a path: brv worktree add /path/to/project',
           {exit: 1},
         )
       }
@@ -107,7 +107,7 @@ export default class Link extends Command {
     }
 
     // Idempotent: check if already linked to the same target
-    const existingLink = findNearestWorkspaceLink(cwd)
+    const existingLink = findNearestWorktreeLink(cwd)
     if (existingLink) {
       const linkDir = resolve(existingLink, '..')
       if (linkDir === cwd) {
@@ -133,7 +133,7 @@ export default class Link extends Command {
     }
 
     // Write the link file
-    const linkFilePath = join(cwd, WORKSPACE_LINK_FILE)
+    const linkFilePath = join(cwd, WORKTREE_LINK_FILE)
     const linkContent = JSON.stringify({projectRoot: targetRoot}, null, 2) + '\n'
 
     try {

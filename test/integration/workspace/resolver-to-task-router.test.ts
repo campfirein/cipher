@@ -81,7 +81,7 @@ function createBrvConfig(dir: string): void {
 }
 
 function createWorkspaceLink(dir: string, projectRoot: string): void {
-  writeFileSync(join(dir, '.brv-workspace.json'), JSON.stringify({projectRoot}, null, 2) + '\n')
+  writeFileSync(join(dir, '.brv-worktree.json'), JSON.stringify({projectRoot}, null, 2) + '\n')
 }
 
 // ============================================================================
@@ -153,7 +153,7 @@ describe('resolver → task-router integration', () => {
     return agentPool.submitTask.getCall(callIndex)?.args[0]
   }
 
-  it('should thread linked workspaceRoot into submitted task', async () => {
+  it('should thread linked worktreeRoot into submitted task', async () => {
     const projectRoot = join(testDir, 'project')
     const workspace = join(projectRoot, 'packages', 'api')
     mkdirSync(workspace, {recursive: true})
@@ -164,7 +164,7 @@ describe('resolver → task-router integration', () => {
 
     const submitted = getSubmittedTask()
     expect(submitted.projectPath).to.equal(projectRoot)
-    expect(submitted.workspaceRoot).to.equal(workspace)
+    expect(submitted.worktreeRoot).to.equal(workspace)
   })
 
   it('should revert to walked-up resolution after unlink', async () => {
@@ -177,16 +177,16 @@ describe('resolver → task-router integration', () => {
     // First task: linked
     await createTask({clientCwd: workspace})
     const first = getSubmittedTask(0)
-    expect(first.workspaceRoot).to.equal(workspace)
+    expect(first.worktreeRoot).to.equal(workspace)
 
     // Unlink
-    unlinkSync(join(workspace, '.brv-workspace.json'))
+    unlinkSync(join(workspace, '.brv-worktree.json'))
 
-    // Second task: walked-up (workspaceRoot falls back to projectRoot)
+    // Second task: walked-up (worktreeRoot falls back to projectRoot)
     await createTask({clientCwd: workspace})
     const second = getSubmittedTask(1)
     expect(second.projectPath).to.equal(projectRoot)
-    expect(second.workspaceRoot).to.equal(projectRoot)
+    expect(second.worktreeRoot).to.equal(projectRoot)
   })
 
   it('should pick up new link target after overwrite', async () => {
@@ -230,30 +230,30 @@ describe('resolver → task-router integration', () => {
     expect(errorCall).to.exist
   })
 
-  it('should bypass resolver when both projectPath and workspaceRoot are explicit', async () => {
+  it('should bypass resolver when both projectPath and worktreeRoot are explicit', async () => {
     // Even with a broken link on disk, explicit paths should work
     const workspace = join(testDir, 'workspace')
     mkdirSync(workspace, {recursive: true})
-    writeFileSync(join(workspace, '.brv-workspace.json'), 'invalid json')
+    writeFileSync(join(workspace, '.brv-worktree.json'), 'invalid json')
 
     await createTask({
       clientCwd: workspace,
       projectPath: '/explicit/project',
-      workspaceRoot: '/explicit/project/sub',
+      worktreeRoot: '/explicit/project/sub',
     })
 
     const submitted = getSubmittedTask()
     expect(submitted.projectPath).to.equal('/explicit/project')
-    expect(submitted.workspaceRoot).to.equal('/explicit/project/sub')
+    expect(submitted.worktreeRoot).to.equal('/explicit/project/sub')
   })
 
-  it('should reject explicit workspaceRoot outside explicit projectPath', async () => {
+  it('should reject explicit worktreeRoot outside explicit projectPath', async () => {
     const taskId = randomUUID()
     await createTask({
       clientCwd: '/some/dir',
       projectPath: '/app',
       taskId,
-      workspaceRoot: '/other-app/sub',
+      worktreeRoot: '/other-app/sub',
     })
 
     expect(agentPool.submitTask.called).to.be.false
@@ -262,7 +262,7 @@ describe('resolver → task-router integration', () => {
       .getCalls()
       .find((c) => c.args[1] === TransportTaskEventNames.ERROR)
     expect(errorCall).to.exist
-    expect(errorCall!.args[2].error.message).to.include('workspaceRoot')
+    expect(errorCall!.args[2].error.message).to.include('worktreeRoot')
   })
 
   it('should use registered project path as fallback when resolver returns null', async () => {
@@ -316,13 +316,13 @@ describe('resolver → task-router integration', () => {
 
     // Task 1: no link — walked-up
     await createTask({clientCwd: workspace})
-    expect(getSubmittedTask(0).workspaceRoot).to.equal(projectRoot)
+    expect(getSubmittedTask(0).worktreeRoot).to.equal(projectRoot)
 
     // Create link between tasks
     createWorkspaceLink(workspace, projectRoot)
 
     // Task 2: linked — resolver must pick up the new state
     await createTask({clientCwd: workspace})
-    expect(getSubmittedTask(1).workspaceRoot).to.equal(workspace)
+    expect(getSubmittedTask(1).worktreeRoot).to.equal(workspace)
   })
 })

@@ -30,7 +30,7 @@ export interface TransportState {
   /** App version */
   version: string
   /** Resolved workspace root (linked subdir or projectRoot if unlinked) */
-  workspaceRoot: null | string
+  worktreeRoot: null | string
 }
 
 export interface TransportActions {
@@ -45,7 +45,7 @@ export interface TransportActions {
   /** Set connection error */
   setError: (error: Error | null) => void
   /** Set resolved project info from oclif main */
-  setProjectInfo: (projectPath?: string, workspaceRoot?: string) => void
+  setProjectInfo: (projectPath?: string, worktreeRoot?: string) => void
   /** Set app version */
   setVersion: (version: string) => void
 }
@@ -59,7 +59,7 @@ const initialState: TransportState = {
   projectPath: null,
   reconnectCount: 0,
   version: '',
-  workspaceRoot: null,
+  worktreeRoot: null,
 }
 
 export const useTransportStore = create<TransportActions & TransportState>()((set) => ({
@@ -91,10 +91,10 @@ export const useTransportStore = create<TransportActions & TransportState>()((se
       isConnected: false,
     }),
 
-  setProjectInfo: (projectPath?: string, workspaceRoot?: string) =>
+  setProjectInfo: (projectPath?: string, worktreeRoot?: string) =>
     set({
       projectPath: projectPath ?? null,
-      workspaceRoot: workspaceRoot ?? null,
+      worktreeRoot: worktreeRoot ?? null,
     }),
 
   setVersion: (version: string) => set({version}),

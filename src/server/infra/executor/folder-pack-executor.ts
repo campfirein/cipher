@@ -42,15 +42,15 @@ export class FolderPackExecutor implements IFolderPackExecutor {
   constructor(private readonly folderPackService: IFolderPackService) {}
 
   public async executeWithAgent(agent: ICipherAgent, options: FolderPackExecuteOptions): Promise<string> {
-    const {clientCwd, content, folderPath, projectRoot, taskId, workspaceRoot} = options
+    const {clientCwd, content, folderPath, projectRoot, taskId, worktreeRoot} = options
 
     // Resolve folder path:
-    // - Absent folderPath → default to workspaceRoot (implicit workspace default)
+    // - Absent folderPath → default to worktreeRoot (implicit workspace default)
     // - Relative folderPath → resolve from clientCwd (shell semantics)
     // - Absolute folderPath → use as-is
     let absoluteFolderPath: string
     if (!folderPath) {
-      absoluteFolderPath = workspaceRoot ?? clientCwd ?? process.cwd()
+      absoluteFolderPath = worktreeRoot ?? clientCwd ?? process.cwd()
     } else if (path.isAbsolute(folderPath)) {
       absoluteFolderPath = folderPath
     } else {

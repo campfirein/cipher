@@ -47,14 +47,14 @@ export class ByteRoverMcpServer {
   private reconnectorHandle: DaemonReconnectorHandle | undefined
   private readonly server: McpServer
   private transport: StdioServerTransport | undefined
-  private readonly workspaceRoot: string | undefined
+  private readonly worktreeRoot: string | undefined
 
   constructor(config: McpServerConfig) {
     this.config = config
     const modeResult = detectMcpMode(config.workingDirectory)
     this.mode = modeResult.mode
     this.projectRoot = modeResult.mode === 'project' ? modeResult.projectRoot : undefined
-    this.workspaceRoot = modeResult.mode === 'project' ? modeResult.workspaceRoot : undefined
+    this.worktreeRoot = modeResult.mode === 'project' ? modeResult.worktreeRoot : undefined
     this.server = new McpServer({
       name: 'byterover',
       version: config.version,
@@ -69,8 +69,8 @@ export class ByteRoverMcpServer {
     }
 
     const getStartupProjectContext = (): McpStartupProjectContext | undefined =>
-      this.mode === 'project' && this.projectRoot && this.workspaceRoot
-        ? {projectRoot: this.projectRoot, workspaceRoot: this.workspaceRoot}
+      this.mode === 'project' && this.projectRoot && this.worktreeRoot
+        ? {projectRoot: this.projectRoot, worktreeRoot: this.worktreeRoot}
         : undefined
 
     // Register tools with lazy client getter
@@ -191,7 +191,7 @@ export class ByteRoverMcpServer {
    * In global mode, returns undefined — each tool call must provide cwd.
    */
   private getWorkingDirectory(): string | undefined {
-    return this.mode === 'project' ? this.workspaceRoot : undefined
+    return this.mode === 'project' ? this.worktreeRoot : undefined
   }
 
   /**

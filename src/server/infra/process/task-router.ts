@@ -394,10 +394,10 @@ export class TaskRouter {
       return {taskId}
     }
 
-    // ── Resolve projectPath & workspaceRoot, store task synchronously ─────────
+    // ── Resolve projectPath & worktreeRoot, store task synchronously ─────────
 
     let projectPath: string | undefined
-    let workspaceRoot: string | undefined
+    let worktreeRoot: string | undefined
 
     try {
       const taskContext = this.resolveTaskContext(data, clientId)
@@ -416,7 +416,7 @@ export class TaskRouter {
       }
 
       projectPath = taskContext.projectPath
-      workspaceRoot = taskContext.workspaceRoot
+      worktreeRoot = taskContext.worktreeRoot
     } catch (error_) {
       const error = serializeTaskError(error_ instanceof Error ? error_ : new Error(String(error_)))
       const fallbackProjectPath = data.projectPath ?? this.resolveClientProjectPath?.(clientId) ?? data.clientCwd
@@ -444,7 +444,7 @@ export class TaskRouter {
       ...(projectPath ? {projectPath} : {}),
       taskId,
       type: data.type,
-      ...(workspaceRoot ? {workspaceRoot} : {}),
+      ...(worktreeRoot ? {worktreeRoot} : {}),
     })
 
     // ── Send task:created synchronously (before any await) ────────────────────
@@ -494,7 +494,7 @@ export class TaskRouter {
       ...(projectPath ? {projectPath} : {}),
       taskId,
       type: data.type,
-      ...(workspaceRoot ? {workspaceRoot} : {}),
+      ...(worktreeRoot ? {worktreeRoot} : {}),
     }
 
     // eslint-disable-next-line no-void
@@ -722,19 +722,19 @@ export class TaskRouter {
   private resolveTaskContext(
     data: TaskCreateRequest,
     clientId: string,
-  ): {error?: string; projectPath?: string; workspaceRoot?: string} {
-    // When both projectPath and workspaceRoot are explicitly provided,
+  ): {error?: string; projectPath?: string; worktreeRoot?: string} {
+    // When both projectPath and worktreeRoot are explicitly provided,
     // skip the resolver entirely — a broken link under clientCwd must not
     // reject an otherwise valid explicit payload.
-    if (data.projectPath && data.workspaceRoot) {
-      if (!isDescendantOf(data.workspaceRoot, data.projectPath)) {
+    if (data.projectPath && data.worktreeRoot) {
+      if (!isDescendantOf(data.worktreeRoot, data.projectPath)) {
         return {
-          error: `workspaceRoot "${data.workspaceRoot}" must be equal to or within projectPath "${data.projectPath}".`,
+          error: `worktreeRoot "${data.worktreeRoot}" must be equal to or within projectPath "${data.projectPath}".`,
           projectPath: data.projectPath,
         }
       }
 
-      return {projectPath: data.projectPath, workspaceRoot: data.workspaceRoot}
+      return {projectPath: data.projectPath, worktreeRoot: data.worktreeRoot}
     }
 
     // Resolve from clientCwd (fresh, workspace-link-aware) when needed.
@@ -744,24 +744,24 @@ export class TaskRouter {
     if (data.clientCwd) {
       const resolution = resolveProject({cwd: data.clientCwd})
       resolvedProjectPath = resolution?.projectRoot
-      resolvedWorkspaceRoot = resolution?.workspaceRoot
+      resolvedWorkspaceRoot = resolution?.worktreeRoot
     }
 
     // Fallback order: explicit > fresh cwd resolution > stale registration > raw clientCwd.
     // Fresh resolution is preferred over registered path because the registered path
-    // may be stale (e.g. in-flight reassociation after link/unlink).
+    // may be stale (e.g. in-flight reassociation after worktree add/remove).
     const registeredProjectPath = this.resolveClientProjectPath?.(clientId)
     const projectPath = data.projectPath ?? resolvedProjectPath ?? registeredProjectPath ?? data.clientCwd
-    const workspaceRoot = data.workspaceRoot ?? resolvedWorkspaceRoot ?? projectPath
+    const worktreeRoot = data.worktreeRoot ?? resolvedWorkspaceRoot ?? projectPath
 
-    if (projectPath && workspaceRoot && !isDescendantOf(workspaceRoot, projectPath)) {
+    if (projectPath && worktreeRoot && !isDescendantOf(worktreeRoot, projectPath)) {
       return {
-        error: `workspaceRoot "${workspaceRoot}" must be equal to or within projectPath "${projectPath}".`,
+        error: `worktreeRoot "${worktreeRoot}" must be equal to or within projectPath "${projectPath}".`,
         projectPath,
       }
     }
 
-    return {projectPath, workspaceRoot}
+    return {projectPath, worktreeRoot}
   }
 
   /**

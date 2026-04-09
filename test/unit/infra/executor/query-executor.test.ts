@@ -140,7 +140,7 @@ describe('QueryExecutor', () => {
 
   describe('workspace scoping (PR3)', () => {
     describe('search scope derivation', () => {
-      it('should pass workspace scope to initial search when workspaceRoot differs from baseDirectory', async () => {
+      it('should pass workspace scope to initial search when worktreeRoot differs from baseDirectory', async () => {
         const searchStub = stub().resolves(lowScoreSearchResult)
         const searchService: ISearchKnowledgeService = {search: searchStub}
 
@@ -153,7 +153,7 @@ describe('QueryExecutor', () => {
         await executor.executeWithAgent(agent, {
           query: 'authentication',
           taskId: 'task-1',
-          workspaceRoot: '/projects/monorepo/packages/api',
+          worktreeRoot: '/projects/monorepo/packages/api',
         })
 
         expect(searchStub.called).to.be.true
@@ -161,7 +161,7 @@ describe('QueryExecutor', () => {
         expect(searchOpts.scope).to.equal('packages/api')
       })
 
-      it('should not pass scope when workspaceRoot equals baseDirectory', async () => {
+      it('should not pass scope when worktreeRoot equals baseDirectory', async () => {
         const searchStub = stub().resolves(lowScoreSearchResult)
         const searchService: ISearchKnowledgeService = {search: searchStub}
 
@@ -174,7 +174,7 @@ describe('QueryExecutor', () => {
         await executor.executeWithAgent(agent, {
           query: 'authentication',
           taskId: 'task-2',
-          workspaceRoot: '/projects/myapp',
+          worktreeRoot: '/projects/myapp',
         })
 
         expect(searchStub.called).to.be.true
@@ -182,7 +182,7 @@ describe('QueryExecutor', () => {
         expect(searchOpts.scope).to.be.undefined
       })
 
-      it('should not pass scope when workspaceRoot is undefined', async () => {
+      it('should not pass scope when worktreeRoot is undefined', async () => {
         const searchStub = stub().resolves(lowScoreSearchResult)
         const searchService: ISearchKnowledgeService = {search: searchStub}
 
@@ -204,7 +204,7 @@ describe('QueryExecutor', () => {
     })
 
     describe('workspace scope injection for agent follow-up searches', () => {
-      it('should inject scope variable into sandbox when workspaceRoot differs from baseDirectory', async () => {
+      it('should inject scope variable into sandbox when worktreeRoot differs from baseDirectory', async () => {
         const searchStub = stub().resolves(lowScoreSearchResult)
         const searchService: ISearchKnowledgeService = {search: searchStub}
 
@@ -217,7 +217,7 @@ describe('QueryExecutor', () => {
         await executor.executeWithAgent(agent, {
           query: 'authentication',
           taskId: 'abc-def',
-          workspaceRoot: '/projects/monorepo/packages/api',
+          worktreeRoot: '/projects/monorepo/packages/api',
         })
 
         const setSandboxCalls = (agent.setSandboxVariableOnSession as ReturnType<typeof stub>).getCalls()
@@ -226,7 +226,7 @@ describe('QueryExecutor', () => {
         expect(scopeCall!.args[2]).to.equal('packages/api')
       })
 
-      it('should not inject scope variable when workspaceRoot equals baseDirectory', async () => {
+      it('should not inject scope variable when worktreeRoot equals baseDirectory', async () => {
         const searchStub = stub().resolves(lowScoreSearchResult)
         const searchService: ISearchKnowledgeService = {search: searchStub}
 
@@ -239,7 +239,7 @@ describe('QueryExecutor', () => {
         await executor.executeWithAgent(agent, {
           query: 'authentication',
           taskId: 'abc-def',
-          workspaceRoot: '/projects/myapp',
+          worktreeRoot: '/projects/myapp',
         })
 
         const setSandboxCalls = (agent.setSandboxVariableOnSession as ReturnType<typeof stub>).getCalls()
@@ -260,7 +260,7 @@ describe('QueryExecutor', () => {
         await executor.executeWithAgent(agent, {
           query: 'authentication',
           taskId: 'abc-def',
-          workspaceRoot: '/projects/monorepo/packages/api',
+          worktreeRoot: '/projects/monorepo/packages/api',
         })
 
         const executeCall = (agent.executeOnSession as ReturnType<typeof stub>).firstCall
@@ -272,7 +272,7 @@ describe('QueryExecutor', () => {
     })
 
     describe('cache fingerprint isolation', () => {
-      it('should produce different fingerprints for different workspaceRoot values', async () => {
+      it('should produce different fingerprints for different worktreeRoot values', async () => {
         const globStub = stub().resolves({
           files: [{modified: new Date('2026-01-01'), path: 'a.md'}],
           totalMatches: 1,
@@ -292,13 +292,13 @@ describe('QueryExecutor', () => {
         await executor.executeWithAgent(agent, {
           query: 'authentication',
           taskId: 'task-a',
-          workspaceRoot: '/projects/monorepo/packages/api',
+          worktreeRoot: '/projects/monorepo/packages/api',
         })
 
         await executor.executeWithAgent(agent, {
           query: 'authentication',
           taskId: 'task-b',
-          workspaceRoot: '/projects/monorepo/packages/web',
+          worktreeRoot: '/projects/monorepo/packages/web',
         })
 
         // Both should have gone through full execution (executeOnSession called twice)
@@ -313,9 +313,9 @@ describe('QueryExecutor', () => {
         writeFileSync(join(projectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
         writeFileSync(join(linkedProjectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
         writeFileSync(
-          join(projectRoot, '.brv', 'knowledge-links.json'),
+          join(projectRoot, '.brv', 'sources.json'),
           JSON.stringify({
-            links: [{addedAt: '2026-01-01', alias: 'shared-lib', projectRoot: linkedProjectRoot, readOnly: true}],
+            sources: [{addedAt: '2026-01-01', alias: 'shared-lib', projectRoot: linkedProjectRoot, readOnly: true}],
             version: 1,
           }),
         )
@@ -348,7 +348,7 @@ describe('QueryExecutor', () => {
         await executor.executeWithAgent(agent, {
           query: 'authentication',
           taskId: 'task-a',
-          workspaceRoot: projectRoot,
+          worktreeRoot: projectRoot,
         })
 
         linkedMtime = new Date('2026-01-02')
@@ -357,7 +357,7 @@ describe('QueryExecutor', () => {
         await executor.executeWithAgent(agent, {
           query: 'authentication',
           taskId: 'task-b',
-          workspaceRoot: projectRoot,
+          worktreeRoot: projectRoot,
         })
 
         expect((agent.executeOnSession as ReturnType<typeof stub>).callCount).to.equal(2)
@@ -371,9 +371,9 @@ describe('QueryExecutor', () => {
         writeFileSync(join(projectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
         writeFileSync(join(linkedProjectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
         writeFileSync(
-          join(projectRoot, '.brv', 'knowledge-links.json'),
+          join(projectRoot, '.brv', 'sources.json'),
           JSON.stringify({
-            links: [{addedAt: '2026-01-01', alias: 'linked', projectRoot: linkedProjectRoot, readOnly: true}],
+            sources: [{addedAt: '2026-01-01', alias: 'shared', projectRoot: linkedProjectRoot, readOnly: true}],
             version: 1,
           }),
         )
@@ -406,7 +406,7 @@ describe('QueryExecutor', () => {
         await executor.executeWithAgent(agent, {
           query: 'authentication',
           taskId: 'task-c',
-          workspaceRoot: projectRoot,
+          worktreeRoot: projectRoot,
         })
 
         // Break the link target — delete its config (within TTL window)
@@ -417,7 +417,7 @@ describe('QueryExecutor', () => {
         await executor.executeWithAgent(agent, {
           query: 'authentication',
           taskId: 'task-d',
-          workspaceRoot: projectRoot,
+          worktreeRoot: projectRoot,
         })
 
         // Both queries should have gone through full execution (no stale cache hit)

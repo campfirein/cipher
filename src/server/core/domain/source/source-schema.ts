@@ -3,43 +3,43 @@ import {existsSync, readdirSync, readFileSync, realpathSync, statSync} from 'nod
 import {join} from 'node:path'
 import {z} from 'zod'
 
-import {BRV_DIR, CONTEXT_TREE_DIR, KNOWLEDGE_LINKS_FILE, PROJECT_CONFIG_FILE} from '../../../constants.js'
+import {BRV_DIR, CONTEXT_TREE_DIR, PROJECT_CONFIG_FILE, SOURCES_FILE} from '../../../constants.js'
 
 // ============================================================================
 // Schema
 // ============================================================================
 
-export const KnowledgeLinkSchema = z.object({
+export const SourceSchema = z.object({
   addedAt: z.string(),
   alias: z.string().min(1),
   projectRoot: z.string().min(1),
   readOnly: z.literal(true),
 })
 
-export const KnowledgeLinksFileSchema = z.object({
-  links: z.array(KnowledgeLinkSchema),
+export const SourcesFileSchema = z.object({
+  sources: z.array(SourceSchema),
   version: z.literal(1),
 })
 
-export type KnowledgeLink = z.infer<typeof KnowledgeLinkSchema>
-export type KnowledgeLinksFile = z.infer<typeof KnowledgeLinksFileSchema>
+export type Source = z.infer<typeof SourceSchema>
+export type SourcesFile = z.infer<typeof SourcesFileSchema>
 
 // ============================================================================
-// Knowledge Source (used by search service)
+// SearchOrigin (used by search service to identify the origin of indexed docs)
 // ============================================================================
 
-export interface KnowledgeSource {
+export interface SearchOrigin {
   alias?: string
   contextTreeRoot: string
-  sourceKey: string
-  type: 'linked' | 'local'
+  origin: 'local' | 'shared'
+  originKey: string
 }
 
 /**
- * Derives a stable, short source key from a canonical path.
+ * Derives a stable, short origin key from a canonical path.
  * Uses first 12 hex chars of SHA-256 to avoid alias-based collisions.
  */
-export function deriveSourceKey(canonicalPath: string): string {
+export function deriveOriginKey(canonicalPath: string): string {
   return createHash('sha256').update(canonicalPath).digest('hex').slice(0, 12)
 }
 
@@ -47,21 +47,23 @@ export function deriveSourceKey(canonicalPath: string): string {
 // Load + Validate
 // ============================================================================
 
-export interface LoadedKnowledgeLinks {
-  links: KnowledgeLink[]
+export interface LoadedSources {
   mtime: number
-  sources: KnowledgeSource[]
+  /** Search origins derived from valid sources (callers can search them) */
+  origins: SearchOrigin[]
+  /** All configured sources (including broken ones — for status display) */
+  sources: Source[]
 }
 
 /**
- * Loads and validates `.brv/knowledge-links.json` from a project root.
+ * Loads and validates `.brv/sources.json` from a project root.
  *
  * Returns null if the file does not exist.
- * Broken links (target `.brv/` missing) are included in `links` but excluded
- * from `sources` — callers decide how to surface them (status vs search).
+ * Broken sources (target `.brv/` missing) are included in `sources` but excluded
+ * from `origins` — callers decide how to surface them (status vs search).
  */
-export function loadKnowledgeLinks(projectRoot: string): LoadedKnowledgeLinks | null {
-  const filePath = join(projectRoot, BRV_DIR, KNOWLEDGE_LINKS_FILE)
+export function loadSources(projectRoot: string): LoadedSources | null {
+  const filePath = join(projectRoot, BRV_DIR, SOURCES_FILE)
 
   if (!existsSync(filePath)) {
     return null
@@ -73,26 +75,26 @@ export function loadKnowledgeLinks(projectRoot: string): LoadedKnowledgeLinks | 
   try {
     raw = JSON.parse(readFileSync(filePath, 'utf8'))
   } catch {
-    return {links: [], mtime, sources: []}
+    return {mtime, origins: [], sources: []}
   }
 
-  const result = KnowledgeLinksFileSchema.safeParse(raw)
+  const result = SourcesFileSchema.safeParse(raw)
   if (!result.success) {
-    return {links: [], mtime, sources: []}
+    return {mtime, origins: [], sources: []}
   }
 
-  const sources: KnowledgeSource[] = []
+  const origins: SearchOrigin[] = []
 
-  for (const link of result.data.links) {
-    const targetConfigPath = join(link.projectRoot, BRV_DIR, PROJECT_CONFIG_FILE)
+  for (const source of result.data.sources) {
+    const targetConfigPath = join(source.projectRoot, BRV_DIR, PROJECT_CONFIG_FILE)
     if (!existsSync(targetConfigPath)) {
-      // Broken link — skip from sources but keep in links for status display
+      // Broken source — skip from origins but keep in sources for status display
       continue
     }
 
     let canonicalRoot: string
     try {
-      canonicalRoot = realpathSync(link.projectRoot)
+      canonicalRoot = realpathSync(source.projectRoot)
     } catch {
       continue
     }
@@ -102,22 +104,22 @@ export function loadKnowledgeLinks(projectRoot: string): LoadedKnowledgeLinks | 
       continue
     }
 
-    sources.push({
-      alias: link.alias,
+    origins.push({
+      alias: source.alias,
       contextTreeRoot,
-      sourceKey: deriveSourceKey(canonicalRoot),
-      type: 'linked',
+      origin: 'shared',
+      originKey: deriveOriginKey(canonicalRoot),
     })
   }
 
-  return {links: result.data.links, mtime, sources}
+  return {mtime, origins, sources: result.data.sources}
 }
 
 // ============================================================================
 // Status helpers
 // ============================================================================
 
-export interface KnowledgeLinkStatus {
+export interface SourceStatus {
   alias: string
   contextTreeSize?: number
   projectRoot: string
@@ -125,16 +127,16 @@ export interface KnowledgeLinkStatus {
 }
 
 /**
- * Validates each knowledge link and returns status for display.
+ * Validates each source and returns status for display.
  *
- * A link is valid only when both `.brv/config.json` AND `.brv/context-tree/`
- * exist — matching what loadKnowledgeLinks() requires before including a link
- * in search sources. When valid, `contextTreeSize` counts `.md` files.
+ * A source is valid only when both `.brv/config.json` AND `.brv/context-tree/`
+ * exist — matching what loadSources() requires before including a source in
+ * search origins. When valid, `contextTreeSize` counts `.md` files.
  */
-export function getKnowledgeLinkStatuses(links: KnowledgeLink[]): KnowledgeLinkStatus[] {
-  return links.map((link) => {
-    const targetConfigPath = join(link.projectRoot, BRV_DIR, PROJECT_CONFIG_FILE)
-    const targetContextTree = join(link.projectRoot, BRV_DIR, CONTEXT_TREE_DIR)
+export function getSourceStatuses(sources: Source[]): SourceStatus[] {
+  return sources.map((source) => {
+    const targetConfigPath = join(source.projectRoot, BRV_DIR, PROJECT_CONFIG_FILE)
+    const targetContextTree = join(source.projectRoot, BRV_DIR, CONTEXT_TREE_DIR)
     const valid = existsSync(targetConfigPath) && existsSync(targetContextTree)
 
     let contextTreeSize: number | undefined
@@ -143,9 +145,9 @@ export function getKnowledgeLinkStatuses(links: KnowledgeLink[]): KnowledgeLinkS
     }
 
     return {
-      alias: link.alias,
+      alias: source.alias,
       contextTreeSize,
-      projectRoot: link.projectRoot,
+      projectRoot: source.projectRoot,
       valid,
     }
   })

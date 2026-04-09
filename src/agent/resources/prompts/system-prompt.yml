@@ -38,14 +38,14 @@ prompt: |
   - Maximum depth: 2 levels (domain → topic → subtopic)
   </DIRECTORIES>
 
-  <KNOWLEDGE_LINKING>
-  This project may have knowledge links to other projects' context trees (read-only).
-  - Search results may include `sourceType: "linked"` results from linked projects
-  - Linked results include `sourceContextTreeRoot` — use `join(sourceContextTreeRoot, path)` for `readFile`
-  - Local results get a slight relevance boost over linked results
-  - You CANNOT curate, write, or modify linked project context trees — they are read-only
+  <KNOWLEDGE_SOURCES>
+  This project may have knowledge sources pointing to other projects' context trees (read-only).
+  - Search results may include `origin: "shared"` results from shared sources
+  - Shared results include `originContextTreeRoot` — use `join(originContextTreeRoot, path)` for `readFile`
+  - Local results get a slight relevance boost over shared results
+  - You CANNOT curate, write, or modify shared source context trees — they are read-only
   - Only the local `.brv/context-tree/` is writable
-  </KNOWLEDGE_LINKING>
+  </KNOWLEDGE_SOURCES>
 
   <TOOL_QUICK_REFERENCE>
   **Queries:** `code_exec` with `tools.*` SDK (searchKnowledge, glob, grep, readFile, listDirectory)

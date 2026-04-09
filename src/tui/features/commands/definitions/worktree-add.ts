@@ -3,14 +3,14 @@ import {dirname, join, resolve, sep} from 'node:path'
 
 import type {SlashCommand} from '../../../types/commands.js'
 
-// eslint-disable-next-line no-restricted-imports -- link must re-resolve project after creating workspace link
+// eslint-disable-next-line no-restricted-imports -- worktree add must re-resolve project after creating workspace link
 import {resolveProject} from '../../../../server/infra/project/resolve-project.js'
 import {ClientEvents} from '../../../../shared/transport/events/client-events.js'
 import {useTransportStore} from '../../../stores/transport-store.js'
 
 const BRV_DIR = '.brv'
 const PROJECT_CONFIG_FILE = 'config.json'
-const WORKSPACE_LINK_FILE = '.brv-workspace.json'
+const WORKTREE_LINK_FILE = '.brv-worktree.json'
 
 function hasBrvConfig(dir: string): boolean {
   return existsSync(join(dir, BRV_DIR, PROJECT_CONFIG_FILE))
@@ -56,7 +56,7 @@ function findNearestProjectRoot(startDir: string): string | undefined {
   return undefined
 }
 
-export const linkCommand: SlashCommand = {
+export const worktreeAddSubCommand: SlashCommand = {
   action(_context, args) {
     const cwd = resolve(process.cwd())
 
@@ -79,7 +79,7 @@ export const linkCommand: SlashCommand = {
       const detected = findNearestProjectRoot(cwd)
       if (!detected) {
         return {
-          content: 'No project root found. Provide a path: /link /path/to/project',
+          content: 'No project root found. Provide a path: /worktree add /path/to/project',
           messageType: 'error' as const,
           type: 'message' as const,
         }
@@ -116,7 +116,7 @@ export const linkCommand: SlashCommand = {
     }
 
     // Idempotent: check if already linked to the same target
-    const existingLinkPath = join(cwd, WORKSPACE_LINK_FILE)
+    const existingLinkPath = join(cwd, WORKTREE_LINK_FILE)
     if (existsSync(existingLinkPath)) {
       try {
         const content = JSON.parse(readFileSync(existingLinkPath, 'utf8'))
@@ -149,7 +149,7 @@ export const linkCommand: SlashCommand = {
       }
 
       const store = useTransportStore.getState()
-      store.setProjectInfo(resolution?.projectRoot ?? targetRoot, resolution?.workspaceRoot ?? cwd)
+      store.setProjectInfo(resolution?.projectRoot ?? targetRoot, resolution?.worktreeRoot ?? cwd)
       store.client
         ?.requestWithAck(ClientEvents.ASSOCIATE_PROJECT, {projectPath: resolution?.projectRoot ?? targetRoot})
         .catch(() => {
@@ -179,5 +179,5 @@ export const linkCommand: SlashCommand = {
     },
   ],
   description: 'Link current directory to a ByteRover project',
-  name: 'link',
+  name: 'add',
 }

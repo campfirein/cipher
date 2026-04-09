@@ -78,15 +78,15 @@ describe('Curate Command', () => {
     restore()
   })
 
-  function createLinkedWorkspace(): {clientCwd: string; projectRoot: string; workspaceRoot: string} {
+  function createLinkedWorkspace(): {clientCwd: string; projectRoot: string; worktreeRoot: string} {
     const projectRoot = join(testDir, 'monorepo')
-    const workspaceRoot = join(projectRoot, 'packages', 'api')
-    const clientCwd = join(workspaceRoot, 'src')
+    const worktreeRoot = join(projectRoot, 'packages', 'api')
+    const clientCwd = join(worktreeRoot, 'src')
     mkdirSync(join(projectRoot, '.brv'), {recursive: true})
     mkdirSync(clientCwd, {recursive: true})
     writeFileSync(join(projectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
-    writeFileSync(join(workspaceRoot, '.brv-workspace.json'), JSON.stringify({projectRoot}, null, 2) + '\n')
-    return {clientCwd, projectRoot, workspaceRoot}
+    writeFileSync(join(worktreeRoot, '.brv-worktree.json'), JSON.stringify({projectRoot}, null, 2) + '\n')
+    return {clientCwd, projectRoot, worktreeRoot}
   }
 
   function createCommand(...argv: string[]): TestableCurateCommand {
@@ -206,8 +206,8 @@ describe('Curate Command', () => {
       expect(payload).to.have.property('files').that.deep.equals(['file1.ts', 'file2.ts'])
     })
 
-    it('should send projectPath, workspaceRoot, and clientCwd from a linked workspace', async () => {
-      const {clientCwd, projectRoot, workspaceRoot} = createLinkedWorkspace()
+    it('should send projectPath, worktreeRoot, and clientCwd from a linked workspace', async () => {
+      const {clientCwd, projectRoot, worktreeRoot} = createLinkedWorkspace()
       process.chdir(clientCwd)
       mockConnector.resolves({
         client: mockClient as unknown as ITransportClient,
@@ -220,13 +220,13 @@ describe('Curate Command', () => {
       expect(payload).to.include({
         clientCwd,
         projectPath: projectRoot,
-        workspaceRoot,
+        worktreeRoot,
       })
       expect(payload).to.have.property('files').that.deep.equals(['./auth.ts'])
     })
 
-    it('should send workspaceRoot even when curate has no explicit file paths', async () => {
-      const {clientCwd, projectRoot, workspaceRoot} = createLinkedWorkspace()
+    it('should send worktreeRoot even when curate has no explicit file paths', async () => {
+      const {clientCwd, projectRoot, worktreeRoot} = createLinkedWorkspace()
       process.chdir(clientCwd)
       mockConnector.resolves({
         client: mockClient as unknown as ITransportClient,
@@ -239,7 +239,7 @@ describe('Curate Command', () => {
       expect(payload).to.include({
         clientCwd,
         projectPath: projectRoot,
-        workspaceRoot,
+        worktreeRoot,
       })
       expect(payload).to.not.have.property('files')
     })

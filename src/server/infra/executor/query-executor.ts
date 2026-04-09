@@ -6,7 +6,7 @@ import type { ISearchKnowledgeService, SearchKnowledgeResult } from '../../../ag
 import type { IQueryExecutor, QueryExecuteOptions } from '../../core/interfaces/executor/i-query-executor.js'
 
 import { BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR } from '../../constants.js'
-import { loadKnowledgeLinks } from '../../core/domain/knowledge/knowledge-link-schema.js'
+import { loadSources } from '../../core/domain/source/source-schema.js'
 import { isDerivedArtifact } from '../context-tree/derived-artifact.js'
 import { FileContextTreeManifestService } from '../context-tree/file-context-tree-manifest-service.js'
 import {
@@ -64,7 +64,7 @@ export class QueryExecutor implements IQueryExecutor {
   private static readonly FINGERPRINT_CACHE_TTL_MS = 30_000
   private readonly baseDirectory?: string
   private readonly cache?: QueryResultCache
-  private cachedFingerprint?: { expiresAt: number; sourceValidityHash: string; value: string; workspaceRoot?: string }
+  private cachedFingerprint?: { expiresAt: number; sourceValidityHash: string; value: string; worktreeRoot?: string }
   private readonly fileSystem?: IFileSystem
   private readonly searchService?: ISearchKnowledgeService
 
@@ -78,8 +78,8 @@ export class QueryExecutor implements IQueryExecutor {
   }
 
   public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string> {
-    const { query, taskId, workspaceRoot } = options
-    const workspaceScope = this.deriveWorkspaceScope(workspaceRoot)
+    const { query, taskId, worktreeRoot } = options
+    const workspaceScope = this.deriveWorkspaceScope(worktreeRoot)
 
     // Start search early — runs in parallel with fingerprint computation (independent operations)
     const searchPromise = this.searchService?.search(query, { limit: SMART_ROUTING_MAX_DOCS, scope: workspaceScope })
@@ -89,7 +89,7 @@ export class QueryExecutor implements IQueryExecutor {
     // === Tier 0: Exact cache hit (0ms) ===
     let fingerprint: string | undefined
     if (this.cache && this.fileSystem) {
-      fingerprint = await this.computeContextTreeFingerprint(workspaceRoot)
+      fingerprint = await this.computeContextTreeFingerprint(worktreeRoot)
       const cached = this.cache.get(query, fingerprint)
       if (cached) {
         return cached + ATTRIBUTION_FOOTER
@@ -244,8 +244,8 @@ export class QueryExecutor implements IQueryExecutor {
 
     const sections = highConfidenceResults.map(
       (r) => {
-        const source = r.sourceType === 'linked' && r.sourceAlias
-          ? `[${r.sourceAlias}]:${r.path}`
+        const source = r.origin === 'shared' && r.originAlias
+          ? `[${r.originAlias}]:${r.path}`
           : `.brv/context-tree/${r.path}`
 
         return `### ${r.title}\n**Source**: ${source}\n\n${r.excerpt}`
@@ -277,7 +277,7 @@ export class QueryExecutor implements IQueryExecutor {
   ): string {
     const { manifestContext, metadata, metaVar, prefetchedContext, resultsVar, scopeVar } = options
     const groundingRules = `### Grounding Rules (CRITICAL)
-- ONLY use information from the curated knowledge base (local .brv/context-tree/ plus any read-only linked sources)
+- ONLY use information from the curated knowledge base (local .brv/context-tree/ plus any read-only shared sources)
 - If no relevant knowledge is found, respond: "This topic is not covered in the knowledge base."
 - Do NOT extrapolate, infer, or generate information beyond what is explicitly stated in sources
 - Every claim MUST be traceable to a specific source file
@@ -286,7 +286,7 @@ export class QueryExecutor implements IQueryExecutor {
     const responseFormat = `### Response Format
 - **Summary**: Direct answer (2-3 sentences)
 - **Details**: Key findings with explanations
-- **Sources**: Use .brv/context-tree/... for local knowledge and [alias]:path for linked knowledge
+- **Sources**: Use .brv/context-tree/... for local knowledge and [alias]:path for shared sources
 - **Gaps**: Note any aspects not covered`
 
     const manifestSection = manifestContext
@@ -344,14 +344,14 @@ ${responseFormat}`
    * Used for cache invalidation — if any file in the context tree changes,
    * the fingerprint changes and cached results are invalidated.
    *
-   * Includes workspaceRoot in the hash so different workspaces produce
+   * Includes worktreeRoot in the hash so different workspaces produce
    * different fingerprints, preventing cross-workspace cache bleed.
    */
-  private async computeContextTreeFingerprint(workspaceRoot?: string): Promise<string> {
+  private async computeContextTreeFingerprint(worktreeRoot?: string): Promise<string> {
     // Fast path: return cached fingerprint if still valid (avoids globFiles I/O)
-    // Invalidate if workspaceRoot changed or knowledge link validity changed
+    // Invalidate if worktreeRoot changed or knowledge source validity changed
     if (this.cachedFingerprint && Date.now() < this.cachedFingerprint.expiresAt
-      && this.cachedFingerprint.workspaceRoot === workspaceRoot
+      && this.cachedFingerprint.worktreeRoot === worktreeRoot
       && this.cachedFingerprint.sourceValidityHash === this.computeSourceValidityHash()) {
       return this.cachedFingerprint.value
     }
@@ -372,39 +372,39 @@ ${responseFormat}`
         .filter((f) => !isDerivedArtifact(f.path))
         .map((f) => ({
           mtime: f.modified?.getTime() ?? 0,
-          path: workspaceRoot ? `${workspaceRoot}:${f.path}` : f.path,
+          path: worktreeRoot ? `${worktreeRoot}:${f.path}` : f.path,
         }))
 
-      // Include linked knowledge state in fingerprint so edits in linked
+      // Include shared source state in fingerprint so edits in shared
       // projects invalidate cached query answers.
-      const loaded = this.baseDirectory ? loadKnowledgeLinks(this.baseDirectory) : null
+      const loaded = this.baseDirectory ? loadSources(this.baseDirectory) : null
       if (loaded) {
-        // links-file mtime detects link additions/removals
+        // sources-file mtime detects source additions/removals
         if (loaded.mtime) {
-          files.push({mtime: loaded.mtime, path: '__knowledge-links.json__'})
+          files.push({mtime: loaded.mtime, path: '__sources.json__'})
         }
 
-        // Glob each linked context tree for file-level change detection
-        const linkedResults = await Promise.all(
-          loaded.sources.map(async (source) => {
+        // Glob each shared context tree for file-level change detection
+        const sharedResults = await Promise.all(
+          loaded.origins.map(async (origin) => {
             try {
-              const linkedGlob = await this.fileSystem!.globFiles(`**/*${CONTEXT_FILE_EXTENSION}`, {
-                cwd: source.contextTreeRoot,
+              const sharedGlob = await this.fileSystem!.globFiles(`**/*${CONTEXT_FILE_EXTENSION}`, {
+                cwd: origin.contextTreeRoot,
                 includeMetadata: true,
                 maxResults: 10_000,
                 respectGitignore: false,
               })
 
-              return linkedGlob.files
+              return sharedGlob.files
                 .filter((f) => !isDerivedArtifact(f.path))
-                .map((f) => ({mtime: f.modified?.getTime() ?? 0, path: `linked:${source.sourceKey}:${f.path}`}))
+                .map((f) => ({mtime: f.modified?.getTime() ?? 0, path: `shared:${origin.originKey}:${f.path}`}))
             } catch {
-              // Broken link — skip
+              // Broken source — skip
               return []
             }
           }),
         )
-        files.push(...linkedResults.flat())
+        files.push(...sharedResults.flat())
       }
 
       const fingerprint = QueryResultCache.computeFingerprint(files)
@@ -412,7 +412,7 @@ ${responseFormat}`
         expiresAt: Date.now() + QueryExecutor.FINGERPRINT_CACHE_TTL_MS,
         sourceValidityHash: this.computeSourceValidityHash(),
         value: fingerprint,
-        workspaceRoot,
+        worktreeRoot,
       }
       return fingerprint
     } catch {
@@ -421,22 +421,22 @@ ${responseFormat}`
   }
 
   /**
-   * Lightweight hash of currently valid knowledge link source keys.
-   * Used by the fingerprint cache fast path to detect when a link target
+   * Lightweight hash of currently valid shared source keys.
+   * Used by the fingerprint cache fast path to detect when a source target
    * becomes broken (directory deleted) within the TTL window.
-   * Cost: one readFileSync + existsSync per link — sub-millisecond for typical setups.
+   * Cost: one readFileSync + existsSync per source — sub-millisecond for typical setups.
    */
   private computeSourceValidityHash(): string {
     if (!this.baseDirectory) return ''
-    const loaded = loadKnowledgeLinks(this.baseDirectory)
-    if (!loaded) return 'no-links'
+    const loaded = loadSources(this.baseDirectory)
+    if (!loaded) return 'no-sources'
 
-    return loaded.sources.map((s) => s.sourceKey).sort().join(',')
+    return loaded.origins.map((o) => o.originKey).sort().join(',')
   }
 
   /**
-   * Derive a workspace scope for search from the workspaceRoot.
-   * Returns the relative path from projectRoot to workspaceRoot,
+   * Derive a workspace scope for search from the worktreeRoot.
+   * Returns the relative path from projectRoot to worktreeRoot,
    * or undefined if they are the same (no scoping needed).
    *
    * KNOWN LIMITATION: Workspace scoping only works if the curated context
@@ -446,10 +446,10 @@ ${responseFormat}`
    * falls through to unscoped search. A proper fix requires tagging curated
    * files with source workspace metadata during curation.
    */
-  private deriveWorkspaceScope(workspaceRoot?: string): string | undefined {
-    if (!workspaceRoot || !this.baseDirectory) return undefined
-    if (workspaceRoot === this.baseDirectory) return undefined
-    const rel = relative(this.baseDirectory, workspaceRoot)
+  private deriveWorkspaceScope(worktreeRoot?: string): string | undefined {
+    if (!worktreeRoot || !this.baseDirectory) return undefined
+    if (worktreeRoot === this.baseDirectory) return undefined
+    const rel = relative(this.baseDirectory, worktreeRoot)
 
     return rel || undefined
   }
@@ -494,13 +494,13 @@ ${responseFormat}`
       )
 
       // Collect existing paths to deduplicate
-      const existingPaths = new Set(searchResult.results.map((r) => `${r.sourceAlias ?? r.sourceType ?? 'local'}::${r.path}`))
+      const existingPaths = new Set(searchResult.results.map((r) => `${r.originAlias ?? r.origin ?? 'local'}::${r.path}`))
       const supplementary = []
 
       for (const settled of entitySearches) {
         if (settled.status === 'fulfilled' && settled.value.results) {
           for (const result of settled.value.results) {
-            const resultKey = `${result.sourceAlias ?? result.sourceType ?? 'local'}::${result.path}`
+            const resultKey = `${result.originAlias ?? result.origin ?? 'local'}::${result.path}`
             if (!existingPaths.has(resultKey)) {
               existingPaths.add(resultKey)
               supplementary.push(result)
@@ -543,8 +543,8 @@ ${responseFormat}`
           .map(async (result) => {
             let content = result.excerpt
             try {
-              // Use sourceContextTreeRoot for linked results, local context tree for local
-              const ctBase = result.sourceContextTreeRoot ?? join(BRV_DIR, CONTEXT_TREE_DIR)
+              // Use originContextTreeRoot for shared results, local context tree for local
+              const ctBase = result.originContextTreeRoot ?? join(BRV_DIR, CONTEXT_TREE_DIR)
               const ctPath = join(ctBase, result.path)
               const { content: fullContent } = await this.fileSystem!.readFile(ctPath)
               content = fullContent
@@ -552,9 +552,9 @@ ${responseFormat}`
               // Use excerpt if full read fails
             }
 
-            // Include source attribution in path for linked results
-            const displayPath = result.sourceType === 'linked' && result.sourceAlias
-              ? `[${result.sourceAlias}]:${result.path}`
+            // Include source attribution in path for shared results
+            const displayPath = result.origin === 'shared' && result.originAlias
+              ? `[${result.originAlias}]:${result.path}`
               : result.path
 
             return { content, path: displayPath, score: result.score, title: result.title }

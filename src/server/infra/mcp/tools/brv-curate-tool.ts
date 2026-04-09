@@ -122,7 +122,7 @@ export function registerBrvCurateTool(
           projectPath: taskContext.projectRoot,
           taskId,
           type: taskType,
-          workspaceRoot: taskContext.workspaceRoot,
+          worktreeRoot: taskContext.worktreeRoot,
           ...(hasFolder && folder ? {folderPath: folder} : {}),
           ...(!hasFolder && files?.length ? {files} : {}),
         })

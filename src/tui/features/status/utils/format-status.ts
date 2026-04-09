@@ -34,8 +34,8 @@ export function formatStatus(status: StatusDTO, version?: string): string {
 
   lines.push(`Project: ${status.projectRoot ?? status.currentDirectory}`)
 
-  if (status.workspaceRoot && status.workspaceRoot !== status.projectRoot) {
-    lines.push(`Workspace: ${status.workspaceRoot} (linked)`)
+  if (status.worktreeRoot && status.worktreeRoot !== status.projectRoot) {
+    lines.push(`Worktree: ${status.worktreeRoot} (linked)`)
   }
 
   if (status.resolverError) {
@@ -43,7 +43,7 @@ export function formatStatus(status: StatusDTO, version?: string): string {
   }
 
   if (status.shadowedLink) {
-    lines.push(chalk.yellow('⚠ Shadowed .brv-workspace.json found — .brv/ takes priority'))
+    lines.push(chalk.yellow('⚠ Shadowed .brv-worktree.json found — .brv/ takes priority'))
   }
 
   if (status.teamName && status.spaceName) {
@@ -52,17 +52,17 @@ export function formatStatus(status: StatusDTO, version?: string): string {
     lines.push('Space: Not connected')
   }
 
-  // Knowledge links
-  if (status.knowledgeLinksError) {
-    lines.push(chalk.yellow(`⚠ ${status.knowledgeLinksError}`))
-  } else if (status.knowledgeLinks && status.knowledgeLinks.length > 0) {
-    lines.push('Knowledge Links:')
-    for (const link of status.knowledgeLinks) {
-      if (link.valid) {
-        const sizeInfo = link.contextTreeSize === undefined ? '' : ` [${link.contextTreeSize} files]`
-        lines.push(`   ${link.alias} → ${link.projectRoot} ${chalk.green('(valid)')}${sizeInfo}`)
+  // Knowledge sources
+  if (status.sourcesError) {
+    lines.push(chalk.yellow(`⚠ ${status.sourcesError}`))
+  } else if (status.sources && status.sources.length > 0) {
+    lines.push('Knowledge Sources:')
+    for (const source of status.sources) {
+      if (source.valid) {
+        const sizeInfo = source.contextTreeSize === undefined ? '' : ` [${source.contextTreeSize} files]`
+        lines.push(`   ${source.alias} → ${source.projectRoot} ${chalk.green('(valid)')}${sizeInfo}`)
       } else {
-        lines.push(`   ${link.alias} → ${link.projectRoot} ${chalk.red(`[BROKEN - run brv unlink-knowledge ${link.alias}]`)}`)
+        lines.push(`   ${source.alias} → ${source.projectRoot} ${chalk.red(`[BROKEN - run brv source remove ${source.alias}]`)}`)
       }
     }
   }

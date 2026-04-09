@@ -1,8 +1,8 @@
 /**
- * Unit tests for knowledge-link-operations.ts
+ * Unit tests for source-operations.ts
  *
- * Tests: addKnowledgeLink, removeKnowledgeLink, listKnowledgeLinkStatuses,
- * detectCircularLink, alias deduplication.
+ * Tests: addSource, removeSource, listSourceStatuses,
+ * detectCircularSource, alias deduplication.
  */
 
 import {expect} from 'chai'
@@ -11,11 +11,11 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {
-  addKnowledgeLink,
-  detectCircularLink,
-  listKnowledgeLinkStatuses,
-  removeKnowledgeLink,
-} from '../../../../src/server/core/domain/knowledge/knowledge-link-operations.js'
+  addSource,
+  detectCircularSource,
+  listSourceStatuses,
+  removeSource,
+} from '../../../../src/server/core/domain/source/source-operations.js'
 
 // ============================================================================
 // Helpers
@@ -26,15 +26,15 @@ function createProject(dir: string): void {
   writeFileSync(join(dir, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
 }
 
-function readKnowledgeLinks(projectRoot: string): {links: Array<{alias: string; projectRoot: string}>; version: number} {
-  return JSON.parse(readFileSync(join(projectRoot, '.brv', 'knowledge-links.json'), 'utf8'))
+function readSourcesFile(projectRoot: string): {sources: Array<{alias: string; projectRoot: string}>; version: number} {
+  return JSON.parse(readFileSync(join(projectRoot, '.brv', 'sources.json'), 'utf8'))
 }
 
 // ============================================================================
 // Tests
 // ============================================================================
 
-describe('knowledge-link-operations', () => {
+describe('source-operations', () => {
   let testDir: string
 
   beforeEach(() => {
@@ -46,26 +46,26 @@ describe('knowledge-link-operations', () => {
   })
 
   // ==========================================================================
-  // addKnowledgeLink
+  // addSource
   // ==========================================================================
 
-  describe('addKnowledgeLink', () => {
+  describe('addSource', () => {
     it('should add a knowledge link successfully', () => {
       const projectA = join(testDir, 'project-a')
       const projectB = join(testDir, 'project-b')
       createProject(projectA)
       createProject(projectB)
 
-      const result = addKnowledgeLink(projectA, projectB)
+      const result = addSource(projectA, projectB)
 
       expect(result.success).to.be.true
       expect(result.message).to.include('project-b')
 
-      const links = readKnowledgeLinks(projectA)
-      expect(links.version).to.equal(1)
-      expect(links.links).to.have.length(1)
-      expect(links.links[0].alias).to.equal('project-b')
-      expect(links.links[0].projectRoot).to.equal(projectB)
+      const data = readSourcesFile(projectA)
+      expect(data.version).to.equal(1)
+      expect(data.sources).to.have.length(1)
+      expect(data.sources[0].alias).to.equal('project-b')
+      expect(data.sources[0].projectRoot).to.equal(projectB)
     })
 
     it('should use custom alias when provided', () => {
@@ -74,11 +74,11 @@ describe('knowledge-link-operations', () => {
       createProject(projectA)
       createProject(projectB)
 
-      const result = addKnowledgeLink(projectA, projectB, 'shared')
+      const result = addSource(projectA, projectB, 'shared')
 
       expect(result.success).to.be.true
-      const links = readKnowledgeLinks(projectA)
-      expect(links.links[0].alias).to.equal('shared')
+      const data = readSourcesFile(projectA)
+      expect(data.sources[0].alias).to.equal('shared')
     })
 
     it('should reject when local project has no .brv/', () => {
@@ -87,7 +87,7 @@ describe('knowledge-link-operations', () => {
       mkdirSync(projectA, {recursive: true})
       createProject(projectB)
 
-      const result = addKnowledgeLink(projectA, projectB)
+      const result = addSource(projectA, projectB)
 
       expect(result.success).to.be.false
       expect(result.message).to.include('no .brv/')
@@ -97,7 +97,7 @@ describe('knowledge-link-operations', () => {
       const projectA = join(testDir, 'project-a')
       createProject(projectA)
 
-      const result = addKnowledgeLink(projectA, '/nonexistent/path')
+      const result = addSource(projectA, '/nonexistent/path')
 
       expect(result.success).to.be.false
       expect(result.message).to.include('does not exist')
@@ -109,7 +109,7 @@ describe('knowledge-link-operations', () => {
       createProject(projectA)
       mkdirSync(notAProject, {recursive: true})
 
-      const result = addKnowledgeLink(projectA, notAProject)
+      const result = addSource(projectA, notAProject)
 
       expect(result.success).to.be.false
       expect(result.message).to.include('not a ByteRover project')
@@ -119,10 +119,10 @@ describe('knowledge-link-operations', () => {
       const projectA = join(testDir, 'project-a')
       createProject(projectA)
 
-      const result = addKnowledgeLink(projectA, projectA)
+      const result = addSource(projectA, projectA)
 
       expect(result.success).to.be.false
-      expect(result.message).to.include('self')
+      expect(result.message).to.include('pointing to the current project')
     })
 
     it('should reject duplicate links', () => {
@@ -131,11 +131,11 @@ describe('knowledge-link-operations', () => {
       createProject(projectA)
       createProject(projectB)
 
-      addKnowledgeLink(projectA, projectB)
-      const result = addKnowledgeLink(projectA, projectB)
+      addSource(projectA, projectB)
+      const result = addSource(projectA, projectB)
 
       expect(result.success).to.be.false
-      expect(result.message).to.include('Already linked')
+      expect(result.message).to.include('already added')
     })
 
     it('should reject circular links', () => {
@@ -145,13 +145,13 @@ describe('knowledge-link-operations', () => {
       createProject(projectB)
 
       // B links to A
-      addKnowledgeLink(projectB, projectA)
+      addSource(projectB, projectA)
 
       // A tries to link to B — circular
-      const result = addKnowledgeLink(projectA, projectB)
+      const result = addSource(projectA, projectB)
 
       expect(result.success).to.be.false
-      expect(result.message).to.include('Circular')
+      expect(result.message).to.include('Circular source')
     })
 
     it('should auto-deduplicate aliases with suffix', () => {
@@ -163,15 +163,15 @@ describe('knowledge-link-operations', () => {
       mkdirSync(join(testDir, 'other'), {recursive: true})
       createProject(projectC)
 
-      addKnowledgeLink(projectA, projectB)
-      const result = addKnowledgeLink(projectA, projectC)
+      addSource(projectA, projectB)
+      const result = addSource(projectA, projectC)
 
       expect(result.success).to.be.true
 
-      const links = readKnowledgeLinks(projectA)
-      expect(links.links).to.have.length(2)
-      expect(links.links[0].alias).to.equal('lib')
-      expect(links.links[1].alias).to.equal('lib-2')
+      const data = readSourcesFile(projectA)
+      expect(data.sources).to.have.length(2)
+      expect(data.sources[0].alias).to.equal('lib')
+      expect(data.sources[1].alias).to.equal('lib-2')
     })
 
     it('should add multiple links to different projects', () => {
@@ -182,39 +182,39 @@ describe('knowledge-link-operations', () => {
       createProject(projectB)
       createProject(projectC)
 
-      addKnowledgeLink(projectA, projectB)
-      addKnowledgeLink(projectA, projectC)
+      addSource(projectA, projectB)
+      addSource(projectA, projectC)
 
-      const links = readKnowledgeLinks(projectA)
-      expect(links.links).to.have.length(2)
+      const data = readSourcesFile(projectA)
+      expect(data.sources).to.have.length(2)
     })
 
-    it('should refuse to add link when knowledge-links.json is malformed JSON', () => {
+    it('should refuse to add link when sources.json is malformed JSON', () => {
       const projectA = join(testDir, 'project-a')
       const projectB = join(testDir, 'project-b')
       createProject(projectA)
       createProject(projectB)
 
       // Corrupt the file
-      writeFileSync(join(projectA, '.brv', 'knowledge-links.json'), 'not json')
+      writeFileSync(join(projectA, '.brv', 'sources.json'), 'not json')
 
-      const result = addKnowledgeLink(projectA, projectB)
+      const result = addSource(projectA, projectB)
 
       expect(result.success).to.be.false
       expect(result.message).to.include('Malformed')
       expect(result.message).to.include('not valid JSON')
     })
 
-    it('should refuse to add link when knowledge-links.json has invalid schema', () => {
+    it('should refuse to add link when sources.json has invalid schema', () => {
       const projectA = join(testDir, 'project-a')
       const projectB = join(testDir, 'project-b')
       createProject(projectA)
       createProject(projectB)
 
       // Write valid JSON but invalid schema
-      writeFileSync(join(projectA, '.brv', 'knowledge-links.json'), JSON.stringify({version: 999}))
+      writeFileSync(join(projectA, '.brv', 'sources.json'), JSON.stringify({version: 999}))
 
-      const result = addKnowledgeLink(projectA, projectB)
+      const result = addSource(projectA, projectB)
 
       expect(result.success).to.be.false
       expect(result.message).to.include('Malformed')
@@ -227,7 +227,7 @@ describe('knowledge-link-operations', () => {
       createProject(projectA)
       createProject(projectB)
 
-      const result = addKnowledgeLink(projectA, projectB, '')
+      const result = addSource(projectA, projectB, '')
 
       expect(result.success).to.be.false
       expect(result.message).to.include('empty')
@@ -239,7 +239,7 @@ describe('knowledge-link-operations', () => {
       createProject(projectA)
       createProject(projectB)
 
-      const result = addKnowledgeLink(projectA, projectB, '   ')
+      const result = addSource(projectA, projectB, '   ')
 
       expect(result.success).to.be.false
       expect(result.message).to.include('empty')
@@ -247,25 +247,25 @@ describe('knowledge-link-operations', () => {
   })
 
   // ==========================================================================
-  // removeKnowledgeLink
+  // removeSource
   // ==========================================================================
 
-  describe('removeKnowledgeLink', () => {
+  describe('removeSource', () => {
     it('should remove a link by alias', () => {
       const projectA = join(testDir, 'project-a')
       const projectB = join(testDir, 'project-b')
       createProject(projectA)
       createProject(projectB)
 
-      addKnowledgeLink(projectA, projectB, 'shared')
+      addSource(projectA, projectB, 'shared')
 
-      const result = removeKnowledgeLink(projectA, 'shared')
+      const result = removeSource(projectA, 'shared')
 
       expect(result.success).to.be.true
       expect(result.message).to.include('shared')
 
-      const links = readKnowledgeLinks(projectA)
-      expect(links.links).to.have.length(0)
+      const data = readSourcesFile(projectA)
+      expect(data.sources).to.have.length(0)
     })
 
     it('should remove a link by path', () => {
@@ -274,23 +274,23 @@ describe('knowledge-link-operations', () => {
       createProject(projectA)
       createProject(projectB)
 
-      addKnowledgeLink(projectA, projectB)
+      addSource(projectA, projectB)
 
-      const result = removeKnowledgeLink(projectA, projectB)
+      const result = removeSource(projectA, projectB)
 
       expect(result.success).to.be.true
-      const links = readKnowledgeLinks(projectA)
-      expect(links.links).to.have.length(0)
+      const data = readSourcesFile(projectA)
+      expect(data.sources).to.have.length(0)
     })
 
     it('should return error when no links configured', () => {
       const projectA = join(testDir, 'project-a')
       createProject(projectA)
 
-      const result = removeKnowledgeLink(projectA, 'nonexistent')
+      const result = removeSource(projectA, 'nonexistent')
 
       expect(result.success).to.be.false
-      expect(result.message).to.include('No knowledge links configured')
+      expect(result.message).to.include('No knowledge sources configured')
     })
 
     it('should return error when link not found', () => {
@@ -299,21 +299,21 @@ describe('knowledge-link-operations', () => {
       createProject(projectA)
       createProject(projectB)
 
-      addKnowledgeLink(projectA, projectB)
+      addSource(projectA, projectB)
 
-      const result = removeKnowledgeLink(projectA, 'nonexistent')
+      const result = removeSource(projectA, 'nonexistent')
 
       expect(result.success).to.be.false
-      expect(result.message).to.include('No knowledge link found')
+      expect(result.message).to.include('No source found')
     })
 
-    it('should refuse to remove when knowledge-links.json is malformed', () => {
+    it('should refuse to remove when sources.json is malformed', () => {
       const projectA = join(testDir, 'project-a')
       createProject(projectA)
 
-      writeFileSync(join(projectA, '.brv', 'knowledge-links.json'), 'not json')
+      writeFileSync(join(projectA, '.brv', 'sources.json'), 'not json')
 
-      const result = removeKnowledgeLink(projectA, 'some-alias')
+      const result = removeSource(projectA, 'some-alias')
 
       expect(result.success).to.be.false
       expect(result.message).to.include('Malformed')
@@ -327,27 +327,27 @@ describe('knowledge-link-operations', () => {
       createProject(projectB)
       createProject(projectC)
 
-      addKnowledgeLink(projectA, projectB)
-      addKnowledgeLink(projectA, projectC)
+      addSource(projectA, projectB)
+      addSource(projectA, projectC)
 
-      removeKnowledgeLink(projectA, 'project-b')
+      removeSource(projectA, 'project-b')
 
-      const links = readKnowledgeLinks(projectA)
-      expect(links.links).to.have.length(1)
-      expect(links.links[0].alias).to.equal('project-c')
+      const data = readSourcesFile(projectA)
+      expect(data.sources).to.have.length(1)
+      expect(data.sources[0].alias).to.equal('project-c')
     })
   })
 
   // ==========================================================================
-  // listKnowledgeLinkStatuses
+  // listSourceStatuses
   // ==========================================================================
 
-  describe('listKnowledgeLinkStatuses', () => {
+  describe('listSourceStatuses', () => {
     it('should return empty statuses when no links', () => {
       const projectA = join(testDir, 'project-a')
       createProject(projectA)
 
-      const result = listKnowledgeLinkStatuses(projectA)
+      const result = listSourceStatuses(projectA)
 
       expect(result.error).to.be.undefined
       expect(result.statuses).to.have.length(0)
@@ -361,9 +361,9 @@ describe('knowledge-link-operations', () => {
       // Must have context-tree/ for link to be considered valid
       mkdirSync(join(projectB, '.brv', 'context-tree'), {recursive: true})
 
-      addKnowledgeLink(projectA, projectB)
+      addSource(projectA, projectB)
 
-      const result = listKnowledgeLinkStatuses(projectA)
+      const result = listSourceStatuses(projectA)
 
       expect(result.error).to.be.undefined
       expect(result.statuses).to.have.length(1)
@@ -377,12 +377,12 @@ describe('knowledge-link-operations', () => {
       createProject(projectA)
       createProject(projectB)
 
-      addKnowledgeLink(projectA, projectB)
+      addSource(projectA, projectB)
 
       // Remove project B
       rmSync(projectB, {force: true, recursive: true})
 
-      const result = listKnowledgeLinkStatuses(projectA)
+      const result = listSourceStatuses(projectA)
 
       expect(result.error).to.be.undefined
       expect(result.statuses).to.have.length(1)
@@ -392,9 +392,9 @@ describe('knowledge-link-operations', () => {
     it('should return error for malformed JSON', () => {
       const projectA = join(testDir, 'project-a')
       createProject(projectA)
-      writeFileSync(join(projectA, '.brv', 'knowledge-links.json'), 'not json')
+      writeFileSync(join(projectA, '.brv', 'sources.json'), 'not json')
 
-      const result = listKnowledgeLinkStatuses(projectA)
+      const result = listSourceStatuses(projectA)
 
       expect(result.error).to.include('Malformed')
       expect(result.error).to.include('not valid JSON')
@@ -404,9 +404,9 @@ describe('knowledge-link-operations', () => {
     it('should return error for invalid schema', () => {
       const projectA = join(testDir, 'project-a')
       createProject(projectA)
-      writeFileSync(join(projectA, '.brv', 'knowledge-links.json'), JSON.stringify({version: 999}))
+      writeFileSync(join(projectA, '.brv', 'sources.json'), JSON.stringify({version: 999}))
 
-      const result = listKnowledgeLinkStatuses(projectA)
+      const result = listSourceStatuses(projectA)
 
       expect(result.error).to.include('Malformed')
       expect(result.error).to.include('schema validation failed')
@@ -415,17 +415,17 @@ describe('knowledge-link-operations', () => {
   })
 
   // ==========================================================================
-  // detectCircularLink
+  // detectCircularSource
   // ==========================================================================
 
-  describe('detectCircularLink', () => {
+  describe('detectCircularSource', () => {
     it('should return false when no circular dependency', () => {
       const projectA = join(testDir, 'project-a')
       const projectB = join(testDir, 'project-b')
       createProject(projectA)
       createProject(projectB)
 
-      const result = detectCircularLink(projectA, projectB)
+      const result = detectCircularSource(projectA, projectB)
 
       expect(result).to.be.false
     })
@@ -437,9 +437,9 @@ describe('knowledge-link-operations', () => {
       createProject(projectB)
 
       // B already links to A
-      addKnowledgeLink(projectB, projectA)
+      addSource(projectB, projectA)
 
-      const result = detectCircularLink(projectA, projectB)
+      const result = detectCircularSource(projectA, projectB)
 
       expect(result).to.be.true
     })
@@ -450,7 +450,7 @@ describe('knowledge-link-operations', () => {
       createProject(projectA)
       createProject(projectB)
 
-      const result = detectCircularLink(projectA, projectB)
+      const result = detectCircularSource(projectA, projectB)
 
       expect(result).to.be.false
     })
@@ -464,10 +464,10 @@ describe('knowledge-link-operations', () => {
       createProject(projectC)
 
       // A -> B -> C, trying C -> A is NOT detected (transitive)
-      addKnowledgeLink(projectA, projectB)
-      addKnowledgeLink(projectB, projectC)
+      addSource(projectA, projectB)
+      addSource(projectB, projectC)
 
-      const result = detectCircularLink(projectC, projectA)
+      const result = detectCircularSource(projectC, projectA)
 
       expect(result).to.be.false
     })

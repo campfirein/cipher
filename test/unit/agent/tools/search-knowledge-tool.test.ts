@@ -752,7 +752,7 @@ describe('Search Knowledge Tool', () => {
 
     it('should prevent duplicate index builds when executed in parallel', async () => {
       // Disable TTL to force index validation path
-      // Use isolated baseDirectory to avoid picking up real knowledge-links.json from cwd
+      // Use isolated baseDirectory to avoid picking up real sources.json from cwd
       const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 0})
 
       // Add artificial delay to readFile to simulate slow I/O
@@ -826,7 +826,7 @@ describe('Search Knowledge Tool', () => {
 
     it('should handle parallel execution when cache is invalidated mid-flight', async () => {
       // Use short TTL to test cache validation
-      // Use isolated baseDirectory to avoid picking up real knowledge-links.json from cwd
+      // Use isolated baseDirectory to avoid picking up real sources.json from cwd
       const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 0})
 
       let buildCount = 0

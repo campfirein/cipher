@@ -228,7 +228,7 @@ export class ConnectionCoordinator {
         return {success: true}
       }
 
-      // Reassociation: path changed (e.g. after link/unlink)
+      // Reassociation: path changed (e.g. after worktree add/remove)
       const oldPath = this.clientManager.updateProjectPath(clientId, data.projectPath)
       transportLog(`Client ${clientId} reassociated: ${oldPath} → ${data.projectPath}`)
 

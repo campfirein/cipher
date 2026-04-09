@@ -50,7 +50,7 @@ export function createWriteFileTool(fileSystemService: IFileSystem, environmentC
       const {content, createDirs, encoding, filePath} = input as WriteFileInput
       const sanitizedPath = sanitizeFolderName(filePath)
 
-      // Write guard: block writes to knowledge-linked context trees
+      // Write guard: block writes to shared source context trees
       if (environmentContext?.workingDirectory) {
         const writeError = validateWriteTarget(sanitizedPath, environmentContext.workingDirectory)
         if (writeError) {

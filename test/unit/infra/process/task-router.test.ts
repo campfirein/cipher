@@ -310,22 +310,22 @@ describe('TaskRouter', () => {
       expect(submittedTask.files).to.deep.equal(['src/auth.ts', 'src/middleware.ts'])
     })
 
-    it('should derive workspaceRoot from resolver when omitted', async () => {
+    it('should derive worktreeRoot from resolver when omitted', async () => {
       const projectRoot = mkdtempSync(join(tmpdir(), 'brv-task-router-project-'))
-      const workspaceRoot = join(projectRoot, 'packages', 'api')
+      const worktreeRoot = join(projectRoot, 'packages', 'api')
       mkdirSync(join(projectRoot, '.brv'), {recursive: true})
       writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
-      mkdirSync(workspaceRoot, {recursive: true})
-      writeFileSync(join(workspaceRoot, '.brv-workspace.json'), JSON.stringify({projectRoot}))
+      mkdirSync(worktreeRoot, {recursive: true})
+      writeFileSync(join(worktreeRoot, '.brv-worktree.json'), JSON.stringify({projectRoot}))
       const canonicalProjectRoot = realpathSync(projectRoot)
-      const canonicalWorkspaceRoot = realpathSync(workspaceRoot)
+      const canonicalWorkspaceRoot = realpathSync(worktreeRoot)
 
       try {
         const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
         const request = makeTaskCreateRequest({
-          clientCwd: workspaceRoot,
+          clientCwd: worktreeRoot,
           projectPath: canonicalProjectRoot,
-          workspaceRoot: undefined,
+          worktreeRoot: undefined,
         })
 
         handler!(request, 'client-1')
@@ -335,18 +335,18 @@ describe('TaskRouter', () => {
         })
 
         const submittedTask = agentPool.submitTask.firstCall.args[0]
-        expect(submittedTask.workspaceRoot).to.equal(canonicalWorkspaceRoot)
+        expect(submittedTask.worktreeRoot).to.equal(canonicalWorkspaceRoot)
       } finally {
         rmSync(projectRoot, {force: true, recursive: true})
       }
     })
 
-    it('should fall back workspaceRoot to projectPath when resolver returns null', async () => {
+    it('should fall back worktreeRoot to projectPath when resolver returns null', async () => {
       const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
       const request = makeTaskCreateRequest({
         clientCwd: '/outside/project',
         projectPath: '/app',
-        workspaceRoot: undefined,
+        worktreeRoot: undefined,
       })
 
       handler!(request, 'client-1')
@@ -356,10 +356,10 @@ describe('TaskRouter', () => {
       })
 
       const submittedTask = agentPool.submitTask.firstCall.args[0]
-      expect(submittedTask.workspaceRoot).to.equal('/app')
+      expect(submittedTask.worktreeRoot).to.equal('/app')
     })
 
-    it('should reject workspaceRoot outside projectPath', async () => {
+    it('should reject worktreeRoot outside projectPath', async () => {
       const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
       const taskId = randomUUID()
 
@@ -370,7 +370,7 @@ describe('TaskRouter', () => {
           projectPath: '/app',
           taskId,
           type: 'query',
-          workspaceRoot: '/other-project',
+          worktreeRoot: '/other-project',
         },
         'client-1',
       )
@@ -381,14 +381,14 @@ describe('TaskRouter', () => {
         (c) => c.args[1] === TransportTaskEventNames.ERROR,
       )
       expect(errorCall).to.exist
-      expect(errorCall!.args[2].error.message).to.include('workspaceRoot')
+      expect(errorCall!.args[2].error.message).to.include('worktreeRoot')
     })
 
     it('should surface resolver errors instead of swallowing them', async () => {
       const projectRoot = mkdtempSync(join(tmpdir(), 'brv-task-router-broken-link-'))
-      const workspaceRoot = join(projectRoot, 'packages', 'api')
-      mkdirSync(workspaceRoot, {recursive: true})
-      writeFileSync(join(workspaceRoot, '.brv-workspace.json'), JSON.stringify({projectRoot: '/missing/project'}))
+      const worktreeRoot = join(projectRoot, 'packages', 'api')
+      mkdirSync(worktreeRoot, {recursive: true})
+      writeFileSync(join(worktreeRoot, '.brv-worktree.json'), JSON.stringify({projectRoot: '/missing/project'}))
 
       try {
         const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
@@ -396,7 +396,7 @@ describe('TaskRouter', () => {
 
         const result = await handler!(
           {
-            clientCwd: workspaceRoot,
+            clientCwd: worktreeRoot,
             content: 'broken link',
             taskId,
             type: 'query',
@@ -410,7 +410,7 @@ describe('TaskRouter', () => {
           (c) => c.args[1] === TransportTaskEventNames.ERROR,
         )
         expect(errorCall).to.exist
-        expect(errorCall!.args[2].error.message).to.include('Workspace link broken')
+        expect(errorCall!.args[2].error.message).to.include('Worktree link broken')
       } finally {
         rmSync(projectRoot, {force: true, recursive: true})
       }

@@ -13,19 +13,19 @@ import {useTransportStore} from './stores/transport-store.js'
 export interface ReplOptions {
   projectPath?: string
   version: string
-  workspaceRoot?: string
+  worktreeRoot?: string
 }
 
 /**
  * Start the ByteRover REPL
  */
 export async function startRepl(options: ReplOptions): Promise<void> {
-  const {projectPath, version, workspaceRoot} = options
+  const {projectPath, version, worktreeRoot} = options
 
   // Set version and project info in store before rendering
   const store = useTransportStore.getState()
   store.setVersion(version)
-  store.setProjectInfo(projectPath, workspaceRoot)
+  store.setProjectInfo(projectPath, worktreeRoot)
 
   const {waitUntilExit} = render(
     <AppProviders>

@@ -4,8 +4,6 @@ import {connectorsCommand} from './connectors.js'
 import {curateCommand} from './curate.js'
 import {exitCommand} from './exit.js'
 import {hubCommand} from './hub.js'
-import {linkKnowledgeCommand} from './link-knowledge.js'
-import {linkCommand} from './link.js'
 import {locationsCommand} from './locations.js'
 import {loginCommand} from './login.js'
 import {logoutCommand} from './logout.js'
@@ -16,11 +14,11 @@ import {pullCommand} from './pull.js'
 import {pushCommand} from './push.js'
 import {queryCommand} from './query.js'
 import {resetCommand} from './reset.js'
+import {sourceCommand} from './source.js'
 import {spaceCommand} from './space.js'
 import {statusCommand} from './status.js'
-import {unlinkKnowledgeCommand} from './unlink-knowledge.js'
-import {unlinkCommand} from './unlink.js'
 import {vcCommand} from './vc.js'
+import {worktreeCommand} from './worktree.js'
 
 /**
  * Load all REPL slash commands.
@@ -56,12 +54,10 @@ export const load: () => SlashCommand[] = () => [
   vcCommand,
 
   // Workspace management
-  linkCommand,
-  unlinkCommand,
+  worktreeCommand,
 
-  // Knowledge linking
-  linkKnowledgeCommand,
-  unlinkKnowledgeCommand,
+  // Knowledge sources
+  sourceCommand,
 
   // Context tree management
   resetCommand,

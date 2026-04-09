@@ -1,23 +1,23 @@
 import {Args, Command} from '@oclif/core'
 
-import {removeKnowledgeLink} from '../../server/core/domain/knowledge/knowledge-link-operations.js'
-import {resolveProject} from '../../server/infra/project/resolve-project.js'
+import {removeSource} from '../../../server/core/domain/source/source-operations.js'
+import {resolveProject} from '../../../server/infra/project/resolve-project.js'
 
-export default class UnlinkKnowledge extends Command {
+export default class SourceRemove extends Command {
   static args = {
     aliasOrPath: Args.string({
-      description: 'Alias or path of the knowledge link to remove',
+      description: 'Alias or path of the knowledge source to remove',
       required: true,
     }),
   }
-  static description = 'Remove a knowledge link to another project'
+  static description = 'Remove a knowledge source'
   static examples = [
     '<%= config.bin %> <%= command.id %> shared-lib',
     '<%= config.bin %> <%= command.id %> /path/to/shared-lib',
   ]
 
   async run(): Promise<void> {
-    const {args} = await this.parse(UnlinkKnowledge)
+    const {args} = await this.parse(SourceRemove)
 
     // Resolve local project root
     let projectRoot: string
@@ -37,7 +37,7 @@ export default class UnlinkKnowledge extends Command {
       return
     }
 
-    const result = removeKnowledgeLink(projectRoot, args.aliasOrPath)
+    const result = removeSource(projectRoot, args.aliasOrPath)
 
     if (result.success) {
       this.log(result.message)

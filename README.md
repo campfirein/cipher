@@ -241,17 +241,22 @@ ByteRover CLI supports 18 LLM providers out of the box. Use `brv providers conne
 
 </details>
 
-## Workspace Linking
+## Worktrees and Knowledge Sources
+
+> **Vocabulary**
+> - **Worktree link** — a subdirectory pointer to a parent project (`brv worktree`)
+> - **Source** — a read-only reference to another project's knowledge (`brv source`)
+> - **Origin** — where an indexed search result came from (`local` vs `shared`)
 
 ByteRover can run from a linked subdirectory without creating a nested `.brv/`.
 
 - `projectRoot`: the directory that owns `.brv/config.json`
-- `workspaceRoot`: the linked workspace directory, or `projectRoot` when unlinked
+- `worktreeRoot`: the linked worktree directory, or `projectRoot` when unlinked
 - `clientCwd`: the shell cwd where you ran `brv`
 
-When you run `brv query` or `brv curate` from a linked workspace, implicit defaults use `workspaceRoot` so scope stays stable even if `clientCwd` drifts deeper into the package. Explicit relative paths that you pass yourself, such as `brv curate -f ./src/auth.ts`, still resolve from `clientCwd` to match normal shell behavior.
+When you run `brv query` or `brv curate` from a linked worktree, implicit defaults use `worktreeRoot` so scope stays stable even if `clientCwd` drifts deeper into the package. Explicit relative paths that you pass yourself, such as `brv curate -f ./src/auth.ts`, still resolve from `clientCwd` to match normal shell behavior.
 
-Use `brv link` from a subdirectory to create a `.brv-workspace.json` link back to the project root, and `brv unlink` to remove it.
+Use `brv worktree add` from a subdirectory to create a `.brv-worktree.json` link back to the project root, `brv worktree remove` to remove it, and `brv worktree list` to inspect the current link. To search another project's knowledge from here, use `brv source add <path>` (with `brv source list` / `brv source remove` to inspect or detach).
 
 ## Documentation
 

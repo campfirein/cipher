@@ -78,14 +78,14 @@ describe('Query Command', () => {
     restore()
   })
 
-  function createLinkedWorkspace(): {projectRoot: string; workspaceRoot: string} {
+  function createLinkedWorkspace(): {projectRoot: string; worktreeRoot: string} {
     const projectRoot = join(testDir, 'monorepo')
-    const workspaceRoot = join(projectRoot, 'packages', 'api')
+    const worktreeRoot = join(projectRoot, 'packages', 'api')
     mkdirSync(join(projectRoot, '.brv'), {recursive: true})
-    mkdirSync(workspaceRoot, {recursive: true})
+    mkdirSync(worktreeRoot, {recursive: true})
     writeFileSync(join(projectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
-    writeFileSync(join(workspaceRoot, '.brv-workspace.json'), JSON.stringify({projectRoot}, null, 2) + '\n')
-    return {projectRoot, workspaceRoot}
+    writeFileSync(join(worktreeRoot, '.brv-worktree.json'), JSON.stringify({projectRoot}, null, 2) + '\n')
+    return {projectRoot, worktreeRoot}
   }
 
   function createCommand(...argv: string[]): TestableQueryCommand {
@@ -198,9 +198,9 @@ describe('Query Command', () => {
       expect(payload).to.have.property('projectPath', '/test/project')
     })
 
-    it('should send projectPath, workspaceRoot, and clientCwd from a linked workspace', async () => {
-      const {projectRoot, workspaceRoot} = createLinkedWorkspace()
-      process.chdir(workspaceRoot)
+    it('should send projectPath, worktreeRoot, and clientCwd from a linked workspace', async () => {
+      const {projectRoot, worktreeRoot} = createLinkedWorkspace()
+      process.chdir(worktreeRoot)
       mockConnector.resolves({
         client: mockClient as unknown as ITransportClient,
         projectRoot,
@@ -227,9 +227,9 @@ describe('Query Command', () => {
 
       const [, payload] = (mockClient.requestWithAck as sinon.SinonStub).secondCall.args
       expect(payload).to.include({
-        clientCwd: workspaceRoot,
+        clientCwd: worktreeRoot,
         projectPath: projectRoot,
-        workspaceRoot,
+        worktreeRoot,
       })
     })
 

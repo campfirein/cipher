@@ -41,7 +41,7 @@ export default class Main extends Command {
 
     // Resolve project (workspace-link-aware) before starting TUI.
     // Gracefully handle broken/malformed workspace links so TUI still starts
-    // (user can fix via /unlink from within the REPL).
+    // (user can fix via /worktree remove from within the REPL).
     let resolution: ReturnType<typeof resolveProject> = null
     try {
       resolution = resolveProject()
@@ -53,7 +53,7 @@ export default class Main extends Command {
     await startRepl({
       projectPath: resolution?.projectRoot,
       version: this.config.version,
-      workspaceRoot: resolution?.workspaceRoot,
+      worktreeRoot: resolution?.worktreeRoot,
     })
 
     this.exit(0)

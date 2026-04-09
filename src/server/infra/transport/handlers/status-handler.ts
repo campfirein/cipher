@@ -10,8 +10,8 @@ import type {ITransportServer} from '../../../core/interfaces/transport/i-transp
 
 import {StatusEvents, type StatusGetRequest, type StatusGetResponse} from '../../../../shared/transport/events/status-events.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
-import {listKnowledgeLinkStatuses} from '../../../core/domain/knowledge/knowledge-link-operations.js'
-import {BrokenWorkspaceLinkError, MalformedWorkspaceLinkError, resolveProject} from '../../project/resolve-project.js'
+import {listSourceStatuses} from '../../../core/domain/source/source-operations.js'
+import {BrokenWorktreeLinkError, MalformedWorktreeLinkError, resolveProject} from '../../project/resolve-project.js'
 import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 /** Factory that creates a curate log store scoped to a project directory. */
@@ -77,14 +77,14 @@ export class StatusHandler {
         const resolution = resolveProject({cwd: clientCwd, projectRootFlag})
         if (resolution) {
           result.projectRoot = resolution.projectRoot
-          result.workspaceRoot = resolution.workspaceRoot
+          result.worktreeRoot = resolution.worktreeRoot
           result.resolutionSource = resolution.source
           result.shadowedLink = resolution.shadowedLink
           effectiveProjectPath = resolution.projectRoot
         }
       } catch (error) {
         // Surface broken/malformed link errors as actionable status info
-        if (error instanceof BrokenWorkspaceLinkError || error instanceof MalformedWorkspaceLinkError) {
+        if (error instanceof BrokenWorktreeLinkError || error instanceof MalformedWorktreeLinkError) {
           result.resolverError = error.message
         }
 
@@ -188,13 +188,13 @@ export class StatusHandler {
       // Best-effort — if the log is unavailable, skip review info
     }
 
-    // Knowledge links status
+    // Knowledge sources status
     try {
-      const linksResult = listKnowledgeLinkStatuses(effectiveProjectPath)
-      if (linksResult.error) {
-        result.knowledgeLinksError = linksResult.error
-      } else if (linksResult.statuses.length > 0) {
-        result.knowledgeLinks = linksResult.statuses
+      const sourcesResult = listSourceStatuses(effectiveProjectPath)
+      if (sourcesResult.error) {
+        result.sourcesError = sourcesResult.error
+      } else if (sourcesResult.statuses.length > 0) {
+        result.sources = sourcesResult.statuses
       }
     } catch {
       // Best-effort — swallow errors

@@ -90,7 +90,7 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
         }
 
         // Keep connectOptions.projectPath in sync with the store so reconnects
-        // use the latest value (e.g. after reassociation from link/unlink).
+        // use the latest value (e.g. after reassociation from worktree add/remove).
         // If projectPath is cleared and resolver fails, keep the last good value
         // rather than registering with raw cwd.
         unsubProjectSync = useTransportStore.subscribe((state) => {

@@ -20,13 +20,13 @@ describe('formatStatus knowledge links', () => {
   it('should show knowledge links section when links exist', () => {
     const status: StatusDTO = {
       ...baseStatus,
-      knowledgeLinks: [
+      sources: [
         {alias: 'shared-lib', contextTreeSize: 42, projectRoot: '/path/to/shared-lib', valid: true},
       ],
     }
 
     const output = formatStatus(status, '1.0.0')
-    expect(output).to.include('Knowledge Links:')
+    expect(output).to.include('Knowledge Sources:')
     expect(output).to.include('shared-lib')
     expect(output).to.include('/path/to/shared-lib')
     expect(output).to.include('(valid)')
@@ -36,37 +36,37 @@ describe('formatStatus knowledge links', () => {
   it('should show BROKEN status with actionable hint for invalid links', () => {
     const status: StatusDTO = {
       ...baseStatus,
-      knowledgeLinks: [
+      sources: [
         {alias: 'gone-project', projectRoot: '/nonexistent', valid: false},
       ],
     }
 
     const output = formatStatus(status, '1.0.0')
-    expect(output).to.include('Knowledge Links:')
+    expect(output).to.include('Knowledge Sources:')
     expect(output).to.include('gone-project')
     expect(output).to.include('BROKEN')
-    expect(output).to.include('brv unlink-knowledge gone-project')
+    expect(output).to.include('brv source remove gone-project')
   })
 
   it('should not show knowledge links section when no links', () => {
     const output = formatStatus(baseStatus, '1.0.0')
-    expect(output).to.not.include('Knowledge Links:')
+    expect(output).to.not.include('Knowledge Sources:')
   })
 
   it('should not show knowledge links section for empty array', () => {
     const status: StatusDTO = {
       ...baseStatus,
-      knowledgeLinks: [],
+      sources: [],
     }
 
     const output = formatStatus(status, '1.0.0')
-    expect(output).to.not.include('Knowledge Links:')
+    expect(output).to.not.include('Knowledge Sources:')
   })
 
   it('should show multiple links', () => {
     const status: StatusDTO = {
       ...baseStatus,
-      knowledgeLinks: [
+      sources: [
         {alias: 'lib-a', projectRoot: '/path/a', valid: true},
         {alias: 'lib-b', projectRoot: '/path/b', valid: false},
       ],

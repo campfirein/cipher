@@ -111,16 +111,16 @@ export interface SearchKnowledgeResult {
     /** Number of other memories that reference this one */
     backlinkCount?: number
     excerpt: string
+    /** Origin: 'local' for this project, 'shared' for results from a knowledge source */
+    origin?: 'local' | 'shared'
+    /** Alias of the shared source (undefined for local results) */
+    originAlias?: string
+    /** Absolute path to the context tree root this result belongs to. Use join(originContextTreeRoot, path) to read. */
+    originContextTreeRoot?: string
     path: string
     /** Top backlink source paths (max 3) */
     relatedPaths?: string[]
     score: number
-    /** Alias of the linked project (undefined for local results) */
-    sourceAlias?: string
-    /** Absolute path to the context tree root this result belongs to. Use join(sourceContextTreeRoot, path) to read. */
-    sourceContextTreeRoot?: string
-    /** Source type: 'local' or 'linked' */
-    sourceType?: 'linked' | 'local'
     /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' | 'archive_stub' */
     symbolKind?: string
     /** Resolved hierarchical path in the symbol tree */
@@ -257,7 +257,7 @@ export interface CreateToolsSDKOptions {
   fileSystem: IFileSystem
   /** Parent session ID for creating child sessions (required for agentQuery) */
   parentSessionId?: string
-  /** Project root for write guard validation (blocks writes to linked context trees) */
+  /** Project root for write guard validation (blocks writes to shared source context trees) */
   projectRoot?: string
   /** Sandbox service for variable injection into child sessions (optional, enables contextData in agentQuery) */
   sandboxService?: ISandboxService
@@ -445,7 +445,7 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
         throw new Error('writeFile() is disabled in read-only (query) mode')
       }
 
-      // Write guard: block writes to knowledge-linked context trees
+      // Write guard: block writes to shared source context trees
       if (projectRoot) {
         const writeError = validateWriteTarget(filePath, projectRoot)
         if (writeError) {

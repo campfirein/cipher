@@ -16,7 +16,7 @@ export interface CurateExecuteOptions {
   /** Task ID for event routing (required for concurrent task isolation) */
   taskId: string
   /** Workspace root — linked subdir or same as projectRoot for direct projects */
-  workspaceRoot?: string
+  worktreeRoot?: string
 }
 
 /**

@@ -116,7 +116,7 @@ export class CurateService implements ICurateService {
     // files are written to the correct project directory, not process.cwd()
     const basePath = resolve(this.workingDirectory, rawBasePath)
 
-    // Knowledge-link write guard: block curate to linked project context trees
+    // Source write guard: block curate to shared source context trees
     const writeError = validateWriteTarget(basePath, this.workingDirectory)
     if (writeError) {
       return {

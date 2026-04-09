@@ -187,20 +187,20 @@ describe('Status Command', () => {
       expect(loggedMessages.some((m) => m.startsWith('Space:') && m.includes('Not connected'))).to.be.true
     })
 
-    it('should display linked workspace when workspaceRoot differs from projectRoot', async () => {
+    it('should display linked workspace when worktreeRoot differs from projectRoot', async () => {
       mockStatusResponse({
         authStatus: 'logged_in',
         contextTreeStatus: 'no_changes',
         currentDirectory: '/test',
         projectRoot: '/repos/monorepo',
         userEmail: 'user@example.com',
-        workspaceRoot: '/repos/monorepo/packages/api',
+        worktreeRoot: '/repos/monorepo/packages/api',
       })
 
       await createCommand().run()
 
       expect(loggedMessages).to.include('Project: /repos/monorepo')
-      expect(loggedMessages).to.include('Workspace: /repos/monorepo/packages/api (linked)')
+      expect(loggedMessages).to.include('Worktree: /repos/monorepo/packages/api (linked)')
     })
   })
 

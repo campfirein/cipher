@@ -73,7 +73,7 @@ export interface DaemonClientOptions {
   transportConnector?: TransportConnector
 }
 
-function resolveRequiredProjectPath(projectRootFlag?: string): {projectRoot: string; workspaceRoot: string} {
+function resolveRequiredProjectPath(projectRootFlag?: string): {projectRoot: string; worktreeRoot: string} {
   const resolution = resolveProject({projectRootFlag})
   if (!resolution) {
     throw new Error('No ByteRover project could be resolved before connecting to the daemon.')
@@ -100,7 +100,7 @@ export async function connectToDaemonClient(
  * agent disconnected). Does NOT retry on business errors (auth, validation, etc.).
  */
 export async function withDaemonRetry<T>(
-  fn: (client: ITransportClient, projectRoot?: string, workspaceRoot?: string) => Promise<T>,
+  fn: (client: ITransportClient, projectRoot?: string, worktreeRoot?: string) => Promise<T>,
   options?: DaemonClientOptions & {
     /** Called before each retry with attempt number (1-indexed) */
     onRetry?: (attempt: number, maxRetries: number) => void
@@ -111,10 +111,10 @@ export async function withDaemonRetry<T>(
   const connector = options?.transportConnector ?? createDaemonAwareConnector(options?.projectPath)
 
   // Pre-resolve project (workspace-link-aware) so the connector registers
-  // with the correct projectPath and callers get the resolved workspaceRoot.
+  // with the correct projectPath and callers get the resolved worktreeRoot.
   const resolution = resolveRequiredProjectPath(options?.projectRootFlag)
   const resolvedProjectPath = resolution.projectRoot
-  const resolvedWorkspaceRoot = resolution.workspaceRoot
+  const resolvedWorkspaceRoot = resolution.worktreeRoot
 
   let lastError: unknown
 

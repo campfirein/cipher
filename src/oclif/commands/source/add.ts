@@ -1,30 +1,30 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {resolve} from 'node:path'
 
-import {addKnowledgeLink} from '../../server/core/domain/knowledge/knowledge-link-operations.js'
-import {resolveProject} from '../../server/infra/project/resolve-project.js'
+import {addSource} from '../../../server/core/domain/source/source-operations.js'
+import {resolveProject} from '../../../server/infra/project/resolve-project.js'
 
-export default class LinkKnowledge extends Command {
+export default class SourceAdd extends Command {
   static args = {
     path: Args.string({
       description: "Path to the target project containing .brv/",
       required: true,
     }),
   }
-  static description = "Add a read-only knowledge link to another project's context tree"
+  static description = "Add a read-only knowledge source from another project's context tree"
   static examples = [
     '<%= config.bin %> <%= command.id %> /path/to/shared-lib',
     '<%= config.bin %> <%= command.id %> /path/to/shared-lib --alias shared',
   ]
   static flags = {
     alias: Flags.string({
-      description: 'Custom alias for the linked project (defaults to directory name)',
+      description: 'Custom alias for the source (defaults to directory name)',
       required: false,
     }),
   }
 
   async run(): Promise<void> {
-    const {args, flags} = await this.parse(LinkKnowledge)
+    const {args, flags} = await this.parse(SourceAdd)
 
     // Resolve local project root
     let projectRoot: string
@@ -45,7 +45,7 @@ export default class LinkKnowledge extends Command {
     }
 
     const targetPath = resolve(args.path)
-    const result = addKnowledgeLink(projectRoot, targetPath, flags.alias)
+    const result = addSource(projectRoot, targetPath, flags.alias)
 
     if (result.success) {
       this.log(result.message)

@@ -20,5 +20,5 @@ export type TaskInfo = {
   taskId: string
   type: TaskType
   /** Workspace root (linked subdir or projectRoot if unlinked) */
-  workspaceRoot?: string
+  worktreeRoot?: string
 }

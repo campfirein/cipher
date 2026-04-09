@@ -13,8 +13,8 @@ function createProjectWithContextTree(dir: string): void {
   writeFileSync(join(dir, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
 }
 
-function writeKnowledgeLinks(projectRoot: string, links: unknown): void {
-  writeFileSync(join(projectRoot, '.brv', 'knowledge-links.json'), JSON.stringify(links, null, 2))
+function writeSourcesFile(projectRoot: string, data: unknown): void {
+  writeFileSync(join(projectRoot, '.brv', 'sources.json'), JSON.stringify(data, null, 2))
 }
 
 function makeFileSystem(sandbox: SinonSandbox): IFileSystem & {
@@ -53,8 +53,8 @@ describe('SearchKnowledgeService multi-source', () => {
 
     createProjectWithContextTree(projectA)
     createProjectWithContextTree(projectB)
-    writeKnowledgeLinks(projectA, {
-      links: [{addedAt: '2026-01-01', alias: 'shared-lib', projectRoot: projectB, readOnly: true}],
+    writeSourcesFile(projectA, {
+      sources: [{addedAt: '2026-01-01', alias: 'shared-lib', projectRoot: projectB, readOnly: true}],
       version: 1,
     })
 
@@ -126,11 +126,11 @@ describe('SearchKnowledgeService multi-source', () => {
 
     expect(result.results).to.have.length.greaterThan(0)
     expect(result.results[0]).to.include({
+      origin: 'shared',
+      originAlias: 'shared-lib',
       path: 'auth/jwt.md',
-      sourceAlias: 'shared-lib',
-      sourceType: 'linked',
     })
-    expect(result.results[0].sourceContextTreeRoot).to.equal(join(projectB, '.brv', 'context-tree'))
+    expect(result.results[0].originContextTreeRoot).to.equal(join(projectB, '.brv', 'context-tree'))
   })
 
   it('includes linked namespaces in overview mode', async () => {
@@ -156,9 +156,9 @@ describe('SearchKnowledgeService multi-source', () => {
 
     expect(result.results).to.have.length(1)
     expect(result.results[0]).to.include({
+      origin: 'shared',
+      originAlias: 'shared-lib',
       path: 'auth/jwt.md',
-      sourceAlias: 'shared-lib',
-      sourceType: 'linked',
     })
     expect(result.message).to.include('[shared-lib]:auth')
   })
@@ -172,6 +172,6 @@ describe('SearchKnowledgeService multi-source', () => {
     const result = await service.search('refresh', {scope: '[shared-lib]:auth'})
 
     expect(result.results).to.have.length(1)
-    expect(result.results[0].sourceAlias).to.equal('shared-lib')
+    expect(result.results[0].originAlias).to.equal('shared-lib')
   })
 })

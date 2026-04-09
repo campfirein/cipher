@@ -122,13 +122,13 @@ describe('CurateExecutor (regression)', () => {
   })
 
   describe('workspace scoping - projectRoot for post-processing (PR3)', () => {
-    it('should use projectRoot (not workspaceRoot) as baseDir for snapshot service', async () => {
+    it('should use projectRoot (not worktreeRoot) as baseDir for snapshot service', async () => {
       // The curate executor uses baseDir for FileContextTreeSnapshotService,
       // summary propagation, and manifest rebuild — all of which need the
       // project root where .brv/ lives, not the linked workspace subdir.
       //
       // We verify this by checking that projectRoot takes priority over
-      // workspaceRoot in the baseDir computation.
+      // worktreeRoot in the baseDir computation.
       const executor = new CurateExecutor()
 
       const createTaskSession = stub().resolves('session-1')
@@ -154,15 +154,15 @@ describe('CurateExecutor (regression)', () => {
         stream: stub().resolves({[Symbol.asyncIterator]: () => ({next: () => Promise.resolve({done: true, value: undefined})})}),
       } as unknown as ICipherAgent
 
-      // Execute with both projectRoot and workspaceRoot provided.
-      // projectRoot is where .brv/ lives, workspaceRoot is a linked subdir.
-      // Post-processing should use projectRoot, NOT workspaceRoot.
+      // Execute with both projectRoot and worktreeRoot provided.
+      // projectRoot is where .brv/ lives, worktreeRoot is a linked subdir.
+      // Post-processing should use projectRoot, NOT worktreeRoot.
       const result = await executor.executeWithAgent(agent, {
         clientCwd: '/projects/monorepo/packages/api/src',
         content: 'test content for curation',
         projectRoot: '/projects/monorepo',
         taskId: 'task-ws-1',
-        workspaceRoot: '/projects/monorepo/packages/api',
+        worktreeRoot: '/projects/monorepo/packages/api',
       })
 
       expect(result).to.equal('curation complete')

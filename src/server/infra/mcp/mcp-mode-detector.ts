@@ -12,7 +12,7 @@ export type McpMode = 'global' | 'project'
 
 export type McpModeResult =
   | {mode: 'global'}
-  | {mode: 'project'; projectRoot: string; workspaceRoot: string}
+  | {mode: 'project'; projectRoot: string; worktreeRoot: string}
 
 /**
  * Detects whether the MCP server is running in project or global mode.
@@ -29,6 +29,6 @@ export function detectMcpMode(workingDirectory: string): McpModeResult {
   return {
     mode: 'project',
     projectRoot: resolution.projectRoot,
-    workspaceRoot: resolution.workspaceRoot,
+    worktreeRoot: resolution.worktreeRoot,
   }
 }

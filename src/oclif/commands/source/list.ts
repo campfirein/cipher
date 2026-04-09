@@ -1,11 +1,11 @@
 import {Command} from '@oclif/core'
 import chalk from 'chalk'
 
-import {listKnowledgeLinkStatuses} from '../../server/core/domain/knowledge/knowledge-link-operations.js'
-import {resolveProject} from '../../server/infra/project/resolve-project.js'
+import {listSourceStatuses} from '../../../server/core/domain/source/source-operations.js'
+import {resolveProject} from '../../../server/infra/project/resolve-project.js'
 
-export default class ListKnowledgeLinks extends Command {
-  static description = 'List all knowledge links and their status'
+export default class SourceList extends Command {
+  static description = 'List all knowledge sources and their status'
   static examples = ['<%= config.bin %> <%= command.id %>']
 
   async run(): Promise<void> {
@@ -27,7 +27,7 @@ export default class ListKnowledgeLinks extends Command {
       return
     }
 
-    const result = listKnowledgeLinkStatuses(projectRoot)
+    const result = listSourceStatuses(projectRoot)
 
     if (result.error) {
       this.error(result.error, {exit: 1})
@@ -36,18 +36,18 @@ export default class ListKnowledgeLinks extends Command {
     }
 
     if (result.statuses.length === 0) {
-      this.log('No knowledge links configured.')
+      this.log('No knowledge sources configured.')
 
       return
     }
 
-    this.log('Knowledge Links:')
+    this.log('Knowledge Sources:')
     for (const link of result.statuses) {
       if (link.valid) {
         const sizeInfo = link.contextTreeSize === undefined ? '' : ` [${link.contextTreeSize} files]`
         this.log(`   ${link.alias} → ${link.projectRoot} ${chalk.green('(valid)')}${sizeInfo}`)
       } else {
-        this.log(`   ${link.alias} → ${link.projectRoot} ${chalk.red(`[BROKEN - run brv unlink-knowledge ${link.alias}]`)}`)
+        this.log(`   ${link.alias} → ${link.projectRoot} ${chalk.red(`[BROKEN - run brv source remove ${link.alias}]`)}`)
       }
     }
   }

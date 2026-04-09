@@ -28,7 +28,7 @@ export interface CreateCurateTaskResult {
  * triggers the FolderPackExecutor on the server for full directory analysis.
  */
 export const createCurateTask = async ({content, files, folders}: CreateCurateTaskDTO): Promise<CreateCurateTaskResult> => {
-  const {apiClient, projectPath, workspaceRoot} = useTransportStore.getState()
+  const {apiClient, projectPath, worktreeRoot} = useTransportStore.getState()
   if (!apiClient) {
     throw new Error('Not connected to server')
   }
@@ -52,7 +52,7 @@ export const createCurateTask = async ({content, files, folders}: CreateCurateTa
     ...(projectPath ? {projectPath} : {}),
     taskId,
     type: taskType,
-    ...(workspaceRoot ? {workspaceRoot} : {}),
+    ...(worktreeRoot ? {worktreeRoot} : {}),
   })
 
   return {taskId}

@@ -2,7 +2,7 @@ import {realpathSync} from 'node:fs'
 import {resolve} from 'node:path'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../server/constants.js'
-import {loadKnowledgeLinks} from '../../../server/core/domain/knowledge/knowledge-link-schema.js'
+import {loadSources} from '../../../server/core/domain/source/source-schema.js'
 
 const canonicalize = (path: string): string => {
   try {
@@ -17,9 +17,9 @@ const isWithin = (candidatePath: string, rootPath: string): boolean =>
 
 /**
  * Validates that a write target path is within the local project's context tree,
- * not inside any knowledge-linked project's context tree.
+ * not inside any shared knowledge source's context tree.
  *
- * Knowledge-linked sources are read-only — agents must never write to them.
+ * Shared sources are read-only — agents must never write to them.
  *
  * @param targetPath - Absolute path being written to
  * @param projectRoot - The local project root (owns .brv/)
@@ -35,13 +35,13 @@ export function validateWriteTarget(targetPath: string, projectRoot: string): nu
     return null
   }
 
-  // Load knowledge links to get linked context tree roots
-  const loaded = loadKnowledgeLinks(projectRoot)
-  for (const source of loaded?.sources ?? []) {
-    const canonicalLinkedRoot = canonicalize(source.contextTreeRoot)
-    if (isWithin(canonicalTarget, canonicalLinkedRoot)) {
-      const alias = source.alias ?? source.sourceKey
-      return `Cannot write to knowledge-linked project "${alias}" — linked sources are read-only. Only the local context tree (${localContextTree}) is writable.`
+  // Load sources to get shared context tree roots
+  const loaded = loadSources(projectRoot)
+  for (const origin of loaded?.origins ?? []) {
+    const canonicalSharedRoot = canonicalize(origin.contextTreeRoot)
+    if (isWithin(canonicalTarget, canonicalSharedRoot)) {
+      const alias = origin.alias ?? origin.originKey
+      return `Cannot write to shared source "${alias}" — sources are read-only. Only the local context tree (${localContextTree}) is writable.`
     }
   }
 

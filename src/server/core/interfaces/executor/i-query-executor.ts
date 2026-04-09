@@ -10,7 +10,7 @@ export interface QueryExecuteOptions {
   /** Task ID for event routing (required for concurrent task isolation) */
   taskId: string
   /** Stable workspace root for scoping search and cache isolation */
-  workspaceRoot?: string
+  worktreeRoot?: string
 }
 
 /**

@@ -2,7 +2,7 @@
  * Integration tests for workspace-scoped executor behavior.
  *
  * Verifies that QueryExecutor and FolderPackExecutor correctly use
- * workspaceRoot for search scoping, cache isolation, and path defaults.
+ * worktreeRoot for search scoping, cache isolation, and path defaults.
  *
  * Uses real filesystem (tmpdir) + real resolveProject() with stubbed
  * agent/search service (no LLM, no network).
@@ -35,7 +35,7 @@ function createBrvConfig(dir: string): void {
 }
 
 function createWorkspaceLink(dir: string, projectRoot: string): void {
-  writeFileSync(join(dir, '.brv-workspace.json'), JSON.stringify({projectRoot}, null, 2) + '\n')
+  writeFileSync(join(dir, '.brv-worktree.json'), JSON.stringify({projectRoot}, null, 2) + '\n')
 }
 
 function makeStubAgent(sandbox: SinonSandbox): ICipherAgent & {
@@ -134,7 +134,7 @@ describe('workspace-scoped execution (integration)', () => {
       await executor.executeWithAgent(agent, {
         query: 'how does auth work',
         taskId: 'task-1',
-        workspaceRoot: resolution!.workspaceRoot,
+        worktreeRoot: resolution!.worktreeRoot,
       })
 
       // Search should have been called with scope = relative path
@@ -162,12 +162,12 @@ describe('workspace-scoped execution (integration)', () => {
       await executor.executeWithAgent(agent, {
         query: 'how does auth work',
         taskId: 'task-2',
-        workspaceRoot: resolution!.workspaceRoot,
+        worktreeRoot: resolution!.worktreeRoot,
       })
 
       expect(searchService.search.called).to.be.true
       const searchOptions = searchService.search.firstCall.args[1]
-      // No scope when workspaceRoot === projectRoot
+      // No scope when worktreeRoot === projectRoot
       expect(searchOptions?.scope).to.be.undefined
     })
 
@@ -191,19 +191,19 @@ describe('workspace-scoped execution (integration)', () => {
       await executor1.executeWithAgent(agent, {
         query: 'test query',
         taskId: 'task-3a',
-        workspaceRoot: linked!.workspaceRoot,
+        worktreeRoot: linked!.worktreeRoot,
       })
 
       expect(searchService.search.firstCall.args[1]?.scope).to.equal('packages/api')
 
       // Unlink
       const {unlinkSync} = await import('node:fs')
-      unlinkSync(join(workspace, '.brv-workspace.json'))
+      unlinkSync(join(workspace, '.brv-worktree.json'))
 
       // Reset search stub to isolate second executor's calls
       searchService.search.resetHistory()
 
-      // Second: walked-up — unscoped (workspaceRoot === projectRoot)
+      // Second: walked-up — unscoped (worktreeRoot === projectRoot)
       const walkedUp = resolveProject({cwd: workspace})
       const executor2 = new QueryExecutor({
         baseDirectory: walkedUp!.projectRoot,
@@ -213,14 +213,14 @@ describe('workspace-scoped execution (integration)', () => {
       await executor2.executeWithAgent(agent, {
         query: 'test query',
         taskId: 'task-3b',
-        workspaceRoot: walkedUp!.workspaceRoot,
+        worktreeRoot: walkedUp!.worktreeRoot,
       })
 
       // First call after reset is the main search — should have no scope
       expect(searchService.search.firstCall.args[1]?.scope).to.be.undefined
     })
 
-    it('should isolate cache fingerprints by workspaceRoot', async () => {
+    it('should isolate cache fingerprints by worktreeRoot', async () => {
       const projectRoot = join(testDir, 'project')
       mkdirSync(projectRoot, {recursive: true})
       createBrvConfig(projectRoot)
@@ -252,14 +252,14 @@ describe('workspace-scoped execution (integration)', () => {
       await executor.executeWithAgent(agent, {
         query: 'auth overview',
         taskId: 'task-4a',
-        workspaceRoot: join(projectRoot, 'packages', 'api'),
+        worktreeRoot: join(projectRoot, 'packages', 'api'),
       })
 
       // Execute same query with workspace B
       await executor.executeWithAgent(agent, {
         query: 'auth overview',
         taskId: 'task-4b',
-        workspaceRoot: join(projectRoot, 'packages', 'web'),
+        worktreeRoot: join(projectRoot, 'packages', 'web'),
       })
 
       // Agent should have been called twice (no cross-workspace cache hit)
@@ -268,7 +268,7 @@ describe('workspace-scoped execution (integration)', () => {
   })
 
   describe('FolderPackExecutor workspace defaults', () => {
-    it('should default folder path to workspaceRoot when omitted', async () => {
+    it('should default folder path to worktreeRoot when omitted', async () => {
       const projectRoot = join(testDir, 'project')
       const workspace = join(projectRoot, 'packages', 'api')
       mkdirSync(workspace, {recursive: true})
@@ -303,10 +303,10 @@ describe('workspace-scoped execution (integration)', () => {
         content: 'curate this',
         projectRoot: resolution!.projectRoot,
         taskId: 'task-5',
-        workspaceRoot: resolution!.workspaceRoot,
+        worktreeRoot: resolution!.worktreeRoot,
       })
 
-      // folderPath omitted → pack() called with workspaceRoot
+      // folderPath omitted → pack() called with worktreeRoot
       const packCall = (folderPackService.pack as SinonStub).firstCall
       expect(packCall.args[0]).to.equal(workspace)
     })
@@ -344,7 +344,7 @@ describe('workspace-scoped execution (integration)', () => {
         content: 'curate this',
         projectRoot,
         taskId: 'task-6',
-        workspaceRoot: workspace,
+        worktreeRoot: workspace,
       })
 
       // Agent should be called with a prompt containing temp file path under projectRoot
@@ -354,7 +354,7 @@ describe('workspace-scoped execution (integration)', () => {
   })
 
   describe('CurateExecutor file path resolution', () => {
-    it('should resolve explicit relative --files paths from clientCwd, not workspaceRoot', async () => {
+    it('should resolve explicit relative --files paths from clientCwd, not worktreeRoot', async () => {
       const projectRoot = join(testDir, 'project')
       const workspace = join(projectRoot, 'packages', 'api')
       const clientCwd = join(workspace, 'src')
@@ -364,7 +364,7 @@ describe('workspace-scoped execution (integration)', () => {
       writeFileSync(join(clientCwd, 'auth.ts'), 'export const auth = true\n')
 
       const resolution = resolveProject({cwd: clientCwd})
-      expect(resolution!.workspaceRoot).to.equal(workspace)
+      expect(resolution!.worktreeRoot).to.equal(workspace)
 
       const agent = makeStubAgent(sandbox)
       const readFiles = sandbox.stub().resolves([
@@ -384,7 +384,7 @@ describe('workspace-scoped execution (integration)', () => {
         files: ['./auth.ts'],
         projectRoot: resolution!.projectRoot,
         taskId: 'task-7',
-        workspaceRoot: resolution!.workspaceRoot,
+        worktreeRoot: resolution!.worktreeRoot,
       })
 
       expect(readFiles.calledOnce).to.be.true
