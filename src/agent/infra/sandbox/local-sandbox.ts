@@ -118,6 +118,8 @@ export class LocalSandbox {
   /** Value set by setFinalResult() — signals early exit */
   private finalResult?: string
   private outputBuffer: string[] = []
+  /** Async tool calls started inside the sandbox, including unawaited ones. */
+  private pendingToolPromises = new Set<Promise<unknown>>()
   /** Current stdout cap in chars (undefined = unlimited) */
   private stdoutCap?: number
   /** Running count of chars written to outputBuffer in current execution */
@@ -155,7 +157,7 @@ export class LocalSandbox {
 
     // Inject Tools SDK if provided (for file system operations)
     if (toolsSDK) {
-      sandbox.tools = toolsSDK
+      sandbox.tools = this.wrapToolObject(toolsSDK)
     }
 
     // Inject environment context as `env` object if provided
@@ -193,6 +195,7 @@ export class LocalSandbox {
     this.outputBuffer = []
     this.errorBuffer = []
     this.finalResult = undefined
+    this.pendingToolPromises.clear()
     this.stdoutCap = config?.maxStdoutChars
     this.stdoutCharsWritten = 0
     this.stdoutTruncated = false
@@ -241,6 +244,9 @@ export class LocalSandbox {
           }
         }
       }
+
+      const elapsedMs = performance.now() - startTime
+      await this.awaitPendingToolPromises(Math.max(0, timeout - elapsedMs))
     } catch (error) {
       const errorMessage = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
       this.errorBuffer.push(errorMessage)
@@ -297,6 +303,34 @@ export class LocalSandbox {
     }
   }
 
+  private async awaitPendingToolPromises(timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+
+    /* eslint-disable no-await-in-loop */
+    while (this.pendingToolPromises.size > 0) {
+      const pending = [...this.pendingToolPromises]
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) {
+        throw new Error('Async execution timeout')
+      }
+
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          Promise.allSettled(pending),
+          new Promise((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('Async execution timeout')), remaining)
+          }),
+        ])
+      } finally {
+        if (timeoutId !== undefined) {
+          clearTimeout(timeoutId)
+        }
+      }
+    }
+    /* eslint-enable no-await-in-loop */
+  }
+
   /**
    * Push a line to stdout, respecting the optional character cap.
    * When the cap is reached, appends a truncation notice and drops further output.
@@ -320,5 +354,39 @@ export class LocalSandbox {
 
     this.stdoutCharsWritten += line.length + 1 // +1 for join newline
     this.outputBuffer.push(line)
+  }
+
+  private trackPromise<T>(promise: Promise<T>): Promise<T> {
+    const trackedPromise: Promise<T> = promise.finally(() => {
+      this.pendingToolPromises.delete(trackedPromise)
+    })
+    this.pendingToolPromises.add(trackedPromise)
+
+    return trackedPromise
+  }
+
+  private wrapToolObject<T>(value: T): T {
+    if (typeof value === 'function') {
+      const original = value as (...args: unknown[]) => unknown
+      const wrapped = (...args: unknown[]) => {
+        const result = original(...args)
+        const isPromiseLike = result !== null &&
+          typeof result === 'object' &&
+          typeof (result as {then?: unknown}).then === 'function'
+
+        return isPromiseLike ? this.trackPromise(Promise.resolve(result)) : result
+      }
+
+      return wrapped as T
+    }
+
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const wrappedEntries = Object.entries(value as Record<string, unknown>).map(([key, child]) => (
+        [key, this.wrapToolObject(child)]
+      ))
+      return Object.fromEntries(wrappedEntries) as T
+    }
+
+    return value
   }
 }

@@ -3,6 +3,7 @@ import {z} from 'zod'
 
 import type {ContextData} from '../../../../server/core/domain/knowledge/markdown-writer.js'
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
+import type {AbstractGenerationQueue} from '../../map/abstract-queue.js'
 
 import {REVIEW_BACKUPS_DIR} from '../../../../server/constants.js'
 import {DirectoryManager} from '../../../../server/core/domain/knowledge/directory-manager.js'
@@ -16,6 +17,12 @@ import {toSnakeCase} from '../../../../server/utils/file-helpers.js'
 import {deriveImpactFromLoss, detectStructuralLoss} from '../../../core/domain/knowledge/conflict-detector.js'
 import {resolveStructuralLoss} from '../../../core/domain/knowledge/conflict-resolver.js'
 import {ToolName} from '../../../core/domain/tools/constants.js'
+
+/**
+ * Called after each successful context file write so callers can
+ * enqueue abstract generation without coupling to AbstractGenerationQueue.
+ */
+type WriteCallback = (contextPath: string, content: string) => void
 
 /**
  * Operation types for curating knowledge topics.
@@ -434,6 +441,7 @@ async function createDomainContextIfMissing(
   basePath: string,
   domain: string,
   domainContext?: DomainContext,
+  onAfterWrite?: WriteCallback,
 ): Promise<{created: boolean; path?: string}> {
   const normalizedDomain = toSnakeCase(domain)
   const contextPath = join(basePath, normalizedDomain, 'context.md')
@@ -450,6 +458,7 @@ async function createDomainContextIfMissing(
   const content = generateDomainContextMarkdown(normalizedDomain, domainContext)
 
   await DirectoryManager.writeFileAtomic(contextPath, content)
+  onAfterWrite?.(contextPath, content)
 
   return {created: true, path: contextPath}
 }
@@ -459,6 +468,7 @@ async function ensureTopicContextMd(
   domain: string,
   topic: string,
   topicContext?: TopicContext,
+  onAfterWrite?: WriteCallback,
 ): Promise<{created: boolean; path?: string}> {
   const normalizedDomain = toSnakeCase(domain)
   const normalizedTopic = toSnakeCase(topic)
@@ -483,6 +493,7 @@ async function ensureTopicContextMd(
 
   const content = generateTopicContextMarkdown(normalizedTopic, topicContext)
   await DirectoryManager.writeFileAtomic(contextPath, content)
+  onAfterWrite?.(contextPath, content)
 
   return {created: true, path: contextPath}
 }
@@ -490,6 +501,7 @@ async function ensureTopicContextMd(
 interface EnsureSubtopicContextMdOptions {
   basePath: string
   domain: string
+  onAfterWrite?: WriteCallback
   subtopic: string
   subtopicContext?: SubtopicContext
   topic: string
@@ -502,7 +514,7 @@ interface EnsureSubtopicContextMdOptions {
 async function ensureSubtopicContextMd(
   options: EnsureSubtopicContextMdOptions,
 ): Promise<{created: boolean; path?: string}> {
-  const {basePath, domain, subtopic, subtopicContext, topic} = options
+  const {basePath, domain, onAfterWrite, subtopic, subtopicContext, topic} = options
   const normalizedDomain = toSnakeCase(domain)
   const normalizedTopic = toSnakeCase(topic)
   const normalizedSubtopic = toSnakeCase(subtopic)
@@ -527,6 +539,7 @@ async function ensureSubtopicContextMd(
 
   const content = generateSubtopicContextMarkdown(normalizedSubtopic, subtopicContext)
   await DirectoryManager.writeFileAtomic(contextPath, content)
+  onAfterWrite?.(contextPath, content)
 
   return {created: true, path: contextPath}
 }
@@ -540,20 +553,38 @@ async function ensureContextMd(
   parsed: {domain: string; subtopic?: string; topic: string},
   topicContext?: TopicContext,
   subtopicContext?: SubtopicContext,
+  onAfterWrite?: WriteCallback,
 ): Promise<void> {
   // Ensure topic-level context.md exists
-  await ensureTopicContextMd(basePath, parsed.domain, parsed.topic, topicContext)
+  await ensureTopicContextMd(basePath, parsed.domain, parsed.topic, topicContext, onAfterWrite)
 
   // If subtopic exists, ensure subtopic-level context.md exists
   if (parsed.subtopic) {
     await ensureSubtopicContextMd({
       basePath,
       domain: parsed.domain,
+      onAfterWrite,
       subtopic: parsed.subtopic,
       subtopicContext,
       topic: parsed.topic,
     })
   }
+}
+
+async function deleteDerivedSiblings(contextPath: string): Promise<void> {
+  const siblingPaths = [
+    contextPath.replace(/\.md$/, '.abstract.md'),
+    contextPath.replace(/\.md$/, '.overview.md'),
+  ]
+
+  /* eslint-disable no-await-in-loop */
+  for (const siblingPath of siblingPaths) {
+    if (siblingPath === contextPath) continue
+    if (await DirectoryManager.fileExists(siblingPath)) {
+      await DirectoryManager.deleteFile(siblingPath)
+    }
+  }
+  /* eslint-enable no-await-in-loop */
 }
 
 /**
@@ -623,7 +654,7 @@ function buildFullPath(basePath: string, knowledgePath: string): string {
 /**
  * Execute ADD operation - create new domain/topic/subtopic with {title}.md
  */
-async function executeAdd(basePath: string, operation: Operation): Promise<OperationResult> {
+async function executeAdd(basePath: string, operation: Operation, onAfterWrite?: WriteCallback): Promise<OperationResult> {
   const {confidence, content, domainContext, impact, path, reason, subtopicContext, summary, title, topicContext} =
     operation
   const reviewMeta = deriveReviewMetadata('ADD', confidence, impact)
@@ -675,7 +706,7 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
       }
     }
 
-    await createDomainContextIfMissing(basePath, parsed.domain, domainContext)
+    await createDomainContextIfMissing(basePath, parsed.domain, domainContext, onAfterWrite)
 
     const domainPath = join(basePath, toSnakeCase(parsed.domain))
     const topicPath = join(domainPath, toSnakeCase(parsed.topic))
@@ -700,8 +731,9 @@ async function executeAdd(basePath: string, operation: Operation): Promise<Opera
     const filename = `${toSnakeCase(title)}.md`
     const contextPath = join(finalPath, filename)
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
+    onAfterWrite?.(contextPath, contextContent)
 
-    await ensureContextMd(basePath, parsed, topicContext, subtopicContext)
+    await ensureContextMd(basePath, parsed, topicContext, subtopicContext, onAfterWrite)
 
     return {
       ...reviewMeta,
@@ -739,7 +771,7 @@ function maxImpact(
 /**
  * Execute UPDATE operation - modify existing {title}.md
  */
-async function executeUpdate(basePath: string, operation: Operation): Promise<OperationResult> {
+async function executeUpdate(basePath: string, operation: Operation, onAfterWrite?: WriteCallback): Promise<OperationResult> {
   const {confidence, content, domainContext, impact, path, reason, subtopicContext, summary, title, topicContext} =
     operation
   // Used for early-exit validation failures (before structural loss can be assessed)
@@ -796,7 +828,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
       }
     }
 
-    await createDomainContextIfMissing(basePath, parsed.domain, domainContext)
+    await createDomainContextIfMissing(basePath, parsed.domain, domainContext, onAfterWrite)
 
     // Read existing file to preserve scoring metadata and detect structural loss
     const existingContent = await DirectoryManager.readFile(contextPath)
@@ -847,8 +879,9 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
     })
     await backupBeforeWrite(contextPath, basePath)
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
+    onAfterWrite?.(contextPath, contextContent)
 
-    await ensureContextMd(basePath, parsed, topicContext, subtopicContext)
+    await ensureContextMd(basePath, parsed, topicContext, subtopicContext, onAfterWrite)
 
     return {
       ...reviewMeta,
@@ -877,7 +910,7 @@ async function executeUpdate(basePath: string, operation: Operation): Promise<Op
  * Execute UPSERT operation - automatically creates or updates based on file existence
  * This is the recommended operation type as it eliminates the need for pre-checks.
  */
-async function executeUpsert(basePath: string, operation: Operation): Promise<OperationResult> {
+async function executeUpsert(basePath: string, operation: Operation, onAfterWrite?: WriteCallback): Promise<OperationResult> {
   const {path, reason, title} = operation
   const reviewMeta = deriveReviewMetadata('UPSERT', operation.confidence, operation.impact)
 
@@ -925,7 +958,7 @@ async function executeUpsert(basePath: string, operation: Operation): Promise<Op
 
     if (exists) {
       // File exists - delegate to UPDATE logic
-      const result = await executeUpdate(basePath, {...operation, type: 'UPDATE'})
+      const result = await executeUpdate(basePath, {...operation, type: 'UPDATE'}, onAfterWrite)
       // Return with UPSERT type but indicate it was an update
       return {
         ...result,
@@ -935,7 +968,7 @@ async function executeUpsert(basePath: string, operation: Operation): Promise<Op
     }
 
     // File doesn't exist - delegate to ADD logic
-    const result = await executeAdd(basePath, {...operation, type: 'ADD'})
+    const result = await executeAdd(basePath, {...operation, type: 'ADD'}, onAfterWrite)
     // Return with UPSERT type but indicate it was an add
     return {
       ...result,
@@ -957,7 +990,7 @@ async function executeUpsert(basePath: string, operation: Operation): Promise<Op
 /**
  * Execute MERGE operation - combine source file into target file, delete source file
  */
-async function executeMerge(basePath: string, operation: Operation): Promise<OperationResult> {
+async function executeMerge(basePath: string, operation: Operation, onAfterWrite?: WriteCallback): Promise<OperationResult> {
   const {
     confidence,
     domainContext,
@@ -1055,8 +1088,8 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
       }
     }
 
-    await createDomainContextIfMissing(basePath, sourceParsed.domain, domainContext)
-    await createDomainContextIfMissing(basePath, targetParsed.domain, domainContext)
+    await createDomainContextIfMissing(basePath, sourceParsed.domain, domainContext, onAfterWrite)
+    await createDomainContextIfMissing(basePath, targetParsed.domain, domainContext, onAfterWrite)
 
     const sourceContent = await DirectoryManager.readFile(sourceContextPath)
     const targetContent = await DirectoryManager.readFile(targetContextPath)
@@ -1071,11 +1104,13 @@ async function executeMerge(basePath: string, operation: Operation): Promise<Ope
 
     const mergedContent = MarkdownWriter.mergeContexts(sourceContent, targetContent, reason, summary)
     await DirectoryManager.writeFileAtomic(targetContextPath, mergedContent)
+    onAfterWrite?.(targetContextPath, mergedContent)
 
     await DirectoryManager.deleteFile(sourceContextPath)
+    await deleteDerivedSiblings(sourceContextPath)
 
-    await ensureContextMd(basePath, sourceParsed, topicContext, subtopicContext)
-    await ensureContextMd(basePath, targetParsed, topicContext, subtopicContext)
+    await ensureContextMd(basePath, sourceParsed, topicContext, subtopicContext, onAfterWrite)
+    await ensureContextMd(basePath, targetParsed, topicContext, subtopicContext, onAfterWrite)
 
     return {
       ...reviewMeta,
@@ -1142,6 +1177,7 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
 
       await backupBeforeWrite(filePath, basePath)
       await DirectoryManager.deleteFile(filePath)
+      await deleteDerivedSiblings(filePath)
 
       return {
         ...reviewMeta,
@@ -1224,7 +1260,7 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
  * Execute curate operations on knowledge topics.
  * Exported for use by CurateService in sandbox.
  */
-export async function executeCurate(input: unknown, _context?: ToolExecutionContext): Promise<CurateOutput> {
+export async function executeCurate(input: unknown, _context?: ToolExecutionContext, abstractQueue?: AbstractGenerationQueue): Promise<CurateOutput> {
   const parseResult = CurateInputSchema.safeParse(input)
   if (!parseResult.success) {
     return {
@@ -1252,6 +1288,10 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
 
   const {basePath, operations} = parseResult.data
 
+  const onAfterWrite: undefined | WriteCallback = abstractQueue
+    ? (contextPath, content) => { abstractQueue.enqueue({contextPath, fullContent: content}) }
+    : undefined
+
   const applied: OperationResult[] = []
   const summary = {
     added: 0,
@@ -1266,7 +1306,7 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
 
     switch (operation.type) {
       case 'ADD': {
-        result = await executeAdd(basePath, operation)
+        result = await executeAdd(basePath, operation, onAfterWrite)
 
         if (result.status === 'success') summary.added++
 
@@ -1282,7 +1322,7 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
       }
 
       case 'MERGE': {
-        result = await executeMerge(basePath, operation)
+        result = await executeMerge(basePath, operation, onAfterWrite)
 
         if (result.status === 'success') summary.merged++
 
@@ -1290,7 +1330,7 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
       }
 
       case 'UPDATE': {
-        result = await executeUpdate(basePath, operation)
+        result = await executeUpdate(basePath, operation, onAfterWrite)
 
         if (result.status === 'success') summary.updated++
 
@@ -1298,7 +1338,7 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
       }
 
       case 'UPSERT': {
-        result = await executeUpsert(basePath, operation)
+        result = await executeUpsert(basePath, operation, onAfterWrite)
 
         // UPSERT counts as either added or updated based on what happened
         if (result.status === 'success') {
@@ -1339,7 +1379,7 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
   return {applied, summary}
 }
 
-export function createCurateTool(workingDirectory?: string): Tool {
+export function createCurateTool(workingDirectory?: string, abstractQueue?: AbstractGenerationQueue): Tool {
   return {
     description: `Curate knowledge topics with atomic operations. This tool manages the knowledge structure using four operation types and supports a two-part context model: Raw Concept + Narrative.
 
@@ -1541,11 +1581,11 @@ export function createCurateTool(workingDirectory?: string): Tool {
         if (parseResult.success) {
           parseResult.data.basePath = resolve(workingDirectory, parseResult.data.basePath)
 
-          return executeCurate(parseResult.data, context)
+          return executeCurate(parseResult.data, context, abstractQueue)
         }
       }
 
-      return executeCurate(input, context)
+      return executeCurate(input, context, abstractQueue)
     },
 
     id: ToolName.CURATE,

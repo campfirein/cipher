@@ -2,6 +2,18 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.1.0]
+
+### Added
+- **Adaptive knowledge scoring** — The knowledge base now prioritizes content based on usage patterns. Frequently accessed knowledge ranks higher in search results through hotness scoring and hierarchical score propagation.
+- **Knowledge abstracts** — Knowledge entries automatically generate compressed summaries (abstracts and overviews), reducing token usage while preserving key information for the agent.
+- **Session learning** — The agent extracts patterns, preferences, decisions, and skills from your sessions and stores them as durable knowledge, improving responses over time.
+- **Resource ingestion tool** — The agent can now ingest external files and resources directly into your knowledge base.
+
+### Fixed
+- **Stale CLI cache after upgrades** — Install and uninstall scripts now clean the oclif client cache, preventing issues caused by cached data from previous versions.
+- **Knowledge search accuracy** — Fixed double compound scoring in parent propagation, improved maturity filtering, and corrected result truncation for more relevant search results.
+
 ## [3.0.0]
 
 ### Added

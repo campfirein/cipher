@@ -51,11 +51,11 @@ npm run typecheck                    # TypeScript type checking
 
 ### Source Layout (`src/`)
 
-- `agent/` — LLM agent: `core/` (interfaces/domain), `infra/` (22 modules), `resources/` (prompt YAML, tool `.txt`)
-- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (29 modules), `utils/`
+- `agent/` — LLM agent: `core/` (interfaces/domain), `infra/` (22 modules, including memory, document-parser), `resources/` (prompts YAML, tools `.txt`)
+- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (29 modules, including vc, hub, mcp, cogit), `utils/`
 - `shared/` — Cross-module: constants, types, transport events, utils
-- `tui/` — React/Ink TUI: app (router/pages), components, features (21 modules), hooks, lib, providers, stores
-- `oclif/` — Commands, hooks, lib (daemon-client, JSON response utils)
+- `tui/` — React/Ink TUI: app (router/pages), components, features (21 modules, including vc, hub, curate), hooks, lib, providers, stores
+- `oclif/` — Commands (`vc/`, `review/`, top-level), hooks, lib (daemon-client, JSON response utils)
 
 **Import boundary** (ESLint-enforced): `tui/` must not import from `server/`, `agent/`, or `oclif/`. Use transport events or `shared/`.
 
@@ -69,13 +69,21 @@ npm run typecheck                    # TypeScript type checking
 
 - Global daemon (`server/infra/daemon/`) hosts Socket.IO transport; clients connect via `@campfirein/brv-transport-client`
 - Agent pool manages forked child processes per project; task routing in `server/infra/process/`
+- MCP server in `server/infra/mcp/` exposes tools via Model Context Protocol
+
+### VC (Version Control)
+
+- `brv vc` — isomorphic-git-based version control (add, branch, checkout, clone, commit, config, fetch, init, log, merge, pull, push, remote, reset, status)
+- Oclif commands: `src/oclif/commands/vc/`, TUI feature: `src/tui/features/vc/`, server infra: `src/server/infra/vc/`
+- Slash commands: `vc-*` definitions in `src/tui/features/commands/definitions/`
 
 ### Agent (`src/agent/`)
 
 - Tools: definitions in `resources/tools/*.txt`, implementations in `infra/tools/implementations/`, registry in `infra/tools/tool-registry.ts`
-- LLM: 18 providers in `infra/llm/providers/`; 7 compression strategies in `infra/llm/context/compression/`
+- Tool categories: file ops (read/write/glob/grep), knowledge (create/expand/search), memory (read/write/edit/delete/list), curate, code exec, map
+- LLM: 18 providers in `infra/llm/providers/`; 6 compression strategies in `infra/llm/context/compression/`
 - System prompts: contributor pattern (XML sections) in `infra/system-prompt/`
-- Map/memory: `infra/map/` (agentic map, context-tree store, LLM map memory, worker pool)
+- Map/memory: `infra/map/` (agentic map, context-tree store, LLM map memory, worker pool); `infra/memory/` (memory-manager, deduplicator)
 - Storage: file-based blob (`infra/blob/`) and key storage (`infra/storage/`) — no SQLite
 
 ## Testing Gotchas
@@ -95,4 +103,4 @@ npm run typecheck                    # TypeScript type checking
 
 ## Stack
 
-oclif v4, TypeScript (ES2022, Node16 modules, strict), React/Ink (TUI), Zustand, axios, socket.io, Mocha + Chai + Sinon + Nock
+oclif v4, TypeScript (ES2022, Node16 modules, strict), React/Ink (TUI), Zustand, axios, socket.io, isomorphic-git, Mocha + Chai + Sinon + Nock

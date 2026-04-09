@@ -9,11 +9,11 @@ import {SearchKnowledgeService} from './search-knowledge-service.js'
 const SearchKnowledgeInputSchema = z
   .object({
     excludeKinds: z
-      .array(z.enum(['archive_stub', 'context', 'domain', 'subtopic', 'topic']))
+      .array(z.enum(['archive_stub', 'context', 'domain', 'subtopic', 'summary', 'topic']))
       .optional()
       .describe('Symbol kinds to exclude from results'),
     includeKinds: z
-      .array(z.enum(['archive_stub', 'context', 'domain', 'subtopic', 'topic']))
+      .array(z.enum(['archive_stub', 'context', 'domain', 'subtopic', 'summary', 'topic']))
       .optional()
       .describe('Symbol kinds to include in results (filters out others)'),
     limit: z

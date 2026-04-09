@@ -3,7 +3,7 @@ name: Pack and Release
 on:
   push:
     tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   contents: read
@@ -34,7 +34,7 @@ jobs:
           cache: npm
       - name: Validate version matches tag
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME}"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
           PKG_VERSION=$(node -p "require('./package.json').version")
           if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
             echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
@@ -74,7 +74,7 @@ jobs:
       - name: Determine version and SHA
         id: meta
         run: |
-          VERSION="${GITHUB_REF_NAME}"
+          VERSION="${GITHUB_REF_NAME#v}"
           SHA=$(git rev-parse --short HEAD)
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "sha=${SHA}" >> "$GITHUB_OUTPUT"

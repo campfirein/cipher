@@ -125,6 +125,7 @@ const ListMemoriesOptionsSchema = z
  * - All persistence operations use BlobStorage
  */
 export class MemoryManager {
+  private static readonly MEMORY_ID_LENGTH = 12
   private static readonly MEMORY_KEY_PREFIX = 'memory-'
   private readonly logger: ILogger
 
@@ -571,11 +572,11 @@ export class MemoryManager {
       return false
     }
 
-    // Memory keys have format: memory-{id}
-    // Attachment keys have format: memory-{id}-{suffix}
-    // Count dashes: memory keys have 1 dash, attachments have 2+
-    const dashCount = (key.match(/-/g) || []).length
-    return dashCount === 1
+    // Memory keys have format: memory-{id} where id is a fixed-length nanoid(12).
+    // Attachment keys append an extra suffix: memory-{id}-{suffix}.
+    // A valid memory id may itself contain '-', so counting dashes is incorrect.
+    const suffix = key.slice(MemoryManager.MEMORY_KEY_PREFIX.length)
+    return suffix.length === MemoryManager.MEMORY_ID_LENGTH
   }
 
   /**

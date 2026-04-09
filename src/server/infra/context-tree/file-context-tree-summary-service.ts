@@ -115,7 +115,17 @@ export class FileContextTreeSummaryService implements IContextTreeSummaryService
       // Step 5: Three-tier escalation via CipherAgent
       const taskId = `summary_${directoryPath.replaceAll('/', '_') || 'root'}`
       const childEntries = children.map((c) => ({content: c.content, name: c.name}))
-      const summaryText = await this.generateWithEscalation(agent, taskId, childEntries, level, totalInputTokens)
+      let summaryText: string
+      try {
+        summaryText = await this.generateWithEscalation(agent, taskId, childEntries, level, totalInputTokens)
+      } catch {
+        const combinedInput = childEntries.map((entry) => `## ${entry.name}\n${entry.content}`).join('\n\n')
+        summaryText = buildDeterministicFallbackCompaction({
+          inputTokens: totalInputTokens,
+          sourceText: combinedInput,
+          suffixLabel: 'summary compaction',
+        })
+      }
 
       // Step 6: Write _index.md
       const summaryTokens = estimateTokens(summaryText)
@@ -361,7 +371,13 @@ export class FileContextTreeSummaryService implements IContextTreeSummaryService
         suffixLabel: 'summary compaction',
       })
     } finally {
-      await agent.deleteTaskSession(sessionId)
+      try {
+        // Cleanup is best-effort. A generated summary should still be written even
+        // if the backing task session cannot be torn down cleanly.
+        await agent.deleteTaskSession(sessionId)
+      } catch {
+        // Ignore cleanup failures
+      }
     }
   }
 

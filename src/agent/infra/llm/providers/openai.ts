@@ -37,6 +37,19 @@ export function createChatGptOAuthFetch(): typeof globalThis.fetch {
         return globalThis.fetch(input, init)
       }
 
+      // The AI SDK sends systemPrompt as input[0] with role "system" or "developer".
+      // The ChatGPT OAuth Responses endpoint expects it in top-level `instructions`.
+      if (!body.instructions && Array.isArray(body.input) && body.input.length > 0) {
+        const first = body.input[0]
+        if (typeof first === 'object' && first !== null) {
+          const record = first as Record<string, unknown>
+          if ((record.role === 'system' || record.role === 'developer') && typeof record.content === 'string') {
+            body.instructions = record.content
+            body.input.splice(0, 1)
+          }
+        }
+      }
+
       if (!body.instructions) {
         body.instructions = ''
       }
