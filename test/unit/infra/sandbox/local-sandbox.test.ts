@@ -148,6 +148,25 @@ describe('LocalSandbox', () => {
 
       expect(result.returnValue).to.have.property('totalFound', 1)
     })
+
+    it('waits for unawaited async tool calls before returning finalResult', async () => {
+      let writeSettled = false
+      mockToolsSDK.writeFile.callsFake(async () => {
+        await new Promise((resolve) => { setTimeout(resolve, 10) })
+        writeSettled = true
+        return {bytesWritten: 4, path: '/project/output.txt'}
+      })
+
+      const localSandbox = new LocalSandbox({toolsSDK: mockToolsSDK as unknown as ToolsSDK})
+      const result = await localSandbox.execute(`
+        tools.writeFile('/project/output.txt', 'data')
+        setFinalResult('done')
+      `)
+
+      expect(result.finalResult).to.equal('done')
+      expect(writeSettled).to.equal(true)
+      expect(mockToolsSDK.writeFile.calledOnce).to.equal(true)
+    })
   })
 
   describe('Console Output Capture', () => {

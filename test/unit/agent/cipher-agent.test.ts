@@ -1,12 +1,28 @@
+import type {ITransportClient} from '@campfirein/brv-transport-client'
+
 import {expect} from 'chai'
 import {restore, stub} from 'sinon'
 
+import type {IContentGenerator} from '../../../src/agent/core/interfaces/i-content-generator.js'
 import type {AgentConfig} from '../../../src/agent/infra/agent/index.js'
+import type {GeneratorFactoryConfig} from '../../../src/agent/infra/llm/providers/types.js'
 
 import {CipherAgent} from '../../../src/agent/infra/agent/index.js'
+import {byteroverProvider} from '../../../src/agent/infra/llm/providers/byterover.js'
 import {_resetNestingRegistryForTests, getNestingRecord} from '../../../src/agent/infra/map/agentic-map-service.js'
+import {SessionCompressor} from '../../../src/agent/infra/session/session-compressor.js'
 import {BRV_CONFIG_VERSION} from '../../../src/server/constants.js'
 import {BrvConfig} from '../../../src/server/core/domain/entities/brv-config.js'
+
+function createStubGenerator(): IContentGenerator {
+  return {
+    estimateTokensSync: () => 0,
+    generateContent: async () => ({content: '', finishReason: 'stop'}),
+    async *generateContentStream() {
+      yield {isComplete: true}
+    },
+  }
+}
 
 describe('CipherAgent', () => {
   let agentConfig: AgentConfig
@@ -351,6 +367,138 @@ describe('CipherAgent', () => {
       const newSession = await agent.createSession('post-credential-refresh')
       expect(newSession.id).to.equal('post-credential-refresh')
       expect(agent.listSessions()).to.include('post-credential-refresh')
+    })
+  })
+
+  describe('deleteTaskSession', () => {
+    it('waits for the abstract queue to stay idle before returning', async () => {
+      const agent = new CipherAgent(agentConfig)
+
+      try {
+        await agent.start()
+
+        const drainStub = stub().resolves()
+        const getStatusStub = stub()
+        getStatusStub.callsFake(() => (
+          getStatusStub.callCount === 0
+            ? {failed: 0, pending: 1, processed: 0, processing: true}
+            : {failed: 0, pending: 0, processed: 1, processing: false}
+        ))
+        ;(
+          agent as unknown as {
+            services?: {abstractQueue?: {drain: () => Promise<void>; getStatus: () => {failed: number; pending: number; processed: number; processing: boolean}}}
+          }
+        ).services!.abstractQueue = {drain: drainStub, getStatus: getStatusStub}
+
+        await agent.drainBackgroundWork()
+
+        expect(drainStub.callCount).to.be.greaterThan(1)
+        expect(getStatusStub.callCount).to.be.greaterThan(1)
+      } finally {
+        await agent.stop()
+      }
+    })
+
+    it('compresses user-facing task sessions with a lower minMessages threshold', async () => {
+      const compressStub = stub(SessionCompressor.prototype, 'compress').resolves({created: 0, merged: 0, skipped: 0})
+
+      const agent = new CipherAgent(agentConfig)
+
+      try {
+        await agent.start()
+
+        const taskSessionId = await agent.createTaskSession('task-compress-threshold', 'curate', {userFacing: true})
+        await agent.deleteTaskSession(taskSessionId)
+
+        expect(compressStub.calledOnce).to.be.true
+        expect(compressStub.firstCall.args[2]).to.deep.equal({minMessages: 2})
+      } finally {
+        await agent.stop()
+      }
+    })
+
+    it('passes http config and ranking metadata when refreshing a byterover generator', async () => {
+      const capturedConfigs: GeneratorFactoryConfig[] = []
+      stub(byteroverProvider, 'createGenerator').callsFake((config) => {
+        capturedConfigs.push(config)
+        return createStubGenerator()
+      })
+      stub(SessionCompressor.prototype, 'compress').resolves({created: 0, merged: 0, skipped: 0})
+
+      const transportClient = {
+        request: stub(),
+        requestWithAck: stub().resolves({
+          activeModel: 'fresh-model',
+          activeProvider: 'byterover',
+          providerApiKey: 'fresh-token',
+          providerKeyMissing: false,
+        }),
+      } as unknown as ITransportClient
+
+      const agent = new CipherAgent({
+        ...agentConfig,
+        httpReferer: 'https://app.byterover.dev',
+        siteName: 'ByteRover CLI',
+      }, undefined, {transportClient})
+
+      try {
+        await agent.start()
+
+        const taskSessionId = await agent.createTaskSession('task-refresh', 'curate', {userFacing: true})
+        await agent.deleteTaskSession(taskSessionId)
+
+        const refreshConfig = capturedConfigs.find((config) => config.model === 'fresh-model')
+        expect(refreshConfig).to.not.be.undefined
+        expect(refreshConfig!.httpConfig).to.deep.include({
+          apiBaseUrl: agentConfig.apiBaseUrl,
+          projectId: agentConfig.projectId,
+          sessionKey: agentConfig.sessionKey,
+          spaceId: '',
+          teamId: '',
+        })
+        expect(refreshConfig!.httpReferer).to.equal('https://app.byterover.dev')
+        expect(refreshConfig!.siteName).to.equal('ByteRover CLI')
+      } finally {
+        await agent.stop()
+      }
+    })
+
+    it('falls back to the current runtime model when transport omits activeModel', async () => {
+      const capturedConfigs: GeneratorFactoryConfig[] = []
+      stub(byteroverProvider, 'createGenerator').callsFake((config) => {
+        capturedConfigs.push(config)
+        return createStubGenerator()
+      })
+      stub(SessionCompressor.prototype, 'compress').resolves({created: 0, merged: 0, skipped: 0})
+
+      const transportClient = {
+        request: stub(),
+        requestWithAck: stub().resolves({
+          activeProvider: 'byterover',
+          providerApiKey: 'fresh-token',
+          providerKeyMissing: false,
+        }),
+      } as unknown as ITransportClient
+
+      const agent = new CipherAgent(agentConfig, undefined, {transportClient})
+
+      try {
+        await agent.start()
+        agent.refreshProviderConfig({
+          model: 'runtime-model',
+          providerApiKey: 'runtime-token',
+        })
+
+        capturedConfigs.length = 0
+
+        const taskSessionId = await agent.createTaskSession('task-runtime-model', 'curate', {userFacing: true})
+        await agent.deleteTaskSession(taskSessionId)
+
+        expect(capturedConfigs.some((config) => config.model === 'runtime-model')).to.equal(true)
+        expect(capturedConfigs.some((config) => config.model === 'default')).to.equal(false)
+      } finally {
+        await agent.stop()
+      }
     })
   })
 

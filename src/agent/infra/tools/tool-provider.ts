@@ -33,6 +33,7 @@ export class ToolProvider implements IToolProvider {
    */
   private static readonly VALID_SERVICE_KEYS = new Set<string>(
     Object.keys({
+      abstractQueue: 0,
       agentInstance: 0,
       contentGenerator: 0,
       environmentContext: 0,
