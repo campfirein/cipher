@@ -726,7 +726,7 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should throw VcError USER_NOT_CONFIGURED with pre-filled hint when logged in', async () => {
+    it('should resolve author from auth token when config is missing and user is logged in', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.status.resolves({
@@ -746,16 +746,11 @@ describe('VcHandler', () => {
       deps.tokenStore.load.resolves(mockToken)
       makeVcHandler(deps).setup()
 
-      try {
-        await deps.requestHandlers[VcEvents.COMMIT]({message: 'test'}, CLIENT_ID)
-        expect.fail('Expected error')
-      } catch (error) {
-        expect(error).to.be.instanceOf(VcError)
-        if (error instanceof VcError) {
-          expect(error.code).to.equal(VcErrorCode.USER_NOT_CONFIGURED)
-          expect(error.message).to.include('login@example.com')
-        }
-      }
+      await deps.requestHandlers[VcEvents.COMMIT]({message: 'test'}, CLIENT_ID)
+
+      expect(deps.gitService.commit.calledOnce).to.be.true
+      const commitArgs = deps.gitService.commit.firstCall.args[0]
+      expect(commitArgs.author).to.deep.equal({email: 'login@example.com', name: 'login@example.com'})
     })
 
     it('should throw VcError GIT_NOT_INITIALIZED when git not initialized', async () => {
@@ -3060,6 +3055,7 @@ describe('VcHandler', () => {
       try {
         deps.gitService.listBranches.resolves([{isCurrent: false, isRemote: false, name: 'feature'}])
         deps.vcGitConfigStore.get.resolves()
+        deps.tokenStore.load.resolves()
 
         makeVcHandler(deps).setup()
         try {
