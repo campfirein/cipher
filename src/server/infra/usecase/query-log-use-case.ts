@@ -3,7 +3,7 @@ import type {IQueryLogStore, QueryLogStatus, QueryLogTier} from '../../core/inte
 import type {IQueryLogUseCase} from '../../core/interfaces/usecase/i-query-log-use-case.js'
 
 import {QUERY_LOG_TIER_LABELS} from '../../core/domain/entities/query-log-entry.js'
-import {formatDuration, formatEntryDuration, formatTimestamp, truncate} from '../../utils/log-format-utils.js'
+import {formatEntryDuration, formatTimestamp, truncate} from '../../utils/log-format-utils.js'
 
 type QueryLogUseCaseDeps = {
   queryLogStore: IQueryLogStore
@@ -85,7 +85,10 @@ export class QueryLogUseCase implements IQueryLogUseCase {
 
     if (entry.status !== 'processing') {
       this.log(`Finished: ${formatTimestamp(entry.completedAt)}`)
-      this.log(`Duration: ${formatDuration(entry.startedAt, entry.completedAt)}`)
+    }
+
+    if (entry.status === 'completed') {
+      this.log(`Duration: ${formatEntryDuration(entry)}`)
     }
 
     this.log()

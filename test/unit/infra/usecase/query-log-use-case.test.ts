@@ -13,6 +13,7 @@ import {QueryLogUseCase} from '../../../../src/server/infra/usecase/query-log-us
 type ProcessingEntry = Extract<QueryLogEntry, {status: 'processing'}>
 type CompletedEntry = Extract<QueryLogEntry, {status: 'completed'}>
 type ErrorEntry = Extract<QueryLogEntry, {status: 'error'}>
+type CancelledEntry = Extract<QueryLogEntry, {status: 'cancelled'}>
 
 function makeProcessingEntry(overrides: Partial<ProcessingEntry> = {}): ProcessingEntry {
   return {
@@ -57,6 +58,18 @@ function makeErrorEntry(overrides: Partial<ErrorEntry> = {}): ErrorEntry {
     startedAt: 1_712_345_678_700,
     status: 'error',
     tier: 2,
+    ...overrides,
+  }
+}
+
+function makeCancelledEntry(overrides: Partial<CancelledEntry> = {}): CancelledEntry {
+  return {
+    completedAt: 1_712_345_679_500,
+    id: 'qry-1712345678500',
+    query: 'explain the auth module',
+    startedAt: 1_712_345_678_500,
+    status: 'cancelled',
+    tier: 1,
     ...overrides,
   }
 }
@@ -194,6 +207,17 @@ describe('QueryLogUseCase', () => {
       expect(output).to.include('error')
       expect(output).to.include('—')
     })
+
+    // Test: Cancelled entries show dash for Time in list view
+    it('should show dash for Time column on cancelled entries', async () => {
+      store.list.resolves([makeCancelledEntry()])
+      await useCase.run({})
+
+      const output = logs.join('\n')
+      expect(output).to.include('T1')
+      expect(output).to.include('cancelled')
+      expect(output).to.include('—')
+    })
   })
 
   // ==========================================================================
@@ -226,6 +250,27 @@ describe('QueryLogUseCase', () => {
 
       const output = logs.join('\n')
       expect(output).to.include('Error: Search index unavailable')
+    })
+
+    // Test: Cancelled entry in detail shows Finished but not Duration
+    it('should show Finished but not Duration for cancelled entry', async () => {
+      store.getById.resolves(makeCancelledEntry())
+      await useCase.run({id: 'qry-1712345678500'})
+
+      const output = logs.join('\n')
+      expect(output).to.include('cancelled')
+      expect(output).to.include('Finished:')
+      expect(output).to.not.include('Duration:')
+    })
+
+    // Test: Error entry in detail shows Finished but not Duration
+    it('should show Finished but not Duration for error entry', async () => {
+      store.getById.resolves(makeErrorEntry())
+      await useCase.run({id: 'qry-1712345678700'})
+
+      const output = logs.join('\n')
+      expect(output).to.include('Finished:')
+      expect(output).to.not.include('Duration:')
     })
 
     // Test 12: Non-existent ID shows not-found message
