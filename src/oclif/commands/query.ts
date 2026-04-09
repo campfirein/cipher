@@ -53,7 +53,8 @@ Bad:
     }),
     timeout: Flags.integer({
       default: 300,
-      description: 'Task completion timeout in seconds (default: 300)',
+      description: 'Maximum seconds to wait for task completion',
+      max: 3600,
       min: 10,
     }),
   }

@@ -89,7 +89,8 @@ Bad examples:
     }),
     timeout: Flags.integer({
       default: 300,
-      description: 'Task completion timeout in seconds (default: 300)',
+      description: 'Maximum seconds to wait for task completion',
+      max: 3600,
       min: 10,
     }),
   }
@@ -309,6 +310,10 @@ Bad examples:
     }
 
     if (flags.detach) {
+      if (flags.timeout !== 300) {
+        this.log('Note: --timeout has no effect with --detach')
+      }
+
       const ack = await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
       const {logId} = ack
 
