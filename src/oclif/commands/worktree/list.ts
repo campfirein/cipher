@@ -1,13 +1,14 @@
 import {Command} from '@oclif/core'
 
 import {
-  BrokenWorktreeLinkError,
-  MalformedWorktreeLinkError,
+  BrokenWorktreePointerError,
+  listWorktrees,
+  MalformedWorktreePointerError,
   resolveProject,
 } from '../../../server/infra/project/resolve-project.js'
 
 export default class WorktreeList extends Command {
-  static description = 'Show the current worktree link (if any)'
+  static description = 'Show the current worktree link and list all registered worktrees'
   static examples = ['<%= config.bin %> <%= command.id %>']
 
   async run(): Promise<void> {
@@ -15,7 +16,7 @@ export default class WorktreeList extends Command {
     try {
       resolution = resolveProject()
     } catch (error) {
-      if (error instanceof BrokenWorktreeLinkError || error instanceof MalformedWorktreeLinkError) {
+      if (error instanceof BrokenWorktreePointerError || error instanceof MalformedWorktreePointerError) {
         this.error(error.message, {exit: 1})
       }
 
@@ -23,7 +24,7 @@ export default class WorktreeList extends Command {
     }
 
     if (!resolution) {
-      this.log('No ByteRover project found in current directory or any ancestor.')
+      this.log('No ByteRover project found in current directory.')
 
       return
     }
@@ -31,12 +32,17 @@ export default class WorktreeList extends Command {
     if (resolution.source === 'linked') {
       this.log(`Worktree: ${resolution.worktreeRoot}`)
       this.log(`Linked to: ${resolution.projectRoot}`)
-      if (resolution.linkFile) {
-        this.log(`Link file: ${resolution.linkFile}`)
-      }
     } else {
       this.log(`Project: ${resolution.projectRoot}`)
-      this.log('No worktree link (running inside project root).')
+    }
+
+    // List all registered worktrees
+    const worktrees = listWorktrees(resolution.projectRoot)
+    if (worktrees.length > 0) {
+      this.log('\nRegistered worktrees:')
+      for (const wt of worktrees) {
+        this.log(`   ${wt.name} → ${wt.worktreePath}`)
+      }
     }
   }
 }

@@ -316,7 +316,7 @@ describe('TaskRouter', () => {
       mkdirSync(join(projectRoot, '.brv'), {recursive: true})
       writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
       mkdirSync(worktreeRoot, {recursive: true})
-      writeFileSync(join(worktreeRoot, '.brv-worktree.json'), JSON.stringify({projectRoot}))
+      writeFileSync(join(worktreeRoot, '.brv'), JSON.stringify({projectRoot}))
       const canonicalProjectRoot = realpathSync(projectRoot)
       const canonicalWorkspaceRoot = realpathSync(worktreeRoot)
 
@@ -388,7 +388,7 @@ describe('TaskRouter', () => {
       const projectRoot = mkdtempSync(join(tmpdir(), 'brv-task-router-broken-link-'))
       const worktreeRoot = join(projectRoot, 'packages', 'api')
       mkdirSync(worktreeRoot, {recursive: true})
-      writeFileSync(join(worktreeRoot, '.brv-worktree.json'), JSON.stringify({projectRoot: '/missing/project'}))
+      writeFileSync(join(worktreeRoot, '.brv'), JSON.stringify({projectRoot: '/missing/project'}))
 
       try {
         const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
@@ -410,7 +410,7 @@ describe('TaskRouter', () => {
           (c) => c.args[1] === TransportTaskEventNames.ERROR,
         )
         expect(errorCall).to.exist
-        expect(errorCall!.args[2].error.message).to.include('Worktree link broken')
+        expect(errorCall!.args[2].error.message).to.include('Worktree pointer broken')
       } finally {
         rmSync(projectRoot, {force: true, recursive: true})
       }

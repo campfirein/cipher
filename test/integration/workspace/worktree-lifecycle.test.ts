@@ -1,20 +1,23 @@
 /**
- * Integration tests for workspace link lifecycle.
+ * Integration tests for worktree lifecycle.
  *
- * Exercises the canonical resolver (`resolveProject`) across link/unlink
- * state transitions using real filesystem (tmpdir). No mocks.
+ * Exercises the git-style worktree model: .brv as directory (real project)
+ * or .brv as file (pointer to parent). Uses real filesystem (tmpdir). No mocks.
  */
 
 import {expect} from 'chai'
-import {existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, unlinkSync, writeFileSync} from 'node:fs'
+import {existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {BRV_DIR, PROJECT_CONFIG_FILE, WORKTREE_LINK_FILE} from '../../../src/server/constants.js'
+import {BRV_DIR, PROJECT_CONFIG_FILE} from '../../../src/server/constants.js'
 import {
-  BrokenWorktreeLinkError,
-  findNearestWorktreeLink,
-  MalformedWorktreeLinkError,
+  addWorktree,
+  BrokenWorktreePointerError,
+  isWorktreePointer,
+  listWorktrees,
+  MalformedWorktreePointerError,
+  removeWorktree,
   resolveProject,
 } from '../../../src/server/infra/project/resolve-project.js'
 
@@ -24,18 +27,7 @@ function createBrvConfig(dir: string): void {
   writeFileSync(join(brvDir, PROJECT_CONFIG_FILE), JSON.stringify({version: '0.0.1'}))
 }
 
-function createWorkspaceLink(dir: string, projectRoot: string): void {
-  writeFileSync(join(dir, WORKTREE_LINK_FILE), JSON.stringify({projectRoot}, null, 2) + '\n')
-}
-
-function removeWorkspaceLink(dir: string): void {
-  const linkFile = join(dir, WORKTREE_LINK_FILE)
-  if (existsSync(linkFile)) {
-    unlinkSync(linkFile)
-  }
-}
-
-describe('workspace link lifecycle (integration)', () => {
+describe('worktree lifecycle (integration)', () => {
   let testDir: string
 
   beforeEach(() => {
@@ -46,160 +38,198 @@ describe('workspace link lifecycle (integration)', () => {
     rmSync(testDir, {force: true, recursive: true})
   })
 
-  it('should resolve through full link → resolve → unlink → resolve cycle', () => {
-    // Setup: project root with .brv/config.json, workspace subdir
+  it('should resolve through full add → resolve → remove → resolve cycle', () => {
     const projectRoot = join(testDir, 'project')
-    const workspace = join(projectRoot, 'packages', 'api')
+    const workspace = join(testDir, 'workspace')
+    mkdirSync(projectRoot, {recursive: true})
     mkdirSync(workspace, {recursive: true})
     createBrvConfig(projectRoot)
 
-    // Before linking: workspace resolves as walked-up
+    // Before adding: workspace has no .brv → null
     const before = resolveProject({cwd: workspace})
-    expect(before).to.not.be.null
-    expect(before!.source).to.equal('walked-up')
-    expect(before!.projectRoot).to.equal(projectRoot)
-    expect(before!.worktreeRoot).to.equal(projectRoot) // walked-up uses projectRoot as worktreeRoot
+    expect(before).to.be.null
 
-    // Create link
-    createWorkspaceLink(workspace, projectRoot)
+    // Add worktree
+    const addResult = addWorktree(projectRoot, workspace)
+    expect(addResult.success).to.be.true
 
-    // After linking: resolves as linked with correct worktreeRoot
+    // After adding: .brv is a FILE (pointer), resolves as linked
+    expect(isWorktreePointer(workspace)).to.be.true
     const linked = resolveProject({cwd: workspace})
     expect(linked).to.not.be.null
     expect(linked!.source).to.equal('linked')
     expect(linked!.projectRoot).to.equal(projectRoot)
     expect(linked!.worktreeRoot).to.equal(workspace)
-    expect(linked!.linkFile).to.equal(join(workspace, WORKTREE_LINK_FILE))
 
-    // Remove link
-    removeWorkspaceLink(workspace)
+    // Remove worktree
+    const removeResult = removeWorktree(workspace)
+    expect(removeResult.success).to.be.true
 
-    // After unlinking: reverts to walked-up
-    const afterUnlink = resolveProject({cwd: workspace})
-    expect(afterUnlink).to.not.be.null
-    expect(afterUnlink!.source).to.equal('walked-up')
-    expect(afterUnlink!.projectRoot).to.equal(projectRoot)
-    expect(afterUnlink!.worktreeRoot).to.equal(projectRoot)
+    // After removing: .brv gone → null
+    expect(isWorktreePointer(workspace)).to.be.false
+    const afterRemove = resolveProject({cwd: workspace})
+    expect(afterRemove).to.be.null
   })
 
-  it('should overwrite link target and resolve to new target', () => {
-    const projectA = join(testDir, 'project-a')
-    const projectB = join(testDir, 'project-b')
-    const workspace = join(testDir, 'workspace')
+  it('should handle child directory (monorepo subdirectory)', () => {
+    const projectRoot = join(testDir, 'monorepo')
+    const workspace = join(projectRoot, 'packages', 'api')
     mkdirSync(workspace, {recursive: true})
-    createBrvConfig(projectA)
-    createBrvConfig(projectB)
-
-    // Link to project-a — but workspace must be descendant of target
-    // Use project-a/sub as workspace so it's a valid descendant
-    const workspaceInA = join(projectA, 'sub')
-    mkdirSync(workspaceInA, {recursive: true})
-    createWorkspaceLink(workspaceInA, projectA)
-
-    const first = resolveProject({cwd: workspaceInA})
-    expect(first!.projectRoot).to.equal(projectA)
-    expect(first!.source).to.equal('linked')
-
-    // Overwrite link to project-b — this time workspace must be in project-b
-    const workspaceInB = join(projectB, 'sub')
-    mkdirSync(workspaceInB, {recursive: true})
-    createWorkspaceLink(workspaceInB, projectB)
-
-    const second = resolveProject({cwd: workspaceInB})
-    expect(second!.projectRoot).to.equal(projectB)
-    expect(second!.source).to.equal('linked')
-  })
-
-  it('should detect shadow when cwd has both .brv/config.json and .brv-worktree.json', () => {
-    const projectRoot = testDir
-    createBrvConfig(projectRoot)
-    createWorkspaceLink(projectRoot, '/some/other/project')
-
-    const result = resolveProject({cwd: projectRoot})
-    expect(result).to.not.be.null
-    // Direct takes priority over linked
-    expect(result!.source).to.equal('direct')
-    expect(result!.projectRoot).to.equal(projectRoot)
-    expect(result!.shadowedLink).to.be.true
-  })
-
-  it('should resolve nearest link when nested links exist', () => {
-    // project/packages/api has a link, project/packages has a different link
-    const projectRoot = join(testDir, 'project')
-    const packages = join(projectRoot, 'packages')
-    const api = join(packages, 'api')
-    mkdirSync(api, {recursive: true})
     createBrvConfig(projectRoot)
 
-    // Link at packages/ level
-    createWorkspaceLink(packages, projectRoot)
-    // Link at api/ level (nearest to cwd)
-    createWorkspaceLink(api, projectRoot)
+    const addResult = addWorktree(projectRoot, workspace)
+    expect(addResult.success).to.be.true
 
-    const result = resolveProject({cwd: api})
-    expect(result).to.not.be.null
+    const result = resolveProject({cwd: workspace})
     expect(result!.source).to.equal('linked')
-    // Should resolve from api's link, not packages' link
-    expect(result!.worktreeRoot).to.equal(api)
-    expect(result!.linkFile).to.equal(join(api, WORKTREE_LINK_FILE))
+    expect(result!.projectRoot).to.equal(projectRoot)
+    expect(result!.worktreeRoot).to.equal(workspace)
   })
 
-  it('should find workspace link via findNearestWorktreeLink after creation', () => {
+  it('should handle sibling directory', () => {
+    const projectRoot = join(testDir, 'main-project')
+    const sibling = join(testDir, 'feature-checkout')
+    mkdirSync(projectRoot, {recursive: true})
+    mkdirSync(sibling, {recursive: true})
+    createBrvConfig(projectRoot)
+
+    const addResult = addWorktree(projectRoot, sibling)
+    expect(addResult.success).to.be.true
+
+    const result = resolveProject({cwd: sibling})
+    expect(result!.source).to.equal('linked')
+    expect(result!.projectRoot).to.equal(projectRoot)
+    expect(result!.worktreeRoot).to.equal(sibling)
+  })
+
+  it('should be idempotent when adding same worktree twice', () => {
     const projectRoot = join(testDir, 'project')
-    const workspace = join(projectRoot, 'packages', 'api')
+    const workspace = join(testDir, 'workspace')
+    mkdirSync(projectRoot, {recursive: true})
     mkdirSync(workspace, {recursive: true})
     createBrvConfig(projectRoot)
 
-    // Before: no link
-    expect(findNearestWorktreeLink(workspace)).to.be.null
-
-    // Create link
-    createWorkspaceLink(workspace, projectRoot)
-
-    // After: found
-    const linkFile = findNearestWorktreeLink(workspace)
-    expect(linkFile).to.equal(join(workspace, WORKTREE_LINK_FILE))
-
-    // From a subdirectory: walks up and finds it
-    const subDir = join(workspace, 'src', 'controllers')
-    mkdirSync(subDir, {recursive: true})
-    const fromSub = findNearestWorktreeLink(subDir)
-    expect(fromSub).to.equal(join(workspace, WORKTREE_LINK_FILE))
+    addWorktree(projectRoot, workspace)
+    const second = addWorktree(projectRoot, workspace)
+    expect(second.success).to.be.true
+    expect(second.message).to.include('Already registered')
   })
 
-  it('should throw BrokenWorktreeLinkError when link target loses .brv/', () => {
+  it('should register worktree in parent registry', () => {
     const projectRoot = join(testDir, 'project')
-    const workspace = join(projectRoot, 'packages', 'api')
+    const workspace = join(testDir, 'workspace')
+    mkdirSync(projectRoot, {recursive: true})
     mkdirSync(workspace, {recursive: true})
     createBrvConfig(projectRoot)
-    createWorkspaceLink(workspace, projectRoot)
 
-    // Verify it works first
-    const valid = resolveProject({cwd: workspace})
-    expect(valid!.source).to.equal('linked')
+    addWorktree(projectRoot, workspace)
 
-    // Remove .brv/config.json from project root
+    const worktrees = listWorktrees(projectRoot)
+    expect(worktrees).to.have.length(1)
+    expect(worktrees[0].worktreePath).to.equal(workspace)
+  })
+
+  it('should clean up registry on remove', () => {
+    const projectRoot = join(testDir, 'project')
+    const workspace = join(testDir, 'workspace')
+    mkdirSync(projectRoot, {recursive: true})
+    mkdirSync(workspace, {recursive: true})
+    createBrvConfig(projectRoot)
+
+    addWorktree(projectRoot, workspace)
+    expect(listWorktrees(projectRoot)).to.have.length(1)
+
+    removeWorktree(workspace)
+    expect(listWorktrees(projectRoot)).to.have.length(0)
+  })
+
+  it('should back up existing .brv/ directory when adding with force', () => {
+    const projectRoot = join(testDir, 'project')
+    const workspace = join(testDir, 'workspace')
+    mkdirSync(projectRoot, {recursive: true})
+    mkdirSync(workspace, {recursive: true})
+    createBrvConfig(projectRoot)
+    createBrvConfig(workspace)
+
+    // Without force: rejected
+    const withoutForce = addWorktree(projectRoot, workspace)
+    expect(withoutForce.success).to.be.false
+    expect(withoutForce.message).to.include('--force')
+
+    // With force: backed up
+    const withForce = addWorktree(projectRoot, workspace, {force: true})
+    expect(withForce.success).to.be.true
+    expect(withForce.backedUp).to.be.true
+
+    // .brv is now a file, not directory
+    expect(lstatSync(join(workspace, BRV_DIR)).isFile()).to.be.true
+
+    // Backup exists
+    expect(existsSync(join(workspace, '.brv-backup', PROJECT_CONFIG_FILE))).to.be.true
+  })
+
+  it('should restore backup on remove', () => {
+    const projectRoot = join(testDir, 'project')
+    const workspace = join(testDir, 'workspace')
+    mkdirSync(projectRoot, {recursive: true})
+    mkdirSync(workspace, {recursive: true})
+    createBrvConfig(projectRoot)
+    createBrvConfig(workspace)
+
+    addWorktree(projectRoot, workspace, {force: true})
+    removeWorktree(workspace)
+
+    // .brv should be restored as a directory from backup
+    expect(lstatSync(join(workspace, BRV_DIR)).isDirectory()).to.be.true
+    expect(existsSync(join(workspace, BRV_DIR, PROJECT_CONFIG_FILE))).to.be.true
+    expect(existsSync(join(workspace, '.brv-backup'))).to.be.false
+  })
+
+  it('should throw BrokenWorktreePointerError when pointer target is gone', () => {
+    const projectRoot = join(testDir, 'project')
+    const workspace = join(testDir, 'workspace')
+    mkdirSync(projectRoot, {recursive: true})
+    mkdirSync(workspace, {recursive: true})
+    createBrvConfig(projectRoot)
+    addWorktree(projectRoot, workspace)
+
     rmSync(join(projectRoot, BRV_DIR), {force: true, recursive: true})
 
-    // Now resolution should throw
-    expect(() => resolveProject({cwd: workspace})).to.throw(BrokenWorktreeLinkError)
+    expect(() => resolveProject({cwd: workspace})).to.throw(BrokenWorktreePointerError)
   })
 
-  it('should throw MalformedWorktreeLinkError for invalid link file', () => {
+  it('should throw MalformedWorktreePointerError for invalid .brv file', () => {
     const workspace = join(testDir, 'workspace')
     mkdirSync(workspace, {recursive: true})
+    writeFileSync(join(workspace, BRV_DIR), 'not json at all')
 
-    // Write invalid JSON
-    writeFileSync(join(workspace, WORKTREE_LINK_FILE), 'not json at all')
-
-    expect(() => resolveProject({cwd: workspace})).to.throw(MalformedWorktreeLinkError)
+    expect(() => resolveProject({cwd: workspace})).to.throw(MalformedWorktreePointerError)
   })
 
-  it('should return null when no project exists anywhere', () => {
+  it('should return null when .brv does not exist', () => {
     const emptyDir = join(testDir, 'empty')
     mkdirSync(emptyDir, {recursive: true})
 
-    const result = resolveProject({cwd: emptyDir})
-    expect(result).to.be.null
+    expect(resolveProject({cwd: emptyDir})).to.be.null
+  })
+
+  it('should return direct when .brv is a directory with config', () => {
+    const projectRoot = join(testDir, 'project')
+    mkdirSync(projectRoot, {recursive: true})
+    createBrvConfig(projectRoot)
+
+    const result = resolveProject({cwd: projectRoot})
+    expect(result!.source).to.equal('direct')
+    expect(result!.projectRoot).to.equal(projectRoot)
+    expect(result!.worktreeRoot).to.equal(projectRoot)
+  })
+
+  it('should reject self as worktree', () => {
+    const projectRoot = join(testDir, 'project')
+    mkdirSync(projectRoot, {recursive: true})
+    createBrvConfig(projectRoot)
+
+    const result = addWorktree(projectRoot, projectRoot)
+    expect(result.success).to.be.false
   })
 })

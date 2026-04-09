@@ -3,7 +3,7 @@ import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {BRV_DIR, PROJECT_CONFIG_FILE, WORKTREE_LINK_FILE} from '../../../../../../src/server/constants.js'
+import {BRV_DIR, PROJECT_CONFIG_FILE} from '../../../../../../src/server/constants.js'
 import {worktreeListSubCommand} from '../../../../../../src/tui/features/commands/definitions/worktree-list.js'
 
 function createBrvConfig(dir: string): void {
@@ -12,8 +12,8 @@ function createBrvConfig(dir: string): void {
   writeFileSync(join(brvDir, PROJECT_CONFIG_FILE), JSON.stringify({version: '0.0.1'}))
 }
 
-function createWorktreeLink(dir: string, projectRoot: string): void {
-  writeFileSync(join(dir, WORKTREE_LINK_FILE), JSON.stringify({projectRoot}, null, 2) + '\n')
+function createWorktreePointer(dir: string, projectRoot: string): void {
+  writeFileSync(join(dir, BRV_DIR), JSON.stringify({projectRoot}, null, 2) + '\n')
 }
 
 describe('/worktree list slash command', () => {
@@ -30,12 +30,13 @@ describe('/worktree list slash command', () => {
     rmSync(testDir, {force: true, recursive: true})
   })
 
-  it('should report worktree link details when running from a linked workspace', async () => {
+  it('should report worktree details when running from a linked directory', async () => {
     const projectRoot = join(testDir, 'project')
-    const workspace = join(projectRoot, 'packages', 'api')
+    const workspace = join(testDir, 'workspace')
+    mkdirSync(projectRoot, {recursive: true})
     mkdirSync(workspace, {recursive: true})
     createBrvConfig(projectRoot)
-    createWorktreeLink(workspace, projectRoot)
+    createWorktreePointer(workspace, projectRoot)
 
     process.chdir(workspace)
 
@@ -51,7 +52,7 @@ describe('/worktree list slash command', () => {
     }
   })
 
-  it('should report no worktree link when running inside project root', async () => {
+  it('should report project when running inside project root', async () => {
     const projectRoot = join(testDir, 'project')
     mkdirSync(projectRoot, {recursive: true})
     createBrvConfig(projectRoot)
@@ -66,7 +67,6 @@ describe('/worktree list slash command', () => {
     })
     if (result && 'content' in result) {
       expect(result.content).to.include(`Project: ${projectRoot}`)
-      expect(result.content).to.include('No worktree link')
     }
   })
 
@@ -86,10 +86,10 @@ describe('/worktree list slash command', () => {
     }
   })
 
-  it('should return error message when worktree link target is broken', async () => {
+  it('should return error message when worktree pointer is broken', async () => {
     const workspace = join(testDir, 'workspace')
     mkdirSync(workspace, {recursive: true})
-    createWorktreeLink(workspace, '/missing/project/path')
+    createWorktreePointer(workspace, '/missing/project/path')
 
     process.chdir(workspace)
 
@@ -100,7 +100,7 @@ describe('/worktree list slash command', () => {
       type: 'message',
     })
     if (result && 'content' in result) {
-      expect(result.content).to.include('Worktree link broken')
+      expect(result.content).to.include('Worktree pointer broken')
     }
   })
 })

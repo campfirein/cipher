@@ -76,7 +76,9 @@ export interface DaemonClientOptions {
 function resolveRequiredProjectPath(projectRootFlag?: string): {projectRoot: string; worktreeRoot: string} {
   const resolution = resolveProject({projectRootFlag})
   if (!resolution) {
-    throw new Error('No ByteRover project could be resolved before connecting to the daemon.')
+    // No .brv found at cwd — fall back to cwd. The daemon will auto-init .brv/ on first connection.
+    const cwd = process.cwd()
+    return {projectRoot: cwd, worktreeRoot: cwd}
   }
 
   return resolution

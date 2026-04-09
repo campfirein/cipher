@@ -572,7 +572,7 @@ describe('brv-curate-tool', () => {
       const projectRoot = mkdtempSync(join(tmpdir(), 'brv-curate-broken-link-'))
       const workspace = join(projectRoot, 'packages', 'api')
       mkdirSync(workspace, {recursive: true})
-      writeFileSync(join(workspace, '.brv-worktree.json'), JSON.stringify({projectRoot: '/missing/project'}))
+      writeFileSync(join(workspace, '.brv'), JSON.stringify({projectRoot: '/missing/project'}))
 
       try {
         const {client} = createMockClient()
@@ -584,7 +584,7 @@ describe('brv-curate-tool', () => {
         const result = await handler({context: 'Auth pattern', cwd: workspace})
 
         expect(result.isError).to.be.true
-        expect(result.content[0].text).to.include('Worktree link broken')
+        expect(result.content[0].text).to.include('Worktree pointer broken')
       } finally {
         rmSync(projectRoot, {force: true, recursive: true})
       }

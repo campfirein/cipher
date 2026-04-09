@@ -2,8 +2,9 @@ export const BRV_DIR = '.brv'
 export const PROJECT_CONFIG_FILE = 'config.json'
 export const BRV_CONFIG_VERSION = '0.0.1'
 
-// Worktree linking (subdirectory → parent project pointer)
-export const WORKTREE_LINK_FILE = '.brv-worktree.json'
+// Worktree linking (git-style: .brv is a file pointing to parent project)
+export const WORKTREES_DIR = 'worktrees'
+export const WORKTREE_LINK_METADATA = 'link.json'
 
 // Knowledge sources (read-only references to other projects)
 export const SOURCES_FILE = 'sources.json'

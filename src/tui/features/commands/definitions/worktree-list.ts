@@ -1,7 +1,7 @@
 import type {SlashCommand} from '../../../types/commands.js'
 
 // eslint-disable-next-line no-restricted-imports -- worktree list reads canonical resolution directly
-import {resolveProject} from '../../../../server/infra/project/resolve-project.js'
+import {listWorktrees, resolveProject} from '../../../../server/infra/project/resolve-project.js'
 
 export const worktreeListSubCommand: SlashCommand = {
   action() {
@@ -20,7 +20,7 @@ export const worktreeListSubCommand: SlashCommand = {
 
     if (!resolution) {
       return {
-        content: 'No ByteRover project found in current directory or any ancestor.',
+        content: 'No ByteRover project found in current directory.',
         messageType: 'info' as const,
         type: 'message' as const,
       }
@@ -29,11 +29,16 @@ export const worktreeListSubCommand: SlashCommand = {
     const lines: string[] = []
     if (resolution.source === 'linked') {
       lines.push(`Worktree: ${resolution.worktreeRoot}`, `Linked to: ${resolution.projectRoot}`)
-      if (resolution.linkFile) {
-        lines.push(`Link file: ${resolution.linkFile}`)
-      }
     } else {
-      lines.push(`Project: ${resolution.projectRoot}`, 'No worktree link (running inside project root).')
+      lines.push(`Project: ${resolution.projectRoot}`)
+    }
+
+    const worktrees = listWorktrees(resolution.projectRoot)
+    if (worktrees.length > 0) {
+      lines.push('', 'Registered worktrees:')
+      for (const wt of worktrees) {
+        lines.push(`   ${wt.name} → ${wt.worktreePath}`)
+      }
     }
 
     return {
@@ -42,6 +47,6 @@ export const worktreeListSubCommand: SlashCommand = {
       type: 'message' as const,
     }
   },
-  description: 'Show the current worktree link (if any)',
+  description: 'Show the current worktree link and list all registered worktrees',
   name: 'list',
 }

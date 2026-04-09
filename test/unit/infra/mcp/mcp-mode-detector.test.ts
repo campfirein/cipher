@@ -57,7 +57,7 @@ describe('detectMcpMode', () => {
     mkdirSync(join(projectRoot, '.brv'), {recursive: true})
     writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
     mkdirSync(cwd, {recursive: true})
-    writeFileSync(join(worktreeRoot, '.brv-worktree.json'), JSON.stringify({projectRoot}))
+    writeFileSync(join(worktreeRoot, '.brv'), JSON.stringify({projectRoot}))
     const canonicalProjectRoot = realpathSync(projectRoot)
     const canonicalWorkspaceRoot = realpathSync(worktreeRoot)
 
@@ -72,9 +72,9 @@ describe('detectMcpMode', () => {
   it('should surface broken workspace link errors', () => {
     const worktreeRoot = join(testDir, 'packages', 'api')
     mkdirSync(worktreeRoot, {recursive: true})
-    writeFileSync(join(worktreeRoot, '.brv-worktree.json'), JSON.stringify({projectRoot: '/missing/project'}))
+    writeFileSync(join(worktreeRoot, '.brv'), JSON.stringify({projectRoot: '/missing/project'}))
 
-    expect(() => detectMcpMode(worktreeRoot)).to.throw('Worktree link broken')
+    expect(() => detectMcpMode(worktreeRoot)).to.throw('Worktree pointer broken')
   })
 
   it('should return "global" with no projectRoot when no .brv/config.json exists in any ancestor', () => {

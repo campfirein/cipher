@@ -22,7 +22,7 @@ function baseStatus(overrides: Partial<StatusDTO> = {}): StatusDTO {
 }
 
 describe('formatStatus workspace fields', () => {
-  it('should show workspace line when worktreeRoot differs from projectRoot', () => {
+  it('should show worktree line when worktreeRoot differs from projectRoot', () => {
     const status = baseStatus({
       projectRoot: '/projects/monorepo',
       worktreeRoot: '/projects/monorepo/packages/api',
@@ -32,7 +32,7 @@ describe('formatStatus workspace fields', () => {
     expect(output).to.include('Worktree: /projects/monorepo/packages/api (linked)')
   })
 
-  it('should not show workspace line when worktreeRoot equals projectRoot', () => {
+  it('should not show worktree line when worktreeRoot equals projectRoot', () => {
     const status = baseStatus({
       projectRoot: '/projects/monorepo',
       worktreeRoot: '/projects/monorepo',
@@ -42,7 +42,7 @@ describe('formatStatus workspace fields', () => {
     expect(output).to.not.include('Worktree:')
   })
 
-  it('should not show workspace line when worktreeRoot is undefined', () => {
+  it('should not show worktree line when worktreeRoot is undefined', () => {
     const status = baseStatus({
       projectRoot: '/projects/monorepo',
       worktreeRoot: undefined,
@@ -52,46 +52,25 @@ describe('formatStatus workspace fields', () => {
     expect(output).to.not.include('Worktree:')
   })
 
-  it('should show shadowed link warning', () => {
-    const status = baseStatus({
-      shadowedLink: true,
-    })
-
-    const output = formatStatus(status, '1.0.0')
-    expect(output).to.include('Shadowed .brv-worktree.json found')
-    expect(output).to.include('.brv/ takes priority')
-  })
-
-  it('should not show shadowed link warning when false', () => {
-    const status = baseStatus({
-      shadowedLink: false,
-    })
-
-    const output = formatStatus(status, '1.0.0')
-    expect(output).to.not.include('Shadowed')
-  })
-
   it('should show resolver error message', () => {
     const status = baseStatus({
-      resolverError: 'Worktree link broken: "/old/project" no longer has .brv/config.json.',
+      resolverError: 'Worktree pointer broken: "/old/project" no longer has .brv/config.json.',
     })
 
     const output = formatStatus(status, '1.0.0')
-    expect(output).to.include('Worktree link broken')
+    expect(output).to.include('Worktree pointer broken')
     expect(output).to.include('/old/project')
   })
 
-  it('should show workspace, shadowed warning, and resolver error together', () => {
+  it('should show worktree and resolver error together', () => {
     const status = baseStatus({
       projectRoot: '/projects/monorepo',
       resolverError: 'Something went wrong',
-      shadowedLink: true,
       worktreeRoot: '/projects/monorepo/packages/api',
     })
 
     const output = formatStatus(status, '1.0.0')
     expect(output).to.include('Worktree: /projects/monorepo/packages/api (linked)')
-    expect(output).to.include('Shadowed .brv-worktree.json found')
     expect(output).to.include('Something went wrong')
   })
 

@@ -20,7 +20,7 @@ import {
   associateProjectWithRetry,
   resolveMcpTaskContext,
 } from '../../../src/server/infra/mcp/tools/mcp-project-context.js'
-import {BrokenWorktreeLinkError} from '../../../src/server/infra/project/resolve-project.js'
+import {BrokenWorktreePointerError} from '../../../src/server/infra/project/resolve-project.js'
 
 // ============================================================================
 // Helpers
@@ -32,7 +32,7 @@ function createBrvConfig(dir: string): void {
 }
 
 function createWorkspaceLink(dir: string, projectRoot: string): void {
-  writeFileSync(join(dir, '.brv-worktree.json'), JSON.stringify({projectRoot}, null, 2) + '\n')
+  writeFileSync(join(dir, '.brv'), JSON.stringify({projectRoot}, null, 2) + '\n')
 }
 
 function makeStubTransportClient(sandbox: SinonSandbox): ITransportClient & {requestWithAck: SinonStub} {
@@ -123,7 +123,7 @@ describe('MCP tool workspace resolution (integration)', () => {
       expect(before.worktreeRoot).to.equal(workspace)
 
       // Remove link
-      unlinkSync(join(workspace, '.brv-worktree.json'))
+      unlinkSync(join(workspace, '.brv'))
 
       // After unlink: reverts to walked-up
       const after = resolveMcpTaskContext(workspace)
@@ -135,7 +135,7 @@ describe('MCP tool workspace resolution (integration)', () => {
       mkdirSync(workspace, {recursive: true})
       createWorkspaceLink(workspace, '/nonexistent/project')
 
-      expect(() => resolveMcpTaskContext(workspace)).to.throw(BrokenWorktreeLinkError)
+      expect(() => resolveMcpTaskContext(workspace)).to.throw(BrokenWorktreePointerError)
     })
 
     it('should fall back to startup context when resolver returns null', () => {

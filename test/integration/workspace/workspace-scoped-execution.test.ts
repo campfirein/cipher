@@ -35,7 +35,7 @@ function createBrvConfig(dir: string): void {
 }
 
 function createWorkspaceLink(dir: string, projectRoot: string): void {
-  writeFileSync(join(dir, '.brv-worktree.json'), JSON.stringify({projectRoot}, null, 2) + '\n')
+  writeFileSync(join(dir, '.brv'), JSON.stringify({projectRoot}, null, 2) + '\n')
 }
 
 function makeStubAgent(sandbox: SinonSandbox): ICipherAgent & {
@@ -198,7 +198,7 @@ describe('workspace-scoped execution (integration)', () => {
 
       // Unlink
       const {unlinkSync} = await import('node:fs')
-      unlinkSync(join(workspace, '.brv-worktree.json'))
+      unlinkSync(join(workspace, '.brv'))
 
       // Reset search stub to isolate second executor's calls
       searchService.search.resetHistory()

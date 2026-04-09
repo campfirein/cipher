@@ -11,7 +11,7 @@ import type {ITransportServer} from '../../../core/interfaces/transport/i-transp
 import {StatusEvents, type StatusGetRequest, type StatusGetResponse} from '../../../../shared/transport/events/status-events.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
 import {listSourceStatuses} from '../../../core/domain/source/source-operations.js'
-import {BrokenWorktreeLinkError, MalformedWorktreeLinkError, resolveProject} from '../../project/resolve-project.js'
+import {BrokenWorktreePointerError, MalformedWorktreePointerError, resolveProject} from '../../project/resolve-project.js'
 import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 /** Factory that creates a curate log store scoped to a project directory. */
@@ -79,12 +79,11 @@ export class StatusHandler {
           result.projectRoot = resolution.projectRoot
           result.worktreeRoot = resolution.worktreeRoot
           result.resolutionSource = resolution.source
-          result.shadowedLink = resolution.shadowedLink
           effectiveProjectPath = resolution.projectRoot
         }
       } catch (error) {
         // Surface broken/malformed link errors as actionable status info
-        if (error instanceof BrokenWorktreeLinkError || error instanceof MalformedWorktreeLinkError) {
+        if (error instanceof BrokenWorktreePointerError || error instanceof MalformedWorktreePointerError) {
           result.resolverError = error.message
         }
 

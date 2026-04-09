@@ -164,13 +164,11 @@ export interface StatusDTO {
   /** Absolute path to the project root (directory containing .brv/) */
   projectRoot?: string
   /** How the project root was discovered */
-  resolutionSource?: 'direct' | 'flag' | 'linked' | 'walked-up'
-  /** Actionable error message when resolver fails (broken/malformed workspace link) */
+  resolutionSource?: 'direct' | 'flag' | 'linked'
+  /** Actionable error message when resolver fails (broken/malformed worktree pointer) */
   resolverError?: string
   /** URL to the local review UI (only set when pendingReviewCount > 0). */
   reviewUrl?: string
-  /** True if cwd has both .brv/config.json and .brv-worktree.json */
-  shadowedLink?: boolean
   /** Knowledge sources from other projects' context trees (read-only) */
   sources?: SourceStatusDTO[]
   /** Error message when sources.json is malformed */

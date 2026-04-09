@@ -84,7 +84,7 @@ describe('Query Command', () => {
     mkdirSync(join(projectRoot, '.brv'), {recursive: true})
     mkdirSync(worktreeRoot, {recursive: true})
     writeFileSync(join(projectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
-    writeFileSync(join(worktreeRoot, '.brv-worktree.json'), JSON.stringify({projectRoot}, null, 2) + '\n')
+    writeFileSync(join(worktreeRoot, '.brv'), JSON.stringify({projectRoot}, null, 2) + '\n')
     return {projectRoot, worktreeRoot}
   }
 

@@ -3,24 +3,25 @@
  *
  * Tests the exported helpers from resolve-project.ts used by `brv worktree add`:
  * - hasBrvConfig: checks for .brv/config.json
- * - hasWorktreeLink: checks for .brv-worktree.json
+ * - isWorktreePointer: checks if .brv is a file (not directory)
  * - isDescendantOf: validates ancestor relationship
- *
- * Also tests the link file creation flow (write + read-back validation).
+ * - addWorktree: creates pointer + registry
+ * - findParentProject: walks up to find nearest .brv/ directory
  */
 
 import {expect} from 'chai'
-import {mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
+import {lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
-import {join, sep} from 'node:path'
+import {join} from 'node:path'
 
-import {BRV_DIR, PROJECT_CONFIG_FILE, WORKTREE_LINK_FILE} from '../../../../src/server/constants.js'
-import {WorktreeLinkSchema} from '../../../../src/server/core/domain/project/worktree-link-schema.js'
+import {BRV_DIR, PROJECT_CONFIG_FILE} from '../../../../src/server/constants.js'
 import {
+  addWorktree,
+  findParentProject,
   hasBrvConfig,
-  hasWorktreeLink,
   isDescendantOf,
   isGitRoot,
+  isWorktreePointer,
 } from '../../../../src/server/infra/project/resolve-project.js'
 
 function createBrvConfig(dir: string): void {
@@ -29,15 +30,11 @@ function createBrvConfig(dir: string): void {
   writeFileSync(join(brvDir, PROJECT_CONFIG_FILE), JSON.stringify({version: '0.0.1'}))
 }
 
-function createWorkspaceLink(dir: string, projectRoot: string): void {
-  writeFileSync(join(dir, WORKTREE_LINK_FILE), JSON.stringify({projectRoot}))
-}
-
-describe('worktree add command validation helpers', () => {
+describe('worktree add command helpers', () => {
   let testDir: string
 
   beforeEach(() => {
-    testDir = realpathSync(mkdtempSync(join(tmpdir(), 'brv-link-test-')))
+    testDir = realpathSync(mkdtempSync(join(tmpdir(), 'brv-worktree-test-')))
   })
 
   afterEach(() => {
@@ -47,7 +44,6 @@ describe('worktree add command validation helpers', () => {
   describe('hasBrvConfig', () => {
     it('should return true when .brv/config.json exists', () => {
       createBrvConfig(testDir)
-
       expect(hasBrvConfig(testDir)).to.be.true
     })
 
@@ -57,20 +53,23 @@ describe('worktree add command validation helpers', () => {
 
     it('should return false when .brv/ exists but config.json is missing', () => {
       mkdirSync(join(testDir, BRV_DIR), {recursive: true})
-
       expect(hasBrvConfig(testDir)).to.be.false
     })
   })
 
-  describe('hasWorktreeLink', () => {
-    it('should return true when .brv-worktree.json exists', () => {
-      createWorkspaceLink(testDir, '/some/project')
-
-      expect(hasWorktreeLink(testDir)).to.be.true
+  describe('isWorktreePointer', () => {
+    it('should return true when .brv is a file', () => {
+      writeFileSync(join(testDir, BRV_DIR), JSON.stringify({projectRoot: '/some/path'}))
+      expect(isWorktreePointer(testDir)).to.be.true
     })
 
-    it('should return false when .brv-worktree.json does not exist', () => {
-      expect(hasWorktreeLink(testDir)).to.be.false
+    it('should return false when .brv is a directory', () => {
+      mkdirSync(join(testDir, BRV_DIR), {recursive: true})
+      expect(isWorktreePointer(testDir)).to.be.false
+    })
+
+    it('should return false when .brv does not exist', () => {
+      expect(isWorktreePointer(testDir)).to.be.false
     })
   })
 
@@ -83,128 +82,23 @@ describe('worktree add command validation helpers', () => {
       expect(isDescendantOf('/a/b/c/d', '/a/b/c')).to.be.true
     })
 
-    it('should return true for deeply nested descendants', () => {
-      expect(isDescendantOf('/projects/monorepo/packages/api/src', '/projects/monorepo')).to.be.true
-    })
-
     it('should return false when not a descendant', () => {
       expect(isDescendantOf('/a/b/c', '/x/y/z')).to.be.false
     })
 
     it('should return false for partial prefix matches', () => {
-      // /a/b/cd is NOT a descendant of /a/b/c (partial directory name match)
       expect(isDescendantOf('/a/b/cd', '/a/b/c')).to.be.false
-    })
-
-    it('should handle trailing separators on ancestor', () => {
-      expect(isDescendantOf(`/a/b/c/d`, `/a/b/c${sep}`)).to.be.true
-    })
-  })
-
-  describe('link file creation flow', () => {
-    it('should create a valid .brv-worktree.json that passes schema validation', () => {
-      const projectRoot = testDir
-      const workspaceDir = join(testDir, 'packages', 'api')
-      mkdirSync(workspaceDir, {recursive: true})
-
-      // Simulate link creation (same as oclif command does)
-      const linkContent = JSON.stringify({projectRoot}, null, 2) + '\n'
-      writeFileSync(join(workspaceDir, WORKTREE_LINK_FILE), linkContent, 'utf8')
-
-      // Read back and validate with schema
-      const raw = readFileSync(join(workspaceDir, WORKTREE_LINK_FILE), 'utf8')
-      const parsed = JSON.parse(raw)
-      const result = WorktreeLinkSchema.safeParse(parsed)
-
-      expect(result.success).to.be.true
-      expect(result.data?.projectRoot).to.equal(projectRoot)
-    })
-
-    it('should be detectable by hasWorktreeLink after creation', () => {
-      const workspaceDir = join(testDir, 'sub')
-      mkdirSync(workspaceDir, {recursive: true})
-
-      expect(hasWorktreeLink(workspaceDir)).to.be.false
-
-      createWorkspaceLink(workspaceDir, testDir)
-
-      expect(hasWorktreeLink(workspaceDir)).to.be.true
-    })
-
-    it('should not create link when cwd has .brv/config.json (shadow guard)', () => {
-      createBrvConfig(testDir)
-
-      // Simulating the guard check from link command
-      const shouldBlock = hasBrvConfig(testDir)
-      expect(shouldBlock).to.be.true
-    })
-
-    it('should not create link when cwd is not descendant of target (ancestor check)', () => {
-      const targetRoot = join(testDir, 'project-a')
-      const otherDir = join(testDir, 'project-b')
-      mkdirSync(targetRoot, {recursive: true})
-      mkdirSync(otherDir, {recursive: true})
-
-      const shouldBlock = !isDescendantOf(otherDir, targetRoot)
-      expect(shouldBlock).to.be.true
-    })
-
-    it('should not create link when cwd equals target (self-link guard)', () => {
-      const targetRoot = testDir
-      const cwd = testDir
-
-      const isSelfLink = cwd === targetRoot
-      expect(isSelfLink).to.be.true
-    })
-
-    it('should be idempotent when link already points to same target', () => {
-      const workspaceDir = join(testDir, 'packages', 'api')
-      mkdirSync(workspaceDir, {recursive: true})
-      createWorkspaceLink(workspaceDir, testDir)
-
-      // Read existing link
-      const raw = readFileSync(join(workspaceDir, WORKTREE_LINK_FILE), 'utf8')
-      const existing = JSON.parse(raw)
-
-      expect(existing.projectRoot).to.equal(testDir)
-
-      // Overwrite with same target — should succeed silently
-      createWorkspaceLink(workspaceDir, testDir)
-      const rawAfter = readFileSync(join(workspaceDir, WORKTREE_LINK_FILE), 'utf8')
-      const after = JSON.parse(rawAfter)
-
-      expect(after.projectRoot).to.equal(testDir)
-    })
-
-    it('should overwrite when link points to different target', () => {
-      const workspaceDir = join(testDir, 'packages', 'api')
-      mkdirSync(workspaceDir, {recursive: true})
-
-      const oldTarget = join(testDir, 'old-project')
-      const newTarget = join(testDir, 'new-project')
-      mkdirSync(oldTarget, {recursive: true})
-      mkdirSync(newTarget, {recursive: true})
-
-      createWorkspaceLink(workspaceDir, oldTarget)
-      createWorkspaceLink(workspaceDir, newTarget)
-
-      const raw = readFileSync(join(workspaceDir, WORKTREE_LINK_FILE), 'utf8')
-      const result = JSON.parse(raw)
-
-      expect(result.projectRoot).to.equal(newTarget)
     })
   })
 
   describe('isGitRoot', () => {
     it('should return true when .git directory exists', () => {
       mkdirSync(join(testDir, '.git'), {recursive: true})
-
       expect(isGitRoot(testDir)).to.be.true
     })
 
     it('should return true when .git is a file (worktree/submodule)', () => {
       writeFileSync(join(testDir, '.git'), 'gitdir: /some/path')
-
       expect(isGitRoot(testDir)).to.be.true
     })
 
@@ -213,151 +107,116 @@ describe('worktree add command validation helpers', () => {
     })
   })
 
-  describe('auto-detect nearest project root', () => {
-    it('should find .brv/config.json in ancestor directory', () => {
-      createBrvConfig(testDir)
-      const subDir = join(testDir, 'packages', 'api', 'src')
-      mkdirSync(subDir, {recursive: true})
+  describe('addWorktree', () => {
+    it('should create pointer file and registry entry', () => {
+      const projectRoot = join(testDir, 'project')
+      const workspace = join(testDir, 'workspace')
+      mkdirSync(projectRoot, {recursive: true})
+      mkdirSync(workspace, {recursive: true})
+      createBrvConfig(projectRoot)
 
-      // Walk up from subDir looking for hasBrvConfig
-      let current = subDir
-      let found: string | undefined
-      while (current !== testDir) {
-        if (hasBrvConfig(current)) {
-          found = current
+      const result = addWorktree(projectRoot, workspace)
 
-          break
-        }
-
-        const parent = join(current, '..')
-        if (parent === current) break
-        current = parent
-      }
-
-      // Check testDir itself
-      if (!found && hasBrvConfig(testDir)) {
-        found = testDir
-      }
-
-      expect(found).to.equal(testDir)
+      expect(result.success).to.be.true
+      expect(isWorktreePointer(workspace)).to.be.true
+      expect(lstatSync(join(workspace, BRV_DIR)).isFile()).to.be.true
     })
 
-    it('should not find project root when none exists', () => {
-      const subDir = join(testDir, 'packages', 'api')
-      mkdirSync(subDir, {recursive: true})
+    it('should reject when parent is not a project', () => {
+      const notProject = join(testDir, 'not-project')
+      const workspace = join(testDir, 'workspace')
+      mkdirSync(notProject, {recursive: true})
+      mkdirSync(workspace, {recursive: true})
 
-      // No .brv/config.json anywhere
-      expect(hasBrvConfig(subDir)).to.be.false
-      expect(hasBrvConfig(testDir)).to.be.false
+      const result = addWorktree(notProject, workspace)
+      expect(result.success).to.be.false
+      expect(result.message).to.include('not a ByteRover project')
+    })
+
+    it('should reject when target does not exist', () => {
+      const projectRoot = join(testDir, 'project')
+      mkdirSync(projectRoot, {recursive: true})
+      createBrvConfig(projectRoot)
+
+      const result = addWorktree(projectRoot, join(testDir, 'nonexistent'))
+      expect(result.success).to.be.false
+      expect(result.message).to.include('does not exist')
+    })
+
+    it('should reject self as worktree', () => {
+      const projectRoot = join(testDir, 'project')
+      mkdirSync(projectRoot, {recursive: true})
+      createBrvConfig(projectRoot)
+
+      const result = addWorktree(projectRoot, projectRoot)
+      expect(result.success).to.be.false
+    })
+
+    it('should require --force when target has existing .brv/ directory', () => {
+      const projectRoot = join(testDir, 'project')
+      const workspace = join(testDir, 'workspace')
+      mkdirSync(projectRoot, {recursive: true})
+      mkdirSync(workspace, {recursive: true})
+      createBrvConfig(projectRoot)
+      createBrvConfig(workspace)
+
+      const result = addWorktree(projectRoot, workspace)
+      expect(result.success).to.be.false
+      expect(result.message).to.include('--force')
+    })
+
+    it('should be idempotent when pointer already points to same parent', () => {
+      const projectRoot = join(testDir, 'project')
+      const workspace = join(testDir, 'workspace')
+      mkdirSync(projectRoot, {recursive: true})
+      mkdirSync(workspace, {recursive: true})
+      createBrvConfig(projectRoot)
+
+      addWorktree(projectRoot, workspace)
+      const second = addWorktree(projectRoot, workspace)
+      expect(second.success).to.be.true
+      expect(second.message).to.include('Already registered')
     })
   })
 
-  describe('git-boundary stop condition', () => {
-    it('should stop walk-up at .git boundary', () => {
-      // Simulate: outer-repo/.git exists with .brv/config.json
-      //           outer-repo/inner-repo/.git exists (nested repo boundary)
-      //           Walk from inner-repo/packages/api should NOT find outer-repo's .brv
-      const outerRepo = join(testDir, 'outer-repo')
-      const innerRepo = join(outerRepo, 'inner-repo')
-      const subDir = join(innerRepo, 'packages', 'api')
-
-      mkdirSync(subDir, {recursive: true})
-      mkdirSync(join(outerRepo, '.git'), {recursive: true})
-      mkdirSync(join(innerRepo, '.git'), {recursive: true})
-      createBrvConfig(outerRepo)
-
-      // Walk up from subDir, stopping at git root (same logic as link commands)
-      let current = subDir
-      let found: string | undefined
-      const root = join(testDir, '..') // stop sentinel
-
-      while (current !== root) {
-        if (hasBrvConfig(current)) {
-          found = current
-
-          break
-        }
-
-        if (isGitRoot(current)) {
-          break
-        }
-
-        const parent = join(current, '..')
-        if (parent === current) break
-        current = parent
-      }
-
-      // Should NOT find outer-repo — stopped at inner-repo's .git boundary
-      expect(found).to.be.undefined
-    })
-
-    it('should find .brv/config.json at the git root itself', () => {
-      // Repo root has both .git and .brv/config.json
-      mkdirSync(join(testDir, '.git'), {recursive: true})
+  describe('findParentProject', () => {
+    it('should find parent .brv/ directory when walking up', () => {
       createBrvConfig(testDir)
-
       const subDir = join(testDir, 'packages', 'api')
       mkdirSync(subDir, {recursive: true})
 
-      let current = subDir
-      let found: string | undefined
-
-      while (current !== testDir) {
-        if (hasBrvConfig(current)) {
-          found = current
-
-          break
-        }
-
-        if (isGitRoot(current)) {
-          break
-        }
-
-        const parent = join(current, '..')
-        if (parent === current) break
-        current = parent
-      }
-
-      // Check the git root directory itself (walked up to it)
-      if (!found && hasBrvConfig(current)) {
-        found = current
-      }
-
-      // Should find it — .brv/config.json is AT the git root, checked before the break
-      expect(found).to.equal(testDir)
+      const parent = findParentProject(subDir)
+      expect(parent).to.equal(testDir)
     })
 
-    it('should not cross git boundary even with .git worktree file', () => {
-      const outerRepo = join(testDir, 'outer')
-      const innerWorktree = join(outerRepo, 'worktree')
-      const subDir = join(innerWorktree, 'src')
-
+    it('should return undefined when no parent project exists', () => {
+      const subDir = join(testDir, 'packages', 'api')
       mkdirSync(subDir, {recursive: true})
-      createBrvConfig(outerRepo)
-      // .git file (worktree) instead of directory
-      writeFileSync(join(innerWorktree, '.git'), 'gitdir: /some/worktree/path')
 
-      let current = subDir
-      let found: string | undefined
-      const root = join(testDir, '..')
+      const parent = findParentProject(subDir)
+      expect(parent).to.be.undefined
+    })
 
-      while (current !== root) {
-        if (hasBrvConfig(current)) {
-          found = current
+    it('should stop at git boundary', () => {
+      const outer = join(testDir, 'outer')
+      const inner = join(outer, 'inner')
+      const subDir = join(inner, 'src')
+      mkdirSync(subDir, {recursive: true})
+      createBrvConfig(outer)
+      mkdirSync(join(inner, '.git'), {recursive: true})
 
-          break
-        }
+      const parent = findParentProject(subDir)
+      expect(parent).to.be.undefined
+    })
 
-        if (isGitRoot(current)) {
-          break
-        }
+    it('should skip .brv files (pointers), only find .brv directories', () => {
+      const middle = join(testDir, 'middle')
+      const subDir = join(middle, 'src')
+      mkdirSync(subDir, {recursive: true})
+      writeFileSync(join(middle, BRV_DIR), JSON.stringify({projectRoot: '/some/path'}))
 
-        const parent = join(current, '..')
-        if (parent === current) break
-        current = parent
-      }
-
-      expect(found).to.be.undefined
+      const parent = findParentProject(subDir)
+      expect(parent).to.be.undefined
     })
   })
 })

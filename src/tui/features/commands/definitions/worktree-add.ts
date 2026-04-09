@@ -1,183 +1,86 @@
-import {existsSync, readFileSync, realpathSync, statSync, writeFileSync} from 'node:fs'
-import {dirname, join, resolve, sep} from 'node:path'
+import {resolve} from 'node:path'
 
 import type {SlashCommand} from '../../../types/commands.js'
 
-// eslint-disable-next-line no-restricted-imports -- worktree add must re-resolve project after creating workspace link
-import {resolveProject} from '../../../../server/infra/project/resolve-project.js'
+// eslint-disable-next-line no-restricted-imports -- worktree add needs direct access to resolver and CRUD helpers
+import {addWorktree, findParentProject, hasBrvConfig, resolveProject} from '../../../../server/infra/project/resolve-project.js'
 import {ClientEvents} from '../../../../shared/transport/events/client-events.js'
 import {useTransportStore} from '../../../stores/transport-store.js'
 
-const BRV_DIR = '.brv'
-const PROJECT_CONFIG_FILE = 'config.json'
-const WORKTREE_LINK_FILE = '.brv-worktree.json'
-
-function hasBrvConfig(dir: string): boolean {
-  return existsSync(join(dir, BRV_DIR, PROJECT_CONFIG_FILE))
-}
-
-function isGitRoot(dir: string): boolean {
-  const gitPath = join(dir, '.git')
-  try {
-    const stat = statSync(gitPath)
-    return stat.isDirectory() || stat.isFile()
-  } catch {
-    return false
-  }
-}
-
-function isDescendantOf(descendant: string, ancestor: string): boolean {
-  const normalizedAncestor = ancestor.endsWith(sep) ? ancestor : ancestor + sep
-  return descendant === ancestor || descendant.startsWith(normalizedAncestor)
-}
-
-/**
- * Walk up from startDir looking for nearest .brv/config.json.
- * Stops at git root boundary to avoid cross-repo auto-discovery.
- */
-function findNearestProjectRoot(startDir: string): string | undefined {
-  let current = startDir
-  const root = resolve('/')
-
-  while (current !== root) {
-    if (hasBrvConfig(current)) {
-      return current
-    }
-
-    if (isGitRoot(current)) {
-      break
-    }
-
-    const parent = dirname(current)
-    if (parent === current) break
-    current = parent
-  }
-
-  return undefined
-}
-
 export const worktreeAddSubCommand: SlashCommand = {
   action(_context, args) {
-    const cwd = resolve(process.cwd())
-
-    // Guard: cwd already has .brv/config.json
-    if (hasBrvConfig(cwd)) {
-      return {
-        content: 'Current directory already has .brv/config.json (direct project). Linking here would be shadowed. Run from a subdirectory instead.',
-        messageType: 'error' as const,
-        type: 'message' as const,
-      }
-    }
-
-    // Resolve target project root
-    let targetRoot: string
+    const cwd = resolve(resolve(process.cwd()))
     const argTrimmed = args?.trim()
+
+    let projectRoot: string
+    let worktreePath: string
+
     if (argTrimmed) {
-      targetRoot = realpathSync(resolve(argTrimmed))
-    } else {
-      // Auto-detect: walk up from cwd
-      const detected = findNearestProjectRoot(cwd)
-      if (!detected) {
+      // Mode A: from parent — /worktree add <path>
+      if (!hasBrvConfig(cwd)) {
         return {
-          content: 'No project root found. Provide a path: /worktree add /path/to/project',
+          content: "Current directory is not a ByteRover project. Run 'brv' first to initialize, or run '/worktree add' from a subdirectory.",
           messageType: 'error' as const,
           type: 'message' as const,
         }
       }
 
-      targetRoot = detected
-    }
-
-    // Validate: target has .brv/config.json
-    if (!hasBrvConfig(targetRoot)) {
-      return {
-        content: `Target "${targetRoot}" does not have .brv/config.json. Run 'brv' there first to initialize.`,
-        messageType: 'error' as const,
-        type: 'message' as const,
-      }
-    }
-
-    // Validate: cwd is a descendant of target
-    if (!isDescendantOf(cwd, targetRoot)) {
-      return {
-        content: `Current directory is not within "${targetRoot}". Workspace must be a subdirectory of the project root.`,
-        messageType: 'error' as const,
-        type: 'message' as const,
-      }
-    }
-
-    // Validate: not self-linking
-    if (cwd === targetRoot) {
-      return {
-        content: 'Current directory is already the project root. No link needed.',
-        messageType: 'info' as const,
-        type: 'message' as const,
-      }
-    }
-
-    // Idempotent: check if already linked to the same target
-    const existingLinkPath = join(cwd, WORKTREE_LINK_FILE)
-    if (existsSync(existingLinkPath)) {
-      try {
-        const content = JSON.parse(readFileSync(existingLinkPath, 'utf8'))
-        const normalized = content.projectRoot?.endsWith(sep)
-          ? content.projectRoot.slice(0, -1)
-          : content.projectRoot
-        if (normalized === targetRoot) {
-          return {
-            content: `Already linked to ${targetRoot}`,
-            messageType: 'info' as const,
-            type: 'message' as const,
-          }
+      projectRoot = cwd
+      worktreePath = resolve(resolve(argTrimmed))
+    } else {
+      // Mode B: from subdirectory — /worktree add (auto-detect parent)
+      const parent = findParentProject(cwd)
+      if (!parent) {
+        return {
+          content: 'No parent project found. Run from the project root and provide a path: /worktree add <path>',
+          messageType: 'error' as const,
+          type: 'message' as const,
         }
-      } catch {
-        // Malformed — overwrite below
       }
+
+      projectRoot = parent
+      worktreePath = cwd
     }
 
-    // Write the link file
-    try {
-      const linkContent = JSON.stringify({projectRoot: targetRoot}, null, 2) + '\n'
-      writeFileSync(existingLinkPath, linkContent, 'utf8')
+    const result = addWorktree(projectRoot, worktreePath, {force: true})
 
-      // Re-resolve so transport store and daemon pick up the new link
-      let resolution: ReturnType<typeof resolveProject> = null
-      try {
-        resolution = resolveProject()
-      } catch {
-        // Fall back to using target as project root
-      }
-
-      const store = useTransportStore.getState()
-      store.setProjectInfo(resolution?.projectRoot ?? targetRoot, resolution?.worktreeRoot ?? cwd)
-      store.client
-        ?.requestWithAck(ClientEvents.ASSOCIATE_PROJECT, {projectPath: resolution?.projectRoot ?? targetRoot})
-        .catch(() => {
-          // Best-effort: server may not be reachable
-        })
-
+    if (!result.success) {
       return {
-        content: `Linked workspace to ${targetRoot}. Run /status to verify.`,
-        messageType: 'info' as const,
-        type: 'message' as const,
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-
-      return {
-        content: `Failed to create workspace link: ${message}`,
+        content: result.message,
         messageType: 'error' as const,
         type: 'message' as const,
       }
+    }
+
+    // Re-resolve so transport store and daemon pick up the new pointer
+    let resolution: ReturnType<typeof resolveProject> = null
+    try {
+      resolution = resolveProject()
+    } catch {
+      // Fall back to using target as project root
+    }
+
+    const store = useTransportStore.getState()
+    store.setProjectInfo(resolution?.projectRoot ?? projectRoot, resolution?.worktreeRoot ?? worktreePath)
+    store.client
+      ?.requestWithAck(ClientEvents.ASSOCIATE_PROJECT, {projectPath: resolution?.projectRoot ?? projectRoot})
+      .catch(() => {
+        // Best-effort: server may not be reachable
+      })
+
+    return {
+      content: result.message + ' Run /status to verify.',
+      messageType: 'info' as const,
+      type: 'message' as const,
     }
   },
   args: [
     {
-      description: 'Path to the project root containing .brv/ (auto-detected if omitted)',
-      name: 'projectRoot',
+      description: 'Path to the directory to register as a worktree (auto-detects parent if omitted)',
+      name: 'path',
       required: false,
     },
   ],
-  description: 'Link current directory to a ByteRover project',
+  description: 'Register a directory as a worktree of a project',
   name: 'add',
 }

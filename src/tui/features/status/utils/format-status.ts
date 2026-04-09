@@ -42,10 +42,6 @@ export function formatStatus(status: StatusDTO, version?: string): string {
     lines.push(chalk.yellow(`⚠ ${status.resolverError}`))
   }
 
-  if (status.shadowedLink) {
-    lines.push(chalk.yellow('⚠ Shadowed .brv-worktree.json found — .brv/ takes priority'))
-  }
-
   if (status.teamName && status.spaceName) {
     lines.push(`Space: ${status.teamName}/${status.spaceName}`)
   } else {

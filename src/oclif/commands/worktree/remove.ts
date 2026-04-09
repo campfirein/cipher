@@ -1,27 +1,42 @@
-import {Command} from '@oclif/core'
-import {unlinkSync} from 'node:fs'
+import {Args, Command} from '@oclif/core'
+import {resolve} from 'node:path'
 
-import {findNearestWorktreeLink} from '../../../server/infra/project/resolve-project.js'
+import {isWorktreePointer, removeWorktree} from '../../../server/infra/project/resolve-project.js'
+import {resolvePath} from '../../../server/utils/path-utils.js'
 
 export default class WorktreeRemove extends Command {
-  static description = 'Remove worktree link (.brv-worktree.json) from current directory or nearest ancestor'
-  static examples = ['<%= config.bin %> <%= command.id %>']
+  static args = {
+    path: Args.string({
+      description: 'Path to the worktree to remove (defaults to cwd)',
+      required: false,
+    }),
+  }
+  static description = 'Remove a worktree registration and its .brv pointer'
+  static examples = [
+    '<%= config.bin %> <%= command.id %>  (remove cwd as worktree)',
+    '<%= config.bin %> <%= command.id %> packages/api  (remove from parent)',
+  ]
 
   async run(): Promise<void> {
-    const linkFile = findNearestWorktreeLink()
+    const {args} = await this.parse(WorktreeRemove)
+    const cwd = resolvePath(process.cwd())
 
-    if (!linkFile) {
-      this.log('No .brv-worktree.json found in current directory or any ancestor.')
+    const targetPath = args.path
+      ? resolvePath(resolve(args.path))
+      : cwd
+
+    if (!isWorktreePointer(targetPath)) {
+      this.log(`"${targetPath}" is not a worktree (no .brv pointer file found).`)
 
       return
     }
 
-    try {
-      unlinkSync(linkFile)
-      this.log(`Removed worktree link: ${linkFile}`)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      this.error(`Failed to remove worktree link: ${message}`, {exit: 1})
+    const result = removeWorktree(targetPath)
+
+    if (result.success) {
+      this.log(result.message)
+    } else {
+      this.error(result.message, {exit: 1})
     }
   }
 }

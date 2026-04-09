@@ -108,10 +108,6 @@ export default class Status extends Command {
       this.log(chalk.yellow(`⚠ ${status.resolverError}`))
     }
 
-    if (status.shadowedLink) {
-      this.log(chalk.yellow('⚠ Shadowed .brv-worktree.json found — .brv/ takes priority'))
-    }
-
     if (verbose && status.resolutionSource) {
       this.log(`Resolution: ${status.resolutionSource}`)
     }

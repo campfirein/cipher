@@ -81,7 +81,7 @@ function createBrvConfig(dir: string): void {
 }
 
 function createWorkspaceLink(dir: string, projectRoot: string): void {
-  writeFileSync(join(dir, '.brv-worktree.json'), JSON.stringify({projectRoot}, null, 2) + '\n')
+  writeFileSync(join(dir, '.brv'), JSON.stringify({projectRoot}, null, 2) + '\n')
 }
 
 // ============================================================================
@@ -180,7 +180,7 @@ describe('resolver → task-router integration', () => {
     expect(first.worktreeRoot).to.equal(workspace)
 
     // Unlink
-    unlinkSync(join(workspace, '.brv-worktree.json'))
+    unlinkSync(join(workspace, '.brv'))
 
     // Second task: walked-up (worktreeRoot falls back to projectRoot)
     await createTask({clientCwd: workspace})
@@ -234,7 +234,7 @@ describe('resolver → task-router integration', () => {
     // Even with a broken link on disk, explicit paths should work
     const workspace = join(testDir, 'workspace')
     mkdirSync(workspace, {recursive: true})
-    writeFileSync(join(workspace, '.brv-worktree.json'), 'invalid json')
+    writeFileSync(join(workspace, '.brv'), 'invalid json')
 
     await createTask({
       clientCwd: workspace,
