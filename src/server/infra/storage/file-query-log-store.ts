@@ -15,7 +15,15 @@ export class FileQueryLogStore implements IQueryLogStore {
     return null // Stub: real implementation in ENG-1889
   }
 
+  async getNextId(): Promise<string> {
+    return 'qry-stub' // Stub: real implementation in ENG-1889
+  }
+
   async list(_options?: Parameters<IQueryLogStore['list']>[0]): Promise<QueryLogEntry[]> {
     return [] // Stub: real implementation in ENG-1889
+  }
+
+  async save(_entry: QueryLogEntry): Promise<void> {
+    // Stub: real implementation in ENG-1889
   }
 }
