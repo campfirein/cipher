@@ -119,8 +119,7 @@ export default class Status extends Command {
       this.log('Knowledge Sources:')
       for (const source of status.sources) {
         if (source.valid) {
-          const sizeInfo = source.contextTreeSize === undefined ? '' : ` [${source.contextTreeSize} files]`
-          this.log(`   ${source.alias} → ${source.projectRoot} ${chalk.green('(valid)')}${sizeInfo}`)
+          this.log(`   ${source.alias} → ${source.projectRoot} ${chalk.green('(valid)')}`)
         } else {
           this.log(
             `   ${source.alias} → ${source.projectRoot} ${chalk.red(`[BROKEN - run brv source remove ${source.alias}]`)}`,

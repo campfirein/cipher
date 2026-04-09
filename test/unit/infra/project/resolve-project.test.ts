@@ -42,9 +42,10 @@ describe('resolve-project', () => {
       expect(result!.worktreeRoot).to.equal(testDir)
     })
 
-    it('should return null when flag path has no .brv/config.json', () => {
-      const result = resolveProject({cwd: testDir, projectRootFlag: testDir})
-      expect(result).to.be.null
+    it('should throw when flag path has no .brv/config.json', () => {
+      expect(() => resolveProject({cwd: testDir, projectRootFlag: testDir})).to.throw(
+        'not a ByteRover project',
+      )
     })
   })
 

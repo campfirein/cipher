@@ -15,8 +15,6 @@
  * Consumed by TransportHandlers (orchestrator).
  */
 
-import {resolve, sep} from 'node:path'
-
 import type {
   LlmChunkEvent,
   LlmErrorEvent,
@@ -44,6 +42,7 @@ import type {TaskInfo} from './types.js'
 
 import {AgentNotAvailableError, serializeTaskError} from '../../core/domain/errors/task-error.js'
 import {LlmEventNames, TransportLlmEventList, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
+import {isDescendantOf} from '../../utils/path-utils.js'
 import {transportLog} from '../../utils/process-logger.js'
 import {isValidTaskType} from '../../utils/type-guards.js'
 import {resolveProject} from '../project/resolve-project.js'
@@ -82,13 +81,6 @@ type TaskRouterOptions = {
 
 function hasTaskId(data: unknown): data is {[key: string]: unknown; taskId: string} {
   return typeof data === 'object' && data !== null && 'taskId' in data && typeof data.taskId === 'string'
-}
-
-function isDescendantOf(descendant: string, ancestor: string): boolean {
-  const normalizedDescendant = resolve(descendant)
-  const normalizedAncestor = resolve(ancestor)
-  const ancestorPrefix = normalizedAncestor.endsWith(sep) ? normalizedAncestor : normalizedAncestor + sep
-  return normalizedDescendant === normalizedAncestor || normalizedDescendant.startsWith(ancestorPrefix)
 }
 
 export class TaskRouter {

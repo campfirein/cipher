@@ -232,4 +232,30 @@ describe('worktree lifecycle (integration)', () => {
     const result = addWorktree(projectRoot, projectRoot)
     expect(result.success).to.be.false
   })
+
+  it('should assign unique registry names when sanitized paths collide', () => {
+    const projectRoot = join(testDir, 'monorepo')
+    // Two directories whose sanitized names both become "packages-api"
+    const worktreeA = join(testDir, 'packages-api')
+    const worktreeB = join(projectRoot, 'packages', 'api') // relative: packages/api → packages-api
+    mkdirSync(projectRoot, {recursive: true})
+    mkdirSync(worktreeA, {recursive: true})
+    mkdirSync(worktreeB, {recursive: true})
+    createBrvConfig(projectRoot)
+
+    const resultA = addWorktree(projectRoot, worktreeA)
+    expect(resultA.success).to.be.true
+
+    const resultB = addWorktree(projectRoot, worktreeB)
+    expect(resultB.success).to.be.true
+
+    const worktrees = listWorktrees(projectRoot)
+    expect(worktrees).to.have.length(2)
+
+    // Names must be distinct
+    const names = worktrees.map((w) => w.name)
+    expect(new Set(names).size).to.equal(2)
+    expect(names).to.include('packages-api')
+    expect(names).to.include('packages-api-2')
+  })
 })

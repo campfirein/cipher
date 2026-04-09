@@ -23,15 +23,15 @@ export const worktreeListSubCommand: SlashCommand = {
 
       return {
         content: lines.join('\n'),
-        messageType: 'info' as const,
-        type: 'message' as const,
+        messageType: 'error',
+        type: 'message',
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       return {
         content: `Worktree list failed: ${message}`,
-        messageType: 'error' as const,
-        type: 'message' as const,
+        messageType: 'error',
+        type: 'message',
       }
     }
   },

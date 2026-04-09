@@ -35,9 +35,16 @@ export class WorktreeHandler {
         try {
           projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
         } catch {
-          // Client not associated — try auto-detect from worktreePath
-          projectPath = findParentProject(data.worktreePath)
-          if (!projectPath) {
+          // Client not associated — fall through to auto-detect
+        }
+
+        // Auto-detect: if no project resolved, or client's project IS the worktree path
+        // (user ran `brv worktree add` from a child dir with no args), walk up to find parent
+        if (!projectPath || projectPath === data.worktreePath) {
+          const parent = findParentProject(data.worktreePath)
+          if (parent) {
+            projectPath = parent
+          } else if (!projectPath) {
             return {message: 'No parent project found for the target directory.', success: false}
           }
         }
@@ -54,7 +61,7 @@ export class WorktreeHandler {
     this.transport.onRequest<WorktreeRemoveRequest, WorktreeRemoveResponse>(
       WorktreeEvents.REMOVE,
       async (data) => {
-        const targetPath = data?.worktreePath ?? process.cwd()
+        const targetPath = data.worktreePath
         const result = removeWorktree(targetPath)
         return {
           message: result.message,

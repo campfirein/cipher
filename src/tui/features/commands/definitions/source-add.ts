@@ -19,8 +19,8 @@ export const sourceAddSubCommand: SlashCommand = {
     if (!targetArg) {
       return {
         content: 'Usage: /source add <path-to-project> [--alias <name>]',
-        messageType: 'error' as const,
-        type: 'message' as const,
+        messageType: 'error',
+        type: 'message',
       }
     }
 
@@ -31,15 +31,15 @@ export const sourceAddSubCommand: SlashCommand = {
 
       return {
         content: result.message,
-        messageType: result.success ? ('info' as const) : ('error' as const),
-        type: 'message' as const,
+        messageType: 'error',
+        type: 'message',
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       return {
         content: `Source add failed: ${message}`,
-        messageType: 'error' as const,
-        type: 'message' as const,
+        messageType: 'error',
+        type: 'message',
       }
     }
   },

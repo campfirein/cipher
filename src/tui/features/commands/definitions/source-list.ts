@@ -12,24 +12,23 @@ export const sourceListSubCommand: SlashCommand = {
       if (result.error) {
         return {
           content: result.error,
-          messageType: 'error' as const,
-          type: 'message' as const,
+          messageType: 'error',
+          type: 'message',
         }
       }
 
       if (result.statuses.length === 0) {
         return {
           content: 'No knowledge sources configured.',
-          messageType: 'info' as const,
-          type: 'message' as const,
+          messageType: 'error',
+          type: 'message',
         }
       }
 
       const lines: string[] = ['Knowledge Sources:']
       for (const source of result.statuses) {
         if (source.valid) {
-          const sizeInfo = source.contextTreeSize === undefined ? '' : ` [${source.contextTreeSize} files]`
-          lines.push(`   ${source.alias} → ${source.projectRoot} ${chalk.green('(valid)')}${sizeInfo}`)
+          lines.push(`   ${source.alias} → ${source.projectRoot} ${chalk.green('(valid)')}`)
         } else {
           lines.push(
             `   ${source.alias} → ${source.projectRoot} ${chalk.red(`[BROKEN - run /source remove ${source.alias}]`)}`,
@@ -39,15 +38,15 @@ export const sourceListSubCommand: SlashCommand = {
 
       return {
         content: lines.join('\n'),
-        messageType: 'info' as const,
-        type: 'message' as const,
+        messageType: 'error',
+        type: 'message',
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       return {
         content: `Source list failed: ${message}`,
-        messageType: 'error' as const,
-        type: 'message' as const,
+        messageType: 'error',
+        type: 'message',
       }
     }
   },

@@ -16,7 +16,7 @@ export interface WorktreeAddResponse {
 }
 
 export interface WorktreeRemoveRequest {
-  worktreePath?: string
+  worktreePath: string
 }
 
 export interface WorktreeRemoveResponse {

@@ -8,8 +8,8 @@ export const sourceRemoveSubCommand: SlashCommand = {
     if (!argTrimmed) {
       return {
         content: 'Usage: /source remove <alias-or-path>',
-        messageType: 'error' as const,
-        type: 'message' as const,
+        messageType: 'error',
+        type: 'message',
       }
     }
 
@@ -18,15 +18,15 @@ export const sourceRemoveSubCommand: SlashCommand = {
 
       return {
         content: result.message,
-        messageType: result.success ? ('info' as const) : ('error' as const),
-        type: 'message' as const,
+        messageType: 'error',
+        type: 'message',
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       return {
         content: `Source remove failed: ${message}`,
-        messageType: 'error' as const,
-        type: 'message' as const,
+        messageType: 'error',
+        type: 'message',
       }
     }
   },

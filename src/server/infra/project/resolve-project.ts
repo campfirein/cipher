@@ -79,15 +79,6 @@ export function isGitRoot(dir: string): boolean {
 }
 
 /**
- * Checks that candidate is an ancestor of (or equal to) descendant.
- * Both paths must be absolute.
- */
-export function isDescendantOf(descendant: string, ancestor: string): boolean {
-  const normalizedAncestor = ancestor.endsWith(sep) ? ancestor : ancestor + sep
-  return descendant === ancestor || descendant.startsWith(normalizedAncestor)
-}
-
-/**
  * Checks if .brv in the given directory is a FILE (pointer), not a directory.
  */
 export function isWorktreePointer(dir: string): boolean {
@@ -162,11 +153,13 @@ export interface ResolveProjectOptions {
 export function resolveProject(options?: ResolveProjectOptions): null | ProjectResolution {
   const cwd = options?.cwd ?? process.cwd()
 
-  // Step 1: Explicit --project-root flag
+  // Step 1: Explicit --project-root flag — fail loudly if invalid
   if (options?.projectRootFlag) {
     const flagRoot = resolve(options.projectRootFlag)
     if (!hasBrvConfig(flagRoot)) {
-      return null
+      throw new Error(
+        `--project-root "${flagRoot}" is not a ByteRover project (no ${BRV_DIR}/${PROJECT_CONFIG_FILE}).`,
+      )
     }
 
     const canonical = resolvePath(flagRoot)
@@ -272,13 +265,40 @@ function resolveAtDir(dir: string): null | ProjectResolution | undefined {
 
 /**
  * Sanitize a path into a safe directory name for the worktrees registry.
- * Replaces path separators and special chars with dashes.
+ * Replaces path separators and special chars with dashes, then appends
+ * a numeric suffix if the name already exists in .brv/worktrees/.
  */
 function sanitizeWorktreeName(worktreePath: string, projectRoot: string): string {
   // Try to use relative path for readability, fall back to basename
-  const name = worktreePath.startsWith(projectRoot + sep) || worktreePath.startsWith(projectRoot + '/') ? worktreePath.slice(projectRoot.length + 1) : basename(worktreePath);
+  const name = worktreePath.startsWith(projectRoot + sep) || worktreePath.startsWith(projectRoot + '/') ? worktreePath.slice(projectRoot.length + 1) : basename(worktreePath)
 
-  return name.replaceAll(/[/\\]/g, '-').replaceAll(/[^a-zA-Z0-9._-]/g, '-')
+  const baseName = name.replaceAll(/[/\\]/g, '-').replaceAll(/[^a-zA-Z0-9._-]/g, '-')
+
+  // Check for collisions in existing registry entries
+  const worktreesDir = join(projectRoot, BRV_DIR, WORKTREES_DIR)
+  if (!existsSync(worktreesDir)) {
+    return baseName
+  }
+
+  const existing = new Set<string>()
+  try {
+    for (const entry of readdirSync(worktreesDir)) {
+      existing.add(entry)
+    }
+  } catch {
+    return baseName
+  }
+
+  if (!existing.has(baseName)) {
+    return baseName
+  }
+
+  let counter = 2
+  while (existing.has(`${baseName}-${counter}`)) {
+    counter++
+  }
+
+  return `${baseName}-${counter}`
 }
 
 export interface AddWorktreeResult {

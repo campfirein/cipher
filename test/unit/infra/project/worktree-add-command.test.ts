@@ -19,10 +19,10 @@ import {
   addWorktree,
   findParentProject,
   hasBrvConfig,
-  isDescendantOf,
   isGitRoot,
   isWorktreePointer,
 } from '../../../../src/server/infra/project/resolve-project.js'
+import {isDescendantOf} from '../../../../src/server/utils/path-utils.js'
 
 function createBrvConfig(dir: string): void {
   const brvDir = join(dir, BRV_DIR)

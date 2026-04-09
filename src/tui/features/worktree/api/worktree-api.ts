@@ -16,7 +16,7 @@ export const addWorktreeViaTransport = (worktreePath: string, force?: boolean): 
   return apiClient.request<WorktreeAddResponse>(WorktreeEvents.ADD, request)
 }
 
-export const removeWorktreeViaTransport = (worktreePath?: string): Promise<WorktreeRemoveResponse> => {
+export const removeWorktreeViaTransport = (worktreePath: string): Promise<WorktreeRemoveResponse> => {
   const {apiClient} = useTransportStore.getState()
   if (!apiClient) return Promise.reject(new Error('Not connected'))
 

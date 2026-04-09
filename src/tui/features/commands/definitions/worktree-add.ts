@@ -17,15 +17,15 @@ export const worktreeAddSubCommand: SlashCommand = {
 
       return {
         content: result.success ? result.message + ' Run /status to verify.' : result.message,
-        messageType: result.success ? ('info' as const) : ('error' as const),
-        type: 'message' as const,
+        messageType: 'error',
+        type: 'message',
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       return {
         content: `Worktree add failed: ${message}`,
-        messageType: 'error' as const,
-        type: 'message' as const,
+        messageType: 'error',
+        type: 'message',
       }
     }
   },
