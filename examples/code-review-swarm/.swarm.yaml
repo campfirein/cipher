@@ -1,0 +1,51 @@
+schema: byterover-swarm/v1
+
+agents:
+  analyzer:
+    adapter:
+      type: claude_code
+      config:
+        model: claude-sonnet-4-20250514
+    cwd: ./src
+    timeoutSec: 120
+    budgetMaxCostUsd: 0.50
+
+  researcher:
+    adapter:
+      type: claude_code
+      config:
+        model: claude-sonnet-4-20250514
+    timeoutSec: 90
+    budgetMaxCostUsd: 0.30
+
+  synthesizer:
+    adapter:
+      type: claude_code
+      config:
+        model: claude-sonnet-4-20250514
+    timeoutSec: 120
+    budgetMaxCostUsd: 0.40
+    output: true
+
+# Fixed edges: analyzer and researcher both feed into synthesizer
+edges:
+  - from: analyzer
+    to: synthesizer
+  - from: researcher
+    to: synthesizer
+
+# Potential edge: optimizer can decide if analyzer should feed researcher
+potential_edges:
+  - from: analyzer
+    to: researcher
+
+optimization:
+  edge:
+    enabled: true
+    lr: 0.1
+    initialProbability: 0.5
+    batchSize: 4
+  node:
+    enabled: true
+    historyWindow: 4
+  evaluator: llm_judge

@@ -1,0 +1,23 @@
+schema: byterover-swarm/v1
+
+agents:
+  a:
+    adapter:
+      type: claude_code
+      config:
+        command: echo
+    timeoutSec: 60
+
+  b:
+    adapter:
+      type: claude_code
+      config:
+        command: echo
+    timeoutSec: 60
+    output: true
+
+edges:
+  - from: a
+    to: b
+  - from: b
+    to: a
