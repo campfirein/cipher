@@ -163,6 +163,9 @@
       },
       "space": {
         "description": "Manage ByteRover spaces"
+      },
+      "swarm": {
+        "description": "Multi-agent swarm orchestration"
       }
     },
     "update": {

@@ -1,0 +1,26 @@
+schema: byterover-swarm/v1
+
+agents:
+  analyzer:
+    adapter:
+      type: claude_code
+      config:
+        model: claude-sonnet-4-20250514
+    timeoutSec: 120
+    budgetMaxCostUsd: 0.50
+
+  synthesizer:
+    adapter:
+      type: claude_code
+      config:
+        model: claude-sonnet-4-20250514
+    timeoutSec: 120
+    output: true
+
+edges:
+  - from: analyzer
+    to: synthesizer
+
+potential_edges:
+  - from: synthesizer
+    to: analyzer
