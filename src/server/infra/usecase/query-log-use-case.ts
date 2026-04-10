@@ -80,7 +80,7 @@ export class QueryLogUseCase implements IQueryLogUseCase {
 
     this.log(`ID:       ${entry.id}`)
     this.log(`Status:   ${entry.status}`)
-    this.log(`Tier:     ${entry.tier} (${QUERY_LOG_TIER_LABELS[entry.tier]})`)
+    this.log(`Tier:     ${entry.tier === undefined ? '—' : `${entry.tier} (${QUERY_LOG_TIER_LABELS[entry.tier]})`}`)
     this.log(`Started:  ${formatTimestamp(entry.startedAt)}`)
 
     if (entry.status !== 'processing') {
@@ -94,7 +94,7 @@ export class QueryLogUseCase implements IQueryLogUseCase {
     this.log()
     this.log(`Query: ${entry.query}`)
 
-    if (entry.status === 'completed' && entry.matchedDocs.length > 0) {
+    if (entry.matchedDocs.length > 0) {
       this.log()
       this.log('Matched Documents:')
       for (const doc of entry.matchedDocs) {
@@ -102,10 +102,10 @@ export class QueryLogUseCase implements IQueryLogUseCase {
       }
     }
 
-    if (entry.status === 'completed') {
+    if (entry.searchMetadata) {
       this.log()
       this.log('Search Metadata:')
-      this.log(`  Results: ${entry.searchMetadata.resultsFound} of ${entry.searchMetadata.totalResults} found`)
+      this.log(`  Results: ${entry.searchMetadata.resultCount} of ${entry.searchMetadata.totalFound} found`)
       this.log(`  Top Score: ${entry.searchMetadata.topScore}`)
       if (entry.searchMetadata.cacheFingerprint) {
         this.log(`  Cache Fingerprint: ${entry.searchMetadata.cacheFingerprint}`)
@@ -168,7 +168,7 @@ export class QueryLogUseCase implements IQueryLogUseCase {
 
     for (const entry of entries) {
       const duration = formatEntryDuration(entry)
-      const tierBadge = `T${entry.tier}`
+      const tierBadge = entry.tier === undefined ? '—' : `T${entry.tier}`
       const query = truncate(entry.query, queryWidth)
       const row = [
         entry.id.padEnd(idWidth),
@@ -179,7 +179,7 @@ export class QueryLogUseCase implements IQueryLogUseCase {
       ].join('  ')
       this.log(row)
 
-      if (detail && entry.status === 'completed' && entry.matchedDocs.length > 0) {
+      if (detail && entry.matchedDocs.length > 0) {
         for (const doc of entry.matchedDocs) {
           this.log(`  [${doc.score.toFixed(2)}] ${doc.path}`)
         }
