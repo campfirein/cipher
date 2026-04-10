@@ -24,8 +24,12 @@ export function buildSwarmGraph(loaded: LoadedSwarm): {
 
   // Wire fixed edges
   for (const edge of runtimeConfig.edges) {
-    const from = graph.nodes.get(edge.from)!
-    const to = graph.nodes.get(edge.to)!
+    const from = graph.nodes.get(edge.from)
+    const to = graph.nodes.get(edge.to)
+    if (!from || !to) {
+      throw new Error(`Internal: node missing for edge ${edge.from} -> ${edge.to}`)
+    }
+
     from.addSuccessor(to)
   }
 

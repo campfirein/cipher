@@ -42,11 +42,11 @@ export default class SwarmOnboard extends Command {
       throw error
     }
 
-    const prompts: WizardPrompts & {cleanup?: () => void} = {
+    const prompts: WizardPrompts = {
       async checkbox(message, choices) {
         return checkbox({choices: choices.map((c) => ({name: c.name, value: c.value})), message, theme: wizardSelectTheme}, {signal: esc.signal}).catch(resetOnCancel)
       },
-      cleanup: () => esc.cleanup(),
+      cleanup() { esc.cleanup() },
       async confirm(message) {
         return confirm({message}, {signal: esc.signal}).catch(resetOnCancel)
       },
@@ -87,11 +87,11 @@ export default class SwarmOnboard extends Command {
 
     // Run wizard
     const prompts = this.createWizardPrompts()
-    const result = await runWizard(prompts)
-
-    // Cleanup esc listener
-    if ('cleanup' in prompts && typeof prompts.cleanup === 'function') {
-      ;(prompts as {cleanup: () => void}).cleanup()
+    let result: Awaited<ReturnType<typeof runWizard>>
+    try {
+      result = await runWizard(prompts)
+    } finally {
+      prompts.cleanup?.()
     }
 
     if (!result) {

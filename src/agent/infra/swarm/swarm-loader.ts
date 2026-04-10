@@ -82,6 +82,7 @@ const defaultFileReader: SwarmFileReader = {
       return false
     }
   },
+  // Only supports "**/<suffix>" patterns; full glob not implemented.
   async glob(dir: string, pattern: string) {
     const suffix = pattern.replace('**/', '')
     const entries = await fs.readdir(dir, {recursive: true})
@@ -151,7 +152,11 @@ export class SwarmLoader {
     const normalizedIncludes = this.validateIncludes(frontmatter.includes, sourceDir)
 
     const yamlContent = await this.reader.readFile(yamlPath)
-    const rawYaml = yamlLoad(yamlContent) as Record<string, unknown>
+    const rawYaml = yamlLoad(yamlContent)
+    if (!rawYaml || typeof rawYaml !== 'object' || Array.isArray(rawYaml)) {
+      throw new Error('.swarm.yaml must be a YAML object (got empty or non-object content)')
+    }
+
     const parsed = SwarmRuntimeConfigSchema.parse(rawYaml)
     const runtimeConfig: SwarmRuntimeConfig = {
       agents: parsed.agents,

@@ -18,7 +18,7 @@ export class EdgeDistribution {
 
   constructor(props: {initialProbability?: number; potentialConnections: Array<[string, string]>}) {
     this.potentialConnections = props.potentialConnections
-    const p = props.initialProbability ?? 0.5
+    const p = Math.max(1e-7, Math.min(1 - 1e-7, props.initialProbability ?? 0.5))
     const initLogit = Math.log(p / (1 - p))
     this.edgeLogits = new Float64Array(props.potentialConnections.length)
     this.edgeLogits.fill(initLogit)

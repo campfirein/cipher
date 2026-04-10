@@ -7,6 +7,7 @@ import {KNOWN_ADAPTER_TYPES} from './types.js'
 
 export type WizardPrompts = {
   checkbox(message: string, choices: Array<{name: string; value: string}>): Promise<string[]>
+  cleanup?(): void
   confirm(message: string): Promise<boolean>
   input(message: string, opts?: {default?: string; validate?: (v: string) => boolean | string}): Promise<string>
   select(message: string, choices: Array<{name: string; value: string}>): Promise<string>
@@ -75,10 +76,12 @@ async function stepAgents(prompts: WizardPrompts, state: WizardState): Promise<v
     const description = await prompts.input('Description', {
       validate(v) { return v.trim().length > 0 || 'Description is required' },
     })
-    const adapterType = await prompts.select(
+    const rawAdapter = await prompts.select(
       'Adapter type',
       KNOWN_ADAPTER_TYPES.map((t) => ({name: t, value: t})),
-    ) as AdapterType
+    )
+    const adapterType = KNOWN_ADAPTER_TYPES.find((t) => t === rawAdapter)
+    if (!adapterType) throw new Error(`Unknown adapter type: ${rawAdapter}`)
 
     agents.push({adapterType, description, name, slug})
 

@@ -43,6 +43,7 @@ export function scaffoldSwarm(input: ScaffoldInput): Record<string, string> {
       description: agent.description,
       name: agent.name,
       role: agent.role ?? 'worker',
+      skills: [] as string[],
       slug: agent.slug,
     }
     const agentYaml = yamlDump(agentFrontmatter, {lineWidth: -1, sortKeys: true}).trimEnd()
