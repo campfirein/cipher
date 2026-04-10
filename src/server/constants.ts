@@ -89,6 +89,10 @@ export const AGENT_PROCESS_STOP_TIMEOUT_MS = 5000 // 5s max wait for child proce
 export const CURATE_LOG_DIR = 'curate-log'
 export const CURATE_LOG_ID_PREFIX = 'cur'
 
+// Query log
+export const QUERY_LOG_DIR = 'query-log'
+export const QUERY_LOG_ID_PREFIX = 'qry'
+
 // Review backups (stores pre-curate file content for local HITL review diffs)
 export const REVIEW_BACKUPS_DIR = 'review-backups'
 // === Hierarchical DAG (summary, archive, manifest) ===
