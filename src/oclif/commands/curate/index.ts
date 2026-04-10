@@ -18,7 +18,7 @@ import {
   withDaemonRetry,
 } from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
-import {type ToolCallRecord, waitForTaskCompletion} from '../../lib/task-client.js'
+import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS, type ToolCallRecord, waitForTaskCompletion} from '../../lib/task-client.js'
 
 /** Parsed flags type */
 type CurateFlags = {
@@ -88,10 +88,10 @@ Bad examples:
       options: ['text', 'json'],
     }),
     timeout: Flags.integer({
-      default: 300,
+      default: DEFAULT_TIMEOUT_SECONDS,
       description: 'Maximum seconds to wait for task completion',
-      max: 3600,
-      min: 10,
+      max: MAX_TIMEOUT_SECONDS,
+      min: MIN_TIMEOUT_SECONDS,
     }),
   }
 
@@ -310,7 +310,7 @@ Bad examples:
     }
 
     if (flags.detach) {
-      if (flags.timeout !== 300 && format !== 'json') {
+      if (flags.timeout !== DEFAULT_TIMEOUT_SECONDS && format !== 'json') {
         this.log('Note: --timeout has no effect with --detach')
       }
 
@@ -381,7 +381,7 @@ Bad examples:
             }
           },
           taskId,
-          timeoutMs: (flags.timeout ?? 300) * 1000,
+          timeoutMs: (flags.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
         },
         (msg) => this.log(msg),
       )
