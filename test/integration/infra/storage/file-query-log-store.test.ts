@@ -60,7 +60,7 @@ describe('FileQueryLogStore', () => {
   afterEach(async () => {
     // Allow async fire-and-forget writes (resolveStale, prune) to settle
     await new Promise((resolve) => {
-      setTimeout(resolve, 50)
+      setTimeout(resolve, 100)
     })
 
     await rm(tempDir, {force: true, recursive: true})
@@ -321,7 +321,7 @@ describe('FileQueryLogStore', () => {
       const ids = await saveEntries(storeWithLimit, 5)
 
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 100)
       })
 
       const newest = ids.slice(2)
@@ -343,7 +343,10 @@ describe('FileQueryLogStore', () => {
     it('should delete entries older than maxAgeDays', async () => {
       const storeWithAge = new FileQueryLogStore({baseDir: tempDir, maxAgeDays: 7})
 
-      // Use IDs with old timestamps to match age-based pruning (which checks filename timestamp)
+      // IDs are constructed directly (not via getNextId) to control filename timestamps.
+      // Age-based pruning extracts the timestamp from the filename (qry-{ts}.json),
+      // not from entry.startedAt. Bypassing getNextId is intentional here — it's the only
+      // way to test pruning of "old" entries without waiting actual days.
       const oldTs = Date.now() - 10 * 86_400_000
       const recentTs = Date.now() - 1 * 86_400_000
       const idOld = `qry-${oldTs}`
@@ -353,7 +356,7 @@ describe('FileQueryLogStore', () => {
       await storeWithAge.save(makeEntry({id: idRecent, startedAt: recentTs}))
 
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 100)
       })
 
       expect(await storeWithAge.getById(idOld)).to.be.null
@@ -364,12 +367,17 @@ describe('FileQueryLogStore', () => {
     it('should apply count limit after age-based pruning', async () => {
       const storeWithBoth = new FileQueryLogStore({baseDir: tempDir, maxAgeDays: 30, maxEntries: 2})
       const now = Date.now()
+      // Note: count-based pruning is FILENAME-order, not startedAt-order.
+      // ids[0] is generated first → smallest filename timestamp → pruned first.
+      // The startedAt overrides are not used by the pruning logic; they only affect entry data.
+      // All 4 entries are within 30 days, so age pruning is a no-op; count pruning keeps newest 2 by filename.
       const ids = await saveEntries(storeWithBoth, 4, (i) => ({startedAt: now - i * 1000}))
 
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 100)
       })
 
+      // Oldest 2 by filename (ids[0], ids[1]) are pruned; newest 2 by filename (ids[2], ids[3]) kept.
       expect(await storeWithBoth.getById(ids[0])).to.be.null
       expect(await storeWithBoth.getById(ids[1])).to.be.null
       expect(await storeWithBoth.getById(ids[2])).to.not.be.null
@@ -385,7 +393,7 @@ describe('FileQueryLogStore', () => {
       await storeNoAge.save(makeEntry({id: idOld, startedAt: oldTs}))
 
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 100)
       })
 
       expect(await storeNoAge.getById(idOld)).to.not.be.null
@@ -412,7 +420,7 @@ describe('FileQueryLogStore', () => {
 
       // Verify on-disk persistence: fresh store instance should read the recovered entry
       await new Promise((resolve) => {
-        setTimeout(resolve, 50)
+        setTimeout(resolve, 100)
       })
       const freshStore = new FileQueryLogStore({baseDir: tempDir})
       const persisted = await freshStore.getById(id)

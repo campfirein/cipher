@@ -7,6 +7,7 @@ import type {QueryLogEntry} from '../../core/domain/entities/query-log-entry.js'
 import type {IQueryLogStore, QueryLogStatus, QueryLogTier} from '../../core/interfaces/storage/i-query-log-store.js'
 
 import {QUERY_LOG_DIR, QUERY_LOG_ID_PREFIX} from '../../constants.js'
+import {QUERY_LOG_TIERS} from '../../core/domain/entities/query-log-entry.js'
 
 const QueryLogMatchedDocFileSchema = z.object({
   path: z.string(),
@@ -25,7 +26,13 @@ const QueryLogTimingFileSchema = z.object({
   durationMs: z.number(),
 })
 
-const QueryLogTierSchema = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+// Single source of truth: tier validation is derived from QUERY_LOG_TIERS at runtime.
+// Adding/removing a tier in the entity automatically updates schema validation.
+const QUERY_LOG_TIER_SET: ReadonlySet<unknown> = new Set<unknown>(QUERY_LOG_TIERS)
+const QueryLogTierSchema = z.custom<QueryLogTier>(
+  (val) => QUERY_LOG_TIER_SET.has(val),
+  {message: 'Invalid query log tier'},
+)
 
 const QueryLogEntryBaseSchema = z.object({
   id: z.string(),
@@ -82,6 +89,7 @@ export class FileQueryLogStore implements IQueryLogStore {
   private readonly logDir: string
   private readonly maxAgeDays: number
   private readonly maxEntries: number
+  private pruneInFlight = false
 
   constructor(opts: FileQueryLogStoreOptions) {
     this.logDir = join(opts.baseDir, QUERY_LOG_DIR)
@@ -111,6 +119,11 @@ export class FileQueryLogStore implements IQueryLogStore {
   /**
    * Generate the next monotonic log entry ID in the format `qry-{timestamp_ms}`.
    * Guaranteed to increase even if called multiple times in the same millisecond.
+   *
+   * Note: monotonicity is instance-local. A new instance resets `lastTimestamp` to 0
+   * and relies on wall-clock time. Two instances pointing at the same baseDir could
+   * theoretically collide in the same millisecond, but this is practically impossible
+   * given the sequential task queue (max concurrency = 1 per project).
    */
   async getNextId(): Promise<string> {
     const now = Date.now()
@@ -120,7 +133,9 @@ export class FileQueryLogStore implements IQueryLogStore {
 
   /**
    * List entries sorted newest-first (by timestamp embedded in filename).
-   * Filters (status, tier, after, before) are applied before limit. Skips corrupt entries silently.
+   * Filters (status, tier, after, before) are applied before limit.
+   * Reads stop early once `limit` matches are found, so filtered queries with small limits
+   * are O(matches) rather than O(total entries). Skips corrupt entries silently.
    */
   async list({
     after,
@@ -138,44 +153,32 @@ export class FileQueryLogStore implements IQueryLogStore {
         .filter((e) => e.isFile() && e.name.endsWith('.json') && ID_PATTERN.test(e.name.slice(0, -5)))
         .map((e) => e.name)
         .sort()
-        .reverse() // newest-first
+        .reverse() // newest-first (lexicographic descending)
     } catch {
       return []
     }
 
-    const hasFilters = Boolean(status?.length || tier?.length || after !== undefined || before !== undefined)
-    const filesToRead = hasFilters ? files : files.slice(0, limit ?? files.length)
+    // Sequential read with early termination once limit matches are found.
+    // Avoids scanning all files for queries like list({status: ['error'], limit: 1}).
+    const results: QueryLogEntry[] = []
+    const targetCount = limit ?? Number.POSITIVE_INFINITY
+    for (const filename of files) {
+      if (results.length >= targetCount) break
 
-    const allEntries: QueryLogEntry[] = []
-    await Promise.all(
-      filesToRead.map(async (filename) => {
-        const id = filename.slice(0, -5)
-        const entry = await this.getById(id)
-        if (entry) allEntries.push(entry)
-      }),
-    )
+      const id = filename.slice(0, -5)
+      // eslint-disable-next-line no-await-in-loop -- early termination requires sequential reads
+      const entry = await this.getById(id)
+      if (!entry) continue
 
-    // Re-sort (Promise.all may reorder due to concurrent reads)
-    allEntries.sort((a, b) => b.startedAt - a.startedAt)
+      if (status?.length && !status.includes(entry.status)) continue
+      if (tier?.length && (entry.tier === undefined || !tier.includes(entry.tier))) continue
+      if (after !== undefined && entry.startedAt < after) continue
+      if (before !== undefined && entry.startedAt > before) continue
 
-    let results = allEntries
-    if (status?.length) {
-      results = results.filter((e) => status.includes(e.status))
+      results.push(entry)
     }
 
-    if (tier?.length) {
-      results = results.filter((e) => e.tier !== undefined && tier.includes(e.tier))
-    }
-
-    if (after !== undefined) {
-      results = results.filter((e) => e.startedAt >= after)
-    }
-
-    if (before !== undefined) {
-      results = results.filter((e) => e.startedAt <= before)
-    }
-
-    return limit === undefined ? results : results.slice(0, limit)
+    return results
   }
 
   /**
@@ -184,22 +187,26 @@ export class FileQueryLogStore implements IQueryLogStore {
    */
   async save(entry: QueryLogEntry): Promise<void> {
     await mkdir(this.logDir, {recursive: true})
-    const filePath = this.entryPath(entry.id)
-    const tmpPath = `${filePath}.${randomUUID()}.tmp`
-
-    try {
-      await writeFile(tmpPath, JSON.stringify(entry, null, 2), 'utf8')
-      await rename(tmpPath, filePath)
-    } catch (error) {
-      await rm(tmpPath, {force: true}).catch(() => {})
-      throw error
-    }
-
-    this.pruneOldest().catch(() => {})
+    await this.writeAtomic(this.entryPath(entry.id), JSON.stringify(entry, null, 2))
+    this.firePrune()
   }
 
   private entryPath(id: string): string {
     return join(this.logDir, `${id}.json`)
+  }
+
+  /**
+   * Schedule a prune pass without blocking the caller.
+   * Deduplicates concurrent calls — only one prune runs at a time.
+   */
+  private firePrune(): void {
+    if (this.pruneInFlight) return
+    this.pruneInFlight = true
+    this.pruneOldest()
+      .catch(() => {})
+      .finally(() => {
+        this.pruneInFlight = false
+      })
   }
 
   private async pruneOldest(): Promise<void> {
@@ -243,6 +250,9 @@ export class FileQueryLogStore implements IQueryLogStore {
    * If a "processing" entry is older than STALE_PROCESSING_THRESHOLD_MS, the daemon
    * was killed before it could finalize it. Rewrite it as "error" on disk (best-effort)
    * and return the corrected entry so the display shows "interrupted" instead of processing.
+   *
+   * Uses writeAtomic directly (not save) to skip the prune cascade — list() with N stale
+   * entries would otherwise trigger N concurrent prune passes.
    */
   private async resolveStale(entry: QueryLogEntry): Promise<QueryLogEntry> {
     if (entry.status !== 'processing') return entry
@@ -255,7 +265,22 @@ export class FileQueryLogStore implements IQueryLogStore {
       status: 'error',
     }
 
-    this.save(recovered).catch(() => {})
+    this.writeAtomic(this.entryPath(recovered.id), JSON.stringify(recovered, null, 2)).catch(() => {})
     return recovered
+  }
+
+  /**
+   * Atomic write: write to a tmp file with random UUID suffix, then rename.
+   * On failure, cleans up the tmp file and re-throws the original error.
+   */
+  private async writeAtomic(filePath: string, content: string): Promise<void> {
+    const tmpPath = `${filePath}.${randomUUID()}.tmp`
+    try {
+      await writeFile(tmpPath, content, 'utf8')
+      await rename(tmpPath, filePath)
+    } catch (error) {
+      await rm(tmpPath, {force: true}).catch(() => {})
+      throw error
+    }
   }
 }
