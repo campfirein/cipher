@@ -1,5 +1,5 @@
 import {realpathSync} from 'node:fs'
-import {resolve} from 'node:path'
+import {basename, dirname, join, resolve} from 'node:path'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../server/constants.js'
 import {loadSources} from '../../../server/core/domain/source/source-schema.js'
@@ -8,7 +8,13 @@ const canonicalize = (path: string): string => {
   try {
     return realpathSync(resolve(path))
   } catch {
-    return resolve(path)
+    // For non-existent files, try canonicalizing the parent
+    try {
+      const parent = dirname(resolve(path))
+      return join(realpathSync(parent), basename(path))
+    } catch {
+      return resolve(path)
+    }
   }
 }
 
