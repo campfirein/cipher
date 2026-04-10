@@ -310,7 +310,7 @@ Bad examples:
     }
 
     if (flags.detach) {
-      if (flags.timeout !== 300) {
+      if (flags.timeout !== 300 && format !== 'json') {
         this.log('Note: --timeout has no effect with --detach')
       }
 
