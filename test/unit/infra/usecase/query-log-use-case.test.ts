@@ -18,9 +18,11 @@ type CancelledEntry = Extract<QueryLogEntry, {status: 'cancelled'}>
 function makeProcessingEntry(overrides: Partial<ProcessingEntry> = {}): ProcessingEntry {
   return {
     id: 'qry-1712345678901',
+    matchedDocs: [],
     query: 'How is auth implemented?',
     startedAt: 1_712_345_678_901,
     status: 'processing',
+    taskId: 'task-1',
     tier: 0,
     ...overrides,
   }
@@ -31,19 +33,20 @@ function makeCompletedEntry(overrides: Partial<CompletedEntry> = {}): CompletedE
     completedAt: 1_712_345_678_913,
     id: 'qry-1712345678901',
     matchedDocs: [
-      {path: 'authentication/oauth_flow.md', score: 0.92},
-      {path: 'authentication/token_storage.md', score: 0.87},
+      {path: 'authentication/oauth_flow.md', score: 0.92, title: 'OAuth Flow'},
+      {path: 'authentication/token_storage.md', score: 0.87, title: 'Token Storage'},
     ],
     query: 'How is user authentication implemented?',
     response: 'Based on the curated knowledge, authentication uses OAuth2 with JWT tokens.',
     searchMetadata: {
       cacheFingerprint: 'a1b2c3d4e5f6g7h8',
-      resultsFound: 2,
+      resultCount: 2,
       topScore: 0.92,
-      totalResults: 5,
+      totalFound: 5,
     },
     startedAt: 1_712_345_678_901,
     status: 'completed',
+    taskId: 'task-2',
     tier: 0,
     ...overrides,
   }
@@ -54,9 +57,11 @@ function makeErrorEntry(overrides: Partial<ErrorEntry> = {}): ErrorEntry {
     completedAt: 1_712_345_679_000,
     error: 'Search index unavailable',
     id: 'qry-1712345678700',
+    matchedDocs: [],
     query: 'show me the deployment flow',
     startedAt: 1_712_345_678_700,
     status: 'error',
+    taskId: 'task-3',
     tier: 2,
     ...overrides,
   }
@@ -66,9 +71,11 @@ function makeCancelledEntry(overrides: Partial<CancelledEntry> = {}): CancelledE
   return {
     completedAt: 1_712_345_679_500,
     id: 'qry-1712345678500',
+    matchedDocs: [],
     query: 'explain the auth module',
     startedAt: 1_712_345_678_500,
     status: 'cancelled',
+    taskId: 'task-4',
     tier: 1,
     ...overrides,
   }

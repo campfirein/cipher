@@ -24,24 +24,29 @@ export type QueryLogStatus = (typeof QUERY_LOG_STATUSES)[number]
 export type QueryLogMatchedDoc = {
   path: string
   score: number
+  title: string
 }
 
 export type QueryLogSearchMetadata = {
   cacheFingerprint?: string
-  resultsFound: number
+  resultCount: number
   topScore: number
-  totalResults: number
+  totalFound: number
 }
 
 type QueryLogBase = {
   id: string
+  matchedDocs: QueryLogMatchedDoc[]
   query: string
+  searchMetadata?: QueryLogSearchMetadata
   startedAt: number
-  tier: QueryLogTier
+  taskId: string
+  tier?: QueryLogTier
+  timing?: {durationMs: number}
 }
 
 export type QueryLogEntry =
   | (QueryLogBase & {completedAt: number; error: string; status: 'error'})
-  | (QueryLogBase & {completedAt: number; matchedDocs: QueryLogMatchedDoc[]; response?: string; searchMetadata: QueryLogSearchMetadata; status: 'completed'})
+  | (QueryLogBase & {completedAt: number; response?: string; status: 'completed'})
   | (QueryLogBase & {completedAt: number; status: 'cancelled'})
   | (QueryLogBase & {status: 'processing'})
