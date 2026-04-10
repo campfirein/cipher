@@ -25,6 +25,10 @@ npm run typecheck                    # TypeScript type checking
 - Avoid `any` type - use `unknown` with type narrowing or proper generics
 - Functions with >3 parameters must use object parameters
 - Prefer `type` for data-only shapes (DTOs, payloads, configs); prefer `interface` for behavioral contracts with method signatures (services, repositories, strategies)
+- Default to `undefined` over `null`; reserve `null` only for external boundaries (storage, HTTP APIs) that force it — normalize to `undefined` before the value flows into internal modules
+- Avoid `!` non-null assertions — narrow with type guards or throw explicitly. Lazy-initialized singletons (e.g. `this.services!.foo` after a guaranteed init step) are the only acceptable exception
+- Use `??` for nullish defaults (not `||`, which also triggers on `0`/`''`/`false`) and `?.` for safe property access
+- Prefer optional properties (`foo?: T`) over `foo: T | undefined` when a key may legitimately be absent
 
 **Testing (Strict TDD — MANDATORY)**:
 - You MUST follow Test-Driven Development. This is non-negotiable.
