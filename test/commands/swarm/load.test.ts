@@ -23,14 +23,14 @@ const MOCK_LOADED_SWARM: LoadedSwarm = {
   ],
   description: 'Test',
   frontmatter: {description: 'Test', goals: ['Test'], includes: [], name: 'Test Swarm', schema: 'byterover-swarm/v1', slug: 'test-swarm', version: '1.0.0'},
-  runtimeConfig: {agents: {analyzer: {adapter: {type: 'claude_code'}}, synthesizer: {adapter: {type: 'process'}, output: true}}, edges: [{from: 'analyzer', to: 'synthesizer'}], potentialEdges: [], schema: 'byterover-swarm/v1'},
+  runtimeConfig: {agents: {analyzer: {adapter: {type: 'claude_code'}}, synthesizer: {adapter: {type: 'hermes'}, output: true}}, edges: [{from: 'analyzer', to: 'synthesizer'}], potentialEdges: [], schema: 'byterover-swarm/v1'},
   sourceDir: '/s',
   warnings: [],
 }
 
 const MOCK_SUMMARY: SwarmSummary = {
   agentCount: 2,
-  agents: [{adapterType: 'claude_code', slug: 'analyzer'}, {adapterType: 'process', slug: 'synthesizer'}],
+  agents: [{adapterType: 'claude_code', slug: 'analyzer'}, {adapterType: 'hermes', slug: 'synthesizer'}],
   fixedEdgeCount: 1,
   name: 'Test Swarm',
   outputNodes: ['synthesizer'],
@@ -101,7 +101,7 @@ describe('SwarmLoad Command', () => {
       expect(loggedMessages.some((m) => m.includes('Test Swarm'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('Agents: 2'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('analyzer [claude_code]'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('synthesizer [process]'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('synthesizer [hermes]'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('Fixed edges: 1'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('Output nodes: synthesizer'))).to.be.true
     })

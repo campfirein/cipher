@@ -90,9 +90,7 @@ agents:
 
   synthesizer:
     adapter:
-      type: process
-      config:
-        command: echo
+      type: hermes
     output: true
     timeoutSec: 60
 

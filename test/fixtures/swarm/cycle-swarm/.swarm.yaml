@@ -3,14 +3,14 @@ schema: byterover-swarm/v1
 agents:
   a:
     adapter:
-      type: process
+      type: claude_code
       config:
         command: echo
     timeoutSec: 60
 
   b:
     adapter:
-      type: process
+      type: claude_code
       config:
         command: echo
     timeoutSec: 60

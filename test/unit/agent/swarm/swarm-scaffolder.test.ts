@@ -44,7 +44,7 @@ function readerFromScaffold(files: Record<string, string>, root: string): SwarmF
 const TWO_AGENT_INPUT = {
   agents: [
     {adapterType: 'claude_code' as const, description: 'Code analyzer', name: 'Analyzer', slug: 'analyzer'},
-    {adapterType: 'process' as const, description: 'Synthesis agent', name: 'Synthesizer', slug: 'synthesizer'},
+    {adapterType: 'hermes' as const, description: 'Synthesis agent', name: 'Synthesizer', slug: 'synthesizer'},
   ],
   description: 'A two-agent code review pipeline.',
   edges: [{from: 'analyzer', to: 'synthesizer'}],
@@ -113,7 +113,7 @@ describe('scaffoldSwarm', () => {
 
   it('should handle single agent with zero edges', () => {
     const files = scaffoldSwarm({
-      agents: [{adapterType: 'process', description: 'Solo', name: 'Solo', slug: 'solo'}],
+      agents: [{adapterType: 'hermes', description: 'Solo', name: 'Solo', slug: 'solo'}],
       description: 'Single agent.',
       edges: [],
       goals: ['Do one thing'],
@@ -129,7 +129,7 @@ describe('scaffoldSwarm', () => {
 
   it('should roundtrip single agent through SwarmLoader', async () => {
     const files = scaffoldSwarm({
-      agents: [{adapterType: 'process', description: 'Solo', name: 'Solo', slug: 'solo'}],
+      agents: [{adapterType: 'hermes', description: 'Solo', name: 'Solo', slug: 'solo'}],
       description: 'Single.',
       edges: [],
       goals: ['Test'],

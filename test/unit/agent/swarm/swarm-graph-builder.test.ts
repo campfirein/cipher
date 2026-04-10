@@ -26,7 +26,7 @@ function makeLoadedSwarm(overrides?: Partial<LoadedSwarm>): LoadedSwarm {
     runtimeConfig: {
       agents: {
         analyzer: {adapter: {type: 'claude_code'}, timeoutSec: 120},
-        synthesizer: {adapter: {config: {command: 'echo'}, type: 'process'}, output: true, timeoutSec: 60},
+        synthesizer: {adapter: {config: {command: 'echo'}, type: 'hermes'}, output: true, timeoutSec: 60},
       },
       edges: [{from: 'analyzer', to: 'synthesizer'}],
       potentialEdges: [{from: 'synthesizer', to: 'analyzer'}],
@@ -78,7 +78,7 @@ describe('buildSwarmGraph', () => {
     expect(result.summary.outputNodes).to.deep.equal(['synthesizer'])
     expect(result.summary.agents).to.deep.equal([
       {adapterType: 'claude_code', slug: 'analyzer'},
-      {adapterType: 'process', slug: 'synthesizer'},
+      {adapterType: 'hermes', slug: 'synthesizer'},
     ])
   })
 
@@ -86,8 +86,8 @@ describe('buildSwarmGraph', () => {
     const loaded = makeLoadedSwarm({
       runtimeConfig: {
         agents: {
-          a: {adapter: {type: 'process'}, timeoutSec: 60},
-          b: {adapter: {type: 'process'}, output: true, timeoutSec: 60},
+          a: {adapter: {type: 'hermes'}, timeoutSec: 60},
+          b: {adapter: {type: 'hermes'}, output: true, timeoutSec: 60},
         },
         edges: [{from: 'a', to: 'b'}, {from: 'b', to: 'a'}],
         potentialEdges: [],

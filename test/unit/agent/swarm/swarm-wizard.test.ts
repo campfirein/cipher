@@ -63,7 +63,7 @@ describe('runWizard', () => {
       'Synthesizer',      // agent 2 name
       'synthesizer',      // agent 2 slug
       'Merge findings',   // agent 2 description
-      'process',          // agent 2 adapter
+      'hermes',          // agent 2 adapter
       false,              // add another?
       // Step 3: Edges
       ['synthesizer'],    // analyzer outputs to synthesizer
@@ -80,7 +80,7 @@ describe('runWizard', () => {
     expect(result!.goals).to.deep.equal(['Find bugs', 'Ship safe'])
     expect(result!.agents).to.have.lengthOf(2)
     expect(result!.agents[0].slug).to.equal('analyzer')
-    expect(result!.agents[1].adapterType).to.equal('process')
+    expect(result!.agents[1].adapterType).to.equal('hermes')
     expect(result!.edges).to.deep.equal([{from: 'analyzer', to: 'synthesizer'}])
     expect(result!.outputNodeSlug).to.equal('synthesizer')
   })
@@ -161,7 +161,7 @@ describe('runWizard', () => {
     let selectCount = 0
     prompts.select = async () => {
       selectCount++
-      if (selectCount === 1) return 'process' // agent adapter
+      if (selectCount === 1) return 'hermes' // agent adapter
       return 'solo' // output node
     }
 
@@ -181,7 +181,7 @@ describe('runWizard', () => {
       // Step 1
       'Solo', 'solo', 'One agent', 'Test',
       // Step 2
-      'Agent', 'agent', 'The agent', 'process',
+      'Agent', 'agent', 'The agent', 'hermes',
       false,              // don't add another
       // Step 3 — no edges for single agent (checkbox not called since no targets)
       // Step 4
@@ -199,9 +199,9 @@ describe('runWizard', () => {
       // Step 1
       'Test', 'test', 'Desc', 'Goal',
       // Step 2: 3 agents
-      'A', 'a', 'Agent A', 'process', true,
-      'B', 'b', 'Agent B', 'process', true,
-      'C', 'c', 'Agent C', 'process', false,
+      'A', 'a', 'Agent A', 'hermes', true,
+      'B', 'b', 'Agent B', 'hermes', true,
+      'C', 'c', 'Agent C', 'hermes', false,
       // Step 3: edges
       ['b', 'c'],    // A → B, A → C
       ['c'],          // B → C

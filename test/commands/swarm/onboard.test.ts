@@ -68,7 +68,7 @@ function mockWizardPrompts(): WizardPrompts {
     // Step 1: Identity
     'Test Swarm', 'test-swarm', 'Test description', 'Goal one',
     // Step 2: Agents (1 agent)
-    'Agent', 'agent', 'Test agent', 'process',
+    'Agent', 'agent', 'Test agent', 'hermes',
     false, // don't add another
     // Step 3: Edges (single agent, no targets, checkbox not called)
     // Step 4: Output
