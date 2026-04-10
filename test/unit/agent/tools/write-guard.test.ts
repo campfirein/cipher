@@ -12,7 +12,7 @@ describe('write-guard', () => {
     projectRoot = join(tmpdir(), `brv-write-guard-test-${Date.now()}`)
     mkdirSync(join(projectRoot, '.brv', 'context-tree'), {recursive: true})
     // Write empty sources.json so loadSources doesn't fail
-    writeFileSync(join(projectRoot, '.brv', 'sources.json'), JSON.stringify({origins: [], version: '1'}))
+    writeFileSync(join(projectRoot, '.brv', 'sources.json'), JSON.stringify({sources: [], version: '1'}))
   })
 
   afterEach(() => {

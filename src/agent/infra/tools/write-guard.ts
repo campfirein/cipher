@@ -3,6 +3,7 @@ import {basename, dirname, join, resolve} from 'node:path'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../server/constants.js'
 import {loadSources} from '../../../server/core/domain/source/source-schema.js'
+import {isDescendantOf} from '../../../server/utils/path-utils.js'
 
 const canonicalize = (path: string): string => {
   try {
@@ -17,9 +18,6 @@ const canonicalize = (path: string): string => {
     }
   }
 }
-
-const isWithin = (candidatePath: string, rootPath: string): boolean =>
-  candidatePath === rootPath || candidatePath.startsWith(rootPath + '/')
 
 /**
  * Validates that a write target path is within the local project's context tree,
@@ -37,7 +35,7 @@ export function validateWriteTarget(targetPath: string, projectRoot: string): nu
   const canonicalLocalContextTree = canonicalize(localContextTree)
   const canonicalTarget = canonicalize(targetPath)
 
-  if (isWithin(canonicalTarget, canonicalLocalContextTree)) {
+  if (isDescendantOf(canonicalTarget, canonicalLocalContextTree)) {
     return null
   }
 
@@ -45,7 +43,7 @@ export function validateWriteTarget(targetPath: string, projectRoot: string): nu
   const loaded = loadSources(projectRoot)
   for (const origin of loaded?.origins ?? []) {
     const canonicalSharedRoot = canonicalize(origin.contextTreeRoot)
-    if (isWithin(canonicalTarget, canonicalSharedRoot)) {
+    if (isDescendantOf(canonicalTarget, canonicalSharedRoot)) {
       const alias = origin.alias ?? origin.originKey
       return `Cannot write to shared source "${alias}" — sources are read-only. Only the local context tree (${localContextTree}) is writable.`
     }
