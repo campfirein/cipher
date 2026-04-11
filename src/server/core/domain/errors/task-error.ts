@@ -201,7 +201,7 @@ export class LocalChangesExistError extends TaskError {
 export class LegacySyncUnavailableError extends TaskError {
   public constructor() {
     super(
-      'brv push and brv pull are deprecated. Run `brv vc init` to start using Byterover version control.',
+      'Command brv push and brv pull are deprecated. Run `brv vc init` to start using Byterover version control.',
       TaskErrorCode.LEGACY_SYNC_UNAVAILABLE,
     )
     this.name = 'LegacySyncUnavailableError'
