@@ -30,8 +30,8 @@ function makeHappyPathSummary(overrides: Partial<QueryLogSummary> = {}): QueryLo
   return makeZeroSummary({
     byStatus: {cancelled: 2, completed: 42, error: 3},
     byTier: {tier0: 12, tier1: 6, tier2: 15, tier3: 10, tier4: 4, unknown: 0},
-    cacheHitRate: 0.38, // 18/47
-    coverageRate: 0.89, // 42/47 approx
+    cacheHitRate: 18 / 42, // 18/completed
+    coverageRate: 37 / 42, // (completed - queriesWithoutMatches) / completed
     knowledgeGaps: [
       {count: 4, exampleQueries: ['how to deploy?', 'deployment steps'], topic: 'deployment pipeline'},
       {count: 3, exampleQueries: ['rate limit'], topic: 'rate limiting'},
@@ -57,7 +57,7 @@ function makeZeroMatchedSummary(): QueryLogSummary {
   return makeHappyPathSummary({
     coverageRate: 0,
     knowledgeGaps: [{count: 10, exampleQueries: ['foo'], topic: 'unknown topic'}],
-    queriesWithoutMatches: 47,
+    queriesWithoutMatches: 42,
     topRecalledDocs: [],
     totalMatchedDocs: 0,
   })
@@ -74,7 +74,7 @@ describe('formatQueryLogSummaryNarrative', () => {
       const out = formatQueryLogSummaryNarrative(summary)
 
       expect(out).to.equal(
-        'No queries recorded in the last 24 hours. Your knowledge base is ready — try asking a question!',
+        'No queries recorded in the selected period. Your knowledge base is ready — try asking a question!',
       )
     })
   })
@@ -90,16 +90,16 @@ describe('formatQueryLogSummaryNarrative', () => {
       expect(narrative).to.include('47 questions')
     })
 
-    it('should report answered count as totalQueries minus queriesWithoutMatches', () => {
-      expect(narrative).to.include('answered 42 from curated knowledge')
+    it('should report answered count as completed minus queriesWithoutMatches', () => {
+      expect(narrative).to.include('answered 37 from curated knowledge')
     })
 
     it('should include coverage rate as percentage', () => {
-      expect(narrative).to.include('89%')
+      expect(narrative).to.include('88%')
     })
 
     it('should include cache hit rate as percentage', () => {
-      expect(narrative).to.include('38%')
+      expect(narrative).to.include('43%')
     })
 
     it('should include average response time in seconds for multi-second times', () => {
