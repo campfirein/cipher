@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import SwarmStatus, {findSwarmStatusSuggestions} from '../../../src/oclif/commands/swarm/status.js'
+import SwarmStatus, {findSwarmStatusSuggestions, formatEnrichmentEdges} from '../../../src/oclif/commands/swarm/status.js'
 
 describe('SwarmStatus command', () => {
   it('has correct description', () => {
@@ -49,5 +49,22 @@ describe('SwarmStatus command', () => {
 
     expect(suggestions).to.have.length(1)
     expect(suggestions[0]).to.include('/notes/beta')
+  })
+
+  describe('formatEnrichmentEdges', () => {
+    it('returns empty array when no edges configured', () => {
+      expect(formatEnrichmentEdges([])).to.deep.equal([])
+    })
+
+    it('formats edges as "from → to" lines', () => {
+      const lines = formatEnrichmentEdges([
+        {from: 'byterover', to: 'obsidian'},
+        {from: 'byterover', to: 'local-markdown'},
+      ])
+      expect(lines).to.have.length(2)
+      expect(lines[0]).to.include('byterover')
+      expect(lines[0]).to.include('obsidian')
+      expect(lines[1]).to.include('local-markdown')
+    })
   })
 })

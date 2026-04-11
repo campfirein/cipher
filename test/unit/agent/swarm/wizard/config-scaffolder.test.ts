@@ -142,6 +142,48 @@ describe('scaffoldConfig', () => {
     expect(result.warnings).to.have.length(0)
   })
 
+  it('includes enrichment edges when byterover + obsidian are enabled', () => {
+    const answers: WizardAnswers = {
+      providers: [
+        {config: {}, enabled: true, id: 'byterover'},
+        {config: {vault_path: '~/Vault'}, enabled: true, id: 'obsidian'},
+      ],
+    }
+    const result = scaffoldConfig(answers)
+    const parsed = load(result.yaml) as Record<string, unknown>
+    const validated = SwarmConfigSchema.parse(parsed)
+    expect(validated.enrichment?.edges).to.have.length(1)
+    expect(validated.enrichment?.edges[0]).to.deep.equal({from: 'byterover', to: 'obsidian'})
+  })
+
+  it('includes enrichment edges for byterover + local-markdown', () => {
+    const answers: WizardAnswers = {
+      providers: [
+        {config: {}, enabled: true, id: 'byterover'},
+        {
+          config: {folders: [{follow_wikilinks: true, name: 'notes', path: '~/notes', read_only: true}]},
+          enabled: true,
+          id: 'local-markdown',
+        },
+      ],
+    }
+    const result = scaffoldConfig(answers)
+    const parsed = load(result.yaml) as Record<string, unknown>
+    const validated = SwarmConfigSchema.parse(parsed)
+    expect(validated.enrichment?.edges).to.have.length(1)
+    expect(validated.enrichment?.edges[0]).to.deep.equal({from: 'byterover', to: 'local-markdown'})
+  })
+
+  it('omits enrichment section when only byterover is enabled', () => {
+    const answers: WizardAnswers = {
+      providers: [
+        {config: {}, enabled: true, id: 'byterover'},
+      ],
+    }
+    const result = scaffoldConfig(answers)
+    expect(result.yaml).to.not.include('enrichment')
+  })
+
   it('includes a comment header', () => {
     const answers: WizardAnswers = {
       providers: [{config: {}, enabled: true, id: 'byterover'}],

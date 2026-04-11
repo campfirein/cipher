@@ -318,6 +318,15 @@ const PerformanceSchema = z.preprocess(
   })
 )
 
+const EnrichmentEdgeSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+})
+
+const EnrichmentSchema = z.object({
+  edges: z.array(EnrichmentEdgeSchema).optional().default([]),
+})
+
 // ============================================================
 // Root schema
 // ============================================================
@@ -328,6 +337,7 @@ const PerformanceSchema = z.preprocess(
  */
 export const SwarmConfigSchema = z.object({
   budget: BudgetSchema.optional(),
+  enrichment: EnrichmentSchema.optional().default({}),
   optimization: OptimizationSchema.optional().default({}),
   performance: PerformanceSchema.optional().default({}),
   provenance: ProvenanceSchema.optional().default({}),

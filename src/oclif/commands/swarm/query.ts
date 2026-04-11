@@ -5,6 +5,7 @@ import {formatQueryResults, formatQueryResultsJson} from '../../../agent/infra/s
 import {loadSwarmConfig} from '../../../agent/infra/swarm/config/swarm-config-loader.js'
 import {buildProvidersFromConfig} from '../../../agent/infra/swarm/provider-factory.js'
 import {SwarmCoordinator} from '../../../agent/infra/swarm/swarm-coordinator.js'
+import {validateSwarmProviders} from '../../../agent/infra/swarm/validation/config-validator.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 
 export default class SwarmQuery extends Command {
@@ -44,6 +45,16 @@ public static description = 'Query the memory swarm across all active providers'
       const searchService = createSearchKnowledgeService(fileSystemService, {
         baseDirectory: workingDirectory,
       })
+
+      // Validate enrichment topology — structural errors block execution.
+      // Provider-specific errors (bad paths, missing API keys) are handled
+      // by health checks at runtime, preserving degraded-mode semantics.
+      const validation = await validateSwarmProviders(config)
+      const topologyErrors = validation.errors.filter((e) => e.provider === 'enrichment')
+      if (topologyErrors.length > 0) {
+        const messages = topologyErrors.map((e) => e.message)
+        throw new Error(`Invalid enrichment topology:\n  ${messages.join('\n  ')}`)
+      }
 
       const providers = buildProvidersFromConfig(config, {searchService})
 

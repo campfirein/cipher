@@ -89,6 +89,17 @@ export function scaffoldConfig(answers: WizardAnswers): ScaffoldResult {
 
   config.providers = providers
 
+  // Build enrichment section — suggest default edges when 2+ providers are enabled
+  const enabledIds = new Set(answers.providers.filter((p) => p.enabled).map((p) => p.id))
+  if (enabledIds.size >= 2 && enabledIds.has('byterover')) {
+    const edges: Array<{from: string; to: string}> = []
+    if (enabledIds.has('obsidian')) edges.push({from: 'byterover', to: 'obsidian'})
+    if (enabledIds.has('local-markdown')) edges.push({from: 'byterover', to: 'local-markdown'})
+    if (edges.length > 0) {
+      config.enrichment = {edges}
+    }
+  }
+
   // Build budget section (only if specified)
   if (answers.budget) {
     config.budget = {

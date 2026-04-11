@@ -147,6 +147,40 @@ describe('SwarmConfigSchema', () => {
     })
   })
 
+  describe('enrichment config', () => {
+    it('accepts enrichment edges', () => {
+      const input = {
+        enrichment: {
+          edges: [
+            {from: 'byterover', to: 'obsidian'},
+            {from: 'byterover', to: 'local-markdown'},
+          ],
+        },
+        providers: {byterover: {enabled: true}},
+      }
+      const result = SwarmConfigSchema.parse(input)
+      expect(result.enrichment?.edges).to.have.length(2)
+      expect(result.enrichment?.edges[0]).to.deep.equal({from: 'byterover', to: 'obsidian'})
+    })
+
+    it('defaults to empty edges when enrichment section is omitted', () => {
+      const input = {
+        providers: {byterover: {enabled: true}},
+      }
+      const result = SwarmConfigSchema.parse(input)
+      expect(result.enrichment?.edges).to.deep.equal([])
+    })
+
+    it('defaults to empty edges when enrichment section is empty', () => {
+      const input = {
+        enrichment: {},
+        providers: {byterover: {enabled: true}},
+      }
+      const result = SwarmConfigSchema.parse(input)
+      expect(result.enrichment?.edges).to.deep.equal([])
+    })
+  })
+
   describe('validation errors', () => {
     it('rejects config without providers', () => {
       const result = safeValidateSwarmConfig({})

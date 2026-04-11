@@ -6,6 +6,7 @@ import {buildProvidersFromConfig} from '../../../../src/agent/infra/swarm/provid
 
 function createMinimalConfig(overrides?: Partial<SwarmConfig>): SwarmConfig {
   return {
+    enrichment: {edges: []},
     optimization: {
       edgeLearning: {enabled: true, explorationRate: 0.05, fixThreshold: 0.95, minObservationsToPrune: 100, pruneThreshold: 0.05},
       templateOptimization: {abTestSize: 5, enabled: true, failureRateTrigger: 0.3, frequency: 20},

@@ -4,8 +4,6 @@ import {join} from 'node:path'
 import type {SwarmConfig} from '../config/swarm-config-schema.js'
 import type {ValidationIssue} from './memory-swarm-validation-error.js'
 
-import {isCloudProvider} from '../../../core/domain/swarm/types.js'
-
 /**
  * Result of runtime provider validation.
  */
@@ -167,6 +165,199 @@ function validateGBrain(
 }
 
 /**
+ * Collect the set of provider IDs that are enabled in config.
+ * Uses prefix matching (e.g., `local-markdown` matches if any local-markdown folder exists).
+ */
+function getEnabledProviderIds(providers: SwarmConfig['providers']): Set<string> {
+  const ids = new Set<string>()
+  if (providers.byterover.enabled) ids.add('byterover')
+  if (providers.obsidian?.enabled) ids.add('obsidian')
+  if (providers.localMarkdown?.enabled) {
+    ids.add('local-markdown')
+    for (const folder of providers.localMarkdown.folders) {
+      ids.add(`local-markdown:${folder.name}`)
+    }
+  }
+
+  if (providers.honcho?.enabled) ids.add('honcho')
+  if (providers.hindsight?.enabled) ids.add('hindsight')
+  if (providers.gbrain?.enabled) ids.add('gbrain')
+
+  return ids
+}
+
+/**
+ * Check if a provider ID matches an enabled provider (with prefix matching).
+ */
+function matchesEnabledProvider(edgeEndpoint: string, enabledIds: Set<string>): boolean {
+  if (enabledIds.has(edgeEndpoint)) return true
+  // Prefix match: "local-markdown" matches "local-markdown:notes"
+  for (const id of enabledIds) {
+    if (id.startsWith(`${edgeEndpoint}:`)) return true
+  }
+
+  return false
+}
+
+/**
+ * Check if a provider ID references a configured (but possibly disabled) provider.
+ */
+function isConfiguredProvider(edgeEndpoint: string, providers: SwarmConfig['providers']): boolean {
+  if (edgeEndpoint === 'byterover') return true
+  if (edgeEndpoint === 'obsidian') return providers.obsidian !== undefined
+  if (edgeEndpoint === 'honcho') return providers.honcho !== undefined
+  if (edgeEndpoint === 'hindsight') return providers.hindsight !== undefined
+  if (edgeEndpoint === 'gbrain') return providers.gbrain !== undefined
+
+  // Generic "local-markdown" — valid if the section exists
+  if (edgeEndpoint === 'local-markdown') return providers.localMarkdown !== undefined
+
+  // Folder-scoped "local-markdown:<name>" — must match an actual configured folder
+  if (edgeEndpoint.startsWith('local-markdown:')) {
+    const folderName = edgeEndpoint.slice('local-markdown:'.length)
+
+    return providers.localMarkdown?.folders.some((f) => f.name === folderName) ?? false
+  }
+
+  return false
+}
+
+/**
+ * Detect cycles in enrichment edges using DFS.
+ */
+function hasCycle(edges: Array<{from: string; to: string}>): boolean {
+  const adjacency = new Map<string, string[]>()
+  for (const edge of edges) {
+    const existing = adjacency.get(edge.from) ?? []
+    existing.push(edge.to)
+    adjacency.set(edge.from, existing)
+  }
+
+  const visited = new Set<string>()
+  const inStack = new Set<string>()
+
+  function dfs(node: string): boolean {
+    if (inStack.has(node)) return true
+    if (visited.has(node)) return false
+    visited.add(node)
+    inStack.add(node)
+    for (const neighbor of adjacency.get(node) ?? []) {
+      if (dfs(neighbor)) return true
+    }
+
+    inStack.delete(node)
+
+    return false
+  }
+
+  const allNodes = new Set([...edges.map((e) => e.from), ...edges.map((e) => e.to)])
+  for (const node of allNodes) {
+    if (dfs(node)) return true
+  }
+
+  return false
+}
+
+/**
+ * Expand a config edge endpoint to concrete provider IDs.
+ * "local-markdown" → ["local-markdown:notes", "local-markdown:docs"]
+ * "obsidian" → ["obsidian"]
+ *
+ * Prefers prefix expansion: if "local-markdown" has folder-scoped children,
+ * expand to those children rather than treating the generic ID as concrete.
+ */
+function resolveEndpoint(endpoint: string, enabledIds: Set<string>): string[] {
+  // Prefer prefix expansion over exact match — generic IDs like "local-markdown"
+  // should expand to their concrete folder IDs, not stay as the generic form.
+  const prefixMatches = [...enabledIds].filter((id) => id.startsWith(`${endpoint}:`))
+  if (prefixMatches.length > 0) return prefixMatches
+
+  if (enabledIds.has(endpoint)) return [endpoint]
+
+  return [endpoint]
+}
+
+/**
+ * Validate enrichment edges: no self-edges, no cycles, endpoints must exist.
+ * Validates against the EXPANDED graph (generic endpoints resolved to concrete IDs)
+ * so that expansion-induced cycles and self-edges are caught at config time.
+ */
+function validateEnrichmentEdges(
+  config: SwarmConfig,
+  errors: ValidationIssue[],
+  warnings: ValidationIssue[]
+): void {
+  const configEdges = config.enrichment?.edges ?? []
+  if (configEdges.length === 0) return
+
+  const enabledIds = getEnabledProviderIds(config.providers)
+
+  // 1. Check raw endpoint existence/enabled status
+  for (const edge of configEdges) {
+    for (const endpoint of [edge.from, edge.to]) {
+      if (!isConfiguredProvider(endpoint, config.providers)) {
+        errors.push({
+          field: 'enrichment.edges',
+          message: `Enrichment edge references unknown provider '${endpoint}'`,
+          provider: 'enrichment',
+        })
+      } else if (!matchesEnabledProvider(endpoint, enabledIds)) {
+        warnings.push({
+          field: 'enrichment.edges',
+          message: `Enrichment edge references disabled provider '${endpoint}'`,
+          provider: 'enrichment',
+        })
+      }
+    }
+  }
+
+  // 2. Expand only edges where BOTH endpoints are enabled.
+  // Disabled endpoints already produced warnings above — don't let them
+  // create phantom cycles or self-edges in the expanded graph.
+  const seen = new Set<string>()
+  const expanded: Array<{from: string; to: string}> = []
+  for (const edge of configEdges) {
+    if (!matchesEnabledProvider(edge.from, enabledIds) || !matchesEnabledProvider(edge.to, enabledIds)) {
+      continue
+    }
+
+    const fromIds = resolveEndpoint(edge.from, enabledIds)
+    const toIds = resolveEndpoint(edge.to, enabledIds)
+    for (const from of fromIds) {
+      for (const to of toIds) {
+        const key = `${from}->${to}`
+        if (!seen.has(key)) {
+          seen.add(key)
+          expanded.push({from, to})
+        }
+      }
+    }
+  }
+
+  // 3. Self-edge check on expanded graph
+  for (const edge of expanded) {
+    if (edge.from === edge.to) {
+      errors.push({
+        field: 'enrichment.edges',
+        message: `Enrichment self-edge after expansion: '${edge.from}' cannot enrich itself`,
+        provider: 'enrichment',
+        suggestion: `The generic endpoint expands to the same concrete provider on both sides.`,
+      })
+    }
+  }
+
+  // 4. Cycle detection on expanded graph
+  if (hasCycle(expanded)) {
+    errors.push({
+      field: 'enrichment.edges',
+      message: `Enrichment edges contain a cycle after expansion. The topology must be a directed acyclic graph (DAG).`,
+      provider: 'enrichment',
+      suggestion: `Generic endpoints like 'local-markdown' expand to concrete folder IDs, which may create cycles with specific endpoints. Remove one edge to break the cycle.`,
+    })
+  }
+}
+
+/**
  * Run runtime validation on all enabled providers.
  * Checks paths exist, env vars are resolved, connections are reachable.
  * Returns accumulated errors and warnings (never throws).
@@ -200,9 +391,13 @@ export async function validateSwarmProviders(
     validateGBrain(providers.gbrain, errors)
   }
 
-  // Generate cascade note if cloud providers failed
+  // Validate enrichment edges
+  validateEnrichmentEdges(config, errors, warnings)
+
+  // Generate cascade note if cloud providers failed (exclude enrichment errors)
+  const CLOUD_PROVIDER_IDS = new Set(['gbrain', 'hindsight', 'honcho'])
   const cloudErrors = errors.filter((e) =>
-    e.provider && isCloudProvider(e.provider as 'gbrain' | 'hindsight' | 'honcho')
+    e.provider && CLOUD_PROVIDER_IDS.has(e.provider)
   )
   const cascadeNote = cloudErrors.length > 0
     ? `${cloudErrors.length} cloud provider(s) failed validation. Routing will use local providers only until resolved.`

@@ -45,6 +45,103 @@ function resolveWeight(providerId: string): number {
 }
 
 /**
+ * Expand generic provider names in enrichment edges to concrete provider IDs,
+ * then deduplicate and drop self-edges and cycles.
+ *
+ * Config edges may use "local-markdown" as a shorthand, but actual providers
+ * are registered as "local-markdown:notes", "local-markdown:docs", etc.
+ * This function expands each generic endpoint to all matching concrete IDs,
+ * removes duplicates and self-edges, and detects/drops cycles.
+ */
+function expandEnrichmentEdges(
+  configEdges: Array<{from: string; to: string}>,
+  providerIds: string[]
+): Array<{from: string; to: string}> {
+  // 1. Expand generic endpoints to concrete IDs
+  const seen = new Set<string>()
+  const expanded: Array<{from: string; to: string}> = []
+
+  for (const edge of configEdges) {
+    const fromIds = resolveEndpoint(edge.from, providerIds)
+    const toIds = resolveEndpoint(edge.to, providerIds)
+
+    for (const from of fromIds) {
+      for (const to of toIds) {
+        // Drop self-edges
+        if (from === to) continue
+
+        // Deduplicate
+        const key = `${from}->${to}`
+        if (seen.has(key)) continue
+        seen.add(key)
+
+        expanded.push({from, to})
+      }
+    }
+  }
+
+  // 2. Drop all edges if the expanded graph has cycles
+  if (hasCycleInEdges(expanded)) {
+    return []
+  }
+
+  return expanded
+}
+
+/**
+ * Detect cycles in an edge list using DFS.
+ */
+function hasCycleInEdges(edges: Array<{from: string; to: string}>): boolean {
+  const adjacency = new Map<string, string[]>()
+  for (const edge of edges) {
+    const existing = adjacency.get(edge.from) ?? []
+    existing.push(edge.to)
+    adjacency.set(edge.from, existing)
+  }
+
+  const visited = new Set<string>()
+  const inStack = new Set<string>()
+
+  function dfs(node: string): boolean {
+    if (inStack.has(node)) return true
+    if (visited.has(node)) return false
+    visited.add(node)
+    inStack.add(node)
+    for (const neighbor of adjacency.get(node) ?? []) {
+      if (dfs(neighbor)) return true
+    }
+
+    inStack.delete(node)
+
+    return false
+  }
+
+  const allNodes = new Set([...edges.map((e) => e.from), ...edges.map((e) => e.to)])
+  for (const node of allNodes) {
+    if (dfs(node)) return true
+  }
+
+  return false
+}
+
+/**
+ * Resolve a config endpoint to one or more concrete provider IDs.
+ * Prefers prefix expansion over exact match so "local-markdown" expands to
+ * concrete folder IDs rather than staying generic.
+ */
+function resolveEndpoint(endpoint: string, providerIds: string[]): string[] {
+  // Prefer prefix expansion: "local-markdown" → ["local-markdown:notes", "local-markdown:docs"]
+  const prefixMatches = providerIds.filter((id) => id.startsWith(`${endpoint}:`))
+  if (prefixMatches.length > 0) return prefixMatches
+
+  // Exact match (for providers without sub-IDs like "obsidian", "byterover")
+  if (providerIds.includes(endpoint)) return [endpoint]
+
+  // No match — return as-is (will be a no-op in the graph, but doesn't crash)
+  return [endpoint]
+}
+
+/**
  * SwarmCoordinator — orchestrates query classification, provider selection,
  * parallel execution, and result fusion.
  *
@@ -63,6 +160,16 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     this.graph = new SwarmGraph(providers, {
       timeoutMs: config.performance.maxQueryLatencyMs,
     })
+
+    // Wire enrichment edges from config into the graph engine.
+    // Expand generic provider names (e.g. "local-markdown") to concrete IDs
+    // (e.g. "local-markdown:notes", "local-markdown:docs") so the graph can match them.
+    const configEdges = config.enrichment?.edges ?? []
+    if (configEdges.length > 0) {
+      const providerIds = providers.map((p) => p.id)
+      const expanded = expandEnrichmentEdges(configEdges, providerIds)
+      this.graph.setEnrichmentEdges(expanded)
+    }
 
     // Initialize health cache — assume all healthy until checked
     for (const p of providers) {

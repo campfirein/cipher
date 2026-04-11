@@ -9,6 +9,13 @@ type DetectedProviders = Awaited<ReturnType<typeof detectProviders>>
 type SwarmConfig = Awaited<ReturnType<typeof loadSwarmConfig>>
 
 /**
+ * Format enrichment edges for display.
+ */
+export function formatEnrichmentEdges(edges: Array<{from: string; to: string}>): string[] {
+  return edges.map((e) => `${e.from} → ${e.to}`)
+}
+
+/**
  * Collect configured paths for path-based providers so we can detect
  * newly discovered paths that aren't in the config yet.
  */
@@ -103,6 +110,7 @@ export default class SwarmStatus extends Command {
       if (isJson) {
         this.logJson({
           config: {
+            enrichment: {edges: config.enrichment?.edges ?? []},
             providers: Object.keys(config.providers).filter(
               (k) => (config.providers as Record<string, {enabled?: boolean}>)[k]?.enabled
             ),
@@ -136,6 +144,19 @@ export default class SwarmStatus extends Command {
     if (!validation.cascadeNote) return
 
     this.log(`\n${chalk.dim('Note:')} ${validation.cascadeNote}`)
+  }
+
+  private renderEnrichmentTopology(
+    config: Awaited<ReturnType<typeof loadSwarmConfig>>
+  ): void {
+    const edges = config.enrichment?.edges ?? []
+    if (edges.length === 0) return
+
+    const lines = formatEnrichmentEdges(edges)
+    this.log(`\n${chalk.cyan('Enrichment Topology')}:`)
+    for (const line of lines) {
+      this.log(`  ${line}`)
+    }
   }
 
   private renderProviderLine(
@@ -249,6 +270,7 @@ export default class SwarmStatus extends Command {
     this.log('═'.repeat(40))
 
     this.renderProviderStatusLines(config, validation)
+    this.renderEnrichmentTopology(config)
     this.renderValidationErrors(validation)
     this.renderValidationWarnings(validation)
     this.renderCascadeNote(validation)

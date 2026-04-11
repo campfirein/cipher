@@ -190,6 +190,187 @@ describe('validateSwarmProviders', () => {
     expect(result.errors.some((e) => e.provider === 'hindsight')).to.be.true
   })
 
+  describe('enrichment edge validation', () => {
+    it('passes valid enrichment edges', async () => {
+      const config = parseConfig({
+        enrichment: {edges: [{from: 'byterover', to: 'obsidian'}]},
+        providers: {
+          byterover: {enabled: true},
+          obsidian: {enabled: true, vault_path: testDir},
+        },
+      })
+      const result = await validateSwarmProviders(config)
+      const enrichmentErrors = result.errors.filter((e) => e.provider === 'enrichment')
+      expect(enrichmentErrors).to.have.length(0)
+    })
+
+    it('returns error for self-edge', async () => {
+      const config = parseConfig({
+        enrichment: {edges: [{from: 'byterover', to: 'byterover'}]},
+        providers: {byterover: {enabled: true}},
+      })
+      const result = await validateSwarmProviders(config)
+      expect(result.errors.some((e) => e.message.includes('self-edge'))).to.be.true
+    })
+
+    it('returns error for simple cycle (A→B→A)', async () => {
+      const config = parseConfig({
+        enrichment: {edges: [{from: 'byterover', to: 'obsidian'}, {from: 'obsidian', to: 'byterover'}]},
+        providers: {
+          byterover: {enabled: true},
+          obsidian: {enabled: true, vault_path: testDir},
+        },
+      })
+      const result = await validateSwarmProviders(config)
+      expect(result.errors.some((e) => e.message.includes('cycle'))).to.be.true
+    })
+
+    it('returns error for longer cycle (A→B→C→A)', async () => {
+      mkdirSync(join(testDir, 'notes'), {recursive: true})
+      const config = parseConfig({
+        enrichment: {edges: [
+          {from: 'byterover', to: 'obsidian'},
+          {from: 'obsidian', to: 'local-markdown'},
+          {from: 'local-markdown', to: 'byterover'},
+        ]},
+        providers: {
+          byterover: {enabled: true},
+          local_markdown: {enabled: true, folders: [{name: 'notes', path: join(testDir, 'notes')}]},
+          obsidian: {enabled: true, vault_path: testDir},
+        },
+      })
+      const result = await validateSwarmProviders(config)
+      expect(result.errors.some((e) => e.message.includes('cycle'))).to.be.true
+    })
+
+    it('returns warning for edge referencing disabled provider', async () => {
+      const config = parseConfig({
+        enrichment: {edges: [{from: 'byterover', to: 'obsidian'}]},
+        providers: {
+          byterover: {enabled: true},
+          obsidian: {enabled: false, vault_path: testDir},
+        },
+      })
+      const result = await validateSwarmProviders(config)
+      expect(result.warnings.some((w) => w.message.includes('disabled') || w.message.includes('obsidian'))).to.be.true
+    })
+
+    it('returns error for edge referencing nonexistent provider', async () => {
+      const config = parseConfig({
+        enrichment: {edges: [{from: 'byterover', to: 'honcho'}]},
+        providers: {byterover: {enabled: true}},
+      })
+      const result = await validateSwarmProviders(config)
+      expect(result.errors.some((e) => e.message.includes('honcho'))).to.be.true
+    })
+
+    it('returns error for edge referencing nonexistent local-markdown folder', async () => {
+      mkdirSync(join(testDir, 'notes'), {recursive: true})
+      const config = parseConfig({
+        enrichment: {edges: [{from: 'byterover', to: 'local-markdown:missing'}]},
+        providers: {
+          byterover: {enabled: true},
+          local_markdown: {enabled: true, folders: [{name: 'notes', path: join(testDir, 'notes')}]},
+        },
+      })
+      const result = await validateSwarmProviders(config)
+      // Should be an error, not a warning — "missing" folder doesn't exist
+      expect(result.errors.some((e) => e.message.includes('local-markdown:missing'))).to.be.true
+    })
+
+    it('passes empty edges array', async () => {
+      const config = parseConfig({
+        enrichment: {edges: []},
+        providers: {byterover: {enabled: true}},
+      })
+      const result = await validateSwarmProviders(config)
+      const enrichmentErrors = result.errors.filter((e) => e.provider === 'enrichment')
+      expect(enrichmentErrors).to.have.length(0)
+    })
+
+    it('detects cycle introduced by generic expansion', async () => {
+      mkdirSync(join(testDir, 'notes'), {recursive: true})
+      // local-markdown expands to local-markdown:notes
+      // So: local-markdown→obsidian becomes local-markdown:notes→obsidian
+      // Plus: obsidian→local-markdown:notes
+      // = cycle: local-markdown:notes → obsidian → local-markdown:notes
+      const config = parseConfig({
+        enrichment: {edges: [
+          {from: 'local-markdown', to: 'obsidian'},
+          {from: 'obsidian', to: 'local-markdown:notes'},
+        ]},
+        providers: {
+          byterover: {enabled: true},
+          local_markdown: {enabled: true, folders: [{name: 'notes', path: join(testDir, 'notes')}]},
+          obsidian: {enabled: true, vault_path: testDir},
+        },
+      })
+      const result = await validateSwarmProviders(config)
+      expect(result.errors.some((e) => e.message.includes('cycle'))).to.be.true
+    })
+
+    it('detects self-edge introduced by generic expansion', async () => {
+      mkdirSync(join(testDir, 'notes'), {recursive: true})
+      // local-markdown expands to local-markdown:notes on both sides → self-edge
+      const config = parseConfig({
+        enrichment: {edges: [{from: 'local-markdown', to: 'local-markdown:notes'}]},
+        providers: {
+          byterover: {enabled: true},
+          local_markdown: {enabled: true, folders: [{name: 'notes', path: join(testDir, 'notes')}]},
+        },
+      })
+      const result = await validateSwarmProviders(config)
+      expect(result.errors.some((e) => e.message.includes('self-edge'))).to.be.true
+    })
+
+    it('disabled-provider edges do not produce cycle errors', async () => {
+      // obsidian is disabled, so byterover→obsidian + obsidian→byterover
+      // should only produce disabled warnings, NOT a cycle error
+      const config = parseConfig({
+        enrichment: {edges: [
+          {from: 'byterover', to: 'obsidian'},
+          {from: 'obsidian', to: 'byterover'},
+        ]},
+        providers: {
+          byterover: {enabled: true},
+          obsidian: {enabled: false, vault_path: testDir},
+        },
+      })
+      const result = await validateSwarmProviders(config)
+      expect(result.errors.some((e) => e.message.includes('cycle'))).to.be.false
+      expect(result.warnings.some((w) => w.message.includes('disabled'))).to.be.true
+    })
+
+    it('enrichment errors do not trigger cloud cascade note', async () => {
+      // An enrichment self-edge should NOT produce "cloud provider(s) failed"
+      mkdirSync(join(testDir, 'notes'), {recursive: true})
+      const config = parseConfig({
+        enrichment: {edges: [{from: 'local-markdown', to: 'local-markdown:notes'}]},
+        providers: {
+          byterover: {enabled: true},
+          local_markdown: {enabled: true, folders: [{name: 'notes', path: join(testDir, 'notes')}]},
+        },
+      })
+      const result = await validateSwarmProviders(config)
+      expect(result.errors.length).to.be.greaterThan(0)
+      expect(result.cascadeNote).to.be.undefined
+    })
+
+    it('prefix-matches local-markdown edges', async () => {
+      mkdirSync(join(testDir, 'notes'), {recursive: true})
+      const config = parseConfig({
+        enrichment: {edges: [{from: 'byterover', to: 'local-markdown'}]},
+        providers: {
+          byterover: {enabled: true},
+          local_markdown: {enabled: true, folders: [{name: 'notes', path: join(testDir, 'notes')}]},
+        },
+      })
+      const result = await validateSwarmProviders(config)
+      const enrichmentErrors = result.errors.filter((e) => e.provider === 'enrichment')
+      expect(enrichmentErrors).to.have.length(0)
+    })
+  })
+
   it('adds cascade note when cloud providers fail', async () => {
     const config = parseConfig({
       providers: {

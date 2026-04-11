@@ -43,6 +43,7 @@ function makeResult(provider: string, content: string): QueryResult {
 
 function createMinimalConfig(overrides?: Partial<SwarmConfig>): SwarmConfig {
   return {
+    enrichment: {edges: []},
     optimization: {
       edgeLearning: {enabled: true, explorationRate: 0.05, fixThreshold: 0.95, minObservationsToPrune: 100, pruneThreshold: 0.05},
       templateOptimization: {abTestSize: 5, enabled: true, failureRateTrigger: 0.3, frequency: 20},
@@ -188,6 +189,94 @@ describe('SwarmCoordinator', () => {
 
       expect(providers.find((p) => p.id === 'byterover')?.healthy).to.be.true
       expect(providers.find((p) => p.id === 'obsidian')?.healthy).to.be.false
+    })
+  })
+
+  describe('enrichment edges from config', () => {
+    it('passes enrichment edges from config to graph execution', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Structured data')])
+      const p2 = createMockProvider('obsidian', 'obsidian', [makeResult('obsidian', 'Vault data')])
+
+      const config = createMinimalConfig({
+        enrichment: {edges: [{from: 'byterover', to: 'obsidian'}]},
+      })
+      const coordinator = new SwarmCoordinator([p1, p2], config)
+      const result = await coordinator.execute({query: 'test'})
+
+      // Obsidian should show enrichedBy in metadata
+      expect(result.meta.providers.obsidian?.enrichedBy).to.include('byterover')
+    })
+
+    it('expands generic local-markdown edge to concrete provider IDs', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Context data')])
+      // LocalMarkdownAdapter produces IDs like local-markdown:notes
+      const p2 = createMockProvider('local-markdown:notes', 'local-markdown', [makeResult('local-markdown:notes', 'Notes data')])
+
+      const config = createMinimalConfig({
+        // Config uses generic "local-markdown" — must be expanded to "local-markdown:notes"
+        enrichment: {edges: [{from: 'byterover', to: 'local-markdown'}]},
+      })
+      const coordinator = new SwarmCoordinator([p1, p2], config)
+      const result = await coordinator.execute({query: 'test'})
+
+      // local-markdown:notes should show enrichedBy despite config saying "local-markdown"
+      expect(result.meta.providers['local-markdown:notes']?.enrichedBy).to.include('byterover')
+    })
+
+    it('deduplicates overlapping generic and specific edges', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Data')])
+      const p2 = createMockProvider('local-markdown:notes', 'local-markdown', [makeResult('local-markdown:notes', 'Notes')])
+
+      const config = createMinimalConfig({
+        // Both edges resolve to the same concrete edge: byterover → local-markdown:notes
+        enrichment: {edges: [
+          {from: 'byterover', to: 'local-markdown'},
+          {from: 'byterover', to: 'local-markdown:notes'},
+        ]},
+      })
+      const coordinator = new SwarmCoordinator([p1, p2], config)
+      const result = await coordinator.execute({query: 'test'})
+
+      // Should NOT have duplicate enrichment — byterover should appear once in enrichedBy
+      const enrichedBy = result.meta.providers['local-markdown:notes']?.enrichedBy ?? ''
+      const occurrences = enrichedBy.split(',').filter((s) => s === 'byterover')
+      expect(occurrences).to.have.length(1)
+    })
+
+    it('detects cycles introduced by expansion and skips edges', async () => {
+      // Config: local-markdown → obsidian, obsidian → local-markdown:notes
+      // After expansion: local-markdown:notes → obsidian, obsidian → local-markdown:notes (cycle!)
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Data')])
+      const p2 = createMockProvider('obsidian', 'obsidian', [makeResult('obsidian', 'Vault')])
+      const p3 = createMockProvider('local-markdown:notes', 'local-markdown', [makeResult('local-markdown:notes', 'Notes')])
+
+      const config = createMinimalConfig({
+        enrichment: {edges: [
+          {from: 'local-markdown', to: 'obsidian'},
+          {from: 'obsidian', to: 'local-markdown:notes'},
+        ]},
+      })
+      const coordinator = new SwarmCoordinator([p1, p2, p3], config)
+      const result = await coordinator.execute({query: 'test'})
+
+      // All providers should still return results (cycle detected → edges dropped)
+      expect(result.results.length).to.be.greaterThan(0)
+      // Neither provider in the cycle should show enrichedBy (edges were dropped)
+      expect(result.meta.providers.obsidian?.enrichedBy).to.be.undefined
+      expect(result.meta.providers['local-markdown:notes']?.enrichedBy).to.be.undefined
+    })
+
+    it('works without enrichment config (all parallel)', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Result')])
+      const p2 = createMockProvider('obsidian', 'obsidian', [makeResult('obsidian', 'Result')])
+
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([p1, p2], config)
+      const result = await coordinator.execute({query: 'test'})
+
+      // No enrichedBy when no edges configured
+      expect(result.meta.providers.byterover?.enrichedBy).to.be.undefined
+      expect(result.meta.providers.obsidian?.enrichedBy).to.be.undefined
     })
   })
 
