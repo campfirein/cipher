@@ -83,6 +83,15 @@ describe('SearchExecutor', () => {
     expect((service.search as sinon.SinonStub).calledWith('test', {limit: 10, scope: 'auth/'})).to.be.true
   })
 
+  it('passes trailing-slash scope unchanged (normalization is service responsibility)', async () => {
+    const service = makeMockService(makeSearchResult(1))
+    const executor = new SearchExecutor(service)
+
+    await executor.execute({query: 'test', scope: 'project/'})
+
+    expect((service.search as sinon.SinonStub).calledWith('test', {limit: 10, scope: 'project/'})).to.be.true
+  })
+
   it('omits scope when not provided', async () => {
     const service = makeMockService(makeSearchResult(1))
     const executor = new SearchExecutor(service)

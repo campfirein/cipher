@@ -62,7 +62,7 @@ describe('formatSearchTextOutput', () => {
     const lines = formatSearchTextOutput(result)
     const excerptLine = lines.find((l) => l.includes('AAA'))
     expect(excerptLine).to.exist
-    expect(excerptLine!.length).to.be.lessThan(200)
+    expect(excerptLine?.length ?? 0).to.be.lessThan(200)
     expect(excerptLine).to.include('...')
   })
 

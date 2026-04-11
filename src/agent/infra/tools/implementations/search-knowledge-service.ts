@@ -993,7 +993,12 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
     // Parse query for potential scope prefix (e.g. "auth jwt refresh" → scope=auth, text="jwt refresh")
     const parsed = parseSymbolicQuery(query, symbolTree)
-    const effectiveScope = normalizedScope ?? parsed.scopePath
+    // Strip trailing slashes from scope so "auth/" resolves to the same
+    // symbol-tree node as "auth". The symbol tree stores paths without
+    // trailing slashes; a mismatch causes getSubtreeDocumentIds() to
+    // return empty → unintended fallback to global search.
+    const rawScope = options?.scope?.trim().replace(/\/+$/, '')
+    const effectiveScope = (rawScope !== undefined && rawScope !== '' ? rawScope : undefined) ?? parsed.scopePath
     const effectiveQuery = parsed.scopePath ? parsed.textQuery : query
 
     // Run text-based MiniSearch (existing pipeline), optionally scoped to a subtree

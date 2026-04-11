@@ -17,13 +17,6 @@ import {writeJsonResponse} from '../lib/json-response.js'
 import {formatSearchTextOutput} from '../lib/search-format.js'
 import {waitForTaskCompletion} from '../lib/task-client.js'
 
-/** Parsed flags type */
-type SearchFlags = {
-  format?: 'json' | 'text'
-  limit?: number
-  scope?: string
-}
-
 export default class Search extends Command {
   public static args = {
     query: Args.string({
@@ -71,9 +64,8 @@ Use "brv query" when you need a synthesized answer.`
   }
 
   public async run(): Promise<void> {
-    const {args, flags: rawFlags} = await this.parse(Search)
-    const flags = rawFlags as SearchFlags
-    const format = (flags.format ?? 'text') as 'json' | 'text'
+    const {args, flags} = await this.parse(Search)
+    const format: 'json' | 'text' = flags.format === 'json' ? 'json' : 'text'
 
     if (!this.validateInput(args.query, format)) return
 
