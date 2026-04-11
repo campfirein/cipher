@@ -112,7 +112,7 @@ Bad examples:
 
     try {
       await withDaemonRetry(
-        async (client, projectRoot) => {
+        async (client, projectRoot, worktreeRoot) => {
           const active = await client.requestWithAck<ProviderConfigResponse>(
             TransportStateEventNames.GET_PROVIDER_CONFIG,
           )
@@ -128,7 +128,7 @@ Bad examples:
             throw new Error(providerMissingMessage(active.activeProvider, active.authMethod))
           }
 
-          await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType})
+          await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType, worktreeRoot})
         },
         {
           ...this.getDaemonClientOptions(),
@@ -282,8 +282,9 @@ Bad examples:
     format: 'json' | 'text'
     projectRoot?: string
     taskType: string
+    worktreeRoot?: string
   }): Promise<void> {
-    const {client, content, flags, format, projectRoot, taskType} = props
+    const {client, content, flags, format, projectRoot, taskType, worktreeRoot} = props
     const hasFolders = Boolean(flags.folder?.length)
     const taskId = randomUUID()
     const taskPayload = {
@@ -294,6 +295,7 @@ Bad examples:
       ...(projectRoot ? {projectPath: projectRoot} : {}),
       taskId,
       type: taskType,
+      ...(worktreeRoot ? {worktreeRoot} : {}),
     }
 
     if (flags.detach) {

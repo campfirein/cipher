@@ -12,8 +12,11 @@ export interface TaskCreateRequest {
   clientCwd?: string
   content: string
   files?: string[]
+  folderPath?: string
+  projectPath?: string
   taskId: string
-  type: 'curate' | 'query'
+  type: 'curate' | 'curate-folder' | 'query'
+  worktreeRoot?: string
 }
 
 export interface TaskAckResponse {

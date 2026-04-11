@@ -6,6 +6,7 @@ import {BRV_CONFIG_VERSION} from '../../../server/constants.js'
 import {type AutoInitDeps, ensureProjectInitialized} from '../../../server/infra/config/auto-init.js'
 import {ProjectConfigStore} from '../../../server/infra/config/file-config-store.js'
 import {FileContextTreeService} from '../../../server/infra/context-tree/file-context-tree-service.js'
+import {isWorktreePointer} from '../../../server/infra/project/resolve-project.js'
 import {syncConfigToXdg} from '../../../server/utils/config-xdg-sync.js'
 
 /**
@@ -33,6 +34,9 @@ export const validateBrvConfigVersion = async (
   autoInitDeps?: AutoInitDeps,
 ): Promise<void> => {
   if (argv.some((arg) => HELP_FLAGS.has(arg))) return
+
+  // Skip auto-init if .brv is a pointer file (worktree) — the project lives elsewhere
+  if (isWorktreePointer(process.cwd())) return
 
   const exists = await configStore.exists()
   if (!exists && COMMANDS_NEED_AUTO_INIT.has(commandId)) {

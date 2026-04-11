@@ -390,6 +390,8 @@ export const TaskExecuteSchema = z.object({
   taskId: z.string(),
   /** Task type */
   type: z.enum(['curate', 'curate-folder', 'query']),
+  /** Workspace root for scoped query/curate */
+  worktreeRoot: z.string().optional(),
 })
 
 /**
@@ -647,6 +649,8 @@ export const TaskCreateRequestSchema = z.object({
   taskId: z.string().uuid('Invalid taskId format - must be UUID'),
   /** Task type */
   type: TaskTypeSchema,
+  /** Workspace root for scoped query/curate (stable linked root or projectRoot if unlinked) */
+  worktreeRoot: z.string().optional(),
 })
 
 /**

@@ -4,6 +4,12 @@ export const StatusEvents = {
   GET: 'status:get',
 } as const
 
+export interface StatusGetRequest {
+  cwd?: string
+  projectRootFlag?: string
+  verbose?: boolean
+}
+
 export interface StatusGetResponse {
   status: StatusDTO
 }

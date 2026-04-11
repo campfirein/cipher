@@ -11,8 +11,12 @@ export interface CurateExecuteOptions {
   content: string
   /** Optional file paths for --files flag */
   files?: string[]
+  /** Canonical project root where .brv/ lives (for post-processing: snapshot, summary, manifest) */
+  projectRoot?: string
   /** Task ID for event routing (required for concurrent task isolation) */
   taskId: string
+  /** Workspace root — linked subdir or same as projectRoot for direct projects */
+  worktreeRoot?: string
 }
 
 /**

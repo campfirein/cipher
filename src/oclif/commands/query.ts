@@ -68,7 +68,7 @@ Bad:
 
     try {
       await withDaemonRetry(
-        async (client, projectRoot) => {
+        async (client, projectRoot, worktreeRoot) => {
           const active = await client.requestWithAck<ProviderConfigResponse>(
             TransportStateEventNames.GET_PROVIDER_CONFIG,
           )
@@ -84,7 +84,7 @@ Bad:
             throw new Error(providerMissingMessage(active.activeProvider, active.authMethod))
           }
 
-          await this.submitTask({client, format, projectRoot, query: args.query})
+          await this.submitTask({client, format, projectRoot, query: args.query, worktreeRoot})
         },
         {
           ...this.getDaemonClientOptions(),
@@ -120,8 +120,9 @@ Bad:
     format: 'json' | 'text'
     projectRoot?: string
     query: string
+    worktreeRoot?: string
   }): Promise<void> {
-    const {client, format, projectRoot, query} = props
+    const {client, format, projectRoot, query, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
       clientCwd: process.cwd(),
@@ -129,6 +130,7 @@ Bad:
       ...(projectRoot ? {projectPath: projectRoot} : {}),
       taskId,
       type: 'query',
+      ...(worktreeRoot ? {worktreeRoot} : {}),
     }
 
     let finalResult: string | undefined
