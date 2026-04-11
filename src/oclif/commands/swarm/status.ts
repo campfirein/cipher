@@ -5,6 +5,71 @@ import {loadSwarmConfig} from '../../../agent/infra/swarm/config/swarm-config-lo
 import {validateSwarmProviders} from '../../../agent/infra/swarm/validation/config-validator.js'
 import {detectProviders} from '../../../agent/infra/swarm/wizard/provider-detector.js'
 
+type DetectedProviders = Awaited<ReturnType<typeof detectProviders>>
+type SwarmConfig = Awaited<ReturnType<typeof loadSwarmConfig>>
+
+/**
+ * Collect configured paths for path-based providers so we can detect
+ * newly discovered paths that aren't in the config yet.
+ */
+export function getConfiguredSwarmPaths(config: SwarmConfig): Set<string> {
+  const paths = new Set<string>()
+  const {providers} = config
+
+  if (providers.obsidian?.vaultPath) {
+    paths.add(providers.obsidian.vaultPath)
+  }
+
+  if (providers.localMarkdown?.folders) {
+    for (const folder of providers.localMarkdown.folders) {
+      paths.add(folder.path)
+    }
+  }
+
+  if (providers.gbrain?.repoPath) {
+    paths.add(providers.gbrain.repoPath)
+  }
+
+  return paths
+}
+
+/**
+ * Build user-facing suggestions for detected providers that are not yet configured.
+ */
+export function findSwarmStatusSuggestions(
+  config: SwarmConfig,
+  detected: DetectedProviders
+): string[] {
+  const suggestions: string[] = []
+  const configuredPaths = getConfiguredSwarmPaths(config)
+
+  for (const provider of detected) {
+    if (!provider.detected) continue
+    if (provider.id === 'byterover') continue
+
+    if (provider.path) {
+      if (!configuredPaths.has(provider.path)) {
+        suggestions.push(
+          `Found ${provider.id} at ${provider.path} — not in config. Run \`brv swarm onboard\` to add it.`
+        )
+      }
+
+      continue
+    }
+
+    const providerKey = provider.id === 'local-markdown' ? 'localMarkdown' : provider.id
+    const configured = (config.providers as Record<string, unknown>)[providerKey]
+    if (!configured) {
+      const detail = provider.envVar ? `(${provider.envVar} is set)` : ''
+      suggestions.push(
+        `Found ${provider.id} ${detail} — not in config. Run \`brv swarm onboard\` to add it.`
+      )
+    }
+  }
+
+  return suggestions
+}
+
 export default class SwarmStatus extends Command {
   public static description = 'Show memory swarm provider health and connection status'
   public static examples = [
@@ -33,7 +98,7 @@ export default class SwarmStatus extends Command {
 
       // Detect unconfigured providers (proactive suggestions)
       const detected = await detectProviders()
-      const suggestions = this.findSuggestions(config, detected)
+      const suggestions = findSwarmStatusSuggestions(config, detected)
 
       if (isJson) {
         this.logJson({
@@ -59,64 +124,10 @@ export default class SwarmStatus extends Command {
   }
 
   private findSuggestions(
-    config: Awaited<ReturnType<typeof loadSwarmConfig>>,
-    detected: Awaited<ReturnType<typeof detectProviders>>
+    config: SwarmConfig,
+    detected: DetectedProviders
   ): string[] {
-    const suggestions: string[] = []
-    const configuredPaths = this.getConfiguredPaths(config)
-
-    for (const provider of detected) {
-      if (!provider.detected) continue
-      if (provider.id === 'byterover') continue
-
-      // For path-based providers: check if the specific path is configured
-      if (provider.path) {
-        if (!configuredPaths.has(provider.path)) {
-          suggestions.push(
-            `Found ${provider.id} at ${provider.path} — not in config. Run \`brv swarm onboard\` to add it.`
-          )
-        }
-
-        continue
-      }
-
-      // For cloud providers: check if the provider type is configured at all
-      const providerKey = provider.id === 'local-markdown' ? 'localMarkdown' : provider.id
-      const configured = (config.providers as Record<string, unknown>)[providerKey]
-      if (!configured) {
-        const detail = provider.envVar ? `(${provider.envVar} is set)` : ''
-        suggestions.push(
-          `Found ${provider.id} ${detail} — not in config. Run \`brv swarm onboard\` to add it.`
-        )
-      }
-    }
-
-    return suggestions
-  }
-
-  /**
-   * Collect configured paths for path-based providers so we can detect
-   * newly discovered paths that aren't in the config yet.
-   */
-  private getConfiguredPaths(config: Awaited<ReturnType<typeof loadSwarmConfig>>): Set<string> {
-    const paths = new Set<string>()
-    const {providers} = config
-
-    if (providers.obsidian?.vaultPath) {
-      paths.add(providers.obsidian.vaultPath)
-    }
-
-    if (providers.localMarkdown?.folders) {
-      for (const folder of providers.localMarkdown.folders) {
-        paths.add(folder.path)
-      }
-    }
-
-    if (providers.gbrain?.repoPath) {
-      paths.add(providers.gbrain.repoPath)
-    }
-
-    return paths
+    return findSwarmStatusSuggestions(config, detected)
   }
 
   private renderCascadeNote(

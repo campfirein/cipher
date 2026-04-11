@@ -7,6 +7,7 @@ import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
 import type { ILogger } from '../../core/interfaces/i-logger.js'
 import type { IProcessService } from '../../core/interfaces/i-process-service.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
+import type { ISwarmCoordinator } from '../../core/interfaces/i-swarm-coordinator.js'
 import type { ITodoStorage } from '../../core/interfaces/i-todo-storage.js'
 import type { ITokenizer } from '../../core/interfaces/i-tokenizer.js'
 import type { AbstractGenerationQueue } from '../map/abstract-queue.js'
@@ -27,6 +28,7 @@ import { createLlmMapTool } from './implementations/llm-map-tool.js'
 import { createReadFileTool } from './implementations/read-file-tool.js'
 import { createSearchKnowledgeService } from './implementations/search-knowledge-service.js'
 import { createSearchKnowledgeTool } from './implementations/search-knowledge-tool.js'
+import { createSwarmQueryTool } from './implementations/swarm-query-tool.js'
 import { createWriteFileTool } from './implementations/write-file-tool.js'
 import { ToolMarker } from './tool-markers.js'
 
@@ -70,6 +72,9 @@ export interface ToolServices {
 
   /** Sandbox service for code execution */
   sandboxService?: ISandboxService
+
+  /** Swarm coordinator for cross-provider memory queries */
+  swarmCoordinator?: ISwarmCoordinator
 
   /** Todo storage service for session-based todo persistence */
   todoStorage?: ITodoStorage
@@ -266,6 +271,17 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
       createSearchKnowledgeTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
     requiredServices: ['fileSystemService'],
+  },
+
+  [ToolName.SWARM_QUERY]: {
+    descriptionFile: 'swarm_query',
+    factory(services) {
+      const coordinator = getRequiredService(services.swarmCoordinator, 'swarmCoordinator')
+
+      return createSwarmQueryTool(coordinator)
+    },
+    markers: [ToolMarker.Discovery],
+    requiredServices: ['swarmCoordinator'],
   },
 
   [ToolName.WRITE_FILE]: {

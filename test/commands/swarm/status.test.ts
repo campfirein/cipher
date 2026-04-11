@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import SwarmStatus from '../../../src/oclif/commands/swarm/status.js'
+import SwarmStatus, {findSwarmStatusSuggestions} from '../../../src/oclif/commands/swarm/status.js'
 
 describe('SwarmStatus command', () => {
   it('has correct description', () => {
@@ -15,5 +15,39 @@ describe('SwarmStatus command', () => {
   it('can be instantiated', () => {
     expect(SwarmStatus).to.have.property('description')
     expect(SwarmStatus.prototype).to.have.property('run')
+  })
+
+  it('suggests additional detected obsidian vaults that are not in config', () => {
+    const suggestions = findSwarmStatusSuggestions({
+      providers: {
+        byterover: {enabled: true},
+        obsidian: {enabled: true, vaultPath: '/vaults/alpha'},
+      },
+    } as never, [
+      {detected: true, id: 'byterover', type: 'local'},
+      {detected: true, id: 'obsidian', path: '/vaults/alpha', type: 'local'},
+      {detected: true, id: 'obsidian', path: '/vaults/beta', type: 'local'},
+    ])
+
+    expect(suggestions).to.have.length(1)
+    expect(suggestions[0]).to.include('/vaults/beta')
+  })
+
+  it('suggests additional detected markdown folders that are not in config', () => {
+    const suggestions = findSwarmStatusSuggestions({
+      providers: {
+        byterover: {enabled: true},
+        localMarkdown: {
+          enabled: true,
+          folders: [{followWikilinks: true, name: 'notes', path: '/notes/alpha', readOnly: true}],
+        },
+      },
+    } as never, [
+      {detected: true, id: 'local-markdown', path: '/notes/alpha', type: 'local'},
+      {detected: true, id: 'local-markdown', path: '/notes/beta', type: 'local'},
+    ])
+
+    expect(suggestions).to.have.length(1)
+    expect(suggestions[0]).to.include('/notes/beta')
   })
 })

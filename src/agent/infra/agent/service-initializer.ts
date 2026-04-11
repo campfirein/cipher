@@ -42,11 +42,16 @@ import { SandboxService } from '../sandbox/sandbox-service.js'
 import { FileKeyStorage } from '../storage/file-key-storage.js'
 import { GranularHistoryStorage } from '../storage/granular-history-storage.js'
 import { MessageStorageService } from '../storage/message-storage-service.js'
+import { loadSwarmConfig } from '../swarm/config/swarm-config-loader.js'
+import { buildProvidersFromConfig } from '../swarm/provider-factory.js'
+import { SwarmCoordinator } from '../swarm/swarm-coordinator.js'
 import { ContextTreeStructureContributor } from '../system-prompt/contributors/context-tree-structure-contributor.js'
 import { MapSelectionContributor } from '../system-prompt/contributors/map-selection-contributor.js'
+import { SwarmStateContributor } from '../system-prompt/contributors/swarm-state-contributor.js'
 import { SystemPromptManager } from '../system-prompt/system-prompt-manager.js'
 import { CoreToolScheduler } from '../tools/core-tool-scheduler.js'
 import { DEFAULT_POLICY_RULES } from '../tools/default-policy-rules.js'
+import { createSearchKnowledgeService } from '../tools/implementations/search-knowledge-service.js'
 import { PolicyEngine } from '../tools/policy-engine.js'
 import { ToolDescriptionLoader } from '../tools/tool-description-loader.js'
 import { ToolManager } from '../tools/tool-manager.js'
@@ -208,6 +213,36 @@ export async function createCipherAgentServices(
   const mapSelectionContributor = new MapSelectionContributor('mapSelection', 16)
   systemPromptManager.registerContributor(mapSelectionContributor)
 
+  // 6b. Swarm coordinator — try to load config and build providers.
+  // Missing config → fail-open (no swarm). Invalid config → warn but continue.
+  let swarmCoordinator: SwarmCoordinator | undefined
+  try {
+    const swarmConfig = await loadSwarmConfig(workingDirectory)
+    const swarmProviders = buildProvidersFromConfig(swarmConfig, {
+      searchService: createSearchKnowledgeService(fileSystemService),
+    })
+
+    if (swarmProviders.length > 0) {
+      swarmCoordinator = new SwarmCoordinator(swarmProviders, swarmConfig)
+      // Run initial health checks so unhealthy providers are skipped from first query
+      await swarmCoordinator.refreshHealth()
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const isConfigMissing = message.includes('not found')
+    if (!isConfigMissing) {
+      // Config exists but is invalid — warn so the user can diagnose
+      logger.warn(`Swarm disabled due to config error: ${message}`)
+    }
+    // Missing config is expected — silently skip
+  }
+
+  // Register swarm state contributor when multi-provider swarm is active
+  if (swarmCoordinator) {
+    const swarmStateContributor = new SwarmStateContributor('swarmState', 17, swarmCoordinator)
+    systemPromptManager.registerContributor(swarmStateContributor)
+  }
+
   // 7. Abstract generation queue (generator injected later via rebindCurateTools)
   const abstractQueue = new AbstractGenerationQueue(workingDirectory)
 
@@ -223,6 +258,7 @@ export async function createCipherAgentServices(
       memoryManager,
       processService,
       sandboxService,
+      swarmCoordinator,
     },
     systemPromptManager,
     descriptionLoader,
