@@ -7,9 +7,9 @@ const RELATIVE_TIME_PATTERN = /^(\d+)(m|h|d|w)$/
  *  - Relative: "30m", "1h", "24h", "7d", "2w"
  *  - Absolute: ISO date "2024-01-15" or datetime "2024-01-15T12:00:00Z"
  *
- * Returns null when the value cannot be parsed.
+ * Returns undefined when the value cannot be parsed.
  */
-export function parseTimeFilter(value: string): null | number {
+export function parseTimeFilter(value: string): number | undefined {
   const relMatch = RELATIVE_TIME_PATTERN.exec(value)
   if (relMatch) {
     const amount = Number(relMatch[1])
@@ -19,5 +19,5 @@ export function parseTimeFilter(value: string): null | number {
   }
 
   const ts = new Date(value).getTime()
-  return Number.isNaN(ts) ? null : ts
+  return Number.isNaN(ts) ? undefined : ts
 }
