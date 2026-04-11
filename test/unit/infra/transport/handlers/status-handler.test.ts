@@ -192,6 +192,8 @@ describe('StatusHandler', () => {
 
     it('should return no_changes when context tree exists with no changes', async () => {
       deps.contextTreeService.exists.resolves(true)
+      deps.projectConfigStore.exists.resolves(true)
+      deps.projectConfigStore.read.resolves({spaceId: 's1', spaceName: 'space-1', teamId: 't1', teamName: 'team-1'})
       deps.contextTreeSnapshotService.getChanges.resolves({added: [], deleted: [], modified: []})
       createHandler()
       const result = await callGetHandler()
@@ -200,10 +202,90 @@ describe('StatusHandler', () => {
 
     it('should return has_changes when there are changes', async () => {
       deps.contextTreeService.exists.resolves(true)
+      deps.projectConfigStore.exists.resolves(true)
+      deps.projectConfigStore.read.resolves({spaceId: 's1', spaceName: 'space-1', teamId: 't1', teamName: 'team-1'})
       deps.contextTreeSnapshotService.getChanges.resolves({added: ['new.md'], deleted: [], modified: []})
       createHandler()
       const result = await callGetHandler()
       expect(result.status.contextTreeStatus).to.equal('has_changes')
+    })
+
+    describe('legacy sync config gating (ENG-2043)', () => {
+      it('new user (no teamId/spaceId) should return no_vc and never touch snapshot', async () => {
+        deps.contextTreeService.exists.resolves(true)
+        deps.projectConfigStore.exists.resolves(true)
+        deps.projectConfigStore.read.resolves({})
+        createHandler()
+
+        const result = await callGetHandler()
+        expect(result.status.contextTreeStatus).to.equal('no_vc')
+        expect(deps.contextTreeSnapshotService.hasSnapshot.called).to.be.false
+        expect(deps.contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+        expect(deps.contextTreeSnapshotService.getChanges.called).to.be.false
+      })
+
+      it('orphan user (stale snapshot, no legacy config) should return no_vc and leave file untouched', async () => {
+        deps.contextTreeService.exists.resolves(true)
+        deps.projectConfigStore.exists.resolves(true)
+        deps.projectConfigStore.read.resolves({})
+        deps.contextTreeSnapshotService.hasSnapshot.resolves(true)
+        createHandler()
+
+        const result = await callGetHandler()
+        expect(result.status.contextTreeStatus).to.equal('no_vc')
+        expect(deps.contextTreeSnapshotService.hasSnapshot.called).to.be.false
+        expect(deps.contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+        expect(deps.contextTreeSnapshotService.getChanges.called).to.be.false
+      })
+
+      it('partial config (teamId only) should return no_vc', async () => {
+        deps.contextTreeService.exists.resolves(true)
+        deps.projectConfigStore.exists.resolves(true)
+        deps.projectConfigStore.read.resolves({teamId: 't1'})
+        createHandler()
+
+        const result = await callGetHandler()
+        expect(result.status.contextTreeStatus).to.equal('no_vc')
+        expect(deps.contextTreeSnapshotService.hasSnapshot.called).to.be.false
+        expect(deps.contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+        expect(deps.contextTreeSnapshotService.getChanges.called).to.be.false
+      })
+
+      it('partial config (spaceId only) should return no_vc', async () => {
+        deps.contextTreeService.exists.resolves(true)
+        deps.projectConfigStore.exists.resolves(true)
+        deps.projectConfigStore.read.resolves({spaceId: 's1'})
+        createHandler()
+
+        const result = await callGetHandler()
+        expect(result.status.contextTreeStatus).to.equal('no_vc')
+        expect(deps.contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+      })
+
+      it('legacy user (teamId + spaceId) should create missing snapshot and compute diffs', async () => {
+        deps.contextTreeService.exists.resolves(true)
+        deps.projectConfigStore.exists.resolves(true)
+        deps.projectConfigStore.read.resolves({spaceId: 's1', spaceName: 'space-1', teamId: 't1', teamName: 'team-1'})
+        deps.contextTreeSnapshotService.hasSnapshot.resolves(false)
+        deps.contextTreeSnapshotService.getChanges.resolves({added: [], deleted: [], modified: []})
+        createHandler()
+
+        const result = await callGetHandler()
+        expect(result.status.contextTreeStatus).to.equal('no_changes')
+        expect(deps.contextTreeSnapshotService.hasSnapshot.called).to.be.true
+        expect(deps.contextTreeSnapshotService.initEmptySnapshot.called).to.be.true
+        expect(deps.contextTreeSnapshotService.getChanges.called).to.be.true
+      })
+
+      it('no project config file at all should return no_vc', async () => {
+        deps.contextTreeService.exists.resolves(true)
+        deps.projectConfigStore.exists.resolves(false)
+        createHandler()
+
+        const result = await callGetHandler()
+        expect(result.status.contextTreeStatus).to.equal('no_vc')
+        expect(deps.contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+      })
     })
 
     it('should return unknown when contextTreeService.exists throws', async () => {

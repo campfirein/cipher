@@ -78,6 +78,26 @@ describe('error-messages', () => {
       expect(formatTransportError(err)).to.equal('No code here.')
     })
 
+    it('includes docs link for ERR_VC_GIT_INITIALIZED', () => {
+      const err = Object.assign(new Error('ByteRover version control is initialized'), {
+        code: 'ERR_VC_GIT_INITIALIZED',
+      })
+      const result = formatTransportError(err)
+      expect(result).to.include('/vc commands')
+      expect(result).to.include('https://docs.byterover.dev/git-semantic/overview')
+    })
+
+    it('includes docs link for ERR_LEGACY_SYNC_UNAVAILABLE', () => {
+      const err = Object.assign(new Error('brv push and brv pull are deprecated.'), {
+        code: 'ERR_LEGACY_SYNC_UNAVAILABLE',
+      })
+      const result = formatTransportError(err)
+      expect(result).to.include('/vc init')
+      expect(result).to.include('https://docs.byterover.dev/git-semantic/overview')
+      expect(result).to.not.include('space switch')
+      expect(result).to.not.include('space list')
+    })
+
     it('should return friendly message for TransportRequestTimeoutError', () => {
       const error = new Error("Request timeout for event 'provider:awaitOAuthCallback' after 300000ms")
       error.name = 'TransportRequestTimeoutError'
