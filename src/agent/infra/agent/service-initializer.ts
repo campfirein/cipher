@@ -4,7 +4,7 @@
  * This module is responsible for initializing and wiring together all core agent services.
  * It provides a single entry point for constructing the service graph.
  *
- * Following DextoAgent pattern:
+ * Following pattern:
  * - Config file is source of truth (ValidatedAgentConfig)
  * - Centralized function (not factory class) for service creation
  * - Explicit dependency order with numbered steps
@@ -35,6 +35,7 @@ import { createGeneratorForProvider } from '../llm/providers/index.js'
 import { DEFAULT_RETRY_POLICY } from '../llm/retry/retry-policy.js'
 import { GeminiTokenizer } from '../llm/tokenizers/gemini-tokenizer.js'
 import { EventBasedLogger } from '../logger/event-based-logger.js'
+import { AbstractGenerationQueue } from '../map/abstract-queue.js'
 import { MemoryManager } from '../memory/memory-manager.js'
 import { ProcessService } from '../process/process-service.js'
 import { SandboxService } from '../sandbox/sandbox-service.js'
@@ -103,7 +104,7 @@ export type {CipherAgentServices, SessionManagerConfig, SessionServices} from '.
  * Creates shared services for CipherAgent.
  * These services are singletons shared across all sessions.
  *
- * Initialization order follows DextoAgent pattern (explicit numbered steps):
+ * Initialization order (explicit numbered steps):
  * 1. Logger (uses provided event bus)
  * 2. File system service (no dependencies)
  * 3. Process service (no dependencies)
@@ -118,14 +119,14 @@ export type {CipherAgentServices, SessionManagerConfig, SessionServices} from '.
  * 12. Return all services
  *
  * @param config - Validated agent configuration (Zod-validated)
- * @param agentEventBus - Pre-created event bus from agent constructor (DextoAgent pattern)
+ * @param agentEventBus - Pre-created event bus from agent constructor
  * @returns Initialized shared services
  */
 export async function createCipherAgentServices(
   config: ValidatedAgentConfig,
   agentEventBus: AgentEventBus,
 ): Promise<CipherAgentServices> {
-  // 1. Logger (uses provided event bus - DextoAgent pattern)
+  // 1. Logger (uses provided event bus )
   const logger = new EventBasedLogger(agentEventBus, 'CipherAgent')
 
   // 2. File system service (no dependencies)
@@ -207,11 +208,15 @@ export async function createCipherAgentServices(
   const mapSelectionContributor = new MapSelectionContributor('mapSelection', 16)
   systemPromptManager.registerContributor(mapSelectionContributor)
 
-  // 7. Tool provider (depends on FileSystemService, ProcessService, MemoryManager, SystemPromptManager)
+  // 7. Abstract generation queue (generator injected later via rebindCurateTools)
+  const abstractQueue = new AbstractGenerationQueue(workingDirectory)
+
+  // 8. Tool provider (depends on FileSystemService, ProcessService, MemoryManager, SystemPromptManager)
   const verbose = config.llm.verbose ?? false
   const descriptionLoader = new ToolDescriptionLoader()
   const toolProvider: ToolProvider = new ToolProvider(
     {
+      abstractQueue,
       environmentContext,
       fileSystemService,
       getToolProvider: (): ToolProvider => toolProvider,
@@ -224,16 +229,16 @@ export async function createCipherAgentServices(
   )
   await toolProvider.initialize()
 
-  // 8. Policy engine with default rules for autonomous execution
+  // 9. Policy engine with default rules for autonomous execution
   const policyEngine = new PolicyEngine({defaultDecision: 'ALLOW'})
   policyEngine.addRules(DEFAULT_POLICY_RULES)
 
-  // 9. Tool scheduler (orchestrates policy check → execution)
+  // 10. Tool scheduler (orchestrates policy check → execution)
   const toolScheduler = new CoreToolScheduler(toolProvider, policyEngine, undefined, {
     verbose,
   })
 
-  // 10. Tool manager (with scheduler for policy-based execution)
+  // 11. Tool manager (with scheduler for policy-based execution)
   const toolManager = new ToolManager(toolProvider, toolScheduler)
   await toolManager.initialize()
 
@@ -264,6 +269,7 @@ export async function createCipherAgentServices(
   })
 
   return {
+    abstractQueue,
     agentEventBus,
     blobStorage,
     compactionService,
@@ -278,6 +284,7 @@ export async function createCipherAgentServices(
     toolManager,
     toolProvider,
     toolScheduler,
+    workingDirectory,
   }
 }
 

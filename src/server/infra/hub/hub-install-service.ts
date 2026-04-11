@@ -12,6 +12,7 @@ import type {IFileService} from '../../core/interfaces/services/i-file-service.j
 import type {SkillConnector} from '../connectors/skill/skill-connector.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
+import {ProxyConfig} from '../http/proxy-config.js'
 import {buildAuthHeaders} from './hub-auth-headers.js'
 
 export interface HubInstallServiceDeps {
@@ -60,6 +61,9 @@ export class HubInstallService implements IHubInstallService {
 
       const response = await axios.get<string>(url, {
         headers,
+        httpAgent: ProxyConfig.getProxyAgent(),
+        httpsAgent: ProxyConfig.getProxyAgent(),
+        proxy: false,
         responseType: 'text',
         timeout: 15_000,
       })

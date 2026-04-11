@@ -62,6 +62,10 @@ export interface ArchiveStubFrontmatter {
 // ---------------------------------------------------------------------------
 
 export interface ManifestEntry {
+  /** Relative path to .abstract.md sibling, if it exists */
+  abstractPath?: string
+  /** Token count of .abstract.md (used for lane budgeting) */
+  abstractTokens?: number
   /** Importance score from frontmatter (0-100, default 50) */
   importance?: number
   /** Condensation order (only for summaries) */

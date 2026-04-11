@@ -1,8 +1,10 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 import nock from 'nock'
+import * as sinon from 'sinon'
 
 import {Space} from '../../../../src/server/core/domain/entities/space.js'
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 import {HttpSpaceService} from '../../../../src/server/infra/space/http-space-service.js'
 
 describe('HttpSpaceService', () => {
@@ -12,10 +14,12 @@ describe('HttpSpaceService', () => {
   let service: HttpSpaceService
 
   beforeEach(() => {
+    sinon.stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     service = new HttpSpaceService({apiBaseUrl})
   })
 
   afterEach(() => {
+    sinon.restore()
     nock.cleanAll()
   })
 
@@ -158,6 +162,75 @@ describe('HttpSpaceService', () => {
         expect(error).to.be.instanceOf(Error)
         expect((error as Error).message).to.include('Network error')
       }
+    })
+
+    it('should map slug fields from API response when present', async () => {
+      const mockResponse = {
+        code: 200,
+        data: {
+          spaces: [
+            {
+              created_at: '2024-01-01T00:00:00Z',
+              id: 'space-1',
+              name: 'my-space-v2.0',
+              slug: 'my-space-v2-0',
+              status: 'active',
+              team: {name: 'test-release-2.0.0', slug: 'test-release-2-0-0'},
+              team_id: 'team-1',
+              updated_at: '2024-01-01T00:00:00Z',
+              visibility: 'private',
+            },
+          ],
+          total: 1,
+        },
+        message: 'success',
+      }
+
+      nock(apiBaseUrl)
+        .get('/spaces')
+        .query({team_id: teamId})
+        .matchHeader('x-byterover-session-id', sessionKey)
+        .reply(200, mockResponse)
+
+      const result = await service.getSpaces(sessionKey, teamId)
+
+      expect(result.spaces[0].slug).to.equal('my-space-v2-0')
+      expect(result.spaces[0].teamSlug).to.equal('test-release-2-0-0')
+      expect(result.spaces[0].name).to.equal('my-space-v2.0')
+      expect(result.spaces[0].teamName).to.equal('test-release-2.0.0')
+    })
+
+    it('should fall back slug to name when slug is absent from API response', async () => {
+      const mockResponse = {
+        code: 200,
+        data: {
+          spaces: [
+            {
+              created_at: '2024-01-01T00:00:00Z',
+              id: 'space-1',
+              name: 'frontend-app',
+              status: 'active',
+              team: {name: 'acme-corp'},
+              team_id: 'team-1',
+              updated_at: '2024-01-01T00:00:00Z',
+              visibility: 'private',
+            },
+          ],
+          total: 1,
+        },
+        message: 'success',
+      }
+
+      nock(apiBaseUrl)
+        .get('/spaces')
+        .query({team_id: teamId})
+        .matchHeader('x-byterover-session-id', sessionKey)
+        .reply(200, mockResponse)
+
+      const result = await service.getSpaces(sessionKey, teamId)
+
+      expect(result.spaces[0].slug).to.equal('frontend-app')
+      expect(result.spaces[0].teamSlug).to.equal('acme-corp')
     })
 
     describe('pagination', () => {

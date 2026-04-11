@@ -1,5 +1,5 @@
 /**
- * Agent module - Complete cipher agent implementation following DextoAgent patterns
+ * Agent module - Complete cipher agent implementation
  *
  * This module provides the full agent architecture with:
  * - CipherAgent: Main agent class for LLM interactions

@@ -1,5 +1,5 @@
 import {instrument} from '@socket.io/admin-ui'
-import {createServer, Server as HttpServer, type IncomingMessage, type ServerResponse} from 'node:http'
+import {createServer, Server as HttpServer, type RequestListener} from 'node:http'
 import {Server, Socket} from 'socket.io'
 
 import type {TransportServerConfig} from '../../core/domain/transport/types.js'
@@ -43,6 +43,7 @@ export class SocketIOTransportServer implements ITransportServer {
   private readonly config: Required<TransportServerConfig>
   private connectionHandlers: ConnectionHandler[] = []
   private disconnectionHandlers: ConnectionHandler[] = []
+  private httpRequestHandler?: RequestListener
   private httpServer: HttpServer | undefined
   private io: Server | undefined
   private port: number | undefined
@@ -144,13 +145,25 @@ export class SocketIOTransportServer implements ITransportServer {
     }
   }
 
-  async start(port: number, requestListener?: (req: IncomingMessage, res: ServerResponse) => void): Promise<void> {
+  /**
+   * Sets an HTTP request handler (e.g., Express app) to handle non-Socket.IO HTTP requests.
+   * Must be called before start().
+   */
+  setHttpRequestHandler(handler: RequestListener): void {
+    if (this.running) {
+      throw new TransportServerAlreadyRunningError(this.port ?? 0)
+    }
+
+    this.httpRequestHandler = handler
+  }
+
+  async start(port: number): Promise<void> {
     if (this.running) {
       throw new TransportServerAlreadyRunningError(this.port ?? port)
     }
 
     return new Promise((resolve, reject) => {
-      this.httpServer = requestListener ? createServer(requestListener) : createServer()
+      this.httpServer = this.httpRequestHandler ? createServer(this.httpRequestHandler) : createServer()
 
       // In development mode, allow admin.socket.io for debugging
       const corsOrigin = isDevelopment() ? [this.config.corsOrigin, 'https://admin.socket.io'] : this.config.corsOrigin

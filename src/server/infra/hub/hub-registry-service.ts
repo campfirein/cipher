@@ -6,6 +6,7 @@ import type {AuthScheme} from '../../../shared/transport/types/auth-scheme.js'
 import type {HubEntryDTO} from '../../../shared/transport/types/dto.js'
 import type {IHubRegistryService} from '../../core/interfaces/hub/i-hub-registry-service.js'
 
+import {ProxyConfig} from '../http/proxy-config.js'
 import {buildAuthHeaders} from './hub-auth-headers.js'
 
 const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
@@ -103,6 +104,9 @@ export class HubRegistryService implements IHubRegistryService {
 
       const response = await axios.get<unknown>(this.registryUrl, {
         headers,
+        httpAgent: ProxyConfig.getProxyAgent(),
+        httpsAgent: ProxyConfig.getProxyAgent(),
+        proxy: false,
         timeout: this.timeoutMs,
       })
 

@@ -14,6 +14,7 @@ import {z} from 'zod'
 import type {ProviderModelInfo} from '../../core/interfaces/i-provider-model-fetcher.js'
 
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
+import {ProxyConfig} from './proxy-config.js'
 
 // ============================================================================
 // Schemas
@@ -101,6 +102,9 @@ export class ModelsDevClient {
 
   private async fetchAndCache(): Promise<ModelsDevData> {
     const response = await axios.get<ModelsDevData>(MODELS_DEV_URL, {
+      httpAgent: ProxyConfig.getProxyAgent(),
+      httpsAgent: ProxyConfig.getProxyAgent(),
+      proxy: false,
       timeout: FETCH_TIMEOUT_MS,
     })
 
@@ -178,11 +182,4 @@ export function getModelsDevClient(): ModelsDevClient {
   }
 
   return clientInstance
-}
-
-/**
- * Reset the singleton (for testing).
- */
-export function resetModelsDevClient(): void {
-  clientInstance = undefined
 }

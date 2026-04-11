@@ -7,7 +7,7 @@
  * - isExcludedFromSync() — union of above (excluded from snapshot/sync/merge/push)
  */
 
-import {ARCHIVE_DIR, FULL_ARCHIVE_EXTENSION, MANIFEST_FILE, STUB_EXTENSION, SUMMARY_INDEX_FILE} from '../../constants.js'
+import {ABSTRACT_EXTENSION, ARCHIVE_DIR, FULL_ARCHIVE_EXTENSION, MANIFEST_FILE, OVERVIEW_EXTENSION, STUB_EXTENSION, SUMMARY_INDEX_FILE} from '../../constants.js'
 import {toUnixPath} from './path-utils.js'
 
 /**
@@ -26,6 +26,10 @@ export function isDerivedArtifact(relativePath: string): boolean {
   if (fileName === SUMMARY_INDEX_FILE) return true
 
   if (fileName === MANIFEST_FILE) return true
+
+  if (fileName.endsWith(ABSTRACT_EXTENSION)) return true
+
+  if (fileName.endsWith(OVERVIEW_EXTENSION)) return true
 
   if (segments.includes(ARCHIVE_DIR) && fileName.endsWith(FULL_ARCHIVE_EXTENSION)) return true
 

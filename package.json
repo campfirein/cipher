@@ -1,7 +1,18 @@
 {
   "name": "byterover-cli",
   "description": "ByteRover's CLI",
-  "version": "2.3.3",
+  "keywords": [
+    "cli",
+    "ai",
+    "llm",
+    "mcp",
+    "developer-tools",
+    "context-memory",
+    "autonomous-agents",
+    "coding-assistant",
+    "knowledge-management"
+  ],
+  "version": "3.1.0",
   "author": "ByteRover",
   "bin": {
     "brv": "./bin/run.js"
@@ -22,7 +33,7 @@
     "@ai-sdk/vercel": "^1.0.33",
     "@ai-sdk/xai": "^2.0.57",
     "@anthropic-ai/sdk": "^0.70.1",
-    "@campfirein/brv-transport-client": "/Users/ncnthien/Documents/projects/brv-transport-client",
+    "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#1.0.0",
     "@campfirein/byterover-packages": "^0.0.0",
     "@google/genai": "^1.29.0",
     "@inkjs/ui": "^2.0.0",
@@ -35,8 +46,9 @@
     "@socket.io/admin-ui": "^0.5.1",
     "@tanstack/react-query": "^5.90.20",
     "ai": "^5.0.129",
-    "axios": "^1.12.2",
+    "axios": "1.14.0",
     "chalk": "^5.6.2",
+    "dotenv": "^17.3.1",
     "esbuild": "^0.27.2",
     "express": "^5.1.0",
     "fullscreen-ink": "^0.1.0",
@@ -49,6 +61,7 @@
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
     "inquirer-file-selector": "^1.0.1",
+    "isomorphic-git": "^1.37.2",
     "js-yaml": "^4.1.1",
     "lodash-es": "^4.17.22",
     "minisearch": "^7.2.0",
@@ -56,6 +69,7 @@
     "officeparser": "^6.0.4",
     "open": "^10.2.0",
     "openai": "^6.9.1",
+    "proxy-agent": "^7.0.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "react-router-dom": "^7.13.0",
@@ -100,7 +114,7 @@
     "expect-type": "^1.2.2",
     "husky": "^9.1.7",
     "lint-staged": "^16.3.1",
-    "mocha": "^10",
+    "mocha": "10.8.2",
     "nock": "^14.0.10",
     "oclif": "^4",
     "pdfkit": "^0.17.2",
@@ -117,12 +131,13 @@
     "node": ">=20.0.0"
   },
   "files": [
+    "./.env.production",
     "./bin",
     "./dist",
     "./oclif.manifest.json"
   ],
   "homepage": "https://www.byterover.dev/",
-  "license": "UNLICENSED",
+  "license": "Elastic-2.0",
   "main": "dist/index.js",
   "type": "module",
   "oclif": {
@@ -133,11 +148,11 @@
       "init": [
         "./dist/oclif/hooks/init/block-command-update-npm",
         "./dist/oclif/hooks/init/welcome",
-        "./dist/oclif/hooks/init/update-notifier"
+        "./dist/oclif/hooks/init/update-notifier",
+        "./dist/oclif/hooks/init/validate-brv-config"
       ],
       "command_not_found": "./dist/oclif/hooks/command_not_found/handle-invalid-commands",
       "error": "./dist/oclif/hooks/error/clean-errors",
-      "prerun": "./dist/oclif/hooks/prerun/validate-brv-config-version",
       "postrun": "./dist/oclif/hooks/postrun/restart-after-update"
     },
     "plugins": [

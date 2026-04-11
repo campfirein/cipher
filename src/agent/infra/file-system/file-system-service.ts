@@ -285,6 +285,7 @@ export class FileSystemService implements IFileSystem {
 
     const rawCwd = options.cwd ?? this.config.workingDirectory
     const cwd = path.isAbsolute(rawCwd) ? rawCwd : path.resolve(this.config.workingDirectory, rawCwd)
+    const normalizedCwd = await fs.realpath(cwd).catch(() => cwd)
     const maxResults = options.maxResults ?? 1000
     const includeMetadata = options.includeMetadata ?? true
     const caseSensitive = options.caseSensitive ?? true
@@ -292,12 +293,12 @@ export class FileSystemService implements IFileSystem {
 
     try {
       // Handle special characters - escape pattern if it matches an existing file
-      const escapedPattern = await escapeIfExactMatch(pattern, cwd)
+      const escapedPattern = await escapeIfExactMatch(pattern, normalizedCwd)
 
       // Execute glob with case sensitivity option
       const files = await glob(escapedPattern, {
         absolute: true,
-        cwd,
+        cwd: normalizedCwd,
         follow: false, // Don't follow symlinks
         nocase: !caseSensitive, // Case insensitive if caseSensitive is false
         nodir: true, // Only files
@@ -306,7 +307,7 @@ export class FileSystemService implements IFileSystem {
       // Initialize gitignore filter if requested
       let gitignoreFilter = null
       if (respectGitignore) {
-        gitignoreFilter = await createGitignoreFilter(cwd)
+        gitignoreFilter = await createGitignoreFilter(normalizedCwd)
       }
 
       // Validate paths and apply gitignore filtering
@@ -323,7 +324,7 @@ export class FileSystemService implements IFileSystem {
 
         // Apply gitignore filter if enabled
         if (gitignoreFilter) {
-          const relativePath = path.relative(cwd, validation.normalizedPath)
+          const relativePath = path.relative(normalizedCwd, validation.normalizedPath)
           if (gitignoreFilter.isIgnored(relativePath)) {
             ignoredCount++
             continue
@@ -336,7 +337,7 @@ export class FileSystemService implements IFileSystem {
       const totalFound = validPaths.length
 
       // Collect metadata for all valid paths
-      const filesWithMetadata = await collectFileMetadata(validPaths, cwd)
+      const filesWithMetadata = await collectFileMetadata(validPaths, normalizedCwd)
 
       // Sort files: recent files first (within 24h), then alphabetical
       const sortedFiles = sortFilesByRecency(filesWithMetadata)

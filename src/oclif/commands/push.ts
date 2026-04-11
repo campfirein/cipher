@@ -47,6 +47,7 @@ Uploads your local context tree changes to the ByteRover cloud.`
           writeJsonResponse({command: 'push', data: {status: 'cancelled'}, success: false})
         } else {
           this.log('Push cancelled.')
+          this.logVcHint()
         }
 
         return
@@ -57,6 +58,7 @@ Uploads your local context tree changes to the ByteRover cloud.`
           writeJsonResponse({command: 'push', data: {status: 'no_changes'}, success: true})
         } else {
           this.log('No context changes to push.')
+          this.logVcHint()
         }
 
         return
@@ -82,6 +84,7 @@ Uploads your local context tree changes to the ByteRover cloud.`
         this.log(`  Branch: ${branch}`)
         this.log(`  Added: ${result.added}, Edited: ${result.edited}, Deleted: ${result.deleted}`)
         this.log(`  View: ${result.url}`)
+        this.logVcHint()
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Push failed'
@@ -90,6 +93,7 @@ Uploads your local context tree changes to the ByteRover cloud.`
         writeJsonResponse({command: 'push', data: {error: errorMessage, status: 'error'}, success: false})
       } else {
         this.log(formatConnectionError(error))
+        this.logVcHint()
       }
     }
   }
@@ -105,5 +109,10 @@ Uploads your local context tree changes to the ByteRover cloud.`
       const result = await client.requestWithAck<PushExecuteResponse>(PushEvents.EXECUTE, {branch})
       return {noChanges: false, result}
     })
+  }
+
+  private logVcHint(): void {
+    this.log('\nTip: Version control is now available for your context tree.')
+    this.log('Learn more: https://docs.byterover.dev/git-semantic/overview')
   }
 }

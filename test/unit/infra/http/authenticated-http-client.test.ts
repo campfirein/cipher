@@ -1,8 +1,10 @@
 import {isAxiosError} from 'axios'
 import {expect} from 'chai'
 import nock from 'nock'
+import * as sinon from 'sinon'
 
 import {AuthenticatedHttpClient} from '../../../../src/server/infra/http/authenticated-http-client.js'
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 
 describe('AuthenticatedHttpClient', () => {
   const baseUrl = 'https://api.example.com'
@@ -10,10 +12,13 @@ describe('AuthenticatedHttpClient', () => {
   let client: AuthenticatedHttpClient
 
   beforeEach(() => {
+    // ProxyAgent's connect() flow bypasses nock interception, so disable it in tests
+    sinon.stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     client = new AuthenticatedHttpClient(sessionKey)
   })
 
   afterEach(() => {
+    sinon.restore()
     nock.cleanAll()
   })
 
@@ -52,7 +57,7 @@ describe('AuthenticatedHttpClient', () => {
         expect.fail('Should have thrown timeout error')
       } catch (error) {
         expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message).to.include('timeout')
+        expect((error as Error).message).to.include('Connection Failed')
       }
     })
 

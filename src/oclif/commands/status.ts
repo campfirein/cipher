@@ -32,7 +32,7 @@ export default class Status extends Command {
     const isJson = flags.format === 'json'
 
     try {
-      const status = await this.fetchStatus()
+      const status = await this.fetchStatus({projectPath: process.cwd()})
 
       if (isJson) {
         writeJsonResponse({
@@ -42,6 +42,7 @@ export default class Status extends Command {
         })
       } else {
         this.formatTextOutput(status)
+        this.logVcHint()
       }
     } catch (error) {
       if (isJson) {
@@ -52,6 +53,7 @@ export default class Status extends Command {
         })
       } else {
         this.log(formatConnectionError(error))
+        this.logVcHint()
       }
     }
   }
@@ -92,6 +94,11 @@ export default class Status extends Command {
 
     // Context tree status
     switch (status.contextTreeStatus) {
+      case 'git_vc': {
+        this.log('Context Tree: Managed by Byterover version control (use brv vc commands)')
+        break
+      }
+
       case 'has_changes': {
         if (status.contextTreeChanges && status.contextTreeRelativeDir) {
           const formatPath = (file: string) => `${status.contextTreeRelativeDir}/${file}`
@@ -125,5 +132,10 @@ export default class Status extends Command {
         this.log('Context Tree: Unable to check status')
       }
     }
+  }
+
+  private logVcHint(): void {
+    this.log('\nTip: Version control is now available for your context tree.')
+    this.log('Learn more: https://docs.byterover.dev/git-semantic/overview')
   }
 }

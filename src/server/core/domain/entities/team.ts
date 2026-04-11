@@ -10,6 +10,7 @@ interface TeamParams {
   isActive: boolean
   isDefault: boolean
   name: string
+  slug: string
   updatedAt: Date
 }
 
@@ -26,6 +27,7 @@ export class Team {
   public readonly isActive: boolean
   public readonly isDefault: boolean
   public readonly name: string
+  public readonly slug: string
   public readonly updatedAt: Date
 
   public constructor(params: TeamParams) {
@@ -49,6 +51,7 @@ export class Team {
     this.isActive = params.isActive
     this.isDefault = params.isDefault
     this.name = params.name
+    this.slug = params.slug
     this.updatedAt = params.updatedAt
   }
 
@@ -94,6 +97,7 @@ export class Team {
       isActive: json.is_active,
       isDefault: json.is_default,
       name: json.name,
+      slug: typeof json.slug === 'string' ? json.slug : json.name,
       updatedAt: new Date(json.updated_at),
     })
   }
@@ -119,6 +123,7 @@ export class Team {
       isActive: this.isActive,
       isDefault: this.isDefault,
       name: this.name,
+      slug: this.slug,
       updatedAt: this.updatedAt.toISOString(),
     }
   }

@@ -25,6 +25,7 @@ export interface ProviderConnectRequest {
 }
 
 export interface ProviderConnectResponse {
+  error?: string
   success: boolean
 }
 
@@ -49,6 +50,8 @@ export interface ProviderValidateApiKeyResponse {
 export interface ProviderGetActiveResponse {
   activeModel?: string
   activeProviderId: string
+  /** True when the active provider requires login but the user is not logged in. */
+  loginRequired?: boolean
 }
 
 export interface ProviderSetActiveRequest {
@@ -56,6 +59,7 @@ export interface ProviderSetActiveRequest {
 }
 
 export interface ProviderSetActiveResponse {
+  error?: string
   success: boolean
 }
 

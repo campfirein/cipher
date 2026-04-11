@@ -1,3 +1,4 @@
+import {select} from '@inquirer/prompts'
 import {Args, Command, Flags} from '@oclif/core'
 
 import {AGENT_CONNECTOR_CONFIG} from '../../../server/core/domain/entities/agent.js'
@@ -12,6 +13,7 @@ import {isConnectorType, requiresAgentRestart} from '../../../shared/types/conne
 import {getConnectorName} from '../../../tui/features/connectors/utils/get-connector-name.js'
 import {type DaemonClientOptions, withDaemonRetry} from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
+import { isPromptCancelled } from '../../lib/prompt-utils.js'
 
 const agentTable = AGENT_VALUES.map((agent) => {
   const config = AGENT_CONNECTOR_CONFIG[agent]
@@ -22,8 +24,8 @@ const agentTable = AGENT_VALUES.map((agent) => {
 export default class ConnectorsInstall extends Command {
   public static args = {
     agent: Args.string({
-      description: 'Agent name to install connector for (e.g., "Claude Code", "Cursor")',
-      required: true,
+      description: 'Agent name to install connector for (e.g., "Claude Code", "Cursor"). Omit for interactive selection.',
+      required: false,
     }),
   }
   public static description = `Install or switch a connector for an agent
@@ -107,13 +109,52 @@ ${agentTable}`
     }, options)
   }
 
+  protected async promptForAgent(options?: DaemonClientOptions): Promise<string> {
+    const {agents} = await withDaemonRetry(
+      async (client) => client.requestWithAck<ConnectorGetAgentsResponse>(ConnectorEvents.GET_AGENTS),
+      options,
+    )
+
+    // Add a blank line before the prompt
+    this.log('')
+
+    return select({
+      choices: agents.map((a) => ({
+        description: `Connector type: ${getConnectorName(a.defaultConnectorType)}`,
+        name: a.name,
+        value: a.id,
+      })),
+      loop: false,
+      message: 'Select your coding agent to install the connector (type to search):',
+    })
+  }
+
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(ConnectorsInstall)
+    let agentId = args.agent
     const format = flags.format as 'json' | 'text'
+
+    if (!agentId) {
+      if (format === 'json') {
+        writeJsonResponse({
+          command: 'connectors install',
+          data: {error: 'Agent argument is required for JSON output'},
+          success: false,
+        })
+        return
+      }
+
+      try {
+        agentId = await this.promptForAgent()
+      } catch (error) {
+        if (!isPromptCancelled(error)) throw error
+        return // user cancelled agent selection
+      }
+    }
 
     try {
       const installResult = await this.installConnector({
-        agentId: args.agent,
+        agentId,
         connectorType: flags.type,
       })
 

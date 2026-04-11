@@ -1,6 +1,5 @@
 /**
  * Agent-specific error codes.
- * Follows DextoAgent pattern for typed error identification.
  */
 export enum AgentErrorCode {
   ALREADY_STARTED = 'agent_already_started',

@@ -39,6 +39,16 @@ export class FileContextTreeService implements IContextTreeService {
     }
   }
 
+  public async hasGitRepo(directory: string): Promise<boolean> {
+    const contextTreeDir = this.resolvePath(directory)
+    try {
+      await access(join(contextTreeDir, '.git'))
+      return true
+    } catch {
+      return false
+    }
+  }
+
   public async initialize(directory?: string): Promise<string> {
     const baseDir = directory ?? this.config.baseDirectory ?? process.cwd()
     const brvDir = join(baseDir, BRV_DIR)
@@ -49,5 +59,9 @@ export class FileContextTreeService implements IContextTreeService {
     await mkdir(contextTreeDir, {recursive: true})
 
     return contextTreeDir
+  }
+
+  public resolvePath(directory: string): string {
+    return join(directory, BRV_DIR, CONTEXT_TREE_DIR)
   }
 }
