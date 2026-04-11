@@ -17,14 +17,24 @@ This tool enables semantic/fuzzy search across all curated knowledge without nee
   - `title`: Topic title
   - `excerpt`: Relevant content snippet
   - `score`: Relevance score (higher is better)
+  - `origin`: `"local"` or `"shared"` (shared = from a knowledge source pointing at another project)
+  - `originAlias`: Alias of the shared source (only for shared results)
+  - `originContextTreeRoot`: Absolute path to the shared context tree (only for shared results). Use `join(originContextTreeRoot, path)` to read full content.
 - `totalFound`: Total number of matches
 - `message`: Status message
+
+**Knowledge sources:**
+- Results may include entries from shared knowledge sources (read-only)
+- Shared results have `origin: "shared"` and `originContextTreeRoot` for reading
+- Local results are boosted slightly in relevance scoring
+- You cannot curate or write to shared source context trees
 
 **Usage tips:**
 - Use descriptive queries: "authentication flow" works better than "auth"
 - Search is fuzzy: minor typos are tolerated
 - Results are ranked by relevance to your query
-- Use `read_file` on returned paths to view full content
+- For local results, use `read_file` on returned paths to view full content
+- For shared results, use `read_file` on `join(originContextTreeRoot, path)`
 
 **Examples:**
 - Query: "API authentication" - finds topics about auth design

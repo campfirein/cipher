@@ -18,6 +18,9 @@
 
 import {expect} from 'chai'
 import {randomUUID} from 'node:crypto'
+import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {IAgentPool, SubmitTaskResult} from '../../../../src/server/core/interfaces/agent/i-agent-pool.js'
@@ -305,6 +308,112 @@ describe('TaskRouter', () => {
       const submittedTask = agentPool.submitTask.firstCall.args[0]
       expect(submittedTask).to.have.property('clientCwd', '/home/user/project')
       expect(submittedTask.files).to.deep.equal(['src/auth.ts', 'src/middleware.ts'])
+    })
+
+    it('should derive worktreeRoot from resolver when omitted', async () => {
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-task-router-project-'))
+      const worktreeRoot = join(projectRoot, 'packages', 'api')
+      mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+      writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
+      mkdirSync(worktreeRoot, {recursive: true})
+      writeFileSync(join(worktreeRoot, '.brv'), JSON.stringify({projectRoot}))
+      const canonicalProjectRoot = realpathSync(projectRoot)
+      const canonicalWorkspaceRoot = realpathSync(worktreeRoot)
+
+      try {
+        const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+        const request = makeTaskCreateRequest({
+          clientCwd: worktreeRoot,
+          projectPath: canonicalProjectRoot,
+          worktreeRoot: undefined,
+        })
+
+        handler!(request, 'client-1')
+
+        await new Promise((resolve) => {
+          setTimeout(resolve, 10)
+        })
+
+        const submittedTask = agentPool.submitTask.firstCall.args[0]
+        expect(submittedTask.worktreeRoot).to.equal(canonicalWorkspaceRoot)
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+    })
+
+    it('should fall back worktreeRoot to projectPath when resolver returns null', async () => {
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({
+        clientCwd: '/outside/project',
+        projectPath: '/app',
+        worktreeRoot: undefined,
+      })
+
+      handler!(request, 'client-1')
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10)
+      })
+
+      const submittedTask = agentPool.submitTask.firstCall.args[0]
+      expect(submittedTask.worktreeRoot).to.equal('/app')
+    })
+
+    it('should reject worktreeRoot outside projectPath', async () => {
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const taskId = randomUUID()
+
+      const result = await handler!(
+        {
+          clientCwd: '/app/packages/api',
+          content: 'invalid workspace',
+          projectPath: '/app',
+          taskId,
+          type: 'query',
+          worktreeRoot: '/other-project',
+        },
+        'client-1',
+      )
+
+      expect(result).to.deep.equal({taskId})
+      expect(agentPool.submitTask.called).to.be.false
+      const errorCall = (transportHelper.transport.sendTo as SinonStub).getCalls().find(
+        (c) => c.args[1] === TransportTaskEventNames.ERROR,
+      )
+      expect(errorCall).to.exist
+      expect(errorCall!.args[2].error.message).to.include('worktreeRoot')
+    })
+
+    it('should surface resolver errors instead of swallowing them', async () => {
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-task-router-broken-link-'))
+      const worktreeRoot = join(projectRoot, 'packages', 'api')
+      mkdirSync(worktreeRoot, {recursive: true})
+      writeFileSync(join(worktreeRoot, '.brv'), JSON.stringify({projectRoot: '/missing/project'}))
+
+      try {
+        const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+        const taskId = randomUUID()
+
+        const result = await handler!(
+          {
+            clientCwd: worktreeRoot,
+            content: 'broken link',
+            taskId,
+            type: 'query',
+          },
+          'client-1',
+        )
+
+        expect(result).to.deep.equal({taskId})
+        expect(agentPool.submitTask.called).to.be.false
+        const errorCall = (transportHelper.transport.sendTo as SinonStub).getCalls().find(
+          (c) => c.args[1] === TransportTaskEventNames.ERROR,
+        )
+        expect(errorCall).to.exist
+        expect(errorCall!.args[2].error.message).to.include('Worktree pointer broken')
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
     })
   })
 

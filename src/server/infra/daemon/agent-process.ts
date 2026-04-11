@@ -36,6 +36,7 @@ import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {serializeTaskError, TaskError, TaskErrorCode} from '../../core/domain/errors/task-error.js'
+import {loadSources} from '../../core/domain/source/source-schema.js'
 import {
   TransportAgentEventNames,
   TransportDaemonEventNames,
@@ -239,10 +240,15 @@ async function start(): Promise<void> {
   agentLog(`Provider: ${activeProvider}, Model: ${activeModel ?? 'default'}`)
 
   // 5. Create CipherAgent with lazy providers + transport client
+  // Load knowledge sources early so shared context tree roots can be shared with both
+  // the agent's FileSystemService (via config) and the executor's FileSystemService
+  const sourcesData = loadSources(projectPath)
+  const sharedAllowedPaths = (sourcesData?.origins ?? []).map((o) => o.contextTreeRoot)
+
   const envConfig = getCurrentConfig()
   const agentConfig = {
     apiBaseUrl: envConfig.llmApiBaseUrl,
-    fileSystem: {workingDirectory: projectPath},
+    fileSystem: {allowedPaths: ['.', ...sharedAllowedPaths], workingDirectory: projectPath},
     llm: {
       maxIterations: 10,
       maxTokens: 4096,
@@ -342,7 +348,10 @@ async function start(): Promise<void> {
   })
 
   // 6. Create FileSystemService + SearchKnowledgeService for smart query routing
-  const fileSystemService = new FileSystemService({workingDirectory: projectPath})
+  const fileSystemService = new FileSystemService({
+    allowedPaths: ['.', ...sharedAllowedPaths],
+    workingDirectory: projectPath,
+  })
   await fileSystemService.initialize()
   const searchService = createSearchKnowledgeService(fileSystemService, {baseDirectory: projectPath})
 
@@ -380,7 +389,7 @@ async function executeTask(
   queryExecutor: QueryExecutor,
   searchExecutor: SearchExecutor,
 ): Promise<void> {
-  const {clientCwd, clientId, content, files, folderPath, taskId, type} = task
+  const {clientCwd, clientId, content, files, folderPath, taskId, type, worktreeRoot} = task
   if (!transport || !agent) return
 
   // Search tasks are pure BM25 retrieval — no LLM, no provider needed.
@@ -460,7 +469,7 @@ async function executeTask(
       let result: string
       switch (type) {
         case 'curate': {
-          result = await curateExecutor.executeWithAgent(agent, {clientCwd, content, files, taskId})
+          result = await curateExecutor.executeWithAgent(agent, {clientCwd, content, files, projectRoot: projectPath, taskId, worktreeRoot})
 
           break
         }
@@ -470,14 +479,16 @@ async function executeTask(
             clientCwd,
             content,
             folderPath: folderPath!,
+            projectRoot: projectPath,
             taskId,
+            worktreeRoot,
           })
 
           break
         }
 
         case 'query': {
-          result = await queryExecutor.executeWithAgent(agent, {query: content, taskId})
+          result = await queryExecutor.executeWithAgent(agent, {query: content, taskId, worktreeRoot})
 
           break
         }

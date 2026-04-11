@@ -80,7 +80,12 @@ export function formatDirectResponse(query: string, results: DirectSearchResult[
     })
     .join('\n\n---\n\n')
 
-  const sources = topResults.map((r) => `- \`.brv/context-tree/${r.path}\``).join('\n')
+  const sources = topResults.map((r) => {
+    // Paths starting with [ are already namespaced (linked results)
+    const displayPath = r.path.startsWith('[') ? r.path : `.brv/context-tree/${r.path}`
+
+    return `- \`${displayPath}\``
+  }).join('\n')
 
   return `**Summary**: ${summary}
 

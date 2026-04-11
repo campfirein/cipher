@@ -11,6 +11,7 @@ import {
 } from '@campfirein/brv-transport-client'
 
 import {TaskErrorCode} from '../../server/core/domain/errors/task-error.js'
+import {resolveProject} from '../../server/infra/project/resolve-project.js'
 import {createDaemonAwareConnector, type TransportConnector} from '../../server/infra/transport/transport-connector.js'
 import {
   getSandboxEnvironmentName,
@@ -64,20 +65,34 @@ export interface DaemonClientOptions {
   maxRetries?: number
   /** Explicit project path — bypasses walk-up discovery. Use for `init` where .brv/ doesn't exist yet. */
   projectPath?: string
+  /** Explicit --project-root flag value to override auto-detection */
+  projectRootFlag?: string
   /** Delay between retries in ms. Default: 2000. Set to 0 in tests. */
   retryDelayMs?: number
   /** Optional transport connector for DI/testing */
   transportConnector?: TransportConnector
 }
 
+function resolveRequiredProjectPath(projectRootFlag?: string): {projectRoot: string; worktreeRoot: string} {
+  const resolution = resolveProject({projectRootFlag})
+  if (!resolution) {
+    // No .brv found at cwd — fall back to cwd. The daemon will auto-init .brv/ on first connection.
+    const cwd = process.cwd()
+    return {projectRoot: cwd, worktreeRoot: cwd}
+  }
+
+  return resolution
+}
+
 /**
  * Connects to the daemon, auto-starting it if needed.
  */
 export async function connectToDaemonClient(
-  options?: Pick<DaemonClientOptions, 'transportConnector'>,
+  options?: Pick<DaemonClientOptions, 'projectRootFlag' | 'transportConnector'>,
 ): Promise<ConnectionResult> {
   const connector = options?.transportConnector ?? createDaemonAwareConnector()
-  return connector()
+  const resolution = resolveRequiredProjectPath(options?.projectRootFlag)
+  return connector(undefined, resolution.projectRoot)
 }
 
 /**
@@ -87,7 +102,7 @@ export async function connectToDaemonClient(
  * agent disconnected). Does NOT retry on business errors (auth, validation, etc.).
  */
 export async function withDaemonRetry<T>(
-  fn: (client: ITransportClient, projectRoot?: string) => Promise<T>,
+  fn: (client: ITransportClient, projectRoot?: string, worktreeRoot?: string) => Promise<T>,
   options?: DaemonClientOptions & {
     /** Called before each retry with attempt number (1-indexed) */
     onRetry?: (attempt: number, maxRetries: number) => void
@@ -97,6 +112,12 @@ export async function withDaemonRetry<T>(
   const retryDelayMs = options?.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS
   const connector = options?.transportConnector ?? createDaemonAwareConnector(options?.projectPath)
 
+  // Pre-resolve project (workspace-link-aware) so the connector registers
+  // with the correct projectPath and callers get the resolved worktreeRoot.
+  const resolution = resolveRequiredProjectPath(options?.projectRootFlag)
+  const resolvedProjectPath = resolution.projectRoot
+  const resolvedWorkspaceRoot = resolution.worktreeRoot
+
   let lastError: unknown
 
   /* eslint-disable no-await-in-loop -- intentional sequential retry loop */
@@ -104,10 +125,10 @@ export async function withDaemonRetry<T>(
     let client: ITransportClient | undefined
 
     try {
-      const {client: connectedClient, projectRoot} = await connector()
+      const {client: connectedClient, projectRoot} = await connector(undefined, resolvedProjectPath)
       client = connectedClient
 
-      const value = await fn(client, projectRoot)
+      const value = await fn(client, projectRoot ?? resolvedProjectPath, resolvedWorkspaceRoot)
 
       await client.disconnect().catch(() => {})
       return value

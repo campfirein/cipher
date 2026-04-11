@@ -14,6 +14,10 @@ When searching the knowledge base, you may encounter results with `symbolKind: "
 - `fullContent`: Complete original content of the archived entry
 - `tokenCount`: Estimated token count of the full content
 
+**Shared-source results:**
+- For shared results (`origin: "shared"`), the `stubPath` is relative to the shared context tree
+- Use `originContextTreeRoot` from the search result to resolve the full path
+
 **Example:**
 - Search returns: `{ path: "_archived/auth/jwt-tokens/refresh-flow.stub.md", symbolKind: "archive_stub" }`
 - Call: `expand_knowledge({ stubPath: "_archived/auth/jwt-tokens/refresh-flow.stub.md" })`

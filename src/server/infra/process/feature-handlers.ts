@@ -60,9 +60,11 @@ import {
   PushHandler,
   ResetHandler,
   ReviewHandler,
+  SourceHandler,
   SpaceHandler,
   StatusHandler,
   VcHandler,
+  WorktreeHandler,
 } from '../transport/handlers/index.js'
 import {HttpUserService} from '../user/http-user-service.js'
 import {FileVcGitConfigStore} from '../vc/file-vc-git-config-store.js'
@@ -284,6 +286,10 @@ export async function setupFeatureHandlers({
     vcGitConfigStore: new FileVcGitConfigStore(),
     webAppUrl: envConfig.webAppUrl,
   }).setup()
+
+  // Worktree & source handlers
+  new WorktreeHandler({resolveProjectPath, transport}).setup()
+  new SourceHandler({resolveProjectPath, transport}).setup()
 
   log('Feature handlers registered')
 }

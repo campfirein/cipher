@@ -23,10 +23,14 @@ export interface TransportState {
   error: Error | null
   /** Whether the client is connected */
   isConnected: boolean
+  /** Resolved project path (where .brv/ lives) */
+  projectPath: null | string
   /** Number of reconnection attempts */
   reconnectCount: number
   /** App version */
   version: string
+  /** Resolved workspace root (linked subdir or projectRoot if unlinked) */
+  worktreeRoot: null | string
 }
 
 export interface TransportActions {
@@ -40,6 +44,8 @@ export interface TransportActions {
   setConnectionState: (state: ConnectionState) => void
   /** Set connection error */
   setError: (error: Error | null) => void
+  /** Set resolved project info from oclif main */
+  setProjectInfo: (projectPath?: string, worktreeRoot?: string) => void
   /** Set app version */
   setVersion: (version: string) => void
 }
@@ -50,8 +56,10 @@ const initialState: TransportState = {
   connectionState: 'disconnected',
   error: null,
   isConnected: false,
+  projectPath: null,
   reconnectCount: 0,
   version: '',
+  worktreeRoot: null,
 }
 
 export const useTransportStore = create<TransportActions & TransportState>()((set) => ({
@@ -81,6 +89,12 @@ export const useTransportStore = create<TransportActions & TransportState>()((se
       connectionState: 'disconnected',
       error,
       isConnected: false,
+    }),
+
+  setProjectInfo: (projectPath?: string, worktreeRoot?: string) =>
+    set({
+      projectPath: projectPath ?? null,
+      worktreeRoot: worktreeRoot ?? null,
     }),
 
   setVersion: (version: string) => set({version}),

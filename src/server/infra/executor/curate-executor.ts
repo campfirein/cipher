@@ -50,7 +50,7 @@ export class CurateExecutor implements ICurateExecutor {
   }
 
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
-    const {clientCwd, content, files, taskId} = options
+    const {clientCwd, content, files, projectRoot, taskId} = options
 
     // --- Phase 1: Preprocessing (no sessions created yet — safe to throw) ---
     const fileReferenceInstructions = await this.processFileReferences(files ?? [], clientCwd)
@@ -62,7 +62,9 @@ export class CurateExecutor implements ICurateExecutor {
 
     // --- Phase 3: Curation (session created AFTER preprocessing + compaction) ---
     // Capture pre-curation state for snapshot diff (summary propagation)
-    const baseDir = clientCwd ?? process.cwd()
+    // Post-processing (snapshot, summary, manifest) operates on projectRoot where .brv/ lives.
+    // worktreeRoot is a linked subdir — .brv/ does not exist there in linked setups.
+    const baseDir = projectRoot ?? clientCwd ?? process.cwd()
     const snapshotService = new FileContextTreeSnapshotService({baseDirectory: baseDir})
     let preState: Map<string, import('../../core/domain/entities/context-tree-snapshot.js').FileState> | undefined
     try {
