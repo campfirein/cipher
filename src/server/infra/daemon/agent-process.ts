@@ -33,6 +33,7 @@ import {FolderPackService} from '../../../agent/infra/folder-pack/folder-pack-se
 import {SessionMetadataStore} from '../../../agent/infra/session/session-metadata-store.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
+import {decodeSearchContent} from '../../../shared/transport/search-content.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {serializeTaskError, TaskError, TaskErrorCode} from '../../core/domain/errors/task-error.js'
@@ -494,7 +495,8 @@ async function executeTask(
         }
 
         case 'search': {
-          const searchResult = await searchExecutor.execute({query: content})
+          const searchOptions = decodeSearchContent(content)
+          const searchResult = await searchExecutor.execute(searchOptions)
           result = JSON.stringify(searchResult)
 
           break
