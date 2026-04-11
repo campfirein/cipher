@@ -14,10 +14,10 @@ import {
   type PullPrepareResponse,
 } from '../../../../shared/transport/events/pull-events.js'
 import {
+  LegacySyncUnavailableError,
   LocalChangesExistError,
   NotAuthenticatedError,
   ProjectNotInitError,
-  SpaceNotConfiguredError,
 } from '../../../core/domain/errors/task-error.js'
 import {
   guardAgainstGitVc,
@@ -91,7 +91,7 @@ export class PullHandler {
     }
 
     if (!config.teamId || !config.spaceId) {
-      throw new SpaceNotConfiguredError()
+      throw new LegacySyncUnavailableError()
     }
 
     // Check for local changes that would be overwritten
@@ -138,7 +138,7 @@ export class PullHandler {
     }
 
     if (!config.teamId || !config.spaceId) {
-      throw new SpaceNotConfiguredError()
+      throw new LegacySyncUnavailableError()
     }
 
     const changes = await this.contextTreeSnapshotService.getChanges(projectPath)
