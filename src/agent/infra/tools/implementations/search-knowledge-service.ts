@@ -291,7 +291,7 @@ function getSummarySource(
 function filterStopWords(query: string): string {
   const words = query.toLowerCase().split(/\s+/)
   const filtered = removeStopwords(words)
-  return filtered.length > 0 ? filtered.join(' ') : query
+  return filtered.join(' ')
 }
 
 /**
@@ -398,11 +398,12 @@ function chunkDocument(content: string): {pos: number; text: string}[] {
 }
 
 function extractExcerpt(content: string, query: string, maxLength: number = 800): string {
-  // Strip ## Relations section and title heading
-  const relationsMatch = /^## Relations\n([\S\s]*?)(?=\n## |\n# |$)/m.exec(content)
-  let cleanContent = content
+  // Strip YAML frontmatter, ## Relations section, and title heading
+  let cleanContent = stripMarkdownFrontmatter(content)
+
+  const relationsMatch = /^## Relations\n([\S\s]*?)(?=\n## |\n# |$)/m.exec(cleanContent)
   if (relationsMatch) {
-    cleanContent = content.replace(relationsMatch[0], '').trim()
+    cleanContent = cleanContent.replace(relationsMatch[0], '').trim()
   }
 
   cleanContent = cleanContent.replace(/^# .+$/m, '').trim()
@@ -1143,6 +1144,11 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
   ): SearchKnowledgeResult {
     const filteredQuery = filterStopWords(query)
     const filteredWords = filteredQuery.split(/\s+/).filter((w) => w.length >= 2)
+
+    // Guard: if all query words were stop words, return empty results
+    if (filteredWords.length === 0) {
+      return {message: 'Query contains only common words. Try more specific terms.', results: [], totalFound: 0}
+    }
 
     // Build scope filter if a subtree is specified
     let scopeFilter: ((result: {id: string}) => boolean) | undefined
