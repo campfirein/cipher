@@ -2,6 +2,16 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.2.0]
+
+### Added
+- **`brv worktree` — git-style worktree links** — Register a subdirectory (or sibling) as a worktree of a parent project without creating a nested `.brv/`. `brv worktree add [path]` writes a `.brv` pointer file in the target that redirects to the parent — the same pattern as `git worktree` (path defaults to the current directory for auto-detect from a subdirectory). `brv worktree list` shows the current link state and registered worktrees; `brv worktree remove [path]` unregisters (also defaults to cwd). `--force` lets `add` convert an existing `.brv/` directory into a pointer by backing it up to `.brv-backup/`; `remove` restores that backup automatically if present. Also available as `/worktree` in the REPL.
+- **`brv source` — cross-project knowledge sources** — Link another project's context tree as a read-only knowledge source. `brv source add <path> [--alias <name>]` attaches a source; `brv source list` shows linked sources with validity; `brv source remove <alias-or-path>` detaches. Linked sources are write-protected, and query results pulled from them are tagged with a `shared` origin and their alias so you can tell which project an answer came from. Also available as `/source` in the REPL.
+- **Resolver-aware `brv status`** — `brv status` now surfaces the resolved project root, the linked worktree root (when different), knowledge-source validity, and actionable warnings for broken or malformed worktree pointers and sources. `--verbose` adds the resolution source (`direct` / `linked` / `flag`). A new `--project-root <path>` flag on `brv status` overrides auto-detection and fails loudly when the path is not a ByteRover project instead of silently falling back to the current directory.
+
+### Changed
+- **Workspace-aware curate and query** — `brv curate` and `brv query` now automatically detect when you're inside a linked worktree and pass the worktree root to the daemon alongside the project root. Explicit relative paths you pass yourself (e.g. `brv curate -f ./src/auth.ts`, `brv curate -d ./packages/api/src`) still resolve from your shell cwd to match normal shell behavior.
+
 ## [3.1.0]
 
 ### Added
