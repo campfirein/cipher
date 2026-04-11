@@ -55,11 +55,11 @@ npm run typecheck                    # TypeScript type checking
 
 ### Source Layout (`src/`)
 
-- `agent/` — LLM agent: `core/` (interfaces/domain), `infra/` (22 modules, including memory, document-parser), `resources/` (prompts YAML, tools `.txt`)
-- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (29 modules, including vc, hub, mcp, cogit), `utils/`
+- `agent/` — LLM agent: `core/` (interfaces/domain), `infra/` (22 modules, including llm, memory, map, tools, document-parser), `resources/` (prompts YAML, tool `.txt` descriptions)
+- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (29 modules, including vc, git, hub, mcp, cogit, project, provider-oauth, space), `templates/`, `utils/`
 - `shared/` — Cross-module: constants, types, transport events, utils
-- `tui/` — React/Ink TUI: app (router/pages), components, features (21 modules, including vc, hub, curate), hooks, lib, providers, stores
-- `oclif/` — Commands (`vc/`, `review/`, top-level), hooks, lib (daemon-client, JSON response utils)
+- `tui/` — React/Ink TUI: app (router/pages), components, features (23 modules, including vc, worktree, source, hub, curate), hooks, lib, providers, stores
+- `oclif/` — Commands grouped by topic (`vc/`, `hub/`, `worktree/`, `source/`, `space/`, `review/`, `connectors/`, `curate/`, `model/`, `providers/`) + top-level `.ts` commands; hooks, lib (daemon-client, task-client, json-response)
 
 **Import boundary** (ESLint-enforced): `tui/` must not import from `server/`, `agent/`, or `oclif/`. Use transport events or `shared/`.
 
@@ -75,11 +75,14 @@ npm run typecheck                    # TypeScript type checking
 - Agent pool manages forked child processes per project; task routing in `server/infra/process/`
 - MCP server in `server/infra/mcp/` exposes tools via Model Context Protocol
 
-### VC (Version Control)
+### VC, Worktrees & Knowledge Sources
 
-- `brv vc` — isomorphic-git-based version control (add, branch, checkout, clone, commit, config, fetch, init, log, merge, pull, push, remote, reset, status)
-- Oclif commands: `src/oclif/commands/vc/`, TUI feature: `src/tui/features/vc/`, server infra: `src/server/infra/vc/`
-- Slash commands: `vc-*` definitions in `src/tui/features/commands/definitions/`
+- `brv vc` — isomorphic-git version control (add, branch, checkout, clone, commit, config, fetch, init, log, merge, pull, push, remote, reset, status); git plumbing in `server/infra/git/` (`isomorphic-git-service.ts`), VC config store in `server/infra/vc/`
+- `brv worktree` (add/list/remove) — git-style worktree pointer model: `.brv/` is either a real project directory OR a pointer file to a parent project; parent stores registry in `.brv/worktrees/<name>/link.json`
+- `brv source` (add/list/remove) — link another project's context tree as a read-only knowledge source with write isolation
+- Canonical project resolver: `resolveProject()` in `server/infra/project/` — priority `flag > direct > linked > walked-up > null`. `projectRoot` and `worktreeRoot` are threaded through transport schemas, task routing, and all executors
+- All commands are daemon-routed: `oclif/` and `tui/` never import from `server/`
+- Oclif: `src/oclif/commands/{vc,worktree,source}/`; TUI: `src/tui/features/{vc,worktree,source}/`; slash commands (`vc-*`, `worktree`, `source`) in `src/tui/features/commands/definitions/`
 
 ### Agent (`src/agent/`)
 
