@@ -933,6 +933,11 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
    */
   async search(query: string, options?: SearchOptions): Promise<SearchKnowledgeResult> {
     const limit = options?.limit ?? 10
+    // Normalize scope: strip trailing slashes so "project/" and "project" both work.
+    // The symbol tree stores paths without a trailing slash, and getSubtreeDocumentIds
+    // does an exact node lookup, so "project/" would otherwise miss the subtree entirely
+    // and silently fall back to global search via the block at the end of this method.
+    const normalizedScope = options?.scope?.trim().replace(/\/+$/, '') || undefined
     const resolvedBaseDirectory = await realpath(this.baseDirectory).catch(() => this.baseDirectory)
     const contextTreePath = join(resolvedBaseDirectory, BRV_DIR, CONTEXT_TREE_DIR)
 
@@ -963,7 +968,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
     // Overview mode: return tree structure instead of search results
     if (options?.overview) {
-      return this.buildOverviewResult(symbolTree, referenceIndex, options.scope, options.overviewDepth)
+      return this.buildOverviewResult(symbolTree, referenceIndex, normalizedScope, options.overviewDepth)
     }
 
     // Symbolic path resolution: try path-based query first
@@ -988,7 +993,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
     // Parse query for potential scope prefix (e.g. "auth jwt refresh" → scope=auth, text="jwt refresh")
     const parsed = parseSymbolicQuery(query, symbolTree)
-    const effectiveScope = options?.scope ?? parsed.scopePath
+    const effectiveScope = normalizedScope ?? parsed.scopePath
     const effectiveQuery = parsed.scopePath ? parsed.textQuery : query
 
     // Run text-based MiniSearch (existing pipeline), optionally scoped to a subtree
