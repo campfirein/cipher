@@ -1,0 +1,42 @@
+/**
+ * SearchExecutor - Executes context tree searches via SearchKnowledgeService.
+ *
+ * Unlike QueryExecutor (Tier 0-4 with LLM synthesis), SearchExecutor is
+ * pure retrieval: BM25 index lookup → scored results. No LLM, no agent
+ * session, no sandbox, no token cost.
+ *
+ * This is the engine behind `brv search`. The CLI command and transport
+ * layer handle I/O; this module handles the search logic.
+ */
+
+import type {ISearchKnowledgeService, SearchKnowledgeResult} from '../../../agent/infra/sandbox/tools-sdk.js'
+import type {ISearchExecutor, SearchExecuteOptions} from '../../core/interfaces/executor/i-search-executor.js'
+
+const DEFAULT_LIMIT = 10
+const MAX_LIMIT = 50
+
+export class SearchExecutor implements ISearchExecutor {
+  private readonly searchService: ISearchKnowledgeService
+
+  constructor(searchService: ISearchKnowledgeService) {
+    this.searchService = searchService
+  }
+
+  async execute(options: SearchExecuteOptions): Promise<SearchKnowledgeResult> {
+    const query = options.query.trim()
+    if (!query) {
+      return {message: 'Empty query', results: [], totalFound: 0}
+    }
+
+    const scope = options.scope?.trim() || undefined
+    const limit = Math.min(
+      MAX_LIMIT,
+      Math.max(1, Math.trunc(options.limit ?? DEFAULT_LIMIT)),
+    )
+
+    return this.searchService.search(query, {
+      limit,
+      ...(scope ? {scope} : {}),
+    })
+  }
+}
