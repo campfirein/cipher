@@ -2,6 +2,17 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.3.0]
+
+### Added
+- **`brv search` — BM25 context tree search** — New command for pure BM25 retrieval over the context tree (no LLM, no provider, no token cost). Returns ranked paths, scores, and excerpts. Flags: `--limit` (1–50), `--scope <prefix>`, `--format json`. Use `brv search` for structured results and `brv query` for synthesized answers.
+- **`--timeout` flag for `brv curate` and `brv query`** — Override the previous hardcoded 5-minute limit so slow local models can finish. Accepts seconds (default 300, max 3600); no effect with `--detach`.
+
+### Fixed
+- **Misleading "no space configured" error on `brv push` / `brv pull`** — Legacy sync now shows a clear deprecation message pointing at `brv vc init` instead of the deprecated `brv space switch` flow. TUI also links to the [version control docs](https://docs.byterover.dev/git-semantic/overview).
+- **`brv status` auto-created `.snapshot.json` without team/space config** — VC-managed projects no longer get a stray legacy-sync snapshot file; status now reports `Managed by Byterover version control` instead.
+- **Adaptive `*.abstract.md` / `*.overview.md` files polluting `brv vc` diffs** — These derived artifacts are now in the context-tree `.gitignore` and excluded from version control.
+
 ## [3.2.0]
 
 ### Added
