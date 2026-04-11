@@ -10,6 +10,8 @@
 const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_AGENT_NOT_INITIALIZED: "Agent failed to initialize. Run 'brv restart' to force a clean restart.",
   ERR_CONTEXT_TREE_NOT_INIT: 'Context tree not initialized.',
+  ERR_LEGACY_SYNC_UNAVAILABLE:
+    'Legacy cloud sync (push/pull) is not available for this project. Use /vc init to start using version control. Learn more: https://docs.byterover.dev/git-semantic/overview',
   ERR_LOCAL_CHANGES_EXIST: 'You have local changes. Run /push to save your changes before pulling.',
   ERR_NOT_AUTHENTICATED: 'Not authenticated. This is required for cloud sync. Run /login to connect your account.',
   ERR_OAUTH_REFRESH_FAILED: 'OAuth token refresh failed. Run /providers to reconnect your provider.',
@@ -24,7 +26,8 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_VC_CONFIG_KEY_NOT_SET: 'Config key is not set.',
   ERR_VC_CONFLICT_MARKERS_PRESENT:
     'Conflict markers detected. Run /vc conflicts to view them. Resolve conflicts and run /vc add before pushing.',
-  ERR_VC_GIT_INITIALIZED: 'ByteRover version control is active. Use /vc commands instead of legacy sync commands.',
+  ERR_VC_GIT_INITIALIZED:
+    'ByteRover version control is active. Use /vc commands instead of legacy sync commands. Learn more: https://docs.byterover.dev/git-semantic/overview',
   ERR_VC_GIT_NOT_INITIALIZED: 'ByteRover version control not initialized. Run /vc init first.',
   ERR_VC_INVALID_ACTION: 'Invalid action.',
   // ERR_VC_INVALID_BRANCH_NAME intentionally omitted: fall through to server's message with actual branch name
