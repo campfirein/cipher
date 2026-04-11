@@ -34,7 +34,27 @@ Knowledge is stored in `.brv/context-tree/` as human-readable Markdown files.
 brv query "How is authentication implemented?"
 ```
 
-### 2. Curate Context
+### 2. Search Context Tree
+**Overview:** Retrieve a ranked list of matching files from `.brv/context-tree/` via pure BM25 lookup. Unlike `brv query`, this does NOT call an LLM — no synthesis, no token cost, no provider setup needed. Returns structured results with paths, scores, and excerpts.
+
+**Use this skill when:**
+- You need file paths to read rather than a synthesized answer
+- You want fast, cheap retrieval with no LLM overhead
+- You're in an automated pipeline that consumes structured results
+
+**Do NOT use this skill when:**
+- You need a natural-language answer synthesized from multiple files — use `brv query` instead
+- The information is already present in your current context
+
+```bash
+brv search "authentication patterns"
+brv search "JWT tokens" --limit 5 --scope "auth/"
+brv search "auth" --format json
+```
+
+**Flags:** `--limit N` (1-50, default 10), `--scope "domain/"` (path prefix filter), `--format json` (structured output for automation).
+
+### 3. Curate Context
 **Overview:** Analyze and save knowledge to the local knowledge base. Uses a configured LLM provider to categorize and structure the context you provide.
 
 **Use this skill when:**
@@ -79,7 +99,7 @@ brv curate view --since 1h --status completed
 brv curate view --help
 ```
 
-### 3. Review Pending Changes
+### 4. Review Pending Changes
 **Overview:** After a curate operation, some changes may require human review before being applied. Use `brv review` to list, approve, or reject pending operations.
 
 **Use this when:**
@@ -142,7 +162,7 @@ brv review approve <taskId> --format json
 brv review reject <taskId> --format json
 ```
 
-### 4. LLM Provider Setup
+### 5. LLM Provider Setup
 `brv query` and `brv curate` require a configured LLM provider. Connect the default ByteRover provider (no API key needed):
 
 ```bash
@@ -156,7 +176,7 @@ brv providers list
 brv providers connect openai --api-key sk-xxx --model gpt-4.1
 ```
 
-### 5. Project Locations
+### 6. Project Locations
 **Overview:** List registered projects and their context tree paths. Returns project metadata including initialization status and active state. Use `-f json` for machine-readable output.
 
 **Use this when:**
@@ -174,7 +194,7 @@ brv locations -f json
 
 JSON fields: `projectPath`, `contextTreePath`, `isCurrent`, `isActive`, `isInitialized`.
 
-### 6. Version Control
+### 7. Version Control
 **Overview:** `brv vc` provides git-based version control for your context tree. It uses standard git semantics — branching, committing, merging, history, and conflict resolution — all working locally with no authentication required. Remote sync with a team is optional. The legacy `brv push`, `brv pull`, and `brv space` commands are deprecated — use `brv vc push`, `brv vc pull`, and `brv vc clone`/`brv vc remote add` instead.
 
 **Use this when:**

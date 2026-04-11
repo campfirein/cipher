@@ -39,8 +39,6 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [TaskErrorCode.PROJECT_NOT_INIT]: 'Project not initialized. Run "brv restart" to reinitialize.',
   [TaskErrorCode.PROVIDER_NOT_CONFIGURED]:
     'No provider connected. Run "brv providers connect byterover" to use the free built-in provider, or connect another provider.',
-  [TaskErrorCode.SPACE_NOT_CONFIGURED]:
-    'No space configured. Run "brv space list" to see available spaces, then "brv space switch --team <team> --name <space>" to select one.',
   [TaskErrorCode.SPACE_NOT_FOUND]: 'Space not found. Check your configuration.',
   [TaskErrorCode.VC_GIT_INITIALIZED]:
     'ByteRover version control is active. Use brv vc commands instead of legacy sync commands.',

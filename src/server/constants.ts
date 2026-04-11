@@ -118,4 +118,6 @@ export const CONTEXT_TREE_GITIGNORE = `# Derived artifacts — do not track
 .snapshot.json
 _manifest.json
 _index.md
+*.abstract.md
+*.overview.md
 `

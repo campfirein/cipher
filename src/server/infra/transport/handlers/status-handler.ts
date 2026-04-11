@@ -111,13 +111,14 @@ export class StatusHandler {
     }
 
     // Project status — use effectiveProjectPath for consistency with resolved root
+    let projectConfig: Awaited<ReturnType<IProjectConfigStore['read']>> | undefined
     try {
       const isInitialized = await this.projectConfigStore.exists(effectiveProjectPath)
       if (isInitialized) {
-        const config = await this.projectConfigStore.read(effectiveProjectPath)
-        if (config) {
-          result.teamName = config.teamName
-          result.spaceName = config.spaceName
+        projectConfig = await this.projectConfigStore.read(effectiveProjectPath)
+        if (projectConfig) {
+          result.teamName = projectConfig.teamName
+          result.spaceName = projectConfig.spaceName
         }
       }
     } catch {}
@@ -142,23 +143,29 @@ export class StatusHandler {
           result.contextTreeDir = join(effectiveProjectPath, BRV_DIR, CONTEXT_TREE_DIR)
           result.contextTreeRelativeDir = join(BRV_DIR, CONTEXT_TREE_DIR)
 
-          const hasSnapshot = await this.contextTreeSnapshotService.hasSnapshot(effectiveProjectPath)
-          if (!hasSnapshot) {
-            await this.contextTreeSnapshotService.initEmptySnapshot(effectiveProjectPath)
-          }
+          const hasLegacySyncConfig = Boolean(projectConfig?.teamId && projectConfig?.spaceId)
 
-          const changes = await this.contextTreeSnapshotService.getChanges(effectiveProjectPath)
-          const hasChanges = changes.added.length > 0 || changes.modified.length > 0 || changes.deleted.length > 0
+          if (hasLegacySyncConfig) {
+            const hasSnapshot = await this.contextTreeSnapshotService.hasSnapshot(effectiveProjectPath)
+            if (!hasSnapshot) {
+              await this.contextTreeSnapshotService.initEmptySnapshot(effectiveProjectPath)
+            }
 
-          if (hasChanges) {
-            result.contextTreeStatus = 'has_changes'
-            result.contextTreeChanges = {
-              added: changes.added,
-              deleted: changes.deleted,
-              modified: changes.modified,
+            const changes = await this.contextTreeSnapshotService.getChanges(effectiveProjectPath)
+            const hasChanges = changes.added.length > 0 || changes.modified.length > 0 || changes.deleted.length > 0
+
+            if (hasChanges) {
+              result.contextTreeStatus = 'has_changes'
+              result.contextTreeChanges = {
+                added: changes.added,
+                deleted: changes.deleted,
+                modified: changes.modified,
+              }
+            } else {
+              result.contextTreeStatus = 'no_changes'
             }
           } else {
-            result.contextTreeStatus = 'no_changes'
+            result.contextTreeStatus = 'no_vc'
           }
         }
       } else {
