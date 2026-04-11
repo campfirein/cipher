@@ -83,10 +83,12 @@ describe('QueryLogSummaryUseCase (stub)', () => {
   })
 
   describe('options forwarding', () => {
-    it('does not throw when after/before are provided', async () => {
-      const {useCase} = createUseCase(sandbox)
+    it('still produces output when after/before are provided', async () => {
+      const {terminal, useCase} = createUseCase(sandbox)
 
       await useCase.run({after: 1000, before: 2000, format: 'text'})
+
+      expect(terminal.log.calledOnce).to.be.true
     })
   })
 })

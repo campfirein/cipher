@@ -33,7 +33,7 @@ export default class QueryLogSummary extends Command {
       options: FORMAT_OPTIONS,
     }),
     last: Flags.string({
-      description: 'Relative time window (e.g., 1h, 24h, 7d, 30d). Default: 24h',
+      description: 'Relative time window (e.g., 1h, 24h, 7d, 30d). Default: 24h. Takes precedence over --since.',
     }),
     since: Flags.string({
       description: 'Entries after (ISO date or relative: 1h, 24h, 7d, 2w)',
@@ -61,11 +61,7 @@ export default class QueryLogSummary extends Command {
     const baseDir = getProjectDataDir(projectRoot)
     const {useCase} = this.createDependencies(baseDir)
 
-    await useCase.run({
-      ...(after === undefined ? {} : {after}),
-      ...(before === undefined ? {} : {before}),
-      format,
-    })
+    await useCase.run({after, before, format})
   }
 
   private parseTime(value: string, flagName: string): number {

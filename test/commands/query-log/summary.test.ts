@@ -36,6 +36,27 @@ const NOW = 1_700_000_000_000
 const HOUR_MS = 3_600_000
 const DAY_MS = 24 * HOUR_MS
 
+function isOclifExitError(error: unknown): error is {oclif: {exit: number}} {
+  if (typeof error !== 'object' || error === null || !('oclif' in error)) {
+    return false
+  }
+
+  const {oclif} = error
+  if (typeof oclif !== 'object' || oclif === null || !('exit' in oclif)) {
+    return false
+  }
+
+  return typeof oclif.exit === 'number'
+}
+
+function expectOclifExit(error: unknown, code: number): void {
+  if (!isOclifExitError(error)) {
+    expect.fail('Expected an oclif exit error')
+  }
+
+  expect(error.oclif.exit).to.equal(code)
+}
+
 describe('QueryLogSummary Command', () => {
   let config: Config
   let loggedMessages: string[]
@@ -226,8 +247,7 @@ describe('QueryLogSummary Command', () => {
         await createCommand('--format', 'invalid').run()
         expect.fail('Expected command to throw on invalid format')
       } catch (error: unknown) {
-        const err = error as {oclif: {exit: number}}
-        expect(err.oclif.exit).to.equal(2)
+        expectOclifExit(error, 2)
       }
     })
   })
@@ -242,8 +262,7 @@ describe('QueryLogSummary Command', () => {
         await createCommand('--since', 'not-a-date').run()
         expect.fail('Expected command to throw')
       } catch (error: unknown) {
-        const err = error as {oclif: {exit: number}}
-        expect(err.oclif.exit).to.equal(2)
+        expectOclifExit(error, 2)
       }
     })
 
@@ -252,8 +271,7 @@ describe('QueryLogSummary Command', () => {
         await createCommand('--before', 'not-a-date').run()
         expect.fail('Expected command to throw')
       } catch (error: unknown) {
-        const err = error as {oclif: {exit: number}}
-        expect(err.oclif.exit).to.equal(2)
+        expectOclifExit(error, 2)
       }
     })
 
@@ -262,8 +280,7 @@ describe('QueryLogSummary Command', () => {
         await createCommand('--last', 'foo').run()
         expect.fail('Expected command to throw')
       } catch (error: unknown) {
-        const err = error as {oclif: {exit: number}}
-        expect(err.oclif.exit).to.equal(2)
+        expectOclifExit(error, 2)
       }
     })
   })
