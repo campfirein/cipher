@@ -18,9 +18,9 @@ import {
   type PushPrepareResponse,
 } from '../../../../shared/transport/events/push-events.js'
 import {
+  LegacySyncUnavailableError,
   NotAuthenticatedError,
   ProjectNotInitError,
-  SpaceNotConfiguredError,
 } from '../../../core/domain/errors/task-error.js'
 import {mapToPushContexts} from '../../cogit/context-tree-to-push-context-mapper.js'
 import {
@@ -154,7 +154,7 @@ export class PushHandler {
     }
 
     if (!config.teamId || !config.spaceId) {
-      throw new SpaceNotConfiguredError()
+      throw new LegacySyncUnavailableError()
     }
 
     this.broadcastToProject(projectPath, PushEvents.PROGRESS, {message: 'Reading context files...', step: 'reading'})
@@ -247,7 +247,7 @@ export class PushHandler {
     }
 
     if (!config.teamId || !config.spaceId) {
-      throw new SpaceNotConfiguredError()
+      throw new LegacySyncUnavailableError()
     }
 
     const hasSnapshot = await this.contextTreeSnapshotService.hasSnapshot(projectPath)

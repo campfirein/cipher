@@ -17,7 +17,6 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   ERR_PROJECT_NOT_INIT: "Project not initialized. Run 'brv restart' to reinitialize.",
   ERR_PROVIDER_NOT_CONFIGURED:
     'No provider connected. Run /providers connect byterover to use the free built-in provider, or connect another provider.',
-  ERR_SPACE_NOT_CONFIGURED: 'No space configured. Run /space switch to select a space first.',
   ERR_SPACE_NOT_FOUND: 'Space not found. Check your configuration.',
   ERR_VC_AUTH_FAILED: 'Authentication failed. Run /login.',
   ERR_VC_BRANCH_ALREADY_EXISTS: 'Branch already exists.',

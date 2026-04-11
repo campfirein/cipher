@@ -11,11 +11,13 @@ export const TaskErrorCode = {
   // Context tree errors
   CONTEXT_TREE_NOT_INITIALIZED: 'ERR_CONTEXT_TREE_NOT_INIT',
 
+  // Legacy sync (brv push/pull) no longer available because project has no team+space configured
+  LEGACY_SYNC_UNAVAILABLE: 'ERR_LEGACY_SYNC_UNAVAILABLE',
   // LLM errors
   LLM_ERROR: 'ERR_LLM_ERROR',
   LLM_RATE_LIMIT: 'ERR_LLM_RATE_LIMIT',
-  LOCAL_CHANGES_EXIST: 'ERR_LOCAL_CHANGES_EXIST',
 
+  LOCAL_CHANGES_EXIST: 'ERR_LOCAL_CHANGES_EXIST',
   // Auth/Init errors
   NOT_AUTHENTICATED: 'ERR_NOT_AUTHENTICATED',
   // OAuth errors
@@ -24,7 +26,6 @@ export const TaskErrorCode = {
   // Execution errors
   PROJECT_NOT_INIT: 'ERR_PROJECT_NOT_INIT',
   PROVIDER_NOT_CONFIGURED: 'ERR_PROVIDER_NOT_CONFIGURED',
-  SPACE_NOT_CONFIGURED: 'ERR_SPACE_NOT_CONFIGURED',
   SPACE_NOT_FOUND: 'ERR_SPACE_NOT_FOUND',
   TASK_CANCELLED: 'ERR_TASK_CANCELLED',
 
@@ -197,13 +198,13 @@ export class LocalChangesExistError extends TaskError {
   }
 }
 
-export class SpaceNotConfiguredError extends TaskError {
+export class LegacySyncUnavailableError extends TaskError {
   public constructor() {
     super(
-      'No space configured. Run "brv space list" to see available spaces, then "brv space switch --team <team> --name <space>" to select one.',
-      TaskErrorCode.SPACE_NOT_CONFIGURED,
+      'brv push and brv pull are deprecated. Run `brv vc init` to start using Byterover version control.',
+      TaskErrorCode.LEGACY_SYNC_UNAVAILABLE,
     )
-    this.name = 'SpaceNotConfiguredError'
+    this.name = 'LegacySyncUnavailableError'
   }
 }
 

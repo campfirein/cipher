@@ -17,7 +17,7 @@ import type {PushExecuteResponse, PushPrepareResponse} from '../../../../../src/
 
 import {BrvConfig} from '../../../../../src/server/core/domain/entities/brv-config.js'
 import {CogitPushResponse} from '../../../../../src/server/core/domain/entities/cogit-push-response.js'
-import {GitVcInitializedError} from '../../../../../src/server/core/domain/errors/task-error.js'
+import {GitVcInitializedError, LegacySyncUnavailableError} from '../../../../../src/server/core/domain/errors/task-error.js'
 import {PushHandler} from '../../../../../src/server/infra/transport/handlers/push-handler.js'
 import {PushEvents} from '../../../../../src/shared/transport/events/push-events.js'
 import {createMockTransportServer, type MockTransportServer} from '../../../../helpers/mock-factories.js'
@@ -50,6 +50,13 @@ function makeConfig(): BrvConfig {
     teamName: 'test-team',
     version: '1',
   })
+}
+
+function assertLegacySyncError(error: unknown): void {
+  expect(error).to.be.instanceOf(LegacySyncUnavailableError)
+  const msg = (error as Error).message
+  expect(msg).to.match(/brv vc init/)
+  expect(msg).to.not.match(/space\s+(switch|list)/)
 }
 
 // ==================== Tests ====================
@@ -195,6 +202,65 @@ describe('PushHandler', () => {
       }
 
       expect(contextTreeService.hasGitRepo.calledOnce).to.be.true
+    })
+  })
+
+  describe('legacy sync unavailable (ENG-2012)', () => {
+    beforeEach(() => {
+      contextTreeService.hasGitRepo.resolves(false)
+      tokenStore.load.resolves(makeToken() as never)
+    })
+
+    it('PREPARE, no team+space, no .git → throws LegacySyncUnavailableError', async () => {
+      projectConfigStore.read.resolves(BrvConfig.fromJson({createdAt: new Date().toISOString(), version: '1'}) as never)
+      createHandler()
+
+      try {
+        await callPrepareHandler()
+        expect.fail('should have thrown')
+      } catch (error) {
+        assertLegacySyncError(error)
+      }
+    })
+
+    it('EXECUTE, no team+space, no .git → throws LegacySyncUnavailableError', async () => {
+      projectConfigStore.read.resolves(BrvConfig.fromJson({createdAt: new Date().toISOString(), version: '1'}) as never)
+      createHandler()
+
+      try {
+        await callExecuteHandler()
+        expect.fail('should have thrown')
+      } catch (error) {
+        assertLegacySyncError(error)
+      }
+    })
+
+    it('PREPARE, partial config (teamId only) → throws LegacySyncUnavailableError', async () => {
+      projectConfigStore.read.resolves(
+        BrvConfig.fromJson({createdAt: new Date().toISOString(), teamId: 't1', version: '1'}) as never,
+      )
+      createHandler()
+
+      try {
+        await callPrepareHandler()
+        expect.fail('should have thrown')
+      } catch (error) {
+        assertLegacySyncError(error)
+      }
+    })
+
+    it('PREPARE, partial config (spaceId only) → throws LegacySyncUnavailableError', async () => {
+      projectConfigStore.read.resolves(
+        BrvConfig.fromJson({createdAt: new Date().toISOString(), spaceId: 's1', version: '1'}) as never,
+      )
+      createHandler()
+
+      try {
+        await callPrepareHandler()
+        expect.fail('should have thrown')
+      } catch (error) {
+        assertLegacySyncError(error)
+      }
     })
   })
 
