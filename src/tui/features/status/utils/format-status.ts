@@ -32,12 +32,35 @@ export function formatStatus(status: StatusDTO, version?: string): string {
     }
   }
 
-  lines.push(`Current Directory: ${status.currentDirectory}`)
+  lines.push(`Project: ${status.projectRoot ?? status.currentDirectory}`)
+
+  if (status.worktreeRoot && status.worktreeRoot !== status.projectRoot) {
+    lines.push(`Worktree: ${status.worktreeRoot} (linked)`)
+  }
+
+  if (status.resolverError) {
+    lines.push(chalk.yellow(`⚠ ${status.resolverError}`))
+  }
 
   if (status.teamName && status.spaceName) {
     lines.push(`Space: ${status.teamName}/${status.spaceName}`)
   } else {
     lines.push('Space: Not connected')
+  }
+
+  // Knowledge sources
+  if (status.sourcesError) {
+    lines.push(chalk.yellow(`⚠ ${status.sourcesError}`))
+  } else if (status.sources && status.sources.length > 0) {
+    lines.push('Knowledge Sources:')
+    for (const source of status.sources) {
+      if (source.valid) {
+        const sizeInfo = source.contextTreeSize === undefined ? '' : ` [${source.contextTreeSize} files]`
+        lines.push(`   ${source.alias} → ${source.projectRoot} ${chalk.green('(valid)')}${sizeInfo}`)
+      } else {
+        lines.push(`   ${source.alias} → ${source.projectRoot} ${chalk.red(`[BROKEN - run brv source remove ${source.alias}]`)}`)
+      }
+    }
   }
 
   switch (status.contextTreeStatus) {

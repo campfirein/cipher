@@ -402,6 +402,90 @@ describe('ClientManager', () => {
     })
   })
 
+  describe('updateProjectPath()', () => {
+    it('should move client from old project to new project index', () => {
+      manager.register('client-1', 'tui', PROJECT_A)
+      expect(manager.getClientsByProject(PROJECT_A)).to.have.lengthOf(1)
+
+      const oldPath = manager.updateProjectPath('client-1', PROJECT_B)
+
+      expect(oldPath).to.equal(PROJECT_A)
+      expect(manager.getClientsByProject(PROJECT_A)).to.have.lengthOf(0)
+      expect(manager.getClientsByProject(PROJECT_B)).to.have.lengthOf(1)
+      expect(manager.getClientsByProject(PROJECT_B)[0].id).to.equal('client-1')
+    })
+
+    it('should update client projectPath property', () => {
+      manager.register('client-1', 'tui', PROJECT_A)
+
+      manager.updateProjectPath('client-1', PROJECT_B)
+
+      const client = manager.getClient('client-1')
+      expect(client!.projectPath).to.equal(PROJECT_B)
+    })
+
+    it('should fire onProjectEmpty when old project loses last external client', () => {
+      const emptyCallback = sandbox.stub()
+      manager.onProjectEmpty(emptyCallback)
+
+      manager.register('client-1', 'tui', PROJECT_A)
+
+      manager.updateProjectPath('client-1', PROJECT_B)
+
+      expect(emptyCallback.calledOnce).to.be.true
+      expect(emptyCallback.calledWith(PROJECT_A)).to.be.true
+    })
+
+    it('should NOT fire onProjectEmpty when old project still has other external clients', () => {
+      const emptyCallback = sandbox.stub()
+      manager.onProjectEmpty(emptyCallback)
+
+      manager.register('client-1', 'tui', PROJECT_A)
+      manager.register('client-2', 'tui', PROJECT_A)
+
+      manager.updateProjectPath('client-1', PROJECT_B)
+
+      expect(emptyCallback.called).to.be.false
+    })
+
+    it('should NOT fire onProjectEmpty when same path (idempotent)', () => {
+      const emptyCallback = sandbox.stub()
+      manager.onProjectEmpty(emptyCallback)
+
+      manager.register('client-1', 'tui', PROJECT_A)
+
+      manager.updateProjectPath('client-1', PROJECT_A)
+
+      expect(emptyCallback.called).to.be.false
+    })
+
+    it('should return undefined for unknown clientId', () => {
+      const result = manager.updateProjectPath('unknown', PROJECT_A)
+      expect(result).to.be.undefined
+    })
+
+    it('should return undefined when client had no previous project', () => {
+      manager.register('client-1', 'mcp') // no projectPath
+
+      const oldPath = manager.updateProjectPath('client-1', PROJECT_A)
+
+      expect(oldPath).to.be.undefined
+      expect(manager.getClientsByProject(PROJECT_A)).to.have.lengthOf(1)
+      expect(manager.getClient('client-1')!.projectPath).to.equal(PROJECT_A)
+    })
+
+    it('should NOT fire onProjectEmpty for agent clients (not external)', () => {
+      const emptyCallback = sandbox.stub()
+      manager.onProjectEmpty(emptyCallback)
+
+      manager.register('agent-1', 'agent', PROJECT_A)
+
+      manager.updateProjectPath('agent-1', PROJECT_B)
+
+      expect(emptyCallback.called).to.be.false
+    })
+  })
+
   describe('Project Isolation', () => {
     it('should track clients per project independently', () => {
       manager.register('client-1', 'tui', PROJECT_A)

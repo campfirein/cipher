@@ -9,8 +9,10 @@ import type {ICurateLogStore} from '../../../core/interfaces/storage/i-curate-lo
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
-import {StatusEvents, type StatusGetResponse} from '../../../../shared/transport/events/status-events.js'
+import {StatusEvents, type StatusGetRequest, type StatusGetResponse} from '../../../../shared/transport/events/status-events.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
+import {listSourceStatuses} from '../../../core/domain/source/source-operations.js'
+import {BrokenWorktreePointerError, MalformedWorktreePointerError, resolveProject} from '../../project/resolve-project.js'
 import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 /** Factory that creates a curate log store scoped to a project directory. */
@@ -50,19 +52,48 @@ export class StatusHandler {
   }
 
   setup(): void {
-    this.transport.onRequest<void, StatusGetResponse>(StatusEvents.GET, async (_data, clientId) => {
+    this.transport.onRequest<StatusGetRequest | void, StatusGetResponse>(StatusEvents.GET, async (data, clientId) => {
       const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
-      const status = await this.collectStatus(projectPath)
+      const request = data as StatusGetRequest | undefined
+      const cwd = request?.cwd
+      const projectRootFlag = request?.projectRootFlag
+      const status = await this.collectStatus(projectPath, cwd, projectRootFlag)
       return {status}
     })
   }
 
-  private async collectStatus(projectPath: string): Promise<StatusDTO> {
+  private async collectStatus(projectPath: string, clientCwd?: string, projectRootFlag?: string): Promise<StatusDTO> {
     const result: StatusDTO = {
       authStatus: 'unknown',
       contextTreeStatus: 'unknown',
       currentDirectory: projectPath,
+      projectRoot: projectPath,
     }
+
+    // Resolve workspace awareness from client cwd (if provided)
+    // Use resolved projectRoot for all downstream checks to avoid inconsistency
+    let effectiveProjectPath = projectPath
+    if (clientCwd || projectRootFlag) {
+      try {
+        const resolution = resolveProject({cwd: clientCwd, projectRootFlag})
+        if (resolution) {
+          result.projectRoot = resolution.projectRoot
+          result.worktreeRoot = resolution.worktreeRoot
+          result.resolutionSource = resolution.source
+          effectiveProjectPath = resolution.projectRoot
+        }
+      } catch (error) {
+        // Surface broken/malformed link errors as actionable status info
+        if (error instanceof BrokenWorktreePointerError || error instanceof MalformedWorktreePointerError) {
+          result.resolverError = error.message
+        }
+
+        // Fall through with projectPath defaults for config/context checks
+      }
+    }
+
+    // Preserve actual client working directory for backward compat
+    result.currentDirectory = clientCwd ?? projectPath
 
     // Auth status
     try {
@@ -79,11 +110,11 @@ export class StatusHandler {
       result.authStatus = 'unknown'
     }
 
-    // Project status
+    // Project status — use effectiveProjectPath for consistency with resolved root
     try {
-      const isInitialized = await this.projectConfigStore.exists(projectPath)
+      const isInitialized = await this.projectConfigStore.exists(effectiveProjectPath)
       if (isInitialized) {
-        const config = await this.projectConfigStore.read(projectPath)
+        const config = await this.projectConfigStore.read(effectiveProjectPath)
         if (config) {
           result.teamName = config.teamName
           result.spaceName = config.spaceName
@@ -100,23 +131,23 @@ export class StatusHandler {
       // File doesn't exist yet — no queue running
     }
 
-    // Context tree status
+    // Context tree status — use effectiveProjectPath for consistency with resolved root
     try {
-      const contextTreeExists = await this.contextTreeService.exists(projectPath)
+      const contextTreeExists = await this.contextTreeService.exists(effectiveProjectPath)
       if (contextTreeExists) {
-        const hasGitVc = await this.contextTreeService.hasGitRepo(projectPath)
+        const hasGitVc = await this.contextTreeService.hasGitRepo(effectiveProjectPath)
         if (hasGitVc) {
           result.contextTreeStatus = 'git_vc'
         } else {
-          result.contextTreeDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
+          result.contextTreeDir = join(effectiveProjectPath, BRV_DIR, CONTEXT_TREE_DIR)
           result.contextTreeRelativeDir = join(BRV_DIR, CONTEXT_TREE_DIR)
 
-          const hasSnapshot = await this.contextTreeSnapshotService.hasSnapshot(projectPath)
+          const hasSnapshot = await this.contextTreeSnapshotService.hasSnapshot(effectiveProjectPath)
           if (!hasSnapshot) {
-            await this.contextTreeSnapshotService.initEmptySnapshot(projectPath)
+            await this.contextTreeSnapshotService.initEmptySnapshot(effectiveProjectPath)
           }
 
-          const changes = await this.contextTreeSnapshotService.getChanges(projectPath)
+          const changes = await this.contextTreeSnapshotService.getChanges(effectiveProjectPath)
           const hasChanges = changes.added.length > 0 || changes.modified.length > 0 || changes.deleted.length > 0
 
           if (hasChanges) {
@@ -164,6 +195,18 @@ export class StatusHandler {
       }
     } catch {
       // Best-effort — if the log is unavailable, skip review info
+    }
+
+    // Knowledge sources status
+    try {
+      const sourcesResult = listSourceStatuses(effectiveProjectPath)
+      if (sourcesResult.error) {
+        result.sourcesError = sourcesResult.error
+      } else if (sourcesResult.statuses.length > 0) {
+        result.sources = sourcesResult.statuses
+      }
+    } catch {
+      // Best-effort — swallow errors
     }
 
     return result
