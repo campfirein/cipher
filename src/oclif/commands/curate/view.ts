@@ -86,7 +86,7 @@ export default class CurateView extends Command {
 
   private parseTime(value: string, flagName: string): number {
     const ts = parseTimeFilter(value)
-    if (ts === null) {
+    if (ts === undefined) {
       this.error(
         `Invalid time value for ${flagName}: "${value}". Use ISO date (2024-01-15) or relative (30m, 1h, 24h, 7d, 2w).`,
         {exit: 2},

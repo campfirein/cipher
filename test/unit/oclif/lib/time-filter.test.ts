@@ -77,20 +77,20 @@ describe('parseTimeFilter', () => {
   // ==========================================================================
 
   describe('invalid input', () => {
-    it('should return null for non-parseable string', () => {
-      expect(parseTimeFilter('invalid')).to.be.null
+    it('should return undefined for non-parseable string', () => {
+      expect(parseTimeFilter('invalid')).to.be.undefined
     })
 
-    it('should return null for empty string', () => {
-      expect(parseTimeFilter('')).to.be.null
+    it('should return undefined for empty string', () => {
+      expect(parseTimeFilter('')).to.be.undefined
     })
 
-    it('should return null for partial relative format ("h")', () => {
-      expect(parseTimeFilter('h')).to.be.null
+    it('should return undefined for partial relative format ("h")', () => {
+      expect(parseTimeFilter('h')).to.be.undefined
     })
 
-    it('should return null for unsupported unit ("5y")', () => {
-      expect(parseTimeFilter('5y')).to.be.null
+    it('should return undefined for unsupported unit ("5y")', () => {
+      expect(parseTimeFilter('5y')).to.be.undefined
     })
   })
 })
