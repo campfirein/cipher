@@ -246,7 +246,7 @@ async function start(): Promise<void> {
 
   const envConfig = getCurrentConfig()
   const agentConfig = {
-    apiBaseUrl: envConfig.llmApiBaseUrl,
+    apiBaseUrl: envConfig.llmBaseUrl,
     fileSystem: {allowedPaths: ['.', ...sharedAllowedPaths], workingDirectory: projectPath},
     llm: {
       maxIterations: 10,

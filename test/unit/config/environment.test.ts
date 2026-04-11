@@ -2,13 +2,10 @@ import {expect} from 'chai'
 
 describe('Environment Configuration', () => {
   const ENV_VARS = {
-    BRV_API_BASE_URL: 'https://api.test',
-    BRV_AUTHORIZATION_URL: 'https://auth.test/authorize',
-    BRV_COGIT_API_BASE_URL: 'https://cogit.test',
+    BRV_COGIT_BASE_URL: 'https://cogit.test',
     BRV_GIT_REMOTE_BASE_URL: 'https://cogit-git.test',
-    BRV_ISSUER_URL: 'https://issuer.test',
-    BRV_LLM_API_BASE_URL: 'https://llm.test',
-    BRV_TOKEN_URL: 'https://auth.test/token',
+    BRV_IAM_BASE_URL: 'https://iam.test',
+    BRV_LLM_BASE_URL: 'https://llm.test',
     BRV_WEB_APP_URL: 'https://app.test',
   }
 
@@ -78,12 +75,13 @@ describe('Environment Configuration', () => {
       const {getCurrentConfig} = await import(`../../../src/server/config/environment.js?t=${Date.now()}`)
       const config = getCurrentConfig()
 
-      expect(config.apiBaseUrl).to.equal('https://api.test')
-      expect(config.authorizationUrl).to.equal('https://auth.test/authorize')
-      expect(config.cogitApiBaseUrl).to.equal('https://cogit.test')
-      expect(config.issuerUrl).to.equal('https://issuer.test')
-      expect(config.llmApiBaseUrl).to.equal('https://llm.test')
-      expect(config.tokenUrl).to.equal('https://auth.test/token')
+      expect(config.iamBaseUrl).to.equal('https://iam.test')
+      expect(config.authorizationUrl).to.equal('https://iam.test/api/v1/oidc/authorize')
+      expect(config.cogitBaseUrl).to.equal('https://cogit.test')
+      expect(config.gitRemoteBaseUrl).to.equal('https://cogit-git.test')
+      expect(config.issuerUrl).to.equal('https://iam.test/api/v1/oidc')
+      expect(config.llmBaseUrl).to.equal('https://llm.test')
+      expect(config.tokenUrl).to.equal('https://iam.test/api/v1/oidc/token')
       expect(config.webAppUrl).to.equal('https://app.test')
     })
 
@@ -125,11 +123,11 @@ describe('Environment Configuration', () => {
 
     it('should throw when a required env var is missing', async () => {
       delete process.env.BRV_ENV
-      delete process.env.BRV_API_BASE_URL
+      delete process.env.BRV_IAM_BASE_URL
 
       const {getCurrentConfig} = await import(`../../../src/server/config/environment.js?t=${Date.now()}`)
 
-      expect(() => getCurrentConfig()).to.throw('Missing required environment variable: BRV_API_BASE_URL')
+      expect(() => getCurrentConfig()).to.throw('Missing required environment variable: BRV_IAM_BASE_URL')
     })
   })
 })
