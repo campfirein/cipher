@@ -166,6 +166,11 @@ export default class Status extends Command {
         break
       }
 
+      case 'no_vc': {
+        this.log('Context Tree: Managed by Byterover version control (use brv vc commands)')
+        break
+      }
+
       case 'not_initialized': {
         this.log('Context Tree: Not initialized')
         break
