@@ -15,16 +15,22 @@ export const ENVIRONMENT: Environment = isEnvironment(envValue) ? envValue : 'de
 
 /**
  * Environment-specific configuration.
+ *
+ * Base URL vars (BRV_IAM_BASE_URL, BRV_COGIT_BASE_URL, BRV_LLM_BASE_URL)
+ * store only the root domain (e.g., http://localhost:8080).
+ * API version paths (/api/v1, /api/v3) are appended at the point of use.
+ *
+ * OIDC URLs are derived from iamBaseUrl; no separate env vars needed.
  */
 type EnvironmentConfig = {
-  apiBaseUrl: string
   authorizationUrl: string
   clientId: string
-  cogitApiBaseUrl: string
+  cogitBaseUrl: string
   gitRemoteBaseUrl: string
   hubRegistryUrl: string
+  iamBaseUrl: string
   issuerUrl: string
-  llmApiBaseUrl: string
+  llmBaseUrl: string
   scopes: string[]
   tokenUrl: string
   webAppUrl: string
@@ -51,19 +57,24 @@ const readRequiredEnv = (name: string): string => {
   return value
 }
 
-export const getCurrentConfig = (): EnvironmentConfig => ({
-  apiBaseUrl: readRequiredEnv('BRV_API_BASE_URL'),
-  authorizationUrl: readRequiredEnv('BRV_AUTHORIZATION_URL'),
-  clientId: DEFAULTS.clientId,
-  cogitApiBaseUrl: readRequiredEnv('BRV_COGIT_API_BASE_URL'),
-  gitRemoteBaseUrl: readRequiredEnv('BRV_GIT_REMOTE_BASE_URL'),
-  hubRegistryUrl: DEFAULTS.hubRegistryUrl,
-  issuerUrl: readRequiredEnv('BRV_ISSUER_URL'),
-  llmApiBaseUrl: readRequiredEnv('BRV_LLM_API_BASE_URL'),
-  scopes: [...DEFAULTS.scopes[ENVIRONMENT]],
-  tokenUrl: readRequiredEnv('BRV_TOKEN_URL'),
-  webAppUrl: readRequiredEnv('BRV_WEB_APP_URL'),
-})
+export const getCurrentConfig = (): EnvironmentConfig => {
+  const iamBaseUrl = readRequiredEnv('BRV_IAM_BASE_URL')
+  const oidcBase = `${iamBaseUrl}/api/v1/oidc`
+
+  return {
+    authorizationUrl: `${oidcBase}/authorize`,
+    clientId: DEFAULTS.clientId,
+    cogitBaseUrl: readRequiredEnv('BRV_COGIT_BASE_URL'),
+    gitRemoteBaseUrl: readRequiredEnv('BRV_GIT_REMOTE_BASE_URL'),
+    hubRegistryUrl: DEFAULTS.hubRegistryUrl,
+    iamBaseUrl,
+    issuerUrl: oidcBase,
+    llmBaseUrl: readRequiredEnv('BRV_LLM_BASE_URL'),
+    scopes: [...DEFAULTS.scopes[ENVIRONMENT]],
+    tokenUrl: `${oidcBase}/token`,
+    webAppUrl: readRequiredEnv('BRV_WEB_APP_URL'),
+  }
+}
 
 export const getGitRemoteBaseUrl = (): string =>
   process.env.BRV_GIT_REMOTE_BASE_URL ?? 'https://byterover.dev'
