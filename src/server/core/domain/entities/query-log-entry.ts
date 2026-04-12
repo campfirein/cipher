@@ -8,17 +8,24 @@ export type QueryLogTier = (typeof QUERY_LOG_TIERS)[number]
 
 export type TierKey = `tier${QueryLogTier}`
 
+/** Named tier constants — single source of truth for tier assignments in QueryExecutor. */
+export const TIER_EXACT_CACHE: QueryLogTier = 0
+export const TIER_FUZZY_CACHE: QueryLogTier = 1
+export const TIER_DIRECT_SEARCH: QueryLogTier = 2
+export const TIER_OPTIMIZED_LLM: QueryLogTier = 3
+export const TIER_FULL_AGENTIC: QueryLogTier = 4
+
 /** Human-readable labels for each resolution tier. */
 export const QUERY_LOG_TIER_LABELS: Record<QueryLogTier, string> = {
-  0: 'exact cache hit',
-  1: 'fuzzy cache match',
-  2: 'direct search',
-  3: 'optimized LLM',
-  4: 'full agentic',
+  [TIER_DIRECT_SEARCH]: 'direct search',
+  [TIER_EXACT_CACHE]: 'exact cache hit',
+  [TIER_FULL_AGENTIC]: 'full agentic',
+  [TIER_FUZZY_CACHE]: 'fuzzy cache match',
+  [TIER_OPTIMIZED_LLM]: 'optimized LLM',
 }
 
 /** Tiers considered cache hits for cache-hit-rate calculation. */
-export const CACHE_TIERS = [0, 1] as const satisfies readonly QueryLogTier[]
+export const CACHE_TIERS = [TIER_EXACT_CACHE, TIER_FUZZY_CACHE] as const satisfies readonly QueryLogTier[]
 
 export type ByTier = Record<TierKey, number> & {unknown: number}
 

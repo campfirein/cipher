@@ -470,7 +470,8 @@ async function executeTask(
         }
 
         case 'query': {
-          result = await queryExecutor.executeWithAgent(agent, {query: content, taskId})
+          const queryResult = await queryExecutor.executeWithAgent(agent, {query: content, taskId})
+          result = queryResult.response
 
           break
         }
