@@ -6,6 +6,7 @@
 @custom-variant dark (&:is(.dark *));
 @source "../**/*.{ts,tsx}";
 @source "../../../node_modules/@campfirein/byterover-packages/src/**/*.{ts,tsx}";
+@source "../../../packages/byterover-packages/ui/src/**/*.{ts,tsx}";
 
 :root {
   font-family:

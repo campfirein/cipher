@@ -6,7 +6,14 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@workspace/ui/*": ["../../node_modules/@campfirein/byterover-packages/src/*"]
+      "@campfirein/byterover-packages/*": [
+        "../../packages/byterover-packages/ui/src/*",
+        "../../node_modules/@campfirein/byterover-packages/ui/src/*"
+      ],
+      "@workspace/ui/*": [
+        "../../packages/byterover-packages/ui/src/*",
+        "../../node_modules/@campfirein/byterover-packages/ui/src/*"
+      ]
     },
     "strict": true,
     "skipLibCheck": true,

@@ -1,20 +1,79 @@
-import type { ProxyOptions } from 'vite'
+import type {ProxyOptions} from 'vite'
 
-import { discoverDaemon } from '@campfirein/brv-transport-client'
+import {discoverDaemon} from '@campfirein/brv-transport-client'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { realpathSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vite'
+import {existsSync, readFileSync, realpathSync} from 'node:fs'
+import {dirname, resolve} from 'node:path'
+import {fileURLToPath} from 'node:url'
+import {defineConfig} from 'vite'
 
-// The shared package is linked from a sibling workspace and still uses the
-// monorepo-only `@workspace/ui/*` alias internally, so we point that alias at
-// the package's real source directory here.
 const currentDir = dirname(fileURLToPath(import.meta.url))
-const brvPkgSrc = realpathSync(resolve(currentDir, '../../node_modules/@campfirein/byterover-packages/src'))
+const repoRoot = resolve(currentDir, '../..')
+const submoduleSharedUiSrc = resolve(repoRoot, 'packages/byterover-packages/ui/src')
+const installedSharedUiSrc = resolve(repoRoot, 'node_modules/@campfirein/byterover-packages/ui/src')
+const packageJson = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')) as {version?: string}
+const cliVersion = packageJson.version ?? 'unknown'
 
-export default defineConfig(({ command }) => {
+type SharedUiSourceMode = 'auto' | 'package' | 'submodule'
+
+function normalizeSharedUiSourceMode(mode: string | undefined): SharedUiSourceMode {
+  switch (mode) {
+    case 'lib':
+    case 'package': {
+      return 'package'
+    }
+
+    case 'local':
+    case 'submodule': {
+      return 'submodule'
+    }
+
+    default: {
+      return 'auto'
+    }
+  }
+}
+
+function resolveSharedUiSource(mode: SharedUiSourceMode): {
+  label: string
+  mode: Exclude<SharedUiSourceMode, 'auto'>
+  path: string
+} {
+  const hasSubmoduleSource = existsSync(submoduleSharedUiSrc)
+  const hasInstalledSource = existsSync(installedSharedUiSrc)
+
+  if (mode === 'submodule' || (mode === 'auto' && hasSubmoduleSource)) {
+    if (!hasSubmoduleSource) {
+      throw new Error(
+        'Shared UI submodule not found at packages/byterover-packages. Run `git submodule update --init --recursive`.',
+      )
+    }
+
+    const resolvedPath = realpathSync(submoduleSharedUiSrc)
+    return {
+      label: `git submodule (${resolvedPath})`,
+      mode: 'submodule',
+      path: resolvedPath,
+    }
+  }
+
+  if (!hasInstalledSource) {
+    throw new Error(
+      'Installed shared UI package source not found in node_modules. Run `npm install` to restore `@campfirein/byterover-packages`.',
+    )
+  }
+
+  const resolvedPath = realpathSync(installedSharedUiSrc)
+  return {
+    label: `installed package (${resolvedPath})`,
+    mode: 'package',
+    path: resolvedPath,
+  }
+}
+
+export default defineConfig(({command, mode}) => {
+  const sharedUiSource = resolveSharedUiSource(normalizeSharedUiSourceMode(process.env.BRV_UI_SOURCE ?? mode))
   let proxy: Record<string, ProxyOptions | string> | undefined
 
   if (command === 'serve') {
@@ -23,16 +82,17 @@ export default defineConfig(({ command }) => {
       if (status.running) {
         const target = `http://localhost:${status.port}`
         proxy = {
-          '/api': { target },
-          '/socket.io': { target, ws: true },
+          '/socket.io': {target, ws: true},
         }
-        console.log(`\n  Daemon found on port ${status.port} — proxying /api and /socket.io to ${target}\n`)
+        console.log(`\n  Daemon found on port ${status.port} — proxying /socket.io to ${target}\n`)
       } else {
         console.log('\n  Daemon is not running. Make daemon alive before continue.\n')
       }
     } catch {
       console.log('\n  Daemon is not running. Make daemon alive before continue.\n')
     }
+
+    console.log(`\n  Shared UI source: ${sharedUiSource.label}\n`)
   }
 
   return {
@@ -41,24 +101,56 @@ export default defineConfig(({ command }) => {
       emptyOutDir: true,
       outDir: '../../dist/webui',
     },
-    optimizeDeps: {
-      exclude: ['@campfirein/byterover-packages'],
-    },
-    plugins: [react(), tailwindcss()],
+    optimizeDeps:
+      sharedUiSource.mode === 'submodule'
+        ? {
+            exclude: ['@campfirein/byterover-packages'],
+          }
+        : undefined,
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        configureServer(server) {
+          server.middlewares.use('/api/ui/config', (_req, res) => {
+            const status = discoverDaemon()
+
+            if (!status.running) {
+              res.statusCode = 503
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({error: 'Daemon is not running'}))
+              return
+            }
+
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.end(
+              JSON.stringify({
+                port: status.port,
+                projectCwd: repoRoot,
+                version: cliVersion,
+              }),
+            )
+          })
+        },
+        name: 'brv-ui-dev-config-endpoint',
+      },
+    ],
     resolve: {
       alias: {
-        '@workspace/ui': brvPkgSrc,
+        '@campfirein/byterover-packages': sharedUiSource.path,
+        '@workspace/ui': sharedUiSource.path,
         // Force linked packages (npm link) to use this project's React instance.
         // Without this, npm-linked packages resolve react from their own
         // node_modules, causing "Invalid hook call" due to duplicate React.
-        'react': resolve(currentDir, '../../node_modules/react'),
-        'react-dom': resolve(currentDir, '../../node_modules/react-dom'),
+        react: resolve(repoRoot, 'node_modules/react'),
+        'react-dom': resolve(repoRoot, 'node_modules/react-dom'),
       },
     },
     server: {
-      ...(proxy ? { proxy } : {}),
-      watch: {
-        ignored: ['!**/node_modules/@campfirein/**'],
+      ...(proxy ? {proxy} : {}),
+      fs: {
+        allow: [repoRoot],
       },
     },
   }
