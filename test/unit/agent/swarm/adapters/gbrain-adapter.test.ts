@@ -1,5 +1,8 @@
 /* eslint-disable camelcase -- GBrain API uses snake_case field names */
 import {expect} from 'chai'
+import {mkdtempSync, rmSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import sinon from 'sinon'
 
 import {GBrainAdapter, type GBrainAdapterOptions} from '../../../../../src/agent/infra/swarm/adapters/gbrain-adapter.js'
@@ -126,18 +129,43 @@ describe('GBrainAdapter', () => {
   })
 
   describe('healthCheck()', () => {
+    /** Real directory — healthCheck() requires repoPath to exist before invoking the executor. */
+    let tempRepoPath: string
+
+    beforeEach(() => {
+      tempRepoPath = mkdtempSync(join(tmpdir(), 'gbrain-adapter-test-'))
+    })
+
+    afterEach(() => {
+      try {
+        rmSync(tempRepoPath, {recursive: true})
+      } catch {
+        // ignore
+      }
+    })
+
     it('returns available when gbrain responds', async () => {
-      const {adapter} = createTestAdapter({chunk_count: 50, page_count: 10})
+      const executor = sinon.stub().resolves({chunk_count: 50, page_count: 10})
+      const adapter = new GBrainAdapter({repoPath: tempRepoPath, searchMode: 'hybrid'}, executor)
       const status = await adapter.healthCheck()
       expect(status.available).to.be.true
     })
 
     it('returns unavailable when gbrain fails', async () => {
       const executor = sinon.stub().rejects(new Error('Command failed'))
-      const adapter = new GBrainAdapter({repoPath: '/tmp/bad', searchMode: 'hybrid'}, executor)
+      const adapter = new GBrainAdapter({repoPath: tempRepoPath, searchMode: 'hybrid'}, executor)
       const status = await adapter.healthCheck()
       expect(status.available).to.be.false
       expect(status.error).to.include('Command failed')
+    })
+
+    it('returns unavailable when repo path does not exist', async () => {
+      const executor = sinon.stub().resolves({page_count: 1})
+      const adapter = new GBrainAdapter({repoPath: '/nonexistent/gbrain/repo', searchMode: 'hybrid'}, executor)
+      const status = await adapter.healthCheck()
+      expect(status.available).to.be.false
+      expect(status.error).to.include('GBrain repo not found')
+      expect(executor.called).to.be.false
     })
   })
 
