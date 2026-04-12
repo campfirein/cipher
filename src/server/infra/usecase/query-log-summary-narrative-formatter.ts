@@ -1,26 +1,20 @@
 import type {QueryLogSummary} from '../../core/interfaces/usecase/i-query-log-summary-use-case.js'
 
-const EMPTY_STATE_MESSAGE =
-  'No queries recorded in the last 24 hours. Your knowledge base is ready — try asking a question!'
-
 const NARRATIVE_TOP_DOCS = 2
 const NARRATIVE_TOP_GAPS = 2
+const MS_PER_HOUR = 3_600_000
+const MS_PER_DAY = 86_400_000
 
-/**
- * Format a QueryLogSummary as a human-readable value story.
- *
- * Pure formatting — no computation. Consumes the data already computed
- * by QueryLogSummaryUseCase (ENG-1898) and wraps it in prose aimed at
- * conveying ByteRover recall value to end users.
- */
 export function formatQueryLogSummaryNarrative(summary: QueryLogSummary): string {
+  const periodLabel = describePeriod(summary.period)
+
   if (summary.totalQueries === 0) {
-    return EMPTY_STATE_MESSAGE
+    return `No queries recorded ${periodLabel}. Your knowledge base is ready — try asking a question!`
   }
 
   const paragraphs: string[] = []
 
-  paragraphs.push(buildOverviewParagraph(summary))
+  paragraphs.push(buildOverviewParagraph(summary, periodLabel))
 
   if (summary.totalMatchedDocs > 0 && summary.topRecalledDocs.length > 0) {
     paragraphs.push(buildTopDocsParagraph(summary))
@@ -31,14 +25,41 @@ export function formatQueryLogSummaryNarrative(summary: QueryLogSummary): string
   return paragraphs.join('\n\n')
 }
 
-function buildOverviewParagraph(summary: QueryLogSummary): string {
-  const {cacheHitRate, coverageRate, queriesWithoutMatches, responseTime, totalQueries} = summary
-  const answered = totalQueries - queriesWithoutMatches
+function describePeriod(period: QueryLogSummary['period']): string {
+  if (period.from === 0 && period.to === 0) {
+    return 'in the selected period'
+  }
+
+  if (period.from > 0 && period.to > 0) {
+    const spanMs = period.to - period.from
+    return describeSpan(spanMs)
+  }
+
+  if (period.from > 0) {
+    const spanMs = Date.now() - period.from
+    return describeSpan(spanMs)
+  }
+
+  return 'in the selected period'
+}
+
+function describeSpan(spanMs: number): string {
+  if (spanMs <= MS_PER_DAY + MS_PER_HOUR) {
+    return 'in the last 24 hours'
+  }
+
+  const days = Math.round(spanMs / MS_PER_DAY)
+  return `in the last ${days} days`
+}
+
+function buildOverviewParagraph(summary: QueryLogSummary, periodLabel: string): string {
+  const {byStatus, cacheHitRate, coverageRate, queriesWithoutMatches, responseTime, totalQueries} = summary
+  const answered = byStatus.completed - queriesWithoutMatches
   const coveragePct = Math.round(coverageRate * 100)
   const cachePct = Math.round(cacheHitRate * 100)
 
   return (
-    `Your team asked ${totalQueries} questions today. ` +
+    `Your team asked ${totalQueries} questions ${periodLabel}. ` +
     `ByteRover answered ${answered} from curated knowledge ` +
     `(${coveragePct}% coverage), with ${cachePct}% served from cache. ` +
     `Average response time was ${formatDuration(responseTime.avgMs)}.`

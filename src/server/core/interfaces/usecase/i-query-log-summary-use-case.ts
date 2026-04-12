@@ -1,5 +1,4 @@
-// Interface driven by `brv query-log summary` command (ENG-1899).
-// Full implementation of data computation, text format, and JSON format in ENG-1898.
+import type {ByTier} from '../../domain/entities/query-log-entry.js'
 
 export type QueryLogSummary = {
   byStatus: {
@@ -7,14 +6,7 @@ export type QueryLogSummary = {
     completed: number
     error: number
   }
-  byTier: {
-    tier0: number
-    tier1: number
-    tier2: number
-    tier3: number
-    tier4: number
-    unknown: number
-  }
+  byTier: ByTier
   cacheHitRate: number
   coverageRate: number
   knowledgeGaps: {

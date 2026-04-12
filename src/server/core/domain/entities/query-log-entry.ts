@@ -6,6 +6,8 @@
 export const QUERY_LOG_TIERS = [0, 1, 2, 3, 4] as const
 export type QueryLogTier = (typeof QUERY_LOG_TIERS)[number]
 
+export type TierKey = `tier${QueryLogTier}`
+
 /** Human-readable labels for each resolution tier. */
 export const QUERY_LOG_TIER_LABELS: Record<QueryLogTier, string> = {
   0: 'exact cache hit',
@@ -13,6 +15,22 @@ export const QUERY_LOG_TIER_LABELS: Record<QueryLogTier, string> = {
   2: 'direct search',
   3: 'optimized LLM',
   4: 'full agentic',
+}
+
+/** Tiers considered cache hits for cache-hit-rate calculation. */
+export const CACHE_TIERS = [0, 1] as const satisfies readonly QueryLogTier[]
+
+export type ByTier = Record<TierKey, number> & {unknown: number}
+
+// Single `as` contained here — TS cannot prove loop exhaustiveness over template literal keys.
+export function emptyByTier(): ByTier {
+  const obj: Record<string, number> = {}
+  for (const t of QUERY_LOG_TIERS) {
+    obj[`tier${t}`] = 0
+  }
+
+  obj.unknown = 0
+  return obj as ByTier
 }
 
 /** Valid query log statuses. Add/remove here — the type updates automatically. */
