@@ -80,8 +80,37 @@ export type SwarmSummary = {
 }
 
 /**
+ * Request to store knowledge via the swarm.
+ */
+export type SwarmStoreRequest = {
+  /** The knowledge content to store */
+  content: string
+  /** Optional write type hint — skips classification when provided */
+  contentType?: 'entity' | 'general' | 'note'
+  /** Explicit target provider ID — overrides classification */
+  provider?: string
+}
+
+/**
+ * Result from a swarm store operation.
+ */
+export type SwarmStoreResult = {
+  /** Error message if store failed */
+  error?: string
+  /** ID assigned by the target provider */
+  id: string
+  /** Store latency in milliseconds */
+  latencyMs: number
+  /** Provider that stored the content */
+  provider: string
+  /** Whether the store succeeded */
+  success: boolean
+}
+
+/**
  * Central coordinator for the memory swarm.
  * Routes queries to providers, executes the graph, and fuses results.
+ * Routes store operations to the best writable provider.
  */
 export interface ISwarmCoordinator {
   /**
@@ -98,4 +127,10 @@ export interface ISwarmCoordinator {
    * Get a presentation-oriented summary of the swarm state.
    */
   getSummary(): SwarmSummary
+
+  /**
+   * Store knowledge in the best writable provider.
+   * Routes by content type or explicit provider target.
+   */
+  store(request: SwarmStoreRequest): Promise<SwarmStoreResult>
 }

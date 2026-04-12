@@ -156,6 +156,8 @@ All methods are async and require the async IIFE wrapper.
 - **tools.curate(operations[], options?)** — Curate knowledge (ADD/UPDATE/UPSERT/MERGE/DELETE)
 - **tools.searchKnowledge(query, options?)** — Search curated knowledge
 - **tools.detectDomains(domains[])** — Detect domains from text
+- **tools.swarmQuery(query, {limit?, scope?})** — Search across all swarm memory providers (when configured)
+- **tools.swarmStore({content, contentType?, provider?})** — Store knowledge in GBrain/local markdown (when configured)
 
 ## Available Globals
 

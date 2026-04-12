@@ -29,6 +29,7 @@ import { createReadFileTool } from './implementations/read-file-tool.js'
 import { createSearchKnowledgeService } from './implementations/search-knowledge-service.js'
 import { createSearchKnowledgeTool } from './implementations/search-knowledge-tool.js'
 import { createSwarmQueryTool } from './implementations/swarm-query-tool.js'
+import { createSwarmStoreTool } from './implementations/swarm-store-tool.js'
 import { createWriteFileTool } from './implementations/write-file-tool.js'
 import { ToolMarker } from './tool-markers.js'
 
@@ -165,7 +166,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.CODE_EXEC]: {
     descriptionFile: 'code_exec',
-    factory({ abstractQueue, environmentContext, fileSystemService, sandboxService }) {
+    factory({ abstractQueue, environmentContext, fileSystemService, sandboxService, swarmCoordinator }) {
       const sandbox = getRequiredService(sandboxService, 'sandboxService')
 
       // Inject file system service into sandbox for Tools SDK
@@ -188,6 +189,11 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
       // Inject environment context into sandbox for env.* access
       if (environmentContext && sandbox.setEnvironmentContext) {
         sandbox.setEnvironmentContext(environmentContext)
+      }
+
+      // Inject swarm coordinator into sandbox for tools.swarmQuery/swarmStore
+      if (swarmCoordinator && sandbox.setSwarmCoordinator) {
+        sandbox.setSwarmCoordinator(swarmCoordinator)
       }
 
       return createCodeExecTool(sandbox)
@@ -281,6 +287,17 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
       return createSwarmQueryTool(coordinator)
     },
     markers: [ToolMarker.Discovery],
+    requiredServices: ['swarmCoordinator'],
+  },
+
+  [ToolName.SWARM_STORE]: {
+    descriptionFile: 'swarm_store',
+    factory(services) {
+      const coordinator = getRequiredService(services.swarmCoordinator, 'swarmCoordinator')
+
+      return createSwarmStoreTool(coordinator)
+    },
+    markers: [ToolMarker.Modification],
     requiredServices: ['swarmCoordinator'],
   },
 

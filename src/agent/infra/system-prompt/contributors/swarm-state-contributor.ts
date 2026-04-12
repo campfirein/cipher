@@ -47,6 +47,27 @@ export class SwarmStateContributor implements SystemPromptContributor {
       lines.push(`- **${p.id}** (${p.type}) — ${status} — capabilities: ${caps.join(', ')}`)
     }
 
+    // Write guidance — only show if writable providers exist
+    const writableProviders = providers.filter((p) => p.capabilities.writeSupported && p.healthy)
+    if (writableProviders.length > 0) {
+      lines.push(
+        '',
+        '### Writing Knowledge',
+        'Use `swarm_store` to write to external providers:',
+      )
+      for (const p of writableProviders) {
+        if (p.type === 'gbrain') {
+          lines.push(`- **${p.id}**: structured entities (people, companies, concepts)`)
+        } else if (p.type === 'local-markdown') {
+          lines.push(`- **${p.id}**: notes, drafts, meeting summaries`)
+        } else {
+          lines.push(`- **${p.id}**: general knowledge`)
+        }
+      }
+
+      lines.push('Use `curate` for project-specific knowledge (writes to context tree).')
+    }
+
     lines.push('', '</swarm-state>')
 
     return lines.join('\n')

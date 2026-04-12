@@ -4,6 +4,8 @@ import type {
   ISwarmCoordinator,
   ProviderInfo,
   SwarmQueryResult,
+  SwarmStoreRequest,
+  SwarmStoreResult,
   SwarmSummary,
 } from '../../core/interfaces/i-swarm-coordinator.js'
 import type {SwarmConfig} from './config/swarm-config-schema.js'
@@ -11,6 +13,7 @@ import type {SwarmConfig} from './config/swarm-config-schema.js'
 import {SwarmGraph} from './swarm-graph.js'
 import {mergeResults} from './swarm-merger.js'
 import {classifyQuery, selectProviders} from './swarm-router.js'
+import {classifyWrite, selectWriteTarget} from './swarm-write-router.js'
 
 /**
  * Default provider weights for RRF fusion.
@@ -293,5 +296,66 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     )
 
     return results
+  }
+
+  /**
+   * Store knowledge in the best writable provider.
+   *
+   * Routing:
+   * 1. If request.provider is set → use that provider (verify writable + healthy)
+   * 2. If request.contentType is set → use it as write type (skip classification)
+   * 3. Otherwise → classifyWrite(content) → selectWriteTarget()
+   */
+  public async store(request: SwarmStoreRequest): Promise<SwarmStoreResult> {
+    const start = Date.now()
+
+    let target: IMemoryProvider
+
+    if (request.provider) {
+      // Explicit provider target
+      const provider = this.providers.find((p) => p.id === request.provider)
+      if (!provider) {
+        return {error: `Provider '${request.provider}' not found`, id: '', latencyMs: 0, provider: request.provider, success: false}
+      }
+
+      if (!provider.capabilities.writeSupported) {
+        return {error: `Provider '${request.provider}' does not support writes`, id: '', latencyMs: 0, provider: request.provider, success: false}
+      }
+
+      if (this.healthCache.get(provider.id) === false) {
+        return {error: `Provider '${request.provider}' is not healthy`, id: '', latencyMs: 0, provider: request.provider, success: false}
+      }
+
+      target = provider
+    } else {
+      // Auto-route: classify content type, then select target
+      const writeType = request.contentType ?? classifyWrite(request.content)
+      target = selectWriteTarget(writeType, this.providers, this.healthCache)
+    }
+
+    try {
+      const result = await target.store({
+        content: request.content,
+        metadata: {
+          source: 'swarm-curate',
+          timestamp: Date.now(),
+        },
+      })
+
+      return {
+        id: result.id,
+        latencyMs: Date.now() - start,
+        provider: target.id,
+        success: result.success,
+      }
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : String(error),
+        id: '',
+        latencyMs: Date.now() - start,
+        provider: target.id,
+        success: false,
+      }
+    }
   }
 }

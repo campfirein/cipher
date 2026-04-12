@@ -55,6 +55,7 @@ function createMockCoordinator(result?: Partial<SwarmQueryResult>): ISwarmCoordi
       totalCount: 1,
       totalQueries: 0,
     }),
+    store: sinon.stub().resolves({id: '', latencyMs: 0, provider: '', success: true}),
   }
 }
 

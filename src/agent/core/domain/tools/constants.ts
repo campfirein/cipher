@@ -15,6 +15,7 @@ export const ToolName: {
   readonly READ_FILE: 'read_file'
   readonly SEARCH_KNOWLEDGE: 'search_knowledge'
   readonly SWARM_QUERY: 'swarm_query'
+  readonly SWARM_STORE: 'swarm_store'
   readonly WRITE_FILE: 'write_file'
 } = {
   AGENTIC_MAP: 'agentic_map',
@@ -29,6 +30,7 @@ export const ToolName: {
   READ_FILE: 'read_file',
   SEARCH_KNOWLEDGE: 'search_knowledge',
   SWARM_QUERY: 'swarm_query',
+  SWARM_STORE: 'swarm_store',
   WRITE_FILE: 'write_file',
 }
 

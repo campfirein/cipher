@@ -281,6 +281,7 @@ export default class SwarmStatus extends Command {
 
     this.renderProviderStatusLines(config, validation)
     this.renderEnrichmentTopology(config)
+    this.renderWriteTargets(config)
     this.renderValidationErrors(validation)
     this.renderValidationWarnings(validation)
     this.renderCascadeNote(validation)
@@ -310,6 +311,32 @@ export default class SwarmStatus extends Command {
     this.log(`\n${chalk.yellow('Warnings')} (${validation.warnings.length}):`)
     for (const [i, warning] of validation.warnings.entries()) {
       this.log(`  ${i + 1}. ${warning.provider ?? 'config'}: ${warning.message}`)
+    }
+  }
+
+  private renderWriteTargets(
+    config: Awaited<ReturnType<typeof loadSwarmConfig>>
+  ): void {
+    const {providers} = config
+    const targets: string[] = []
+
+    if (providers.gbrain?.enabled) {
+      targets.push('gbrain (entity, general)')
+    }
+
+    if (providers.localMarkdown?.enabled) {
+      for (const folder of providers.localMarkdown.folders) {
+        if (!folder.readOnly) {
+          targets.push(`local-markdown:${folder.name} (note, general)`)
+        }
+      }
+    }
+
+    if (targets.length === 0) return
+
+    this.log(`\n${chalk.cyan('Write Targets')}:`)
+    for (const target of targets) {
+      this.log(`  ${target}`)
     }
   }
 }

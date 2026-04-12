@@ -280,6 +280,89 @@ describe('SwarmCoordinator', () => {
     })
   })
 
+  describe('store()', () => {
+    it('routes to explicit provider when specified', async () => {
+      const gbrain = createMockProvider('gbrain', 'gbrain', []);
+      (gbrain as {capabilities: {writeSupported: boolean}}).capabilities.writeSupported = true;
+      (gbrain.store as sinon.SinonStub).resolves({id: 'concept/test', provider: 'gbrain', success: true})
+
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([gbrain], config)
+      const result = await coordinator.store({content: 'Test content', provider: 'gbrain'})
+
+      expect(result.success).to.be.true
+      expect(result.provider).to.equal('gbrain')
+      expect(result.id).to.equal('concept/test')
+    })
+
+    it('auto-classifies and routes when no provider specified', async () => {
+      const gbrain = createMockProvider('gbrain', 'gbrain', []);
+      (gbrain as {capabilities: {writeSupported: boolean}}).capabilities.writeSupported = true;
+      (gbrain.store as sinon.SinonStub).resolves({id: 'person/dario', provider: 'gbrain', success: true})
+
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([gbrain], config)
+      const result = await coordinator.store({content: 'Dario Amodei is CEO of Anthropic'})
+
+      expect(result.success).to.be.true
+      expect(result.provider).to.equal('gbrain')
+    })
+
+    it('uses contentType hint and skips classification', async () => {
+      const localMd = createMockProvider('local-markdown:notes', 'local-markdown', []);
+      (localMd as {capabilities: {writeSupported: boolean}}).capabilities.writeSupported = true;
+      (localMd.store as sinon.SinonStub).resolves({id: 'note.md', provider: 'local-markdown:notes', success: true})
+
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([localMd], config)
+      // Content looks like an entity but contentType says "note"
+      const result = await coordinator.store({content: 'CEO meeting summary', contentType: 'note'})
+
+      expect(result.success).to.be.true
+      expect(result.provider).to.equal('local-markdown:notes')
+    })
+
+    it('rejects store to read-only provider', async () => {
+      const obsidian = createMockProvider('obsidian', 'obsidian', [])
+      // obsidian has writeSupported: false by default
+
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([obsidian], config)
+      const result = await coordinator.store({content: 'test', provider: 'obsidian'})
+
+      expect(result.success).to.be.false
+      expect(result.error).to.include('does not support writes')
+    })
+
+    it('rejects store to unhealthy provider', async () => {
+      const gbrain = createMockProvider('gbrain', 'gbrain', []);
+      (gbrain as {capabilities: {writeSupported: boolean}}).capabilities.writeSupported = true;
+      (gbrain.healthCheck as sinon.SinonStub).resolves({available: false})
+
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([gbrain], config)
+      await coordinator.refreshHealth()
+      const result = await coordinator.store({content: 'test', provider: 'gbrain'})
+
+      expect(result.success).to.be.false
+      expect(result.error).to.include('is not healthy')
+    })
+
+    it('returns error when no writable provider available', async () => {
+      const obsidian = createMockProvider('obsidian', 'obsidian', [])
+
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([obsidian], config)
+
+      try {
+        await coordinator.store({content: 'test'})
+        expect.fail('should have thrown')
+      } catch (error) {
+        expect((error as Error).message).to.include('No writable providers')
+      }
+    })
+  })
+
   describe('getSummary()', () => {
     it('returns a summary with provider counts', async () => {
       const p1 = createMockProvider('byterover', 'byterover', [])
