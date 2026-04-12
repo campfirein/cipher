@@ -18,7 +18,7 @@ import {
   withDaemonRetry,
 } from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
-import {type ToolCallRecord, waitForTaskCompletion} from '../../lib/task-client.js'
+import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS, type ToolCallRecord, waitForTaskCompletion} from '../../lib/task-client.js'
 
 /** Parsed flags type */
 type CurateFlags = {
@@ -26,6 +26,7 @@ type CurateFlags = {
   files?: string[]
   folder?: string[]
   format?: 'json' | 'text'
+  timeout?: number
 }
 
 export default class Curate extends Command {
@@ -59,6 +60,9 @@ Bad examples:
     '# Folder pack with context',
     '<%= config.bin %> <%= command.id %> "Analyze authentication module" -d src/auth/',
     '',
+    '# Increase timeout for slow models (in seconds)',
+    '<%= config.bin %> <%= command.id %> "context here" --timeout 600',
+    '',
     '# View curate history',
     '<%= config.bin %> curate view',
     '<%= config.bin %> curate view --status completed --since 1h',
@@ -83,6 +87,12 @@ Bad examples:
       description: 'Output format (text or json)',
       options: ['text', 'json'],
     }),
+    timeout: Flags.integer({
+      default: DEFAULT_TIMEOUT_SECONDS,
+      description: 'Maximum seconds to wait for task completion',
+      max: MAX_TIMEOUT_SECONDS,
+      min: MIN_TIMEOUT_SECONDS,
+    }),
   }
 
   protected getDaemonClientOptions(): DaemonClientOptions {
@@ -96,6 +106,7 @@ Bad examples:
       files: rawFlags.files,
       folder: rawFlags.folder,
       format: rawFlags.format === 'json' ? 'json' : rawFlags.format === 'text' ? 'text' : undefined,
+      timeout: rawFlags.timeout,
     }
     const format: 'json' | 'text' = flags.format ?? 'text'
 
@@ -112,7 +123,7 @@ Bad examples:
 
     try {
       await withDaemonRetry(
-        async (client, projectRoot) => {
+        async (client, projectRoot, worktreeRoot) => {
           const active = await client.requestWithAck<ProviderConfigResponse>(
             TransportStateEventNames.GET_PROVIDER_CONFIG,
           )
@@ -128,7 +139,7 @@ Bad examples:
             throw new Error(providerMissingMessage(active.activeProvider, active.authMethod))
           }
 
-          await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType})
+          await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType, worktreeRoot})
         },
         {
           ...this.getDaemonClientOptions(),
@@ -282,8 +293,9 @@ Bad examples:
     format: 'json' | 'text'
     projectRoot?: string
     taskType: string
+    worktreeRoot?: string
   }): Promise<void> {
-    const {client, content, flags, format, projectRoot, taskType} = props
+    const {client, content, flags, format, projectRoot, taskType, worktreeRoot} = props
     const hasFolders = Boolean(flags.folder?.length)
     const taskId = randomUUID()
     const taskPayload = {
@@ -294,9 +306,14 @@ Bad examples:
       ...(projectRoot ? {projectPath: projectRoot} : {}),
       taskId,
       type: taskType,
+      ...(worktreeRoot ? {worktreeRoot} : {}),
     }
 
     if (flags.detach) {
+      if (flags.timeout !== DEFAULT_TIMEOUT_SECONDS && format !== 'json') {
+        this.log('Note: --timeout has no effect with --detach')
+      }
+
       const ack = await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
       const {logId} = ack
 
@@ -364,6 +381,7 @@ Bad examples:
             }
           },
           taskId,
+          timeoutMs: (flags.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
         },
         (msg) => this.log(msg),
       )

@@ -3,7 +3,11 @@ import chalk from 'chalk'
 
 import type {StatusDTO} from '../../shared/transport/types/dto.js'
 
-import {StatusEvents, type StatusGetResponse} from '../../shared/transport/events/status-events.js'
+import {
+  StatusEvents,
+  type StatusGetRequest,
+  type StatusGetResponse,
+} from '../../shared/transport/events/status-events.js'
 import {type DaemonClientOptions, formatConnectionError, withDaemonRetry} from '../lib/daemon-client.js'
 import {writeJsonResponse} from '../lib/json-response.js'
 
@@ -18,21 +22,32 @@ export default class Status extends Command {
       description: 'Output format',
       options: ['text', 'json'],
     }),
+    'project-root': Flags.string({
+      description: 'Explicit project root path (overrides auto-detection)',
+      required: false,
+    }),
+    verbose: Flags.boolean({
+      char: 'v',
+      default: false,
+      description: 'Show resolution source and diagnostic info',
+    }),
   }
 
-  protected async fetchStatus(options?: DaemonClientOptions): Promise<StatusDTO> {
+  protected async fetchStatus(options?: DaemonClientOptions & {projectRootFlag?: string}): Promise<StatusDTO> {
+    const request: StatusGetRequest = {cwd: process.cwd(), projectRootFlag: options?.projectRootFlag}
     return withDaemonRetry<StatusDTO>(async (client) => {
-      const response = await client.requestWithAck<StatusGetResponse>(StatusEvents.GET)
+      const response = await client.requestWithAck<StatusGetResponse>(StatusEvents.GET, request)
       return response.status
     }, options)
   }
 
   public async run(): Promise<void> {
     const {flags} = await this.parse(Status)
+    const projectRootFlag = flags['project-root']
     const isJson = flags.format === 'json'
 
     try {
-      const status = await this.fetchStatus({projectPath: process.cwd()})
+      const status = await this.fetchStatus({projectPath: process.cwd(), projectRootFlag})
 
       if (isJson) {
         writeJsonResponse({
@@ -41,7 +56,7 @@ export default class Status extends Command {
           success: true,
         })
       } else {
-        this.formatTextOutput(status)
+        this.formatTextOutput(status, flags.verbose)
         this.logVcHint()
       }
     } catch (error) {
@@ -58,7 +73,7 @@ export default class Status extends Command {
     }
   }
 
-  private formatTextOutput(status: StatusDTO): void {
+  private formatTextOutput(status: StatusDTO, verbose = false): void {
     this.log(`CLI Version: ${this.config.version}`)
 
     // Auth status (cloud sync only — not required for local usage)
@@ -83,7 +98,35 @@ export default class Status extends Command {
       }
     }
 
-    this.log(`Current Directory: ${status.currentDirectory}`)
+    this.log(`Project: ${status.projectRoot ?? status.currentDirectory}`)
+
+    if (status.worktreeRoot && status.worktreeRoot !== status.projectRoot) {
+      this.log(`Worktree: ${status.worktreeRoot} (linked)`)
+    }
+
+    if (status.resolverError) {
+      this.log(chalk.yellow(`⚠ ${status.resolverError}`))
+    }
+
+    if (verbose && status.resolutionSource) {
+      this.log(`Resolution: ${status.resolutionSource}`)
+    }
+
+    // Knowledge sources
+    if (status.sourcesError) {
+      this.log(chalk.yellow(`⚠ ${status.sourcesError}`))
+    } else if (status.sources && status.sources.length > 0) {
+      this.log('Knowledge Sources:')
+      for (const source of status.sources) {
+        if (source.valid) {
+          this.log(`   ${source.alias} → ${source.projectRoot} ${chalk.green('(valid)')}`)
+        } else {
+          this.log(
+            `   ${source.alias} → ${source.projectRoot} ${chalk.red(`[BROKEN - run brv source remove ${source.alias}]`)}`,
+          )
+        }
+      }
+    }
 
     // Space
     if (status.teamName && status.spaceName) {
@@ -120,6 +163,11 @@ export default class Status extends Command {
 
       case 'no_changes': {
         this.log('Context Tree: No changes')
+        break
+      }
+
+      case 'no_vc': {
+        this.log('Context Tree: Managed by Byterover version control (use brv vc commands)')
         break
       }
 

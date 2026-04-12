@@ -93,6 +93,7 @@ function makeStubClientManager(sandbox: SinonSandbox): IClientManager & {
   register: SinonStub
   setAgentName: SinonStub
   unregister: SinonStub
+  updateProjectPath: SinonStub
 } {
   return {
     associateProject: sandbox.stub(),
@@ -106,6 +107,7 @@ function makeStubClientManager(sandbox: SinonSandbox): IClientManager & {
     register: sandbox.stub(),
     setAgentName: sandbox.stub(),
     unregister: sandbox.stub(),
+    updateProjectPath: sandbox.stub(),
   }
 }
 

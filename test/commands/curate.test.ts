@@ -4,6 +4,9 @@ import type {Config} from '@oclif/core'
 import {ConnectionFailedError, InstanceCrashedError, NoInstanceRunningError} from '@campfirein/brv-transport-client'
 import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
+import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import sinon, {restore, stub} from 'sinon'
 
 import Curate from '../../src/oclif/commands/curate/index.js'
@@ -32,9 +35,11 @@ class TestableCurateCommand extends Curate {
 describe('Curate Command', () => {
   let config: Config
   let loggedMessages: string[]
+  let originalCwd: string
   let stdoutOutput: string[]
   let mockClient: sinon.SinonStubbedInstance<ITransportClient>
   let mockConnector: sinon.SinonStub<[], Promise<ConnectionResult>>
+  let testDir: string
 
   before(async () => {
     config = await OclifConfig.load(import.meta.url)
@@ -42,7 +47,9 @@ describe('Curate Command', () => {
 
   beforeEach(() => {
     loggedMessages = []
+    originalCwd = process.cwd()
     stdoutOutput = []
+    testDir = realpathSync(mkdtempSync(join(tmpdir(), 'brv-curate-command-')))
 
     mockClient = {
       connect: stub().resolves(),
@@ -66,8 +73,21 @@ describe('Curate Command', () => {
   })
 
   afterEach(() => {
+    process.chdir(originalCwd)
+    rmSync(testDir, {force: true, recursive: true})
     restore()
   })
+
+  function createLinkedWorkspace(): {clientCwd: string; projectRoot: string; worktreeRoot: string} {
+    const projectRoot = join(testDir, 'monorepo')
+    const worktreeRoot = join(projectRoot, 'packages', 'api')
+    const clientCwd = join(worktreeRoot, 'src')
+    mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+    mkdirSync(clientCwd, {recursive: true})
+    writeFileSync(join(projectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+    writeFileSync(join(worktreeRoot, '.brv'), JSON.stringify({projectRoot}, null, 2) + '\n')
+    return {clientCwd, projectRoot, worktreeRoot}
+  }
 
   function createCommand(...argv: string[]): TestableCurateCommand {
     const command = new TestableCurateCommand(argv, mockConnector, config)
@@ -184,6 +204,44 @@ describe('Curate Command', () => {
       const [, payload] = requestStub.secondCall.args
       expect(payload).to.have.property('content', 'test context')
       expect(payload).to.have.property('files').that.deep.equals(['file1.ts', 'file2.ts'])
+    })
+
+    it('should send projectPath, worktreeRoot, and clientCwd from a linked workspace', async () => {
+      const {clientCwd, projectRoot, worktreeRoot} = createLinkedWorkspace()
+      process.chdir(clientCwd)
+      mockConnector.resolves({
+        client: mockClient as unknown as ITransportClient,
+        projectRoot,
+      })
+
+      await createCommand('test context', '--detach', '-f', './auth.ts').run()
+
+      const [, payload] = (mockClient.requestWithAck as sinon.SinonStub).secondCall.args
+      expect(payload).to.include({
+        clientCwd,
+        projectPath: projectRoot,
+        worktreeRoot,
+      })
+      expect(payload).to.have.property('files').that.deep.equals(['./auth.ts'])
+    })
+
+    it('should send worktreeRoot even when curate has no explicit file paths', async () => {
+      const {clientCwd, projectRoot, worktreeRoot} = createLinkedWorkspace()
+      process.chdir(clientCwd)
+      mockConnector.resolves({
+        client: mockClient as unknown as ITransportClient,
+        projectRoot,
+      })
+
+      await createCommand('workspace-scoped curate', '--detach').run()
+
+      const [, payload] = (mockClient.requestWithAck as sinon.SinonStub).secondCall.args
+      expect(payload).to.include({
+        clientCwd,
+        projectPath: projectRoot,
+        worktreeRoot,
+      })
+      expect(payload).to.not.have.property('files')
     })
 
     it('should disconnect client after successful request', async () => {
@@ -457,6 +515,55 @@ describe('Curate Command', () => {
       const json = parseLastJsonLine()
       expect(json.success).to.be.true
       expect(json.data).to.not.have.property('pendingReview')
+    })
+  })
+
+  // ==================== Timeout Flag ====================
+
+  describe('timeout flag', () => {
+    it('should accept --timeout flag without error', async () => {
+      await createCommand('test context', '--detach', '--timeout', '600').run()
+
+      expect(loggedMessages).to.include('✓ Context queued for processing.')
+    })
+
+    it('should warn when --timeout is used with --detach', async () => {
+      await createCommand('test context', '--detach', '--timeout', '600').run()
+
+      expect(loggedMessages).to.include('Note: --timeout has no effect with --detach')
+    })
+
+    it('should not warn about --timeout with --detach when using default', async () => {
+      await createCommand('test context', '--detach').run()
+
+      expect(loggedMessages).to.not.include('Note: --timeout has no effect with --detach')
+    })
+
+    it('should accept --timeout flag in JSON mode', async () => {
+      await createJsonCommand('test context', '--detach', '--timeout', '600').run()
+
+      const json = parseJsonOutput()
+      expect(json.success).to.be.true
+      expect(json.data).to.have.property('status', 'queued')
+    })
+
+    it('should work with default timeout when flag is not provided', async () => {
+      simulateTaskCompletion([
+        {
+          applied: [
+            {
+              needsReview: false,
+              path: 'auth/jwt.md',
+              status: 'success',
+              type: 'ADD',
+            },
+          ],
+        },
+      ])
+
+      await createCommand('test context').run()
+
+      expect(loggedMessages.some((m) => m.includes('✓ Context curated successfully'))).to.be.true
     })
   })
 })

@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto'
 import {realpathSync} from 'node:fs'
-import {join} from 'node:path'
+import {join, resolve, sep} from 'node:path'
 
 import {GLOBAL_PROJECTS_DIR} from '../constants.js'
 import {getGlobalDataDir} from './global-data-path.js'
@@ -103,4 +103,15 @@ export const getProjectDataDir = (cwd: string): string => {
   const resolved = resolvePath(cwd)
   const sanitized = sanitizeProjectPath(resolved)
   return join(getGlobalDataDir(), GLOBAL_PROJECTS_DIR, sanitized)
+}
+
+/**
+ * Checks that candidate is an ancestor of (or equal to) descendant.
+ * Both paths are normalized via resolve() before comparison.
+ */
+export function isDescendantOf(descendant: string, ancestor: string): boolean {
+  const normalizedDescendant = resolve(descendant)
+  const normalizedAncestor = resolve(ancestor)
+  const ancestorPrefix = normalizedAncestor.endsWith(sep) ? normalizedAncestor : normalizedAncestor + sep
+  return normalizedDescendant === normalizedAncestor || normalizedDescendant.startsWith(ancestorPrefix)
 }

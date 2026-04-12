@@ -1,6 +1,17 @@
+/**
+ * StatusHandler tests
+ *
+ * Verifies that `currentDirectory` in the StatusDTO preserves the actual
+ * client working directory (backward compatibility) rather than the resolved
+ * project root.
+ */
+
 import type {SinonStub} from 'sinon'
 
 import {expect} from 'chai'
+import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import {restore, stub} from 'sinon'
 
 import type {CurateLogEntry} from '../../../../../src/server/core/domain/entities/curate-log-entry.js'
@@ -91,20 +102,27 @@ function makeCompletedEntry(ops: CurateLogEntry['operations']): CurateLogEntry {
 describe('StatusHandler', () => {
   let deps: TestDeps
   let resolveProjectPath: SinonStub
+  let testDir: string
   let transport: MockTransportServer
 
   beforeEach(() => {
     deps = makeStubs()
     resolveProjectPath = stub().returns('/project/current')
     transport = createMockTransportServer()
+    testDir = realpathSync(mkdtempSync(join(tmpdir(), 'brv-status-handler-')))
     stub(console, 'error')
   })
 
   afterEach(() => {
     restore()
+    rmSync(testDir, {force: true, recursive: true})
   })
 
-  function createHandler(): StatusHandler {
+  function createHandler(projectPath?: string): StatusHandler {
+    if (projectPath) {
+      resolveProjectPath = stub().returns(projectPath)
+    }
+
     const handler = new StatusHandler({
       contextTreeService: deps.contextTreeService,
       contextTreeSnapshotService: deps.contextTreeSnapshotService,
@@ -118,10 +136,11 @@ describe('StatusHandler', () => {
     return handler
   }
 
-  async function callGetHandler(clientId = 'client-1'): Promise<{status: StatusDTO}> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function callGetHandler(data?: any, clientId = 'client-1'): Promise<{status: StatusDTO}> {
     const handler = transport._handlers.get(StatusEvents.GET)
     expect(handler, 'status:get handler should be registered').to.exist
-    return handler!(undefined, clientId)
+    return handler!(data, clientId)
   }
 
   describe('setup', () => {
@@ -173,6 +192,8 @@ describe('StatusHandler', () => {
 
     it('should return no_changes when context tree exists with no changes', async () => {
       deps.contextTreeService.exists.resolves(true)
+      deps.projectConfigStore.exists.resolves(true)
+      deps.projectConfigStore.read.resolves({spaceId: 's1', spaceName: 'space-1', teamId: 't1', teamName: 'team-1'})
       deps.contextTreeSnapshotService.getChanges.resolves({added: [], deleted: [], modified: []})
       createHandler()
       const result = await callGetHandler()
@@ -181,10 +202,90 @@ describe('StatusHandler', () => {
 
     it('should return has_changes when there are changes', async () => {
       deps.contextTreeService.exists.resolves(true)
+      deps.projectConfigStore.exists.resolves(true)
+      deps.projectConfigStore.read.resolves({spaceId: 's1', spaceName: 'space-1', teamId: 't1', teamName: 'team-1'})
       deps.contextTreeSnapshotService.getChanges.resolves({added: ['new.md'], deleted: [], modified: []})
       createHandler()
       const result = await callGetHandler()
       expect(result.status.contextTreeStatus).to.equal('has_changes')
+    })
+
+    describe('legacy sync config gating (ENG-2043)', () => {
+      it('new user (no teamId/spaceId) should return no_vc and never touch snapshot', async () => {
+        deps.contextTreeService.exists.resolves(true)
+        deps.projectConfigStore.exists.resolves(true)
+        deps.projectConfigStore.read.resolves({})
+        createHandler()
+
+        const result = await callGetHandler()
+        expect(result.status.contextTreeStatus).to.equal('no_vc')
+        expect(deps.contextTreeSnapshotService.hasSnapshot.called).to.be.false
+        expect(deps.contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+        expect(deps.contextTreeSnapshotService.getChanges.called).to.be.false
+      })
+
+      it('orphan user (stale snapshot, no legacy config) should return no_vc and leave file untouched', async () => {
+        deps.contextTreeService.exists.resolves(true)
+        deps.projectConfigStore.exists.resolves(true)
+        deps.projectConfigStore.read.resolves({})
+        deps.contextTreeSnapshotService.hasSnapshot.resolves(true)
+        createHandler()
+
+        const result = await callGetHandler()
+        expect(result.status.contextTreeStatus).to.equal('no_vc')
+        expect(deps.contextTreeSnapshotService.hasSnapshot.called).to.be.false
+        expect(deps.contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+        expect(deps.contextTreeSnapshotService.getChanges.called).to.be.false
+      })
+
+      it('partial config (teamId only) should return no_vc', async () => {
+        deps.contextTreeService.exists.resolves(true)
+        deps.projectConfigStore.exists.resolves(true)
+        deps.projectConfigStore.read.resolves({teamId: 't1'})
+        createHandler()
+
+        const result = await callGetHandler()
+        expect(result.status.contextTreeStatus).to.equal('no_vc')
+        expect(deps.contextTreeSnapshotService.hasSnapshot.called).to.be.false
+        expect(deps.contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+        expect(deps.contextTreeSnapshotService.getChanges.called).to.be.false
+      })
+
+      it('partial config (spaceId only) should return no_vc', async () => {
+        deps.contextTreeService.exists.resolves(true)
+        deps.projectConfigStore.exists.resolves(true)
+        deps.projectConfigStore.read.resolves({spaceId: 's1'})
+        createHandler()
+
+        const result = await callGetHandler()
+        expect(result.status.contextTreeStatus).to.equal('no_vc')
+        expect(deps.contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+      })
+
+      it('legacy user (teamId + spaceId) should create missing snapshot and compute diffs', async () => {
+        deps.contextTreeService.exists.resolves(true)
+        deps.projectConfigStore.exists.resolves(true)
+        deps.projectConfigStore.read.resolves({spaceId: 's1', spaceName: 'space-1', teamId: 't1', teamName: 'team-1'})
+        deps.contextTreeSnapshotService.hasSnapshot.resolves(false)
+        deps.contextTreeSnapshotService.getChanges.resolves({added: [], deleted: [], modified: []})
+        createHandler()
+
+        const result = await callGetHandler()
+        expect(result.status.contextTreeStatus).to.equal('no_changes')
+        expect(deps.contextTreeSnapshotService.hasSnapshot.called).to.be.true
+        expect(deps.contextTreeSnapshotService.initEmptySnapshot.called).to.be.true
+        expect(deps.contextTreeSnapshotService.getChanges.called).to.be.true
+      })
+
+      it('no project config file at all should return no_vc', async () => {
+        deps.contextTreeService.exists.resolves(true)
+        deps.projectConfigStore.exists.resolves(false)
+        createHandler()
+
+        const result = await callGetHandler()
+        expect(result.status.contextTreeStatus).to.equal('no_vc')
+        expect(deps.contextTreeSnapshotService.initEmptySnapshot.called).to.be.false
+      })
     })
 
     it('should return unknown when contextTreeService.exists throws', async () => {
@@ -376,6 +477,79 @@ describe('StatusHandler', () => {
       expect(result.status.pendingReviewCount).to.be.undefined
       expect(result.status.reviewUrl).to.be.undefined
       expect(result.status.currentDirectory).to.equal('/project/current')
+    })
+  })
+
+  describe('currentDirectory', () => {
+    it('should equal projectPath when no cwd is provided', async () => {
+      createHandler('/test/project')
+
+      const {status} = await callGetHandler()
+
+      expect(status.currentDirectory).to.equal('/test/project')
+    })
+
+    it('should equal clientCwd when cwd is provided', async () => {
+      // Create a real project so resolveProject() succeeds
+      const projectRoot = join(testDir, 'project')
+      const subDir = join(projectRoot, 'packages', 'api', 'src')
+      mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+      writeFileSync(join(projectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+      mkdirSync(subDir, {recursive: true})
+
+      createHandler(projectRoot)
+
+      const {status} = await callGetHandler({cwd: subDir})
+
+      expect(status.currentDirectory).to.equal(subDir)
+      expect(status.projectRoot).to.equal(projectRoot)
+    })
+
+    it('should preserve clientCwd even when resolver returns null', async () => {
+      // Pass a cwd that has no .brv/ — resolveProject returns null
+      const noProjectDir = join(testDir, 'no-project')
+      mkdirSync(noProjectDir, {recursive: true})
+
+      createHandler('/fallback/project')
+
+      const {status} = await callGetHandler({cwd: noProjectDir})
+
+      expect(status.currentDirectory).to.equal(noProjectDir)
+    })
+  })
+
+  describe('projectRootFlag', () => {
+    it('should resolve to the explicit project root when projectRootFlag is provided', async () => {
+      // Create a real project at an explicit path
+      const explicitRoot = join(testDir, 'explicit-project')
+      mkdirSync(join(explicitRoot, '.brv'), {recursive: true})
+      writeFileSync(join(explicitRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+
+      // Create a different project at a cwd location
+      const cwdProject = join(testDir, 'cwd-project')
+      mkdirSync(join(cwdProject, '.brv'), {recursive: true})
+      writeFileSync(join(cwdProject, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+
+      createHandler(cwdProject)
+
+      const {status} = await callGetHandler({cwd: cwdProject, projectRootFlag: explicitRoot})
+
+      // The explicit flag should override the cwd-based resolution
+      expect(status.projectRoot).to.equal(explicitRoot)
+      expect(status.resolutionSource).to.equal('flag')
+    })
+
+    it('should use projectRootFlag even without cwd', async () => {
+      const explicitRoot = join(testDir, 'explicit-project')
+      mkdirSync(join(explicitRoot, '.brv'), {recursive: true})
+      writeFileSync(join(explicitRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+
+      createHandler('/some/other/project')
+
+      const {status} = await callGetHandler({projectRootFlag: explicitRoot})
+
+      expect(status.projectRoot).to.equal(explicitRoot)
+      expect(status.resolutionSource).to.equal('flag')
     })
   })
 })

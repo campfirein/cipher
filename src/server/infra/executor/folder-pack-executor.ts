@@ -27,6 +27,7 @@ function folderPackLog(message: string): void {
   }
 }
 
+
 /**
  * FolderPackExecutor - Executes folder pack + curate tasks with an injected CipherAgent.
  *
@@ -47,20 +48,29 @@ export class FolderPackExecutor implements IFolderPackExecutor {
   constructor(private readonly folderPackService: IFolderPackService) {}
 
   public async executeWithAgent(agent: ICipherAgent, options: FolderPackExecuteOptions): Promise<string> {
-    const {clientCwd, content, folderPath, taskId} = options
+    const {clientCwd, content, folderPath, projectRoot, taskId, worktreeRoot} = options
 
+    // Resolve folder path:
+    // - Absent folderPath → default to worktreeRoot (implicit workspace default)
+    // - Relative folderPath → resolve from clientCwd (shell semantics)
+    // - Absolute folderPath → use as-is
+    let absoluteFolderPath: string
     if (!folderPath) {
-      throw new Error('folderPath is required for curate-folder tasks')
+      absoluteFolderPath = worktreeRoot ?? clientCwd ?? process.cwd()
+    } else if (path.isAbsolute(folderPath)) {
+      absoluteFolderPath = folderPath
+    } else {
+      const shellCwd = clientCwd ?? process.cwd()
+      absoluteFolderPath = path.resolve(shellCwd, folderPath)
     }
 
-    // Resolve folder path
-    const basePath = clientCwd ?? process.cwd()
-    const absoluteFolderPath = path.isAbsolute(folderPath) ? folderPath : path.resolve(basePath, folderPath)
+    // Temp file location: use projectRoot where .brv/ lives (accessible to sandbox)
+    const tempFileDir = projectRoot ?? clientCwd ?? process.cwd()
 
-    const snapshotService = new FileContextTreeSnapshotService({baseDirectory: basePath})
+    const snapshotService = new FileContextTreeSnapshotService({baseDirectory: tempFileDir})
     let preState: Map<string, import('../../core/domain/entities/context-tree-snapshot.js').FileState> | undefined
     try {
-      preState = await snapshotService.getCurrentState(basePath)
+      preState = await snapshotService.getCurrentState(tempFileDir)
     } catch {
       // Fail-open: if snapshot fails, skip summary propagation
     }
@@ -75,19 +85,19 @@ export class FolderPackExecutor implements IFolderPackExecutor {
     // Use iterative extraction strategy (inspired by rlm)
     // Stores packed folder in sandbox environment and lets agent iteratively query/extract
     // This avoids token limits entirely - works for folders of any size
-    const response = await this.executeIterative(agent, packResult, content, absoluteFolderPath, taskId, basePath)
+    const response = await this.executeIterative(agent, packResult, content, absoluteFolderPath, taskId, tempFileDir)
 
     if (preState) {
       try {
-        const postState = await snapshotService.getCurrentState(basePath)
+        const postState = await snapshotService.getCurrentState(tempFileDir)
         const changedPaths = diffStates(preState, postState)
         if (changedPaths.length > 0) {
           const summaryService = new FileContextTreeSummaryService()
-          const results = await summaryService.propagateStaleness(changedPaths, agent, basePath)
+          const results = await summaryService.propagateStaleness(changedPaths, agent, tempFileDir)
 
           if (results.some((result) => result.actionTaken)) {
-            const manifestService = new FileContextTreeManifestService({baseDirectory: basePath})
-            await manifestService.buildManifest(basePath)
+            const manifestService = new FileContextTreeManifestService({baseDirectory: tempFileDir})
+            await manifestService.buildManifest(tempFileDir)
           }
         }
       } catch {

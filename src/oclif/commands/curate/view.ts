@@ -1,8 +1,8 @@
-import {findProjectRoot} from '@campfirein/brv-transport-client'
 import {Args, Command, Flags} from '@oclif/core'
 
 import type {CurateLogStatus} from '../../../server/core/interfaces/storage/i-curate-log-store.js'
 
+import {resolveProject} from '../../../server/infra/project/resolve-project.js'
 import {FileCurateLogStore} from '../../../server/infra/storage/file-curate-log-store.js'
 import {CurateLogUseCase} from '../../../server/infra/usecase/curate-log-use-case.js'
 import {getProjectDataDir} from '../../../server/utils/path-utils.js'
@@ -65,7 +65,7 @@ export default class CurateView extends Command {
     const before = flags.before ? this.parseTime(flags.before, '--before') : undefined
     const format: 'json' | 'text' = flags.format === 'json' ? 'json' : 'text'
 
-    const projectRoot = (await findProjectRoot(process.cwd())) ?? process.cwd()
+    const projectRoot = resolveProject()?.projectRoot ?? process.cwd()
     const baseDir = getProjectDataDir(projectRoot)
     const store = new FileCurateLogStore({baseDir})
     const useCase = new CurateLogUseCase({
