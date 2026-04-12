@@ -163,6 +163,31 @@ describe('buildProvidersFromConfig', () => {
     expect(mdProvider?.capabilities.graphTraversal).to.be.false
   })
 
+  it('creates GBrain adapter when enabled in config', () => {
+    const config = createMinimalConfig({
+      providers: {
+        byterover: {enabled: true},
+        gbrain: {enabled: true, repoPath: '/tmp/brain', searchMode: 'hybrid'},
+      },
+    })
+    const providers = buildProvidersFromConfig(config)
+
+    expect(providers.some((p) => p.id === 'gbrain')).to.be.true
+    expect(providers.some((p) => p.type === 'gbrain')).to.be.true
+  })
+
+  it('skips GBrain when disabled', () => {
+    const config = createMinimalConfig({
+      providers: {
+        byterover: {enabled: true},
+        gbrain: {enabled: false, repoPath: '/tmp/brain', searchMode: 'hybrid'},
+      },
+    })
+    const providers = buildProvidersFromConfig(config)
+
+    expect(providers.some((p) => p.id === 'gbrain')).to.be.false
+  })
+
   it('returns empty array when byterover is disabled and no other providers', () => {
     const config = createMinimalConfig({
       providers: {byterover: {enabled: false}},

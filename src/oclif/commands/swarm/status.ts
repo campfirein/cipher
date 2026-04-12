@@ -33,9 +33,7 @@ export function getConfiguredSwarmPaths(config: SwarmConfig): Set<string> {
     }
   }
 
-  if (providers.gbrain?.repoPath) {
-    paths.add(providers.gbrain.repoPath)
-  }
+  // GBrain: repoPath is the brain data repo, not the detected CLI checkout path — do not add here.
 
   return paths
 }
@@ -53,6 +51,18 @@ export function findSwarmStatusSuggestions(
   for (const provider of detected) {
     if (!provider.detected) continue
     if (provider.id === 'byterover') continue
+
+    // GBrain: `provider.path` is the CLI/source checkout; config uses `repoPath` for brain data — never compare.
+    if (provider.id === 'gbrain') {
+      if (!config.providers.gbrain) {
+        const detail = provider.path ? ` at ${provider.path}` : ''
+        suggestions.push(
+          `Found gbrain${detail} — not in config. Run \`brv swarm onboard\` to add it.`
+        )
+      }
+
+      continue
+    }
 
     if (provider.path) {
       if (!configuredPaths.has(provider.path)) {
@@ -208,19 +218,20 @@ export default class SwarmStatus extends Command {
       this.renderProviderLine('Local .md', false, 'not configured', 'disabled')
     }
 
-    if (providers.honcho) {
-      const hasError = validation.errors.some((e) => e.provider === 'honcho')
-      this.renderProviderLine('Honcho', providers.honcho.enabled && !hasError, 'cloud API')
-    } else {
-      this.renderProviderLine('Honcho', false, 'not configured', 'disabled')
-    }
-
-    if (providers.hindsight) {
-      const hasError = validation.errors.some((e) => e.provider === 'hindsight')
-      this.renderProviderLine('Hindsight', providers.hindsight.enabled && !hasError, 'Postgres')
-    } else {
-      this.renderProviderLine('Hindsight', false, 'not configured', 'disabled')
-    }
+    // Honcho and Hindsight temporarily disabled — adapters coming in Phase 3.
+    // When re-enabled, uncomment these blocks:
+    // if (providers.honcho) {
+    //   const hasError = validation.errors.some((e) => e.provider === 'honcho')
+    //   this.renderProviderLine('Honcho', providers.honcho.enabled && !hasError, 'cloud API')
+    // } else {
+    //   this.renderProviderLine('Honcho', false, 'not configured', 'disabled')
+    // }
+    // if (providers.hindsight) {
+    //   const hasError = validation.errors.some((e) => e.provider === 'hindsight')
+    //   this.renderProviderLine('Hindsight', providers.hindsight.enabled && !hasError, 'Postgres')
+    // } else {
+    //   this.renderProviderLine('Hindsight', false, 'not configured', 'disabled')
+    // }
 
     if (providers.gbrain) {
       const hasError = validation.errors.some((e) => e.provider === 'gbrain')
@@ -248,8 +259,7 @@ export default class SwarmStatus extends Command {
       providers.byterover.enabled,
       providers.obsidian?.enabled,
       providers.localMarkdown?.enabled,
-      providers.honcho?.enabled,
-      providers.hindsight?.enabled,
+      // Honcho and Hindsight temporarily disabled
       providers.gbrain?.enabled,
     ].filter(Boolean).length
 
@@ -258,7 +268,7 @@ export default class SwarmStatus extends Command {
       ? chalk.green('operational')
       : chalk.yellow('degraded')
 
-    this.log(`\nSwarm is ${status} (${enabledCount}/6 providers configured).`)
+    this.log(`\nSwarm is ${status} (${enabledCount}/4 providers configured).`)
   }
 
   private renderTextOutput(

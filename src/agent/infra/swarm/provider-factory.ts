@@ -2,6 +2,7 @@ import type {IMemoryProvider} from '../../core/interfaces/i-memory-provider.js'
 import type {SwarmConfig} from './config/swarm-config-schema.js'
 
 import {ByteRoverAdapter, type SearchService} from './adapters/byterover-adapter.js'
+import {GBrainAdapter} from './adapters/gbrain-adapter.js'
 import {LocalMarkdownAdapter} from './adapters/local-markdown-adapter.js'
 import {ObsidianAdapter} from './adapters/obsidian-adapter.js'
 
@@ -71,8 +72,15 @@ export function buildProvidersFromConfig(
     }
   }
 
-  // Cloud providers (honcho, hindsight, gbrain) are Phase 3 — not instantiated yet.
-  // When their adapters exist, add them here gated by config.providers.<name>?.enabled.
+  // GBrain
+  if (config.providers.gbrain?.enabled) {
+    providers.push(new GBrainAdapter({
+      repoPath: config.providers.gbrain.repoPath,
+      searchMode: config.providers.gbrain.searchMode,
+    }))
+  }
+
+  // Cloud providers (honcho, hindsight) are temporarily disabled — adapters coming in Phase 3.
 
   return providers
 }

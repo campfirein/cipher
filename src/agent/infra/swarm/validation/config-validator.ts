@@ -1,3 +1,4 @@
+import {execFileSync} from 'node:child_process'
 import {existsSync} from 'node:fs'
 import {join} from 'node:path'
 
@@ -160,6 +161,55 @@ function validateGBrain(
       message: `GBrain repo not found at ${config.repoPath}`,
       provider: 'gbrain',
       suggestion: `Verify the path or run \`brv swarm onboard\` to reconfigure.`,
+    })
+
+    return
+  }
+
+  // Verify gbrain CLI is invokable.
+  // Check: is `gbrain` in PATH, or does src/cli.ts exist in repo/workspace (Bun fallback)?
+  let gbrainReachable = false
+
+  // Option A: gbrain globally installed
+  try {
+    execFileSync('gbrain', ['--version'], {encoding: 'utf8', stdio: 'pipe', timeout: 5000})
+    gbrainReachable = true
+  } catch {
+    // Not in PATH
+  }
+
+  // Option B: local Bun script (repoPath or workspace sibling)
+  if (!gbrainReachable) {
+    const candidates = [
+      join(config.repoPath, 'src', 'cli.ts'),
+      join(process.cwd(), '..', 'gbrain', 'src', 'cli.ts'),
+    ]
+    const scriptFound = candidates.some((p) => existsSync(p))
+
+    if (scriptFound) {
+      // Script exists — verify bun is available to run it
+      try {
+        execFileSync('bun', ['--version'], {encoding: 'utf8', stdio: 'pipe', timeout: 5000})
+        gbrainReachable = true
+      } catch {
+        errors.push({
+          field: 'gbrain',
+          message: `GBrain source found but \`bun\` is not installed. GBrain requires Bun to run from source.`,
+          provider: 'gbrain',
+          suggestion: `Install Bun: https://bun.sh/docs/installation`,
+        })
+
+        return
+      }
+    }
+  }
+
+  if (!gbrainReachable) {
+    errors.push({
+      field: 'gbrain',
+      message: `GBrain CLI not found. Not in PATH and no src/cli.ts in ${config.repoPath}`,
+      provider: 'gbrain',
+      suggestion: `Install globally with \`bun add -g gbrain\`, or set repo_path to the gbrain source directory.`,
     })
   }
 }

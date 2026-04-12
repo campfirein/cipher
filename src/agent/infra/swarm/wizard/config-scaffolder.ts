@@ -5,6 +5,8 @@ import {dump} from 'js-yaml'
  */
 export type WizardAnswers = {
   budget?: {globalMonthlyCents: number}
+  /** Whether to enable enrichment edges between providers (default: true when 2+ providers) */
+  enrichment?: boolean
   providers: {
     config: Record<string, unknown>
     enabled: boolean
@@ -89,14 +91,18 @@ export function scaffoldConfig(answers: WizardAnswers): ScaffoldResult {
 
   config.providers = providers
 
-  // Build enrichment section — suggest default edges when 2+ providers are enabled
-  const enabledIds = new Set(answers.providers.filter((p) => p.enabled).map((p) => p.id))
-  if (enabledIds.size >= 2 && enabledIds.has('byterover')) {
-    const edges: Array<{from: string; to: string}> = []
-    if (enabledIds.has('obsidian')) edges.push({from: 'byterover', to: 'obsidian'})
-    if (enabledIds.has('local-markdown')) edges.push({from: 'byterover', to: 'local-markdown'})
-    if (edges.length > 0) {
-      config.enrichment = {edges}
+  // Build enrichment section when user opted in (or default true for 2+ providers)
+  if (answers.enrichment !== false) {
+    const enabledIds = new Set(answers.providers.filter((p) => p.enabled).map((p) => p.id))
+    if (enabledIds.size >= 2 && enabledIds.has('byterover')) {
+      // ByteRover is the master — it feeds context to all other providers
+      const edges: Array<{from: string; to: string}> = []
+      if (enabledIds.has('obsidian')) edges.push({from: 'byterover', to: 'obsidian'})
+      if (enabledIds.has('local-markdown')) edges.push({from: 'byterover', to: 'local-markdown'})
+      if (enabledIds.has('gbrain')) edges.push({from: 'byterover', to: 'gbrain'})
+      if (edges.length > 0) {
+        config.enrichment = {edges}
+      }
     }
   }
 

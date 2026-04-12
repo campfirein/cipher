@@ -24,12 +24,17 @@ export function classifyQuery(query: string): QueryType {
  * Provider selection matrix per query type.
  * ByteRover is always included. Other providers are conditionally active.
  */
+/**
+ * Provider selection matrix per query type.
+ * Honcho and Hindsight are temporarily disabled — adapters coming in Phase 3.
+ * When re-enabled, add 'honcho' to personal/creative and 'hindsight' to temporal/relational/creative.
+ */
 const SELECTION_MATRIX: Record<QueryType, string[]> = {
-  creative: ['byterover', 'obsidian', 'local-markdown', 'honcho', 'hindsight', 'gbrain'],
+  creative: ['byterover', 'obsidian', 'local-markdown', 'gbrain'],
   factual: ['byterover', 'obsidian', 'local-markdown', 'gbrain'],
-  personal: ['byterover', 'honcho'],
-  relational: ['byterover', 'obsidian', 'hindsight'],
-  temporal: ['byterover', 'hindsight', 'gbrain'],
+  personal: ['byterover', 'obsidian', 'local-markdown'],
+  relational: ['byterover', 'obsidian', 'local-markdown', 'gbrain'],
+  temporal: ['byterover', 'obsidian', 'local-markdown', 'gbrain'],
 }
 
 /**

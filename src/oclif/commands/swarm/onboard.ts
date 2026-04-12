@@ -1,5 +1,5 @@
 /* eslint-disable camelcase -- wizard builds YAML-shaped config objects (snake_case keys) */
-import {checkbox, confirm, input} from '@inquirer/prompts'
+import {checkbox, confirm, input, select} from '@inquirer/prompts'
 import {Command} from '@oclif/core'
 import chalk from 'chalk'
 import {load} from 'js-yaml'
@@ -57,14 +57,53 @@ function createWizardPrompts(esc: ReturnType<typeof createEscapeSignal>): Memory
       return {globalMonthlyCents: cents}
     },
 
+    async configureEnrichment(providerIds: string[]): Promise<boolean> {
+      const providerList = providerIds.filter((id) => id !== 'byterover').join(', ')
+      console.log('')
+      console.log(chalk.bold('Enrichment Topology'))
+      console.log(chalk.dim('─'.repeat(50)))
+      console.log('')
+      console.log('The swarm can run providers in two modes:')
+      console.log('')
+      console.log(`  ${chalk.cyan('Parallel')} (enrichment off)`)
+      console.log('    All providers search independently at the same time.')
+      console.log('    Fastest, but each provider only sees your original query.')
+      console.log('')
+      console.log(`  ${chalk.cyan('Chained')} (enrichment on) ${chalk.green('← recommended')}`)
+      console.log(`    ByteRover searches first, then feeds its results to ${providerList}.`)
+      console.log('    Slightly slower, but downstream providers get richer context')
+      console.log('    from ByteRover\'s structured knowledge.')
+      console.log('')
+      console.log(chalk.dim('How routing interacts with enrichment:'))
+      console.log(chalk.dim('  The router decides WHICH providers handle each query type.'))
+      console.log(chalk.dim('  Enrichment decides the ORDER they run in.'))
+      console.log(chalk.dim('  If a provider is excluded by routing, its enrichment edge is skipped.'))
+      console.log('')
+
+      return withEscBack(esc, (signal) => confirm({
+        default: true,
+        message: 'Enable enrichment (recommended)?',
+      }, {signal}))
+    },
+
     async configureProvider(provider: DetectedProvider): Promise<Record<string, unknown>> {
       const config: Record<string, unknown> = {}
 
       switch (provider.id) {
         case 'gbrain': {
           config.repo_path = await withEscBack(esc, (signal) => input({
-            message: 'GBrain repo path:',
+            message: 'GBrain brain repository path (your notes/data repo, not the CLI checkout):',
             theme: wizardInputTheme,
+          }, {signal}))
+          config.search_mode = await withEscBack(esc, (signal) => select({
+            choices: [
+              {description: 'Vector + keyword + RRF fusion (best recall, needs OPENAI_API_KEY)', name: 'hybrid (recommended)', value: 'hybrid'},
+              {description: 'Full-text search only (fast, no API key needed)', name: 'keyword', value: 'keyword'},
+              {description: 'Vector similarity only (needs OPENAI_API_KEY)', name: 'vector', value: 'vector'},
+            ],
+            default: 'hybrid',
+            message: 'Search mode:',
+            theme: wizardSelectTheme,
           }, {signal}))
 
           break

@@ -31,7 +31,7 @@ describe('SwarmRouter', () => {
   })
 
   describe('selectProviders', () => {
-    const allProviders = ['byterover', 'obsidian', 'local-markdown:notes', 'honcho', 'hindsight', 'gbrain']
+    const allProviders = ['byterover', 'obsidian', 'local-markdown:notes', 'gbrain']
 
     it('always includes byterover', () => {
       for (const type of ['factual', 'temporal', 'personal', 'relational'] as const) {
@@ -47,24 +47,29 @@ describe('SwarmRouter', () => {
       expect(selected).to.include('local-markdown:notes')
     })
 
-    it('includes hindsight for temporal queries', () => {
+    it('includes all available providers for temporal queries', () => {
       const selected = selectProviders('temporal', allProviders)
-      expect(selected).to.include('hindsight')
+      expect(selected).to.include('byterover')
+      expect(selected).to.include('obsidian')
+      expect(selected).to.include('gbrain')
     })
 
-    it('includes honcho for personal queries', () => {
+    it('includes local providers for personal queries', () => {
       const selected = selectProviders('personal', allProviders)
-      expect(selected).to.include('honcho')
+      expect(selected).to.include('byterover')
+      expect(selected).to.include('obsidian')
+      expect(selected).to.include('local-markdown:notes')
     })
 
-    it('includes obsidian and hindsight for relational queries', () => {
+    it('includes obsidian and gbrain for relational queries', () => {
       const selected = selectProviders('relational', allProviders)
       expect(selected).to.include('obsidian')
+      expect(selected).to.include('gbrain')
     })
 
     it('only returns providers that are in the available list', () => {
-      const selected = selectProviders('temporal', ['byterover', 'obsidian'])
-      expect(selected).to.not.include('hindsight')
+      const selected = selectProviders('factual', ['byterover', 'obsidian'])
+      expect(selected).to.not.include('gbrain')
     })
   })
 })

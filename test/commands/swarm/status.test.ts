@@ -51,6 +51,33 @@ describe('SwarmStatus command', () => {
     expect(suggestions[0]).to.include('/notes/beta')
   })
 
+  it('does not falsely suggest gbrain when configured repoPath differs from detected CLI path', () => {
+    const suggestions = findSwarmStatusSuggestions({
+      providers: {
+        byterover: {enabled: true},
+        gbrain: {enabled: true, repoPath: '/brains/personal'},
+      },
+    } as never, [
+      {detected: true, id: 'gbrain', path: '/workspace/gbrain-cli', type: 'cloud'},
+    ])
+
+    expect(suggestions).to.have.length(0)
+  })
+
+  it('suggests gbrain when detected but not in config', () => {
+    const suggestions = findSwarmStatusSuggestions({
+      providers: {
+        byterover: {enabled: true},
+      },
+    } as never, [
+      {detected: true, id: 'gbrain', path: '/workspace/gbrain-cli', type: 'cloud'},
+    ])
+
+    expect(suggestions).to.have.length(1)
+    expect(suggestions[0]).to.include('gbrain')
+    expect(suggestions[0]).to.include('/workspace/gbrain-cli')
+  })
+
   describe('formatEnrichmentEdges', () => {
     it('returns empty array when no edges configured', () => {
       expect(formatEnrichmentEdges([])).to.deep.equal([])

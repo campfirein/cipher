@@ -26,6 +26,12 @@ export type DetectedProvider = {
 export type DetectProvidersOptions = {
   /** Override environment variables (defaults to process.env) */
   env?: Record<string, string | undefined>
+  /**
+   * Roots to check for a GBrain CLI checkout (`src/cli.ts`).
+   * Defaults to workspace sibling, home, and known workspace paths.
+   * Pass a fixture path in tests; pass `[]` to force undetected.
+   */
+  gbrainCandidatePaths?: string[]
   /** Explicit markdown folder paths to check */
   markdownPaths?: string[]
   /** Directories to scan for Obsidian vaults and .md folders */
@@ -139,7 +145,7 @@ export function getDefaultSearchPaths(): {markdownPaths: string[]; searchPaths: 
 export async function detectProviders(
   options?: DetectProvidersOptions
 ): Promise<DetectedProvider[]> {
-  const env = options?.env ?? process.env
+  // const env = options?.env ?? process.env  // Re-enable for honcho/hindsight detection in Phase 3
   const defaults = options?.searchPaths ? undefined : getDefaultSearchPaths()
   const searchPaths = options?.searchPaths ?? defaults?.searchPaths ?? []
   const markdownPaths = options?.markdownPaths ?? defaults?.markdownPaths ?? []
@@ -177,19 +183,25 @@ export async function detectProviders(
     detected: false,
     id: 'local-markdown',
     type: 'local',
-  }, {
-    detected: Boolean(env.HONCHO_API_KEY),
-    envVar: 'HONCHO_API_KEY',
-    id: 'honcho',
-    type: 'cloud',
-  }, {
-    detected: Boolean(env.HINDSIGHT_DB_URL),
-    envVar: 'HINDSIGHT_DB_URL',
-    id: 'hindsight',
-    type: 'cloud',
-  }, {
-    detected: false,
+  })
+
+  // Honcho and Hindsight temporarily disabled — adapters coming in Phase 3.
+
+  // GBrain — detect local CLI checkout by checking common locations for src/cli.ts
+  // (This path is the tool source tree, not `providers.gbrain.repoPath` / brain data.)
+  const gbrainCandidates =
+    options?.gbrainCandidatePaths === undefined
+      ? [
+          join(process.cwd(), '..', 'gbrain'),
+          join(homedir(), 'gbrain'),
+          join(homedir(), 'Myspace', 'campfire', 'workspace', 'gbrain'),
+        ]
+      : options.gbrainCandidatePaths
+  const gbrainPath = gbrainCandidates.find((p) => existsSync(join(p, 'src', 'cli.ts')))
+  providers.push({
+    detected: Boolean(gbrainPath),
     id: 'gbrain',
+    path: gbrainPath,
     type: 'cloud',
   })
 

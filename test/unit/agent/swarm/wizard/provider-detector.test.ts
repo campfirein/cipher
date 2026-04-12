@@ -64,38 +64,66 @@ describe('detectProviders', () => {
     expect(localMd!.noteCount).to.be.at.least(1)
   })
 
-  it('detects honcho when HONCHO_API_KEY is set', async () => {
+  // Honcho and Hindsight temporarily disabled — tests skipped until Phase 3.
+  // When re-enabled, restore the honcho/hindsight detection tests here.
+
+  it('does not include honcho in detected providers (temporarily disabled)', async () => {
     const result = await detectProviders({
       env: {HONCHO_API_KEY: 'test-key'},
       searchPaths: [],
     })
     const honcho = result.find((p) => p.id === 'honcho')
-    expect(honcho).to.exist
-    expect(honcho!.detected).to.be.true
-    expect(honcho!.envVar).to.equal('HONCHO_API_KEY')
+    expect(honcho).to.be.undefined
   })
 
-  it('marks honcho as not detected when env var is missing', async () => {
-    const result = await detectProviders({env: {}, searchPaths: []})
-    const honcho = result.find((p) => p.id === 'honcho')
-    expect(honcho).to.exist
-    expect(honcho!.detected).to.be.false
-  })
-
-  it('detects hindsight when HINDSIGHT_DB_URL is set', async () => {
+  it('does not include hindsight in detected providers (temporarily disabled)', async () => {
     const result = await detectProviders({
       env: {HINDSIGHT_DB_URL: 'postgres://localhost/hindsight'},
       searchPaths: [],
     })
     const hindsight = result.find((p) => p.id === 'hindsight')
-    expect(hindsight!.detected).to.be.true
+    expect(hindsight).to.be.undefined
   })
 
-  it('includes gbrain as not detected by default', async () => {
-    const result = await detectProviders({env: {}, searchPaths: []})
+  it('includes gbrain entry with cloud type', async () => {
+    const result = await detectProviders({
+      env: {},
+      gbrainCandidatePaths: [],
+      searchPaths: [],
+    })
     const gbrain = result.find((p) => p.id === 'gbrain')
     expect(gbrain).to.exist
+    expect(gbrain!.type).to.equal('cloud')
     expect(gbrain!.detected).to.be.false
+  })
+
+  it('detects gbrain when a candidate path contains src/cli.ts', async () => {
+    const fakeRoot = join(testDir, 'gbrain-checkout')
+    mkdirSync(join(fakeRoot, 'src'), {recursive: true})
+    writeFileSync(join(fakeRoot, 'src', 'cli.ts'), 'export {}')
+
+    const result = await detectProviders({
+      env: {},
+      gbrainCandidatePaths: [fakeRoot],
+      searchPaths: [],
+    })
+    const gbrain = result.find((p) => p.id === 'gbrain')
+    expect(gbrain!.detected).to.be.true
+    expect(gbrain!.path).to.equal(fakeRoot)
+  })
+
+  it('does not detect gbrain when candidates lack src/cli.ts', async () => {
+    const emptyRoot = join(testDir, 'not-gbrain')
+    mkdirSync(emptyRoot, {recursive: true})
+
+    const result = await detectProviders({
+      env: {},
+      gbrainCandidatePaths: [emptyRoot],
+      searchPaths: [],
+    })
+    const gbrain = result.find((p) => p.id === 'gbrain')
+    expect(gbrain!.detected).to.be.false
+    expect(gbrain!.path).to.be.undefined
   })
 
   it('always includes an undetected local-markdown entry for manual add', async () => {

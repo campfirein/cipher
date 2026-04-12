@@ -35,6 +35,12 @@ export interface MemoryWizardPrompts {
   configureBudget(): Promise<{globalMonthlyCents: number}>
 
   /**
+   * Ask user whether to enable enrichment (provider chaining).
+   * Shown when 2+ providers are selected. Returns true to enable, false to skip.
+   */
+  configureEnrichment(providerIds: string[]): Promise<boolean>
+
+  /**
    * Ask user to configure a specific provider (vault path, API key, etc.)
    */
   configureProvider(provider: DetectedProvider): Promise<Record<string, unknown>>
@@ -90,8 +96,9 @@ function detectDuplicateWarnings(providers: WizardAnswers['providers']): string[
  */
 function buildSummary(
   providers: WizardAnswers['providers'],
-  budget?: WizardAnswers['budget'],
-  duplicateWarnings?: string[]
+  _budget?: WizardAnswers['budget'],  // Temporarily disabled — re-enable in Phase 3
+  duplicateWarnings?: string[],
+  enrichment?: boolean
 ): string {
   const localCount = providers.filter((p) => p.enabled).length
   const lines = [
@@ -99,13 +106,14 @@ function buildSummary(
     ...providers.filter((p) => p.enabled).map((p) => `  - ${p.id}`),
   ]
 
-  if (budget) {
-    lines.push(`Budget: $${(budget.globalMonthlyCents / 100).toFixed(2)}/month`)
-  } else {
-    lines.push('Budget: $0/month (local only)')
-  }
+  // Budget temporarily disabled — re-enable in Phase 3 with cloud providers.
+  // if (budget) {
+  //   lines.push(`Budget: $${(budget.globalMonthlyCents / 100).toFixed(2)}/month`)
+  // } else {
+  //   lines.push('Budget: $0/month (local only)')
+  // }
 
-  lines.push('Strategy: adaptive routing')
+  lines.push('Strategy: adaptive routing', `Enrichment: ${enrichment === false ? 'off (all parallel)' : 'on (providers feed context to each other)'}`)
 
   if (duplicateWarnings && duplicateWarnings.length > 0) {
     lines.push('', ...duplicateWarnings)
@@ -114,7 +122,8 @@ function buildSummary(
   return lines.join('\n')
 }
 
-type WizardStep = 'budget' | 'configure' | 'confirm' | 'select'
+// Budget step temporarily disabled — add 'budget' back when re-enabling in Phase 3.
+type WizardStep = 'configure' | 'confirm' | 'enrichment' | 'select'
 
 /**
  * Resolve selected keys (indices) to detected provider entries,
@@ -180,37 +189,51 @@ export async function runMemoryWizard(
   let step: WizardStep = 'select'
   let selectedProviders: DetectedProvider[] = []
   let providers: WizardAnswers['providers'] = []
-  let budget: WizardAnswers['budget']
+  let enrichment: boolean | undefined
+
+  /** Whether enrichment step should be shown (2+ providers including byterover) */
+  const shouldAskEnrichment = () =>
+    selectedProviders.length >= 2 && selectedProviders.some((p) => p.id === 'byterover')
 
   /* eslint-disable no-await-in-loop -- wizard steps are inherently sequential (user-facing prompts) */
 
   // Step-based loop with ESC back-navigation
+  // Flow: select → configure → enrichment → confirm
+  // Budget step temporarily disabled — re-enable in Phase 3 with cloud providers.
   while (true) {
     try {
       switch (step) {
-        case 'budget': {
-          budget = await prompts.configureBudget()
-          step = 'confirm'
-
-          break
-        }
+        // Budget temporarily disabled — re-enable when cloud providers are wired.
+        // case 'budget': {
+        //   budget = await prompts.configureBudget()
+        //   step = 'confirm'
+        //   break
+        // }
 
         case 'configure': {
           providers = await configureProviders(prompts, selectedProviders)
-          step = selectedProviders.some((p) => p.type === 'cloud') ? 'budget' : 'confirm'
+          step = shouldAskEnrichment() ? 'enrichment' : 'confirm'
 
           break
         }
 
         case 'confirm': {
           const duplicateWarnings = detectDuplicateWarnings(providers)
-          const summary = buildSummary(providers, budget, duplicateWarnings)
+          const summary = buildSummary(providers, undefined, duplicateWarnings, enrichment)
           const confirmed = await prompts.confirmWrite(summary)
           if (!confirmed) {
             throw new WizardCancelledError()
           }
 
-          return {budget, providers}
+          return {enrichment, providers}
+        }
+
+        case 'enrichment': {
+          const providerIds = providers.filter((p) => p.enabled).map((p) => p.id)
+          enrichment = await prompts.configureEnrichment(providerIds)
+          step = 'confirm'
+
+          break
         }
 
         case 'select': {
@@ -225,12 +248,6 @@ export async function runMemoryWizard(
       if (error instanceof EscBackError) {
         // Go back one step
         switch (step) {
-          case 'budget': {
-            step = 'configure'
-
-            break
-          }
-
           case 'configure': {
             step = 'select'
 
@@ -238,7 +255,13 @@ export async function runMemoryWizard(
           }
 
           case 'confirm': {
-            step = selectedProviders.some((p) => p.type === 'cloud') ? 'budget' : 'configure'
+            step = shouldAskEnrichment() ? 'enrichment' : 'configure'
+
+            break
+          }
+
+          case 'enrichment': {
+            step = 'configure'
 
             break
           }

@@ -174,6 +174,48 @@ describe('scaffoldConfig', () => {
     expect(validated.enrichment?.edges[0]).to.deep.equal({from: 'byterover', to: 'local-markdown'})
   })
 
+  it('includes enrichment edges for byterover + gbrain', () => {
+    const answers: WizardAnswers = {
+      providers: [
+        {config: {}, enabled: true, id: 'byterover'},
+        {config: {repo_path: '~/gbrain'}, enabled: true, id: 'gbrain'},
+      ],
+    }
+    const result = scaffoldConfig(answers)
+    const parsed = load(result.yaml) as Record<string, unknown>
+    const validated = SwarmConfigSchema.parse(parsed)
+    expect(validated.enrichment?.edges).to.have.length(1)
+    expect(validated.enrichment?.edges[0]).to.deep.equal({from: 'byterover', to: 'gbrain'})
+  })
+
+  it('includes enrichment edges for all providers with byterover as master', () => {
+    const answers: WizardAnswers = {
+      providers: [
+        {config: {}, enabled: true, id: 'byterover'},
+        {config: {vault_path: '~/Vault'}, enabled: true, id: 'obsidian'},
+        {config: {repo_path: '~/gbrain'}, enabled: true, id: 'gbrain'},
+      ],
+    }
+    const result = scaffoldConfig(answers)
+    const parsed = load(result.yaml) as Record<string, unknown>
+    const validated = SwarmConfigSchema.parse(parsed)
+    expect(validated.enrichment?.edges).to.have.length(2)
+    expect(validated.enrichment?.edges[0]).to.deep.equal({from: 'byterover', to: 'obsidian'})
+    expect(validated.enrichment?.edges[1]).to.deep.equal({from: 'byterover', to: 'gbrain'})
+  })
+
+  it('omits enrichment section when user declines enrichment', () => {
+    const answers: WizardAnswers = {
+      enrichment: false,
+      providers: [
+        {config: {}, enabled: true, id: 'byterover'},
+        {config: {vault_path: '~/Vault'}, enabled: true, id: 'obsidian'},
+      ],
+    }
+    const result = scaffoldConfig(answers)
+    expect(result.yaml).to.not.include('enrichment')
+  })
+
   it('omits enrichment section when only byterover is enabled', () => {
     const answers: WizardAnswers = {
       providers: [
