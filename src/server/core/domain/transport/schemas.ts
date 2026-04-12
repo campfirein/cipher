@@ -10,6 +10,8 @@
 import {z} from 'zod'
 
 import type {AgentEventMap} from '../../../../agent/core/domain/agent-events/types.js'
+
+import {QUERY_LOG_TIERS, type QueryLogTier} from '../../domain/entities/query-log-entry.js'
 // Re-export domain types for convenience (SSOT: agent-events/types.ts)
 export type {
   AgentTerminationReason,
@@ -258,6 +260,8 @@ export const TransportTaskEventNames = {
   ERROR: 'task:error',
   // Internal (Transport → Agent)
   EXECUTE: 'task:execute',
+  // Query metadata (Agent → Daemon, before task:completed)
+  QUERY_RESULT: 'task:queryResult',
   STARTED: 'task:started',
 } as const
 
@@ -549,6 +553,27 @@ export const TaskCompletedEventSchema = z.object({
 })
 
 /**
+ * task:queryResult - Query execution metadata (Agent → Daemon, before task:completed)
+ * Carries tier/timing/matchedDocs from QueryExecutor for QueryLogHandler.
+ * Response string is NOT included — it arrives via task:completed.
+ */
+export const TaskQueryResultEventSchema = z.object({
+  matchedDocs: z.array(z.object({path: z.string(), score: z.number(), title: z.string()})),
+  response: z.string(),
+  searchMetadata: z
+    .object({
+      cacheFingerprint: z.string().optional(),
+      resultCount: z.number(),
+      topScore: z.number(),
+      totalFound: z.number(),
+    })
+    .optional(),
+  taskId: z.string(),
+  tier: z.custom<QueryLogTier>((val) => new Set<unknown>(QUERY_LOG_TIERS).has(val), {message: 'Invalid query log tier'}),
+  timing: z.object({durationMs: z.number()}),
+})
+
+/**
  * Structured error object
  * Matches TaskErrorData interface in task-error.ts
  */
@@ -620,6 +645,7 @@ export type TaskStartedEvent = z.infer<typeof TaskStartedEventSchema>
 export type TaskCompletedEvent = z.infer<typeof TaskCompletedEventSchema>
 export type TaskErrorData = z.infer<typeof TaskErrorDataSchema>
 export type TaskErrorEvent = z.infer<typeof TaskErrorEventSchema>
+export type TaskQueryResultEvent = z.infer<typeof TaskQueryResultEventSchema>
 // Note: LlmResponseEvent, LlmToolCallEvent, LlmToolResultEvent are defined above
 // as type aliases extending AgentEventMap (lines 335-347)
 

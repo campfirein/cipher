@@ -473,6 +473,21 @@ async function executeTask(
           const queryResult = await queryExecutor.executeWithAgent(agent, {query: content, taskId})
           result = queryResult.response
 
+          // Send query metadata to daemon for QueryLogHandler (crosses process boundary via transport).
+          // Must arrive BEFORE task:completed so setQueryResult runs before onTaskCompleted.
+          try {
+            transport.request(TransportTaskEventNames.QUERY_RESULT, {
+              matchedDocs: queryResult.matchedDocs,
+              response: queryResult.response,
+              searchMetadata: queryResult.searchMetadata,
+              taskId,
+              tier: queryResult.tier,
+              timing: queryResult.timing,
+            })
+          } catch {
+            agentLog(`task:queryResult send failed taskId=${taskId}`)
+          }
+
           break
         }
       }

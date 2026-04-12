@@ -38,7 +38,12 @@ import {
   BRV_DIR,
   HEARTBEAT_FILE,
 } from '../../constants.js'
-import {type ProviderConfigResponse, TransportStateEventNames} from '../../core/domain/transport/schemas.js'
+import {
+  type ProviderConfigResponse,
+  type TaskQueryResultEvent,
+  TransportStateEventNames,
+  TransportTaskEventNames,
+} from '../../core/domain/transport/schemas.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
@@ -48,6 +53,7 @@ import {createReviewApiRouter} from '../http/review-api-handler.js'
 import {broadcastToProjectRoom} from '../process/broadcast-utils.js'
 import {CurateLogHandler} from '../process/curate-log-handler.js'
 import {setupFeatureHandlers} from '../process/feature-handlers.js'
+import {QueryLogHandler} from '../process/query-log-handler.js'
 import {TransportHandlers} from '../process/transport-handlers.js'
 import {ProjectRegistry} from '../project/project-registry.js'
 import {createProviderOAuthTokenStore} from '../provider-oauth/provider-oauth-token-store.js'
@@ -294,15 +300,30 @@ async function main(): Promise<void> {
       )
     })
 
+    const queryLogHandler = new QueryLogHandler()
+
     const transportHandlers = new TransportHandlers({
       agentPool,
       clientManager,
-      lifecycleHooks: [curateLogHandler],
+      lifecycleHooks: [curateLogHandler, queryLogHandler],
       projectRegistry,
       projectRouter,
       transport: transportServer,
     })
     transportHandlers.setup()
+
+    // Wire query metadata from agent process → QueryLogHandler.
+    // Agent sends task:queryResult BEFORE task:completed (Socket.IO preserves order),
+    // so setQueryResult runs before onTaskCompleted merges the metadata.
+    transportServer.onRequest<TaskQueryResultEvent, void>(TransportTaskEventNames.QUERY_RESULT, (data) => {
+      queryLogHandler.setQueryResult(data.taskId, {
+        matchedDocs: data.matchedDocs,
+        response: data.response,
+        searchMetadata: data.searchMetadata,
+        tier: data.tier,
+        timing: data.timing,
+      })
+    })
 
     // 8. Create idle timeout policy + shutdown handler
     //    (must be created before wiring closures that reference them)
