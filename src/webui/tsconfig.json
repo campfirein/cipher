@@ -8,11 +8,11 @@
     "paths": {
       "@campfirein/byterover-packages/*": [
         "../../packages/byterover-packages/ui/src/*",
-        "../../node_modules/@campfirein/byterover-packages/src/*"
+        "../../node_modules/@campfirein/byterover-packages/ui/src/*"
       ],
       "@workspace/ui/*": [
         "../../packages/byterover-packages/ui/src/*",
-        "../../node_modules/@campfirein/byterover-packages/src/*"
+        "../../node_modules/@campfirein/byterover-packages/ui/src/*"
       ]
     },
     "strict": true,

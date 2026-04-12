@@ -11,7 +11,7 @@ import {defineConfig} from 'vite'
 const currentDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(currentDir, '../..')
 const submoduleSharedUiSrc = resolve(repoRoot, 'packages/byterover-packages/ui/src')
-const installedSharedUiSrc = resolve(repoRoot, 'node_modules/@campfirein/byterover-packages/src')
+const installedSharedUiSrc = resolve(repoRoot, 'node_modules/@campfirein/byterover-packages/ui/src')
 const packageJson = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')) as {version?: string}
 const cliVersion = packageJson.version ?? 'unknown'
 
