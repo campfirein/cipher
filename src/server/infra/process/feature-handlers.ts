@@ -176,8 +176,12 @@ export async function setupFeatureHandlers({
       try {
         await access(path)
         return true
-      } catch {
-        return false
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return false
+        }
+
+        throw error
       }
     },
     projectRegistry,
