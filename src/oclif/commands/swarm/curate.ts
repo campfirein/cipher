@@ -72,7 +72,8 @@ public static description = 'Store knowledge in a swarm provider (GBrain, local 
       if (isJson) {
         this.log(JSON.stringify({error: (error as Error).message, success: false}))
       } else {
-        this.error((error as Error).message)
+        this.logToStderr(`Error: ${(error as Error).message}`)
+        this.exit(2)
       }
     }
   }

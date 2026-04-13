@@ -197,5 +197,17 @@ describe('SwarmMerger', () => {
 
       expect(withoutOptions).to.deep.equal(withUndefinedOptions)
     })
+
+    it('filters weak results when defaults are applied via config', () => {
+      // Simulate what happens when schema defaults (minRRFScore=0.005, rrfGapRatio=0.5) are active
+      const resultSets = new Map<string, QueryResult[]>([
+        ['p1', [makeResult('p1', 'Strong', 0.9)]],
+      ])
+      const weights = new Map([['p1', 1]])
+
+      // rank 0: 1/60 ≈ 0.0167 — above 0.005 floor, passes
+      const merged = mergeResults(resultSets, weights, {minRRFScore: 0.005, rrfGapRatio: 0.5})
+      expect(merged).to.have.length(1)
+    })
   })
 })

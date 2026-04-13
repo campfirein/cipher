@@ -141,15 +141,48 @@ describe('search-precision', () => {
       expect(String(results[0].id)).to.equal('1')
     })
 
-    it('falls back to OR when AND returns no results', () => {
+    it('falls back to OR but rejects single-term matches for 2-word queries', () => {
       const index = buildTestIndex([
         {content: 'TypeScript generics allow reusable typed code', id: '1', title: 'TypeScript Generics'},
         {content: 'React hooks for managing state', id: '2', title: 'React Hooks'},
       ])
 
-      // "typescript zebra" — AND will fail, OR should still find "typescript"
       const results = searchWithPrecision(index, 'typescript zebra')
+      expect(results).to.have.length(0)
+    })
+
+    it('OR fallback keeps results when enough terms match for 3+ word queries', () => {
+      const index = buildTestIndex([
+        {content: 'TypeScript generics allow reusable typed code patterns', id: '1', title: 'TypeScript Generics'},
+        {content: 'React hooks for managing state', id: '2', title: 'React Hooks'},
+      ])
+
+      const results = searchWithPrecision(index, 'typescript generics zebra')
       expect(results.length).to.be.greaterThan(0)
+      expect(String(results[0].id)).to.equal('1')
+    })
+
+    it('OR fallback returns empty when no doc matches enough query terms', () => {
+      const index = buildTestIndex([
+        {content: 'error handling patterns for robust management of system failures', id: '1', title: 'Error Handling Management'},
+        {content: 'session management for web applications with cookies', id: '2', title: 'Session Management'},
+      ])
+
+      const results = searchWithPrecision(index, 'project management')
+      expect(results).to.have.length(0)
+    })
+
+    it('OR fallback keeps results matching majority of query terms', () => {
+      const index = buildTestIndex([
+        {content: 'project planning and management for agile teams', id: '1', title: 'Project Planning'},
+        {content: 'session management for web applications', id: '2', title: 'Session Management'},
+      ])
+
+      const results = searchWithPrecision(index, 'project management timeline')
+      expect(results.length).to.be.greaterThan(0)
+      expect(String(results[0].id)).to.equal('1')
+      const sessionResult = results.find((r) => String(r.id) === '2')
+      expect(sessionResult).to.be.undefined
     })
 
     it('applies score floor — returns empty when all scores weak', () => {

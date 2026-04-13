@@ -175,6 +175,11 @@ export function searchWithPrecision<T>(
     rawResults = index.search(filteredQuery, {combineWith: 'AND', ...searchOpts})
     if (rawResults.length === 0) {
       rawResults = index.search(filteredQuery, {combineWith: 'OR', ...searchOpts})
+      const minTerms = Math.ceil(words.length * 0.5) + (words.length % 2 === 0 ? 1 : 0)
+      rawResults = rawResults.filter((r) => {
+        const matchedTerms = (r as unknown as {queryTerms: string[]}).queryTerms ?? []
+        return matchedTerms.length >= minTerms
+      })
     }
   } else {
     rawResults = index.search(filteredQuery, {combineWith: 'OR', ...searchOpts})

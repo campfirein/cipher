@@ -34,8 +34,8 @@ describe('SwarmConfigSchema', () => {
       expect(result.routing.classificationMethod).to.equal('auto')
       expect(result.routing.defaultMaxResults).to.equal(10)
       expect(result.routing.rrfK).to.equal(60)
-      expect(result.routing.minRrfScore).to.be.undefined
-      expect(result.routing.rrfGapRatio).to.be.undefined
+      expect(result.routing.minRrfScore).to.equal(0.005)
+      expect(result.routing.rrfGapRatio).to.equal(0.5)
 
       // Performance defaults
       expect(result.performance.maxQueryLatencyMs).to.equal(2000)
@@ -237,13 +237,23 @@ describe('SwarmConfigSchema', () => {
       expect(result.routing.rrfGapRatio).to.equal(0.5)
     })
 
-    it('defaults to undefined when not specified', () => {
+    it('applies sensible defaults when not specified', () => {
       const input = {
         providers: {byterover: {enabled: true}},
       }
       const result = SwarmConfigSchema.parse(input)
-      expect(result.routing.minRrfScore).to.be.undefined
-      expect(result.routing.rrfGapRatio).to.be.undefined
+      expect(result.routing.minRrfScore).to.equal(0.005)
+      expect(result.routing.rrfGapRatio).to.equal(0.5)
+    })
+
+    it('allows explicit override of defaults', () => {
+      const input = {
+        providers: {byterover: {enabled: true}},
+        routing: {min_rrf_score: 0.01, rrf_gap_ratio: 0.8},
+      }
+      const result = SwarmConfigSchema.parse(input)
+      expect(result.routing.minRrfScore).to.equal(0.01)
+      expect(result.routing.rrfGapRatio).to.equal(0.8)
     })
   })
 
