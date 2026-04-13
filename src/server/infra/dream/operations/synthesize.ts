@@ -79,11 +79,12 @@ export async function synthesize(deps: SynthesizeDeps): Promise<DreamOperation[]
     const parsed = parseDreamResponse(response, SynthesizeResponseSchema)
     if (!parsed || parsed.syntheses.length === 0) return []
 
-    // Step 4: Deduplicate against existing files
+    // Step 4: Deduplicate against existing synthesis files only — the whole tree
+    // will naturally score high since synthesis derives from domain summaries
     const novel: SynthesisCandidate[] = []
     for (const candidate of parsed.syntheses) {
       // eslint-disable-next-line no-await-in-loop
-      const isDuplicate = await isDuplicateCandidate(candidate, searchService)
+      const isDuplicate = await isDuplicateCandidate(candidate, existingSyntheses, searchService)
       if (!isDuplicate) novel.push(candidate)
     }
 
@@ -198,12 +199,18 @@ function parseFrontmatterType(content: string): string | undefined {
 
 async function isDuplicateCandidate(
   candidate: SynthesisCandidate,
+  existingSyntheses: string[],
   searchService: SynthesizeDeps['searchService'],
 ): Promise<boolean> {
+  if (existingSyntheses.length === 0) return false
+
   try {
     const query = `${candidate.title} ${candidate.claim}`
-    const results = await searchService.search(query, {limit: 3})
-    const topScore = results.results[0]?.score ?? 0
+    const results = await searchService.search(query, {limit: 5})
+    // Only consider matches against existing synthesis files — the whole tree
+    // will naturally score high since synthesis derives from domain summaries
+    const synthesisMatch = results.results.find((r) => existingSyntheses.includes(r.path))
+    const topScore = synthesisMatch?.score ?? 0
     return topScore >= DEDUP_THRESHOLD
   } catch {
     return false // Search failure → assume novel

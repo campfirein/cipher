@@ -207,12 +207,14 @@ describe('synthesize', () => {
 
   // ── Deduplication ─────────────────────────────────────────────────────────
 
-  it('skips candidate when BM25 score > 0.8 (already captured)', async () => {
+  it('skips candidate when existing synthesis scores > 0.5', async () => {
     await createMdFile(ctxDir, 'auth/_index.md', '# Auth', {type: 'summary'})
     await createMdFile(ctxDir, 'api/_index.md', '# API', {type: 'summary'})
+    // Existing synthesis file — dedup only matches against these
+    await createMdFile(ctxDir, 'auth/existing-synthesis.md', '# Existing', {type: 'synthesis'})
 
     searchService.search.resolves({
-      results: [{path: 'auth/existing.md', score: 0.9, title: 'Existing'}],
+      results: [{path: 'auth/existing-synthesis.md', score: 0.9, title: 'Existing'}],
       totalFound: 1,
     })
 
@@ -228,33 +230,36 @@ describe('synthesize', () => {
     expect(results).to.deep.equal([])
   })
 
-  it('skips candidate when BM25 score 0.5-0.8 (partial match)', async () => {
+  it('creates file when no existing synthesis files exist (dedup skipped)', async () => {
     await createMdFile(ctxDir, 'auth/_index.md', '# Auth', {type: 'summary'})
     await createMdFile(ctxDir, 'api/_index.md', '# API', {type: 'summary'})
 
+    // High score but against non-synthesis files — should NOT dedup
     searchService.search.resolves({
-      results: [{path: 'auth/similar.md', score: 0.6, title: 'Similar'}],
+      results: [{path: 'auth/regular-doc.md', score: 0.9, title: 'Regular Doc'}],
       totalFound: 1,
     })
 
     agent.executeOnSession.resolves(llmResponse([{
-      claim: 'Partially known.',
-      confidence: 0.8,
+      claim: 'Novel insight.',
+      confidence: 0.9,
       evidence: [{domain: 'auth', fact: 'A'}, {domain: 'api', fact: 'B'}],
       placement: 'auth',
-      title: 'Partial Pattern',
+      title: 'New Pattern',
     }]))
 
     const results = await synthesize(deps)
-    expect(results).to.deep.equal([])
+    expect(results).to.have.lengthOf(1)
   })
 
-  it('creates file when BM25 score < 0.5 (novel insight)', async () => {
+  it('creates file when search hits non-synthesis files only', async () => {
     await createMdFile(ctxDir, 'auth/_index.md', '# Auth', {type: 'summary'})
     await createMdFile(ctxDir, 'api/_index.md', '# API', {type: 'summary'})
+    await createMdFile(ctxDir, 'auth/existing-synthesis.md', '# Existing', {type: 'synthesis'})
 
+    // High score but path doesn't match any synthesis file
     searchService.search.resolves({
-      results: [{path: 'auth/unrelated.md', score: 0.2, title: 'Unrelated'}],
+      results: [{path: 'auth/unrelated.md', score: 0.95, title: 'Unrelated'}],
       totalFound: 1,
     })
 
