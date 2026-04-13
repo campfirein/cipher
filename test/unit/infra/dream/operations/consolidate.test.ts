@@ -306,8 +306,8 @@ describe('consolidate', () => {
     expect(agent.deleteTaskSession.callCount).to.equal(2)
   })
 
-  it('continues processing when file read fails for an action', async () => {
-    // File doesn't exist in context tree but was in changedFiles
+  it('does not crash when MERGE references files not in fileContents', async () => {
+    // LLM references files that weren't loaded (missing from context tree)
     agent.executeOnSession.resolves(llmResponse([{
       files: ['auth/missing.md', 'auth/also-missing.md'],
       mergedContent: 'Merged',
@@ -321,7 +321,7 @@ describe('consolidate', () => {
 
     const results = await consolidate(['auth/exists.md'], deps)
 
-    // Should not throw — action skipped due to file read failure
+    // Should not throw — MERGE writes to outputFile even if sources weren't in fileContents
     expect(results).to.be.an('array')
   })
 

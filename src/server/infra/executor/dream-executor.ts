@@ -16,7 +16,7 @@
  */
 
 import {access} from 'node:fs/promises'
-import {join} from 'node:path'
+import {isAbsolute, join, sep} from 'node:path'
 
 import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
 import type {FileState} from '../../core/domain/entities/context-tree-snapshot.js'
@@ -252,14 +252,25 @@ export class DreamExecutor {
   }
 }
 
-/** Convert an absolute file path to a context-tree-relative path, or null if not inside the tree. */
+/** Convert an absolute file path to a context-tree-relative path, or undefined if not inside the tree. */
 function toContextTreeRelative(absolutePath: string, contextTreeDir: string): string | undefined {
-  if (absolutePath.startsWith(contextTreeDir + '/')) {
-    return absolutePath.slice(contextTreeDir.length + 1)
+  // Normalize separators for cross-platform (Windows uses backslash)
+  const normalized = absolutePath.replaceAll('\\', '/')
+  const normalizedDir = contextTreeDir.replaceAll('\\', '/')
+
+  if (normalized.startsWith(normalizedDir + '/')) {
+    return normalized.slice(normalizedDir.length + 1)
   }
 
-  // Already relative?
-  if (!absolutePath.startsWith('/')) return absolutePath
+  // Already relative? Validate it doesn't traverse outside the context tree
+  if (!isAbsolute(normalized)) {
+    const resolved = join(contextTreeDir, normalized)
+    if (resolved.startsWith(contextTreeDir + sep) || resolved.startsWith(contextTreeDir + '/')) {
+      return normalized
+    }
+
+    return undefined // Path traversal attempt (e.g., ../../secret.md)
+  }
 
   return undefined
 }

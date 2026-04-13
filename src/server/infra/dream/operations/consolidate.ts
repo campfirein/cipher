@@ -60,7 +60,12 @@ export async function consolidate(
 async function processDomain(domain: string, files: string[], deps: ConsolidateDeps): Promise<DreamOperation[]> {
   const {agent, contextTreeDir, searchService, taskId} = deps
   const results: DreamOperation[] = []
-  const sessionId = await agent.createTaskSession(taskId, 'dream-consolidate')
+  let sessionId: string
+  try {
+    sessionId = await agent.createTaskSession(taskId, 'dream-consolidate')
+  } catch {
+    return [] // Session creation failed — skip domain
+  }
 
   try {
     // Step 2: Find related files for each changed file in domain
@@ -76,8 +81,8 @@ async function processDomain(domain: string, files: string[], deps: ConsolidateD
 
     if (fileContents.size === 0) return []
 
-    // Step 3: LLM classification
-    const filesPayload: Record<string, string> = Object.fromEntries(fileContents)
+    // Step 3: LLM classification — cap payload to avoid exceeding model context limits
+    const filesPayload = capPayloadSize(Object.fromEntries(fileContents), files)
 
     agent.setSandboxVariableOnSession(sessionId, '__dream_consolidate_files', filesPayload)
 
@@ -114,6 +119,44 @@ async function atomicWrite(filePath: string, content: string): Promise<void> {
   const tmpPath = `${filePath}.${randomUUID()}.tmp`
   await writeFile(tmpPath, content, 'utf8')
   await rename(tmpPath, filePath)
+}
+
+/** Max total chars for LLM sandbox payload — matches curate task cap (MAX_CONTENT_PER_FILE × MAX_FILES). */
+const MAX_PAYLOAD_CHARS = 200_000
+
+/**
+ * Cap the total payload size by evicting non-changed files (lowest relevance) when the
+ * combined content exceeds MAX_PAYLOAD_BYTES. Changed files are always kept.
+ */
+function capPayloadSize(payload: Record<string, string>, changedFiles: string[]): Record<string, string> {
+  const changedSet = new Set(changedFiles)
+  let totalSize = 0
+  for (const content of Object.values(payload)) totalSize += content.length
+
+  if (totalSize <= MAX_PAYLOAD_CHARS) return payload
+
+  // Keep changed files, evict non-changed (siblings/search results) until under cap
+  const result: Record<string, string> = {}
+  let currentSize = 0
+
+  // Add changed files first (always kept)
+  for (const [path, content] of Object.entries(payload)) {
+    if (changedSet.has(path)) {
+      result[path] = content
+      currentSize += content.length
+    }
+  }
+
+  // Add non-changed files until cap reached
+  for (const [path, content] of Object.entries(payload)) {
+    if (!changedSet.has(path)) {
+      if (currentSize + content.length > MAX_PAYLOAD_CHARS) continue
+      result[path] = content
+      currentSize += content.length
+    }
+  }
+
+  return result
 }
 
 /** Merge extra fields into existing YAML frontmatter, or prepend new frontmatter if none exists. */
@@ -307,7 +350,11 @@ async function executeMerge(
   fileContents: Map<string, string>,
 ): Promise<DreamOperation> {
   const outputFile = action.outputFile ?? action.files[0]
-  const mergedContent = action.mergedContent ?? ''
+  if (!action.mergedContent) {
+    throw new Error(`MERGE action missing mergedContent for ${outputFile}`)
+  }
+
+  const {mergedContent} = action
 
   // Capture previous texts
   const previousTexts: Record<string, string> = {}
@@ -353,7 +400,11 @@ async function executeTemporalUpdate(
   fileContents: Map<string, string>,
 ): Promise<DreamOperation> {
   const targetFile = action.files[0]
-  const updatedContent = action.updatedContent ?? ''
+  if (!action.updatedContent) {
+    throw new Error(`TEMPORAL_UPDATE action missing updatedContent for ${targetFile}`)
+  }
+
+  const {updatedContent} = action
 
   // Capture previous text
   const previousTexts: Record<string, string> = {}
