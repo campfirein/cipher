@@ -3,6 +3,7 @@ import {z} from 'zod'
 // ── Consolidate ──────────────────────────────────────────────────────────────
 
 export const ConsolidationActionSchema = z.object({
+  confidence: z.number().min(0).max(1).optional(),
   files: z.array(z.string()).min(1),
   mergedContent: z.string().optional(),
   outputFile: z.string().optional(),
