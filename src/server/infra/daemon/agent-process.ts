@@ -33,6 +33,7 @@ import {FolderPackService} from '../../../agent/infra/folder-pack/folder-pack-se
 import {SessionMetadataStore} from '../../../agent/infra/session/session-metadata-store.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
+import {decodeSearchContent} from '../../../shared/transport/search-content.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {serializeTaskError, TaskError, TaskErrorCode} from '../../core/domain/errors/task-error.js'
@@ -46,6 +47,7 @@ import {
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
+import {SearchExecutor} from '../executor/search-executor.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {createAgentLogger} from './agent-logger.js'
 import {resolveSessionId} from './session-resolver.js'
@@ -365,11 +367,12 @@ async function start(): Promise<void> {
     fileSystem: fileSystemService,
     searchService,
   })
+  const searchExecutor = new SearchExecutor(searchService)
 
   transport.on<TaskExecute>(TransportTaskEventNames.EXECUTE, (task) => {
     agentLog(`task:execute received taskId=${task.taskId} type=${task.type} activeTaskCount=${activeTaskCount + 1}`)
     // eslint-disable-next-line no-void
-    void executeTask(task, curateExecutor, folderPackExecutor, queryExecutor)
+    void executeTask(task, curateExecutor, folderPackExecutor, queryExecutor, searchExecutor)
   })
 
   // 8. Register with transport server (for TransportHandlers tracking)
@@ -385,17 +388,22 @@ async function executeTask(
   curateExecutor: CurateExecutor,
   folderPackExecutor: FolderPackExecutor,
   queryExecutor: QueryExecutor,
+  searchExecutor: SearchExecutor,
 ): Promise<void> {
   const {clientCwd, clientId, content, files, folderPath, taskId, type, worktreeRoot} = task
   if (!transport || !agent) return
 
-  const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
-    TransportStateEventNames.GET_PROVIDER_CONFIG,
-  )
-  const validationError = validateProviderForTask(freshProviderConfig)
-  if (validationError) {
-    transport.request(TransportTaskEventNames.ERROR, {clientId, error: validationError, taskId})
-    return
+  // Search tasks are pure BM25 retrieval — no LLM, no provider needed.
+  // Skip provider validation so search works even without a configured provider.
+  if (type !== 'search') {
+    const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
+      TransportStateEventNames.GET_PROVIDER_CONFIG,
+    )
+    const validationError = validateProviderForTask(freshProviderConfig)
+    if (validationError) {
+      transport.request(TransportTaskEventNames.ERROR, {clientId, error: validationError, taskId})
+      return
+    }
   }
 
   activeTaskCount++
@@ -482,6 +490,14 @@ async function executeTask(
 
         case 'query': {
           result = await queryExecutor.executeWithAgent(agent, {query: content, taskId, worktreeRoot})
+
+          break
+        }
+
+        case 'search': {
+          const searchOptions = decodeSearchContent(content)
+          const searchResult = await searchExecutor.execute(searchOptions)
+          result = JSON.stringify(searchResult)
 
           break
         }

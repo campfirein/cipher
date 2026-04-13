@@ -476,4 +476,80 @@ describe('Query Command', () => {
       expect(json.data).to.have.property('error')
     })
   })
+
+  // ==================== Timeout Flag ====================
+
+  describe('timeout flag', () => {
+    it('should accept --timeout flag without error', async () => {
+      const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        if (!eventHandlers.has(event)) eventHandlers.set(event, [])
+        eventHandlers.get(event)!.push(handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
+        if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        setTimeout(() => {
+          const handlers = eventHandlers.get('task:completed')
+          if (handlers) {
+            for (const handler of handlers) handler({result: 'done', taskId: payload.taskId})
+          }
+        }, 10)
+        return {taskId: payload.taskId}
+      })
+
+      await createCommand('test query', '--timeout', '600').run()
+
+      expect(loggedMessages.some((m) => m.includes('done'))).to.be.true
+    })
+
+    it('should accept --timeout flag in JSON mode', async () => {
+      const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        if (!eventHandlers.has(event)) eventHandlers.set(event, [])
+        eventHandlers.get(event)!.push(handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
+        if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        setTimeout(() => {
+          const handlers = eventHandlers.get('task:completed')
+          if (handlers) {
+            for (const handler of handlers) handler({result: 'done', taskId: payload.taskId})
+          }
+        }, 10)
+        return {taskId: payload.taskId}
+      })
+
+      await createJsonCommand('test query', '--timeout', '600').run()
+
+      const lines = parseJsonOutput()
+      const completedEvent = lines.find((l) => (l.data as Record<string, unknown>).event === 'completed')
+      expect(completedEvent).to.exist
+      expect(completedEvent!.success).to.be.true
+    })
+
+    it('should work with default timeout when flag is not provided', async () => {
+      const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        if (!eventHandlers.has(event)) eventHandlers.set(event, [])
+        eventHandlers.get(event)!.push(handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
+        if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        setTimeout(() => {
+          const handlers = eventHandlers.get('task:completed')
+          if (handlers) {
+            for (const handler of handlers) handler({result: 'done', taskId: payload.taskId})
+          }
+        }, 10)
+        return {taskId: payload.taskId}
+      })
+
+      await createCommand('test query').run()
+
+      expect(loggedMessages.some((m) => m.includes('done'))).to.be.true
+    })
+  })
 })

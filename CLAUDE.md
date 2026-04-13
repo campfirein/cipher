@@ -80,6 +80,7 @@ npm run typecheck                    # TypeScript type checking
 - `brv vc` — isomorphic-git version control (add, branch, checkout, clone, commit, config, fetch, init, log, merge, pull, push, remote, reset, status); git plumbing in `server/infra/git/` (`isomorphic-git-service.ts`), VC config store in `server/infra/vc/`
 - `brv worktree` (add/list/remove) — git-style worktree pointer model: `.brv/` is either a real project directory OR a pointer file to a parent project; parent stores registry in `.brv/worktrees/<name>/link.json`
 - `brv source` (add/list/remove) — link another project's context tree as a read-only knowledge source with write isolation
+- `brv search <query>` — pure BM25 retrieval over the context tree (minisearch, no LLM, no token cost); structured results with paths/scores. Pairs with `brv query` (LLM-synthesized answer). Engine: `server/infra/executor/search-executor.ts`
 - Canonical project resolver: `resolveProject()` in `server/infra/project/` — priority `flag > direct > linked > walked-up > null`. `projectRoot` and `worktreeRoot` are threaded through transport schemas, task routing, and all executors
 - All commands are daemon-routed: `oclif/` and `tui/` never import from `server/`
 - Oclif: `src/oclif/commands/{vc,worktree,source}/`; TUI: `src/tui/features/{vc,worktree,source}/`; slash commands (`vc-*`, `worktree`, `source`) in `src/tui/features/commands/definitions/`

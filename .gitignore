@@ -29,3 +29,6 @@ agent-tmp
 .env.development
 .env.production
 !.env.example
+
+# ByteRover's skill for Claude Code
+.claude/skills/byterover

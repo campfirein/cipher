@@ -163,7 +163,7 @@ export interface StatusDTO {
   contextTreeDir?: string
   /** Relative path to the context tree directory from project root (e.g., '.brv/context-tree') */
   contextTreeRelativeDir?: string
-  contextTreeStatus: 'git_vc' | 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
+  contextTreeStatus: 'git_vc' | 'has_changes' | 'no_changes' | 'no_vc' | 'not_initialized' | 'unknown'
   /** @deprecated Use projectRoot instead. Kept for backward compatibility. */
   currentDirectory: string
   /** Number of files with pending HITL review (0 if none or unavailable). */

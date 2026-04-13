@@ -94,6 +94,11 @@ export function formatStatus(status: StatusDTO, version?: string): string {
       break
     }
 
+    case 'no_vc': {
+      lines.push('Context Tree: Managed by Byterover version control (use /vc commands)')
+      break
+    }
+
     case 'not_initialized': {
       lines.push('Context Tree: Not initialized')
       break
@@ -111,6 +116,8 @@ export function formatStatus(status: StatusDTO, version?: string): string {
         (status.reviewUrl ? `\n  Review: ${chalk.blue(status.reviewUrl)}` : ''),
     )
   }
+
+  lines.push('', 'Tip: Version control is now available for your context tree.', 'Learn more: https://docs.byterover.dev/git-semantic/overview')
 
   return lines.join('\n')
 }
