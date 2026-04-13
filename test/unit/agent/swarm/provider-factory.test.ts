@@ -16,6 +16,7 @@ function createMinimalConfig(overrides?: Partial<SwarmConfig>): SwarmConfig {
       indexCacheTtlSeconds: 300,
       maxConcurrentProviders: 4,
       maxQueryLatencyMs: 2000,
+      resultCacheTtlMs: 10_000,
     },
     provenance: {enabled: true, fullRetentionDays: 30, keepSummaries: true, storagePath: 'swarm/provenance'},
     providers: {byterover: {enabled: true}},
