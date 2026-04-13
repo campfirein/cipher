@@ -252,7 +252,7 @@ describe('LocationsHandler', () => {
       expect(result.locations[0].projectPath).to.equal(existingPath)
     })
 
-    it('should treat pathExists errors as deleted and exclude them', async () => {
+    it('should exclude paths where pathExists throws but NOT unregister them', async () => {
       const errorPath = '/project/error'
 
       const registry = new Map([[errorPath, makeProjectInfo(errorPath, 1000)]])
@@ -263,6 +263,7 @@ describe('LocationsHandler', () => {
       const result = await callGetHandler()
 
       expect(result.locations).to.have.lengthOf(0)
+      expect(deps.projectRegistry.unregister.called).to.be.false
     })
 
     it('should unregister deleted paths from the registry', async () => {

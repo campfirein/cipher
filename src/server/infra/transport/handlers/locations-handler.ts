@@ -64,7 +64,8 @@ export class LocationsHandler {
             return null
           }
         } catch {
-          this.projectRegistry.unregister(path)
+          // pathExists threw unexpectedly — skip this entry but do NOT unregister,
+          // since the path may still exist (e.g. a transient permission error).
           return null
         }
 
