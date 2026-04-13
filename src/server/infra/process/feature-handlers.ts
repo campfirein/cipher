@@ -80,6 +80,7 @@ export interface FeatureHandlersOptions {
   providerOAuthTokenStore: IProviderOAuthTokenStore
   resolveProjectPath: ProjectPathResolver
   transport: ITransportServer
+  webuiPort?: number
 }
 
 /**
@@ -97,6 +98,7 @@ export async function setupFeatureHandlers({
   providerOAuthTokenStore,
   resolveProjectPath,
   transport,
+  webuiPort,
 }: FeatureHandlersOptions): Promise<void> {
   const envConfig = getCurrentConfig()
   const tokenStore = createTokenStore()
@@ -166,6 +168,7 @@ export async function setupFeatureHandlers({
     resolveProjectPath,
     tokenStore,
     transport,
+    webuiPort,
   }).setup()
 
   new LocationsHandler({
@@ -189,6 +192,7 @@ export async function setupFeatureHandlers({
     tokenStore,
     transport,
     webAppUrl: envConfig.webAppUrl,
+    webuiPort,
   }).setup()
 
   new PullHandler({

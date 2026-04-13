@@ -1,32 +1,49 @@
-import {discoverDaemon, ensureDaemonRunning} from '@campfirein/brv-transport-client'
-import {Command} from '@oclif/core'
+import {Command, Flags} from '@oclif/core'
 import open from 'open'
 
-import {resolveLocalServerMainPath} from '../../server/utils/server-main-resolver.js'
+import {formatConnectionError, withDaemonRetry} from '../lib/daemon-client.js'
 
 export default class Webui extends Command {
   public static description = 'Open the web UI in the browser'
-  public static examples = ['<%= config.bin %> <%= command.id %>']
+  public static examples = ['<%= config.bin %> <%= command.id %>', '<%= config.bin %> <%= command.id %> --port 8080']
+  public static flags = {
+    port: Flags.integer({
+      char: 'p',
+      description: 'Set the web UI port (remembered for future use)',
+    }),
+  }
 
   public async run(): Promise<void> {
-    const daemonResult = await ensureDaemonRunning({
-      serverPath: resolveLocalServerMainPath(),
-      version: this.config.version,
-    })
+    const {flags} = await this.parse(Webui)
 
-    if (!daemonResult.success) {
-      const detail = daemonResult.spawnError ? `: ${daemonResult.spawnError}` : ''
-      this.error(
-        `Failed to start daemon${detail}\n\nRun 'brv restart' to force a clean restart.`,
-      )
+    let webuiPort: number
+
+    try {
+      // If --port is provided, tell the daemon to switch to that port and persist it
+      if (flags.port) {
+        const result = await withDaemonRetry(
+          async (client) =>
+            client.requestWithAck<{port: number; success: boolean}>('webui:setPort', {port: flags.port}),
+          {projectPath: process.cwd()},
+        )
+        webuiPort = result.port
+      } else {
+        const result = await withDaemonRetry(
+          async (client) => client.requestWithAck<{port?: number}>('webui:getPort'),
+          {projectPath: process.cwd()},
+        )
+
+        if (!result.port) {
+          this.error('Failed to get web UI port. Use `brv restart` to restart the daemon and try again')
+        }
+
+        webuiPort = result.port
+      }
+    } catch (error) {
+      this.error(formatConnectionError(error))
     }
 
-    const status = discoverDaemon()
-    if (!status.running) {
-      this.error('Daemon is not running. Run "brv restart" to start it.')
-    }
-
-    const url = `http://localhost:${status.port}/ui`
+    const url = `http://localhost:${webuiPort}`
     this.log(`ByteRover Web UI: ${url}`)
 
     await open(url).catch(() => {

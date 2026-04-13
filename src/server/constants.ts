@@ -58,6 +58,9 @@ export const DYNAMIC_PORT_MIN = 49_152
 export const DYNAMIC_PORT_MAX = 65_535
 export const PORT_BATCH_SIZE = 20
 export const PORT_MAX_ATTEMPTS = 5
+// Web UI (stable port, separate from dynamic transport port)
+export const WEBUI_DEFAULT_PORT = 7700
+export const WEBUI_STATE_FILE = 'webui.json'
 // Heartbeat
 export const HEARTBEAT_FILE = 'heartbeat'
 export const HEARTBEAT_INTERVAL_MS = 5000 // Write every 5s

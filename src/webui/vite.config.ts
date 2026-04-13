@@ -1,5 +1,3 @@
-import type {ProxyOptions} from 'vite'
-
 import {discoverDaemon} from '@campfirein/brv-transport-client'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
@@ -7,6 +5,7 @@ import {existsSync, readFileSync, realpathSync} from 'node:fs'
 import {dirname, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {defineConfig} from 'vite'
+import {VitePWA} from 'vite-plugin-pwa'
 
 const currentDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(currentDir, '../..')
@@ -74,17 +73,12 @@ function resolveSharedUiSource(mode: SharedUiSourceMode): {
 
 export default defineConfig(({command, mode}) => {
   const sharedUiSource = resolveSharedUiSource(normalizeSharedUiSourceMode(process.env.BRV_UI_SOURCE ?? mode))
-  let proxy: Record<string, ProxyOptions | string> | undefined
 
   if (command === 'serve') {
     try {
       const status = discoverDaemon()
       if (status.running) {
-        const target = `http://localhost:${status.port}`
-        proxy = {
-          '/socket.io': {target, ws: true},
-        }
-        console.log(`\n  Daemon found on port ${status.port} — proxying /socket.io to ${target}\n`)
+        console.log(`\n  Daemon found on port ${status.port}\n`)
       } else {
         console.log('\n  Daemon is not running. Make daemon alive before continue.\n')
       }
@@ -96,7 +90,7 @@ export default defineConfig(({command, mode}) => {
   }
 
   return {
-    base: '/ui',
+    base: '/',
     build: {
       emptyOutDir: true,
       outDir: '../../dist/webui',
@@ -110,6 +104,25 @@ export default defineConfig(({command, mode}) => {
     plugins: [
       react(),
       tailwindcss(),
+      // eslint-disable-next-line new-cap
+      VitePWA({
+        manifest: {
+          description: 'ByteRover local development environment',
+          display: 'standalone',
+          name: 'ByteRover',
+          // eslint-disable-next-line camelcase
+          short_name: 'ByteRover',
+          // eslint-disable-next-line camelcase
+          start_url: '/',
+          // eslint-disable-next-line camelcase
+          theme_color: '#0a0a0a',
+        },
+        registerType: 'autoUpdate',
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          navigateFallback: '/index.html',
+        },
+      }),
       {
         configureServer(server) {
           server.middlewares.use('/api/ui/config', (_req, res) => {
@@ -126,7 +139,7 @@ export default defineConfig(({command, mode}) => {
             res.setHeader('Content-Type', 'application/json')
             res.end(
               JSON.stringify({
-                port: status.port,
+                daemonPort: status.port,
                 projectCwd: repoRoot,
                 version: cliVersion,
               }),
@@ -148,7 +161,6 @@ export default defineConfig(({command, mode}) => {
       },
     },
     server: {
-      ...(proxy ? {proxy} : {}),
       fs: {
         allow: [repoRoot],
       },

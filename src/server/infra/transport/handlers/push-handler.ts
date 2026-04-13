@@ -49,6 +49,7 @@ export interface PushHandlerDeps {
   tokenStore: ITokenStore
   transport: ITransportServer
   webAppUrl: string
+  webuiPort?: number
 }
 
 /**
@@ -68,6 +69,7 @@ export class PushHandler {
   private readonly tokenStore: ITokenStore
   private readonly transport: ITransportServer
   private readonly webAppUrl: string
+  private readonly webuiPort?: number
 
   constructor(deps: PushHandlerDeps) {
     this.broadcastToProject = deps.broadcastToProject
@@ -82,6 +84,7 @@ export class PushHandler {
     this.tokenStore = deps.tokenStore
     this.transport = deps.transport
     this.webAppUrl = deps.webAppUrl
+    this.webuiPort = deps.webuiPort
   }
 
   setup(): void {
@@ -280,10 +283,10 @@ export class PushHandler {
 
     let reviewUrl: string | undefined
     if (pendingReviewCount > 0) {
-      const port = this.transport.getPort()
-      if (port) {
+      const reviewPort = this.webuiPort ?? this.transport.getPort()
+      if (reviewPort) {
         const encoded = Buffer.from(projectPath).toString('base64url')
-        reviewUrl = `http://127.0.0.1:${port}/review?project=${encoded}`
+        reviewUrl = `http://127.0.0.1:${reviewPort}/review?project=${encoded}`
       }
     }
 
