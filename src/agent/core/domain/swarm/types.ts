@@ -126,7 +126,6 @@ export type QueryResult = {
   score: number
 }
 
-
 /**
  * Result from storing a memory entry.
  */

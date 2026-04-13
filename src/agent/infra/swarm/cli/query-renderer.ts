@@ -108,10 +108,10 @@ export function formatQueryResultsExplain(result: SwarmQueryResult, query: strin
   if (enriched.length > 0) {
     lines.push('Enrichment:')
     for (const [id, meta] of enriched) {
-      const keywords = meta.enrichmentKeywords?.length
-        ? ` (keywords: ${meta.enrichmentKeywords.map((k) => `"${k.slice(0, 30)}"`).join(', ')})`
+      const excerpts = meta.enrichmentExcerpts?.length
+        ? ` (context: ${meta.enrichmentExcerpts.map((k) => `"${k.slice(0, 30)}"`).join(', ')})`
         : ''
-      lines.push(`  ${meta.enrichedBy} → ${id}${keywords}`)
+      lines.push(`  ${meta.enrichedBy} → ${id}${excerpts}`)
     }
   }
 

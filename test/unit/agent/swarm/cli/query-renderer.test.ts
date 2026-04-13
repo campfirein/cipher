@@ -170,7 +170,7 @@ describe('QueryRenderer', () => {
           costCents: 0,
           providers: {
             byterover: {latencyMs: 10, resultCount: 1, selected: true},
-            obsidian: {enrichedBy: 'byterover', enrichmentKeywords: ['JWT', 'token', 'refresh'], latencyMs: 80, resultCount: 2, selected: true},
+            obsidian: {enrichedBy: 'byterover', enrichmentExcerpts: ['JWT', 'token', 'refresh'], latencyMs: 80, resultCount: 2, selected: true},
           },
           queryType: 'factual',
           totalLatencyMs: 100,
