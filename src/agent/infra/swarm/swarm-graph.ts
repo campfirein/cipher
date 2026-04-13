@@ -133,7 +133,7 @@ export class SwarmGraph {
             ) : undefined
             providerMeta[id] = {
               enrichedBy: predIds && predIds.length > 0 ? predIds.join(',') : undefined,
-              enrichmentKeywords: enrichment?.keywords?.slice(0, 10),
+              enrichmentKeywords: enrichment?.keywords?.slice(0, 10).map((k) => k.split(/\s+/).slice(0, 5).join(' ')),
               latencyMs: outcome.latencyMs,
               resultCount: outcome.results.length,
               selected: true,

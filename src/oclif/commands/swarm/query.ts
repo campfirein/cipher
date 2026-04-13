@@ -19,7 +19,7 @@ public static description = 'Query the memory swarm across all active providers'
   ]
   public static flags = {
     explain: Flags.boolean({
-      description: 'Show classification, routing, and enrichment details',
+      description: 'Show classification, routing, and enrichment details (ignored with --format json, which always includes all metadata)',
     }),
     format: Flags.string({
       char: 'f',

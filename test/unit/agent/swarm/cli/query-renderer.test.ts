@@ -2,8 +2,7 @@ import {expect} from 'chai'
 
 import type {SwarmQueryResult} from '../../../../../src/agent/core/interfaces/i-swarm-coordinator.js'
 
-import {providerTypeToLabel} from '../../../../../src/agent/core/domain/swarm/types.js'
-import {formatQueryResults, formatQueryResultsExplain, formatQueryResultsJson} from '../../../../../src/agent/infra/swarm/cli/query-renderer.js'
+import {formatQueryResults, formatQueryResultsExplain, formatQueryResultsJson, providerTypeToLabel} from '../../../../../src/agent/infra/swarm/cli/query-renderer.js'
 
 function makeSwarmResult(overrides?: Partial<SwarmQueryResult>): SwarmQueryResult {
   return {

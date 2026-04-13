@@ -3,7 +3,29 @@ import chalk from 'chalk'
 import type {ProviderType} from '../../../core/domain/swarm/types.js'
 import type {SwarmQueryResult} from '../../../core/interfaces/i-swarm-coordinator.js'
 
-import {providerTypeToLabel} from '../../../core/domain/swarm/types.js'
+export function providerTypeToLabel(type: ProviderType, id: string): string {
+  switch (type) {
+    case 'byterover': { return 'context-tree'
+    }
+
+    case 'gbrain': { return 'gbrain'
+    }
+
+    case 'hindsight': { return 'hindsight'
+    }
+
+    case 'honcho': { return 'honcho'
+    }
+
+    case 'local-markdown': {
+      const name = id.split(':')[1] ?? 'files'
+      return `notes:${name}`
+    }
+
+    case 'obsidian': { return 'obsidian'
+    }
+  }
+}
 
 const LABEL_COLORS: Record<ProviderType, (s: string) => string> = {
   byterover: chalk.cyan,
@@ -16,7 +38,7 @@ const LABEL_COLORS: Record<ProviderType, (s: string) => string> = {
 
 function colorLabel(providerType: ProviderType, provider: string): string {
   const label = providerTypeToLabel(providerType, provider)
-  const colorFn = LABEL_COLORS[providerType] ?? chalk.dim
+  const colorFn = LABEL_COLORS[providerType]
   return colorFn(`[${label}]`)
 }
 
@@ -39,7 +61,7 @@ export function formatQueryResults(result: SwarmQueryResult, query: string): str
   }
 
   for (const [i, r] of result.results.entries()) {
-    const scoreStr = chalk.green(r.score.toFixed(2))
+    const scoreStr = chalk.green(r.score.toFixed(4))
     const sourceStr = chalk.dim(r.metadata.source)
     const matchStr = chalk.dim(`[${r.metadata.matchType}]`)
     const label = r.providerType ? colorLabel(r.providerType, r.provider) : ''
@@ -110,7 +132,7 @@ export function formatQueryResultsExplain(result: SwarmQueryResult, query: strin
     const matchStr = chalk.dim(`[${r.metadata.matchType}]`)
     const label = r.providerType ? colorLabel(r.providerType, r.provider) : ''
 
-    const content = r.content.length > 200 ? `${r.content.slice(0, 200)}…` : r.content
+    const content = r.content.length > 2000 ? `${r.content.slice(0, 2000)}…` : r.content
     lines.push(
       `${chalk.bold(`${i + 1}.`)} ${label} ${sourceStr}    score: ${scoreStr}  ${matchStr}`,
       `   ${content}`,
