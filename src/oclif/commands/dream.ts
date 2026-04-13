@@ -2,8 +2,15 @@ import type {ITransportClient, TaskAck} from '@campfirein/brv-transport-client'
 
 import {Command, Flags} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
+import {join} from 'node:path'
 
+import {BRV_DIR, CONTEXT_TREE_DIR} from '../../server/constants.js'
 import {type ProviderConfigResponse, TransportStateEventNames} from '../../server/core/domain/transport/schemas.js'
+import {FileContextTreeManifestService} from '../../server/infra/context-tree/file-context-tree-manifest-service.js'
+import {DreamLogStore} from '../../server/infra/dream/dream-log-store.js'
+import {DreamStateService} from '../../server/infra/dream/dream-state-service.js'
+import {undoLastDream} from '../../server/infra/dream/dream-undo.js'
+import {resolveProject} from '../../server/infra/project/resolve-project.js'
 import {TaskEvents} from '../../shared/transport/events/index.js'
 import {
   type DaemonClientOptions,
@@ -25,6 +32,9 @@ export default class Dream extends Command {
     '# Force dream (skip time/activity/queue gates, lock still checked)',
     '<%= config.bin %> <%= command.id %> --force',
     '',
+    '# Revert the last dream',
+    '<%= config.bin %> <%= command.id %> --undo',
+    '',
     '# JSON output',
     '<%= config.bin %> <%= command.id %> --format json',
   ]
@@ -45,6 +55,10 @@ export default class Dream extends Command {
       max: MAX_TIMEOUT_SECONDS,
       min: MIN_TIMEOUT_SECONDS,
     }),
+    undo: Flags.boolean({
+      default: false,
+      description: 'Revert the last dream',
+    }),
   }
 
   protected getDaemonClientOptions(): DaemonClientOptions {
@@ -54,6 +68,11 @@ export default class Dream extends Command {
   public async run(): Promise<void> {
     const {flags: rawFlags} = await this.parse(Dream)
     const format = rawFlags.format === 'json' ? 'json' : 'text'
+
+    if (rawFlags.undo) {
+      await this.runUndo(format)
+      return
+    }
 
     let providerContext: ProviderErrorContext | undefined
 
@@ -110,6 +129,43 @@ export default class Dream extends Command {
     if (hasLeakedHandles(error)) {
       // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
       process.exit(1)
+    }
+  }
+
+  private async runUndo(format: 'json' | 'text'): Promise<void> {
+    const projectRoot = resolveProject()?.projectRoot ?? process.cwd()
+    const brvDir = join(projectRoot, BRV_DIR)
+    const contextTreeDir = join(brvDir, CONTEXT_TREE_DIR)
+
+    try {
+      const result = await undoLastDream({
+        contextTreeDir,
+        dreamLogStore: new DreamLogStore({baseDir: brvDir}),
+        dreamStateService: new DreamStateService({baseDir: brvDir}),
+        manifestService: new FileContextTreeManifestService({baseDirectory: projectRoot}),
+      })
+
+      if (format === 'json') {
+        writeJsonResponse({command: 'dream', data: {...result, status: 'undone'}, success: true})
+      } else {
+        this.log(`Undone dream ${result.dreamId}`)
+        this.log(`  Restored: ${result.restoredFiles.length} files`)
+        this.log(`  Deleted: ${result.deletedFiles.length} files`)
+        this.log(`  Restored archives: ${result.restoredArchives.length} files`)
+        if (result.errors.length > 0) {
+          this.log(`  Errors: ${result.errors.length}`)
+          for (const e of result.errors) {
+            this.log(`    - ${e}`)
+          }
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Undo failed'
+      if (format === 'json') {
+        writeJsonResponse({command: 'dream', data: {error: message, status: 'error'}, success: false})
+      } else {
+        this.log(`Undo failed: ${message}`)
+      }
     }
   }
 
