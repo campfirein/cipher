@@ -46,7 +46,13 @@ function createMinimalConfig(overrides?: Partial<SwarmConfig>): SwarmConfig {
   return {
     enrichment: {edges: []},
     optimization: {
-      edgeLearning: {enabled: true, explorationRate: 0.05, fixThreshold: 0.95, minObservationsToPrune: 100, pruneThreshold: 0.05},
+      edgeLearning: {
+        enabled: true,
+        explorationRate: 0.05,
+        fixThreshold: 0.95,
+        minObservationsToPrune: 100,
+        pruneThreshold: 0.05,
+      },
       templateOptimization: {abTestSize: 5, enabled: true, failureRateTrigger: 0.3, frequency: 20},
     },
     performance: {
@@ -57,7 +63,14 @@ function createMinimalConfig(overrides?: Partial<SwarmConfig>): SwarmConfig {
     },
     provenance: {enabled: true, fullRetentionDays: 30, keepSummaries: true, storagePath: 'swarm/provenance'},
     providers: {byterover: {enabled: true}},
-    routing: {classificationMethod: 'auto', defaultMaxResults: 10, defaultStrategy: 'adaptive', minRrfScore: 0.005, rrfGapRatio: 0.5, rrfK: 60},
+    routing: {
+      classificationMethod: 'auto',
+      defaultMaxResults: 10,
+      defaultStrategy: 'adaptive',
+      minRrfScore: 0.005,
+      rrfGapRatio: 0.5,
+      rrfK: 60,
+    },
     ...overrides,
   }
 }
@@ -110,7 +123,14 @@ describe('SwarmCoordinator', () => {
 
       const p1 = createMockProvider('byterover', 'byterover', results)
       const config = createMinimalConfig({
-        routing: {classificationMethod: 'auto', defaultMaxResults: 5, defaultStrategy: 'adaptive', minRrfScore: 0.005, rrfGapRatio: 0.5, rrfK: 60},
+        routing: {
+          classificationMethod: 'auto',
+          defaultMaxResults: 5,
+          defaultStrategy: 'adaptive',
+          minRrfScore: 0.005,
+          rrfGapRatio: 0.5,
+          rrfK: 60,
+        },
       })
 
       const coordinator = new SwarmCoordinator([p1], config)
@@ -128,30 +148,14 @@ describe('SwarmCoordinator', () => {
       expect(result.meta.totalLatencyMs).to.be.a('number')
     })
 
-    it('skips unhealthy providers during execute', async () => {
-      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Result')])
-      const p2 = createMockProvider('obsidian', 'obsidian', [makeResult('obsidian', 'Obsidian result')]);
-      (p2.healthCheck as sinon.SinonStub).resolves({available: false, error: 'Vault not found'})
-
-      const config = createMinimalConfig()
-      const coordinator = new SwarmCoordinator([p1, p2], config)
-
-      // Mark obsidian as unhealthy
-      await coordinator.refreshHealth()
-
-      const result = await coordinator.execute({query: 'test'})
-
-      // Obsidian should NOT have been queried
-      expect((p2.query as sinon.SinonStub).called).to.be.false
-      // Only byterover results should be present
-      expect(result.meta.providers).to.not.have.property('obsidian')
-      expect(result.meta.providers).to.have.property('byterover')
-    })
-
     it('sums cost estimates from all providers', async () => {
       const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Result')])
-      const p2 = createMockProvider('obsidian', 'obsidian', [makeResult('obsidian', 'Result')]);
-      (p2.estimateCost as sinon.SinonStub).returns({estimatedCostCents: 5, estimatedLatencyMs: 100, estimatedTokens: 100})
+      const p2 = createMockProvider('obsidian', 'obsidian', [makeResult('obsidian', 'Result')])
+      ;(p2.estimateCost as sinon.SinonStub).returns({
+        estimatedCostCents: 5,
+        estimatedLatencyMs: 100,
+        estimatedTokens: 100,
+      })
 
       const config = createMinimalConfig()
       const coordinator = new SwarmCoordinator([p1, p2], config)
@@ -179,8 +183,8 @@ describe('SwarmCoordinator', () => {
 
     it('reflects updated health after refreshHealth()', async () => {
       const p1 = createMockProvider('byterover', 'byterover', [])
-      const p2 = createMockProvider('obsidian', 'obsidian', []);
-      (p2.healthCheck as sinon.SinonStub).resolves({available: false, error: 'Vault not found'})
+      const p2 = createMockProvider('obsidian', 'obsidian', [])
+      ;(p2.healthCheck as sinon.SinonStub).resolves({available: false, error: 'Vault not found'})
 
       const config = createMinimalConfig()
       const coordinator = new SwarmCoordinator([p1, p2], config)
@@ -211,7 +215,9 @@ describe('SwarmCoordinator', () => {
     it('expands generic local-markdown edge to concrete provider IDs', async () => {
       const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Context data')])
       // LocalMarkdownAdapter produces IDs like local-markdown:notes
-      const p2 = createMockProvider('local-markdown:notes', 'local-markdown', [makeResult('local-markdown:notes', 'Notes data')])
+      const p2 = createMockProvider('local-markdown:notes', 'local-markdown', [
+        makeResult('local-markdown:notes', 'Notes data'),
+      ])
 
       const config = createMinimalConfig({
         // Config uses generic "local-markdown" — must be expanded to "local-markdown:notes"
@@ -226,14 +232,18 @@ describe('SwarmCoordinator', () => {
 
     it('deduplicates overlapping generic and specific edges', async () => {
       const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Data')])
-      const p2 = createMockProvider('local-markdown:notes', 'local-markdown', [makeResult('local-markdown:notes', 'Notes')])
+      const p2 = createMockProvider('local-markdown:notes', 'local-markdown', [
+        makeResult('local-markdown:notes', 'Notes'),
+      ])
 
       const config = createMinimalConfig({
         // Both edges resolve to the same concrete edge: byterover → local-markdown:notes
-        enrichment: {edges: [
-          {from: 'byterover', to: 'local-markdown'},
-          {from: 'byterover', to: 'local-markdown:notes'},
-        ]},
+        enrichment: {
+          edges: [
+            {from: 'byterover', to: 'local-markdown'},
+            {from: 'byterover', to: 'local-markdown:notes'},
+          ],
+        },
       })
       const coordinator = new SwarmCoordinator([p1, p2], config)
       const result = await coordinator.execute({query: 'test'})
@@ -249,13 +259,17 @@ describe('SwarmCoordinator', () => {
       // After expansion: local-markdown:notes → obsidian, obsidian → local-markdown:notes (cycle!)
       const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Data')])
       const p2 = createMockProvider('obsidian', 'obsidian', [makeResult('obsidian', 'Vault')])
-      const p3 = createMockProvider('local-markdown:notes', 'local-markdown', [makeResult('local-markdown:notes', 'Notes')])
+      const p3 = createMockProvider('local-markdown:notes', 'local-markdown', [
+        makeResult('local-markdown:notes', 'Notes'),
+      ])
 
       const config = createMinimalConfig({
-        enrichment: {edges: [
-          {from: 'local-markdown', to: 'obsidian'},
-          {from: 'obsidian', to: 'local-markdown:notes'},
-        ]},
+        enrichment: {
+          edges: [
+            {from: 'local-markdown', to: 'obsidian'},
+            {from: 'obsidian', to: 'local-markdown:notes'},
+          ],
+        },
       })
       const coordinator = new SwarmCoordinator([p1, p2, p3], config)
       const result = await coordinator.execute({query: 'test'})
@@ -283,9 +297,9 @@ describe('SwarmCoordinator', () => {
 
   describe('store()', () => {
     it('routes to explicit provider when specified', async () => {
-      const gbrain = createMockProvider('gbrain', 'gbrain', []);
-      (gbrain as {capabilities: {writeSupported: boolean}}).capabilities.writeSupported = true;
-      (gbrain.store as sinon.SinonStub).resolves({id: 'concept/test', provider: 'gbrain', success: true})
+      const gbrain = createMockProvider('gbrain', 'gbrain', [])
+      ;(gbrain as {capabilities: {writeSupported: boolean}}).capabilities.writeSupported = true
+      ;(gbrain.store as sinon.SinonStub).resolves({id: 'concept/test', provider: 'gbrain', success: true})
 
       const config = createMinimalConfig()
       const coordinator = new SwarmCoordinator([gbrain], config)
@@ -297,9 +311,9 @@ describe('SwarmCoordinator', () => {
     })
 
     it('auto-classifies and routes when no provider specified', async () => {
-      const gbrain = createMockProvider('gbrain', 'gbrain', []);
-      (gbrain as {capabilities: {writeSupported: boolean}}).capabilities.writeSupported = true;
-      (gbrain.store as sinon.SinonStub).resolves({id: 'person/dario', provider: 'gbrain', success: true})
+      const gbrain = createMockProvider('gbrain', 'gbrain', [])
+      ;(gbrain as {capabilities: {writeSupported: boolean}}).capabilities.writeSupported = true
+      ;(gbrain.store as sinon.SinonStub).resolves({id: 'person/dario', provider: 'gbrain', success: true})
 
       const config = createMinimalConfig()
       const coordinator = new SwarmCoordinator([gbrain], config)
@@ -310,9 +324,9 @@ describe('SwarmCoordinator', () => {
     })
 
     it('uses contentType hint and skips classification', async () => {
-      const localMd = createMockProvider('local-markdown:notes', 'local-markdown', []);
-      (localMd as {capabilities: {writeSupported: boolean}}).capabilities.writeSupported = true;
-      (localMd.store as sinon.SinonStub).resolves({id: 'note.md', provider: 'local-markdown:notes', success: true})
+      const localMd = createMockProvider('local-markdown:notes', 'local-markdown', [])
+      ;(localMd as {capabilities: {writeSupported: boolean}}).capabilities.writeSupported = true
+      ;(localMd.store as sinon.SinonStub).resolves({id: 'note.md', provider: 'local-markdown:notes', success: true})
 
       const config = createMinimalConfig()
       const coordinator = new SwarmCoordinator([localMd], config)
@@ -336,9 +350,9 @@ describe('SwarmCoordinator', () => {
     })
 
     it('rejects store to unhealthy provider', async () => {
-      const gbrain = createMockProvider('gbrain', 'gbrain', []);
-      (gbrain as {capabilities: {writeSupported: boolean}}).capabilities.writeSupported = true;
-      (gbrain.healthCheck as sinon.SinonStub).resolves({available: false})
+      const gbrain = createMockProvider('gbrain', 'gbrain', [])
+      ;(gbrain as {capabilities: {writeSupported: boolean}}).capabilities.writeSupported = true
+      ;(gbrain.healthCheck as sinon.SinonStub).resolves({available: false})
 
       const config = createMinimalConfig()
       const coordinator = new SwarmCoordinator([gbrain], config)

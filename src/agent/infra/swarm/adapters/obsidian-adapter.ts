@@ -13,7 +13,7 @@ import type {
 } from '../../../core/domain/swarm/types.js'
 import type {IMemoryProvider} from '../../../core/interfaces/i-memory-provider.js'
 
-import {applyGapRatio, POST_EXPANSION_GAP_RATIO, searchWithPrecision} from '../search-precision.js'
+import {ADAPTER_CONTENT_LIMIT, applyGapRatio, POST_EXPANSION_GAP_RATIO, searchWithPrecision} from '../search-precision.js'
 
 /** Wikilink decay factor for graph-expanded results */
 const WIKILINK_DECAY = 0.7
@@ -208,7 +208,7 @@ export class ObsidianAdapter implements IMemoryProvider {
       .slice(0, maxResults)
 
     return sorted.map((entry, index) => ({
-      content: entry.doc.content.slice(0, 5000),
+      content: entry.doc.content.slice(0, ADAPTER_CONTENT_LIMIT),
       id: `obsidian-${index}`,
       metadata: {
         matchType: entry.matchType,

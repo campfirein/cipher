@@ -3,6 +3,8 @@ import chalk from 'chalk'
 import type {ProviderType} from '../../../core/domain/swarm/types.js'
 import type {SwarmQueryResult} from '../../../core/interfaces/i-swarm-coordinator.js'
 
+const DISPLAY_CONTENT_LIMIT = 2000
+
 export function providerTypeToLabel(type: ProviderType, id: string): string {
   switch (type) {
     case 'byterover': { return 'context-tree'
@@ -66,7 +68,7 @@ export function formatQueryResults(result: SwarmQueryResult, query: string): str
     const matchStr = chalk.dim(`[${r.metadata.matchType}]`)
     const label = r.providerType ? colorLabel(r.providerType, r.provider) : ''
 
-    const content = r.content.length > 2000 ? `${r.content.slice(0, 2000)}…` : r.content
+    const content = r.content.length > DISPLAY_CONTENT_LIMIT ? `${r.content.slice(0, DISPLAY_CONTENT_LIMIT)}…` : r.content
     lines.push(
       `${chalk.bold(`${i + 1}.`)} ${label} ${sourceStr}    score: ${scoreStr}  ${matchStr}`,
       `   ${content}`,
@@ -132,7 +134,7 @@ export function formatQueryResultsExplain(result: SwarmQueryResult, query: strin
     const matchStr = chalk.dim(`[${r.metadata.matchType}]`)
     const label = r.providerType ? colorLabel(r.providerType, r.provider) : ''
 
-    const content = r.content.length > 2000 ? `${r.content.slice(0, 2000)}…` : r.content
+    const content = r.content.length > DISPLAY_CONTENT_LIMIT ? `${r.content.slice(0, DISPLAY_CONTENT_LIMIT)}…` : r.content
     lines.push(
       `${chalk.bold(`${i + 1}.`)} ${label} ${sourceStr}    score: ${scoreStr}  ${matchStr}`,
       `   ${content}`,
