@@ -40,14 +40,14 @@ export function selectWriteTarget(
   writeType: WriteType,
   providers: IMemoryProvider[],
   healthCache: Map<string, boolean>
-): IMemoryProvider {
+): IMemoryProvider | null {
   // Filter to writable + healthy
   const candidates = providers.filter(
     (p) => p.capabilities.writeSupported && healthCache.get(p.id) !== false
   )
 
   if (candidates.length === 0) {
-    throw new Error('No writable providers configured')
+    return null
   }
 
   // Type-specific preference

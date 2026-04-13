@@ -1,4 +1,5 @@
 import type {QueryRequest} from '../../core/domain/swarm/types.js'
+import type {ICurateService} from '../../core/interfaces/i-curate-service.js'
 import type {IMemoryProvider} from '../../core/interfaces/i-memory-provider.js'
 import type {
   ISwarmCoordinator,
@@ -153,14 +154,16 @@ function resolveEndpoint(endpoint: string, providerIds: string[]): string[] {
  */
 export class SwarmCoordinator implements ISwarmCoordinator {
   private readonly config: SwarmConfig
+  private readonly curateService?: ICurateService
   private readonly graph: SwarmGraph
   private healthCache: Map<string, boolean> = new Map()
   private readonly providers: IMemoryProvider[]
   private totalQueries = 0
 
-  constructor(providers: IMemoryProvider[], config: SwarmConfig) {
+  constructor(providers: IMemoryProvider[], config: SwarmConfig, curateService?: ICurateService) {
     this.providers = providers
     this.config = config
+    this.curateService = curateService
     this.graph = new SwarmGraph(providers, {
       timeoutMs: config.performance.maxQueryLatencyMs,
     })
@@ -349,7 +352,13 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     } else {
       // Auto-route: classify content type, then select target
       const writeType = request.contentType ?? classifyWrite(request.content)
-      target = selectWriteTarget(writeType, this.providers, this.healthCache)
+      const selected = selectWriteTarget(writeType, this.providers, this.healthCache)
+
+      if (!selected) {
+        return this.fallbackToByterover(request, start)
+      }
+
+      target = selected
     }
 
     try {
@@ -373,6 +382,52 @@ export class SwarmCoordinator implements ISwarmCoordinator {
         id: '',
         latencyMs: Date.now() - start,
         provider: target.id,
+        success: false,
+      }
+    }
+  }
+
+  private async fallbackToByterover(
+    request: SwarmStoreRequest,
+    start: number,
+  ): Promise<SwarmStoreResult> {
+    if (!this.curateService) {
+      return {
+        error: 'No writable providers available and curate service not configured. Use `brv curate` to write directly to the context tree.',
+        fallback: false,
+        id: '',
+        latencyMs: Date.now() - start,
+        provider: '',
+        success: false,
+      }
+    }
+
+    try {
+      const result = await this.curateService.curate([{
+        confidence: 'high',
+        content: {snippets: [request.content]},
+        impact: 'low',
+        path: 'swarm_fallback/knowledge',
+        reason: 'Swarm write fallback — no external writable providers available',
+        title: request.content.slice(0, 60).replaceAll(/[^\w\s-]/g, '').trim() || 'untitled',
+        type: 'ADD',
+      }])
+
+      const firstApplied = result.applied[0]
+      return {
+        fallback: true,
+        id: firstApplied?.path ?? 'context-tree',
+        latencyMs: Date.now() - start,
+        provider: 'byterover',
+        success: firstApplied?.status === 'success',
+      }
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : String(error),
+        fallback: true,
+        id: '',
+        latencyMs: Date.now() - start,
+        provider: 'byterover',
         success: false,
       }
     }

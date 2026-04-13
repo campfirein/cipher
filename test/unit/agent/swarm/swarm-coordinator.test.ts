@@ -383,18 +383,80 @@ describe('SwarmCoordinator', () => {
       expect(result.error).to.include('is not healthy')
     })
 
-    it('returns error when no writable provider available', async () => {
+    it('returns error when no writable provider and no curateService', async () => {
       const obsidian = createMockProvider('obsidian', 'obsidian', [])
 
       const config = createMinimalConfig()
       const coordinator = new SwarmCoordinator([obsidian], config)
 
-      try {
-        await coordinator.store({content: 'test'})
-        expect.fail('should have thrown')
-      } catch (error) {
-        expect((error as Error).message).to.include('No writable providers')
+      const result = await coordinator.store({content: 'test'})
+      expect(result.success).to.be.false
+      expect(result.error).to.include('curate service not configured')
+    })
+
+    it('falls back to curateService when no writable providers', async () => {
+      const obsidian = createMockProvider('obsidian', 'obsidian', [])
+      const mockCurate = {
+        curate: sinon.stub().resolves({
+          applied: [{path: 'swarm-fallback/test', status: 'success', type: 'ADD'}],
+          summary: {added: 1, deleted: 0, failed: 0, merged: 0, updated: 0},
+        }),
+        detectDomains: sinon.stub(),
       }
+
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([obsidian], config, mockCurate)
+
+      const result = await coordinator.store({content: 'test content'})
+      expect(result.success).to.be.true
+      expect(result.fallback).to.be.true
+      expect(result.provider).to.equal('byterover')
+      expect(mockCurate.curate.calledOnce).to.be.true
+    })
+
+    it('fallback returns failure when curateService throws', async () => {
+      const obsidian = createMockProvider('obsidian', 'obsidian', [])
+      const mockCurate = {
+        curate: sinon.stub().rejects(new Error('Curate pipeline failed')),
+        detectDomains: sinon.stub(),
+      }
+
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([obsidian], config, mockCurate)
+
+      const result = await coordinator.store({content: 'test'})
+      expect(result.success).to.be.false
+      expect(result.fallback).to.be.true
+      expect(result.error).to.include('Curate pipeline failed')
+    })
+
+    it('does not fallback for explicit --provider target', async () => {
+      const obsidian = createMockProvider('obsidian', 'obsidian', [])
+      const mockCurate = {
+        curate: sinon.stub().resolves({applied: [], summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0}}),
+        detectDomains: sinon.stub(),
+      }
+
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([obsidian], config, mockCurate)
+
+      const result = await coordinator.store({content: 'test', provider: 'obsidian'})
+      expect(result.success).to.be.false
+      expect(result.fallback).to.be.undefined
+      expect(mockCurate.curate.called).to.be.false
+    })
+
+    it('normal write does not set fallback flag', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [])
+      p1.capabilities.writeSupported = true;
+      (p1.store as sinon.SinonStub).resolves({id: 'note-1', provider: 'byterover', success: true})
+
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([p1], config)
+
+      const result = await coordinator.store({content: 'test'})
+      expect(result.success).to.be.true
+      expect(result.fallback).to.be.undefined
     })
   })
 

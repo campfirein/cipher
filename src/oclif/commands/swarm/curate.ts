@@ -1,6 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
 
 import {FileSystemService} from '../../../agent/infra/file-system/file-system-service.js'
+import {CurateService} from '../../../agent/infra/sandbox/curate-service.js'
 import {loadSwarmConfig} from '../../../agent/infra/swarm/config/swarm-config-loader.js'
 import {buildProvidersFromConfig} from '../../../agent/infra/swarm/provider-factory.js'
 import {SwarmCoordinator} from '../../../agent/infra/swarm/swarm-coordinator.js'
@@ -53,7 +54,8 @@ public static description = 'Store knowledge in a swarm provider (GBrain, local 
       })
 
       const providers = buildProvidersFromConfig(config, {searchService})
-      const coordinator = new SwarmCoordinator(providers, config)
+      const curateService = new CurateService(workingDirectory)
+      const coordinator = new SwarmCoordinator(providers, config, curateService)
       await coordinator.refreshHealth()
 
       const result = await coordinator.store({
@@ -63,6 +65,8 @@ public static description = 'Store knowledge in a swarm provider (GBrain, local 
 
       if (isJson) {
         this.log(JSON.stringify(result, undefined, 2))
+      } else if (result.success && result.fallback) {
+        this.log(`Stored to ${result.provider} (fallback — no external providers available) as ${result.id}`)
       } else if (result.success) {
         this.log(`Stored to ${result.provider} as ${result.id}`)
       } else {

@@ -62,7 +62,7 @@ describe('SwarmWriteRouter', () => {
       const health = new Map([['gbrain', true], ['local-markdown:notes', true]])
 
       const target = selectWriteTarget('entity', [gbrain, localMd], health)
-      expect(target.id).to.equal('gbrain')
+      expect(target!.id).to.equal('gbrain')
     })
 
     it('selects local-markdown for note write type', () => {
@@ -71,7 +71,7 @@ describe('SwarmWriteRouter', () => {
       const health = new Map([['gbrain', true], ['local-markdown:notes', true]])
 
       const target = selectWriteTarget('note', [gbrain, localMd], health)
-      expect(target.id).to.equal('local-markdown:notes')
+      expect(target!.id).to.equal('local-markdown:notes')
     })
 
     it('falls back to first writable provider for general', () => {
@@ -81,7 +81,7 @@ describe('SwarmWriteRouter', () => {
 
       const target = selectWriteTarget('general', [gbrain, localMd], health)
       // GBrain comes first in the provider list
-      expect(target.id).to.equal('gbrain')
+      expect(target!.id).to.equal('gbrain')
     })
 
     it('skips providers with writeSupported=false', () => {
@@ -90,7 +90,7 @@ describe('SwarmWriteRouter', () => {
       const health = new Map([['gbrain', true], ['obsidian', true]])
 
       const target = selectWriteTarget('entity', [obsidian, gbrain], health)
-      expect(target.id).to.equal('gbrain')
+      expect(target!.id).to.equal('gbrain')
     })
 
     it('skips unhealthy providers', () => {
@@ -100,21 +100,21 @@ describe('SwarmWriteRouter', () => {
 
       const target = selectWriteTarget('entity', [gbrain, localMd], health)
       // GBrain is unhealthy, falls back to local-markdown
-      expect(target.id).to.equal('local-markdown:notes')
+      expect(target!.id).to.equal('local-markdown:notes')
     })
 
-    it('throws when no writable provider available', () => {
+    it('returns null when no writable provider available', () => {
       const obsidian = createMockProvider('obsidian', 'obsidian', false)
       const health = new Map([['obsidian', true]])
 
-      expect(() => selectWriteTarget('entity', [obsidian], health)).to.throw('No writable providers configured')
+      expect(selectWriteTarget('entity', [obsidian], health)).to.be.null
     })
 
-    it('throws when all writable providers are unhealthy', () => {
+    it('returns null when all writable providers are unhealthy', () => {
       const gbrain = createMockProvider('gbrain', 'gbrain', true)
       const health = new Map([['gbrain', false]])
 
-      expect(() => selectWriteTarget('entity', [gbrain], health)).to.throw('No writable providers configured')
+      expect(selectWriteTarget('entity', [gbrain], health)).to.be.null
     })
 
     it('selects first local-markdown by config order with multiple folders', () => {
@@ -123,7 +123,7 @@ describe('SwarmWriteRouter', () => {
       const health = new Map([['local-markdown:docs', true], ['local-markdown:notes', true]])
 
       const target = selectWriteTarget('note', [md1, md2], health)
-      expect(target.id).to.equal('local-markdown:notes')
+      expect(target!.id).to.equal('local-markdown:notes')
     })
 
     it('falls back to local-markdown when GBrain is unavailable for entity', () => {
@@ -131,7 +131,7 @@ describe('SwarmWriteRouter', () => {
       const health = new Map([['local-markdown:notes', true]])
 
       const target = selectWriteTarget('entity', [localMd], health)
-      expect(target.id).to.equal('local-markdown:notes')
+      expect(target!.id).to.equal('local-markdown:notes')
     })
   })
 })
