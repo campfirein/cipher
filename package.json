@@ -38,7 +38,7 @@
     "@google/genai": "^1.29.0",
     "@inkjs/ui": "^2.0.0",
     "@inquirer/prompts": "^7.9.0",
-    "@modelcontextprotocol/sdk": "^1.25.2",
+    "@modelcontextprotocol/sdk": "1.26.0",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
     "@oclif/plugin-update": "^4.7.19",
@@ -84,10 +84,6 @@
     "zod-to-json-schema": "^3.24.6",
     "zustand": "^5.0.11"
   },
-  "bundledDependencies": [
-    "@campfirein/brv-transport-client",
-    "@campfirein/byterover-packages"
-  ],
   "devDependencies": {
     "@eslint/compat": "^1",
     "@oclif/prettier-config": "^0.2.1",
@@ -212,6 +208,7 @@
   },
   "types": "dist/index.d.ts",
   "bundleDependencies": [
-    "@campfirein/brv-transport-client"
+    "@campfirein/brv-transport-client",
+    "@campfirein/byterover-packages"
   ]
 }
