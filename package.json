@@ -84,10 +84,6 @@
     "zod-to-json-schema": "^3.24.6",
     "zustand": "^5.0.11"
   },
-  "bundledDependencies": [
-    "@campfirein/brv-transport-client",
-    "@campfirein/byterover-packages"
-  ],
   "devDependencies": {
     "@eslint/compat": "^1",
     "@oclif/prettier-config": "^0.2.1",
@@ -210,5 +206,9 @@
       "npm run lint:fix"
     ]
   },
-  "types": "dist/index.d.ts"
+  "types": "dist/index.d.ts",
+  "bundleDependencies": [
+    "@campfirein/brv-transport-client",
+    "@campfirein/byterover-packages"
+  ]
 }
