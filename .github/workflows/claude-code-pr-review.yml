@@ -30,7 +30,7 @@ jobs:
     if: >-
       ${{
         !github.event.pull_request.draft &&
-        contains(fromJSON('["MEMBER", "OWNER", "CONTRIBUTOR"]'), github.event.pull_request.author_association)
+        contains(fromJSON('["COLLABORATOR", "CONTRIBUTOR"]'), github.event.pull_request.author_association)
       }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
