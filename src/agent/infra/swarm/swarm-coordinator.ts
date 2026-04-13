@@ -227,7 +227,9 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     const graphMeta = this.graph.getLastExecutionMeta()
     const providerMeta: Record<string, ProviderQueryMeta> = {...graphMeta?.providers}
 
-    // 8. Record excluded providers (available but not selected)
+    // 8. Record excluded providers (available but not selected by the routing matrix).
+    // Note: healthCache.get() returns undefined for unchecked providers, which is
+    // intentionally treated as healthy (!== false) — providers start healthy until proven otherwise.
     const activeSet = new Set(activeIds)
     for (const p of this.providers) {
       if (!activeSet.has(p.id) && !providerMeta[p.id]) {

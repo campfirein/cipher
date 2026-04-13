@@ -139,6 +139,26 @@ describe('SwarmCoordinator', () => {
       expect(result.results.length).to.be.at.most(5)
     })
 
+    it('skips unhealthy providers during execute but tracks them as excluded', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Result')])
+      const p2 = createMockProvider('obsidian', 'obsidian', [makeResult('obsidian', 'Obsidian result')]);
+      (p2.healthCheck as sinon.SinonStub).resolves({available: false, error: 'Vault not found'})
+
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([p1, p2], config)
+
+      await coordinator.refreshHealth()
+
+      const result = await coordinator.execute({query: 'test'})
+
+      expect((p2.query as sinon.SinonStub).called).to.be.false
+      expect(result.meta.providers).to.have.property('byterover')
+      expect(result.meta.providers).to.have.property('obsidian')
+      expect(result.meta.providers.obsidian.selected).to.be.false
+      expect(result.meta.providers.obsidian.excludeReason).to.equal('unhealthy')
+      expect(result.meta.providers.obsidian.resultCount).to.equal(0)
+    })
+
     it('handles empty provider list gracefully', async () => {
       const config = createMinimalConfig()
       const coordinator = new SwarmCoordinator([], config)

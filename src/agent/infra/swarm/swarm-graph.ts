@@ -108,6 +108,7 @@ export class SwarmGraph {
 
           // Build enriched request by merging results from ALL predecessors
           let enrichedRequest = request
+          let enrichmentForMeta: ReturnType<typeof buildEnrichment> | undefined
           const predIds = predecessors.get(id)
           if (predIds && predIds.length > 0) {
             const allPredResults: QueryResult[] = []
@@ -119,21 +120,19 @@ export class SwarmGraph {
             }
 
             if (allPredResults.length > 0) {
+              enrichmentForMeta = buildEnrichment(allPredResults)
               enrichedRequest = {
                 ...request,
-                enrichment: buildEnrichment(allPredResults),
+                enrichment: enrichmentForMeta,
               }
             }
           }
 
           return queryWithTimeout(provider, enrichedRequest, this.timeoutMs).then((outcome) => {
             results.set(id, outcome.results)
-            const enrichment = predIds && predIds.length > 0 ? buildEnrichment(
-              predIds.flatMap((pid) => results.get(pid) ?? [])
-            ) : undefined
             providerMeta[id] = {
               enrichedBy: predIds && predIds.length > 0 ? predIds.join(',') : undefined,
-              enrichmentKeywords: enrichment?.keywords?.slice(0, 10).map((k) => k.split(/\s+/).slice(0, 5).join(' ')),
+              enrichmentKeywords: enrichmentForMeta?.keywords?.slice(0, 10).map((k) => k.split(/\s+/).slice(0, 5).join(' ')),
               latencyMs: outcome.latencyMs,
               resultCount: outcome.results.length,
               selected: true,
