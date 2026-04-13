@@ -154,10 +154,10 @@ function resolveEndpoint(endpoint: string, providerIds: string[]): string[] {
 export class SwarmCoordinator implements ISwarmCoordinator {
   private readonly config: SwarmConfig
   private readonly graph: SwarmGraph
-  private healthCache: Map<string, boolean> = new Map()
+  private readonly healthCache: Map<string, boolean> = new Map()
   private readonly maxCacheSize = 20
   private readonly providers: IMemoryProvider[]
-  private resultCache: Map<string, {result: SwarmQueryResult; timestamp: number}> = new Map()
+  private readonly resultCache: Map<string, {result: SwarmQueryResult; timestamp: number}> = new Map()
   private readonly resultCacheTtlMs: number
   private totalQueries = 0
 
@@ -198,7 +198,7 @@ export class SwarmCoordinator implements ISwarmCoordinator {
         this.resultCache.delete(cacheKey)
         this.resultCache.set(cacheKey, cached)
         this.totalQueries++
-        return {...cached.result, results: [...cached.result.results]}
+        return {...cached.result, results: cached.result.results.map((r) => ({...r, metadata: {...r.metadata}}))}
       }
 
       // Expired — clean up stale entry
@@ -275,12 +275,14 @@ export class SwarmCoordinator implements ISwarmCoordinator {
       results: merged,
     }
 
-    // Cache store — clone to prevent mutation of cached data via returned reference
-    this.resultCache.set(cacheKey, {
-      result: {...result, results: [...result.results]},
-      timestamp: Date.now(),
-    })
-    this.evictIfOverSize()
+    // Cache store — deep-clone to prevent mutation of cached data via returned references
+    if (this.resultCacheTtlMs > 0) {
+      this.resultCache.set(cacheKey, {
+        result: {...result, results: result.results.map((r) => ({...r, metadata: {...r.metadata}}))},
+        timestamp: Date.now(),
+      })
+      this.evictIfOverSize()
+    }
 
     return result
   }
@@ -416,7 +418,7 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     const q = request.query.toLowerCase().trim().replaceAll(/\s+/g, ' ')
     const scope = request.scope ?? ''
     const max = request.maxResults ?? this.config.routing.defaultMaxResults
-    return JSON.stringify([q, scope, max])
+    return JSON.stringify([q, scope, max, request.type, request.timeRange])
   }
 
   private evictIfOverSize(): void {
