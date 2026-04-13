@@ -117,4 +117,85 @@ describe('SwarmMerger', () => {
     // RRF score for rank 0 with K=60, weight 1.0: 1.0 / (60 + 0) = ~0.0167
     expect(merged[0].score).to.be.closeTo(1 / 60, 0.001)
   })
+
+  describe('precision filtering', () => {
+    it('drops results below minRRFScore', () => {
+      const resultSets = new Map<string, QueryResult[]>([
+        ['p1', [
+          makeResult('p1', 'Strong match', 0.9),
+          makeResult('p1', 'Weak match', 0.1),
+        ]],
+      ])
+      const weights = new Map([['p1', 1]])
+
+      // rank 0: 1/60 ≈ 0.0167, rank 1: 1/61 ≈ 0.0164
+      // Set threshold above rank-1 contribution
+      const merged = mergeResults(resultSets, weights, {minRRFScore: 0.0165})
+      expect(merged).to.have.length(1)
+      expect(merged[0].content).to.equal('Strong match')
+    })
+
+    it('applies rrfGapRatio to filter weak fused results', () => {
+      // Create results with widely varying RRF scores
+      const resultSets = new Map<string, QueryResult[]>([
+        ['p1', [
+          makeResult('p1', 'Top result', 0.9),
+          makeResult('p1', 'Middle result', 0.5),
+          makeResult('p1', 'Weak result 1', 0.1),
+          makeResult('p1', 'Weak result 2', 0.05),
+        ]],
+        ['p2', [
+          makeResult('p2', 'Top result', 0.8), // appears in both → boosted
+        ]],
+      ])
+      const weights = new Map([['p1', 1], ['p2', 0.8]])
+
+      // With rrfGapRatio, only keep results >= topRRF * ratio
+      const merged = mergeResults(resultSets, weights, {rrfGapRatio: 0.8})
+      // "Top result" appears in both providers, gets highest RRF
+      // Others are single-provider → much lower RRF → should be filtered
+      expect(merged.length).to.be.lessThan(4)
+      expect(merged[0].content).to.equal('Top result')
+    })
+
+    it('minRRFScore and rrfGapRatio work together', () => {
+      // Two providers: "A" appears in both → high RRF. "B"/"C" only in p1 → lower RRF.
+      const resultSets = new Map<string, QueryResult[]>([
+        ['p1', [makeResult('p1', 'A', 0.9), makeResult('p1', 'B', 0.5), makeResult('p1', 'C', 0.1)]],
+        ['p2', [makeResult('p2', 'A', 0.8)]],
+      ])
+      const weights = new Map([['p1', 1], ['p2', 0.8]])
+
+      // "A" gets RRF from both providers; "B"/"C" from p1 only.
+      // T4 (minRRFScore: 0.001) passes all, then T5 (rrfGapRatio: 0.9) filters B and C
+      // because their single-provider RRF is far below A's dual-provider RRF.
+      const merged = mergeResults(resultSets, weights, {minRRFScore: 0.001, rrfGapRatio: 0.9})
+      expect(merged).to.have.length(1)
+      expect(merged[0].content).to.equal('A')
+    })
+
+    it('returns empty when all below minRRFScore', () => {
+      const resultSets = new Map<string, QueryResult[]>([
+        ['p1', [makeResult('p1', 'Only', 0.1)]],
+      ])
+      const weights = new Map([['p1', 1]])
+
+      // Single result: 1/60 ≈ 0.0167. Set threshold above that.
+      const merged = mergeResults(resultSets, weights, {minRRFScore: 0.02})
+      expect(merged).to.have.length(0)
+    })
+
+    it('unchanged behavior when no precision options set (regression)', () => {
+      const resultSets = new Map<string, QueryResult[]>([
+        ['byterover', [makeResult('byterover', 'Auth tokens', 0.9), makeResult('byterover', 'JWT refresh', 0.7)]],
+        ['obsidian', [makeResult('obsidian', 'Token rotation', 0.8)]],
+      ])
+      const weights = new Map([['byterover', 0.9], ['obsidian', 0.8]])
+
+      const withoutOptions = mergeResults(resultSets, weights)
+      const withUndefinedOptions = mergeResults(resultSets, weights, {})
+
+      expect(withoutOptions).to.deep.equal(withUndefinedOptions)
+    })
+  })
 })

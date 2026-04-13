@@ -218,6 +218,8 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     const merged = mergeResults(resultSets, weights, {
       K: this.config.routing.rrfK,
       maxResults,
+      minRRFScore: this.config.routing.minRrfScore,
+      rrfGapRatio: this.config.routing.rrfGapRatio,
     })
 
     // 7. Collect execution metadata from graph

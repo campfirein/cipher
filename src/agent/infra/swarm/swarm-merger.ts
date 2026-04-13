@@ -8,6 +8,10 @@ export type MergerOptions = {
   K?: number
   /** Maximum results to return (default: 10) */
   maxResults?: number
+  /** T4: Drop results with RRF score below this absolute threshold (RRF-space, not 0-1) */
+  minRRFScore?: number
+  /** T5: Drop results where rrfScore < topRRF * ratio (0, 1] */
+  rrfGapRatio?: number
 }
 
 /**
@@ -31,6 +35,8 @@ export function mergeResults(
 ): QueryResult[] {
   const K = options?.K ?? 60
   const maxResults = options?.maxResults ?? 10
+  const minRRFScore = options?.minRRFScore
+  const rrfGapRatio = options?.rrfGapRatio
 
   const deduped = new Map<string, Array<{rank: number; result: QueryResult; weight: number}>>()
 
@@ -75,8 +81,21 @@ export function mergeResults(
     }
   }
 
-  // Sort descending by RRF score, limit
+  // Sort descending by RRF score
   scored.sort((a, b) => b.rrfScore - a.rrfScore)
 
-  return scored.slice(0, maxResults).map((s) => s.result)
+  // T4: Absolute RRF score floor
+  let filtered = scored
+  if (minRRFScore !== undefined) {
+    filtered = filtered.filter((s) => s.rrfScore >= minRRFScore)
+  }
+
+  // T5: Relative RRF gap ratio (topRRF = best remaining score after T4)
+  if (rrfGapRatio !== undefined && filtered.length > 0) {
+    const topRRF = filtered[0].rrfScore
+    const floor = topRRF * rrfGapRatio
+    filtered = filtered.filter((s) => s.rrfScore >= floor)
+  }
+
+  return filtered.slice(0, maxResults).map((s) => s.result)
 }

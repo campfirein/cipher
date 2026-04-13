@@ -4,6 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {ObsidianAdapter} from '../../../../../src/agent/infra/swarm/adapters/obsidian-adapter.js'
+import {POST_EXPANSION_GAP_RATIO} from '../../../../../src/agent/infra/swarm/search-precision.js'
 
 describe('ObsidianAdapter', () => {
   let testDir: string
@@ -144,5 +145,49 @@ describe('ObsidianAdapter', () => {
     const results = await adapter.query({query: 'config'})
     const paths = results.map((r) => r.metadata.path).filter(Boolean)
     expect(paths.every((p) => !p!.startsWith('.obsidian'))).to.be.true
+  })
+
+  describe('precision filtering', () => {
+    it('returns empty when best match scores below floor', async () => {
+      writeFileSync(join(testDir, 'cooking.md'), '# Pasta Recipe\nHow to cook pasta with tomato sauce.')
+      writeFileSync(join(testDir, 'gardening.md'), '# Gardening Tips\nPlant roses in spring.')
+
+      const results = await adapter.query({query: 'quantum computing'})
+      expect(results).to.have.length(0)
+    })
+
+    it('drops low-scoring results via gap ratio', async () => {
+      writeFileSync(join(testDir, 'project-mgmt.md'), '# Project Management\nProject management with agile methodologies for software teams.')
+      writeFileSync(join(testDir, 'session-mgmt.md'), '# Session Management\nHTTP session management using JWT tokens for auth.')
+
+      const results = await adapter.query({query: 'project management'})
+      if (results.length > 0) {
+        const topScore = results[0].score
+        for (const r of results) {
+          expect(r.score).to.be.at.least(topScore * POST_EXPANSION_GAP_RATIO)
+        }
+      }
+    })
+
+    it('uses AND-first for multi-word queries', async () => {
+      writeFileSync(join(testDir, 'ts-generics.md'), '# TypeScript Generics\nTypeScript generics allow reusable typed components.')
+      writeFileSync(join(testDir, 'py-generics.md'), '# Python Generics\nPython generics for type hints.')
+      writeFileSync(join(testDir, 'ts-classes.md'), '# TypeScript Classes\nTypeScript classes provide OOP.')
+
+      const results = await adapter.query({query: 'typescript generics'})
+      expect(results.length).to.be.greaterThan(0)
+      expect(results[0].metadata.path).to.equal('ts-generics.md')
+    })
+
+    it('second gap-ratio pass filters weak wikilink-expanded results', async () => {
+      writeFileSync(join(testDir, 'auth.md'), '# Authentication System\nJWT authentication with token refresh. See [[cooking]] for unrelated.')
+      writeFileSync(join(testDir, 'cooking.md'), '# Cooking Recipe\nDelicious chocolate cake with vanilla frosting.')
+
+      const results = await adapter.query({query: 'authentication JWT token'})
+      const cookingResult = results.find((r) => r.metadata.path === 'cooking.md')
+      if (cookingResult) {
+        expect(cookingResult.score).to.be.at.least(results[0].score * POST_EXPANSION_GAP_RATIO)
+      }
+    })
   })
 })

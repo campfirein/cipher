@@ -4,6 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {LocalMarkdownAdapter} from '../../../../../src/agent/infra/swarm/adapters/local-markdown-adapter.js'
+import {POST_EXPANSION_GAP_RATIO} from '../../../../../src/agent/infra/swarm/search-precision.js'
 
 describe('LocalMarkdownAdapter', () => {
   let testDir: string
@@ -160,5 +161,59 @@ describe('LocalMarkdownAdapter', () => {
     // Should NOT include linked-note via graph expansion
     const paths = results.map((r) => r.metadata.path)
     expect(paths).to.not.include('linked-note.md')
+  })
+
+  describe('precision filtering', () => {
+    it('returns empty when best match scores below floor', async () => {
+      writeFileSync(join(testDir, 'cooking.md'), '# Pasta Recipe\nHow to cook pasta with tomato sauce.')
+      writeFileSync(join(testDir, 'gardening.md'), '# Gardening Tips\nPlant roses in spring season.')
+
+      // "quantum computing" won't match any content well
+      const results = await adapter.query({query: 'quantum computing'})
+      expect(results).to.have.length(0)
+    })
+
+    it('drops low-scoring results via gap ratio', async () => {
+      // Create one strong match and several weak matches
+      writeFileSync(join(testDir, 'project-management.md'), '# Project Management\nProject management with agile methodologies for software teams.')
+      writeFileSync(join(testDir, 'session-mgmt.md'), '# Session Management\nHTTP session management using JWT tokens for authentication.')
+      writeFileSync(join(testDir, 'time-mgmt.md'), '# Time Management\nTime management tips for productivity improvement.')
+
+      // "project management" should strongly match the first file
+      const results = await adapter.query({query: 'project management'})
+
+      if (results.length > 0) {
+        const topScore = results[0].score
+        for (const r of results) {
+          // All results should be within post-expansion gap ratio of top score
+          expect(r.score).to.be.at.least(topScore * POST_EXPANSION_GAP_RATIO, `Result ${r.metadata.path} score ${r.score} below gap floor`)
+        }
+      }
+    })
+
+    it('uses AND-first for multi-word queries', async () => {
+      writeFileSync(join(testDir, 'ts-generics.md'), '# TypeScript Generics\nTypeScript generics allow reusable typed components.')
+      writeFileSync(join(testDir, 'py-generics.md'), '# Python Generics\nPython generics are for type hints.')
+      writeFileSync(join(testDir, 'ts-classes.md'), '# TypeScript Classes\nTypeScript classes provide OOP patterns.')
+
+      const results = await adapter.query({query: 'typescript generics'})
+      expect(results.length).to.be.greaterThan(0)
+      // Doc with both "typescript" AND "generics" should rank first
+      expect(results[0].metadata.path).to.equal('ts-generics.md')
+    })
+
+    it('second gap-ratio pass filters weak wikilink-expanded results', async () => {
+      // Strong match links to a completely unrelated doc
+      writeFileSync(join(testDir, 'auth-system.md'), '# Authentication System\nJWT authentication with token refresh. See [[cooking-recipe]] for unrelated stuff.')
+      writeFileSync(join(testDir, 'cooking-recipe.md'), '# Cooking Recipe\nHow to make a delicious chocolate cake with vanilla frosting.')
+
+      const results = await adapter.query({query: 'authentication JWT token'})
+
+      // cooking-recipe should either not appear (gap-filtered) or be within post-expansion gap ratio
+      const cookingResult = results.find((r) => r.metadata.path === 'cooking-recipe.md')
+      if (cookingResult) {
+        expect(cookingResult.score).to.be.at.least(results[0].score * POST_EXPANSION_GAP_RATIO)
+      }
+    })
   })
 })

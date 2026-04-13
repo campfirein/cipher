@@ -13,6 +13,8 @@ import type {
 } from '../../../core/domain/swarm/types.js'
 import type {IMemoryProvider} from '../../../core/interfaces/i-memory-provider.js'
 
+import {applyGapRatio, POST_EXPANSION_GAP_RATIO, searchWithPrecision} from '../search-precision.js'
+
 /** Wikilink decay factor for graph-expanded results */
 const WIKILINK_DECAY = 0.7
 
@@ -183,23 +185,21 @@ export class LocalMarkdownAdapter implements IMemoryProvider {
     this.ensureIndex()
 
     const maxResults = request.maxResults ?? 10
-    const searchResults = this.index!.search(request.query, {
-      boost: {title: 2},
-      fuzzy: 0.2,
-      prefix: true,
-    })
+
+    // T1/T2/T3: Precision-filtered search (stop words, AND-first, score floor, gap ratio)
+    const precisionResults = searchWithPrecision(this.index!, request.query, {maxResults})
+    if (precisionResults.length === 0) return []
 
     // Collect direct matches
     const resultMap = new Map<string, {doc: IndexedDoc; matchType: 'graph' | 'keyword'; score: number}>()
 
-    for (const sr of searchResults.slice(0, maxResults)) {
-      const doc = this.documents[sr.id]
+    for (const pr of precisionResults) {
+      const doc = this.documents[pr.id as number]
       if (!doc) continue
-      const normalizedScore = sr.score / (1 + sr.score)
-      resultMap.set(doc.path, {doc, matchType: 'keyword', score: normalizedScore})
+      resultMap.set(doc.path, {doc, matchType: 'keyword', score: pr.normalizedScore})
     }
 
-    // Expand wikilinks one hop (if enabled)
+    // Without wikilink expansion: return direct matches
     if (!this.followWikilinks) {
       const sorted = [...resultMap.values()]
         .sort((a, b) => b.score - a.score)
@@ -218,6 +218,7 @@ export class LocalMarkdownAdapter implements IMemoryProvider {
       }))
     }
 
+    // Expand wikilinks one hop from direct matches
     for (const [, entry] of resultMap) {
       for (const linkTarget of entry.doc.wikilinks) {
         const candidates = [
@@ -244,8 +245,22 @@ export class LocalMarkdownAdapter implements IMemoryProvider {
       }
     }
 
-    const sorted = [...resultMap.values()]
-      .sort((a, b) => b.score - a.score)
+    // Second gap-ratio pass on combined direct + expanded results (T3 only)
+    const combined = [...resultMap.entries()].map(([path, entry]) => ({
+      doc: entry.doc,
+      matchType: entry.matchType,
+      normalizedScore: entry.score,
+      path,
+    }))
+    const gapFiltered = applyGapRatio(
+      combined.map((c) => ({id: c.path, normalizedScore: c.normalizedScore, queryTerms: [], rawScore: 0})),
+      POST_EXPANSION_GAP_RATIO,
+    )
+    const keptPaths = new Set(gapFiltered.map((r) => r.id))
+
+    const sorted = combined
+      .filter((c) => keptPaths.has(c.path))
+      .sort((a, b) => b.normalizedScore - a.normalizedScore)
       .slice(0, maxResults)
 
     return sorted.map((entry, index) => ({
@@ -253,11 +268,11 @@ export class LocalMarkdownAdapter implements IMemoryProvider {
       id: `local-md-${this.name}-${index}`,
       metadata: {
         matchType: entry.matchType,
-        path: entry.doc.path,
-        source: entry.doc.path,
+        path: entry.path,
+        source: entry.path,
       },
       provider: this.id,
-      score: entry.score,
+      score: entry.normalizedScore,
     }))
   }
 

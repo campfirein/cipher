@@ -34,6 +34,8 @@ describe('SwarmConfigSchema', () => {
       expect(result.routing.classificationMethod).to.equal('auto')
       expect(result.routing.defaultMaxResults).to.equal(10)
       expect(result.routing.rrfK).to.equal(60)
+      expect(result.routing.minRrfScore).to.be.undefined
+      expect(result.routing.rrfGapRatio).to.be.undefined
 
       // Performance defaults
       expect(result.performance.maxQueryLatencyMs).to.equal(2000)
@@ -203,6 +205,45 @@ describe('SwarmConfigSchema', () => {
       }
       const result = safeValidateSwarmConfig(input)
       expect(result.success).to.be.false
+    })
+
+    it('rejects rrfGapRatio of 0 (must be > 0)', () => {
+      const input = {
+        providers: {byterover: {enabled: true}},
+        routing: {rrf_gap_ratio: 0},
+      }
+      const result = safeValidateSwarmConfig(input)
+      expect(result.success).to.be.false
+    })
+
+    it('rejects rrfGapRatio > 1', () => {
+      const input = {
+        providers: {byterover: {enabled: true}},
+        routing: {rrf_gap_ratio: 1.5},
+      }
+      const result = safeValidateSwarmConfig(input)
+      expect(result.success).to.be.false
+    })
+  })
+
+  describe('precision config', () => {
+    it('accepts min_rrf_score and rrf_gap_ratio in routing', () => {
+      const input = {
+        providers: {byterover: {enabled: true}},
+        routing: {min_rrf_score: 0.005, rrf_gap_ratio: 0.5},
+      }
+      const result = SwarmConfigSchema.parse(input)
+      expect(result.routing.minRrfScore).to.equal(0.005)
+      expect(result.routing.rrfGapRatio).to.equal(0.5)
+    })
+
+    it('defaults to undefined when not specified', () => {
+      const input = {
+        providers: {byterover: {enabled: true}},
+      }
+      const result = SwarmConfigSchema.parse(input)
+      expect(result.routing.minRrfScore).to.be.undefined
+      expect(result.routing.rrfGapRatio).to.be.undefined
     })
   })
 

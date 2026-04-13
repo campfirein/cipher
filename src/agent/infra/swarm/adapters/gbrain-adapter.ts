@@ -31,8 +31,12 @@ export interface GBrainAdapterOptions {
  */
 export type GBrainExecutor = (operation: string, params: Record<string, unknown>) => Promise<unknown>
 
-/** Default timeout for gbrain subprocess calls (10 seconds) */
-const EXEC_TIMEOUT_MS = 10_000
+/**
+ * Default timeout for gbrain subprocess calls.
+ * PGLite WASM startup via Node execFile is significantly slower than interactive shell
+ * (cold-start ~60s for writes vs <1s for reads). 120s covers worst-case write operations.
+ */
+const EXEC_TIMEOUT_MS = 120_000
 
 /**
  * Resolve the gbrain binary path.
