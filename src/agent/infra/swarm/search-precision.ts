@@ -1,6 +1,10 @@
 import type MiniSearch from 'minisearch'
+import type {SearchResult as MiniSearchResult} from 'minisearch'
 
 import {removeStopwords} from 'stopword'
+
+/** MiniSearch exposes queryTerms at runtime but omits it from public types. */
+type SearchResultWithTerms = MiniSearchResult & {queryTerms: string[]}
 
 // ============================================================
 // Constants
@@ -175,11 +179,11 @@ export function searchWithPrecision<T>(
     rawResults = index.search(filteredQuery, {combineWith: 'AND', ...searchOpts})
     if (rawResults.length === 0) {
       rawResults = index.search(filteredQuery, {combineWith: 'OR', ...searchOpts})
-      const minTerms = Math.ceil(words.length * 0.5) + (words.length % 2 === 0 ? 1 : 0)
-      rawResults = rawResults.filter((r) => {
-        const matchedTerms = (r as unknown as {queryTerms: string[]}).queryTerms ?? []
-        return matchedTerms.length >= minTerms
-      })
+      // For 2-word queries minTerms=2, effectively requiring both terms.
+      // This is intentional: AND failed on exact match, but OR with prefix/fuzzy
+      // may still find docs matching both terms via stemming or partial overlap.
+      const minTerms = Math.floor(words.length / 2) + 1
+      rawResults = rawResults.filter((r) => ((r as SearchResultWithTerms).queryTerms ?? []).length >= minTerms)
     }
   } else {
     rawResults = index.search(filteredQuery, {combineWith: 'OR', ...searchOpts})
@@ -190,7 +194,7 @@ export function searchWithPrecision<T>(
   const normalized: NormalizedResult[] = rawResults.slice(0, maxResults).map((r) => ({
     id: r.id,
     normalizedScore: r.score / (1 + r.score),
-    queryTerms: (r as unknown as {queryTerms: string[]}).queryTerms ?? [],
+    queryTerms: (r as SearchResultWithTerms).queryTerms ?? [],
     rawScore: r.score,
   }))
 
