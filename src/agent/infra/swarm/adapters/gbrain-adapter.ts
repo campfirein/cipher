@@ -227,6 +227,7 @@ export class GBrainAdapter implements IMemoryProvider {
         source: r.slug,
       },
       provider: 'gbrain',
+      providerType: 'gbrain',
       score: this.normalizeScore(r.score),
     }))
   }

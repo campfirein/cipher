@@ -3,6 +3,7 @@ import type {IMemoryProvider} from '../../core/interfaces/i-memory-provider.js'
 import type {
   ISwarmCoordinator,
   ProviderInfo,
+  ProviderQueryMeta,
   SwarmQueryResult,
   SwarmStoreRequest,
   SwarmStoreResult,
@@ -224,7 +225,21 @@ export class SwarmCoordinator implements ISwarmCoordinator {
 
     // 7. Collect execution metadata from graph
     const graphMeta = this.graph.getLastExecutionMeta()
-    const providerMeta = graphMeta?.providers ?? {}
+    const providerMeta: Record<string, ProviderQueryMeta> = {...graphMeta?.providers}
+
+    // 8. Record excluded providers (available but not selected)
+    const activeSet = new Set(activeIds)
+    for (const p of this.providers) {
+      if (!activeSet.has(p.id) && !providerMeta[p.id]) {
+        const healthy = this.healthCache.get(p.id) !== false
+        providerMeta[p.id] = {
+          excludeReason: healthy ? `not in selection matrix for ${queryType}` : 'unhealthy',
+          latencyMs: 0,
+          resultCount: 0,
+          selected: false,
+        }
+      }
+    }
 
     this.totalQueries++
 

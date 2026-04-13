@@ -128,10 +128,15 @@ export class SwarmGraph {
 
           return queryWithTimeout(provider, enrichedRequest, this.timeoutMs).then((outcome) => {
             results.set(id, outcome.results)
+            const enrichment = predIds && predIds.length > 0 ? buildEnrichment(
+              predIds.flatMap((pid) => results.get(pid) ?? [])
+            ) : undefined
             providerMeta[id] = {
               enrichedBy: predIds && predIds.length > 0 ? predIds.join(',') : undefined,
+              enrichmentKeywords: enrichment?.keywords?.slice(0, 10),
               latencyMs: outcome.latencyMs,
               resultCount: outcome.results.length,
+              selected: true,
             }
           })
         })

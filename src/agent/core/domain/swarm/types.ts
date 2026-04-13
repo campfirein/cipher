@@ -122,7 +122,35 @@ export type QueryResult = {
     timestamp?: number
   }
   provider: string
+  providerType: ProviderType
   score: number
+}
+
+/**
+ * Human-readable source label for a provider, used in CLI output.
+ */
+export function providerTypeToLabel(type: ProviderType, id: string): string {
+  switch (type) {
+    case 'byterover': { return 'context-tree'
+    }
+
+    case 'gbrain': { return 'gbrain'
+    }
+
+    case 'hindsight': { return 'hindsight'
+    }
+
+    case 'honcho': { return 'honcho'
+    }
+
+    case 'local-markdown': {
+      const name = id.split(':')[1] ?? 'files'
+      return `notes:${name}`
+    }
+
+    case 'obsidian': { return 'obsidian'
+    }
+  }
 }
 
 /**

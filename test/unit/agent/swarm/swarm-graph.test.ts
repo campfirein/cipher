@@ -36,6 +36,7 @@ function makeResult(provider: string, content: string): QueryResult {
     id: `${provider}-1`,
     metadata: {matchType: 'keyword', source: `${content}.md`},
     provider,
+    providerType: 'byterover',
     score: 0.8,
   }
 }

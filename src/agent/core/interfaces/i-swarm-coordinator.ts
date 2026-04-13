@@ -12,10 +12,16 @@ import type {
 export type ProviderQueryMeta = {
   /** Which provider enriched this provider's query (if any) */
   enrichedBy?: string
+  /** Keywords injected via enrichment from predecessors */
+  enrichmentKeywords?: string[]
+  /** Why this provider was excluded (only when selected=false) */
+  excludeReason?: string
   /** How long this provider took to respond */
   latencyMs: number
   /** How many results this provider returned */
   resultCount: number
+  /** Whether this provider was selected for this query */
+  selected: boolean
 }
 
 /**

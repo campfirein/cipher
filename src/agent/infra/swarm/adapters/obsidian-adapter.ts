@@ -208,7 +208,7 @@ export class ObsidianAdapter implements IMemoryProvider {
       .slice(0, maxResults)
 
     return sorted.map((entry, index) => ({
-      content: entry.doc.content.slice(0, 500),
+      content: entry.doc.content.slice(0, 5000),
       id: `obsidian-${index}`,
       metadata: {
         matchType: entry.matchType,
@@ -216,6 +216,7 @@ export class ObsidianAdapter implements IMemoryProvider {
         source: entry.path,
       },
       provider: 'obsidian',
+      providerType: 'obsidian',
       score: entry.normalizedScore,
     }))
   }

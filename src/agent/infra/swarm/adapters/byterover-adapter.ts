@@ -74,6 +74,7 @@ public readonly id = 'byterover'
         source: result.path,
       },
       provider: 'byterover',
+      providerType: 'byterover',
       score: result.score,
     }))
   }
