@@ -389,7 +389,7 @@ export const TaskExecuteSchema = z.object({
   /** Unique task identifier */
   taskId: z.string(),
   /** Task type */
-  type: z.enum(['curate', 'curate-folder', 'query']),
+  type: z.enum(['curate', 'curate-folder', 'query', 'search']),
   /** Workspace root for scoped query/curate */
   worktreeRoot: z.string().optional(),
 })
@@ -510,7 +510,7 @@ export const TaskCreatedSchema = z.object({
   /** Unique task identifier */
   taskId: z.string(),
   /** Task type */
-  type: z.enum(['curate', 'curate-folder', 'query']),
+  type: z.enum(['curate', 'curate-folder', 'query', 'search']),
 })
 
 /**
@@ -629,7 +629,7 @@ export type TaskErrorEvent = z.infer<typeof TaskErrorEventSchema>
 // Request/Response Schemas (for client → server commands)
 // ============================================================================
 
-export const TaskTypeSchema = z.enum(['curate', 'curate-folder', 'query'])
+export const TaskTypeSchema = z.enum(['curate', 'curate-folder', 'query', 'search'])
 
 /**
  * Request to create a new task

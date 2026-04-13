@@ -78,8 +78,14 @@ export interface WaitForTaskOptions {
 
 /** Grace period before treating 'reconnecting' as daemon death (ms) */
 const DISCONNECT_GRACE_MS = 10_000
+/** Default timeout for task completion (seconds) — shared across curate/query commands. */
+export const DEFAULT_TIMEOUT_SECONDS = 300
+/** Minimum --timeout value accepted from the CLI (seconds). */
+export const MIN_TIMEOUT_SECONDS = 10
+/** Maximum --timeout value accepted from the CLI (seconds). */
+export const MAX_TIMEOUT_SECONDS = 3600
 /** Default timeout for task completion (ms) */
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
+const DEFAULT_TIMEOUT_MS = DEFAULT_TIMEOUT_SECONDS * 1000
 
 /**
  * Format tool call for CLI display (simplified version of TUI formatToolDisplay).
@@ -155,12 +161,13 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
       if (!completed) {
         completed = true
         cleanup()
+        const timeoutMessage = `Task timed out after ${timeoutMs / 1000}s`
         if (isText) {
-          reject(new Error('Task timed out after 5 minutes'))
+          reject(new Error(timeoutMessage))
         } else {
           writeJsonResponse({
             command,
-            data: {event: 'error', message: 'Task timed out after 5 minutes', status: 'error'},
+            data: {event: 'error', message: timeoutMessage, status: 'error'},
             success: false,
           })
           resolve()
