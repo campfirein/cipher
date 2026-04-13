@@ -34,7 +34,7 @@ export class DreamTrigger {
     this.options = options
   }
 
-  async shouldDream(projectPath: string, force = false): Promise<DreamEligibility> {
+  async tryStartDream(projectPath: string, force = false): Promise<DreamEligibility> {
     const minHours = this.options.minHours ?? DEFAULT_MIN_HOURS
     const minCurations = this.options.minCurations ?? DEFAULT_MIN_CURATIONS
 

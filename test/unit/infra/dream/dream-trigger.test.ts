@@ -40,12 +40,12 @@ function makeDeps(overrides: {
 }
 
 describe('DreamTrigger', () => {
-  describe('shouldDream', () => {
+  describe('tryStartDream', () => {
     it('should return eligible when all gates pass', async () => {
       const deps = makeDeps()
       const trigger = new DreamTrigger(deps)
 
-      const result = await trigger.shouldDream('/project')
+      const result = await trigger.tryStartDream('/project')
       expect(result.eligible).to.be.true
       if (result.eligible) {
         expect(result.priorMtime).to.equal(0)
@@ -58,7 +58,7 @@ describe('DreamTrigger', () => {
       })
       const trigger = new DreamTrigger(deps)
 
-      const result = await trigger.shouldDream('/project')
+      const result = await trigger.tryStartDream('/project')
       expect(result.eligible).to.be.false
       if (!result.eligible) {
         expect(result.reason).to.include('recent')
@@ -71,7 +71,7 @@ describe('DreamTrigger', () => {
       })
       const trigger = new DreamTrigger(deps)
 
-      const result = await trigger.shouldDream('/project')
+      const result = await trigger.tryStartDream('/project')
       expect(result.eligible).to.be.false
       if (!result.eligible) {
         expect(result.reason).to.include('activity')
@@ -82,7 +82,7 @@ describe('DreamTrigger', () => {
       const deps = makeDeps({queueLength: 3})
       const trigger = new DreamTrigger(deps)
 
-      const result = await trigger.shouldDream('/project')
+      const result = await trigger.tryStartDream('/project')
       expect(result.eligible).to.be.false
       if (!result.eligible) {
         expect(result.reason).to.include('Queue')
@@ -93,7 +93,7 @@ describe('DreamTrigger', () => {
       const deps = makeDeps({lockAcquired: false})
       const trigger = new DreamTrigger(deps)
 
-      const result = await trigger.shouldDream('/project')
+      const result = await trigger.tryStartDream('/project')
       expect(result.eligible).to.be.false
       if (!result.eligible) {
         expect(result.reason).to.include('Lock')
@@ -108,7 +108,7 @@ describe('DreamTrigger', () => {
       })
       const trigger = new DreamTrigger(deps)
 
-      const result = await trigger.shouldDream('/project', true)
+      const result = await trigger.tryStartDream('/project', true)
       expect(result.eligible).to.be.true
     })
 
@@ -118,7 +118,7 @@ describe('DreamTrigger', () => {
       })
       const trigger = new DreamTrigger(deps)
 
-      const result = await trigger.shouldDream('/project', true)
+      const result = await trigger.tryStartDream('/project', true)
       expect(result.eligible).to.be.true
     })
 
@@ -126,7 +126,7 @@ describe('DreamTrigger', () => {
       const deps = makeDeps({queueLength: 3})
       const trigger = new DreamTrigger(deps)
 
-      const result = await trigger.shouldDream('/project', true)
+      const result = await trigger.tryStartDream('/project', true)
       expect(result.eligible).to.be.true
     })
 
@@ -134,7 +134,7 @@ describe('DreamTrigger', () => {
       const deps = makeDeps({lockAcquired: false})
       const trigger = new DreamTrigger(deps)
 
-      const result = await trigger.shouldDream('/project', true)
+      const result = await trigger.tryStartDream('/project', true)
       expect(result.eligible).to.be.false
       if (!result.eligible) {
         expect(result.reason).to.include('Lock')
@@ -149,7 +149,7 @@ describe('DreamTrigger', () => {
       })
       const trigger = new DreamTrigger(deps)
 
-      const result = await trigger.shouldDream('/project')
+      const result = await trigger.tryStartDream('/project')
       expect(result.eligible).to.be.false
       if (!result.eligible) {
         expect(result.reason).to.include('activity')
@@ -162,7 +162,7 @@ describe('DreamTrigger', () => {
       })
       const trigger = new DreamTrigger(deps)
 
-      const result = await trigger.shouldDream('/project', true)
+      const result = await trigger.tryStartDream('/project', true)
       expect(result.eligible).to.be.true
     })
 
@@ -174,7 +174,7 @@ describe('DreamTrigger', () => {
       })
       const trigger = new DreamTrigger(deps)
 
-      await trigger.shouldDream('/project')
+      await trigger.tryStartDream('/project')
       expect(deps.getQueueLength.called).to.be.false
       expect(deps.dreamLockService.tryAcquire.called).to.be.false
     })
@@ -185,8 +185,16 @@ describe('DreamTrigger', () => {
       })
       const trigger = new DreamTrigger(deps)
 
-      await trigger.shouldDream('/project')
+      await trigger.tryStartDream('/project')
       expect(deps.getQueueLength.called).to.be.false
+      expect(deps.dreamLockService.tryAcquire.called).to.be.false
+    })
+
+    it('should not check lock when queue fails', async () => {
+      const deps = makeDeps({queueLength: 3})
+      const trigger = new DreamTrigger(deps)
+
+      await trigger.tryStartDream('/project')
       expect(deps.dreamLockService.tryAcquire.called).to.be.false
     })
 
@@ -198,7 +206,7 @@ describe('DreamTrigger', () => {
       })
       const trigger = new DreamTrigger(deps, {minHours: 4})
 
-      const result = await trigger.shouldDream('/project')
+      const result = await trigger.tryStartDream('/project')
       expect(result.eligible).to.be.true
     })
 
@@ -208,7 +216,7 @@ describe('DreamTrigger', () => {
       })
       const trigger = new DreamTrigger(deps, {minCurations: 1})
 
-      const result = await trigger.shouldDream('/project')
+      const result = await trigger.tryStartDream('/project')
       expect(result.eligible).to.be.true
     })
   })
