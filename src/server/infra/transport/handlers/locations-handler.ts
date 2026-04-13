@@ -12,6 +12,7 @@ import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-ty
 export interface LocationsHandlerDeps {
   contextTreeService: IContextTreeService
   getActiveProjectPaths: () => string[]
+  pathExists: (path: string) => Promise<boolean>
   projectRegistry: IProjectRegistry
   resolveProjectPath: ProjectPathResolver
   transport: ITransportServer
@@ -24,6 +25,7 @@ export interface LocationsHandlerDeps {
 export class LocationsHandler {
   private readonly contextTreeService: IContextTreeService
   private readonly getActiveProjectPaths: () => string[]
+  private readonly pathExists: (path: string) => Promise<boolean>
   private readonly projectRegistry: IProjectRegistry
   private readonly resolveProjectPath: ProjectPathResolver
   private readonly transport: ITransportServer
@@ -31,6 +33,7 @@ export class LocationsHandler {
   constructor(deps: LocationsHandlerDeps) {
     this.contextTreeService = deps.contextTreeService
     this.getActiveProjectPaths = deps.getActiveProjectPaths
+    this.pathExists = deps.pathExists
     this.projectRegistry = deps.projectRegistry
     this.resolveProjectPath = deps.resolveProjectPath
     this.transport = deps.transport
@@ -54,6 +57,17 @@ export class LocationsHandler {
 
     const results = await Promise.all(
       [...all.entries()].map(async ([path]) => {
+        try {
+          const exists = await this.pathExists(path)
+          if (!exists) {
+            this.projectRegistry.unregister(path)
+            return null
+          }
+        } catch {
+          this.projectRegistry.unregister(path)
+          return null
+        }
+
         let isInitialized = false
         try {
           isInitialized = await this.contextTreeService.exists(path)
@@ -71,8 +85,10 @@ export class LocationsHandler {
       }),
     )
 
+    const filtered = results.filter((r): r is ProjectLocationDTO => r !== null)
+
     // Sort: current first → active (has clients) → initialized → rest, all by registeredAt desc
-    return results.sort((a, b) => {
+    return filtered.sort((a, b) => {
       if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1
       if (a.isActive !== b.isActive) return a.isActive ? -1 : 1
       if (a.isInitialized !== b.isInitialized) return a.isInitialized ? -1 : 1
