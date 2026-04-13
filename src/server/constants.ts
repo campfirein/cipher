@@ -99,6 +99,10 @@ export const AGENT_PROCESS_STOP_TIMEOUT_MS = 5000 // 5s max wait for child proce
 export const CURATE_LOG_DIR = 'curate-log'
 export const CURATE_LOG_ID_PREFIX = 'cur'
 
+// Dream log
+export const DREAM_LOG_DIR = 'dream-log'
+export const DREAM_LOG_ID_PREFIX = 'drm'
+
 // Review backups (stores pre-curate file content for local HITL review diffs)
 export const REVIEW_BACKUPS_DIR = 'review-backups'
 // === Hierarchical DAG (summary, archive, manifest) ===
