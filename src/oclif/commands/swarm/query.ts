@@ -1,7 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
 
 import {FileSystemService} from '../../../agent/infra/file-system/file-system-service.js'
-import {formatQueryResults, formatQueryResultsJson} from '../../../agent/infra/swarm/cli/query-renderer.js'
+import {formatQueryResults, formatQueryResultsExplain, formatQueryResultsJson} from '../../../agent/infra/swarm/cli/query-renderer.js'
 import {loadSwarmConfig} from '../../../agent/infra/swarm/config/swarm-config-loader.js'
 import {buildProvidersFromConfig} from '../../../agent/infra/swarm/provider-factory.js'
 import {SwarmCoordinator} from '../../../agent/infra/swarm/swarm-coordinator.js'
@@ -18,6 +18,9 @@ public static description = 'Query the memory swarm across all active providers'
     '<%= config.bin %> swarm query "what changed yesterday" --format json',
   ]
   public static flags = {
+    explain: Flags.boolean({
+      description: 'Show classification, routing, and enrichment details (ignored with --format json, which always includes all metadata)',
+    }),
     format: Flags.string({
       char: 'f',
       default: 'text',
@@ -70,6 +73,8 @@ public static description = 'Query the memory swarm across all active providers'
 
       if (isJson) {
         this.log(formatQueryResultsJson(result))
+      } else if (flags.explain) {
+        this.log(formatQueryResultsExplain(result, args.query))
       } else {
         this.log(formatQueryResults(result, args.query))
       }

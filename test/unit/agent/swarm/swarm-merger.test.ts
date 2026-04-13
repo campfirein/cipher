@@ -10,6 +10,7 @@ function makeResult(provider: string, content: string, score: number): QueryResu
     id: `${provider}-${content.slice(0, 10)}`,
     metadata: {matchType: 'keyword', source: `${content}.md`},
     provider,
+    providerType: 'byterover',
     score,
   }
 }

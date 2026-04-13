@@ -13,7 +13,7 @@ import type {
 } from '../../../core/domain/swarm/types.js'
 import type {IMemoryProvider} from '../../../core/interfaces/i-memory-provider.js'
 
-import {applyGapRatio, POST_EXPANSION_GAP_RATIO, searchWithPrecision} from '../search-precision.js'
+import {ADAPTER_CONTENT_LIMIT, applyGapRatio, POST_EXPANSION_GAP_RATIO, searchWithPrecision} from '../search-precision.js'
 
 /** Wikilink decay factor for graph-expanded results */
 const WIKILINK_DECAY = 0.7
@@ -201,12 +201,10 @@ export class LocalMarkdownAdapter implements IMemoryProvider {
 
     // Without wikilink expansion: return direct matches
     if (!this.followWikilinks) {
-      const sorted = [...resultMap.values()]
-        .sort((a, b) => b.score - a.score)
-        .slice(0, maxResults)
+      const sorted = [...resultMap.values()].sort((a, b) => b.score - a.score).slice(0, maxResults)
 
       return sorted.map((entry, index) => ({
-        content: entry.doc.content.slice(0, 500),
+        content: entry.doc.content.slice(0, ADAPTER_CONTENT_LIMIT),
         id: `local-md-${this.name}-${index}`,
         metadata: {
           matchType: entry.matchType,
@@ -214,6 +212,7 @@ export class LocalMarkdownAdapter implements IMemoryProvider {
           source: entry.doc.path,
         },
         provider: this.id,
+        providerType: 'local-markdown',
         score: entry.score,
       }))
     }
@@ -224,9 +223,10 @@ export class LocalMarkdownAdapter implements IMemoryProvider {
         const candidates = [
           `${linkTarget}.md`,
           linkTarget,
-          ...[...this.pathToDoc.keys()].filter((p) =>
-            p.toLowerCase().endsWith(`${linkTarget.toLowerCase()}.md`) ||
-            p.toLowerCase() === linkTarget.toLowerCase()
+          ...[...this.pathToDoc.keys()].filter(
+            (p) =>
+              p.toLowerCase().endsWith(`${linkTarget.toLowerCase()}.md`) ||
+              p.toLowerCase() === linkTarget.toLowerCase(),
           ),
         ]
 
@@ -264,7 +264,7 @@ export class LocalMarkdownAdapter implements IMemoryProvider {
       .slice(0, maxResults)
 
     return sorted.map((entry, index) => ({
-      content: entry.doc.content.slice(0, 500),
+      content: entry.doc.content.slice(0, ADAPTER_CONTENT_LIMIT),
       id: `local-md-${this.name}-${index}`,
       metadata: {
         matchType: entry.matchType,
@@ -272,6 +272,7 @@ export class LocalMarkdownAdapter implements IMemoryProvider {
         source: entry.path,
       },
       provider: this.id,
+      providerType: 'local-markdown',
       score: entry.normalizedScore,
     }))
   }

@@ -11,6 +11,12 @@ type SearchResultWithTerms = MiniSearchResult & {queryTerms: string[]}
 // ============================================================
 
 /**
+ * Maximum content length (in chars) returned per result from adapters.
+ * The renderer applies a separate display limit; this controls payload size.
+ */
+export const ADAPTER_CONTENT_LIMIT = 5000
+
+/**
  * Default absolute score floor for adapter-level OOD detection.
  * Lower than ByteRover's 0.45 because adapters use pure BM25 normalization
  * without compound scoring (importance/recency/maturity).

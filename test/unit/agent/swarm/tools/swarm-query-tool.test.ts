@@ -9,7 +9,7 @@ function createMockCoordinator(result?: Partial<SwarmQueryResult>): ISwarmCoordi
   const defaultResult: SwarmQueryResult = {
     meta: {
       costCents: 0,
-      providers: {byterover: {latencyMs: 30, resultCount: 1}},
+      providers: {byterover: {latencyMs: 30, resultCount: 1, selected: true}},
       queryType: 'factual',
       totalLatencyMs: 35,
     },
@@ -19,6 +19,7 @@ function createMockCoordinator(result?: Partial<SwarmQueryResult>): ISwarmCoordi
         id: 'brv-0',
         metadata: {matchType: 'keyword', source: 'auth/jwt/context.md'},
         provider: 'byterover',
+        providerType: 'byterover',
         score: 0.9,
       },
     ],

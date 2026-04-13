@@ -19,7 +19,7 @@ function createMockCoordinator(overrides?: {
 }): ISwarmCoordinator {
   const defaultQueryResult: SwarmQueryResult = {
     meta: {costCents: 0, providers: {}, queryType: 'factual', totalLatencyMs: 10},
-    results: [{content: 'Test result', id: 'r1', metadata: {matchType: 'keyword', source: 'test.md'}, provider: 'gbrain', score: 0.8}],
+    results: [{content: 'Test result', id: 'r1', metadata: {matchType: 'keyword', source: 'test.md'}, provider: 'gbrain', providerType: 'gbrain', score: 0.8}],
   }
   const defaultStoreResult: SwarmStoreResult = {
     id: 'concept/test',
