@@ -87,7 +87,7 @@ export type QueryRequest = {
   enrichment?: {
     context?: string
     entities?: string[]
-    keywords?: string[]
+    excerpts?: string[]
   }
   /** Whether to return provenance info */
   includeMetadata?: boolean

@@ -164,7 +164,7 @@ describe('QueryRenderer', () => {
       expect(output).to.include('excluded')
     })
 
-    it('shows enrichment keywords when present', () => {
+    it('shows enrichment excerpts when present', () => {
       const result = makeSwarmResult({
         meta: {
           costCents: 0,

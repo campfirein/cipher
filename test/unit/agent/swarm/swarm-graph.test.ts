@@ -120,7 +120,7 @@ describe('SwarmGraph', () => {
       (level1.query as sinon.SinonStub).callsFake(async (req: QueryRequest) => {
         // Should have enrichment data from level-0
         expect(req.enrichment).to.exist
-        expect(req.enrichment!.keywords).to.include('Auth tokens')
+        expect(req.enrichment!.excerpts).to.include('Auth tokens')
 
         return [makeResult('p1', 'Enriched result')]
       })
@@ -177,13 +177,13 @@ describe('SwarmGraph', () => {
       });
       (pB.query as sinon.SinonStub).callsFake(async (req: QueryRequest) => {
         executionOrder.push('pB')
-        expect(req.enrichment?.keywords).to.include('Root data')
+        expect(req.enrichment?.excerpts).to.include('Root data')
 
         return [makeResult('pB', 'Middle data')]
       });
       (pC.query as sinon.SinonStub).callsFake(async (req: QueryRequest) => {
         executionOrder.push('pC')
-        expect(req.enrichment?.keywords).to.include('Middle data')
+        expect(req.enrichment?.excerpts).to.include('Middle data')
 
         return [makeResult('pC', 'Leaf data')]
       })
@@ -207,10 +207,10 @@ describe('SwarmGraph', () => {
       const pC = createMockProvider('pC', [makeResult('pC', 'Fan-in result')]);
 
       (pC.query as sinon.SinonStub).callsFake(async (req: QueryRequest) => {
-        // Must receive keywords from BOTH predecessors
+        // Must receive excerpts from BOTH predecessors
         expect(req.enrichment).to.exist
-        expect(req.enrichment!.keywords).to.include('Source A')
-        expect(req.enrichment!.keywords).to.include('Source B')
+        expect(req.enrichment!.excerpts).to.include('Source A')
+        expect(req.enrichment!.excerpts).to.include('Source B')
 
         return [makeResult('pC', 'Fan-in result')]
       })

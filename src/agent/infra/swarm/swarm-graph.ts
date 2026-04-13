@@ -55,11 +55,11 @@ async function queryWithTimeout(
  * Build enrichment data by merging results from multiple predecessor providers.
  */
 function buildEnrichment(allResults: QueryResult[]): QueryRequest['enrichment'] {
-  const keywords = allResults
+  const excerpts = allResults
     .map((r) => r.content)
     .filter((c) => c.length > 0)
 
-  return {keywords}
+  return {excerpts}
 }
 
 /**
@@ -132,7 +132,7 @@ export class SwarmGraph {
             results.set(id, outcome.results)
             providerMeta[id] = {
               enrichedBy: predIds && predIds.length > 0 ? predIds.join(',') : undefined,
-              enrichmentExcerpts: enrichmentForMeta?.keywords?.slice(0, 10).map((k) => k.split(/\s+/).slice(0, 5).join(' ')),
+              enrichmentExcerpts: enrichmentForMeta?.excerpts?.slice(0, 10).map((k) => k.split(/\s+/).slice(0, 5).join(' ')),
               latencyMs: outcome.latencyMs,
               resultCount: outcome.results.length,
               selected: true,
