@@ -1,5 +1,5 @@
-import {readFile, stat, unlink, utimes, writeFile} from 'node:fs/promises'
-import {join} from 'node:path'
+import {mkdir, readFile, stat, unlink, utimes, writeFile} from 'node:fs/promises'
+import {dirname, join} from 'node:path'
 
 const LOCK_FILENAME = 'dream.lock'
 const DEFAULT_STALE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
@@ -75,6 +75,7 @@ export class DreamLockService {
     }
 
     // Write our PID
+    await mkdir(dirname(this.lockFilePath), {recursive: true})
     await writeFile(this.lockFilePath, String(process.pid), 'utf8')
 
     // Write-then-verify: re-read to confirm we won the race

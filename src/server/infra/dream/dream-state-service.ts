@@ -37,10 +37,10 @@ export class DreamStateService {
     try {
       const raw = await readFile(this.stateFilePath, 'utf8')
       const parsed = DreamStateSchema.safeParse(JSON.parse(raw))
-      if (!parsed.success) return {...EMPTY_DREAM_STATE}
+      if (!parsed.success) return {...EMPTY_DREAM_STATE, pendingMerges: []}
       return parsed.data
     } catch {
-      return {...EMPTY_DREAM_STATE}
+      return {...EMPTY_DREAM_STATE, pendingMerges: []}
     }
   }
 
