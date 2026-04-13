@@ -110,6 +110,7 @@ export class DreamExecutor {
         agent,
         contextTreeDir,
         searchService: this.deps.searchService,
+        signal: controller.signal,
         taskId: options.taskId,
       })
       const allOperations: DreamOperation[] = [...consolidateResults]

@@ -351,4 +351,23 @@ describe('consolidate', () => {
     // Should include siblings (logout.md, session.md) in addition to the changed file
     expect(fileKeys.length).to.be.greaterThan(1)
   })
+
+  it('stops processing domains when signal is aborted', async () => {
+    await createMdFile(ctxDir, 'auth/login.md', '# Login')
+    await createMdFile(ctxDir, 'api/endpoints.md', '# Endpoints')
+
+    const controller = new AbortController()
+
+    // Abort after first domain finishes executing
+    agent.executeOnSession.onFirstCall().callsFake(async () => {
+      controller.abort()
+      return llmResponse([])
+    })
+    agent.executeOnSession.onSecondCall().resolves(llmResponse([]))
+
+    await consolidate(['auth/login.md', 'api/endpoints.md'], {...deps, signal: controller.signal})
+
+    // Only one domain processed — the second was skipped because signal was aborted
+    expect(agent.createTaskSession.callCount).to.equal(1)
+  })
 })

@@ -30,6 +30,7 @@ export type ConsolidateDeps = {
   searchService: {
     search(query: string, options?: {limit?: number; scope?: string}): Promise<{results: Array<{path: string; score: number; title: string}>}>
   }
+  signal?: AbortSignal
   taskId: string
 }
 
@@ -49,6 +50,7 @@ export async function consolidate(
   // Step 2-5: Process each domain sequentially to avoid concurrent file writes
   const allResults: DreamOperation[] = []
   for (const [domain, files] of domainGroups) {
+    if (deps.signal?.aborted) break
     // eslint-disable-next-line no-await-in-loop
     const domainOps = await processDomain(domain, files, deps)
     allResults.push(...domainOps)
