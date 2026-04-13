@@ -11,10 +11,10 @@
  * Never throws — returns empty array on errors.
  */
 
-import {load as yamlLoad} from 'js-yaml'
+import {dump as yamlDump, load as yamlLoad} from 'js-yaml'
 import {randomUUID} from 'node:crypto'
 import {access, mkdir, readdir, readFile, rename, writeFile} from 'node:fs/promises'
-import {dirname, join} from 'node:path'
+import {dirname, join, resolve} from 'node:path'
 
 import type {ICipherAgent} from '../../../../agent/core/interfaces/i-cipher-agent.js'
 import type {DreamOperation} from '../dream-log-schema.js'
@@ -73,6 +73,7 @@ export async function synthesize(deps: SynthesizeDeps): Promise<DreamOperation[]
     const prompt = buildPrompt(domains, existingSyntheses)
     const response = await agent.executeOnSession(sessionId, prompt, {
       executionContext: {commandType: 'curate', maxIterations: 10},
+      signal: deps.signal,
       taskId,
     })
 
@@ -90,12 +91,16 @@ export async function synthesize(deps: SynthesizeDeps): Promise<DreamOperation[]
 
     if (novel.length === 0) return []
 
-    // Step 5: Write synthesis files
+    // Step 5: Write synthesis files (per-candidate error handling to preserve partial results)
     const results: DreamOperation[] = []
     for (const candidate of novel) {
-      // eslint-disable-next-line no-await-in-loop
-      const op = await writeSynthesisFile(candidate, contextTreeDir)
-      if (op) results.push(op)
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const op = await writeSynthesisFile(candidate, contextTreeDir)
+        if (op) results.push(op)
+      } catch {
+        // Skip failed candidate — don't discard already-written results
+      }
     }
 
     return results
@@ -186,9 +191,9 @@ function parseFrontmatterType(content: string): string | undefined {
 
   try {
     const yamlBlock = content.slice(4, actualEnd)
-    const parsed = yamlLoad(yamlBlock) as null | Record<string, unknown>
-    if (parsed && typeof parsed === 'object' && typeof parsed.type === 'string') {
-      return parsed.type
+    const raw = yamlLoad(yamlBlock)
+    if (raw !== null && typeof raw === 'object' && !Array.isArray(raw) && 'type' in raw && typeof raw.type === 'string') {
+      return raw.type
     }
   } catch {
     // Invalid YAML
@@ -223,7 +228,12 @@ async function writeSynthesisFile(
 ): Promise<DreamOperation | undefined> {
   const slug = slugify(candidate.title)
   const relativePath = `${candidate.placement}/${slug}.md`
-  const absPath = join(contextTreeDir, relativePath)
+  const absPath = resolve(contextTreeDir, relativePath)
+
+  // Guard against LLM-supplied path traversal (e.g. placement = "../../etc")
+  if (!absPath.startsWith(contextTreeDir + '/')) {
+    return undefined
+  }
 
   // Name collision check
   try {
@@ -234,16 +244,17 @@ async function writeSynthesisFile(
   }
 
   const sources = candidate.evidence.map((e) => `${e.domain}/_index.md`)
-  const content = [
-    '---',
-    'type: synthesis',
-    'maturity: draft',
-    `confidence: ${candidate.confidence}`,
-    'sources:',
-    ...sources.map((s) => `  - ${s}`),
-    `synthesized_at: '${new Date().toISOString()}'`,
-    '---',
-    '',
+  /* eslint-disable camelcase */
+  const frontmatter = {
+    confidence: candidate.confidence,
+    maturity: 'draft',
+    sources,
+    synthesized_at: new Date().toISOString(),
+    type: 'synthesis',
+  }
+  /* eslint-enable camelcase */
+  const yaml = yamlDump(frontmatter, {lineWidth: -1, sortKeys: true}).trimEnd()
+  const body = [
     `# ${candidate.title}`,
     '',
     candidate.claim,
@@ -253,6 +264,7 @@ async function writeSynthesisFile(
     ...candidate.evidence.map((e) => `- **${e.domain}**: ${e.fact}`),
     '',
   ].join('\n')
+  const content = `---\n${yaml}\n---\n\n${body}`
 
   await atomicWrite(absPath, content)
 

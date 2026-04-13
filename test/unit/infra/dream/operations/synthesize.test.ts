@@ -399,6 +399,53 @@ describe('synthesize', () => {
     expect(results[0].needsReview).to.be.false
   })
 
+  // ── Path traversal ────────────────────────────────────────────────────────
+
+  it('rejects candidate with path-traversal placement', async () => {
+    await createMdFile(ctxDir, 'auth/_index.md', '# Auth', {type: 'summary'})
+    await createMdFile(ctxDir, 'api/_index.md', '# API', {type: 'summary'})
+
+    agent.executeOnSession.resolves(llmResponse([{
+      claim: 'Malicious placement.',
+      confidence: 0.9,
+      evidence: [{domain: 'auth', fact: 'A'}, {domain: 'api', fact: 'B'}],
+      placement: '../../etc',
+      title: 'Escape Attempt',
+    }]))
+
+    const results = await synthesize(deps)
+    expect(results).to.deep.equal([])
+  })
+
+  // ── Partial write failure ────────────────────────────────────────────────
+
+  it('preserves successful results when a later candidate fails to write', async () => {
+    await createMdFile(ctxDir, 'auth/_index.md', '# Auth', {type: 'summary'})
+    await createMdFile(ctxDir, 'api/_index.md', '# API', {type: 'summary'})
+
+    // First candidate writes to 'auth' (valid), second to path-traversal (rejected)
+    agent.executeOnSession.resolves(llmResponse([
+      {
+        claim: 'Good insight.',
+        confidence: 0.9,
+        evidence: [{domain: 'auth', fact: 'A'}, {domain: 'api', fact: 'B'}],
+        placement: 'auth',
+        title: 'Valid Pattern',
+      },
+      {
+        claim: 'Bad placement.',
+        confidence: 0.9,
+        evidence: [{domain: 'auth', fact: 'A'}, {domain: 'api', fact: 'B'}],
+        placement: '../../tmp',
+        title: 'Invalid Pattern',
+      },
+    ]))
+
+    const results = await synthesize(deps)
+    expect(results).to.have.lengthOf(1)
+    expect(asSynthesize(results[0]).outputFile).to.equal('auth/valid-pattern.md')
+  })
+
   // ── Signal abort ──────────────────────────────────────────────────────────
 
   it('respects abort signal', async () => {
@@ -411,5 +458,19 @@ describe('synthesize', () => {
     const results = await synthesize({...deps, signal: controller.signal})
     expect(results).to.deep.equal([])
     expect(agent.createTaskSession.called).to.be.false
+  })
+
+  it('passes abort signal to executeOnSession', async () => {
+    await createMdFile(ctxDir, 'auth/_index.md', '# Auth', {type: 'summary'})
+    await createMdFile(ctxDir, 'api/_index.md', '# API', {type: 'summary'})
+
+    const controller = new AbortController()
+    agent.executeOnSession.resolves(llmResponse([]))
+
+    await synthesize({...deps, signal: controller.signal})
+
+    expect(agent.executeOnSession.calledOnce).to.be.true
+    const options = agent.executeOnSession.firstCall.args[2]
+    expect(options).to.have.property('signal', controller.signal)
   })
 })

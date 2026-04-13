@@ -114,13 +114,15 @@ export class DreamExecutor {
         signal: controller.signal,
         taskId: options.taskId,
       })
-      const synthesizeResults = await synthesize({
-        agent,
-        contextTreeDir,
-        searchService: this.deps.searchService,
-        signal: controller.signal,
-        taskId: options.taskId,
-      })
+      const synthesizeResults = changedFiles.size > 0
+        ? await synthesize({
+            agent,
+            contextTreeDir,
+            searchService: this.deps.searchService,
+            signal: controller.signal,
+            taskId: options.taskId,
+          })
+        : []
       const allOperations: DreamOperation[] = [...consolidateResults, ...synthesizeResults]
 
       // Step 5: Post-dream propagation (fail-open)
