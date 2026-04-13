@@ -208,6 +208,7 @@
   },
   "types": "dist/index.d.ts",
   "bundleDependencies": [
-    "@campfirein/brv-transport-client"
+    "@campfirein/brv-transport-client",
+    "@campfirein/byterover-packages"
   ]
 }
