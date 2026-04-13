@@ -6,7 +6,7 @@
  */
 
 import {mkdir, unlink, writeFile} from 'node:fs/promises'
-import {dirname, join} from 'node:path'
+import {dirname, resolve} from 'node:path'
 
 import type {DreamLogEntry, DreamOperation} from './dream-log-schema.js'
 import type {DreamState} from './dream-state-schema.js'
@@ -80,13 +80,13 @@ export async function undoLastDream(deps: DreamUndoDeps): Promise<DreamUndoResul
   // ── Post-undo: rebuild manifest ─────────────────────────────────────────
   try {
     await manifestService.buildManifest(contextTreeDir)
-  } catch {
-    // Manifest rebuild is best-effort
+  } catch (error) {
+    result.errors.push(`Manifest rebuild failed: ${error instanceof Error ? error.message : String(error)}`)
   }
 
   // ── Post-undo: mark log as undone ───────────────────────────────────────
   const undoneLog: DreamLogEntry = {
-    completedAt: 'completedAt' in log ? (log.completedAt as number) : Date.now(),
+    completedAt: log.completedAt,
     id: log.id,
     operations: log.operations,
     startedAt: log.startedAt,
@@ -113,6 +113,25 @@ export async function undoLastDream(deps: DreamUndoDeps): Promise<DreamUndoResul
   })
 
   return result
+}
+
+/** Unlink a file, ignoring ENOENT (already gone) but rethrowing other errors. */
+async function unlinkSafe(filePath: string): Promise<void> {
+  try {
+    await unlink(filePath)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+}
+
+/** Resolve a relative path within contextTreeDir, rejecting traversal outside the tree. */
+function safePath(contextTreeDir: string, relativePath: string): string {
+  const full = resolve(contextTreeDir, relativePath)
+  if (!full.startsWith(contextTreeDir + '/') && full !== contextTreeDir) {
+    throw new Error(`Path traversal blocked: ${relativePath}`)
+  }
+
+  return full
 }
 
 // ── Per-operation undo handlers ───────────────────────────────────────────────
@@ -161,7 +180,7 @@ async function undoConsolidate(
 
       // Restore all source files from previousTexts
       for (const [filePath, content] of Object.entries(op.previousTexts)) {
-        const fullPath = join(contextTreeDir, filePath)
+        const fullPath = safePath(contextTreeDir, filePath)
         // eslint-disable-next-line no-await-in-loop
         await mkdir(dirname(fullPath), {recursive: true})
         // eslint-disable-next-line no-await-in-loop
@@ -171,7 +190,7 @@ async function undoConsolidate(
 
       // Delete merged output if it wasn't an original source
       if (op.outputFile && !op.previousTexts[op.outputFile]) {
-        await unlink(join(contextTreeDir, op.outputFile)).catch(() => {})
+        await unlinkSafe(safePath(contextTreeDir, op.outputFile))
         result.deletedFiles.push(op.outputFile)
       }
 
@@ -184,7 +203,7 @@ async function undoConsolidate(
       }
 
       for (const [filePath, content] of Object.entries(op.previousTexts)) {
-        const fullPath = join(contextTreeDir, filePath)
+        const fullPath = safePath(contextTreeDir, filePath)
         // eslint-disable-next-line no-await-in-loop
         await mkdir(dirname(fullPath), {recursive: true})
         // eslint-disable-next-line no-await-in-loop
@@ -202,8 +221,13 @@ async function undoSynthesize(
   contextTreeDir: string,
   result: DreamUndoResult,
 ): Promise<void> {
-  // Delete the synthesized file
-  await unlink(join(contextTreeDir, op.outputFile)).catch(() => {})
+  // UPDATE modified a pre-existing file — can't undo without previousTexts (not captured by SYNTHESIZE)
+  if (op.action === 'UPDATE') {
+    throw new Error(`Cannot undo SYNTHESIZE/UPDATE: previousTexts not captured for ${op.outputFile}`)
+  }
+
+  // CREATE — delete the synthesized file
+  await unlinkSafe(safePath(contextTreeDir, op.outputFile))
   result.deletedFiles.push(op.outputFile)
 }
 

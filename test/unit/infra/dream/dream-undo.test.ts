@@ -265,6 +265,30 @@ describe('undoLastDream', () => {
     expect(exists).to.be.false
   })
 
+  it('throws for SYNTHESIZE/UPDATE (no previousTexts to restore)', async () => {
+    await mkdir(join(ctxDir, 'auth'), {recursive: true})
+    await writeFile(join(ctxDir, 'auth/overview.md'), 'Updated content')
+
+    dreamLogStore.getById.resolves(completedLog([{
+      action: 'UPDATE',
+      confidence: 0.8,
+      needsReview: false,
+      outputFile: 'auth/overview.md',
+      sources: ['auth/jwt.md'],
+      type: 'SYNTHESIZE',
+    }]))
+
+    const result = await undoLastDream(deps)
+
+    // Error collected, file NOT deleted
+    expect(result.errors.length).to.be.greaterThan(0)
+    expect(result.errors[0]).to.include('SYNTHESIZE/UPDATE')
+    expect(result.deletedFiles).to.be.empty
+
+    const content = await readFile(join(ctxDir, 'auth/overview.md'), 'utf8')
+    expect(content).to.equal('Updated content')
+  })
+
   // ── PRUNE undo (forward-compatible) ───────────────────────────────────────
 
   it('undoes PRUNE/ARCHIVE: calls archiveService.restoreEntry', async () => {
