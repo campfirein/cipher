@@ -22,6 +22,7 @@
 import {connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 import {appendFileSync} from 'node:fs'
+import {join} from 'node:path'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {ProviderConfigResponse, TaskExecute} from '../../core/domain/transport/schemas.js'
@@ -35,7 +36,7 @@ import {createSearchKnowledgeService} from '../../../agent/infra/tools/implement
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {decodeSearchContent} from '../../../shared/transport/search-content.js'
 import {getCurrentConfig} from '../../config/environment.js'
-import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
+import {BRV_DIR, DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {serializeTaskError, TaskError, TaskErrorCode} from '../../core/domain/errors/task-error.js'
 import {loadSources} from '../../core/domain/source/source-schema.js'
 import {
@@ -44,10 +45,16 @@ import {
   TransportStateEventNames,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
+import {DreamLockService} from '../dream/dream-lock-service.js'
+import {DreamLogStore} from '../dream/dream-log-store.js'
+import {DreamStateService} from '../dream/dream-state-service.js'
+import {DreamTrigger} from '../dream/dream-trigger.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
+import {DreamExecutor} from '../executor/dream-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
 import {SearchExecutor} from '../executor/search-executor.js'
+import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {createAgentLogger} from './agent-logger.js'
 import {resolveSessionId} from './session-resolver.js'
@@ -390,7 +397,7 @@ async function executeTask(
   queryExecutor: QueryExecutor,
   searchExecutor: SearchExecutor,
 ): Promise<void> {
-  const {clientCwd, clientId, content, files, folderPath, taskId, type, worktreeRoot} = task
+  const {clientCwd, clientId, content, files, folderPath, force, taskId, type, worktreeRoot} = task
   if (!transport || !agent) return
 
   // Search tasks are pure BM25 retrieval — no LLM, no provider needed.
@@ -483,6 +490,39 @@ async function executeTask(
             projectRoot: projectPath,
             taskId,
             worktreeRoot,
+          })
+
+          break
+        }
+
+        case 'dream': {
+          const brvDir = join(projectPath, BRV_DIR)
+          const dreamLockService = new DreamLockService({baseDir: brvDir})
+          const dreamStateService = new DreamStateService({baseDir: brvDir})
+
+          // Run trigger check (acquires lock if eligible)
+          const dreamTrigger = new DreamTrigger({
+            dreamLockService,
+            dreamStateService,
+            getQueueLength: () => 0, // Agent-level: this task is the only active one
+          })
+          const eligibility = await dreamTrigger.tryStartDream(projectPath, force)
+          if (!eligibility.eligible) {
+            result = `Dream skipped: ${eligibility.reason}`
+            break
+          }
+
+          const dreamExecutor = new DreamExecutor({
+            curateLogStore: new FileCurateLogStore({baseDir: brvDir}),
+            dreamLockService,
+            dreamLogStore: new DreamLogStore({baseDir: brvDir}),
+            dreamStateService,
+          })
+          result = await dreamExecutor.executeWithAgent(agent, {
+            priorMtime: eligibility.priorMtime,
+            projectRoot: projectPath,
+            taskId,
+            trigger: 'cli',
           })
 
           break

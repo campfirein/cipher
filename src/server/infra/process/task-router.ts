@@ -483,6 +483,7 @@ export class TaskRouter {
       ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
       ...(data.folderPath ? {folderPath: data.folderPath} : {}),
+      ...(data.force === undefined ? {} : {force: data.force}),
       ...(projectPath ? {projectPath} : {}),
       taskId,
       type: data.type,
