@@ -60,6 +60,7 @@ function createMinimalConfig(overrides?: Partial<SwarmConfig>): SwarmConfig {
       indexCacheTtlSeconds: 300,
       maxConcurrentProviders: 4,
       maxQueryLatencyMs: 2000,
+      resultCacheTtlMs: 10_000,
     },
     provenance: {enabled: true, fullRetentionDays: 30, keepSummaries: true, storagePath: 'swarm/provenance'},
     providers: {byterover: {enabled: true}},
@@ -412,6 +413,163 @@ describe('SwarmCoordinator', () => {
       expect(summary.activeCount).to.equal(1)
       expect(summary.monthlyBudgetCents).to.equal(5000)
       expect(summary.providers).to.have.length(1)
+    })
+  })
+
+  describe('result cache', () => {
+    it('returns cached result for identical query', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Auth')])
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([p1], config)
+
+      const r1 = await coordinator.execute({query: 'auth tokens'})
+      const r2 = await coordinator.execute({query: 'auth tokens'})
+
+      expect(r1).to.deep.equal(r2)
+      expect(r1).to.not.equal(r2) // Different object references (clone)
+      expect((p1.query as sinon.SinonStub).callCount).to.equal(1)
+    })
+
+    it('cached result is mutation-safe', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Auth')])
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([p1], config)
+
+      const r1 = await coordinator.execute({query: 'auth'})
+      r1.results.length = 0 // Mutate the returned results
+      const r2 = await coordinator.execute({query: 'auth'})
+
+      expect(r2.results).to.have.length(1) // Cache unaffected by mutation
+    })
+
+    it('cache hit is case insensitive', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Auth')])
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([p1], config)
+
+      await coordinator.execute({query: 'JWT Refresh'})
+      await coordinator.execute({query: 'jwt refresh'})
+
+      expect((p1.query as sinon.SinonStub).callCount).to.equal(1)
+    })
+
+    it('cache hit normalizes whitespace', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Auth')])
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([p1], config)
+
+      await coordinator.execute({query: 'jwt  refresh'})
+      await coordinator.execute({query: 'jwt refresh'})
+
+      expect((p1.query as sinon.SinonStub).callCount).to.equal(1)
+    })
+
+    it('cache miss for different query', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Auth')])
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([p1], config)
+
+      await coordinator.execute({query: 'JWT refresh'})
+      await coordinator.execute({query: 'JWT expiry'})
+
+      expect((p1.query as sinon.SinonStub).callCount).to.equal(2)
+    })
+
+    it('cache miss for different scope', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Auth')])
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([p1], config)
+
+      await coordinator.execute({query: 'auth', scope: 'frontend'})
+      await coordinator.execute({query: 'auth', scope: 'backend'})
+
+      expect((p1.query as sinon.SinonStub).callCount).to.equal(2)
+    })
+
+    it('cache miss for different maxResults', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Auth')])
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([p1], config)
+
+      await coordinator.execute({maxResults: 5, query: 'auth'})
+      await coordinator.execute({maxResults: 10, query: 'auth'})
+
+      expect((p1.query as sinon.SinonStub).callCount).to.equal(2)
+    })
+
+    it('cache expires after TTL', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Auth')])
+      const config = createMinimalConfig({
+        performance: {fileWatcherDebounceMs: 1000, indexCacheTtlSeconds: 300, maxConcurrentProviders: 4, maxQueryLatencyMs: 2000, resultCacheTtlMs: 1},
+      })
+      const coordinator = new SwarmCoordinator([p1], config)
+
+      await coordinator.execute({query: 'auth'})
+      await new Promise<void>((r) => { setTimeout(r, 10) })
+      await coordinator.execute({query: 'auth'})
+
+      expect((p1.query as sinon.SinonStub).callCount).to.equal(2)
+    })
+
+    it('TTL 0 disables caching', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Auth')])
+      const config = createMinimalConfig({
+        performance: {fileWatcherDebounceMs: 1000, indexCacheTtlSeconds: 300, maxConcurrentProviders: 4, maxQueryLatencyMs: 2000, resultCacheTtlMs: 0},
+      })
+      const coordinator = new SwarmCoordinator([p1], config)
+
+      await coordinator.execute({query: 'auth'})
+      await coordinator.execute({query: 'auth'})
+
+      expect((p1.query as sinon.SinonStub).callCount).to.equal(2)
+    })
+
+    it('store() invalidates cache', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Auth')])
+      p1.capabilities.writeSupported = true;
+      (p1.store as sinon.SinonStub).resolves({id: 'note-1', provider: 'byterover', success: true})
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([p1], config)
+
+      await coordinator.execute({query: 'auth'})
+      await coordinator.store({content: 'new knowledge'})
+      await coordinator.execute({query: 'auth'})
+
+      expect((p1.query as sinon.SinonStub).callCount).to.equal(2)
+    })
+
+    it('refreshHealth() invalidates cache', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Auth')])
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([p1], config)
+
+      await coordinator.execute({query: 'auth'})
+      await coordinator.refreshHealth()
+      await coordinator.execute({query: 'auth'})
+
+      expect((p1.query as sinon.SinonStub).callCount).to.equal(2)
+    })
+
+    it('evicts oldest entry when cache exceeds max size', async () => {
+      const p1 = createMockProvider('byterover', 'byterover', [makeResult('byterover', 'Auth')])
+      const config = createMinimalConfig()
+      const coordinator = new SwarmCoordinator([p1], config)
+
+      // Fill cache with 21 distinct queries (max is 20)
+      for (let i = 0; i < 21; i++) {
+        // eslint-disable-next-line no-await-in-loop -- sequential execution needed for deterministic cache order
+        await coordinator.execute({query: `query ${i}`})
+      }
+
+      // query 0 should have been evicted — re-executing should call graph
+      const callsBefore = (p1.query as sinon.SinonStub).callCount
+      await coordinator.execute({query: 'query 0'})
+      expect((p1.query as sinon.SinonStub).callCount).to.equal(callsBefore + 1)
+
+      // query 20 should still be cached
+      const callsAfter = (p1.query as sinon.SinonStub).callCount
+      await coordinator.execute({query: 'query 20'})
+      expect((p1.query as sinon.SinonStub).callCount).to.equal(callsAfter)
     })
   })
 })
