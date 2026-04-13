@@ -36,8 +36,19 @@ describe('DreamExecutor', () => {
     curateLogStore = {
       list: stub().resolves([]),
     }
-    agent = {} as unknown as ICipherAgent
-    deps = {curateLogStore, dreamLockService, dreamLogStore, dreamStateService}
+    agent = {
+      createTaskSession: stub().resolves('session-1'),
+      deleteTaskSession: stub().resolves(),
+      executeOnSession: stub().resolves('```json\n{"actions":[]}\n```'),
+      setSandboxVariableOnSession: stub(),
+    } as unknown as ICipherAgent
+    deps = {
+      curateLogStore,
+      dreamLockService,
+      dreamLogStore,
+      dreamStateService,
+      searchService: {search: stub().resolves({message: '', results: [], totalFound: 0})},
+    }
   })
 
   afterEach(() => {
@@ -137,13 +148,15 @@ describe('DreamExecutor', () => {
       expect(dreamLockService.release.called).to.be.false
     })
 
-    it('does not scan curate logs on first dream (lastDreamAt = null)', async () => {
+    it('scans all curate logs on first dream (lastDreamAt = null)', async () => {
       dreamStateService.read.resolves({...EMPTY_DREAM_STATE, pendingMerges: []})
 
       const executor = new DreamExecutor(deps)
       await executor.executeWithAgent(agent, defaultOptions)
 
-      expect(curateLogStore.list.called).to.be.false
+      expect(curateLogStore.list.calledOnce).to.be.true
+      const listArgs = curateLogStore.list.firstCall.args[0]
+      expect(listArgs.after).to.equal(0) // epoch 0 = scan all
     })
 
     it('scans curate logs since last dream when lastDreamAt is set', async () => {

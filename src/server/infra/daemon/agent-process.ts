@@ -24,6 +24,7 @@ import {randomUUID} from 'node:crypto'
 import {appendFileSync} from 'node:fs'
 import {join} from 'node:path'
 
+import type {ISearchKnowledgeService} from '../../../agent/infra/sandbox/tools-sdk.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {ProviderConfigResponse, TaskExecute} from '../../core/domain/transport/schemas.js'
 
@@ -379,7 +380,7 @@ async function start(): Promise<void> {
   transport.on<TaskExecute>(TransportTaskEventNames.EXECUTE, (task) => {
     agentLog(`task:execute received taskId=${task.taskId} type=${task.type} activeTaskCount=${activeTaskCount + 1}`)
     // eslint-disable-next-line no-void
-    void executeTask(task, curateExecutor, folderPackExecutor, queryExecutor, searchExecutor)
+    void executeTask(task, curateExecutor, folderPackExecutor, queryExecutor, searchExecutor, searchService, configResult.storagePath)
   })
 
   // 8. Register with transport server (for TransportHandlers tracking)
@@ -396,6 +397,8 @@ async function executeTask(
   folderPackExecutor: FolderPackExecutor,
   queryExecutor: QueryExecutor,
   searchExecutor: SearchExecutor,
+  searchKnowledgeService: ISearchKnowledgeService,
+  storagePath: string,
 ): Promise<void> {
   const {clientCwd, clientId, content, files, folderPath, force, taskId, type, worktreeRoot} = task
   if (!transport || !agent) return
@@ -513,10 +516,11 @@ async function executeTask(
           }
 
           const dreamExecutor = new DreamExecutor({
-            curateLogStore: new FileCurateLogStore({baseDir: brvDir}),
+            curateLogStore: new FileCurateLogStore({baseDir: storagePath}),
             dreamLockService,
             dreamLogStore: new DreamLogStore({baseDir: brvDir}),
             dreamStateService,
+            searchService: searchKnowledgeService,
           })
           result = await dreamExecutor.executeWithAgent(agent, {
             priorMtime: eligibility.priorMtime,

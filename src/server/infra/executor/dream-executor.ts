@@ -16,7 +16,7 @@
  */
 
 import {access} from 'node:fs/promises'
-import {join} from 'node:path'
+import {isAbsolute, join, sep} from 'node:path'
 
 import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
 import type {FileState} from '../../core/domain/entities/context-tree-snapshot.js'
@@ -29,6 +29,7 @@ import {FileContextTreeManifestService} from '../context-tree/file-context-tree-
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-summary-service.js'
 import {diffStates} from '../context-tree/snapshot-diff.js'
+import {consolidate, type ConsolidateDeps} from '../dream/operations/consolidate.js'
 
 const DREAM_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
@@ -48,6 +49,7 @@ export type DreamExecutorDeps = {
     read(): Promise<import('../dream/dream-state-schema.js').DreamState>
     write(state: import('../dream/dream-state-schema.js').DreamState): Promise<void>
   }
+  searchService: ConsolidateDeps['searchService']
 }
 
 type DreamExecuteOptions = {
@@ -101,12 +103,17 @@ export class DreamExecutor {
       // Step 2: Load dream state
       const dreamState = await this.deps.dreamStateService.read()
 
-      // Step 3: Find changed files since last dream (consumed by operations in ENG-2060/2061/2062)
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      // Step 3: Find changed files since last dream
       const changedFiles = await this.findChangedFilesSinceLastDream(dreamState.lastDreamAt, contextTreeDir)
-
-      // Step 4: Run operations (NO-OP stubs — changedFiles passed to operations when implemented)
-      const allOperations: DreamOperation[] = []
+      // Step 4: Run operations (consolidate now, synthesize + prune in ENG-2061/2062)
+      const consolidateResults = await consolidate([...changedFiles], {
+        agent,
+        contextTreeDir,
+        searchService: this.deps.searchService,
+        signal: controller.signal,
+        taskId: options.taskId,
+      })
+      const allOperations: DreamOperation[] = [...consolidateResults]
 
       // Step 5: Post-dream propagation (fail-open)
       if (preState) {
@@ -206,19 +213,28 @@ export class DreamExecutor {
     lastDreamAt: null | string,
     contextTreeDir: string,
   ): Promise<Set<string>> {
-    if (lastDreamAt === null) return new Set()
+    // First dream (lastDreamAt=null): scan ALL curate logs — every curation happened "since never"
+    const afterTimestamp = lastDreamAt ? new Date(lastDreamAt).getTime() : 0
 
     const recentLogs = await this.deps.curateLogStore.list({
-      after: new Date(lastDreamAt).getTime(),
+      after: afterTimestamp,
       status: ['completed'],
     })
 
     const changedFiles = new Set<string>()
     for (const log of recentLogs) {
       for (const op of log.operations ?? []) {
-        if (op.path) changedFiles.add(op.path)
+        // op.filePath is absolute; convert to relative for context tree operations
+        if (op.filePath) {
+          const relative = toContextTreeRelative(op.filePath, contextTreeDir)
+          if (relative) changedFiles.add(relative)
+        }
+
         if (op.additionalFilePaths) {
-          for (const p of op.additionalFilePaths) changedFiles.add(p)
+          for (const p of op.additionalFilePaths) {
+            const relative = toContextTreeRelative(p, contextTreeDir)
+            if (relative) changedFiles.add(relative)
+          }
         }
       }
     }
@@ -235,4 +251,27 @@ export class DreamExecutor {
     const results = await Promise.all(checks)
     return new Set(results.filter((f): f is string => f !== null))
   }
+}
+
+/** Convert an absolute file path to a context-tree-relative path, or undefined if not inside the tree. */
+function toContextTreeRelative(absolutePath: string, contextTreeDir: string): string | undefined {
+  // Normalize separators for cross-platform (Windows uses backslash)
+  const normalized = absolutePath.replaceAll('\\', '/')
+  const normalizedDir = contextTreeDir.replaceAll('\\', '/')
+
+  if (normalized.startsWith(normalizedDir + '/')) {
+    return normalized.slice(normalizedDir.length + 1)
+  }
+
+  // Already relative? Validate it doesn't traverse outside the context tree
+  if (!isAbsolute(normalized)) {
+    const resolved = join(contextTreeDir, normalized)
+    if (resolved.startsWith(contextTreeDir + sep) || resolved.startsWith(contextTreeDir + '/')) {
+      return normalized
+    }
+
+    return undefined // Path traversal attempt (e.g., ../../secret.md)
+  }
+
+  return undefined
 }
