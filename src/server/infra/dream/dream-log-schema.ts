@@ -14,7 +14,7 @@ const ConsolidateOperationSchema = z.object({
 
 const SynthesizeOperationSchema = z.object({
   action: z.enum(['CREATE', 'UPDATE']),
-  confidence: z.number(),
+  confidence: z.number().min(0).max(1),
   needsReview: z.boolean(),
   outputFile: z.string(),
   sources: z.array(z.string()),

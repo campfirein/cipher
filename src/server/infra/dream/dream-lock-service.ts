@@ -96,7 +96,9 @@ function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
     return true
-  } catch {
+  } catch (error: unknown) {
+    // EPERM: process exists but we can't signal it — treat as alive
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') return true
     return false
   }
 }
