@@ -6,15 +6,19 @@ import type {
   QueryLogSummary,
 } from '../../core/interfaces/usecase/i-query-log-summary-use-case.js'
 
-import {CACHE_TIERS, emptyByTier, QUERY_LOG_TIER_LABELS, QUERY_LOG_TIERS} from '../../core/domain/entities/query-log-entry.js'
-import {formatQueryLogSummaryNarrative} from './query-log-summary-narrative-formatter.js'
+import {
+  CACHE_TIERS,
+  emptyByTier,
+  QUERY_LOG_TIER_SHORT_LABELS,
+  QUERY_LOG_TIERS,
+} from '../../core/domain/entities/query-log-entry.js'
+import {describePeriod, formatDurationMs, formatQueryLogSummaryNarrative} from './query-log-summary-narrative-formatter.js'
 
 type QueryLogSummaryUseCaseDeps = {
   queryLogStore: IQueryLogStore
   terminal: ITerminal
 }
 
-const EMPTY_TEXT_OUTPUT = 'Query Recall Summary\n(no entries yet)'
 const TOP_LIMIT = 10
 const MAX_EXAMPLE_QUERIES = 3
 const MIN_KEYWORD_LENGTH = 3
@@ -210,18 +214,20 @@ function collectGapKeywords(query: string, buckets: Map<string, {count: number; 
 // ── Text formatting ─────────────────────────────────────────────────────────
 
 function formatSummaryText(summary: QueryLogSummary): string {
+  const periodLabel = describePeriod(summary.period, 'short')
+  const header = periodLabel ? `Query Recall Summary (${periodLabel})` : 'Query Recall Summary'
+
   if (summary.totalQueries === 0) {
-    return EMPTY_TEXT_OUTPUT
+    return `${header}\n(no entries yet)`
   }
 
   const cacheHits = CACHE_TIERS.reduce<number>((sum, t) => sum + summary.byTier[`tier${t}`], 0)
   const cachePct = Math.round(summary.cacheHitRate * 100)
   const coveragePct = Math.round(summary.coverageRate * 100)
   const matchedCount = summary.byStatus.completed - summary.queriesWithoutMatches
-
   const lines: string[] = [
-    'Query Recall Summary',
-    '====================',
+    header,
+    '='.repeat(header.length),
     `Total queries:        ${summary.totalQueries}`,
     `  Completed:          ${summary.byStatus.completed}`,
     `  Failed:             ${summary.byStatus.error}`,
@@ -230,18 +236,18 @@ function formatSummaryText(summary: QueryLogSummary): string {
     `Cache hit rate:       ${cachePct}% (${cacheHits}/${summary.byStatus.completed})`,
   ]
 
-  const maxTierLen = Math.max(...QUERY_LOG_TIERS.map((t) => `Tier ${t} (${QUERY_LOG_TIER_LABELS[t]}):`.length))
+  const maxTierLen = Math.max(...QUERY_LOG_TIERS.map((t) => `Tier ${t} (${QUERY_LOG_TIER_SHORT_LABELS[t]}):`.length))
   for (const t of QUERY_LOG_TIERS) {
-    const label = `Tier ${t} (${QUERY_LOG_TIER_LABELS[t]}):`
+    const label = `Tier ${t} (${QUERY_LOG_TIER_SHORT_LABELS[t]}):`
     lines.push(`  ${label.padEnd(maxTierLen)}  ${summary.byTier[`tier${t}`]}`)
   }
 
   lines.push(
     '',
     'Response time:',
-    `  Average:            ${formatDuration(summary.responseTime.avgMs)}`,
-    `  p50:                ${formatDuration(summary.responseTime.p50Ms)}`,
-    `  p95:                ${formatDuration(summary.responseTime.p95Ms)}`,
+    `  Average:            ${formatDurationMs(summary.responseTime.avgMs)}`,
+    `  p50:                ${formatDurationMs(summary.responseTime.p50Ms)}`,
+    `  p95:                ${formatDurationMs(summary.responseTime.p95Ms)}`,
     '',
     `Knowledge coverage:   ${coveragePct}% (${matchedCount}/${summary.byStatus.completed} queries had relevant results)`,
   )
@@ -272,10 +278,3 @@ function formatSummaryText(summary: QueryLogSummary): string {
   return lines.join('\n')
 }
 
-function formatDuration(ms: number): string {
-  if (ms >= 1000) {
-    return `${(ms / 1000).toFixed(1)}s`
-  }
-
-  return `${Math.round(ms)}ms`
-}

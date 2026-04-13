@@ -47,9 +47,7 @@ export class QueryLogUseCase implements IQueryLogUseCase {
     status?: QueryLogStatus[]
     tier?: QueryLogTier[]
   }): Promise<void> {
-    await (id
-      ? this.showDetail(id, format)
-      : this.showList({after, before, detail, format, limit, status, tier}))
+    await (id ? this.showDetail(id, format) : this.showList({after, before, detail, format, limit, status, tier}))
   }
 
   private log(msg?: string): void {
@@ -85,9 +83,6 @@ export class QueryLogUseCase implements IQueryLogUseCase {
 
     if (entry.status !== 'processing') {
       this.log(`Finished: ${formatTimestamp(entry.completedAt)}`)
-    }
-
-    if (entry.status === 'completed') {
       this.log(`Duration: ${formatEntryDuration(entry)}`)
     }
 
@@ -164,7 +159,7 @@ export class QueryLogUseCase implements IQueryLogUseCase {
     ].join('  ')
 
     this.log(header)
-    this.log('─'.repeat(idWidth + tierWidth + statusWidth + timeWidth + queryWidth + 8))
+    this.log('-'.repeat(idWidth + tierWidth + statusWidth + timeWidth + queryWidth + 8))
 
     for (const entry of entries) {
       const duration = formatEntryDuration(entry)

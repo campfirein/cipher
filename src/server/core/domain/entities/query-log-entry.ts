@@ -15,13 +15,22 @@ export const TIER_DIRECT_SEARCH: QueryLogTier = 2
 export const TIER_OPTIMIZED_LLM: QueryLogTier = 3
 export const TIER_FULL_AGENTIC: QueryLogTier = 4
 
-/** Human-readable labels for each resolution tier. */
+/** Human-readable labels for each resolution tier (used in detail view). */
 export const QUERY_LOG_TIER_LABELS: Record<QueryLogTier, string> = {
   [TIER_DIRECT_SEARCH]: 'direct search',
   [TIER_EXACT_CACHE]: 'exact cache hit',
   [TIER_FULL_AGENTIC]: 'full agentic',
   [TIER_FUZZY_CACHE]: 'fuzzy cache match',
   [TIER_OPTIMIZED_LLM]: 'optimized LLM',
+}
+
+/** Abbreviated tier labels for summary display. */
+export const QUERY_LOG_TIER_SHORT_LABELS: Record<QueryLogTier, string> = {
+  [TIER_DIRECT_SEARCH]: 'direct',
+  [TIER_EXACT_CACHE]: 'exact',
+  [TIER_FULL_AGENTIC]: 'agentic',
+  [TIER_FUZZY_CACHE]: 'fuzzy',
+  [TIER_OPTIMIZED_LLM]: 'LLM',
 }
 
 /** Tiers considered cache hits for cache-hit-rate calculation. */

@@ -454,7 +454,7 @@ describe('QueryLogSummaryUseCase', () => {
       expect(out).to.include('Query Recall Summary')
       expect(out).to.include('Total queries:')
       expect(out).to.include('Cache hit rate:')
-      expect(out).to.include('Tier 0 (exact cache hit)')
+      expect(out).to.include('Tier 0 (exact)')
       expect(out).to.include('Response time:')
       expect(out).to.include('Knowledge coverage:')
       expect(out).to.include('Top queried topics:')
@@ -644,7 +644,8 @@ describe('QueryLogSummaryUseCase', () => {
       await useCase.run({})
 
       const out = loggedOutput(terminal)
-      expect(out).to.equal('Query Recall Summary\n(no entries yet)')
+      expect(out).to.include('Query Recall Summary')
+      expect(out).to.include('(no entries yet)')
     })
   })
 })

@@ -263,25 +263,25 @@ describe('QueryLogUseCase', () => {
       expect(output).to.include('Error: Search index unavailable')
     })
 
-    // Test: Cancelled entry in detail shows Finished but not Duration
-    it('should show Finished but not Duration for cancelled entry', async () => {
+    // Test: Cancelled entry in detail shows Finished and Duration as dash
+    it('should show Finished and Duration as dash for cancelled entry', async () => {
       store.getById.resolves(makeCancelledEntry())
       await useCase.run({id: 'qry-1712345678500'})
 
       const output = logs.join('\n')
       expect(output).to.include('cancelled')
       expect(output).to.include('Finished:')
-      expect(output).to.not.include('Duration:')
+      expect(output).to.include('Duration: —')
     })
 
-    // Test: Error entry in detail shows Finished but not Duration
-    it('should show Finished but not Duration for error entry', async () => {
+    // Test: Error entry in detail shows Finished and Duration as dash
+    it('should show Finished and Duration as dash for error entry', async () => {
       store.getById.resolves(makeErrorEntry())
       await useCase.run({id: 'qry-1712345678700'})
 
       const output = logs.join('\n')
       expect(output).to.include('Finished:')
-      expect(output).to.not.include('Duration:')
+      expect(output).to.include('Duration: —')
     })
 
     // Test 12: Non-existent ID shows not-found message
@@ -295,10 +295,12 @@ describe('QueryLogUseCase', () => {
     // Test 13: Duration formatted correctly
     it('should format duration correctly: ms for <1s, seconds for >=1s, dash for missing', async () => {
       // 12ms duration
-      store.getById.resolves(makeCompletedEntry({
-        completedAt: 1_712_345_678_913,
-        startedAt: 1_712_345_678_901,
-      }))
+      store.getById.resolves(
+        makeCompletedEntry({
+          completedAt: 1_712_345_678_913,
+          startedAt: 1_712_345_678_901,
+        }),
+      )
       await useCase.run({id: 'qry-1712345678901'})
 
       let output = logs.join('\n')
@@ -306,10 +308,12 @@ describe('QueryLogUseCase', () => {
 
       // 3.2s duration
       logs = []
-      store.getById.resolves(makeCompletedEntry({
-        completedAt: 1_712_345_682_101,
-        startedAt: 1_712_345_678_901,
-      }))
+      store.getById.resolves(
+        makeCompletedEntry({
+          completedAt: 1_712_345_682_101,
+          startedAt: 1_712_345_678_901,
+        }),
+      )
       await useCase.run({id: 'qry-1712345678901'})
 
       output = logs.join('\n')

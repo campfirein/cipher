@@ -25,31 +25,38 @@ export function formatQueryLogSummaryNarrative(summary: QueryLogSummary): string
   return paragraphs.join('\n\n')
 }
 
-function describePeriod(period: QueryLogSummary['period']): string {
-  if (period.from === 0 && period.to === 0) {
-    return 'in the selected period'
-  }
-
-  if (period.from > 0 && period.to > 0) {
-    const spanMs = period.to - period.from
-    return describeSpan(spanMs)
-  }
-
-  if (period.from > 0) {
+/**
+ * Describe the time period as a human-readable label.
+ *
+ * Two formats:
+ * - 'short': "last 1h", "last 24h", "last 7d" (for text summary header)
+ * - 'long': "in the last hour", "in the last 24 hours" (for narrative prose)
+ *
+ * Only produces a period label when we have a clear relative window
+ * (--since/--last without --before). Bounded or ambiguous ranges
+ * return empty string (short) or "in the selected period" (long).
+ */
+export function describePeriod(
+  period: QueryLogSummary['period'],
+  format: 'long' | 'short' = 'long',
+): string {
+  if (period.from > 0 && period.to === 0) {
     const spanMs = Date.now() - period.from
-    return describeSpan(spanMs)
+    const hours = Math.round(spanMs / MS_PER_HOUR)
+    const days = Math.round(spanMs / MS_PER_DAY)
+
+    if (format === 'short') {
+      if (hours <= 1) return 'last 1h'
+      if (hours <= 25) return 'last 24h'
+      return `last ${days}d`
+    }
+
+    if (hours <= 1) return 'in the last hour'
+    if (hours <= 25) return 'in the last 24 hours'
+    return `in the last ${days} days`
   }
 
-  return 'in the selected period'
-}
-
-function describeSpan(spanMs: number): string {
-  if (spanMs <= MS_PER_DAY + MS_PER_HOUR) {
-    return 'in the last 24 hours'
-  }
-
-  const days = Math.round(spanMs / MS_PER_DAY)
-  return `in the last ${days} days`
+  return format === 'short' ? 'selected period' : 'in the selected period'
 }
 
 function buildOverviewParagraph(summary: QueryLogSummary, periodLabel: string): string {
@@ -62,7 +69,7 @@ function buildOverviewParagraph(summary: QueryLogSummary, periodLabel: string): 
     `Your team asked ${totalQueries} questions ${periodLabel}. ` +
     `ByteRover answered ${answered} from curated knowledge ` +
     `(${coveragePct}% coverage), with ${cachePct}% served from cache. ` +
-    `Average response time was ${formatDuration(responseTime.avgMs)}.`
+    `Average response time was ${formatDurationMs(responseTime.avgMs)}.`
   )
 }
 
@@ -88,7 +95,7 @@ function buildGapsParagraph(summary: QueryLogSummary): string {
   )
 }
 
-function formatDuration(ms: number): string {
+export function formatDurationMs(ms: number): string {
   if (ms >= 1000) {
     return `${(ms / 1000).toFixed(1)}s`
   }
