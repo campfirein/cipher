@@ -3,6 +3,7 @@ import {existsSync} from 'node:fs'
 import {join} from 'node:path'
 
 interface WebUiConfig {
+  daemonPort: number
   port: number
   projectCwd: string
   version: string
@@ -16,13 +17,12 @@ interface CreateWebUiMiddlewareOptions {
 /**
  * Creates an Express app that serves the web UI and config endpoint.
  *
- * Mounted on the daemon's HTTP server so the browser can access
- * both the web UI and Socket.IO on the same host:port.
+ * Mounted on the WebUI server (stable port) so the browser
+ * can load the app and discover the daemon's transport port.
  *
  * Routes:
- * - GET /api/ui/config → { port, version, projectCwd }
- * - GET /ui/*          → static files from dist/ui/ (SPA fallback)
- * - GET /              → redirect to /ui
+ * - GET /api/ui/config → { daemonPort, port, version, projectCwd }
+ * - GET /*             → static files from dist/webui/ (SPA fallback)
  */
 export function createWebUiMiddleware({getConfig, webuiDistDir}: CreateWebUiMiddlewareOptions): Express {
   const app = express()
@@ -52,20 +52,15 @@ export function createWebUiMiddleware({getConfig, webuiDistDir}: CreateWebUiMidd
     res.json(getConfig())
   })
 
-  // Serve static files from dist/ui/
+  // Serve static files from dist/webui/
   if (existsSync(webuiDistDir)) {
-    app.use('/ui', express.static(webuiDistDir))
+    app.use(express.static(webuiDistDir))
 
-    // SPA fallback: serve index.html for unmatched /ui/* routes
-    app.get('/ui/*splat', (_req, res) => {
+    // SPA fallback: serve index.html for unmatched routes
+    app.get('*splat', (_req, res) => {
       res.sendFile(join(webuiDistDir, 'index.html'))
     })
   }
-
-  // Redirect root to /ui
-  app.get('/', (_req, res) => {
-    res.redirect('/ui')
-  })
 
   return app
 }

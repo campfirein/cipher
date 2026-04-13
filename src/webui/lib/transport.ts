@@ -1,14 +1,14 @@
 /**
  * Transport bootstrap for the browser.
  *
- * Fetches /api/ui/config to discover the daemon, then connects
- * via socket.io-client on the same origin.
+ * Fetches /api/ui/config to discover the daemon port, then connects
+ * via socket.io-client to the daemon's transport server.
  */
 
-import { io, type Socket } from 'socket.io-client'
+import {io, type Socket} from 'socket.io-client'
 
 export interface UiConfig {
-  port: number
+  daemonPort: number
   projectCwd: string
   version: string
 }
@@ -22,7 +22,7 @@ export async function fetchUiConfig(): Promise<UiConfig> {
   return response.json() as Promise<UiConfig>
 }
 
-interface ConnectResult {
+export interface ConnectResult {
   config: UiConfig
   socket: Socket
 }
@@ -30,7 +30,7 @@ interface ConnectResult {
 function registerClient(socket: Socket, config: UiConfig) {
   socket.emit(
     'client:register',
-    { clientType: 'webui', projectPath: config.projectCwd },
+    {clientType: 'webui', projectPath: config.projectCwd},
     () => {
       // Registration acknowledged
     },
@@ -42,7 +42,8 @@ function registerClient(socket: Socket, config: UiConfig) {
 export async function connectToTransport(): Promise<ConnectResult> {
   const config = await fetchUiConfig()
 
-  const socket = io({
+  // Connect to the daemon's transport server on its dynamic port
+  const socket = io(`http://127.0.0.1:${config.daemonPort}`, {
     reconnection: true,
     reconnectionAttempts: 30,
     reconnectionDelay: 50,
@@ -82,5 +83,5 @@ export async function connectToTransport(): Promise<ConnectResult> {
     socket.once('connect_error', handleError)
   })
 
-  return { config, socket }
+  return {config, socket}
 }

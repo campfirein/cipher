@@ -37,6 +37,7 @@ import {
   AGENT_POOL_MAX_SIZE,
   BRV_DIR,
   HEARTBEAT_FILE,
+  WEBUI_DEFAULT_PORT,
 } from '../../constants.js'
 import {type ProviderConfigResponse, TransportStateEventNames} from '../../core/domain/transport/schemas.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
@@ -63,6 +64,8 @@ import {createProviderKeychainStore} from '../storage/provider-keychain-store.js
 import {createTokenStore} from '../storage/token-store.js'
 import {SocketIOTransportServer} from '../transport/socket-io-transport-server.js'
 import {createWebUiMiddleware} from '../webui/webui-middleware.js'
+import {WebUiServer} from '../webui/webui-server.js'
+import {readWebuiPreferredPort, removeWebuiState, writeWebuiPreferredPort, writeWebuiState} from '../webui/webui-state.js'
 import {AgentIdleTimeoutPolicy} from './agent-idle-timeout-policy.js'
 import {AgentPool} from './agent-pool.js'
 import {DaemonResilience} from './daemon-resilience.js'
@@ -173,15 +176,26 @@ async function main(): Promise<void> {
   let heartbeatWriter: HeartbeatWriter | undefined
   let authStateStore: AuthStateStore | undefined
   let agentPool: AgentPool | undefined
+  let webuiServer: undefined | WebUiServer
 
   try {
-    // 4. Start Socket.IO transport server with HTTP routes (review API + web UI)
+    // 4a. Start Socket.IO transport server (no HTTP routes — Socket.IO only)
+    transportServer = new SocketIOTransportServer()
+    await transportServer.start(port)
+    log(`Transport server started on port ${port}`)
+
+    // 4b. Start Web UI server on stable port (separate from transport)
     const daemonDir = dirname(fileURLToPath(import.meta.url))
     const projectRoot = join(daemonDir, '..', '..', '..', '..')
     const webuiDistDir = join(projectRoot, 'dist', 'webui')
+    // Port priority: env var > persisted preference > default
+    const webuiPortEnv = process.env.BRV_WEBUI_PORT
+    const webuiPort = webuiPortEnv
+      ? Number.parseInt(webuiPortEnv, 10)
+      : readWebuiPreferredPort() ?? WEBUI_DEFAULT_PORT
 
     const webuiApp = createWebUiMiddleware({
-      getConfig: () => ({port, projectCwd: process.cwd(), version}),
+      getConfig: () => ({daemonPort: port, port: webuiPort, projectCwd: process.cwd(), version}),
       webuiDistDir,
     })
 
@@ -196,10 +210,18 @@ async function main(): Promise<void> {
     )
     app.use(webuiApp)
 
-    transportServer = new SocketIOTransportServer()
-    transportServer.setHttpRequestHandler(app)
-    await transportServer.start(port)
-    log(`Transport server started on port ${port}`)
+    webuiServer = new WebUiServer(app)
+    try {
+      await webuiServer.start(webuiPort)
+      writeWebuiState(webuiPort)
+      log(`Web UI server started on port ${webuiPort}`)
+    } catch (webuiError) {
+      log(
+        `Web UI port ${webuiPort} is already in use. Web UI will not be available. Set BRV_WEBUI_PORT=<port> to use a different port.`,
+      )
+      log(`Web UI start error: ${webuiError instanceof Error ? webuiError.message : String(webuiError)}`)
+      webuiServer = undefined
+    }
 
     // 5. Start heartbeat writer
     const heartbeatPath = join(getGlobalDataDir(), HEARTBEAT_FILE)
@@ -291,7 +313,8 @@ async function main(): Promise<void> {
 
     const curateLogHandler = new CurateLogHandler(undefined, (info) => {
       const encoded = Buffer.from(info.projectPath).toString('base64url')
-      const reviewUrl = `http://127.0.0.1:${port}/review?project=${encoded}`
+      const reviewPort = webuiServer?.getPort() ?? port
+      const reviewUrl = `http://127.0.0.1:${reviewPort}/review?project=${encoded}`
       const payload = {pendingCount: info.pendingCount, reviewUrl, taskId: info.taskId}
       // Send directly to the task originator (covers CLI clients not in the project room)
       transportServer!.sendTo(info.clientId, ReviewEvents.NOTIFY, payload)
@@ -345,6 +368,7 @@ async function main(): Promise<void> {
       instanceManager,
       log,
       transportServer,
+      webuiServer,
     })
 
     // 10. Wire events (state server, idle timeout)
@@ -407,6 +431,48 @@ async function main(): Promise<void> {
       await authStateStore!.loadToken()
       return {success: true}
     })
+
+    // Web UI port endpoint — used by `brv webui` to discover the stable port
+    transportServer.onRequest<void, {port?: number}>('webui:getPort', () => ({
+      port: webuiServer?.getPort(),
+    }))
+
+    // Web UI set port — restarts webui server on new port and persists preference
+    transportServer.onRequest<{port: number}, {port: number; success: boolean}>(
+      'webui:setPort',
+      async (data) => {
+        const newPort = data.port
+
+        // Stop existing webui server if running
+        if (webuiServer?.isRunning()) {
+          await webuiServer.stop()
+          log(`Stopped web UI server on port ${webuiServer.getPort() ?? '?'}`)
+        }
+
+        // Create fresh Express app for the new server
+        const newWebuiApp = createWebUiMiddleware({
+          getConfig: () => ({daemonPort: port, port: newPort, projectCwd: process.cwd(), version}),
+          webuiDistDir,
+        })
+        const newApp = express()
+        newApp.use(
+          createReviewApiRouter({
+            curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
+            reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
+          }),
+        )
+        newApp.use(newWebuiApp)
+
+        // Start on new port
+        webuiServer = new WebUiServer(newApp)
+        await webuiServer.start(newPort)
+        writeWebuiState(newPort)
+        writeWebuiPreferredPort(newPort)
+        log(`Web UI server restarted on port ${newPort} (persisted)`)
+
+        return {port: newPort, success: true}
+      },
+    )
 
     // Debug endpoint — exposes daemon internal state for `brv debug` command
     transportServer.onRequest<void, unknown>('daemon:getState', () => ({
@@ -480,6 +546,7 @@ async function main(): Promise<void> {
       providerOAuthTokenStore,
       resolveProjectPath: (clientId) => clientManager.getClient(clientId)?.projectPath,
       transport: transportServer,
+      webuiPort: webuiServer?.getPort(),
     })
 
     // Load auth token AFTER feature handlers are registered.
@@ -515,6 +582,8 @@ async function main(): Promise<void> {
 
     authStateStore?.stopPolling()
     heartbeatWriter?.stop()
+    await webuiServer?.stop().catch(() => {})
+    removeWebuiState()
     await transportServer?.stop().catch(() => {})
     instanceManager.release()
     throw error

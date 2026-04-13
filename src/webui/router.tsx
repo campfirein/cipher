@@ -72,7 +72,4 @@ export const router = createBrowserRouter(
       path: '/',
     },
   ],
-  {
-    basename: '/ui',
-  },
 )
