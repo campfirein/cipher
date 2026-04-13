@@ -36,7 +36,7 @@ describe('DreamExecutor', () => {
     curateLogStore = {
       list: stub().resolves([]),
     }
-    agent = {} as ICipherAgent
+    agent = {} as unknown as ICipherAgent
     deps = {curateLogStore, dreamLockService, dreamLogStore, dreamStateService}
   })
 

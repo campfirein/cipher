@@ -16,6 +16,7 @@ import {FileContextTreeManifestService} from '../context-tree/file-context-tree-
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-summary-service.js'
 import {diffStates} from '../context-tree/snapshot-diff.js'
+import {DreamStateService} from '../dream/dream-state-service.js'
 import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
 type BackgroundDrainAgent = ICipherAgent & {drainBackgroundWork?: () => Promise<void>}
@@ -153,7 +154,6 @@ export class CurateExecutor implements ICurateExecutor {
 
       // Increment dream curation counter (fail-open: non-critical for curation)
       try {
-        const {DreamStateService} = await import('../dream/dream-state-service.js')
         const dreamStateService = new DreamStateService({baseDir: path.join(baseDir, BRV_DIR)})
         await dreamStateService.incrementCurationCount()
       } catch {

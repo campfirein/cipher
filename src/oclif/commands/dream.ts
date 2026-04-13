@@ -53,7 +53,7 @@ export default class Dream extends Command {
 
   public async run(): Promise<void> {
     const {flags: rawFlags} = await this.parse(Dream)
-    const format = (rawFlags.format ?? 'text') as 'json' | 'text'
+    const format = rawFlags.format === 'json' ? 'json' : 'text'
 
     let providerContext: ProviderErrorContext | undefined
 
@@ -148,7 +148,7 @@ export default class Dream extends Command {
               success: true,
             })
           } else if (skipped) {
-            this.log(result!)
+            this.log(result ?? '')
           } else {
             this.log(`Dream completed. (Log: ${result})`)
           }

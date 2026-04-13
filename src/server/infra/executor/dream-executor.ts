@@ -101,10 +101,11 @@ export class DreamExecutor {
       // Step 2: Load dream state
       const dreamState = await this.deps.dreamStateService.read()
 
-      // Step 3: Find changed files since last dream
-      await this.findChangedFilesSinceLastDream(dreamState.lastDreamAt, contextTreeDir)
+      // Step 3: Find changed files since last dream (consumed by operations in ENG-2060/2061/2062)
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const changedFiles = await this.findChangedFilesSinceLastDream(dreamState.lastDreamAt, contextTreeDir)
 
-      // Step 4: Run operations (NO-OP stubs — consolidate/synthesize/prune added in later issues)
+      // Step 4: Run operations (NO-OP stubs — changedFiles passed to operations when implemented)
       const allOperations: DreamOperation[] = []
 
       // Step 5: Post-dream propagation (fail-open)
@@ -178,11 +179,17 @@ export class DreamExecutor {
       throw error
     } finally {
       clearTimeout(timeout)
-      // Step 8: Lock management
-      await (succeeded ? this.deps.dreamLockService.release().catch(() => {}) : this.deps.dreamLockService.rollback(priorMtime).catch(() => {}));
+      // Step 8: Lock management — release on success, rollback on error
+      // eslint-disable-next-line unicorn/prefer-ternary
+      if (succeeded) {
+        await this.deps.dreamLockService.release().catch(() => {})
+      } else {
+        await this.deps.dreamLockService.rollback(priorMtime).catch(() => {})
+      }
     }
   }
 
+  /** Errors are tracked at the log level (status='error'), not per-operation — always 0 here. */
   private computeSummary(operations: DreamOperation[]): DreamLogSummary {
     const summary: DreamLogSummary = {consolidated: 0, errors: 0, flaggedForReview: 0, pruned: 0, synthesized: 0}
     for (const op of operations) {
