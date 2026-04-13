@@ -77,7 +77,8 @@ public static description = 'Query the memory swarm across all active providers'
       if (isJson) {
         this.log(JSON.stringify({error: (error as Error).message, success: false}))
       } else {
-        this.error((error as Error).message)
+        this.logToStderr(`Error: ${(error as Error).message}`)
+        this.exit(2)
       }
     }
   }

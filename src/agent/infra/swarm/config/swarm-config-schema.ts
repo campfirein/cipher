@@ -197,8 +197,8 @@ const RoutingSchema = z.preprocess(
     classificationMethod: z.enum(['auto', 'llm']).optional().default('auto'),
     defaultMaxResults: z.number().int().positive().optional().default(10),
     defaultStrategy: z.enum(['adaptive', 'all', 'manual']).optional().default('adaptive'),
-    minRrfScore: z.number().min(0).optional(),
-    rrfGapRatio: z.number().gt(0).max(1).optional(),
+    minRrfScore: z.number().min(0).optional().default(0.005),
+    rrfGapRatio: z.number().gt(0).max(1).optional().default(0.5),
     rrfK: z.number().int().positive().optional().default(60),
   })
 )

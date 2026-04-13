@@ -197,5 +197,27 @@ describe('SwarmMerger', () => {
 
       expect(withoutOptions).to.deep.equal(withUndefinedOptions)
     })
+
+    it('default minRRFScore filters noise at high ranks while keeping real results', () => {
+      const results: QueryResult[] = [makeResult('p1', 'Strong match', 0.9)]
+      // Pad with 199 filler results to push noise to rank 199
+      for (let i = 0; i < 199; i++) {
+        results.push(makeResult('p1', `Filler ${i}`, 0.01))
+      }
+
+      const resultSets = new Map<string, QueryResult[]>([['p1', results]])
+      const weights = new Map([['p1', 0.3]])
+
+      // rank 0 with weight 0.3: 0.3/60 = 0.005 — exactly at floor
+      // rank 199 with weight 0.3: 0.3/259 ≈ 0.00116 — below floor
+      const merged = mergeResults(resultSets, weights, {maxResults: 200, minRRFScore: 0.005, rrfGapRatio: 0.5})
+
+      expect(merged.length).to.be.greaterThan(0)
+      expect(merged[0].content).to.equal('Strong match')
+      // Gap ratio (0.5) trims results scoring below 0.005 * 0.5 = 0.0025
+      // rank 0: 0.005, rank 1: 0.3/61 ≈ 0.00492 — passes gap
+      // Higher ranks drop below gap floor and get filtered
+      expect(merged.length).to.be.lessThan(200)
+    })
   })
 })

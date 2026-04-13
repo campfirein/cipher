@@ -19,7 +19,7 @@ function createMinimalConfig(overrides?: Partial<SwarmConfig>): SwarmConfig {
     },
     provenance: {enabled: true, fullRetentionDays: 30, keepSummaries: true, storagePath: 'swarm/provenance'},
     providers: {byterover: {enabled: true}},
-    routing: {classificationMethod: 'auto', defaultMaxResults: 10, defaultStrategy: 'adaptive', rrfK: 60},
+    routing: {classificationMethod: 'auto', defaultMaxResults: 10, defaultStrategy: 'adaptive', minRrfScore: 0.005, rrfGapRatio: 0.5, rrfK: 60},
     ...overrides,
   }
 }
