@@ -10,12 +10,15 @@ import {FileQueryLogStore} from '../storage/file-query-log-store.js'
 
 // ── Internal state ────────────────────────────────────────────────────────────
 
+/** Query metadata without the response string (response arrives via task:completed). */
+type QueryResultMetadata = Omit<QueryExecutorResult, 'response'>
+
 type TaskState = {
   /** Cached initial entry — used in onTaskCompleted/onTaskError to avoid a getById round-trip. */
   entry: QueryLogEntry
   projectPath: string
   /** Metadata from QueryExecutor, set by setQueryResult(). Undefined until called. */
-  queryResult?: QueryExecutorResult
+  queryResult?: QueryResultMetadata
 }
 
 const QUERY_TASK_TYPES: ReadonlySet<string> = new Set(['query'])
@@ -172,7 +175,7 @@ export class QueryLogHandler implements ITaskLifecycleHook {
    * Called by agent-process after QueryExecutor.executeWithAgent() returns.
    * Synchronous — no I/O. Metadata is merged into the final entry on completion.
    */
-  setQueryResult(taskId: string, result: QueryExecutorResult): void {
+  setQueryResult(taskId: string, result: QueryResultMetadata): void {
     const state = this.tasks.get(taskId)
     if (!state) return
     state.queryResult = result

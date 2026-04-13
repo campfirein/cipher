@@ -430,7 +430,7 @@ ${responseFormat}`
 
       // Include shared source state in fingerprint so edits in shared
       // projects invalidate cached query answers.
-      const loaded = this.baseDirectory ? loadSources(this.baseDirectory) : null
+      const loaded = this.baseDirectory ? loadSources(this.baseDirectory) : undefined
       if (loaded) {
         // sources-file mtime detects source additions/removals
         if (loaded.mtime) {

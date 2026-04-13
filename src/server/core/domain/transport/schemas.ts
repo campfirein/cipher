@@ -561,7 +561,6 @@ export const TaskCompletedEventSchema = z.object({
  */
 export const TaskQueryResultEventSchema = z.object({
   matchedDocs: z.array(z.object({path: z.string(), score: z.number(), title: z.string()})),
-  response: z.string(),
   searchMetadata: z
     .object({
       cacheFingerprint: z.string().optional(),

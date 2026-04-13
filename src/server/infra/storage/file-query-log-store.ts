@@ -81,7 +81,7 @@ type FileQueryLogStoreOptions = {
  * Each log entry is stored as a JSON file:
  *   {baseDir}/query-log/qry-{timestamp_ms}.json
  *
- * Writes are atomic (tmp → rename). Reads validate with Zod and return null
+ * Writes are atomic (tmp → rename). Reads validate with Zod and return undefined
  * for corrupt/missing files. Prunes by age (default 30 days) then by count (default 200).
  */
 export class FileQueryLogStore implements IQueryLogStore {
@@ -98,21 +98,21 @@ export class FileQueryLogStore implements IQueryLogStore {
   }
 
   /**
-   * Retrieve an entry by ID. Returns null if:
+   * Retrieve an entry by ID. Returns undefined if:
    * - ID format is invalid (security: prevents path traversal)
    * - File does not exist
    * - File content fails Zod validation (corrupted)
    */
-  async getById(id: string): Promise<null | QueryLogEntry> {
-    if (!ID_PATTERN.test(id)) return null
+  async getById(id: string): Promise<QueryLogEntry | undefined> {
+    if (!ID_PATTERN.test(id)) return undefined
 
     try {
       const raw = await readFile(this.entryPath(id), 'utf8')
       const parsed = QueryLogEntryFileSchema.safeParse(JSON.parse(raw))
-      if (!parsed.success) return null
+      if (!parsed.success) return undefined
       return await this.resolveStale(parsed.data)
     } catch {
-      return null
+      return undefined
     }
   }
 

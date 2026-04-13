@@ -318,7 +318,6 @@ async function main(): Promise<void> {
     transportServer.onRequest<TaskQueryResultEvent, void>(TransportTaskEventNames.QUERY_RESULT, (data) => {
       queryLogHandler.setQueryResult(data.taskId, {
         matchedDocs: data.matchedDocs,
-        response: data.response,
         searchMetadata: data.searchMetadata,
         tier: data.tier,
         timing: data.timing,

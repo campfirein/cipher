@@ -8,6 +8,8 @@ import type {IQueryLogStore} from '../../../../src/server/core/interfaces/storag
 import {TIER_DIRECT_SEARCH} from '../../../../src/server/core/domain/entities/query-log-entry.js'
 import {QueryLogHandler} from '../../../../src/server/infra/process/query-log-handler.js'
 
+type QueryResultMetadata = Omit<QueryExecutorResult, 'response'>
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -31,17 +33,16 @@ function makeStore(sandbox: SinonSandbox): IQueryLogStore & {
   save: SinonStub
 } {
   return {
-    getById: sandbox.stub().resolves(null),
+    getById: sandbox.stub().resolves(),
     getNextId: sandbox.stub().resolves('qry-1000'),
     list: sandbox.stub().resolves([]),
     save: sandbox.stub().resolves(),
   }
 }
 
-function makeQueryResult(overrides: Partial<QueryExecutorResult> = {}): QueryExecutorResult {
+function makeQueryResult(overrides: Partial<QueryResultMetadata> = {}): QueryResultMetadata {
   return {
     matchedDocs: [{path: 'design/caching.md', score: 0.95, title: 'Caching Strategy'}],
-    response: 'Caching uses Redis for hot data...',
     searchMetadata: {resultCount: 3, topScore: 0.95, totalFound: 10},
     tier: TIER_DIRECT_SEARCH,
     timing: {durationMs: 450},

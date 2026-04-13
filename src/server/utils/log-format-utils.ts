@@ -8,7 +8,8 @@ export function formatDuration(startedAt: number, completedAt?: number): string 
 }
 
 export function formatEntryDuration(entry: QueryLogEntry): string {
-  if (entry.status !== 'completed') return '—'
+  if (entry.status === 'processing') return '—'
+  if (entry.timing) return formatDuration(0, entry.timing.durationMs)
   return formatDuration(entry.startedAt, entry.completedAt)
 }
 

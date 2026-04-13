@@ -504,7 +504,6 @@ async function executeTask(
           try {
             transport.request(TransportTaskEventNames.QUERY_RESULT, {
               matchedDocs: queryResult.matchedDocs,
-              response: queryResult.response,
               searchMetadata: queryResult.searchMetadata,
               taskId,
               tier: queryResult.tier,

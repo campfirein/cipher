@@ -171,8 +171,8 @@ function computeResponseTime(durations: number[]): QueryLogSummary['responseTime
   const sum = sorted.reduce((acc, v) => acc + v, 0)
   return {
     avgMs: Math.round(sum / sorted.length),
-    p50Ms: sorted[Math.floor(sorted.length * 0.5)],
-    p95Ms: sorted[Math.floor(sorted.length * 0.95)],
+    p50Ms: sorted[Math.ceil(sorted.length * 0.5) - 1],
+    p95Ms: sorted[Math.ceil(sorted.length * 0.95) - 1],
   }
 }
 

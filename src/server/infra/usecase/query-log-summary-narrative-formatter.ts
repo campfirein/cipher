@@ -47,12 +47,12 @@ export function describePeriod(
 
     if (format === 'short') {
       if (hours <= 1) return 'last 1h'
-      if (hours <= 25) return 'last 24h'
+      if (hours <= 24) return 'last 24h'
       return `last ${days}d`
     }
 
     if (hours <= 1) return 'in the last hour'
-    if (hours <= 25) return 'in the last 24 hours'
+    if (hours <= 24) return 'in the last 24 hours'
     return `in the last ${days} days`
   }
 

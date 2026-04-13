@@ -20,7 +20,7 @@ type MockStore = IQueryLogStore & {
 
 function makeStore(sandbox: SinonSandbox, entries: QueryLogEntry[] = []): MockStore {
   return {
-    getById: sandbox.stub().resolves(null),
+    getById: sandbox.stub().resolves(),
     getNextId: sandbox.stub().resolves('qry-9999'),
     list: sandbox.stub().resolves(entries),
     save: sandbox.stub().resolves(),
@@ -233,25 +233,25 @@ describe('QueryLogSummaryUseCase', () => {
     })
 
     it('computes p50 with even number of entries', async () => {
-      // 4 entries → floor(4*0.5) = index 2
+      // 4 entries → ceil(4*0.5) - 1 = index 1
       const entries = [100, 200, 300, 400].map((ms) => makeCompleted({timing: {durationMs: ms}}))
       const {terminal, useCase} = makeUseCase(sandbox, entries)
 
       await useCase.run({format: 'json'})
 
       const parsed = JSON.parse(loggedOutput(terminal))
-      expect(parsed.responseTime.p50Ms).to.equal(300)
+      expect(parsed.responseTime.p50Ms).to.equal(200)
     })
 
     it('computes p95 with 20+ entries', async () => {
-      // 20 entries [100..2000] → floor(20*0.95) = index 19 → 2000
+      // 20 entries [100..2000] → ceil(20*0.95) - 1 = index 18 → 1900
       const entries = Array.from({length: 20}, (_, i) => makeCompleted({timing: {durationMs: (i + 1) * 100}}))
       const {terminal, useCase} = makeUseCase(sandbox, entries)
 
       await useCase.run({format: 'json'})
 
       const parsed = JSON.parse(loggedOutput(terminal))
-      expect(parsed.responseTime.p95Ms).to.equal(2000)
+      expect(parsed.responseTime.p95Ms).to.equal(1900)
     })
 
     it('with one entry, avg = p50 = p95 = that value', async () => {

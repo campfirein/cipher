@@ -1,8 +1,8 @@
-import {findProjectRoot} from '@campfirein/brv-transport-client'
 import {Command, Flags} from '@oclif/core'
 
 import type {QueryLogSummaryFormat} from '../../../server/core/interfaces/usecase/i-query-log-summary-use-case.js'
 
+import {resolveProject} from '../../../server/infra/project/resolve-project.js'
 import {FileQueryLogStore} from '../../../server/infra/storage/file-query-log-store.js'
 import {QueryLogSummaryUseCase} from '../../../server/infra/usecase/query-log-summary-use-case.js'
 import {getProjectDataDir} from '../../../server/utils/path-utils.js'
@@ -57,7 +57,7 @@ export default class QueryLogSummary extends Command {
     const format: QueryLogSummaryFormat =
       flags.format === 'json' || flags.format === 'narrative' ? flags.format : 'text'
 
-    const projectRoot = (await findProjectRoot(process.cwd())) ?? process.cwd()
+    const projectRoot = resolveProject()?.projectRoot ?? process.cwd()
     const baseDir = getProjectDataDir(projectRoot)
     const {useCase} = this.createDependencies(baseDir)
 

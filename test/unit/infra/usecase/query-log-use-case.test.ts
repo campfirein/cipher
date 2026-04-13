@@ -88,7 +88,7 @@ function makeStore(sandbox: SinonSandbox): IQueryLogStore & {
   save: SinonStub
 } {
   return {
-    getById: sandbox.stub().resolves(null),
+    getById: sandbox.stub().resolves(),
     getNextId: sandbox.stub().resolves('qry-9999'),
     list: sandbox.stub().resolves([]),
     save: sandbox.stub().resolves(),
@@ -208,26 +208,26 @@ describe('QueryLogUseCase', () => {
       expect(store.list.calledWith({limit: 5})).to.be.true
     })
 
-    // Test: Error entries show dash for Time in list view
-    it('should show dash for Time column on error entries', async () => {
+    // Test: Error entries show duration for Time in list view (completedAt - startedAt fallback)
+    it('should show duration for Time column on error entries', async () => {
       store.list.resolves([makeErrorEntry()])
       await useCase.run({})
 
       const output = logs.join('\n')
       expect(output).to.include('T2')
       expect(output).to.include('error')
-      expect(output).to.include('—')
+      expect(output).to.include('300ms')
     })
 
-    // Test: Cancelled entries show dash for Time in list view
-    it('should show dash for Time column on cancelled entries', async () => {
+    // Test: Cancelled entries show duration for Time in list view (completedAt - startedAt fallback)
+    it('should show duration for Time column on cancelled entries', async () => {
       store.list.resolves([makeCancelledEntry()])
       await useCase.run({})
 
       const output = logs.join('\n')
       expect(output).to.include('T1')
       expect(output).to.include('cancelled')
-      expect(output).to.include('—')
+      expect(output).to.include('1.0s')
     })
   })
 
@@ -263,30 +263,30 @@ describe('QueryLogUseCase', () => {
       expect(output).to.include('Error: Search index unavailable')
     })
 
-    // Test: Cancelled entry in detail shows Finished and Duration as dash
-    it('should show Finished and Duration as dash for cancelled entry', async () => {
+    // Test: Cancelled entry in detail shows Finished and Duration (completedAt - startedAt fallback)
+    it('should show Finished and Duration for cancelled entry', async () => {
       store.getById.resolves(makeCancelledEntry())
       await useCase.run({id: 'qry-1712345678500'})
 
       const output = logs.join('\n')
       expect(output).to.include('cancelled')
       expect(output).to.include('Finished:')
-      expect(output).to.include('Duration: —')
+      expect(output).to.include('Duration: 1.0s')
     })
 
-    // Test: Error entry in detail shows Finished and Duration as dash
-    it('should show Finished and Duration as dash for error entry', async () => {
+    // Test: Error entry in detail shows Finished and Duration (completedAt - startedAt fallback)
+    it('should show Finished and Duration for error entry', async () => {
       store.getById.resolves(makeErrorEntry())
       await useCase.run({id: 'qry-1712345678700'})
 
       const output = logs.join('\n')
       expect(output).to.include('Finished:')
-      expect(output).to.include('Duration: —')
+      expect(output).to.include('Duration: 300ms')
     })
 
     // Test 12: Non-existent ID shows not-found message
     it('should show not-found message for non-existent ID', async () => {
-      store.getById.resolves(null)
+      store.getById.resolves()
       await useCase.run({id: 'qry-missing'})
 
       expect(logs.join('\n')).to.include('No query log entry found with ID: qry-missing')

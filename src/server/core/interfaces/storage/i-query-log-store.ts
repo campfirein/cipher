@@ -5,8 +5,8 @@ export {QUERY_LOG_STATUSES, QUERY_LOG_TIERS} from '../../domain/entities/query-l
 export type {QueryLogStatus, QueryLogTier} from '../../domain/entities/query-log-entry.js'
 
 export interface IQueryLogStore {
-  /** Retrieve an entry by ID. Returns null if not found or if the file is corrupt. */
-  getById(id: string): Promise<null | QueryLogEntry>
+  /** Retrieve an entry by ID. Returns undefined if not found or if the file is corrupt. */
+  getById(id: string): Promise<QueryLogEntry | undefined>
   /** Generate the next monotonic log entry ID. */
   getNextId(): Promise<string>
   /** List entries sorted newest-first. Filters are applied before limit. */

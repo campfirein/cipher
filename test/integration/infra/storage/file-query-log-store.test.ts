@@ -138,24 +138,24 @@ describe('FileQueryLogStore', () => {
     })
 
     // Test 5
-    it('should return null for invalid ID format (path traversal)', async () => {
-      expect(await store.getById('../../../etc/passwd')).to.be.null
-      expect(await store.getById('bad-12345')).to.be.null
+    it('should return undefined for invalid ID format (path traversal)', async () => {
+      expect(await store.getById('../../../etc/passwd')).to.be.undefined
+      expect(await store.getById('bad-12345')).to.be.undefined
     })
 
     // Test 6
-    it('should return null for corrupt JSON file', async () => {
+    it('should return undefined for corrupt JSON file', async () => {
       const id = await store.getNextId()
       await store.save(makeEntry({id}))
 
       const logDir = join(tempDir, 'query-log')
       await writeFile(join(logDir, `${id}.json`), 'not valid json {{{')
 
-      expect(await store.getById(id)).to.be.null
+      expect(await store.getById(id)).to.be.undefined
     })
 
     // Test 6b (Zod validation branch)
-    it('should return null for valid JSON that fails Zod schema', async () => {
+    it('should return undefined for valid JSON that fails Zod schema', async () => {
       const id = await store.getNextId()
       await store.save(makeEntry({id}))
 
@@ -163,13 +163,13 @@ describe('FileQueryLogStore', () => {
       // Valid JSON, but status is not in the discriminated union
       await writeFile(join(logDir, `${id}.json`), JSON.stringify({id, status: 'unknown_status'}))
 
-      expect(await store.getById(id)).to.be.null
+      expect(await store.getById(id)).to.be.undefined
     })
 
     // Test 7
-    it('should return null for non-existent ID', async () => {
+    it('should return undefined for non-existent ID', async () => {
       const id = await store.getNextId()
-      expect(await store.getById(id)).to.be.null
+      expect(await store.getById(id)).to.be.undefined
     })
 
     // Test 17
@@ -181,7 +181,7 @@ describe('FileQueryLogStore', () => {
         const id = await freshStore.getNextId()
         await freshStore.save(makeEntry({id}))
         const retrieved = await freshStore.getById(id)
-        expect(retrieved).to.not.be.null
+        expect(retrieved).to.not.be.undefined
       } finally {
         await rm(freshDir, {force: true, recursive: true})
       }
@@ -331,11 +331,11 @@ describe('FileQueryLogStore', () => {
       const oldestResults = await Promise.all(oldest.map((id) => storeWithLimit.getById(id)))
 
       for (const result of newestResults) {
-        expect(result).to.not.be.null
+        expect(result).to.not.be.undefined
       }
 
       for (const result of oldestResults) {
-        expect(result).to.be.null
+        expect(result).to.be.undefined
       }
     })
 
@@ -359,8 +359,8 @@ describe('FileQueryLogStore', () => {
         setTimeout(resolve, 100)
       })
 
-      expect(await storeWithAge.getById(idOld)).to.be.null
-      expect(await storeWithAge.getById(idRecent)).to.not.be.null
+      expect(await storeWithAge.getById(idOld)).to.be.undefined
+      expect(await storeWithAge.getById(idRecent)).to.not.be.undefined
     })
 
     // Test 19
@@ -378,10 +378,10 @@ describe('FileQueryLogStore', () => {
       })
 
       // Oldest 2 by filename (ids[0], ids[1]) are pruned; newest 2 by filename (ids[2], ids[3]) kept.
-      expect(await storeWithBoth.getById(ids[0])).to.be.null
-      expect(await storeWithBoth.getById(ids[1])).to.be.null
-      expect(await storeWithBoth.getById(ids[2])).to.not.be.null
-      expect(await storeWithBoth.getById(ids[3])).to.not.be.null
+      expect(await storeWithBoth.getById(ids[0])).to.be.undefined
+      expect(await storeWithBoth.getById(ids[1])).to.be.undefined
+      expect(await storeWithBoth.getById(ids[2])).to.not.be.undefined
+      expect(await storeWithBoth.getById(ids[3])).to.not.be.undefined
     })
 
     // Test 20
@@ -396,7 +396,7 @@ describe('FileQueryLogStore', () => {
         setTimeout(resolve, 100)
       })
 
-      expect(await storeNoAge.getById(idOld)).to.not.be.null
+      expect(await storeNoAge.getById(idOld)).to.not.be.undefined
     })
   })
 
