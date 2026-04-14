@@ -1360,6 +1360,7 @@ describe('Curate Tool', () => {
 
       expect(result.applied[0].status).to.equal('success')
       expect(result.applied[0].impact).to.equal('high')
+      expect(result.applied[0].needsReview).to.be.true
     })
 
     it('should accept operation with both omitted', async () => {
@@ -1380,6 +1381,7 @@ describe('Curate Tool', () => {
       expect(result.applied[0].status).to.equal('success')
       expect(result.applied[0].confidence).to.equal('low')
       expect(result.applied[0].impact).to.equal('high')
+      expect(result.applied[0].needsReview).to.be.true
     })
 
     it('should accept operation with both explicitly provided', async () => {
