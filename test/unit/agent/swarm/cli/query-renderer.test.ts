@@ -2,7 +2,16 @@ import {expect} from 'chai'
 
 import type {SwarmQueryResult} from '../../../../../src/agent/core/interfaces/i-swarm-coordinator.js'
 
-import {formatQueryResults, formatQueryResultsExplain, formatQueryResultsJson, providerTypeToLabel} from '../../../../../src/agent/infra/swarm/cli/query-renderer.js'
+import {
+  formatQueryResults,
+  formatQueryResultsExplain,
+  formatQueryResultsJson,
+  providerTypeToLabel,
+} from '../../../../../src/agent/infra/swarm/cli/query-renderer.js'
+
+/** Strip ANSI escape codes so assertions match visible text. */
+// eslint-disable-next-line no-control-regex
+const stripAnsi = (s: string): string => s.replaceAll(/\u001B\[[0-9;]*m/g, '')
 
 function makeSwarmResult(overrides?: Partial<SwarmQueryResult>): SwarmQueryResult {
   return {
@@ -81,10 +90,38 @@ describe('QueryRenderer', () => {
     it('shows source labels per result', () => {
       const result = makeSwarmResult({
         results: [
-          {content: 'Auth content', id: 'brv-0', metadata: {matchType: 'keyword', source: 'auth.md'}, provider: 'byterover', providerType: 'byterover', score: 0.8},
-          {content: 'Notes content', id: 'obs-0', metadata: {matchType: 'graph', source: 'notes.md'}, provider: 'obsidian', providerType: 'obsidian', score: 0.6},
-          {content: 'Concept content', id: 'gb-0', metadata: {matchType: 'semantic', path: 'concept', source: 'concept'}, provider: 'gbrain', providerType: 'gbrain', score: 0.4},
-          {content: 'Doc content', id: 'lm-0', metadata: {matchType: 'keyword', source: 'doc.md'}, provider: 'local-markdown:project-docs', providerType: 'local-markdown', score: 0.3},
+          {
+            content: 'Auth content',
+            id: 'brv-0',
+            metadata: {matchType: 'keyword', source: 'auth.md'},
+            provider: 'byterover',
+            providerType: 'byterover',
+            score: 0.8,
+          },
+          {
+            content: 'Notes content',
+            id: 'obs-0',
+            metadata: {matchType: 'graph', source: 'notes.md'},
+            provider: 'obsidian',
+            providerType: 'obsidian',
+            score: 0.6,
+          },
+          {
+            content: 'Concept content',
+            id: 'gb-0',
+            metadata: {matchType: 'semantic', path: 'concept', source: 'concept'},
+            provider: 'gbrain',
+            providerType: 'gbrain',
+            score: 0.4,
+          },
+          {
+            content: 'Doc content',
+            id: 'lm-0',
+            metadata: {matchType: 'keyword', source: 'doc.md'},
+            provider: 'local-markdown:project-docs',
+            providerType: 'local-markdown',
+            score: 0.3,
+          },
         ],
       })
       const output = formatQueryResults(result, 'test')
@@ -108,7 +145,7 @@ describe('QueryRenderer', () => {
           totalLatencyMs: 300,
         },
       })
-      const output = formatQueryResults(result, 'test')
+      const output = stripAnsi(formatQueryResults(result, 'test'))
 
       expect(output).to.include('Providers: 3 queried')
     })
@@ -139,7 +176,7 @@ describe('QueryRenderer', () => {
   describe('formatQueryResultsExplain()', () => {
     it('shows classification reasoning', () => {
       const result = makeSwarmResult()
-      const output = formatQueryResultsExplain(result, 'auth tokens')
+      const output = stripAnsi(formatQueryResultsExplain(result, 'auth tokens'))
 
       expect(output).to.include('Classification: factual')
     })
@@ -150,7 +187,12 @@ describe('QueryRenderer', () => {
           costCents: 0,
           providers: {
             byterover: {latencyMs: 10, resultCount: 1, selected: true},
-            gbrain: {excludeReason: 'not in selection matrix for personal', latencyMs: 0, resultCount: 0, selected: false},
+            gbrain: {
+              excludeReason: 'not in selection matrix for personal',
+              latencyMs: 0,
+              resultCount: 0,
+              selected: false,
+            },
           },
           queryType: 'personal',
           totalLatencyMs: 100,
@@ -170,7 +212,13 @@ describe('QueryRenderer', () => {
           costCents: 0,
           providers: {
             byterover: {latencyMs: 10, resultCount: 1, selected: true},
-            obsidian: {enrichedBy: 'byterover', enrichmentExcerpts: ['JWT', 'token', 'refresh'], latencyMs: 80, resultCount: 2, selected: true},
+            obsidian: {
+              enrichedBy: 'byterover',
+              enrichmentExcerpts: ['JWT', 'token', 'refresh'],
+              latencyMs: 80,
+              resultCount: 2,
+              selected: true,
+            },
           },
           queryType: 'factual',
           totalLatencyMs: 100,
