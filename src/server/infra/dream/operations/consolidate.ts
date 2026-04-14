@@ -91,6 +91,7 @@ async function processDomain(domain: string, files: string[], deps: ConsolidateD
     const prompt = buildPrompt(files, [...relatedPaths], Object.keys(filesPayload))
     const response = await agent.executeOnSession(sessionId, prompt, {
       executionContext: {commandType: 'curate', maxIterations: 10},
+      signal: deps.signal,
       taskId,
     })
 

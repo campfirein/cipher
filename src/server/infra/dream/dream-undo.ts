@@ -79,7 +79,7 @@ export async function undoLastDream(deps: DreamUndoDeps): Promise<DreamUndoResul
 
   // ── Post-undo: rebuild manifest ─────────────────────────────────────────
   try {
-    await manifestService.buildManifest(contextTreeDir)
+    await manifestService.buildManifest()
   } catch (error) {
     result.errors.push(`Manifest rebuild failed: ${error instanceof Error ? error.message : String(error)}`)
   }

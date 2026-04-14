@@ -5,7 +5,7 @@
  * 1. Capture pre-state snapshot
  * 2. Load dream state
  * 3. Find changed files since last dream (via curate log scanning)
- * 4. Run operations (NO-OP stubs in Phase 1 — consolidate/synthesize/prune added later)
+ * 4. Run operations (consolidate, synthesize; prune in ENG-2062)
  * 5. Post-dream propagation (staleness + manifest rebuild)
  * 6. Write dream log
  * 7. Update dream state
@@ -30,6 +30,7 @@ import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-
 import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-summary-service.js'
 import {diffStates} from '../context-tree/snapshot-diff.js'
 import {consolidate, type ConsolidateDeps} from '../dream/operations/consolidate.js'
+import {synthesize} from '../dream/operations/synthesize.js'
 
 const DREAM_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
@@ -105,7 +106,7 @@ export class DreamExecutor {
 
       // Step 3: Find changed files since last dream
       const changedFiles = await this.findChangedFilesSinceLastDream(dreamState.lastDreamAt, contextTreeDir)
-      // Step 4: Run operations (consolidate now, synthesize + prune in ENG-2061/2062)
+      // Step 4: Run operations
       const consolidateResults = await consolidate([...changedFiles], {
         agent,
         contextTreeDir,
@@ -113,7 +114,16 @@ export class DreamExecutor {
         signal: controller.signal,
         taskId: options.taskId,
       })
-      const allOperations: DreamOperation[] = [...consolidateResults]
+      const synthesizeResults = changedFiles.size > 0
+        ? await synthesize({
+            agent,
+            contextTreeDir,
+            searchService: this.deps.searchService,
+            signal: controller.signal,
+            taskId: options.taskId,
+          })
+        : []
+      const allOperations: DreamOperation[] = [...consolidateResults, ...synthesizeResults]
 
       // Step 5: Post-dream propagation (fail-open)
       if (preState) {
