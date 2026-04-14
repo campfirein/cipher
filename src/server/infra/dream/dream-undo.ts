@@ -6,10 +6,12 @@
  */
 
 import {mkdir, unlink, writeFile} from 'node:fs/promises'
-import {dirname, resolve} from 'node:path'
+import {dirname, extname, join, resolve} from 'node:path'
 
 import type {DreamLogEntry, DreamOperation} from './dream-log-schema.js'
 import type {DreamState} from './dream-state-schema.js'
+
+import {ARCHIVE_DIR, STUB_EXTENSION} from '../../constants.js'
 
 export type DreamUndoDeps = {
   archiveService?: {restoreEntry(stubPath: string, directory?: string): Promise<string>}
@@ -23,6 +25,7 @@ export type DreamUndoDeps = {
     write(state: DreamState): Promise<void>
   }
   manifestService: {buildManifest(dir?: string): Promise<unknown>}
+  projectRoot?: string
 }
 
 export interface DreamUndoResult {
@@ -241,7 +244,15 @@ async function undoPrune(
         throw new Error(`Cannot undo PRUNE/ARCHIVE: no archive service available for ${op.file}`)
       }
 
-      const restored = await ctx.deps.archiveService.restoreEntry(op.file, ctx.contextTreeDir)
+      // op.file is the original path (e.g. "auth/old.md"), compute stub path for restoreEntry
+      const ext = extname(op.file)
+      if (!ext) {
+        throw new Error(`Cannot undo PRUNE/ARCHIVE: file has no extension: ${op.file}`)
+      }
+
+      const pathWithoutExt = op.file.slice(0, -ext.length)
+      const stubRelPath = join(ARCHIVE_DIR, `${pathWithoutExt}${STUB_EXTENSION}`)
+      const restored = await ctx.deps.archiveService.restoreEntry(stubRelPath, ctx.deps.projectRoot)
       ctx.result.restoredArchives.push(restored)
       break
     }

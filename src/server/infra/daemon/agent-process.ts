@@ -46,6 +46,7 @@ import {
   TransportStateEventNames,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
+import {FileContextTreeArchiveService} from '../context-tree/file-context-tree-archive-service.js'
 import {DreamLockService} from '../dream/dream-lock-service.js'
 import {DreamLogStore} from '../dream/dream-log-store.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
@@ -516,6 +517,7 @@ async function executeTask(
           }
 
           const dreamExecutor = new DreamExecutor({
+            archiveService: new FileContextTreeArchiveService(),
             curateLogStore: new FileCurateLogStore({baseDir: storagePath}),
             dreamLockService,
             dreamLogStore: new DreamLogStore({baseDir: brvDir}),

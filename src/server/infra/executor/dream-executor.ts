@@ -5,7 +5,7 @@
  * 1. Capture pre-state snapshot
  * 2. Load dream state
  * 3. Find changed files since last dream (via curate log scanning)
- * 4. Run operations (consolidate, synthesize; prune in ENG-2062)
+ * 4. Run operations (consolidate, synthesize, prune)
  * 5. Post-dream propagation (staleness + manifest rebuild)
  * 6. Write dream log
  * 7. Update dream state
@@ -30,11 +30,16 @@ import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-
 import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-summary-service.js'
 import {diffStates} from '../context-tree/snapshot-diff.js'
 import {consolidate, type ConsolidateDeps} from '../dream/operations/consolidate.js'
+import {prune} from '../dream/operations/prune.js'
 import {synthesize} from '../dream/operations/synthesize.js'
 
 const DREAM_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 export type DreamExecutorDeps = {
+  archiveService: {
+    archiveEntry(relativePath: string, agent: ICipherAgent, directory?: string): Promise<{fullPath: string; originalPath: string; stubPath: string}>
+    findArchiveCandidates(directory?: string): Promise<string[]>
+  }
   curateLogStore: {
     list(filters?: {after?: number; before?: number; limit?: number; status?: CurateLogStatus[]}): Promise<CurateLogEntry[]>
   }
@@ -123,7 +128,17 @@ export class DreamExecutor {
             taskId: options.taskId,
           })
         : []
-      const allOperations: DreamOperation[] = [...consolidateResults, ...synthesizeResults]
+      const pruneResults = await prune({
+        agent,
+        archiveService: this.deps.archiveService,
+        contextTreeDir,
+        dreamLogId: logId,
+        dreamStateService: this.deps.dreamStateService,
+        projectRoot,
+        signal: controller.signal,
+        taskId: options.taskId,
+      })
+      const allOperations: DreamOperation[] = [...consolidateResults, ...synthesizeResults, ...pruneResults]
 
       // Step 5: Post-dream propagation (fail-open)
       if (preState) {
@@ -154,13 +169,14 @@ export class DreamExecutor {
       }
       await this.deps.dreamLogStore.save(completedEntry)
 
-      // Step 7: Update dream state
+      // Step 7: Update dream state — re-read to preserve pendingMerges written by prune
+      const currentState = await this.deps.dreamStateService.read()
       await this.deps.dreamStateService.write({
-        ...dreamState,
+        ...currentState,
         curationsSinceDream: 0,
         lastDreamAt: new Date().toISOString(),
         lastDreamLogId: logId,
-        totalDreams: dreamState.totalDreams + 1,
+        totalDreams: currentState.totalDreams + 1,
       })
 
       succeeded = true
