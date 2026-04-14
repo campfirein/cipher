@@ -13,6 +13,7 @@ BRV_INSTALL_DIR="${BRV_INSTALL_DIR:-$HOME/.brv-cli}"
 GCS_BASE="https://storage.googleapis.com/brv-releases"
 CHANNEL="stable"
 BIN_DIR="$BRV_INSTALL_DIR/bin"
+LIB_DIR="$BRV_INSTALL_DIR/lib"
 
 # ─── Colors (only when connected to a terminal) ──────────────────────────────
 
@@ -180,16 +181,21 @@ install_brv() {
     rm -rf "$BRV_INSTALL_DIR"
   fi
 
-  # Create install directory and extract
-  mkdir -p "$BRV_INSTALL_DIR"
+  # Extract into lib/ — keeps bundled node out of the PATH-visible bin/
+  mkdir -p "$LIB_DIR"
   info "Extracting..."
-  tar xzf "$tarball_path" -C "$BRV_INSTALL_DIR" --strip-components=1
+  tar xzf "$tarball_path" -C "$LIB_DIR" --strip-components=1
 
-  # Verify installation
-  if [ ! -x "$BIN_DIR/brv" ]; then
-    error "Installation failed: $BIN_DIR/brv not found or not executable after extraction."
+  # Verify extraction
+  if [ ! -x "$LIB_DIR/bin/brv" ]; then
+    error "Installation failed: $LIB_DIR/bin/brv not found or not executable after extraction."
   fi
 
+  # Create bin/ with symlink to wrapper in lib/
+  mkdir -p "$BIN_DIR"
+  ln -sf "$LIB_DIR/bin/brv" "$BIN_DIR/brv"
+
+  # Version check through symlink — proves the full chain works
   installed_version="$("$BIN_DIR/brv" --version 2>/dev/null || echo "unknown")"
   printf "  Version:   %s\n" "$installed_version"
   printf "\n"
