@@ -63,6 +63,9 @@ public static description = 'Store knowledge in a swarm provider (GBrain, local 
 
       if (isJson) {
         this.log(JSON.stringify(result, undefined, 2))
+      } else if (result.success && result.fallback) {
+        const idPart = result.id ? ` as ${result.id}` : ''
+        this.log(`Stored to ${result.provider} (fallback — no external providers available)${idPart}`)
       } else if (result.success) {
         this.log(`Stored to ${result.provider} as ${result.id}`)
       } else {

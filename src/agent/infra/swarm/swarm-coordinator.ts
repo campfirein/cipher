@@ -1,3 +1,6 @@
+import {execFile as execFileCb} from 'node:child_process'
+import {promisify} from 'node:util'
+
 import type {QueryRequest} from '../../core/domain/swarm/types.js'
 import type {IMemoryProvider} from '../../core/interfaces/i-memory-provider.js'
 import type {
@@ -15,6 +18,29 @@ import {SwarmGraph} from './swarm-graph.js'
 import {mergeResults} from './swarm-merger.js'
 import {classifyQuery, selectProviders} from './swarm-router.js'
 import {classifyWrite, selectWriteTarget} from './swarm-write-router.js'
+
+export type BrvCurateResult = {data?: {logId?: string; taskId?: string}; error?: string; success?: boolean}
+
+const execFileAsync = promisify(execFileCb)
+
+async function execBrvCurate(content: string): Promise<BrvCurateResult> {
+  let stdout: string
+  try {
+    ({stdout} = await execFileAsync('brv', ['curate', '--detach', '--format', 'json', content], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    }))
+  } catch (error) {
+    const err = error as {message: string; stderr?: string}
+    throw new Error(err.stderr?.trim() || err.message)
+  }
+
+  try {
+    return JSON.parse(stdout) as BrvCurateResult
+  } catch {
+    throw new Error(`Failed to parse brv curate output: ${stdout.slice(0, 200)}`)
+  }
+}
 
 /**
  * Default provider weights for RRF fusion.
@@ -151,8 +177,11 @@ function resolveEndpoint(endpoint: string, providerIds: string[]): string[] {
  *
  * Implements ISwarmCoordinator to serve the CLI command and agent tool.
  */
+export type CurateFallbackFn = (content: string) => Promise<BrvCurateResult>
+
 export class SwarmCoordinator implements ISwarmCoordinator {
   private readonly config: SwarmConfig
+  private readonly curateFallback: CurateFallbackFn
   private readonly graph: SwarmGraph
   private readonly healthCache: Map<string, boolean> = new Map()
   private readonly maxCacheSize = 20
@@ -161,9 +190,10 @@ export class SwarmCoordinator implements ISwarmCoordinator {
   private readonly resultCacheTtlMs: number
   private totalQueries = 0
 
-  constructor(providers: IMemoryProvider[], config: SwarmConfig) {
+  constructor(providers: IMemoryProvider[], config: SwarmConfig, curateFallback?: CurateFallbackFn) {
     this.providers = providers
     this.config = config
+    this.curateFallback = curateFallback ?? execBrvCurate
     this.resultCacheTtlMs = config.performance.resultCacheTtlMs ?? 10_000
     this.graph = new SwarmGraph(providers, {
       timeoutMs: config.performance.maxQueryLatencyMs,
@@ -381,7 +411,13 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     } else {
       // Auto-route: classify content type, then select target
       const writeType = request.contentType ?? classifyWrite(request.content)
-      target = selectWriteTarget(writeType, this.providers, this.healthCache)
+      const selected = selectWriteTarget(writeType, this.providers, this.healthCache)
+
+      if (!selected) {
+        return this.fallbackToByterover(request, start)
+      }
+
+      target = selected
     }
 
     try {
@@ -426,6 +462,32 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     const firstKey = this.resultCache.keys().next().value
     if (firstKey !== undefined) {
       this.resultCache.delete(firstKey)
+    }
+  }
+
+  private async fallbackToByterover(
+    request: SwarmStoreRequest,
+    start: number,
+  ): Promise<SwarmStoreResult> {
+    try {
+      const parsed = await this.curateFallback(request.content)
+      return {
+        error: parsed.success === true ? undefined : (parsed.error ?? 'brv curate returned success: false'),
+        fallback: true,
+        id: parsed.data?.logId ?? parsed.data?.taskId ?? '',
+        latencyMs: Date.now() - start,
+        provider: 'byterover',
+        success: parsed.success === true,
+      }
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : String(error),
+        fallback: true,
+        id: '',
+        latencyMs: Date.now() - start,
+        provider: 'byterover',
+        success: false,
+      }
     }
   }
 }
