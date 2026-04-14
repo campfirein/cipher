@@ -1,14 +1,17 @@
+import {existsSync} from 'node:fs'
 import {homedir, platform} from 'node:os'
 import {join} from 'node:path'
 
 const CLAUDE_DESKTOP_CONFIG_FILE = 'claude_desktop_config.json'
 const CLAUDE_DESKTOP_DIR = 'Claude'
+const MSIX_PACKAGE_DIR = 'Claude_pzs8sxrjxfjjc'
 
 /**
  * Dependencies for platform detection, injectable for testing.
  */
 type PlatformDeps = {
   env: Record<string, string | undefined>
+  existsSync?: (path: string) => boolean
   homedir: () => string
   platform: () => NodeJS.Platform
 }
@@ -32,6 +35,11 @@ export const getClaudeDesktopConfigPath = (deps: PlatformDeps = defaultDeps): st
   const currentPlatform = deps.platform()
 
   if (currentPlatform === 'win32') {
+    const checkExists = deps.existsSync ?? existsSync
+    const localAppData = deps.env.LOCALAPPDATA ?? join(deps.homedir(), 'AppData', 'Local')
+    const msixDir = join(localAppData, 'Packages', MSIX_PACKAGE_DIR, 'LocalCache', 'Roaming', CLAUDE_DESKTOP_DIR)
+    if (checkExists(msixDir)) return join(msixDir, CLAUDE_DESKTOP_CONFIG_FILE)
+
     const appData = deps.env.APPDATA
     if (appData !== undefined) {
       return join(appData, CLAUDE_DESKTOP_DIR, CLAUDE_DESKTOP_CONFIG_FILE)
