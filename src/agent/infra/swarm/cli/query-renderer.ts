@@ -24,7 +24,7 @@ export function providerTypeToLabel(type: ProviderType, id: string): string {
       return `notes:${name}`
     }
 
-    case 'memory-wiki': { return 'wiki'
+    case 'memory-wiki': { return 'memory-wiki'
     }
 
     case 'obsidian': { return 'obsidian'

@@ -1,3 +1,6 @@
+import {execFile as execFileCb} from 'node:child_process'
+import {promisify} from 'node:util'
+
 import type {QueryRequest} from '../../core/domain/swarm/types.js'
 import type {IMemoryProvider} from '../../core/interfaces/i-memory-provider.js'
 import type {
@@ -16,17 +19,40 @@ import {mergeResults} from './swarm-merger.js'
 import {classifyQuery, selectProviders} from './swarm-router.js'
 import {classifyWrite, selectWriteTarget} from './swarm-write-router.js'
 
+export type BrvCurateResult = {data?: {logId?: string; taskId?: string}; error?: string; success?: boolean}
+
+const execFileAsync = promisify(execFileCb)
+
+async function execBrvCurate(content: string): Promise<BrvCurateResult> {
+  let stdout: string
+  try {
+    ;({stdout} = await execFileAsync('brv', ['curate', '--detach', '--format', 'json', content], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    }))
+  } catch (error) {
+    const err = error as {message: string; stderr?: string}
+    throw new Error(err.stderr?.trim() || err.message)
+  }
+
+  try {
+    return JSON.parse(stdout) as BrvCurateResult
+  } catch {
+    throw new Error(`Failed to parse brv curate output: ${stdout.slice(0, 200)}`)
+  }
+}
+
 /**
  * Default provider weights for RRF fusion.
  * ByteRover (home provider) gets highest weight.
  */
 const DEFAULT_WEIGHTS: Record<string, number> = {
   byterover: 1,
-  gbrain: 0.7,
+  gbrain: 0.85,
   hindsight: 0.8,
   honcho: 0.75,
   'local-markdown': 0.8,
-  'memory-wiki': 0.9,
+  'memory-wiki': 0.8,
   obsidian: 0.85,
 }
 
@@ -60,7 +86,7 @@ function resolveWeight(providerId: string): number {
  */
 function expandEnrichmentEdges(
   configEdges: Array<{from: string; to: string}>,
-  providerIds: string[]
+  providerIds: string[],
 ): Array<{from: string; to: string}> {
   // 1. Expand generic endpoints to concrete IDs
   const seen = new Set<string>()
@@ -152,8 +178,11 @@ function resolveEndpoint(endpoint: string, providerIds: string[]): string[] {
  *
  * Implements ISwarmCoordinator to serve the CLI command and agent tool.
  */
+export type CurateFallbackFn = (content: string) => Promise<BrvCurateResult>
+
 export class SwarmCoordinator implements ISwarmCoordinator {
   private readonly config: SwarmConfig
+  private readonly curateFallback: CurateFallbackFn
   private readonly graph: SwarmGraph
   private readonly healthCache: Map<string, boolean> = new Map()
   private readonly maxCacheSize = 20
@@ -162,9 +191,10 @@ export class SwarmCoordinator implements ISwarmCoordinator {
   private readonly resultCacheTtlMs: number
   private totalQueries = 0
 
-  constructor(providers: IMemoryProvider[], config: SwarmConfig) {
+  constructor(providers: IMemoryProvider[], config: SwarmConfig, curateFallback?: CurateFallbackFn) {
     this.providers = providers
     this.config = config
+    this.curateFallback = curateFallback ?? execBrvCurate
     this.resultCacheTtlMs = config.performance.resultCacheTtlMs ?? 10_000
     this.graph = new SwarmGraph(providers, {
       timeoutMs: config.performance.maxQueryLatencyMs,
@@ -212,9 +242,7 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     const queryType = request.type ?? classifyQuery(request.query)
 
     // 2. Select active providers based on query type, excluding unhealthy ones
-    const healthyIds = this.providers
-      .filter((p) => this.healthCache.get(p.id) !== false)
-      .map((p) => p.id)
+    const healthyIds = this.providers.filter((p) => this.healthCache.get(p.id) !== false).map((p) => p.id)
     const activeIds = selectProviders(queryType, healthyIds)
 
     // 3. Estimate total cost
@@ -312,9 +340,10 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     }))
 
     const activeCount = providerInfos.filter((p) => p.healthy).length
-    const avgLatencyMs = this.providers.length > 0
-      ? this.providers.reduce((sum, p) => sum + p.capabilities.avgLatencyMs, 0) / this.providers.length
-      : 0
+    const avgLatencyMs =
+      this.providers.length > 0
+        ? this.providers.reduce((sum, p) => sum + p.capabilities.avgLatencyMs, 0) / this.providers.length
+        : 0
 
     return {
       activeCount,
@@ -343,7 +372,7 @@ export class SwarmCoordinator implements ISwarmCoordinator {
           id: p.id,
           type: p.type,
         }
-      })
+      }),
     )
 
     this.resultCache.clear()
@@ -367,22 +396,46 @@ export class SwarmCoordinator implements ISwarmCoordinator {
       // Explicit provider target
       const provider = this.providers.find((p) => p.id === request.provider)
       if (!provider) {
-        return {error: `Provider '${request.provider}' not found`, id: '', latencyMs: 0, provider: request.provider, success: false}
+        return {
+          error: `Provider '${request.provider}' not found`,
+          id: '',
+          latencyMs: 0,
+          provider: request.provider,
+          success: false,
+        }
       }
 
       if (!provider.capabilities.writeSupported) {
-        return {error: `Provider '${request.provider}' does not support writes`, id: '', latencyMs: 0, provider: request.provider, success: false}
+        return {
+          error: `Provider '${request.provider}' does not support writes`,
+          id: '',
+          latencyMs: 0,
+          provider: request.provider,
+          success: false,
+        }
       }
 
       if (this.healthCache.get(provider.id) === false) {
-        return {error: `Provider '${request.provider}' is not healthy`, id: '', latencyMs: 0, provider: request.provider, success: false}
+        return {
+          error: `Provider '${request.provider}' is not healthy`,
+          id: '',
+          latencyMs: 0,
+          provider: request.provider,
+          success: false,
+        }
       }
 
       target = provider
     } else {
       // Auto-route: classify content type, then select target
       const writeType = request.contentType ?? classifyWrite(request.content)
-      target = selectWriteTarget(writeType, this.providers, this.healthCache)
+      const selected = selectWriteTarget(writeType, this.providers, this.healthCache)
+
+      if (!selected) {
+        return this.fallbackToByterover(request, start)
+      }
+
+      target = selected
     }
 
     try {
@@ -427,6 +480,29 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     const firstKey = this.resultCache.keys().next().value
     if (firstKey !== undefined) {
       this.resultCache.delete(firstKey)
+    }
+  }
+
+  private async fallbackToByterover(request: SwarmStoreRequest, start: number): Promise<SwarmStoreResult> {
+    try {
+      const parsed = await this.curateFallback(request.content)
+      return {
+        error: parsed.success === true ? undefined : (parsed.error ?? 'brv curate returned success: false'),
+        fallback: true,
+        id: parsed.data?.logId ?? parsed.data?.taskId ?? '',
+        latencyMs: Date.now() - start,
+        provider: 'byterover',
+        success: parsed.success === true,
+      }
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : String(error),
+        fallback: true,
+        id: '',
+        latencyMs: Date.now() - start,
+        provider: 'byterover',
+        success: false,
+      }
     }
   }
 }

@@ -103,6 +103,8 @@ export type SwarmStoreRequest = {
 export type SwarmStoreResult = {
   /** Error message if store failed */
   error?: string
+  /** True when content was routed to context tree as fallback (no external providers available) */
+  fallback?: boolean
   /** ID assigned by the target provider */
   id: string
   /** Store latency in milliseconds */

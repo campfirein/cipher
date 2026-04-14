@@ -26,28 +26,27 @@ export function classifyWrite(content: string): WriteType {
 /**
  * Select the best writable provider for a given write type.
  *
- * Receives pre-filtered providers (callers should pass only writeSupported=true).
- * Internal writeSupported check is a defensive assert.
+ * Filters providers to writable + healthy candidates internally.
  *
  * Priority:
  * - entity → GBrain > first writable
  * - note → first local-markdown > first writable
  * - general → first writable (config order)
  *
- * @throws Error if no writable+healthy provider is available
+ * @returns null if no writable+healthy provider is available
  */
 export function selectWriteTarget(
   writeType: WriteType,
   providers: IMemoryProvider[],
   healthCache: Map<string, boolean>
-): IMemoryProvider {
+): IMemoryProvider | null {
   // Filter to writable + healthy
   const candidates = providers.filter(
     (p) => p.capabilities.writeSupported && healthCache.get(p.id) !== false
   )
 
   if (candidates.length === 0) {
-    throw new Error('No writable providers configured')
+    return null
   }
 
   // Type-specific preference
