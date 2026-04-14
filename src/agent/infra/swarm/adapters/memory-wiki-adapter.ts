@@ -1,5 +1,6 @@
 import MiniSearch from 'minisearch'
-import {existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdirSync, readdirSync, readFileSync, statSync} from 'node:fs'
+import {writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {
@@ -232,7 +233,7 @@ private readonly boostFresh: boolean
       '',
     ].join('\n')
 
-    writeFileSync(filePath, pageContent)
+    await writeFile(filePath, pageContent)
 
     // Invalidate index so next query picks up the new page
     this.index = null
