@@ -2,6 +2,114 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.3.0]
+
+### Added
+- **`brv search` — BM25 context tree search** — New command for pure BM25 retrieval over the context tree (no LLM, no provider, no token cost). Returns ranked paths, scores, and excerpts. Flags: `--limit` (1–50), `--scope <prefix>`, `--format json`. Use `brv search` for structured results and `brv query` for synthesized answers.
+- **`--timeout` flag for `brv curate` and `brv query`** — Override the previous hardcoded 5-minute limit so slow local models can finish. Accepts seconds (default 300, max 3600); no effect with `--detach`.
+
+### Fixed
+- **Misleading "no space configured" error on `brv push` / `brv pull`** — Legacy sync now shows a clear deprecation message pointing at `brv vc init` instead of the deprecated `brv space switch` flow. TUI also links to the [version control docs](https://docs.byterover.dev/git-semantic/overview).
+- **`brv status` auto-created `.snapshot.json` without team/space config** — VC-managed projects no longer get a stray legacy-sync snapshot file; status now reports `Managed by Byterover version control` instead.
+- **Adaptive `*.abstract.md` / `*.overview.md` files polluting `brv vc` diffs** — These derived artifacts are now in the context-tree `.gitignore` and excluded from version control.
+
+## [3.2.0]
+
+### Added
+- **`brv worktree` — git-style worktree links** — Register a subdirectory (or sibling) as a worktree of a parent project without creating a nested `.brv/`. `brv worktree add [path]` writes a `.brv` pointer file in the target that redirects to the parent — the same pattern as `git worktree` (path defaults to the current directory for auto-detect from a subdirectory). `brv worktree list` shows the current link state and registered worktrees; `brv worktree remove [path]` unregisters (also defaults to cwd). `--force` lets `add` convert an existing `.brv/` directory into a pointer by backing it up to `.brv-backup/`; `remove` restores that backup automatically if present. Also available as `/worktree` in the REPL.
+- **`brv source` — cross-project knowledge sources** — Link another project's context tree as a read-only knowledge source. `brv source add <path> [--alias <name>]` attaches a source; `brv source list` shows linked sources with validity; `brv source remove <alias-or-path>` detaches. Linked sources are write-protected, and query results pulled from them are tagged with a `shared` origin and their alias so you can tell which project an answer came from. Also available as `/source` in the REPL.
+- **Resolver-aware `brv status`** — `brv status` now surfaces the resolved project root, the linked worktree root (when different), knowledge-source validity, and actionable warnings for broken or malformed worktree pointers and sources. `--verbose` adds the resolution source (`direct` / `linked` / `flag`). A new `--project-root <path>` flag on `brv status` overrides auto-detection and fails loudly when the path is not a ByteRover project instead of silently falling back to the current directory.
+
+### Changed
+- **Workspace-aware curate and query** — `brv curate` and `brv query` now automatically detect when you're inside a linked worktree and pass the worktree root to the daemon alongside the project root. Explicit relative paths you pass yourself (e.g. `brv curate -f ./src/auth.ts`, `brv curate -d ./packages/api/src`) still resolve from your shell cwd to match normal shell behavior.
+
+## [3.1.0]
+
+### Added
+- **Adaptive knowledge scoring** — The knowledge base now prioritizes content based on usage patterns. Frequently accessed knowledge ranks higher in search results through hotness scoring and hierarchical score propagation.
+- **Knowledge abstracts** — Knowledge entries automatically generate compressed summaries (abstracts and overviews), reducing token usage while preserving key information for the agent.
+- **Session learning** — The agent extracts patterns, preferences, decisions, and skills from your sessions and stores them as durable knowledge, improving responses over time.
+- **Resource ingestion tool** — The agent can now ingest external files and resources directly into your knowledge base.
+
+### Fixed
+- **Stale CLI cache after upgrades** — Install and uninstall scripts now clean the oclif client cache, preventing issues caused by cached data from previous versions.
+- **Knowledge search accuracy** — Fixed double compound scoring in parent propagation, improved maturity filtering, and corrected result truncation for more relevant search results.
+
+## [3.0.0]
+
+### Added
+- **`brv vc` — Git version control commands** — A full suite of Git-like commands (`init`, `clone`, `status`, `commit`, `push`, `pull`, `branch`, `checkout`, `merge`, `reset`, `remote`, `log`, `fetch`) that sync context alongside code through ByteRover's remote.
+- **Human-in-the-loop review system** — Review pending curate operations before they are applied. Use `brv review pending` to list, `brv review approve` to accept, and `brv review reject` to discard.
+
+### Changed
+- **Legacy commands show `brv vc` hints** — Running `brv status`, `brv pull`, or `brv push` now displays a tip about the corresponding `brv vc` command.
+- **Name-based remote URLs** — Remote URLs now use human-readable names.
+- **Team and space persisted on remote add** — `brv vc remote add` and `brv vc remote set-url` now persist team and space identifiers to `config.json`.
+- **(Deprecated) `brv space list` and `brv space switch`** — These commands still work but show a deprecation notice directing users to the web dashboard.
+
+### Fixed
+- **Provider error messages** — CLI text-mode commands now show the actual backend error message instead of a misleading "API key is missing or invalid" fallback.
+- **Security dependency updates** — Patched `hono`, `@hono/node-server`, `@xmldom/xmldom`, `lodash`, and `lodash-es` to address known vulnerabilities.
+
+## [2.6.0]
+
+### Changed
+- Refactor and major code cleanup.
+
+## [2.5.2]
+
+### Fixed
+- **Pinned axios to exact version 1.14.0** — Locked the axios dependency to an exact known-good version to mitigate supply-chain security risks. Previously used a caret range (`^1.12.2`) that could pull in untrusted future releases.
+
+## [2.5.1]
+
+### Fixed
+- **Provider connect/switch showed false success on auth errors** — `brv providers connect` and `brv providers switch` now correctly detect when the server rejects the request and display the actual error message (e.g., authentication required) instead of falsely reporting success.
+
+## [2.5.0]
+
+### Added
+- **Inline login for ByteRover provider** — When selecting or activating ByteRover without being logged in, the CLI now shows an inline login prompt instead of failing. Users authenticate through the browser without leaving the provider setup flow. Tasks also validate authentication before execution and show a clear message if login is needed.
+
+### Fixed
+- **Proxy double-routing on corporate networks** — Fixed an issue where HTTP requests could be routed through a proxy twice when `HTTPS_PROXY` was set, causing connection failures. Axios's built-in proxy is now explicitly disabled in favor of the custom `proxy-agent` already in use.
+- **Security dependency updates** — Patched npm dependencies to address high-severity vulnerabilities.
+
+## [2.4.1]
+
+### Fixed
+- **Agent startup reliability improved** — Increased the timeout for agent child processes to become ready from 15 to 30 seconds, reducing timeout failures on slower machines or under heavy load.
+- **Console window flash on Windows** — Agent child processes no longer briefly flash a console window when spawned on Windows.
+- **Security dependency updates** — Patched npm dependencies to address high-severity vulnerabilities.
+
+## [2.4.0]
+
+### Added
+- **Enterprise proxy support** — All HTTP traffic now automatically routes through corporate proxies when standard environment variables are set (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`). For environments with SSL inspection, set `NODE_EXTRA_CA_CERTS` to your corporate CA certificate. The CLI provides clear error messages when proxy or certificate issues are detected.
+
+## [2.3.4]
+
+### Changed
+- **ByteRover provider request format simplified** — Reduced unnecessary fields sent to the server for cleaner request handling.
+
+## [2.3.3]
+
+### Fixed
+- **Streaming errors from OAuth providers showed `[object Object]`** — Error messages from LLM provider streaming failures (e.g. OpenAI via OAuth) now display the actual error detail instead of an unhelpful `[object Object]` string.
+
+## [2.3.2]
+
+### Removed
+- **`better-sqlite3` dependency** — Removed the unused native SQLite package that was left over after the migration to file-based storage in 2.1.0. This reduces install size and eliminates native compilation requirements on some platforms.
+
+## [2.3.1]
+
+### Fixed
+- **OpenRouter provider name format** — OpenRouter models now display as `OpenRouter (<provider>)` instead of a capitalized provider name, making it easier to identify when using an OpenRouter-routed model.
+- **`brv update` blocked for npm installations** — Running `brv update` when installed via npm now shows a clear error directing users to run `npm update -g byterover-cli` instead. Previously produced confusing errors.
+- **`brv restart` no longer kills itself or triggers daemon respawn** — Rewrote restart with a 4-phase shutdown sequence (kill clients, graceful daemon stop, clean orphans, clean state files).
+- **Security dependency updates** — Patched `socket.io` and `@campfirein/brv-transport-client` to address high-severity vulnerabilities.
+
 ## [2.3.0]
 
 ### Added

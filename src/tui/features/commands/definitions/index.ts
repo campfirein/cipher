@@ -14,8 +14,11 @@ import {pullCommand} from './pull.js'
 import {pushCommand} from './push.js'
 import {queryCommand} from './query.js'
 import {resetCommand} from './reset.js'
+import {sourceCommand} from './source.js'
 import {spaceCommand} from './space.js'
 import {statusCommand} from './status.js'
+import {vcCommand} from './vc.js'
+import {worktreeCommand} from './worktree.js'
 
 /**
  * Load all REPL slash commands.
@@ -46,6 +49,15 @@ export const load: () => SlashCommand[] = () => [
 
   // Space management
   spaceCommand,
+
+  // Git semantic (vc commands)
+  vcCommand,
+
+  // Workspace management
+  worktreeCommand,
+
+  // Knowledge sources
+  sourceCommand,
 
   // Context tree management
   resetCommand,

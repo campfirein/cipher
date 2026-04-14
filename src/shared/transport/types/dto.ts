@@ -16,6 +16,7 @@ export interface UserDTO {
   email: string
   hasOnboardedCli: boolean
   id: string
+  name?: string
 }
 
 export interface AuthTokenDTO {
@@ -126,9 +127,12 @@ export interface HubEntryDTO {
   version: string
 }
 
-// ============================================================================
-// Status DTOs
-// ============================================================================
+export interface SourceStatusDTO {
+  alias: string
+  contextTreeSize?: number
+  projectRoot: string
+  valid: boolean
+}
 
 export interface ProjectLocationDTO {
   /** Absolute path to the context tree directory (e.g., '/Users/foo/project/.brv/context-tree') */
@@ -142,16 +146,43 @@ export interface ProjectLocationDTO {
   projectPath: string
 }
 
+// ============================================================================
+// Status DTOs
+// ============================================================================
 export interface StatusDTO {
+  /** Current state of the background abstract generation queue, if active */
+  abstractQueue?: {
+    failed: number
+    pending: number
+    processed: number
+    processing: boolean
+  }
   authStatus: 'expired' | 'logged_in' | 'not_logged_in' | 'unknown'
   contextTreeChanges?: ContextTreeChanges
   /** Absolute path to the context tree directory (e.g., '/Users/foo/project/.brv/context-tree') */
   contextTreeDir?: string
   /** Relative path to the context tree directory from project root (e.g., '.brv/context-tree') */
   contextTreeRelativeDir?: string
-  contextTreeStatus: 'has_changes' | 'no_changes' | 'not_initialized' | 'unknown'
+  contextTreeStatus: 'git_vc' | 'has_changes' | 'no_changes' | 'no_vc' | 'not_initialized' | 'unknown'
+  /** @deprecated Use projectRoot instead. Kept for backward compatibility. */
   currentDirectory: string
+  /** Number of files with pending HITL review (0 if none or unavailable). */
+  pendingReviewCount?: number
+  /** Absolute path to the project root (directory containing .brv/) */
+  projectRoot?: string
+  /** How the project root was discovered */
+  resolutionSource?: 'direct' | 'flag' | 'linked'
+  /** Actionable error message when resolver fails (broken/malformed worktree pointer) */
+  resolverError?: string
+  /** URL to the local review UI (only set when pendingReviewCount > 0). */
+  reviewUrl?: string
+  /** Knowledge sources from other projects' context trees (read-only) */
+  sources?: SourceStatusDTO[]
+  /** Error message when sources.json is malformed */
+  sourcesError?: string
   spaceName?: string
   teamName?: string
   userEmail?: string
+  /** Stable workspace root (link directory), or projectRoot if unlinked */
+  worktreeRoot?: string
 }

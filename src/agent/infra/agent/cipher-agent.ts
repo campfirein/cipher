@@ -4,6 +4,7 @@ import {randomUUID} from 'node:crypto'
 import {setMaxListeners} from 'node:events'
 
 import type {BrvConfig} from '../../../server/core/domain/entities/brv-config.js'
+import type {ProviderConfigResponse} from '../../../server/core/domain/transport/schemas.js'
 import type {AgentEventMap} from '../../core/domain/agent-events/types.js'
 import type {GenerateResponse, StreamingEvent, StreamOptions} from '../../core/domain/streaming/types.js'
 import type {CipherAgentServices} from '../../core/interfaces/cipher-services.js'
@@ -20,18 +21,27 @@ import type {ToolProvider} from '../tools/tool-provider.js'
 import type {AgentConfig} from './agent-schemas.js'
 import type {ProviderUpdateConfig} from './provider-update-config.js'
 
+import {TransportStateEventNames} from '../../../server/core/domain/transport/schemas.js'
+import {agentLog} from '../../../server/utils/process-logger.js'
 import {getEffectiveMaxInputTokens, resolveRegistryProvider} from '../../core/domain/llm/index.js'
 import {STREAMING_EVENT_NAMES} from '../../core/domain/streaming/types.js'
 import {ToolName} from '../../core/domain/tools/constants.js'
 import {AgentEventBus} from '../events/event-emitter.js'
+import {RetryableContentGenerator} from '../llm/generators/index.js'
 import {createGeneratorForProvider} from '../llm/providers/index.js'
+import {DEFAULT_RETRY_POLICY} from '../llm/retry/retry-policy.js'
 import {EventBasedLogger} from '../logger/event-based-logger.js'
 import {deregisterRootEligibleSession, registerRootEligibleSession} from '../map/agentic-map-service.js'
+import {MemoryDeduplicator} from '../memory/memory-deduplicator.js'
+import {createCurateService} from '../sandbox/curate-service.js'
+import {SessionCompressor} from '../session/session-compressor.js'
 import {SessionManager} from '../session/session-manager.js'
 import {TransportEventBridge} from '../transport/transport-event-bridge.js'
 import {AgentError} from './agent-error.js'
 import {BaseAgent} from './base-agent.js'
 import {type ByteRoverHttpConfig, createCipherAgentServices, type SessionLLMConfig} from './service-initializer.js'
+
+const QUEUE_TRACE_ENABLED = process.env.BRV_QUEUE_TRACE === '1'
 
 /**
  * CipherAgent - Main agent implementation extending BaseAgent.
@@ -43,7 +53,7 @@ import {type ByteRoverHttpConfig, createCipherAgentServices, type SessionLLMConf
  * - Typed error handling
  * - Configuration validation (Zod)
  *
- * Architecture (DextoAgent pattern):
+ * Architecture:
  * - Agent creates AgentEventBus in constructor (available before start)
  * - Agent creates and owns shared services (ToolManager, SystemPromptManager, etc.)
  * - SessionManager creates session-specific services (LLM, SessionEventBus)
@@ -76,7 +86,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * Used for bulk deregistration on agent teardown (cleanupServices).
    */
   private readonly rootEligibleSessions = new Set<string>()
+  /** Lazily-created session compressor, rebuilt on each rebindCurateTools() call. */
+  private sessionCompressor?: SessionCompressor
   private sessionManager?: SessionManager
+  /** Tracks user-facing task sessions for post-session memory extraction. */
+  private readonly userFacingTaskSessions = new Set<string>()
 
   /**
    * Creates a new CipherAgent instance.
@@ -105,7 +119,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Call parent constructor (validates with Zod)
     super(config)
 
-    // Create event bus early (DextoAgent pattern - available before start)
+    // Create event bus early (available before start)
     this._agentEventBus = new AgentEventBus()
 
     this._brvConfig = brvConfig
@@ -198,6 +212,9 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   // === Public Methods (alphabetical order) ===
 
   protected override async cleanupServices(): Promise<void> {
+    // Drain abstract generation queue before session disposal
+    await this.drainAbstractQueue()
+
     // Abort all active streams and clear controllers
     for (const controller of this.activeStreamControllers.values()) {
       controller.abort()
@@ -259,7 +276,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   public async createTaskSession(
     taskId: string,
     commandType: string,
-    options?: {mapRootEligible?: boolean},
+    options?: {mapRootEligible?: boolean; userFacing?: boolean},
   ): Promise<string> {
     this.ensureStarted()
     const sessionMgr = this.getSessionManagerInternal()
@@ -277,6 +294,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // is skipped here — processItem sets its own isRootCaller: false record.
     if (options?.mapRootEligible) {
       this.registerSessionInternal(childSession.id)
+    }
+
+    // Track user-facing sessions for post-session memory extraction.
+    if (options?.userFacing) {
+      this.userFacingTaskSessions.add(childSession.id)
     }
 
     return childSession.id
@@ -327,6 +349,40 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    */
   public async deleteTaskSession(sessionId: string): Promise<void> {
     this.ensureStarted()
+
+    // Compress memories for user-facing sessions before disposal (fail-open).
+    if (this.userFacingTaskSessions.has(sessionId) && this.sessionCompressor) {
+      try {
+        // Refresh OAuth token and rebuild compressor before compression
+        if (this._transportClient && this.services) {
+          try {
+            await this.refreshSessionCompressorFromTransport()
+          } catch {
+            // Fail-open: use existing compressor with potentially stale token
+          }
+        }
+
+        const session = this.getSessionManagerInternal().getSession(sessionId)
+        if (session) {
+          const messages = session.getLLMService().getContextManager().getComprehensiveMessages()
+          const commandType = this.getSessionManagerInternal().getSessionCommandType(sessionId) ?? 'curate'
+          // Task sessions often contain a compact prompt/response trace, so use a
+          // lower threshold than the interactive default to preserve useful memories.
+          await this.sessionCompressor.compress(messages, commandType, {minMessages: 2}).catch((error) => {
+            const msg = error instanceof Error ? error.message : String(error)
+            console.debug(`[CipherAgent] Session compression failed for ${sessionId}: ${msg}`)
+          })
+        }
+      } catch (error) {
+        // Fail-open: synchronous errors in the session accessor chain (e.g. corrupted
+        // session state) must not prevent clearSession + deleteSession from running.
+        const msg = error instanceof Error ? error.message : String(error)
+        console.debug(`[CipherAgent] Session compression setup failed for ${sessionId}: ${msg}`)
+      }
+
+      this.userFacingTaskSessions.delete(sessionId)
+    }
+
     await this.services!.sandboxService.clearSession(sessionId)
     await this.getSessionManagerInternal().deleteSession(sessionId)
 
@@ -337,6 +393,15 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       deregisterRootEligibleSession(sessionId, this._instanceId)
       this.rootEligibleSessions.delete(sessionId)
     }
+  }
+
+  /**
+   * Wait for shared background work (such as abstract generation) to finish.
+   * Used by task executors before reporting task completion.
+   */
+  public async drainBackgroundWork(): Promise<void> {
+    this.ensureStarted()
+    await this.drainAbstractQueue()
   }
 
   /**
@@ -505,7 +570,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   }
 
   protected override async initializeServices(): Promise<CipherAgentServices> {
-    // Pass pre-created event bus to service initializer (DextoAgent pattern)
+    // Pass pre-created event bus to service initializer
     return createCipherAgentServices(this.config, this._agentEventBus)
   }
 
@@ -589,6 +654,9 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
     // Rebind map tools with fresh generator/tokenizer/maxContextTokens
     this.rebindMapTools(services, httpConfig, sessionLLMConfig)
+
+    // Rebind curate tools with fresh generator + abstract queue
+    this.rebindCurateTools(services, httpConfig, sessionLLMConfig)
   }
 
   /**
@@ -705,6 +773,9 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     // Uses rebindMapTools() which atomically replaces map tools with fresh deps
     // (generator, tokenizer, maxContextTokens, logger).
     this.rebindMapTools(services, httpConfig, sessionLLMConfig)
+
+    // Wire abstract generation queue with curate generator + rebuild curate service.
+    this.rebindCurateTools(services, httpConfig, sessionLLMConfig)
 
     // Create event bridge if transport client is injected (child process mode).
     // The bridge forwards AgentEventBus llmservice:* events to the transport server.
@@ -967,6 +1038,82 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
   // === Private Helpers (alphabetical order) ===
 
+  private createFreshRetryableGenerator(
+    fresh: ProviderConfigResponse,
+    options: {
+      httpConfig: ByteRoverHttpConfig
+      httpReferer?: string
+      modelFallback: string
+      siteName?: string
+    },
+  ): RetryableContentGenerator | undefined {
+    if (fresh.providerKeyMissing || !fresh.activeProvider) {
+      return
+    }
+
+    const provider = fresh.provider ?? (fresh.openRouterApiKey ? 'openrouter' : 'byterover')
+    const freshGenerator = createGeneratorForProvider(provider, {
+      apiKey: provider === 'openrouter'
+        ? (fresh.openRouterApiKey ?? fresh.providerApiKey)
+        : fresh.providerApiKey,
+      baseUrl: fresh.providerBaseUrl,
+      headers: fresh.providerHeaders,
+      httpConfig: options.httpConfig as unknown as Record<string, unknown>,
+      httpReferer: options.httpReferer,
+      maxTokens: 4096,
+      model: fresh.activeModel ?? options.modelFallback,
+      siteName: options.siteName,
+      temperature: 0,
+    })
+
+    return new RetryableContentGenerator(freshGenerator, {policy: DEFAULT_RETRY_POLICY})
+  }
+
+  private async drainAbstractQueue(): Promise<void> {
+    const abstractQueue = this.services?.abstractQueue
+    if (!abstractQueue) {
+      return
+    }
+
+    const settleDeadline = Date.now() + 5000
+    let idleSince: number | undefined
+    let pass = 0
+
+    /* eslint-disable no-await-in-loop */
+    while (Date.now() <= settleDeadline) {
+      pass++
+      if (QUEUE_TRACE_ENABLED) {
+        agentLog(`drainAbstractQueue:pass:${pass}:start`)
+      }
+
+      await abstractQueue.drain()
+      const status = abstractQueue.getStatus()
+      if (QUEUE_TRACE_ENABLED) {
+        agentLog(`drainAbstractQueue:pass:${pass}:status pending=${status.pending} processing=${status.processing} processed=${status.processed} failed=${status.failed}`)
+      }
+
+      if (!status.processing && status.pending === 0) {
+        idleSince ??= Date.now()
+        if (Date.now() - idleSince >= 250) {
+          if (QUEUE_TRACE_ENABLED) {
+            agentLog(`drainAbstractQueue:settled pass=${pass}`)
+          }
+
+          return
+        }
+      } else {
+        idleSince = undefined
+      }
+
+      await new Promise<void>((resolve) => { setTimeout(resolve, 100) })
+    }
+    /* eslint-enable no-await-in-loop */
+
+    if (QUEUE_TRACE_ENABLED) {
+      agentLog('drainAbstractQueue:deadline-reached')
+    }
+  }
+
   private getHistoryStorageInternal(): IHistoryStorage {
     const storage = this.services?.historyStorage
     if (!storage) {
@@ -1015,6 +1162,71 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
    * Rebuild map tool dependencies and update ToolProvider + SandboxService.
    * Called from both start() (initial setup) and refreshProviderConfig() (hot-swap).
    */
+  private rebindCurateTools(
+    services: CipherAgentServices,
+    httpConfig: ByteRoverHttpConfig,
+    sessionLLMConfig: SessionLLMConfig,
+  ): void {
+    const curateProvider = sessionLLMConfig.provider
+      ?? (sessionLLMConfig.openRouterApiKey ? 'openrouter' : 'byterover')
+    const curateGenerator = createGeneratorForProvider(curateProvider, {
+      apiKey: curateProvider === 'openrouter'
+        ? (sessionLLMConfig.openRouterApiKey ?? sessionLLMConfig.providerApiKey)
+        : sessionLLMConfig.providerApiKey,
+      baseUrl: sessionLLMConfig.providerBaseUrl,
+      headers: sessionLLMConfig.providerHeaders,
+      httpConfig: httpConfig as unknown as Record<string, unknown>,
+      httpReferer: sessionLLMConfig.httpReferer,
+      maxTokens: 4096,
+      model: sessionLLMConfig.model,
+      siteName: sessionLLMConfig.siteName,
+      temperature: 0,
+    })
+
+    // Wrap with retry for background resilience (no event bus — background tasks have no UI)
+    const retryableCurateGenerator = new RetryableContentGenerator(curateGenerator, {
+      policy: DEFAULT_RETRY_POLICY,
+    })
+
+    // Wire generator into the abstract queue so background generation can proceed
+    services.abstractQueue.setGenerator(retryableCurateGenerator)
+
+    // Refresh OAuth token before each background generation (tokens expire between tasks)
+    if (this._transportClient) {
+      const transportClient = this._transportClient
+      services.abstractQueue.setBeforeProcess(async () => {
+        const fresh = await transportClient.requestWithAck<ProviderConfigResponse>(
+          TransportStateEventNames.GET_PROVIDER_CONFIG,
+        )
+        const retryableFreshGenerator = this.createFreshRetryableGenerator(fresh, {
+          httpConfig,
+          httpReferer: sessionLLMConfig.httpReferer,
+          modelFallback: sessionLLMConfig.model,
+          siteName: sessionLLMConfig.siteName,
+        })
+        if (!retryableFreshGenerator) {
+          return
+        }
+
+        services.abstractQueue.setGenerator(retryableFreshGenerator)
+      })
+    }
+
+    // Rebuild sandbox CurateService with the queue — reuses existing hot-swap path
+    const newCurateService = createCurateService(services.workingDirectory, services.abstractQueue)
+    services.sandboxService.setCurateService?.(newCurateService)
+
+    // Atomically rebuild CURATE + INGEST_RESOURCE tools so both enqueue abstracts
+    services.toolProvider.replaceTools(
+      [ToolName.CURATE, ToolName.INGEST_RESOURCE],
+      {abstractQueue: services.abstractQueue, contentGenerator: retryableCurateGenerator},
+    )
+
+    // Rebuild session compressor with the new generator (used in deleteTaskSession)
+    const deduplicator = new MemoryDeduplicator(retryableCurateGenerator)
+    this.sessionCompressor = new SessionCompressor(deduplicator, retryableCurateGenerator, services.memoryManager)
+  }
+
   private rebindMapTools(
     services: CipherAgentServices,
     httpConfig: ByteRoverHttpConfig,
@@ -1065,6 +1277,28 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
     // Update sandbox for tools.curation.mapExtract()
     services.sandboxService.setContentGenerator?.(mapGenerator)
+  }
+
+  private async refreshSessionCompressorFromTransport(): Promise<void> {
+    if (!this._transportClient || !this.services) {
+      return
+    }
+
+    const fresh = await this._transportClient.requestWithAck<ProviderConfigResponse>(
+      TransportStateEventNames.GET_PROVIDER_CONFIG,
+    )
+    const retryable = this.createFreshRetryableGenerator(fresh, {
+      httpConfig: this.buildHttpConfig(),
+      httpReferer: this.config.httpReferer,
+      modelFallback: this.stateManager?.getModel() ?? this.config.model,
+      siteName: this.config.siteName,
+    })
+    if (!retryable) {
+      return
+    }
+
+    const deduplicator = new MemoryDeduplicator(retryable)
+    this.sessionCompressor = new SessionCompressor(deduplicator, retryable, this.services.memoryManager)
   }
 
   /**

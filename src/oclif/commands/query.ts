@@ -14,11 +14,12 @@ import {
   withDaemonRetry,
 } from '../lib/daemon-client.js'
 import {writeJsonResponse} from '../lib/json-response.js'
-import {waitForTaskCompletion} from '../lib/task-client.js'
+import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS, waitForTaskCompletion} from '../lib/task-client.js'
 
 /** Parsed flags type */
 type QueryFlags = {
   format?: 'json' | 'text'
+  timeout?: number
 }
 
 export default class Query extends Command {
@@ -50,6 +51,12 @@ Bad:
       description: 'Output format (text or json)',
       options: ['text', 'json'],
     }),
+    timeout: Flags.integer({
+      default: DEFAULT_TIMEOUT_SECONDS,
+      description: 'Maximum seconds to wait for task completion',
+      max: MAX_TIMEOUT_SECONDS,
+      min: MIN_TIMEOUT_SECONDS,
+    }),
   }
   public static strict = false
 
@@ -68,7 +75,7 @@ Bad:
 
     try {
       await withDaemonRetry(
-        async (client, projectRoot) => {
+        async (client, projectRoot, worktreeRoot) => {
           const active = await client.requestWithAck<ProviderConfigResponse>(
             TransportStateEventNames.GET_PROVIDER_CONFIG,
           )
@@ -84,7 +91,14 @@ Bad:
             throw new Error(providerMissingMessage(active.activeProvider, active.authMethod))
           }
 
-          await this.submitTask({client, format, projectRoot, query: args.query})
+          await this.submitTask({
+            client,
+            format,
+            projectRoot,
+            query: args.query,
+            timeoutMs: (flags.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
+            worktreeRoot,
+          })
         },
         {
           ...this.getDaemonClientOptions(),
@@ -120,8 +134,10 @@ Bad:
     format: 'json' | 'text'
     projectRoot?: string
     query: string
+    timeoutMs?: number
+    worktreeRoot?: string
   }): Promise<void> {
-    const {client, format, projectRoot, query} = props
+    const {client, format, projectRoot, query, timeoutMs, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
       clientCwd: process.cwd(),
@@ -129,6 +145,7 @@ Bad:
       ...(projectRoot ? {projectPath: projectRoot} : {}),
       taskId,
       type: 'query',
+      ...(worktreeRoot ? {worktreeRoot} : {}),
     }
 
     let finalResult: string | undefined
@@ -197,6 +214,7 @@ Bad:
           }
         },
         taskId,
+        timeoutMs,
       },
       (msg) => this.log(msg),
     )

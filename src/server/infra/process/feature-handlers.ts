@@ -5,6 +5,8 @@
  * These handlers implement the TUI ↔ Server event contract.
  */
 
+import {join} from 'node:path'
+
 import type {IConnectorManager} from '../../core/interfaces/connectors/i-connector-manager.js'
 import type {IProviderConfigStore} from '../../core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keychain-store.js'
@@ -14,8 +16,11 @@ import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-sto
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 import type {ProjectBroadcaster, ProjectPathResolver} from '../transport/handlers/handler-types.js'
 
+import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
 import {getAuthConfig} from '../../config/auth.config.js'
 import {getCurrentConfig} from '../../config/environment.js'
+import {BRV_DIR} from '../../constants.js'
+import {getProjectDataDir} from '../../utils/path-utils.js'
 import {OAuthService} from '../auth/oauth-service.js'
 import {OidcDiscoveryService} from '../auth/oidc-discovery-service.js'
 import {SystemBrowserLauncher} from '../browser/system-browser-launcher.js'
@@ -31,11 +36,14 @@ import {FileContextTreeService} from '../context-tree/file-context-tree-service.
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeWriterService} from '../context-tree/file-context-tree-writer-service.js'
 import {FsFileService} from '../file/fs-file-service.js'
+import {IsomorphicGitService} from '../git/isomorphic-git-service.js'
 import {CallbackHandler} from '../http/callback-handler.js'
 import {HubInstallService} from '../hub/hub-install-service.js'
 import {createHubKeychainStore} from '../hub/hub-keychain-store.js'
 import {HubRegistryConfigStore} from '../hub/hub-registry-config-store.js'
 import {HttpSpaceService} from '../space/http-space-service.js'
+import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
+import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {HttpTeamService} from '../team/http-team-service.js'
 import {FsTemplateLoader} from '../template/fs-template-loader.js'
@@ -51,10 +59,15 @@ import {
   PullHandler,
   PushHandler,
   ResetHandler,
+  ReviewHandler,
+  SourceHandler,
   SpaceHandler,
   StatusHandler,
+  VcHandler,
+  WorktreeHandler,
 } from '../transport/handlers/index.js'
 import {HttpUserService} from '../user/http-user-service.js'
+import {FileVcGitConfigStore} from '../vc/file-vc-git-config-store.js'
 
 export interface FeatureHandlersOptions {
   authStateStore: IAuthStateStore
@@ -112,6 +125,7 @@ export async function setupFeatureHandlers({
   }).setup()
 
   new ProviderHandler({
+    authStateStore,
     browserLauncher: new SystemBrowserLauncher(),
     providerConfigStore,
     providerKeychainStore,
@@ -142,9 +156,12 @@ export async function setupFeatureHandlers({
     new ConnectorManager({fileService, projectRoot, templateService})
 
   // Project-scoped handlers (receive resolveProjectPath for client → project resolution)
+  const gitService = new IsomorphicGitService(authStateStore)
+
   new StatusHandler({
     contextTreeService,
     contextTreeSnapshotService,
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
     projectConfigStore,
     resolveProjectPath,
     tokenStore,
@@ -163,9 +180,12 @@ export async function setupFeatureHandlers({
     broadcastToProject,
     cogitPushService,
     contextFileReader,
+    contextTreeService,
     contextTreeSnapshotService,
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
     projectConfigStore,
     resolveProjectPath,
+    reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
     tokenStore,
     transport,
     webAppUrl: envConfig.webAppUrl,
@@ -174,6 +194,7 @@ export async function setupFeatureHandlers({
   new PullHandler({
     broadcastToProject,
     cogitPullService,
+    contextTreeService,
     contextTreeSnapshotService,
     contextTreeWriterService,
     projectConfigStore,
@@ -185,7 +206,19 @@ export async function setupFeatureHandlers({
   new ResetHandler({
     contextTreeService,
     contextTreeSnapshotService,
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
     resolveProjectPath,
+    reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
+    transport,
+  }).setup()
+
+  new ReviewHandler({
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
+    onResolved({projectPath, taskId}) {
+      broadcastToProject(projectPath, ReviewEvents.NOTIFY, {pendingCount: 0, reviewUrl: '', taskId})
+    },
+    resolveProjectPath,
+    reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
     transport,
   }).setup()
 
@@ -193,6 +226,7 @@ export async function setupFeatureHandlers({
     broadcastToProject,
     cogitPullService,
     contextTreeMerger,
+    contextTreeService,
     contextTreeSnapshotService,
     contextTreeWriterService,
     projectConfigStore,
@@ -237,6 +271,25 @@ export async function setupFeatureHandlers({
     tokenStore,
     transport,
   }).setup()
+
+  new VcHandler({
+    broadcastToProject,
+    contextTreeService,
+    gitRemoteBaseUrl: envConfig.gitRemoteBaseUrl,
+    gitService,
+    projectConfigStore,
+    resolveProjectPath,
+    spaceService,
+    teamService,
+    tokenStore,
+    transport,
+    vcGitConfigStore: new FileVcGitConfigStore(),
+    webAppUrl: envConfig.webAppUrl,
+  }).setup()
+
+  // Worktree & source handlers
+  new WorktreeHandler({resolveProjectPath, transport}).setup()
+  new SourceHandler({resolveProjectPath, transport}).setup()
 
   log('Feature handlers registered')
 }

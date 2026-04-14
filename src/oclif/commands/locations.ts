@@ -31,7 +31,7 @@ export default class Locations extends Command {
     const isJson = flags.format === 'json'
 
     try {
-      const locations = await this.fetchLocations()
+      const locations = await this.fetchLocations({projectPath: process.cwd()})
 
       if (isJson) {
         writeJsonResponse({command: 'locations', data: {locations}, success: true})

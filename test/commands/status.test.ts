@@ -4,6 +4,9 @@ import type {Config} from '@oclif/core'
 import {ConnectionFailedError, InstanceCrashedError, NoInstanceRunningError} from '@campfirein/brv-transport-client'
 import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
+import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import sinon, {restore, stub} from 'sinon'
 
 import type {StatusDTO} from '../../src/shared/transport/types/dto.js'
@@ -36,6 +39,8 @@ describe('Status Command', () => {
   let loggedMessages: string[]
   let mockClient: sinon.SinonStubbedInstance<ITransportClient>
   let mockConnector: sinon.SinonStub<[], Promise<ConnectionResult>>
+  let originalCwd: string
+  let testDir: string
 
   before(async () => {
     config = await OclifConfig.load(import.meta.url)
@@ -43,6 +48,8 @@ describe('Status Command', () => {
 
   beforeEach(() => {
     loggedMessages = []
+    originalCwd = process.cwd()
+    testDir = realpathSync(mkdtempSync(join(tmpdir(), 'brv-status-command-')))
 
     mockClient = {
       connect: stub().resolves(),
@@ -66,6 +73,8 @@ describe('Status Command', () => {
   })
 
   afterEach(() => {
+    process.chdir(originalCwd)
+    rmSync(testDir, {force: true, recursive: true})
     restore()
   })
 
@@ -177,6 +186,22 @@ describe('Status Command', () => {
 
       expect(loggedMessages.some((m) => m.startsWith('Space:') && m.includes('Not connected'))).to.be.true
     })
+
+    it('should display linked workspace when worktreeRoot differs from projectRoot', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'no_changes',
+        currentDirectory: '/test',
+        projectRoot: '/repos/monorepo',
+        userEmail: 'user@example.com',
+        worktreeRoot: '/repos/monorepo/packages/api',
+      })
+
+      await createCommand().run()
+
+      expect(loggedMessages).to.include('Project: /repos/monorepo')
+      expect(loggedMessages).to.include('Worktree: /repos/monorepo/packages/api (linked)')
+    })
   })
 
   // ==================== Context Tree Status ====================
@@ -278,6 +303,25 @@ describe('Status Command', () => {
         .true
     })
 
+    it('should display git vc message when context tree is Byterover version control', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'git_vc',
+        currentDirectory: '/test',
+        spaceName: 'backend-api',
+        teamName: 'acme-corp',
+        userEmail: 'user@example.com',
+      })
+
+      await createCommand().run()
+
+      expect(
+        loggedMessages.some((m) =>
+          m.includes('Context Tree: Managed by Byterover version control (use brv vc commands)'),
+        ),
+      ).to.be.true
+    })
+
     it('should display all change types sorted by path', async () => {
       mockStatusResponse({
         authStatus: 'logged_in',
@@ -302,6 +346,55 @@ describe('Status Command', () => {
       expect(changeMessages[0]).to.include('a-deleted')
       expect(changeMessages[1]).to.include('m-modified')
       expect(changeMessages[2]).to.include('z-new')
+    })
+  })
+
+  // ==================== VC Hint ====================
+
+  describe('vc hint', () => {
+    it('should display vc hint after text output', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'no_changes',
+        currentDirectory: '/test',
+        userEmail: 'user@example.com',
+      })
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Version control is now available'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('https://docs.byterover.dev/git-semantic/overview'))).to.be.true
+    })
+
+    it('should display vc hint after error output', async () => {
+      mockConnector.rejects(new Error('Connection failed'))
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Version control is now available'))).to.be.true
+    })
+
+    it('should not display vc hint for json format', async () => {
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'no_changes',
+        currentDirectory: '/test',
+        userEmail: 'user@example.com',
+      })
+
+      let captured = ''
+      const writeStub = stub(process.stdout, 'write').callsFake((chunk) => {
+        captured += chunk
+        return true
+      })
+
+      try {
+        await new TestableStatusCommand(mockConnector, config, ['--format', 'json']).run()
+      } finally {
+        writeStub.restore()
+      }
+
+      expect(captured).to.not.include('Version control')
     })
   })
 
@@ -366,6 +459,32 @@ describe('Status Command', () => {
       await createCommand().run()
 
       expect(loggedMessages.some((m) => m.includes('Something went wrong'))).to.be.true
+    })
+  })
+
+  describe('request payload', () => {
+    it('should send cwd explicitly in status request', async () => {
+      const projectRoot = join(testDir, 'project')
+      mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+      writeFileSync(join(projectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+      process.chdir(projectRoot)
+      mockConnector.resolves({
+        client: mockClient as unknown as ITransportClient,
+        projectRoot,
+      })
+
+      mockStatusResponse({
+        authStatus: 'logged_in',
+        contextTreeStatus: 'no_changes',
+        currentDirectory: projectRoot,
+        userEmail: 'user@example.com',
+      })
+
+      await createCommand().run()
+
+      const [event, payload] = (mockClient.requestWithAck as sinon.SinonStub).firstCall.args
+      expect(event).to.equal('status:get')
+      expect(payload).to.have.property('cwd', projectRoot)
     })
   })
 })

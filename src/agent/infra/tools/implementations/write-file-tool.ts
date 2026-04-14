@@ -1,11 +1,13 @@
 import {z} from 'zod'
 
+import type {EnvironmentContext} from '../../../core/domain/environment/types.js'
 import type {BufferEncoding} from '../../../core/domain/file-system/types.js'
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
 import type {IFileSystem} from '../../../core/interfaces/i-file-system.js'
 
 import {sanitizeFolderName} from '../../../../server/utils/file-helpers.js'
 import {ToolName} from '../../../core/domain/tools/constants.js'
+import {validateWriteTarget} from '../write-guard.js'
 
 /**
  * Input schema for write file tool.
@@ -41,14 +43,28 @@ type WriteFileInput = z.infer<typeof WriteFileInputSchema>
  * @param fileSystemService - File system service dependency
  * @returns Configured write file tool
  */
-export function createWriteFileTool(fileSystemService: IFileSystem): Tool {
+export function createWriteFileTool(fileSystemService: IFileSystem, environmentContext?: EnvironmentContext): Tool {
   return {
     description: 'Write content to a file. Overwrites existing files. Can optionally create parent directories.',
     async execute(input: unknown, _context?: ToolExecutionContext) {
       const {content, createDirs, encoding, filePath} = input as WriteFileInput
+      const sanitizedPath = sanitizeFolderName(filePath)
+
+      // Write guard: block writes to shared source context trees
+      if (environmentContext?.workingDirectory) {
+        const writeError = validateWriteTarget(sanitizedPath, environmentContext.workingDirectory)
+        if (writeError) {
+          return {
+            bytesWritten: 0,
+            error: writeError,
+            path: sanitizedPath,
+            success: false,
+          }
+        }
+      }
 
       // Call file system service
-      const result = await fileSystemService.writeFile(sanitizeFolderName(filePath), content, {
+      const result = await fileSystemService.writeFile(sanitizedPath, content, {
         createDirs,
         encoding: encoding as BufferEncoding,
       })

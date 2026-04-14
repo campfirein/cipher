@@ -33,9 +33,11 @@ import {FolderPackService} from '../../../agent/infra/folder-pack/folder-pack-se
 import {SessionMetadataStore} from '../../../agent/infra/session/session-metadata-store.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
+import {decodeSearchContent} from '../../../shared/transport/search-content.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {serializeTaskError, TaskError, TaskErrorCode} from '../../core/domain/errors/task-error.js'
+import {loadSources} from '../../core/domain/source/source-schema.js'
 import {
   TransportAgentEventNames,
   TransportDaemonEventNames,
@@ -45,9 +47,11 @@ import {
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
+import {SearchExecutor} from '../executor/search-executor.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {createAgentLogger} from './agent-logger.js'
 import {resolveSessionId} from './session-resolver.js'
+import {validateProviderForTask} from './task-validation.js'
 
 // ============================================================================
 // Environment
@@ -237,10 +241,15 @@ async function start(): Promise<void> {
   agentLog(`Provider: ${activeProvider}, Model: ${activeModel ?? 'default'}`)
 
   // 5. Create CipherAgent with lazy providers + transport client
+  // Load knowledge sources early so shared context tree roots can be shared with both
+  // the agent's FileSystemService (via config) and the executor's FileSystemService
+  const sourcesData = loadSources(projectPath)
+  const sharedAllowedPaths = (sourcesData?.origins ?? []).map((o) => o.contextTreeRoot)
+
   const envConfig = getCurrentConfig()
   const agentConfig = {
     apiBaseUrl: envConfig.llmApiBaseUrl,
-    fileSystem: {workingDirectory: projectPath},
+    fileSystem: {allowedPaths: ['.', ...sharedAllowedPaths], workingDirectory: projectPath},
     llm: {
       maxIterations: 10,
       maxTokens: 4096,
@@ -340,7 +349,10 @@ async function start(): Promise<void> {
   })
 
   // 6. Create FileSystemService + SearchKnowledgeService for smart query routing
-  const fileSystemService = new FileSystemService({workingDirectory: projectPath})
+  const fileSystemService = new FileSystemService({
+    allowedPaths: ['.', ...sharedAllowedPaths],
+    workingDirectory: projectPath,
+  })
   await fileSystemService.initialize()
   const searchService = createSearchKnowledgeService(fileSystemService, {baseDirectory: projectPath})
 
@@ -355,11 +367,12 @@ async function start(): Promise<void> {
     fileSystem: fileSystemService,
     searchService,
   })
+  const searchExecutor = new SearchExecutor(searchService)
 
   transport.on<TaskExecute>(TransportTaskEventNames.EXECUTE, (task) => {
     agentLog(`task:execute received taskId=${task.taskId} type=${task.type} activeTaskCount=${activeTaskCount + 1}`)
     // eslint-disable-next-line no-void
-    void executeTask(task, curateExecutor, folderPackExecutor, queryExecutor)
+    void executeTask(task, curateExecutor, folderPackExecutor, queryExecutor, searchExecutor)
   })
 
   // 8. Register with transport server (for TransportHandlers tracking)
@@ -375,31 +388,22 @@ async function executeTask(
   curateExecutor: CurateExecutor,
   folderPackExecutor: FolderPackExecutor,
   queryExecutor: QueryExecutor,
+  searchExecutor: SearchExecutor,
 ): Promise<void> {
-  const {clientCwd, clientId, content, files, folderPath, taskId, type} = task
+  const {clientCwd, clientId, content, files, folderPath, taskId, type, worktreeRoot} = task
   if (!transport || !agent) return
 
-  const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
-    TransportStateEventNames.GET_PROVIDER_CONFIG,
-  )
-  if (!freshProviderConfig.activeProvider) {
-    const error = serializeTaskError(
-      new TaskError(
-        'No provider connected. Use /provider in the REPL to configure a provider.',
-        TaskErrorCode.PROVIDER_NOT_CONFIGURED,
-      ),
+  // Search tasks are pure BM25 retrieval — no LLM, no provider needed.
+  // Skip provider validation so search works even without a configured provider.
+  if (type !== 'search') {
+    const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
+      TransportStateEventNames.GET_PROVIDER_CONFIG,
     )
-    transport.request(TransportTaskEventNames.ERROR, {clientId, error, taskId})
-    return
-  }
-
-  if (freshProviderConfig.providerKeyMissing) {
-    const modelInfo = freshProviderConfig.activeModel ? ` (model: ${freshProviderConfig.activeModel})` : ''
-    const credentialType = freshProviderConfig.authMethod === 'oauth' ? 'authentication has expired' : 'API key is missing'
-    const errorMessage = `${freshProviderConfig.activeProvider} ${credentialType}${modelInfo}. Use /provider in the REPL to reconnect.`
-    const error = serializeTaskError(new TaskError(errorMessage, TaskErrorCode.PROVIDER_NOT_CONFIGURED))
-    transport.request(TransportTaskEventNames.ERROR, {clientId, error, taskId})
-    return
+    const validationError = validateProviderForTask(freshProviderConfig)
+    if (validationError) {
+      transport.request(TransportTaskEventNames.ERROR, {clientId, error: validationError, taskId})
+      return
+    }
   }
 
   activeTaskCount++
@@ -466,7 +470,7 @@ async function executeTask(
       let result: string
       switch (type) {
         case 'curate': {
-          result = await curateExecutor.executeWithAgent(agent, {clientCwd, content, files, taskId})
+          result = await curateExecutor.executeWithAgent(agent, {clientCwd, content, files, projectRoot: projectPath, taskId, worktreeRoot})
 
           break
         }
@@ -476,14 +480,24 @@ async function executeTask(
             clientCwd,
             content,
             folderPath: folderPath!,
+            projectRoot: projectPath,
             taskId,
+            worktreeRoot,
           })
 
           break
         }
 
         case 'query': {
-          result = await queryExecutor.executeWithAgent(agent, {query: content, taskId})
+          result = await queryExecutor.executeWithAgent(agent, {query: content, taskId, worktreeRoot})
+
+          break
+        }
+
+        case 'search': {
+          const searchOptions = decodeSearchContent(content)
+          const searchResult = await searchExecutor.execute(searchOptions)
+          result = JSON.stringify(searchResult)
 
           break
         }

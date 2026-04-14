@@ -6,10 +6,9 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import type {TeamWithSpacesDTO} from '../../../src/shared/transport/events/space-events.js'
-
 import SpaceList from '../../../src/oclif/commands/space/list.js'
 import {SpaceEvents} from '../../../src/shared/transport/events/space-events.js'
+import {StatusEvents} from '../../../src/shared/transport/events/status-events.js'
 
 // ==================== TestableSpaceListCommand ====================
 
@@ -21,8 +20,8 @@ class TestableSpaceListCommand extends SpaceList {
     this.mockConnector = mockConnector
   }
 
-  protected override async fetchSpaces() {
-    return super.fetchSpaces({
+  protected override async checkDeprecation() {
+    return super.checkDeprecation({
       maxRetries: 1,
       retryDelayMs: 0,
       transportConnector: this.mockConnector,
@@ -85,69 +84,59 @@ describe('Space List Command', () => {
     return command
   }
 
-  function mockTeamsWithSpaces(teams: TeamWithSpacesDTO[]): void {
-    ;(mockClient.requestWithAck as sinon.SinonStub).resolves({teams})
-  }
+  // ==================== Deprecation — Not on VC ====================
 
-  // ==================== List Teams & Spaces ====================
-
-  describe('list teams and spaces', () => {
-    it('should display teams with their spaces', async () => {
-      mockTeamsWithSpaces([
-        {
-          spaces: [
-            {id: 'space-1', isDefault: true, name: 'backend-api', teamId: 'team-1', teamName: 'acme'},
-            {id: 'space-2', isDefault: false, name: 'frontend-app', teamId: 'team-1', teamName: 'acme'},
-          ],
-          teamId: 'team-1',
-          teamName: 'acme',
-        },
-      ])
-
-      await createCommand().run()
-
-      expect(loggedMessages.some((m) => m.includes('1. acme (team)'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('- backend-api (default) (space)'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('- frontend-app (space)') && !m.includes('(default)'))).to.be.true
+  describe('not on vc', () => {
+    beforeEach(() => {
+      ;(mockClient.requestWithAck as sinon.SinonStub)
+        .withArgs(StatusEvents.GET)
+        .resolves({status: {authStatus: 'unknown', contextTreeStatus: 'no_changes', currentDirectory: '/test'}})
     })
 
-    it('should display message when no teams found', async () => {
-      mockTeamsWithSpaces([])
-
+    it('should print deprecation message with migration guidance', async () => {
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('No teams found.'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('deprecated'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('migration'))).to.be.true
     })
 
-    it('should display "No spaces" for teams without spaces', async () => {
-      mockTeamsWithSpaces([{spaces: [], teamId: 'team-1', teamName: 'empty-team'}])
-
+    it('should not call SpaceEvents.LIST', async () => {
       await createCommand().run()
 
-      expect(loggedMessages.some((m) => m.includes('1. empty-team (team)'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('No spaces'))).to.be.true
+      expect((mockClient.requestWithAck as sinon.SinonStub).calledWith(SpaceEvents.LIST)).to.be.false
+    })
+  })
+
+  // ==================== Deprecation — On VC ====================
+
+  describe('on vc', () => {
+    beforeEach(() => {
+      ;(mockClient.requestWithAck as sinon.SinonStub)
+        .withArgs(StatusEvents.GET)
+        .resolves({status: {authStatus: 'logged_in', contextTreeStatus: 'git_vc', currentDirectory: '/test'}})
     })
 
-    it('should call correct transport event', async () => {
-      mockTeamsWithSpaces([])
-
+    it('should print deprecation message without migration guidance', async () => {
       await createCommand().run()
 
-      expect((mockClient.requestWithAck as sinon.SinonStub).calledWith(SpaceEvents.LIST)).to.be.true
+      expect(loggedMessages.some((m) => m.includes('deprecated'))).to.be.true
+      expect(loggedMessages.every((m) => !m.includes('migration'))).to.be.true
+    })
+
+    it('should not call SpaceEvents.LIST', async () => {
+      await createCommand().run()
+
+      expect((mockClient.requestWithAck as sinon.SinonStub).calledWith(SpaceEvents.LIST)).to.be.false
     })
   })
 
   // ==================== JSON Output ====================
 
   describe('json output', () => {
-    it('should output JSON when --format json', async () => {
-      mockTeamsWithSpaces([
-        {
-          spaces: [{id: 'space-1', isDefault: true, name: 'backend-api', teamId: 'team-1', teamName: 'acme'}],
-          teamId: 'team-1',
-          teamName: 'acme',
-        },
-      ])
+    it('should output JSON deprecation message', async () => {
+      ;(mockClient.requestWithAck as sinon.SinonStub)
+        .withArgs(StatusEvents.GET)
+        .resolves({status: {authStatus: 'unknown', contextTreeStatus: 'no_changes', currentDirectory: '/test'}})
 
       await createCommand(['--format', 'json']).run()
 
@@ -155,20 +144,7 @@ describe('Space List Command', () => {
       const parsed = JSON.parse(output)
       expect(parsed.success).to.be.true
       expect(parsed.command).to.equal('space list')
-      expect(parsed.data.teams).to.have.length(1)
-      expect(parsed.data.teams[0].teamName).to.equal('acme')
-      expect(parsed.data.teams[0].spaces[0].spaceName).to.equal('backend-api')
-    })
-
-    it('should output JSON error on failure', async () => {
-      mockConnector.rejects(new NoInstanceRunningError())
-
-      await createCommand(['--format', 'json']).run()
-
-      const output = stdoutOutput.join('')
-      const parsed = JSON.parse(output)
-      expect(parsed.success).to.be.false
-      expect(parsed.data.error).to.be.a('string')
+      expect(parsed.data.message).to.include('deprecated')
     })
   })
 

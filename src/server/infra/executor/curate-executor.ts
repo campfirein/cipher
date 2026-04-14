@@ -17,6 +17,8 @@ import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-s
 import {diffStates} from '../context-tree/snapshot-diff.js'
 import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
+type BackgroundDrainAgent = ICipherAgent & {drainBackgroundWork?: () => Promise<void>}
+
 /**
  * CurateExecutor - Executes curate tasks with an injected CipherAgent.
  *
@@ -48,7 +50,7 @@ export class CurateExecutor implements ICurateExecutor {
   }
 
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
-    const {clientCwd, content, files, taskId} = options
+    const {clientCwd, content, files, projectRoot, taskId} = options
 
     // --- Phase 1: Preprocessing (no sessions created yet — safe to throw) ---
     const fileReferenceInstructions = await this.processFileReferences(files ?? [], clientCwd)
@@ -60,7 +62,9 @@ export class CurateExecutor implements ICurateExecutor {
 
     // --- Phase 3: Curation (session created AFTER preprocessing + compaction) ---
     // Capture pre-curation state for snapshot diff (summary propagation)
-    const baseDir = clientCwd ?? process.cwd()
+    // Post-processing (snapshot, summary, manifest) operates on projectRoot where .brv/ lives.
+    // worktreeRoot is a linked subdir — .brv/ does not exist there in linked setups.
+    const baseDir = projectRoot ?? clientCwd ?? process.cwd()
     const snapshotService = new FileContextTreeSnapshotService({baseDirectory: baseDir})
     let preState: Map<string, import('../../core/domain/entities/context-tree-snapshot.js').FileState> | undefined
     try {
@@ -69,7 +73,7 @@ export class CurateExecutor implements ICurateExecutor {
       // Fail-open: if snapshot fails, skip summary propagation
     }
 
-    const taskSessionId = await agent.createTaskSession(taskId, 'curate', {mapRootEligible: true})
+    const taskSessionId = await agent.createTaskSession(taskId, 'curate', {mapRootEligible: true, userFacing: true})
     try {
       // Task-scoped variable names for RLM pattern.
       // Replace hyphens with underscores: UUIDs have hyphens which are invalid in JS identifiers,
@@ -145,6 +149,8 @@ export class CurateExecutor implements ICurateExecutor {
           // Fail-open: summary/manifest errors never block curation
         }
       }
+
+      await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
 
       return response
     } finally {

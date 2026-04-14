@@ -1,8 +1,10 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 import nock from 'nock'
+import * as sinon from 'sinon'
 
 import {HttpCogitPullService} from '../../../../src/server/infra/cogit/http-cogit-pull-service.js'
+import {ProxyConfig} from '../../../../src/server/infra/http/proxy-config.js'
 
 describe('HttpCogitPullService', () => {
   const config = {
@@ -40,10 +42,12 @@ describe('HttpCogitPullService', () => {
   }
 
   beforeEach(() => {
+    sinon.stub(ProxyConfig, 'getProxyAgent').returns(undefined as never)
     service = new HttpCogitPullService(config)
   })
 
   afterEach(() => {
+    sinon.restore()
     nock.cleanAll()
   })
 

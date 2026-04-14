@@ -42,8 +42,10 @@ import type {TaskInfo} from './types.js'
 
 import {AgentNotAvailableError, serializeTaskError} from '../../core/domain/errors/task-error.js'
 import {LlmEventNames, TransportLlmEventList, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
+import {isDescendantOf} from '../../utils/path-utils.js'
 import {transportLog} from '../../utils/process-logger.js'
 import {isValidTaskType} from '../../utils/type-guards.js'
+import {resolveProject} from '../project/resolve-project.js'
 import {broadcastToProjectRoom} from './broadcast-utils.js'
 
 type LlmEventName = (typeof TransportLlmEventList)[number]
@@ -280,9 +282,24 @@ export class TaskRouter {
 
     transportLog(`Task completed: ${taskId}`)
 
+    // Collect synchronous completion data from hooks (e.g. pendingReviewCount from CurateLogHandler).
+    // This runs before task:completed is emitted so the client receives everything atomically,
+    // avoiding the race where review:notify would otherwise arrive after task:completed.
+    const hookData: Record<string, unknown> = {}
+    for (const hook of this.lifecycleHooks) {
+      if (hook.getTaskCompletionData) {
+        try {
+          Object.assign(hookData, hook.getTaskCompletionData(taskId))
+        } catch {
+          // Best-effort: never block task:completed delivery
+        }
+      }
+    }
+
     if (task) {
       this.transport.sendTo(task.clientId, TransportTaskEventNames.COMPLETED, {
         ...(task.logId ? {logId: task.logId} : {}),
+        ...hookData,
         result,
         taskId,
       })
@@ -295,6 +312,7 @@ export class TaskRouter {
       TransportTaskEventNames.COMPLETED,
       {
         ...(task?.logId ? {logId: task.logId} : {}),
+        ...hookData,
         result,
         taskId,
       },
@@ -368,12 +386,43 @@ export class TaskRouter {
       return {taskId}
     }
 
-    // ── Resolve projectPath & store task synchronously ────────────────────────
+    // ── Resolve projectPath & worktreeRoot, store task synchronously ─────────
 
-    // Resolve projectPath: explicit field > client's registered projectPath > clientCwd.
-    // Client's registered projectPath is the walked-up project root (where .brv/ lives),
-    // while clientCwd is the raw working directory (may be a subdirectory).
-    const projectPath = data.projectPath ?? this.resolveClientProjectPath?.(clientId) ?? data.clientCwd
+    let projectPath: string | undefined
+    let worktreeRoot: string | undefined
+
+    try {
+      const taskContext = this.resolveTaskContext(data, clientId)
+      if (taskContext.error) {
+        const error = serializeTaskError(new Error(taskContext.error))
+        this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
+        broadcastToProjectRoom(
+          this.projectRegistry,
+          this.projectRouter,
+          taskContext.projectPath,
+          TransportTaskEventNames.ERROR,
+          {error, taskId},
+          clientId,
+        )
+        return {taskId}
+      }
+
+      projectPath = taskContext.projectPath
+      worktreeRoot = taskContext.worktreeRoot
+    } catch (error_) {
+      const error = serializeTaskError(error_ instanceof Error ? error_ : new Error(String(error_)))
+      const fallbackProjectPath = data.projectPath ?? this.resolveClientProjectPath?.(clientId) ?? data.clientCwd
+      this.transport.sendTo(clientId, TransportTaskEventNames.ERROR, {error, taskId})
+      broadcastToProjectRoom(
+        this.projectRegistry,
+        this.projectRouter,
+        fallbackProjectPath,
+        TransportTaskEventNames.ERROR,
+        {error, taskId},
+        clientId,
+      )
+      return {taskId}
+    }
 
     transportLog(`Task accepted: ${taskId} (type=${data.type}, client=${clientId})`)
 
@@ -387,6 +436,7 @@ export class TaskRouter {
       ...(projectPath ? {projectPath} : {}),
       taskId,
       type: data.type,
+      ...(worktreeRoot ? {worktreeRoot} : {}),
     })
 
     // ── Send task:created synchronously (before any await) ────────────────────
@@ -436,6 +486,7 @@ export class TaskRouter {
       ...(projectPath ? {projectPath} : {}),
       taskId,
       type: data.type,
+      ...(worktreeRoot ? {worktreeRoot} : {}),
     }
 
     // eslint-disable-next-line no-void
@@ -658,6 +709,51 @@ export class TaskRouter {
       if (!hasTaskId(data)) return
       this.routeLlmEvent(eventName, data)
     })
+  }
+
+  private resolveTaskContext(
+    data: TaskCreateRequest,
+    clientId: string,
+  ): {error?: string; projectPath?: string; worktreeRoot?: string} {
+    // When both projectPath and worktreeRoot are explicitly provided,
+    // skip the resolver entirely — a broken link under clientCwd must not
+    // reject an otherwise valid explicit payload.
+    if (data.projectPath && data.worktreeRoot) {
+      if (!isDescendantOf(data.worktreeRoot, data.projectPath)) {
+        return {
+          error: `worktreeRoot "${data.worktreeRoot}" must be equal to or within projectPath "${data.projectPath}".`,
+          projectPath: data.projectPath,
+        }
+      }
+
+      return {projectPath: data.projectPath, worktreeRoot: data.worktreeRoot}
+    }
+
+    // Resolve from clientCwd (fresh, workspace-link-aware) when needed.
+    let resolvedProjectPath: string | undefined
+    let resolvedWorkspaceRoot: string | undefined
+
+    if (data.clientCwd) {
+      const resolution = resolveProject({cwd: data.clientCwd})
+      resolvedProjectPath = resolution?.projectRoot
+      resolvedWorkspaceRoot = resolution?.worktreeRoot
+    }
+
+    // Fallback order: explicit > fresh cwd resolution > stale registration > raw clientCwd.
+    // Fresh resolution is preferred over registered path because the registered path
+    // may be stale (e.g. in-flight reassociation after worktree add/remove).
+    const registeredProjectPath = this.resolveClientProjectPath?.(clientId)
+    const projectPath = data.projectPath ?? resolvedProjectPath ?? registeredProjectPath ?? data.clientCwd
+    const worktreeRoot = data.worktreeRoot ?? resolvedWorkspaceRoot ?? projectPath
+
+    if (projectPath && worktreeRoot && !isDescendantOf(worktreeRoot, projectPath)) {
+      return {
+        error: `worktreeRoot "${worktreeRoot}" must be equal to or within projectPath "${projectPath}".`,
+        projectPath,
+      }
+    }
+
+    return {projectPath, worktreeRoot}
   }
 
   /**

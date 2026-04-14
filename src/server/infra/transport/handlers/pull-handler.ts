@@ -1,4 +1,5 @@
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
+import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
 import type {IContextTreeSnapshotService} from '../../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 import type {IContextTreeWriterService} from '../../../core/interfaces/context-tree/i-context-tree-writer-service.js'
 import type {ICogitPullService} from '../../../core/interfaces/services/i-cogit-pull-service.js'
@@ -13,16 +14,23 @@ import {
   type PullPrepareResponse,
 } from '../../../../shared/transport/events/pull-events.js'
 import {
+  LegacySyncUnavailableError,
   LocalChangesExistError,
   NotAuthenticatedError,
   ProjectNotInitError,
-  SpaceNotConfiguredError,
 } from '../../../core/domain/errors/task-error.js'
-import {hasAnyChanges, type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
+import {
+  guardAgainstGitVc,
+  hasAnyChanges,
+  type ProjectBroadcaster,
+  type ProjectPathResolver,
+  resolveRequiredProjectPath,
+} from './handler-types.js'
 
 export interface PullHandlerDeps {
   broadcastToProject: ProjectBroadcaster
   cogitPullService: ICogitPullService
+  contextTreeService: IContextTreeService
   contextTreeSnapshotService: IContextTreeSnapshotService
   contextTreeWriterService: IContextTreeWriterService
   projectConfigStore: IProjectConfigStore
@@ -38,6 +46,7 @@ export interface PullHandlerDeps {
 export class PullHandler {
   private readonly broadcastToProject: ProjectBroadcaster
   private readonly cogitPullService: ICogitPullService
+  private readonly contextTreeService: IContextTreeService
   private readonly contextTreeSnapshotService: IContextTreeSnapshotService
   private readonly contextTreeWriterService: IContextTreeWriterService
   private readonly projectConfigStore: IProjectConfigStore
@@ -48,6 +57,7 @@ export class PullHandler {
   constructor(deps: PullHandlerDeps) {
     this.broadcastToProject = deps.broadcastToProject
     this.cogitPullService = deps.cogitPullService
+    this.contextTreeService = deps.contextTreeService
     this.contextTreeSnapshotService = deps.contextTreeSnapshotService
     this.contextTreeWriterService = deps.contextTreeWriterService
     this.projectConfigStore = deps.projectConfigStore
@@ -68,6 +78,7 @@ export class PullHandler {
 
   private async handleExecute(data: PullExecuteRequest, clientId: string): Promise<PullExecuteResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    await guardAgainstGitVc({contextTreeService: this.contextTreeService, projectPath})
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
@@ -80,7 +91,7 @@ export class PullHandler {
     }
 
     if (!config.teamId || !config.spaceId) {
-      throw new SpaceNotConfiguredError()
+      throw new LegacySyncUnavailableError()
     }
 
     // Check for local changes that would be overwritten
@@ -114,6 +125,7 @@ export class PullHandler {
 
   private async handlePrepare(_data: PullPrepareRequest, clientId: string): Promise<PullPrepareResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    await guardAgainstGitVc({contextTreeService: this.contextTreeService, projectPath})
 
     const token = await this.tokenStore.load()
     if (!token || !token.isValid()) {
@@ -126,7 +138,7 @@ export class PullHandler {
     }
 
     if (!config.teamId || !config.spaceId) {
-      throw new SpaceNotConfiguredError()
+      throw new LegacySyncUnavailableError()
     }
 
     const changes = await this.contextTreeSnapshotService.getChanges(projectPath)

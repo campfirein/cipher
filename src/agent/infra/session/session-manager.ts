@@ -415,6 +415,16 @@ export class SessionManager {
   }
 
   /**
+   * Get the command type (agent name) registered for a session.
+   *
+   * @param id - Session ID
+   * @returns Command type string (e.g. 'curate', 'query') or undefined if not found
+   */
+  public getSessionCommandType(id: string): string | undefined {
+    return this.sessionAgentNames.get(id)
+  }
+
+  /**
    * Get the number of active sessions.
    *
    * @returns Session count

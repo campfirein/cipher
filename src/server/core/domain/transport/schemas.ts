@@ -333,6 +333,8 @@ export interface ProviderConfigResponse {
   activeProvider: string
   /** How the provider was authenticated ('api-key' | 'oauth'). Undefined for internal providers. */
   authMethod?: 'api-key' | 'oauth'
+  /** True when the active provider requires login but the user is not logged in. */
+  loginRequired?: boolean
   maxInputTokens?: number
   openRouterApiKey?: string
   provider?: string
@@ -387,7 +389,9 @@ export const TaskExecuteSchema = z.object({
   /** Unique task identifier */
   taskId: z.string(),
   /** Task type */
-  type: z.enum(['curate', 'curate-folder', 'query']),
+  type: z.enum(['curate', 'curate-folder', 'query', 'search']),
+  /** Workspace root for scoped query/curate */
+  worktreeRoot: z.string().optional(),
 })
 
 /**
@@ -506,7 +510,7 @@ export const TaskCreatedSchema = z.object({
   /** Unique task identifier */
   taskId: z.string(),
   /** Task type */
-  type: z.enum(['curate', 'curate-folder', 'query']),
+  type: z.enum(['curate', 'curate-folder', 'query', 'search']),
 })
 
 /**
@@ -625,7 +629,7 @@ export type TaskErrorEvent = z.infer<typeof TaskErrorEventSchema>
 // Request/Response Schemas (for client → server commands)
 // ============================================================================
 
-export const TaskTypeSchema = z.enum(['curate', 'curate-folder', 'query'])
+export const TaskTypeSchema = z.enum(['curate', 'curate-folder', 'query', 'search'])
 
 /**
  * Request to create a new task
@@ -645,6 +649,8 @@ export const TaskCreateRequestSchema = z.object({
   taskId: z.string().uuid('Invalid taskId format - must be UUID'),
   /** Task type */
   type: TaskTypeSchema,
+  /** Workspace root for scoped query/curate (stable linked root or projectRoot if unlinked) */
+  worktreeRoot: z.string().optional(),
 })
 
 /**

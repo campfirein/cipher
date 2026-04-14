@@ -100,4 +100,141 @@ describe('createChatGptOAuthFetch', () => {
     const calledBody = JSON.parse(fetchStub.firstCall.args[1].body)
     expect(calledBody.input[0]).to.deep.equal({content: 'hello', role: 'user'})
   })
+
+  it('should extract system role from input[0] into instructions', async () => {
+    const body = JSON.stringify({
+      input: [
+        {content: 'You are a helpful assistant.', role: 'system'},
+        {content: 'hello', role: 'user'},
+      ],
+      model: 'gpt-4.1',
+    })
+    await customFetch('https://example.com', {body, method: 'POST'})
+
+    const calledBody = JSON.parse(fetchStub.firstCall.args[1].body)
+    expect(calledBody.instructions).to.equal('You are a helpful assistant.')
+    expect(calledBody.input).to.have.length(1)
+    expect(calledBody.input[0].role).to.equal('user')
+  })
+
+  it('should extract developer role from input[0] into instructions', async () => {
+    const body = JSON.stringify({
+      input: [
+        {content: 'You are a code assistant.', role: 'developer'},
+        {content: 'write code', role: 'user'},
+      ],
+      model: 'gpt-5.1-codex-mini',
+    })
+    await customFetch('https://example.com', {body, method: 'POST'})
+
+    const calledBody = JSON.parse(fetchStub.firstCall.args[1].body)
+    expect(calledBody.instructions).to.equal('You are a code assistant.')
+    expect(calledBody.input).to.have.length(1)
+    expect(calledBody.input[0].role).to.equal('user')
+  })
+
+  it('should preserve existing instructions over system input item', async () => {
+    const body = JSON.stringify({
+      input: [
+        {content: 'from input', role: 'system'},
+        {content: 'hello', role: 'user'},
+      ],
+      instructions: 'already set',
+      model: 'gpt-4.1',
+    })
+    await customFetch('https://example.com', {body, method: 'POST'})
+
+    const calledBody = JSON.parse(fetchStub.firstCall.args[1].body)
+    expect(calledBody.instructions).to.equal('already set')
+    expect(calledBody.input).to.have.length(2)
+    expect(calledBody.input[0].role).to.equal('system')
+  })
+
+  it('should not extract non-leading system messages', async () => {
+    const body = JSON.stringify({
+      input: [
+        {content: 'hello', role: 'user'},
+        {content: 'system note', role: 'system'},
+      ],
+      model: 'gpt-4.1',
+    })
+    await customFetch('https://example.com', {body, method: 'POST'})
+
+    const calledBody = JSON.parse(fetchStub.firstCall.args[1].body)
+    expect(calledBody.instructions).to.equal('')
+    expect(calledBody.input).to.have.length(2)
+  })
+
+  describe('integration with AiSdkContentGenerator', () => {
+    it('should extract system prompt into instructions when driven through real AI SDK path', async () => {
+      restore() // Clear the beforeEach stub — we need a custom one
+
+      const capturedBodies: Record<string, unknown>[] = []
+      const integrationFetchStub = stub(globalThis, 'fetch').callsFake(async (_url, init) => {
+        if (init && typeof init.body === 'string') {
+          try {
+            capturedBodies.push(JSON.parse(init.body))
+          } catch { /* non-JSON body */ }
+        }
+
+        // Return a minimal valid OpenAI Responses API response
+        // eslint-disable-next-line n/no-unsupported-features/node-builtins
+        return new Response(JSON.stringify({
+          id: 'resp-test',
+          model: 'gpt-4.1',
+          object: 'response',
+          output: [{
+            content: [{text: 'test response', type: 'output_text'}],
+            id: 'msg-test',
+            role: 'assistant',
+            status: 'completed',
+            type: 'message',
+          }],
+          usage: {input_tokens: 10, output_tokens: 5, total_tokens: 15},
+        }), {
+          headers: {'content-type': 'application/json'},
+          status: 200,
+        })
+      })
+
+      const {createOpenAI} = await import('@ai-sdk/openai')
+      const {AiSdkContentGenerator} = await import('../../../../../src/agent/infra/llm/generators/ai-sdk-content-generator.js')
+
+      const provider = createOpenAI({
+        apiKey: 'test-key',
+        baseURL: 'https://chatgpt.com/backend-api/codex',
+        fetch: createChatGptOAuthFetch(),
+      })
+
+      const generator = new AiSdkContentGenerator({
+        model: provider.responses('gpt-4.1'),
+      })
+
+      try {
+        await generator.generateContent({
+          config: {maxTokens: 100, temperature: 0},
+          contents: [{content: 'hello', role: 'user'}],
+          model: 'default',
+          systemPrompt: 'You are a technical documentation assistant.',
+          taskId: 'test-task',
+        })
+      } catch {
+        // Response parsing may fail — we only care about the request body
+      }
+
+      expect(integrationFetchStub.called).to.equal(true)
+      const body = capturedBodies.find((b) => b.model === 'gpt-4.1')
+      expect(body).to.not.be.undefined
+      // System prompt should be in instructions, not in input[]
+      expect(body!.instructions).to.be.a('string')
+      expect((body!.instructions as string).length).to.be.greaterThan(0)
+      // input should not contain a system/developer role item
+      if (Array.isArray(body!.input)) {
+        for (const item of body!.input as Array<Record<string, unknown>>) {
+          expect(item.role).to.not.equal('system')
+          expect(item.role).to.not.equal('developer')
+        }
+      }
+    })
+  })
 })

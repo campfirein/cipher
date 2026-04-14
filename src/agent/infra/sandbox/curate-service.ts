@@ -14,8 +14,10 @@ import type {
   DetectDomainsResult,
   ICurateService,
 } from '../../core/interfaces/i-curate-service.js'
+import type {AbstractGenerationQueue} from '../map/abstract-queue.js'
 
 import {executeCurate} from '../tools/implementations/curate-tool.js'
+import {validateWriteTarget} from '../tools/write-guard.js'
 
 /**
  * Default base path for knowledge storage.
@@ -98,7 +100,7 @@ function validateOperations(operations: CurateOperation[]): CurateOperationResul
 export class CurateService implements ICurateService {
   private readonly workingDirectory: string
 
-  constructor(workingDirectory?: string) {
+  constructor(workingDirectory?: string, private readonly abstractQueue?: AbstractGenerationQueue) {
     this.workingDirectory = workingDirectory ?? process.cwd()
   }
 
@@ -114,6 +116,20 @@ export class CurateService implements ICurateService {
     // Resolve relative basePath against the working directory to ensure
     // files are written to the correct project directory, not process.cwd()
     const basePath = resolve(this.workingDirectory, rawBasePath)
+
+    // Source write guard: block curate to shared source context trees
+    const writeError = validateWriteTarget(basePath, this.workingDirectory)
+    if (writeError) {
+      return {
+        applied: [{
+          message: writeError,
+          path: rawBasePath,
+          status: 'failed' as const,
+          type: 'ADD' as const,
+        }],
+        summary: {added: 0, deleted: 0, failed: 1, merged: 0, updated: 0},
+      }
+    }
 
     // Pre-validate operations to catch common mistakes early
     const validationFailures = validateOperations(operations)
@@ -132,10 +148,7 @@ export class CurateService implements ICurateService {
     }
 
     // Call the underlying executeCurate function from curate-tool
-    const result = await executeCurate({
-      basePath,
-      operations,
-    })
+    const result = await executeCurate({basePath, operations}, undefined, this.abstractQueue)
 
     return result
   }
@@ -181,6 +194,6 @@ export class CurateService implements ICurateService {
  * @param workingDirectory - Working directory for resolving relative paths
  * @returns CurateService instance
  */
-export function createCurateService(workingDirectory?: string): ICurateService {
-  return new CurateService(workingDirectory)
+export function createCurateService(workingDirectory?: string, abstractQueue?: AbstractGenerationQueue): ICurateService {
+  return new CurateService(workingDirectory, abstractQueue)
 }

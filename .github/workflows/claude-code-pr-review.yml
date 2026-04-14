@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
     branches:
-      - develop
+      - main
       - 'proj/**'
 
 concurrency:
@@ -16,42 +16,26 @@ permissions:
   pull-requests: write
 
 jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "draft: ${{ github.event.pull_request.draft }}"
+          echo "author_association: ${{ github.event.pull_request.author_association }}"
+
   auto-review:
-    if: ${{ !github.event.pull_request.draft }}
+    if: >-
+      ${{
+        !github.event.pull_request.draft &&
+        contains(fromJSON('["COLLABORATOR", "CONTRIBUTOR", "MEMBER"]'), github.event.pull_request.author_association)
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
-
-      - name: Detect main branch sync
-        id: detect-sync
-        run: |
-          if [ "${{ github.event.action }}" != "synchronize" ]; then
-            echo "is_main_sync=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          git fetch origin main --depth=1
-          MAIN_SHA=$(git rev-parse origin/main)
-          PARENTS=$(git log -1 --format='%P')
-          PARENT1=$(echo "$PARENTS" | awk '{print $1}')
-          PARENT2=$(echo "$PARENTS" | awk '{print $2}')
-
-          BEFORE="${{ github.event.before }}"
-
-          if [ -n "$PARENT2" ] && \
-             { { [ "$PARENT1" = "$BEFORE" ] && [ "$PARENT2" = "$MAIN_SHA" ]; } || \
-               { [ "$PARENT2" = "$BEFORE" ] && [ "$PARENT1" = "$MAIN_SHA" ]; }; }; then
-            echo "is_main_sync=true" >> "$GITHUB_OUTPUT"
-            echo "Skipping review: sync from main detected"
-          else
-            echo "is_main_sync=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: anthropics/claude-code-action@v1
-        if: steps.detect-sync.outputs.is_main_sync != 'true'
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -62,5 +46,8 @@ jobs:
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
-            
-            Perform code review. Provide detailed feedback using inline comments for specific issues. Apply Conventional Comments.
+
+            Review this PR for correctness, security, and code quality. Use Conventional Comments.
+
+            Always provide inline comments for specific issues.
+            Post a general summary comment with an overall score (0-5, where 0 is poor and 5 is excellent).

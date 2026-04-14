@@ -1,6 +1,7 @@
 import type {AgentEventBus, SessionEventBus} from '../../infra/events/event-emitter.js'
 import type {FileSystemService} from '../../infra/file-system/file-system-service.js'
 import type {CompactionService} from '../../infra/llm/context/compaction/compaction-service.js'
+import type {AbstractGenerationQueue} from '../../infra/map/abstract-queue.js'
 import type {MemoryManager} from '../../infra/memory/memory-manager.js'
 import type {ProcessService} from '../../infra/process/process-service.js'
 import type {MessageStorageService} from '../../infra/storage/message-storage-service.js'
@@ -31,6 +32,11 @@ import type {IToolScheduler} from './i-tool-scheduler.js'
  * - ToolProvider: Provides available tools
  */
 export interface CipherAgentServices {
+  /**
+   * Background queue for generating L0/L1 abstract files (.abstract.md, .overview.md).
+   * Generator is injected lazily via setGenerator() from rebindCurateTools().
+   */
+  abstractQueue: AbstractGenerationQueue
   agentEventBus: AgentEventBus
   blobStorage: IBlobStorage
   /**
@@ -51,6 +57,8 @@ export interface CipherAgentServices {
   toolManager: ToolManager
   toolProvider: ToolProvider
   toolScheduler: IToolScheduler
+  /** Absolute path to the project working directory. */
+  workingDirectory: string
 }
 
 /**

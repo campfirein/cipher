@@ -1,0 +1,150 @@
+/**
+ * VcStatusFlow Component
+ *
+ * Shows git status of the context tree via VcHandler.
+ */
+
+import chalk from 'chalk'
+import {Text, useInput} from 'ink'
+import Spinner from 'ink-spinner'
+import React, {useEffect} from 'react'
+
+import type {IVcStatusResponse} from '../../../../../shared/transport/events/vc-events.js'
+import type {CustomDialogCallbacks} from '../../../../types/commands.js'
+
+import {formatTransportError} from '../../../../utils/error-messages.js'
+import {useExecuteVcStatus} from '../api/execute-vc-status.js'
+
+type VcStatusFlowProps = CustomDialogCallbacks
+
+// eslint-disable-next-line complexity
+function formatVcStatus(result: IVcStatusResponse): string {
+  if (!result.initialized) {
+    return chalk.yellow('Git repository not initialized — run `/vc init` to initialize')
+  }
+
+  const lines: string[] = [chalk.bold(`On branch ${result.branch ?? '(detached HEAD)'}`)]
+
+  if (result.hasCommits === false) {
+    lines.push(chalk.yellow('No commits yet'))
+  }
+
+  if (result.trackingBranch) {
+    const ahead = result.ahead ?? 0
+    const behind = result.behind ?? 0
+    if (ahead > 0 && behind > 0) {
+      lines.push(
+        `Your branch and '${result.trackingBranch}' have diverged,\n` +
+          `and have ${ahead} and ${behind} different commits each, respectively.`,
+      )
+    } else if (ahead > 0) {
+      lines.push(`Your branch is ahead of '${result.trackingBranch}' by ${ahead} commit${ahead === 1 ? '' : 's'}.`)
+    } else if (behind > 0) {
+      lines.push(`Your branch is behind '${result.trackingBranch}' by ${behind} commit${behind === 1 ? '' : 's'}.`)
+    }
+  }
+
+  const {staged, unstaged, untracked} = result
+  const hasChanges =
+    staged.added.length > 0 ||
+    staged.modified.length > 0 ||
+    staged.deleted.length > 0 ||
+    unstaged.modified.length > 0 ||
+    unstaged.deleted.length > 0 ||
+    untracked.length > 0
+
+  if (result.mergeInProgress) {
+    const hasUnmerged = result.unmerged && result.unmerged.length > 0
+    if (hasUnmerged) {
+      lines.push(chalk.yellow('You have unmerged paths.'))
+      // eslint-disable-next-line unicorn/no-array-push-push
+      lines.push(chalk.yellow('  (fix conflicts and run "/vc add", then "/vc merge --continue")'))
+      // eslint-disable-next-line unicorn/no-array-push-push
+      lines.push('')
+      // eslint-disable-next-line unicorn/no-array-push-push
+      lines.push(chalk.bold('Unmerged paths:'))
+      for (const f of result.unmerged!) {
+        const label =
+          f.type === 'deleted_modified'
+            ? 'deleted by them'
+            : f.type === 'both_added'
+              ? 'both added'
+              : 'both modified'
+        lines.push(chalk.red(`   ${label}:   ${f.path}`))
+      }
+    } else {
+      lines.push(chalk.yellow('All conflicts fixed but you are still merging.'))
+      // eslint-disable-next-line unicorn/no-array-push-push
+      lines.push(chalk.yellow('  (use "/vc merge --continue" to conclude merge)'))
+      if (!hasChanges) return lines.join('\n')
+    }
+  } else if (!hasChanges && !(result.conflictMarkerFiles && result.conflictMarkerFiles.length > 0)) {
+    lines.push('Nothing to commit, working tree clean')
+    return lines.join('\n')
+  }
+
+  if (result.conflictMarkerFiles && result.conflictMarkerFiles.length > 0) {
+    lines.push(chalk.yellow('Files with conflict markers:'))
+    // eslint-disable-next-line unicorn/no-array-push-push
+    lines.push(chalk.yellow('  (resolve conflicts and run "/vc add" before pushing)'))
+    // eslint-disable-next-line unicorn/no-array-push-push
+    lines.push('')
+    for (const f of result.conflictMarkerFiles) {
+      lines.push(chalk.red(`   ${f} (conflict)`))
+    }
+  }
+
+  if (staged.added.length > 0 || staged.modified.length > 0 || staged.deleted.length > 0) {
+    lines.push(chalk.bold('Changes to be committed:'))
+    for (const f of staged.added) lines.push(chalk.green(`   new file:   ${f}`))
+    for (const f of staged.modified) lines.push(chalk.green(`   modified:   ${f}`))
+    for (const f of staged.deleted) lines.push(chalk.green(`   deleted:    ${f}`))
+  }
+
+  if (unstaged.modified.length > 0 || unstaged.deleted.length > 0) {
+    lines.push(chalk.bold('Changes not staged for commit:'))
+    // eslint-disable-next-line unicorn/no-array-push-push
+    lines.push(chalk.bold('(use "/vc add ‹file>..." to include in what will be committed)'))
+    for (const f of unstaged.modified) lines.push(chalk.red(`   modified:   ${f}`))
+    for (const f of unstaged.deleted) lines.push(chalk.red(`   deleted:    ${f}`))
+  }
+
+  if (untracked.length > 0) {
+    lines.push(chalk.bold('Untracked files:'))
+    // eslint-disable-next-line unicorn/no-array-push-push
+    lines.push(chalk.bold('(use "/vc add ‹file>..." to include in what will be committed)'))
+    for (const f of untracked) lines.push(chalk.red(`   ${f}`))
+  }
+
+  return lines.join('\n')
+}
+
+export function VcStatusFlow({onCancel, onComplete}: VcStatusFlowProps): React.ReactNode {
+  const statusMutation = useExecuteVcStatus()
+
+  useInput((_, key) => {
+    if (key.escape && !statusMutation.isPending) {
+      onCancel()
+    }
+  })
+
+  const fired = React.useRef(false)
+  useEffect(() => {
+    if (fired.current) return
+    fired.current = true
+    statusMutation.mutate(undefined, {
+      onError(error) {
+        onComplete(`Failed to get vc status: ${formatTransportError(error)}`)
+      },
+      onSuccess(result) {
+        onComplete(formatVcStatus(result))
+      },
+    })
+  }, [])
+
+  return (
+    <Text>
+      <Spinner type="dots" /> Getting vc status...
+    </Text>
+  )
+}

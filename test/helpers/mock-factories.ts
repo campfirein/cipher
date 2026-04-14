@@ -33,6 +33,7 @@ import type {AgentEventBus} from '../../src/agent/infra/events/event-emitter.js'
 import type {FileSystemService} from '../../src/agent/infra/file-system/file-system-service.js'
 import type {CompactionService} from '../../src/agent/infra/llm/context/compaction/compaction-service.js'
 import type {ContextManager} from '../../src/agent/infra/llm/context/context-manager.js'
+import type {AbstractGenerationQueue} from '../../src/agent/infra/map/abstract-queue.js'
 import type {MemoryManager} from '../../src/agent/infra/memory/memory-manager.js'
 import type {ProcessService} from '../../src/agent/infra/process/process-service.js'
 import type {MessageStorageService} from '../../src/agent/infra/storage/message-storage-service.js'
@@ -42,8 +43,10 @@ import type {ToolProvider} from '../../src/agent/infra/tools/tool-provider.js'
 import type {IProviderConfigStore} from '../../src/server/core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../src/server/core/interfaces/i-provider-keychain-store.js'
 import type {IProviderOAuthTokenStore} from '../../src/server/core/interfaces/i-provider-oauth-token-store.js'
-import type {ITerminal} from '../../src/server/core/interfaces/services/i-terminal.js'
+import type {IAuthStateStore} from '../../src/server/core/interfaces/state/i-auth-state-store.js'
 import type {ITransportServer} from '../../src/server/core/interfaces/transport/i-transport-server.js'
+
+import {AuthToken} from '../../src/server/core/domain/entities/auth-token.js'
 
 /**
  * Type aliases for service mocks - balances type safety with readability.
@@ -363,6 +366,7 @@ export function createMockCipherAgentServices(
   overrides?: Partial<CipherAgentServices>,
 ): CipherAgentServices {
   return {
+    abstractQueue: {} as unknown as AbstractGenerationQueue,
     agentEventBus,
     blobStorage: createMockBlobStorage(sandbox),
     compactionService: {} as unknown as CompactionService,
@@ -377,61 +381,7 @@ export function createMockCipherAgentServices(
     toolManager: createMockToolManager(sandbox),
     toolProvider: createMockToolProvider(sandbox),
     toolScheduler: createMockToolScheduler(sandbox),
-    ...overrides,
-  }
-}
-
-/**
- * Creates a mock ITerminal with sensible defaults.
- * Users can override any method by passing a partial ITerminal.
- *
- * Default behavior:
- * - error/log/warn: no-op (silently swallow messages)
- * - confirm: returns false
- * - search/select: throws error (must be overridden if used)
- *
- * @param overrides - Partial ITerminal to override default implementations
- * @returns Mock ITerminal implementation
- *
- * @example
- * ```ts
- * // Simple usage with defaults
- * const terminal = createMockTerminal()
- *
- * // Capture messages
- * const errors: string[] = []
- * const terminal = createMockTerminal({
- *   error: (msg) => errors.push(msg),
- *   confirm: async () => true,
- * })
- *
- * // Mock search/select for prompts (options are typed objects)
- * const terminal = createMockTerminal({
- *   search: async () => 'selected-agent',
- *   select: async () => 'selected-option',
- * })
- * ```
- */
-export function createMockTerminal(overrides: Partial<ITerminal> = {}): ITerminal {
-  return {
-    actionStart() {},
-    actionStop() {},
-    confirm: async () => false,
-    error() {},
-    async fileSelector() {
-      throw new Error('fileSelector not mocked - provide fileSelector override')
-    },
-    async input(): Promise<string> {
-      throw new Error('input not mocked - provide input override')
-    },
-    log() {},
-    async search<T>(): Promise<T> {
-      throw new Error('search not mocked - provide search override')
-    },
-    async select<T>(): Promise<T> {
-      throw new Error('select not mocked - provide select override')
-    },
-    warn() {},
+    workingDirectory: process.cwd(),
     ...overrides,
   }
 }
@@ -506,6 +456,44 @@ export function createMockProviderOAuthTokenStore(
   }
 
   return mock as unknown as SinonStubbedInstance<IProviderOAuthTokenStore>
+}
+
+// ============================================================================
+// Auth State Store Mock
+// ============================================================================
+
+/**
+ * Creates a mock IAuthStateStore with commonly-used methods stubbed.
+ *
+ * @param sandbox - Sinon sandbox for creating stubs
+ * @param options - Optional configuration
+ * @param options.isAuthenticated - Whether the mock should return a valid auth token (default: true)
+ * @returns Mock IAuthStateStore (cast to full type for test usage)
+ */
+export function createMockAuthStateStore(
+  sandbox: SinonSandbox,
+  options?: {isAuthenticated?: boolean},
+): IAuthStateStore {
+  const isAuthenticated = options?.isAuthenticated ?? true
+  const token = isAuthenticated
+    ? new AuthToken({
+        accessToken: 'test-token',
+        expiresAt: new Date(Date.now() + 3_600_000),
+        refreshToken: 'refresh',
+        sessionKey: 'session',
+        userEmail: 'test@test.com',
+        userId: 'user-id',
+      })
+    : undefined
+
+  return {
+    getToken: sandbox.stub().returns(token),
+    loadToken: sandbox.stub().resolves(token),
+    onAuthChanged: sandbox.stub(),
+    onAuthExpired: sandbox.stub(),
+    startPolling: sandbox.stub(),
+    stopPolling: sandbox.stub(),
+  }
 }
 
 // ============================================================================
