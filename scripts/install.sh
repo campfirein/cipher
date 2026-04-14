@@ -186,14 +186,14 @@ install_brv() {
   info "Extracting..."
   tar xzf "$tarball_path" -C "$LIB_DIR" --strip-components=1
 
-  # Verify extraction
+  # Verify tarball contents
   if [ ! -x "$LIB_DIR/bin/brv" ]; then
     error "Installation failed: $LIB_DIR/bin/brv not found or not executable after extraction."
   fi
 
   # Create bin/ with symlink to wrapper in lib/
   mkdir -p "$BIN_DIR"
-  ln -sf ../lib/bin/brv "$BIN_DIR/brv"
+  ln -sf ../lib/bin/brv "$BIN_DIR/brv" || error "Failed to create symlink $BIN_DIR/brv"
 
   # Version check through symlink — proves the full chain works
   installed_version="$("$BIN_DIR/brv" --version 2>/dev/null || echo "unknown")"
