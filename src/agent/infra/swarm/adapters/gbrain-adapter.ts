@@ -57,7 +57,7 @@ export function resolveGBrainBin(options: GBrainAdapterOptions): {argsPrefix: st
     return {argsPrefix: [], command: options.gbrainBinPath}
   }
 
-  // 2. Check PATH
+  // 2. Check PATH (sync probe — runs lazily on first executor access, not at construction)
   try {
     execFileSync('gbrain', ['--version'], {encoding: 'utf8', stdio: 'pipe', timeout: 5000})
 

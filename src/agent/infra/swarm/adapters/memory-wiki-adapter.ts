@@ -149,6 +149,7 @@ export class MemoryWikiAdapter implements IMemoryProvider {
   public async query(request: QueryRequest): Promise<QueryResult[]> {
     this.ensureIndex()
 
+    // Safety net: ensureIndex() could leave this.index null if file reads fail
     if (!this.index) {
       return []
     }
@@ -224,7 +225,7 @@ export class MemoryWikiAdapter implements IMemoryProvider {
       '---',
       `pageType: ${pageType}`,
       `id: ${pageId}`,
-      `title: "${title}"`,
+      `title: ${JSON.stringify(title)}`,
       'status: active',
       `updatedAt: "${now}"`,
       'sourceType: swarm-curate',
