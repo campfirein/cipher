@@ -4,6 +4,10 @@ import type {SwarmQueryResult} from '../../../../../src/agent/core/interfaces/i-
 
 import {formatQueryResults, formatQueryResultsExplain, formatQueryResultsJson, providerTypeToLabel} from '../../../../../src/agent/infra/swarm/cli/query-renderer.js'
 
+/** Strip ANSI escape codes so assertions match visible text. */
+// eslint-disable-next-line no-control-regex
+const stripAnsi = (s: string): string => s.replaceAll(/\u001B\[\d+m/g, '')
+
 function makeSwarmResult(overrides?: Partial<SwarmQueryResult>): SwarmQueryResult {
   return {
     meta: {
@@ -108,7 +112,7 @@ describe('QueryRenderer', () => {
           totalLatencyMs: 300,
         },
       })
-      const output = formatQueryResults(result, 'test')
+      const output = stripAnsi(formatQueryResults(result, 'test'))
 
       expect(output).to.include('Providers: 3 queried')
     })
@@ -139,7 +143,7 @@ describe('QueryRenderer', () => {
   describe('formatQueryResultsExplain()', () => {
     it('shows classification reasoning', () => {
       const result = makeSwarmResult()
-      const output = formatQueryResultsExplain(result, 'auth tokens')
+      const output = stripAnsi(formatQueryResultsExplain(result, 'auth tokens'))
 
       expect(output).to.include('Classification: factual')
     })
