@@ -123,11 +123,36 @@ describe('Environment Configuration', () => {
 
     it('should throw when a required env var is missing', async () => {
       delete process.env.BRV_ENV
-      delete process.env.BRV_IAM_BASE_URL
+
+      const requiredVars = [
+        'BRV_COGIT_BASE_URL',
+        'BRV_GIT_REMOTE_BASE_URL',
+        'BRV_IAM_BASE_URL',
+        'BRV_LLM_BASE_URL',
+        'BRV_WEB_APP_URL',
+      ]
+
+      for (const envVar of requiredVars) {
+        // Clear all then set all but one
+        for (const v of requiredVars) process.env[v] = 'http://test.host'
+        delete process.env[envVar]
+
+        // eslint-disable-next-line no-await-in-loop
+        const {getCurrentConfig} = await import(`../../../src/server/config/environment.js?t=${Date.now()}`)
+        expect(() => getCurrentConfig()).to.throw(`Missing required environment variable: ${envVar}`)
+      }
+    })
+
+    it('should normalize trailing slashes in base URLs', async () => {
+      process.env.BRV_IAM_BASE_URL = 'https://iam.test/'
+      process.env.BRV_COGIT_BASE_URL = 'https://cogit.test/'
 
       const {getCurrentConfig} = await import(`../../../src/server/config/environment.js?t=${Date.now()}`)
+      const config = getCurrentConfig()
 
-      expect(() => getCurrentConfig()).to.throw('Missing required environment variable: BRV_IAM_BASE_URL')
+      expect(config.iamBaseUrl).to.equal('https://iam.test')
+      expect(config.cogitBaseUrl).to.equal('https://cogit.test')
+      expect(config.authorizationUrl).to.equal('https://iam.test/api/v1/oidc/authorize')
     })
   })
 })

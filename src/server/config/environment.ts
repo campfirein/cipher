@@ -18,9 +18,10 @@ export const ENVIRONMENT: Environment = isEnvironment(envValue) ? envValue : 'de
  *
  * Base URL vars (BRV_IAM_BASE_URL, BRV_COGIT_BASE_URL, BRV_LLM_BASE_URL)
  * store only the root domain (e.g., http://localhost:8080).
- * API version paths (/api/v1, /api/v3) are appended at the point of use.
  *
- * OIDC URLs are derived from iamBaseUrl; no separate env vars needed.
+ * NOTE: The OIDC sub-path (/api/v1/oidc) is intentionally baked into the
+ * derived OIDC URLs below because it is a fixed, auth-specific structure
+ * that does not follow the general "API version at point of use" pattern.
  */
 type EnvironmentConfig = {
   authorizationUrl: string
@@ -48,13 +49,15 @@ const DEFAULTS = {
   },
 } as const
 
+const normalizeUrl = (url: string): string => (url.endsWith('/') ? url.slice(0, -1) : url)
+
 const readRequiredEnv = (name: string): string => {
   const value = process.env[name]
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}. Ensure .env files are loaded via dotenv.`)
   }
 
-  return value
+  return normalizeUrl(value)
 }
 
 export const getCurrentConfig = (): EnvironmentConfig => {
