@@ -1320,4 +1320,88 @@ describe('Curate Tool', () => {
       expect(result.applied[0].previousSummary).to.be.undefined
     })
   })
+
+  describe('confidence and impact defaults', () => {
+    it('should accept operation without confidence (defaults to low)', async () => {
+      const tool = createCurateTool()
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            content: {keywords: [], snippets: ['test snippet'], tags: []},
+            impact: 'low',
+            path: 'test_domain/test_topic',
+            reason: 'testing confidence default',
+            title: 'Test',
+            type: 'ADD',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].confidence).to.equal('low')
+    })
+
+    it('should accept operation without impact (defaults to high)', async () => {
+      const tool = createCurateTool()
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: ['test snippet'], tags: []},
+            path: 'test_domain/test_topic',
+            reason: 'testing impact default',
+            title: 'Test',
+            type: 'ADD',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].impact).to.equal('high')
+    })
+
+    it('should accept operation with both omitted', async () => {
+      const tool = createCurateTool()
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            content: {keywords: [], snippets: ['test snippet'], tags: []},
+            path: 'test_domain/test_topic',
+            reason: 'testing both defaults',
+            title: 'Test',
+            type: 'ADD',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].confidence).to.equal('low')
+      expect(result.applied[0].impact).to.equal('high')
+    })
+
+    it('should accept operation with both explicitly provided', async () => {
+      const tool = createCurateTool()
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: ['test snippet'], tags: []},
+            impact: 'low',
+            path: 'test_domain/test_topic',
+            reason: 'testing explicit values',
+            title: 'Test',
+            type: 'ADD',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].confidence).to.equal('high')
+      expect(result.applied[0].impact).to.equal('low')
+    })
+  })
 })
