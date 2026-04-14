@@ -1,12 +1,26 @@
 import {execFile} from 'node:child_process'
 
 import type {QueryRequest} from '../../core/domain/swarm/types.js'
+import type {IMemoryProvider} from '../../core/interfaces/i-memory-provider.js'
+import type {
+  ISwarmCoordinator,
+  ProviderInfo,
+  ProviderQueryMeta,
+  SwarmQueryResult,
+  SwarmStoreRequest,
+  SwarmStoreResult,
+  SwarmSummary,
+} from '../../core/interfaces/i-swarm-coordinator.js'
+import type {SwarmConfig} from './config/swarm-config-schema.js'
 
-/**
- * Execute `brv curate --detach --format json` and return the parsed JSON output.
- * Extracted as a module-level function so tests can stub it.
- */
-export function execBrvCurate(content: string): Promise<{data?: {logId?: string; taskId?: string}; success?: boolean}> {
+import {SwarmGraph} from './swarm-graph.js'
+import {mergeResults} from './swarm-merger.js'
+import {classifyQuery, selectProviders} from './swarm-router.js'
+import {classifyWrite, selectWriteTarget} from './swarm-write-router.js'
+
+type BrvCurateResult = {data?: {logId?: string; taskId?: string}; error?: string; success?: boolean}
+
+function execBrvCurate(content: string): Promise<BrvCurateResult> {
   return new Promise((resolve, reject) => {
     execFile('brv', ['curate', '--detach', '--format', 'json', content], {
       encoding: 'utf8',
@@ -25,23 +39,6 @@ export function execBrvCurate(content: string): Promise<{data?: {logId?: string;
     })
   })
 }
-
-import type {IMemoryProvider} from '../../core/interfaces/i-memory-provider.js'
-import type {
-  ISwarmCoordinator,
-  ProviderInfo,
-  ProviderQueryMeta,
-  SwarmQueryResult,
-  SwarmStoreRequest,
-  SwarmStoreResult,
-  SwarmSummary,
-} from '../../core/interfaces/i-swarm-coordinator.js'
-import type {SwarmConfig} from './config/swarm-config-schema.js'
-
-import {SwarmGraph} from './swarm-graph.js'
-import {mergeResults} from './swarm-merger.js'
-import {classifyQuery, selectProviders} from './swarm-router.js'
-import {classifyWrite, selectWriteTarget} from './swarm-write-router.js'
 
 /**
  * Default provider weights for RRF fusion.
@@ -178,7 +175,7 @@ function resolveEndpoint(endpoint: string, providerIds: string[]): string[] {
  *
  * Implements ISwarmCoordinator to serve the CLI command and agent tool.
  */
-export type CurateFallbackFn = (content: string) => Promise<{data?: {logId?: string; taskId?: string}; success?: boolean}>
+export type CurateFallbackFn = (content: string) => Promise<BrvCurateResult>
 
 export class SwarmCoordinator implements ISwarmCoordinator {
   private readonly config: SwarmConfig
@@ -473,6 +470,7 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     try {
       const parsed = await this.curateFallback(request.content)
       return {
+        error: parsed.success === true ? undefined : (parsed.error ?? 'brv curate returned success: false'),
         fallback: true,
         id: parsed.data?.logId ?? parsed.data?.taskId ?? '',
         latencyMs: Date.now() - start,
