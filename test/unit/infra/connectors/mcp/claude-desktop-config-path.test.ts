@@ -4,6 +4,7 @@ import {join} from 'node:path'
 import {getClaudeDesktopConfigPath} from '../../../../../src/server/infra/connectors/mcp/claude-desktop-config-path.js'
 
 const CONFIG_FILE = 'claude_desktop_config.json'
+const MSIX_PACKAGE_DIR = 'Claude_pzs8sxrjxfjjc'
 
 describe('getClaudeDesktopConfigPath', () => {
   describe('macOS (darwin)', () => {
@@ -37,6 +38,45 @@ describe('getClaudeDesktopConfigPath', () => {
       })
 
       expect(result).to.equal(join(String.raw`C:\Users\Test`, 'AppData', 'Roaming', 'Claude', CONFIG_FILE))
+    })
+
+    it('should return MSIX path when MSIX directory exists and LOCALAPPDATA is set', () => {
+      const localAppData = String.raw`C:\Users\Test\AppData\Local`
+      const msixDir = join(localAppData, 'Packages', MSIX_PACKAGE_DIR, 'LocalCache', 'Roaming', 'Claude')
+
+      const result = getClaudeDesktopConfigPath({
+        env: {APPDATA: String.raw`C:\Users\Test\AppData\Roaming`, LOCALAPPDATA: localAppData},
+        existsSync: (path: string) => path === msixDir,
+        homedir: () => String.raw`C:\Users\Test`,
+        platform: () => 'win32',
+      })
+
+      expect(result).to.equal(join(msixDir, CONFIG_FILE))
+    })
+
+    it('should return MSIX path using homedir fallback when LOCALAPPDATA is not set', () => {
+      const homedir = String.raw`C:\Users\Test`
+      const msixDir = join(homedir, 'AppData', 'Local', 'Packages', MSIX_PACKAGE_DIR, 'LocalCache', 'Roaming', 'Claude')
+
+      const result = getClaudeDesktopConfigPath({
+        env: {APPDATA: String.raw`C:\Users\Test\AppData\Roaming`},
+        existsSync: (path: string) => path === msixDir,
+        homedir: () => homedir,
+        platform: () => 'win32',
+      })
+
+      expect(result).to.equal(join(msixDir, CONFIG_FILE))
+    })
+
+    it('should return standard path when MSIX directory does not exist', () => {
+      const result = getClaudeDesktopConfigPath({
+        env: {APPDATA: String.raw`C:\Users\Test\AppData\Roaming`, LOCALAPPDATA: String.raw`C:\Users\Test\AppData\Local`},
+        existsSync: () => false,
+        homedir: () => String.raw`C:\Users\Test`,
+        platform: () => 'win32',
+      })
+
+      expect(result).to.equal(join(String.raw`C:\Users\Test\AppData\Roaming`, 'Claude', CONFIG_FILE))
     })
   })
 
