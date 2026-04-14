@@ -109,7 +109,17 @@ export class ProjectRegistry implements IProjectRegistry {
   }
 
   unregister(projectPath: string): boolean {
-    const resolved = resolvePath(projectPath)
+    let resolved: string
+    try {
+      resolved = resolvePath(projectPath)
+    } catch (error) {
+      // ENOENT — path deleted from disk. Keys are already resolved, so try the raw input.
+      if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+        resolved = projectPath
+      } else {
+        throw error
+      }
+    }
 
     if (!this.projects.has(resolved)) {
       return false
