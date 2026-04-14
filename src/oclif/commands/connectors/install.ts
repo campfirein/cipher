@@ -208,7 +208,11 @@ ${agentTable}`
       }
 
       if (requiresAgentRestart(installResult.connectorType)) {
-        this.log(`\nPlease restart ${installResult.agentId} to apply the new ${getConnectorName(installResult.connectorType)}.`)
+        const hint =
+          installResult.agentId === 'Claude Desktop'
+            ? `\nQuit ${installResult.agentId} from the system tray (Win) or menu bar (Mac), then reopen it.`
+            : `\nPlease restart ${installResult.agentId} to apply the new ${getConnectorName(installResult.connectorType)}.`
+        this.log(hint)
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to install connector.'

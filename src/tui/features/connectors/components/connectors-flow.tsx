@@ -183,7 +183,7 @@ export const ConnectorsFlow: React.FC<ConnectorsFlowProps> = ({isActive = true, 
         const restartAgentRequired = requiresAgentRestart(connectorType)
 
         const message = `${statusMessage}${locationLine}
-${restartAgentRequired ? `\n⚠️  Please restart ${agentName} to apply the new ${getConnectorName(connectorType)}.` : ''}
+${restartAgentRequired ? (agentName === 'Claude Desktop' ? `\n⚠️  Quit ${agentName} from the system tray (Win) or menu bar (Mac), then reopen it.` : `\n⚠️  Please restart ${agentName} to apply the new ${getConnectorName(connectorType)}.`) : ''}
 
 WHAT'S NEXT
 Try this in your next prompt:
