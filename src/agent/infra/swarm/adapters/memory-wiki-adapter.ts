@@ -112,7 +112,7 @@ export class MemoryWikiAdapter implements IMemoryProvider {
   }
   public readonly id = 'memory-wiki'
   public readonly type = 'memory-wiki' as const
-private readonly boostFresh: boolean
+  private readonly boostFresh: boolean
   private digest: AgentDigest | null = null
   private documents: IndexedDoc[] = []
   private index: MiniSearch<IndexedDoc> | null = null

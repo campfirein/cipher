@@ -81,7 +81,7 @@ export function buildProvidersFromConfig(
     }))
   }
 
-  if (config.providers.memoryWiki?.enabled && config.providers.memoryWiki.vaultPath) {
+  if (config.providers.memoryWiki?.enabled) {
     providers.push(new MemoryWikiAdapter({
       boostFresh: config.providers.memoryWiki.boostFresh,
       vaultPath: config.providers.memoryWiki.vaultPath,

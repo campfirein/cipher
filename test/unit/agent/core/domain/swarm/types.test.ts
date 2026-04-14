@@ -32,6 +32,7 @@ describe('Swarm Types', () => {
       expect(isLocalProvider('byterover')).to.be.true
       expect(isLocalProvider('obsidian')).to.be.true
       expect(isLocalProvider('local-markdown')).to.be.true
+      expect(isLocalProvider('memory-wiki')).to.be.true
     })
 
     it('returns false for cloud providers', () => {
@@ -52,6 +53,7 @@ describe('Swarm Types', () => {
       expect(isCloudProvider('byterover')).to.be.false
       expect(isCloudProvider('obsidian')).to.be.false
       expect(isCloudProvider('local-markdown')).to.be.false
+      expect(isCloudProvider('memory-wiki')).to.be.false
     })
   })
 
@@ -123,16 +125,6 @@ describe('Swarm Types', () => {
       expect(caps.writeSupported).to.be.true
       expect(caps.localOnly).to.be.true
       expect(caps.avgLatencyMs).to.equal(60)
-    })
-  })
-
-  describe('isLocalProvider - memory-wiki', () => {
-    it('returns true for memory-wiki', () => {
-      expect(isLocalProvider('memory-wiki')).to.be.true
-    })
-
-    it('isCloudProvider returns false for memory-wiki', () => {
-      expect(isCloudProvider('memory-wiki')).to.be.false
     })
   })
 })
