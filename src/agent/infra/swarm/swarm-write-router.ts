@@ -26,8 +26,7 @@ export function classifyWrite(content: string): WriteType {
 /**
  * Select the best writable provider for a given write type.
  *
- * Receives pre-filtered providers (callers should pass only writeSupported=true).
- * Internal writeSupported check is a defensive assert.
+ * Filters providers to writable + healthy candidates internally.
  *
  * Priority:
  * - entity → GBrain > first writable

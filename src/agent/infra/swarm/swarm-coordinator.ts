@@ -1,4 +1,5 @@
-import {execFile} from 'node:child_process'
+import {execFile as execFileCb} from 'node:child_process'
+import {promisify} from 'node:util'
 
 import type {QueryRequest} from '../../core/domain/swarm/types.js'
 import type {IMemoryProvider} from '../../core/interfaces/i-memory-provider.js'
@@ -18,26 +19,27 @@ import {mergeResults} from './swarm-merger.js'
 import {classifyQuery, selectProviders} from './swarm-router.js'
 import {classifyWrite, selectWriteTarget} from './swarm-write-router.js'
 
-type BrvCurateResult = {data?: {logId?: string; taskId?: string}; error?: string; success?: boolean}
+export type BrvCurateResult = {data?: {logId?: string; taskId?: string}; error?: string; success?: boolean}
 
-function execBrvCurate(content: string): Promise<BrvCurateResult> {
-  return new Promise((resolve, reject) => {
-    execFile('brv', ['curate', '--detach', '--format', 'json', content], {
+const execFileAsync = promisify(execFileCb)
+
+async function execBrvCurate(content: string): Promise<BrvCurateResult> {
+  let stdout: string
+  try {
+    ({stdout} = await execFileAsync('brv', ['curate', '--detach', '--format', 'json', content], {
       encoding: 'utf8',
       timeout: 30_000,
-    }, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(stderr?.trim() || error.message))
-        return
-      }
+    }))
+  } catch (error) {
+    const err = error as {message: string; stderr?: string}
+    throw new Error(err.stderr?.trim() || err.message)
+  }
 
-      try {
-        resolve(JSON.parse(stdout))
-      } catch {
-        reject(new Error(`Failed to parse brv curate output: ${stdout.slice(0, 200)}`))
-      }
-    })
-  })
+  try {
+    return JSON.parse(stdout) as BrvCurateResult
+  } catch {
+    throw new Error(`Failed to parse brv curate output: ${stdout.slice(0, 200)}`)
+  }
 }
 
 /**
