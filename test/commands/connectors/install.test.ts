@@ -6,6 +6,7 @@ import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
 import ConnectorsInstall from '../../../src/oclif/commands/connectors/install.js'
+import {CLAUDE_DESKTOP} from '../../../src/shared/types/agent.js'
 
 // ==================== TestableConnectorsInstallCommand ====================
 
@@ -169,7 +170,7 @@ describe('Connectors Install Command', () => {
 
       await createCommand('Claude Desktop').run()
 
-      expect(loggedMessages.some((m) => m.includes('Quit Claude Desktop from the system tray'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes(`Quit ${CLAUDE_DESKTOP} from the system tray`))).to.be.true
       expect(loggedMessages.some((m) => m.includes('Please restart'))).to.be.false
     })
 
