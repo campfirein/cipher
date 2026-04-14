@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {mkdir, mkdtemp, rm} from 'node:fs/promises'
+import {access, mkdir, mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {stub} from 'sinon'
@@ -11,6 +11,15 @@ import {createMockTransportServer, type MockTransportServer} from '../../../help
 
 // ==================== LocationsHandler (real FS) ====================
 // These tests exercise the handler with real filesystem to verify isInitialized detection.
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path)
+    return true
+  } catch {
+    return false
+  }
+}
 
 describe('LocationsHandler — real FS', () => {
   let projectPath: string
@@ -30,6 +39,7 @@ describe('LocationsHandler — real FS', () => {
     const handler = new LocationsHandler({
       contextTreeService,
       getActiveProjectPaths: () => [],
+      pathExists,
       projectRegistry,
       resolveProjectPath,
       transport,
@@ -75,5 +85,36 @@ describe('LocationsHandler — real FS', () => {
     const result = await getHandler!(undefined, 'client-1')
 
     expect(result.locations[0].isInitialized).to.be.false
+  })
+
+  it('should exclude projects whose directory has been deleted and unregister them', async () => {
+    projectPath = await mkdtemp(join(tmpdir(), 'brv-ct-exists-'))
+    const deletedPath = join(tmpdir(), 'brv-ct-deleted-nonexistent')
+
+    const transport = createMockTransportServer()
+    const registry = new Map([
+      [deletedPath, {projectPath: deletedPath, registeredAt: 1000, sanitizedPath: 's2', storagePath: '/s2'}],
+      [projectPath, {projectPath, registeredAt: 2000, sanitizedPath: 's1', storagePath: '/s1'}],
+    ])
+    const contextTreeService = new FileContextTreeService()
+    const projectRegistry = {get: stub(), getAll: stub().returns(registry), register: stub(), unregister: stub()}
+    const resolveProjectPath = stub().returns(projectPath)
+
+    const handler = new LocationsHandler({
+      contextTreeService,
+      getActiveProjectPaths: () => [],
+      pathExists,
+      projectRegistry,
+      resolveProjectPath,
+      transport,
+    })
+    handler.setup()
+
+    const getHandler = transport._handlers.get(LocationsEvents.GET)
+    const result = await getHandler!(undefined, 'client-1')
+
+    expect(result.locations).to.have.lengthOf(1)
+    expect(result.locations[0].projectPath).to.equal(projectPath)
+    expect(projectRegistry.unregister.calledWith(deletedPath)).to.be.true
   })
 })
