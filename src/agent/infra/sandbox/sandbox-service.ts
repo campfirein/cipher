@@ -4,6 +4,7 @@ import type { IContentGenerator } from '../../core/interfaces/i-content-generato
 import type { ICurateService } from '../../core/interfaces/i-curate-service.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
+import type { ISwarmCoordinator } from '../../core/interfaces/i-swarm-coordinator.js'
 import type { IMemoryStoreService } from '../nclm/memory-store-service.js'
 import type { SessionManager } from '../session/session-manager.js'
 import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
@@ -39,6 +40,8 @@ export class SandboxService implements ISandboxService {
   private searchKnowledgeService?: ISearchKnowledgeService
   /** Session manager for sub-agent delegation via tools.agentQuery() */
   private sessionManager?: SessionManager
+  /** Swarm coordinator for cross-provider query and store */
+  private swarmCoordinator?: ISwarmCoordinator
 
   /**
    * Clean up all resources (called on agent shutdown).
@@ -248,6 +251,17 @@ export class SandboxService implements ISandboxService {
   }
 
   /**
+   * Set the swarm coordinator for cross-provider query and store.
+   * When set, sandboxes will have access to `tools.swarmQuery()` and `tools.swarmStore()`.
+   *
+   * @param swarmCoordinator - Swarm coordinator instance
+   */
+  setSwarmCoordinator(swarmCoordinator: ISwarmCoordinator): void {
+    this.swarmCoordinator = swarmCoordinator
+    this.invalidateSandboxes()
+  }
+
+  /**
    * Build a Tools SDK instance for a specific session.
    * Includes `agentQuery` bound to the session's ID for sub-agent delegation.
    */
@@ -267,6 +281,7 @@ export class SandboxService implements ISandboxService {
       sandboxService: this,
       searchKnowledgeService: this.searchKnowledgeService,
       sessionManager: this.sessionManager,
+      swarmCoordinator: this.swarmCoordinator,
     })
   }
 

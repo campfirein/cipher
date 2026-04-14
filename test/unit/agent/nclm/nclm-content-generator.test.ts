@@ -99,7 +99,7 @@ describe('NCLMContentGenerator', () => {
 
     expect(chunks.length).to.be.greaterThan(0)
     const lastChunk = chunks.at(-1)
-    expect(lastChunk.isComplete).to.be.true
+    expect(lastChunk!.isComplete).to.be.true
     // Content should include the final answer somewhere in the chunks
     const fullContent = chunks.map((c) => c.content ?? '').join('')
     expect(fullContent).to.include('streamed answer')
