@@ -53,6 +53,14 @@ const DEFAULTS = {
 
 const normalizeUrl = (url: string): string => url.replace(/\/+$/, '')
 
+const assertRootDomain = (name: string, url: string): void => {
+  if (new URL(url).pathname !== '/') {
+    throw new Error(
+      `${name} must not include a path component. Provide the root domain only (e.g., https://example.com).`,
+    )
+  }
+}
+
 /**
  * Reads a required environment variable and normalizes it by removing any trailing slash.
  * This normalization applies to all required variables (including BRV_GIT_REMOTE_BASE_URL
@@ -69,18 +77,17 @@ const readRequiredEnv = (name: string): string => {
 
 export const getCurrentConfig = (): EnvironmentConfig => {
   const iamBaseUrl = readRequiredEnv('BRV_IAM_BASE_URL')
-  if (iamBaseUrl.includes(API_V1_PATH)) {
-    throw new Error(
-      `BRV_IAM_BASE_URL must not include the API version path (${API_V1_PATH}). Provide the root domain only (e.g., https://iam.example.com).`,
-    )
-  }
+  assertRootDomain('BRV_IAM_BASE_URL', iamBaseUrl)
+
+  const cogitBaseUrl = readRequiredEnv('BRV_COGIT_BASE_URL')
+  assertRootDomain('BRV_COGIT_BASE_URL', cogitBaseUrl)
 
   const oidcBase = `${iamBaseUrl}${API_V1_PATH}/oidc`
 
   return {
     authorizationUrl: `${oidcBase}/authorize`,
     clientId: DEFAULTS.clientId,
-    cogitBaseUrl: readRequiredEnv('BRV_COGIT_BASE_URL'),
+    cogitBaseUrl,
     gitRemoteBaseUrl: readRequiredEnv('BRV_GIT_REMOTE_BASE_URL'),
     hubRegistryUrl: DEFAULTS.hubRegistryUrl,
     iamBaseUrl,
