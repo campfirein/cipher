@@ -486,7 +486,7 @@ export class IsomorphicGitService implements IGitService {
   async log(params: LogGitParams): Promise<GitCommit[]> {
     const dir = this.requireDirectory(params)
     try {
-      const commits = await git.log({depth: params.depth, dir, fs, ref: params.ref})
+      const commits = await git.log({depth: params.depth, dir, filepath: params.filepath, fs, ref: params.ref})
       return commits.map((c) => ({
         author: {email: c.commit.author.email, name: c.commit.author.name},
         message: c.commit.message.trim(),

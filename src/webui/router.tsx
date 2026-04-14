@@ -4,6 +4,7 @@ import {AuthGuard} from './features/auth/components/auth-guard'
 import {MainLayout} from './layouts/main-layout'
 import {AnalyticsPage} from './pages/analytics-page'
 import {ConnectorsPage} from './pages/connectors-page'
+import {ContextsPage} from './pages/contexts-page'
 import {HomePage} from './pages/home-page'
 import {HubPage} from './pages/hub-page'
 import {LoginPage} from './pages/login-page'
@@ -63,6 +64,10 @@ export const router = createBrowserRouter(
             {
               element: <AnalyticsPage />,
               path: 'analytics',
+            },
+            {
+              element: <ContextsPage />,
+              path: 'contexts',
             },
           ],
           element: <MainLayout />,

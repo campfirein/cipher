@@ -432,6 +432,32 @@ describe('IsomorphicGitService', () => {
       const commits = await service.log({depth: 1, directory: testDir})
       expect(commits).to.have.length(1)
     })
+
+    it('filters commits by filepath', async () => {
+      await writeFile(join(testDir, 'a.md'), 'a')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'add a'})
+
+      await writeFile(join(testDir, 'b.md'), 'b')
+      await service.add({directory: testDir, filePaths: ['b.md']})
+      await service.commit({directory: testDir, message: 'add b'})
+
+      await writeFile(join(testDir, 'a.md'), 'a updated')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'update a'})
+
+      const allCommits = await service.log({directory: testDir})
+      expect(allCommits).to.have.length(3)
+
+      const aCommits = await service.log({directory: testDir, filepath: 'a.md'})
+      expect(aCommits).to.have.length(2)
+      expect(aCommits[0].message).to.equal('update a')
+      expect(aCommits[1].message).to.equal('add a')
+
+      const bCommits = await service.log({directory: testDir, filepath: 'b.md'})
+      expect(bCommits).to.have.length(1)
+      expect(bCommits[0].message).to.equal('add b')
+    })
   })
 
   // ---- createBranch() + listBranches() + getCurrentBranch() ----
