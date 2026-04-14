@@ -27,14 +27,13 @@ export function classifyQuery(query: string): QueryType {
 /**
  * Provider selection matrix per query type.
  * Honcho and Hindsight are temporarily disabled — adapters coming in Phase 3.
- * When re-enabled, add 'honcho' to personal/creative and 'hindsight' to temporal/relational/creative.
+ * When re-enabled, add 'honcho' to personal and 'hindsight' to temporal/relational.
  */
 const SELECTION_MATRIX: Record<QueryType, string[]> = {
-  creative: ['byterover', 'obsidian', 'local-markdown', 'gbrain'],
-  factual: ['byterover', 'obsidian', 'local-markdown', 'gbrain'],
+  factual: ['byterover', 'obsidian', 'local-markdown', 'gbrain', 'memory-wiki'],
   personal: ['byterover', 'obsidian', 'local-markdown'],
-  relational: ['byterover', 'obsidian', 'local-markdown', 'gbrain'],
-  temporal: ['byterover', 'obsidian', 'local-markdown', 'gbrain'],
+  relational: ['byterover', 'obsidian', 'local-markdown', 'gbrain', 'memory-wiki'],
+  temporal: ['byterover', 'obsidian', 'local-markdown', 'gbrain', 'memory-wiki'],
 }
 
 /**

@@ -158,6 +158,24 @@ const GBrainProviderSchema = z.preprocess(
   })
 )
 
+const MemoryWikiProviderSchema = z.preprocess(
+  (data) => {
+    if (typeof data !== 'object' || data === null) return data
+
+    return mapKeys(data as Record<string, unknown>, {
+      boost_fresh: 'boostFresh',
+      vault_path: 'vaultPath',
+      write_page_type: 'writePageType',
+    })
+  },
+  z.object({
+    boostFresh: z.boolean().optional().default(true),
+    enabled: z.boolean(),
+    vaultPath: z.string(),
+    writePageType: z.enum(['concept', 'entity']).optional().default('concept'),
+  })
+)
+
 // ============================================================
 // Top-level sections
 // ============================================================
@@ -168,6 +186,7 @@ const ProvidersSchema = z.preprocess(
 
     return mapKeys(data as Record<string, unknown>, {
       local_markdown: 'localMarkdown',
+      memory_wiki: 'memoryWiki',
     })
   },
   z.object({
@@ -176,6 +195,7 @@ const ProvidersSchema = z.preprocess(
     hindsight: HindsightProviderSchema.optional(),
     honcho: HonchoProviderSchema.optional(),
     localMarkdown: LocalMarkdownProviderSchema.optional(),
+    memoryWiki: MemoryWikiProviderSchema.optional(),
     obsidian: ObsidianProviderSchema.optional(),
   })
 )

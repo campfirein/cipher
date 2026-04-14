@@ -239,6 +239,13 @@ export default class SwarmStatus extends Command {
     } else {
       this.renderProviderLine('GBrain', false, 'not configured', 'disabled')
     }
+
+    if (providers.memoryWiki) {
+      const hasError = validation.errors.some((e) => e.provider === 'memory-wiki')
+      this.renderProviderLine('Memory Wiki', providers.memoryWiki.enabled && !hasError, providers.memoryWiki.vaultPath)
+    } else {
+      this.renderProviderLine('Memory Wiki', false, 'not configured', 'disabled')
+    }
   }
 
   private renderSuggestionLines(suggestions: string[]): void {
@@ -261,6 +268,15 @@ export default class SwarmStatus extends Command {
       providers.localMarkdown?.enabled,
       // Honcho and Hindsight temporarily disabled
       providers.gbrain?.enabled,
+      providers.memoryWiki?.enabled,
+    ].filter(Boolean).length
+
+    const totalProviders = [
+      true, // byterover always counts
+      providers.obsidian !== undefined,
+      providers.localMarkdown !== undefined,
+      providers.gbrain !== undefined,
+      providers.memoryWiki !== undefined,
     ].filter(Boolean).length
 
     const errorCount = validation.errors.length
@@ -268,7 +284,7 @@ export default class SwarmStatus extends Command {
       ? chalk.green('operational')
       : chalk.yellow('degraded')
 
-    this.log(`\nSwarm is ${status} (${enabledCount}/4 providers configured).`)
+    this.log(`\nSwarm is ${status} (${enabledCount}/${totalProviders} providers configured).`)
   }
 
   private renderTextOutput(
@@ -330,6 +346,10 @@ export default class SwarmStatus extends Command {
           targets.push(`local-markdown:${folder.name} (note, general)`)
         }
       }
+    }
+
+    if (providers.memoryWiki?.enabled) {
+      targets.push(`memory-wiki (${providers.memoryWiki.writePageType ?? 'concept'}, entity)`)
     }
 
     if (targets.length === 0) return

@@ -8,6 +8,7 @@ export const PROVIDER_TYPES = [
   'obsidian',
   'local-markdown',
   'gbrain',
+  'memory-wiki',
 ] as const
 
 /**
@@ -18,12 +19,12 @@ export type ProviderType = (typeof PROVIDER_TYPES)[number]
 /**
  * Query type classification for routing decisions.
  */
-export type QueryType = 'creative' | 'factual' | 'personal' | 'relational' | 'temporal'
+export type QueryType = 'factual' | 'personal' | 'relational' | 'temporal'
 
 /**
  * Local providers that require no network calls.
  */
-const LOCAL_PROVIDERS: ReadonlySet<ProviderType> = new Set(['byterover', 'local-markdown', 'obsidian'])
+const LOCAL_PROVIDERS: ReadonlySet<ProviderType> = new Set(['byterover', 'local-markdown', 'memory-wiki', 'obsidian'])
 
 /**
  * Check if a provider type is local (no network required).
@@ -104,7 +105,7 @@ export type QueryRequest = {
     after?: number
     before?: number
   }
-  /** Hint: factual, temporal, personal, creative, relational */
+  /** Hint: factual, temporal, personal, relational */
   type?: QueryType
 }
 
@@ -171,7 +172,7 @@ export function createDefaultCapabilities(type: ProviderType): ProviderCapabilit
         semanticSearch: false,
         temporalQuery: false,
         userModeling: false,
-        writeSupported: true,
+        writeSupported: false,
       }
     }
 
@@ -240,6 +241,20 @@ export function createDefaultCapabilities(type: ProviderType): ProviderCapabilit
         maxTokensPerQuery: 10_000,
         semanticSearch: true,
         temporalQuery: true,
+        userModeling: false,
+        writeSupported: true,
+      }
+    }
+
+    case 'memory-wiki': {
+      return {
+        avgLatencyMs: 60,
+        graphTraversal: false,
+        keywordSearch: true,
+        localOnly: true,
+        maxTokensPerQuery: 8000,
+        semanticSearch: false,
+        temporalQuery: false,
         userModeling: false,
         writeSupported: true,
       }

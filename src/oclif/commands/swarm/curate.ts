@@ -63,6 +63,9 @@ public static description = 'Store knowledge in a swarm provider (GBrain, local 
 
       if (isJson) {
         this.log(JSON.stringify(result, undefined, 2))
+      } else if (result.success && result.fallback) {
+        const idPart = result.id ? ` as ${result.id}` : ''
+        this.log(`Stored to ${result.provider} (fallback — no external providers available)${idPart}`)
       } else if (result.success) {
         this.log(`Stored to ${result.provider} as ${result.id}`)
       } else {
@@ -70,10 +73,11 @@ public static description = 'Store knowledge in a swarm provider (GBrain, local 
         this.exit(2)
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
       if (isJson) {
-        this.log(JSON.stringify({error: (error as Error).message, success: false}))
+        this.log(JSON.stringify({error: message, success: false}))
       } else {
-        this.logToStderr(`Error: ${(error as Error).message}`)
+        this.logToStderr(`Error: ${message}`)
         this.exit(2)
       }
     }

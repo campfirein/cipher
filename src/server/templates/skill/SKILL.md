@@ -372,7 +372,8 @@ Output:
     "providers": {
       "byterover": { "selected": true, "resultCount": 0 },
       "obsidian": { "selected": true, "resultCount": 5 },
-      "gbrain": { "selected": true, "resultCount": 1 }
+      "gbrain": { "selected": true, "resultCount": 1 },
+      "memory-wiki": { "selected": true, "resultCount": 1 }
     }
   },
   "results": [

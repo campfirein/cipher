@@ -24,6 +24,9 @@ export function providerTypeToLabel(type: ProviderType, id: string): string {
       return `notes:${name}`
     }
 
+    case 'memory-wiki': { return 'memory-wiki'
+    }
+
     case 'obsidian': { return 'obsidian'
     }
   }
@@ -35,6 +38,7 @@ const LABEL_COLORS: Record<ProviderType, (s: string) => string> = {
   hindsight: chalk.blueBright,
   honcho: chalk.blue,
   'local-markdown': chalk.green,
+  'memory-wiki': chalk.whiteBright,
   obsidian: chalk.magenta,
 }
 

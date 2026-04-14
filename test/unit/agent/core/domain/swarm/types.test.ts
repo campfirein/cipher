@@ -9,14 +9,15 @@ import {
 
 describe('Swarm Types', () => {
   describe('PROVIDER_TYPES', () => {
-    it('contains all six provider types', () => {
-      expect(PROVIDER_TYPES).to.have.length(6)
+    it('contains all seven provider types', () => {
+      expect(PROVIDER_TYPES).to.have.length(7)
       expect(PROVIDER_TYPES).to.include('byterover')
       expect(PROVIDER_TYPES).to.include('honcho')
       expect(PROVIDER_TYPES).to.include('hindsight')
       expect(PROVIDER_TYPES).to.include('obsidian')
       expect(PROVIDER_TYPES).to.include('local-markdown')
       expect(PROVIDER_TYPES).to.include('gbrain')
+      expect(PROVIDER_TYPES).to.include('memory-wiki')
     })
 
     it('is readonly', () => {
@@ -31,6 +32,7 @@ describe('Swarm Types', () => {
       expect(isLocalProvider('byterover')).to.be.true
       expect(isLocalProvider('obsidian')).to.be.true
       expect(isLocalProvider('local-markdown')).to.be.true
+      expect(isLocalProvider('memory-wiki')).to.be.true
     })
 
     it('returns false for cloud providers', () => {
@@ -51,6 +53,7 @@ describe('Swarm Types', () => {
       expect(isCloudProvider('byterover')).to.be.false
       expect(isCloudProvider('obsidian')).to.be.false
       expect(isCloudProvider('local-markdown')).to.be.false
+      expect(isCloudProvider('memory-wiki')).to.be.false
     })
   })
 
@@ -62,7 +65,7 @@ describe('Swarm Types', () => {
       expect(caps.graphTraversal).to.be.false
       expect(caps.temporalQuery).to.be.false
       expect(caps.userModeling).to.be.false
-      expect(caps.writeSupported).to.be.true
+      expect(caps.writeSupported).to.be.false
       expect(caps.localOnly).to.be.true
       expect(caps.avgLatencyMs).to.equal(50)
     })
@@ -112,6 +115,16 @@ describe('Swarm Types', () => {
       expect(caps.writeSupported).to.be.true
       expect(caps.localOnly).to.be.true
       expect(caps.avgLatencyMs).to.equal(80)
+    })
+
+    it('returns correct defaults for memory-wiki', () => {
+      const caps = createDefaultCapabilities('memory-wiki')
+      expect(caps.keywordSearch).to.be.true
+      expect(caps.semanticSearch).to.be.false
+      expect(caps.graphTraversal).to.be.false
+      expect(caps.writeSupported).to.be.true
+      expect(caps.localOnly).to.be.true
+      expect(caps.avgLatencyMs).to.equal(60)
     })
   })
 })
