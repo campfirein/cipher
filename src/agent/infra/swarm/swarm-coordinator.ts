@@ -1,6 +1,31 @@
 import {execFile} from 'node:child_process'
 
 import type {QueryRequest} from '../../core/domain/swarm/types.js'
+
+/**
+ * Execute `brv curate --detach --format json` and return the parsed JSON output.
+ * Extracted as a module-level function so tests can stub it.
+ */
+export function execBrvCurate(content: string): Promise<{data?: {logId?: string; taskId?: string}; success?: boolean}> {
+  return new Promise((resolve, reject) => {
+    execFile('brv', ['curate', '--detach', '--format', 'json', content], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(stderr?.trim() || error.message))
+        return
+      }
+
+      try {
+        resolve(JSON.parse(stdout))
+      } catch {
+        reject(new Error(`Failed to parse brv curate output: ${stdout.slice(0, 200)}`))
+      }
+    })
+  })
+}
+
 import type {IMemoryProvider} from '../../core/interfaces/i-memory-provider.js'
 import type {
   ISwarmCoordinator,
@@ -153,8 +178,11 @@ function resolveEndpoint(endpoint: string, providerIds: string[]): string[] {
  *
  * Implements ISwarmCoordinator to serve the CLI command and agent tool.
  */
+export type CurateFallbackFn = (content: string) => Promise<{data?: {logId?: string; taskId?: string}; success?: boolean}>
+
 export class SwarmCoordinator implements ISwarmCoordinator {
   private readonly config: SwarmConfig
+  private readonly curateFallback: CurateFallbackFn
   private readonly graph: SwarmGraph
   private readonly healthCache: Map<string, boolean> = new Map()
   private readonly maxCacheSize = 20
@@ -163,9 +191,10 @@ export class SwarmCoordinator implements ISwarmCoordinator {
   private readonly resultCacheTtlMs: number
   private totalQueries = 0
 
-  constructor(providers: IMemoryProvider[], config: SwarmConfig) {
+  constructor(providers: IMemoryProvider[], config: SwarmConfig, curateFallback?: CurateFallbackFn) {
     this.providers = providers
     this.config = config
+    this.curateFallback = curateFallback ?? execBrvCurate
     this.resultCacheTtlMs = config.performance.resultCacheTtlMs ?? 10_000
     this.graph = new SwarmGraph(providers, {
       timeoutMs: config.performance.maxQueryLatencyMs,
@@ -442,25 +471,13 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     start: number,
   ): Promise<SwarmStoreResult> {
     try {
-      const result = await new Promise<{stderr: string; stdout: string}>((resolve, reject) => {
-        execFile('brv', ['curate', '--detach', request.content], {
-          encoding: 'utf8',
-          timeout: 30_000,
-        }, (error, stdout, stderr) => {
-          if (error) {
-            reject(new Error(stderr?.trim() || error.message))
-          } else {
-            resolve({stderr, stdout})
-          }
-        })
-      })
-
+      const parsed = await this.curateFallback(request.content)
       return {
         fallback: true,
-        id: result.stdout.trim(),
+        id: parsed.data?.logId ?? parsed.data?.taskId ?? '',
         latencyMs: Date.now() - start,
         provider: 'byterover',
-        success: true,
+        success: parsed.success === true,
       }
     } catch (error) {
       return {
