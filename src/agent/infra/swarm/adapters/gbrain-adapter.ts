@@ -148,14 +148,23 @@ export class GBrainAdapter implements IMemoryProvider {
   }
   public readonly id = 'gbrain'
   public readonly type = 'gbrain' as const
-  private readonly executor: GBrainExecutor
+  private cachedExecutor?: GBrainExecutor
+  private readonly injectedExecutor?: GBrainExecutor
+  private readonly options: GBrainAdapterOptions
   private readonly repoPath: string
   private readonly searchMode: 'hybrid' | 'keyword' | 'vector'
 
   constructor(options: GBrainAdapterOptions, executor?: GBrainExecutor) {
     this.repoPath = options.repoPath
     this.searchMode = options.searchMode
-    this.executor = executor ?? createDefaultExecutor(resolveGBrainBin(options))
+    this.options = options
+    this.injectedExecutor = executor
+  }
+
+  private get executor(): GBrainExecutor {
+    if (this.injectedExecutor) return this.injectedExecutor
+    this.cachedExecutor ??= createDefaultExecutor(resolveGBrainBin(this.options))
+    return this.cachedExecutor
   }
 
   public async delete(id: string): Promise<void> {

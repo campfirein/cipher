@@ -94,8 +94,9 @@ function buildIndexSignature(files: ScannedMarkdownFile[]): string {
 function resolveUniqueFilename(folderPath: string, preferredFilename: string): string {
   const baseName = preferredFilename.replace(/\.md$/u, '')
 
+  const MAX_SUFFIX = 10_000
   let suffix = 0
-  while (true) {
+  while (suffix <= MAX_SUFFIX) {
     const candidate = suffix === 0 ? `${baseName}.md` : `${baseName}-${suffix}.md`
     if (!existsSync(join(folderPath, candidate))) {
       return candidate
@@ -103,6 +104,8 @@ function resolveUniqueFilename(folderPath: string, preferredFilename: string): s
 
     suffix++
   }
+
+  return `${baseName}-${Date.now()}.md`
 }
 
 type IndexedDoc = {
@@ -186,8 +189,10 @@ export class LocalMarkdownAdapter implements IMemoryProvider {
 
     const maxResults = request.maxResults ?? 10
 
+    if (!this.index) return []
+
     // T1/T2/T3: Precision-filtered search (stop words, AND-first, score floor, gap ratio)
-    const precisionResults = searchWithPrecision(this.index!, request.query, {maxResults})
+    const precisionResults = searchWithPrecision(this.index, request.query, {maxResults})
     if (precisionResults.length === 0) return []
 
     // Collect direct matches

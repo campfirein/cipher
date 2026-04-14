@@ -204,13 +204,19 @@ export class MemoryWikiAdapter implements IMemoryProvider {
     const now = new Date().toISOString()
 
     // Resolve unique filename
+    const MAX_SUFFIX = 10_000
     let filename = `${slug}.md`
     let filePath = join(dirPath, filename)
     let suffix = 1
-    while (existsSync(filePath)) {
+    while (existsSync(filePath) && suffix <= MAX_SUFFIX) {
       filename = `${slug}-${suffix}.md`
       filePath = join(dirPath, filename)
       suffix++
+    }
+
+    if (existsSync(filePath)) {
+      filename = `${slug}-${Date.now()}.md`
+      filePath = join(dirPath, filename)
     }
 
     const pageId = `${pageType}.swarm.${slug}`

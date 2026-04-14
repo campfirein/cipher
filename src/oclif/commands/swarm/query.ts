@@ -79,10 +79,11 @@ public static description = 'Query the memory swarm across all active providers'
         this.log(formatQueryResults(result, args.query))
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
       if (isJson) {
-        this.log(JSON.stringify({error: (error as Error).message, success: false}))
+        this.log(JSON.stringify({error: message, success: false}))
       } else {
-        this.logToStderr(`Error: ${(error as Error).message}`)
+        this.logToStderr(`Error: ${message}`)
         this.exit(2)
       }
     }

@@ -149,8 +149,10 @@ export class ObsidianAdapter implements IMemoryProvider {
 
     const maxResults = request.maxResults ?? 10
 
+    if (!this.index) return []
+
     // T1/T2/T3: Precision-filtered search (stop words, AND-first, score floor, gap ratio)
-    const precisionResults = searchWithPrecision(this.index!, request.query, {maxResults})
+    const precisionResults = searchWithPrecision(this.index, request.query, {maxResults})
     if (precisionResults.length === 0) return []
 
     // Collect direct matches

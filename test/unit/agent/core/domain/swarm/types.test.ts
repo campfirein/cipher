@@ -65,7 +65,7 @@ describe('Swarm Types', () => {
       expect(caps.graphTraversal).to.be.false
       expect(caps.temporalQuery).to.be.false
       expect(caps.userModeling).to.be.false
-      expect(caps.writeSupported).to.be.true
+      expect(caps.writeSupported).to.be.false
       expect(caps.localOnly).to.be.true
       expect(caps.avgLatencyMs).to.equal(50)
     })
