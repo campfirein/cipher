@@ -1,0 +1,35 @@
+Store knowledge in a swarm provider (GBrain, local markdown).
+
+This tool writes knowledge to external memory providers. It auto-routes based on content type, or you can target a specific provider.
+
+**When to use:**
+- Storing structured entities (people, companies, concepts) → routes to GBrain
+- Storing notes, drafts, meeting summaries → routes to local markdown
+- When knowledge belongs outside the project context tree
+
+**When NOT to use:**
+- For project-specific knowledge (architecture, decisions, code patterns) → use `curate` instead
+- The `curate` tool writes to .brv/context-tree with FinMem scoring and domain structure
+
+**Parameters:**
+- `content` (required): The knowledge to store
+- `provider` (optional): Target provider ID (e.g., "gbrain", "local-markdown:notes"). Auto-routed if omitted.
+- `contentType` (optional): Hint for routing — "entity", "note", or "general"
+
+**Returns:**
+- `success`: Whether the store succeeded
+- `provider`: Which provider stored the content
+- `id`: ID assigned by the provider (slug for GBrain, filename for local markdown)
+- `latencyMs`: Store latency
+- `error`: Error message if store failed
+
+**Routing logic:**
+- Content mentioning people, companies, roles → "entity" → GBrain
+- Content with meeting notes, TODOs, drafts → "note" → local markdown
+- Ambiguous content → first available writable provider
+- Explicit `provider` parameter overrides all routing
+
+**Examples:**
+- Store entity: `swarm_store({ content: "Dario Amodei is CEO of Anthropic" })`
+- Store note: `swarm_store({ content: "Meeting: decided to use JWT refresh rotation" })`
+- Explicit target: `swarm_store({ content: "...", provider: "gbrain" })`
