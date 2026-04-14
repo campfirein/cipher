@@ -156,14 +156,18 @@ export class SwarmCoordinator implements ISwarmCoordinator {
   private readonly config: SwarmConfig
   private readonly curateService?: ICurateService
   private readonly graph: SwarmGraph
-  private healthCache: Map<string, boolean> = new Map()
+  private readonly healthCache: Map<string, boolean> = new Map()
+  private readonly maxCacheSize = 20
   private readonly providers: IMemoryProvider[]
+  private readonly resultCache: Map<string, {result: SwarmQueryResult; timestamp: number}> = new Map()
+  private readonly resultCacheTtlMs: number
   private totalQueries = 0
 
   constructor(providers: IMemoryProvider[], config: SwarmConfig, curateService?: ICurateService) {
     this.providers = providers
     this.config = config
     this.curateService = curateService
+    this.resultCacheTtlMs = config.performance.resultCacheTtlMs ?? 10_000
     this.graph = new SwarmGraph(providers, {
       timeoutMs: config.performance.maxQueryLatencyMs,
     })
@@ -188,6 +192,22 @@ export class SwarmCoordinator implements ISwarmCoordinator {
    * Execute a swarm query: classify → select providers → execute in parallel → fuse results.
    */
   public async execute(request: QueryRequest): Promise<SwarmQueryResult> {
+    // Cache check — return early if identical query was recently executed
+    const cacheKey = this.buildCacheKey(request)
+    const cached = this.resultCache.get(cacheKey)
+    if (cached) {
+      if (Date.now() - cached.timestamp < this.resultCacheTtlMs) {
+        // Move to end for LRU semantics
+        this.resultCache.delete(cacheKey)
+        this.resultCache.set(cacheKey, cached)
+        this.totalQueries++
+        return {...cached.result, results: cached.result.results.map((r) => ({...r, metadata: {...r.metadata}}))}
+      }
+
+      // Expired — clean up stale entry
+      this.resultCache.delete(cacheKey)
+    }
+
     const start = Date.now()
 
     // 1. Classify query type
@@ -248,7 +268,7 @@ export class SwarmCoordinator implements ISwarmCoordinator {
 
     this.totalQueries++
 
-    return {
+    const result: SwarmQueryResult = {
       meta: {
         costCents,
         providers: providerMeta,
@@ -257,6 +277,17 @@ export class SwarmCoordinator implements ISwarmCoordinator {
       },
       results: merged,
     }
+
+    // Cache store — deep-clone to prevent mutation of cached data via returned references
+    if (this.resultCacheTtlMs > 0) {
+      this.resultCache.set(cacheKey, {
+        result: {...result, results: result.results.map((r) => ({...r, metadata: {...r.metadata}}))},
+        timestamp: Date.now(),
+      })
+      this.evictIfOverSize()
+    }
+
+    return result
   }
 
   /**
@@ -317,6 +348,7 @@ export class SwarmCoordinator implements ISwarmCoordinator {
       })
     )
 
+    this.resultCache.clear()
     return results
   }
 
@@ -370,6 +402,10 @@ export class SwarmCoordinator implements ISwarmCoordinator {
         },
       })
 
+      if (result.success) {
+        this.resultCache.clear()
+      }
+
       return {
         id: result.id,
         latencyMs: Date.now() - start,
@@ -384,6 +420,21 @@ export class SwarmCoordinator implements ISwarmCoordinator {
         provider: target.id,
         success: false,
       }
+    }
+  }
+
+  private buildCacheKey(request: QueryRequest): string {
+    const q = request.query.toLowerCase().trim().replaceAll(/\s+/g, ' ')
+    const scope = request.scope ?? ''
+    const max = request.maxResults ?? this.config.routing.defaultMaxResults
+    return JSON.stringify([q, scope, max, request.type, request.timeRange])
+  }
+
+  private evictIfOverSize(): void {
+    if (this.resultCache.size <= this.maxCacheSize) return
+    const firstKey = this.resultCache.keys().next().value
+    if (firstKey !== undefined) {
+      this.resultCache.delete(firstKey)
     }
   }
 

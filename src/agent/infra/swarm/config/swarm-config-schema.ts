@@ -312,6 +312,7 @@ const PerformanceSchema = z.preprocess(
       index_cache_ttl_seconds: 'indexCacheTtlSeconds',
       max_concurrent_providers: 'maxConcurrentProviders',
       max_query_latency_ms: 'maxQueryLatencyMs',
+      result_cache_ttl_ms: 'resultCacheTtlMs',
     })
   },
   z.object({
@@ -319,6 +320,7 @@ const PerformanceSchema = z.preprocess(
     indexCacheTtlSeconds: z.number().int().optional().default(300),
     maxConcurrentProviders: z.number().int().positive().optional().default(4),
     maxQueryLatencyMs: z.number().int().positive().optional().default(2000),
+    resultCacheTtlMs: z.number().int().min(0).optional().default(10_000),
   })
 )
 
