@@ -23,7 +23,13 @@ export type BrvCurateResult = {data?: {logId?: string; taskId?: string}; error?:
 
 const execFileAsync = promisify(execFileCb)
 
+const MAX_ARG_LENGTH = 200_000 // ~200KB safe for most OS arg limits
+
 async function execBrvCurate(content: string): Promise<BrvCurateResult> {
+  if (content.length > MAX_ARG_LENGTH) {
+    throw new Error(`Content too large for CLI argument (${content.length} bytes, max ${MAX_ARG_LENGTH}). Use brv curate directly.`)
+  }
+
   let stdout: string
   try {
     ;({stdout} = await execFileAsync('brv', ['curate', '--detach', '--format', 'json', content], {
@@ -31,8 +37,12 @@ async function execBrvCurate(content: string): Promise<BrvCurateResult> {
       timeout: 30_000,
     }))
   } catch (error) {
-    const err = error as {message: string; stderr?: string}
-    throw new Error(err.stderr?.trim() || err.message)
+    if (error instanceof Error) {
+      const stderr = (error as NodeJS.ErrnoException & {stderr?: string}).stderr?.trim()
+      throw new Error(stderr ?? error.message)
+    }
+
+    throw new Error(String(error))
   }
 
   try {

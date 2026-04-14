@@ -1,5 +1,8 @@
-import {execFileSync} from 'node:child_process'
+import {execFile} from 'node:child_process'
 import {existsSync} from 'node:fs'
+import {promisify} from 'node:util'
+
+const execFileAsync = promisify(execFile)
 import {join} from 'node:path'
 
 import type {SwarmConfig} from '../config/swarm-config-schema.js'
@@ -151,10 +154,10 @@ function validateHindsight(
 /**
  * Validate gbrain provider config at runtime.
  */
-function validateGBrain(
+async function validateGBrain(
   config: NonNullable<SwarmConfig['providers']['gbrain']>,
   errors: ValidationIssue[]
-): void {
+): Promise<void> {
   if (!existsSync(config.repoPath)) {
     errors.push({
       field: 'repo_path',
@@ -172,7 +175,7 @@ function validateGBrain(
 
   // Option A: gbrain globally installed
   try {
-    execFileSync('gbrain', ['--version'], {encoding: 'utf8', stdio: 'pipe', timeout: 5000})
+    await execFileAsync('gbrain', ['--version'], {encoding: 'utf8', timeout: 5000})
     gbrainReachable = true
   } catch {
     // Not in PATH
@@ -189,7 +192,7 @@ function validateGBrain(
     if (scriptFound) {
       // Script exists — verify bun is available to run it
       try {
-        execFileSync('bun', ['--version'], {encoding: 'utf8', stdio: 'pipe', timeout: 5000})
+        await execFileAsync('bun', ['--version'], {encoding: 'utf8', timeout: 5000})
         gbrainReachable = true
       } catch {
         errors.push({
@@ -440,7 +443,7 @@ export async function validateSwarmProviders(
   }
 
   if (providers.gbrain?.enabled) {
-    validateGBrain(providers.gbrain, errors)
+    await validateGBrain(providers.gbrain, errors)
   }
 
   if (providers.memoryWiki?.enabled && !existsSync(providers.memoryWiki.vaultPath)) {

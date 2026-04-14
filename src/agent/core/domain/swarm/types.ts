@@ -19,7 +19,7 @@ export type ProviderType = (typeof PROVIDER_TYPES)[number]
 /**
  * Query type classification for routing decisions.
  */
-export type QueryType = 'creative' | 'factual' | 'personal' | 'relational' | 'temporal'
+export type QueryType = 'factual' | 'personal' | 'relational' | 'temporal'
 
 /**
  * Local providers that require no network calls.
@@ -105,7 +105,7 @@ export type QueryRequest = {
     after?: number
     before?: number
   }
-  /** Hint: factual, temporal, personal, creative, relational */
+  /** Hint: factual, temporal, personal, relational */
   type?: QueryType
 }
 
@@ -172,7 +172,7 @@ export function createDefaultCapabilities(type: ProviderType): ProviderCapabilit
         semanticSearch: false,
         temporalQuery: false,
         userModeling: false,
-        writeSupported: true,
+        writeSupported: false,
       }
     }
 
