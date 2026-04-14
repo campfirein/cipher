@@ -7,7 +7,7 @@ import type {ITransportServer} from '../../../core/interfaces/transport/i-transp
 
 import {LocationsEvents, type LocationsGetResponse} from '../../../../shared/transport/events/locations-events.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
-import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
+import {type ProjectPathResolver} from './handler-types.js'
 
 export interface LocationsHandlerDeps {
   contextTreeService: IContextTreeService
@@ -38,7 +38,7 @@ export class LocationsHandler {
 
   setup(): void {
     this.transport.onRequest<void, LocationsGetResponse>(LocationsEvents.GET, async (_data, clientId) => {
-      const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+      const projectPath = this.resolveProjectPath(clientId)
       try {
         const locations = await this.buildLocations(projectPath)
         return {locations}
@@ -48,7 +48,7 @@ export class LocationsHandler {
     })
   }
 
-  private async buildLocations(currentProjectPath: string): Promise<ProjectLocationDTO[]> {
+  private async buildLocations(currentProjectPath?: string): Promise<ProjectLocationDTO[]> {
     const all = this.projectRegistry.getAll()
     const activeSet = new Set(this.getActiveProjectPaths())
 
