@@ -8,12 +8,12 @@ import {
   type ConnectorInstallResponse,
   type ConnectorListResponse,
 } from '../../../shared/transport/events/connector-events.js'
-import {AGENT_VALUES} from '../../../shared/types/agent.js'
+import {AGENT_VALUES, CLAUDE_DESKTOP} from '../../../shared/types/agent.js'
 import {isConnectorType, requiresAgentRestart} from '../../../shared/types/connector-type.js'
 import {getConnectorName} from '../../../tui/features/connectors/utils/get-connector-name.js'
 import {type DaemonClientOptions, withDaemonRetry} from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
-import { isPromptCancelled } from '../../lib/prompt-utils.js'
+import {isPromptCancelled} from '../../lib/prompt-utils.js'
 
 const agentTable = AGENT_VALUES.map((agent) => {
   const config = AGENT_CONNECTOR_CONFIG[agent]
@@ -24,7 +24,8 @@ const agentTable = AGENT_VALUES.map((agent) => {
 export default class ConnectorsInstall extends Command {
   public static args = {
     agent: Args.string({
-      description: 'Agent name to install connector for (e.g., "Claude Code", "Cursor"). Omit for interactive selection.',
+      description:
+        'Agent name to install connector for (e.g., "Claude Code", "Cursor"). Omit for interactive selection.',
       required: false,
     }),
   }
@@ -79,9 +80,7 @@ ${agentTable}`
       const supported = matchedAgent.supportedConnectorTypes.map((type) => getConnectorName(type)).join(', ')
 
       if (!isConnectorType(resolvedType) || !matchedAgent.supportedConnectorTypes.includes(resolvedType)) {
-        throw new Error(
-          `"${matchedAgent.id}" does not support "${resolvedType}". Supported types: ${supported}`,
-        )
+        throw new Error(`"${matchedAgent.id}" does not support "${resolvedType}". Supported types: ${supported}`)
       }
 
       // 4. If already connected with same type, no action needed
@@ -90,10 +89,10 @@ ${agentTable}`
       }
 
       // 5. Install or switch
-      const result = await client.requestWithAck<ConnectorInstallResponse>(
-        ConnectorEvents.INSTALL,
-        {agentId: matchedAgent.id, connectorType: resolvedType},
-      )
+      const result = await client.requestWithAck<ConnectorInstallResponse>(ConnectorEvents.INSTALL, {
+        agentId: matchedAgent.id,
+        connectorType: resolvedType,
+      })
 
       if (!result.success) {
         throw new Error(result.message)
@@ -166,10 +165,12 @@ ${agentTable}`
             configPath: installResult.result?.configPath,
             connectorType: installResult.connectorType,
             ...(installResult.alreadySameType ? {message: 'Already using this connector type'} : {}),
-            ...(installResult.result?.requiresManualSetup ? {
-              manualInstructions: installResult.result.manualInstructions,
-              requiresManualSetup: true,
-            } : {}),
+            ...(installResult.result?.requiresManualSetup
+              ? {
+                  manualInstructions: installResult.result.manualInstructions,
+                  requiresManualSetup: true,
+                }
+              : {}),
           },
           success: true,
         })
@@ -209,7 +210,7 @@ ${agentTable}`
 
       if (requiresAgentRestart(installResult.connectorType)) {
         const hint =
-          installResult.agentId === 'Claude Desktop'
+          installResult.agentId === CLAUDE_DESKTOP
             ? `\nQuit ${installResult.agentId} from the system tray (Win) or menu bar (Mac), then reopen it.`
             : `\nPlease restart ${installResult.agentId} to apply the new ${getConnectorName(installResult.connectorType)}.`
         this.log(hint)

@@ -4,6 +4,7 @@ import {join} from 'node:path'
 
 const CLAUDE_DESKTOP_CONFIG_FILE = 'claude_desktop_config.json'
 const CLAUDE_DESKTOP_DIR = 'Claude'
+// Publisher hash is derived from Anthropic's signing certificate — stable per publisher identity
 const MSIX_PACKAGE_DIR = 'Claude_pzs8sxrjxfjjc'
 
 /**
@@ -38,6 +39,7 @@ export const getClaudeDesktopConfigPath = (deps: PlatformDeps = defaultDeps): st
     const checkExists = deps.existsSync ?? existsSync
     const localAppData = deps.env.LOCALAPPDATA ?? join(deps.homedir(), 'AppData', 'Local')
     const msixDir = join(localAppData, 'Packages', MSIX_PACKAGE_DIR, 'LocalCache', 'Roaming', CLAUDE_DESKTOP_DIR)
+    // Check directory, not the config file — file may not exist yet on first launch
     if (checkExists(msixDir)) return join(msixDir, CLAUDE_DESKTOP_CONFIG_FILE)
 
     const appData = deps.env.APPDATA

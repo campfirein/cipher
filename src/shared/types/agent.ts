@@ -28,3 +28,5 @@ export const AGENT_VALUES = [
 ] as const
 
 export type Agent = (typeof AGENT_VALUES)[number]
+
+export const CLAUDE_DESKTOP: Agent = 'Claude Desktop'

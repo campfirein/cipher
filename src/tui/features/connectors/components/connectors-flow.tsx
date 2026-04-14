@@ -14,8 +14,8 @@ import {Box, Text} from 'ink'
 import React, {useCallback, useMemo, useState} from 'react'
 
 import type {AgentDTO, ConnectorDTO} from '../../../../shared/transport/types/dto.js'
-import type {Agent} from '../../../../shared/types/agent.js'
 
+import {type Agent, CLAUDE_DESKTOP} from '../../../../shared/types/agent.js'
 import {type ConnectorType, requiresAgentRestart} from '../../../../shared/types/connector-type.js'
 import {useTheme} from '../../../hooks/index.js'
 import {useGetAgentConfigPaths} from '../api/get-agent-config-paths.js'
@@ -180,10 +180,14 @@ export const ConnectorsFlow: React.FC<ConnectorsFlowProps> = ({isActive = true, 
           : `${agentName} connected via ${getConnectorName(connectorType)}`
         const locationLine = result.configPath ? `\nLocation: ${result.configPath}` : ''
         const prompt = chalk.hex('#0AA77D').italic('> "Save our API authentication patterns, use brv curate"')
-        const restartAgentRequired = requiresAgentRestart(connectorType)
+        const restartHint = requiresAgentRestart(connectorType)
+          ? agentName === CLAUDE_DESKTOP
+            ? `\n⚠️  Quit ${agentName} from the system tray (Win) or menu bar (Mac), then reopen it.`
+            : `\n⚠️  Please restart ${agentName} to apply the new ${getConnectorName(connectorType)}.`
+          : ''
 
         const message = `${statusMessage}${locationLine}
-${restartAgentRequired ? (agentName === 'Claude Desktop' ? `\n⚠️  Quit ${agentName} from the system tray (Win) or menu bar (Mac), then reopen it.` : `\n⚠️  Please restart ${agentName} to apply the new ${getConnectorName(connectorType)}.`) : ''}
+${restartHint}
 
 WHAT'S NEXT
 Try this in your next prompt:
