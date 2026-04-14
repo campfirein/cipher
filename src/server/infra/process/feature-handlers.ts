@@ -20,7 +20,7 @@ import type {ProjectBroadcaster, ProjectPathResolver} from '../transport/handler
 import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
 import {getAuthConfig} from '../../config/auth.config.js'
 import {getCurrentConfig} from '../../config/environment.js'
-import {BRV_DIR} from '../../constants.js'
+import {API_V1_PATH, BRV_DIR} from '../../constants.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
 import {OAuthService} from '../auth/oauth-service.js'
 import {OidcDiscoveryService} from '../auth/oidc-discovery-service.js'
@@ -105,8 +105,7 @@ export async function setupFeatureHandlers({
 
   // API version paths appended at point of use.
   // Note: IAM and Cogit currently share this version path, but may version independently in the future.
-  const API_V1 = '/api/v1'
-  const iamApiV1 = `${envConfig.iamBaseUrl}${API_V1}`
+  const iamApiV1 = `${envConfig.iamBaseUrl}${API_V1_PATH}`
   const userService = new HttpUserService({apiBaseUrl: iamApiV1})
   const teamService = new HttpTeamService({apiBaseUrl: iamApiV1})
   const spaceService = new HttpSpaceService({apiBaseUrl: iamApiV1})
@@ -151,7 +150,7 @@ export async function setupFeatureHandlers({
   const contextTreeWriterService = new FileContextTreeWriterService({snapshotService: contextTreeSnapshotService})
   const contextTreeMerger = new FileContextTreeMerger({snapshotService: contextTreeSnapshotService})
   const contextFileReader = new FileContextFileReader()
-  const cogitApiV1 = `${envConfig.cogitBaseUrl}${API_V1}`
+  const cogitApiV1 = `${envConfig.cogitBaseUrl}${API_V1_PATH}`
   const cogitPushService = new HttpCogitPushService({apiBaseUrl: cogitApiV1})
   const cogitPullService = new HttpCogitPullService({apiBaseUrl: cogitApiV1})
 

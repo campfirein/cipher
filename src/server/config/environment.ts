@@ -1,3 +1,5 @@
+import {API_V1_PATH} from '../constants.js'
+
 /**
  * Environment types supported by the CLI.
  */
@@ -49,7 +51,7 @@ const DEFAULTS = {
   },
 } as const
 
-const normalizeUrl = (url: string): string => (url.endsWith('/') ? url.slice(0, -1) : url)
+const normalizeUrl = (url: string): string => url.replace(/\/+$/, '')
 
 /**
  * Reads a required environment variable and normalizes it by removing any trailing slash.
@@ -57,7 +59,7 @@ const normalizeUrl = (url: string): string => (url.endsWith('/') ? url.slice(0, 
  * and BRV_WEB_APP_URL, which may carry paths) to prevent double slashes when joining URLs.
  */
 const readRequiredEnv = (name: string): string => {
-  const value = process.env[name]
+  const value = process.env[name]?.trim()
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}. Ensure .env files are loaded via dotenv.`)
   }
@@ -67,7 +69,13 @@ const readRequiredEnv = (name: string): string => {
 
 export const getCurrentConfig = (): EnvironmentConfig => {
   const iamBaseUrl = readRequiredEnv('BRV_IAM_BASE_URL')
-  const oidcBase = `${iamBaseUrl}/api/v1/oidc`
+  if (iamBaseUrl.includes(API_V1_PATH)) {
+    throw new Error(
+      `BRV_IAM_BASE_URL must not include the API version path (${API_V1_PATH}). Provide the root domain only (e.g., https://iam.example.com).`,
+    )
+  }
+
+  const oidcBase = `${iamBaseUrl}${API_V1_PATH}/oidc`
 
   return {
     authorizationUrl: `${oidcBase}/authorize`,
