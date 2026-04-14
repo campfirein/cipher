@@ -329,7 +329,7 @@ brv swarm query "How does JWT refresh work?"
 Output:
 ```
 Swarm Query: "How does JWT refresh work?"
-Type: factual | Providers: 5 queried | Latency: 398ms
+Type: factual | Providers: 4 queried | Latency: 398ms
 ──────────────────────────────────────────────────
 1. [memory-wiki] sources/jwt-token-lifecycle.md    score: 0.0150  [keyword]
    # JWT Token Lifecycle ...
