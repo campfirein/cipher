@@ -1,3 +1,4 @@
+import type { IMemoryStoreService } from '../../infra/nclm/memory-store-service.js'
 import type { ISearchKnowledgeService } from '../../infra/sandbox/tools-sdk.js'
 import type { SessionManager } from '../../infra/session/session-manager.js'
 import type { EnvironmentContext } from '../domain/environment/types.js'
@@ -73,6 +74,14 @@ export interface ISandboxService {
    * @param fileSystem - File system service instance
    */
   setFileSystem?(fileSystem: IFileSystem): void
+
+  /**
+   * Set the memory store service for Tools SDK injection.
+   * When set, sandboxes will have access to memory operations via `tools.memory.*`.
+   *
+   * @param memoryStoreService - Memory store service instance
+   */
+  setMemoryStoreService?(memoryStoreService: IMemoryStoreService): void
 
   /**
    * Set a variable in a session's sandbox.

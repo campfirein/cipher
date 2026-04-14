@@ -4,6 +4,7 @@ import type { IContentGenerator } from '../../core/interfaces/i-content-generato
 import type { ICurateService } from '../../core/interfaces/i-curate-service.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
+import type { IMemoryStoreService } from '../nclm/memory-store-service.js'
 import type { SessionManager } from '../session/session-manager.js'
 import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
 
@@ -26,6 +27,8 @@ export class SandboxService implements ISandboxService {
   private environmentContext?: EnvironmentContext
   /** File system service for Tools SDK */
   private fileSystem?: IFileSystem
+  /** NCLM memory store service for Tools SDK */
+  private memoryStoreService?: IMemoryStoreService
   /** Variables buffered before sandbox creation, keyed by sessionId */
   private pendingVariables = new Map<string, Record<string, unknown>>()
   /** Command type used to build each sandbox's ToolsSDK, keyed by sessionId */
@@ -188,6 +191,17 @@ export class SandboxService implements ISandboxService {
   }
 
   /**
+   * Set the NCLM memory store service for Tools SDK injection.
+   * When set, new sandboxes will have access to memory operations via `tools.memory.*`.
+   *
+   * @param memoryStoreService - Memory store service instance
+   */
+  setMemoryStoreService(memoryStoreService: IMemoryStoreService): void {
+    this.memoryStoreService = memoryStoreService
+    this.invalidateSandboxes()
+  }
+
+  /**
    * Set a variable in a session's sandbox.
    * If the sandbox doesn't exist yet, the variable is buffered and injected
    * when the sandbox is created on the first executeCode() call.
@@ -247,6 +261,7 @@ export class SandboxService implements ISandboxService {
       contentGenerator: this.contentGenerator,
       curateService: this.curateService,
       fileSystem: this.fileSystem,
+      memoryStoreService: this.memoryStoreService,
       parentSessionId: sessionId,
       projectRoot: this.environmentContext?.workingDirectory,
       sandboxService: this,

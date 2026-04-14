@@ -16,6 +16,8 @@ import type {
 } from '../../core/interfaces/i-curate-service.js'
 import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
 import type {ISandboxService} from '../../core/interfaces/i-sandbox-service.js'
+import type {IMemoryStoreService} from '../nclm/memory-store-service.js'
+import type {CompactResult, ListParams, MemoryEntry, MemoryStats, ScoredEntry} from '../nclm/memory-types.js'
 import type {SessionManager} from '../session/session-manager.js'
 
 import {ContextTreeStore} from '../map/context-tree-store.js'
@@ -220,6 +222,24 @@ export interface ToolsSDK {
   listDirectory(path?: string, options?: ListDirectoryOptions): Promise<ListDirectoryResult>
 
   /**
+   * NCLM working memory operations.
+   * Only available when MemoryStoreService is injected (enableNclm: true).
+   * Undefined when NCLM is not configured.
+   */
+  readonly memory?: {
+    archive(id: string): Promise<void>
+    compact(tag?: string): Promise<CompactResult>
+    free(id: string): Promise<void>
+    latest(tag?: string): Promise<MemoryEntry | null>
+    list(params?: ListParams): Promise<MemoryEntry[]>
+    read(id: string): Promise<MemoryEntry | null>
+    search(query: string, topK?: number, tags?: string[], includeArchived?: boolean): Promise<ScoredEntry[]>
+    stats(): Promise<MemoryStats>
+    update(id: string, fields: {content?: string; importance?: number; tags?: string[]; title?: string}): Promise<MemoryEntry>
+    write(title: string, content: string, tags?: string[], importance?: number): Promise<MemoryEntry>
+  }
+
+  /**
    * Read the contents of a file.
    * @param filePath - Path to the file (absolute or relative)
    * @param options - Read options for pagination
@@ -257,6 +277,8 @@ export interface CreateToolsSDKOptions {
   curateService?: ICurateService
   /** File system service for file operations */
   fileSystem: IFileSystem
+  /** NCLM memory store service for tools.memory.* sandbox functions */
+  memoryStoreService?: IMemoryStoreService
   /** Parent session ID for creating child sessions (required for agentQuery) */
   parentSessionId?: string
   /** Project root for write guard validation (blocks writes to shared source context trees) */
@@ -279,7 +301,7 @@ export interface CreateToolsSDKOptions {
  * @returns ToolsSDK instance ready to be injected into sandbox context
  */
 export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
-  const {commandType, contentGenerator, curateService, fileSystem, parentSessionId, projectRoot, sandboxService, searchKnowledgeService, sessionManager} = options
+  const {commandType, contentGenerator, curateService, fileSystem, memoryStoreService, parentSessionId, projectRoot, sandboxService, searchKnowledgeService, sessionManager} = options
   const isReadOnly = commandType === 'query'
   return {
     async agentQuery(prompt: string, options?: { contextData?: Record<string, unknown>; maxIterations?: number }): Promise<string> {
@@ -422,6 +444,39 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
         maxResults: options?.maxResults ?? 100,
       })
     },
+
+    memory: memoryStoreService ? {
+      async archive(id: string): Promise<void> {
+        memoryStoreService.archive(id)
+      },
+      async compact(tag?: string): Promise<CompactResult> {
+        return memoryStoreService.compact(tag)
+      },
+      async free(id: string): Promise<void> {
+        memoryStoreService.free(id)
+      },
+      async latest(tag?: string): Promise<MemoryEntry | null> {
+        return memoryStoreService.latest(tag)
+      },
+      async list(params?: ListParams): Promise<MemoryEntry[]> {
+        return memoryStoreService.list(params)
+      },
+      async read(id: string): Promise<MemoryEntry | null> {
+        return memoryStoreService.read(id)
+      },
+      async search(query: string, topK?: number, tags?: string[], includeArchived?: boolean): Promise<ScoredEntry[]> {
+        return memoryStoreService.search(query, topK, tags, includeArchived)
+      },
+      async stats(): Promise<MemoryStats> {
+        return memoryStoreService.stats()
+      },
+      async update(id: string, fields: {content?: string; importance?: number; tags?: string[]; title?: string}): Promise<MemoryEntry> {
+        return memoryStoreService.update(id, fields)
+      },
+      async write(title: string, content: string, tags?: string[], importance?: number): Promise<MemoryEntry> {
+        return memoryStoreService.write(title, content, tags, importance)
+      },
+    } : undefined,
 
     async readFile(filePath: string, options?: ReadFileOptions): Promise<FileContent> {
       return fileSystem.readFile(filePath, {

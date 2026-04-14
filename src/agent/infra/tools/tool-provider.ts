@@ -42,6 +42,7 @@ export class ToolProvider implements IToolProvider {
       logger: 0,
       maxContextTokens: 0,
       memoryManager: 0,
+      memoryStore: 0,
       processService: 0,
       sandboxService: 0,
       todoStorage: 0,

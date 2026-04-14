@@ -3,6 +3,7 @@ import type {FileSystemService} from '../../infra/file-system/file-system-servic
 import type {CompactionService} from '../../infra/llm/context/compaction/compaction-service.js'
 import type {AbstractGenerationQueue} from '../../infra/map/abstract-queue.js'
 import type {MemoryManager} from '../../infra/memory/memory-manager.js'
+import type {MemoryStore} from '../../infra/nclm/memory-store.js'
 import type {ProcessService} from '../../infra/process/process-service.js'
 import type {MessageStorageService} from '../../infra/storage/message-storage-service.js'
 import type {SystemPromptManager} from '../../infra/system-prompt/system-prompt-manager.js'
@@ -46,6 +47,8 @@ export interface CipherAgentServices {
   fileSystemService: FileSystemService
   historyStorage: IHistoryStorage
   memoryManager: MemoryManager
+  /** NCLM working memory store. Only present when enableNclm is true. */
+  memoryStore?: MemoryStore
   /**
    * MessageStorageService for direct granular message access.
    */

@@ -11,9 +11,11 @@ import type { ITodoStorage } from '../../core/interfaces/i-todo-storage.js'
 import type { ITokenizer } from '../../core/interfaces/i-tokenizer.js'
 import type { AbstractGenerationQueue } from '../map/abstract-queue.js'
 import type { MemoryManager } from '../memory/memory-manager.js'
+import type { MemoryStore } from '../nclm/memory-store.js'
 import type { ToolProviderGetter } from './tool-provider-getter.js'
 
 import { ToolName } from '../../core/domain/tools/constants.js'
+import { createMemoryStoreService } from '../nclm/memory-store-service.js'
 import { createCurateService } from '../sandbox/curate-service.js'
 import { createAgenticMapTool } from './implementations/agentic-map-tool.js'
 import { createCodeExecTool } from './implementations/code-exec-tool.js'
@@ -64,6 +66,9 @@ export interface ToolServices {
 
   /** Memory manager for agent memory operations */
   memoryManager?: MemoryManager
+
+  /** NCLM MemoryStore for sandbox memory operations */
+  memoryStore?: MemoryStore
 
   /** Process service for command execution */
   processService?: IProcessService
@@ -160,7 +165,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.CODE_EXEC]: {
     descriptionFile: 'code_exec',
-    factory({ abstractQueue, environmentContext, fileSystemService, sandboxService }) {
+    factory({ abstractQueue, environmentContext, fileSystemService, memoryStore, sandboxService }) {
       const sandbox = getRequiredService(sandboxService, 'sandboxService')
 
       // Inject file system service into sandbox for Tools SDK
@@ -178,6 +183,11 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
       if (sandbox.setCurateService) {
         const curateService = createCurateService(environmentContext?.workingDirectory, abstractQueue)
         sandbox.setCurateService(curateService)
+      }
+
+      // Inject NCLM memory store service into sandbox for tools.memory.*
+      if (sandbox.setMemoryStoreService && memoryStore) {
+        sandbox.setMemoryStoreService(createMemoryStoreService(memoryStore))
       }
 
       // Inject environment context into sandbox for env.* access

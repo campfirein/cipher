@@ -70,6 +70,7 @@ export const AgentConfigSchema = z
   .object({
     apiBaseUrl: z.string().url().describe('ByteRover API base URL'),
     blobStorage: BlobStorageConfigSchema.optional().describe('Blob storage configuration'),
+    enableNclm: z.boolean().default(false).describe('Enable NCLM working memory'),
     fileSystem: FileSystemConfigSchema.optional().describe('File system configuration'),
     httpReferer: z.string().optional().describe('HTTP Referer for OpenRouter rankings'),
     llm: LLMConfigSchema.default({}).describe('LLM configuration'),

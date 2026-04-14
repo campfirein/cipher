@@ -37,6 +37,7 @@ import { GeminiTokenizer } from '../llm/tokenizers/gemini-tokenizer.js'
 import { EventBasedLogger } from '../logger/event-based-logger.js'
 import { AbstractGenerationQueue } from '../map/abstract-queue.js'
 import { MemoryManager } from '../memory/memory-manager.js'
+import { MemoryStore } from '../nclm/memory-store.js'
 import { ProcessService } from '../process/process-service.js'
 import { SandboxService } from '../sandbox/sandbox-service.js'
 import { FileKeyStorage } from '../storage/file-key-storage.js'
@@ -44,6 +45,7 @@ import { GranularHistoryStorage } from '../storage/granular-history-storage.js'
 import { MessageStorageService } from '../storage/message-storage-service.js'
 import { ContextTreeStructureContributor } from '../system-prompt/contributors/context-tree-structure-contributor.js'
 import { MapSelectionContributor } from '../system-prompt/contributors/map-selection-contributor.js'
+import { NCLMMemoryContributor } from '../system-prompt/contributors/nclm-memory-contributor.js'
 import { SystemPromptManager } from '../system-prompt/system-prompt-manager.js'
 import { CoreToolScheduler } from '../tools/core-tool-scheduler.js'
 import { DEFAULT_POLICY_RULES } from '../tools/default-policy-rules.js'
@@ -164,6 +166,9 @@ export async function createCipherAgentServices(
   const memoryLogger = logger.withSource('MemoryManager')
   const memoryManager = new MemoryManager(blobStorage, memoryLogger)
 
+  // 5a. NCLM working memory (optional, only when enableNclm is true)
+  const memoryStore = config.enableNclm ? new MemoryStore() : undefined
+
   // 5b. Sandbox service for code execution (no dependencies)
   const sandboxService = new SandboxService()
 
@@ -208,6 +213,11 @@ export async function createCipherAgentServices(
   const mapSelectionContributor = new MapSelectionContributor('mapSelection', 16)
   systemPromptManager.registerContributor(mapSelectionContributor)
 
+  // Register NCLM memory contributor (priority 18 — after map selection, before memories)
+  if (memoryStore) {
+    systemPromptManager.registerContributor(new NCLMMemoryContributor(memoryStore))
+  }
+
   // 7. Abstract generation queue (generator injected later via rebindCurateTools)
   const abstractQueue = new AbstractGenerationQueue(workingDirectory)
 
@@ -221,6 +231,7 @@ export async function createCipherAgentServices(
       fileSystemService,
       getToolProvider: (): ToolProvider => toolProvider,
       memoryManager,
+      memoryStore,
       processService,
       sandboxService,
     },
@@ -276,6 +287,7 @@ export async function createCipherAgentServices(
     fileSystemService,
     historyStorage,
     memoryManager,
+    memoryStore,
     messageStorageService,
     policyEngine,
     processService,
