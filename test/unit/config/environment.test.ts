@@ -161,5 +161,31 @@ describe('Environment Configuration', () => {
       expect(config.gitRemoteBaseUrl).to.equal('https://git.test')
       expect(config.authorizationUrl).to.equal('https://iam.test/api/v1/oidc/authorize')
     })
+
+    it('should strip multiple consecutive trailing slashes', async () => {
+      process.env.BRV_IAM_BASE_URL = 'https://iam.test//'
+
+      const {getCurrentConfig} = await import(`../../../src/server/config/environment.js?t=${Date.now()}`)
+      const config = getCurrentConfig()
+
+      expect(config.iamBaseUrl).to.equal('https://iam.test')
+      expect(config.authorizationUrl).to.equal('https://iam.test/api/v1/oidc/authorize')
+    })
+
+    it('should throw when BRV_IAM_BASE_URL contains /api/v1 path segment', async () => {
+      process.env.BRV_IAM_BASE_URL = 'https://iam.test/api/v1/'
+
+      const {getCurrentConfig} = await import(`../../../src/server/config/environment.js?t=${Date.now()}`)
+
+      expect(() => getCurrentConfig()).to.throw('BRV_IAM_BASE_URL must not include the API version path')
+    })
+
+    it('should throw when a required env var is whitespace only', async () => {
+      process.env.BRV_IAM_BASE_URL = '   '
+
+      const {getCurrentConfig} = await import(`../../../src/server/config/environment.js?t=${Date.now()}`)
+
+      expect(() => getCurrentConfig()).to.throw('Missing required environment variable: BRV_IAM_BASE_URL')
+    })
   })
 })
