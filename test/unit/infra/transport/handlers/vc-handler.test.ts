@@ -340,7 +340,7 @@ describe('VcHandler', () => {
       expect(deps.gitService.addRemote.called).to.be.false
     })
 
-    it('should complete init successfully with gitignore sync', async () => {
+    it('should complete init successfully', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       makeVcHandler(deps).setup()
@@ -378,18 +378,6 @@ describe('VcHandler', () => {
       })
     })
 
-    it('should complete reinit successfully with gitignore sync', async () => {
-      const deps = makeDeps(sandbox, projectPath)
-      deps.gitService.isInitialized.resolves(true)
-      makeVcHandler(deps).setup()
-
-      const result = await deps.requestHandlers[VcEvents.INIT]({}, CLIENT_ID)
-
-      expect(result).to.deep.equal({
-        gitDir: join(deps.contextTreeDirPath, '.git'),
-        reinitialized: true,
-      })
-    })
   })
 
   describe('project path resolution', () => {
@@ -2029,7 +2017,7 @@ describe('VcHandler', () => {
       expect(deps.gitService.isEmptyRepository.called).to.be.false
     })
 
-    it('should complete clone successfully with gitignore sync', async () => {
+    it('should complete clone successfully', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
