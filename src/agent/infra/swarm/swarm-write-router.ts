@@ -34,7 +34,7 @@ export function classifyWrite(content: string): WriteType {
  * - note → first local-markdown > first writable
  * - general → first writable (config order)
  *
- * @throws Error if no writable+healthy provider is available
+ * @returns null if no writable+healthy provider is available
  */
 export function selectWriteTarget(
   writeType: WriteType,

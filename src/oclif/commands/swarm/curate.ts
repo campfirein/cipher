@@ -1,7 +1,6 @@
 import {Args, Command, Flags} from '@oclif/core'
 
 import {FileSystemService} from '../../../agent/infra/file-system/file-system-service.js'
-import {CurateService} from '../../../agent/infra/sandbox/curate-service.js'
 import {loadSwarmConfig} from '../../../agent/infra/swarm/config/swarm-config-loader.js'
 import {buildProvidersFromConfig} from '../../../agent/infra/swarm/provider-factory.js'
 import {SwarmCoordinator} from '../../../agent/infra/swarm/swarm-coordinator.js'
@@ -54,8 +53,7 @@ public static description = 'Store knowledge in a swarm provider (GBrain, local 
       })
 
       const providers = buildProvidersFromConfig(config, {searchService})
-      const curateService = new CurateService(workingDirectory)
-      const coordinator = new SwarmCoordinator(providers, config, curateService)
+      const coordinator = new SwarmCoordinator(providers, config)
       await coordinator.refreshHealth()
 
       const result = await coordinator.store({
