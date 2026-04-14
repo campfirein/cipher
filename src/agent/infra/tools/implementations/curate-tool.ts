@@ -213,6 +213,7 @@ const SubtopicContextSchema = z.object({
 const OperationSchema = z.object({
   confidence: z
     .enum(['high', 'low'])
+    .default('low')
     .describe(
       'Your confidence in the accuracy and completeness of this operation. Use "high" when you have direct evidence from the source material; use "low" when the information is inferred, uncertain, or incomplete.',
     ),
@@ -222,6 +223,7 @@ const OperationSchema = z.object({
   ),
   impact: z
     .enum(['high', 'low'])
+    .default('high')
     .describe(
       'Estimated scope of impact of this knowledge change. "high": Changes that alter core decisions, strategies, tools, or established approaches. Any change that contradicts or reverses previously curated knowledge. Updates to existing knowledge that change its core substance. Deletions are always high impact. "low": New additions to previously undocumented topics, minor corrections, supplementary details like examples and clarifications, or updates that extend existing knowledge without changing its core substance.',
     ),
