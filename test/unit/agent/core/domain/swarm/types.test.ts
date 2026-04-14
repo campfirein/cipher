@@ -9,14 +9,15 @@ import {
 
 describe('Swarm Types', () => {
   describe('PROVIDER_TYPES', () => {
-    it('contains all six provider types', () => {
-      expect(PROVIDER_TYPES).to.have.length(6)
+    it('contains all seven provider types', () => {
+      expect(PROVIDER_TYPES).to.have.length(7)
       expect(PROVIDER_TYPES).to.include('byterover')
       expect(PROVIDER_TYPES).to.include('honcho')
       expect(PROVIDER_TYPES).to.include('hindsight')
       expect(PROVIDER_TYPES).to.include('obsidian')
       expect(PROVIDER_TYPES).to.include('local-markdown')
       expect(PROVIDER_TYPES).to.include('gbrain')
+      expect(PROVIDER_TYPES).to.include('memory-wiki')
     })
 
     it('is readonly', () => {

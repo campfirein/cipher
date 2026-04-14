@@ -232,6 +232,7 @@ function getEnabledProviderIds(providers: SwarmConfig['providers']): Set<string>
   if (providers.honcho?.enabled) ids.add('honcho')
   if (providers.hindsight?.enabled) ids.add('hindsight')
   if (providers.gbrain?.enabled) ids.add('gbrain')
+  if (providers.memoryWiki?.enabled) ids.add('memory-wiki')
 
   return ids
 }
@@ -258,6 +259,7 @@ function isConfiguredProvider(edgeEndpoint: string, providers: SwarmConfig['prov
   if (edgeEndpoint === 'honcho') return providers.honcho !== undefined
   if (edgeEndpoint === 'hindsight') return providers.hindsight !== undefined
   if (edgeEndpoint === 'gbrain') return providers.gbrain !== undefined
+  if (edgeEndpoint === 'memory-wiki') return providers.memoryWiki !== undefined
 
   // Generic "local-markdown" — valid if the section exists
   if (edgeEndpoint === 'local-markdown') return providers.localMarkdown !== undefined

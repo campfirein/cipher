@@ -8,6 +8,7 @@ export const PROVIDER_TYPES = [
   'obsidian',
   'local-markdown',
   'gbrain',
+  'memory-wiki',
 ] as const
 
 /**
@@ -242,6 +243,20 @@ export function createDefaultCapabilities(type: ProviderType): ProviderCapabilit
         temporalQuery: true,
         userModeling: false,
         writeSupported: true,
+      }
+    }
+
+    case 'memory-wiki': {
+      return {
+        avgLatencyMs: 150,
+        graphTraversal: false,
+        keywordSearch: true,
+        localOnly: true,
+        maxTokensPerQuery: 8000,
+        semanticSearch: true,
+        temporalQuery: false,
+        userModeling: false,
+        writeSupported: false,
       }
     }
   }

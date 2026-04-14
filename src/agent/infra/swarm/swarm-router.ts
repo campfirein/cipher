@@ -30,11 +30,11 @@ export function classifyQuery(query: string): QueryType {
  * When re-enabled, add 'honcho' to personal/creative and 'hindsight' to temporal/relational/creative.
  */
 const SELECTION_MATRIX: Record<QueryType, string[]> = {
-  creative: ['byterover', 'obsidian', 'local-markdown', 'gbrain'],
-  factual: ['byterover', 'obsidian', 'local-markdown', 'gbrain'],
+  creative: ['byterover', 'obsidian', 'local-markdown', 'gbrain', 'memory-wiki'],
+  factual: ['byterover', 'obsidian', 'local-markdown', 'gbrain', 'memory-wiki'],
   personal: ['byterover', 'obsidian', 'local-markdown'],
-  relational: ['byterover', 'obsidian', 'local-markdown', 'gbrain'],
-  temporal: ['byterover', 'obsidian', 'local-markdown', 'gbrain'],
+  relational: ['byterover', 'obsidian', 'local-markdown', 'gbrain', 'memory-wiki'],
+  temporal: ['byterover', 'obsidian', 'local-markdown', 'gbrain', 'memory-wiki'],
 }
 
 /**

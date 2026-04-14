@@ -4,6 +4,7 @@ import type {SwarmConfig} from './config/swarm-config-schema.js'
 import {ByteRoverAdapter, type SearchService} from './adapters/byterover-adapter.js'
 import {GBrainAdapter} from './adapters/gbrain-adapter.js'
 import {LocalMarkdownAdapter} from './adapters/local-markdown-adapter.js'
+import {MemoryWikiAdapter} from './adapters/memory-wiki-adapter.js'
 import {ObsidianAdapter} from './adapters/obsidian-adapter.js'
 
 /**
@@ -77,6 +78,14 @@ export function buildProvidersFromConfig(
     providers.push(new GBrainAdapter({
       repoPath: config.providers.gbrain.repoPath,
       searchMode: config.providers.gbrain.searchMode,
+    }))
+  }
+
+  if (config.providers.memoryWiki?.enabled && config.providers.memoryWiki.vaultPath) {
+    providers.push(new MemoryWikiAdapter({
+      boostFresh: config.providers.memoryWiki.boostFresh,
+      vaultPath: config.providers.memoryWiki.vaultPath,
+      writePageType: config.providers.memoryWiki.writePageType,
     }))
   }
 

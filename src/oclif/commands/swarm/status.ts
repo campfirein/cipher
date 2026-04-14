@@ -239,6 +239,13 @@ export default class SwarmStatus extends Command {
     } else {
       this.renderProviderLine('GBrain', false, 'not configured', 'disabled')
     }
+
+    if (providers.memoryWiki) {
+      const hasError = validation.errors.some((e) => e.provider === 'memory-wiki')
+      this.renderProviderLine('Memory Wiki', providers.memoryWiki.enabled && !hasError, 'OpenClaw wiki')
+    } else {
+      this.renderProviderLine('Memory Wiki', false, 'not configured', 'disabled')
+    }
   }
 
   private renderSuggestionLines(suggestions: string[]): void {
