@@ -8,7 +8,7 @@ import {
   type ConnectorInstallResponse,
   type ConnectorListResponse,
 } from '../../../shared/transport/events/connector-events.js'
-import {AGENT_VALUES} from '../../../shared/types/agent.js'
+import {AGENT_VALUES, CLAUDE_DESKTOP} from '../../../shared/types/agent.js'
 import {isConnectorType, requiresAgentRestart} from '../../../shared/types/connector-type.js'
 import {getConnectorName} from '../../../tui/features/connectors/utils/get-connector-name.js'
 import {type DaemonClientOptions, withDaemonRetry} from '../../lib/daemon-client.js'
@@ -209,7 +209,7 @@ ${agentTable}`
 
       if (requiresAgentRestart(installResult.connectorType)) {
         const hint =
-          installResult.agentId === 'Claude Desktop'
+          installResult.agentId === CLAUDE_DESKTOP
             ? `\nQuit ${installResult.agentId} from the system tray (Win) or menu bar (Mac), then reopen it.`
             : `\nPlease restart ${installResult.agentId} to apply the new ${getConnectorName(installResult.connectorType)}.`
         this.log(hint)
