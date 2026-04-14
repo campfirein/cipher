@@ -121,9 +121,7 @@ describe('Environment Configuration', () => {
       expect(config.scopes).to.deep.equal(['read', 'write'])
     })
 
-    it('should throw when a required env var is missing', async () => {
-      delete process.env.BRV_ENV
-
+    describe('Missing required environment variables', () => {
       const requiredVars = [
         'BRV_COGIT_BASE_URL',
         'BRV_GIT_REMOTE_BASE_URL',
@@ -133,25 +131,34 @@ describe('Environment Configuration', () => {
       ]
 
       for (const envVar of requiredVars) {
-        // Clear all then set all but one
-        for (const v of requiredVars) process.env[v] = 'http://test.host'
-        delete process.env[envVar]
+        it(`should throw when ${envVar} is missing`, async () => {
+          delete process.env.BRV_ENV
 
-        // eslint-disable-next-line no-await-in-loop
-        const {getCurrentConfig} = await import(`../../../src/server/config/environment.js?t=${Date.now()}`)
-        expect(() => getCurrentConfig()).to.throw(`Missing required environment variable: ${envVar}`)
+          // Clear all then set all but one
+          for (const v of requiredVars) process.env[v] = 'http://test.host'
+          delete process.env[envVar]
+
+          const {getCurrentConfig} = await import(`../../../src/server/config/environment.js?t=${Date.now()}`)
+          expect(() => getCurrentConfig()).to.throw(`Missing required environment variable: ${envVar}`)
+        })
       }
     })
 
-    it('should normalize trailing slashes in base URLs', async () => {
+    it('should normalize trailing slashes in all required env vars', async () => {
       process.env.BRV_IAM_BASE_URL = 'https://iam.test/'
       process.env.BRV_COGIT_BASE_URL = 'https://cogit.test/'
+      process.env.BRV_LLM_BASE_URL = 'https://llm.test/'
+      process.env.BRV_WEB_APP_URL = 'https://app.test/'
+      process.env.BRV_GIT_REMOTE_BASE_URL = 'https://git.test/'
 
       const {getCurrentConfig} = await import(`../../../src/server/config/environment.js?t=${Date.now()}`)
       const config = getCurrentConfig()
 
       expect(config.iamBaseUrl).to.equal('https://iam.test')
       expect(config.cogitBaseUrl).to.equal('https://cogit.test')
+      expect(config.llmBaseUrl).to.equal('https://llm.test')
+      expect(config.webAppUrl).to.equal('https://app.test')
+      expect(config.gitRemoteBaseUrl).to.equal('https://git.test')
       expect(config.authorizationUrl).to.equal('https://iam.test/api/v1/oidc/authorize')
     })
   })

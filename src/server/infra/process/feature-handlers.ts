@@ -101,7 +101,11 @@ export async function setupFeatureHandlers({
   const envConfig = getCurrentConfig()
   const tokenStore = createTokenStore()
   const projectConfigStore = new ProjectConfigStore()
-  const iamApiV1 = `${envConfig.iamBaseUrl}/api/v1`
+
+  // API version paths appended at point of use.
+  // Note: IAM and Cogit currently share this version path, but may version independently in the future.
+  const API_V1 = '/api/v1'
+  const iamApiV1 = `${envConfig.iamBaseUrl}${API_V1}`
   const userService = new HttpUserService({apiBaseUrl: iamApiV1})
   const teamService = new HttpTeamService({apiBaseUrl: iamApiV1})
   const spaceService = new HttpSpaceService({apiBaseUrl: iamApiV1})
@@ -146,7 +150,7 @@ export async function setupFeatureHandlers({
   const contextTreeWriterService = new FileContextTreeWriterService({snapshotService: contextTreeSnapshotService})
   const contextTreeMerger = new FileContextTreeMerger({snapshotService: contextTreeSnapshotService})
   const contextFileReader = new FileContextFileReader()
-  const cogitApiV1 = `${envConfig.cogitBaseUrl}/api/v1`
+  const cogitApiV1 = `${envConfig.cogitBaseUrl}${API_V1}`
   const cogitPushService = new HttpCogitPushService({apiBaseUrl: cogitApiV1})
   const cogitPullService = new HttpCogitPullService({apiBaseUrl: cogitApiV1})
 

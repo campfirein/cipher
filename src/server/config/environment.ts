@@ -51,6 +51,11 @@ const DEFAULTS = {
 
 const normalizeUrl = (url: string): string => (url.endsWith('/') ? url.slice(0, -1) : url)
 
+/**
+ * Reads a required environment variable and normalizes it by removing any trailing slash.
+ * This normalization applies to all required variables (including BRV_GIT_REMOTE_BASE_URL
+ * and BRV_WEB_APP_URL, which may carry paths) to prevent double slashes when joining URLs.
+ */
 const readRequiredEnv = (name: string): string => {
   const value = process.env[name]
   if (!value) {
