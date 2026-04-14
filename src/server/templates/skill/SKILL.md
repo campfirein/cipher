@@ -347,12 +347,11 @@ brv swarm query "authentication patterns" --explain
 Output:
 ```
 Classification: factual
-Provider selection: 5 of 5 available
+Provider selection: 4 of 4 available
   ✓ byterover    (healthy, selected, 0 results, 14ms)
   ✓ obsidian    (healthy, selected, 5 results, 91ms)
   ✓ memory-wiki    (healthy, selected, 2 results, 15ms)
   ✓ gbrain    (healthy, selected, 1 results, 260ms)
-  ✗ honcho    (excluded — not in selection matrix for factual)
 Enrichment:
   byterover → obsidian
   byterover → memory-wiki
@@ -370,10 +369,14 @@ Output:
   "meta": {
     "queryType": "factual",
     "totalLatencyMs": 340,
-    "providers": { "byterover": { "selected": true, "resultCount": 0 }, ... }
+    "providers": {
+      "byterover": { "selected": true, "resultCount": 0 },
+      "obsidian": { "selected": true, "resultCount": 5 },
+      "gbrain": { "selected": true, "resultCount": 1 }
+    }
   },
   "results": [
-    { "provider": "memory-wiki", "providerType": "memory-wiki", "score": 0.015, "content": "..." }
+    { "provider": "memory-wiki", "providerType": "memory-wiki", "score": 0.015, "content": "# Rate Limiting ..." }
   ]
 }
 ```
@@ -386,7 +389,7 @@ brv swarm query "testing strategy" -n 5
 **Flags:** `--explain` (show routing details), `--format json` (structured output), `-n <value>` (max results).
 
 ### 9. Swarm Curate
-**Overview:** Store knowledge in the best available external memory provider. Routes content by type: entities (people, orgs) go to GBrain, notes (meeting notes, TODOs) go to Local Markdown, general content goes to the first writable provider. Falls back to ByteRover context tree if no external providers are available.
+**Overview:** Store knowledge in the best available external memory provider. ByteRover automatically classifies the content type and routes accordingly: entities (people, orgs) go to GBrain, notes (meeting notes, TODOs) go to Local Markdown, general content goes to the first writable provider. Falls back to ByteRover context tree if no external providers are available.
 
 **Use this skill when:**
 - You want to store knowledge in an external provider (GBrain, Local Markdown, Memory Wiki)
@@ -439,7 +442,15 @@ Output:
 }
 ```
 
-**Check provider health and write targets:**
+**Flags:** `--provider <id>` (target specific provider), `--format json` (structured output).
+
+### 10. Swarm Status
+**Overview:** Check provider health and write targets before running swarm query or curate. Use this to verify which providers are available and operational.
+
+**Use this skill when:**
+- Before running `brv swarm query` or `brv swarm curate` to check available providers
+- Diagnosing why swarm results are missing from a specific provider
+
 ```bash
 brv swarm status
 ```
@@ -460,8 +471,6 @@ Write Targets:
 
 Swarm is operational (5/5 providers configured).
 ```
-
-**Flags:** `--provider <id>` (target specific provider), `--format json` (structured output).
 
 ## Data Handling
 
