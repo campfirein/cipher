@@ -1,5 +1,5 @@
 import MiniSearch from 'minisearch'
-import {existsSync, readdirSync, readFileSync, statSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 
 import type {
@@ -80,13 +80,19 @@ function buildIndexSignature(vaultPath: string): string {
 }
 
 function extractContentSection(fullContent: string): string {
-  // Extract just the ## Content section from wiki page template
-  const contentMatch = fullContent.match(/```text\n([\s\S]*?)```/)
-  if (contentMatch) {
-    return contentMatch[1].trim()
+  // Extract content from openclaw:wiki:content markers (written by store())
+  const wikiMarkerMatch = fullContent.match(/<!-- openclaw:wiki:content:start -->\n([\s\S]*?)<!-- openclaw:wiki:content:end -->/)
+  if (wikiMarkerMatch) {
+    return wikiMarkerMatch[1].trim()
   }
 
-  // If no code block, strip frontmatter and return everything
+  // Extract from ```text code block (wiki source page format)
+  const codeBlockMatch = fullContent.match(/```text\n([\s\S]*?)```/)
+  if (codeBlockMatch) {
+    return codeBlockMatch[1].trim()
+  }
+
+  // Fallback: strip frontmatter and return everything
   const withoutFrontmatter = fullContent.replace(/^---[\s\S]*?---\n*/, '')
   return withoutFrontmatter.trim()
 }
@@ -193,6 +199,7 @@ private readonly boostFresh: boolean
     const pageType = this.writePageType
     const dir = pageType === 'entity' ? 'entities' : 'concepts'
     const dirPath = join(this.vaultPath, dir)
+    mkdirSync(dirPath, {recursive: true})
     const now = new Date().toISOString()
 
     // Resolve unique filename

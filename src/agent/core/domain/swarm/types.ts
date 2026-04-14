@@ -24,7 +24,7 @@ export type QueryType = 'creative' | 'factual' | 'personal' | 'relational' | 'te
 /**
  * Local providers that require no network calls.
  */
-const LOCAL_PROVIDERS: ReadonlySet<ProviderType> = new Set(['byterover', 'local-markdown', 'obsidian'])
+const LOCAL_PROVIDERS: ReadonlySet<ProviderType> = new Set(['byterover', 'local-markdown', 'memory-wiki', 'obsidian'])
 
 /**
  * Check if a provider type is local (no network required).
@@ -248,15 +248,15 @@ export function createDefaultCapabilities(type: ProviderType): ProviderCapabilit
 
     case 'memory-wiki': {
       return {
-        avgLatencyMs: 150,
+        avgLatencyMs: 60,
         graphTraversal: false,
         keywordSearch: true,
         localOnly: true,
         maxTokensPerQuery: 8000,
-        semanticSearch: true,
+        semanticSearch: false,
         temporalQuery: false,
         userModeling: false,
-        writeSupported: false,
+        writeSupported: true,
       }
     }
   }

@@ -443,6 +443,14 @@ export async function validateSwarmProviders(
     validateGBrain(providers.gbrain, errors)
   }
 
+  if (providers.memoryWiki?.enabled && !existsSync(providers.memoryWiki.vaultPath)) {
+      errors.push({
+        field: 'providers.memory_wiki.vault_path',
+        message: `Memory Wiki vault not found at ${providers.memoryWiki.vaultPath}`,
+        provider: 'memory-wiki',
+      })
+    }
+
   // Validate enrichment edges
   validateEnrichmentEdges(config, errors, warnings)
 

@@ -114,5 +114,25 @@ describe('Swarm Types', () => {
       expect(caps.localOnly).to.be.true
       expect(caps.avgLatencyMs).to.equal(80)
     })
+
+    it('returns correct defaults for memory-wiki', () => {
+      const caps = createDefaultCapabilities('memory-wiki')
+      expect(caps.keywordSearch).to.be.true
+      expect(caps.semanticSearch).to.be.false
+      expect(caps.graphTraversal).to.be.false
+      expect(caps.writeSupported).to.be.true
+      expect(caps.localOnly).to.be.true
+      expect(caps.avgLatencyMs).to.equal(60)
+    })
+  })
+
+  describe('isLocalProvider - memory-wiki', () => {
+    it('returns true for memory-wiki', () => {
+      expect(isLocalProvider('memory-wiki')).to.be.true
+    })
+
+    it('isCloudProvider returns false for memory-wiki', () => {
+      expect(isCloudProvider('memory-wiki')).to.be.false
+    })
   })
 })

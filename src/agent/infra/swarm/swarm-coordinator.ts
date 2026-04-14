@@ -52,7 +52,7 @@ const DEFAULT_WEIGHTS: Record<string, number> = {
   hindsight: 0.8,
   honcho: 0.75,
   'local-markdown': 0.8,
-  'memory-wiki': 0.8,
+  'memory-wiki': 0.9,
   obsidian: 0.85,
 }
 
