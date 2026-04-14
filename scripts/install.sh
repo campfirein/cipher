@@ -193,7 +193,7 @@ install_brv() {
 
   # Create bin/ with symlink to wrapper in lib/
   mkdir -p "$BIN_DIR"
-  ln -sf "$LIB_DIR/bin/brv" "$BIN_DIR/brv"
+  ln -sf ../lib/bin/brv "$BIN_DIR/brv"
 
   # Version check through symlink — proves the full chain works
   installed_version="$("$BIN_DIR/brv" --version 2>/dev/null || echo "unknown")"
