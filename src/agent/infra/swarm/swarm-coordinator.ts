@@ -26,7 +26,7 @@ const execFileAsync = promisify(execFileCb)
 async function execBrvCurate(content: string): Promise<BrvCurateResult> {
   let stdout: string
   try {
-    ({stdout} = await execFileAsync('brv', ['curate', '--detach', '--format', 'json', content], {
+    ;({stdout} = await execFileAsync('brv', ['curate', '--detach', '--format', 'json', content], {
       encoding: 'utf8',
       timeout: 30_000,
     }))
@@ -48,10 +48,11 @@ async function execBrvCurate(content: string): Promise<BrvCurateResult> {
  */
 const DEFAULT_WEIGHTS: Record<string, number> = {
   byterover: 1,
-  gbrain: 0.7,
+  gbrain: 0.85,
   hindsight: 0.8,
   honcho: 0.75,
   'local-markdown': 0.8,
+  'memory-wiki': 0.9,
   obsidian: 0.85,
 }
 
@@ -85,7 +86,7 @@ function resolveWeight(providerId: string): number {
  */
 function expandEnrichmentEdges(
   configEdges: Array<{from: string; to: string}>,
-  providerIds: string[]
+  providerIds: string[],
 ): Array<{from: string; to: string}> {
   // 1. Expand generic endpoints to concrete IDs
   const seen = new Set<string>()
@@ -241,9 +242,7 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     const queryType = request.type ?? classifyQuery(request.query)
 
     // 2. Select active providers based on query type, excluding unhealthy ones
-    const healthyIds = this.providers
-      .filter((p) => this.healthCache.get(p.id) !== false)
-      .map((p) => p.id)
+    const healthyIds = this.providers.filter((p) => this.healthCache.get(p.id) !== false).map((p) => p.id)
     const activeIds = selectProviders(queryType, healthyIds)
 
     // 3. Estimate total cost
@@ -341,9 +340,10 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     }))
 
     const activeCount = providerInfos.filter((p) => p.healthy).length
-    const avgLatencyMs = this.providers.length > 0
-      ? this.providers.reduce((sum, p) => sum + p.capabilities.avgLatencyMs, 0) / this.providers.length
-      : 0
+    const avgLatencyMs =
+      this.providers.length > 0
+        ? this.providers.reduce((sum, p) => sum + p.capabilities.avgLatencyMs, 0) / this.providers.length
+        : 0
 
     return {
       activeCount,
@@ -372,7 +372,7 @@ export class SwarmCoordinator implements ISwarmCoordinator {
           id: p.id,
           type: p.type,
         }
-      })
+      }),
     )
 
     this.resultCache.clear()
@@ -396,15 +396,33 @@ export class SwarmCoordinator implements ISwarmCoordinator {
       // Explicit provider target
       const provider = this.providers.find((p) => p.id === request.provider)
       if (!provider) {
-        return {error: `Provider '${request.provider}' not found`, id: '', latencyMs: 0, provider: request.provider, success: false}
+        return {
+          error: `Provider '${request.provider}' not found`,
+          id: '',
+          latencyMs: 0,
+          provider: request.provider,
+          success: false,
+        }
       }
 
       if (!provider.capabilities.writeSupported) {
-        return {error: `Provider '${request.provider}' does not support writes`, id: '', latencyMs: 0, provider: request.provider, success: false}
+        return {
+          error: `Provider '${request.provider}' does not support writes`,
+          id: '',
+          latencyMs: 0,
+          provider: request.provider,
+          success: false,
+        }
       }
 
       if (this.healthCache.get(provider.id) === false) {
-        return {error: `Provider '${request.provider}' is not healthy`, id: '', latencyMs: 0, provider: request.provider, success: false}
+        return {
+          error: `Provider '${request.provider}' is not healthy`,
+          id: '',
+          latencyMs: 0,
+          provider: request.provider,
+          success: false,
+        }
       }
 
       target = provider
@@ -465,10 +483,7 @@ export class SwarmCoordinator implements ISwarmCoordinator {
     }
   }
 
-  private async fallbackToByterover(
-    request: SwarmStoreRequest,
-    start: number,
-  ): Promise<SwarmStoreResult> {
+  private async fallbackToByterover(request: SwarmStoreRequest, start: number): Promise<SwarmStoreResult> {
     try {
       const parsed = await this.curateFallback(request.content)
       return {
