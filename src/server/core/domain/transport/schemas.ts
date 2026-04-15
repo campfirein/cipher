@@ -550,6 +550,8 @@ export const TaskCompletedEventSchema = z.object({
   clientId: z.string().optional(),
   /** Log entry ID from CurateLogHandler, if applicable */
   logId: z.string().optional(),
+  /** Project path — used by TaskRouter to notify pool for daemon-submitted tasks */
+  projectPath: z.string().optional(),
   result: z.string(),
   taskId: z.string(),
 })
@@ -573,6 +575,8 @@ export const TaskErrorEventSchema = z.object({
   error: TaskErrorDataSchema,
   /** Log entry ID from CurateLogHandler, if applicable */
   logId: z.string().optional(),
+  /** Project path — used by TaskRouter to notify pool for daemon-submitted tasks */
+  projectPath: z.string().optional(),
   taskId: z.string(),
 })
 

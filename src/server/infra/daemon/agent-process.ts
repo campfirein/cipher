@@ -554,7 +554,7 @@ async function executeTask(
       // Emit task:completed
       agentLog(`task:completed taskId=${taskId}`)
       try {
-        transport.request(TransportTaskEventNames.COMPLETED, {clientId, result, taskId})
+        transport.request(TransportTaskEventNames.COMPLETED, {clientId, projectPath, result, taskId})
       } catch (error) {
         agentLog(
           `task:completed send failed taskId=${taskId}: ${error instanceof Error ? error.message : String(error)}`,
@@ -565,7 +565,7 @@ async function executeTask(
       const errorData = serializeTaskError(error)
       agentLog(`task:error taskId=${taskId} error=${errorData.message}`)
       try {
-        transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, taskId})
+        transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, projectPath, taskId})
       } catch (error_) {
         agentLog(
           `task:error send failed taskId=${taskId}: ${error_ instanceof Error ? error_.message : String(error_)}`,

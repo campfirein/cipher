@@ -1,4 +1,7 @@
 import {expect} from 'chai'
+import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import {restore, type SinonStub, stub} from 'sinon'
 
 import type {ICipherAgent} from '../../../../src/agent/core/interfaces/i-cipher-agent.js'
@@ -229,6 +232,26 @@ describe('DreamExecutor', () => {
       expect(dreamLockService.rollback.calledOnce).to.be.true
     })
 
+    it('does not create review entries when completed dream log save fails', async () => {
+      dreamLogStore.save.onFirstCall().resolves()
+      dreamLogStore.save.onSecondCall().rejects(new Error('log save failed'))
+
+      const executor = new DreamExecutor(deps)
+      const createReviewEntries = stub().resolves()
+      ;(executor as unknown as {createReviewEntries: SinonStub}).createReviewEntries = createReviewEntries
+
+      let caught: Error | undefined
+      try {
+        await executor.executeWithAgent(agent, defaultOptions)
+      } catch (error) {
+        caught = error as Error
+      }
+
+      expect(caught).to.be.instanceOf(Error)
+      expect(caught!.message).to.equal('log save failed')
+      expect(createReviewEntries.called).to.be.false
+    })
+
     it('does not create curate log entries when no operations have needsReview', async () => {
       const executor = new DreamExecutor(deps)
       await executor.executeWithAgent(agent, defaultOptions)
@@ -317,6 +340,58 @@ describe('DreamExecutor', () => {
         type: 'UPDATE',
       })
       expect(savedEntry.operations[0].additionalFilePaths).to.deep.equal(['/tmp/ctx/auth/helper.md'])
+    })
+
+    it('skips dream-generated curate entries when collecting changed files', async () => {
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-dream-executor-'))
+      const contextTreeDir = join(projectRoot, '.brv', 'context-tree')
+      mkdirSync(join(contextTreeDir, 'auth'), {recursive: true})
+      writeFileSync(join(contextTreeDir, 'auth', 'curated.md'), '# curated')
+      writeFileSync(join(contextTreeDir, 'auth', 'dream.md'), '# dream')
+
+      curateLogStore.list.resolves([
+        {
+          completedAt: 2,
+          id: 'cur-dream',
+          input: {context: 'dream'},
+          operations: [{
+            filePath: join(contextTreeDir, 'auth', 'dream.md'),
+            path: 'auth/dream.md',
+            status: 'success',
+            type: 'UPDATE',
+          }],
+          startedAt: 1,
+          status: 'completed',
+          summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 1},
+          taskId: 'dream-task',
+        },
+        {
+          completedAt: 4,
+          id: 'cur-user',
+          input: {context: 'cli'},
+          operations: [{
+            filePath: join(contextTreeDir, 'auth', 'curated.md'),
+            path: 'auth/curated.md',
+            status: 'success',
+            type: 'UPDATE',
+          }],
+          startedAt: 3,
+          status: 'completed',
+          summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 1},
+          taskId: 'user-task',
+        },
+      ])
+
+      try {
+        const executor = new DreamExecutor(deps)
+        const changedFiles = await (executor as unknown as {
+          findChangedFilesSinceLastDream(lastDreamAt: null | string, contextTreeDir: string): Promise<Set<string>>
+        }).findChangedFilesSinceLastDream(null, contextTreeDir)
+
+        expect([...changedFiles]).to.deep.equal(['auth/curated.md'])
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
     })
   })
 })

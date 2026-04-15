@@ -431,8 +431,10 @@ async function executeTemporalUpdate(
     previousTexts[targetFile] = original
   }
 
-  // Create review backup before destructive write
-  if (reviewBackupStore && original !== undefined) {
+  const needsReview = determineNeedsReview('TEMPORAL_UPDATE', action.files, fileContents, action.confidence)
+
+  // Create review backup only when the operation needs human review
+  if (reviewBackupStore && original !== undefined && needsReview) {
     try {
       await reviewBackupStore.save(targetFile, original)
     } catch {
@@ -444,8 +446,6 @@ async function executeTemporalUpdate(
   // eslint-disable-next-line camelcase
   const contentWithFm = addFrontmatterFields(updatedContent, {consolidated_at: new Date().toISOString()})
   await atomicWrite(join(contextTreeDir, targetFile), contentWithFm)
-
-  const needsReview = determineNeedsReview('TEMPORAL_UPDATE', action.files, fileContents, action.confidence)
 
   return {
     action: 'TEMPORAL_UPDATE',

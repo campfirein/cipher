@@ -321,19 +321,12 @@ function matchLegacyDreamReviewEntry(
 }
 
 async function cleanupReviewEntries(log: DreamLogEntry, deps: DreamUndoDeps): Promise<void> {
-  const reviewFilePaths = new Set<string>()
-  for (const op of log.operations) {
-    if (!op.needsReview) continue
-    if (op.type === 'PRUNE') reviewFilePaths.add(op.file)
-    if (op.type === 'CONSOLIDATE' && op.previousTexts) {
-      for (const file of Object.keys(op.previousTexts)) reviewFilePaths.add(file)
-    }
+  const hasReviewOps = log.operations.some((op) => op.needsReview)
 
-    if (op.type === 'SYNTHESIZE') reviewFilePaths.add(op.outputFile)
-  }
-
-  // Mark curate log entries from dream as rejected
-  if (deps.curateLogStore && reviewFilePaths.size > 0) {
+  // Mark curate log entries from dream as rejected.
+  // Runs whenever the dream had any needsReview ops — even if previousTexts is absent
+  // (e.g. legacy CROSS_REFERENCE entries), so the pending review task is always cleaned up.
+  if (deps.curateLogStore && hasReviewOps) {
     try {
       const entries = await deps.curateLogStore.list({status: ['completed']})
       const dreamEntries = entries.filter((entry) => entry.input.context === 'dream')
@@ -352,11 +345,25 @@ async function cleanupReviewEntries(log: DreamLogEntry, deps: DreamUndoDeps): Pr
     }
   }
 
-  // Delete review backups for affected files
-  if (deps.reviewBackupStore && reviewFilePaths.size > 0) {
-    await Promise.all(
-      [...reviewFilePaths].map((file) => deps.reviewBackupStore!.delete(file).catch(() => {})),
-    )
+  // Delete review backups for affected files (collected from previousTexts keys,
+  // which mirror what the backup store received during the dream).
+  if (deps.reviewBackupStore) {
+    const reviewFilePaths = new Set<string>()
+    for (const op of log.operations) {
+      if (!op.needsReview) continue
+      if (op.type === 'PRUNE') reviewFilePaths.add(op.file)
+      if (op.type === 'CONSOLIDATE' && op.previousTexts) {
+        for (const file of Object.keys(op.previousTexts)) reviewFilePaths.add(file)
+      }
+
+      if (op.type === 'SYNTHESIZE') reviewFilePaths.add(op.outputFile)
+    }
+
+    if (reviewFilePaths.size > 0) {
+      await Promise.all(
+        [...reviewFilePaths].map((file) => deps.reviewBackupStore!.delete(file).catch(() => {})),
+      )
+    }
   }
 }
 

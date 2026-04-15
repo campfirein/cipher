@@ -251,8 +251,8 @@ async function main(): Promise<void> {
         try {
           const brvDir = join(projectPath, BRV_DIR)
           const dreamTrigger = new DreamTrigger({
-            // Lock service unused by checkEligibility — provide no-op to satisfy type
-            dreamLockService: {tryAcquire: async () => ({acquired: true, priorMtime: 0})},
+            // Lock must NOT be acquired during daemon pre-check — guard against accidental gate-4 calls
+            dreamLockService: {tryAcquire() { throw new Error('Lock must not be acquired during daemon eligibility pre-check') }},
             dreamStateService: new DreamStateService({baseDir: brvDir}),
             getQueueLength,
           })

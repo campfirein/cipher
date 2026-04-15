@@ -164,9 +164,6 @@ export class DreamExecutor {
         }
       }
 
-      // Step 5b: Create curate log entries for needsReview operations (dual-write for review system)
-      await this.createReviewEntries(allOperations, contextTreeDir, options.taskId)
-
       // Step 6: Write dream log
       const summary = this.computeSummary(allOperations)
       const completedEntry: DreamLogEntry = {
@@ -180,6 +177,10 @@ export class DreamExecutor {
         trigger,
       }
       await this.deps.dreamLogStore.save(completedEntry)
+
+      // Step 6b: Create curate log entries for needsReview operations (dual-write for review system).
+      // Runs after the completed dream log is durably written so review tasks never outlive their dream log.
+      await this.createReviewEntries(allOperations, contextTreeDir, options.taskId)
 
       // Step 7: Update dream state — re-read to preserve pendingMerges written by prune
       const currentState = await this.deps.dreamStateService.read()
@@ -274,7 +275,13 @@ export class DreamExecutor {
         operations: curateOps,
         startedAt: Date.now(),
         status: 'completed',
-        summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0},
+        summary: {
+          added: curateOps.filter((op) => op.type === 'ADD').length,
+          deleted: curateOps.filter((op) => op.type === 'DELETE').length,
+          failed: 0,
+          merged: curateOps.filter((op) => op.type === 'MERGE').length,
+          updated: curateOps.filter((op) => op.type === 'UPDATE' || op.type === 'UPSERT').length,
+        },
         taskId,
       }
       await this.deps.curateLogStore.save(entry)
@@ -297,6 +304,8 @@ export class DreamExecutor {
 
     const changedFiles = new Set<string>()
     for (const log of recentLogs) {
+      if (log.input.context === 'dream') continue
+
       for (const op of log.operations ?? []) {
         // op.filePath is absolute; convert to relative for context tree operations
         if (op.filePath) {
