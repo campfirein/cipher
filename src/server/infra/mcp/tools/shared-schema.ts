@@ -13,6 +13,8 @@ export const CWD_DESCRIPTION =
   'the MCP server was launched from that same project and already knows the cwd. ' +
   'Providing it is harmless but unnecessary.\n' +
   '\n' +
+  'If you omit cwd and the tool returns an error about the project not being resolved or cwd being required, retry with cwd explicitly set to the project root path.\n' +
+  '\n' +
   'Never guess, never invent paths, never use relative paths.'
 
 export const cwdField = z.string().optional().describe(CWD_DESCRIPTION)
