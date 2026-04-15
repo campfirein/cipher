@@ -1,5 +1,4 @@
-import {Button} from '@campfirein/byterover-packages/components/button'
-import {DialogClose, DialogFooter, DialogHeader, DialogTitle} from '@campfirein/byterover-packages/components/dialog'
+import {DialogHeader, DialogTitle} from '@campfirein/byterover-packages/components/dialog'
 import {Input} from '@campfirein/byterover-packages/components/input'
 import {Check, Search} from 'lucide-react'
 import {useMemo, useState} from 'react'
@@ -15,9 +14,6 @@ interface ProviderSelectStepProps {
 
 export function ProviderSelectStep({onSelect, providers}: ProviderSelectStepProps) {
   const [search, setSearch] = useState('')
-  const [selected, setSelected] = useState<ProviderDTO | undefined>(
-    () => providers.find((p) => p.isCurrent),
-  )
 
   const filtered = useMemo(() => {
     if (!search) return providers
@@ -42,18 +38,15 @@ export function ProviderSelectStep({onSelect, providers}: ProviderSelectStepProp
           />
         </div>
 
-        <div className="max-h-96 overflow-y-auto">
+        <div className="max-h-112 overflow-y-auto">
           {filtered.map((provider) => {
-            const isSelected = selected?.id === provider.id
             const icon = providerIcons[provider.id]
 
             return (
               <button
-                className={`border-border flex w-full cursor-pointer items-center gap-3 border-b px-3 py-2.5 text-left transition-colors last:border-b-0 ${
-                  isSelected ? 'bg-primary/10' : 'hover:bg-muted'
-                }`}
+                className="hover:bg-muted flex w-full cursor-pointer items-center gap-3 rounded px-3 py-2.5 text-left transition-colors"
                 key={provider.id}
-                onClick={() => setSelected(provider)}
+                onClick={() => onSelect(provider)}
                 type="button"
               >
                 {icon ? (
@@ -62,24 +55,12 @@ export function ProviderSelectStep({onSelect, providers}: ProviderSelectStepProp
                   <div className="size-5 shrink-0" />
                 )}
                 <span className="text-foreground flex-1 text-sm">{provider.name}</span>
-                {isSelected && <Check className="text-primary size-4 shrink-0" />}
+                {provider.isCurrent && <Check className="text-primary size-4 shrink-0" />}
               </button>
             )
           })}
         </div>
       </div>
-
-      <DialogFooter className="mt-auto">
-        <DialogClose render={<Button variant="secondary" />}>
-          Cancel
-        </DialogClose>
-        <Button
-          disabled={!selected}
-          onClick={() => selected && onSelect(selected)}
-        >
-          Change
-        </Button>
-      </DialogFooter>
     </div>
   )
 }

@@ -1,27 +1,26 @@
-import { Button } from '@campfirein/byterover-packages/components/button'
-import { DialogClose, DialogFooter, DialogHeader, DialogTitle } from '@campfirein/byterover-packages/components/dialog'
-import { Input } from '@campfirein/byterover-packages/components/input'
-import { Check, LoaderCircle, Search } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import {Button} from '@campfirein/byterover-packages/components/button'
+import {DialogFooter, DialogHeader, DialogTitle} from '@campfirein/byterover-packages/components/dialog'
+import {Input} from '@campfirein/byterover-packages/components/input'
+import {Check, ChevronLeft, LoaderCircle, Search} from 'lucide-react'
+import {useEffect, useMemo, useState} from 'react'
 
-import type { ModelDTO } from '../../../../../shared/transport/events'
+import type {ModelDTO} from '../../../../../shared/transport/events'
 
-import { useGetModels } from '../../../model/api/get-models'
+import {useGetModels} from '../../../model/api/get-models'
 
 interface ModelSelectStepProps {
-  onCancel: () => void
+  onBack: () => void
   onSelect: (model: ModelDTO) => void
   providerId: string
 }
 
-export function ModelSelectStep({ onCancel: _onCancel, onSelect, providerId }: ModelSelectStepProps) {
+export function ModelSelectStep({onBack, onSelect, providerId}: ModelSelectStepProps) {
   const [search, setSearch] = useState('')
   const {data, isLoading} = useGetModels({providerId})
   const [selectedModelId, setSelectedModelId] = useState<string | undefined>()
 
   const models = useMemo(() => data?.models ?? [], [data?.models])
 
-  // Sync active model from server once data loads
   useEffect(() => {
     if (data?.activeModel && !selectedModelId) {
       setSelectedModelId(data.activeModel)
@@ -34,13 +33,18 @@ export function ModelSelectStep({ onCancel: _onCancel, onSelect, providerId }: M
     return models.filter((m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q))
   }, [models, search])
 
-  const selectedModel = models.find((m) => m.id === selectedModelId)
+  const selectedModel = useMemo(() => models.find((m) => m.id === selectedModelId), [models, selectedModelId])
 
   if (isLoading) {
     return (
       <div className="flex flex-1 flex-col gap-6">
         <DialogHeader>
-          <DialogTitle>Choose model</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <button className="hover:bg-muted rounded p-0.5 transition-colors" onClick={onBack} type="button">
+              <ChevronLeft className="size-5" />
+            </button>
+            Choose model
+          </DialogTitle>
         </DialogHeader>
         <div className="flex items-center justify-center py-12">
           <LoaderCircle className="text-muted-foreground size-5 animate-spin" />
@@ -52,7 +56,12 @@ export function ModelSelectStep({ onCancel: _onCancel, onSelect, providerId }: M
   return (
     <div className="flex flex-1 flex-col gap-6">
       <DialogHeader>
-        <DialogTitle>Choose model</DialogTitle>
+        <DialogTitle className="flex items-center gap-2">
+          <button className="hover:bg-muted rounded p-0.5 transition-colors" onClick={onBack} type="button">
+            <ChevronLeft className="size-5" />
+          </button>
+          Choose model
+        </DialogTitle>
       </DialogHeader>
 
       <div className="flex flex-col gap-3">
@@ -72,8 +81,9 @@ export function ModelSelectStep({ onCancel: _onCancel, onSelect, providerId }: M
 
             return (
               <button
-                className={`border-border flex w-full cursor-pointer items-center justify-between border-b px-3 py-2.5 text-left transition-colors last:border-b-0 ${isSelected ? 'bg-primary/10' : 'hover:bg-muted'
-                  }`}
+                className={`border-border flex w-full cursor-pointer items-center justify-between border-b px-3 py-2.5 text-left transition-colors last:border-b-0 ${
+                  isSelected ? 'bg-primary/10' : 'hover:bg-muted'
+                }`}
                 key={model.id}
                 onClick={() => setSelectedModelId(model.id)}
                 type="button"
@@ -91,9 +101,9 @@ export function ModelSelectStep({ onCancel: _onCancel, onSelect, providerId }: M
       </div>
 
       <DialogFooter className="mt-auto">
-        <DialogClose render={<Button variant="secondary" />}>
+        <Button onClick={onBack} variant="secondary">
           Cancel
-        </DialogClose>
+        </Button>
         <Button
           disabled={!selectedModel}
           onClick={() => selectedModel && onSelect(selectedModel)}

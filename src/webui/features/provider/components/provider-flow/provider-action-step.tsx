@@ -1,17 +1,12 @@
-import { Button } from '@campfirein/byterover-packages/components/button'
-import { DialogFooter, DialogHeader, DialogTitle } from '@campfirein/byterover-packages/components/dialog'
-import { ChevronLeft } from 'lucide-react'
-import { useMemo } from 'react'
+import {Button} from '@campfirein/byterover-packages/components/button'
+import {DialogFooter, DialogHeader, DialogTitle} from '@campfirein/byterover-packages/components/dialog'
+import {ChevronLeft} from 'lucide-react'
 
-import type { ProviderDTO } from '../../../../../shared/transport/events'
+import type {ProviderDTO} from '../../../../../shared/transport/events'
 
-export type ProviderActionId = 'activate' | 'disconnect' | 'reconfigure' | 'reconnect_oauth' | 'replace'
+import {useGetModels} from '../../../model/api/get-models'
 
-interface ProviderAction {
-  description: string
-  id: ProviderActionId
-  name: string
-}
+export type ProviderActionId = 'activate' | 'change_model' | 'disconnect' | 'reconfigure' | 'reconnect_oauth' | 'replace'
 
 interface ProviderActionStepProps {
   error?: string
@@ -20,32 +15,10 @@ interface ProviderActionStepProps {
   provider: ProviderDTO
 }
 
-export function ProviderActionStep({ error, onAction, onBack, provider }: ProviderActionStepProps) {
-  const actions = useMemo(() => {
-    const result: ProviderAction[] = []
-
-    if (!provider.isCurrent) {
-      result.push({ description: 'Make this the active provider', id: 'activate', name: 'Set as active' })
-    }
-
-    if (provider.id === 'openai-compatible') {
-      result.push(
-        {description: 'Change base URL and API key', id: 'reconfigure', name: 'Reconfigure'},
-      )
-    } else if (provider.authMethod === 'oauth') {
-      result.push(
-        {description: 'Re-authenticate via browser', id: 'reconnect_oauth', name: 'Reconnect OAuth'},
-      )
-    } else if (provider.requiresApiKey) {
-      result.push(
-        {description: 'Enter a new API key', id: 'replace', name: 'Replace API key'},
-      )
-    }
-
-    result.push({description: 'Remove connection and disconnect', id: 'disconnect', name: 'Disconnect'})
-
-    return result
-  }, [provider])
+export function ProviderActionStep({error, onAction, onBack, provider}: ProviderActionStepProps) {
+  const {data: modelsData} = useGetModels({providerId: provider.id})
+  const activeModel = modelsData?.activeModel
+  const isByteRover = provider.id === 'byterover'
 
   return (
     <div className="flex flex-1 flex-col gap-6">
@@ -58,28 +31,66 @@ export function ProviderActionStep({ error, onAction, onBack, provider }: Provid
         </DialogTitle>
       </DialogHeader>
 
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-4">
         {error && (
-          <div className="text-destructive bg-destructive/10 mb-2 rounded-lg px-4 py-2.5 text-sm">{error}</div>
+          <div className="text-destructive bg-destructive/10 rounded-lg px-4 py-2.5 text-sm">{error}</div>
         )}
 
-        {actions.map((action) => (
-          <button
-            className="hover:bg-muted flex w-full cursor-pointer flex-col gap-0.5 rounded-lg px-3 py-2.5 text-left transition-colors"
-            key={action.id}
-            onClick={() => onAction(action.id)}
-            type="button"
-          >
-            <span className="text-foreground text-sm font-medium">{action.name}</span>
-            <span className="text-muted-foreground text-xs">{action.description}</span>
-          </button>
-        ))}
+        {isByteRover ? (
+          /* ByteRover: Status + Disconnect */
+          <div className="flex items-start justify-between">
+            <div className="flex flex-col gap-1">
+              <span className="text-foreground text-sm font-medium">Status</span>
+              <span className="text-muted-foreground text-sm">
+                {provider.isConnected ? 'Connected' : 'Not connected'}
+              </span>
+            </div>
+            {provider.isConnected && (
+              <Button onClick={() => onAction('disconnect')} size="sm" variant="outline">
+                Disconnect
+              </Button>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* Model row */}
+            <div className="flex items-start justify-between">
+              <div className="flex flex-col gap-1">
+                <span className="text-foreground text-sm font-medium">Model</span>
+                <span className="text-muted-foreground text-sm">{activeModel ?? 'Not selected'}</span>
+              </div>
+              <Button onClick={() => onAction('change_model')} size="sm" variant="outline">
+                Change
+              </Button>
+            </div>
+
+            {/* API Key / OAuth row */}
+            <div className="flex items-start justify-between">
+              <div className="flex flex-col gap-1">
+                <span className="text-foreground text-sm font-medium">
+                  {provider.authMethod === 'oauth' ? 'OAuth' : 'API Key'}
+                </span>
+                <span className="text-muted-foreground text-sm">
+                  {provider.authMethod === 'oauth' ? 'Authenticated via browser' : '****************'}
+                </span>
+              </div>
+              <Button onClick={() => onAction('disconnect')} size="sm" variant="outline">
+                Disconnect
+              </Button>
+            </div>
+          </>
+        )}
       </div>
 
       <DialogFooter className="mt-auto">
         <Button onClick={onBack} variant="secondary">
           Cancel
         </Button>
+        {!provider.isCurrent && (
+          <Button onClick={() => onAction('activate')}>
+            Active
+          </Button>
+        )}
       </DialogFooter>
     </div>
   )

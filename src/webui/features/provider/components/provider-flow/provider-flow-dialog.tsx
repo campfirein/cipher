@@ -31,6 +31,7 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
   const [selectedProvider, setSelectedProvider] = useState<ProviderDTO | undefined>()
   const [baseUrl, setBaseUrl] = useState<string | undefined>()
   const [error, setError] = useState<string | undefined>()
+  const [isNewConnection, setIsNewConnection] = useState(false)
 
   const { data } = useGetProviders()
   const connectMutation = useConnectProvider()
@@ -48,6 +49,7 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
     setSelectedProvider(undefined)
     setBaseUrl(undefined)
     setError(undefined)
+    setIsNewConnection(false)
   }, [])
 
   const resetAndClose = useCallback(() => {
@@ -118,6 +120,7 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
     setStep('connecting')
     try {
       await connectMutation.mutateAsync({ providerId: provider.id })
+      setIsNewConnection(true)
       setStep('model_select')
     } catch (error_) {
       setError(error_ instanceof Error ? error_.message : 'Connection failed')
@@ -141,6 +144,7 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
 
       const callbackResult = await awaitOAuthMutation.mutateAsync({ providerId: provider.id })
       if (callbackResult.success) {
+        setIsNewConnection(true)
         setStep('model_select')
       } else {
         setError(callbackResult.error ?? 'OAuth failed')
@@ -160,16 +164,17 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
         setStep('connecting')
         try {
           await setActiveMutation.mutateAsync({ providerId: selectedProvider.id })
-          if (selectedProvider.id === 'byterover') {
-            resetAndClose()
-          } else {
-            setStep('model_select')
-          }
+          resetAndClose()
         } catch (error_) {
           setError(error_ instanceof Error ? error_.message : 'Failed')
           setStep('provider_actions')
         }
 
+        break
+      }
+
+      case 'change_model': {
+        setStep('model_select')
         break
       }
 
@@ -234,6 +239,7 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
         baseUrl: baseUrl ?? undefined,
         providerId: selectedProvider.id,
       })
+      setIsNewConnection(true)
       setStep('model_select')
     } catch (error_) {
       setError(error_ instanceof Error ? error_.message : 'Connection failed')
@@ -250,11 +256,16 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
         modelId: model.id,
         providerId: selectedProvider.id,
       })
-      resetAndClose()
+
+      if (isNewConnection) {
+        resetAndClose()
+      } else {
+        setStep('provider_actions')
+      }
     } catch (error_) {
       setError(error_ instanceof Error ? error_.message : 'Failed to set model')
     }
-  }, [resetAndClose, selectedProvider, setActiveModelMutation])
+  }, [isNewConnection, resetAndClose, selectedProvider, setActiveModelMutation])
 
   const handleApiKeyBack = useCallback(() => {
     setError(undefined)
@@ -330,8 +341,14 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
       case 'model_select': {
         return selectedProvider ? (
           <ModelSelectStep
-            onCancel={() => setStep('select')}
-            onSelect={(model) => handleModelSelect(model)}
+            onBack={() => {
+              if (isNewConnection) {
+                setStep('select')
+              } else {
+                setStep('provider_actions')
+              }
+            }}
+            onSelect={handleModelSelect}
             providerId={selectedProvider.id}
           />
         ) : null
@@ -341,7 +358,7 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
         return selectedProvider ? (
           <ProviderActionStep
             error={error}
-            onAction={(id) => handleAction(id)}
+            onAction={handleAction}
             onBack={() => {
               setStep('select')
               setSelectedProvider(undefined)
@@ -369,7 +386,7 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
 
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
-      <DialogContent className="flex h-[600px] flex-col sm:max-w-lg" showCloseButton={step === 'select' || step === 'model_select' || step === 'connecting'}>
+      <DialogContent className="flex h-150 flex-col sm:max-w-lg" showCloseButton={step === 'select' || step === 'model_select' || step === 'connecting'}>
         {renderStep()}
       </DialogContent>
     </Dialog>
