@@ -189,9 +189,11 @@ describe('DreamLogEntrySchema', () => {
       ...makeBase(),
       completedAt: 1_712_736_060_000,
       status: 'completed',
+      taskId: 'task-123',
     }
     const result = DreamLogEntrySchema.parse(input)
     expect(result.status).to.equal('completed')
+    expect(result.taskId).to.equal('task-123')
   })
 
   it('should parse a partial entry with abortReason', () => {

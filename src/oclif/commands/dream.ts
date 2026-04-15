@@ -12,6 +12,9 @@ import {DreamLogStore} from '../../server/infra/dream/dream-log-store.js'
 import {DreamStateService} from '../../server/infra/dream/dream-state-service.js'
 import {undoLastDream} from '../../server/infra/dream/dream-undo.js'
 import {resolveProject} from '../../server/infra/project/resolve-project.js'
+import {FileCurateLogStore} from '../../server/infra/storage/file-curate-log-store.js'
+import {FileReviewBackupStore} from '../../server/infra/storage/file-review-backup-store.js'
+import {getProjectDataDir} from '../../server/utils/path-utils.js'
 import {TaskEvents} from '../../shared/transport/events/index.js'
 import {
   type DaemonClientOptions,
@@ -137,15 +140,18 @@ export default class Dream extends Command {
     const projectRoot = resolveProject()?.projectRoot ?? process.cwd()
     const brvDir = join(projectRoot, BRV_DIR)
     const contextTreeDir = join(brvDir, CONTEXT_TREE_DIR)
+    const projectDataDir = getProjectDataDir(projectRoot)
 
     try {
       const result = await undoLastDream({
         archiveService: new FileContextTreeArchiveService(),
         contextTreeDir,
+        curateLogStore: new FileCurateLogStore({baseDir: projectDataDir}),
         dreamLogStore: new DreamLogStore({baseDir: brvDir}),
         dreamStateService: new DreamStateService({baseDir: brvDir}),
         manifestService: new FileContextTreeManifestService({baseDirectory: projectRoot}),
         projectRoot,
+        reviewBackupStore: new FileReviewBackupStore(brvDir),
       })
 
       if (format === 'json') {

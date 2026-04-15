@@ -220,4 +220,69 @@ describe('DreamTrigger', () => {
       expect(result.eligible).to.be.true
     })
   })
+
+  describe('checkEligibility', () => {
+    it('should return eligible when gates 1-3 pass', async () => {
+      const deps = makeDeps()
+      const trigger = new DreamTrigger(deps)
+
+      const result = await trigger.checkEligibility('/project')
+      expect(result.eligible).to.be.true
+    })
+
+    it('should NOT call lock service (gate 4)', async () => {
+      const deps = makeDeps()
+      const trigger = new DreamTrigger(deps)
+
+      await trigger.checkEligibility('/project')
+      expect(deps.dreamLockService.tryAcquire.called).to.be.false
+    })
+
+    it('should fail when time gate fails', async () => {
+      const deps = makeDeps({
+        state: makeState({lastDreamAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString()}),
+      })
+      const trigger = new DreamTrigger(deps)
+
+      const result = await trigger.checkEligibility('/project')
+      expect(result.eligible).to.be.false
+      if (!result.eligible) {
+        expect(result.reason).to.include('recent')
+      }
+    })
+
+    it('should fail when activity gate fails', async () => {
+      const deps = makeDeps({
+        state: makeState({curationsSinceDream: 1}),
+      })
+      const trigger = new DreamTrigger(deps)
+
+      const result = await trigger.checkEligibility('/project')
+      expect(result.eligible).to.be.false
+      if (!result.eligible) {
+        expect(result.reason).to.include('activity')
+      }
+    })
+
+    it('should fail when queue is not empty', async () => {
+      const deps = makeDeps({queueLength: 3})
+      const trigger = new DreamTrigger(deps)
+
+      const result = await trigger.checkEligibility('/project')
+      expect(result.eligible).to.be.false
+      if (!result.eligible) {
+        expect(result.reason).to.include('Queue')
+      }
+    })
+
+    it('should respect custom thresholds', async () => {
+      const deps = makeDeps({
+        state: makeState({curationsSinceDream: 1, lastDreamAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString()}),
+      })
+      const trigger = new DreamTrigger(deps, {minCurations: 1, minHours: 4})
+
+      const result = await trigger.checkEligibility('/project')
+      expect(result.eligible).to.be.true
+    })
+  })
 })

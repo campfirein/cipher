@@ -38,6 +38,9 @@ export type PruneDeps = {
     write(state: DreamState): Promise<void>
   }
   projectRoot: string
+  reviewBackupStore?: {
+    save(relativePath: string, content: string): Promise<void>
+  }
   signal?: AbortSignal
   taskId: string
 }
@@ -344,6 +347,16 @@ async function executeDecisions(
 async function executeDecision(decision: PruneDecision, deps: PruneDeps): Promise<DreamOperation | undefined> {
   switch (decision.decision) {
     case 'ARCHIVE': {
+      // Create review backup before destructive archive (read content → save to review-backups/)
+      if (deps.reviewBackupStore) {
+        try {
+          const content = await readFile(join(deps.contextTreeDir, decision.file), 'utf8')
+          await deps.reviewBackupStore.save(decision.file, content)
+        } catch {
+          // Best-effort: backup failure must not block archive
+        }
+      }
+
       const archiveResult = await deps.archiveService.archiveEntry(decision.file, deps.agent, deps.projectRoot)
       return {
         action: 'ARCHIVE',

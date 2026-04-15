@@ -57,6 +57,7 @@ import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
 import {SearchExecutor} from '../executor/search-executor.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
+import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {createAgentLogger} from './agent-logger.js'
 import {resolveSessionId} from './session-resolver.js'
@@ -401,7 +402,7 @@ async function executeTask(
   searchKnowledgeService: ISearchKnowledgeService,
   storagePath: string,
 ): Promise<void> {
-  const {clientCwd, clientId, content, files, folderPath, force, taskId, type, worktreeRoot} = task
+  const {clientCwd, clientId, content, files, folderPath, force, taskId, trigger, type, worktreeRoot} = task
   if (!transport || !agent) return
 
   // Search tasks are pure BM25 retrieval — no LLM, no provider needed.
@@ -522,13 +523,14 @@ async function executeTask(
             dreamLockService,
             dreamLogStore: new DreamLogStore({baseDir: brvDir}),
             dreamStateService,
+            reviewBackupStore: new FileReviewBackupStore(brvDir),
             searchService: searchKnowledgeService,
           })
           result = await dreamExecutor.executeWithAgent(agent, {
             priorMtime: eligibility.priorMtime,
             projectRoot: projectPath,
             taskId,
-            trigger: 'cli',
+            trigger: trigger ?? 'cli',
           })
 
           break
@@ -552,7 +554,7 @@ async function executeTask(
       // Emit task:completed
       agentLog(`task:completed taskId=${taskId}`)
       try {
-        transport.request(TransportTaskEventNames.COMPLETED, {clientId, result, taskId})
+        transport.request(TransportTaskEventNames.COMPLETED, {clientId, projectPath, result, taskId})
       } catch (error) {
         agentLog(
           `task:completed send failed taskId=${taskId}: ${error instanceof Error ? error.message : String(error)}`,
@@ -563,7 +565,7 @@ async function executeTask(
       const errorData = serializeTaskError(error)
       agentLog(`task:error taskId=${taskId} error=${errorData.message}`)
       try {
-        transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, taskId})
+        transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, projectPath, taskId})
       } catch (error_) {
         agentLog(
           `task:error send failed taskId=${taskId}: ${error_ instanceof Error ? error_.message : String(error_)}`,

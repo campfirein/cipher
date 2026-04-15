@@ -8,12 +8,18 @@
 import {mkdir, unlink, writeFile} from 'node:fs/promises'
 import {dirname, resolve} from 'node:path'
 
+import type {CurateLogEntry, CurateLogOperation} from '../../core/domain/entities/curate-log-entry.js'
+import type {ICurateLogStore} from '../../core/interfaces/storage/i-curate-log-store.js'
+import type {IReviewBackupStore} from '../../core/interfaces/storage/i-review-backup-store.js'
 import type {DreamLogEntry, DreamOperation} from './dream-log-schema.js'
 import type {DreamState} from './dream-state-schema.js'
+
+import {isDescendantOf} from '../../utils/path-utils.js'
 
 export type DreamUndoDeps = {
   archiveService?: {restoreEntry(stubPath: string, directory?: string): Promise<string>}
   contextTreeDir: string
+  curateLogStore?: Pick<ICurateLogStore, 'batchUpdateOperationReviewStatus' | 'list'>
   dreamLogStore: {
     getById(id: string): Promise<DreamLogEntry | null>
     save(entry: DreamLogEntry): Promise<void>
@@ -24,6 +30,7 @@ export type DreamUndoDeps = {
   }
   manifestService: {buildManifest(dir?: string): Promise<unknown>}
   projectRoot?: string
+  reviewBackupStore?: Pick<IReviewBackupStore, 'delete'>
 }
 
 export interface DreamUndoResult {
@@ -78,6 +85,9 @@ export async function undoLastDream(deps: DreamUndoDeps): Promise<DreamUndoResul
     }
   }
 
+  // ── Post-undo: clean up review entries and backups ──────────────────────
+  await cleanupReviewEntries(log, deps)
+
   // ── Post-undo: rebuild manifest ─────────────────────────────────────────
   try {
     await manifestService.buildManifest()
@@ -93,6 +103,7 @@ export async function undoLastDream(deps: DreamUndoDeps): Promise<DreamUndoResul
     startedAt: log.startedAt,
     status: 'undone',
     summary: log.summary,
+    taskId: log.taskId,
     trigger: log.trigger,
     undoneAt: Date.now(),
   }
@@ -128,7 +139,7 @@ async function unlinkSafe(filePath: string): Promise<void> {
 /** Resolve a relative path within contextTreeDir, rejecting traversal outside the tree. */
 function safePath(contextTreeDir: string, relativePath: string): string {
   const full = resolve(contextTreeDir, relativePath)
-  if (!full.startsWith(contextTreeDir + '/') && full !== contextTreeDir) {
+  if (!isDescendantOf(full, contextTreeDir)) {
     throw new Error(`Path traversal blocked: ${relativePath}`)
   }
 
@@ -170,7 +181,17 @@ async function undoConsolidate(
 ): Promise<void> {
   switch (op.action) {
     case 'CROSS_REFERENCE': {
-      // Non-destructive — skip
+      if (!op.previousTexts || Object.keys(op.previousTexts).length === 0) break
+
+      for (const [filePath, content] of Object.entries(op.previousTexts)) {
+        const fullPath = safePath(contextTreeDir, filePath)
+        // eslint-disable-next-line no-await-in-loop
+        await mkdir(dirname(fullPath), {recursive: true})
+        // eslint-disable-next-line no-await-in-loop
+        await writeFile(fullPath, content, 'utf8')
+        result.restoredFiles.push(filePath)
+      }
+
       break
     }
 
@@ -230,6 +251,120 @@ async function undoSynthesize(
   // CREATE — delete the synthesized file
   await unlinkSafe(safePath(contextTreeDir, op.outputFile))
   result.deletedFiles.push(op.outputFile)
+}
+
+/**
+ * Clean up review system artifacts created by the dream's dual-write.
+ * - Mark curate log operations from dream entries as 'rejected'
+ * - Delete review backups for files involved in needsReview operations
+ */
+type ReviewTarget = {
+  path: string
+  type: CurateLogOperation['type']
+}
+
+function reviewTargetKey(target: ReviewTarget): string {
+  return `${target.type}:${target.path}`
+}
+
+function collectReviewTargets(operations: DreamOperation[]): ReviewTarget[] {
+  const targets: ReviewTarget[] = []
+  for (const op of operations) {
+    if (!op.needsReview) continue
+
+    if (op.type === 'PRUNE' && op.action === 'ARCHIVE') {
+      targets.push({path: op.file, type: 'DELETE'})
+      continue
+    }
+
+    if (op.type === 'CONSOLIDATE' && op.action === 'MERGE') {
+      targets.push({path: op.outputFile ?? op.inputFiles[0], type: 'MERGE'})
+      continue
+    }
+
+    if (op.type === 'CONSOLIDATE') {
+      targets.push({path: op.inputFiles[0], type: 'UPDATE'})
+      continue
+    }
+
+    if (op.type === 'SYNTHESIZE') {
+      targets.push({path: op.outputFile, type: op.action === 'CREATE' ? 'ADD' : 'UPDATE'})
+    }
+  }
+
+  return targets
+}
+
+function buildReviewStatusUpdates(entry: CurateLogEntry): Array<{operationIndex: number; reviewStatus: 'rejected'}> {
+  return entry.operations
+    .map((op, operationIndex) =>
+      op.reviewStatus && op.reviewStatus !== 'rejected'
+        ? {operationIndex, reviewStatus: 'rejected' as const}
+        : null,
+    )
+    .filter((update): update is {operationIndex: number; reviewStatus: 'rejected'} => update !== null)
+}
+
+function matchLegacyDreamReviewEntry(
+  entries: CurateLogEntry[],
+  operations: DreamOperation[],
+): CurateLogEntry[] {
+  const expected = collectReviewTargets(operations).map((target) => reviewTargetKey(target)).sort()
+  if (expected.length === 0) return []
+
+  const matches = entries.filter((entry) => {
+    const actual = entry.operations.map((op) => reviewTargetKey({path: op.path, type: op.type})).sort()
+    return actual.length === expected.length && actual.every((value, index) => value === expected[index])
+  })
+
+  return matches.length === 1 ? matches : []
+}
+
+async function cleanupReviewEntries(log: DreamLogEntry, deps: DreamUndoDeps): Promise<void> {
+  const hasReviewOps = log.operations.some((op) => op.needsReview)
+
+  // Mark curate log entries from dream as rejected.
+  // Runs whenever the dream had any needsReview ops — even if previousTexts is absent
+  // (e.g. legacy CROSS_REFERENCE entries), so the pending review task is always cleaned up.
+  if (deps.curateLogStore && hasReviewOps) {
+    try {
+      const entries = await deps.curateLogStore.list({status: ['completed']})
+      const dreamEntries = entries.filter((entry) => entry.input.context === 'dream')
+      const matchedEntries = log.taskId
+        ? dreamEntries.filter((entry) => entry.taskId === log.taskId)
+        : matchLegacyDreamReviewEntry(dreamEntries, log.operations)
+
+      for (const entry of matchedEntries) {
+        const updates = buildReviewStatusUpdates(entry)
+        if (updates.length === 0) continue
+        // eslint-disable-next-line no-await-in-loop
+        await deps.curateLogStore.batchUpdateOperationReviewStatus(entry.id, updates)
+      }
+    } catch {
+      // Fail-open: review cleanup must not block undo
+    }
+  }
+
+  // Delete review backups for affected files (collected from previousTexts keys,
+  // which mirror what the backup store received during the dream).
+  if (deps.reviewBackupStore) {
+    const reviewFilePaths = new Set<string>()
+    for (const op of log.operations) {
+      if (!op.needsReview) continue
+      if (op.type === 'PRUNE') reviewFilePaths.add(op.file)
+      if (op.type === 'CONSOLIDATE' && op.previousTexts) {
+        for (const file of Object.keys(op.previousTexts)) reviewFilePaths.add(file)
+      }
+
+      if (op.type === 'SYNTHESIZE') reviewFilePaths.add(op.outputFile)
+    }
+
+    if (reviewFilePaths.size > 0) {
+      await Promise.all(
+        [...reviewFilePaths].map((file) => deps.reviewBackupStore!.delete(file).catch(() => {})),
+      )
+    }
+  }
 }
 
 async function undoPrune(

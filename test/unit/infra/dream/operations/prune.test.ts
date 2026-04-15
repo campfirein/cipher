@@ -442,6 +442,48 @@ describe('prune', () => {
     expect(results).to.deep.equal([])
   })
 
+  // ── Review backup ──────────────────────────────────────────────────────────
+
+  it('calls reviewBackupStore.save before archiveEntry for ARCHIVE decisions', async () => {
+    await createMdFile(ctxDir, 'auth/stale.md', '# Stale doc', {maturity: 'draft'})
+    await setMtimeDaysAgo(ctxDir, 'auth/stale.md', 90)
+
+    const callOrder: string[] = []
+    const reviewBackupStore = {
+      save: stub().callsFake(async () => { callOrder.push('backup') }),
+    }
+    archiveService.archiveEntry.callsFake(async () => {
+      callOrder.push('archive')
+      return {fullPath: '', originalPath: '', stubPath: '_archived/auth/stale.stub.md'}
+    })
+
+    agent.executeOnSession.resolves(llmResponse([
+      {decision: 'ARCHIVE', file: 'auth/stale.md', reason: 'Stale'},
+    ]))
+
+    await prune({...deps, reviewBackupStore})
+
+    expect(reviewBackupStore.save.calledOnce).to.be.true
+    expect(reviewBackupStore.save.firstCall.args[0]).to.equal('auth/stale.md')
+    // Backup must happen BEFORE archive
+    expect(callOrder).to.deep.equal(['backup', 'archive'])
+  })
+
+  it('does not call reviewBackupStore.save for KEEP decisions', async () => {
+    await createMdFile(ctxDir, 'auth/old.md', '# Old but useful', {maturity: 'draft'})
+    await setMtimeDaysAgo(ctxDir, 'auth/old.md', 90)
+
+    const reviewBackupStore = {save: stub().resolves()}
+
+    agent.executeOnSession.resolves(llmResponse([
+      {decision: 'KEEP', file: 'auth/old.md', reason: 'Still relevant'},
+    ]))
+
+    await prune({...deps, reviewBackupStore})
+
+    expect(reviewBackupStore.save.called).to.be.false
+  })
+
   // ── Signal propagation ────────────────────────────────────────────────────
 
   it('passes abort signal to executeOnSession', async () => {

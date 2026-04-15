@@ -27,6 +27,9 @@ import {parseDreamResponse} from '../parse-dream-response.js'
 export type ConsolidateDeps = {
   agent: ICipherAgent
   contextTreeDir: string
+  reviewBackupStore?: {
+    save(relativePath: string, content: string): Promise<void>
+  }
   searchService: {
     search(query: string, options?: {limit?: number; scope?: string}): Promise<{results: Array<{path: string; score: number; title: string}>}>
   }
@@ -102,7 +105,7 @@ async function processDomain(domain: string, files: string[], deps: ConsolidateD
     for (const action of parsed.actions) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        const op = await executeAction(action, contextTreeDir, fileContents)
+        const op = await executeAction(action, contextTreeDir, fileContents, deps.reviewBackupStore)
         if (op) results.push(op)
       } catch {
         // Skip failed action, continue with others
@@ -327,14 +330,15 @@ async function executeAction(
   action: ConsolidationAction,
   contextTreeDir: string,
   fileContents: Map<string, string>,
+  reviewBackupStore?: ConsolidateDeps['reviewBackupStore'],
 ): Promise<DreamOperation | undefined> {
   switch (action.type) {
     case 'CROSS_REFERENCE': {
-      return executeCrossReference(action, contextTreeDir, fileContents)
+      return executeCrossReference(action, contextTreeDir, fileContents, reviewBackupStore)
     }
 
     case 'MERGE': {
-      return executeMerge(action, contextTreeDir, fileContents)
+      return executeMerge(action, contextTreeDir, fileContents, reviewBackupStore)
     }
 
     case 'SKIP': {
@@ -342,7 +346,7 @@ async function executeAction(
     }
 
     case 'TEMPORAL_UPDATE': {
-      return executeTemporalUpdate(action, contextTreeDir, fileContents)
+      return executeTemporalUpdate(action, contextTreeDir, fileContents, reviewBackupStore)
     }
   }
 }
@@ -351,6 +355,7 @@ async function executeMerge(
   action: ConsolidationAction,
   contextTreeDir: string,
   fileContents: Map<string, string>,
+  reviewBackupStore?: ConsolidateDeps['reviewBackupStore'],
 ): Promise<DreamOperation> {
   const outputFile = action.outputFile ?? action.files[0]
   if (!action.mergedContent) {
@@ -366,6 +371,15 @@ async function executeMerge(
     if (content !== undefined) {
       previousTexts[file] = content
     }
+  }
+
+  // Create review backups before destructive writes (MERGE always needs review)
+  if (reviewBackupStore) {
+    await Promise.all(
+      Object.entries(previousTexts).map(([file, content]) =>
+        reviewBackupStore.save(file, content).catch(() => {}),
+      ),
+    )
   }
 
   // Add consolidation metadata frontmatter, then write atomically
@@ -401,6 +415,7 @@ async function executeTemporalUpdate(
   action: ConsolidationAction,
   contextTreeDir: string,
   fileContents: Map<string, string>,
+  reviewBackupStore?: ConsolidateDeps['reviewBackupStore'],
 ): Promise<DreamOperation> {
   const targetFile = action.files[0]
   if (!action.updatedContent) {
@@ -416,12 +431,21 @@ async function executeTemporalUpdate(
     previousTexts[targetFile] = original
   }
 
+  const needsReview = determineNeedsReview('TEMPORAL_UPDATE', action.files, fileContents, action.confidence)
+
+  // Create review backup only when the operation needs human review
+  if (reviewBackupStore && original !== undefined && needsReview) {
+    try {
+      await reviewBackupStore.save(targetFile, original)
+    } catch {
+      // Best-effort: backup failure must not block update
+    }
+  }
+
   // Add consolidation timestamp, then write atomically
   // eslint-disable-next-line camelcase
   const contentWithFm = addFrontmatterFields(updatedContent, {consolidated_at: new Date().toISOString()})
   await atomicWrite(join(contextTreeDir, targetFile), contentWithFm)
-
-  const needsReview = determineNeedsReview('TEMPORAL_UPDATE', action.files, fileContents, action.confidence)
 
   return {
     action: 'TEMPORAL_UPDATE',
@@ -437,7 +461,25 @@ async function executeCrossReference(
   action: ConsolidationAction,
   contextTreeDir: string,
   fileContents: Map<string, string>,
+  reviewBackupStore?: ConsolidateDeps['reviewBackupStore'],
 ): Promise<DreamOperation> {
+  const previousTexts: Record<string, string> = {}
+  for (const file of action.files) {
+    const content = fileContents.get(file)
+    if (content !== undefined) {
+      previousTexts[file] = content
+    }
+  }
+
+  const needsReview = determineNeedsReview('CROSS_REFERENCE', action.files, fileContents)
+  if (needsReview && reviewBackupStore) {
+    await Promise.all(
+      Object.entries(previousTexts).map(([file, content]) =>
+        reviewBackupStore.save(file, content).catch(() => {}),
+      ),
+    )
+  }
+
   // For each file, add the other files to its related frontmatter
   await Promise.all(
     action.files.map((file) => {
@@ -446,12 +488,11 @@ async function executeCrossReference(
     }),
   )
 
-  const needsReview = determineNeedsReview('CROSS_REFERENCE', action.files, fileContents)
-
   return {
     action: 'CROSS_REFERENCE',
     inputFiles: action.files,
     needsReview,
+    previousTexts,
     reason: action.reason,
     type: 'CONSOLIDATE',
   }

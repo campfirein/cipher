@@ -390,6 +390,8 @@ export const TaskExecuteSchema = z.object({
   projectPath: z.string().optional(),
   /** Unique task identifier */
   taskId: z.string(),
+  /** Dream trigger source — how this dream was initiated */
+  trigger: z.enum(['agent-idle', 'cli', 'manual']).optional(),
   /** Task type */
   type: z.enum(['curate', 'curate-folder', 'dream', 'query', 'search']),
   /** Workspace root for scoped query/curate */
@@ -548,6 +550,8 @@ export const TaskCompletedEventSchema = z.object({
   clientId: z.string().optional(),
   /** Log entry ID from CurateLogHandler, if applicable */
   logId: z.string().optional(),
+  /** Project path — used by TaskRouter to notify pool for daemon-submitted tasks */
+  projectPath: z.string().optional(),
   result: z.string(),
   taskId: z.string(),
 })
@@ -571,6 +575,8 @@ export const TaskErrorEventSchema = z.object({
   error: TaskErrorDataSchema,
   /** Log entry ID from CurateLogHandler, if applicable */
   logId: z.string().optional(),
+  /** Project path — used by TaskRouter to notify pool for daemon-submitted tasks */
+  projectPath: z.string().optional(),
   taskId: z.string(),
 })
 

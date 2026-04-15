@@ -24,6 +24,7 @@
 import {GlobalInstanceManager} from '@campfirein/brv-transport-client'
 import express from 'express'
 import {fork, type StdioOptions} from 'node:child_process'
+import {randomUUID} from 'node:crypto'
 import {mkdirSync, readdirSync, readFileSync, unlinkSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
@@ -44,6 +45,8 @@ import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
 import {ClientManager} from '../client/client-manager.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
+import {DreamStateService} from '../dream/dream-state-service.js'
+import {DreamTrigger} from '../dream/dream-trigger.js'
 import {createReviewApiRouter} from '../http/review-api-handler.js'
 import {broadcastToProjectRoom} from '../process/broadcast-utils.js'
 import {CurateLogHandler} from '../process/curate-log-handler.js'
@@ -220,13 +223,16 @@ async function main(): Promise<void> {
       projectRegistry,
     })
 
+    // Shared queue-length resolver — used by both idle timeout policy and dream trigger
+    const getQueueLength = (projectPath: string): number =>
+      agentPool?.getQueueState().find((q) => q.projectPath === projectPath)?.queueLength ?? 0
+
     // Agent idle timeout policy — kills agents after period of inactivity
     const agentIdleTimeoutPolicy = new AgentIdleTimeoutPolicy({
       checkIntervalMs: AGENT_IDLE_CHECK_INTERVAL_MS,
-      getQueueLength: (projectPath: string) =>
-        agentPool?.getQueueState().find((q) => q.projectPath === projectPath)?.queueLength ?? 0,
+      getQueueLength,
       log,
-      onAgentIdle(projectPath: string, queueLength: number) {
+      async onAgentIdle(projectPath: string, queueLength: number) {
         // Don't kill agents that have queued tasks waiting
         if (queueLength > 0) {
           log(`Skipping idle cleanup: ${projectPath} has ${queueLength} queued tasks`)
@@ -240,7 +246,37 @@ async function main(): Promise<void> {
           return
         }
 
-        log(`Killing idle agent: ${projectPath}`)
+        // Check dream eligibility before killing (gates 1-3 only, no lock).
+        // Lock acquisition happens in the agent process when the dream task executes.
+        try {
+          const brvDir = join(projectPath, BRV_DIR)
+          const dreamTrigger = new DreamTrigger({
+            // Lock must NOT be acquired during daemon pre-check — guard against accidental gate-4 calls
+            dreamLockService: {tryAcquire() { throw new Error('Lock must not be acquired during daemon eligibility pre-check') }},
+            dreamStateService: new DreamStateService({baseDir: brvDir}),
+            getQueueLength,
+          })
+
+          const result = await dreamTrigger.checkEligibility(projectPath)
+          if (result.eligible) {
+            log(`Dream eligible, dispatching dream task: ${projectPath}`)
+            agentPool?.submitTask({
+              clientId: 'daemon',
+              content: '',
+              force: false,
+              projectPath,
+              taskId: randomUUID(),
+              trigger: 'agent-idle',
+              type: 'dream',
+            })
+            return
+          }
+
+          log(`Dream not eligible (${result.reason}), killing idle agent: ${projectPath}`)
+        } catch {
+          log(`Dream eligibility check failed, killing idle agent: ${projectPath}`)
+        }
+
         agentPool?.handleAgentDisconnected(projectPath)
       },
       timeoutMs: AGENT_IDLE_TIMEOUT_MS,

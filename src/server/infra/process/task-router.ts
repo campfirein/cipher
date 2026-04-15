@@ -320,9 +320,12 @@ export class TaskRouter {
     )
     this.moveToCompleted(taskId)
 
-    // Notify pool so it can clear busy flag and drain queued tasks
-    if (task?.projectPath) {
-      this.agentPool?.notifyTaskCompleted(task.projectPath)
+    // Notify pool so it can clear busy flag and drain queued tasks.
+    // Fallback to data.projectPath for daemon-submitted tasks (e.g. idle dream)
+    // that bypass handleTaskCreate and are not registered in this.tasks.
+    const projectPath = task?.projectPath ?? data.projectPath
+    if (projectPath) {
+      this.agentPool?.notifyTaskCompleted(projectPath)
     }
 
     // Notify hooks (fire-and-forget)
@@ -590,9 +593,11 @@ export class TaskRouter {
     )
     this.moveToCompleted(taskId)
 
-    // Notify pool so it can clear busy flag and drain queued tasks
-    if (task?.projectPath) {
-      this.agentPool?.notifyTaskCompleted(task.projectPath)
+    // Notify pool so it can clear busy flag and drain queued tasks.
+    // Fallback to data.projectPath for daemon-submitted tasks (e.g. idle dream).
+    const errorProjectPath = task?.projectPath ?? data.projectPath
+    if (errorProjectPath) {
+      this.agentPool?.notifyTaskCompleted(errorProjectPath)
     }
 
     // Notify hooks (fire-and-forget)

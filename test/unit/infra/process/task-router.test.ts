@@ -495,6 +495,22 @@ describe('TaskRouter', () => {
       expect(agentPool.notifyTaskCompleted.calledWith('/app')).to.be.true
     })
 
+    it('should notify agentPool on task:completed for daemon-submitted tasks', () => {
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.COMPLETED)
+
+      handler!({projectPath: '/daemon-app', result: 'done', taskId: 'daemon-task'}, 'agent-1')
+
+      expect(agentPool.notifyTaskCompleted.calledWith('/daemon-app')).to.be.true
+    })
+
+    it('should notify agentPool on task:error for daemon-submitted tasks', () => {
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.ERROR)
+
+      handler!({error: {message: 'fail', name: 'Error'}, projectPath: '/daemon-app', taskId: 'daemon-task'}, 'agent-1')
+
+      expect(agentPool.notifyTaskCompleted.calledWith('/daemon-app')).to.be.true
+    })
+
     it('should route task:cancelled to client and broadcast', () => {
       const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CANCELLED)
 

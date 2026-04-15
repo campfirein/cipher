@@ -276,6 +276,7 @@ describe('consolidate', () => {
       keywords: [], maturity: 'core', related: [], tags: [], title: 'Core Auth',
     })
     await createMdFile(ctxDir, 'auth/helper.md', '# Helper')
+    const reviewBackupStore = {save: stub().resolves()}
 
     agent.executeOnSession.resolves(llmResponse([{
       files: ['auth/core-auth.md', 'auth/helper.md'],
@@ -283,10 +284,15 @@ describe('consolidate', () => {
       type: 'CROSS_REFERENCE',
     }]))
 
-    const results = await consolidate(['auth/core-auth.md', 'auth/helper.md'], deps)
+    const results = await consolidate(['auth/core-auth.md', 'auth/helper.md'], {...deps, reviewBackupStore})
 
     // CROSS_REFERENCE is normally needsReview=false, but core maturity overrides
     expect(results[0].needsReview).to.be.true
+    expect(asConsolidate(results[0]).previousTexts).to.deep.equal({
+      'auth/core-auth.md': '---\nkeywords: []\nmaturity: core\nrelated: []\ntags: []\ntitle: Core Auth\n---\n# Core Auth',
+      'auth/helper.md': '# Helper',
+    })
+    expect(reviewBackupStore.save.calledTwice).to.be.true
   })
 
   it('continues processing when LLM fails for one domain', async () => {
