@@ -114,7 +114,7 @@ export default class Dream extends Command {
             force: rawFlags.force,
             format,
             projectRoot,
-            timeoutMs: (rawFlags.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
+            timeout: rawFlags.timeout ?? DEFAULT_TIMEOUT_SECONDS,
             worktreeRoot,
           })
         },
@@ -191,14 +191,14 @@ export default class Dream extends Command {
 
   private async submitTask(props: {
     client: ITransportClient
-    detach?: boolean
+    detach: boolean
     force: boolean
     format: 'json' | 'text'
     projectRoot?: string
-    timeoutMs?: number
+    timeout: number
     worktreeRoot?: string
   }): Promise<void> {
-    const {client, detach, force, format, projectRoot, timeoutMs, worktreeRoot} = props
+    const {client, detach, force, format, projectRoot, timeout, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
       content: '',
@@ -210,7 +210,7 @@ export default class Dream extends Command {
     }
 
     if (detach) {
-      if (timeoutMs !== DEFAULT_TIMEOUT_SECONDS * 1000 && format !== 'json') {
+      if (timeout !== DEFAULT_TIMEOUT_SECONDS && format !== 'json') {
         this.log('Note: --timeout has no effect with --detach')
       }
 
@@ -225,7 +225,7 @@ export default class Dream extends Command {
         })
       } else {
         const logSuffix = logId ? ` (Log: ${logId})` : ''
-        this.log(`Dream queued for processing.${logSuffix}`)
+        this.log(`✓ Dream queued for processing.${logSuffix}`)
       }
     } else {
       const completionPromise = waitForTaskCompletion(
@@ -261,7 +261,7 @@ export default class Dream extends Command {
             }
           },
           taskId,
-          timeoutMs,
+          timeoutMs: timeout * 1000,
         },
         (msg) => this.log(msg),
       )

@@ -100,7 +100,7 @@ describe('Dream Command', () => {
       await createCommand('--detach').run()
 
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
-      expect(requestStub.calledTwice).to.be.true
+      expect(requestStub.callCount).to.equal(2)
       expect(requestStub.firstCall.args[0]).to.equal('state:getProviderConfig')
       const [event, payload] = requestStub.secondCall.args
       expect(event).to.equal('task:create')
@@ -125,6 +125,12 @@ describe('Dream Command', () => {
 
     it('should not warn about --timeout with --detach when using default', async () => {
       await createCommand('--detach').run()
+
+      expect(loggedMessages).to.not.include('Note: --timeout has no effect with --detach')
+    })
+
+    it('should not warn about --timeout in JSON mode even when non-default', async () => {
+      await createJsonCommand('--detach', '--timeout', '600').run()
 
       expect(loggedMessages).to.not.include('Note: --timeout has no effect with --detach')
     })
