@@ -358,5 +358,19 @@ describe('QueryLogUseCase', () => {
       expect(output).to.include('Response:')
       expect(output).to.not.include('(truncated)')
     })
+
+    // Test 17: Multi-line response: every line indented by 2 spaces
+    it('should indent every line of a multi-line response with two spaces', async () => {
+      const multiLine = 'line one\nline two\nline three'
+      store.getById.resolves(makeCompletedEntry({response: multiLine}))
+      await useCase.run({id: 'qry-1712345678901'})
+
+      const output = logs.join('\n')
+      expect(output).to.include('  line one')
+      expect(output).to.include('  line two')
+      expect(output).to.include('  line three')
+      expect(output).to.not.match(/^line two/m)
+      expect(output).to.not.match(/^line three/m)
+    })
   })
 })
