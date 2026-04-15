@@ -104,8 +104,8 @@ async function findCandidates(deps: PruneDeps): Promise<CandidateInfo[]> {
     for (const {info, path} of stalePaths) {
       if (candidateMap.has(path)) {
         // Already found by Signal A — mark as both
-        const existing = candidateMap.get(path)!
-        candidateMap.set(path, {...existing, signal: 'both'})
+        const existing = candidateMap.get(path)
+        if (existing) candidateMap.set(path, {...existing, signal: 'both'})
       } else {
         candidateMap.set(path, {...info, signal: 'mtime'})
       }
@@ -141,67 +141,73 @@ async function readCandidateInfo(contextTreeDir: string, relativePath: string, n
 
 async function findStaleFiles(contextTreeDir: string, now: number): Promise<Array<{info: CandidateInfo; path: string}>> {
   const results: Array<{info: CandidateInfo; path: string}> = []
-  await walkContextTree(contextTreeDir, contextTreeDir, results, now)
+
+  await walkMdFiles(contextTreeDir, async (relativePath, fullPath) => {
+    try {
+      const content = await readFile(fullPath, 'utf8')
+      const maturity = extractMaturity(content)
+
+      // core files NEVER pruned
+      if (maturity === 'core') return
+
+      const threshold = maturity === 'validated' ? VALIDATED_STALE_DAYS : DRAFT_STALE_DAYS
+      const fileStat = await stat(fullPath)
+      const daysSinceModified = (now - fileStat.mtimeMs) / MS_PER_DAY
+
+      if (daysSinceModified >= threshold) {
+        results.push({
+          info: {
+            daysSinceModified,
+            importance: extractImportance(content),
+            maturity,
+            path: relativePath,
+            signal: 'mtime',
+          },
+          path: relativePath,
+        })
+      }
+    } catch {
+      // Skip unreadable files
+    }
+  })
+
   return results
 }
 
-async function walkContextTree(
-  currentDir: string,
-  rootDir: string,
-  results: Array<{info: CandidateInfo; path: string}>,
-  now: number,
+/** Walk active .md files in the context tree, skipping _/. dirs, _ prefixed files, and derived artifacts. */
+async function walkMdFiles(
+  contextTreeDir: string,
+  callback: (relativePath: string, fullPath: string) => Promise<void>,
 ): Promise<void> {
-  let entries: Array<{isDirectory(): boolean; isFile(): boolean; name: string}>
-  try {
-    entries = (await readdir(currentDir, {withFileTypes: true})).map((e) => ({
-      isDirectory: () => e.isDirectory(),
-      isFile: () => e.isFile(),
-      name: String(e.name),
-    }))
-  } catch {
-    return
-  }
+  async function walk(currentDir: string): Promise<void> {
+    let entries: Array<{isDirectory(): boolean; isFile(): boolean; name: string}>
+    try {
+      entries = (await readdir(currentDir, {withFileTypes: true})).map((e) => ({
+        isDirectory: () => e.isDirectory(),
+        isFile: () => e.isFile(),
+        name: String(e.name),
+      }))
+    } catch {
+      return
+    }
 
-  /* eslint-disable no-await-in-loop */
-  for (const entry of entries) {
-    const fullPath = join(currentDir, entry.name)
+    /* eslint-disable no-await-in-loop */
+    for (const entry of entries) {
+      const fullPath = join(currentDir, entry.name)
 
-    if (entry.isDirectory()) {
-      if (entry.name.startsWith('_') || entry.name.startsWith('.')) continue
-      await walkContextTree(fullPath, rootDir, results, now)
-    } else if (entry.isFile() && entry.name.endsWith('.md') && !entry.name.startsWith('_')) {
-      const relativePath = fullPath.slice(rootDir.length + 1)
-      if (isExcludedFromSync(relativePath)) continue
-
-      try {
-        const content = await readFile(fullPath, 'utf8')
-        const maturity = extractMaturity(content)
-
-        // core files NEVER pruned
-        if (maturity === 'core') continue
-
-        const threshold = maturity === 'validated' ? VALIDATED_STALE_DAYS : DRAFT_STALE_DAYS
-        const fileStat = await stat(fullPath)
-        const daysSinceModified = (now - fileStat.mtimeMs) / MS_PER_DAY
-
-        if (daysSinceModified >= threshold) {
-          results.push({
-            info: {
-              daysSinceModified,
-              importance: extractImportance(content),
-              maturity,
-              path: relativePath,
-              signal: 'mtime',
-            },
-            path: relativePath,
-          })
-        }
-      } catch {
-        // Skip unreadable files
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith('_') || entry.name.startsWith('.')) continue
+        await walk(fullPath)
+      } else if (entry.isFile() && entry.name.endsWith('.md') && !entry.name.startsWith('_')) {
+        const relativePath = fullPath.slice(contextTreeDir.length + 1)
+        if (isExcludedFromSync(relativePath)) continue
+        await callback(relativePath, fullPath)
       }
     }
+    /* eslint-enable no-await-in-loop */
   }
-  /* eslint-enable no-await-in-loop */
+
+  await walk(contextTreeDir)
 }
 
 // ── Step 2: LLM review ────────────────────────────────────────────────────
@@ -267,33 +273,7 @@ async function buildCandidatePayload(
 
 async function countActiveFiles(contextTreeDir: string): Promise<number> {
   let count = 0
-
-  async function walk(dir: string): Promise<void> {
-    let entries: Array<{isDirectory(): boolean; isFile(): boolean; name: string}>
-    try {
-      entries = (await readdir(dir, {withFileTypes: true})).map((e) => ({
-        isDirectory: () => e.isDirectory(),
-        isFile: () => e.isFile(),
-        name: String(e.name),
-      }))
-    } catch {
-      return
-    }
-
-    /* eslint-disable no-await-in-loop */
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        if (entry.name.startsWith('_') || entry.name.startsWith('.')) continue
-        await walk(join(dir, entry.name))
-      } else if (entry.isFile() && entry.name.endsWith('.md') && !entry.name.startsWith('_')) {
-        const relativePath = join(dir, entry.name).slice(contextTreeDir.length + 1)
-        if (!isExcludedFromSync(relativePath)) count++
-      }
-    }
-    /* eslint-enable no-await-in-loop */
-  }
-
-  await walk(contextTreeDir)
+  await walkMdFiles(contextTreeDir, async () => { count++ })
   return count
 }
 
@@ -329,7 +309,7 @@ function buildPrompt(
     '',
     'Respond IMMEDIATELY with JSON — do NOT use code_exec:',
     '```',
-    '{ "decisions": [{ "file": "...", "decision": "ARCHIVE"|"KEEP"|"MERGE_INTO", "reason": "...", "mergeTarget?": "..." }] }',
+    '{ "decisions": [{ "file": "...", "decision": "ARCHIVE|KEEP|MERGE_INTO", "reason": "...", "mergeTarget": "path (only for MERGE_INTO)" }] }',
     '```',
   ].join('\n')
 }
@@ -363,12 +343,13 @@ async function executeDecisions(
 async function executeDecision(decision: PruneDecision, deps: PruneDeps): Promise<DreamOperation | undefined> {
   switch (decision.decision) {
     case 'ARCHIVE': {
-      await deps.archiveService.archiveEntry(decision.file, deps.agent, deps.projectRoot)
+      const archiveResult = await deps.archiveService.archiveEntry(decision.file, deps.agent, deps.projectRoot)
       return {
         action: 'ARCHIVE',
         file: decision.file,
         needsReview: true,
         reason: decision.reason,
+        stubPath: archiveResult.stubPath,
         type: 'PRUNE',
       }
     }
@@ -388,10 +369,9 @@ async function executeDecision(decision: PruneDecision, deps: PruneDeps): Promis
     }
 
     case 'MERGE_INTO': {
-      if (decision.mergeTarget) {
-        await writePendingMerge(decision, deps)
-      }
+      if (!decision.mergeTarget) return undefined
 
+      await writePendingMerge(decision, deps)
       return {
         action: 'SUGGEST_MERGE',
         file: decision.file,

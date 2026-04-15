@@ -27,6 +27,7 @@ const PruneOperationSchema = z.object({
   mergeTarget: z.string().optional(),
   needsReview: z.boolean(),
   reason: z.string(),
+  stubPath: z.string().optional(),
   type: z.literal('PRUNE'),
 })
 

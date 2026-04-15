@@ -291,7 +291,7 @@ describe('undoLastDream', () => {
 
   // ── PRUNE undo (forward-compatible) ───────────────────────────────────────
 
-  it('undoes PRUNE/ARCHIVE: calls archiveService.restoreEntry', async () => {
+  it('undoes PRUNE/ARCHIVE: calls archiveService.restoreEntry with stubPath', async () => {
     const archiveService = {restoreEntry: stub().resolves('auth/old-doc.md')}
 
     dreamLogStore.getById.resolves(completedLog([{
@@ -299,12 +299,14 @@ describe('undoLastDream', () => {
       file: 'auth/old-doc.md',
       needsReview: false,
       reason: 'Stale',
+      stubPath: '_archived/auth/old-doc.stub.md',
       type: 'PRUNE',
     }]))
 
     const result = await undoLastDream({...deps, archiveService})
 
     expect(archiveService.restoreEntry.calledOnce).to.be.true
+    expect(archiveService.restoreEntry.firstCall.args[0]).to.equal('_archived/auth/old-doc.stub.md')
     expect(result.restoredArchives).to.include('auth/old-doc.md')
   })
 

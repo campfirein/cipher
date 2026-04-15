@@ -265,6 +265,7 @@ describe('prune', () => {
     expect(op.file).to.equal('auth/stale.md')
     expect(op.reason).to.equal('No longer relevant')
     expect(op.needsReview).to.be.true
+    expect(op.stubPath).to.equal('_archived/test.stub.md')
 
     expect(archiveService.archiveEntry.calledOnce).to.be.true
     expect(archiveService.archiveEntry.firstCall.args[0]).to.equal('auth/stale.md')
@@ -367,6 +368,19 @@ describe('prune', () => {
     expect(results).to.have.lengthOf(1)
 
     // dreamStateService.write should NOT be called since no new merge was added
+    expect(dreamStateService.write.called).to.be.false
+  })
+
+  it('drops MERGE_INTO op when mergeTarget is absent', async () => {
+    await createMdFile(ctxDir, 'auth/overlap.md', '# Overlap', {maturity: 'draft'})
+    await setMtimeDaysAgo(ctxDir, 'auth/overlap.md', 90)
+
+    agent.executeOnSession.resolves(llmResponse([
+      {decision: 'MERGE_INTO', file: 'auth/overlap.md', reason: 'Missing target'},
+    ]))
+
+    const results = await prune(deps)
+    expect(results).to.deep.equal([])
     expect(dreamStateService.write.called).to.be.false
   })
 
