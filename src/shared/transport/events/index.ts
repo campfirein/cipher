@@ -7,6 +7,7 @@ export * from './auth-events.js'
 export * from './client-events.js'
 export * from './config-events.js'
 export * from './connector-events.js'
+export * from './context-tree-events.js'
 export * from './hub-events.js'
 export * from './init-events.js'
 export * from './llm-events.js'
@@ -31,6 +32,7 @@ import {AuthEvents} from './auth-events.js'
 import {ClientEvents} from './client-events.js'
 import {ConfigEvents} from './config-events.js'
 import {ConnectorEvents} from './connector-events.js'
+import {ContextTreeEvents} from './context-tree-events.js'
 import {HubEvents} from './hub-events.js'
 import {InitEvents} from './init-events.js'
 import {LlmEvents} from './llm-events.js'
@@ -59,6 +61,7 @@ export const AllEventGroups = [
   ClientEvents,
   ConfigEvents,
   ConnectorEvents,
+  ContextTreeEvents,
   HubEvents,
   InitEvents,
   LlmEvents,
