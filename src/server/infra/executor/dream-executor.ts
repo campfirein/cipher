@@ -344,7 +344,7 @@ export class DreamExecutor {
     ].filter(Boolean)
     if (counts.length > 0) {
       parts.push(counts.join(' | '))
-    } else if (summary.errors === 0) {
+    } else if (summary.errors === 0 && summary.flaggedForReview === 0) {
       parts.push('No changes needed — context tree is up to date')
     }
 

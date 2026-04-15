@@ -202,14 +202,17 @@ export default class Dream extends Command {
         client,
         command: 'dream',
         format,
-        onCompleted: ({logId, result, taskId: tid}) => {
+        onCompleted: ({result, taskId: tid}) => {
           const skipped = result?.startsWith('Dream skipped:')
+          // Transport logId is undefined for dream tasks (only curate lifecycle hooks populate it).
+          // Extract from the formatted result string instead.
+          const dreamLogId = result?.match(/^Dream completed \(([^)]+)\)/)?.[1]
           if (format === 'json') {
             writeJsonResponse({
               command: 'dream',
               data: skipped
                 ? {reason: result, status: 'skipped', taskId: tid}
-                : {logId, result, status: 'completed', taskId: tid},
+                : {logId: dreamLogId, result, status: 'completed', taskId: tid},
               success: true,
             })
           } else {

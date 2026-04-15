@@ -90,6 +90,15 @@ describe('DreamExecutor', () => {
       expect(result).to.include('2 operations flagged for review')
     })
 
+    it('omits no-changes message when only flaggedForReview is non-zero', () => {
+      const executor = new DreamExecutor(deps)
+      const formatResult = (executor as unknown as {formatResult(logId: string, summary: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamLogSummary): string}).formatResult.bind(executor)
+
+      const result = formatResult('drm-3500', {consolidated: 0, errors: 0, flaggedForReview: 1, pruned: 0, synthesized: 0})
+      expect(result).to.include('1 operations flagged for review')
+      expect(result).to.not.include('No changes needed')
+    })
+
     it('formats result with error count and omits no-changes message', () => {
       const executor = new DreamExecutor(deps)
       const formatResult = (executor as unknown as {formatResult(logId: string, summary: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamLogSummary): string}).formatResult.bind(executor)
