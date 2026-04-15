@@ -43,6 +43,7 @@ describe('DreamExecutor', () => {
       setSandboxVariableOnSession: stub(),
     } as unknown as ICipherAgent
     deps = {
+      archiveService: {archiveEntry: stub().resolves({fullPath: '', originalPath: '', stubPath: ''}), findArchiveCandidates: stub().resolves([])},
       curateLogStore,
       dreamLockService,
       dreamLogStore,

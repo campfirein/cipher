@@ -6,6 +6,7 @@ import {join} from 'node:path'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../server/constants.js'
 import {type ProviderConfigResponse, TransportStateEventNames} from '../../server/core/domain/transport/schemas.js'
+import {FileContextTreeArchiveService} from '../../server/infra/context-tree/file-context-tree-archive-service.js'
 import {FileContextTreeManifestService} from '../../server/infra/context-tree/file-context-tree-manifest-service.js'
 import {DreamLogStore} from '../../server/infra/dream/dream-log-store.js'
 import {DreamStateService} from '../../server/infra/dream/dream-state-service.js'
@@ -139,10 +140,12 @@ export default class Dream extends Command {
 
     try {
       const result = await undoLastDream({
+        archiveService: new FileContextTreeArchiveService(),
         contextTreeDir,
         dreamLogStore: new DreamLogStore({baseDir: brvDir}),
         dreamStateService: new DreamStateService({baseDir: brvDir}),
         manifestService: new FileContextTreeManifestService({baseDirectory: projectRoot}),
+        projectRoot,
       })
 
       if (format === 'json') {

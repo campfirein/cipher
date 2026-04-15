@@ -23,6 +23,7 @@ export type DreamUndoDeps = {
     write(state: DreamState): Promise<void>
   }
   manifestService: {buildManifest(dir?: string): Promise<unknown>}
+  projectRoot?: string
 }
 
 export interface DreamUndoResult {
@@ -241,7 +242,11 @@ async function undoPrune(
         throw new Error(`Cannot undo PRUNE/ARCHIVE: no archive service available for ${op.file}`)
       }
 
-      const restored = await ctx.deps.archiveService.restoreEntry(op.file, ctx.contextTreeDir)
+      if (!op.stubPath) {
+        throw new Error(`Cannot undo PRUNE/ARCHIVE: missing stubPath for ${op.file}`)
+      }
+
+      const restored = await ctx.deps.archiveService.restoreEntry(op.stubPath, ctx.deps.projectRoot)
       ctx.result.restoredArchives.push(restored)
       break
     }
