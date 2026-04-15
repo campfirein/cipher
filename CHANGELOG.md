@@ -2,6 +2,17 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.5.0]
+
+### Added
+- **Claude Desktop support** — Connect ByteRover to the Claude Desktop app with `brv connectors install "Claude Desktop"` (or pick it in `/connectors`). Works on macOS, Windows (including Store installs), and Linux. After installing, fully quit Claude Desktop from the tray or menu bar and reopen it to apply.
+
+### Changed
+- **Cleaner install layout** — The `install.sh` installer now keeps its bundled Node.js tucked away so it won't conflict with the `node` already on your system. Just reinstall to pick up the new layout.
+
+### Fixed
+- **Security dependency update** — Updated `basic-ftp` to patch a high-severity vulnerability.
+
 ## [3.4.0]
 
 ### Added
