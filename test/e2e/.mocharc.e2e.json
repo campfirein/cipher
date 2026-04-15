@@ -1,0 +1,14 @@
+{
+  "require": [
+    "ts-node/register"
+  ],
+  "node-option": [
+    "loader=ts-node/esm",
+    "experimental-specifier-resolution=node"
+  ],
+  "timeout": 120000,
+  "spec": "test/e2e/**/*.test.ts",
+  "bail": true,
+  "reporter": "spec",
+  "exit": true
+}
