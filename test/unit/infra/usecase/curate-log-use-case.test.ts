@@ -241,5 +241,25 @@ describe('CurateLogUseCase', () => {
       expect(parsed.success).to.be.false
       expect(parsed.data.error).to.include('cur-missing')
     })
+
+    it('should print FULL context when input.context exceeds 200 chars (no truncation)', async () => {
+      const longContext = 'A'.repeat(800)
+      store.getById.resolves(makeProcessingEntry({input: {context: longContext}}))
+      await useCase.run({id: 'cur-1000'})
+
+      const output = logs.join('\n')
+      expect(output).to.include(longContext)
+      expect(output).to.not.include('A'.repeat(200) + '...')
+    })
+
+    it('should print FULL response when response exceeds 500 chars (no truncation)', async () => {
+      const longResponse = 'B'.repeat(900)
+      store.getById.resolves(makeCompletedEntry({response: longResponse}))
+      await useCase.run({id: 'cur-1001'})
+
+      const output = logs.join('\n')
+      expect(output).to.include(longResponse)
+      expect(output).to.not.include('B'.repeat(500) + '...')
+    })
   })
 })
