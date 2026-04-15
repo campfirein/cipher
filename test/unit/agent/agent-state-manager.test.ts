@@ -13,7 +13,6 @@ import {AgentEventBus} from '../../../src/agent/infra/events/event-emitter.js'
 function createTestConfig(overrides?: Partial<ValidatedAgentConfig>): ValidatedAgentConfig {
   return {
     apiBaseUrl: 'https://api.test.com',
-    enableNclm: false,
     llm: {
       maxIterations: 50,
       maxTokens: 8192,

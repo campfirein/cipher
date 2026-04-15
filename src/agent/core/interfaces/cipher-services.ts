@@ -47,8 +47,8 @@ export interface CipherAgentServices {
   fileSystemService: FileSystemService
   historyStorage: IHistoryStorage
   memoryManager: MemoryManager
-  /** NCLM working memory store. Only present when enableNclm is true. */
-  memoryStore?: MemoryStore
+  /** NCLM working memory store — always-on, core part of the engine. */
+  memoryStore: MemoryStore
   /**
    * MessageStorageService for direct granular message access.
    */

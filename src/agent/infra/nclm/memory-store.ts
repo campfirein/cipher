@@ -196,6 +196,7 @@ export class MemoryStore {
     // Stats footer
     const st = this.stats()
     injection += `\n_${st.active_count} active, ${st.archived_count} archived, ${st.total_tokens} tokens_\n`
+    injection += '_Use tools.memory.search/write/read/list in code_exec to interact with working memory._\n'
 
     return injection
   }

@@ -46,6 +46,7 @@ import type {IProviderOAuthTokenStore} from '../../src/server/core/interfaces/i-
 import type {IAuthStateStore} from '../../src/server/core/interfaces/state/i-auth-state-store.js'
 import type {ITransportServer} from '../../src/server/core/interfaces/transport/i-transport-server.js'
 
+import {MemoryStore} from '../../src/agent/infra/nclm/memory-store.js'
 import {AuthToken} from '../../src/server/core/domain/entities/auth-token.js'
 
 /**
@@ -373,6 +374,7 @@ export function createMockCipherAgentServices(
     fileSystemService: createMockFileSystemService(sandbox),
     historyStorage: createMockHistoryStorage(sandbox),
     memoryManager: createMockMemoryManager(sandbox),
+    memoryStore: new MemoryStore(),
     messageStorageService: {} as unknown as MessageStorageService,
     policyEngine: createMockPolicyEngine(sandbox),
     processService: createMockProcessService(sandbox),

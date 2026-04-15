@@ -1,1 +1,0 @@
-Read a specific memory by ID. Use this to retrieve previously stored context, findings, or intermediate results from the scratch pad.

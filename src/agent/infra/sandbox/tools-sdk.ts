@@ -224,8 +224,7 @@ export interface ToolsSDK {
 
   /**
    * NCLM working memory operations.
-   * Only available when MemoryStoreService is injected (enableNclm: true).
-   * Undefined when NCLM is not configured.
+   * Always available — NCLM is a core part of the engine.
    */
   readonly memory?: {
     archive(id: string): Promise<void>

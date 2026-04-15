@@ -1431,9 +1431,8 @@ export class AgentLLMService implements ILLMService {
       await this.contextManager.updateToolCallState(toolCall.id, runningState)
     }
 
-    // Check if any memory-modifying tools are being called (invalidates cached system prompt)
-    const memoryModifyingTools = new Set(['delete_memory', 'edit_memory', 'write_memory'])
-    if (lastMessage.toolCalls.some((tc) => memoryModifyingTools.has(tc.function.name))) {
+    // code_exec can modify NCLM memory via tools.memory.* — invalidate cached system prompt
+    if (lastMessage.toolCalls.some((tc) => tc.function.name === 'code_exec')) {
       this.memoryDirtyFlag = true
     }
 

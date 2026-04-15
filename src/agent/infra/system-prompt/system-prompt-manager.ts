@@ -239,7 +239,7 @@ export class SystemPromptManager {
   /**
    * Get tool-specific output guidance for a tool.
    *
-   * @param toolName - The name of the tool (e.g., 'write_memory')
+   * @param toolName - The name of the tool (e.g., 'curate')
    * @returns The guidance text if available, null otherwise
    */
   public getToolOutputGuidance(toolName: string): null | string {

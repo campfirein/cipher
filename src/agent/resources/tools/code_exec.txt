@@ -159,6 +159,54 @@ All methods are async and require the async IIFE wrapper.
 - **tools.swarmQuery(query, {limit?, scope?})** — Search across all swarm memory providers (when configured)
 - **tools.swarmStore({content, contentType?, provider?})** — Store knowledge in GBrain/local markdown (when configured)
 
+## Working Memory (`tools.memory.*`)
+
+Persistent working memory that survives across iterations and sessions. Use it to store observations, intermediate results, and knowledge that helps with future tasks.
+
+**Writing:**
+- **tools.memory.write(title, content, tags?, importance?)** — Store a new entry. Use descriptive titles (3x search boost) and consistent tags (1.5x boost). Importance: 0-100, default 50.
+- **tools.memory.update(id, {title?, content?, tags?, importance?})** — Update an existing entry by ID.
+
+**Reading:**
+- **tools.memory.search(query, topK?, tags?)** — Find entries by keyword match. Returns scored results sorted by relevance + importance + recency.
+- **tools.memory.read(id)** — Read a specific entry by ID.
+- **tools.memory.list({tags?, sort_by?, limit?, after_sequence?, before_sequence?})** — Browse/filter entries. sort_by: 'write_sequence' | 'importance' | 'updated_at'.
+- **tools.memory.latest(tag?)** — Get the most recently written entry, optionally filtered by tag.
+
+**Lifecycle:**
+- **tools.memory.free(id)** — Permanently delete an entry.
+- **tools.memory.archive(id)** — Archive with a ghost cue (still searchable, low token cost).
+- **tools.memory.compact(tag?)** — Summarize low-importance entries into a condensed summary.
+- **tools.memory.stats()** — Get memory overview: active/archived counts, tokens, tags.
+
+**Example — Store and retrieve observations:**
+```javascript
+(async () => {
+  // Store an observation during curate/query
+  await tools.memory.write(
+    "JWT refresh token pattern",
+    "Tokens rotate every 24h with sliding window. Old tokens blacklisted for 48h.",
+    ["auth", "jwt"],
+    75
+  );
+
+  // Search memory in a later iteration or session
+  const results = await tools.memory.search("JWT refresh", 3);
+  console.log(results);
+
+  // Check memory stats
+  const stats = await tools.memory.stats();
+  console.log(`${stats.active_count} active entries, ${stats.total_tokens} tokens`);
+})()
+```
+
+**Tips:**
+- Titles get 3x search boost — use descriptive titles like "JWT refresh policy" not "note 1"
+- Tags get 1.5x boost and enable scoped queries — use consistent tags
+- Entries gain importance automatically (+3) each time they appear in search results
+- Use `tools.memory.archive(id)` instead of `tools.memory.free(id)` to keep a searchable ghost cue
+- Memory persists across iterations and across curate/query sessions within the same agent
+
 ## Available Globals
 
 - **Console**: console.log, console.error, console.warn, console.info

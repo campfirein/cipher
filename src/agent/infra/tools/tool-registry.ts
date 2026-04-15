@@ -118,7 +118,7 @@ export interface ToolRegistryEntry {
    * Optional output guidance prompt key.
    * If specified, the ToolProvider will append guidance from tool-outputs.yml
    * after tool execution to help the LLM understand next steps.
-   * Example: 'write_memory' will load the 'write_memory_output' prompt.
+   * Example: 'curate' will load the 'curate_output' prompt.
    */
   outputGuidance?: string
 

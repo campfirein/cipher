@@ -79,7 +79,7 @@ export const DEFAULT_POLICY_RULES: PolicyRule[] = [
     decision: 'ALLOW',
     name: 'allow-read-tools',
     reason: 'Read operations are safe',
-    toolPattern: /^(read_file|glob_files|grep_content|list_memories|read_memory|search_history)$/,
+    toolPattern: /^(read_file|glob_files|grep_content|search_history)$/,
   },
 
   /**
@@ -89,7 +89,7 @@ export const DEFAULT_POLICY_RULES: PolicyRule[] = [
     decision: 'ALLOW',
     name: 'allow-write-tools',
     reason: 'Write operations allowed in autonomous mode',
-    toolPattern: /^(write_file|edit_file|write_memory|edit_memory|delete_memory|create_knowledge_topic |curate)$/,
+    toolPattern: /^(write_file|edit_file|create_knowledge_topic|curate)$/,
   },
 
   /**

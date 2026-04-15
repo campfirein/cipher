@@ -1,1 +1,0 @@
-Delete a memory by ID. Removes the memory and all associated attachments from the scratch pad. Use this to clean up outdated context.

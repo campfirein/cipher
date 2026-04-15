@@ -172,8 +172,8 @@ export async function createCipherAgentServices(
   const memoryLogger = logger.withSource('MemoryManager')
   const memoryManager = new MemoryManager(blobStorage, memoryLogger)
 
-  // 5a. NCLM working memory (optional, only when enableNclm is true)
-  const memoryStore = config.enableNclm ? new MemoryStore() : undefined
+  // 5a. NCLM working memory (always-on, core part of the engine)
+  const memoryStore = new MemoryStore()
 
   // 5b. Sandbox service for code execution (no dependencies)
   const sandboxService = new SandboxService()
@@ -220,9 +220,7 @@ export async function createCipherAgentServices(
   systemPromptManager.registerContributor(mapSelectionContributor)
 
   // Register NCLM memory contributor (priority 18 — after map selection, before memories)
-  if (memoryStore) {
-    systemPromptManager.registerContributor(new NCLMMemoryContributor(memoryStore))
-  }
+  systemPromptManager.registerContributor(new NCLMMemoryContributor(memoryStore))
 
   // 6b. Swarm coordinator — try to load config and build providers.
   // Missing config → fail-open (no swarm). Invalid config → warn but continue.
