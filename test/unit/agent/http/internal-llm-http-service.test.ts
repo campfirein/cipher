@@ -228,8 +228,8 @@ describe('ByteRoverLlmHttpService', () => {
 
     it('should throw error with standardized message on API error', async () => {
       const errorResponse = {
-        code: 'BILLING_TEAM_ID_REQUIRED',
-        message: 'Team ID is required. Please select a team using "brv init" or "brv space switch".',
+        code: 'BILLING_FREE_TIER_LIMIT',
+        message: 'You\'ve reached your free tier daily request limit (0/0 in the last 24 hours). Upgrade your plan at https://www.byterover.dev/pricing to continue, or switch to another provider with your own API key.',
         statusCode: 400,
         timestamp: new Date().toISOString(),
       }

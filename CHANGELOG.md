@@ -2,6 +2,17 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.4.0]
+
+### Added
+- **`brv swarm` — unified memory swarm** — Connect multiple memory providers (ByteRover context tree, Obsidian vaults, local markdown folders, GBrain, OpenClaw Memory Wiki) into a single query and storage layer. `brv swarm onboard` walks through an interactive setup wizard; `brv swarm status` shows provider health, write targets, and enrichment topology. `brv swarm query <question>` runs intelligent routing, parallel provider execution, and Reciprocal Rank Fusion merging — add `--explain` for classification reasoning and provider selection details. `brv swarm curate <content>` stores to the best writable provider based on content classification (`--provider` to override), falling back to ByteRover context-tree curation when no external target is available. Control how providers feed context to each other via `enrichment.edges` in `swarm.config.yaml` — the engine validates cycles, self-edges, and missing providers, and disabled-provider edges produce warnings instead of errors so partial setups degrade gracefully. The agent also gains `swarm_query` and `swarm_store` tools, and sandboxed code can call `tools.swarmQuery()` / `tools.swarmStore()`.
+- **GPT-5.4 Mini support** — Added `gpt-5.4-mini` to the Codex allowed models list.
+
+### Fixed
+- **Context-tree `.gitignore` auto-sync** — The context-tree `.gitignore` now stays up to date automatically. When any `brv vc` command runs, missing patterns are appended to the existing file instead of only being written on first init. This prevents derived artifacts from polluting `brv vc` diffs after CLI updates.
+- **Stale knowledge locations** — Knowledge entries whose source files were deleted are now cleaned up, preventing dead references in search and query results.
+- **Security dependency update** — Pinned axios to 1.15.0 to address a critical vulnerability.
+
 ## [3.3.0]
 
 ### Added

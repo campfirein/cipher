@@ -12,7 +12,7 @@
     "coding-assistant",
     "knowledge-management"
   ],
-  "version": "3.3.0",
+  "version": "3.4.0",
   "author": "ByteRover",
   "bin": {
     "brv": "./bin/run.js"
@@ -45,7 +45,7 @@
     "@socket.io/admin-ui": "^0.5.1",
     "@tanstack/react-query": "^5.90.20",
     "ai": "^5.0.129",
-    "axios": "1.14.0",
+    "axios": "1.15.0",
     "chalk": "^5.6.2",
     "dotenv": "^17.3.1",
     "esbuild": "^0.27.2",
