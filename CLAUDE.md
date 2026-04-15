@@ -55,11 +55,11 @@ npm run typecheck                    # TypeScript type checking
 
 ### Source Layout (`src/`)
 
-- `agent/` — LLM agent: `core/` (interfaces/domain), `infra/` (22 modules, including llm, memory, map, tools, document-parser), `resources/` (prompts YAML, tool `.txt` descriptions)
+- `agent/` — LLM agent: `core/` (interfaces/domain), `infra/` (23 modules, including llm, memory, map, swarm, tools, document-parser), `resources/` (prompts YAML, tool `.txt` descriptions)
 - `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (29 modules, including vc, git, hub, mcp, cogit, project, provider-oauth, space), `templates/`, `utils/`
 - `shared/` — Cross-module: constants, types, transport events, utils
 - `tui/` — React/Ink TUI: app (router/pages), components, features (23 modules, including vc, worktree, source, hub, curate), hooks, lib, providers, stores
-- `oclif/` — Commands grouped by topic (`vc/`, `hub/`, `worktree/`, `source/`, `space/`, `review/`, `connectors/`, `curate/`, `model/`, `providers/`) + top-level `.ts` commands; hooks, lib (daemon-client, task-client, json-response)
+- `oclif/` — Commands grouped by topic (`vc/`, `hub/`, `worktree/`, `source/`, `space/`, `review/`, `connectors/`, `curate/`, `model/`, `providers/`, `swarm/`) + top-level `.ts` commands; hooks, lib (daemon-client, task-client, json-response)
 
 **Import boundary** (ESLint-enforced): `tui/` must not import from `server/`, `agent/`, or `oclif/`. Use transport events or `shared/`.
 
@@ -73,7 +73,7 @@ npm run typecheck                    # TypeScript type checking
 
 - Global daemon (`server/infra/daemon/`) hosts Socket.IO transport; clients connect via `@campfirein/brv-transport-client`
 - Agent pool manages forked child processes per project; task routing in `server/infra/process/`
-- MCP server in `server/infra/mcp/` exposes tools via Model Context Protocol
+- MCP server in `server/infra/mcp/` exposes tools via Model Context Protocol; `tools/` subdir has dedicated implementations (`brv-query-tool`, `brv-curate-tool`)
 
 ### VC, Worktrees & Knowledge Sources
 
@@ -81,6 +81,7 @@ npm run typecheck                    # TypeScript type checking
 - `brv worktree` (add/list/remove) — git-style worktree pointer model: `.brv/` is either a real project directory OR a pointer file to a parent project; parent stores registry in `.brv/worktrees/<name>/link.json`
 - `brv source` (add/list/remove) — link another project's context tree as a read-only knowledge source with write isolation
 - `brv search <query>` — pure BM25 retrieval over the context tree (minisearch, no LLM, no token cost); structured results with paths/scores. Pairs with `brv query` (LLM-synthesized answer). Engine: `server/infra/executor/search-executor.ts`
+- `brv locations` — lists all registered projects with context-tree status (text or `--format json`); reads from `LocationsEvents` over the daemon transport
 - Canonical project resolver: `resolveProject()` in `server/infra/project/` — priority `flag > direct > linked > walked-up > null`. `projectRoot` and `worktreeRoot` are threaded through transport schemas, task routing, and all executors
 - All commands are daemon-routed: `oclif/` and `tui/` never import from `server/`
 - Oclif: `src/oclif/commands/{vc,worktree,source}/`; TUI: `src/tui/features/{vc,worktree,source}/`; slash commands (`vc-*`, `worktree`, `source`) in `src/tui/features/commands/definitions/`
@@ -88,11 +89,22 @@ npm run typecheck                    # TypeScript type checking
 ### Agent (`src/agent/`)
 
 - Tools: definitions in `resources/tools/*.txt`, implementations in `infra/tools/implementations/`, registry in `infra/tools/tool-registry.ts`
-- Tool categories: file ops (read/write/glob/grep), knowledge (create/expand/search), memory (read/write/edit/delete/list), curate, code exec, map
+- Tool categories: file ops (read/write/edit/glob/grep/list-dir), bash (exec/output), knowledge (create/expand/search), memory (read/write/edit/delete/list), swarm (query/store), todos (read/write), curate, code exec, batch, detect domains, kill process, search history
 - LLM: 18 providers in `infra/llm/providers/`; 6 compression strategies in `infra/llm/context/compression/`
 - System prompts: contributor pattern (XML sections) in `infra/system-prompt/`
 - Map/memory: `infra/map/` (agentic map, context-tree store, LLM map memory, worker pool); `infra/memory/` (memory-manager, deduplicator)
 - Storage: file-based blob (`infra/blob/`) and key storage (`infra/storage/`) — no SQLite
+
+### Swarm (`src/agent/infra/swarm/`, `src/oclif/commands/swarm/`)
+
+- Multi-provider memory/knowledge federation: routes queries and writes across pluggable adapters (byterover, gbrain, local-markdown, memory-wiki, obsidian)
+- `brv swarm query` — RRF-fused search across providers; flags: `--explain`, `--format`, `-n`
+- `brv swarm curate` — auto-routes content to best provider; flags: `--provider`, `--format`
+- `brv swarm onboard` — interactive wizard (`@inquirer/prompts`) to scaffold swarm config; uses snake_case YAML keys (`eslint-disable camelcase`)
+- `brv swarm status` — pre-flight health check for configured providers
+- Agent tools: `swarm_query.txt`, `swarm_store.txt` in `resources/tools/`
+- Config: `swarm/config/` (loader + schema), `swarm/validation/` (config validator)
+- CLI-only (oclif) — no TUI feature dir; swarm queries flow through existing `tui/features/query/`
 
 ## Testing Gotchas
 

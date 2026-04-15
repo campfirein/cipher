@@ -5,6 +5,7 @@ import type { REPLResult, SandboxConfig } from '../domain/sandbox/types.js'
 import type { IContentGenerator } from './i-content-generator.js'
 import type { ICurateService } from './i-curate-service.js'
 import type { IFileSystem } from './i-file-system.js'
+import type { ISwarmCoordinator } from './i-swarm-coordinator.js'
 
 /**
  * Service interface for code sandbox execution.
@@ -100,4 +101,12 @@ export interface ISandboxService {
    * @param sessionManager - Session manager instance
    */
   setSessionManager?(sessionManager: SessionManager): void
+
+  /**
+   * Set the swarm coordinator for cross-provider query and store.
+   * When set, sandboxes will have access to `tools.swarmQuery()` and `tools.swarmStore()`.
+   *
+   * @param swarmCoordinator - Swarm coordinator instance
+   */
+  setSwarmCoordinator?(swarmCoordinator: ISwarmCoordinator): void
 }

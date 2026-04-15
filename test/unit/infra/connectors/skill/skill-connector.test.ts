@@ -59,6 +59,7 @@ describe('SkillConnector', () => {
 
     it('should return false for unsupported agents', () => {
       expect(skillConnector.isSupported('Augment Code')).to.be.false
+      expect(skillConnector.isSupported('Claude Desktop')).to.be.false
       expect(skillConnector.isSupported('Cline')).to.be.false
       expect(skillConnector.isSupported('Qwen Code')).to.be.false
     })

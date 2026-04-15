@@ -5,6 +5,7 @@
  * These handlers implement the TUI ↔ Server event contract.
  */
 
+import {access} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {IConnectorManager} from '../../core/interfaces/connectors/i-connector-manager.js'
@@ -171,6 +172,18 @@ export async function setupFeatureHandlers({
   new LocationsHandler({
     contextTreeService,
     getActiveProjectPaths,
+    async pathExists(path: string) {
+      try {
+        await access(path)
+        return true
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return false
+        }
+
+        throw error
+      }
+    },
     projectRegistry,
     resolveProjectPath,
     transport,

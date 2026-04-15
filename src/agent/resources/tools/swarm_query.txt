@@ -1,0 +1,38 @@
+Search across all active memory providers in the memory swarm.
+
+This tool routes your query to multiple knowledge sources (ByteRover context tree, Obsidian vaults, local markdown folders, and cloud providers), executes them in parallel, and returns fused, ranked results using Reciprocal Rank Fusion.
+
+**When to use:**
+- When information may be spread across multiple knowledge sources
+- When you need a broader search than `search_knowledge` (which only searches `.brv/context-tree/`)
+- When you want results from Obsidian vaults, local markdown folders, or cloud memory providers
+
+**Parameters:**
+- `query` (required): Natural language query to search across providers
+- `maxResults` (optional): Maximum results to return (default: 10)
+- `scope` (optional): Restrict search to a namespace/subtree
+
+**Returns:**
+- `results`: Array of ranked results with:
+  - `content`: The matching content
+  - `provider`: Which provider returned this result
+  - `score`: Fused relevance score (higher is better)
+  - `metadata.source`: Source file or identifier
+  - `metadata.matchType`: How the match was found (keyword, semantic, graph, temporal)
+- `meta`: Execution metadata with:
+  - `queryType`: How the query was classified (factual, temporal, personal, relational)
+  - `providers`: Per-provider latency and result counts
+  - `totalLatencyMs`: End-to-end latency
+  - `costCents`: Total cost for cloud providers
+
+**Query routing:**
+- Queries are automatically classified and routed to relevant providers
+- "yesterday", "last week" → temporal providers
+- "I prefer", "my style" → personal/user-modeling providers
+- "related to", "depends on" → relational/graph providers
+- General queries → factual providers (all local sources)
+
+**Examples:**
+- Query: "auth tokens" → searches ByteRover + Obsidian + local markdown
+- Query: "what changed yesterday" → routes to temporal-capable providers
+- Query: "how do I usually handle errors" → routes to personal memory providers
