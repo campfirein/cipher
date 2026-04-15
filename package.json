@@ -187,7 +187,8 @@
     "postpack": "shx rm -f oclif.manifest.json",
     "prepack": "npm run build && BRV_ENV=production oclif manifest",
     "prepare": "husky",
-    "test": "mocha --forbid-only \"test/**/*.test.ts\"",
+    "test": "mocha --forbid-only --ignore \"test/e2e/**\" \"test/**/*.test.ts\"",
+    "test:e2e": "mocha --config test/e2e/.mocharc.e2e.json",
     "typecheck": "tsc --noEmit",
     "version": "git add README.md"
   },
