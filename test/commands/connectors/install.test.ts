@@ -6,6 +6,7 @@ import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
 import ConnectorsInstall from '../../../src/oclif/commands/connectors/install.js'
+import {CLAUDE_DESKTOP} from '../../../src/shared/types/agent.js'
 
 // ==================== TestableConnectorsInstallCommand ====================
 
@@ -29,13 +30,24 @@ class TestableConnectorsInstallCommand extends ConnectorsInstall {
 // ==================== Helpers ====================
 
 const MOCK_AGENTS = [
-  {defaultConnectorType: 'skill', id: 'Claude Code', name: 'Claude Code', supportedConnectorTypes: ['rules', 'hook', 'mcp', 'skill']},
+  {
+    defaultConnectorType: 'skill',
+    id: 'Claude Code',
+    name: 'Claude Code',
+    supportedConnectorTypes: ['rules', 'hook', 'mcp', 'skill'],
+  },
+  {defaultConnectorType: 'mcp', id: 'Claude Desktop', name: 'Claude Desktop', supportedConnectorTypes: ['mcp']},
   {defaultConnectorType: 'skill', id: 'Cursor', name: 'Cursor', supportedConnectorTypes: ['rules', 'mcp', 'skill']},
   {defaultConnectorType: 'rules', id: 'Windsurf', name: 'Windsurf', supportedConnectorTypes: ['rules', 'mcp']},
 ]
 
 const MOCK_CONNECTORS = [
-  {agent: 'Claude Code', connectorType: 'hook', defaultType: 'skill', supportedTypes: ['rules', 'hook', 'mcp', 'skill']},
+  {
+    agent: 'Claude Code',
+    connectorType: 'hook',
+    defaultType: 'skill',
+    supportedTypes: ['rules', 'hook', 'mcp', 'skill'],
+  },
   {agent: 'Windsurf', connectorType: 'rules', defaultType: 'rules', supportedTypes: ['rules', 'mcp']},
 ]
 
@@ -113,7 +125,9 @@ describe('Connectors Install Command', () => {
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
       requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
       requestStub.onSecondCall().resolves({connectors: []})
-      requestStub.onThirdCall().resolves({configPath: '/test/.brv/connectors/claude-code', message: 'Installed', success: true})
+      requestStub
+        .onThirdCall()
+        .resolves({configPath: '/test/.brv/connectors/claude-code', message: 'Installed', success: true})
 
       await createCommand('Claude Code').run()
 
@@ -124,7 +138,9 @@ describe('Connectors Install Command', () => {
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
       requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
       requestStub.onSecondCall().resolves({connectors: []})
-      requestStub.onThirdCall().resolves({configPath: '/test/.brv/connectors/claude-code', message: 'Installed', success: true})
+      requestStub
+        .onThirdCall()
+        .resolves({configPath: '/test/.brv/connectors/claude-code', message: 'Installed', success: true})
 
       await createCommand('Claude Code', '--type', 'mcp').run()
 
@@ -135,18 +151,36 @@ describe('Connectors Install Command', () => {
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
       requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
       requestStub.onSecondCall().resolves({connectors: []})
-      requestStub.onThirdCall().resolves({configPath: '/test/.brv/connectors/claude-code', message: 'Installed', success: true})
+      requestStub
+        .onThirdCall()
+        .resolves({configPath: '/test/.brv/connectors/claude-code', message: 'Installed', success: true})
 
       await createCommand('Claude Code', '--type', 'hook').run()
 
       expect(loggedMessages.some((m) => m.includes('Please restart Claude Code'))).to.be.true
     })
 
+    it('should show quit hint for Claude Desktop instead of generic restart', async () => {
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
+      requestStub.onSecondCall().resolves({connectors: []})
+      requestStub
+        .onThirdCall()
+        .resolves({configPath: '/test/claude-desktop-config.json', message: 'Installed', success: true})
+
+      await createCommand('Claude Desktop').run()
+
+      expect(loggedMessages.some((m) => m.includes(`Quit ${CLAUDE_DESKTOP} from the system tray`))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Please restart'))).to.be.false
+    })
+
     it('should not show restart warning for rules type', async () => {
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
       requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
       requestStub.onSecondCall().resolves({connectors: []})
-      requestStub.onThirdCall().resolves({configPath: '/test/.brv/connectors/windsurf', message: 'Installed', success: true})
+      requestStub
+        .onThirdCall()
+        .resolves({configPath: '/test/.brv/connectors/windsurf', message: 'Installed', success: true})
 
       await createCommand('Windsurf', '--type', 'rules').run()
 
@@ -158,7 +192,9 @@ describe('Connectors Install Command', () => {
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
       requestStub.onFirstCall().resolves({agents: MOCK_AGENTS})
       requestStub.onSecondCall().resolves({connectors: []})
-      requestStub.onThirdCall().resolves({configPath: '/test/.brv/connectors/cursor', message: 'Installed', success: true})
+      requestStub
+        .onThirdCall()
+        .resolves({configPath: '/test/.brv/connectors/cursor', message: 'Installed', success: true})
 
       await createCommand('cursor').run()
 
@@ -256,7 +292,8 @@ describe('Connectors Install Command', () => {
       requestStub.onSecondCall().resolves({connectors: []})
       requestStub.onThirdCall().resolves({
         manualInstructions: {
-          configContent: '{\n  "mcpServers": {\n    "brv": {\n      "command": "brv",\n      "args": ["mcp"]\n    }\n  }\n}',
+          configContent:
+            '{\n  "mcpServers": {\n    "brv": {\n      "command": "brv",\n      "args": ["mcp"]\n    }\n  }\n}',
           guide: 'https://docs.example.com/mcp-setup',
         },
         message: 'Manual setup required',
