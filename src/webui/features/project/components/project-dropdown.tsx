@@ -92,7 +92,7 @@ export function ProjectDropdown() {
     <>
       <DropdownMenu onOpenChange={setIsOpen} open={isOpen}>
         <DropdownMenuTrigger>
-          <Button size="sm" variant="outline">
+          <Button className="hover:bg-muted bg-background border border-border" size="sm">
             <span className="truncate">{projectName || 'No project selected'}</span>
             <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
           </Button>

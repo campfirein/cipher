@@ -1,3 +1,4 @@
+import {Toaster} from '@campfirein/byterover-packages/components/sonner'
 import {RouterProvider} from 'react-router-dom'
 
 import {AppProviders} from './providers/app-providers'
@@ -7,6 +8,7 @@ export function App() {
   return (
     <AppProviders>
       <RouterProvider router={router} />
+      <Toaster />
     </AppProviders>
   )
 }

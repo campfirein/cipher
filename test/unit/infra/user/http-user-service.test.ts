@@ -42,6 +42,27 @@ describe('HttpUserService', () => {
       expect(user.email).to.equal('user@example.com')
       expect(user.id).to.equal('user-123')
       expect(user.name).to.equal('John Doe')
+      expect(user.avatarUrl).to.equal(undefined)
+    })
+
+    it('should map avatar_url from API to user.avatarUrl', async () => {
+      const mockResponse = {
+        code: 200,
+        data: {
+          // eslint-disable-next-line camelcase
+          avatar_url: 'https://cdn.example.com/user-123.png',
+          email: 'user@example.com',
+          id: 'user-123',
+          name: 'John Doe',
+        },
+        message: 'success',
+      }
+
+      nock(apiBaseUrl).get('/user/me').matchHeader('x-byterover-session-id', sessionKey).reply(200, mockResponse)
+
+      const user = await service.getCurrentUser(sessionKey)
+
+      expect(user.avatarUrl).to.equal('https://cdn.example.com/user-123.png')
     })
 
     it('should throw error on HTTP 401 Unauthorized', async () => {

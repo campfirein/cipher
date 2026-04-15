@@ -27,15 +27,15 @@ export interface ConnectResult {
   socket: Socket
 }
 
-function registerClient(socket: Socket) {
-  socket.emit('client:register', {clientType: 'webui'}, () => {
-    // Registration acknowledged — project association happens later in ProjectLayout
+function registerClient(socket: Socket, projectPath: string) {
+  socket.emit('client:register', {clientType: 'webui', projectPath}, () => {
+    // Registration acknowledged — daemon associates the project at register time
   })
 
   socket.emit('room:join', 'broadcast-room')
 }
 
-export async function connectToTransport(): Promise<ConnectResult> {
+export async function connectToTransport(projectPath: string): Promise<ConnectResult> {
   const config = await fetchUiConfig()
 
   // Connect to the daemon's transport server on its dynamic port
@@ -49,7 +49,7 @@ export async function connectToTransport(): Promise<ConnectResult> {
 
   // Socket.IO fires "connect" after the initial handshake and after reconnects,
   // so this keeps the client/project association and broadcast room membership fresh.
-  socket.on('connect', () => registerClient(socket))
+  socket.on('connect', () => registerClient(socket, projectPath))
 
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
