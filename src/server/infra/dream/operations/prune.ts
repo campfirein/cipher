@@ -21,6 +21,7 @@ import type {PruneDecision} from '../dream-response-schemas.js'
 import type {DreamState} from '../dream-state-schema.js'
 
 import {isExcludedFromSync} from '../../context-tree/derived-artifact.js'
+import {toUnixPath} from '../../context-tree/path-utils.js'
 import {PruneResponseSchema} from '../dream-response-schemas.js'
 import {parseDreamResponse} from '../parse-dream-response.js'
 
@@ -199,7 +200,7 @@ async function walkMdFiles(
         if (entry.name.startsWith('_') || entry.name.startsWith('.')) continue
         await walk(fullPath)
       } else if (entry.isFile() && entry.name.endsWith('.md') && !entry.name.startsWith('_')) {
-        const relativePath = fullPath.slice(contextTreeDir.length + 1)
+        const relativePath = toUnixPath(fullPath.slice(contextTreeDir.length + 1))
         if (isExcludedFromSync(relativePath)) continue
         await callback(relativePath, fullPath)
       }
