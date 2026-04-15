@@ -114,8 +114,8 @@ export class QueryLogUseCase implements IQueryLogUseCase {
 
     if (entry.status === 'completed' && entry.response) {
       this.log()
-      this.log('Response (truncated):')
-      this.log(`  ${truncate(entry.response, 500)}`)
+      this.log('Response:')
+      this.log(entry.response.split('\n').map((line) => `  ${line}`).join('\n'))
     }
   }
 

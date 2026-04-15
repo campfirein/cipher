@@ -338,15 +338,39 @@ describe('QueryLogUseCase', () => {
       expect(output).to.include('[0.87] authentication/token_storage.md')
     })
 
-    // Test 15: Response truncated at 500 chars
-    it('should truncate response at 500 chars in detail view', async () => {
-      const longResponse = 'A'.repeat(600)
+    // Test 15: Response printed FULL in detail view (no truncation)
+    it('should print FULL response when response exceeds 500 chars (no truncation)', async () => {
+      const longResponse = 'A'.repeat(900)
       store.getById.resolves(makeCompletedEntry({response: longResponse}))
       await useCase.run({id: 'qry-1712345678901'})
 
       const output = logs.join('\n')
-      expect(output).to.include('A'.repeat(500) + '...')
-      expect(output).to.not.include('A'.repeat(501))
+      expect(output).to.include(longResponse)
+      expect(output).to.not.include('A'.repeat(500) + '...')
+    })
+
+    // Test 16: Section header is "Response:" not "Response (truncated):"
+    it('should label completed response section as "Response:" without "(truncated)"', async () => {
+      store.getById.resolves(makeCompletedEntry({response: 'short answer'}))
+      await useCase.run({id: 'qry-1712345678901'})
+
+      const output = logs.join('\n')
+      expect(output).to.include('Response:')
+      expect(output).to.not.include('(truncated)')
+    })
+
+    // Test 17: Multi-line response: every line indented by 2 spaces
+    it('should indent every line of a multi-line response with two spaces', async () => {
+      const multiLine = 'line one\nline two\nline three'
+      store.getById.resolves(makeCompletedEntry({response: multiLine}))
+      await useCase.run({id: 'qry-1712345678901'})
+
+      const output = logs.join('\n')
+      expect(output).to.include('  line one')
+      expect(output).to.include('  line two')
+      expect(output).to.include('  line three')
+      expect(output).to.not.match(/^line two/m)
+      expect(output).to.not.match(/^line three/m)
     })
   })
 })
