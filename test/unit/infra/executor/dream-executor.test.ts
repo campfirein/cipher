@@ -62,10 +62,11 @@ describe('DreamExecutor', () => {
   })
 
   describe('executeWithAgent', () => {
-    it('returns the dream log ID', async () => {
+    it('returns a formatted result summary', async () => {
       const executor = new DreamExecutor(deps)
       const result = await executor.executeWithAgent(agent, defaultOptions)
-      expect(result).to.equal('drm-1000')
+      expect(result).to.include('Dream completed (drm-1000)')
+      expect(result).to.include('No changes needed')
     })
 
     it('saves a processing log entry before executing', async () => {

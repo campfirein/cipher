@@ -193,7 +193,7 @@ export class DreamExecutor {
       })
 
       succeeded = true
-      return logId
+      return this.formatResult(logId, summary)
     } catch (error) {
       // Save error/partial log entry (best-effort)
       if (controller.signal.aborted) {
@@ -333,6 +333,26 @@ export class DreamExecutor {
     })
     const results = await Promise.all(checks)
     return new Set(results.filter((f): f is string => f !== null))
+  }
+
+  private formatResult(logId: string, summary: DreamLogSummary): string {
+    const parts = [`Dream completed (${logId})`]
+    const counts = [
+      summary.consolidated > 0 ? `${summary.consolidated} consolidated` : '',
+      summary.synthesized > 0 ? `${summary.synthesized} synthesized` : '',
+      summary.pruned > 0 ? `${summary.pruned} pruned` : '',
+    ].filter(Boolean)
+    if (counts.length > 0) {
+      parts.push(counts.join(' | '))
+    } else {
+      parts.push('No changes needed — context tree is up to date')
+    }
+
+    if (summary.flaggedForReview > 0) {
+      parts.push(`${summary.flaggedForReview} operations flagged for review`)
+    }
+
+    return parts.join('\n')
   }
 }
 
