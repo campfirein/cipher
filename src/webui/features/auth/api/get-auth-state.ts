@@ -9,7 +9,7 @@ export const getAuthState = (): Promise<AuthGetStateResponse> => {
   const {apiClient} = useTransportStore.getState()
   if (!apiClient) return Promise.reject(new Error('Not connected'))
 
-  return apiClient.request<AuthGetStateResponse>(AuthEvents.GET_STATE, undefined, {timeout: 500})
+  return apiClient.request<AuthGetStateResponse>(AuthEvents.GET_STATE, undefined, {timeout: 5000})
 }
 
 export const getAuthStateQueryOptions = () =>

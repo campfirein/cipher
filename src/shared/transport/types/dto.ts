@@ -13,6 +13,7 @@ import type {ContextTreeChanges} from '../../types/context-tree-changes.js'
 // ============================================================================
 
 export interface UserDTO {
+  avatarUrl?: string
   email: string
   hasOnboardedCli: boolean
   id: string
