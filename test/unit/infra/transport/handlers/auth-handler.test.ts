@@ -272,6 +272,61 @@ describe('AuthHandler — setupExternalAuthSync', () => {
     })
   })
 
+  describe('setupStartLogin — browser launch behavior', () => {
+    let browserOpenStub: ReturnType<typeof stub>
+
+    function createHandlerWithBrowserStub(): void {
+      browserOpenStub = stub().resolves()
+      const deps: AuthHandlerDeps = {
+        authService: {
+          exchangeCodeForToken: stub(),
+          initiateAuthorization: stub().returns({authUrl: 'https://byterover.dev/oauth/authorize?x=1', state: 'st'}),
+          refreshToken: stub(),
+        } as unknown as IAuthService,
+        authStateStore,
+        browserLauncher: {open: browserOpenStub} as unknown as IBrowserLauncher,
+        callbackHandler: {
+          getPort: stub().returns(3000),
+          start: stub().resolves(),
+          stop: stub().resolves(),
+          waitForCallback: stub().resolves({code: 'test'}),
+        } as unknown as ICallbackHandler,
+        projectConfigStore,
+        resolveProjectPath: stub().returns('/test/project'),
+        tokenStore: {
+          clear: stub().resolves(),
+          load: stub().resolves(),
+          save: stub().resolves(),
+        } as unknown as ITokenStore,
+        transport,
+        userService,
+      }
+      new AuthHandler(deps).setup()
+    }
+
+    it('opens the system browser by default (request omitted)', async () => {
+      createHandlerWithBrowserStub()
+      const handler = transport._handlers.get(AuthEvents.START_LOGIN)!
+      await handler(undefined, 'client-1')
+      expect(browserOpenStub.calledOnce).to.be.true
+    })
+
+    it('opens the system browser when skipBrowserLaunch is false', async () => {
+      createHandlerWithBrowserStub()
+      const handler = transport._handlers.get(AuthEvents.START_LOGIN)!
+      await handler({skipBrowserLaunch: false}, 'client-1')
+      expect(browserOpenStub.calledOnce).to.be.true
+    })
+
+    it('does NOT open the system browser when skipBrowserLaunch is true', async () => {
+      createHandlerWithBrowserStub()
+      const handler = transport._handlers.get(AuthEvents.START_LOGIN)!
+      const response = await handler({skipBrowserLaunch: true}, 'client-1')
+      expect(browserOpenStub.called).to.be.false
+      expect(response).to.have.property('authUrl', 'https://byterover.dev/oauth/authorize?x=1')
+    })
+  })
+
   describe('onAuthExpired', () => {
     it('should broadcast auth:expired for agents', () => {
       createHandler()
