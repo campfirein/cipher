@@ -10,7 +10,7 @@ describe('DreamExecutor', () => {
   let dreamStateService: {read: SinonStub; write: SinonStub}
   let dreamLogStore: {getNextId: SinonStub; save: SinonStub}
   let dreamLockService: {release: SinonStub; rollback: SinonStub}
-  let curateLogStore: {list: SinonStub}
+  let curateLogStore: {getNextId: SinonStub; list: SinonStub; save: SinonStub}
   let agent: ICipherAgent
   let deps: DreamExecutorDeps
   const defaultOptions = {
@@ -34,7 +34,9 @@ describe('DreamExecutor', () => {
       rollback: stub().resolves(),
     }
     curateLogStore = {
+      getNextId: stub().resolves('cur-1000'),
       list: stub().resolves([]),
+      save: stub().resolves(),
     }
     agent = {
       createTaskSession: stub().resolves('session-1'),
@@ -72,6 +74,7 @@ describe('DreamExecutor', () => {
       const processingEntry = dreamLogStore.save.firstCall.args[0]
       expect(processingEntry.status).to.equal('processing')
       expect(processingEntry.id).to.equal('drm-1000')
+      expect(processingEntry.taskId).to.equal('test-task-1')
       expect(processingEntry.trigger).to.equal('cli')
       expect(processingEntry.operations).to.deep.equal([])
     })
@@ -83,6 +86,7 @@ describe('DreamExecutor', () => {
       const completedEntry = dreamLogStore.save.lastCall.args[0]
       expect(completedEntry.status).to.equal('completed')
       expect(completedEntry.completedAt).to.be.a('number')
+      expect(completedEntry.taskId).to.equal('test-task-1')
       expect(completedEntry.summary).to.deep.equal({
         consolidated: 0,
         errors: 0,
@@ -223,6 +227,96 @@ describe('DreamExecutor', () => {
 
       // Lock should be rolled back (not released) since the error occurred
       expect(dreamLockService.rollback.calledOnce).to.be.true
+    })
+
+    it('does not create curate log entries when no operations have needsReview', async () => {
+      const executor = new DreamExecutor(deps)
+      await executor.executeWithAgent(agent, defaultOptions)
+
+      // curateLogStore.save should only be called for review entries, not for the dream itself
+      // No operations → no review entries
+      expect(curateLogStore.save.called).to.be.false
+    })
+
+    it('creates curate log entry with reviewStatus=pending for needsReview operations', async () => {
+      const executor = new DreamExecutor(deps)
+      const operations: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[] = [
+        {action: 'ARCHIVE', file: 'auth/stale.md', needsReview: true, reason: 'Stale doc', stubPath: '_archived/auth/stale.stub.md', type: 'PRUNE'},
+        {action: 'KEEP', file: 'api/useful.md', needsReview: false, reason: 'Still relevant', type: 'PRUNE'},
+      ]
+
+      // Call private method directly to test dual-write logic
+      await (executor as unknown as {createReviewEntries: (ops: typeof operations, dir: string, taskId: string) => Promise<void>})
+        .createReviewEntries(operations, '/tmp/ctx', 'test-task')
+
+      expect(curateLogStore.getNextId.calledOnce).to.be.true
+      expect(curateLogStore.save.calledOnce).to.be.true
+
+      const savedEntry = curateLogStore.save.firstCall.args[0]
+      expect(savedEntry.status).to.equal('completed')
+      expect(savedEntry.input.context).to.equal('dream')
+      expect(savedEntry.operations).to.have.lengthOf(1) // Only the needsReview op
+
+      const op = savedEntry.operations[0]
+      expect(op.type).to.equal('DELETE') // ARCHIVE maps to DELETE
+      expect(op.path).to.equal('auth/stale.md')
+      expect(op.reviewStatus).to.equal('pending')
+      expect(op.needsReview).to.be.true
+      expect(op.reason).to.include('dream/prune')
+    })
+
+    it('maps TEMPORAL_UPDATE review entries to the updated file path', async () => {
+      const executor = new DreamExecutor(deps)
+      const operations: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[] = [
+        {
+          action: 'TEMPORAL_UPDATE',
+          inputFiles: ['api/changelog.md'],
+          needsReview: true,
+          previousTexts: {'api/changelog.md': 'Before'},
+          reason: 'Normalize chronology',
+          type: 'CONSOLIDATE',
+        },
+      ]
+
+      await (executor as unknown as {createReviewEntries: (ops: typeof operations, dir: string, taskId: string) => Promise<void>})
+        .createReviewEntries(operations, '/tmp/ctx', 'test-task')
+
+      const savedEntry = curateLogStore.save.firstCall.args[0]
+      expect(savedEntry.taskId).to.equal('test-task')
+      expect(savedEntry.operations[0]).to.include({
+        path: 'api/changelog.md',
+        reviewStatus: 'pending',
+        type: 'UPDATE',
+      })
+      expect(savedEntry.operations[0].filePath).to.equal('/tmp/ctx/api/changelog.md')
+    })
+
+    it('maps CROSS_REFERENCE review entries with additional file paths for restoration', async () => {
+      const executor = new DreamExecutor(deps)
+      const operations: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[] = [
+        {
+          action: 'CROSS_REFERENCE',
+          inputFiles: ['auth/core.md', 'auth/helper.md'],
+          needsReview: true,
+          previousTexts: {
+            'auth/core.md': 'Before core',
+            'auth/helper.md': 'Before helper',
+          },
+          reason: 'Related',
+          type: 'CONSOLIDATE',
+        },
+      ]
+
+      await (executor as unknown as {createReviewEntries: (ops: typeof operations, dir: string, taskId: string) => Promise<void>})
+        .createReviewEntries(operations, '/tmp/ctx', 'test-task')
+
+      const savedEntry = curateLogStore.save.firstCall.args[0]
+      expect(savedEntry.operations[0]).to.include({
+        path: 'auth/core.md',
+        reviewStatus: 'pending',
+        type: 'UPDATE',
+      })
+      expect(savedEntry.operations[0].additionalFilePaths).to.deep.equal(['/tmp/ctx/auth/helper.md'])
     })
   })
 })

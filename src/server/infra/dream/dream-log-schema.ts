@@ -58,6 +58,7 @@ const DreamLogEntryBaseSchema = z.object({
   operations: z.array(DreamOperationSchema),
   startedAt: z.number(),
   summary: DreamLogSummarySchema,
+  taskId: z.string().optional(),
   trigger: z.enum(['agent-idle', 'manual', 'cli']),
 })
 

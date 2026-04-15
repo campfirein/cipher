@@ -57,6 +57,7 @@ import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
 import {SearchExecutor} from '../executor/search-executor.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
+import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {createAgentLogger} from './agent-logger.js'
 import {resolveSessionId} from './session-resolver.js'
@@ -401,7 +402,7 @@ async function executeTask(
   searchKnowledgeService: ISearchKnowledgeService,
   storagePath: string,
 ): Promise<void> {
-  const {clientCwd, clientId, content, files, folderPath, force, taskId, type, worktreeRoot} = task
+  const {clientCwd, clientId, content, files, folderPath, force, taskId, trigger, type, worktreeRoot} = task
   if (!transport || !agent) return
 
   // Search tasks are pure BM25 retrieval — no LLM, no provider needed.
@@ -522,13 +523,14 @@ async function executeTask(
             dreamLockService,
             dreamLogStore: new DreamLogStore({baseDir: brvDir}),
             dreamStateService,
+            reviewBackupStore: new FileReviewBackupStore(brvDir),
             searchService: searchKnowledgeService,
           })
           result = await dreamExecutor.executeWithAgent(agent, {
             priorMtime: eligibility.priorMtime,
             projectRoot: projectPath,
             taskId,
-            trigger: 'cli',
+            trigger: trigger ?? 'cli',
           })
 
           break

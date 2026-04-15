@@ -41,7 +41,9 @@ export type DreamExecutorDeps = {
     findArchiveCandidates(directory?: string): Promise<string[]>
   }
   curateLogStore: {
+    getNextId(): Promise<string>
     list(filters?: {after?: number; before?: number; limit?: number; status?: CurateLogStatus[]}): Promise<CurateLogEntry[]>
+    save(entry: CurateLogEntry): Promise<void>
   }
   dreamLockService: {
     release(): Promise<void>
@@ -54,6 +56,9 @@ export type DreamExecutorDeps = {
   dreamStateService: {
     read(): Promise<import('../dream/dream-state-schema.js').DreamState>
     write(state: import('../dream/dream-state-schema.js').DreamState): Promise<void>
+  }
+  reviewBackupStore?: {
+    save(relativePath: string, content: string): Promise<void>
   }
   searchService: ConsolidateDeps['searchService']
 }
@@ -90,6 +95,7 @@ export class DreamExecutor {
       startedAt,
       status: 'processing',
       summary: zeroes,
+      taskId: options.taskId,
       trigger,
     }
     await this.deps.dreamLogStore.save(processingEntry)
@@ -115,6 +121,7 @@ export class DreamExecutor {
       const consolidateResults = await consolidate([...changedFiles], {
         agent,
         contextTreeDir,
+        reviewBackupStore: this.deps.reviewBackupStore,
         searchService: this.deps.searchService,
         signal: controller.signal,
         taskId: options.taskId,
@@ -135,6 +142,7 @@ export class DreamExecutor {
         dreamLogId: logId,
         dreamStateService: this.deps.dreamStateService,
         projectRoot,
+        reviewBackupStore: this.deps.reviewBackupStore,
         signal: controller.signal,
         taskId: options.taskId,
       })
@@ -156,6 +164,9 @@ export class DreamExecutor {
         }
       }
 
+      // Step 5b: Create curate log entries for needsReview operations (dual-write for review system)
+      await this.createReviewEntries(allOperations, contextTreeDir, options.taskId)
+
       // Step 6: Write dream log
       const summary = this.computeSummary(allOperations)
       const completedEntry: DreamLogEntry = {
@@ -165,6 +176,7 @@ export class DreamExecutor {
         startedAt,
         status: 'completed',
         summary,
+        taskId: options.taskId,
         trigger,
       }
       await this.deps.dreamLogStore.save(completedEntry)
@@ -192,6 +204,7 @@ export class DreamExecutor {
           startedAt,
           status: 'partial',
           summary: zeroes,
+          taskId: options.taskId,
           trigger,
         }
         await this.deps.dreamLogStore.save(partialEntry).catch(() => {})
@@ -204,6 +217,7 @@ export class DreamExecutor {
           startedAt,
           status: 'error',
           summary: zeroes,
+          taskId: options.taskId,
           trigger,
         }
         await this.deps.dreamLogStore.save(errorEntry).catch(() => {})
@@ -233,6 +247,40 @@ export class DreamExecutor {
     }
 
     return summary
+  }
+
+  /**
+   * Dual-write: create curate log entries for dream operations that need human review.
+   * This surfaces them in `brv review pending` without modifying the review system.
+   */
+  private async createReviewEntries(
+    operations: DreamOperation[],
+    contextTreeDir: string,
+    taskId: string,
+  ): Promise<void> {
+    const reviewOps = operations.filter((op) => op.needsReview)
+    if (reviewOps.length === 0) return
+
+    const curateOps: CurateLogEntry['operations'] = reviewOps.map((op) =>
+      mapDreamOpToCurateOp(op, contextTreeDir),
+    )
+
+    try {
+      const logId = await this.deps.curateLogStore.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id: logId,
+        input: {context: 'dream'},
+        operations: curateOps,
+        startedAt: Date.now(),
+        status: 'completed',
+        summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0},
+        taskId,
+      }
+      await this.deps.curateLogStore.save(entry)
+    } catch {
+      // Fail-open: review entry creation must not block dream
+    }
   }
 
   private async findChangedFilesSinceLastDream(
@@ -276,6 +324,91 @@ export class DreamExecutor {
     })
     const results = await Promise.all(checks)
     return new Set(results.filter((f): f is string => f !== null))
+  }
+}
+
+/** Map a dream operation to a curate log operation for the review system. */
+function mapDreamOpToCurateOp(
+  op: DreamOperation,
+  contextTreeDir: string,
+): CurateLogEntry['operations'][number] {
+  if (op.type === 'PRUNE' && op.action === 'ARCHIVE') {
+    return {
+      filePath: join(contextTreeDir, op.file),
+      needsReview: true,
+      path: op.file,
+      reason: `[dream/prune] ${op.reason}`,
+      reviewStatus: 'pending',
+      status: 'success',
+      type: 'DELETE',
+    }
+  }
+
+  if (op.type === 'CONSOLIDATE' && op.action === 'MERGE') {
+    return {
+      additionalFilePaths: op.inputFiles.filter((f) => f !== op.outputFile).map((f) => join(contextTreeDir, f)),
+      filePath: op.outputFile ? join(contextTreeDir, op.outputFile) : undefined,
+      needsReview: true,
+      path: op.outputFile ?? op.inputFiles[0],
+      reason: `[dream/consolidate] ${op.reason}`,
+      reviewStatus: 'pending',
+      status: 'success',
+      type: 'MERGE',
+    }
+  }
+
+  if (op.type === 'CONSOLIDATE' && op.action === 'TEMPORAL_UPDATE') {
+    const targetFile = op.inputFiles[0]
+    return {
+      filePath: join(contextTreeDir, targetFile),
+      needsReview: true,
+      path: targetFile,
+      reason: `[dream/consolidate] ${op.reason}`,
+      reviewStatus: 'pending',
+      status: 'success',
+      type: 'UPDATE',
+    }
+  }
+
+  if (op.type === 'CONSOLIDATE' && op.action === 'CROSS_REFERENCE') {
+    const [targetFile, ...relatedFiles] = op.inputFiles
+    return {
+      additionalFilePaths: relatedFiles.map((file) => join(contextTreeDir, file)),
+      filePath: join(contextTreeDir, targetFile),
+      needsReview: true,
+      path: targetFile,
+      reason: `[dream/consolidate] ${op.reason}`,
+      reviewStatus: 'pending',
+      status: 'success',
+      type: 'UPDATE',
+    }
+  }
+
+  if (op.type === 'SYNTHESIZE' && op.action === 'CREATE') {
+    return {
+      filePath: join(contextTreeDir, op.outputFile),
+      needsReview: true,
+      path: op.outputFile,
+      reason: '[dream/synthesize] Generated synthesis draft',
+      reviewStatus: 'pending',
+      status: 'success',
+      type: 'ADD',
+    }
+  }
+
+  const filePath = 'file' in op
+    ? op.file
+    : 'inputFiles' in op
+      ? op.outputFile ?? op.inputFiles[0]
+      : op.outputFile
+  return {
+    filePath: join(contextTreeDir, filePath),
+    needsReview: true,
+    path: filePath,
+    reason: `[dream/${op.type.toLowerCase()}] ${'reason' in op ? op.reason : ''}`,
+    reviewStatus: 'pending',
+    status: 'success',
+    type: 'UPDATE',
   }
 }
 

@@ -18,6 +18,7 @@ function completedLog(operations: DreamLogEntry['operations'] = []): DreamLogEnt
     startedAt: Date.now() - 1000,
     status: 'completed',
     summary: {consolidated: 0, errors: 0, flaggedForReview: 0, pruned: 0, synthesized: 0},
+    taskId: 'task-1',
     trigger: 'cli',
   }
 }
@@ -222,7 +223,7 @@ describe('undoLastDream', () => {
 
   // ── CONSOLIDATE/CROSS_REFERENCE undo ──────────────────────────────────────
 
-  it('skips CROSS_REFERENCE (non-destructive)', async () => {
+  it('skips legacy CROSS_REFERENCE entries without previousTexts', async () => {
     dreamLogStore.getById.resolves(completedLog([{
       action: 'CROSS_REFERENCE',
       inputFiles: ['auth/jwt.md', 'auth/oauth.md'],
@@ -235,6 +236,31 @@ describe('undoLastDream', () => {
 
     expect(result.restoredFiles).to.be.empty
     expect(result.deletedFiles).to.be.empty
+  })
+
+  it('restores files for CROSS_REFERENCE when previousTexts were captured', async () => {
+    await mkdir(join(ctxDir, 'auth'), {recursive: true})
+    await writeFile(join(ctxDir, 'auth/jwt.md'), 'Updated jwt')
+    await writeFile(join(ctxDir, 'auth/oauth.md'), 'Updated oauth')
+
+    dreamLogStore.getById.resolves(completedLog([{
+      action: 'CROSS_REFERENCE',
+      inputFiles: ['auth/jwt.md', 'auth/oauth.md'],
+      needsReview: true,
+      previousTexts: {
+        'auth/jwt.md': 'Original jwt',
+        'auth/oauth.md': 'Original oauth',
+      },
+      reason: 'Related',
+      type: 'CONSOLIDATE',
+    }]))
+
+    const result = await undoLastDream(deps)
+
+    expect(result.restoredFiles).to.include('auth/jwt.md')
+    expect(result.restoredFiles).to.include('auth/oauth.md')
+    expect(await readFile(join(ctxDir, 'auth/jwt.md'), 'utf8')).to.equal('Original jwt')
+    expect(await readFile(join(ctxDir, 'auth/oauth.md'), 'utf8')).to.equal('Original oauth')
   })
 
   // ── SYNTHESIZE undo (forward-compatible) ──────────────────────────────────
@@ -474,5 +500,161 @@ describe('undoLastDream', () => {
     expect(result.deletedFiles).to.be.empty
     expect(result.restoredArchives).to.be.empty
     expect(result.errors).to.be.empty
+  })
+
+  // ── Review cleanup on undo ──────────────────────────────────────────────
+
+  it('marks curate log operations as rejected when undo reverses needsReview ops', async () => {
+    const curateLogStore = {
+      batchUpdateOperationReviewStatus: stub().resolves(true),
+      list: stub().resolves([
+        {
+          completedAt: Date.now(),
+          id: 'cur-5000',
+          input: {context: 'dream'},
+          operations: [{
+            filePath: join(ctxDir, 'auth/stale.md'),
+            needsReview: true,
+            path: 'auth/stale.md',
+            reviewStatus: 'pending',
+            status: 'success',
+            type: 'DELETE',
+          }],
+          startedAt: Date.now(),
+          status: 'completed',
+          summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0},
+          taskId: 'task-1',
+        },
+        {
+          completedAt: Date.now(),
+          id: 'cur-6000',
+          input: {context: 'dream'},
+          operations: [{
+            filePath: join(ctxDir, 'auth/keep.md'),
+            needsReview: true,
+            path: 'auth/keep.md',
+            reviewStatus: 'pending',
+            status: 'success',
+            type: 'DELETE',
+          }],
+          startedAt: Date.now(),
+          status: 'completed',
+          summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0},
+          taskId: 'task-2',
+        },
+      ]),
+    }
+
+    const reviewBackupStore = {delete: stub().resolves()}
+
+    const archiveService = {restoreEntry: stub().resolves('auth/stale.md')}
+
+    dreamLogStore.getById.resolves(completedLog([{
+      action: 'ARCHIVE',
+      file: 'auth/stale.md',
+      needsReview: true,
+      reason: 'Stale',
+      stubPath: '_archived/auth/stale.stub.md',
+      type: 'PRUNE',
+    }]))
+
+    await undoLastDream({...deps, archiveService, curateLogStore, reviewBackupStore})
+
+    expect(curateLogStore.list.calledOnce).to.be.true
+    expect(curateLogStore.batchUpdateOperationReviewStatus.calledOnce).to.be.true
+    const [logId, updates] = curateLogStore.batchUpdateOperationReviewStatus.firstCall.args
+    expect(logId).to.equal('cur-5000')
+    expect(updates).to.deep.equal([{operationIndex: 0, reviewStatus: 'rejected'}])
+  })
+
+  it('falls back to matching the exact dream review entry when legacy dream logs have no taskId', async () => {
+    const curateLogStore = {
+      batchUpdateOperationReviewStatus: stub().resolves(true),
+      list: stub().resolves([
+        {
+          completedAt: Date.now(),
+          id: 'cur-legacy',
+          input: {context: 'dream'},
+          operations: [{
+            filePath: join(ctxDir, 'auth/login.md'),
+            needsReview: true,
+            path: 'auth/login.md',
+            reviewStatus: 'pending',
+            status: 'success',
+            type: 'UPDATE',
+          }],
+          startedAt: Date.now(),
+          status: 'completed',
+          summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 1},
+          taskId: 'task-old',
+        },
+      ]),
+    }
+    const reviewBackupStore = {delete: stub().resolves()}
+
+    const legacyLog = completedLog([{
+      action: 'TEMPORAL_UPDATE',
+      inputFiles: ['auth/login.md'],
+      needsReview: true,
+      previousTexts: {'auth/login.md': 'Original login'},
+      reason: 'Normalize chronology',
+      type: 'CONSOLIDATE',
+    }])
+    delete legacyLog.taskId
+    dreamLogStore.getById.resolves(legacyLog)
+
+    await undoLastDream({...deps, curateLogStore, reviewBackupStore})
+
+    expect(curateLogStore.batchUpdateOperationReviewStatus.calledOnce).to.be.true
+    const [logId, updates] = curateLogStore.batchUpdateOperationReviewStatus.firstCall.args
+    expect(logId).to.equal('cur-legacy')
+    expect(updates).to.deep.equal([{operationIndex: 0, reviewStatus: 'rejected'}])
+  })
+
+  it('deletes review backups for undone needsReview operations', async () => {
+    const curateLogStore = {
+      batchUpdateOperationReviewStatus: stub().resolves(true),
+      list: stub().resolves([]),
+    }
+
+    const reviewBackupStore = {delete: stub().resolves()}
+
+    await mkdir(join(ctxDir, 'auth'), {recursive: true})
+    await writeFile(join(ctxDir, 'auth/login.md'), 'Merged')
+
+    dreamLogStore.getById.resolves(completedLog([{
+      action: 'MERGE',
+      inputFiles: ['auth/login.md', 'auth/signup.md'],
+      needsReview: true,
+      outputFile: 'auth/login.md',
+      previousTexts: {'auth/login.md': 'Original login', 'auth/signup.md': 'Original signup'},
+      reason: 'Merge',
+      type: 'CONSOLIDATE',
+    }]))
+
+    await undoLastDream({...deps, curateLogStore, reviewBackupStore})
+
+    // Should delete backups for all files involved in needsReview ops
+    expect(reviewBackupStore.delete.called).to.be.true
+    const deletedPaths = reviewBackupStore.delete.getCalls().map((c: {args: string[]}) => c.args[0])
+    expect(deletedPaths).to.include('auth/login.md')
+    expect(deletedPaths).to.include('auth/signup.md')
+  })
+
+  it('skips review cleanup when curateLogStore is not provided', async () => {
+    dreamLogStore.getById.resolves(completedLog([{
+      action: 'ARCHIVE',
+      file: 'auth/stale.md',
+      needsReview: true,
+      reason: 'Stale',
+      stubPath: '_archived/auth/stale.stub.md',
+      type: 'PRUNE',
+    }]))
+
+    const archiveService = {restoreEntry: stub().resolves('auth/stale.md')}
+
+    // No curateLogStore or reviewBackupStore — should not crash
+    const result = await undoLastDream({...deps, archiveService})
+    expect(result.restoredArchives).to.include('auth/stale.md')
   })
 })
