@@ -202,14 +202,14 @@ export default class Dream extends Command {
         client,
         command: 'dream',
         format,
-        onCompleted: ({result, taskId: tid}) => {
+        onCompleted: ({logId, result, taskId: tid}) => {
           const skipped = result?.startsWith('Dream skipped:')
           if (format === 'json') {
             writeJsonResponse({
               command: 'dream',
               data: skipped
                 ? {reason: result, status: 'skipped', taskId: tid}
-                : {result, status: 'completed', taskId: tid},
+                : {logId, result, status: 'completed', taskId: tid},
               success: true,
             })
           } else {

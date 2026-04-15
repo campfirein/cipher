@@ -69,6 +69,37 @@ describe('DreamExecutor', () => {
       expect(result).to.include('No changes needed')
     })
 
+    it('formats result with operation counts when present', () => {
+      const executor = new DreamExecutor(deps)
+      const formatResult = (executor as unknown as {formatResult(logId: string, summary: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamLogSummary): string}).formatResult.bind(executor)
+
+      const result = formatResult('drm-2000', {consolidated: 3, errors: 0, flaggedForReview: 0, pruned: 1, synthesized: 2})
+      expect(result).to.include('Dream completed (drm-2000)')
+      expect(result).to.include('3 consolidated')
+      expect(result).to.include('2 synthesized')
+      expect(result).to.include('1 pruned')
+      expect(result).to.not.include('No changes needed')
+    })
+
+    it('formats result with flagged-for-review count', () => {
+      const executor = new DreamExecutor(deps)
+      const formatResult = (executor as unknown as {formatResult(logId: string, summary: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamLogSummary): string}).formatResult.bind(executor)
+
+      const result = formatResult('drm-3000', {consolidated: 1, errors: 0, flaggedForReview: 2, pruned: 0, synthesized: 0})
+      expect(result).to.include('1 consolidated')
+      expect(result).to.include('2 operations flagged for review')
+    })
+
+    it('formats result with error count and omits no-changes message', () => {
+      const executor = new DreamExecutor(deps)
+      const formatResult = (executor as unknown as {formatResult(logId: string, summary: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamLogSummary): string}).formatResult.bind(executor)
+
+      const result = formatResult('drm-4000', {consolidated: 0, errors: 2, flaggedForReview: 0, pruned: 0, synthesized: 0})
+      expect(result).to.include('Dream completed (drm-4000)')
+      expect(result).to.include('2 operations failed')
+      expect(result).to.not.include('No changes needed')
+    })
+
     it('saves a processing log entry before executing', async () => {
       const executor = new DreamExecutor(deps)
       await executor.executeWithAgent(agent, defaultOptions)
