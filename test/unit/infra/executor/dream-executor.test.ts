@@ -62,9 +62,10 @@ describe('DreamExecutor', () => {
   })
 
   describe('executeWithAgent', () => {
-    it('returns a formatted result summary', async () => {
+    it('returns a structured result with logId and formatted summary', async () => {
       const executor = new DreamExecutor(deps)
-      const result = await executor.executeWithAgent(agent, defaultOptions)
+      const {logId, result} = await executor.executeWithAgent(agent, defaultOptions)
+      expect(logId).to.equal('drm-1000')
       expect(result).to.include('Dream completed (drm-1000)')
       expect(result).to.include('No changes needed')
     })

@@ -277,7 +277,7 @@ export class TaskRouter {
   }
 
   private handleTaskCompleted(data: TaskCompletedEvent): void {
-    const {result, taskId} = data
+    const {logId: eventLogId, result, taskId} = data
     const task = this.tasks.get(taskId)
 
     transportLog(`Task completed: ${taskId}`)
@@ -296,9 +296,12 @@ export class TaskRouter {
       }
     }
 
+    // Prefer logId from lifecycle hooks (curate), fall back to executor-provided logId (dream)
+    const resolvedLogId = task?.logId ?? eventLogId
+
     if (task) {
       this.transport.sendTo(task.clientId, TransportTaskEventNames.COMPLETED, {
-        ...(task.logId ? {logId: task.logId} : {}),
+        ...(resolvedLogId ? {logId: resolvedLogId} : {}),
         ...hookData,
         result,
         taskId,
@@ -311,7 +314,7 @@ export class TaskRouter {
       task?.projectPath,
       TransportTaskEventNames.COMPLETED,
       {
-        ...(task?.logId ? {logId: task.logId} : {}),
+        ...(resolvedLogId ? {logId: resolvedLogId} : {}),
         ...hookData,
         result,
         taskId,

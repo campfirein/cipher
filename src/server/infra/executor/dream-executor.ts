@@ -76,7 +76,7 @@ export class DreamExecutor {
   async executeWithAgent(
     agent: ICipherAgent,
     options: DreamExecuteOptions,
-  ): Promise<string> {
+  ): Promise<{logId: string; result: string}> {
     const {priorMtime, projectRoot, trigger} = options
     const contextTreeDir = join(projectRoot, BRV_DIR, CONTEXT_TREE_DIR)
 
@@ -193,7 +193,7 @@ export class DreamExecutor {
       })
 
       succeeded = true
-      return this.formatResult(logId, summary)
+      return {logId, result: this.formatResult(logId, summary)}
     } catch (error) {
       // Save error/partial log entry (best-effort)
       if (controller.signal.aborted) {
