@@ -8,6 +8,7 @@
 import type {Socket} from 'socket.io-client'
 
 import {create} from 'zustand'
+import {createJSONStorage, persist} from 'zustand/middleware'
 
 import type {UiConfig} from '../lib/transport'
 
@@ -22,6 +23,8 @@ export interface TransportState {
   isConnected: boolean
   projectCwd: string
   reconnectCount: number
+  /** The projectPath of the currently selected project (set after association) */
+  selectedProject: string
   socket: null | Socket
   version: string
 }
@@ -31,6 +34,7 @@ interface TransportActions {
   reset: () => void
   setConnectionState: (state: ConnectionState) => void
   setError: (error: Error | null) => void
+  setSelectedProject: (projectPath: string) => void
   setSocket: (socket: Socket, config: UiConfig) => void
 }
 
@@ -41,39 +45,51 @@ const initialState: TransportState = {
   isConnected: false,
   projectCwd: '',
   reconnectCount: 0,
+  selectedProject: '',
   socket: null,
   version: '',
 }
 
-export const useTransportStore = create<TransportActions & TransportState>()((set) => ({
-  ...initialState,
+export const useTransportStore = create<TransportActions & TransportState>()(
+  persist(
+    (set) => ({
+      ...initialState,
 
-  incrementReconnectCount: () => set((state) => ({reconnectCount: state.reconnectCount + 1})),
+      incrementReconnectCount: () => set((state) => ({reconnectCount: state.reconnectCount + 1})),
 
-  reset: () => set(initialState),
+      reset: () => set({...initialState, selectedProject: ''}),
 
-  setConnectionState: (connectionState: ConnectionState) =>
-    set({
-      connectionState,
-      isConnected: connectionState === 'connected',
+      setConnectionState: (connectionState: ConnectionState) =>
+        set({
+          connectionState,
+          isConnected: connectionState === 'connected',
+        }),
+
+      setError: (error: Error | null) =>
+        set({
+          connectionState: 'disconnected',
+          error,
+          isConnected: false,
+        }),
+
+      setSelectedProject: (selectedProject: string) => set({selectedProject}),
+
+      setSocket: (socket: Socket, config: UiConfig) =>
+        set({
+          apiClient: new BrvApiClient(socket),
+          connectionState: 'connected',
+          error: null,
+          isConnected: true,
+          projectCwd: config.projectCwd,
+          reconnectCount: 0,
+          socket,
+          version: config.version,
+        }),
     }),
-
-  setError: (error: Error | null) =>
-    set({
-      connectionState: 'disconnected',
-      error,
-      isConnected: false,
-    }),
-
-  setSocket: (socket: Socket, config: UiConfig) =>
-    set({
-      apiClient: new BrvApiClient(socket),
-      connectionState: 'connected',
-      error: null,
-      isConnected: true,
-      projectCwd: config.projectCwd,
-      reconnectCount: 0,
-      socket,
-      version: config.version,
-    }),
-}))
+    {
+      name: 'brv-transport',
+      partialize: (state) => ({selectedProject: state.selectedProject}),
+      storage: createJSONStorage(() => sessionStorage),
+    },
+  ),
+)

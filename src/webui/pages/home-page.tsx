@@ -1,5 +1,5 @@
-import {Navigate} from 'react-router-dom'
+import {StatusPanel} from '../features/status/components/status-panel'
 
 export function HomePage() {
-  return <Navigate replace to="/status" />
+  return <StatusPanel />
 }

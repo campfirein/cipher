@@ -27,14 +27,10 @@ export interface ConnectResult {
   socket: Socket
 }
 
-function registerClient(socket: Socket, config: UiConfig) {
-  socket.emit(
-    'client:register',
-    {clientType: 'webui', projectPath: config.projectCwd},
-    () => {
-      // Registration acknowledged
-    },
-  )
+function registerClient(socket: Socket) {
+  socket.emit('client:register', {clientType: 'webui'}, () => {
+    // Registration acknowledged — project association happens later in ProjectLayout
+  })
 
   socket.emit('room:join', 'broadcast-room')
 }
@@ -53,9 +49,7 @@ export async function connectToTransport(): Promise<ConnectResult> {
 
   // Socket.IO fires "connect" after the initial handshake and after reconnects,
   // so this keeps the client/project association and broadcast room membership fresh.
-  socket.on('connect', () => {
-    registerClient(socket, config)
-  })
+  socket.on('connect', () => registerClient(socket))
 
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
