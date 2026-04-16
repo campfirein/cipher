@@ -33,7 +33,7 @@ export type DreamUndoDeps = {
   reviewBackupStore?: Pick<IReviewBackupStore, 'delete'>
 }
 
-export interface DreamUndoResult {
+export type DreamUndoResult = {
   deletedFiles: string[]
   dreamId: string
   errors: string[]
@@ -117,6 +117,11 @@ export async function undoLastDream(deps: DreamUndoDeps): Promise<DreamUndoResul
     )
   }
 
+  // Undo runs in the CLI process. The in-process mutex guarding
+  // update() lives in the daemon, so using update() here wouldn't
+  // synchronize with a concurrent daemon-side incrementCurationCount anyway —
+  // write() is acceptable. If daemon-side undo is ever added, switch to
+  // update() to serialize with other writers in that process.
   await dreamStateService.write({
     ...state,
     lastDreamAt: null,

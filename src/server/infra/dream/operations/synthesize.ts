@@ -20,6 +20,7 @@ import type {ICipherAgent} from '../../../../agent/core/interfaces/i-cipher-agen
 import type {DreamOperation} from '../dream-log-schema.js'
 import type {SynthesisCandidate} from '../dream-response-schemas.js'
 
+import {isDescendantOf} from '../../../utils/path-utils.js'
 import {SynthesizeResponseSchema} from '../dream-response-schemas.js'
 import {parseDreamResponse} from '../parse-dream-response.js'
 
@@ -226,7 +227,7 @@ async function writeSynthesisFile(
   const absPath = resolve(contextTreeDir, relativePath)
 
   // Guard against LLM-supplied path traversal (e.g. placement = "../../etc")
-  if (!absPath.startsWith(contextTreeDir + '/')) {
+  if (!isDescendantOf(absPath, contextTreeDir)) {
     return undefined
   }
 

@@ -59,6 +59,7 @@ describe('prune', () => {
   }
   let dreamStateService: {
     read: SinonStub
+    update: SinonStub
     write: SinonStub
   }
   let deps: PruneDeps
@@ -80,8 +81,14 @@ describe('prune', () => {
       findArchiveCandidates: stub().resolves([]),
     }
 
+    // update() runs the updater against a fresh EMPTY_DREAM_STATE and returns
+    // the result — matches the real service's atomic RMW behavior.
+    const updateStub = stub().callsFake(async (updater: (s: typeof EMPTY_DREAM_STATE) => typeof EMPTY_DREAM_STATE) =>
+      updater({...EMPTY_DREAM_STATE}),
+    )
     dreamStateService = {
       read: stub().resolves({...EMPTY_DREAM_STATE}),
+      update: updateStub,
       write: stub().resolves(),
     }
 
@@ -336,10 +343,13 @@ describe('prune', () => {
     expect(op.mergeTarget).to.equal('auth/main.md')
     expect(op.needsReview).to.be.false
 
-    expect(dreamStateService.write.calledOnce).to.be.true
-    const writtenState = dreamStateService.write.firstCall.args[0] as DreamState
-    expect(writtenState.pendingMerges).to.have.lengthOf(1)
-    expect(writtenState.pendingMerges[0]).to.deep.include({
+    // Pending merges are persisted via atomic update() — run the updater
+    // against EMPTY_DREAM_STATE to inspect what it would write.
+    expect(dreamStateService.update.calledOnce).to.be.true
+    const updater = dreamStateService.update.firstCall.args[0] as (s: DreamState) => DreamState
+    const result = updater({...EMPTY_DREAM_STATE})
+    expect(result.pendingMerges).to.have.lengthOf(1)
+    expect(result.pendingMerges[0]).to.deep.include({
       mergeTarget: 'auth/main.md',
       sourceFile: 'auth/overlap.md',
       suggestedByDreamId: 'drm-1',
@@ -350,8 +360,7 @@ describe('prune', () => {
     await createMdFile(ctxDir, 'auth/overlap.md', '# Overlap', {maturity: 'draft'})
     await setMtimeDaysAgo(ctxDir, 'auth/overlap.md', 90)
 
-    // Pre-populate with same merge suggestion
-    dreamStateService.read.resolves({
+    const prePopulated = {
       ...EMPTY_DREAM_STATE,
       pendingMerges: [{
         mergeTarget: 'auth/main.md',
@@ -359,7 +368,10 @@ describe('prune', () => {
         sourceFile: 'auth/overlap.md',
         suggestedByDreamId: 'drm-0',
       }],
-    })
+    }
+    dreamStateService.read.resolves(prePopulated)
+    // update() sees the same pre-populated state
+    dreamStateService.update.callsFake(async (updater: (s: DreamState) => DreamState) => updater(prePopulated))
 
     agent.executeOnSession.resolves(llmResponse([
       {decision: 'MERGE_INTO', file: 'auth/overlap.md', mergeTarget: 'auth/main.md', reason: 'Still overlaps'},
@@ -368,8 +380,11 @@ describe('prune', () => {
     const results = await prune(deps)
     expect(results).to.have.lengthOf(1)
 
-    // dreamStateService.write should NOT be called since no new merge was added
-    expect(dreamStateService.write.called).to.be.false
+    // The updater must return the state unchanged when the merge suggestion already exists
+    expect(dreamStateService.update.calledOnce).to.be.true
+    const updater = dreamStateService.update.firstCall.args[0] as (s: DreamState) => DreamState
+    const result = updater(prePopulated)
+    expect(result.pendingMerges).to.have.lengthOf(1)
   })
 
   it('drops MERGE_INTO op when mergeTarget is absent', async () => {
