@@ -951,6 +951,40 @@ vM/XQYQnZQY1X/sVq1HQAAABF0ZXN0QGV4YW1wbGUuY29tAQI=
       }
     })
 
+    it('handleImportGitSigning: throws INVALID_CONFIG_VALUE when gpg.format is not ssh', async () => {
+      const realProjectPath = fs.mkdtempSync(join(tmpdir(), 'brv-test-import-gpgformat-'))
+      mkdirSync(realProjectPath, {recursive: true})
+      const {execSync} = await import('node:child_process')
+      execSync('git init', {cwd: realProjectPath})
+
+      const keyPath = join(realProjectPath, 'fake_key')
+      const fakeKey = `-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACAmIfT6LJouOpJugPKYl7yiJwYIlrh124TOYjaNzxjNQgAAAJgCtf3VArX9
+1QAAAAtzc2gtZWQyNTUxOQAAACAmIfT6LJouOpJugPKYl7yiJwYIlrh124TOYjaNzxjNQg
+AAEB01GDi+m4swI3lsGv870+yJFfAJP0CcFSDPcTyCUpaBSYh9Posmi46km6A8piXvKIn
+BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
+-----END OPENSSH PRIVATE KEY-----`
+      writeFileSync(keyPath, fakeKey, {mode: 0o600})
+      execSync(`git config user.signingkey "${keyPath}"`, {cwd: realProjectPath})
+      execSync('git config gpg.format gpg', {cwd: realProjectPath})
+
+      const deps = makeDeps(sandbox, realProjectPath)
+      deps.vcGitConfigStore.get.resolves({})
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.CONFIG]({importGitSigning: true}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.INVALID_CONFIG_VALUE)
+          expect(error.message).to.include('gpg')
+        }
+      }
+    })
+
     it('handleImportGitSigning: does NOT set commitSign when gpgsign is explicitly false', async () => {
       const realProjectPath = fs.mkdtempSync(join(tmpdir(), 'brv-test-import-nosign-'))
       mkdirSync(realProjectPath, {recursive: true})

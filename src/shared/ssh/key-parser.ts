@@ -255,13 +255,9 @@ export async function parseSSHPrivateKey(
     const {cipherName, keyType, privateKeyBlob} = parseOpenSSHKey(raw)
 
     if (cipherName !== 'none') {
-      if (!passphrase) {
-        throw new Error('Passphrase required for encrypted key')
-      }
-
-      // Encrypted OpenSSH keys require decryption before parsing.
-      // For now, throw a clear error — encrypted OpenSSH key support
-      // requires AES-256-CTR + bcrypt KDF implementation (out of scope for v1 spike).
+      // Encrypted OpenSSH keys require AES-256-CTR + bcrypt KDF decryption (out of scope for v1).
+      // resolveSigningKey short-circuits on opensshEncrypted before reaching here,
+      // so this is a safety net for direct callers.
       throw new Error(
         'Encrypted OpenSSH private keys are not yet supported. ' +
           'Please use an unencrypted key or load it via ssh-agent.',

@@ -14,6 +14,8 @@ import {HttpSigningKeyService} from '../../iam/http-signing-key-service.js'
 
 export interface SigningKeyHandlerDeps {
   iamBaseUrl: string
+  /** Optional test seam: inject a pre-built service to bypass HTTP client construction. */
+  signingKeyService?: ISigningKeyService
   tokenStore: ITokenStore
   transport: ITransportServer
 }
@@ -36,11 +38,13 @@ function toSigningKeyItem(resource: SigningKeyResource): SigningKeyItem {
  */
 export class SigningKeyHandler {
   private readonly iamBaseUrl: string
+  private readonly injectedService?: ISigningKeyService
   private readonly tokenStore: ITokenStore
   private readonly transport: ITransportServer
 
   constructor(deps: SigningKeyHandlerDeps) {
     this.iamBaseUrl = deps.iamBaseUrl
+    this.injectedService = deps.signingKeyService
     this.tokenStore = deps.tokenStore
     this.transport = deps.transport
   }
@@ -58,6 +62,7 @@ export class SigningKeyHandler {
   private async createService(): Promise<ISigningKeyService> {
     const token = await this.tokenStore.load()
     if (!token?.isValid()) throw new NotAuthenticatedError()
+    if (this.injectedService) return this.injectedService
     const httpClient = new AuthenticatedHttpClient(token.sessionKey)
     return new HttpSigningKeyService(httpClient, this.iamBaseUrl)
   }
