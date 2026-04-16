@@ -2,6 +2,11 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.5.1]
+
+### Changed
+- **Clearer MCP tool descriptions** — The `cwd` parameter on `brv-curate` and `brv-query` MCP tools now tells the calling LLM exactly when the project path is required (Claude Desktop, hosted MCP) vs. optional (Cursor, Cline, Zed, Claude Code). This reduces failed tool calls from clients that omitted the path or guessed a relative one.
+
 ## [3.5.0]
 
 ### Added
