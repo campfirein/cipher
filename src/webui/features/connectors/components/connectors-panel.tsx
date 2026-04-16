@@ -78,22 +78,23 @@ export function ConnectorsPanel() {
         <Button onClick={() => setAddDialogOpen(true)} variant="default">
           <Plus strokeWidth={3} /> Add connector
         </Button>
-        <AddConnectorDialog
-          agents={agents}
-          connectors={connectors}
-          onAdd={async (agent) => {
-            setPendingAgentId(agent.id)
-            try {
-              await handleAddConnector(agent.id, agent.defaultConnectorType)
-            } finally {
-              setPendingAgentId(undefined)
-            }
-          }}
-          onOpenChange={setAddDialogOpen}
-          open={addDialogOpen}
-          pendingAgentId={pendingAgentId}
-        />
       </div>
+
+      <AddConnectorDialog
+        agents={agents}
+        connectors={connectors}
+        onAdd={async (agent) => {
+          setPendingAgentId(agent.id)
+          try {
+            await handleAddConnector(agent.id, agent.defaultConnectorType)
+          } finally {
+            setPendingAgentId(undefined)
+          }
+        }}
+        onOpenChange={setAddDialogOpen}
+        open={addDialogOpen}
+        pendingAgentId={pendingAgentId}
+      />
 
       {/* Connector list */}
       {connectors.length === 0 ? (
@@ -113,8 +114,8 @@ export function ConnectorsPanel() {
                 </div>
                 <div className='flex items-center'>
                   <DropdownMenu>
-                    <DropdownMenuTrigger>
-                      <Button className="text-sm" size="sm" variant="outline">
+                    <DropdownMenuTrigger disabled={installMutation.isPending}>
+                      <Button className="text-sm" disabled={installMutation.isPending} size="sm" variant="outline">
                         {connectorLabels[connector.connectorType]}
                       </Button>
                     </DropdownMenuTrigger>

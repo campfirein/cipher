@@ -30,6 +30,7 @@ export const agentIcons: Partial<Record<Agent, string>> = {
   'Auggie CLI': auggie,
   'Augment Code': augment,
   'Claude Code': claude,
+  'Claude Desktop': claude,
   'Cline': cline,
   'Codex': codex,
   'Cursor': cursor,
