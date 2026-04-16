@@ -55,10 +55,17 @@ export class ByteRoverMcpServer {
     this.mode = modeResult.mode
     this.projectRoot = modeResult.mode === 'project' ? modeResult.projectRoot : undefined
     this.worktreeRoot = modeResult.mode === 'project' ? modeResult.worktreeRoot : undefined
-    this.server = new McpServer({
-      name: 'byterover',
-      version: config.version,
-    })
+    this.server = new McpServer(
+      {
+        name: 'byterover',
+        version: config.version,
+      },
+      {
+        instructions:
+          'ByteRover MCP — curate and query project context trees. ' +
+          'See the `cwd` parameter description on each tool for how to provide the project path correctly.',
+      },
+    )
 
     this.connectOptions = {
       clientType: 'mcp',
