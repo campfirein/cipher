@@ -17,21 +17,22 @@ import {useMemo, useState} from 'react'
 import {useNavigate} from 'react-router-dom'
 import {toast} from 'sonner'
 
+import type {VcBranch} from '../../../../shared/transport/events/vc-events'
+
 import {useVcBranchSetUpstream} from '../api/execute-vc-branch-set-upstream'
 import {useVcCheckout} from '../api/execute-vc-checkout'
 import {useVcFetch} from '../api/execute-vc-fetch'
 import {useVcPull} from '../api/execute-vc-pull'
-import {useGetVcBranches, type VcBranch} from '../api/get-vc-branches'
+import {useGetVcBranches} from '../api/get-vc-branches'
 import {useGetVcStatus} from '../api/get-vc-status'
 import {filterBranches} from '../utils/filter-branches'
 import {partitionBranches} from '../utils/partition-branches'
 import {withUnbornCurrent} from '../utils/with-unborn-current'
-import {CheckoutRefDialog} from './checkout-ref-dialog'
 import {DeleteBranchDialog} from './delete-branch-dialog'
 import {InitializeVcButton} from './initialize-vc-button'
 import {NewBranchDialog} from './new-branch-dialog'
 
-type DialogKind = 'checkout-ref' | 'new-branch' | null
+type DialogKind = 'new-branch' | null
 
 type DeleteTarget = {branchName: string}
 
@@ -185,8 +186,7 @@ export function BranchDropdown() {
         message: 'Pull failed',
       }),
       loading: 'Updating project…',
-      success: (result) =>
-        result.alreadyUpToDate ? `${result.branch} is up to date` : `Pulled ${result.branch}`,
+      success: (result) => (result.alreadyUpToDate ? `${result.branch} is up to date` : `Pulled ${result.branch}`),
     })
   }
 
@@ -329,7 +329,6 @@ export function BranchDropdown() {
         open={dialog === 'new-branch'}
         startPoint={newBranchStartPoint}
       />
-      <CheckoutRefDialog onOpenChange={(o) => (o ? null : setDialog(null))} open={dialog === 'checkout-ref'} />
 
       <DeleteBranchDialog
         branchName={deleteTarget?.branchName ?? ''}
@@ -351,6 +350,11 @@ function LocalBranchSubmenu({
   onCheckout: () => void
   onDelete: () => void
   onNewBranchFrom: () => void
+  /**
+   * Only the current branch's tracking ref is known (from `vc:status`). Callers
+   * for non-current local rows leave this undefined — it's not a UX choice,
+   * the per-branch upstream simply isn't in the status payload.
+   */
   trackingBranch?: string
 }) {
   return (

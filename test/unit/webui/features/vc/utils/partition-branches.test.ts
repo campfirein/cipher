@@ -1,10 +1,9 @@
 import {expect} from 'chai'
 
+import {VcBranch} from '../../../../../../src/shared/transport/events/vc-events'
 import {partitionBranches} from '../../../../../../src/webui/features/vc/utils/partition-branches'
 
-type Branch = {isCurrent: boolean; isRemote: boolean; name: string}
-
-const b = (name: string, extra: Partial<Branch> = {}): Branch => ({
+const b = (name: string, extra: Partial<VcBranch> = {}): VcBranch => ({
   isCurrent: false,
   isRemote: false,
   name,
@@ -13,11 +12,7 @@ const b = (name: string, extra: Partial<Branch> = {}): Branch => ({
 
 describe('partitionBranches', () => {
   it('separates local branches from remote branches', () => {
-    const result = partitionBranches([
-      b('main', {isCurrent: true}),
-      b('feature/x'),
-      b('origin/main', {isRemote: true}),
-    ])
+    const result = partitionBranches([b('main', {isCurrent: true}), b('feature/x'), b('origin/main', {isRemote: true})])
 
     expect(result.locals.map((x) => x.name)).to.deep.equal(['main', 'feature/x'])
     expect(result.remotesByHost.get('origin')?.map((x) => x.name)).to.deep.equal(['origin/main'])
@@ -31,21 +26,14 @@ describe('partitionBranches', () => {
     ])
 
     expect([...result.remotesByHost.keys()]).to.deep.equal(['origin', 'upstream'])
-    expect(result.remotesByHost.get('origin')?.map((x) => x.name)).to.deep.equal([
-      'origin/main',
-      'origin/feature/x',
-    ])
+    expect(result.remotesByHost.get('origin')?.map((x) => x.name)).to.deep.equal(['origin/main', 'origin/feature/x'])
     expect(result.remotesByHost.get('upstream')?.map((x) => x.name)).to.deep.equal(['upstream/main'])
   })
 
   it('strips a refs/remotes/ prefix before grouping', () => {
-    const result = partitionBranches([
-      b('refs/remotes/origin/main', {isRemote: true}),
-    ])
+    const result = partitionBranches([b('refs/remotes/origin/main', {isRemote: true})])
 
-    expect(result.remotesByHost.get('origin')?.map((x) => x.name)).to.deep.equal([
-      'refs/remotes/origin/main',
-    ])
+    expect(result.remotesByHost.get('origin')?.map((x) => x.name)).to.deep.equal(['refs/remotes/origin/main'])
   })
 
   it('puts a remote branch without a slash into an "unknown" bucket', () => {
@@ -54,11 +42,7 @@ describe('partitionBranches', () => {
   })
 
   it('preserves the input order within each bucket', () => {
-    const result = partitionBranches([
-      b('feature/z'),
-      b('feature/a'),
-      b('main'),
-    ])
+    const result = partitionBranches([b('feature/z'), b('feature/a'), b('main')])
     expect(result.locals.map((x) => x.name)).to.deep.equal(['feature/z', 'feature/a', 'main'])
   })
 

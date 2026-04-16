@@ -1,4 +1,4 @@
-import type {VcBranch} from './filter-branches'
+import type {VcBranch} from '../../../../shared/transport/events/vc-events'
 
 export type BranchPartition<T extends VcBranch> = {
   locals: T[]

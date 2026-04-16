@@ -208,10 +208,16 @@ export type IVcBranchRequest =
   | {action: 'list'; all?: boolean}
   | {action: 'set-upstream'; upstream: string}
 
+export interface VcBranch {
+  isCurrent: boolean
+  isRemote: boolean
+  name: string
+}
+
 export type IVcBranchResponse =
   | {action: 'create'; created: string}
   | {action: 'delete'; deleted: string}
-  | {action: 'list'; branches: Array<{isCurrent: boolean; isRemote: boolean; name: string}>}
+  | {action: 'list'; branches: VcBranch[]}
   | {action: 'set-upstream'; branch: string; upstream: string}
 
 export interface IVcCheckoutRequest {

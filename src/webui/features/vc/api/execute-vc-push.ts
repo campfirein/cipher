@@ -2,12 +2,9 @@ import {useMutation, useQueryClient} from '@tanstack/react-query'
 
 import type {MutationConfig} from '../../../lib/react-query'
 
-import {
-  type IVcPushRequest,
-  type IVcPushResponse,
-  VcEvents,
-} from '../../../../shared/transport/events/vc-events'
+import {type IVcPushRequest, type IVcPushResponse, VcEvents} from '../../../../shared/transport/events/vc-events'
 import {useTransportStore} from '../../../stores/transport-store'
+import {getVcBranchesQueryOptions} from './get-vc-branches'
 import {getVcStatusQueryOptions} from './get-vc-status'
 
 export const executeVcPush = (request: IVcPushRequest = {}): Promise<IVcPushResponse> => {
@@ -28,6 +25,7 @@ export const useVcPush = ({mutationConfig}: UseVcPushOptions = {}) => {
   return useMutation({
     onSuccess(...args) {
       queryClient.invalidateQueries({queryKey: getVcStatusQueryOptions().queryKey})
+      queryClient.invalidateQueries({queryKey: getVcBranchesQueryOptions().queryKey})
       onSuccess?.(...args)
     },
     ...rest,

@@ -1,4 +1,4 @@
-export type VcBranch = {isCurrent: boolean; isRemote: boolean; name: string}
+import type {VcBranch} from '../../../../shared/transport/events/vc-events'
 
 export function filterBranches<T extends VcBranch>(branches: readonly T[], query: string): T[] {
   const needle = query.trim().toLowerCase()

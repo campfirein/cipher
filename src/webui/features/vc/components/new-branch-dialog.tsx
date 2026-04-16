@@ -10,7 +10,7 @@ import {
 } from '@campfirein/byterover-packages/components/dialog'
 import {Field, FieldDescription, FieldLabel} from '@campfirein/byterover-packages/components/field'
 import {Input} from '@campfirein/byterover-packages/components/input'
-import {useEffect, useState} from 'react'
+import {useEffect, useId, useState} from 'react'
 import {toast} from 'sonner'
 
 import {useVcCheckout} from '../api/execute-vc-checkout'
@@ -24,6 +24,7 @@ type NewBranchDialogProps = {
 }
 
 export function NewBranchDialog({initialName = '', onOpenChange, open, startPoint}: NewBranchDialogProps) {
+  const inputId = useId()
   const [name, setName] = useState(initialName)
   const [errorMessage, setErrorMessage] = useState<string | undefined>()
   const checkout = useVcCheckout()
@@ -65,11 +66,11 @@ export function NewBranchDialog({initialName = '', onOpenChange, open, startPoin
         </DialogHeader>
 
         <Field data-invalid={Boolean(errorMessage)}>
-          <FieldLabel htmlFor="input-invalid">Branch name</FieldLabel>
+          <FieldLabel htmlFor={inputId}>Branch name</FieldLabel>
           <Input
             aria-invalid={Boolean(errorMessage)}
             autoFocus
-            id="input-invalid"
+            id={inputId}
             onChange={(e) => {
               setName(e.target.value)
               if (errorMessage) setErrorMessage(undefined)

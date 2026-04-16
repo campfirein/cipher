@@ -1,10 +1,9 @@
 import {expect} from 'chai'
 
+import {VcBranch} from '../../../../../../src/shared/transport/events/vc-events'
 import {filterBranches} from '../../../../../../src/webui/features/vc/utils/filter-branches'
 
-type Branch = {isCurrent: boolean; isRemote: boolean; name: string}
-
-const b = (name: string, extra: Partial<Branch> = {}): Branch => ({
+const b = (name: string, extra: Partial<VcBranch> = {}): VcBranch => ({
   isCurrent: false,
   isRemote: false,
   name,
@@ -12,7 +11,7 @@ const b = (name: string, extra: Partial<Branch> = {}): Branch => ({
 })
 
 describe('filterBranches', () => {
-  const branches: Branch[] = [
+  const branches: VcBranch[] = [
     b('main', {isCurrent: true}),
     b('feature/auth'),
     b('feature/login-dialog'),
