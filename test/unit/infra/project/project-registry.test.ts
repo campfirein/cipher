@@ -204,6 +204,17 @@ describe('ProjectRegistry', () => {
       expect(Object.keys(parsed.projects)).to.have.lengthOf(0)
     })
 
+    it('should handle deleted path (ENOENT) by using raw input as key', () => {
+      registry.register(projectDir)
+      // Delete the directory so resolvePath will throw ENOENT
+      rmSync(projectDir, {force: true, recursive: true})
+
+      const result = registry.unregister(projectDir)
+
+      expect(result).to.be.true
+      expect(registry.getAll().size).to.equal(0)
+    })
+
     it('should NOT delete XDG directories', () => {
       const {storagePath} = registry.register(projectDir)
 

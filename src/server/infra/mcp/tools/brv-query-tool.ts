@@ -6,24 +6,13 @@ import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
 import {TransportTaskEventNames} from '../../../core/domain/transport/schemas.js'
-import {
-  associateProjectWithRetry,
-  type McpStartupProjectContext,
-  resolveMcpTaskContext,
-} from './mcp-project-context.js'
+import {associateProjectWithRetry, type McpStartupProjectContext, resolveMcpTaskContext} from './mcp-project-context.js'
 import {resolveClientCwd} from './resolve-client-cwd.js'
+import {cwdField} from './shared-schema.js'
 import {waitForTaskResult} from './task-result-waiter.js'
 
-
 export const BrvQueryInputSchema = z.object({
-  cwd: z
-    .string()
-    .optional()
-    .describe(
-      'Working directory of the project (absolute path). ' +
-        'Required when the MCP server runs in global mode (e.g., Windsurf). ' +
-        'Optional in project mode — defaults to the project directory.',
-    ),
+  cwd: cwdField,
   query: z.string().describe('Natural language question about the codebase or project'),
 })
 

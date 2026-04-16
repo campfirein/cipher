@@ -46,6 +46,10 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
     default: 'skill',
     supported: ['rules', 'hook', 'mcp', 'skill'],
   },
+  'Claude Desktop': {
+    default: 'mcp',
+    supported: ['mcp'],
+  },
   Cline: {
     default: 'mcp',
     supported: ['rules', 'mcp'],
