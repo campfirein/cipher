@@ -1,4 +1,5 @@
 export const BRV_DIR = '.brv'
+export const API_V1_PATH = '/api/v1'
 export const PROJECT_CONFIG_FILE = 'config.json'
 export const BRV_CONFIG_VERSION = '0.0.1'
 
