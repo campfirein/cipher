@@ -262,7 +262,7 @@ async function main(): Promise<void> {
             log(`Dream eligible, dispatching dream task: ${projectPath}`)
             agentPool?.submitTask({
               clientId: 'daemon',
-              content: '',
+              content: 'Memory consolidation (idle trigger)',
               force: false,
               projectPath,
               taskId: randomUUID(),

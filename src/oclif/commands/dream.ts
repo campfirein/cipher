@@ -189,7 +189,7 @@ export default class Dream extends Command {
     const {client, force, format, projectRoot, timeoutMs, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
-      content: '',
+      content: force ? 'Memory consolidation (force)' : 'Memory consolidation',
       ...(force ? {force: true} : {}),
       ...(projectRoot ? {projectPath: projectRoot} : {}),
       taskId,
@@ -202,20 +202,18 @@ export default class Dream extends Command {
         client,
         command: 'dream',
         format,
-        onCompleted: ({result, taskId: tid}) => {
+        onCompleted: ({logId, result, taskId: tid}) => {
           const skipped = result?.startsWith('Dream skipped:')
           if (format === 'json') {
             writeJsonResponse({
               command: 'dream',
               data: skipped
                 ? {reason: result, status: 'skipped', taskId: tid}
-                : {logId: result, status: 'completed', taskId: tid},
+                : {logId, result, status: 'completed', taskId: tid},
               success: true,
             })
-          } else if (skipped) {
-            this.log(result ?? '')
           } else {
-            this.log(`Dream completed. (Log: ${result})`)
+            this.log(result ?? '')
           }
         },
         onError: ({error}) => {

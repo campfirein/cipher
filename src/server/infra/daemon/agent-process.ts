@@ -480,6 +480,7 @@ async function executeTask(
 
     try {
       let result: string
+      let logId: string | undefined
       switch (type) {
         case 'curate': {
           result = await curateExecutor.executeWithAgent(agent, {clientCwd, content, files, projectRoot: projectPath, taskId, worktreeRoot})
@@ -526,12 +527,14 @@ async function executeTask(
             reviewBackupStore: new FileReviewBackupStore(brvDir),
             searchService: searchKnowledgeService,
           })
-          result = await dreamExecutor.executeWithAgent(agent, {
+          const dreamResult = await dreamExecutor.executeWithAgent(agent, {
             priorMtime: eligibility.priorMtime,
             projectRoot: projectPath,
             taskId,
             trigger: trigger ?? 'cli',
           })
+          result = dreamResult.result
+          logId = dreamResult.logId
 
           break
         }
@@ -554,7 +557,7 @@ async function executeTask(
       // Emit task:completed
       agentLog(`task:completed taskId=${taskId}`)
       try {
-        transport.request(TransportTaskEventNames.COMPLETED, {clientId, projectPath, result, taskId})
+        transport.request(TransportTaskEventNames.COMPLETED, {clientId, ...(logId ? {logId} : {}), projectPath, result, taskId})
       } catch (error) {
         agentLog(
           `task:completed send failed taskId=${taskId}: ${error instanceof Error ? error.message : String(error)}`,
