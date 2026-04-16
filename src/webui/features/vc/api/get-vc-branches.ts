@@ -5,20 +5,19 @@ import type {QueryConfig} from '../../../lib/react-query'
 import {type IVcBranchResponse, type VcBranch, VcEvents} from '../../../../shared/transport/events/vc-events'
 import {useTransportStore} from '../../../stores/transport-store'
 
-export const getVcBranches = async (): Promise<VcBranch[]> => {
+export const getVcBranches = (): Promise<VcBranch[]> => {
   const {apiClient} = useTransportStore.getState()
-  if (!apiClient) throw new Error('Not connected')
+  if (!apiClient) return Promise.reject(new Error('Not connected'))
 
-  const response = await apiClient.request<IVcBranchResponse>(VcEvents.BRANCH, {
-    action: 'list',
-    all: true,
-  })
+  return apiClient
+    .request<IVcBranchResponse>(VcEvents.BRANCH, {action: 'list', all: true})
+    .then((response) => {
+      if (response.action !== 'list') {
+        throw new Error(`Unexpected branch response action: ${response.action}`)
+      }
 
-  if (response.action !== 'list') {
-    throw new Error(`Unexpected branch response action: ${response.action}`)
-  }
-
-  return response.branches
+      return response.branches
+    })
 }
 
 export const getVcBranchesQueryOptions = () =>
