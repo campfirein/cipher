@@ -45,13 +45,12 @@ import {
   VcEvents,
   type VcResetMode,
 } from '../../../../shared/transport/events/vc-events.js'
-import {CONTEXT_TREE_GITIGNORE} from '../../../constants.js'
 import {BrvConfig} from '../../../core/domain/entities/brv-config.js'
 import {Space} from '../../../core/domain/entities/space.js'
 import {GitAuthError, GitError} from '../../../core/domain/errors/git-error.js'
 import {NotAuthenticatedError} from '../../../core/domain/errors/task-error.js'
 import {VcError} from '../../../core/domain/errors/vc-error.js'
-import {ensureGitignoreEntries} from '../../../utils/gitignore.js'
+import {ensureContextTreeGitignore, ensureGitignoreEntries} from '../../../utils/gitignore.js'
 import {buildCogitRemoteUrl, isValidBranchName, parseUserFacingUrl} from '../../git/cogit-url.js'
 import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
@@ -200,18 +199,6 @@ export class VcHandler {
   }
 
   /**
-   * Writes a .gitignore to the context-tree directory only if one does not already exist.
-   */
-  private async ensureGitignore(contextTreeDir: string): Promise<void> {
-    const gitignorePath = join(contextTreeDir, '.gitignore')
-    try {
-      await fs.promises.access(gitignorePath)
-    } catch {
-      await fs.promises.writeFile(gitignorePath, CONTEXT_TREE_GITIGNORE, 'utf8')
-    }
-  }
-
-  /**
    * When force is NOT set, checks for uncommitted changes and throws
    * VcError(UNCOMMITTED_CHANGES) if the working tree is dirty.
    * When force IS set, skips the check entirely (changes will be discarded).
@@ -237,6 +224,8 @@ export class VcHandler {
     if (!gitInitialized) {
       throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
     }
+
+    await ensureContextTreeGitignore(directory)
 
     const statusBefore = await this.gitService.status({directory})
     const stagedBefore = new Set(statusBefore.files.filter((f) => f.staged).map((f) => f.path))
@@ -510,7 +499,7 @@ export class VcHandler {
       }
 
       // Ensure .gitignore exists (remote may not have one)
-      await this.ensureGitignore(contextTreeDir)
+      await ensureContextTreeGitignore(contextTreeDir)
 
       // Add .brv entries to project .gitignore (prevents `git add .` fatal error from nested .git)
       await ensureGitignoreEntries(projectPath)
@@ -639,7 +628,7 @@ export class VcHandler {
     await this.gitService.init({defaultBranch: 'main', directory: contextTreeDir})
 
     // 3. Ensure .gitignore exists with correct content (idempotent)
-    await this.ensureGitignore(contextTreeDir)
+    await ensureContextTreeGitignore(contextTreeDir)
 
     // 4. Add .brv entries to project .gitignore (prevents `git add .` fatal error from nested .git)
     await ensureGitignoreEntries(projectPath)
@@ -1084,6 +1073,8 @@ export class VcHandler {
         untracked: [],
       }
     }
+
+    await ensureContextTreeGitignore(contextTreeDir)
 
     const branch = await this.gitService.getCurrentBranch({directory: contextTreeDir})
     const gitStatus = await this.gitService.status({directory: contextTreeDir})

@@ -44,6 +44,7 @@ export class ToolProvider implements IToolProvider {
       memoryManager: 0,
       processService: 0,
       sandboxService: 0,
+      swarmCoordinator: 0,
       todoStorage: 0,
       tokenizer: 0,
     } satisfies Record<keyof ToolServices, 0>),

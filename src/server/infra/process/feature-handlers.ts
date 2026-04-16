@@ -5,6 +5,7 @@
  * These handlers implement the TUI ↔ Server event contract.
  */
 
+import {access} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {IConnectorManager} from '../../core/interfaces/connectors/i-connector-manager.js'
@@ -19,7 +20,7 @@ import type {ProjectBroadcaster, ProjectPathResolver} from '../transport/handler
 import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
 import {getAuthConfig} from '../../config/auth.config.js'
 import {getCurrentConfig} from '../../config/environment.js'
-import {BRV_DIR} from '../../constants.js'
+import {API_V1_PATH, BRV_DIR} from '../../constants.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
 import {OAuthService} from '../auth/oauth-service.js'
 import {OidcDiscoveryService} from '../auth/oidc-discovery-service.js'
@@ -104,9 +105,13 @@ export async function setupFeatureHandlers({
   const envConfig = getCurrentConfig()
   const tokenStore = createTokenStore()
   const projectConfigStore = new ProjectConfigStore()
-  const userService = new HttpUserService({apiBaseUrl: envConfig.apiBaseUrl})
-  const teamService = new HttpTeamService({apiBaseUrl: envConfig.apiBaseUrl})
-  const spaceService = new HttpSpaceService({apiBaseUrl: envConfig.apiBaseUrl})
+
+  // API version paths appended at point of use.
+  // Note: IAM and Cogit currently share this version path, but may version independently in the future.
+  const iamApiV1 = `${envConfig.iamBaseUrl}${API_V1_PATH}`
+  const userService = new HttpUserService({apiBaseUrl: iamApiV1})
+  const teamService = new HttpTeamService({apiBaseUrl: iamApiV1})
+  const spaceService = new HttpSpaceService({apiBaseUrl: iamApiV1})
 
   // Auth handler requires async OIDC discovery
   const discoveryService = new OidcDiscoveryService()
@@ -148,8 +153,9 @@ export async function setupFeatureHandlers({
   const contextTreeWriterService = new FileContextTreeWriterService({snapshotService: contextTreeSnapshotService})
   const contextTreeMerger = new FileContextTreeMerger({snapshotService: contextTreeSnapshotService})
   const contextFileReader = new FileContextFileReader()
-  const cogitPushService = new HttpCogitPushService({apiBaseUrl: envConfig.cogitApiBaseUrl})
-  const cogitPullService = new HttpCogitPullService({apiBaseUrl: envConfig.cogitApiBaseUrl})
+  const cogitApiV1 = `${envConfig.cogitBaseUrl}${API_V1_PATH}`
+  const cogitPushService = new HttpCogitPushService({apiBaseUrl: cogitApiV1})
+  const cogitPullService = new HttpCogitPullService({apiBaseUrl: cogitApiV1})
 
   // ConnectorManager factory — creates per-project instances since constructor binds to projectRoot
   const fileService = new FsFileService()
@@ -175,6 +181,18 @@ export async function setupFeatureHandlers({
   new LocationsHandler({
     contextTreeService,
     getActiveProjectPaths,
+    async pathExists(path: string) {
+      try {
+        await access(path)
+        return true
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return false
+        }
+
+        throw error
+      }
+    },
     projectRegistry,
     resolveProjectPath,
     transport,

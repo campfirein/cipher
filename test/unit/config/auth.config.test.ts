@@ -9,13 +9,10 @@ describe('Auth Configuration', () => {
   let consoleWarnStub: sinon.SinonStub
 
   const ENV_VARS = {
-    BRV_API_BASE_URL: 'https://api.test',
-    BRV_AUTHORIZATION_URL: 'https://auth.test/authorize',
-    BRV_COGIT_API_BASE_URL: 'https://cogit.test',
+    BRV_COGIT_BASE_URL: 'https://cogit.test',
     BRV_GIT_REMOTE_BASE_URL: 'https://cogit-git.test',
-    BRV_ISSUER_URL: 'https://issuer.test',
-    BRV_LLM_API_BASE_URL: 'https://llm.test',
-    BRV_TOKEN_URL: 'https://auth.test/token',
+    BRV_IAM_BASE_URL: 'https://iam.test',
+    BRV_LLM_BASE_URL: 'https://llm.test',
     BRV_WEB_APP_URL: 'https://app.test',
   }
 
@@ -109,8 +106,8 @@ describe('Auth Configuration', () => {
     it('should fallback to env var URLs when discovery fails', async () => {
       const config = await getAuthConfig(discoveryService)
 
-      expect(config.authorizationUrl).to.equal('https://auth.test/authorize')
-      expect(config.tokenUrl).to.equal('https://auth.test/token')
+      expect(config.authorizationUrl).to.equal('https://iam.test/api/v1/oidc/authorize')
+      expect(config.tokenUrl).to.equal('https://iam.test/api/v1/oidc/token')
     })
 
     it('should still use environment-specific clientId and scopes in fallback', async () => {
@@ -123,7 +120,7 @@ describe('Auth Configuration', () => {
     })
 
     it('should throw on network errors', async () => {
-      discoveryService.discover = stub().rejects(new Error('getaddrinfo ENOTFOUND issuer.test'))
+      discoveryService.discover = stub().rejects(new Error('getaddrinfo ENOTFOUND iam.test'))
 
       try {
         await getAuthConfig(discoveryService)
