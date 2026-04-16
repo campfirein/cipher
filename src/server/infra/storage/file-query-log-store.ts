@@ -64,7 +64,7 @@ const QueryLogEntryFileSchema = z.discriminatedUnion('status', [
 ])
 
 const ID_PATTERN = new RegExp(`^${QUERY_LOG_ID_PREFIX}-\\d+$`)
-const DEFAULT_MAX_ENTRIES = 200
+const DEFAULT_MAX_ENTRIES = 1000
 const DEFAULT_MAX_AGE_DAYS = 30
 /** Entries stuck in "processing" longer than this are considered interrupted (daemon was killed). */
 const STALE_PROCESSING_THRESHOLD_MS = 10 * 60 * 1000 // 10 minutes
@@ -82,7 +82,7 @@ type FileQueryLogStoreOptions = {
  *   {baseDir}/query-log/qry-{timestamp_ms}.json
  *
  * Writes are atomic (tmp → rename). Reads validate with Zod and return undefined
- * for corrupt/missing files. Prunes by age (default 30 days) then by count (default 200).
+ * for corrupt/missing files. Prunes by age (default 30 days) then by count (default 1000).
  */
 export class FileQueryLogStore implements IQueryLogStore {
   private lastTimestamp = 0
