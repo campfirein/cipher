@@ -58,12 +58,12 @@ class SshAgentClient {
     for (let i = 0; i < count; i++) {
       const blobLen = readUInt32(response, offset)
       offset += 4
-      const blob = response.slice(offset, offset + blobLen)
+      const blob = response.subarray(offset, offset + blobLen)
       offset += blobLen
 
       const commentLen = readUInt32(response, offset)
       offset += 4
-      const comment = response.slice(offset, offset + commentLen).toString('utf8')
+      const comment = response.subarray(offset, offset + commentLen).toString('utf8')
       offset += commentLen
 
       // Compute SHA256 fingerprint to match against our key
@@ -112,7 +112,7 @@ class SshAgentClient {
           }
 
           if (accumulated.length >= 4 + responseLen) {
-            settle(() => resolve(accumulated.slice(4, 4 + responseLen)))
+            settle(() => resolve(accumulated.subarray(4, 4 + responseLen)))
           }
         }
       })
@@ -154,7 +154,7 @@ class SshAgentClient {
 
     // Response: byte SSH_AGENT_SIGN_RESPONSE + string(signature)
     const sigLen = readUInt32(response, 1)
-    return response.slice(5, 5 + sigLen)
+    return response.subarray(5, 5 + sigLen)
   }
 }
 

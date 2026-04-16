@@ -8,6 +8,7 @@ import {
   type SigningKeyItem,
   VcEvents,
 } from '../../../../shared/transport/events/vc-events.js'
+import {NotAuthenticatedError} from '../../../core/domain/errors/task-error.js'
 import {AuthenticatedHttpClient} from '../../http/authenticated-http-client.js'
 import {HttpSigningKeyService} from '../../iam/http-signing-key-service.js'
 
@@ -56,8 +57,8 @@ export class SigningKeyHandler {
 
   private async createService(): Promise<ISigningKeyService> {
     const token = await this.tokenStore.load()
-    const sessionKey = token?.sessionKey ?? ''
-    const httpClient = new AuthenticatedHttpClient(sessionKey)
+    if (!token?.isValid()) throw new NotAuthenticatedError()
+    const httpClient = new AuthenticatedHttpClient(token.sessionKey)
     return new HttpSigningKeyService(httpClient, this.iamBaseUrl)
   }
 

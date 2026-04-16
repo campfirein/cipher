@@ -745,6 +745,80 @@ describe('VcHandler', () => {
         }
       }
     })
+
+    it('should NOT sign when signingKey is set but commitSign is absent and sign flag is not passed', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.status.resolves({
+        files: [{path: 'a.md', staged: true, status: 'added'}],
+        isClean: false,
+      })
+      // signingKey is configured but commit.sign is NOT set — should NOT auto-sign
+      deps.vcGitConfigStore.get.resolves({email: 'test@example.com', name: 'Test', signingKey: '/some/key'})
+      makeVcHandler(deps).setup()
+
+      await deps.requestHandlers[VcEvents.COMMIT]({message: 'test'}, CLIENT_ID)
+
+      // gitService.commit should have been called without an onSign callback
+      expect(deps.gitService.commit.calledOnce).to.be.true
+      const commitArgs = deps.gitService.commit.firstCall.args[0]
+      expect(commitArgs.onSign).to.be.undefined
+    })
+
+    it('should throw SIGNING_KEY_NOT_SUPPORTED for encrypted OpenSSH key (not PASSPHRASE_REQUIRED)', async () => {
+      // Build a synthetic encrypted OpenSSH key (aes256-ctr cipher) so probeSSHKey detects it
+      const sshStr = (s: Buffer | string) => {
+        const b = Buffer.isBuffer(s) ? s : Buffer.from(s)
+        const len = Buffer.allocUnsafe(4)
+        len.writeUInt32BE(b.length, 0)
+        return Buffer.concat([len, b])
+      }
+
+      const writeU32 = (v: number) => {
+        const b = Buffer.allocUnsafe(4)
+        b.writeUInt32BE(v, 0)
+        return b
+      }
+
+      const pubBlob = Buffer.concat([sshStr('ssh-ed25519'), sshStr(Buffer.alloc(32, 0xaa))])
+      const encKeyBuf = Buffer.concat([
+        Buffer.from('openssh-key-v1\0', 'binary'),
+        sshStr('aes256-ctr'),
+        sshStr('bcrypt'),
+        sshStr(Buffer.alloc(0)),
+        writeU32(1),
+        sshStr(pubBlob),
+        sshStr(Buffer.alloc(64, 0xbb)),
+      ])
+      const encKeyPem = `-----BEGIN OPENSSH PRIVATE KEY-----\n${encKeyBuf.toString('base64')}\n-----END OPENSSH PRIVATE KEY-----`
+      const realTmpDir = fs.mkdtempSync(join(tmpdir(), 'brv-enc-key-test-'))
+      const encKeyPath = join(realTmpDir, 'enc_key')
+      writeFileSync(encKeyPath, encKeyPem, {mode: 0o600})
+
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.status.resolves({
+        files: [{path: 'a.md', staged: true, status: 'added'}],
+        isClean: false,
+      })
+      deps.vcGitConfigStore.get.resolves({
+        commitSign: true,
+        email: 'test@example.com',
+        name: 'Test',
+        signingKey: encKeyPath,
+      })
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.COMMIT]({message: 'signed commit', sign: true}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.SIGNING_KEY_NOT_SUPPORTED)
+        }
+      }
+    })
   })
 
   describe('handleConfig', () => {
@@ -844,7 +918,7 @@ vM/XQYQnZQY1X/sVq1HQAAABF0ZXN0QGV4YW1wbGUuY29tAQI=
       deps.vcGitConfigStore.get.resolves({})
       makeVcHandler(deps).setup()
 
-      const result = await deps.requestHandlers[VcEvents.CONFIG]({importGitSigning: true, key: 'user.signingkey'}, CLIENT_ID) as IVcConfigResponse
+      const result = await deps.requestHandlers[VcEvents.CONFIG]({importGitSigning: true}, CLIENT_ID) as IVcConfigResponse
 
       expect(deps.vcGitConfigStore.set.calledOnce).to.be.true
       const savedConfig = deps.vcGitConfigStore.set.firstCall.args[1]
@@ -852,6 +926,59 @@ vM/XQYQnZQY1X/sVq1HQAAABF0ZXN0QGV4YW1wbGUuY29tAQI=
       // Should strip .pub and save the private key path
       expect(savedConfig.signingKey).to.equal(keyPath)
       expect(result.value).to.equal(keyPath)
+    })
+
+    it('handleImportGitSigning: throws SIGNING_KEY_NOT_FOUND when signingKey path does not exist on disk', async () => {
+      const realProjectPath = fs.mkdtempSync(join(tmpdir(), 'brv-test-import-badpath-'))
+      mkdirSync(realProjectPath, {recursive: true})
+      const {execSync} = await import('node:child_process')
+      execSync('git init', {cwd: realProjectPath})
+      // Point signingKey to a non-existent path (local config overrides global)
+      execSync('git config user.signingKey "/tmp/definitely-does-not-exist-brv-test"', {cwd: realProjectPath})
+
+      const deps = makeDeps(sandbox, realProjectPath)
+      deps.vcGitConfigStore.get.resolves({})
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.CONFIG]({importGitSigning: true}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.SIGNING_KEY_NOT_FOUND)
+        }
+      }
+    })
+
+    it('handleImportGitSigning: does NOT set commitSign when gpgsign is explicitly false', async () => {
+      const realProjectPath = fs.mkdtempSync(join(tmpdir(), 'brv-test-import-nosign-'))
+      mkdirSync(realProjectPath, {recursive: true})
+      const {execSync} = await import('node:child_process')
+      execSync('git init', {cwd: realProjectPath})
+
+      const keyPath = join(realProjectPath, 'fake_key')
+      const fakeKey = `-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACAmIfT6LJouOpJugPKYl7yiJwYIlrh124TOYjaNzxjNQgAAAJgCtf3VArX9
+1QAAAAtzc2gtZWQyNTUxOQAAACAmIfT6LJouOpJugPKYl7yiJwYIlrh124TOYjaNzxjNQg
+AAEB01GDi+m4swI3lsGv870+yJFfAJP0CcFSDPcTyCUpaBSYh9Posmi46km6A8piXvKIn
+BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
+-----END OPENSSH PRIVATE KEY-----`
+      writeFileSync(keyPath, fakeKey, {mode: 0o600})
+      execSync(`git config user.signingkey "${keyPath}"`, {cwd: realProjectPath})
+      // Explicitly set gpgsign=false in local repo to override global config
+      execSync('git config commit.gpgSign false', {cwd: realProjectPath})
+
+      const deps = makeDeps(sandbox, realProjectPath)
+      deps.vcGitConfigStore.get.resolves({})
+      makeVcHandler(deps).setup()
+
+      await deps.requestHandlers[VcEvents.CONFIG]({importGitSigning: true}, CLIENT_ID)
+
+      const savedConfig = deps.vcGitConfigStore.set.firstCall.args[1]
+      // commitSign should be false since gpgsign is explicitly false
+      expect(savedConfig.commitSign).to.equal(false)
     })
   })
 

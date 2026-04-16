@@ -1,7 +1,7 @@
 import {Command, Flags} from '@oclif/core'
 import {readFileSync} from 'node:fs'
 
-import {parseSSHPrivateKey, resolveHome} from '../../../server/infra/ssh/index.js'
+import {parseSSHPrivateKey, resolveHome} from '../../../shared/ssh/index.js'
 import {type IVcSigningKeyResponse, VcEvents} from '../../../shared/transport/events/vc-events.js'
 import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 

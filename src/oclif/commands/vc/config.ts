@@ -1,7 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {existsSync, readFileSync} from 'node:fs'
 
-import {parseSSHPrivateKey, resolveHome} from '../../../server/infra/ssh/index.js'
+import {parseSSHPrivateKey, resolveHome} from '../../../shared/ssh/index.js'
 import {isVcConfigKey, type IVcConfigResponse, type IVcSigningKeyResponse, VcEvents} from '../../../shared/transport/events/vc-events.js'
 import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
@@ -74,7 +74,7 @@ public static flags = {
   private async runImport(): Promise<void> {
     try {
       const result = await withDaemonRetry(async (client) =>
-        client.requestWithAck<IVcConfigResponse>(VcEvents.CONFIG, {importGitSigning: true, key: 'user.signingkey'}),
+        client.requestWithAck<IVcConfigResponse>(VcEvents.CONFIG, {importGitSigning: true}),
       )
 
       if (result.hint) this.log(`  ${result.hint}`)

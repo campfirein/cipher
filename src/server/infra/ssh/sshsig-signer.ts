@@ -47,16 +47,18 @@ export function signCommitPayload(payload: string, key: ParsedSSHKey): SSHSignat
   ])
 
   // 3. Sign the signed data with the private key
-  //    Ed25519: sign(null, data, key) — algorithm is implicit
-  //    RSA:     sign('sha512', data, key) — must specify hash
-  //    ECDSA:   sign(null, data, key) — algorithm follows curve
-  const rawSignature = sign(null, signedData, key.privateKeyObject)
+  //    Ed25519: sign(null, data, key)    — algorithm is implicit in the key
+  //    RSA:     sign('sha512', data, key) — must specify hash explicitly
+  //    ECDSA:   sign(null, data, key)    — algorithm follows the curve
+  const isRsa = key.keyType === 'ssh-rsa'
+  const rawSignature = sign(isRsa ? 'sha512' : null, signedData, key.privateKeyObject)
 
   // 4. Build the SSH signature blob (key-type-specific wrapper)
-  //    Ed25519: string("ssh-ed25519") + string(64-byte-sig)
-  //    RSA:     string("rsa-sha2-512") + string(rsa-sig)
+  //    Ed25519: string("ssh-ed25519")        + string(64-byte-sig)
+  //    RSA:     string("rsa-sha2-512")        + string(rsa-sig)   ← NOT "ssh-rsa"
   //    ECDSA:   string("ecdsa-sha2-nistp256") + string(ecdsa-sig)
-  const signatureBlob = Buffer.concat([sshString(key.keyType), sshString(rawSignature)])
+  const blobKeyType = isRsa ? 'rsa-sha2-512' : key.keyType
+  const signatureBlob = Buffer.concat([sshString(blobKeyType), sshString(rawSignature)])
 
   // 5. Build the full sshsig binary envelope per PROTOCOL.sshsig §3
   const versionBuf = Buffer.allocUnsafe(4)

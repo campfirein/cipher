@@ -550,8 +550,9 @@ export class VcHandler {
     // Determine whether to sign this commit:
     //   data.sign=true  → force sign
     //   data.sign=false → force no-sign
-    //   undefined       → use config.commitSign, or auto-sign if signingKey is configured
-    const shouldSign = data.sign ?? config?.commitSign ?? config?.signingKey !== undefined
+    //   undefined       → use config.commitSign (false by default — matches git behaviour where
+    //                     setting user.signingKey alone does NOT enable auto-signing)
+    const shouldSign = data.sign ?? config?.commitSign ?? false
 
     let onSign: ((payload: string) => Promise<string>) | undefined
 
@@ -589,7 +590,7 @@ export class VcHandler {
       ...(onSign ? {onSign} : {}),
     })
 
-    return {message: commit.message, sha: commit.sha}
+    return {message: commit.message, sha: commit.sha, ...(shouldSign ? {signed: true} : {})}
   }
 
   private async handleConfig(data: IVcConfigRequest, clientId: string): Promise<IVcConfigResponse> {
@@ -1483,11 +1484,23 @@ export class VcHandler {
       )
     }
 
-    if (probe.needsPassphrase && !passphrase) {
-      throw new VcError(
-        `SSH key at ${keyPath} requires a passphrase. Retry with your passphrase.`,
-        VcErrorCode.PASSPHRASE_REQUIRED,
-      )
+    if (probe.needsPassphrase) {
+      // Encrypted OpenSSH native format (bcrypt KDF + AES cipher) is not supported for
+      // direct decryption. Tell the user to load the key into ssh-agent instead.
+      if (probe.opensshEncrypted) {
+        throw new VcError(
+          `Encrypted OpenSSH private keys are not supported for direct signing. ` +
+          `Load the key into ssh-agent first: ssh-add ${keyPath}`,
+          VcErrorCode.SIGNING_KEY_NOT_SUPPORTED,
+        )
+      }
+
+      if (!passphrase) {
+        throw new VcError(
+          `SSH key at ${keyPath} requires a passphrase. Retry with your passphrase.`,
+          VcErrorCode.PASSPHRASE_REQUIRED,
+        )
+      }
     }
 
     const parsed = await parseSSHPrivateKey(keyPath, passphrase)

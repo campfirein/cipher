@@ -23,6 +23,14 @@ export class SigningKeyCache {
   private readonly cache = new Map<string, CacheEntry>()
   private readonly ttlMs: number
 
+  /**
+   * @param ttlMs - Cache TTL in milliseconds.
+   *   Default: 30 minutes. Rationale: a user signing many commits in one session
+   *   should not need to re-parse the key file on every commit. 30 minutes balances
+   *   convenience against the window in which a compromised daemon process could use
+   *   the cached key object. The passphrase itself is never stored — only the opaque
+   *   crypto.KeyObject produced after decryption.
+   */
   constructor(ttlMs: number = 30 * 60 * 1000) {
     this.ttlMs = ttlMs
   }

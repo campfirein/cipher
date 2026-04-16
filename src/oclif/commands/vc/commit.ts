@@ -49,7 +49,7 @@ public static strict = false
         client.requestWithAck<IVcCommitResponse>(VcEvents.COMMIT, payload),
       )
 
-      const sigIndicator = sign === true ? ' 🔏' : ''
+      const sigIndicator = result.signed ? ' 🔏' : ''
       this.log(`[${result.sha.slice(0, 7)}] ${result.message}${sigIndicator}`)
     } catch (error) {
       // Passphrase required — prompt and retry (capped)

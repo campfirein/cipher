@@ -51,6 +51,32 @@ describe('probeSSHKey()', () => {
     expect(result.needsPassphrase).to.be.false
   })
 
+  it('returns opensshEncrypted:true for encrypted OpenSSH-format key', async () => {
+    const sshStr = (s: Buffer | string) => {
+      const b = Buffer.isBuffer(s) ? s : Buffer.from(s)
+      return Buffer.concat([writeU32(b.length), b])
+    }
+
+    const pubBlob = Buffer.concat([sshStr('ssh-ed25519'), sshStr(Buffer.alloc(32, 0xaa))])
+    const buf = Buffer.concat([
+      Buffer.from('openssh-key-v1\0', 'binary'),
+      sshStr('aes256-ctr'),
+      sshStr('bcrypt'),
+      sshStr(Buffer.alloc(0)),
+      writeU32(1),
+      sshStr(pubBlob),
+      sshStr(Buffer.alloc(64, 0xbb)),
+    ])
+    const pem = `-----BEGIN OPENSSH PRIVATE KEY-----\n${buf.toString('base64')}\n-----END OPENSSH PRIVATE KEY-----`
+    const keyPath = join(tempDir, 'id_openssh_enc2')
+    writeFileSync(keyPath, pem, {mode: 0o600})
+
+    const result = await probeSSHKey(keyPath)
+    expect(result.exists).to.be.true
+    if (!result.exists) throw new Error('unreachable')
+    expect(result.opensshEncrypted).to.be.true
+  })
+
   it('returns {exists: true, needsPassphrase: true} for encrypted OpenSSH key', async () => {
     // Construct a minimal OpenSSH key with cipherName = 'aes256-ctr' to simulate encrypted key.
     // Must include a valid public key blob + private key blob so parseOpenSSHKey doesn't crash.

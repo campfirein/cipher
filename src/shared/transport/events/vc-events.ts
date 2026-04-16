@@ -35,6 +35,7 @@ export const VcErrorCode = {
   REMOTE_ALREADY_EXISTS: 'ERR_VC_REMOTE_ALREADY_EXISTS',
   SIGNING_KEY_NOT_CONFIGURED: 'ERR_VC_SIGNING_KEY_NOT_CONFIGURED',
   SIGNING_KEY_NOT_FOUND: 'ERR_VC_SIGNING_KEY_NOT_FOUND',
+  SIGNING_KEY_NOT_SUPPORTED: 'ERR_VC_SIGNING_KEY_NOT_SUPPORTED',
   UNCOMMITTED_CHANGES: 'ERR_VC_UNCOMMITTED_CHANGES',
   UNRELATED_HISTORIES: 'ERR_VC_UNRELATED_HISTORIES',
   USER_NOT_CONFIGURED: 'ERR_VC_USER_NOT_CONFIGURED',
@@ -101,6 +102,8 @@ export interface IVcCommitRequest {
 export interface IVcCommitResponse {
   message: string
   sha: string
+  /** True when the commit was cryptographically signed with an SSH key. */
+  signed?: boolean
 }
 
 export type VcConfigKey = 'commit.sign' | 'user.email' | 'user.name' | 'user.signingkey'
@@ -116,14 +119,21 @@ export function isVcConfigKey(key: string): key is VcConfigKey {
   return VC_CONFIG_KEYS.includes(key)
 }
 
-export interface IVcConfigRequest {
-  /** If true, import SSH signing config from local/global git config */
-  importGitSigning?: boolean
+/** Import SSH signing settings from local/global git config (no key/value needed). */
+export interface IVcConfigImportRequest {
+  importGitSigning: true
+}
+
+/** Get or set a single config key. */
+export interface IVcConfigKeyRequest {
+  importGitSigning?: false
   /** Config key (e.g., 'user.email', 'user.signingkey') */
   key: VcConfigKey
   /** Value to set. Omit for GET. For 'commit.sign': 'true' or 'false'. */
   value?: string
 }
+
+export type IVcConfigRequest = IVcConfigImportRequest | IVcConfigKeyRequest
 
 export interface IVcConfigResponse {
   /** Optional display hint (e.g., fingerprint after setting signingkey) */
