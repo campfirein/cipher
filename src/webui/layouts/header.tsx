@@ -1,4 +1,5 @@
 import {Button} from '@campfirein/byterover-packages/components/button'
+import {Tooltip, TooltipContent, TooltipTrigger} from '@campfirein/byterover-packages/components/tooltip'
 import {Book} from 'lucide-react'
 import {useState} from 'react'
 
@@ -39,10 +40,19 @@ export function Header() {
 
       {/* Right: provider/model + docs + login */}
       <div className="flex items-center gap-2">
-        <Button className="text-sm bg-background hover:bg-muted py-1.5 px-3 border border-border gap-2" onClick={() => setProviderDialogOpen(true)} size="sm">
-          {providerLabel}
-          {!activeProvider && <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger render={
+            <Button className="text-sm bg-background hover:bg-muted py-1.5 px-3 border border-border gap-2" onClick={() => setProviderDialogOpen(true)} size="sm" />
+          }>
+            {providerLabel}
+            {!activeProvider && <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />}
+          </TooltipTrigger>
+          {!activeProvider && (
+            <TooltipContent>
+              Configure to use curate/query feature
+            </TooltipContent>
+          )}
+        </Tooltip>
         <ProviderFlowDialog onOpenChange={setProviderDialogOpen} open={providerDialogOpen} />
 
         <a className="flex items-center gap-1.5 rounded-md px-2.5 py-2 text-xs transition-colors hover:bg-muted" href="https://docs.byterover.dev" rel="noopener noreferrer" target="_blank">
