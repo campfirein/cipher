@@ -95,7 +95,7 @@ export async function getModelFetcher(providerId: string): Promise<IProviderMode
       fetcher = new ChatBasedModelFetcher(
         'https://api.minimax.io/v1',
         'MiniMax',
-        ['MiniMax-M2', 'MiniMax-M2-Stable'],
+        ['MiniMax-M2.7', 'MiniMax-M2.5'],
       )
 
       break
