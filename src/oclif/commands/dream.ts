@@ -39,10 +39,20 @@ export default class Dream extends Command {
     '# Revert the last dream',
     '<%= config.bin %> <%= command.id %> --undo',
     '',
+    '# Queue dream and exit immediately',
+    '<%= config.bin %> <%= command.id %> --detach',
+    '',
+    '# Force dream and exit immediately',
+    '<%= config.bin %> <%= command.id %> --force --detach',
+    '',
     '# JSON output',
     '<%= config.bin %> <%= command.id %> --format json',
   ]
   public static flags = {
+    detach: Flags.boolean({
+      default: false,
+      description: 'Queue task and exit without waiting for completion',
+    }),
     force: Flags.boolean({
       char: 'f',
       default: false,
@@ -100,10 +110,11 @@ export default class Dream extends Command {
 
           await this.submitTask({
             client,
+            detach: rawFlags.detach,
             force: rawFlags.force,
             format,
             projectRoot,
-            timeoutMs: (rawFlags.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
+            timeout: rawFlags.timeout ?? DEFAULT_TIMEOUT_SECONDS,
             worktreeRoot,
           })
         },
@@ -180,13 +191,14 @@ export default class Dream extends Command {
 
   private async submitTask(props: {
     client: ITransportClient
+    detach: boolean
     force: boolean
     format: 'json' | 'text'
     projectRoot?: string
-    timeoutMs?: number
+    timeout: number
     worktreeRoot?: string
   }): Promise<void> {
-    const {client, force, format, projectRoot, timeoutMs, worktreeRoot} = props
+    const {client, detach, force, format, projectRoot, timeout, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
       content: force ? 'Memory consolidation (force)' : 'Memory consolidation',
@@ -197,42 +209,62 @@ export default class Dream extends Command {
       ...(worktreeRoot ? {worktreeRoot} : {}),
     }
 
-    const completionPromise = waitForTaskCompletion(
-      {
-        client,
-        command: 'dream',
-        format,
-        onCompleted: ({logId, result, taskId: tid}) => {
-          const skipped = result?.startsWith('Dream skipped:')
-          if (format === 'json') {
-            writeJsonResponse({
-              command: 'dream',
-              data: skipped
-                ? {reason: result, status: 'skipped', taskId: tid}
-                : {logId, result, status: 'completed', taskId: tid},
-              success: true,
-            })
-          } else {
-            this.log(result ?? '')
-          }
+    if (detach) {
+      if (timeout !== DEFAULT_TIMEOUT_SECONDS && format !== 'json') {
+        this.log('Note: --timeout has no effect with --detach')
+      }
+
+      const ack = await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
+      const {logId} = ack
+
+      if (format === 'json') {
+        writeJsonResponse({
+          command: 'dream',
+          data: {logId, message: 'Dream queued for processing', status: 'queued', taskId},
+          success: true,
+        })
+      } else {
+        const logSuffix = logId ? ` (Log: ${logId})` : ''
+        this.log(`✓ Dream queued for processing.${logSuffix}`)
+      }
+    } else {
+      const completionPromise = waitForTaskCompletion(
+        {
+          client,
+          command: 'dream',
+          format,
+          onCompleted: ({logId, result, taskId: tid}) => {
+            const skipped = result?.startsWith('Dream skipped:')
+            if (format === 'json') {
+              writeJsonResponse({
+                command: 'dream',
+                data: skipped
+                  ? {reason: result, status: 'skipped', taskId: tid}
+                  : {logId, result, status: 'completed', taskId: tid},
+                success: true,
+              })
+            } else {
+              this.log(result ?? '')
+            }
+          },
+          onError: ({error}) => {
+            if (format === 'json') {
+              writeJsonResponse({
+                command: 'dream',
+                data: {event: 'error', message: error.message, status: 'error'},
+                success: false,
+              })
+            } else {
+              this.log(`Dream failed: ${error.message}`)
+            }
+          },
+          taskId,
+          timeoutMs: timeout * 1000,
         },
-        onError: ({error}) => {
-          if (format === 'json') {
-            writeJsonResponse({
-              command: 'dream',
-              data: {event: 'error', message: error.message, status: 'error'},
-              success: false,
-            })
-          } else {
-            this.log(`Dream failed: ${error.message}`)
-          }
-        },
-        taskId,
-        timeoutMs,
-      },
-      (msg) => this.log(msg),
-    )
-    await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
-    await completionPromise
+        (msg) => this.log(msg),
+      )
+      await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
+      await completionPromise
+    }
   }
 }
