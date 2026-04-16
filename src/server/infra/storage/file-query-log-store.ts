@@ -82,7 +82,7 @@ type FileQueryLogStoreOptions = {
  *   {baseDir}/query-log/qry-{timestamp_ms}.json
  *
  * Writes are atomic (tmp → rename). Reads validate with Zod and return undefined
- * for corrupt/missing files. Prunes by age (default 30 days) then by count (default 200).
+ * for corrupt/missing files. Prunes by age (default 30 days) then by count (default 1000).
  */
 export class FileQueryLogStore implements IQueryLogStore {
   private lastTimestamp = 0

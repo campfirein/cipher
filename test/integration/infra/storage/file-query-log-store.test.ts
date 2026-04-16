@@ -384,6 +384,21 @@ describe('FileQueryLogStore', () => {
       expect(await storeWithBoth.getById(ids[3])).to.not.be.undefined
     })
 
+    // Test 20
+    it('should disable age-based pruning when maxAgeDays is 0', async () => {
+      const storeNoAge = new FileQueryLogStore({baseDir: tempDir, maxAgeDays: 0, maxEntries: 100})
+
+      const oldTs = Date.now() - 60 * 86_400_000
+      const idOld = `qry-${oldTs}`
+      await storeNoAge.save(makeEntry({id: idOld, startedAt: oldTs}))
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100)
+      })
+
+      expect(await storeNoAge.getById(idOld)).to.not.be.undefined
+    })
+
     // Test 21
     it('should not prune at old limit (200) and should prune at new limit (1000)', async function () {
       this.timeout(30_000)
@@ -457,21 +472,6 @@ describe('FileQueryLogStore', () => {
       expect(await store1001.getById(`qry-${baseTs}`)).to.be.undefined // oldest pruned
       expect(await store1001.getById(`qry-${baseTs + 1}`)).to.not.be.undefined // second oldest survives
       expect(await store1001.getById(id1001)).to.not.be.undefined // newest survives
-    })
-
-    // Test 20
-    it('should disable age-based pruning when maxAgeDays is 0', async () => {
-      const storeNoAge = new FileQueryLogStore({baseDir: tempDir, maxAgeDays: 0, maxEntries: 100})
-
-      const oldTs = Date.now() - 60 * 86_400_000
-      const idOld = `qry-${oldTs}`
-      await storeNoAge.save(makeEntry({id: idOld, startedAt: oldTs}))
-
-      await new Promise((resolve) => {
-        setTimeout(resolve, 100)
-      })
-
-      expect(await storeNoAge.getById(idOld)).to.not.be.undefined
     })
   })
 

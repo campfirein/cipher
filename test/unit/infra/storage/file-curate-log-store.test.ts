@@ -398,7 +398,7 @@ describe('FileCurateLogStore', () => {
       await seedFiles(baseTs, 99)
       const store100 = new FileCurateLogStore({baseDir: tempDir})
       const id100 = `cur-${baseTs + 99}`
-      await store100.save(makeEntry({completedAt: baseTs + 100, id: id100, startedAt: baseTs + 99, status: 'completed'} as Partial<CurateLogEntry> & {id: string}))
+      await store100.save(makeEntry({id: id100, startedAt: baseTs + 99}))
       await new Promise((resolve) => {
         setTimeout(resolve, 100)
       })
@@ -411,7 +411,7 @@ describe('FileCurateLogStore', () => {
       await seedFiles(baseTs + 100, 899)
       const store1000 = new FileCurateLogStore({baseDir: tempDir})
       const id1000 = `cur-${baseTs + 999}`
-      await store1000.save(makeEntry({completedAt: baseTs + 1000, id: id1000, startedAt: baseTs + 999, status: 'completed'} as Partial<CurateLogEntry> & {id: string}))
+      await store1000.save(makeEntry({id: id1000, startedAt: baseTs + 999}))
       await new Promise((resolve) => {
         setTimeout(resolve, 200)
       })
@@ -422,7 +422,7 @@ describe('FileCurateLogStore', () => {
       // Phase 3: Save entry #1001 via store — exceeds new limit, oldest must be pruned
       const store1001 = new FileCurateLogStore({baseDir: tempDir})
       const id1001 = `cur-${baseTs + 1000}`
-      await store1001.save(makeEntry({completedAt: baseTs + 1001, id: id1001, startedAt: baseTs + 1000, status: 'completed'} as Partial<CurateLogEntry> & {id: string}))
+      await store1001.save(makeEntry({id: id1001, startedAt: baseTs + 1000}))
       await new Promise((resolve) => {
         setTimeout(resolve, 200)
       })
