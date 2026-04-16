@@ -483,7 +483,14 @@ async function executeTask(
       let logId: string | undefined
       switch (type) {
         case 'curate': {
-          result = await curateExecutor.executeWithAgent(agent, {clientCwd, content, files, projectRoot: projectPath, taskId, worktreeRoot})
+          result = await curateExecutor.executeWithAgent(agent, {
+            clientCwd,
+            content,
+            files,
+            projectRoot: projectPath,
+            taskId,
+            worktreeRoot,
+          })
 
           break
         }
@@ -544,7 +551,22 @@ async function executeTask(
         }
 
         case 'query': {
-          result = await queryExecutor.executeWithAgent(agent, {query: content, taskId, worktreeRoot})
+          const queryResult = await queryExecutor.executeWithAgent(agent, {query: content, taskId, worktreeRoot})
+          result = queryResult.response
+
+          // Send query metadata to daemon for QueryLogHandler (crosses process boundary via transport).
+          // Must arrive BEFORE task:completed so setQueryResult runs before onTaskCompleted.
+          try {
+            transport.request(TransportTaskEventNames.QUERY_RESULT, {
+              matchedDocs: queryResult.matchedDocs,
+              searchMetadata: queryResult.searchMetadata,
+              taskId,
+              tier: queryResult.tier,
+              timing: queryResult.timing,
+            })
+          } catch {
+            agentLog(`task:queryResult send failed taskId=${taskId}`)
+          }
 
           break
         }
