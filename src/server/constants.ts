@@ -103,6 +103,9 @@ export const CURATE_LOG_ID_PREFIX = 'cur'
 // Query log
 export const QUERY_LOG_DIR = 'query-log'
 export const QUERY_LOG_ID_PREFIX = 'qry'
+// Dream log
+export const DREAM_LOG_DIR = 'dream-log'
+export const DREAM_LOG_ID_PREFIX = 'drm'
 
 // Review backups (stores pre-curate file content for local HITL review diffs)
 export const REVIEW_BACKUPS_DIR = 'review-backups'
@@ -128,4 +131,3 @@ export const CONTEXT_TREE_GITIGNORE_PATTERNS = [
 ]
 
 export const CONTEXT_TREE_GITIGNORE_HEADER = '# Derived artifacts — do not track'
-
