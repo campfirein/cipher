@@ -3,7 +3,7 @@ import {mkdtempSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {parseSSHPrivateKey, probeSSHKey, resolveHome} from '../../../../src/server/infra/ssh/ssh-key-parser.js'
+import {extractPublicKey, parseSSHPrivateKey, probeSSHKey, resolveHome} from '../../../../src/server/infra/ssh/ssh-key-parser.js'
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
@@ -11,6 +11,25 @@ function writeU32(value: number): Buffer {
   const buf = Buffer.allocUnsafe(4)
   buf.writeUInt32BE(value, 0)
   return buf
+}
+
+function sshStr(data: Buffer | string): Buffer {
+  const b = Buffer.isBuffer(data) ? data : Buffer.from(data)
+  return Buffer.concat([writeU32(b.length), b])
+}
+
+function makeEncryptedOpenSSHKey(): string {
+  const pubBlob = Buffer.concat([sshStr('ssh-ed25519'), sshStr(Buffer.alloc(32, 0xaa))])
+  const buf = Buffer.concat([
+    Buffer.from('openssh-key-v1\0', 'binary'),
+    sshStr('aes256-ctr'),
+    sshStr('bcrypt'),
+    sshStr(Buffer.alloc(0)),
+    writeU32(1),
+    sshStr(pubBlob),
+    sshStr(Buffer.alloc(64, 0xbb)),
+  ])
+  return `-----BEGIN OPENSSH PRIVATE KEY-----\n${buf.toString('base64')}\n-----END OPENSSH PRIVATE KEY-----`
 }
 
 /**
@@ -52,11 +71,6 @@ describe('probeSSHKey()', () => {
   })
 
   it('returns opensshEncrypted:true for encrypted OpenSSH-format key', async () => {
-    const sshStr = (s: Buffer | string) => {
-      const b = Buffer.isBuffer(s) ? s : Buffer.from(s)
-      return Buffer.concat([writeU32(b.length), b])
-    }
-
     const pubBlob = Buffer.concat([sshStr('ssh-ed25519'), sshStr(Buffer.alloc(32, 0xaa))])
     const buf = Buffer.concat([
       Buffer.from('openssh-key-v1\0', 'binary'),
@@ -80,11 +94,6 @@ describe('probeSSHKey()', () => {
   it('returns {exists: true, needsPassphrase: true} for encrypted OpenSSH key', async () => {
     // Construct a minimal OpenSSH key with cipherName = 'aes256-ctr' to simulate encrypted key.
     // Must include a valid public key blob + private key blob so parseOpenSSHKey doesn't crash.
-    const sshStr = (s: Buffer | string) => {
-      const b = Buffer.isBuffer(s) ? s : Buffer.from(s)
-      return Buffer.concat([writeU32(b.length), b])
-    }
-
     const pubBlob = Buffer.concat([sshStr('ssh-ed25519'), sshStr(Buffer.alloc(32, 0xaa))])
 
     const buf = Buffer.concat([
@@ -159,6 +168,68 @@ describe('parseSSHPrivateKey()', () => {
     let threw = false
     try {
       await parseSSHPrivateKey('/nonexistent/key')
+    } catch {
+      threw = true
+    }
+
+    expect(threw).to.be.true
+  })
+})
+
+// ── extractPublicKey tests ────────────────────────────────────────────────────
+
+describe('extractPublicKey()', () => {
+  let tempDir: string
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'brv-extract-test-'))
+  })
+
+  it('extracts public key from encrypted OpenSSH key with no .pub sidecar', async () => {
+    const keyPath = join(tempDir, 'id_ed25519')
+    writeFileSync(keyPath, makeEncryptedOpenSSHKey(), {mode: 0o600})
+
+    const result = await extractPublicKey(keyPath)
+
+    expect(result.keyType).to.equal('ssh-ed25519')
+    expect(result.publicKeyBlob).to.be.instanceOf(Buffer)
+    expect(result.publicKeyBlob.length).to.be.greaterThan(0)
+    expect(result.comment).to.be.undefined
+  })
+
+  it('prefers .pub sidecar over OpenSSH header when sidecar exists', async () => {
+    const keyPath = join(tempDir, 'id_ed25519')
+    writeFileSync(keyPath, makeEncryptedOpenSSHKey(), {mode: 0o600})
+    writeFileSync(
+      `${keyPath}.pub`,
+      'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIERWc7ZeFmViDVndPNPdfAHZi8z9dBhCdlBjVf+xWrUd user@laptop',
+      {mode: 0o644},
+    )
+
+    const result = await extractPublicKey(keyPath)
+
+    expect(result.keyType).to.equal('ssh-ed25519')
+    expect(result.comment).to.equal('user@laptop')
+    // Blob should match what's in the .pub file
+    const expectedBlob = Buffer.from('AAAAC3NzaC1lZDI1NTE5AAAAIERWc7ZeFmViDVndPNPdfAHZi8z9dBhCdlBjVf+xWrUd', 'base64')
+    expect(result.publicKeyBlob.equals(expectedBlob)).to.be.true
+  })
+
+  it('extracts public key from unencrypted OpenSSH key with no sidecar', async () => {
+    const keyPath = join(tempDir, 'id_ed25519_unenc')
+    writeFileSync(keyPath, TEST_OPENSSH_ED25519_KEY, {mode: 0o600})
+
+    const result = await extractPublicKey(keyPath)
+
+    expect(result.keyType).to.equal('ssh-ed25519')
+    expect(result.publicKeyBlob).to.be.instanceOf(Buffer)
+    expect(result.comment).to.be.undefined
+  })
+
+  it('throws for a non-existent file', async () => {
+    let threw = false
+    try {
+      await extractPublicKey(join(tempDir, 'no_such_key'))
     } catch {
       threw = true
     }

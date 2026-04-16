@@ -2,6 +2,7 @@
 // Re-export everything so existing server imports (ssh-agent-signer, vc-handler, etc.) continue to work.
 export {
   computeFingerprint,
+  extractPublicKey,
   getPublicKeyMetadata,
   parseSSHPrivateKey,
   probeSSHKey,

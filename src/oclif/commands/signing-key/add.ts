@@ -1,7 +1,7 @@
 import {Command, Flags} from '@oclif/core'
 import {readFileSync} from 'node:fs'
 
-import {parseSSHPrivateKey, resolveHome} from '../../../shared/ssh/index.js'
+import {extractPublicKey, resolveHome} from '../../../shared/ssh/index.js'
 import {type IVcSigningKeyResponse, VcEvents} from '../../../shared/transport/events/vc-events.js'
 import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
@@ -40,12 +40,11 @@ public static flags = {
         const parts = raw.split(' ')
         if (!title && parts.length >= 3) title = parts.slice(2).join(' ')
       } else {
-        // Private key file — parse to derive public key
-        const parsed = await parseSSHPrivateKey(keyPath)
-        // Re-export public key in SSH authorized_keys format: type b64(blob) [comment]
-        const b64 = parsed.publicKeyBlob.toString('base64')
-        publicKey = `${parsed.keyType} ${b64}`
-        if (!title) title = `My ${parsed.keyType} key`
+        // Private key file — extract public key without decryption (works for encrypted keys too)
+        const extracted = await extractPublicKey(keyPath)
+        const b64 = extracted.publicKeyBlob.toString('base64')
+        publicKey = `${extracted.keyType} ${b64}`
+        if (!title) title = extracted.comment ?? `My ${extracted.keyType} key`
       }
     } catch (error) {
       this.error(

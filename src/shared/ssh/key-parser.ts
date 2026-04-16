@@ -326,6 +326,50 @@ export function computeFingerprint(publicKeyBlob: Buffer): string {
 }
 
 /**
+ * Extract the SSH public key blob and type from a private key file without decryption.
+ *
+ * Priority:
+ *   1. `.pub` sidecar file (authorized_keys format) — also captures the comment field
+ *   2. OpenSSH native private key format — public key lives in the unencrypted file
+ *      header, so this works even when the private key is encrypted (no passphrase needed)
+ *   3. PEM/PKCS8 format — requires an unencrypted private key
+ *
+ * Throws if the file cannot be read or the format is unrecognised.
+ */
+export async function extractPublicKey(keyPath: string): Promise<{
+  comment?: string
+  keyType: string
+  publicKeyBlob: Buffer
+}> {
+  // 1. .pub sidecar
+  const pubPath = `${keyPath}.pub`
+  try {
+    const rawPub = await readFile(pubPath, 'utf8')
+    const parts = rawPub.trim().split(' ')
+    if (parts.length >= 2) {
+      const keyType = parts[0]
+      const publicKeyBlob = Buffer.from(parts[1], 'base64')
+      const comment = parts.length >= 3 ? parts.slice(2).join(' ') : undefined
+      return {comment, keyType, publicKeyBlob}
+    }
+  } catch {
+    // No sidecar — fall through
+  }
+
+  const raw = await readFile(keyPath, 'utf8')
+
+  // 2. OpenSSH native format: public key is in the unencrypted file header
+  if (raw.includes('BEGIN OPENSSH PRIVATE KEY')) {
+    const {keyType, publicKeyBlob} = parseOpenSSHKey(raw)
+    return {keyType, publicKeyBlob}
+  }
+
+  // 3. PEM/PKCS8 format: requires the private key to be unencrypted
+  const parsed = await parseSSHPrivateKey(keyPath)
+  return {keyType: parsed.keyType, publicKeyBlob: parsed.publicKeyBlob}
+}
+
+/**
  * Attempt to extract public key metadata (fingerprint and keyType) from a key path,
  * checking for a .pub file first, then attempting to parse an OpenSSH private key
  * (which contains the public key even if the private key is encrypted).

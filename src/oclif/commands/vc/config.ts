@@ -1,7 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {existsSync, readFileSync} from 'node:fs'
 
-import {parseSSHPrivateKey, resolveHome} from '../../../shared/ssh/index.js'
+import {extractPublicKey, resolveHome} from '../../../shared/ssh/index.js'
 import {isVcConfigKey, type IVcConfigResponse, type IVcSigningKeyResponse, VcEvents} from '../../../shared/transport/events/vc-events.js'
 import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
@@ -96,10 +96,11 @@ public static flags = {
           const parts = raw.split(' ')
           if (parts.length >= 3) title = parts.slice(2).join(' ')
         } else {
-          const parsed = await parseSSHPrivateKey(keyPath)
-          const b64 = parsed.publicKeyBlob.toString('base64')
-          publicKey = `${parsed.keyType} ${b64}`
-          title = `My ${parsed.keyType} key`
+          // No .pub sidecar — extract public key without decryption (works for encrypted keys)
+          const extracted = await extractPublicKey(keyPath)
+          const b64 = extracted.publicKeyBlob.toString('base64')
+          publicKey = `${extracted.keyType} ${b64}`
+          title = extracted.comment ?? `My ${extracted.keyType} key`
         }
 
         const response = await withDaemonRetry(async (client) =>

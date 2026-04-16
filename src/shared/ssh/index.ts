@@ -1,5 +1,6 @@
 export {
   computeFingerprint,
+  extractPublicKey,
   getPublicKeyMetadata,
   parseSSHPrivateKey,
   probeSSHKey,
