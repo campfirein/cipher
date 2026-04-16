@@ -54,7 +54,16 @@ export type AheadBehind = {ahead: number; behind: number}
 // --- Params types ---
 export type InitGitParams = BaseGitParams & {defaultBranch?: string}
 export type AddGitParams = BaseGitParams & {filePaths: string[]}
-export type CommitGitParams = BaseGitParams & {author?: {email: string; name: string}; message: string}
+export type CommitGitParams = {
+  author?: {email: string; name: string}
+  message: string
+  /**
+   * Optional sign callback — receives the raw commit payload (the text that would be signed)
+   * and must return an armored SSH signature (-----BEGIN SSH SIGNATURE----- ... -----END SSH SIGNATURE-----).
+   * When provided, the commit is created with a gpgsig header containing the returned signature.
+   */
+  onSign?: (payload: string) => Promise<string>
+} & BaseGitParams
 export type LogGitParams = BaseGitParams & {depth?: number; ref?: string}
 export type PushGitParams = BaseGitParams & {branch?: string; remote?: string}
 export type PullGitParams = BaseGitParams & {allowUnrelatedHistories?: boolean; author?: {email: string; name: string}; branch?: string; remote?: string}

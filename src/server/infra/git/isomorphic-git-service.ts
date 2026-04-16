@@ -245,7 +245,21 @@ export class IsomorphicGitService implements IGitService {
 
     let sha: string
     try {
-      sha = await git.commit({author, dir, fs, message: params.message, ...(parent ? {parent} : {})})
+      sha = await git.commit({
+        author,
+        dir,
+        fs,
+        message: params.message,
+        ...(parent ? {parent} : {}),
+        ...(params.onSign
+          ? {
+              onSign: async ({payload}: {payload: string}) => ({
+                signature: await params.onSign!(payload),
+              }),
+              signingKey: 'ssh-signing',
+            }
+          : {}),
+      })
     } catch (error) {
       if (error instanceof git.Errors.UnmergedPathsError) {
         const paths = error.data.filepaths.join(', ')

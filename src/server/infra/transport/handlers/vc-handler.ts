@@ -1,5 +1,7 @@
+import {execFile} from 'node:child_process'
 import fs from 'node:fs'
 import {join} from 'node:path'
+import {promisify} from 'node:util'
 
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
@@ -52,6 +54,15 @@ import {NotAuthenticatedError} from '../../../core/domain/errors/task-error.js'
 import {VcError} from '../../../core/domain/errors/vc-error.js'
 import {ensureContextTreeGitignore, ensureGitignoreEntries} from '../../../utils/gitignore.js'
 import {buildCogitRemoteUrl, isValidBranchName, parseUserFacingUrl} from '../../git/cogit-url.js'
+import {
+  type ParsedSSHKey,
+  parseSSHPrivateKey,
+  probeSSHKey,
+  resolveHome,
+  signCommitPayload,
+  SigningKeyCache,
+  tryGetSshAgentSigner,
+} from '../../ssh/index.js'
 import {type ProjectBroadcaster, type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
 /**
@@ -76,9 +87,12 @@ function classifyIsomorphicGitError(error: unknown, notFoundCode: VcErrorCodeTyp
   return undefined
 }
 
-const FIELD_MAP: Record<string, 'email' | 'name'> = {
+// FIELD_MAP maps vc config keys to IVcGitConfig field names
+const FIELD_MAP: Record<string, 'commitSign' | 'email' | 'name' | 'signingKey'> = {
+  'commit.sign': 'commitSign',
   'user.email': 'email',
   'user.name': 'name',
+  'user.signingkey': 'signingKey',
 }
 
 export interface IVcHandlerDeps {
@@ -88,6 +102,7 @@ export interface IVcHandlerDeps {
   gitService: IGitService
   projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
+  signingKeyCache?: SigningKeyCache
   spaceService: ISpaceService
   teamService: ITeamService
   tokenStore: ITokenStore
@@ -106,6 +121,7 @@ export class VcHandler {
   private readonly gitService: IGitService
   private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
+  private readonly signingKeyCache: SigningKeyCache
   private readonly spaceService: ISpaceService
   private readonly teamService: ITeamService
   private readonly tokenStore: ITokenStore
@@ -120,6 +136,7 @@ export class VcHandler {
     this.gitService = deps.gitService
     this.projectConfigStore = deps.projectConfigStore
     this.resolveProjectPath = deps.resolveProjectPath
+    this.signingKeyCache = deps.signingKeyCache ?? new SigningKeyCache()
     this.spaceService = deps.spaceService
     this.teamService = deps.teamService
     this.tokenStore = deps.tokenStore
@@ -171,21 +188,6 @@ export class VcHandler {
     )
 
     this.transport.onRequest<void, IVcStatusResponse>(VcEvents.STATUS, (_data, clientId) => this.handleStatus(clientId))
-  }
-
-  private async buildAuthorHint(existing?: IVcGitConfig): Promise<string> {
-    try {
-      const token = await this.tokenStore.load()
-      if (token?.isValid()) {
-        const email = existing?.email ?? token.userEmail
-        const name = existing?.name ?? token.userName ?? token.userEmail
-        return `Run: brv vc config user.name '${name}' and brv vc config user.email '${email}'.`
-      }
-    } catch {
-      // not logged in
-    }
-
-    return 'Run: brv vc config user.name <value> and brv vc config user.email <value>.'
   }
 
   private buildNoRemoteMessage(nextStep: string): string {
@@ -541,15 +543,50 @@ export class VcHandler {
     }
 
     const config = await this.vcGitConfigStore.get(projectPath)
-    if (!config?.name || !config.email) {
-      const hint = await this.buildAuthorHint(config)
-      throw new VcError(`Commit author not configured. ${hint}`, VcErrorCode.USER_NOT_CONFIGURED)
+    const author = await this.resolveAuthor(config)
+
+    // ── Option C SSH Signing ────────────────────────────────────────────────
+    //
+    // Determine whether to sign this commit:
+    //   data.sign=true  → force sign
+    //   data.sign=false → force no-sign
+    //   undefined       → use config.commitSign, or auto-sign if signingKey is configured
+    const shouldSign = data.sign ?? config?.commitSign ?? config?.signingKey !== undefined
+
+    let onSign: ((payload: string) => Promise<string>) | undefined
+
+    if (shouldSign) {
+      const keyPath = config?.signingKey ? resolveHome(config.signingKey) : undefined
+
+      if (!keyPath) {
+        throw new VcError(
+          'Signing key not configured. Run: brv vc config user.signingkey ~/.ssh/id_ed25519',
+          VcErrorCode.SIGNING_KEY_NOT_CONFIGURED,
+        )
+      }
+
+      // Path A: try SSH agent first (zero-prompt, works even for encrypted keys)
+      const agentSigner = await tryGetSshAgentSigner(keyPath)
+      if (agentSigner) {
+        onSign = async (payload: string) => {
+          const result = await agentSigner.sign(payload)
+          return result.armored
+        }
+      } else {
+        // Path B/C: cache or file-based parsing
+        const parsed = await this.resolveSigningKey(keyPath, data.passphrase)
+        onSign = async (payload: string) => {
+          const result = signCommitPayload(payload, parsed)
+          return result.armored
+        }
+      }
     }
 
     const commit = await this.gitService.commit({
-      author: {email: config.email, name: config.name},
+      author,
       directory,
       message: data.message,
+      ...(onSign ? {onSign} : {}),
     })
 
     return {message: commit.message, sha: commit.sha}
@@ -558,14 +595,70 @@ export class VcHandler {
   private async handleConfig(data: IVcConfigRequest, clientId: string): Promise<IVcConfigResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
 
+    // ── --import-git-signing branch ─────────────────────────────────────────
+    // Reads `user.signingKey` and `commit.gpgSign` from local/global git config
+    // and writes them into the brv VcGitConfigStore.
+    if (data.importGitSigning) {
+      return this.handleImportGitSigning(projectPath)
+    }
+
     const field = FIELD_MAP[data.key]
     if (!field) {
-      throw new VcError(`Unknown key '${data.key}'. Allowed: user.name, user.email.`, VcErrorCode.INVALID_CONFIG_KEY)
+      throw new VcError(
+        `Unknown key '${data.key}'. Allowed: user.name, user.email, user.signingkey, commit.sign.`,
+        VcErrorCode.INVALID_CONFIG_KEY,
+      )
     }
 
     if (data.value !== undefined) {
-      // SET: read existing → merge single field → write back
+      // SET: read existing → coerce value → merge → write back
       const existing = (await this.vcGitConfigStore.get(projectPath)) ?? {}
+
+      // Coerce 'commit.sign' value to boolean
+      if (field === 'commitSign') {
+        const boolValue = data.value === 'true' || data.value === '1'
+        if (data.value !== 'true' && data.value !== 'false' && data.value !== '1' && data.value !== '0') {
+          throw new VcError(
+            `Invalid value for commit.sign: '${data.value}'. Use true, false, 1, or 0.`,
+            VcErrorCode.INVALID_CONFIG_VALUE,
+          )
+        }
+
+        await this.vcGitConfigStore.set(projectPath, {...existing, commitSign: boolValue})
+        return {key: data.key, value: String(boolValue)}
+      }
+
+      // Coerce 'user.signingkey': resolve ~ to home and validate file exists
+      if (field === 'signingKey') {
+        let resolvedPath = resolveHome(data.value)
+        if (resolvedPath.endsWith('.pub')) {
+          resolvedPath = resolvedPath.slice(0, -4)
+        }
+
+        const probe = await probeSSHKey(resolvedPath)
+        if (!probe.exists) {
+          throw new VcError(
+            `SSH key not found at: ${resolvedPath}`,
+            VcErrorCode.SIGNING_KEY_NOT_FOUND,
+          )
+        }
+
+        // Derive fingerprint for display hint (non-blocking if parse fails)
+        let hint: string | undefined
+        try {
+          const parsed = await parseSSHPrivateKey(resolvedPath)
+          // Cache the parsed key for immediate use
+          this.signingKeyCache.set(resolvedPath, parsed)
+          hint = `Fingerprint: ${parsed.fingerprint}`
+        } catch {
+          // Encrypted key — require passphrase to get fingerprint; skip hint
+        }
+
+        await this.vcGitConfigStore.set(projectPath, {...existing, signingKey: resolvedPath})
+        return {hint, key: data.key, value: resolvedPath}
+      }
+
+      // Regular string fields (user.name, user.email)
       const merged = {...existing, [field]: data.value}
       await this.vcGitConfigStore.set(projectPath, merged)
       return {key: data.key, value: data.value}
@@ -573,12 +666,12 @@ export class VcHandler {
 
     // GET
     const config = await this.vcGitConfigStore.get(projectPath)
-    const value = config?.[field]
-    if (value === undefined) {
+    const rawValue = config?.[field]
+    if (rawValue === undefined) {
       throw new VcError(`'${data.key}' is not set.`, VcErrorCode.CONFIG_KEY_NOT_SET)
     }
 
-    return {key: data.key, value}
+    return {key: data.key, value: String(rawValue)}
   }
 
   private async handleFetch(data: IVcFetchRequest, clientId: string): Promise<IVcFetchResponse> {
@@ -614,6 +707,74 @@ export class VcHandler {
     }
 
     return {remote}
+  }
+
+  /**
+   * Import SSH signing config from local/global git config.
+   * Reads these git keys (falls back local → global):
+   *   user.signingKey  → brv user.signingkey
+   *   commit.gpgSign   → brv commit.sign
+   *   gpg.format       → must be 'ssh' (warns otherwise)
+   */
+  private async handleImportGitSigning(projectPath: string): Promise<IVcConfigResponse> {
+    const execFileAsync = promisify(execFile)
+
+    async function readGitConfig(key: string): Promise<string | undefined> {
+      try {
+        const {stdout} = await execFileAsync('git', ['config', '--get', key], {cwd: projectPath})
+        return stdout.trim() || undefined
+      } catch {
+        return undefined
+      }
+    }
+
+    const signingKey = await readGitConfig('user.signingKey')
+    const gpgFormat = await readGitConfig('gpg.format')
+    const gpgSign = await readGitConfig('commit.gpgSign')
+
+    if (!signingKey) {
+      throw new VcError(
+        'No user.signingKey found in git config. Configure it with: git config user.signingKey ~/.ssh/id_ed25519',
+        VcErrorCode.SIGNING_KEY_NOT_FOUND,
+      )
+    }
+
+    if (gpgFormat && gpgFormat !== 'ssh') {
+      throw new VcError(
+        `git config gpg.format is '${gpgFormat}', not 'ssh'. brv only supports SSH commit signing.`,
+        VcErrorCode.INVALID_CONFIG_VALUE,
+      )
+    }
+
+    let resolvedPath = resolveHome(signingKey)
+    if (resolvedPath.endsWith('.pub')) {
+      resolvedPath = resolvedPath.slice(0, -4)
+    }
+
+    const probe = await probeSSHKey(resolvedPath)
+    if (!probe.exists) {
+      throw new VcError(
+        `SSH key from git config not found at: ${resolvedPath}`,
+        VcErrorCode.SIGNING_KEY_NOT_FOUND,
+      )
+    }
+
+    // Read and merge into brv config
+    const existing = (await this.vcGitConfigStore.get(projectPath)) ?? {}
+    const commitSign = gpgSign === 'true' || gpgSign === '1'
+    const updated: typeof existing = {...existing, commitSign, signingKey: resolvedPath}
+    await this.vcGitConfigStore.set(projectPath, updated)
+
+    let hint: string | undefined
+    try {
+      const parsed = await parseSSHPrivateKey(resolvedPath)
+      this.signingKeyCache.set(resolvedPath, parsed)
+      hint = `Fingerprint: ${parsed.fingerprint} | commit.sign: ${String(commitSign)}`
+    } catch {
+      hint = `commit.sign: ${String(commitSign)}`
+    }
+
+    return {hint, key: 'user.signingkey', value: resolvedPath}
   }
 
   private async handleInit(clientId: string): Promise<IVcInitResponse> {
@@ -715,14 +876,11 @@ export class VcHandler {
         throw new VcError('Committing is not possible because you have unmerged files.', VcErrorCode.MERGE_CONFLICT)
       }
 
-      const config = await this.vcGitConfigStore.get(projectPath)
-      if (!config?.name || !config.email) {
-        const hint = await this.buildAuthorHint(config)
-        throw new VcError(`Commit author not configured. ${hint}`, VcErrorCode.USER_NOT_CONFIGURED)
-      }
+      const mergeConfig = await this.vcGitConfigStore.get(projectPath)
+      const mergeAuthor = await this.resolveAuthor(mergeConfig)
 
       await this.gitService.commit({
-        author: {email: config.email, name: config.name},
+        author: mergeAuthor,
         directory,
         message: data.message,
       })
@@ -757,14 +915,11 @@ export class VcHandler {
     }
 
     const config = await this.vcGitConfigStore.get(projectPath)
-    if (!config?.name || !config.email) {
-      const hint = await this.buildAuthorHint(config)
-      throw new VcError(`Commit author not configured. ${hint}`, VcErrorCode.USER_NOT_CONFIGURED)
-    }
+    const mergeStartAuthor = await this.resolveAuthor(config)
 
     const result = await this.gitService.merge({
       allowUnrelatedHistories: data.allowUnrelatedHistories,
-      author: {email: config.email, name: config.name},
+      author: mergeStartAuthor,
       branch: data.branch,
       directory,
       message: data.message,
@@ -802,10 +957,14 @@ export class VcHandler {
       throw new VcError(this.buildNoRemoteMessage('brv vc pull origin main'), VcErrorCode.NO_REMOTE)
     }
 
-    // Soft resolve author: use vc config if available, otherwise let pull() fallback to getAuthor() from auth token.
-    // Unlike commit/merge, pull only needs author when creating a merge commit (not for up-to-date or fast-forward).
+    // Resolve author for merge commits during pull (fallback to auth token if config not set)
     const config = await this.vcGitConfigStore.get(projectPath)
-    const author = config?.name && config?.email ? {email: config.email, name: config.name} : undefined
+    let author: undefined | {email: string; name: string}
+    try {
+      author = await this.resolveAuthor(config)
+    } catch {
+      // Fallback: proceed without author if resolution fails
+    }
 
     // If explicit branch provided, use it directly (skip tracking resolution)
     const remote = data?.remote ?? 'origin'
@@ -1145,6 +1304,32 @@ export class VcHandler {
   }
 
   /**
+   * Resolve commit author: config values first, then fallback to auth token.
+   * Throws USER_NOT_CONFIGURED only when neither source has name+email.
+   */
+  private async resolveAuthor(config?: IVcGitConfig): Promise<{email: string; name: string}> {
+    if (config?.name && config.email) {
+      return {email: config.email, name: config.name}
+    }
+
+    try {
+      const token = await this.tokenStore.load()
+      if (token?.isValid()) {
+        const email = config?.email ?? token.userEmail
+        const name = config?.name ?? token.userName ?? token.userEmail
+        if (email && name) return {email, name}
+      }
+    } catch {
+      // not logged in
+    }
+
+    throw new VcError(
+      'Commit author not configured. Run: brv vc config user.name <value> and brv vc config user.email <value>.',
+      VcErrorCode.USER_NOT_CONFIGURED,
+    )
+  }
+
+  /**
    * Resolve clone request data into a clean cogit URL + team/space info.
    * Accepts either a URL or explicit teamName/spaceName.
    * Auth is handled by IsomorphicGitService via headers, not URL credentials.
@@ -1275,6 +1460,40 @@ export class VcHandler {
     }
 
     throw new VcError('Cannot determine branch for pull. Check out a branch first.', VcErrorCode.NO_BRANCH_RESOLVED)
+  }
+
+  /**
+   * File-based signing key resolution (paths B and C only).
+   * Path A (ssh-agent) is handled in handleCommit before calling this method.
+   *
+   *   Path B: in-memory TTL cache (passphrase not needed after first use)
+   *   Path C: parse key file (may require passphrase — delegates to CLI caller via PASSPHRASE_REQUIRED error)
+   */
+  private async resolveSigningKey(keyPath: string, passphrase?: string): Promise<ParsedSSHKey> {
+    // Path B: in-memory TTL cache
+    const cachedKey = this.signingKeyCache.get(keyPath)
+    if (cachedKey) return cachedKey
+
+    // Path C: parse key file
+    const probe = await probeSSHKey(keyPath)
+    if (!probe.exists) {
+      throw new VcError(
+        `SSH key file not found: ${keyPath}`,
+        VcErrorCode.SIGNING_KEY_NOT_FOUND,
+      )
+    }
+
+    if (probe.needsPassphrase && !passphrase) {
+      throw new VcError(
+        `SSH key at ${keyPath} requires a passphrase. Retry with your passphrase.`,
+        VcErrorCode.PASSPHRASE_REQUIRED,
+      )
+    }
+
+    const parsed = await parseSSHPrivateKey(keyPath, passphrase)
+    // Store in cache (passphrase is not stored — only the decrypted KeyObject)
+    this.signingKeyCache.set(keyPath, parsed)
+    return parsed
   }
 
   private async resolveTargetBranch(requestedBranch: string | undefined, directory: string): Promise<string> {

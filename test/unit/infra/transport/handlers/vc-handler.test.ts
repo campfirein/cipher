@@ -33,6 +33,7 @@ import {
   type IVcBranchRequest,
   type IVcBranchResponse,
   type IVcCheckoutResponse,
+  type IVcConfigResponse,
   type IVcFetchResponse,
   type IVcMergeRequest,
   type IVcMergeResponse,
@@ -702,7 +703,7 @@ describe('VcHandler', () => {
       }
     })
 
-    it('should throw VcError USER_NOT_CONFIGURED with pre-filled hint when logged in', async () => {
+    it('should resolve author from auth token when config is missing and user is logged in', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.status.resolves({
@@ -722,16 +723,11 @@ describe('VcHandler', () => {
       deps.tokenStore.load.resolves(mockToken)
       makeVcHandler(deps).setup()
 
-      try {
-        await deps.requestHandlers[VcEvents.COMMIT]({message: 'test'}, CLIENT_ID)
-        expect.fail('Expected error')
-      } catch (error) {
-        expect(error).to.be.instanceOf(VcError)
-        if (error instanceof VcError) {
-          expect(error.code).to.equal(VcErrorCode.USER_NOT_CONFIGURED)
-          expect(error.message).to.include('login@example.com')
-        }
-      }
+      await deps.requestHandlers[VcEvents.COMMIT]({message: 'test'}, CLIENT_ID)
+
+      expect(deps.gitService.commit.calledOnce).to.be.true
+      const commitArgs = deps.gitService.commit.firstCall.args[0]
+      expect(commitArgs.author).to.deep.equal({email: 'login@example.com', name: 'login@example.com'})
     })
 
     it('should throw VcError GIT_NOT_INITIALIZED when git not initialized', async () => {
@@ -815,6 +811,47 @@ describe('VcHandler', () => {
           expect(error.code).to.equal(VcErrorCode.INVALID_CONFIG_KEY)
         }
       }
+    })
+
+    it('should import git signing config across OS and strip .pub extension', async () => {
+      const realProjectPath = fs.mkdtempSync(join(tmpdir(), 'brv-test-config-'))
+      
+      // Create a real git repository to satisfy execFile('git') in the handler
+      mkdirSync(realProjectPath, {recursive: true})
+      const {execSync} = await import('node:child_process')
+      execSync('git init', {cwd: realProjectPath})
+
+      // Set up fake keys
+      const keyPath = join(realProjectPath, 'fake_key')
+      const pubPath = `${keyPath}.pub`
+      // A structurally valid fake ed25519 openssh private key so parseSSHPrivateKey can probe it
+      const fakePrivateKey = `-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACBEVnO2XhZlYg1Z3TzT3XwB2YvM/XQYQnZQY1X/sVq1HQAAAJB6q16Aeqte
+gAAAAAtzc2gtZWQyNTUxOQAAACBEVnO2XhZlYg1Z3TzT3XwB2YvM/XQYQnZQY1X/sVq1HQ
+AAAEDe9Y3Z4YwZQy0YvTz/Q0ZQY1X/sVq1HQZWYg1Z3TzT3XwB2YvM/XQYQnZQY1X/sVq1
+HQBEVnO2XhZlYg1Z3TzT3XwB2YvM/XQYQnZQY1X/sVq1HQBEVnO2XhZlYg1Z3TzT3XwB2Y
+vM/XQYQnZQY1X/sVq1HQAAABF0ZXN0QGV4YW1wbGUuY29tAQI=
+-----END OPENSSH PRIVATE KEY-----`
+      writeFileSync(keyPath, fakePrivateKey, {mode: 0o600})
+      writeFileSync(pubPath, 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIERWc7ZeFmViDVndPNPdfAHZi8z9dBhCdlBjVf+xWrUd', {mode: 0o644})
+
+      // Emulate git configuration where the user pointed to the .pub file
+      execSync(`git config user.signingkey "${pubPath}"`, {cwd: realProjectPath})
+      execSync(`git config commit.gpgsign true`, {cwd: realProjectPath})
+
+      const deps = makeDeps(sandbox, realProjectPath)
+      deps.vcGitConfigStore.get.resolves({})
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.CONFIG]({importGitSigning: true, key: 'user.signingkey'}, CLIENT_ID) as IVcConfigResponse
+
+      expect(deps.vcGitConfigStore.set.calledOnce).to.be.true
+      const savedConfig = deps.vcGitConfigStore.set.firstCall.args[1]
+      expect(savedConfig.commitSign).to.be.true
+      // Should strip .pub and save the private key path
+      expect(savedConfig.signingKey).to.equal(keyPath)
+      expect(result.value).to.equal(keyPath)
     })
   })
 
@@ -3015,6 +3052,7 @@ describe('VcHandler', () => {
       try {
         deps.gitService.listBranches.resolves([{isCurrent: false, isRemote: false, name: 'feature'}])
         deps.vcGitConfigStore.get.resolves()
+        deps.tokenStore.load.resolves()
 
         makeVcHandler(deps).setup()
         try {

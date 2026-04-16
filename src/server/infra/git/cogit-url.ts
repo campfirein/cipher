@@ -14,7 +14,7 @@ export function buildCogitRemoteUrl(baseUrl: string, teamName: string, spaceName
 export function parseUserFacingUrl(url: string): null | {spaceName: string; teamName: string} {
   try {
     const parsed = new URL(url)
-    const match = parsed.pathname.match(/^\/([^/]+)\/([^/]+?)\.git$/)
+    const match = parsed.pathname.match(/\/([^/]+)\/([^/]+?)\.git$/)
     if (!match) return null
     return {spaceName: match[2], teamName: match[1]}
   } catch {

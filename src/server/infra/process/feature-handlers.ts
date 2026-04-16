@@ -61,6 +61,7 @@ import {
   PushHandler,
   ResetHandler,
   ReviewHandler,
+  SigningKeyHandler,
   SourceHandler,
   SpaceHandler,
   StatusHandler,
@@ -303,6 +304,14 @@ export async function setupFeatureHandlers({
     transport,
     vcGitConfigStore: new FileVcGitConfigStore(),
     webAppUrl: envConfig.webAppUrl,
+  }).setup()
+
+  // Signing Key handler — creates a fresh authenticated HTTP client per request
+  // using the current session key from tokenStore (consistent with PushHandler pattern).
+  new SigningKeyHandler({
+    iamBaseUrl: envConfig.iamBaseUrl,
+    tokenStore,
+    transport,
   }).setup()
 
   // Worktree & source handlers
