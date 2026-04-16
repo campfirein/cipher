@@ -6,12 +6,9 @@ import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
 import {TransportTaskEventNames} from '../../../core/domain/transport/schemas.js'
-import {
-  associateProjectWithRetry,
-  type McpStartupProjectContext,
-  resolveMcpTaskContext,
-} from './mcp-project-context.js'
+import {associateProjectWithRetry, type McpStartupProjectContext, resolveMcpTaskContext} from './mcp-project-context.js'
 import {resolveClientCwd} from './resolve-client-cwd.js'
+import {cwdField} from './shared-schema.js'
 
 export const BrvCurateInputSchema = z.object({
   context: z
@@ -20,14 +17,7 @@ export const BrvCurateInputSchema = z.object({
     .describe(
       'Knowledge to store: patterns, decisions, errors, or insights about the codebase. Required unless files or folder are provided.',
     ),
-  cwd: z
-    .string()
-    .optional()
-    .describe(
-      'Working directory of the project (absolute path). ' +
-        'Required when the MCP server runs in global mode (e.g., Windsurf). ' +
-        'Optional in project mode — defaults to the project directory.',
-    ),
+  cwd: cwdField,
   files: z
     .array(z.string())
     .max(5)
@@ -42,7 +32,6 @@ export const BrvCurateInputSchema = z.object({
       'Folder path to pack and analyze (triggers folder pack flow). When provided, the entire folder will be analyzed and curated. Takes precedence over files.',
     ),
 })
-
 
 /**
  * Registers the brv-curate tool with the MCP server.
