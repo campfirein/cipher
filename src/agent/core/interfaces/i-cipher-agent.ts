@@ -156,7 +156,7 @@ export interface ICipherAgent {
   executeOnSession(
     sessionId: string,
     input: string,
-    options?: {executionContext?: ExecutionContext; taskId?: string},
+    options?: {executionContext?: ExecutionContext; signal?: AbortSignal; taskId?: string},
   ): Promise<string>
 
   /**
