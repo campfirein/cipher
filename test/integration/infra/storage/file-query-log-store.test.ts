@@ -384,6 +384,81 @@ describe('FileQueryLogStore', () => {
       expect(await storeWithBoth.getById(ids[3])).to.not.be.undefined
     })
 
+    // Test 21
+    it('should not prune at old limit (200) and should prune at new limit (1000)', async function () {
+      this.timeout(30_000)
+
+      const logDir = join(tempDir, 'query-log')
+      await mkdir(logDir, {recursive: true})
+
+      // Helper: seed N files directly on disk (fast, no store overhead)
+      const seedFiles = async (startTs: number, count: number): Promise<void> => {
+        for (let i = 0; i < count; i++) {
+          const ts = startTs + i
+          const id = `qry-${ts}`
+          const entry = {
+            completedAt: ts + 1,
+            id,
+            matchedDocs: [],
+            query: 'test query',
+            startedAt: ts,
+            status: 'completed',
+            taskId: `task-${id}`,
+          }
+
+          // eslint-disable-next-line no-await-in-loop
+          await writeFile(join(logDir, `${id}.json`), JSON.stringify(entry))
+        }
+      }
+
+      const countFiles = async (): Promise<number> => {
+        const files = await readdir(logDir)
+        return files.filter((f: string) => f.endsWith('.json')).length
+      }
+
+      // Use recent timestamps to avoid age-based pruning (DEFAULT_MAX_AGE_DAYS = 30)
+      const baseTs = Date.now() - 500_000
+
+      // Phase 1: Seed 199 files on disk, then save entry #200 via store
+      // Old limit was 200 — must NOT prune
+      await seedFiles(baseTs, 199)
+      const store200 = new FileQueryLogStore({baseDir: tempDir})
+      const id200 = `qry-${baseTs + 199}`
+      await store200.save(makeEntry({id: id200, startedAt: baseTs + 199}))
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100)
+      })
+
+      expect(await countFiles()).to.equal(200)
+      expect(await store200.getById(`qry-${baseTs}`)).to.not.be.undefined // oldest survives
+
+      // Phase 2: Seed up to 999 files, then save entry #1000 via store
+      // New limit is 1000 — must NOT prune at boundary
+      await seedFiles(baseTs + 200, 799)
+      const store1000 = new FileQueryLogStore({baseDir: tempDir})
+      const id1000 = `qry-${baseTs + 999}`
+      await store1000.save(makeEntry({id: id1000, startedAt: baseTs + 999}))
+      await new Promise((resolve) => {
+        setTimeout(resolve, 200)
+      })
+
+      expect(await countFiles()).to.equal(1000)
+      expect(await store1000.getById(`qry-${baseTs}`)).to.not.be.undefined // oldest still survives
+
+      // Phase 3: Save entry #1001 via store — exceeds new limit, oldest must be pruned
+      const store1001 = new FileQueryLogStore({baseDir: tempDir})
+      const id1001 = `qry-${baseTs + 1000}`
+      await store1001.save(makeEntry({id: id1001, startedAt: baseTs + 1000}))
+      await new Promise((resolve) => {
+        setTimeout(resolve, 200)
+      })
+
+      expect(await countFiles()).to.equal(1000)
+      expect(await store1001.getById(`qry-${baseTs}`)).to.be.undefined // oldest pruned
+      expect(await store1001.getById(`qry-${baseTs + 1}`)).to.not.be.undefined // second oldest survives
+      expect(await store1001.getById(id1001)).to.not.be.undefined // newest survives
+    })
+
     // Test 20
     it('should disable age-based pruning when maxAgeDays is 0', async () => {
       const storeNoAge = new FileQueryLogStore({baseDir: tempDir, maxAgeDays: 0, maxEntries: 100})

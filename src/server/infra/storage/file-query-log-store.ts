@@ -64,7 +64,7 @@ const QueryLogEntryFileSchema = z.discriminatedUnion('status', [
 ])
 
 const ID_PATTERN = new RegExp(`^${QUERY_LOG_ID_PREFIX}-\\d+$`)
-const DEFAULT_MAX_ENTRIES = 200
+const DEFAULT_MAX_ENTRIES = 1000
 const DEFAULT_MAX_AGE_DAYS = 30
 /** Entries stuck in "processing" longer than this are considered interrupted (daemon was killed). */
 const STALE_PROCESSING_THRESHOLD_MS = 10 * 60 * 1000 // 10 minutes

@@ -68,7 +68,7 @@ const CurateLogEntryFileSchema = z.discriminatedUnion('status', [
 // ── FileCurateLogStore ────────────────────────────────────────────────────────
 
 const ID_PATTERN = new RegExp(`^${CURATE_LOG_ID_PREFIX}-\\d+$`)
-const DEFAULT_MAX_ENTRIES = 100
+const DEFAULT_MAX_ENTRIES = 1000
 /** Entries stuck in "processing" longer than this are considered interrupted (daemon was killed). */
 const STALE_PROCESSING_THRESHOLD_MS = 10 * 60 * 1000 // 10 minutes
 
