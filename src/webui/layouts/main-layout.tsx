@@ -7,7 +7,7 @@ const tabs = [
   {label: 'Analytics', path: '/analytics'},
   {label: 'Context', path: '/contexts'},
   {label: 'Changes', path: '/sync'},
-  {label: 'Configuration', path: '/connectors'},
+  {label: 'Configuration', path: '/configuration'},
 ]
 
 export function MainLayout() {
