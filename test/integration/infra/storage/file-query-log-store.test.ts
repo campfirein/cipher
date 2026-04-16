@@ -47,6 +47,30 @@ async function generateIds(s: FileQueryLogStore, count: number): Promise<string[
   return ids
 }
 
+/** Poll until the .json file count in dir stabilises (two consecutive reads match). */
+async function waitForPruneToSettle(dir: string): Promise<void> {
+  const count = async (): Promise<number> => {
+    try {
+      const files = await readdir(dir)
+      return files.filter((f) => f.endsWith('.json')).length
+    } catch {
+      return 0
+    }
+  }
+
+  let prev = await count()
+  for (let i = 0; i < 50; i++) {
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => {
+      setTimeout(r, 2)
+    })
+    // eslint-disable-next-line no-await-in-loop
+    const cur = await count()
+    if (cur === prev) return
+    prev = cur
+  }
+}
+
 describe('FileQueryLogStore', () => {
   let store: FileQueryLogStore
   let tempDir: string
@@ -58,11 +82,6 @@ describe('FileQueryLogStore', () => {
   })
 
   afterEach(async () => {
-    // Allow async fire-and-forget writes (resolveStale, prune) to settle
-    await new Promise((resolve) => {
-      setTimeout(resolve, 100)
-    })
-
     await rm(tempDir, {force: true, recursive: true})
   })
 
@@ -320,9 +339,7 @@ describe('FileQueryLogStore', () => {
       const storeWithLimit = new FileQueryLogStore({baseDir: tempDir, maxEntries: 3})
       const ids = await saveEntries(storeWithLimit, 5)
 
-      await new Promise((resolve) => {
-        setTimeout(resolve, 100)
-      })
+      await waitForPruneToSettle(join(tempDir, 'query-log'))
 
       const newest = ids.slice(2)
       const oldest = ids.slice(0, 2)
@@ -355,9 +372,7 @@ describe('FileQueryLogStore', () => {
       await storeWithAge.save(makeEntry({id: idOld, startedAt: oldTs}))
       await storeWithAge.save(makeEntry({id: idRecent, startedAt: recentTs}))
 
-      await new Promise((resolve) => {
-        setTimeout(resolve, 100)
-      })
+      await waitForPruneToSettle(join(tempDir, 'query-log'))
 
       expect(await storeWithAge.getById(idOld)).to.be.undefined
       expect(await storeWithAge.getById(idRecent)).to.not.be.undefined
@@ -373,9 +388,7 @@ describe('FileQueryLogStore', () => {
       // All 4 entries are within 30 days, so age pruning is a no-op; count pruning keeps newest 2 by filename.
       const ids = await saveEntries(storeWithBoth, 4, (i) => ({startedAt: now - i * 1000}))
 
-      await new Promise((resolve) => {
-        setTimeout(resolve, 100)
-      })
+      await waitForPruneToSettle(join(tempDir, 'query-log'))
 
       // Oldest 2 by filename (ids[0], ids[1]) are pruned; newest 2 by filename (ids[2], ids[3]) kept.
       expect(await storeWithBoth.getById(ids[0])).to.be.undefined
@@ -392,9 +405,7 @@ describe('FileQueryLogStore', () => {
       const idOld = `qry-${oldTs}`
       await storeNoAge.save(makeEntry({id: idOld, startedAt: oldTs}))
 
-      await new Promise((resolve) => {
-        setTimeout(resolve, 100)
-      })
+      await waitForPruneToSettle(join(tempDir, 'query-log'))
 
       expect(await storeNoAge.getById(idOld)).to.not.be.undefined
     })
@@ -406,8 +417,9 @@ describe('FileQueryLogStore', () => {
       const logDir = join(tempDir, 'query-log')
       await mkdir(logDir, {recursive: true})
 
-      // Helper: seed N files directly on disk (fast, no store overhead)
+      // Helper: seed N files directly on disk (parallel writes, no store overhead)
       const seedFiles = async (startTs: number, count: number): Promise<void> => {
+        const writes: Promise<void>[] = []
         for (let i = 0; i < count; i++) {
           const ts = startTs + i
           const id = `qry-${ts}`
@@ -421,9 +433,10 @@ describe('FileQueryLogStore', () => {
             taskId: `task-${id}`,
           }
 
-          // eslint-disable-next-line no-await-in-loop
-          await writeFile(join(logDir, `${id}.json`), JSON.stringify(entry))
+          writes.push(writeFile(join(logDir, `${id}.json`), JSON.stringify(entry)))
         }
+
+        await Promise.all(writes)
       }
 
       const countFiles = async (): Promise<number> => {
@@ -440,9 +453,7 @@ describe('FileQueryLogStore', () => {
       const store200 = new FileQueryLogStore({baseDir: tempDir})
       const id200 = `qry-${baseTs + 199}`
       await store200.save(makeEntry({id: id200, startedAt: baseTs + 199}))
-      await new Promise((resolve) => {
-        setTimeout(resolve, 100)
-      })
+      await waitForPruneToSettle(logDir)
 
       expect(await countFiles()).to.equal(200)
       expect(await store200.getById(`qry-${baseTs}`)).to.not.be.undefined // oldest survives
@@ -453,9 +464,7 @@ describe('FileQueryLogStore', () => {
       const store1000 = new FileQueryLogStore({baseDir: tempDir})
       const id1000 = `qry-${baseTs + 999}`
       await store1000.save(makeEntry({id: id1000, startedAt: baseTs + 999}))
-      await new Promise((resolve) => {
-        setTimeout(resolve, 200)
-      })
+      await waitForPruneToSettle(logDir)
 
       expect(await countFiles()).to.equal(1000)
       expect(await store1000.getById(`qry-${baseTs}`)).to.not.be.undefined // oldest still survives
@@ -464,9 +473,7 @@ describe('FileQueryLogStore', () => {
       const store1001 = new FileQueryLogStore({baseDir: tempDir})
       const id1001 = `qry-${baseTs + 1000}`
       await store1001.save(makeEntry({id: id1001, startedAt: baseTs + 1000}))
-      await new Promise((resolve) => {
-        setTimeout(resolve, 200)
-      })
+      await waitForPruneToSettle(logDir)
 
       expect(await countFiles()).to.equal(1000)
       expect(await store1001.getById(`qry-${baseTs}`)).to.be.undefined // oldest pruned
@@ -494,9 +501,7 @@ describe('FileQueryLogStore', () => {
       }
 
       // Verify on-disk persistence: fresh store instance should read the recovered entry
-      await new Promise((resolve) => {
-        setTimeout(resolve, 100)
-      })
+      await waitForPruneToSettle(join(tempDir, 'query-log'))
       const freshStore = new FileQueryLogStore({baseDir: tempDir})
       const persisted = await freshStore.getById(id)
       expect(persisted?.status).to.equal('error')
