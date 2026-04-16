@@ -13,7 +13,7 @@ import {getVcStatusQueryOptions} from './get-vc-status'
 
 export const executeVcMerge = (request: IVcMergeRequest): Promise<IVcMergeResponse> => {
   const {apiClient} = useTransportStore.getState()
-  if (!apiClient) throw new Error('Not connected')
+  if (!apiClient) return Promise.reject(new Error('Not connected'))
 
   return apiClient.request<IVcMergeResponse, IVcMergeRequest>(VcEvents.MERGE, request)
 }

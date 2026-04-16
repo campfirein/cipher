@@ -9,7 +9,7 @@ import {getVcStatusQueryOptions} from './get-vc-status'
 
 export const executeVcInit = (): Promise<IVcInitResponse> => {
   const {apiClient} = useTransportStore.getState()
-  if (!apiClient) throw new Error('Not connected')
+  if (!apiClient) return Promise.reject(new Error('Not connected'))
 
   return apiClient.request<IVcInitResponse>(VcEvents.INIT)
 }

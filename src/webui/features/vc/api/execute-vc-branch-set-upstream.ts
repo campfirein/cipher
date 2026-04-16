@@ -7,9 +7,9 @@ import {useTransportStore} from '../../../stores/transport-store'
 import {getVcBranchesQueryOptions} from './get-vc-branches'
 import {getVcStatusQueryOptions} from './get-vc-status'
 
-export const executeVcBranchSetUpstream = async (upstream: string): Promise<IVcBranchResponse> => {
+export const executeVcBranchSetUpstream = (upstream: string): Promise<IVcBranchResponse> => {
   const {apiClient} = useTransportStore.getState()
-  if (!apiClient) throw new Error('Not connected')
+  if (!apiClient) return Promise.reject(new Error('Not connected'))
 
   return apiClient.request<IVcBranchResponse>(VcEvents.BRANCH, {action: 'set-upstream', upstream})
 }

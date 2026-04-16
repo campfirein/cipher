@@ -18,16 +18,18 @@ type CommitArgs = {
   message: string
 }
 
-async function addAndCommit({addAll, filePaths, message}: CommitArgs): Promise<IVcCommitResponse> {
+const addAndCommit = ({addAll, filePaths, message}: CommitArgs): Promise<IVcCommitResponse> => {
   const {apiClient} = useTransportStore.getState()
-  if (!apiClient) throw new Error('Not connected')
+  if (!apiClient) return Promise.reject(new Error('Not connected'))
+
+  const commit = () => apiClient.request<IVcCommitResponse, IVcCommitRequest>(VcEvents.COMMIT, {message})
 
   if (addAll || (filePaths && filePaths.length > 0)) {
     const addRequest: IVcAddRequest = filePaths ? {filePaths} : {}
-    await apiClient.request<IVcAddResponse, IVcAddRequest>(VcEvents.ADD, addRequest)
+    return apiClient.request<IVcAddResponse, IVcAddRequest>(VcEvents.ADD, addRequest).then(commit)
   }
 
-  return apiClient.request<IVcCommitResponse, IVcCommitRequest>(VcEvents.COMMIT, {message})
+  return commit()
 }
 
 type UseVcCommitOptions = {

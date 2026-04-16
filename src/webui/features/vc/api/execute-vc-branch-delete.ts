@@ -6,9 +6,9 @@ import {type IVcBranchResponse, VcEvents} from '../../../../shared/transport/eve
 import {useTransportStore} from '../../../stores/transport-store'
 import {getVcBranchesQueryOptions} from './get-vc-branches'
 
-export const executeVcBranchDelete = async (name: string): Promise<IVcBranchResponse> => {
+export const executeVcBranchDelete = (name: string): Promise<IVcBranchResponse> => {
   const {apiClient} = useTransportStore.getState()
-  if (!apiClient) throw new Error('Not connected')
+  if (!apiClient) return Promise.reject(new Error('Not connected'))
 
   return apiClient.request<IVcBranchResponse>(VcEvents.BRANCH, {action: 'delete', name})
 }
