@@ -447,7 +447,10 @@ describe('consolidate', () => {
       // LLM returns no actions — consolidate still clears pendingMerges
       await consolidate(['auth/login.md'], {...deps, dreamStateService})
 
-      expect(dreamStateService.write.calledOnce).to.be.true
+      // Asserting on `update` (the contract) rather than `write` (the stub's
+      // current implementation) keeps this test honest under future refactors
+      // that route the clear through update() without calling write directly.
+      expect(dreamStateService.update.calledOnce).to.be.true
       const writtenState = dreamStateService.write.firstCall.args[0] as {pendingMerges: unknown[]}
       expect(writtenState.pendingMerges).to.deep.equal([])
     })

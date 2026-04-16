@@ -106,6 +106,11 @@ export class DreamExecutor {
     // history accurate for partial runs.
     const allOperations: DreamOperation[] = []
     let succeeded = false
+    // Tracks whether the success-path createReviewEntries already ran. The
+    // catch path also calls createReviewEntries for partial runs; without this
+    // flag, a failure that occurs after step 6b succeeds (e.g. step 7
+    // dreamStateService.update throws) would re-write the same review entries.
+    let reviewEntriesWritten = false
 
     try {
       // Step 1: Capture pre-state
@@ -169,6 +174,7 @@ export class DreamExecutor {
       // Step 6b: Create curate log entries for needsReview operations (dual-write for review system).
       // Runs after the completed dream log is durably written so review tasks never outlive their dream log.
       await this.createReviewEntries(allOperations, contextTreeDir, options.taskId)
+      reviewEntriesWritten = true
 
       // Step 7: Update dream state — atomic RMW under the per-file mutex so a
       // concurrent curate's incrementCurationCount can't be overwritten by the
@@ -219,8 +225,10 @@ export class DreamExecutor {
       // Surface review-flagged ops that did complete into `brv review pending` even
       // when the dream failed overall. Skipped when no work accumulated so the
       // "no dream log, no review entries" invariant holds for errors that fire
-      // before any operation ran.
-      if (allOperations.length > 0) {
+      // before any operation ran. Also skipped when the success-path call
+      // already wrote the entries (i.e. step 7 threw after step 6b succeeded)
+      // to prevent duplicate review items.
+      if (allOperations.length > 0 && !reviewEntriesWritten) {
         await this.createReviewEntries(allOperations, contextTreeDir, options.taskId)
       }
 

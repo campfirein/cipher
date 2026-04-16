@@ -519,7 +519,10 @@ export class TaskRouter {
 
       if (!check.eligible) {
         transportLog(`Task ${taskId} (type=${data.type}) skipped by daemon pre-check: ${check.skipResult}`)
-        this.handleTaskCompleted({result: check.skipResult, taskId})
+        // Use the skip-specific handler so the pool's activeTasks counter and
+        // onTaskCompleted hooks aren't notified for a task that never reached
+        // submitTask. See handleTaskSkippedByPreCheck for rationale.
+        this.handleTaskSkippedByPreCheck(taskId, check.skipResult)
         return {taskId}
       }
     }
@@ -650,6 +653,44 @@ export class TaskRouter {
     if (task) {
       this.notifyHooksError(taskId, error.message, task).catch(() => {})
     }
+  }
+
+  /**
+   * Emit `task:completed` for a task that the daemon's pre-dispatch gate skipped
+   * before it ever reached `AgentPool.submitTask`.
+   *
+   * Distinct from {@link handleTaskCompleted}:
+   *   - does NOT call `agentPool.notifyTaskCompleted` (the pool's `activeTasks`
+   *     counter was never incremented, so decrementing here would undercount real
+   *     load and let `drainQueue` dispatch an extra queued task)
+   *   - does NOT fire `onTaskCompleted` lifecycle hooks (counters/metrics that
+   *     act on completed tasks should not see pre-check skips as completions)
+   *
+   * Still emits the event to the client and the project room so REPL/TUI
+   * receive the skip result, and still calls `moveToCompleted` so the task is
+   * removed from the active set.
+   */
+  private handleTaskSkippedByPreCheck(taskId: string, result: string): void {
+    const task = this.tasks.get(taskId)
+
+    transportLog(`Task skipped by pre-dispatch gate: ${taskId}`)
+
+    if (task) {
+      this.transport.sendTo(task.clientId, TransportTaskEventNames.COMPLETED, {
+        result,
+        taskId,
+      })
+    }
+
+    broadcastToProjectRoom(
+      this.projectRegistry,
+      this.projectRouter,
+      task?.projectPath,
+      TransportTaskEventNames.COMPLETED,
+      {result, taskId},
+      task?.clientId,
+    )
+    this.moveToCompleted(taskId)
   }
 
   private handleTaskStarted(data: TaskStartedEvent): void {

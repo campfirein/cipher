@@ -13,6 +13,12 @@ const STATE_FILENAME = 'dream-state.json'
 // be serialized across all writers — incrementCurationCount, dream-executor's step 7
 // reset, and consolidate's pendingMerges clear all share this mutex via update().
 // Independent DreamStateService instances pointing at the same file share a mutex.
+//
+// Note: this Map grows monotonically — one entry per unique absolute state-file
+// path ever instantiated. In practice it is bounded by the number of registered
+// projects in the agent process (typically single digits), so memory growth is
+// negligible. If the daemon ever needs to support project unregister, evict
+// entries here on unregister to keep the registry tight.
 const stateMutexes = new Map<string, AsyncMutex>()
 
 function getStateMutex(stateFilePath: string): AsyncMutex {
@@ -79,6 +85,14 @@ export class DreamStateService {
     })
   }
 
+  /**
+   * Atomic write (tmp file → rename). Does NOT acquire the per-file mutex.
+   *
+   * Direct callers that perform a logical read-modify-write by pairing
+   * {@link read} + write bypass serialization and may lose updates from
+   * concurrent writers. Use {@link update} for any RMW that depends on the
+   * current state.
+   */
   async write(state: DreamState): Promise<void> {
     DreamStateSchema.parse(state)
     const dir = dirname(this.stateFilePath)

@@ -578,6 +578,47 @@ describe('DreamExecutor', () => {
         expect(reviewEntry.operations).to.have.lengthOf(1)
         expect(reviewEntry.operations[0].reviewStatus).to.equal('pending')
       })
+
+      it('does NOT duplicate review entries when step 7 (state update) throws after success-path review writes', async () => {
+        // Regression for Codex P2: success-path createReviewEntries (after the
+        // completed log save) writes review entries; if the subsequent
+        // dreamStateService.update throws, control jumps to catch, which would
+        // re-invoke createReviewEntries on the same allOperations, producing
+        // duplicate entries in `brv review pending`.
+        dreamStateService.update.rejects(new Error('state.json EROFS'))
+
+        const executor = new DreamExecutor(deps)
+        const createReviewEntries = stub().resolves()
+        ;(executor as unknown as {createReviewEntries: SinonStub}).createReviewEntries = createReviewEntries
+
+        // Inject a single completed reviewable op via a runOperations override
+        ;(executor as unknown as {
+          runOperations: (args: {
+            agent: ICipherAgent
+            changedFiles: Set<string>
+            contextTreeDir: string
+            logId: string
+            out: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[]
+            projectRoot: string
+            signal: AbortSignal
+            taskId: string
+          }) => Promise<void>
+        }).runOperations = async (args) => {
+          args.out.push(reviewableOp)
+        }
+
+        try {
+          await executor.executeWithAgent(agent, defaultOptions)
+          expect.fail('should have thrown')
+        } catch {
+          // expected (state.json EROFS)
+        }
+
+        expect(
+          createReviewEntries.callCount,
+          'createReviewEntries must run exactly once when step 7 throws after success-path review write',
+        ).to.equal(1)
+      })
     })
   })
 })

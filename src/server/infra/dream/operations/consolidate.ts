@@ -85,6 +85,18 @@ export async function consolidate(
  * Reads pendingMerges from state, mutates `changedFiles` to include any
  * pending sourceFiles that still exist on disk, and clears the list.
  * Returns the list for use as LLM prompt hints (may be empty).
+ *
+ * Two-phase access pattern (intentional):
+ *   1. unguarded `read()` to build hints — hints are non-binding LLM
+ *      suggestions, so a slightly-stale snapshot here is acceptable. Avoids
+ *      holding the per-file mutex across the file-existence checks below.
+ *   2. mutex-guarded `update()` to clear pendingMerges — must be atomic so a
+ *      concurrent `incrementCurationCount` isn't overwritten by writing back
+ *      from a stale snapshot.
+ *
+ * If a concurrent prune appends new entries between the two phases, those new
+ * entries are NOT cleared by this call — they remain for the next dream's
+ * consolidate to consume. That's correct behavior.
  */
 async function loadAndClearPendingMerges(
   deps: ConsolidateDeps,
@@ -96,6 +108,9 @@ async function loadAndClearPendingMerges(
   try {
     state = await deps.dreamStateService.read()
   } catch {
+    // If the state file is unreadable we can't safely build hints; the
+    // matching `update()` below would also fail. Return early — the next
+    // dream will retry once the file is readable again.
     return []
   }
 
