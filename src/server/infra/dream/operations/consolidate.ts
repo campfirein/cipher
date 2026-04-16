@@ -13,12 +13,13 @@
 
 import {dump as yamlDump, load as yamlLoad} from 'js-yaml'
 import {randomUUID} from 'node:crypto'
-import {mkdir, readdir, readFile, rename, unlink, writeFile} from 'node:fs/promises'
+import {access, mkdir, readdir, readFile, rename, unlink, writeFile} from 'node:fs/promises'
 import {dirname, join} from 'node:path'
 
 import type {ICipherAgent} from '../../../../agent/core/interfaces/i-cipher-agent.js'
 import type {DreamOperation} from '../dream-log-schema.js'
 import type {ConsolidationAction} from '../dream-response-schemas.js'
+import type {DreamState, PendingMerge} from '../dream-state-schema.js'
 
 import {parseFrontmatterScoring} from '../../../core/domain/knowledge/markdown-writer.js'
 import {ConsolidateResponseSchema} from '../dream-response-schemas.js'
@@ -27,6 +28,17 @@ import {parseDreamResponse} from '../parse-dream-response.js'
 export type ConsolidateDeps = {
   agent: ICipherAgent
   contextTreeDir: string
+  /**
+   * Optional. When present, pendingMerges from prior dreams (written by prune's
+   * SUGGEST_MERGE) are consumed at the start of consolidate: source files are
+   * added to changedFiles, their target/reason is passed to the LLM as a hint,
+   * and the pendingMerges list is cleared.
+   */
+  dreamStateService?: {
+    read(): Promise<DreamState>
+    update(updater: (state: DreamState) => DreamState): Promise<DreamState>
+    write(state: DreamState): Promise<void>
+  }
   reviewBackupStore?: {
     save(relativePath: string, content: string): Promise<void>
   }
@@ -45,6 +57,13 @@ export async function consolidate(
   changedFiles: string[],
   deps: ConsolidateDeps,
 ): Promise<DreamOperation[]> {
+  // Cross-cycle: fold in pendingMerges written by the previous dream's Prune.
+  // Source files (if still on disk) join the changedFiles set so consolidate
+  // re-evaluates them; mergeTarget + reason surface to the LLM as a hint.
+  // pendingMerges is cleared unconditionally after this pass — consumed
+  // regardless of outcome, per notes/byterover-dream/6-dream-undo-and-cross-cycle.md.
+  const hints = await loadAndClearPendingMerges(deps, changedFiles)
+
   if (changedFiles.length === 0) return []
 
   // Step 1: Group by domain
@@ -55,14 +74,74 @@ export async function consolidate(
   for (const [domain, files] of domainGroups) {
     if (deps.signal?.aborted) break
     // eslint-disable-next-line no-await-in-loop
-    const domainOps = await processDomain(domain, files, deps)
+    const domainOps = await processDomain(domain, files, deps, hints)
     allResults.push(...domainOps)
   }
 
   return allResults
 }
 
-async function processDomain(domain: string, files: string[], deps: ConsolidateDeps): Promise<DreamOperation[]> {
+/**
+ * Reads pendingMerges from state, mutates `changedFiles` to include any
+ * pending sourceFiles that still exist on disk, and clears the list.
+ * Returns the list for use as LLM prompt hints (may be empty).
+ */
+async function loadAndClearPendingMerges(
+  deps: ConsolidateDeps,
+  changedFiles: string[],
+): Promise<PendingMerge[]> {
+  if (!deps.dreamStateService) return []
+
+  let state: DreamState
+  try {
+    state = await deps.dreamStateService.read()
+  } catch {
+    return []
+  }
+
+  const pending = state.pendingMerges ?? []
+  if (pending.length === 0) return []
+
+  // Check all source files in parallel — independent fs stat calls.
+  const presenceChecks = await Promise.all(
+    pending.map((entry) => fileExists(join(deps.contextTreeDir, entry.sourceFile))),
+  )
+
+  const existing = new Set(changedFiles)
+  const hints: PendingMerge[] = []
+  for (const [index, entry] of pending.entries()) {
+    if (!presenceChecks[index]) continue // Stale suggestion — skip silently
+    hints.push(entry)
+    if (!existing.has(entry.sourceFile)) {
+      changedFiles.push(entry.sourceFile)
+      existing.add(entry.sourceFile)
+    }
+  }
+
+  try {
+    // Clear pendingMerges under the per-file mutex so a concurrent
+    // incrementCurationCount can't be lost by overwriting from a stale snapshot.
+    // The updater spreads the latest state, preserving any field a parallel
+    // writer just touched.
+    await deps.dreamStateService.update((latest) => ({...latest, pendingMerges: []}))
+  } catch {
+    // Fail-open: failure to clear pendingMerges is a minor bookkeeping issue,
+    // not a reason to block the dream.
+  }
+
+  return hints
+}
+
+async function fileExists(absolutePath: string): Promise<boolean> {
+  try {
+    await access(absolutePath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function processDomain(domain: string, files: string[], deps: ConsolidateDeps, hints: PendingMerge[] = []): Promise<DreamOperation[]> {
   const {agent, contextTreeDir, searchService, taskId} = deps
   const results: DreamOperation[] = []
   let sessionId: string
@@ -89,7 +168,7 @@ async function processDomain(domain: string, files: string[], deps: ConsolidateD
     // Step 3: LLM classification — cap payload to avoid exceeding model context limits
     const filesPayload = capPayloadSize(Object.fromEntries(fileContents), files)
 
-    const prompt = buildPrompt(files, [...relatedPaths], filesPayload)
+    const prompt = buildPrompt(files, [...relatedPaths], filesPayload, hints)
     const response = await agent.executeOnSession(sessionId, prompt, {
       executionContext: {commandType: 'curate', maxIterations: 10},
       signal: deps.signal,
@@ -299,6 +378,7 @@ function buildPrompt(
   changedFiles: string[],
   relatedFiles: string[],
   filesPayload: Record<string, string>,
+  pendingMergeHints: PendingMerge[] = [],
 ): string {
   const allFiles = Object.keys(filesPayload)
   const marker = '━'.repeat(60)
@@ -306,12 +386,26 @@ function buildPrompt(
     .map((path) => `\n${marker}\nPATH: ${path}\n${marker}\n${filesPayload[path]}`)
     .join('\n')
 
-  return [
+  const lines: string[] = [
     'You are consolidating a knowledge context tree. The full contents of every file are included below — read them directly, then classify relationships. Do NOT use code_exec.',
     '',
     `Changed files (recently curated): ${JSON.stringify(changedFiles)}`,
     `Related files (found via search): ${JSON.stringify(relatedFiles)}`,
     `All available files: ${JSON.stringify(allFiles)}`,
+  ]
+
+  // Surface prior-dream merge suggestions as non-binding hints. LLM may still classify SKIP.
+  const relevantHints = pendingMergeHints.filter((h) => allFiles.includes(h.sourceFile) || allFiles.includes(h.mergeTarget))
+  if (relevantHints.length > 0) {
+    lines.push('', 'Note: A previous analysis suggested these files may be merge candidates:')
+    for (const h of relevantHints) {
+      lines.push(`- ${h.sourceFile} → merge into ${h.mergeTarget} (reason: ${h.reason})`)
+    }
+
+    lines.push('Consider these suggestions but make your own judgment.')
+  }
+
+  lines.push(
     '',
     'File contents:',
     fileBlocks,
@@ -334,7 +428,8 @@ function buildPrompt(
     '- For TEMPORAL_UPDATE, preserve all facts and add temporal context. Include confidence (0-1) indicating certainty that the update is correct.',
     '- For CROSS_REFERENCE, just list the files — the system will add frontmatter links.',
     '- Preserve all diagrams, tables, code examples, and structured data verbatim.',
-  ].join('\n')
+  )
+  return lines.join('\n')
 }
 
 async function executeAction(

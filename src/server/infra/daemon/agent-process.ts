@@ -506,11 +506,15 @@ async function executeTask(
           const dreamLockService = new DreamLockService({baseDir: brvDir})
           const dreamStateService = new DreamStateService({baseDir: brvDir})
 
-          // Run trigger check (acquires lock if eligible)
+          // Run trigger check (acquires lock if eligible).
+          // Gate 3 (queue) is pre-checked by the daemon (TransportHandlers.preDispatchCheck
+          // for CLI dispatch, onAgentIdle for idle-trigger dispatch), so the agent treats
+          // its own queue view as empty. Gates 1 (time) and 2 (activity) are re-checked here
+          // as defense-in-depth in case state drifted between dispatch and execution.
           const dreamTrigger = new DreamTrigger({
             dreamLockService,
             dreamStateService,
-            getQueueLength: () => 0, // Agent-level: this task is the only active one
+            getQueueLength: () => 0,
           })
           const eligibility = await dreamTrigger.tryStartDream(projectPath, force)
           if (!eligibility.eligible) {

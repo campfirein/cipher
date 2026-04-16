@@ -227,6 +227,16 @@ async function main(): Promise<void> {
     const getQueueLength = (projectPath: string): number =>
       agentPool?.getQueueState().find((q) => q.projectPath === projectPath)?.queueLength ?? 0
 
+    // Shared dream pre-check trigger factory.
+    // The lock service explicitly throws if invoked — gate 4 (lock) is the agent's job;
+    // the daemon must only ever evaluate gates 1-3 via checkEligibility().
+    const makeDreamPreCheckTrigger = (projectPath: string): DreamTrigger =>
+      new DreamTrigger({
+        dreamLockService: {tryAcquire() { throw new Error('Lock must not be acquired during daemon eligibility pre-check') }},
+        dreamStateService: new DreamStateService({baseDir: join(projectPath, BRV_DIR)}),
+        getQueueLength,
+      })
+
     // Agent idle timeout policy — kills agents after period of inactivity
     const agentIdleTimeoutPolicy = new AgentIdleTimeoutPolicy({
       checkIntervalMs: AGENT_IDLE_CHECK_INTERVAL_MS,
@@ -249,15 +259,7 @@ async function main(): Promise<void> {
         // Check dream eligibility before killing (gates 1-3 only, no lock).
         // Lock acquisition happens in the agent process when the dream task executes.
         try {
-          const brvDir = join(projectPath, BRV_DIR)
-          const dreamTrigger = new DreamTrigger({
-            // Lock must NOT be acquired during daemon pre-check — guard against accidental gate-4 calls
-            dreamLockService: {tryAcquire() { throw new Error('Lock must not be acquired during daemon eligibility pre-check') }},
-            dreamStateService: new DreamStateService({baseDir: brvDir}),
-            getQueueLength,
-          })
-
-          const result = await dreamTrigger.checkEligibility(projectPath)
+          const result = await makeDreamPreCheckTrigger(projectPath).checkEligibility(projectPath)
           if (result.eligible) {
             log(`Dream eligible, dispatching dream task: ${projectPath}`)
             agentPool?.submitTask({
@@ -334,6 +336,24 @@ async function main(): Promise<void> {
       agentPool,
       clientManager,
       lifecycleHooks: [curateLogHandler],
+      // Daemon-side gate for dream task:create — mirrors the idle-trigger pre-check
+      // in this file so the CLI path (brv dream without --force) actually honors
+      // gate 3 (queue). The agent-side check kept gate 3 hardcoded to skip,
+      // which made the CLI ignore the spec when other tasks were queued.
+      async preDispatchCheck(task, projectPath) {
+        if (task.type !== 'dream' || task.force) return {eligible: true}
+        if (!projectPath) return {eligible: true}
+
+        try {
+          const result = await makeDreamPreCheckTrigger(projectPath).checkEligibility(projectPath)
+          return result.eligible
+            ? {eligible: true}
+            : {eligible: false, skipResult: `Dream skipped: ${result.reason}`}
+        } catch {
+          // Fail-open on pre-check errors: let the agent's own gate check be the fallback.
+          return {eligible: true}
+        }
+      },
       projectRegistry,
       projectRouter,
       transport: transportServer,

@@ -143,5 +143,78 @@ describe('DreamStateService', () => {
       expect(state.totalDreams).to.equal(5)
       expect(state.lastDreamLogId).to.equal('drm-123')
     })
+
+    it('should count every increment even when 10 run concurrently (no lost updates)', async () => {
+      const N = 10
+      await Promise.all(Array.from({length: N}, () => service.incrementCurationCount()))
+      const state = await service.read()
+      expect(state.curationsSinceDream).to.equal(N)
+    })
+
+    it('should serialize concurrent increments per service instance (FIFO)', async () => {
+      // Two services pointing at the SAME baseDir still share per-file serialization
+      // when the mutex is keyed on the absolute state file path.
+      const serviceB = new DreamStateService({baseDir: tempDir})
+      const N = 20
+      await Promise.all(
+        Array.from({length: N}, (_, i) =>
+          (i % 2 === 0 ? service : serviceB).incrementCurationCount(),
+        ),
+      )
+      const state = await service.read()
+      expect(state.curationsSinceDream).to.equal(N)
+    })
+  })
+
+  // ==========================================================================
+  // update — generic RMW under the same per-file mutex
+  // ==========================================================================
+
+  describe('update', () => {
+    it('returns the updated state', async () => {
+      const next = await service.update((state) => ({...state, totalDreams: 7}))
+      expect(next.totalDreams).to.equal(7)
+
+      const persisted = await service.read()
+      expect(persisted.totalDreams).to.equal(7)
+    })
+
+    it('does not lose increments when interleaved with a step-7-style reset writer', async () => {
+      // Models the dream-executor step 7 race: a dream "resets" curationsSinceDream
+      // to 0 while a curate's incrementCurationCount runs concurrently. Without the
+      // mutex covering both writers, the increment is lost.
+      await service.update((state) => ({...state, curationsSinceDream: 5, totalDreams: 1}))
+
+      // Fire a step-7-style reset and an increment in parallel.
+      await Promise.all([
+        service.update((state) => ({...state, curationsSinceDream: 0, totalDreams: state.totalDreams + 1})),
+        service.incrementCurationCount(),
+      ])
+
+      const final = await service.read()
+
+      // Either ordering is acceptable, but both writes must be visible:
+      //   - reset-then-increment → curationsSinceDream=1 (reset to 0, then ++)
+      //   - increment-then-reset → curationsSinceDream=0 (incremented to 6, then reset to 0)
+      // The test asserts that increments are NEVER lost: if the reset runs FIRST
+      // the increment must show; if the reset runs LAST the increment is consumed
+      // (which is the design intent — the dream consumed it).
+      expect(final.curationsSinceDream).to.be.oneOf([0, 1])
+      expect(final.totalDreams, 'reset-side update must always commit').to.equal(2)
+    })
+
+    it('serializes mixed update + incrementCurationCount calls (no lost writes)', async () => {
+      // 5 increments interleaved with 5 totalDreams bumps — neither side should drop a write.
+      const ops = Array.from({length: 10}, (_, i) =>
+        i % 2 === 0
+          ? service.incrementCurationCount()
+          : service.update((state) => ({...state, totalDreams: state.totalDreams + 1})),
+      )
+      await Promise.all(ops)
+
+      const final = await service.read()
+      expect(final.curationsSinceDream).to.equal(5)
+      expect(final.totalDreams).to.equal(5)
+    })
   })
 })

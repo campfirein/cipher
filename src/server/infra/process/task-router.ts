@@ -66,12 +66,31 @@ type LlmEventPayloadMap = {
  */
 const TASK_CLEANUP_GRACE_PERIOD_MS = 5000
 
+/**
+ * Outcome of the daemon-side pre-dispatch check.
+ *
+ * `skipResult` is the full string sent to the client as the task:completed `result`.
+ * The callback owns the message format so task-router stays task-type-agnostic
+ * (e.g. dream uses "Dream skipped: <reason>"; future task types can use their own).
+ */
+export type PreDispatchCheckResult = {eligible: false; skipResult: string} | {eligible: true}
+
+export type PreDispatchCheck = (task: TaskCreateRequest, projectPath?: string) => Promise<PreDispatchCheckResult>
+
 type TaskRouterOptions = {
   agentPool?: IAgentPool
   /** Function to resolve agent clientId for a given project */
   getAgentForProject: (projectPath?: string) => string | undefined
   /** Lifecycle hooks for task events (e.g. CurateLogHandler). */
   lifecycleHooks?: ITaskLifecycleHook[]
+  /**
+   * Optional daemon-side gate run before dispatching to the agent pool. If it
+   * resolves ineligible, task-router short-circuits with task:completed carrying
+   * the skip reason and never submits the task to an agent.
+   * Used for dream task type to enforce gates 1-3 (time, activity, queue) even
+   * on the CLI dispatch path — mirrors the idle-trigger pre-check pattern.
+   */
+  preDispatchCheck?: PreDispatchCheck
   projectRegistry?: IProjectRegistry
   projectRouter?: IProjectRouter
   /** Resolves the projectPath a client registered with (from client:register). */
@@ -92,6 +111,7 @@ export class TaskRouter {
   private completedTasks: Map<string, {completedAt: number; task: TaskInfo}> = new Map()
   private readonly getAgentForProject: (projectPath?: string) => string | undefined
   private readonly lifecycleHooks: ITaskLifecycleHook[]
+  private readonly preDispatchCheck: TaskRouterOptions['preDispatchCheck']
   private readonly projectRegistry: IProjectRegistry | undefined
   private readonly projectRouter: IProjectRouter | undefined
   private readonly resolveClientProjectPath: ((clientId: string) => string | undefined) | undefined
@@ -104,6 +124,7 @@ export class TaskRouter {
     this.agentPool = options.agentPool
     this.getAgentForProject = options.getAgentForProject
     this.lifecycleHooks = options.lifecycleHooks ?? []
+    this.preDispatchCheck = options.preDispatchCheck
     this.projectRegistry = options.projectRegistry
     this.projectRouter = options.projectRouter
     this.resolveClientProjectPath = options.resolveClientProjectPath
@@ -480,6 +501,28 @@ export class TaskRouter {
       ...(logId ? {logId} : {}),
       taskId,
     })
+
+    // ── Daemon-side pre-dispatch gate (dream uses this for gates 1-3) ────────
+    // Runs after ack so the client has a logId to correlate; short-circuits with
+    // task:completed + skip-reason when ineligible. Mirrors the idle-trigger
+    // pattern in brv-server.ts:260 for the CLI dispatch path.
+
+    if (this.preDispatchCheck) {
+      let check: PreDispatchCheckResult = {eligible: true}
+      try {
+        check = await this.preDispatchCheck(data, projectPath)
+      } catch (error_) {
+        transportLog(
+          `preDispatchCheck threw for task ${taskId}, proceeding with dispatch: ${error_ instanceof Error ? error_.message : String(error_)}`,
+        )
+      }
+
+      if (!check.eligible) {
+        transportLog(`Task ${taskId} (type=${data.type}) skipped by daemon pre-check: ${check.skipResult}`)
+        this.handleTaskCompleted({result: check.skipResult, taskId})
+        return {taskId}
+      }
+    }
 
     // ── Submit to AgentPool (fire-and-forget) ─────────────────────────────────
 
