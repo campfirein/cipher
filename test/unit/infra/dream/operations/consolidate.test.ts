@@ -34,6 +34,31 @@ function llmResponse(actions: Array<{confidence?: number; files: string[]; merge
   return '```json\n' + JSON.stringify({actions}) + '\n```'
 }
 
+/** Test helper: build a stubbed DreamStateService exposing read/update/write with seeded pendingMerges. */
+function makePendingMergeStateService(pendingMerges: Array<{mergeTarget: string; reason: string; sourceFile: string; suggestedByDreamId: string}>) {
+  type State = import('../../../../../src/server/infra/dream/dream-state-schema.js').DreamState
+  const service: {read: ReturnType<typeof stub>; update: ReturnType<typeof stub>; write: ReturnType<typeof stub>} = {
+    read: stub().resolves({
+      curationsSinceDream: 0,
+      lastDreamAt: null,
+      lastDreamLogId: null,
+      pendingMerges,
+      totalDreams: 0,
+      version: 1 as const,
+    }),
+    update: stub(),
+    write: stub().resolves(),
+  }
+  // Default update: read → updater → write — keeps tests that assert on write.callCount valid.
+  service.update.callsFake(async (updater: (state: State) => State) => {
+    const current = await service.read()
+    const next = updater(current)
+    await service.write(next)
+    return next
+  })
+  return service
+}
+
 describe('consolidate', () => {
   let ctxDir: string
   let agent: {
@@ -377,5 +402,90 @@ describe('consolidate', () => {
 
     // Only one domain processed — the second was skipped because signal was aborted
     expect(agent.createTaskSession.callCount).to.equal(1)
+  })
+
+  // ==========================================================================
+  // pendingMerges consumption (ENG-2126 fix #3)
+  // ==========================================================================
+
+  describe('pendingMerges consumption', () => {
+    it('adds pendingMerge source files to the changedFiles set when they exist on disk', async () => {
+      await createMdFile(ctxDir, 'auth/login.md', '# Login')
+      await createMdFile(ctxDir, 'auth/session.md', '# Session (suggested merge source)')
+      const dreamStateService = makePendingMergeStateService([
+        {mergeTarget: 'auth/login.md', reason: 'Overlaps login flow', sourceFile: 'auth/session.md', suggestedByDreamId: 'drm-prev'},
+      ])
+
+      // Only pass login.md — session.md should be added via pendingMerges
+      await consolidate(['auth/login.md'], {...deps, dreamStateService})
+
+      // File contents are inlined in the prompt — verify session.md was loaded as a sibling
+      const prompt = agent.executeOnSession.firstCall.args[1] as string
+      expect(prompt).to.include('PATH: auth/session.md')
+    })
+
+    it('skips pendingMerge entries whose sourceFile is missing on disk', async () => {
+      await createMdFile(ctxDir, 'auth/login.md', '# Login')
+      const dreamStateService = makePendingMergeStateService([
+        {mergeTarget: 'auth/login.md', reason: 'Stale suggestion', sourceFile: 'auth/never-existed.md', suggestedByDreamId: 'drm-prev'},
+      ])
+
+      await consolidate(['auth/login.md'], {...deps, dreamStateService})
+
+      // No errors, consolidation proceeds normally with just the original changedFiles
+      const prompt = agent.executeOnSession.firstCall.args[1] as string
+      expect(prompt).to.not.include('PATH: auth/never-existed.md')
+    })
+
+    it('clears pendingMerges after processing (consumed regardless of outcome)', async () => {
+      await createMdFile(ctxDir, 'auth/login.md', '# Login')
+      await createMdFile(ctxDir, 'auth/session.md', '# Session')
+      const dreamStateService = makePendingMergeStateService([
+        {mergeTarget: 'auth/login.md', reason: 'Overlaps login flow', sourceFile: 'auth/session.md', suggestedByDreamId: 'drm-prev'},
+      ])
+
+      // LLM returns no actions — consolidate still clears pendingMerges
+      await consolidate(['auth/login.md'], {...deps, dreamStateService})
+
+      // Asserting on `update` (the contract) rather than `write` (the stub's
+      // current implementation) keeps this test honest under future refactors
+      // that route the clear through update() without calling write directly.
+      expect(dreamStateService.update.calledOnce).to.be.true
+      const writtenState = dreamStateService.write.firstCall.args[0] as {pendingMerges: unknown[]}
+      expect(writtenState.pendingMerges).to.deep.equal([])
+    })
+
+    it('passes mergeTarget and reason to the LLM prompt as hints', async () => {
+      await createMdFile(ctxDir, 'auth/login.md', '# Login')
+      await createMdFile(ctxDir, 'auth/session.md', '# Session')
+      const dreamStateService = makePendingMergeStateService([
+        {mergeTarget: 'auth/login.md', reason: 'Share session state docs', sourceFile: 'auth/session.md', suggestedByDreamId: 'drm-prev'},
+      ])
+
+      await consolidate(['auth/login.md'], {...deps, dreamStateService})
+
+      const prompt = agent.executeOnSession.firstCall.args[1] as string
+      expect(prompt).to.include('auth/session.md')
+      expect(prompt).to.include('auth/login.md')
+      expect(prompt).to.include('Share session state docs')
+    })
+
+    it('is a no-op when dreamStateService is not provided (backwards compatible)', async () => {
+      await createMdFile(ctxDir, 'auth/login.md', '# Login')
+
+      // No dreamStateService in deps — should not throw, should proceed normally
+      const results = await consolidate(['auth/login.md'], deps)
+      expect(results).to.deep.equal([])
+    })
+
+    it('is a no-op when pendingMerges is empty', async () => {
+      await createMdFile(ctxDir, 'auth/login.md', '# Login')
+      const dreamStateService = makePendingMergeStateService([])
+
+      await consolidate(['auth/login.md'], {...deps, dreamStateService})
+
+      // No write needed when there's nothing to clear
+      expect(dreamStateService.write.called).to.be.false
+    })
   })
 })

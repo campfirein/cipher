@@ -55,6 +55,7 @@ export type DreamExecutorDeps = {
   }
   dreamStateService: {
     read(): Promise<import('../dream/dream-state-schema.js').DreamState>
+    update(updater: (state: import('../dream/dream-state-schema.js').DreamState) => import('../dream/dream-state-schema.js').DreamState): Promise<import('../dream/dream-state-schema.js').DreamState>
     write(state: import('../dream/dream-state-schema.js').DreamState): Promise<void>
   }
   reviewBackupStore?: {
@@ -100,7 +101,16 @@ export class DreamExecutor {
     }
     await this.deps.dreamLogStore.save(processingEntry)
 
+    // Hoisted so the catch block can surface any work that completed before a
+    // timeout or error — keeps the dream log audit trail and `brv dream --undo`
+    // history accurate for partial runs.
+    const allOperations: DreamOperation[] = []
     let succeeded = false
+    // Tracks whether the success-path createReviewEntries already ran. The
+    // catch path also calls createReviewEntries for partial runs; without this
+    // flag, a failure that occurs after step 6b succeeds (e.g. step 7
+    // dreamStateService.update throws) would re-write the same review entries.
+    let reviewEntriesWritten = false
 
     try {
       // Step 1: Capture pre-state
@@ -117,36 +127,19 @@ export class DreamExecutor {
 
       // Step 3: Find changed files since last dream
       const changedFiles = await this.findChangedFilesSinceLastDream(dreamState.lastDreamAt, contextTreeDir)
-      // Step 4: Run operations
-      const consolidateResults = await consolidate([...changedFiles], {
+
+      // Step 4: Run operations, pushing results incrementally so partial work
+      // is preserved if a later step throws or the budget aborts.
+      await this.runOperations({
         agent,
+        changedFiles,
         contextTreeDir,
-        reviewBackupStore: this.deps.reviewBackupStore,
-        searchService: this.deps.searchService,
-        signal: controller.signal,
-        taskId: options.taskId,
-      })
-      const synthesizeResults = changedFiles.size > 0
-        ? await synthesize({
-            agent,
-            contextTreeDir,
-            searchService: this.deps.searchService,
-            signal: controller.signal,
-            taskId: options.taskId,
-          })
-        : []
-      const pruneResults = await prune({
-        agent,
-        archiveService: this.deps.archiveService,
-        contextTreeDir,
-        dreamLogId: logId,
-        dreamStateService: this.deps.dreamStateService,
+        logId,
+        out: allOperations,
         projectRoot,
-        reviewBackupStore: this.deps.reviewBackupStore,
         signal: controller.signal,
         taskId: options.taskId,
       })
-      const allOperations: DreamOperation[] = [...consolidateResults, ...synthesizeResults, ...pruneResults]
 
       // Step 5: Post-dream propagation (fail-open)
       if (preState) {
@@ -181,30 +174,35 @@ export class DreamExecutor {
       // Step 6b: Create curate log entries for needsReview operations (dual-write for review system).
       // Runs after the completed dream log is durably written so review tasks never outlive their dream log.
       await this.createReviewEntries(allOperations, contextTreeDir, options.taskId)
+      reviewEntriesWritten = true
 
-      // Step 7: Update dream state — re-read to preserve pendingMerges written by prune
-      const currentState = await this.deps.dreamStateService.read()
-      await this.deps.dreamStateService.write({
-        ...currentState,
+      // Step 7: Update dream state — atomic RMW under the per-file mutex so a
+      // concurrent curate's incrementCurationCount can't be overwritten by the
+      // reset, and so pendingMerges written by prune are preserved by the spread.
+      await this.deps.dreamStateService.update((state) => ({
+        ...state,
         curationsSinceDream: 0,
         lastDreamAt: new Date().toISOString(),
         lastDreamLogId: logId,
-        totalDreams: currentState.totalDreams + 1,
-      })
+        totalDreams: state.totalDreams + 1,
+      }))
 
       succeeded = true
       return {logId, result: this.formatResult(logId, summary)}
     } catch (error) {
-      // Save error/partial log entry (best-effort)
+      // Save error/partial log entry (best-effort). Use allOperations so any work
+      // that completed before the failure is captured — keeps the audit trail and
+      // undo history accurate even for partial runs.
+      const summary = this.computeSummary(allOperations)
       if (controller.signal.aborted) {
         const partialEntry: DreamLogEntry = {
           abortReason: 'Budget exceeded (5 min)',
           completedAt: Date.now(),
           id: logId,
-          operations: [],
+          operations: allOperations,
           startedAt,
           status: 'partial',
-          summary: zeroes,
+          summary,
           taskId: options.taskId,
           trigger,
         }
@@ -214,14 +212,24 @@ export class DreamExecutor {
           completedAt: Date.now(),
           error: error instanceof Error ? error.message : String(error),
           id: logId,
-          operations: [],
+          operations: allOperations,
           startedAt,
           status: 'error',
-          summary: zeroes,
+          summary,
           taskId: options.taskId,
           trigger,
         }
         await this.deps.dreamLogStore.save(errorEntry).catch(() => {})
+      }
+
+      // Surface review-flagged ops that did complete into `brv review pending` even
+      // when the dream failed overall. Skipped when no work accumulated so the
+      // "no dream log, no review entries" invariant holds for errors that fire
+      // before any operation ran. Also skipped when the success-path call
+      // already wrote the entries (i.e. step 7 threw after step 6b succeeded)
+      // to prevent duplicate review items.
+      if (allOperations.length > 0 && !reviewEntriesWritten) {
+        await this.createReviewEntries(allOperations, contextTreeDir, options.taskId)
       }
 
       throw error
@@ -235,6 +243,62 @@ export class DreamExecutor {
         await this.deps.dreamLockService.rollback(priorMtime).catch(() => {})
       }
     }
+  }
+
+  /**
+   * Runs the three dream operations sequentially, pushing results into `out` after
+   * each step. Extracted so the executor can preserve partial work when a later step
+   * throws — and so tests can inject controlled ops without a full LLM round-trip.
+   */
+  protected async runOperations(args: {
+    agent: ICipherAgent
+    changedFiles: Set<string>
+    contextTreeDir: string
+    logId: string
+    out: DreamOperation[]
+    projectRoot: string
+    signal: AbortSignal
+    taskId: string
+  }): Promise<void> {
+    const {agent, changedFiles, contextTreeDir, logId, out, projectRoot, signal, taskId} = args
+
+    out.push(
+      ...(await consolidate([...changedFiles], {
+        agent,
+        contextTreeDir,
+        dreamStateService: this.deps.dreamStateService,
+        reviewBackupStore: this.deps.reviewBackupStore,
+        searchService: this.deps.searchService,
+        signal,
+        taskId,
+      })),
+    )
+
+    if (changedFiles.size > 0) {
+      out.push(
+        ...(await synthesize({
+          agent,
+          contextTreeDir,
+          searchService: this.deps.searchService,
+          signal,
+          taskId,
+        })),
+      )
+    }
+
+    out.push(
+      ...(await prune({
+        agent,
+        archiveService: this.deps.archiveService,
+        contextTreeDir,
+        dreamLogId: logId,
+        dreamStateService: this.deps.dreamStateService,
+        projectRoot,
+        reviewBackupStore: this.deps.reviewBackupStore,
+        signal,
+        taskId,
+      })),
+    )
   }
 
   /** Errors are tracked at the log level (status='error'), not per-operation — always 0 here. */

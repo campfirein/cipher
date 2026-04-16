@@ -9,8 +9,43 @@ import type {ICipherAgent} from '../../../../src/agent/core/interfaces/i-cipher-
 import {EMPTY_DREAM_STATE} from '../../../../src/server/infra/dream/dream-state-schema.js'
 import {DreamExecutor, type DreamExecutorDeps} from '../../../../src/server/infra/executor/dream-executor.js'
 
+/**
+ * Test helper: subclass of DreamExecutor whose runOperations pushes a caller-supplied
+ * list of operations and then throws, so tests can assert that the catch block surfaces
+ * those operations in the partial/error log entry.
+ */
+function makePartialRunExecutor(args: {
+  aborted?: boolean
+  deps: DreamExecutorDeps
+  injected: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[]
+  throwErr: Error
+}): DreamExecutor {
+  class TestExecutor extends DreamExecutor {
+    protected override async runOperations(opArgs: {
+      agent: ICipherAgent
+      changedFiles: Set<string>
+      contextTreeDir: string
+      logId: string
+      out: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[]
+      projectRoot: string
+      signal: AbortSignal
+      taskId: string
+    }): Promise<void> {
+      opArgs.out.push(...args.injected)
+      if (args.aborted) {
+        // Simulate the budget timer firing after some ops completed.
+        Object.defineProperty(opArgs.signal, 'aborted', {configurable: true, value: true})
+      }
+
+      throw args.throwErr
+    }
+  }
+
+  return new TestExecutor(args.deps)
+}
+
 describe('DreamExecutor', () => {
-  let dreamStateService: {read: SinonStub; write: SinonStub}
+  let dreamStateService: {read: SinonStub; update: SinonStub; write: SinonStub}
   let dreamLogStore: {getNextId: SinonStub; save: SinonStub}
   let dreamLockService: {release: SinonStub; rollback: SinonStub}
   let curateLogStore: {getNextId: SinonStub; list: SinonStub; save: SinonStub}
@@ -26,6 +61,14 @@ describe('DreamExecutor', () => {
   beforeEach(() => {
     dreamStateService = {
       read: stub().resolves({...EMPTY_DREAM_STATE, pendingMerges: []}),
+      // Default update implementation: read → updater → write, mirroring the real
+      // service so tests that count write.callCount stay valid without changes.
+      update: stub().callsFake(async (updater: (state: import('../../../../src/server/infra/dream/dream-state-schema.js').DreamState) => import('../../../../src/server/infra/dream/dream-state-schema.js').DreamState) => {
+        const current = await dreamStateService.read()
+        const next = updater(current)
+        await dreamStateService.write(next)
+        return next
+      }),
       write: stub().resolves(),
     }
     dreamLogStore = {
@@ -225,22 +268,37 @@ describe('DreamExecutor', () => {
       expect(listArgs.status).to.deep.equal(['completed'])
     })
 
-    it('preserves pending merges and version in updated dream state', async () => {
-      const pendingMerge = {mergeTarget: 'target.md', sourceFile: 'source.md'}
-      dreamStateService.read.resolves({
+    it('clears pendingMerges consumed by consolidate and preserves version in the post-dream state write', async () => {
+      // After ENG-2126 fix #3, consolidate consumes pendingMerges up-front (writes
+      // pendingMerges=[] to state) so they are not re-applied in the next dream.
+      // Step 7's write then inherits the cleared value from the re-read.
+      const pendingMerge = {mergeTarget: 'target.md', reason: 'Overlap', sourceFile: 'source.md', suggestedByDreamId: 'drm-prev'}
+
+      // Dynamic stub — read() returns the latest write so later steps see the
+      // consumed state (mirrors real disk-backed service semantics).
+      let currentState: import('../../../../src/server/infra/dream/dream-state-schema.js').DreamState = {
         ...EMPTY_DREAM_STATE,
         curationsSinceDream: 3,
         pendingMerges: [pendingMerge],
         totalDreams: 1,
         version: 1,
+      }
+      dreamStateService.read.callsFake(async () => currentState)
+      dreamStateService.write.callsFake(async (state: import('../../../../src/server/infra/dream/dream-state-schema.js').DreamState) => {
+        currentState = state
       })
 
       const executor = new DreamExecutor(deps)
       await executor.executeWithAgent(agent, defaultOptions)
 
-      const writtenState = dreamStateService.write.firstCall.args[0]
-      expect(writtenState.version).to.equal(1)
-      expect(writtenState.pendingMerges).to.deep.equal([pendingMerge])
+      // First write comes from consolidate's consumption step.
+      const consumeWrite = dreamStateService.write.firstCall.args[0]
+      expect(consumeWrite.pendingMerges).to.deep.equal([])
+
+      // Final (step 7) write preserves version and carries the cleared pendingMerges forward.
+      const finalWrite = dreamStateService.write.lastCall.args[0]
+      expect(finalWrite.version).to.equal(1)
+      expect(finalWrite.pendingMerges).to.deep.equal([])
     })
 
     it('propagates trigger value from options to log entry', async () => {
@@ -434,6 +492,133 @@ describe('DreamExecutor', () => {
       } finally {
         rmSync(projectRoot, {force: true, recursive: true})
       }
+    })
+
+    // ==========================================================================
+    // Partial / error log preservation (ENG-2126 fix #2)
+    // ==========================================================================
+
+    describe('partial / error log preservation', () => {
+      const reviewableOp: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation = {
+        action: 'MERGE',
+        inputFiles: ['auth/a.md', 'auth/b.md'],
+        needsReview: true,
+        outputFile: 'auth/a.md',
+        previousTexts: {'auth/a.md': '# a before', 'auth/b.md': '# b before'},
+        reason: 'Duplicate concepts',
+        type: 'CONSOLIDATE',
+      }
+
+      it('preserves partial operations in the partial log entry when the budget aborts', async () => {
+        const executor = makePartialRunExecutor({
+          aborted: true,
+          deps,
+          injected: [reviewableOp],
+          throwErr: new Error('timeout'),
+        })
+
+        try {
+          await executor.executeWithAgent(agent, defaultOptions)
+          expect.fail('should have thrown')
+        } catch {
+          // expected
+        }
+
+        // Find the partial save (last dream log save with status=partial)
+        const dreamLogSaves = dreamLogStore.save.getCalls().map((c) => c.args[0])
+        const partial = dreamLogSaves.find((e) => e.status === 'partial')
+        expect(partial, 'expected a partial log entry').to.exist
+        expect(partial!.operations, 'partial operations should be preserved').to.deep.equal([reviewableOp])
+        expect(partial!.summary.consolidated).to.equal(1)
+        expect(partial!.summary.flaggedForReview).to.equal(1)
+        expect(partial!.abortReason).to.include('Budget exceeded')
+      })
+
+      it('preserves partial operations in the error log entry on non-abort errors', async () => {
+        const executor = makePartialRunExecutor({
+          aborted: false,
+          deps,
+          injected: [reviewableOp],
+          throwErr: new Error('disk full'),
+        })
+
+        try {
+          await executor.executeWithAgent(agent, defaultOptions)
+          expect.fail('should have thrown')
+        } catch {
+          // expected
+        }
+
+        const dreamLogSaves = dreamLogStore.save.getCalls().map((c) => c.args[0])
+        const errorEntry = dreamLogSaves.find((e) => e.status === 'error')
+        expect(errorEntry, 'expected an error log entry').to.exist
+        expect(errorEntry!.operations, 'error operations should be preserved').to.deep.equal([reviewableOp])
+        expect(errorEntry!.summary.consolidated).to.equal(1)
+        expect(errorEntry!.summary.flaggedForReview).to.equal(1)
+        expect(errorEntry!.error).to.include('disk full')
+      })
+
+      it('surfaces review-flagged ops from a partial run into the curate review log', async () => {
+        const executor = makePartialRunExecutor({
+          aborted: false,
+          deps,
+          injected: [reviewableOp],
+          throwErr: new Error('disk full'),
+        })
+
+        try {
+          await executor.executeWithAgent(agent, defaultOptions)
+        } catch {
+          // expected
+        }
+
+        // createReviewEntries should have been invoked for the completed review-flagged op
+        expect(curateLogStore.save.called, 'expected review entry to be created for partial run').to.be.true
+        const reviewEntry = curateLogStore.save.firstCall.args[0]
+        expect(reviewEntry.operations).to.have.lengthOf(1)
+        expect(reviewEntry.operations[0].reviewStatus).to.equal('pending')
+      })
+
+      it('does NOT duplicate review entries when step 7 (state update) throws after success-path review writes', async () => {
+        // Regression for Codex P2: success-path createReviewEntries (after the
+        // completed log save) writes review entries; if the subsequent
+        // dreamStateService.update throws, control jumps to catch, which would
+        // re-invoke createReviewEntries on the same allOperations, producing
+        // duplicate entries in `brv review pending`.
+        dreamStateService.update.rejects(new Error('state.json EROFS'))
+
+        const executor = new DreamExecutor(deps)
+        const createReviewEntries = stub().resolves()
+        ;(executor as unknown as {createReviewEntries: SinonStub}).createReviewEntries = createReviewEntries
+
+        // Inject a single completed reviewable op via a runOperations override
+        ;(executor as unknown as {
+          runOperations: (args: {
+            agent: ICipherAgent
+            changedFiles: Set<string>
+            contextTreeDir: string
+            logId: string
+            out: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[]
+            projectRoot: string
+            signal: AbortSignal
+            taskId: string
+          }) => Promise<void>
+        }).runOperations = async (args) => {
+          args.out.push(reviewableOp)
+        }
+
+        try {
+          await executor.executeWithAgent(agent, defaultOptions)
+          expect.fail('should have thrown')
+        } catch {
+          // expected (state.json EROFS)
+        }
+
+        expect(
+          createReviewEntries.callCount,
+          'createReviewEntries must run exactly once when step 7 throws after success-path review write',
+        ).to.equal(1)
+      })
     })
   })
 })
