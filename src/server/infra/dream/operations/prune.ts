@@ -227,9 +227,8 @@ async function llmReview(candidates: CandidateInfo[], deps: PruneDeps): Promise<
   }
 
   try {
-    // Build candidate payload for sandbox variable
+    // Build candidate payload (content preview inlined directly in the prompt)
     const payload = await buildCandidatePayload(candidates, deps.contextTreeDir)
-    agent.setSandboxVariableOnSession(sessionId, '__dream_prune_candidates', payload)
 
     const totalFileCount = await countActiveFiles(deps.contextTreeDir)
     const prompt = buildPrompt(candidates.length, totalFileCount, payload)
@@ -258,7 +257,7 @@ async function buildCandidatePayload(
       let contentPreview = ''
       try {
         const content = await readFile(join(contextTreeDir, c.path), 'utf8')
-        contentPreview = content.slice(0, 500)
+        contentPreview = content.slice(0, 1000)
       } catch {
         // Skip
       }
@@ -286,30 +285,32 @@ function buildPrompt(
   totalFileCount: number,
   payload: Array<{contentPreview: string; daysSinceModified: number; importance: number; maturity: string; path: string; signal: string}>,
 ): string {
-  const candidateLines = payload.map((c) =>
-    `- **${c.path}** (maturity: ${c.maturity}, ${c.daysSinceModified}d old, importance: ${c.importance}, signal: ${c.signal})\n  Preview: ${c.contentPreview.slice(0, 200).replaceAll('\n', ' ')}`,
+  const marker = '━'.repeat(60)
+  const candidateBlocks = payload.map((c) =>
+    `\n${marker}\nPATH: ${c.path}\nmaturity: ${c.maturity} | ${c.daysSinceModified}d old | importance: ${c.importance} | signal: ${c.signal}\n${marker}\n${c.contentPreview}`,
   )
 
   return [
     'You are reviewing files in a knowledge base for potential archival.',
-    'These files have been flagged as potentially stale or low-value.',
+    'These files were flagged as potentially stale or low-value based on metadata signals.',
     '',
     'For each file, decide:',
-    '- ARCHIVE: Knowledge is stale, superseded, or no longer relevant. Safe to archive.',
-    '- KEEP: Knowledge is still useful despite its age. Do not archive.',
-    '- MERGE_INTO: Knowledge overlaps with another file and should be merged into it.',
+    '- ARCHIVE: File content is a placeholder, TODO, explicitly superseded, or has no actionable information.',
+    '- KEEP: File has real, actionable knowledge even if older.',
+    '- MERGE_INTO: Content clearly belongs in another specific file.',
     '',
     'Rules:',
-    '- Be conservative. When in doubt, KEEP.',
-    '- Do NOT archive knowledge that is foundational or frequently cross-referenced.',
+    '- A draft file with importance < 35 whose body is a placeholder/TODO/"safe to delete" SHOULD be archived.',
+    '- If the body explicitly says the content is obsolete, superseded, or never-filled-in, ARCHIVE.',
+    '- Default to KEEP only when content is useful but stale, not when content is genuinely worthless.',
     '- MERGE_INTO should only be used when the content clearly belongs in another specific file that you can name.',
     '',
     'Context:',
     `- The context tree currently contains ${totalFileCount} active files.`,
     `- These ${candidateCount} files were flagged by staleness detection.`,
     '',
-    'Candidates:',
-    ...candidateLines,
+    'Candidates (full previews below):',
+    ...candidateBlocks,
     '',
     'Respond IMMEDIATELY with JSON — do NOT use code_exec:',
     '```',

@@ -89,9 +89,7 @@ async function processDomain(domain: string, files: string[], deps: ConsolidateD
     // Step 3: LLM classification — cap payload to avoid exceeding model context limits
     const filesPayload = capPayloadSize(Object.fromEntries(fileContents), files)
 
-    agent.setSandboxVariableOnSession(sessionId, '__dream_consolidate_files', filesPayload)
-
-    const prompt = buildPrompt(files, [...relatedPaths], Object.keys(filesPayload))
+    const prompt = buildPrompt(files, [...relatedPaths], filesPayload)
     const response = await agent.executeOnSession(sessionId, prompt, {
       executionContext: {commandType: 'curate', maxIterations: 10},
       signal: deps.signal,
@@ -297,19 +295,32 @@ function extractSearchQuery(filePath: string, content: string): string {
   return `${name} ${words}`.trim()
 }
 
-function buildPrompt(changedFiles: string[], relatedFiles: string[], allFiles: string[]): string {
+function buildPrompt(
+  changedFiles: string[],
+  relatedFiles: string[],
+  filesPayload: Record<string, string>,
+): string {
+  const allFiles = Object.keys(filesPayload)
+  const marker = '━'.repeat(60)
+  const fileBlocks = allFiles
+    .map((path) => `\n${marker}\nPATH: ${path}\n${marker}\n${filesPayload[path]}`)
+    .join('\n')
+
   return [
-    'You are consolidating a knowledge context tree. The files have been loaded into __dream_consolidate_files (a JSON object mapping path → content).',
+    'You are consolidating a knowledge context tree. The full contents of every file are included below — read them directly, then classify relationships. Do NOT use code_exec.',
     '',
     `Changed files (recently curated): ${JSON.stringify(changedFiles)}`,
     `Related files (found via search): ${JSON.stringify(relatedFiles)}`,
     `All available files: ${JSON.stringify(allFiles)}`,
     '',
+    'File contents:',
+    fileBlocks,
+    '',
     'For each pair/group of related files, classify the relationship and recommend an action:',
     '- MERGE: Files are redundant/overlapping → combine into one, specify outputFile and mergedContent',
     '- TEMPORAL_UPDATE: File has contradictory/outdated info → rewrite with temporal narrative, specify updatedContent',
     '- CROSS_REFERENCE: Files are complementary → add cross-references (no content changes needed)',
-    '- SKIP: Files are unrelated → no action needed',
+    '- SKIP: Files are genuinely unrelated → no action needed',
     '',
     'Respond with JSON matching this schema:',
     '```',
@@ -317,12 +328,12 @@ function buildPrompt(changedFiles: string[], relatedFiles: string[], allFiles: s
     '```',
     '',
     'Rules:',
-    '- Only propose MERGE when files have significant overlap (>50% shared concepts)',
-    '- For MERGE, choose the richer/more complete file as outputFile',
-    '- For TEMPORAL_UPDATE, preserve all facts and add temporal context. Include confidence (0-1) indicating certainty that the update is correct',
-    '- For CROSS_REFERENCE, just list the files — the system will add frontmatter links',
-    '- Preserve all diagrams, tables, code examples, and structured data verbatim',
-    '- Read file contents from __dream_consolidate_files via code_exec before making decisions',
+    '- Default to MERGE when files share >50% of content or cover the same topic. SKIP only when files are genuinely on unrelated topics.',
+    '- Returning all SKIP when duplicates exist is a failure, not caution.',
+    '- For MERGE, choose the richer/more complete file as outputFile. The mergedContent should preserve all unique details from both sources.',
+    '- For TEMPORAL_UPDATE, preserve all facts and add temporal context. Include confidence (0-1) indicating certainty that the update is correct.',
+    '- For CROSS_REFERENCE, just list the files — the system will add frontmatter links.',
+    '- Preserve all diagrams, tables, code examples, and structured data verbatim.',
   ].join('\n')
 }
 

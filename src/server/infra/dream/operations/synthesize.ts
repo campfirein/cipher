@@ -65,11 +65,6 @@ export async function synthesize(deps: SynthesizeDeps): Promise<DreamOperation[]
   }
 
   try {
-    const domainPayload: Record<string, string> = {}
-    for (const d of domains) domainPayload[d.name] = d.content
-
-    agent.setSandboxVariableOnSession(sessionId, '__dream_synthesize_domains', domainPayload)
-
     const prompt = buildPrompt(domains, existingSyntheses)
     const response = await agent.executeOnSession(sessionId, prompt, {
       executionContext: {commandType: 'curate', maxIterations: 10},
@@ -298,22 +293,30 @@ function buildPrompt(domains: DomainSummary[], existingSyntheses: string[]): str
     ? `Existing synthesis files (do NOT recreate these):\n${existingSyntheses.map((s) => `- ${s}`).join('\n')}`
     : 'No existing synthesis files.'
 
+  const marker = '━'.repeat(60)
+  const domainBlocks = domains
+    .map((d) => `\n${marker}\nDOMAIN: ${d.name}\n${marker}\n${d.content}`)
+    .join('\n')
+
   return [
-    'You are analyzing a knowledge base organized into domains. Each domain has a summary of its contents loaded into __dream_synthesize_domains (a JSON object mapping domain name → _index.md content).',
+    'You are analyzing a knowledge base organized into domains. The full _index.md content for every domain is included below — read them directly. Do NOT use code_exec.',
     '',
     `Domains: ${domains.map((d) => d.name).join(', ')}`,
     '',
     existingList,
     '',
+    'Domain summaries:',
+    domainBlocks,
+    '',
     'Your job is to find cross-cutting patterns — concepts, concerns, or conflicts that span multiple domains.',
     '',
     'Rules:',
-    '- Only report genuinely useful insights that a developer would benefit from knowing.',
-    '- Do NOT report trivial or obvious connections.',
+    '- Report genuinely useful insights that a developer would benefit from knowing.',
+    '- Any named abstraction, component, or concept that appears in 2+ domains is worth synthesizing.',
+    '- Do NOT report trivial or obvious connections (e.g., "both domains use TypeScript").',
     '- Each synthesis must reference at least 2 domains with specific evidence.',
     '- For "placement", choose the domain where this insight is MOST actionable.',
-    '- If nothing meaningful is found, return an empty array. That is fine.',
-    '- Read domain summaries from __dream_synthesize_domains via code_exec before making decisions.',
+    '- If nothing meaningful is found, return an empty array. That is fine — but missing a clear cross-domain pattern is a failure.',
     '',
     'Respond with JSON:',
     '```',

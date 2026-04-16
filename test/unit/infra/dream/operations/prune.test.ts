@@ -202,10 +202,11 @@ describe('prune', () => {
 
     await prune(deps)
 
-    // Should have called LLM — verify sandbox variable has at most 20 candidates
-    expect(agent.setSandboxVariableOnSession.calledOnce).to.be.true
-    const payload = agent.setSandboxVariableOnSession.firstCall.args[2]
-    expect(payload).to.be.an('array').with.lengthOf(20)
+    // Candidate blocks are inlined in the prompt — count PATH: markers (one per candidate, capped at 20)
+    expect(agent.executeOnSession.calledOnce).to.be.true
+    const prompt = agent.executeOnSession.firstCall.args[1] as string
+    const pathMatches = prompt.match(/PATH: /g) ?? []
+    expect(pathMatches).to.have.lengthOf(20)
   })
 
   // ── LLM interaction ───────────────────────────────────────────────────────
@@ -423,11 +424,10 @@ describe('prune', () => {
 
     await prune(deps)
 
-    // Verify only sent once to LLM
-    const payload = agent.setSandboxVariableOnSession.firstCall.args[2]
-    const paths = payload.map((c: {path: string}) => c.path)
-    const occurrences = paths.filter((p: string) => p === 'auth/both-signals.md')
-    expect(occurrences).to.have.lengthOf(1)
+    // Candidate blocks are inlined in the prompt — count occurrences of the path
+    const prompt = agent.executeOnSession.firstCall.args[1] as string
+    const matches = prompt.match(/PATH: auth\/both-signals\.md/g) ?? []
+    expect(matches).to.have.lengthOf(1)
   })
 
   // ── Excluded files ────────────────────────────────────────────────────────

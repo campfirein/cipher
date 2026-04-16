@@ -350,12 +350,14 @@ describe('consolidate', () => {
 
     await consolidate(['auth/login.md'], deps)
 
-    // The sandbox variable should include sibling file contents
-    expect(agent.setSandboxVariableOnSession.called).to.be.true
-    const filesPayload = agent.setSandboxVariableOnSession.firstCall.args[2]
-    const fileKeys = typeof filesPayload === 'string' ? Object.keys(JSON.parse(filesPayload)) : Object.keys(filesPayload)
-    // Should include siblings (logout.md, session.md) in addition to the changed file
-    expect(fileKeys.length).to.be.greaterThan(1)
+    // File contents are inlined directly in the prompt — check sibling paths
+    // and titles are both present.
+    const prompt = agent.executeOnSession.firstCall.args[1] as string
+    expect(prompt).to.include('PATH: auth/login.md')
+    expect(prompt).to.include('PATH: auth/logout.md')
+    expect(prompt).to.include('PATH: auth/session.md')
+    expect(prompt).to.include('# Logout')
+    expect(prompt).to.include('# Session')
   })
 
   it('stops processing domains when signal is aborted', async () => {

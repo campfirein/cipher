@@ -103,7 +103,12 @@ describe('synthesize', () => {
     await synthesize(deps)
 
     expect(agent.createTaskSession.calledOnce).to.be.true
-    expect(agent.setSandboxVariableOnSession.called).to.be.true
+    // Domain summaries are inlined directly in the prompt (no sandbox variable).
+    const prompt = agent.executeOnSession.firstCall.args[1] as string
+    expect(prompt).to.include('DOMAIN: auth')
+    expect(prompt).to.include('# Auth Summary')
+    expect(prompt).to.include('DOMAIN: api')
+    expect(prompt).to.include('# API Summary')
     expect(agent.deleteTaskSession.calledOnce).to.be.true
   })
 
