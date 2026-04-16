@@ -2,6 +2,22 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.5.1]
+
+### Changed
+- **Clearer MCP tool descriptions** — The `cwd` parameter on `brv-curate` and `brv-query` MCP tools now tells the calling LLM exactly when the project path is required (Claude Desktop, hosted MCP) vs. optional (Cursor, Cline, Zed, Claude Code). This reduces failed tool calls from clients that omitted the path or guessed a relative one.
+
+## [3.5.0]
+
+### Added
+- **Claude Desktop support** — Connect ByteRover to the Claude Desktop app with `brv connectors install "Claude Desktop"` (or pick it in `/connectors`). Works on macOS, Windows (including Store installs), and Linux. After installing, fully quit Claude Desktop from the tray or menu bar and reopen it to apply.
+
+### Changed
+- **Cleaner install layout** — The `install.sh` installer now keeps its bundled Node.js tucked away so it won't conflict with the `node` already on your system. Just reinstall to pick up the new layout.
+
+### Fixed
+- **Security dependency update** — Updated `basic-ftp` to patch a high-severity vulnerability.
+
 ## [3.4.0]
 
 ### Added
