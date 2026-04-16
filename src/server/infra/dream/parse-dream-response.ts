@@ -10,8 +10,8 @@ import type {z} from 'zod'
  * Returns null if no valid JSON matching the schema is found.
  */
 export function parseDreamResponse<T>(response: string, schema: z.ZodType<T>): null | T {
-  // Strategy 1: JSON in code fence
-  const fenceMatch = response.match(/```json\s*([\s\S]*?)```/)
+  // Strategy 1: JSON in code fence (labeled ```json or plain ```)
+  const fenceMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/)
   if (fenceMatch) {
     const result = tryParse(fenceMatch[1], schema)
     if (result !== null) return result

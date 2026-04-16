@@ -35,6 +35,7 @@ export type PruneDeps = {
   dreamLogId: string
   dreamStateService: {
     read(): Promise<DreamState>
+    update(updater: (state: DreamState) => DreamState): Promise<DreamState>
     write(state: DreamState): Promise<void>
   }
   projectRoot: string
@@ -405,24 +406,29 @@ async function executeDecision(decision: PruneDecision, deps: PruneDeps): Promis
 
 async function writePendingMerge(decision: PruneDecision, deps: PruneDeps): Promise<void> {
   if (!decision.mergeTarget) return
+  const {mergeTarget} = decision
 
-  const dreamState = await deps.dreamStateService.read()
-  const pendingMerges = dreamState.pendingMerges ?? []
-
-  // Dedup check
-  const alreadySuggested = pendingMerges.some(
-    (m) => m.sourceFile === decision.file && m.mergeTarget === decision.mergeTarget,
-  )
-  if (alreadySuggested) return
-
-  pendingMerges.push({
-    mergeTarget: decision.mergeTarget,
-    reason: decision.reason,
-    sourceFile: decision.file,
-    suggestedByDreamId: deps.dreamLogId,
+  // Use update() instead of read()+write() so a concurrent
+  // incrementCurationCount isn't overwritten by a stale spread.
+  await deps.dreamStateService.update((state) => {
+    const pendingMerges = state.pendingMerges ?? []
+    const alreadySuggested = pendingMerges.some(
+      (m) => m.sourceFile === decision.file && m.mergeTarget === mergeTarget,
+    )
+    if (alreadySuggested) return state
+    return {
+      ...state,
+      pendingMerges: [
+        ...pendingMerges,
+        {
+          mergeTarget,
+          reason: decision.reason,
+          sourceFile: decision.file,
+          suggestedByDreamId: deps.dreamLogId,
+        },
+      ],
+    }
   })
-
-  await deps.dreamStateService.write({...dreamState, pendingMerges})
 }
 
 // ── Frontmatter helpers ────────────────────────────────────────────────────
