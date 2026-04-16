@@ -1,5 +1,5 @@
-import {AuthMenu} from '../features/auth/components/auth-menu'
-import {ProjectDropdown} from '../features/project/components/project-dropdown'
+import { AuthMenu } from '../features/auth/components/auth-menu'
+import { ProjectDropdown } from '../features/project/components/project-dropdown'
 
 export function Sidebar() {
   return (
