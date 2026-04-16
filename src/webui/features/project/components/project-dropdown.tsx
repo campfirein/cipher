@@ -14,6 +14,7 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@campfirein/byterover-packages/components/dropdown-menu'
 import {ChevronDown, FolderOpen} from 'lucide-react'
@@ -22,10 +23,10 @@ import {useMemo, useState} from 'react'
 import {ProjectLocationDTO} from '../../../../shared/transport/events'
 import {useTransportStore} from '../../../stores/transport-store'
 import {useGetProjectList} from '../api/get-project-list'
-import {avatarColor} from '../utils/avatar-color'
 import {displayPath} from '../utils/display-path'
-import {initials} from '../utils/initials'
+import {getProjectName} from '../utils/project-name'
 import {AllProjectsDialog} from './all-projects-dialog'
+import {ProjectAvatar} from './project-avatar'
 
 const RECENT_LIMIT = 5
 
@@ -35,17 +36,11 @@ type ProjectItemProps = {
 }
 
 function ProjectItem({onSelect, project}: ProjectItemProps) {
-  const name = project.projectPath.split('/').at(-1) ?? project.projectPath
-  const color = avatarColor(project.projectPath)
+  const name = getProjectName(project.projectPath)
 
   return (
-    <DropdownMenuItem className="gap-2 rounded-md p-2" onClick={onSelect}>
-      <div
-        className="flex size-6 shrink-0 items-center justify-center rounded text-xs font-extrabold leading-4 text-background!"
-        style={{backgroundColor: color}}
-      >
-        {initials(name)}
-      </div>
+    <DropdownMenuItem className="gap-2 rounded-md" onClick={onSelect}>
+      <ProjectAvatar name={name} seed={project.projectPath} />
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-sm font-medium leading-5 text-card-foreground!">{name}</span>
         <span className="truncate text-xs leading-4 text-muted-foreground!">{displayPath(project.projectPath)}</span>
@@ -81,7 +76,7 @@ export function ProjectDropdown() {
   const [isHintOpen, setIsHintOpen] = useState(false)
   const [isAllOpen, setIsAllOpen] = useState(false)
 
-  const projectName = selectedProject.split('/').at(-1) ?? selectedProject
+  const projectName = getProjectName(selectedProject)
 
   function handleSelect(project: ProjectLocationDTO) {
     if (project.projectPath === selectedProject) return
@@ -92,16 +87,18 @@ export function ProjectDropdown() {
     <>
       <DropdownMenu onOpenChange={setIsOpen} open={isOpen}>
         <DropdownMenuTrigger>
-          <Button className="hover:bg-muted bg-background border border-border" size="sm">
+          <Button variant="ghost">
+            {selectedProject ? <ProjectAvatar name={projectName} seed={selectedProject} size="sm" /> : null}
             <span className="truncate">{projectName || 'No project selected'}</span>
-            <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+            <ChevronDown className="size-4 shrink-0" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-(--anchor-width) min-w-72" sideOffset={6}>
           <DropdownMenuItem onClick={() => setIsHintOpen(true)}>
-            <FolderOpen className="size-4 text-muted-foreground!" />
+            <FolderOpen className="size-4" />
             <span className="text-sm">Open Project</span>
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
 
           {openProjects.length > 0 && (
             <DropdownMenuGroup>
@@ -109,6 +106,8 @@ export function ProjectDropdown() {
               {openProjects.map((p) => (
                 <ProjectItem key={p.projectPath} onSelect={() => handleSelect(p)} project={p} />
               ))}
+
+              <DropdownMenuSeparator />
             </DropdownMenuGroup>
           )}
 
@@ -120,7 +119,7 @@ export function ProjectDropdown() {
               ))}
               {recentProjects.length > RECENT_LIMIT && (
                 <DropdownMenuItem onClick={() => setIsAllOpen(true)}>
-                  <span className="text-xs text-muted-foreground!">See all</span>
+                  <span className="text-xs">See all</span>
                 </DropdownMenuItem>
               )}
             </DropdownMenuGroup>

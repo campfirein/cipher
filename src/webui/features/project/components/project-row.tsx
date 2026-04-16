@@ -1,11 +1,10 @@
 import {ProjectLocationDTO} from '../../../../shared/transport/events'
-import {avatarColor} from '../utils/avatar-color'
 import {displayPath} from '../utils/display-path'
-import {initials} from '../utils/initials'
+import {getProjectName} from '../utils/project-name'
+import {ProjectAvatar} from './project-avatar'
 
 export function ProjectRow({onClick, project}: {onClick: () => void; project: ProjectLocationDTO}) {
-  const name = project.projectPath.split('/').at(-1) ?? project.projectPath
-  const color = avatarColor(project.projectPath)
+  const name = getProjectName(project.projectPath)
 
   return (
     <button
@@ -13,12 +12,7 @@ export function ProjectRow({onClick, project}: {onClick: () => void; project: Pr
       onClick={onClick}
       type="button"
     >
-      <div
-        className="flex size-7 shrink-0 items-center justify-center rounded text-xs font-extrabold leading-4 text-background"
-        style={{backgroundColor: color}}
-      >
-        {initials(name)}
-      </div>
+      <ProjectAvatar name={name} seed={project.projectPath} size="lg" />
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-sm font-medium leading-5 text-card-foreground">{name}</span>
         <span className="truncate text-xs leading-4 text-muted-foreground">{displayPath(project.projectPath)}</span>

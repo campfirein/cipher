@@ -9,6 +9,7 @@
 @source "../../../packages/byterover-packages/ui/src/**/*.{ts,tsx}";
 
 :root {
+  color-scheme: light;
   font-family:
     "Inter",
     "Manrope",
@@ -58,6 +59,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
