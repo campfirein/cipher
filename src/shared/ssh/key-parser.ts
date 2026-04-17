@@ -2,6 +2,7 @@ import {createHash, createPrivateKey, createPublicKey} from 'node:crypto'
 import {constants} from 'node:fs'
 import {access, readFile} from 'node:fs/promises'
 import {homedir} from 'node:os'
+import path from 'node:path'
 
 import type {ParsedSSHKey, SSHKeyProbe, SSHKeyType} from './types.js'
 
@@ -190,11 +191,11 @@ function isPassphraseError(err: unknown): boolean {
   const code = 'code' in err && typeof (err as {code: unknown}).code === 'string'
     ? (err as {code: string}).code
     : ''
-  if (code.includes('ERR_OSSL') && code.includes('DECRYPT')) return true
+  if (code.startsWith('ERR_OSSL')) return true
 
   // Fallback: string matching for compatibility across Node.js/OpenSSL versions
   const msg = err.message.toLowerCase()
-  return msg.includes('bad decrypt') || msg.includes('passphrase') || msg.includes('bad password')
+  return /bad decrypt|passphrase|bad password|interrupted or cancelled|unsupported/.test(msg)
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -216,6 +217,11 @@ export async function probeSSHKey(keyPath: string): Promise<SSHKeyProbe> {
     if (raw.includes('BEGIN OPENSSH PRIVATE KEY')) {
       // OpenSSH format: check cipherName field
       const parsed = parseOpenSSHKey(raw)
+
+      if (parsed.keyType !== 'ssh-ed25519') {
+        throw new Error(`Unsupported OpenSSH key type: ${parsed.keyType}. Only ssh-ed25519 is supported natively. Please load this key into ssh-agent instead.`)
+      }
+
       const needsPassphrase = parsed.cipherName !== 'none'
       return {
         exists: true,
@@ -225,7 +231,11 @@ export async function probeSSHKey(keyPath: string): Promise<SSHKeyProbe> {
     }
 
     // PEM/PKCS8 format (RSA, ECDSA with traditional headers)
-    createPrivateKey({format: 'pem', key: raw})
+    const pk = createPrivateKey({format: 'pem', key: raw})
+    if (pk.asymmetricKeyType !== 'ed25519') {
+      throw new Error(`Unsupported PEM key type: ${pk.asymmetricKeyType}. Only ed25519 is supported natively. Please load this key into ssh-agent instead.`)
+    }
+
     return {exists: true, needsPassphrase: false}
   } catch (error: unknown) {
     if (isPassphraseError(error)) {
@@ -408,8 +418,9 @@ export async function getPublicKeyMetadata(keyPath: string): Promise<null | {fin
  * Resolve ~ to the user's home directory in a key path.
  */
 export function resolveHome(keyPath: string): string {
-  if (keyPath.startsWith('~/') || keyPath === '~') {
-    return keyPath.replace('~', homedir())
+  if (keyPath === '~') return homedir()
+  if (keyPath.startsWith('~/') || keyPath.startsWith('~\\')) {
+    return path.join(homedir(), keyPath.slice(2))
   }
 
   return keyPath

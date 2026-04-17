@@ -176,8 +176,6 @@ export class SshAgentSigner {
    * Sign a commit payload using the ssh-agent, producing an armored sshsig signature.
    */
   async sign(payload: string): Promise<SSHSignatureResult> {
-    const {createHash} = await import('node:crypto')
-
     // Envelope magic: 6 bytes, no null (per PROTOCOL.sshsig blob format)
     const SSHSIG_MAGIC = Buffer.from('SSHSIG')
     // Signed data magic: 7 bytes, WITH null (per PROTOCOL.sshsig §2 signed data)
@@ -244,7 +242,7 @@ export class SshAgentSigner {
  * - The key at keyPath is not loaded in the agent
  */
 export async function tryGetSshAgentSigner(keyPath: string): Promise<null | SshAgentSigner> {
-  const agentSocket = process.env.SSH_AUTH_SOCK
+  const agentSocket = process.env.SSH_AUTH_SOCK ?? (process.platform === 'win32' ? String.raw`\\.\pipe\openssh-ssh-agent` : undefined)
   if (!agentSocket) return null
 
   try {

@@ -1,4 +1,4 @@
-import {input} from '@inquirer/prompts'
+import {password} from '@inquirer/prompts'
 import {Command, Flags} from '@oclif/core'
 
 import {type IVcCommitRequest, type IVcCommitResponse, VcErrorCode, VcEvents} from '../../../shared/transport/events/vc-events.js'
@@ -15,6 +15,9 @@ public static flags = {
     message: Flags.string({
       char: 'm',
       description: 'Commit message',
+    }),
+    passphrase: Flags.string({
+      description: 'SSH key passphrase (prefer BRV_SSH_PASSPHRASE env var)',
     }),
     sign: Flags.boolean({
       allowNo: true,
@@ -37,8 +40,9 @@ public static strict = false
     }
 
     const {sign} = flags
+    const pp = flags.passphrase ?? process.env.BRV_SSH_PASSPHRASE
 
-    await this.runCommit(message, sign)
+    await this.runCommit(message, sign, pp)
   }
 
   private async runCommit(message: string, sign: boolean | undefined, passphrase?: string, attempt: number = 0): Promise<void> {
@@ -62,18 +66,20 @@ public static strict = false
           this.error(`Too many failed passphrase attempts (${VcCommit.MAX_PASSPHRASE_RETRIES}).`)
         }
 
+        if (!process.stdin.isTTY) {
+          this.error('Passphrase required but no TTY available. Set BRV_SSH_PASSPHRASE env var or use --passphrase flag.')
+        }
+
         let pp: string
         try {
-          pp = await input({
+          pp = await password({
             message: 'Enter SSH key passphrase:',
-            // @ts-expect-error — inquirer types vary; hide input for passwords
-            type: 'password',
           })
         } catch {
           this.error('Passphrase input cancelled.')
         }
 
-        await this.runCommit(message, sign, pp!, attempt + 1)
+        await this.runCommit(message, sign, pp, attempt + 1)
         return
       }
 

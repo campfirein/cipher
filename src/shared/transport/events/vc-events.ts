@@ -106,17 +106,18 @@ export interface IVcCommitResponse {
   signed?: boolean
 }
 
-export type VcConfigKey = 'commit.sign' | 'user.email' | 'user.name' | 'user.signingkey'
+export type VcConfigKey = 'commit.sign' | 'user.email' | 'user.name' | 'user.signingkey' | 'user.signingKey'
 
 export const VC_CONFIG_KEYS: readonly string[] = [
   'user.name',
   'user.email',
   'user.signingkey',
+  'user.signingKey',
   'commit.sign',
 ] satisfies readonly VcConfigKey[]
 
 export function isVcConfigKey(key: string): key is VcConfigKey {
-  return VC_CONFIG_KEYS.includes(key)
+  return (VC_CONFIG_KEYS as readonly string[]).includes(key) || (VC_CONFIG_KEYS as readonly string[]).includes(key.toLowerCase())
 }
 
 /** Import SSH signing settings from local/global git config (no key/value needed). */

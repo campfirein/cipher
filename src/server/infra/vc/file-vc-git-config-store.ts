@@ -51,7 +51,7 @@ export class FileVcGitConfigStore implements IVcGitConfigStore {
   public async set(projectPath: string, config: IVcGitConfig): Promise<void> {
     const projectDir = join(this.deps.getDataDir(), 'projects', projectKey(projectPath))
     await mkdir(projectDir, {recursive: true})
-    await writeFile(join(projectDir, 'vc-git-config.json'), JSON.stringify(config, null, 2), 'utf8')
+    await writeFile(join(projectDir, 'vc-git-config.json'), JSON.stringify(config, null, 2), {encoding: 'utf8', mode: 0o600})
   }
 
   private configPath(projectPath: string): string {

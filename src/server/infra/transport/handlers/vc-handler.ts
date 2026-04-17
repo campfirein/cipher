@@ -603,7 +603,7 @@ export class VcHandler {
       return this.handleImportGitSigning(projectPath)
     }
 
-    const field = FIELD_MAP[data.key]
+    const field = FIELD_MAP[data.key.toLowerCase()]
     if (!field) {
       throw new VcError(
         `Unknown key '${data.key}'. Allowed: user.name, user.email, user.signingkey, commit.sign.`,
@@ -646,13 +646,20 @@ export class VcHandler {
 
         // Derive fingerprint for display hint (non-blocking if parse fails)
         let hint: string | undefined
-        try {
-          const parsed = await parseSSHPrivateKey(resolvedPath)
-          // Cache the parsed key for immediate use
-          this.signingKeyCache.set(resolvedPath, parsed)
-          hint = `Fingerprint: ${parsed.fingerprint}`
-        } catch {
-          // Encrypted key — require passphrase to get fingerprint; skip hint
+        if (probe.opensshEncrypted) {
+          const agent = await tryGetSshAgentSigner(resolvedPath)
+          if (!agent) {
+            hint = 'Warning: Key is encrypted OpenSSH format. You must load it into ssh-agent to sign commits.'
+          }
+        } else {
+          try {
+            const parsed = await parseSSHPrivateKey(resolvedPath)
+            // Cache the parsed key for immediate use
+            this.signingKeyCache.set(resolvedPath, parsed)
+            hint = `Fingerprint: ${parsed.fingerprint}`
+          } catch {
+            // Encrypted key — require passphrase to get fingerprint; skip hint
+          }
         }
 
         await this.vcGitConfigStore.set(projectPath, {...existing, signingKey: resolvedPath})
