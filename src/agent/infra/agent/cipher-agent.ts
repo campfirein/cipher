@@ -436,13 +436,14 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   public async executeOnSession(
     sessionId: string,
     input: string,
-    options?: {executionContext?: ExecutionContext; taskId?: string},
+    options?: {executionContext?: ExecutionContext; signal?: AbortSignal; taskId?: string},
   ): Promise<string> {
     this.ensureStarted()
 
     const response = await this.generate(input, {
       executionContext: options?.executionContext,
       sessionId,
+      signal: options?.signal,
       taskId: options?.taskId,
     })
 

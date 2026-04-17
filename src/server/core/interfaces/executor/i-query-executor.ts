@@ -1,4 +1,5 @@
 import type {ICipherAgent} from '../../../../agent/core/interfaces/i-cipher-agent.js'
+import type {QueryLogMatchedDoc, QueryLogSearchMetadata, QueryLogTier} from '../../domain/entities/query-log-entry.js'
 
 /**
  * Options for executing query with an injected agent.
@@ -11,6 +12,25 @@ export interface QueryExecuteOptions {
   taskId: string
   /** Stable workspace root for scoping search and cache isolation */
   worktreeRoot?: string
+}
+
+/**
+ * Structured result from QueryExecutor containing the response string
+ * plus metadata about how the query was resolved.
+ *
+ * Consumed by QueryLogHandler (ENG-1893) to persist query log entries.
+ */
+export type QueryExecutorResult = {
+  /** Documents matched during search (empty for cache hits) */
+  matchedDocs: QueryLogMatchedDoc[]
+  /** The response string (includes attribution footer) */
+  response: string
+  /** Search statistics (undefined for cache-only tiers 0/1) */
+  searchMetadata?: QueryLogSearchMetadata
+  /** Resolution tier: 0=exact cache, 1=fuzzy cache, 2=direct search, 3=optimized LLM, 4=full agentic */
+  tier: QueryLogTier
+  /** Wall-clock timing from method entry to return */
+  timing: {durationMs: number}
 }
 
 /**
@@ -30,7 +50,7 @@ export interface IQueryExecutor {
    *
    * @param agent - Long-lived CipherAgent (managed by caller)
    * @param options - Execution options (query)
-   * @returns Result string from agent execution
+   * @returns Structured result with response, tier, timing, and search metadata
    */
-  executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string>
+  executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<QueryExecutorResult>
 }
