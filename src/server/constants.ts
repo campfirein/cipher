@@ -1,7 +1,17 @@
 export const BRV_DIR = '.brv'
-export const BLOBS_DIR = 'blobs'
+export const API_V1_PATH = '/api/v1'
 export const PROJECT_CONFIG_FILE = 'config.json'
 export const BRV_CONFIG_VERSION = '0.0.1'
+
+// Worktree linking (git-style: .brv is a file pointing to parent project)
+export const WORKTREES_DIR = 'worktrees'
+export const WORKTREE_LINK_METADATA = 'link.json'
+
+// Knowledge sources (read-only references to other projects)
+export const SOURCES_FILE = 'sources.json'
+export const SHARED_SOURCE_LOCAL_SCORE_BOOST = 0.1
+export const MCP_ASSOCIATE_PROJECT_TIMEOUT_MS = 3000
+export const MCP_ASSOCIATE_PROJECT_MAX_ATTEMPTS = 2
 
 // Global config constants (user-level, stored in XDG config directory)
 export const GLOBAL_CONFIG_DIR = 'brv'
@@ -12,8 +22,6 @@ export const GLOBAL_CONFIG_VERSION = '0.0.1'
 // Same value as GLOBAL_CONFIG_DIR but different semantic purpose
 export const GLOBAL_DATA_DIR = 'brv'
 
-// ACE directory structure constants
-export const ACE_DIR = 'ace'
 export const PROJECT = 'byterover'
 
 // Context Tree directory structure constants
@@ -33,18 +41,9 @@ export const DEFAULT_BRANCH = 'main'
 
 // Transport layer constants (optimized for localhost real-time)
 export const TRANSPORT_HOST = '127.0.0.1' // Use IP address for better sandbox compatibility
-export const TRANSPORT_REQUEST_TIMEOUT_MS = 10_000 // 10s - most operations complete quickly
 export const TRANSPORT_SPACE_SWITCH_TIMEOUT_MS = 60_000 // 60s - includes cogit pull + merge
-export const TRANSPORT_ROOM_TIMEOUT_MS = 2000 // 2s - room ops are instant on localhost
-export const TRANSPORT_CONNECT_TIMEOUT_MS = 3000 // 3s - 127.0.0.1 connects in <10ms
-export const TRANSPORT_RECONNECTION_DELAY_MS = 50 // 50ms - ultra aggressive start
-export const TRANSPORT_RECONNECTION_DELAY_MAX_MS = 1000 // 1s cap - fail fast, retry fast
-export const TRANSPORT_RECONNECTION_ATTEMPTS = 30 // More attempts with faster retry
 export const TRANSPORT_PING_INTERVAL_MS = 5000 // 5s ping - reasonable for local communication
 export const TRANSPORT_PING_TIMEOUT_MS = 10_000 // 10s timeout - avoid false disconnects during GC/load
-// WebSocket-only transport to avoid HTTP polling issues in sandboxed environments (Cursor, etc.)
-// HTTP polling may be blocked by IDE sandboxes causing "xhr poll error"
-export const TRANSPORT_DEFAULT_TRANSPORTS: ('polling' | 'websocket')[] = ['websocket']
 
 // LLM Model defaults
 export const DEFAULT_LLM_MODEL = 'gemini-3-flash-preview'
@@ -101,11 +100,34 @@ export const AGENT_PROCESS_STOP_TIMEOUT_MS = 5000 // 5s max wait for child proce
 export const CURATE_LOG_DIR = 'curate-log'
 export const CURATE_LOG_ID_PREFIX = 'cur'
 
+// Query log
+export const QUERY_LOG_DIR = 'query-log'
+export const QUERY_LOG_ID_PREFIX = 'qry'
+// Dream log
+export const DREAM_LOG_DIR = 'dream-log'
+export const DREAM_LOG_ID_PREFIX = 'drm'
+
+// Review backups (stores pre-curate file content for local HITL review diffs)
+export const REVIEW_BACKUPS_DIR = 'review-backups'
 // === Hierarchical DAG (summary, archive, manifest) ===
 export const SUMMARY_INDEX_FILE = '_index.md'
 export const ARCHIVE_DIR = '_archived'
 export const STUB_EXTENSION = '.stub.md'
 export const FULL_ARCHIVE_EXTENSION = '.full.md'
+export const ABSTRACT_EXTENSION = '.abstract.md'
+export const OVERVIEW_EXTENSION = '.overview.md'
 export const MANIFEST_FILE = '_manifest.json'
 export const ARCHIVE_IMPORTANCE_THRESHOLD = 35
 export const DEFAULT_GHOST_CUE_MAX_TOKENS = 220
+
+/** Patterns the context-tree .gitignore must contain (derived artifacts only). */
+export const CONTEXT_TREE_GITIGNORE_PATTERNS = [
+  '.gitignore',
+  '.snapshot.json',
+  '_manifest.json',
+  '_index.md',
+  '*.abstract.md',
+  '*.overview.md',
+]
+
+export const CONTEXT_TREE_GITIGNORE_HEADER = '# Derived artifacts — do not track'

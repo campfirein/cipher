@@ -2,8 +2,14 @@ import {type ConnectionResult, connectToDaemon} from '@campfirein/brv-transport-
 
 import {resolveLocalServerMainPath} from '../../utils/server-main-resolver.js'
 
-/** Function type for transport connection (for DI/testing in use cases). */
-export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
+/**
+ * Function type for transport connection (for DI/testing in use cases).
+ *
+ * Callers must pass an explicit resolved projectPath. This avoids silently
+ * falling back to the transport library's own walk-up discovery, which is
+ * not workspace-link-aware.
+ */
+export type TransportConnector = (fromDir: string | undefined, projectPath: string) => Promise<ConnectionResult>
 
 /**
  * Creates a transport connector that auto-starts the daemon if needed.
@@ -11,14 +17,15 @@ export type TransportConnector = (fromDir?: string) => Promise<ConnectionResult>
  * Thin wrapper around connectToDaemon() for DI compatibility with use cases
  * (QueryUseCase, CurateUseCase, StatusUseCase).
  *
- * projectPath is auto-filled by the transport library from the discovered
- * project root (walks up from fromDir to find .brv/).
+ * When an explicit projectPath is provided it takes priority over the
+ * transport library's walk-up discovery, making the connector workspace-link-aware.
  */
-export function createDaemonAwareConnector(): TransportConnector {
+export function createDaemonAwareConnector(projectPath?: string): TransportConnector {
   return (fromDir?: string) =>
     connectToDaemon({
       clientType: 'cli',
       fromDir,
+      projectPath,
       serverPath: resolveLocalServerMainPath(),
     })
 }

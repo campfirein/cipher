@@ -22,7 +22,6 @@ export interface AgentExecutionContext {
 /**
  * Agent event subscriber interface.
  * Objects implementing this can be registered for event subscription.
- * Follows DextoAgent's AgentEventSubscriber pattern.
  */
 export interface AgentEventSubscriber {
   /**

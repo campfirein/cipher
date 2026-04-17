@@ -13,6 +13,7 @@ BRV_INSTALL_DIR="${BRV_INSTALL_DIR:-$HOME/.brv-cli}"
 GCS_BASE="https://storage.googleapis.com/brv-releases"
 CHANNEL="stable"
 BIN_DIR="$BRV_INSTALL_DIR/bin"
+LIB_DIR="$BRV_INSTALL_DIR/lib"
 
 # ─── Colors (only when connected to a terminal) ──────────────────────────────
 
@@ -135,6 +136,22 @@ remove_npm_installation() {
   fi
 }
 
+# ─── oclif Client Cache Cleanup ─────────────────────────────────────────────
+
+clean_oclif_client() {
+  # @oclif/plugin-update caches a versioned CLI copy under the XDG data
+  # directory.  If this stale "client" directory exists it takes precedence
+  # over the freshly installed binary, causing --version (and all subsequent
+  # commands) to run the old cached copy instead.
+  oclif_data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+  oclif_client_dir="${oclif_data_home}/brv/client"
+
+  if [ -d "$oclif_client_dir" ]; then
+    info "Removing cached oclif client versions..."
+    rm -rf "$oclif_client_dir"
+  fi
+}
+
 # ─── Install ─────────────────────────────────────────────────────────────────
 
 install_brv() {
@@ -163,16 +180,21 @@ install_brv() {
     rm -rf "$BRV_INSTALL_DIR"
   fi
 
-  # Create install directory and extract
-  mkdir -p "$BRV_INSTALL_DIR"
+  # Extract into lib/ — keeps bundled node out of the PATH-visible bin/
+  mkdir -p "$LIB_DIR"
   info "Extracting..."
-  tar xzf "$tarball_path" -C "$BRV_INSTALL_DIR" --strip-components=1
+  tar xzf "$tarball_path" -C "$LIB_DIR" --strip-components=1
 
-  # Verify installation
-  if [ ! -x "$BIN_DIR/brv" ]; then
-    error "Installation failed: $BIN_DIR/brv not found or not executable after extraction."
+  # Verify tarball contents
+  if [ ! -x "$LIB_DIR/bin/brv" ]; then
+    error "Installation failed: $LIB_DIR/bin/brv not found or not executable after extraction."
   fi
 
+  # Create bin/ with symlink to wrapper in lib/
+  mkdir -p "$BIN_DIR"
+  ln -sf ../lib/bin/brv "$BIN_DIR/brv" || error "Failed to create symlink $BIN_DIR/brv"
+
+  # Version check through symlink — proves the full chain works
   installed_version="$("$BIN_DIR/brv" --version 2>/dev/null || echo "unknown")"
   printf "  Version:   %s\n" "$installed_version"
   printf "\n"
@@ -270,6 +292,7 @@ main() {
   build_target
   check_dependencies
   remove_npm_installation
+  clean_oclif_client
   install_brv
   setup_path
   print_success

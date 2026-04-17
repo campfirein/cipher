@@ -138,9 +138,10 @@ export class FolderPackService implements IFolderPackService {
     const mergedConfig = this.mergeConfig(config)
 
     // Resolve to absolute path
-    const absolutePath = path.isAbsolute(folderPath)
+    const rawAbsolutePath = path.isAbsolute(folderPath)
       ? folderPath
       : path.resolve(process.cwd(), folderPath)
+    const absolutePath = await fs.realpath(rawAbsolutePath).catch(() => rawAbsolutePath)
 
     // Phase 1: Search for files
     onProgress?.({current: 0, message: 'Searching for files...', phase: 'searching'})
@@ -163,8 +164,20 @@ export class FolderPackService implements IFolderPackService {
       throw error
     }
 
-    // Filter files based on ignore patterns
-    const filteredFiles = globResult.files.filter((file) => !this.matchesIgnorePattern(file.path, ignorePatterns))
+    const discoveredFiles = globResult.files
+      .map((file) => {
+        const absoluteFilePath = path.isAbsolute(file.path) ? file.path : path.resolve(absolutePath, file.path)
+
+        return {
+          absolutePath: absoluteFilePath,
+          relativePath: this.toRelativePackPath(absolutePath, absoluteFilePath),
+          size: file.size,
+        }
+      })
+      .filter((file) => file.relativePath.length > 0 && !file.relativePath.startsWith('../'))
+
+    // Filter files based on ignore patterns using paths relative to the packed root.
+    const filteredFiles = discoveredFiles.filter((file) => !this.matchesIgnorePattern(file.relativePath, ignorePatterns))
 
     onProgress?.({
       current: filteredFiles.length,
@@ -190,7 +203,7 @@ export class FolderPackService implements IFolderPackService {
         // Report progress (note: may be out of order due to parallelism)
         onProgress?.({
           current: index + 1,
-          message: `Reading ${fileInfo.path}`,
+          message: `Reading ${fileInfo.relativePath}`,
           phase: 'collecting',
           total: totalFiles,
         })
@@ -201,7 +214,7 @@ export class FolderPackService implements IFolderPackService {
             return {
               skipped: {
                 message: `File size ${fileInfo.size} exceeds limit ${mergedConfig.maxFileSize}`,
-                path: fileInfo.path,
+                path: fileInfo.relativePath,
                 reason: 'size-limit' as SkipReason,
               },
               type: 'skipped' as const,
@@ -209,13 +222,13 @@ export class FolderPackService implements IFolderPackService {
           }
 
           // Check if this is an Office document that should be parsed
-          if (mergedConfig.extractDocuments && this.documentParser && isOfficeFile(fileInfo.path)) {
-            return this.parseOfficeDocument(fileInfo.path, fileInfo.size)
+          if (mergedConfig.extractDocuments && this.documentParser && isOfficeFile(fileInfo.absolutePath)) {
+            return this.parseOfficeDocument(fileInfo.absolutePath, fileInfo.relativePath, fileInfo.size)
           }
 
           // Read file content using FileSystemService
           // This handles binary detection, PDF extraction, encoding, etc.
-          const fileContent = await this.fileSystemService.readFile(fileInfo.path, {
+          const fileContent = await this.fileSystemService.readFile(fileInfo.absolutePath, {
             limit: mergedConfig.maxLinesPerFile,
           })
 
@@ -225,9 +238,9 @@ export class FolderPackService implements IFolderPackService {
           return {
             file: {
               content: fileContent.content,
-              fileType: isPdf ? 'pdf' : this.detectFileType(fileInfo.path),
+              fileType: isPdf ? 'pdf' : this.detectFileType(fileInfo.relativePath),
               lineCount: fileContent.lines,
-              path: fileInfo.path,
+              path: fileInfo.relativePath,
               size: fileInfo.size,
               truncated: fileContent.truncated,
             },
@@ -239,7 +252,7 @@ export class FolderPackService implements IFolderPackService {
           return {
             skipped: {
               message: error instanceof Error ? error.message : String(error),
-              path: fileInfo.path,
+              path: fileInfo.relativePath,
               reason: skipReason,
             },
             type: 'skipped' as const,
@@ -398,13 +411,14 @@ export class FolderPackService implements IFolderPackService {
    */
   private async parseOfficeDocument(
     filePath: string,
+    outputPath: string,
     size: number,
   ): Promise<{file: PackedFile; type: 'success'} | {skipped: SkippedFile; type: 'skipped'}> {
     if (!this.documentParser) {
       return {
         skipped: {
           message: 'Document parser not available',
-          path: filePath,
+          path: outputPath,
           reason: 'read-error' as SkipReason,
         },
         type: 'skipped',
@@ -425,7 +439,7 @@ export class FolderPackService implements IFolderPackService {
           content: result.content,
           fileType: 'document',
           lineCount: lines.length,
-          path: filePath,
+          path: outputPath,
           size,
           truncated: false,
         },
@@ -435,11 +449,15 @@ export class FolderPackService implements IFolderPackService {
       return {
         skipped: {
           message: error instanceof Error ? error.message : String(error),
-          path: filePath,
+          path: outputPath,
           reason: 'read-error' as SkipReason,
         },
         type: 'skipped',
       }
     }
+  }
+
+  private toRelativePackPath(rootPath: string, filePath: string): string {
+    return path.relative(rootPath, filePath).replaceAll('\\', '/')
   }
 }

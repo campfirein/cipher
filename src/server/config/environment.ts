@@ -1,73 +1,105 @@
+import {API_V1_PATH} from '../constants.js'
+
 /**
  * Environment types supported by the CLI.
  */
 type Environment = 'development' | 'production'
+
+const isEnvironment = (value: unknown): value is Environment => value === 'development' || value === 'production'
 
 /**
  * Current environment - set at runtime by the launcher scripts.
  * - `./bin/dev.js` sets BRV_ENV=development
  * - `./bin/run.js` sets BRV_ENV=production
  */
-export const ENVIRONMENT = (process.env.BRV_ENV as Environment) ?? 'development'
+const envValue = process.env.BRV_ENV
+export const ENVIRONMENT: Environment = isEnvironment(envValue) ? envValue : 'development'
 
 /**
  * Environment-specific configuration.
+ *
+ * Base URL vars (BRV_IAM_BASE_URL, BRV_COGIT_BASE_URL, BRV_LLM_BASE_URL)
+ * store only the root domain (e.g., http://localhost:8080).
+ *
+ * NOTE: The OIDC sub-path (/api/v1/oidc) is intentionally baked into the
+ * derived OIDC URLs below because it is a fixed, auth-specific structure
+ * that does not follow the general "API version at point of use" pattern.
  */
 type EnvironmentConfig = {
-  apiBaseUrl: string
   authorizationUrl: string
   clientId: string
-  cogitApiBaseUrl: string
+  cogitBaseUrl: string
+  gitRemoteBaseUrl: string
   hubRegistryUrl: string
+  iamBaseUrl: string
   issuerUrl: string
-  llmApiBaseUrl: string
-  memoraApiBaseUrl: string
+  llmBaseUrl: string
   scopes: string[]
   tokenUrl: string
   webAppUrl: string
 }
 
 /**
- * Configuration for each environment.
- * These values are bundled at build time.
+ * Non-infrastructure config that stays in source (same across envs or not sensitive).
  */
-export const ENV_CONFIG: Record<Environment, EnvironmentConfig> = {
-  development: {
-    apiBaseUrl: 'https://dev-beta-iam.byterover.dev/api/v1',
-    authorizationUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/authorize',
-    clientId: 'byterover-cli-client',
-    cogitApiBaseUrl: 'https://dev-beta-cgit.byterover.dev/api/v1',
-    hubRegistryUrl: 'https://hub.byterover.dev/r/registry.json',
-    issuerUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc',
-    llmApiBaseUrl: 'https://dev-beta-llm.byterover.dev',
-    memoraApiBaseUrl: 'https://dev-beta-memora-retrieve.byterover.dev/api/v3',
-    scopes: ['read', 'write', 'debug'],
-    tokenUrl: 'https://dev-beta-iam.byterover.dev/api/v1/oidc/token',
-    webAppUrl: 'https://dev-beta-app.byterover.dev',
+const DEFAULTS = {
+  clientId: 'byterover-cli-client',
+  hubRegistryUrl: 'https://hub.byterover.dev/r/registry.json',
+  scopes: {
+    development: ['read', 'write', 'debug'],
+    production: ['read', 'write'],
   },
-  production: {
-    apiBaseUrl: 'https://iam.byterover.dev/api/v1',
-    authorizationUrl: 'https://iam.byterover.dev/api/v1/oidc/authorize',
-    clientId: 'byterover-cli-client',
-    cogitApiBaseUrl: 'https://v3-cgit.byterover.dev/api/v1',
-    hubRegistryUrl: 'https://hub.byterover.dev/r/registry.json',
-    issuerUrl: 'https://iam.byterover.dev/api/v1/oidc',
-    llmApiBaseUrl: 'https://llm.byterover.dev',
-    memoraApiBaseUrl: 'https://beta-memora-retrieve.byterover.dev/api/v3',
-    scopes: ['read', 'write'],
-    tokenUrl: 'https://iam.byterover.dev/api/v1/oidc/token',
-    webAppUrl: 'https://app.byterover.dev',
-  },
+} as const
+
+const normalizeUrl = (url: string): string => url.replace(/\/+$/, '')
+
+const assertRootDomain = (name: string, url: string): void => {
+  if (new URL(url).pathname !== '/') {
+    throw new Error(
+      `${name} must not include a path component. Provide the root domain only (e.g., https://example.com).`,
+    )
+  }
 }
 
 /**
- * Get the configuration for the current environment.
- * @returns The environment configuration.
+ * Reads a required environment variable and normalizes it by removing any trailing slash.
+ * This normalization applies to all required variables (including BRV_GIT_REMOTE_BASE_URL
+ * and BRV_WEB_APP_URL, which may carry paths) to prevent double slashes when joining URLs.
  */
-export const getCurrentConfig = (): EnvironmentConfig => ENV_CONFIG[ENVIRONMENT]
+const readRequiredEnv = (name: string): string => {
+  const value = process.env[name]?.trim()
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}. Ensure .env files are loaded via dotenv.`)
+  }
 
-/**
- * Check if the current environment is development.
- * @returns True if in development mode, false otherwise.
- */
+  return normalizeUrl(value)
+}
+
+export const getCurrentConfig = (): EnvironmentConfig => {
+  const iamBaseUrl = readRequiredEnv('BRV_IAM_BASE_URL')
+  assertRootDomain('BRV_IAM_BASE_URL', iamBaseUrl)
+
+  const cogitBaseUrl = readRequiredEnv('BRV_COGIT_BASE_URL')
+  assertRootDomain('BRV_COGIT_BASE_URL', cogitBaseUrl)
+
+  const oidcBase = `${iamBaseUrl}${API_V1_PATH}/oidc`
+
+  return {
+    authorizationUrl: `${oidcBase}/authorize`,
+    clientId: DEFAULTS.clientId,
+    cogitBaseUrl,
+    gitRemoteBaseUrl: readRequiredEnv('BRV_GIT_REMOTE_BASE_URL'),
+    hubRegistryUrl: DEFAULTS.hubRegistryUrl,
+    iamBaseUrl,
+    issuerUrl: oidcBase,
+    llmBaseUrl: readRequiredEnv('BRV_LLM_BASE_URL'),
+    scopes: [...DEFAULTS.scopes[ENVIRONMENT]],
+    tokenUrl: `${oidcBase}/token`,
+    webAppUrl: readRequiredEnv('BRV_WEB_APP_URL'),
+  }
+}
+
+export const getGitRemoteBaseUrl = (): string =>
+  process.env.BRV_GIT_REMOTE_BASE_URL ?? 'https://byterover.dev'
+
 export const isDevelopment = (): boolean => ENVIRONMENT === 'development'

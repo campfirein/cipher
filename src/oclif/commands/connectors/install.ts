@@ -1,3 +1,4 @@
+import {select} from '@inquirer/prompts'
 import {Args, Command, Flags} from '@oclif/core'
 
 import {AGENT_CONNECTOR_CONFIG} from '../../../server/core/domain/entities/agent.js'
@@ -7,11 +8,12 @@ import {
   type ConnectorInstallResponse,
   type ConnectorListResponse,
 } from '../../../shared/transport/events/connector-events.js'
-import {AGENT_VALUES} from '../../../shared/types/agent.js'
+import {AGENT_VALUES, CLAUDE_DESKTOP} from '../../../shared/types/agent.js'
 import {isConnectorType, requiresAgentRestart} from '../../../shared/types/connector-type.js'
 import {getConnectorName} from '../../../tui/features/connectors/utils/get-connector-name.js'
 import {type DaemonClientOptions, withDaemonRetry} from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
+import {isPromptCancelled} from '../../lib/prompt-utils.js'
 
 const agentTable = AGENT_VALUES.map((agent) => {
   const config = AGENT_CONNECTOR_CONFIG[agent]
@@ -22,8 +24,9 @@ const agentTable = AGENT_VALUES.map((agent) => {
 export default class ConnectorsInstall extends Command {
   public static args = {
     agent: Args.string({
-      description: 'Agent name to install connector for (e.g., "Claude Code", "Cursor")',
-      required: true,
+      description:
+        'Agent name to install connector for (e.g., "Claude Code", "Cursor"). Omit for interactive selection.',
+      required: false,
     }),
   }
   public static description = `Install or switch a connector for an agent
@@ -77,9 +80,7 @@ ${agentTable}`
       const supported = matchedAgent.supportedConnectorTypes.map((type) => getConnectorName(type)).join(', ')
 
       if (!isConnectorType(resolvedType) || !matchedAgent.supportedConnectorTypes.includes(resolvedType)) {
-        throw new Error(
-          `"${matchedAgent.id}" does not support "${resolvedType}". Supported types: ${supported}`,
-        )
+        throw new Error(`"${matchedAgent.id}" does not support "${resolvedType}". Supported types: ${supported}`)
       }
 
       // 4. If already connected with same type, no action needed
@@ -88,10 +89,10 @@ ${agentTable}`
       }
 
       // 5. Install or switch
-      const result = await client.requestWithAck<ConnectorInstallResponse>(
-        ConnectorEvents.INSTALL,
-        {agentId: matchedAgent.id, connectorType: resolvedType},
-      )
+      const result = await client.requestWithAck<ConnectorInstallResponse>(ConnectorEvents.INSTALL, {
+        agentId: matchedAgent.id,
+        connectorType: resolvedType,
+      })
 
       if (!result.success) {
         throw new Error(result.message)
@@ -107,13 +108,52 @@ ${agentTable}`
     }, options)
   }
 
+  protected async promptForAgent(options?: DaemonClientOptions): Promise<string> {
+    const {agents} = await withDaemonRetry(
+      async (client) => client.requestWithAck<ConnectorGetAgentsResponse>(ConnectorEvents.GET_AGENTS),
+      options,
+    )
+
+    // Add a blank line before the prompt
+    this.log('')
+
+    return select({
+      choices: agents.map((a) => ({
+        description: `Connector type: ${getConnectorName(a.defaultConnectorType)}`,
+        name: a.name,
+        value: a.id,
+      })),
+      loop: false,
+      message: 'Select your coding agent to install the connector (type to search):',
+    })
+  }
+
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(ConnectorsInstall)
+    let agentId = args.agent
     const format = flags.format as 'json' | 'text'
+
+    if (!agentId) {
+      if (format === 'json') {
+        writeJsonResponse({
+          command: 'connectors install',
+          data: {error: 'Agent argument is required for JSON output'},
+          success: false,
+        })
+        return
+      }
+
+      try {
+        agentId = await this.promptForAgent()
+      } catch (error) {
+        if (!isPromptCancelled(error)) throw error
+        return // user cancelled agent selection
+      }
+    }
 
     try {
       const installResult = await this.installConnector({
-        agentId: args.agent,
+        agentId,
         connectorType: flags.type,
       })
 
@@ -125,10 +165,12 @@ ${agentTable}`
             configPath: installResult.result?.configPath,
             connectorType: installResult.connectorType,
             ...(installResult.alreadySameType ? {message: 'Already using this connector type'} : {}),
-            ...(installResult.result?.requiresManualSetup ? {
-              manualInstructions: installResult.result.manualInstructions,
-              requiresManualSetup: true,
-            } : {}),
+            ...(installResult.result?.requiresManualSetup
+              ? {
+                  manualInstructions: installResult.result.manualInstructions,
+                  requiresManualSetup: true,
+                }
+              : {}),
           },
           success: true,
         })
@@ -167,7 +209,11 @@ ${agentTable}`
       }
 
       if (requiresAgentRestart(installResult.connectorType)) {
-        this.log(`\nPlease restart ${installResult.agentId} to apply the new ${getConnectorName(installResult.connectorType)}.`)
+        const hint =
+          installResult.agentId === CLAUDE_DESKTOP
+            ? `\nQuit ${installResult.agentId} from the system tray (Win) or menu bar (Mac), then reopen it.`
+            : `\nPlease restart ${installResult.agentId} to apply the new ${getConnectorName(installResult.connectorType)}.`
+        this.log(hint)
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to install connector.'

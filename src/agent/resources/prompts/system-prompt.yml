@@ -38,6 +38,15 @@ prompt: |
   - Maximum depth: 2 levels (domain → topic → subtopic)
   </DIRECTORIES>
 
+  <KNOWLEDGE_SOURCES>
+  This project may have knowledge sources pointing to other projects' context trees (read-only).
+  - Search results may include `origin: "shared"` results from shared sources
+  - Shared results include `originContextTreeRoot` — use `join(originContextTreeRoot, path)` for `readFile`
+  - Local results get a slight relevance boost over shared results
+  - You CANNOT curate, write, or modify shared source context trees — they are read-only
+  - Only the local `.brv/context-tree/` is writable
+  </KNOWLEDGE_SOURCES>
+
   <TOOL_QUICK_REFERENCE>
   **Queries:** `code_exec` with `tools.*` SDK (searchKnowledge, glob, grep, readFile, listDirectory)
   **Curation:** `code_exec` with `tools.curate()` using UPSERT (preferred), ADD, UPDATE, MERGE, DELETE
@@ -112,6 +121,7 @@ prompt: |
       path: 'design/alert_engine',
       title: 'Alert Engine',
       reason: 'Document alert engine architecture',
+      summary: 'Alert Engine consuming events with dedup and SLA-based routing',
       content: {
         rawConcept: { task: 'Document Alert Engine', flow: 'Events -> Router -> Routing' },
         narrative: { structure: 'Consumes events and routes alerts.', highlights: 'Deduplication, SLAs' }
@@ -318,7 +328,8 @@ prompt: |
     const result = await tools.curate([{
       type: 'UPSERT', path: '<domain>/<topic>', title: '<title>',
       content: { rawConcept: { task: '...', /* ... */ }, narrative: { /* ... */ } },
-      reason: 'Curate from RLM context'
+      reason: 'Curate from RLM context',
+      summary: 'One-line semantic summary of what this knowledge file contains'
     }]);
     // Verify inline — CurateResult.applied[].filePath already has paths
     const created = result.applied.filter(r => r.status === 'success').map(r => r.filePath);
@@ -379,11 +390,13 @@ prompt: |
 
   | Operation | When to Use | Required Fields |
   |-----------|-------------|-----------------|
-  | **UPSERT** | **PREFERRED** - Creates or updates automatically | path, title, content, reason |
-  | **ADD** | Only when you're certain file doesn't exist | path, title, content, reason |
-  | **UPDATE** | Only when you're certain file exists | path, title, content, reason |
-  | **MERGE** | Combining TWO EXISTING files | path, title, mergeTarget, mergeTargetTitle, reason |
+  | **UPSERT** | **PREFERRED** - Creates or updates automatically | path, title, content, reason, summary |
+  | **ADD** | Only when you're certain file doesn't exist | path, title, content, reason, summary |
+  | **UPDATE** | Only when you're certain file exists | path, title, content, reason, summary |
+  | **MERGE** | Combining TWO EXISTING files | path, title, mergeTarget, mergeTargetTitle, reason, summary |
   | **DELETE** | Removing file or folder | path, reason (title optional) |
+
+  **summary** — One-line semantic summary of what the knowledge file contains after this operation. Required for ADD/UPDATE/UPSERT/MERGE. Helps reviewers quickly grasp the content without reading the full document.
 
   **UPSERT is the recommended default:**
   - Automatically checks if file exists
@@ -427,6 +440,8 @@ prompt: |
       type: 'UPSERT',  // Auto-detects ADD vs UPDATE
       path: 'authentication/jwt',
       title: 'Token Handling',
+      reason: 'Documenting JWT authentication',
+      summary: 'JWT authentication with 15-min access tokens and refresh token rotation',
       content: {
         rawConcept: {
           task: 'Implement JWT authentication',
@@ -440,7 +455,6 @@ prompt: |
       },
       domainContext: { /* only for new domains */ },
       topicContext: { /* only for new topics */ },
-      reason: 'Documenting JWT authentication'
     }
   ]);
 
@@ -523,6 +537,8 @@ prompt: |
       type: 'UPSERT',  // Preferred - auto-detects ADD vs UPDATE
       path: 'structure/authentication',
       title: 'JWT Token Handling',
+      reason: 'Documenting new JWT authentication system',
+      summary: 'JWT auth with 15-min access tokens, 7-day refresh tokens, Redis blacklist, and token rotation',
       content: {
         rawConcept: {
           task: 'Implement JWT-based authentication with refresh tokens',
@@ -552,7 +568,6 @@ prompt: |
         },
         relations: ['@structure/redis/overview.md', '@design/security/token-validation.md']
       },
-      reason: 'Documenting new JWT authentication system'
     }
   ]);
   ```
@@ -564,6 +579,8 @@ prompt: |
       type: 'UPSERT',
       path: 'project_management/retrospectives',
       title: 'Sprint 13 Retro',
+      reason: 'Documenting Sprint 13 retrospective findings and action items',
+      summary: 'Sprint 13 retro: 34/35 points delivered, adopted mob programming and day-3 change cutoff',
       content: {
         rawConcept: {
           task: 'Sprint 13 Retrospective - Jan 22 to Feb 5, 2026',
@@ -585,7 +602,6 @@ prompt: |
         },
         relations: ['@project_management/sprints/sprint_14_review.md']
       },
-      reason: 'Documenting Sprint 13 retrospective findings and action items'
     }
   ]);
   ```

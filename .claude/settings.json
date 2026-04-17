@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(find:*)",
+      "Bash(npm run test:*)",
+      "Bash(grep:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx mocha:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "mcp__linear__list_issues",
+      "mcp__linear__get_issue",
+      "mcp__linear__list_issue_labels",
+      "mcp__linear__list_issue_statuses",
+      "mcp__linear__list_projects",
+      "mcp__linear__get_project",
+      "mcp__linear__list_comments",
+      "mcp__linear__list_milestones",
+      "mcp__linear__save_issue",
+      "mcp__linear__get_milestone",
+      "mcp__linear__get_document",
+      "mcp__linear__save_project",
+      "mcp__linear__save_milestone",
+      "mcp__linear__update_document",
+      "mcp__linear__save_comment"
+    ]
+  }
+}

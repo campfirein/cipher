@@ -12,6 +12,7 @@ export type SpaceServiceConfig = {
 
 type Team = {
   name: string
+  slug?: string
 }
 
 type SpaceApiResponse = {
@@ -23,6 +24,7 @@ type SpaceApiResponse = {
   is_default: boolean
   name: string
   size: number
+  slug?: string
   status: string
   storage_path: string
   team: Team
@@ -130,8 +132,10 @@ export class HttpSpaceService implements ISpaceService {
       id: spaceData.id,
       isDefault: spaceData.is_default,
       name: spaceData.name,
+      slug: spaceData.slug,
       teamId: spaceData.team_id,
       teamName: spaceData.team.name,
+      teamSlug: spaceData.team.slug,
     })
   }
 }

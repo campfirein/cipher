@@ -5,6 +5,7 @@ import {randomUUID} from 'node:crypto'
 
 import type {CurateLogOperation} from '../../../server/core/domain/entities/curate-log-entry.js'
 
+import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../server/constants.js'
 import {ProviderConfigResponse, TransportStateEventNames} from '../../../server/core/domain/transport/index.js'
 import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
 import {TaskEvents} from '../../../shared/transport/events/index.js'
@@ -17,7 +18,7 @@ import {
   withDaemonRetry,
 } from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
-import {type ToolCallRecord, waitForTaskCompletion} from '../../lib/task-client.js'
+import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS, type ToolCallRecord, waitForTaskCompletion} from '../../lib/task-client.js'
 
 /** Parsed flags type */
 type CurateFlags = {
@@ -25,6 +26,7 @@ type CurateFlags = {
   files?: string[]
   folder?: string[]
   format?: 'json' | 'text'
+  timeout?: number
 }
 
 export default class Curate extends Command {
@@ -58,6 +60,9 @@ Bad examples:
     '# Folder pack with context',
     '<%= config.bin %> <%= command.id %> "Analyze authentication module" -d src/auth/',
     '',
+    '# Increase timeout for slow models (in seconds)',
+    '<%= config.bin %> <%= command.id %> "context here" --timeout 600',
+    '',
     '# View curate history',
     '<%= config.bin %> curate view',
     '<%= config.bin %> curate view --status completed --since 1h',
@@ -82,6 +87,12 @@ Bad examples:
       description: 'Output format (text or json)',
       options: ['text', 'json'],
     }),
+    timeout: Flags.integer({
+      default: DEFAULT_TIMEOUT_SECONDS,
+      description: 'Maximum seconds to wait for task completion',
+      max: MAX_TIMEOUT_SECONDS,
+      min: MIN_TIMEOUT_SECONDS,
+    }),
   }
 
   protected getDaemonClientOptions(): DaemonClientOptions {
@@ -95,6 +106,7 @@ Bad examples:
       files: rawFlags.files,
       folder: rawFlags.folder,
       format: rawFlags.format === 'json' ? 'json' : rawFlags.format === 'text' ? 'text' : undefined,
+      timeout: rawFlags.timeout,
     }
     const format: 'json' | 'text' = flags.format ?? 'text'
 
@@ -111,7 +123,7 @@ Bad examples:
 
     try {
       await withDaemonRetry(
-        async (client, projectRoot) => {
+        async (client, projectRoot, worktreeRoot) => {
           const active = await client.requestWithAck<ProviderConfigResponse>(
             TransportStateEventNames.GET_PROVIDER_CONFIG,
           )
@@ -127,7 +139,7 @@ Bad examples:
             throw new Error(providerMissingMessage(active.activeProvider, active.authMethod))
           }
 
-          await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType})
+          await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType, worktreeRoot})
         },
         {
           ...this.getDaemonClientOptions(),
@@ -141,6 +153,49 @@ Bad examples:
     } catch (error) {
       this.reportError(error, format, providerContext)
     }
+  }
+
+  /**
+   * Build the pendingReview JSON payload for --format json output.
+   * Uses server-authoritative count; files list is best-effort enrichment from tool results.
+   */
+  private buildPendingReviewJson(
+    pendingCount: number,
+    pendingOps: CurateLogOperation[],
+    taskId: string,
+  ): {count: number; files: unknown[]; taskId: string} {
+    return {
+      count: pendingCount,
+      files: pendingOps.map((op) => ({
+        after: op.summary,
+        before: op.previousSummary,
+        filePath: this.extractContextTreeRelativePath(op.filePath) ?? op.path,
+        impact: op.impact,
+        path: op.path,
+        reason: op.reason,
+        type: op.type,
+      })),
+      taskId,
+    }
+  }
+
+  /**
+   * Collect all operations requiring review from the completed tool calls.
+   * Best-effort enrichment: returns per-file detail when tool results include needsReview.
+   * The authoritative signal for whether review is required comes from ReviewEvents.NOTIFY.
+   */
+  private collectPendingReviewOps(toolCalls: ToolCallRecord[]): CurateLogOperation[] {
+    const pending: CurateLogOperation[] = []
+
+    for (const tc of toolCalls) {
+      if (tc.status !== 'completed') continue
+      const ops = extractCurateOperations({result: tc.result, toolName: tc.toolName})
+      for (const op of ops) {
+        if (op.needsReview === true) pending.push(op)
+      }
+    }
+
+    return pending
   }
 
   /**
@@ -184,6 +239,38 @@ Bad examples:
     }
   }
 
+  private extractContextTreeRelativePath(filePath?: string): string | undefined {
+    if (!filePath) return undefined
+    const marker = `${BRV_DIR}/${CONTEXT_TREE_DIR}/`
+    const idx = filePath.indexOf(marker)
+    if (idx === -1) return undefined
+    return filePath.slice(idx + marker.length)
+  }
+
+  /**
+   * Print a human-readable pending review summary to stdout.
+   * Called after successful curate completion when review is required.
+   * pendingCount is server-authoritative; pendingOps provides best-effort per-file detail.
+   */
+  private printPendingReviewSummary(pendingCount: number, pendingOps: CurateLogOperation[], taskId: string): void {
+    this.log(
+      `\n⚠  ${pendingCount} operation${pendingCount === 1 ? '' : 's'} require${pendingCount === 1 ? 's' : ''} review (task: ${taskId})`,
+    )
+
+    for (const op of pendingOps) {
+      const impact = op.impact === 'high' ? ' · HIGH IMPACT' : ''
+      const displayPath = this.extractContextTreeRelativePath(op.filePath) ?? op.path
+      this.log(`\n  [${op.type}${impact}] - path: ${displayPath}`)
+      if (op.reason) this.log(`  Why:   ${op.reason}`)
+      if (op.previousSummary) this.log(`  Before: ${op.previousSummary.replaceAll('\n', '\n          ')}`)
+      if (op.summary) this.log(`  After:  ${op.summary.replaceAll('\n', '\n          ')}`)
+    }
+
+    this.log(`\n  To approve all:  brv review approve ${taskId}`)
+    this.log(`  To reject all:   brv review reject ${taskId}`)
+    this.log(`  Per file:        brv review approve/reject ${taskId} --file <path> [--file <path>]`)
+  }
+
   private reportError(error: unknown, format: 'json' | 'text', providerContext?: ProviderErrorContext): void {
     const errorMessage = error instanceof Error ? error.message : 'Curate failed'
 
@@ -206,8 +293,9 @@ Bad examples:
     format: 'json' | 'text'
     projectRoot?: string
     taskType: string
+    worktreeRoot?: string
   }): Promise<void> {
-    const {client, content, flags, format, projectRoot, taskType} = props
+    const {client, content, flags, format, projectRoot, taskType, worktreeRoot} = props
     const hasFolders = Boolean(flags.folder?.length)
     const taskId = randomUUID()
     const taskPayload = {
@@ -218,9 +306,14 @@ Bad examples:
       ...(projectRoot ? {projectPath: projectRoot} : {}),
       taskId,
       type: taskType,
+      ...(worktreeRoot ? {worktreeRoot} : {}),
     }
 
     if (flags.detach) {
+      if (flags.timeout !== DEFAULT_TIMEOUT_SECONDS && format !== 'json') {
+        this.log('Note: --timeout has no effect with --detach')
+      }
+
       const ack = await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
       const {logId} = ack
 
@@ -240,8 +333,10 @@ Bad examples:
           client,
           command: 'curate',
           format,
-          onCompleted: ({logId, taskId: tid, toolCalls}) => {
+          onCompleted: ({logId, pendingReview, taskId: tid, toolCalls}) => {
             const changes = this.composeChangesFromToolCalls(toolCalls)
+            // Per-file detail is best-effort enrichment; server notify is authoritative
+            const pendingOps = pendingReview ? this.collectPendingReviewOps(toolCalls) : []
 
             if (format === 'text') {
               for (const file of changes.created) {
@@ -254,6 +349,10 @@ Bad examples:
 
               const logSuffix = logId ? ` (Log: ${logId})` : ''
               this.log(`✓ Context curated successfully.${logSuffix}`)
+
+              if (pendingReview) {
+                this.printPendingReviewSummary(pendingReview.pendingCount, pendingOps, tid)
+              }
             } else {
               writeJsonResponse({
                 command: 'curate',
@@ -262,6 +361,9 @@ Bad examples:
                   event: 'completed',
                   logId,
                   message: 'Context curated successfully',
+                  ...(pendingReview
+                    ? {pendingReview: this.buildPendingReviewJson(pendingReview.pendingCount, pendingOps, tid)}
+                    : {}),
                   status: 'completed',
                   taskId: tid,
                 },
@@ -279,6 +381,7 @@ Bad examples:
             }
           },
           taskId,
+          timeoutMs: (flags.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
         },
         (msg) => this.log(msg),
       )

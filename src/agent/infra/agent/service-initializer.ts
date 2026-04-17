@@ -4,7 +4,7 @@
  * This module is responsible for initializing and wiring together all core agent services.
  * It provides a single entry point for constructing the service graph.
  *
- * Following DextoAgent pattern:
+ * Following pattern:
  * - Config file is source of truth (ValidatedAgentConfig)
  * - Centralized function (not factory class) for service creation
  * - Explicit dependency order with numbered steps
@@ -35,17 +35,24 @@ import { createGeneratorForProvider } from '../llm/providers/index.js'
 import { DEFAULT_RETRY_POLICY } from '../llm/retry/retry-policy.js'
 import { GeminiTokenizer } from '../llm/tokenizers/gemini-tokenizer.js'
 import { EventBasedLogger } from '../logger/event-based-logger.js'
+import { AbstractGenerationQueue } from '../map/abstract-queue.js'
 import { MemoryManager } from '../memory/memory-manager.js'
 import { ProcessService } from '../process/process-service.js'
 import { SandboxService } from '../sandbox/sandbox-service.js'
 import { FileKeyStorage } from '../storage/file-key-storage.js'
 import { GranularHistoryStorage } from '../storage/granular-history-storage.js'
 import { MessageStorageService } from '../storage/message-storage-service.js'
+import { loadSwarmConfig } from '../swarm/config/swarm-config-loader.js'
+import { buildProvidersFromConfig } from '../swarm/provider-factory.js'
+import { SwarmCoordinator } from '../swarm/swarm-coordinator.js'
+import { validateSwarmProviders } from '../swarm/validation/config-validator.js'
 import { ContextTreeStructureContributor } from '../system-prompt/contributors/context-tree-structure-contributor.js'
 import { MapSelectionContributor } from '../system-prompt/contributors/map-selection-contributor.js'
+import { SwarmStateContributor } from '../system-prompt/contributors/swarm-state-contributor.js'
 import { SystemPromptManager } from '../system-prompt/system-prompt-manager.js'
 import { CoreToolScheduler } from '../tools/core-tool-scheduler.js'
 import { DEFAULT_POLICY_RULES } from '../tools/default-policy-rules.js'
+import { createSearchKnowledgeService } from '../tools/implementations/search-knowledge-service.js'
 import { PolicyEngine } from '../tools/policy-engine.js'
 import { ToolDescriptionLoader } from '../tools/tool-description-loader.js'
 import { ToolManager } from '../tools/tool-manager.js'
@@ -103,7 +110,7 @@ export type {CipherAgentServices, SessionManagerConfig, SessionServices} from '.
  * Creates shared services for CipherAgent.
  * These services are singletons shared across all sessions.
  *
- * Initialization order follows DextoAgent pattern (explicit numbered steps):
+ * Initialization order (explicit numbered steps):
  * 1. Logger (uses provided event bus)
  * 2. File system service (no dependencies)
  * 3. Process service (no dependencies)
@@ -118,14 +125,14 @@ export type {CipherAgentServices, SessionManagerConfig, SessionServices} from '.
  * 12. Return all services
  *
  * @param config - Validated agent configuration (Zod-validated)
- * @param agentEventBus - Pre-created event bus from agent constructor (DextoAgent pattern)
+ * @param agentEventBus - Pre-created event bus from agent constructor
  * @returns Initialized shared services
  */
 export async function createCipherAgentServices(
   config: ValidatedAgentConfig,
   agentEventBus: AgentEventBus,
 ): Promise<CipherAgentServices> {
-  // 1. Logger (uses provided event bus - DextoAgent pattern)
+  // 1. Logger (uses provided event bus )
   const logger = new EventBasedLogger(agentEventBus, 'CipherAgent')
 
   // 2. File system service (no dependencies)
@@ -207,33 +214,84 @@ export async function createCipherAgentServices(
   const mapSelectionContributor = new MapSelectionContributor('mapSelection', 16)
   systemPromptManager.registerContributor(mapSelectionContributor)
 
-  // 7. Tool provider (depends on FileSystemService, ProcessService, MemoryManager, SystemPromptManager)
+  // 6b. Swarm coordinator — try to load config and build providers.
+  // Missing config → fail-open (no swarm). Invalid config → warn but continue.
+  let swarmCoordinator: SwarmCoordinator | undefined
+  try {
+    const swarmConfig = await loadSwarmConfig(workingDirectory)
+
+    // Validate enrichment topology — structural errors block swarm init.
+    // Provider-specific errors (bad paths, missing API keys) are handled
+    // by health checks, preserving degraded-mode semantics.
+    const swarmValidation = await validateSwarmProviders(swarmConfig)
+    const topologyErrors = swarmValidation.errors.filter((e) => e.provider === 'enrichment')
+    if (topologyErrors.length > 0) {
+      const messages = topologyErrors.map((e) => e.message)
+      throw new Error(`Invalid enrichment topology:\n  ${messages.join('\n  ')}`)
+    }
+
+    // Log provider-specific warnings/errors without blocking
+    for (const error of swarmValidation.errors.filter((e) => e.provider !== 'enrichment')) {
+      logger.warn(`Swarm provider issue: ${error.provider}: ${error.message}`)
+    }
+
+    const swarmProviders = buildProvidersFromConfig(swarmConfig, {
+      searchService: createSearchKnowledgeService(fileSystemService),
+    })
+
+    if (swarmProviders.length > 0) {
+      swarmCoordinator = new SwarmCoordinator(swarmProviders, swarmConfig)
+      // Run initial health checks so unhealthy providers are skipped from first query
+      await swarmCoordinator.refreshHealth()
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const isConfigMissing = message.includes('not found')
+    if (!isConfigMissing) {
+      // Config exists but is invalid — warn so the user can diagnose
+      logger.warn(`Swarm disabled due to config error: ${message}`)
+    }
+    // Missing config is expected — silently skip
+  }
+
+  // Register swarm state contributor when multi-provider swarm is active
+  if (swarmCoordinator) {
+    const swarmStateContributor = new SwarmStateContributor('swarmState', 17, swarmCoordinator)
+    systemPromptManager.registerContributor(swarmStateContributor)
+  }
+
+  // 7. Abstract generation queue (generator injected later via rebindCurateTools)
+  const abstractQueue = new AbstractGenerationQueue(workingDirectory)
+
+  // 8. Tool provider (depends on FileSystemService, ProcessService, MemoryManager, SystemPromptManager)
   const verbose = config.llm.verbose ?? false
   const descriptionLoader = new ToolDescriptionLoader()
   const toolProvider: ToolProvider = new ToolProvider(
     {
+      abstractQueue,
       environmentContext,
       fileSystemService,
       getToolProvider: (): ToolProvider => toolProvider,
       memoryManager,
       processService,
       sandboxService,
+      swarmCoordinator,
     },
     systemPromptManager,
     descriptionLoader,
   )
   await toolProvider.initialize()
 
-  // 8. Policy engine with default rules for autonomous execution
+  // 9. Policy engine with default rules for autonomous execution
   const policyEngine = new PolicyEngine({defaultDecision: 'ALLOW'})
   policyEngine.addRules(DEFAULT_POLICY_RULES)
 
-  // 9. Tool scheduler (orchestrates policy check → execution)
+  // 10. Tool scheduler (orchestrates policy check → execution)
   const toolScheduler = new CoreToolScheduler(toolProvider, policyEngine, undefined, {
     verbose,
   })
 
-  // 10. Tool manager (with scheduler for policy-based execution)
+  // 11. Tool manager (with scheduler for policy-based execution)
   const toolManager = new ToolManager(toolProvider, toolScheduler)
   await toolManager.initialize()
 
@@ -264,6 +322,7 @@ export async function createCipherAgentServices(
   })
 
   return {
+    abstractQueue,
     agentEventBus,
     blobStorage,
     compactionService,
@@ -278,6 +337,7 @@ export async function createCipherAgentServices(
     toolManager,
     toolProvider,
     toolScheduler,
+    workingDirectory,
   }
 }
 

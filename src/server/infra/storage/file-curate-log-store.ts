@@ -11,10 +11,18 @@ import {CURATE_LOG_DIR, CURATE_LOG_ID_PREFIX} from '../../constants.js'
 // ── Zod schema for file validation ────────────────────────────────────────────
 
 const CurateLogOperationFileSchema = z.object({
+  additionalFilePaths: z.array(z.string()).optional(),
+  confidence: z.enum(['high', 'low']).optional(),
   filePath: z.string().optional(),
+  impact: z.enum(['high', 'low']).optional(),
   message: z.string().optional(),
+  needsReview: z.boolean().optional(),
   path: z.string(),
+  previousSummary: z.string().optional(),
+  reason: z.string().optional(),
+  reviewStatus: z.enum(['approved', 'pending', 'rejected']).optional(),
   status: z.enum(['failed', 'success']),
+  summary: z.string().optional(),
   type: z.enum(['ADD', 'DELETE', 'MERGE', 'UPDATE', 'UPSERT']),
 })
 
@@ -60,7 +68,7 @@ const CurateLogEntryFileSchema = z.discriminatedUnion('status', [
 // ── FileCurateLogStore ────────────────────────────────────────────────────────
 
 const ID_PATTERN = new RegExp(`^${CURATE_LOG_ID_PREFIX}-\\d+$`)
-const DEFAULT_MAX_ENTRIES = 100
+const DEFAULT_MAX_ENTRIES = 1000
 /** Entries stuck in "processing" longer than this are considered interrupted (daemon was killed). */
 const STALE_PROCESSING_THRESHOLD_MS = 10 * 60 * 1000 // 10 minutes
 
@@ -86,6 +94,22 @@ export class FileCurateLogStore implements ICurateLogStore {
   constructor(opts: FileCurateLogStoreOptions) {
     this.logDir = join(opts.baseDir, CURATE_LOG_DIR)
     this.maxEntries = opts.maxEntries ?? DEFAULT_MAX_ENTRIES
+  }
+
+  async batchUpdateOperationReviewStatus(
+    logId: string,
+    updates: Array<{operationIndex: number; reviewStatus: 'approved' | 'rejected'}>,
+  ): Promise<boolean> {
+    const entry = await this.getById(logId)
+    if (!entry) return false
+
+    for (const {operationIndex, reviewStatus} of updates) {
+      if (operationIndex < 0 || operationIndex >= entry.operations.length) continue
+      entry.operations[operationIndex].reviewStatus = reviewStatus
+    }
+
+    await this.save(entry)
+    return true
   }
 
   /**
@@ -192,6 +216,25 @@ export class FileCurateLogStore implements ICurateLogStore {
 
     // Prune oldest entries (best-effort — ignore errors)
     this.pruneOldest().catch(() => {})
+  }
+
+  /**
+   * Update the reviewStatus of a specific operation within a log entry.
+   * Reads the entry, updates the operation at the given index, and saves back atomically.
+   * Returns false if the entry or operation index is not found.
+   */
+  async updateOperationReviewStatus(
+    logId: string,
+    operationIndex: number,
+    reviewStatus: 'approved' | 'rejected',
+  ): Promise<boolean> {
+    const entry = await this.getById(logId)
+    if (!entry) return false
+    if (operationIndex < 0 || operationIndex >= entry.operations.length) return false
+
+    entry.operations[operationIndex].reviewStatus = reviewStatus
+    await this.save(entry)
+    return true
   }
 
   // ── Private helpers ─────────────────────────────────────────────────────────

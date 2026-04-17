@@ -133,6 +133,27 @@ export class ClientManager implements IClientManager {
     this.clientDisconnectedCallback?.()
   }
 
+  updateProjectPath(clientId: string, newProjectPath: string): string | undefined {
+    const client = this.clients.get(clientId)
+    if (!client) return undefined
+
+    const oldPath = client.updateProjectPath(newProjectPath)
+
+    // Move between project indexes
+    if (oldPath) {
+      this.removeFromProjectIndex(clientId, oldPath)
+    }
+
+    this.addToProjectIndex(clientId, newProjectPath)
+
+    // Check if old project is now empty
+    if (oldPath && oldPath !== newProjectPath && client.isExternalClient) {
+      this.checkProjectEmpty(oldPath)
+    }
+
+    return oldPath
+  }
+
   private addToProjectIndex(clientId: string, projectPath: string): void {
     let members = this.projectClients.get(projectPath)
     if (!members) {

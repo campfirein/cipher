@@ -14,7 +14,14 @@ import {createMockTransportServer, type MockTransportServer} from '../../../../h
 type ProjectInfoLike = {projectPath: string; registeredAt: number; sanitizedPath: string; storagePath: string}
 
 type TestDeps = {
-  contextTreeService: {delete: SinonStub; exists: SinonStub; initialize: SinonStub}
+  contextTreeService: {
+    delete: SinonStub
+    exists: SinonStub
+    hasGitRepo: SinonStub
+    initialize: SinonStub
+    resolvePath: SinonStub
+  }
+  pathExists: SinonStub
   projectRegistry: {get: SinonStub; getAll: SinonStub; register: SinonStub; unregister: SinonStub}
 }
 
@@ -27,8 +34,11 @@ function makeStubs(): TestDeps {
     contextTreeService: {
       delete: stub(),
       exists: stub().resolves(false),
+      hasGitRepo: stub().resolves(false),
       initialize: stub(),
+      resolvePath: stub().callsFake((p: string) => p),
     },
+    pathExists: stub().resolves(true),
     projectRegistry: {
       get: stub(),
       getAll: stub().returns(new Map()),
@@ -59,6 +69,7 @@ describe('LocationsHandler', () => {
     const handler = new LocationsHandler({
       contextTreeService: deps.contextTreeService,
       getActiveProjectPaths,
+      pathExists: deps.pathExists,
       projectRegistry: deps.projectRegistry,
       resolveProjectPath,
       transport,
@@ -218,6 +229,60 @@ describe('LocationsHandler', () => {
 
       expect(initialized?.isInitialized).to.be.true
       expect(notInit?.isInitialized).to.be.false
+    })
+  })
+
+  describe('deleted project filtering', () => {
+    it('should exclude projects whose path no longer exists on disk', async () => {
+      const deletedPath = '/project/deleted'
+      const existingPath = '/project/current'
+
+      const registry = new Map([
+        [deletedPath, makeProjectInfo(deletedPath, 1000)],
+        [existingPath, makeProjectInfo(existingPath, 2000)],
+      ])
+      deps.projectRegistry.getAll.returns(registry)
+      deps.pathExists.withArgs(existingPath).resolves(true)
+      deps.pathExists.withArgs(deletedPath).resolves(false)
+
+      createHandler()
+      const result = await callGetHandler()
+
+      expect(result.locations).to.have.lengthOf(1)
+      expect(result.locations[0].projectPath).to.equal(existingPath)
+    })
+
+    it('should exclude paths where pathExists throws but NOT unregister them', async () => {
+      const errorPath = '/project/error'
+
+      const registry = new Map([[errorPath, makeProjectInfo(errorPath, 1000)]])
+      deps.projectRegistry.getAll.returns(registry)
+      deps.pathExists.withArgs(errorPath).rejects(new Error('permission denied'))
+
+      createHandler()
+      const result = await callGetHandler()
+
+      expect(result.locations).to.have.lengthOf(0)
+      expect(deps.projectRegistry.unregister.called).to.be.false
+    })
+
+    it('should unregister deleted paths from the registry', async () => {
+      const deletedPath = '/project/deleted'
+      const existingPath = '/project/current'
+
+      const registry = new Map([
+        [deletedPath, makeProjectInfo(deletedPath, 1000)],
+        [existingPath, makeProjectInfo(existingPath, 2000)],
+      ])
+      deps.projectRegistry.getAll.returns(registry)
+      deps.pathExists.withArgs(existingPath).resolves(true)
+      deps.pathExists.withArgs(deletedPath).resolves(false)
+
+      createHandler()
+      await callGetHandler()
+
+      expect(deps.projectRegistry.unregister.calledOnce).to.be.true
+      expect(deps.projectRegistry.unregister.calledWith(deletedPath)).to.be.true
     })
   })
 })

@@ -16,10 +16,12 @@ import type {
 } from '../../core/interfaces/i-curate-service.js'
 import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
 import type {ISandboxService} from '../../core/interfaces/i-sandbox-service.js'
+import type {ISwarmCoordinator} from '../../core/interfaces/i-swarm-coordinator.js'
 import type {SessionManager} from '../session/session-manager.js'
 
 import {ContextTreeStore} from '../map/context-tree-store.js'
 import {executeLlmMapMemory} from '../map/llm-map-memory.js'
+import {validateWriteTarget} from '../tools/write-guard.js'
 import {
   chunk,
   type ChunkResult,
@@ -95,6 +97,8 @@ export interface ListDirectoryOptions {
 export interface SearchKnowledgeOptions {
   /** Maximum number of results to return (default: 10) */
   limit?: number
+  /** Path prefix to scope search within (e.g. "auth" or "packages/api") */
+  scope?: string
 }
 
 /**
@@ -108,11 +112,19 @@ export interface SearchKnowledgeResult {
     /** Number of other memories that reference this one */
     backlinkCount?: number
     excerpt: string
+    /** Origin: 'local' for this project, 'shared' for results from knowledge source */
+    origin?: 'local' | 'shared'
+    /** Alias of the shared source (undefined for local results) */
+    originAlias?: string
+    /** Absolute path to the context tree root this result belongs to. Use join(originContextTreeRoot, path) to read. */
+    originContextTreeRoot?: string
+    /** Path to .overview.md for this entry; present when L1 overview exists */
+    overviewPath?: string
     path: string
     /** Top backlink source paths (max 3) */
     relatedPaths?: string[]
     score: number
-    /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' | 'archive_stub' */
+    /** Symbol kind: 'domain' | 'topic' | 'subtopic' | 'context' | 'archive_stub' | 'summary' */
     symbolKind?: string
     /** Resolved hierarchical path in the symbol tree */
     symbolPath?: string
@@ -225,6 +237,23 @@ export interface ToolsSDK {
   searchKnowledge(query: string, options?: SearchKnowledgeOptions): Promise<SearchKnowledgeResult>
 
   /**
+   * Search across all active swarm memory providers.
+   * Available in both query and curate modes (read operation).
+   * @param query - Natural language search query
+   * @param options - Optional limit and scope
+   * @returns Promise resolving to ranked results from all active providers
+   */
+  swarmQuery(query: string, options?: {limit?: number; scope?: string}): Promise<unknown>
+
+  /**
+   * Store knowledge in a swarm provider (GBrain, local markdown).
+   * Disabled in query (read-only) mode.
+   * @param request - Store request with content, optional contentType and provider
+   * @returns Promise resolving to store result with provider ID and latency
+   */
+  swarmStore(request: {content: string; contentType?: 'entity' | 'general' | 'note'; provider?: string}): Promise<unknown>
+
+  /**
    * Write content to a file.
    * @param filePath - Absolute path where the file should be written
    * @param content - Content to write
@@ -248,12 +277,16 @@ export interface CreateToolsSDKOptions {
   fileSystem: IFileSystem
   /** Parent session ID for creating child sessions (required for agentQuery) */
   parentSessionId?: string
+  /** Project root for write guard validation (blocks writes to shared source context trees) */
+  projectRoot?: string
   /** Sandbox service for variable injection into child sessions (optional, enables contextData in agentQuery) */
   sandboxService?: ISandboxService
   /** Search knowledge service */
   searchKnowledgeService?: ISearchKnowledgeService
   /** Session manager for sub-agent delegation (required for agentQuery) */
   sessionManager?: SessionManager
+  /** Swarm coordinator for cross-provider query and store (optional) */
+  swarmCoordinator?: ISwarmCoordinator
 }
 
 /**
@@ -266,7 +299,7 @@ export interface CreateToolsSDKOptions {
  * @returns ToolsSDK instance ready to be injected into sandbox context
  */
 export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
-  const {commandType, contentGenerator, curateService, fileSystem, parentSessionId, sandboxService, searchKnowledgeService, sessionManager} = options
+  const {commandType, contentGenerator, curateService, fileSystem, parentSessionId, projectRoot, sandboxService, searchKnowledgeService, sessionManager, swarmCoordinator} = options
   const isReadOnly = commandType === 'query'
   return {
     async agentQuery(prompt: string, options?: { contextData?: Record<string, unknown>; maxIterations?: number }): Promise<string> {
@@ -429,9 +462,45 @@ export function createToolsSDK(options: CreateToolsSDKOptions): ToolsSDK {
       return searchKnowledgeService.search(query, options)
     },
 
+    async swarmQuery(query: string, queryOptions?: {limit?: number; scope?: string}): Promise<unknown> {
+      if (!swarmCoordinator) {
+        throw new Error('Swarm query not available — no swarm coordinator configured.')
+      }
+
+      return swarmCoordinator.execute({
+        maxResults: queryOptions?.limit,
+        query,
+        scope: queryOptions?.scope,
+      })
+    },
+
+    async swarmStore(request: {content: string; contentType?: 'entity' | 'general' | 'note'; provider?: string}): Promise<unknown> {
+      if (isReadOnly) {
+        throw new Error('swarmStore() is disabled in read-only (query) mode')
+      }
+
+      if (!swarmCoordinator) {
+        throw new Error('Swarm store not available — no swarm coordinator configured.')
+      }
+
+      return swarmCoordinator.store({
+        content: request.content,
+        contentType: request.contentType,
+        provider: request.provider,
+      })
+    },
+
     async writeFile(filePath: string, content: string, options?: WriteFileOptions): Promise<WriteResult> {
       if (isReadOnly) {
         throw new Error('writeFile() is disabled in read-only (query) mode')
+      }
+
+      // Write guard: block writes to shared source context trees
+      if (projectRoot) {
+        const writeError = validateWriteTarget(filePath, projectRoot)
+        if (writeError) {
+          throw new Error(writeError)
+        }
       }
 
       return fileSystem.writeFile(filePath, content, {

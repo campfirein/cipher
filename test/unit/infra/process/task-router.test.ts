@@ -18,6 +18,9 @@
 
 import {expect} from 'chai'
 import {randomUUID} from 'node:crypto'
+import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {IAgentPool, SubmitTaskResult} from '../../../../src/server/core/interfaces/agent/i-agent-pool.js'
@@ -306,6 +309,276 @@ describe('TaskRouter', () => {
       expect(submittedTask).to.have.property('clientCwd', '/home/user/project')
       expect(submittedTask.files).to.deep.equal(['src/auth.ts', 'src/middleware.ts'])
     })
+
+    it('should derive worktreeRoot from resolver when omitted', async () => {
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-task-router-project-'))
+      const worktreeRoot = join(projectRoot, 'packages', 'api')
+      mkdirSync(join(projectRoot, '.brv'), {recursive: true})
+      writeFileSync(join(projectRoot, '.brv', 'config.json'), '{}')
+      mkdirSync(worktreeRoot, {recursive: true})
+      writeFileSync(join(worktreeRoot, '.brv'), JSON.stringify({projectRoot}))
+      const canonicalProjectRoot = realpathSync(projectRoot)
+      const canonicalWorkspaceRoot = realpathSync(worktreeRoot)
+
+      try {
+        const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+        const request = makeTaskCreateRequest({
+          clientCwd: worktreeRoot,
+          projectPath: canonicalProjectRoot,
+          worktreeRoot: undefined,
+        })
+
+        handler!(request, 'client-1')
+
+        await new Promise((resolve) => {
+          setTimeout(resolve, 10)
+        })
+
+        const submittedTask = agentPool.submitTask.firstCall.args[0]
+        expect(submittedTask.worktreeRoot).to.equal(canonicalWorkspaceRoot)
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+    })
+
+    it('should fall back worktreeRoot to projectPath when resolver returns null', async () => {
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({
+        clientCwd: '/outside/project',
+        projectPath: '/app',
+        worktreeRoot: undefined,
+      })
+
+      handler!(request, 'client-1')
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10)
+      })
+
+      const submittedTask = agentPool.submitTask.firstCall.args[0]
+      expect(submittedTask.worktreeRoot).to.equal('/app')
+    })
+
+    it('should reject worktreeRoot outside projectPath', async () => {
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const taskId = randomUUID()
+
+      const result = await handler!(
+        {
+          clientCwd: '/app/packages/api',
+          content: 'invalid workspace',
+          projectPath: '/app',
+          taskId,
+          type: 'query',
+          worktreeRoot: '/other-project',
+        },
+        'client-1',
+      )
+
+      expect(result).to.deep.equal({taskId})
+      expect(agentPool.submitTask.called).to.be.false
+      const errorCall = (transportHelper.transport.sendTo as SinonStub).getCalls().find(
+        (c) => c.args[1] === TransportTaskEventNames.ERROR,
+      )
+      expect(errorCall).to.exist
+      expect(errorCall!.args[2].error.message).to.include('worktreeRoot')
+    })
+
+    it('should surface resolver errors instead of swallowing them', async () => {
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-task-router-broken-link-'))
+      const worktreeRoot = join(projectRoot, 'packages', 'api')
+      mkdirSync(worktreeRoot, {recursive: true})
+      writeFileSync(join(worktreeRoot, '.brv'), JSON.stringify({projectRoot: '/missing/project'}))
+
+      try {
+        const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+        const taskId = randomUUID()
+
+        const result = await handler!(
+          {
+            clientCwd: worktreeRoot,
+            content: 'broken link',
+            taskId,
+            type: 'query',
+          },
+          'client-1',
+        )
+
+        expect(result).to.deep.equal({taskId})
+        expect(agentPool.submitTask.called).to.be.false
+        const errorCall = (transportHelper.transport.sendTo as SinonStub).getCalls().find(
+          (c) => c.args[1] === TransportTaskEventNames.ERROR,
+        )
+        expect(errorCall).to.exist
+        expect(errorCall!.args[2].error.message).to.include('Worktree pointer broken')
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+    })
+  })
+
+  // ==========================================================================
+  // preDispatchCheck (ENG-2126 fix #4)
+  // ==========================================================================
+
+  describe('preDispatchCheck', () => {
+    it('dispatches to agent pool when check resolves eligible', async () => {
+      const preDispatchCheck = sandbox.stub().resolves({eligible: true})
+
+      router = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        preDispatchCheck,
+        projectRegistry,
+        projectRouter,
+        transport: transportHelper.transport,
+      })
+      router.setup()
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({type: 'dream'})
+      await handler!(request, 'client-1')
+
+      expect(preDispatchCheck.calledOnce, 'preDispatchCheck should be invoked').to.be.true
+      expect((agentPool.submitTask as SinonStub).calledOnce, 'eligible task should reach the agent pool').to.be.true
+    })
+
+    it('short-circuits to task:completed with skip reason when check resolves ineligible', async () => {
+      const preDispatchCheck = sandbox.stub().resolves({eligible: false, skipResult: 'Dream skipped: Queue not empty (2 tasks pending)'})
+
+      router = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        preDispatchCheck,
+        projectRegistry,
+        projectRouter,
+        transport: transportHelper.transport,
+      })
+      router.setup()
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({type: 'dream'})
+      await handler!(request, 'client-1')
+
+      // Agent pool never receives the task
+      expect((agentPool.submitTask as SinonStub).called, 'ineligible task must not reach the agent pool').to.be.false
+
+      // Client receives task:completed with the skip reason
+      const completedCall = (transportHelper.transport.sendTo as SinonStub).getCalls().find(
+        (c) => c.args[0] === 'client-1' && c.args[1] === TransportTaskEventNames.COMPLETED,
+      )
+      expect(completedCall, 'expected task:completed to be sent').to.exist
+      expect(completedCall!.args[2].result).to.equal('Dream skipped: Queue not empty (2 tasks pending)')
+      expect(completedCall!.args[2].taskId).to.equal(request.taskId)
+    })
+
+    it('falls through to dispatch when check throws (fail-open)', async () => {
+      const preDispatchCheck = sandbox.stub().rejects(new Error('state read failed'))
+
+      router = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        preDispatchCheck,
+        projectRegistry,
+        projectRouter,
+        transport: transportHelper.transport,
+      })
+      router.setup()
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({type: 'dream'})
+      await handler!(request, 'client-1')
+
+      // Errors in pre-check must not block dispatch — agent's own gate check is the fallback
+      expect((agentPool.submitTask as SinonStub).calledOnce, 'fail-open: task should still reach the agent').to.be.true
+    })
+
+    it('is skipped when no preDispatchCheck is configured', async () => {
+      // default router in beforeEach has no preDispatchCheck
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({type: 'dream'})
+      await handler!(request, 'client-1')
+
+      expect((agentPool.submitTask as SinonStub).calledOnce).to.be.true
+    })
+
+    it('does NOT decrement agentPool.activeTasks counter when pre-check skips (the task was never submitted)', async () => {
+      // Regression for Codex P1: handleTaskCompleted unconditionally calls
+      // agentPool.notifyTaskCompleted, which decrements activeTasks. For a
+      // pre-dispatch skip the task never reached the pool, so notifying would
+      // undercount real load and let drainQueue dispatch an extra queued task.
+      const preDispatchCheck = sandbox.stub().resolves({eligible: false, skipResult: 'Dream skipped: Queue not empty (3 tasks pending)'})
+
+      router = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        preDispatchCheck,
+        projectRegistry,
+        projectRouter,
+        transport: transportHelper.transport,
+      })
+      router.setup()
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({type: 'dream'})
+      await handler!(request, 'client-1')
+
+      expect(agentPool.notifyTaskCompleted.called, 'pre-check skip must not notify the agent pool').to.be.false
+    })
+
+    it('does NOT fire onTaskCompleted lifecycle hooks when pre-check skips', async () => {
+      // Regression for RyanNg #5: hooks that act on completed tasks (metrics,
+      // counters) should not see pre-check skips as completions.
+      const hookOnCompleted = sandbox.stub().resolves()
+      const preDispatchCheck = sandbox.stub().resolves({eligible: false, skipResult: 'Dream skipped: Queue not empty (1 task pending)'})
+      const hookHelper = makeStubTransportServer(sandbox)
+
+      const routerWithHooks = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        lifecycleHooks: [{onTaskCompleted: hookOnCompleted}],
+        preDispatchCheck,
+        projectRegistry,
+        projectRouter,
+        transport: hookHelper.transport,
+      })
+      routerWithHooks.setup()
+
+      const handler = hookHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({type: 'dream'})
+      await handler!(request, 'client-1')
+
+      // Allow async hook chain to flush
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10)
+      })
+
+      expect(hookOnCompleted.called, 'onTaskCompleted must not fire for pre-check skips').to.be.false
+    })
+
+    it('still broadcasts task:completed to the project room on pre-check skip (so REPL/TUI see it)', async () => {
+      const preDispatchCheck = sandbox.stub().resolves({eligible: false, skipResult: 'Dream skipped: Queue not empty (1 task pending)'})
+
+      router = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        preDispatchCheck,
+        projectRegistry,
+        projectRouter,
+        transport: transportHelper.transport,
+      })
+      router.setup()
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({type: 'dream'})
+      await handler!(request, 'client-1')
+
+      const broadcastCall = projectRouter.broadcastToProject.getCalls().find(
+        (c) => c.args[1] === TransportTaskEventNames.COMPLETED,
+      )
+      expect(broadcastCall, 'project room should still see task:completed for skips').to.exist
+      expect(broadcastCall!.args[2].result).to.equal('Dream skipped: Queue not empty (1 task pending)')
+    })
   })
 
   // ==========================================================================
@@ -384,6 +657,22 @@ describe('TaskRouter', () => {
       handler!({error: {message: 'fail', name: 'Error'}, taskId}, 'agent-1')
 
       expect(agentPool.notifyTaskCompleted.calledWith('/app')).to.be.true
+    })
+
+    it('should notify agentPool on task:completed for daemon-submitted tasks', () => {
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.COMPLETED)
+
+      handler!({projectPath: '/daemon-app', result: 'done', taskId: 'daemon-task'}, 'agent-1')
+
+      expect(agentPool.notifyTaskCompleted.calledWith('/daemon-app')).to.be.true
+    })
+
+    it('should notify agentPool on task:error for daemon-submitted tasks', () => {
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.ERROR)
+
+      handler!({error: {message: 'fail', name: 'Error'}, projectPath: '/daemon-app', taskId: 'daemon-task'}, 'agent-1')
+
+      expect(agentPool.notifyTaskCompleted.calledWith('/daemon-app')).to.be.true
     })
 
     it('should route task:cancelled to client and broadcast', () => {

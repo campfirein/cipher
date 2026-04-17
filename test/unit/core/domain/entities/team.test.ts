@@ -13,6 +13,7 @@ describe('Team', () => {
     isActive: true,
     isDefault: false,
     name: 'test-team',
+    slug: 'test-team',
     updatedAt: new Date('2024-01-02T00:00:00Z'),
   }
 
@@ -22,6 +23,7 @@ describe('Team', () => {
 
       expect(team.id).to.equal(validTeamParams.id)
       expect(team.name).to.equal(validTeamParams.name)
+      expect(team.slug).to.equal(validTeamParams.slug)
       expect(team.displayName).to.equal(validTeamParams.displayName)
       expect(team.description).to.equal(validTeamParams.description)
       expect(team.avatarUrl).to.equal(validTeamParams.avatarUrl)
@@ -85,6 +87,43 @@ describe('Team', () => {
       expect(team.isActive).to.equal(json.is_active)
       expect(team.createdAt).to.deep.equal(new Date(json.created_at))
       expect(team.updatedAt).to.deep.equal(new Date(json.updated_at))
+    })
+
+    it('should deserialize slug from JSON when present', () => {
+      const json = {
+        avatar_url: 'https://example.com/avatar.png',
+        created_at: '2024-01-01T00:00:00Z',
+        description: 'A test team',
+        display_name: 'Test Release 2.0.0',
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        is_active: true,
+        is_default: false,
+        name: 'test-release-2.0.0',
+        slug: 'test-release-2-0-0',
+        updated_at: '2024-01-02T00:00:00Z',
+      }
+
+      const team = Team.fromJson(json)
+
+      expect(team.slug).to.equal('test-release-2-0-0')
+      expect(team.name).to.equal('test-release-2.0.0')
+    })
+
+    it('should fall back to name when slug is missing from JSON', () => {
+      const json = {
+        avatar_url: 'https://example.com/avatar.png',
+        created_at: '2024-01-01T00:00:00Z',
+        display_name: 'Test Team',
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        is_active: true,
+        is_default: false,
+        name: 'test-team',
+        updated_at: '2024-01-02T00:00:00Z',
+      }
+
+      const team = Team.fromJson(json)
+
+      expect(team.slug).to.equal('test-team')
     })
 
     it('should handle optional description field', () => {
@@ -234,6 +273,7 @@ describe('Team', () => {
         isActive: validTeamParams.isActive,
         isDefault: validTeamParams.isDefault,
         name: validTeamParams.name,
+        slug: validTeamParams.slug,
         updatedAt: validTeamParams.updatedAt.toISOString(),
       })
     })

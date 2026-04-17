@@ -1,0 +1,14 @@
+# Default: all changes require review
+* @leehpham @bao-byterover
+
+# CI/CD and release infrastructure require senior review
+.github/ @leehpham @bao-byterover
+package.json @leehpham @bao-byterover
+package-lock.json @leehpham @bao-byterover
+
+# Area ownership
+src/agent/ @danhdoan @ngduyanhece @cuongdo-byterover @RyanNg1403
+src/oclif @leehpham @bao-byterover
+src/server/ @leehpham @bao-byterover
+src/tui/ @wzlng @ncnthien
+scripts/ @DatPham-6996

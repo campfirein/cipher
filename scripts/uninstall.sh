@@ -112,6 +112,9 @@ resolve_paths() {
 
   # configstore (used by update-notifier) always uses xdg-basedir, even on macOS
   UPDATE_NOTIFIER_CACHE="${XDG_CONFIG_HOME:-$HOME/.config}/configstore/update-notifier-byterover-cli.json"
+
+  # oclif (plugin-update client cache) always uses xdg-basedir, even on macOS
+  OCLIF_DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/brv"
 }
 
 # ─── Discovery ────────────────────────────────────────────────────────────────
@@ -146,6 +149,13 @@ discover() {
   FOUND_DATA=false
   if [ -d "$DATA_DIR" ] && [ "$DATA_DIR" != "$CONFIG_DIR" ]; then
     FOUND_DATA=true
+    FOUND_ANYTHING=true
+  fi
+
+  # oclif data directory (plugin-update client cache; may overlap DATA_DIR on Linux)
+  FOUND_OCLIF_DATA=false
+  if [ -d "$OCLIF_DATA_DIR" ] && [ "$OCLIF_DATA_DIR" != "$DATA_DIR" ]; then
+    FOUND_OCLIF_DATA=true
     FOUND_ANYTHING=true
   fi
 
@@ -216,13 +226,16 @@ show_plan() {
   fi
 
   # Config & data directories
-  if [ "$FOUND_CONFIG" = true ] || [ "$FOUND_DATA" = true ]; then
+  if [ "$FOUND_CONFIG" = true ] || [ "$FOUND_DATA" = true ] || [ "$FOUND_OCLIF_DATA" = true ]; then
     printf "  ${BOLD}Global config & data:${RESET}\n"
     if [ "$FOUND_CONFIG" = true ]; then
       printf "    %s\n" "$(display_path "$CONFIG_DIR")"
     fi
     if [ "$FOUND_DATA" = true ]; then
       printf "    %s\n" "$(display_path "$DATA_DIR")"
+    fi
+    if [ "$FOUND_OCLIF_DATA" = true ]; then
+      printf "    %s\n" "$(display_path "$OCLIF_DATA_DIR")"
     fi
     printf "\n"
   fi
@@ -349,7 +362,7 @@ remove_keychain_entries() {
 remove_directories() {
   has_dirs=false
 
-  if [ "$FOUND_CONFIG" = true ] || [ "$FOUND_DATA" = true ] || [ "$FOUND_LOGS" = true ]; then
+  if [ "$FOUND_CONFIG" = true ] || [ "$FOUND_DATA" = true ] || [ "$FOUND_OCLIF_DATA" = true ] || [ "$FOUND_LOGS" = true ]; then
     has_dirs=true
   fi
 
@@ -374,6 +387,15 @@ remove_directories() {
       printf "  Removed %s\n" "$(display_path "$DATA_DIR")"
     else
       warn "Could not remove $(display_path "$DATA_DIR"). You may need to remove it manually."
+    fi
+  fi
+
+  # oclif data directory (plugin-update client cache)
+  if [ "$FOUND_OCLIF_DATA" = true ]; then
+    if rm -rf "$OCLIF_DATA_DIR" 2>/dev/null; then
+      printf "  Removed %s\n" "$(display_path "$OCLIF_DATA_DIR")"
+    else
+      warn "Could not remove $(display_path "$OCLIF_DATA_DIR"). You may need to remove it manually."
     fi
   fi
 

@@ -15,6 +15,8 @@ import {
 } from '@campfirein/brv-transport-client'
 import React, {useEffect} from 'react'
 
+// eslint-disable-next-line no-restricted-imports -- fallback resolver when store has no projectPath
+import {resolveProject} from '../../../../server/infra/project/resolve-project.js'
 import {getAllEventValues} from '../../../../shared/transport/events/index.js'
 import {initTransportLog, logTransportEvent} from '../../../lib/transport-logger.js'
 import {useTransportStore} from '../../../stores/transport-store.js'
@@ -29,6 +31,7 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
   useEffect(() => {
     let mounted = true
     let reconnectorHandle: DaemonReconnectorHandle | undefined
+    let unsubProjectSync: (() => void) | undefined
     const eventUnsubscribes: Array<() => void> = []
 
     function registerEventHandlers(client: ITransportClient): void {
@@ -56,12 +59,47 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
         initTransportLog()
         setConnectionState('connecting')
 
+        const getCurrentProjectPath = (): string => {
+          const storedProjectPath = useTransportStore.getState().projectPath
+          if (storedProjectPath) return storedProjectPath
+
+          // Attempt live resolution as a last resort (e.g. store not yet populated).
+          // If resolution fails or returns null, throw — registering with raw cwd
+          // would put the client in the wrong room.
+          const resolution = resolveProject()
+          if (!resolution) {
+            throw new Error(
+              'No ByteRover project could be resolved. Ensure you are inside a brv project directory.',
+            )
+          }
+
+          return resolution.projectRoot
+        }
+
         // connectToDaemon = ensureDaemonRunning (no-op, already running) + connect + register + join rooms
+        // Use resolved projectPath from store (set by oclif main via resolveProject()),
+        // falling back to process.cwd() for backwards compatibility.
+        //
+        // connectOptions is a mutable object — the reconnector captures it by reference
+        // (daemon-reconnector.js line 60), so mutating .projectPath here is visible
+        // on subsequent reconnect attempts.
         const connectOptions = {
           clientType: 'tui' as const,
           joinRooms: ['broadcast-room'] as const,
-          projectPath: process.cwd(),
+          projectPath: getCurrentProjectPath(),
         }
+
+        // Keep connectOptions.projectPath in sync with the store so reconnects
+        // use the latest value (e.g. after reassociation from worktree add/remove).
+        // If projectPath is cleared and resolver fails, keep the last good value
+        // rather than registering with raw cwd.
+        unsubProjectSync = useTransportStore.subscribe((state) => {
+          try {
+            connectOptions.projectPath = state.projectPath ?? getCurrentProjectPath()
+          } catch {
+            // Resolver failed — keep existing connectOptions.projectPath unchanged
+          }
+        })
 
         const {client: newClient} = await connectToDaemon(connectOptions)
 
@@ -116,6 +154,7 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
     return () => {
       mounted = false
       reconnectorHandle?.cancel()
+      unsubProjectSync?.()
 
       // Clean up all event handlers
       for (const unsub of eventUnsubscribes) {

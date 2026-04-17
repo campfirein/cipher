@@ -11,6 +11,7 @@ import React, {useEffect, useState} from 'react'
 import type {CustomDialogCallbacks} from '../../../types/commands.js'
 
 import {InlineConfirm} from '../../../components/inline-prompts/inline-confirm.js'
+import {formatTransportError} from '../../../utils/error-messages.js'
 import {useExecuteReset} from '../api/execute-reset.js'
 
 interface ResetFlowProps extends CustomDialogCallbacks {
@@ -29,7 +30,7 @@ export function ResetFlow({onComplete, skipConfirm}: ResetFlowProps): React.Reac
 
     resetMutation.mutate(undefined, {
       onError(error) {
-        onComplete(`Failed to reset context tree: ${error.message}`)
+        onComplete(`Failed to reset context tree: ${formatTransportError(error)}`)
       },
       onSuccess(result) {
         if (result.success) {

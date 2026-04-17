@@ -11,6 +11,9 @@
  */
 
 import {expect} from 'chai'
+import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {IFileSystem} from '../../../../src/agent/core/interfaces/i-file-system.js'
@@ -20,6 +23,7 @@ import {createToolsSDK} from '../../../../src/agent/infra/sandbox/tools-sdk.js'
 
 describe('ToolsSDK', () => {
   let sandbox: SinonSandbox
+  let tempDir: string
   let mockFileSystem: {
     editFile: SinonStub
     globFiles: SinonStub
@@ -35,6 +39,7 @@ describe('ToolsSDK', () => {
 
   beforeEach(() => {
     sandbox = createSandbox()
+    tempDir = mkdtempSync(join(tmpdir(), 'brv-tools-sdk-'))
 
     mockFileSystem = {
       editFile: sandbox.stub(),
@@ -53,6 +58,7 @@ describe('ToolsSDK', () => {
 
   afterEach(() => {
     sandbox.restore()
+    rmSync(tempDir, {force: true, recursive: true})
   })
 
   describe('createToolsSDK', () => {
@@ -243,6 +249,26 @@ describe('ToolsSDK', () => {
       expect(mockFileSystem.writeFile.firstCall.args[2]).to.deep.include({
         createDirs: false,
       })
+    })
+
+    it('should reject writes outside the local context tree when projectRoot is provided', async () => {
+      mkdirSync(join(tempDir, '.brv', 'context-tree'), {recursive: true})
+      writeFileSync(join(tempDir, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
+
+      const sdk = createToolsSDK({
+        fileSystem: mockFileSystem as unknown as IFileSystem,
+        projectRoot: tempDir,
+      })
+
+      try {
+        await sdk.writeFile(join(tempDir, 'notes.md'), 'data')
+        expect.fail('Should have thrown')
+      } catch (error) {
+        expect(error).to.be.instanceOf(Error)
+        expect((error as Error).message).to.include('outside the local context tree')
+      }
+
+      expect(mockFileSystem.writeFile.called).to.be.false
     })
   })
 

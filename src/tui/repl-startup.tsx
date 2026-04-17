@@ -11,17 +11,21 @@ import {useTransportStore} from './stores/transport-store.js'
  * - TransportInitializer connects to daemon via connectToDaemon()
  */
 export interface ReplOptions {
+  projectPath?: string
   version: string
+  worktreeRoot?: string
 }
 
 /**
  * Start the ByteRover REPL
  */
 export async function startRepl(options: ReplOptions): Promise<void> {
-  const {version} = options
+  const {projectPath, version, worktreeRoot} = options
 
-  // Set version in store before rendering
-  useTransportStore.getState().setVersion(version)
+  // Set version and project info in store before rendering
+  const store = useTransportStore.getState()
+  store.setVersion(version)
+  store.setProjectInfo(projectPath, worktreeRoot)
 
   const {waitUntilExit} = render(
     <AppProviders>

@@ -2,6 +2,93 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.6.0]
+
+### Added
+- **`brv dream` — tidy up your context tree** — A new command that cleans up your memory in the background: merges related notes, writes short summaries that connect ideas across topics, and archives stale entries. It runs on its own when the CLI has been idle for a while, or you can run it yourself. Changes the model is unsure about are held for you to review with `brv review pending`, and `brv dream --undo` reverts the last run. Flags: `--force` / `-f` to skip the time and activity gates, `--detach` to queue and exit without waiting, `--undo`, `--timeout <seconds>`, `--format json`.
+- **`brv query-log` — see what you've asked before** — Every `brv query` is now saved locally so you can look back at past questions and how they were answered. `brv query-log view` lists recent queries with filters `--status`, `--tier`, `--since`, `--before`, and `--limit`, plus `--detail` to also show the matched docs for each entry, and `--format json`. `brv query-log summary` shows aggregated metrics — coverage, cache hit rate, and top topics — over a window set by `--last`, `--since`, or `--before`, with `--format` options `text`, `json`, or `narrative` for a plain-English recap.
+
+## [3.5.1]
+
+### Changed
+- **Clearer MCP tool descriptions** — The `cwd` parameter on `brv-curate` and `brv-query` MCP tools now tells the calling LLM exactly when the project path is required (Claude Desktop, hosted MCP) vs. optional (Cursor, Cline, Zed, Claude Code). This reduces failed tool calls from clients that omitted the path or guessed a relative one.
+
+## [3.5.0]
+
+### Added
+- **Claude Desktop support** — Connect ByteRover to the Claude Desktop app with `brv connectors install "Claude Desktop"` (or pick it in `/connectors`). Works on macOS, Windows (including Store installs), and Linux. After installing, fully quit Claude Desktop from the tray or menu bar and reopen it to apply.
+
+### Changed
+- **Cleaner install layout** — The `install.sh` installer now keeps its bundled Node.js tucked away so it won't conflict with the `node` already on your system. Just reinstall to pick up the new layout.
+
+### Fixed
+- **Security dependency update** — Updated `basic-ftp` to patch a high-severity vulnerability.
+
+## [3.4.0]
+
+### Added
+- **`brv swarm` — unified memory swarm** — Connect multiple memory providers (ByteRover context tree, Obsidian vaults, local markdown folders, GBrain, OpenClaw Memory Wiki) into a single query and storage layer. `brv swarm onboard` walks through an interactive setup wizard; `brv swarm status` shows provider health, write targets, and enrichment topology. `brv swarm query <question>` runs intelligent routing, parallel provider execution, and Reciprocal Rank Fusion merging — add `--explain` for classification reasoning and provider selection details. `brv swarm curate <content>` stores to the best writable provider based on content classification (`--provider` to override), falling back to ByteRover context-tree curation when no external target is available. Control how providers feed context to each other via `enrichment.edges` in `swarm.config.yaml` — the engine validates cycles, self-edges, and missing providers, and disabled-provider edges produce warnings instead of errors so partial setups degrade gracefully. The agent also gains `swarm_query` and `swarm_store` tools, and sandboxed code can call `tools.swarmQuery()` / `tools.swarmStore()`.
+- **GPT-5.4 Mini support** — Added `gpt-5.4-mini` to the Codex allowed models list.
+
+### Fixed
+- **Context-tree `.gitignore` auto-sync** — The context-tree `.gitignore` now stays up to date automatically. When any `brv vc` command runs, missing patterns are appended to the existing file instead of only being written on first init. This prevents derived artifacts from polluting `brv vc` diffs after CLI updates.
+- **Stale knowledge locations** — Knowledge entries whose source files were deleted are now cleaned up, preventing dead references in search and query results.
+- **Security dependency update** — Pinned axios to 1.15.0 to address a critical vulnerability.
+
+## [3.3.0]
+
+### Added
+- **`brv search` — BM25 context tree search** — New command for pure BM25 retrieval over the context tree (no LLM, no provider, no token cost). Returns ranked paths, scores, and excerpts. Flags: `--limit` (1–50), `--scope <prefix>`, `--format json`. Use `brv search` for structured results and `brv query` for synthesized answers.
+- **`--timeout` flag for `brv curate` and `brv query`** — Override the previous hardcoded 5-minute limit so slow local models can finish. Accepts seconds (default 300, max 3600); no effect with `--detach`.
+
+### Fixed
+- **Misleading "no space configured" error on `brv push` / `brv pull`** — Legacy sync now shows a clear deprecation message pointing at `brv vc init` instead of the deprecated `brv space switch` flow. TUI also links to the [version control docs](https://docs.byterover.dev/git-semantic/overview).
+- **`brv status` auto-created `.snapshot.json` without team/space config** — VC-managed projects no longer get a stray legacy-sync snapshot file; status now reports `Managed by Byterover version control` instead.
+- **Adaptive `*.abstract.md` / `*.overview.md` files polluting `brv vc` diffs** — These derived artifacts are now in the context-tree `.gitignore` and excluded from version control.
+
+## [3.2.0]
+
+### Added
+- **`brv worktree` — git-style worktree links** — Register a subdirectory (or sibling) as a worktree of a parent project without creating a nested `.brv/`. `brv worktree add [path]` writes a `.brv` pointer file in the target that redirects to the parent — the same pattern as `git worktree` (path defaults to the current directory for auto-detect from a subdirectory). `brv worktree list` shows the current link state and registered worktrees; `brv worktree remove [path]` unregisters (also defaults to cwd). `--force` lets `add` convert an existing `.brv/` directory into a pointer by backing it up to `.brv-backup/`; `remove` restores that backup automatically if present. Also available as `/worktree` in the REPL.
+- **`brv source` — cross-project knowledge sources** — Link another project's context tree as a read-only knowledge source. `brv source add <path> [--alias <name>]` attaches a source; `brv source list` shows linked sources with validity; `brv source remove <alias-or-path>` detaches. Linked sources are write-protected, and query results pulled from them are tagged with a `shared` origin and their alias so you can tell which project an answer came from. Also available as `/source` in the REPL.
+- **Resolver-aware `brv status`** — `brv status` now surfaces the resolved project root, the linked worktree root (when different), knowledge-source validity, and actionable warnings for broken or malformed worktree pointers and sources. `--verbose` adds the resolution source (`direct` / `linked` / `flag`). A new `--project-root <path>` flag on `brv status` overrides auto-detection and fails loudly when the path is not a ByteRover project instead of silently falling back to the current directory.
+
+### Changed
+- **Workspace-aware curate and query** — `brv curate` and `brv query` now automatically detect when you're inside a linked worktree and pass the worktree root to the daemon alongside the project root. Explicit relative paths you pass yourself (e.g. `brv curate -f ./src/auth.ts`, `brv curate -d ./packages/api/src`) still resolve from your shell cwd to match normal shell behavior.
+
+## [3.1.0]
+
+### Added
+- **Adaptive knowledge scoring** — The knowledge base now prioritizes content based on usage patterns. Frequently accessed knowledge ranks higher in search results through hotness scoring and hierarchical score propagation.
+- **Knowledge abstracts** — Knowledge entries automatically generate compressed summaries (abstracts and overviews), reducing token usage while preserving key information for the agent.
+- **Session learning** — The agent extracts patterns, preferences, decisions, and skills from your sessions and stores them as durable knowledge, improving responses over time.
+- **Resource ingestion tool** — The agent can now ingest external files and resources directly into your knowledge base.
+
+### Fixed
+- **Stale CLI cache after upgrades** — Install and uninstall scripts now clean the oclif client cache, preventing issues caused by cached data from previous versions.
+- **Knowledge search accuracy** — Fixed double compound scoring in parent propagation, improved maturity filtering, and corrected result truncation for more relevant search results.
+
+## [3.0.0]
+
+### Added
+- **`brv vc` — Git version control commands** — A full suite of Git-like commands (`init`, `clone`, `status`, `commit`, `push`, `pull`, `branch`, `checkout`, `merge`, `reset`, `remote`, `log`, `fetch`) that sync context alongside code through ByteRover's remote.
+- **Human-in-the-loop review system** — Review pending curate operations before they are applied. Use `brv review pending` to list, `brv review approve` to accept, and `brv review reject` to discard.
+
+### Changed
+- **Legacy commands show `brv vc` hints** — Running `brv status`, `brv pull`, or `brv push` now displays a tip about the corresponding `brv vc` command.
+- **Name-based remote URLs** — Remote URLs now use human-readable names.
+- **Team and space persisted on remote add** — `brv vc remote add` and `brv vc remote set-url` now persist team and space identifiers to `config.json`.
+- **(Deprecated) `brv space list` and `brv space switch`** — These commands still work but show a deprecation notice directing users to the web dashboard.
+
+### Fixed
+- **Provider error messages** — CLI text-mode commands now show the actual backend error message instead of a misleading "API key is missing or invalid" fallback.
+- **Security dependency updates** — Patched `hono`, `@hono/node-server`, `@xmldom/xmldom`, `lodash`, and `lodash-es` to address known vulnerabilities.
+
+## [2.6.0]
+
+### Changed
+- Refactor and major code cleanup.
+
 ## [2.5.2]
 
 ### Fixed

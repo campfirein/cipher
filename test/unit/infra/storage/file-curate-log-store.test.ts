@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {mkdir, rm, writeFile} from 'node:fs/promises'
+import {mkdir, readdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -17,6 +17,30 @@ function makeEntry(overrides: Partial<CurateLogEntry> & {id: string}): CurateLog
     taskId: `task-${overrides.id}`,
     ...overrides,
   } as CurateLogEntry
+}
+
+/** Poll until the .json file count in dir stabilises (two consecutive reads match). */
+async function waitForPruneToSettle(dir: string): Promise<void> {
+  const count = async (): Promise<number> => {
+    try {
+      const files = await readdir(dir)
+      return files.filter((f: string) => f.endsWith('.json')).length
+    } catch {
+      return 0
+    }
+  }
+
+  let prev = await count()
+  for (let i = 0; i < 50; i++) {
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => {
+      setTimeout(r, 2)
+    })
+    // eslint-disable-next-line no-await-in-loop
+    const cur = await count()
+    if (cur === prev) return
+    prev = cur
+  }
 }
 
 describe('FileCurateLogStore', () => {
@@ -338,10 +362,7 @@ describe('FileCurateLogStore', () => {
 
       const ids = [await saveEntry(), await saveEntry(), await saveEntry(), await saveEntry(), await saveEntry()]
 
-      // Allow prune to settle
-      await new Promise((resolve) => {
-        setTimeout(resolve, 50)
-      })
+      await waitForPruneToSettle(join(tempDir, 'curate-log'))
 
       // Only the 3 newest should remain
       const newest = ids.slice(2) // ids[2], ids[3], ids[4]
@@ -357,6 +378,76 @@ describe('FileCurateLogStore', () => {
       for (const result of oldestResults) {
         expect(result).to.be.null
       }
+    })
+
+    it('should not prune at old limit (100) and should prune at new limit (1000)', async function () {
+      this.timeout(30_000)
+
+      const logDir = join(tempDir, 'curate-log')
+      await mkdir(logDir, {recursive: true})
+
+      // Helper: seed N files directly on disk (parallel writes, no store overhead)
+      const seedFiles = async (startTs: number, count: number): Promise<void> => {
+        const writes: Promise<void>[] = []
+        for (let i = 0; i < count; i++) {
+          const ts = startTs + i
+          const id = `cur-${ts}`
+          const entry = {
+            completedAt: ts + 1,
+            id,
+            input: {},
+            operations: [],
+            startedAt: ts,
+            status: 'completed',
+            summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0},
+            taskId: `task-${id}`,
+          }
+
+          writes.push(writeFile(join(logDir, `${id}.json`), JSON.stringify(entry)))
+        }
+
+        await Promise.all(writes)
+      }
+
+      const countFiles = async (): Promise<number> => {
+        const files = await readdir(logDir)
+        return files.filter((f: string) => f.endsWith('.json')).length
+      }
+
+      const baseTs = 1_700_000_000_000
+
+      // Phase 1: Seed 99 files on disk, then save entry #100 via store
+      // Old limit was 100 — must NOT prune
+      await seedFiles(baseTs, 99)
+      const store100 = new FileCurateLogStore({baseDir: tempDir})
+      const id100 = `cur-${baseTs + 99}`
+      await store100.save(makeEntry({id: id100, startedAt: baseTs + 99}))
+      await waitForPruneToSettle(logDir)
+
+      expect(await countFiles()).to.equal(100)
+      expect(await store100.getById(`cur-${baseTs}`)).to.not.be.null // oldest survives
+
+      // Phase 2: Seed up to 999 files, then save entry #1000 via store
+      // New limit is 1000 — must NOT prune at boundary
+      await seedFiles(baseTs + 100, 899)
+      const store1000 = new FileCurateLogStore({baseDir: tempDir})
+      const id1000 = `cur-${baseTs + 999}`
+      await store1000.save(makeEntry({id: id1000, startedAt: baseTs + 999}))
+      await waitForPruneToSettle(logDir)
+
+      expect(await countFiles()).to.equal(1000)
+      expect(await store1000.getById(`cur-${baseTs}`)).to.not.be.null // oldest still survives
+
+      // Phase 3: Save entry #1001 via store — exceeds new limit, oldest must be pruned
+      const store1001 = new FileCurateLogStore({baseDir: tempDir})
+      const id1001 = `cur-${baseTs + 1000}`
+      await store1001.save(makeEntry({id: id1001, startedAt: baseTs + 1000}))
+      await waitForPruneToSettle(logDir)
+
+      expect(await countFiles()).to.equal(1000)
+      expect(await store1001.getById(`cur-${baseTs}`)).to.be.null // oldest pruned
+      expect(await store1001.getById(`cur-${baseTs + 1}`)).to.not.be.null // second oldest survives
+      expect(await store1001.getById(id1001)).to.not.be.null // newest survives
     })
   })
 
@@ -397,6 +488,231 @@ describe('FileCurateLogStore', () => {
       expect(retrieved?.status).to.equal('completed')
       const completedEntry = retrieved as null | {response?: string; status: string}
       expect(completedEntry?.response).to.equal('Final answer')
+    })
+  })
+
+  // ==========================================================================
+  // updateOperationReviewStatus
+  // ==========================================================================
+
+  describe('updateOperationReviewStatus', () => {
+    it('should update the reviewStatus of a specific operation', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [
+          {needsReview: true, path: '/a.md', reviewStatus: 'pending', status: 'success', type: 'UPDATE'},
+          {needsReview: true, path: '/b.md', reviewStatus: 'pending', status: 'success', type: 'DELETE'},
+        ],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 0, deleted: 1, failed: 0, merged: 0, updated: 1},
+        taskId: 'task-review',
+      }
+      await store.save(entry)
+
+      const result = await store.updateOperationReviewStatus(id, 0, 'approved')
+      expect(result).to.be.true
+
+      const retrieved = await store.getById(id)
+      expect(retrieved?.operations[0].reviewStatus).to.equal('approved')
+      expect(retrieved?.operations[1].reviewStatus).to.equal('pending')
+    })
+
+    it('should return false for non-existent entry', async () => {
+      const result = await store.updateOperationReviewStatus('cur-9999999999999', 0, 'approved')
+      expect(result).to.be.false
+    })
+
+    it('should return false for out-of-bounds operation index', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [{needsReview: true, path: '/a.md', reviewStatus: 'pending', status: 'success', type: 'UPDATE'}],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 1},
+        taskId: 'task-review',
+      }
+      await store.save(entry)
+
+      expect(await store.updateOperationReviewStatus(id, 5, 'approved')).to.be.false
+      expect(await store.updateOperationReviewStatus(id, -1, 'approved')).to.be.false
+    })
+
+    it('should persist reviewStatus to disk', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [{needsReview: true, path: '/a.md', reviewStatus: 'pending', status: 'success', type: 'DELETE'}],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 0, deleted: 1, failed: 0, merged: 0, updated: 0},
+        taskId: 'task-review',
+      }
+      await store.save(entry)
+
+      await store.updateOperationReviewStatus(id, 0, 'rejected')
+
+      // Create a fresh store to verify persistence
+      const freshStore = new FileCurateLogStore({baseDir: tempDir})
+      const retrieved = await freshStore.getById(id)
+      expect(retrieved?.operations[0].reviewStatus).to.equal('rejected')
+    })
+  })
+
+  // ==========================================================================
+  // batchUpdateOperationReviewStatus
+  // ==========================================================================
+
+  describe('batchUpdateOperationReviewStatus', () => {
+    it('should update multiple operations in a single entry', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [
+          {needsReview: true, path: '/a.md', reviewStatus: 'pending', status: 'success', type: 'UPDATE'},
+          {needsReview: true, path: '/b.md', reviewStatus: 'pending', status: 'success', type: 'DELETE'},
+          {needsReview: true, path: '/c.md', reviewStatus: 'pending', status: 'success', type: 'ADD'},
+        ],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 1, deleted: 1, failed: 0, merged: 0, updated: 1},
+        taskId: 'task-batch',
+      }
+      await store.save(entry)
+
+      const result = await store.batchUpdateOperationReviewStatus(id, [
+        {operationIndex: 0, reviewStatus: 'approved'},
+        {operationIndex: 2, reviewStatus: 'rejected'},
+      ])
+      expect(result).to.be.true
+
+      const retrieved = await store.getById(id)
+      expect(retrieved?.operations[0].reviewStatus).to.equal('approved')
+      expect(retrieved?.operations[1].reviewStatus).to.equal('pending')
+      expect(retrieved?.operations[2].reviewStatus).to.equal('rejected')
+    })
+
+    it('should return false for non-existent entry', async () => {
+      const result = await store.batchUpdateOperationReviewStatus('cur-9999999999999', [
+        {operationIndex: 0, reviewStatus: 'approved'},
+      ])
+      expect(result).to.be.false
+    })
+
+    it('should skip out-of-range indices gracefully', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [{needsReview: true, path: '/a.md', reviewStatus: 'pending', status: 'success', type: 'UPDATE'}],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 1},
+        taskId: 'task-batch',
+      }
+      await store.save(entry)
+
+      const result = await store.batchUpdateOperationReviewStatus(id, [
+        {operationIndex: 0, reviewStatus: 'approved'},
+        {operationIndex: 5, reviewStatus: 'approved'},
+        {operationIndex: -1, reviewStatus: 'approved'},
+      ])
+      expect(result).to.be.true
+
+      const retrieved = await store.getById(id)
+      expect(retrieved?.operations[0].reviewStatus).to.equal('approved')
+    })
+
+    it('should persist batch updates to disk', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [
+          {needsReview: true, path: '/a.md', reviewStatus: 'pending', status: 'success', type: 'UPDATE'},
+          {needsReview: true, path: '/b.md', reviewStatus: 'pending', status: 'success', type: 'DELETE'},
+        ],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 0, deleted: 1, failed: 0, merged: 0, updated: 1},
+        taskId: 'task-batch',
+      }
+      await store.save(entry)
+
+      await store.batchUpdateOperationReviewStatus(id, [
+        {operationIndex: 0, reviewStatus: 'approved'},
+        {operationIndex: 1, reviewStatus: 'rejected'},
+      ])
+
+      const freshStore = new FileCurateLogStore({baseDir: tempDir})
+      const retrieved = await freshStore.getById(id)
+      expect(retrieved?.operations[0].reviewStatus).to.equal('approved')
+      expect(retrieved?.operations[1].reviewStatus).to.equal('rejected')
+    })
+  })
+
+  // ==========================================================================
+  // reviewStatus in Zod schema
+  // ==========================================================================
+
+  describe('reviewStatus schema validation', () => {
+    it('should accept entries with reviewStatus field', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [
+          {
+            confidence: 'low',
+            impact: 'high',
+            needsReview: true,
+            path: '/a.md',
+            reason: 'test',
+            reviewStatus: 'pending',
+            status: 'success',
+            type: 'UPDATE',
+          },
+        ],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 1},
+        taskId: 'task-1',
+      }
+      await store.save(entry)
+
+      const retrieved = await store.getById(id)
+      expect(retrieved?.operations[0].reviewStatus).to.equal('pending')
+    })
+
+    it('should accept entries without reviewStatus field (backward compatible)', async () => {
+      const id = await store.getNextId()
+      const entry: CurateLogEntry = {
+        completedAt: Date.now(),
+        id,
+        input: {},
+        operations: [{path: '/a.md', status: 'success', type: 'ADD'}],
+        startedAt: Date.now() - 500,
+        status: 'completed',
+        summary: {added: 1, deleted: 0, failed: 0, merged: 0, updated: 0},
+        taskId: 'task-1',
+      }
+      await store.save(entry)
+
+      const retrieved = await store.getById(id)
+      expect(retrieved?.operations[0].reviewStatus).to.be.undefined
     })
   })
 })

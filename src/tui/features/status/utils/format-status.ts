@@ -32,7 +32,15 @@ export function formatStatus(status: StatusDTO, version?: string): string {
     }
   }
 
-  lines.push(`Current Directory: ${status.currentDirectory}`)
+  lines.push(`Project: ${status.projectRoot ?? status.currentDirectory}`)
+
+  if (status.worktreeRoot && status.worktreeRoot !== status.projectRoot) {
+    lines.push(`Worktree: ${status.worktreeRoot} (linked)`)
+  }
+
+  if (status.resolverError) {
+    lines.push(chalk.yellow(`⚠ ${status.resolverError}`))
+  }
 
   if (status.teamName && status.spaceName) {
     lines.push(`Space: ${status.teamName}/${status.spaceName}`)
@@ -40,7 +48,27 @@ export function formatStatus(status: StatusDTO, version?: string): string {
     lines.push('Space: Not connected')
   }
 
+  // Knowledge sources
+  if (status.sourcesError) {
+    lines.push(chalk.yellow(`⚠ ${status.sourcesError}`))
+  } else if (status.sources && status.sources.length > 0) {
+    lines.push('Knowledge Sources:')
+    for (const source of status.sources) {
+      if (source.valid) {
+        const sizeInfo = source.contextTreeSize === undefined ? '' : ` [${source.contextTreeSize} files]`
+        lines.push(`   ${source.alias} → ${source.projectRoot} ${chalk.green('(valid)')}${sizeInfo}`)
+      } else {
+        lines.push(`   ${source.alias} → ${source.projectRoot} ${chalk.red(`[BROKEN - run brv source remove ${source.alias}]`)}`)
+      }
+    }
+  }
+
   switch (status.contextTreeStatus) {
+    case 'git_vc': {
+      lines.push('Context Tree: Byterover version control (use /vc commands)')
+      break
+    }
+
     case 'has_changes': {
       if (status.contextTreeChanges && status.contextTreeRelativeDir) {
         const {added, deleted, modified} = status.contextTreeChanges
@@ -66,6 +94,11 @@ export function formatStatus(status: StatusDTO, version?: string): string {
       break
     }
 
+    case 'no_vc': {
+      lines.push('Context Tree: Managed by Byterover version control (use /vc commands)')
+      break
+    }
+
     case 'not_initialized': {
       lines.push('Context Tree: Not initialized')
       break
@@ -75,6 +108,16 @@ export function formatStatus(status: StatusDTO, version?: string): string {
       lines.push('Context Tree: Unable to check status')
     }
   }
+
+  if (status.pendingReviewCount && status.pendingReviewCount > 0) {
+    const fileLabel = status.pendingReviewCount === 1 ? 'file' : 'files'
+    lines.push(
+      chalk.yellow(`Pending Reviews: ${status.pendingReviewCount} ${fileLabel} need review`) +
+        (status.reviewUrl ? `\n  Review: ${chalk.blue(status.reviewUrl)}` : ''),
+    )
+  }
+
+  lines.push('', 'Tip: Version control is now available for your context tree.', 'Learn more: https://docs.byterover.dev/git-semantic/overview')
 
   return lines.join('\n')
 }

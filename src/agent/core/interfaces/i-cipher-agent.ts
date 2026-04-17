@@ -95,7 +95,7 @@ export interface ICipherAgent {
    *   agentic_map directly (e.g., curate-executor, folder-pack-executor). Defaults to false.
    * @returns Session ID of the created task session
    */
-  createTaskSession(taskId: string, commandType: string, options?: {mapRootEligible?: boolean}): Promise<string>
+  createTaskSession(taskId: string, commandType: string, options?: {mapRootEligible?: boolean; userFacing?: boolean}): Promise<string>
 
   /**
    * Delete a sandbox variable from the agent's default session.
@@ -156,7 +156,7 @@ export interface ICipherAgent {
   executeOnSession(
     sessionId: string,
     input: string,
-    options?: {executionContext?: ExecutionContext; taskId?: string},
+    options?: {executionContext?: ExecutionContext; signal?: AbortSignal; taskId?: string},
   ): Promise<string>
 
   /**

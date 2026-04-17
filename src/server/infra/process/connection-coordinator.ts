@@ -223,6 +223,21 @@ export class ConnectionCoordinator {
     }
 
     if (client.hasProject) {
+      // Idempotent: same path → no-op
+      if (client.projectPath === data.projectPath) {
+        return {success: true}
+      }
+
+      // Reassociation: path changed (e.g. after worktree add/remove)
+      const oldPath = this.clientManager.updateProjectPath(clientId, data.projectPath)
+      transportLog(`Client ${clientId} reassociated: ${oldPath} → ${data.projectPath}`)
+
+      if (oldPath) {
+        this.removeFromProjectRoom(clientId, oldPath)
+      }
+
+      this.addToProjectRoom(clientId, data.projectPath)
+
       return {success: true}
     }
 

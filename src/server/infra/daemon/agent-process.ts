@@ -22,7 +22,9 @@
 import {connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 import {appendFileSync} from 'node:fs'
+import {join} from 'node:path'
 
+import type {ISearchKnowledgeService} from '../../../agent/infra/sandbox/tools-sdk.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {ProviderConfigResponse, TaskExecute} from '../../core/domain/transport/schemas.js'
 
@@ -33,18 +35,29 @@ import {FolderPackService} from '../../../agent/infra/folder-pack/folder-pack-se
 import {SessionMetadataStore} from '../../../agent/infra/session/session-metadata-store.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
+import {decodeSearchContent} from '../../../shared/transport/search-content.js'
 import {getCurrentConfig} from '../../config/environment.js'
-import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
+import {BRV_DIR, DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {serializeTaskError, TaskError, TaskErrorCode} from '../../core/domain/errors/task-error.js'
+import {loadSources} from '../../core/domain/source/source-schema.js'
 import {
   TransportAgentEventNames,
   TransportDaemonEventNames,
   TransportStateEventNames,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
+import {FileContextTreeArchiveService} from '../context-tree/file-context-tree-archive-service.js'
+import {DreamLockService} from '../dream/dream-lock-service.js'
+import {DreamLogStore} from '../dream/dream-log-store.js'
+import {DreamStateService} from '../dream/dream-state-service.js'
+import {DreamTrigger} from '../dream/dream-trigger.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
+import {DreamExecutor} from '../executor/dream-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
+import {SearchExecutor} from '../executor/search-executor.js'
+import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
+import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {createAgentLogger} from './agent-logger.js'
 import {resolveSessionId} from './session-resolver.js'
@@ -238,10 +251,15 @@ async function start(): Promise<void> {
   agentLog(`Provider: ${activeProvider}, Model: ${activeModel ?? 'default'}`)
 
   // 5. Create CipherAgent with lazy providers + transport client
+  // Load knowledge sources early so shared context tree roots can be shared with both
+  // the agent's FileSystemService (via config) and the executor's FileSystemService
+  const sourcesData = loadSources(projectPath)
+  const sharedAllowedPaths = (sourcesData?.origins ?? []).map((o) => o.contextTreeRoot)
+
   const envConfig = getCurrentConfig()
   const agentConfig = {
-    apiBaseUrl: envConfig.llmApiBaseUrl,
-    fileSystem: {workingDirectory: projectPath},
+    apiBaseUrl: envConfig.llmBaseUrl,
+    fileSystem: {allowedPaths: ['.', ...sharedAllowedPaths], workingDirectory: projectPath},
     llm: {
       maxIterations: 10,
       maxTokens: 4096,
@@ -341,7 +359,10 @@ async function start(): Promise<void> {
   })
 
   // 6. Create FileSystemService + SearchKnowledgeService for smart query routing
-  const fileSystemService = new FileSystemService({workingDirectory: projectPath})
+  const fileSystemService = new FileSystemService({
+    allowedPaths: ['.', ...sharedAllowedPaths],
+    workingDirectory: projectPath,
+  })
   await fileSystemService.initialize()
   const searchService = createSearchKnowledgeService(fileSystemService, {baseDirectory: projectPath})
 
@@ -356,11 +377,12 @@ async function start(): Promise<void> {
     fileSystem: fileSystemService,
     searchService,
   })
+  const searchExecutor = new SearchExecutor(searchService)
 
   transport.on<TaskExecute>(TransportTaskEventNames.EXECUTE, (task) => {
     agentLog(`task:execute received taskId=${task.taskId} type=${task.type} activeTaskCount=${activeTaskCount + 1}`)
     // eslint-disable-next-line no-void
-    void executeTask(task, curateExecutor, folderPackExecutor, queryExecutor)
+    void executeTask(task, curateExecutor, folderPackExecutor, queryExecutor, searchExecutor, searchService, configResult.storagePath)
   })
 
   // 8. Register with transport server (for TransportHandlers tracking)
@@ -376,17 +398,24 @@ async function executeTask(
   curateExecutor: CurateExecutor,
   folderPackExecutor: FolderPackExecutor,
   queryExecutor: QueryExecutor,
+  searchExecutor: SearchExecutor,
+  searchKnowledgeService: ISearchKnowledgeService,
+  storagePath: string,
 ): Promise<void> {
-  const {clientCwd, clientId, content, files, folderPath, taskId, type} = task
+  const {clientCwd, clientId, content, files, folderPath, force, taskId, trigger, type, worktreeRoot} = task
   if (!transport || !agent) return
 
-  const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
-    TransportStateEventNames.GET_PROVIDER_CONFIG,
-  )
-  const validationError = validateProviderForTask(freshProviderConfig)
-  if (validationError) {
-    transport.request(TransportTaskEventNames.ERROR, {clientId, error: validationError, taskId})
-    return
+  // Search tasks are pure BM25 retrieval — no LLM, no provider needed.
+  // Skip provider validation so search works even without a configured provider.
+  if (type !== 'search') {
+    const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
+      TransportStateEventNames.GET_PROVIDER_CONFIG,
+    )
+    const validationError = validateProviderForTask(freshProviderConfig)
+    if (validationError) {
+      transport.request(TransportTaskEventNames.ERROR, {clientId, error: validationError, taskId})
+      return
+    }
   }
 
   activeTaskCount++
@@ -451,9 +480,17 @@ async function executeTask(
 
     try {
       let result: string
+      let logId: string | undefined
       switch (type) {
         case 'curate': {
-          result = await curateExecutor.executeWithAgent(agent, {clientCwd, content, files, taskId})
+          result = await curateExecutor.executeWithAgent(agent, {
+            clientCwd,
+            content,
+            files,
+            projectRoot: projectPath,
+            taskId,
+            worktreeRoot,
+          })
 
           break
         }
@@ -463,14 +500,81 @@ async function executeTask(
             clientCwd,
             content,
             folderPath: folderPath!,
+            projectRoot: projectPath,
             taskId,
+            worktreeRoot,
           })
 
           break
         }
 
+        case 'dream': {
+          const brvDir = join(projectPath, BRV_DIR)
+          const dreamLockService = new DreamLockService({baseDir: brvDir})
+          const dreamStateService = new DreamStateService({baseDir: brvDir})
+
+          // Run trigger check (acquires lock if eligible).
+          // Gate 3 (queue) is pre-checked by the daemon (TransportHandlers.preDispatchCheck
+          // for CLI dispatch, onAgentIdle for idle-trigger dispatch), so the agent treats
+          // its own queue view as empty. Gates 1 (time) and 2 (activity) are re-checked here
+          // as defense-in-depth in case state drifted between dispatch and execution.
+          const dreamTrigger = new DreamTrigger({
+            dreamLockService,
+            dreamStateService,
+            getQueueLength: () => 0,
+          })
+          const eligibility = await dreamTrigger.tryStartDream(projectPath, force)
+          if (!eligibility.eligible) {
+            result = `Dream skipped: ${eligibility.reason}`
+            break
+          }
+
+          const dreamExecutor = new DreamExecutor({
+            archiveService: new FileContextTreeArchiveService(),
+            curateLogStore: new FileCurateLogStore({baseDir: storagePath}),
+            dreamLockService,
+            dreamLogStore: new DreamLogStore({baseDir: brvDir}),
+            dreamStateService,
+            reviewBackupStore: new FileReviewBackupStore(brvDir),
+            searchService: searchKnowledgeService,
+          })
+          const dreamResult = await dreamExecutor.executeWithAgent(agent, {
+            priorMtime: eligibility.priorMtime,
+            projectRoot: projectPath,
+            taskId,
+            trigger: trigger ?? 'cli',
+          })
+          result = dreamResult.result
+          logId = dreamResult.logId
+
+          break
+        }
+
         case 'query': {
-          result = await queryExecutor.executeWithAgent(agent, {query: content, taskId})
+          const queryResult = await queryExecutor.executeWithAgent(agent, {query: content, taskId, worktreeRoot})
+          result = queryResult.response
+
+          // Send query metadata to daemon for QueryLogHandler (crosses process boundary via transport).
+          // Must arrive BEFORE task:completed so setQueryResult runs before onTaskCompleted.
+          try {
+            transport.request(TransportTaskEventNames.QUERY_RESULT, {
+              matchedDocs: queryResult.matchedDocs,
+              searchMetadata: queryResult.searchMetadata,
+              taskId,
+              tier: queryResult.tier,
+              timing: queryResult.timing,
+            })
+          } catch {
+            agentLog(`task:queryResult send failed taskId=${taskId}`)
+          }
+
+          break
+        }
+
+        case 'search': {
+          const searchOptions = decodeSearchContent(content)
+          const searchResult = await searchExecutor.execute(searchOptions)
+          result = JSON.stringify(searchResult)
 
           break
         }
@@ -479,7 +583,7 @@ async function executeTask(
       // Emit task:completed
       agentLog(`task:completed taskId=${taskId}`)
       try {
-        transport.request(TransportTaskEventNames.COMPLETED, {clientId, result, taskId})
+        transport.request(TransportTaskEventNames.COMPLETED, {clientId, ...(logId ? {logId} : {}), projectPath, result, taskId})
       } catch (error) {
         agentLog(
           `task:completed send failed taskId=${taskId}: ${error instanceof Error ? error.message : String(error)}`,
@@ -490,7 +594,7 @@ async function executeTask(
       const errorData = serializeTaskError(error)
       agentLog(`task:error taskId=${taskId} error=${errorData.message}`)
       try {
-        transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, taskId})
+        transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, projectPath, taskId})
       } catch (error_) {
         agentLog(
           `task:error send failed taskId=${taskId}: ${error_ instanceof Error ? error_.message : String(error_)}`,

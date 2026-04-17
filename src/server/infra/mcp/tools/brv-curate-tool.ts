@@ -5,9 +5,10 @@ import {waitForConnectedClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
-import {TransportClientEventNames, TransportTaskEventNames} from '../../../core/domain/transport/schemas.js'
-import {detectMcpMode} from '../mcp-mode-detector.js'
+import {TransportTaskEventNames} from '../../../core/domain/transport/schemas.js'
+import {associateProjectWithRetry, type McpStartupProjectContext, resolveMcpTaskContext} from './mcp-project-context.js'
 import {resolveClientCwd} from './resolve-client-cwd.js'
+import {cwdField} from './shared-schema.js'
 
 export const BrvCurateInputSchema = z.object({
   context: z
@@ -16,14 +17,7 @@ export const BrvCurateInputSchema = z.object({
     .describe(
       'Knowledge to store: patterns, decisions, errors, or insights about the codebase. Required unless files or folder are provided.',
     ),
-  cwd: z
-    .string()
-    .optional()
-    .describe(
-      'Working directory of the project (absolute path). ' +
-        'Required when the MCP server runs in global mode (e.g., Windsurf). ' +
-        'Optional in project mode — defaults to the project directory.',
-    ),
+  cwd: cwdField,
   files: z
     .array(z.string())
     .max(5)
@@ -39,7 +33,6 @@ export const BrvCurateInputSchema = z.object({
     ),
 })
 
-
 /**
  * Registers the brv-curate tool with the MCP server.
  *
@@ -53,6 +46,7 @@ export function registerBrvCurateTool(
   server: McpServer,
   getClient: () => ITransportClient | undefined,
   getWorkingDirectory: () => string | undefined,
+  getStartupProjectContext: () => McpStartupProjectContext | undefined,
 ): void {
   server.registerTool(
     'brv-curate',
@@ -95,21 +89,12 @@ export function registerBrvCurateTool(
         }
       }
 
-      // In global mode, associate client with the walked-up project root.
-      // Walk up from clientCwd to find .brv/config.json — raw cwd may be a subdirectory.
-      // Fire-and-forget: server handler is idempotent (first association wins).
-      if (!getWorkingDirectory()) {
-        const {projectRoot} = detectMcpMode(cwdResult.clientCwd)
-        if (projectRoot) {
-          client
-            .requestWithAck(TransportClientEventNames.ASSOCIATE_PROJECT, {
-              projectPath: projectRoot,
-            })
-            .catch(() => {})
-        }
-      }
-
       try {
+        const taskContext = resolveMcpTaskContext(cwdResult.clientCwd, getStartupProjectContext())
+        if (!getWorkingDirectory()) {
+          await associateProjectWithRetry(client, taskContext.projectRoot)
+        }
+
         const taskId = randomUUID()
 
         // Create task via transport (same pattern as brv curate command)
@@ -123,8 +108,10 @@ export function registerBrvCurateTool(
         const ack = await client.requestWithAck<{logId?: string; taskId: string}>(TransportTaskEventNames.CREATE, {
           clientCwd: cwdResult.clientCwd,
           content: resolvedContent,
+          projectPath: taskContext.projectRoot,
           taskId,
           type: taskType,
+          worktreeRoot: taskContext.worktreeRoot,
           ...(hasFolder && folder ? {folderPath: folder} : {}),
           ...(!hasFolder && files?.length ? {files} : {}),
         })

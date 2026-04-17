@@ -24,3 +24,11 @@ linear-tmp
 
 # Other temporary agents' artifacts
 agent-tmp
+
+# Environment files (dotenv)
+.env.development
+.env.production
+!.env.example
+
+# ByteRover's skill for Claude Code
+.claude/skills/byterover

@@ -10,8 +10,6 @@
 
 import axios, {isAxiosError} from 'axios'
 
-import type {ProviderDefinition} from '../../core/domain/entities/provider-registry.js'
-
 import {ProxyConfig} from './proxy-config.js'
 
 /**
@@ -246,20 +244,6 @@ export class OpenRouterApiClient {
       provider: `OpenRouter (${provider})`,
     }
   }
-}
-
-/**
- * Creates an OpenRouterApiClient configured from a provider definition.
- *
- * @param provider - Provider definition from the registry
- * @returns Configured OpenRouterApiClient
- */
-export function createOpenRouterApiClient(provider: ProviderDefinition): OpenRouterApiClient {
-  return new OpenRouterApiClient({
-    baseUrl: provider.baseUrl || DEFAULT_BASE_URL,
-    httpReferer: provider.headers['HTTP-Referer'],
-    xTitle: provider.headers['X-Title'],
-  })
 }
 
 /**

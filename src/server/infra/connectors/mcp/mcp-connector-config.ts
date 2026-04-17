@@ -1,5 +1,7 @@
-import type { Agent } from '../../../core/domain/entities/agent.js'
-import type { McpServerConfig } from '../../../core/interfaces/storage/i-mcp-config-writer.js'
+import type {Agent} from '../../../core/domain/entities/agent.js'
+import type {McpServerConfig} from '../../../core/interfaces/storage/i-mcp-config-writer.js'
+
+import {getClaudeDesktopConfigPath} from './claude-desktop-config-path.js'
 
 /**
  * Supported MCP config file formats.
@@ -24,6 +26,12 @@ export type McpConfigMode = 'auto' | 'manual'
 type McpConnectorConfigBase = {
   /** Path to the MCP config file (relative to project root). Used when scope is 'project'. */
   configPath?: string
+  /**
+   * Function that returns an absolute path to the config file.
+   * Takes precedence over configPath when present.
+   * Used when the path varies by platform (e.g., Claude Desktop).
+   */
+  configPathResolver?: () => string
   /** Config file format */
   format: McpConfigFormat
   /** Guide URL or instructions for manual setup. Required when mode is 'manual'. */
@@ -128,6 +136,14 @@ export const MCP_CONNECTOR_CONFIGS = {
       args: ['mcp'],
       env: {},
     },
+    serverKeyPath: STANDARD_KEY_PATH,
+  },
+  'Claude Desktop': {
+    configPathResolver: getClaudeDesktopConfigPath,
+    format: 'json',
+    mode: 'auto',
+    scope: 'global',
+    serverConfig: DEFAULT_SERVER_CONFIG,
     serverKeyPath: STANDARD_KEY_PATH,
   },
   Cline: {

@@ -22,27 +22,41 @@
  */
 
 import {GlobalInstanceManager} from '@campfirein/brv-transport-client'
+import express from 'express'
 import {fork, type StdioOptions} from 'node:child_process'
+import {randomUUID} from 'node:crypto'
 import {mkdirSync, readdirSync, readFileSync, unlinkSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 
+import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
 import {
   AGENT_IDLE_CHECK_INTERVAL_MS,
   AGENT_IDLE_TIMEOUT_MS,
   AGENT_POOL_MAX_SIZE,
+  BRV_DIR,
   HEARTBEAT_FILE,
 } from '../../constants.js'
-import {type ProviderConfigResponse, TransportStateEventNames} from '../../core/domain/transport/schemas.js'
+import {
+  type ProviderConfigResponse,
+  type TaskQueryResultEvent,
+  TransportStateEventNames,
+  TransportTaskEventNames,
+} from '../../core/domain/transport/schemas.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
+import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
 import {ClientManager} from '../client/client-manager.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
+import {DreamStateService} from '../dream/dream-state-service.js'
+import {DreamTrigger} from '../dream/dream-trigger.js'
+import {createReviewApiRouter} from '../http/review-api-handler.js'
 import {broadcastToProjectRoom} from '../process/broadcast-utils.js'
 import {CurateLogHandler} from '../process/curate-log-handler.js'
 import {setupFeatureHandlers} from '../process/feature-handlers.js'
+import {QueryLogHandler} from '../process/query-log-handler.js'
 import {TransportHandlers} from '../process/transport-handlers.js'
 import {ProjectRegistry} from '../project/project-registry.js'
 import {createProviderOAuthTokenStore} from '../provider-oauth/provider-oauth-token-store.js'
@@ -51,7 +65,9 @@ import {clearStaleProviderConfig, resolveProviderConfig} from '../provider/provi
 import {ProjectRouter} from '../routing/project-router.js'
 import {AuthStateStore} from '../state/auth-state-store.js'
 import {ProjectStateLoader} from '../state/project-state-loader.js'
+import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
+import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {SocketIOTransportServer} from '../transport/socket-io-transport-server.js'
@@ -167,8 +183,18 @@ async function main(): Promise<void> {
   let agentPool: AgentPool | undefined
 
   try {
-    // 4. Start Socket.IO transport server
+    // 4. Start Socket.IO transport server (with Express for HTTP routes)
     transportServer = new SocketIOTransportServer()
+
+    const app = express()
+    app.use(
+      createReviewApiRouter({
+        curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
+        reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
+      }),
+    )
+    transportServer.setHttpRequestHandler(app)
+
     await transportServer.start(port)
     log(`Transport server started on port ${port}`)
 
@@ -203,13 +229,30 @@ async function main(): Promise<void> {
       projectRegistry,
     })
 
+    // Shared queue-length resolver — used by both idle timeout policy and dream trigger
+    const getQueueLength = (projectPath: string): number =>
+      agentPool?.getQueueState().find((q) => q.projectPath === projectPath)?.queueLength ?? 0
+
+    // Shared dream pre-check trigger factory.
+    // The lock service explicitly throws if invoked — gate 4 (lock) is the agent's job;
+    // the daemon must only ever evaluate gates 1-3 via checkEligibility().
+    const makeDreamPreCheckTrigger = (projectPath: string): DreamTrigger =>
+      new DreamTrigger({
+        dreamLockService: {
+          tryAcquire() {
+            throw new Error('Lock must not be acquired during daemon eligibility pre-check')
+          },
+        },
+        dreamStateService: new DreamStateService({baseDir: join(projectPath, BRV_DIR)}),
+        getQueueLength,
+      })
+
     // Agent idle timeout policy — kills agents after period of inactivity
     const agentIdleTimeoutPolicy = new AgentIdleTimeoutPolicy({
       checkIntervalMs: AGENT_IDLE_CHECK_INTERVAL_MS,
-      getQueueLength: (projectPath: string) =>
-        agentPool?.getQueueState().find((q) => q.projectPath === projectPath)?.queueLength ?? 0,
+      getQueueLength,
       log,
-      onAgentIdle(projectPath: string, queueLength: number) {
+      async onAgentIdle(projectPath: string, queueLength: number) {
         // Don't kill agents that have queued tasks waiting
         if (queueLength > 0) {
           log(`Skipping idle cleanup: ${projectPath} has ${queueLength} queued tasks`)
@@ -223,7 +266,29 @@ async function main(): Promise<void> {
           return
         }
 
-        log(`Killing idle agent: ${projectPath}`)
+        // Check dream eligibility before killing (gates 1-3 only, no lock).
+        // Lock acquisition happens in the agent process when the dream task executes.
+        try {
+          const result = await makeDreamPreCheckTrigger(projectPath).checkEligibility(projectPath)
+          if (result.eligible) {
+            log(`Dream eligible, dispatching dream task: ${projectPath}`)
+            agentPool?.submitTask({
+              clientId: 'daemon',
+              content: 'Memory consolidation (idle trigger)',
+              force: false,
+              projectPath,
+              taskId: randomUUID(),
+              trigger: 'agent-idle',
+              type: 'dream',
+            })
+            return
+          }
+
+          log(`Dream not eligible (${result.reason}), killing idle agent: ${projectPath}`)
+        } catch {
+          log(`Dream eligibility check failed, killing idle agent: ${projectPath}`)
+        }
+
         agentPool?.handleAgentDisconnected(projectPath)
       },
       timeoutMs: AGENT_IDLE_TIMEOUT_MS,
@@ -260,17 +325,62 @@ async function main(): Promise<void> {
     // Start agent idle timeout policy
     agentIdleTimeoutPolicy.start()
 
-    const curateLogHandler = new CurateLogHandler()
+    const curateLogHandler = new CurateLogHandler(undefined, (info) => {
+      const encoded = Buffer.from(info.projectPath).toString('base64url')
+      const reviewUrl = `http://127.0.0.1:${port}/review?project=${encoded}`
+      const payload = {pendingCount: info.pendingCount, reviewUrl, taskId: info.taskId}
+      // Send directly to the task originator (covers CLI clients not in the project room)
+      transportServer!.sendTo(info.clientId, ReviewEvents.NOTIFY, payload)
+      // Also broadcast to the project room so TUI and other connected clients are notified
+      broadcastToProjectRoom(
+        projectRegistry,
+        projectRouter,
+        info.projectPath,
+        ReviewEvents.NOTIFY,
+        payload,
+        info.clientId,
+      )
+    })
+
+    const queryLogHandler = new QueryLogHandler()
 
     const transportHandlers = new TransportHandlers({
       agentPool,
       clientManager,
-      lifecycleHooks: [curateLogHandler],
+      lifecycleHooks: [curateLogHandler, queryLogHandler],
+      // Daemon-side gate for dream task:create — mirrors the idle-trigger pre-check
+      // in this file so the CLI path (brv dream without --force) actually honors
+      // gate 3 (queue). The agent-side check kept gate 3 hardcoded to skip,
+      // which made the CLI ignore the spec when other tasks were queued.
+      async preDispatchCheck(task, projectPath) {
+        if (task.type !== 'dream' || task.force) return {eligible: true}
+        if (!projectPath) return {eligible: true}
+
+        try {
+          const result = await makeDreamPreCheckTrigger(projectPath).checkEligibility(projectPath)
+          return result.eligible ? {eligible: true} : {eligible: false, skipResult: `Dream skipped: ${result.reason}`}
+        } catch {
+          // Fail-open on pre-check errors: let the agent's own gate check be the fallback.
+          return {eligible: true}
+        }
+      },
       projectRegistry,
       projectRouter,
       transport: transportServer,
     })
     transportHandlers.setup()
+
+    // Wire query metadata from agent process → QueryLogHandler.
+    // Agent sends task:queryResult BEFORE task:completed (Socket.IO preserves order),
+    // so setQueryResult runs before onTaskCompleted merges the metadata.
+    transportServer.onRequest<TaskQueryResultEvent, void>(TransportTaskEventNames.QUERY_RESULT, (data) => {
+      queryLogHandler.setQueryResult(data.taskId, {
+        matchedDocs: data.matchedDocs,
+        searchMetadata: data.searchMetadata,
+        tier: data.tier,
+        timing: data.timing,
+      })
+    })
 
     // 8. Create idle timeout policy + shutdown handler
     //    (must be created before wiring closures that reference them)
