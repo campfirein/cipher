@@ -522,6 +522,20 @@ describe('IsomorphicGitService', () => {
       }
     })
 
+    it('createBranch with startPoint creates branch pointing at that ref', async () => {
+      // Capture HEAD SHA at "seed", then add a second commit on main.
+      const [seedCommit] = await service.log({depth: 1, directory: testDir})
+      await writeFile(join(testDir, 'later.md'), 'later')
+      await service.add({directory: testDir, filePaths: ['later.md']})
+      await service.commit({directory: testDir, message: 'later'})
+
+      // Branch 'from-seed' should point at seed, not at HEAD.
+      await service.createBranch({branch: 'from-seed', directory: testDir, startPoint: seedCommit.sha})
+
+      const branchLog = await service.log({depth: 1, directory: testDir, ref: 'from-seed'})
+      expect(branchLog[0].sha).to.equal(seedCommit.sha)
+    })
+
     it('createBranch and deleteBranch work with slash in name (feature/test)', async () => {
       await service.createBranch({branch: 'feature/test', directory: testDir})
       let branches = await service.listBranches({directory: testDir})

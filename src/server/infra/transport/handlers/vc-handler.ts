@@ -256,7 +256,7 @@ export class VcHandler {
     // but transport payloads are untrusted — validate at the boundary.
     if (data.action === 'create' || data.action === 'delete') {
       if (!data.name) throw new VcError('Branch name is required.', VcErrorCode.INVALID_BRANCH_NAME)
-      if (data.action === 'create') return this.handleBranchCreate(directory, data.name)
+      if (data.action === 'create') return this.handleBranchCreate(directory, data.name, data.startPoint)
       return this.handleBranchDelete(directory, data.name)
     }
 
@@ -267,7 +267,7 @@ export class VcHandler {
     throw new VcError(`Unknown branch action.`, VcErrorCode.INVALID_ACTION)
   }
 
-  private async handleBranchCreate(directory: string, name: string): Promise<IVcBranchResponse> {
+  private async handleBranchCreate(directory: string, name: string, startPoint?: string): Promise<IVcBranchResponse> {
     if (!isValidBranchName(name)) {
       throw new VcError(`Invalid branch name: '${name}'.`, VcErrorCode.INVALID_BRANCH_NAME)
     }
@@ -283,7 +283,16 @@ export class VcHandler {
       throw new VcError('You must make an initial commit before creating branches.', VcErrorCode.NO_COMMITS)
     }
 
-    await this.gitService.createBranch({branch: name, directory})
+    try {
+      await this.gitService.createBranch({branch: name, directory, startPoint})
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'NotFoundError') {
+        throw new VcError(`Start point '${startPoint}' not found.`, VcErrorCode.BRANCH_NOT_FOUND)
+      }
+
+      throw error
+    }
+
     return {action: 'create', created: name}
   }
 
@@ -380,6 +389,13 @@ export class VcHandler {
 
     this.validateBranchName(data.branch)
 
+    if (data.startPoint !== undefined && !data.create) {
+      throw new VcError(
+        'Use New Branch to create a branch from a starting point. Checkout only switches to an existing branch.',
+        VcErrorCode.INVALID_ACTION,
+      )
+    }
+
     // ── Phase 2: Resolve current branch ──
     const previousBranch = await this.gitService.getCurrentBranch({directory})
 
@@ -390,7 +406,21 @@ export class VcHandler {
         throw new VcError(`Branch '${data.branch}' already exists.`, VcErrorCode.BRANCH_ALREADY_EXISTS)
       }
 
-      await this.gitService.createBranch({branch: data.branch, checkout: true, directory})
+      try {
+        await this.gitService.createBranch({
+          branch: data.branch,
+          checkout: true,
+          directory,
+          startPoint: data.startPoint,
+        })
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'NotFoundError') {
+          throw new VcError(`Start point '${data.startPoint}' not found.`, VcErrorCode.BRANCH_NOT_FOUND)
+        }
+
+        throw error
+      }
+
       return {branch: data.branch, created: true, previousBranch}
     }
 
@@ -447,7 +477,15 @@ export class VcHandler {
       await fs.promises.rm(join(contextTreeDir, '.gitignore'), {force: true}).catch(() => {})
     }
 
-    const {spaceId, spaceName, spaceSlug, teamId, teamName, teamSlug, url: cloneUrl} = await this.resolveCloneInput(data)
+    const {
+      spaceId,
+      spaceName,
+      spaceSlug,
+      teamId,
+      teamName,
+      teamSlug,
+      url: cloneUrl,
+    } = await this.resolveCloneInput(data)
     const label = teamName && spaceName ? `${teamName}/${spaceName}` : 'repository'
 
     try {
@@ -1301,7 +1339,15 @@ export class VcHandler {
   private async resolveTeamSpaceNames(
     teamSlug: string,
     spaceSlug: string,
-  ): Promise<{spaceId: string; spaceName: string; spaceSlug: string; teamId: string; teamName: string; teamSlug: string; url: string}> {
+  ): Promise<{
+    spaceId: string
+    spaceName: string
+    spaceSlug: string
+    teamId: string
+    teamName: string
+    teamSlug: string
+    url: string
+  }> {
     const token = await this.tokenStore.load()
     if (!token?.isValid()) throw new NotAuthenticatedError()
 

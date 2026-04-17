@@ -271,7 +271,13 @@ export class IsomorphicGitService implements IGitService {
 
   async createBranch(params: CreateBranchGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
-    await git.branch({checkout: params.checkout, dir, fs, ref: params.branch})
+    await git.branch({
+      checkout: params.checkout,
+      dir,
+      fs,
+      object: params.startPoint,
+      ref: params.branch,
+    })
   }
 
   async deleteBranch(params: DeleteBranchGitParams): Promise<void> {

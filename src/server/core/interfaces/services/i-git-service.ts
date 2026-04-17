@@ -66,7 +66,12 @@ export type MergeGitParams = BaseGitParams & {
   branch: string
   message?: string
 }
-export type CreateBranchGitParams = BaseGitParams & {branch: string; checkout?: boolean}
+export type CreateBranchGitParams = BaseGitParams & {
+  branch: string
+  checkout?: boolean
+  /** Ref (branch name, tag, or SHA) to create the new branch from. Defaults to HEAD. */
+  startPoint?: string
+}
 export type DeleteBranchGitParams = BaseGitParams & {branch: string}
 export type ListBranchesGitParams = BaseGitParams & {remote?: string}
 export type CheckoutGitParams = BaseGitParams & {force?: boolean; ref: string}

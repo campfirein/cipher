@@ -13,7 +13,7 @@ import {useQueryClient} from '@tanstack/react-query'
 import {LogOut, User} from 'lucide-react'
 import {useEffect, useState} from 'react'
 
-import {initials} from '../../project/utils/initials'
+import {initials} from '../../../utils/initials'
 import {getAuthStateQueryOptions} from '../api/get-auth-state'
 import {useLogout} from '../api/logout'
 import {useAuthStore} from '../stores/auth-store'
@@ -58,7 +58,7 @@ function AuthorizedMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger>
-        <Avatar className="size-5 rounded" size="lg">
+        <Avatar className="cursor-pointer">
           <AvatarImage alt={displayName} src={user.avatarUrl} />
           <AvatarFallback>{initials(displayName)}</AvatarFallback>
         </Avatar>
@@ -86,9 +86,8 @@ export function AuthMenu() {
 
   if (isLoadingInitial) {
     return (
-      <Button disabled size="sm" variant="outline">
+      <Button disabled size="icon" variant="outline">
         <User className="size-4 shrink-0 text-muted-foreground animate-pulse" />
-        <span className="animate-pulse text-muted-foreground">Checking session…</span>
       </Button>
     )
   }

@@ -203,21 +203,29 @@ export interface IVcCloneProgressEvent {
 export type VcBranchAction = 'create' | 'delete' | 'list' | 'set-upstream'
 
 export type IVcBranchRequest =
-  | {action: 'create'; name: string}
+  | {action: 'create'; name: string; startPoint?: string}
   | {action: 'delete'; name: string}
   | {action: 'list'; all?: boolean}
   | {action: 'set-upstream'; upstream: string}
 
+export interface VcBranch {
+  isCurrent: boolean
+  isRemote: boolean
+  name: string
+}
+
 export type IVcBranchResponse =
   | {action: 'create'; created: string}
   | {action: 'delete'; deleted: string}
-  | {action: 'list'; branches: Array<{isCurrent: boolean; isRemote: boolean; name: string}>}
+  | {action: 'list'; branches: VcBranch[]}
   | {action: 'set-upstream'; branch: string; upstream: string}
 
 export interface IVcCheckoutRequest {
   branch: string
   create?: boolean
   force?: boolean
+  /** Ref to create the new branch from when `create` is true. Ignored otherwise. */
+  startPoint?: string
 }
 
 export interface IVcCheckoutResponse {

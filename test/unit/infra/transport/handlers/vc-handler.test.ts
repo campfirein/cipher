@@ -2464,6 +2464,26 @@ describe('VcHandler', () => {
       expect(result.created).to.equal('feature/test')
     })
 
+    it('create should forward startPoint to gitService.createBranch', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.listBranches.resolves([{isCurrent: true, isRemote: false, name: 'main'}])
+      deps.gitService.log.resolves([
+        {author: {email: 'a@b.c', name: 'A'}, message: 'init', sha: 'abc', timestamp: new Date()},
+      ])
+      makeVcHandler(deps).setup()
+
+      await invoke<Extract<IVcBranchResponse, {action: 'create'}>>(deps, VcEvents.BRANCH, {
+        action: 'create',
+        name: 'feat/x',
+        startPoint: 'origin/feat/x',
+      })
+
+      expect(deps.gitService.createBranch.firstCall.args[0]).to.deep.include({
+        branch: 'feat/x',
+        startPoint: 'origin/feat/x',
+      })
+    })
+
     it('create should throw BRANCH_ALREADY_EXISTS when branch exists', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.listBranches.resolves([
@@ -2730,6 +2750,41 @@ describe('VcHandler', () => {
       expect(result).to.deep.equal({branch: 'new-branch', created: true, previousBranch: 'main'})
       expect(deps.gitService.createBranch.firstCall.args[0]).to.deep.include({branch: 'new-branch', checkout: true})
       expect(deps.gitService.checkout.called).to.be.false
+    })
+
+    it('should forward startPoint to createBranch when create flag is set', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.getCurrentBranch.resolves('main')
+      deps.gitService.listBranches.resolves([{isCurrent: true, isRemote: false, name: 'main'}])
+      makeVcHandler(deps).setup()
+
+      await invoke<IVcCheckoutResponse>(deps, VcEvents.CHECKOUT, {
+        branch: 'feat/x',
+        create: true,
+        startPoint: 'origin/feat/x',
+      })
+
+      expect(deps.gitService.createBranch.firstCall.args[0]).to.deep.include({
+        branch: 'feat/x',
+        checkout: true,
+        startPoint: 'origin/feat/x',
+      })
+    })
+
+    it('should throw INVALID_ACTION when startPoint is passed without create flag', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.CHECKOUT](
+          {branch: 'feat/x', startPoint: 'origin/feat/x'},
+          CLIENT_ID,
+        )
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.INVALID_ACTION)
+      }
     })
 
     it('should throw BRANCH_ALREADY_EXISTS when create flag used on existing branch', async () => {

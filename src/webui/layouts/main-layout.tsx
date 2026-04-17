@@ -16,17 +16,14 @@ export function MainLayout() {
       <Header />
 
       {/* Tabs */}
-      <nav className="flex gap-1 border-b border-border bg-card px-6">
+      <nav className="flex gap-1 border-b border-border px-6">
         {tabs.map((tab) => (
           <NavLink
             className={({isActive}) =>
-              cn(
-                'border-b-2 px-2 pt-2 pb-3 text-sm transition-colors',
-                {
-                  'border-primary-foreground text-primary-foreground font-medium': isActive,
-                  'border-transparent text-muted-foreground hover:text-foreground': !isActive,
-                },
-              )
+              cn('border-b-2 px-2 pt-2 pb-3 text-sm transition-colors', {
+                'border-primary-foreground text-primary-foreground font-medium': isActive,
+                'border-transparent text-muted-foreground hover:text-foreground': !isActive,
+              })
             }
             key={tab.path}
             to={tab.path}
