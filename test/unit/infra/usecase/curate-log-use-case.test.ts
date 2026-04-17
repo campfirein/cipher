@@ -241,5 +241,51 @@ describe('CurateLogUseCase', () => {
       expect(parsed.success).to.be.false
       expect(parsed.data.error).to.include('cur-missing')
     })
+
+    it('should print FULL context when input.context exceeds 200 chars (no truncation)', async () => {
+      const longContext = 'A'.repeat(800)
+      store.getById.resolves(makeCompletedEntry({input: {context: longContext}}))
+      await useCase.run({id: 'cur-1000'})
+
+      const output = logs.join('\n')
+      expect(output).to.include(longContext)
+      expect(output).to.not.include('A'.repeat(200) + '...')
+    })
+
+    it('should print FULL response when response exceeds 500 chars (no truncation)', async () => {
+      const longResponse = 'B'.repeat(900)
+      store.getById.resolves(makeCompletedEntry({response: longResponse}))
+      await useCase.run({id: 'cur-1001'})
+
+      const output = logs.join('\n')
+      expect(output).to.include(longResponse)
+      expect(output).to.not.include('B'.repeat(500) + '...')
+    })
+
+    it('should indent every line of a multi-line context with two spaces', async () => {
+      const multiLineContext = 'first line\nsecond line\nthird line'
+      store.getById.resolves(makeCompletedEntry({input: {context: multiLineContext}}))
+      await useCase.run({id: 'cur-1001'})
+
+      const output = logs.join('\n')
+      expect(output).to.include('  Context: first line')
+      expect(output).to.include('  second line')
+      expect(output).to.include('  third line')
+      expect(output).to.not.match(/^second line/m)
+      expect(output).to.not.match(/^third line/m)
+    })
+
+    it('should indent every line of a multi-line response with two spaces', async () => {
+      const multiLineResponse = 'resp one\nresp two\nresp three'
+      store.getById.resolves(makeCompletedEntry({response: multiLineResponse}))
+      await useCase.run({id: 'cur-1001'})
+
+      const output = logs.join('\n')
+      expect(output).to.include('  resp one')
+      expect(output).to.include('  resp two')
+      expect(output).to.include('  resp three')
+      expect(output).to.not.match(/^resp two/m)
+      expect(output).to.not.match(/^resp three/m)
+    })
   })
 })

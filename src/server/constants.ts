@@ -100,6 +100,9 @@ export const AGENT_PROCESS_STOP_TIMEOUT_MS = 5000 // 5s max wait for child proce
 export const CURATE_LOG_DIR = 'curate-log'
 export const CURATE_LOG_ID_PREFIX = 'cur'
 
+// Query log
+export const QUERY_LOG_DIR = 'query-log'
+export const QUERY_LOG_ID_PREFIX = 'qry'
 // Dream log
 export const DREAM_LOG_DIR = 'dream-log'
 export const DREAM_LOG_ID_PREFIX = 'drm'
@@ -128,4 +131,3 @@ export const CONTEXT_TREE_GITIGNORE_PATTERNS = [
 ]
 
 export const CONTEXT_TREE_GITIGNORE_HEADER = '# Derived artifacts — do not track'
-

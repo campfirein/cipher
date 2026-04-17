@@ -39,7 +39,12 @@ import {
   BRV_DIR,
   HEARTBEAT_FILE,
 } from '../../constants.js'
-import {type ProviderConfigResponse, TransportStateEventNames} from '../../core/domain/transport/schemas.js'
+import {
+  type ProviderConfigResponse,
+  type TaskQueryResultEvent,
+  TransportStateEventNames,
+  TransportTaskEventNames,
+} from '../../core/domain/transport/schemas.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
@@ -51,6 +56,7 @@ import {createReviewApiRouter} from '../http/review-api-handler.js'
 import {broadcastToProjectRoom} from '../process/broadcast-utils.js'
 import {CurateLogHandler} from '../process/curate-log-handler.js'
 import {setupFeatureHandlers} from '../process/feature-handlers.js'
+import {QueryLogHandler} from '../process/query-log-handler.js'
 import {TransportHandlers} from '../process/transport-handlers.js'
 import {ProjectRegistry} from '../project/project-registry.js'
 import {createProviderOAuthTokenStore} from '../provider-oauth/provider-oauth-token-store.js'
@@ -232,7 +238,11 @@ async function main(): Promise<void> {
     // the daemon must only ever evaluate gates 1-3 via checkEligibility().
     const makeDreamPreCheckTrigger = (projectPath: string): DreamTrigger =>
       new DreamTrigger({
-        dreamLockService: {tryAcquire() { throw new Error('Lock must not be acquired during daemon eligibility pre-check') }},
+        dreamLockService: {
+          tryAcquire() {
+            throw new Error('Lock must not be acquired during daemon eligibility pre-check')
+          },
+        },
         dreamStateService: new DreamStateService({baseDir: join(projectPath, BRV_DIR)}),
         getQueueLength,
       })
@@ -332,10 +342,12 @@ async function main(): Promise<void> {
       )
     })
 
+    const queryLogHandler = new QueryLogHandler()
+
     const transportHandlers = new TransportHandlers({
       agentPool,
       clientManager,
-      lifecycleHooks: [curateLogHandler],
+      lifecycleHooks: [curateLogHandler, queryLogHandler],
       // Daemon-side gate for dream task:create — mirrors the idle-trigger pre-check
       // in this file so the CLI path (brv dream without --force) actually honors
       // gate 3 (queue). The agent-side check kept gate 3 hardcoded to skip,
@@ -346,9 +358,7 @@ async function main(): Promise<void> {
 
         try {
           const result = await makeDreamPreCheckTrigger(projectPath).checkEligibility(projectPath)
-          return result.eligible
-            ? {eligible: true}
-            : {eligible: false, skipResult: `Dream skipped: ${result.reason}`}
+          return result.eligible ? {eligible: true} : {eligible: false, skipResult: `Dream skipped: ${result.reason}`}
         } catch {
           // Fail-open on pre-check errors: let the agent's own gate check be the fallback.
           return {eligible: true}
@@ -359,6 +369,18 @@ async function main(): Promise<void> {
       transport: transportServer,
     })
     transportHandlers.setup()
+
+    // Wire query metadata from agent process → QueryLogHandler.
+    // Agent sends task:queryResult BEFORE task:completed (Socket.IO preserves order),
+    // so setQueryResult runs before onTaskCompleted merges the metadata.
+    transportServer.onRequest<TaskQueryResultEvent, void>(TransportTaskEventNames.QUERY_RESULT, (data) => {
+      queryLogHandler.setQueryResult(data.taskId, {
+        matchedDocs: data.matchedDocs,
+        searchMetadata: data.searchMetadata,
+        tier: data.tier,
+        timing: data.timing,
+      })
+    })
 
     // 8. Create idle timeout policy + shutdown handler
     //    (must be created before wiring closures that reference them)

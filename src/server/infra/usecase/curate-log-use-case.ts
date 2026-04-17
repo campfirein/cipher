@@ -110,8 +110,12 @@ export class CurateLogUseCase implements ICurateLogUseCase {
 
     this.log()
     this.log('Input:')
-    if (entry.input.context)
-      this.log(`  Context: ${entry.input.context.slice(0, 200)}${entry.input.context.length > 200 ? '...' : ''}`)
+    if (entry.input.context) {
+      const [firstLine, ...rest] = entry.input.context.split('\n')
+      this.log(`  Context: ${firstLine}`)
+      for (const line of rest) this.log(`  ${line}`)
+    }
+
     if (entry.input.files?.length) this.log(`  Files:   ${entry.input.files.join(', ')}`)
     if (entry.input.folders?.length) this.log(`  Folders: ${entry.input.folders.join(', ')}`)
 
@@ -134,7 +138,7 @@ export class CurateLogUseCase implements ICurateLogUseCase {
     if (entry.status === 'completed' && entry.response) {
       this.log()
       this.log('Response:')
-      this.log(`  ${entry.response.slice(0, 500)}${entry.response.length > 500 ? '...' : ''}`)
+      this.log(entry.response.split('\n').map((line) => `  ${line}`).join('\n'))
     }
   }
 
