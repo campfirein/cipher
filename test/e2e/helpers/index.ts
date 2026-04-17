@@ -1,2 +1,7 @@
+export type {JsonResult, RunOptions} from './brv-e2e-helper.js'
+export {BrvE2eHelper} from './brv-e2e-helper.js'
+export type {CLIResult, RunBrvOptions} from './cli-runner.js'
+export {runBrv} from './cli-runner.js'
 export type {E2eConfig} from './env-guard.js'
 export {getE2eConfig, requireE2eEnv} from './env-guard.js'
+export {retry, waitUntil} from './retry.js'
