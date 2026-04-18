@@ -18,6 +18,7 @@ import type {CipherAgentServices, SessionServices} from '../../core/interfaces/c
 import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
 import type {ValidatedAgentConfig} from './agent-schemas.js'
 
+import { RuntimeSignalStore } from '../../../server/infra/context-tree/runtime-signal-store.js'
 import { createBlobStorage } from '../blob/blob-storage-factory.js'
 import { EnvironmentContextBuilder } from '../environment/environment-context-builder.js'
 import { AgentEventBus, SessionEventBus } from '../events/event-emitter.js'
@@ -305,6 +306,11 @@ export async function createCipherAgentServices(
   const messageStorageService = messageStorage
   const historyStorage = new GranularHistoryStorage(messageStorage)
 
+  // Sidecar store for per-machine ranking signals (importance, recency,
+  // maturity, accessCount, updateCount). Kept out of the context-tree
+  // markdown so query-time bumps don't dirty version-controlled files.
+  const runtimeSignalStore = new RuntimeSignalStore(keyStorage, logger)
+
   // CompactionService for context overflow management
   const tokenizer = new GeminiTokenizer(config.model ?? 'gemini-3-flash-preview')
   const compactionService = new CompactionService(messageStorage, tokenizer, {
@@ -332,6 +338,7 @@ export async function createCipherAgentServices(
     messageStorageService,
     policyEngine,
     processService,
+    runtimeSignalStore,
     sandboxService,
     systemPromptManager,
     toolManager,

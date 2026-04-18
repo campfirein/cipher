@@ -41,6 +41,23 @@ export const RuntimeSignalsSchema = z.object({
 export type MaturityTier = z.infer<typeof MaturityTierSchema>
 export type RuntimeSignals = z.infer<typeof RuntimeSignalsSchema>
 
+/**
+ * Frontmatter fields that remain in context-tree markdown after runtime
+ * signals are moved to the sidecar.
+ *
+ * `createdAt` is immutable. `updatedAt` reflects real content modifications
+ * (set by curate ADD/UPDATE and by MERGE); ranking updates never touch it.
+ */
+export interface SemanticFrontmatter {
+  createdAt?: string
+  keywords: string[]
+  related: string[]
+  summary?: string
+  tags: string[]
+  title?: string
+  updatedAt?: string
+}
+
 // ---------------------------------------------------------------------------
 // Factories
 // ---------------------------------------------------------------------------
