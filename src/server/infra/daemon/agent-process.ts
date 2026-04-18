@@ -569,6 +569,7 @@ async function executeTask(
             dreamLogStore: new DreamLogStore({baseDir: brvDir}),
             dreamStateService,
             reviewBackupStore: new FileReviewBackupStore(brvDir),
+            runtimeSignalStore,
             searchService: searchKnowledgeService,
           })
           const dreamResult = await dreamExecutor.executeWithAgent(agent, {

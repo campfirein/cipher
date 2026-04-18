@@ -1,7 +1,7 @@
 import {basename, dirname, join, relative, resolve} from 'node:path'
 import {z} from 'zod'
 
-import type {ContextData} from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import type {ContextData, FrontmatterScoring} from '../../../../server/core/domain/knowledge/markdown-writer.js'
 import type {IRuntimeSignalStore} from '../../../../server/core/interfaces/storage/i-runtime-signal-store.js'
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
 import type {AbstractGenerationQueue} from '../../map/abstract-queue.js'
@@ -14,6 +14,7 @@ import {
   determineTier,
   mergeScoring,
   recordCurateUpdate,
+  UPDATE_IMPORTANCE_BONUS,
 } from '../../../../server/core/domain/knowledge/memory-scoring.js'
 import {
   createDefaultRuntimeSignals,
@@ -36,6 +37,19 @@ type WriteCallback = (contextPath: string, content: string) => void
  */
 function relPathFromContextPath(contextPath: string, basePath: string): string {
   return relative(basePath, contextPath).split('\\').join('/')
+}
+
+/**
+ * Preserve the original `createdAt` from the existing markdown frontmatter on
+ * UPDATE. `createdAt` is immutable content metadata, not a runtime signal, so
+ * it stays in the markdown source-of-truth. Falls back to a fresh timestamp
+ * when the existing file has no `createdAt` (old files or those that never
+ * had it).
+ */
+function existingScoringCreatedAt(existingContent: null | string | undefined): string {
+  if (!existingContent) return new Date().toISOString()
+  const existing = parseFrontmatterScoring(existingContent)
+  return existing?.createdAt ?? new Date().toISOString()
 }
 
 /**
@@ -927,15 +941,28 @@ async function executeUpdate(
 
     await createDomainContextIfMissing(basePath, parsed.domain, domainContext, onAfterWrite)
 
-    // Read existing file to preserve scoring metadata and detect structural loss
+    // Read existing file to detect structural loss
     const existingContent = await DirectoryManager.readFile(contextPath)
-    const existingScoring = existingContent ? parseFrontmatterScoring(existingContent) : undefined
-    const updatedScoring = existingScoring ? recordCurateUpdate(existingScoring) : applyDefaultScoring()
-    const newTier = determineTier(
-      updatedScoring.importance ?? 50,
-      (updatedScoring.maturity ?? 'draft') as 'core' | 'draft' | 'validated',
-    )
-    const finalScoring = {...updatedScoring, maturity: newTier}
+
+    // Source of truth for scoring is the sidecar, not markdown. Markdown may
+    // carry stale values post-commit-4 (ranking bumps go to the sidecar only)
+    // so reading from markdown here would silently regress the importance /
+    // maturity we re-serialise in the dual-write path. When no sidecar store
+    // is provided, fall back to defaults — consistent with ADD semantics.
+    const baseSignals = runtimeSignalStore
+      ? await runtimeSignalStore.get(relPathFromContextPath(contextPath, basePath))
+      : createDefaultRuntimeSignals()
+    const bumpedImportance = Math.min(100, baseSignals.importance + UPDATE_IMPORTANCE_BONUS)
+    const nextTier = determineTier(bumpedImportance, baseSignals.maturity)
+    const finalScoring: FrontmatterScoring = {
+      accessCount: baseSignals.accessCount,
+      createdAt: existingScoringCreatedAt(existingContent),
+      importance: bumpedImportance,
+      maturity: nextTier,
+      recency: 1,
+      updateCount: baseSignals.updateCount + 1,
+      updatedAt: new Date().toISOString(),
+    }
 
     // Filter out non-existent files from rawConcept.files
     const filteredContent = await filterValidFiles(content)

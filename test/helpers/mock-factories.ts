@@ -381,9 +381,14 @@ export function createMockRuntimeSignalStore(): IRuntimeSignalStore {
     },
     get,
     async getMany(relPaths) {
-      const entries = await Promise.all(
-        relPaths.map(async (relPath) => [relPath, await get(relPath)] as const),
-      )
+      // Mirror the real store: only return entries for paths that have a
+      // stored record. Callers distinguish missing via `.has(path)`.
+      const entries: Array<readonly [string, ReturnType<typeof createDefaultRuntimeSignals>]> = []
+      for (const relPath of relPaths) {
+        const value = store.get(relPath)
+        if (value !== undefined) entries.push([relPath, value])
+      }
+
       return new Map(entries)
     },
     async list() {

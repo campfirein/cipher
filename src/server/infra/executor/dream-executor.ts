@@ -61,6 +61,11 @@ export type DreamExecutorDeps = {
   reviewBackupStore?: {
     save(relativePath: string, content: string): Promise<void>
   }
+  /**
+   * Optional. Passed through to consolidate's CROSS_REFERENCE review gate so
+   * it reads maturity from the sidecar rather than markdown frontmatter.
+   */
+  runtimeSignalStore?: ConsolidateDeps['runtimeSignalStore']
   searchService: ConsolidateDeps['searchService']
 }
 
@@ -268,6 +273,7 @@ export class DreamExecutor {
         contextTreeDir,
         dreamStateService: this.deps.dreamStateService,
         reviewBackupStore: this.deps.reviewBackupStore,
+        runtimeSignalStore: this.deps.runtimeSignalStore,
         searchService: this.deps.searchService,
         signal,
         taskId,

@@ -16,7 +16,7 @@ import {mkdir, readFile, unlink, writeFile} from 'node:fs/promises'
 import {dirname, extname, join} from 'node:path'
 
 import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
-import type {FrontmatterScoring} from '../../core/domain/knowledge/markdown-writer.js'
+import type {RuntimeSignals} from '../../core/domain/knowledge/runtime-signals-schema.js'
 import type {ArchiveResult, DrillDownResult} from '../../core/domain/knowledge/summary-types.js'
 import type {IContextTreeArchiveService} from '../../core/interfaces/context-tree/i-context-tree-archive-service.js'
 import type {IRuntimeSignalStore} from '../../core/interfaces/storage/i-runtime-signal-store.js'
@@ -71,8 +71,11 @@ export class FileContextTreeArchiveService implements IContextTreeArchiveService
     const ghostCue = await this.generateGhostCue(agent, content)
     const ghostCueTokenCount = estimateTokens(ghostCue)
 
-    // Parse frontmatter to get importance for eviction metadata
-    const importance = this.extractImportance(content)
+    // Capture current importance from the sidecar for the archive stub's
+    // eviction metadata. Falls back to the default when no sidecar entry
+    // exists (pre-migration files, or a sidecar that hasn't been written to
+    // for this path). Fail-open on sidecar errors.
+    const importance = await this.readImportanceForArchiveMetadata(toUnixPath(relativePath))
 
     // Write .stub.md with archive stub frontmatter
     const stubContent = generateArchiveStubContent(
@@ -136,8 +139,21 @@ export class FileContextTreeArchiveService implements IContextTreeArchiveService
     const baseDir = directory ?? process.cwd()
     const contextTreeDir = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
 
+    // Preload the runtime-signal map once per scan. `list()` returns only
+    // paths with stored entries; paths without one fall back to defaults at
+    // the comparison site. On sidecar failure, scan with an empty map —
+    // archive candidacy then depends on defaults only (importance 50), which
+    // keeps all draft entries above the threshold and archives nothing. That
+    // is the safest fallback when scoring data is unavailable.
+    let signalsByPath: Map<string, RuntimeSignals>
+    try {
+      signalsByPath = this.runtimeSignalStore ? await this.runtimeSignalStore.list() : new Map()
+    } catch {
+      signalsByPath = new Map()
+    }
+
     const candidates: string[] = []
-    await this.scanForCandidates(contextTreeDir, contextTreeDir, candidates)
+    await this.scanForCandidates(contextTreeDir, contextTreeDir, candidates, signalsByPath)
 
     return candidates
   }
@@ -182,15 +198,6 @@ export class FileContextTreeArchiveService implements IContextTreeArchiveService
   }
 
   /**
-   * Extract importance score from frontmatter. Returns 50 if not found.
-   */
-  private extractImportance(content: string): number {
-    const match = /^importance:\s*(\d+(?:\.\d+)?)/m.exec(content)
-
-    return match ? Number.parseFloat(match[1]) : 50
-  }
-
-  /**
    * Generate a ghost cue using LLM with deterministic fallback.
    */
   private async generateGhostCue(agent: ICipherAgent, content: string): Promise<string> {
@@ -230,21 +237,29 @@ ${content.slice(0, 8000)}
   }
 
   /**
-   * Parse FrontmatterScoring fields from content frontmatter.
+   * Extract the `updatedAt` timestamp from markdown frontmatter. This is
+   * the one scoring-adjacent field that stays in markdown (it tracks real
+   * content modification, not a runtime signal).
    */
-  private parseScoring(content: string): FrontmatterScoring {
-    const scoring: FrontmatterScoring = {}
+  private parseUpdatedAt(content: string): string | undefined {
+    const match = /^updatedAt:\s*['"]?(.+?)['"]?\s*$/m.exec(content)
+    return match ? match[1] : undefined
+  }
 
-    const importanceMatch = /^importance:\s*(\d+(?:\.\d+)?)/m.exec(content)
-    if (importanceMatch) scoring.importance = Number.parseFloat(importanceMatch[1])
-
-    const maturityMatch = /^maturity:\s*['"]?(core|draft|validated)['"]?/m.exec(content)
-    if (maturityMatch) scoring.maturity = maturityMatch[1] as FrontmatterScoring['maturity']
-
-    const updatedMatch = /^updatedAt:\s*['"]?(.+?)['"]?\s*$/m.exec(content)
-    if (updatedMatch) scoring.updatedAt = updatedMatch[1]
-
-    return scoring
+  /**
+   * Read the importance value to embed in an archive stub's eviction metadata.
+   * Pulls from the runtime-signal sidecar (source of truth post-commit-4),
+   * falling back to the default when no entry exists or the store is
+   * unavailable.
+   */
+  private async readImportanceForArchiveMetadata(relativePath: string): Promise<number> {
+    if (!this.runtimeSignalStore) return createDefaultRuntimeSignals().importance
+    try {
+      const signals = await this.runtimeSignalStore.get(relativePath)
+      return signals.importance
+    } catch {
+      return createDefaultRuntimeSignals().importance
+    }
   }
 
   /**
@@ -254,6 +269,7 @@ ${content.slice(0, 8000)}
     currentDir: string,
     contextTreeDir: string,
     candidates: string[],
+    signalsByPath: Map<string, RuntimeSignals>,
   ): Promise<void> {
     const {readdir: readdirFs} = await import('node:fs/promises')
     let entries: import('node:fs').Dirent[]
@@ -272,24 +288,31 @@ ${content.slice(0, 8000)}
 
       if (entry.isDirectory()) {
         if (entryName === ARCHIVE_DIR) continue
-        await this.scanForCandidates(fullPath, contextTreeDir, candidates)
+        await this.scanForCandidates(fullPath, contextTreeDir, candidates, signalsByPath)
       } else if (entry.isFile() && entryName.endsWith(CONTEXT_FILE_EXTENSION)) {
         const relativePath = toUnixPath(fullPath.slice(contextTreeDir.length + 1))
         if (isDerivedArtifact(relativePath) || isArchiveStub(relativePath)) continue
 
         try {
-          const content = await readFile(fullPath, 'utf8')
-          const scoring = this.parseScoring(content)
+          // Runtime signals come from the sidecar; `updatedAt` stays in
+          // markdown because it reflects content modification time, not a
+          // ranking signal. Paths without a sidecar entry use defaults —
+          // maturity 'draft' passes the gate, importance 50 stays above
+          // ARCHIVE_IMPORTANCE_THRESHOLD (which is < 50), so files without
+          // recorded signals are correctly excluded from archival.
+          const signals = signalsByPath.get(relativePath) ?? createDefaultRuntimeSignals()
 
           // Only archive draft entries below importance threshold
-          if (scoring.maturity !== 'draft') continue
+          if (signals.maturity !== 'draft') continue
 
-          const daysSinceUpdate = scoring.updatedAt
-            ? (now - new Date(scoring.updatedAt).getTime()) / (1000 * 60 * 60 * 24)
+          const content = await readFile(fullPath, 'utf8')
+          const updatedAt = this.parseUpdatedAt(content)
+          const daysSinceUpdate = updatedAt
+            ? (now - new Date(updatedAt).getTime()) / (1000 * 60 * 60 * 24)
             : 0
-          const decayed = applyDecay(scoring, daysSinceUpdate)
+          const decayed = applyDecay(signals, daysSinceUpdate)
 
-          if ((decayed.importance ?? 50) < ARCHIVE_IMPORTANCE_THRESHOLD) {
+          if (decayed.importance < ARCHIVE_IMPORTANCE_THRESHOLD) {
             candidates.push(relativePath)
           }
         } catch {

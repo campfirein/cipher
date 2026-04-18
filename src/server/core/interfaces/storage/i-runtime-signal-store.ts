@@ -75,10 +75,14 @@ export interface IRuntimeSignalStore {
    * Bulk-read signals for a known set of paths.
    *
    * Preferred over {@link list} for ranking passes that operate on the
-   * top-N search results: O(N) where N is the number of requested paths,
-   * instead of O(all stored entries). The returned map always has an entry
-   * for every requested path — missing and corrupt records fall back to
-   * defaults, matching {@link get}.
+   * top-N search results: O(k) where k is the number of requested paths,
+   * instead of O(all stored entries).
+   *
+   * The returned map contains entries **only for paths that have a stored
+   * record**. Missing or corrupt records are omitted so callers can
+   * distinguish "no entry yet" from "entry with default values" via
+   * `.has(path)`. Use `map.get(path) ?? createDefaultRuntimeSignals()` when
+   * the caller wants defaults on miss.
    */
   getMany(relPaths: readonly string[]): Promise<Map<string, RuntimeSignals>>
 
