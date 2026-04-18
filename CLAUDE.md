@@ -112,6 +112,7 @@ npm run typecheck                    # TypeScript type checking
 
 - **HTTP (nock)**: Must verify `.matchHeader('authorization', ...)` + `.matchHeader('x-byterover-session-id', ...)`
 - **ES Modules**: Cannot stub ES exports with sinon; test utils with real filesystem (`tmpdir()`)
+- **Sinon import**: Use `import * as sinon from 'sinon'` (namespace import) to avoid default-export lint warnings
 
 ## Conventions
 
