@@ -3,6 +3,7 @@ import {realpath} from 'node:fs/promises'
 import {join} from 'node:path'
 import {removeStopwords} from 'stopword'
 
+import type {IRuntimeSignalStore} from '../../../../server/core/interfaces/storage/i-runtime-signal-store.js'
 import type {IFileSystem} from '../../../core/interfaces/i-file-system.js'
 import type {ISearchKnowledgeService, SearchKnowledgeResult} from '../../sandbox/tools-sdk.js'
 
@@ -26,6 +27,7 @@ import {
   determineTier,
   recordAccessHits,
 } from '../../../../server/core/domain/knowledge/memory-scoring.js'
+import {type RuntimeSignals} from '../../../../server/core/domain/knowledge/runtime-signals-schema.js'
 import {loadSources, type SearchOrigin} from '../../../../server/core/domain/source/source-schema.js'
 import {isArchiveStub, isDerivedArtifact} from '../../../../server/infra/context-tree/derived-artifact.js'
 import {
@@ -230,6 +232,12 @@ export interface SearchKnowledgeServiceConfig {
   baseDirectory?: string
   /** Cache TTL in milliseconds (defaults to 5000) */
   cacheTtlMs?: number
+  /**
+   * Sidecar store for runtime ranking signals. When provided, `flushAccessHits`
+   * mirrors its importance/accessCount/maturity bumps to the store alongside
+   * the existing markdown writes. Phase 3 of the runtime-signals migration.
+   */
+  runtimeSignalStore?: IRuntimeSignalStore
 }
 
 /**
@@ -878,6 +886,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
   private readonly cacheTtlMs: number
   private readonly fileSystem: IFileSystem
   private readonly pendingAccessHits: Map<string, number> = new Map()
+  private readonly runtimeSignalStore?: IRuntimeSignalStore
   private readonly state: IndexState = {
     buildingPromise: undefined,
     cachedIndex: undefined,
@@ -887,6 +896,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     this.fileSystem = fileSystem
     this.baseDirectory = config.baseDirectory ?? process.cwd()
     this.cacheTtlMs = config.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS
+    this.runtimeSignalStore = config.runtimeSignalStore
   }
 
   /**
@@ -920,6 +930,10 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       }
     })
     await Promise.allSettled(tasks)
+
+    // Dual-write to the runtime-signal sidecar. Markdown remains canonical in
+    // phase 3; sidecar failures must not affect the flush outcome.
+    await this.mirrorHitsToSignalStore(hits)
     return true
   }
 
@@ -1127,6 +1141,49 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       relatedPaths: backlinks?.slice(0, 3),
       symbolKind: isContextSummary ? 'summary' : symbolKind,
       symbolPath: isContextSummary ? summaryPath : symbol?.path,
+    }
+  }
+
+  /**
+   * Mirror a batch of access-hit bumps into the runtime-signal sidecar.
+   *
+   * Matches the markdown flush semantics above:
+   *   - `recordAccessHits` bumps `importance` by `ACCESS_IMPORTANCE_BONUS * count`
+   *     and `accessCount` by `count`.
+   *   - `determineTier` recomputes `maturity` from the new importance.
+   * Both steps run inside `update`'s atomic read-modify-write callback so
+   * same-path contention within the process does not lose bumps.
+   * `updatedAt` is never mirrored — it is a content timestamp, not a signal.
+   */
+  private async mirrorHitsToSignalStore(hits: Map<string, number>): Promise<void> {
+    const store = this.runtimeSignalStore
+    if (!store) return
+
+    const updates = new Map(
+      [...hits.entries()].map(([relPath, count]) => [
+        relPath,
+        (current: RuntimeSignals): RuntimeSignals => {
+          // `recordAccessHits` always returns concrete importance/accessCount
+          // when given a fully-valued RuntimeSignals; the `!` assertions
+          // reflect that invariant rather than defensive fallbacks.
+          const bumped = recordAccessHits(current, count)
+          const bumpedImportance = bumped.importance!
+          return {
+            ...current,
+            accessCount: bumped.accessCount!,
+            importance: bumpedImportance,
+            maturity: determineTier(bumpedImportance, current.maturity),
+          }
+        },
+      ]),
+    )
+
+    try {
+      await store.batchUpdate(updates)
+    } catch {
+      // Best-effort — sidecar failure must not break the flush. Markdown is
+      // still canonical during phase 3; the sidecar will re-sync on the next
+      // bump for these paths.
     }
   }
 
