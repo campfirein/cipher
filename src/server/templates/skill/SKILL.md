@@ -77,28 +77,6 @@ brv curate "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via
 brv curate "Authentication middleware details" -f src/middleware/auth.ts
 ```
 
-**View curate history:** to check past curations
-- Show recent entries (last 10)
-```bash
-brv curate view
-```
-- Full detail for a specific entry: all files and operations performed (logId is printed by `brv curate` on completion, e.g. `cur-1739700001000`)
-```bash
-brv curate view cur-1739700001000
-```
-- List entries with file operations visible (no logId needed)
-```bash
-brv curate view detail
-```
-- Filter by time and status
-```bash
-brv curate view --since 1h --status completed
-```
-- For all filter options
-```bash
-brv curate view --help
-```
-
 ### 4. Review Pending Changes
 **Overview:** After a curate operation, some changes may require human review before being applied. Use `brv review` to list, approve, or reject pending operations.
 
@@ -471,6 +449,64 @@ Write Targets:
   local-markdown:project-docs (note, general)
 
 Swarm is operational (5/5 providers configured).
+```
+
+### 11. Query and Curate History
+**Overview:** Inspect past query and curate operations. Use `brv query-log view` to review query history and `brv curate view` to review curate history. Supports filtering by time, status, and detailed per-operation output.
+
+**Use this skill when:**
+- You want to review what was queried or curated previously
+- You need to inspect a specific operation by logId
+- You want to filter history by time window or completion status
+- You want to collect data for analysis or debugging
+- You want to know what knowledge was added, updated, or deleted over time
+
+**Do NOT use this skill when:**
+- You want to run a new query — use `brv query` instead
+- You want to curate new knowledge — use `brv curate` instead
+
+**View curate history:** to check past curations
+- Show recent entries (last 1000)
+```bash
+brv curate view
+```
+- Full detail for a specific entry: all files and operations performed (logId is printed by `brv curate` on completion, e.g. `cur-1739700001000`)
+```bash
+brv curate view cur-1739700001000
+```
+- List entries with file operations visible (no logId needed)
+```bash
+brv curate view detail
+```
+- Filter by time and status
+```bash
+brv curate view --since 1h --status completed --limit 1000
+```
+- For all filter options
+```bash
+brv curate view --help
+```
+
+**View query history:** to check past curations
+- Show recent entries (last 10)
+```bash
+brv query-log view
+```
+- Full detail for a specific entry: all files and operations performed (logId is printed by `brv query-log` on completion, e.g. `qry-1739700001000`)
+```bash
+brv query-log view qry-1739700001000
+```
+- List entries with file operations visible (no logId needed)
+```bash
+brv query-log view detail
+```
+- Filter by time and status
+```bash
+brv query-log view --since 1h --status completed --limit 1000
+```
+- For all filter options
+```bash
+brv query-log view --help
 ```
 
 ## Data Handling
