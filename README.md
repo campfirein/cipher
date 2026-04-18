@@ -71,7 +71,7 @@ No Node.js required - everything is bundled.
 curl -fsSL https://byterover.dev/install.sh | sh
 ```
 
-Supported platforms: macOS ARM64, Linux x64, Linux ARM64.
+Supported platforms: macOS ARM64, macOS x64 (Intel), Linux x64, Linux ARM64.
 
 ### npm (All Platforms)
 
