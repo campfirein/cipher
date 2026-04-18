@@ -258,6 +258,8 @@ export const TransportTaskEventNames = {
   ERROR: 'task:error',
   // Internal (Transport → Agent)
   EXECUTE: 'task:execute',
+  // Snapshot query (Client → Transport)
+  LIST: 'task:list',
   STARTED: 'task:started',
 } as const
 
@@ -679,6 +681,38 @@ export const TaskCancelResponseSchema = z.object({
   success: z.boolean(),
 })
 
+/**
+ * task:list - Snapshot of active and recently-completed tasks for a project.
+ * Used by the web UI Tasks tab to populate state without replaying history.
+ */
+export const TaskListRequestSchema = z.object({
+  /** Optional project filter — defaults to caller's registered project */
+  projectPath: z.string().optional(),
+})
+
+export const TaskListItemStatusSchema = z.enum(['cancelled', 'completed', 'created', 'error', 'started'])
+
+export const TaskListItemSchema = z.object({
+  completedAt: z.number().optional(),
+  content: z.string(),
+  createdAt: z.number(),
+  error: TaskErrorDataSchema.optional(),
+  /** Optional file paths from `curate --files` */
+  files: z.array(z.string()).optional(),
+  /** Folder path for `curate-folder` tasks */
+  folderPath: z.string().optional(),
+  projectPath: z.string().optional(),
+  result: z.string().optional(),
+  startedAt: z.number().optional(),
+  status: TaskListItemStatusSchema,
+  taskId: z.string(),
+  type: z.string(),
+})
+
+export const TaskListResponseSchema = z.object({
+  tasks: z.array(TaskListItemSchema),
+})
+
 // ============================================================================
 // Session Schemas (client → server commands)
 // ============================================================================
@@ -861,6 +895,10 @@ export type TaskCreateRequest = z.infer<typeof TaskCreateRequestSchema>
 export type TaskCreateResponse = z.infer<typeof TaskCreateResponseSchema>
 export type TaskCancelRequest = z.infer<typeof TaskCancelRequestSchema>
 export type TaskCancelResponse = z.infer<typeof TaskCancelResponseSchema>
+export type TaskListItem = z.infer<typeof TaskListItemSchema>
+export type TaskListItemStatus = z.infer<typeof TaskListItemStatusSchema>
+export type TaskListRequest = z.infer<typeof TaskListRequestSchema>
+export type TaskListResponse = z.infer<typeof TaskListResponseSchema>
 
 export type SessionInfo = z.infer<typeof SessionInfoSchema>
 export type SessionStats = z.infer<typeof SessionStatsSchema>

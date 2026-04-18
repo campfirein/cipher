@@ -1,5 +1,6 @@
 import type {ReactNode} from 'react'
 
+import {TooltipProvider} from '@campfirein/byterover-packages/components/tooltip'
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query'
 
 import {queryConfig} from '../lib/react-query'
@@ -13,7 +14,7 @@ export function AppProviders({children}: {children: ReactNode}) {
   return (
     <QueryClientProvider client={queryClient}>
       <TransportProvider>
-        {children}
+        <TooltipProvider delay={0}>{children}</TooltipProvider>
       </TransportProvider>
     </QueryClientProvider>
   )

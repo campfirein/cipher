@@ -1,7 +1,6 @@
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=Inter&display=swap");
-@import "tailwindcss";
-@import "tw-animate-css";
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import 'tailwindcss';
+@import 'tw-animate-css';
 
 @custom-variant dark (&:is(.dark *));
 @source "../**/*.{ts,tsx}";
@@ -11,19 +10,15 @@
 :root {
   color-scheme: light;
   font-family:
-    "Inter",
-    "Manrope",
+    'Geist',
     -apple-system,
     BlinkMacSystemFont,
-    "Segoe UI",
-    "Roboto",
-    "Oxygen",
-    "Ubuntu",
-    "Cantarell",
-    "Fira Sans",
-    "Droid Sans",
-    "Helvetica Neue",
+    'Segoe UI',
+    'Helvetica Neue',
     sans-serif;
+  font-feature-settings: 'cv09', 'ss01';
+  --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -48,6 +43,9 @@
   --chart-4: oklch(0.508 0.118 165.612);
   --chart-5: oklch(0.432 0.095 166.913);
   --radius: 0.625rem;
+  --identifier: oklch(0.541 0.281 293.009);
+  --rail-running: oklch(0.707 0.165 254.624);
+  --dot-grid-color: rgba(0, 0, 0, 0.08);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.596 0.145 163.225);
@@ -78,6 +76,9 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+  --identifier: oklch(0.811 0.111 293.571);
+  --rail-running: oklch(0.707 0.165 254.624);
+  --dot-grid-color: rgba(255, 255, 255, 0.08);
   --chart-1: oklch(0.845 0.143 164.978);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.596 0.145 163.225);
@@ -132,6 +133,33 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-identifier: var(--identifier);
+  --color-rail-running: var(--rail-running);
+  --animate-rail-flow: rail-flow 1.6s linear infinite;
+  --animate-dot-pulse: dot-pulse 1.5s ease-out infinite;
+  --animate-dot-flash: dot-flash 280ms ease-out;
+  --animate-pill-ping: pill-ping 1.5s ease-out infinite;
+}
+
+@keyframes rail-flow {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 -200%; }
+}
+
+@keyframes dot-pulse {
+  0% { transform: scale(1); opacity: 0.55; }
+  80%, 100% { transform: scale(2.2); opacity: 0; }
+}
+
+@keyframes dot-flash {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.5); }
+  100% { transform: scale(1); }
+}
+
+@keyframes pill-ping {
+  0%   { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.55); }
+  100% { box-shadow: 0 0 0 5px rgba(96, 165, 250, 0); }
 }
 
 @layer base {
@@ -142,3 +170,20 @@
     @apply bg-background text-foreground;
   }
 }
+
+@utility mono {
+  font-family: var(--font-mono);
+  font-feature-settings: 'ss02', 'ss03';
+}
+
+@utility rail-running {
+  background: linear-gradient(180deg, var(--rail-running) 0%, var(--rail-running) 30%, transparent 100%);
+  background-size: 100% 200%;
+  animation: rail-flow 1.6s linear infinite;
+}
+
+@utility dot-grid {
+  background-image: radial-gradient(circle, var(--dot-grid-color) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
