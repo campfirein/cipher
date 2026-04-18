@@ -213,16 +213,21 @@ describe('RuntimeSignalStore', () => {
   })
 
   describe('getMany', () => {
-    it('returns a map with an entry for every requested path', async () => {
+    it('returns entries only for paths that have a stored record', async () => {
+      // Callers distinguish "no entry yet" from "entry with default values"
+      // via `.has(path)` — missing paths must be absent from the map so the
+      // distinction is expressible.
       await store.set('a.md', {...createDefaultRuntimeSignals(), importance: 91})
       await store.set('b.md', {...createDefaultRuntimeSignals(), importance: 92})
 
       const result = await store.getMany(['a.md', 'b.md', 'missing.md'])
 
-      expect(result.size).to.equal(3)
+      expect(result.size).to.equal(2)
+      expect(result.has('a.md')).to.equal(true)
       expect(result.get('a.md')?.importance).to.equal(91)
+      expect(result.has('b.md')).to.equal(true)
       expect(result.get('b.md')?.importance).to.equal(92)
-      expect(result.get('missing.md')).to.deep.equal(createDefaultRuntimeSignals())
+      expect(result.has('missing.md')).to.equal(false)
     })
 
     it('returns an empty map for an empty input', async () => {
@@ -236,6 +241,16 @@ describe('RuntimeSignalStore', () => {
       const result = await store.getMany(['wanted.md'])
       expect(result.size).to.equal(1)
       expect(result.has('ignored.md')).to.equal(false)
+    })
+
+    it('omits corrupt entries with a logged warning', async () => {
+      await keyStorage.set(['signals', 'good.md'], createDefaultRuntimeSignals())
+      await keyStorage.set(['signals', 'bad.md'], {importance: 'nope'})
+
+      const result = await store.getMany(['good.md', 'bad.md'])
+      expect(result.has('good.md')).to.equal(true)
+      expect(result.has('bad.md')).to.equal(false)
+      expect((logger.warn as sinon.SinonStub).calledOnce).to.equal(true)
     })
   })
 

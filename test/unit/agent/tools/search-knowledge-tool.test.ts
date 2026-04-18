@@ -1160,7 +1160,25 @@ describe('Search Knowledge Tool', () => {
         })
       })
 
-      const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 0})
+      // Post-migration: ranking reads scoring from the sidecar, not markdown.
+      // Seed the sidecar to match the intent of the markdown fixtures — both
+      // the summary _index.md entries (for propagation boost) and the leaves
+      // (so main-ranking scoreFloor is computed from the same signal state).
+      const {createMockRuntimeSignalStore} = await import('../../../helpers/mock-factories.js')
+      const runtimeSignalStore = createMockRuntimeSignalStore()
+      await runtimeSignalStore.set('auth/_index.md', {
+        accessCount: 0, importance: 90, maturity: 'core', recency: 0.9, updateCount: 0,
+      })
+      await runtimeSignalStore.set('api/_index.md', {
+        accessCount: 0, importance: 20, maturity: 'draft', recency: 0.2, updateCount: 0,
+      })
+      // Leaves have identical signals to isolate the summary-scoring
+      // differential — mirrors the old test's equal-BM25 intent.
+      const leafSignals = {accessCount: 0, importance: 50, maturity: 'draft' as const, recency: 1, updateCount: 0}
+      await runtimeSignalStore.set('auth/jwt.md', leafSignals)
+      await runtimeSignalStore.set('api/design.md', leafSignals)
+
+      const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 0, runtimeSignalStore})
       const result = (await tool.execute({query: 'security token'})) as {
         message: string
         results: Array<{excerpt: string; path: string; score: number; symbolKind?: string; title: string}>
@@ -1260,7 +1278,20 @@ describe('Search Knowledge Tool', () => {
         })
       })
 
-      const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 0})
+      // Post-migration: ranking reads scoring from the sidecar, so both the
+      // summary and the leaf need entries that mirror the markdown fixtures.
+      // Without a leaf entry, jwt would fall back to default scoring and
+      // scoreFloor would drop low enough for the weak summary to survive.
+      const {createMockRuntimeSignalStore} = await import('../../../helpers/mock-factories.js')
+      const runtimeSignalStore = createMockRuntimeSignalStore()
+      await runtimeSignalStore.set('auth/_index.md', {
+        accessCount: 0, importance: 5, maturity: 'draft', recency: 0.1, updateCount: 0,
+      })
+      await runtimeSignalStore.set('auth/jwt.md', {
+        accessCount: 0, importance: 95, maturity: 'core', recency: 1, updateCount: 0,
+      })
+
+      const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 0, runtimeSignalStore})
       const result = (await tool.execute({query: 'security token'})) as {
         results: Array<{path: string; symbolKind?: string}>
       }

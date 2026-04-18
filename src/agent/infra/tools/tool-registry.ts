@@ -291,7 +291,9 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
   [ToolName.SEARCH_KNOWLEDGE]: {
     descriptionFile: 'search_knowledge',
     factory: (services) =>
-      createSearchKnowledgeTool(getRequiredService(services.fileSystemService, 'fileSystemService')),
+      createSearchKnowledgeTool(getRequiredService(services.fileSystemService, 'fileSystemService'), {
+        runtimeSignalStore: services.runtimeSignalStore,
+      }),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Discovery],
     requiredServices: ['fileSystemService'],
   },

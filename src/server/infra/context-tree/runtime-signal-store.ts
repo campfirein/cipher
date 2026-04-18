@@ -54,10 +54,25 @@ export class RuntimeSignalStore implements IRuntimeSignalStore {
   }
 
   async getMany(relPaths: readonly string[]): Promise<Map<string, RuntimeSignals>> {
+    // Only include paths that have a stored record. Callers distinguish
+    // missing via `.has(path)`; ergonomic default-on-miss via
+    // `map.get(path) ?? createDefaultRuntimeSignals()`.
     const entries = await Promise.all(
-      relPaths.map(async (relPath) => [relPath, await this.get(relPath)] as const),
+      relPaths.map(async (relPath) => {
+        const raw = await this.keyStorage.get<unknown>(this.signalKey(relPath))
+        if (raw === undefined) return null
+        const parsed = RuntimeSignalsSchema.safeParse(raw)
+        if (parsed.success) {
+          return [relPath, parsed.data] as const
+        }
+
+        this.logger.warn(
+          `RuntimeSignalStore: discarding corrupt entry for ${relPath}: ${parsed.error.message}`,
+        )
+        return null
+      }),
     )
-    return new Map(entries)
+    return new Map(entries.filter((entry): entry is readonly [string, RuntimeSignals] => entry !== null))
   }
 
   async list(): Promise<Map<string, RuntimeSignals>> {

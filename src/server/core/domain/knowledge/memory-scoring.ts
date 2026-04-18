@@ -11,6 +11,7 @@
  */
 
 import type {FrontmatterScoring} from './markdown-writer.js'
+import type {RuntimeSignals} from './runtime-signals-schema.js'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -67,40 +68,37 @@ export const TIER_BOOST: Record<string, number> = {
  * then applies a tier-based boost.
  *
  * @param bm25Normalized - Normalized BM25 score in [0, 1)
- * @param importance - Importance score in [0, 100]
- * @param recency - Recency score in [0, 1]
- * @param maturity - Maturity tier ('draft' | 'validated' | 'core')
+ * @param signals - RuntimeSignals snapshot (importance, recency, maturity)
  * @returns Compound score (typically in [0, ~1.15])
  */
-export function compoundScore(bm25Normalized: number, importance: number, recency: number, maturity: string): number {
-  const normalizedImportance = Math.min(importance, 100) / 100
-  const base = W_RELEVANCE * bm25Normalized + W_IMPORTANCE * normalizedImportance + W_RECENCY * recency
-  const boost = TIER_BOOST[maturity] ?? TIER_BOOST.draft
+export function compoundScore(bm25Normalized: number, signals: RuntimeSignals): number {
+  const normalizedImportance = Math.min(signals.importance, 100) / 100
+  const base = W_RELEVANCE * bm25Normalized + W_IMPORTANCE * normalizedImportance + W_RECENCY * signals.recency
+  const boost = TIER_BOOST[signals.maturity] ?? TIER_BOOST.draft
 
   return base * boost
 }
 
 /**
- * Apply time-based exponential decay to scoring fields.
+ * Apply time-based exponential decay to a signals snapshot.
  *
  * Recency decays as exp(-days / DECAY_RECENCY_FACTOR).
  * Importance decays as importance * DECAY_IMPORTANCE_FACTOR^days.
  *
- * @param scoring - Current scoring state
+ * @param signals - Current RuntimeSignals snapshot
  * @param daysSinceLastUpdate - Days since the file was last updated
- * @returns New scoring with decayed values (original not mutated)
+ * @returns New signals with decayed values (original not mutated)
  */
-export function applyDecay(scoring: FrontmatterScoring, daysSinceLastUpdate: number): FrontmatterScoring {
+export function applyDecay(signals: RuntimeSignals, daysSinceLastUpdate: number): RuntimeSignals {
   if (daysSinceLastUpdate <= 0) {
-    return scoring
+    return signals
   }
 
-  const currentImportance = scoring.importance ?? 50
   const newRecency = Math.exp(-daysSinceLastUpdate / DECAY_RECENCY_FACTOR)
-  const newImportance = currentImportance * DECAY_IMPORTANCE_FACTOR ** daysSinceLastUpdate
+  const newImportance = signals.importance * DECAY_IMPORTANCE_FACTOR ** daysSinceLastUpdate
 
   return {
-    ...scoring,
+    ...signals,
     importance: Math.max(0, newImportance),
     recency: newRecency,
   }
