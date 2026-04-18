@@ -1,3 +1,4 @@
+import type { IRuntimeSignalStore } from '../../../server/core/interfaces/storage/i-runtime-signal-store.js'
 import type { EnvironmentContext } from '../../core/domain/environment/types.js'
 import type { KnownTool } from '../../core/domain/tools/constants.js'
 import type { Tool } from '../../core/domain/tools/types.js'
@@ -70,6 +71,13 @@ export interface ToolServices {
 
   /** Process service for command execution */
   processService?: IProcessService
+
+  /**
+   * Sidecar store for per-machine ranking signals. When provided, curate and
+   * search tools mirror their scoring writes here alongside the markdown
+   * writes. Phase 3 of the runtime-signals migration.
+   */
+  runtimeSignalStore?: IRuntimeSignalStore
 
   /** Sandbox service for code execution */
   sandboxService?: ISandboxService
@@ -166,7 +174,7 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.CODE_EXEC]: {
     descriptionFile: 'code_exec',
-    factory({ abstractQueue, environmentContext, fileSystemService, sandboxService, swarmCoordinator }) {
+    factory({ abstractQueue, environmentContext, fileSystemService, runtimeSignalStore, sandboxService, swarmCoordinator }) {
       const sandbox = getRequiredService(sandboxService, 'sandboxService')
 
       // Inject file system service into sandbox for Tools SDK
@@ -176,13 +184,19 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
       // Inject search knowledge service into sandbox for Tools SDK
       if (fileSystemService && sandbox.setSearchKnowledgeService) {
-        const searchKnowledgeService = createSearchKnowledgeService(fileSystemService)
+        const searchKnowledgeService = createSearchKnowledgeService(fileSystemService, {
+          runtimeSignalStore,
+        })
         sandbox.setSearchKnowledgeService(searchKnowledgeService)
       }
 
       // Inject curate service into sandbox for Tools SDK
       if (sandbox.setCurateService) {
-        const curateService = createCurateService(environmentContext?.workingDirectory, abstractQueue)
+        const curateService = createCurateService(
+          environmentContext?.workingDirectory,
+          abstractQueue,
+          runtimeSignalStore,
+        )
         sandbox.setCurateService(curateService)
       }
 
@@ -204,8 +218,8 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.CURATE]: {
     descriptionFile: 'curate',
-    factory: ({ abstractQueue, environmentContext }) =>
-      createCurateTool(environmentContext?.workingDirectory, abstractQueue),
+    factory: ({ abstractQueue, environmentContext, runtimeSignalStore }) =>
+      createCurateTool(environmentContext?.workingDirectory, abstractQueue, runtimeSignalStore),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Modification],
     outputGuidance: 'curate',
     requiredServices: [],
@@ -213,8 +227,11 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.EXPAND_KNOWLEDGE]: {
     descriptionFile: 'expand_knowledge',
-    factory: ({ environmentContext }) =>
-      createExpandKnowledgeTool({ baseDirectory: environmentContext?.workingDirectory }),
+    factory: ({ environmentContext, runtimeSignalStore }) =>
+      createExpandKnowledgeTool({
+        baseDirectory: environmentContext?.workingDirectory,
+        runtimeSignalStore,
+      }),
     markers: [ToolMarker.Discovery],
     requiredServices: [],
   },

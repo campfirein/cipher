@@ -264,39 +264,9 @@ export async function createCipherAgentServices(
   // 7. Abstract generation queue (generator injected later via rebindCurateTools)
   const abstractQueue = new AbstractGenerationQueue(workingDirectory)
 
-  // 8. Tool provider (depends on FileSystemService, ProcessService, MemoryManager, SystemPromptManager)
-  const verbose = config.llm.verbose ?? false
-  const descriptionLoader = new ToolDescriptionLoader()
-  const toolProvider: ToolProvider = new ToolProvider(
-    {
-      abstractQueue,
-      environmentContext,
-      fileSystemService,
-      getToolProvider: (): ToolProvider => toolProvider,
-      memoryManager,
-      processService,
-      sandboxService,
-      swarmCoordinator,
-    },
-    systemPromptManager,
-    descriptionLoader,
-  )
-  await toolProvider.initialize()
-
-  // 9. Policy engine with default rules for autonomous execution
-  const policyEngine = new PolicyEngine({defaultDecision: 'ALLOW'})
-  policyEngine.addRules(DEFAULT_POLICY_RULES)
-
-  // 10. Tool scheduler (orchestrates policy check → execution)
-  const toolScheduler = new CoreToolScheduler(toolProvider, policyEngine, undefined, {
-    verbose,
-  })
-
-  // 11. Tool manager (with scheduler for policy-based execution)
-  const toolManager = new ToolManager(toolProvider, toolScheduler)
-  await toolManager.initialize()
-
-  // 11. History storage - granular file-based storage
+  // 8. Storage layer — initialised before ToolProvider so curate/search
+  // factories receive `runtimeSignalStore` via ToolServices at construction
+  // time (no late-bind workarounds).
   const keyStorage = new FileKeyStorage({
     storageDir: storageBasePath,
   })
@@ -310,6 +280,39 @@ export async function createCipherAgentServices(
   // maturity, accessCount, updateCount). Kept out of the context-tree
   // markdown so query-time bumps don't dirty version-controlled files.
   const runtimeSignalStore = new RuntimeSignalStore(keyStorage, logger)
+
+  // 9. Tool provider (depends on FileSystemService, ProcessService, MemoryManager, SystemPromptManager)
+  const verbose = config.llm.verbose ?? false
+  const descriptionLoader = new ToolDescriptionLoader()
+  const toolProvider: ToolProvider = new ToolProvider(
+    {
+      abstractQueue,
+      environmentContext,
+      fileSystemService,
+      getToolProvider: (): ToolProvider => toolProvider,
+      memoryManager,
+      processService,
+      runtimeSignalStore,
+      sandboxService,
+      swarmCoordinator,
+    },
+    systemPromptManager,
+    descriptionLoader,
+  )
+  await toolProvider.initialize()
+
+  // 10. Policy engine with default rules for autonomous execution
+  const policyEngine = new PolicyEngine({defaultDecision: 'ALLOW'})
+  policyEngine.addRules(DEFAULT_POLICY_RULES)
+
+  // 11. Tool scheduler (orchestrates policy check → execution)
+  const toolScheduler = new CoreToolScheduler(toolProvider, policyEngine, undefined, {
+    verbose,
+  })
+
+  // 12. Tool manager (with scheduler for policy-based execution)
+  const toolManager = new ToolManager(toolProvider, toolScheduler)
+  await toolManager.initialize()
 
   // CompactionService for context overflow management
   const tokenizer = new GeminiTokenizer(config.model ?? 'gemini-3-flash-preview')

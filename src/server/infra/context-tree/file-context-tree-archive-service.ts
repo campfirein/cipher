@@ -19,6 +19,7 @@ import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.j
 import type {FrontmatterScoring} from '../../core/domain/knowledge/markdown-writer.js'
 import type {ArchiveResult, DrillDownResult} from '../../core/domain/knowledge/summary-types.js'
 import type {IContextTreeArchiveService} from '../../core/interfaces/context-tree/i-context-tree-archive-service.js'
+import type {IRuntimeSignalStore} from '../../core/interfaces/storage/i-runtime-signal-store.js'
 
 import {
   ARCHIVE_DIR,
@@ -31,12 +32,15 @@ import {
   STUB_EXTENSION,
 } from '../../constants.js'
 import {applyDecay} from '../../core/domain/knowledge/memory-scoring.js'
+import {createDefaultRuntimeSignals} from '../../core/domain/knowledge/runtime-signals-schema.js'
 import {estimateTokens} from '../executor/pre-compaction/compaction-escalation.js'
 import {isArchiveStub, isDerivedArtifact} from './derived-artifact.js'
 import {toUnixPath} from './path-utils.js'
 import {generateArchiveStubContent, parseArchiveStubFrontmatter} from './summary-frontmatter.js'
 
 export class FileContextTreeArchiveService implements IContextTreeArchiveService {
+  constructor(private readonly runtimeSignalStore?: IRuntimeSignalStore) {}
+
   public async archiveEntry(
     relativePath: string,
     agent: ICipherAgent,
@@ -86,6 +90,16 @@ export class FileContextTreeArchiveService implements IContextTreeArchiveService
 
     // Delete original file
     await unlink(originalFullPath)
+
+    // Dual-write: drop the archived file's runtime-signal entry so the
+    // sidecar does not retain an orphan. Fail-open — markdown is canonical.
+    if (this.runtimeSignalStore) {
+      try {
+        await this.runtimeSignalStore.delete(toUnixPath(relativePath))
+      } catch {
+        // Best-effort — archive already succeeded.
+      }
+    }
 
     return {
       fullPath: toUnixPath(fullRelPath),
@@ -152,6 +166,17 @@ export class FileContextTreeArchiveService implements IContextTreeArchiveService
     // Delete stub and full archive files
     await unlink(stubFullPath)
     await unlink(fullPath)
+
+    // Dual-write: seed the restored file with default signals. Signal
+    // history from before archiving was already dropped on archive — restore
+    // is a user-initiated action, so resetting to defaults is acceptable.
+    if (this.runtimeSignalStore) {
+      try {
+        await this.runtimeSignalStore.set(toUnixPath(fm.original_path), createDefaultRuntimeSignals())
+      } catch {
+        // Best-effort — markdown restore already succeeded.
+      }
+    }
 
     return fm.original_path
   }
