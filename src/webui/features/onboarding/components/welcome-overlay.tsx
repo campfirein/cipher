@@ -1,5 +1,11 @@
 import {Button} from '@campfirein/byterover-packages/components/button'
-import {Dialog, DialogContent, DialogDescription, DialogTitle} from '@campfirein/byterover-packages/components/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@campfirein/byterover-packages/components/dialog'
 import {Sparkles} from 'lucide-react'
 
 import logoUrl from '../../../assets/logo.svg'
@@ -22,7 +28,7 @@ export function WelcomeOverlay() {
       >
         <img alt="Byterover" className="size-11" src={logoUrl} />
 
-        <div className="flex flex-col gap-2.5">
+        <DialogHeader className="flex flex-col gap-2.5">
           <DialogTitle className="text-foreground text-xl font-semibold tracking-tight">
             Welcome to ByteRover
           </DialogTitle>
@@ -30,7 +36,7 @@ export function WelcomeOverlay() {
             A 3-minute tour will get you from zero to your first answer. You can restart it any time from the{' '}
             <span className="text-foreground font-medium">Help</span> menu in the top-right.
           </DialogDescription>
-        </div>
+        </DialogHeader>
 
         <div className="flex w-full max-w-[300px] flex-col gap-2">
           <Button onClick={() => startTour()} size="lg">

@@ -17,7 +17,7 @@ export function HelpMenu() {
 
   // Show an amber dot until the user has at least dismissed the welcome OR
   // completed the tour — signals "there's a guided path here if you want it".
-  const showHint = !seenWelcome || !tourCompleted
+  const showHint = !seenWelcome && !tourCompleted
 
   return (
     <DropdownMenu>

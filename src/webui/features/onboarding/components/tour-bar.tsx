@@ -14,13 +14,21 @@ const STEP_LABEL: Record<(typeof TOUR_STEPS)[number], string> = {
  * Tracks the width of any open right-side Sheet (composer, task detail, etc.)
  * so the tour bar can dock just to its left instead of being hidden under it.
  * Returns 0 when no right sheet is open.
+ *
+ * Uses a ResizeObserver on the matching sheet element(s) for live width
+ * tracking, plus a narrow childList-only MutationObserver to catch sheets
+ * being mounted/unmounted via base-ui's Portal. This avoids reacting to every
+ * attribute mutation in the body subtree (the previous, expensive approach).
  */
 function useRightSheetWidth(): number {
   const [width, setWidth] = useState(0)
 
   useEffect(() => {
-    const update = () => {
-      const sheets = document.querySelectorAll('[data-slot="sheet-content"][data-side="right"]')
+    const SHEET_SELECTOR = '[data-slot="sheet-content"][data-side="right"]'
+    let resizeObserver: globalThis.ResizeObserver | null = null
+
+    const measure = () => {
+      const sheets = document.querySelectorAll(SHEET_SELECTOR)
       let maxWidth = 0
       for (const sheet of sheets) {
         const rect = sheet.getBoundingClientRect()
@@ -30,19 +38,29 @@ function useRightSheetWidth(): number {
       setWidth((prev) => (prev === maxWidth ? prev : maxWidth))
     }
 
-    update()
-    const observer = new globalThis.MutationObserver(update)
-    observer.observe(document.body, {
-      attributeFilter: ['data-state', 'data-side', 'data-slot', 'class', 'style'],
-      attributes: true,
-      childList: true,
-      subtree: true,
-    })
-    window.addEventListener('resize', update)
+    const rebind = () => {
+      resizeObserver?.disconnect()
+      const sheets = document.querySelectorAll(SHEET_SELECTOR)
+      if (sheets.length === 0) {
+        measure()
+        return
+      }
+
+      resizeObserver = new globalThis.ResizeObserver(measure)
+      for (const sheet of sheets) resizeObserver.observe(sheet)
+      measure()
+    }
+
+    // Detect sheet mount/unmount via Portal — childList only, no attribute
+    // tracking, so we don't fire on every class/style change in the page.
+    const portalObserver = new globalThis.MutationObserver(rebind)
+    portalObserver.observe(document.body, {childList: true, subtree: true})
+
+    rebind()
 
     return () => {
-      observer.disconnect()
-      window.removeEventListener('resize', update)
+      resizeObserver?.disconnect()
+      portalObserver.disconnect()
     }
   }, [])
 

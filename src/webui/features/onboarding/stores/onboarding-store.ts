@@ -86,6 +86,12 @@ export const useOnboardingStore = create<OnboardingActions & OnboardingState>()(
     }),
     {
       name: 'brv:onboarding',
+      // Only `seenWelcome` and `tourCompleted` cross sessions. `tourActive`,
+      // `tourStep`, and `tourTaskId` are intentionally in-memory: a browser
+      // reload mid-tour exits the tour and the user can restart it from the
+      // Help menu. We don't try to resume the in-flight task because the
+      // composer/dialog state isn't persistable and resuming into a half-state
+      // is more confusing than starting fresh.
       partialize: (state) => ({
         seenWelcome: state.seenWelcome,
         tourCompleted: state.tourCompleted,

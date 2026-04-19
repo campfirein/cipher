@@ -23,7 +23,10 @@ import {TaskComposerSheet} from '../../tasks/components/task-composer'
 import {useOnboardingStore} from '../stores/onboarding-store'
 import {ConnectorStep} from './connector-step'
 
-function isStillOnProviderStep() {
+// Synchronous store snapshot used as a guard inside event handlers — NOT a
+// reactive hook. Named with a verb so callers don't mistake it for a derived
+// boolean tracked by React.
+function snapshotIsProviderStep() {
   return useOnboardingStore.getState().tourStep === 'provider'
 }
 
@@ -63,7 +66,7 @@ export function TourHost() {
             // The dialog calls onOpenChange(false) on every close — including
             // the success path. Treat it as "user dismissed" only if the
             // success callback hasn't already moved us to the next step.
-            if (isStillOnProviderStep()) exitTour()
+            if (snapshotIsProviderStep()) exitTour()
           }}
           onProviderActivated={() => advanceTour()}
           open
