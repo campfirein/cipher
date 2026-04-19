@@ -13,10 +13,17 @@ export interface UiConfig {
   version: string
 }
 
+export class UiConfigError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'UiConfigError'
+  }
+}
+
 export async function fetchUiConfig(): Promise<UiConfig> {
   const response = await fetch('/api/ui/config')
   if (!response.ok) {
-    throw new Error(`Failed to fetch UI config: ${response.statusText}`)
+    throw new UiConfigError(`Failed to fetch UI config: ${response.statusText}`)
   }
 
   return response.json() as Promise<UiConfig>

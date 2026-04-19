@@ -14,32 +14,12 @@
 import type {ReactNode} from 'react'
 import type {Socket} from 'socket.io-client'
 
-import {Badge} from '@campfirein/byterover-packages/components/badge'
-import {CardDescription, CardTitle} from '@campfirein/byterover-packages/components/card'
 import {useEffect} from 'react'
 
+import {ConnectingScreen} from '../features/transport/components/connecting-screen'
+import {OfflineScreen} from '../features/transport/components/offline-screen'
 import {connectToTransport} from '../lib/transport'
 import {useTransportStore} from '../stores/transport-store'
-
-function OfflineScreen({error}: {error?: Error | null}) {
-  const isConfigError = error?.message.includes('Failed to fetch UI config')
-
-  return (
-    <div className="fixed inset-0 flex items-center justify-center bg-background">
-      <div className="flex max-w-md flex-col items-center gap-4 px-6 text-center">
-        <Badge className="rounded-sm border-orange-500/20 bg-orange-500/10 text-orange-600" variant="outline">
-          Offline
-        </Badge>
-        <CardTitle>ByteRover is not running</CardTitle>
-        <CardDescription>
-          {isConfigError ? 'The web UI server is not available.' : 'Could not connect to the ByteRover daemon.'}
-        </CardDescription>
-        <div className="mt-2 rounded-md bg-muted px-4 py-3 font-mono text-sm">brv webui</div>
-        <CardDescription>Run this command in your terminal to start.</CardDescription>
-      </div>
-    </div>
-  )
-}
 
 export function TransportProvider({children}: {children: ReactNode}) {
   const incrementReconnectCount = useTransportStore((s) => s.incrementReconnectCount)
@@ -51,6 +31,7 @@ export function TransportProvider({children}: {children: ReactNode}) {
   useEffect(() => {
     let mounted = true
     let activeSocket: null | Socket = null
+    let retryTimer: null | ReturnType<typeof setTimeout> = null
 
     async function init() {
       try {
@@ -80,9 +61,13 @@ export function TransportProvider({children}: {children: ReactNode}) {
           if (mounted) setConnectionState('connected')
         })
       } catch (error) {
-        if (mounted) {
-          setError(error instanceof Error ? error : new Error(String(error)))
-        }
+        if (!mounted) return
+        // socket.io's built-in reconnect can't help on initial-connect failure
+        // because no socket exists yet — poll connectToTransport ourselves so
+        // the daemon / dev server is auto-detected once it comes up.
+        setError(error instanceof Error ? error : new Error(String(error)))
+        incrementReconnectCount()
+        retryTimer = setTimeout(init, 3000)
       }
     }
 
@@ -91,6 +76,7 @@ export function TransportProvider({children}: {children: ReactNode}) {
     return () => {
       mounted = false
       activeSocket?.disconnect()
+      if (retryTimer !== null) clearTimeout(retryTimer)
     }
   }, [selectedProject, incrementReconnectCount, setConnectionState, setError, setSocket])
 
@@ -103,17 +89,7 @@ export function TransportProvider({children}: {children: ReactNode}) {
   }
 
   if (connectionState === 'connecting') {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <Badge className="rounded-sm border-blue-500/20 bg-blue-500/10" variant="outline">
-            Connecting
-          </Badge>
-          <CardTitle>Connecting to ByteRover</CardTitle>
-          <CardDescription>Waiting for the daemon...</CardDescription>
-        </div>
-      </div>
-    )
+    return <ConnectingScreen />
   }
 
   if (!apiClient) {
