@@ -26,6 +26,7 @@ import {
   createDefaultRuntimeSignals,
   type RuntimeSignals,
 } from '../../../../server/core/domain/knowledge/runtime-signals-schema.js'
+import {warnSidecarFailure} from '../../../../server/core/domain/knowledge/sidecar-logging.js'
 import {loadSources, type SearchOrigin} from '../../../../server/core/domain/source/source-schema.js'
 import {isArchiveStub, isDerivedArtifact} from '../../../../server/infra/context-tree/derived-artifact.js'
 import {
@@ -1200,10 +1201,17 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
 
     try {
       await store.batchUpdate(updates)
-    } catch {
-      // Best-effort — sidecar failure must not break the flush. Markdown is
-      // still canonical during phase 3; the sidecar will re-sync on the next
-      // bump for these paths.
+    } catch (error) {
+      // Best-effort — sidecar failure must not break the flush. The sidecar
+      // will re-sync on the next bump for these paths; the warn makes the
+      // fail-open visible to operators.
+      warnSidecarFailure(
+        this.logger,
+        'search-knowledge-flush',
+        'batchUpdate',
+        `${updates.size} path(s)`,
+        error,
+      )
     }
   }
 

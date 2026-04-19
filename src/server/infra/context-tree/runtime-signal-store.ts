@@ -21,13 +21,11 @@ import {
 
 const SIGNALS_PREFIX = 'signals'
 
-// TODO(runtime-signals): callers bumping `importance` must recompute
-// `maturity` via `determineTier` in the same updater — the store does not
-// enforce the hysteresis relationship. Audit call sites in commit 3.
-//
-// TODO(runtime-signals): orphan entries accumulate when markdown files are
-// deleted outside curate. Add `pruneOrphans(existingPaths)` when commit 6
-// lands, or expose via a `brv signals clean` admin command.
+// The store does not enforce the importance ↔ maturity hysteresis —
+// callers bumping importance must recompute maturity via `determineTier`
+// in the same updater. Invariant upheld at every write site; see
+// interface-level docs for the rationale. Orphan-entry cleanup is tracked
+// in features/runtime-signals/backlog.md (`pruneOrphans`).
 
 export class RuntimeSignalStore implements IRuntimeSignalStore {
   constructor(

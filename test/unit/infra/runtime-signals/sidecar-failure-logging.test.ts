@@ -255,10 +255,73 @@ describe('Runtime-signals — sidecar-failure logging at swallow sites', () => {
           },
         ],
       })
+      // Forcing `update` to throw triggers the merge-update warn and
+      // short-circuits before the delete (targetUpdated stays false) so
+      // exactly one warning fires.
       expect(warnings).to.have.lengthOf(1)
-      expect(warnings[0]).to.include('sidecar merge failed')
+      expect(warnings[0]).to.include('sidecar merge-update failed')
       expect(warnings[0]).to.include('auth/jwt/refresh.md')
       expect(warnings[0]).to.include('auth/jwt/rotation.md')
+    })
+
+    it('executeMerge sidecar block — warns on delete() failure after successful update (orphan path)', async () => {
+      const basePath = join(tmpDir, '.brv/context-tree')
+      await fs.mkdir(basePath, {recursive: true})
+      const healthy = createMockRuntimeSignalStore()
+      const {logger, warnings} = createCapturingLogger()
+      let tool = createCurateTool(undefined, undefined, healthy, logger) as unknown as CurateTool
+      // Seed source + target — both sidecar entries exist.
+      await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {snippets: ['a'], tags: ['t']},
+            impact: 'low',
+            path: 'auth/jwt',
+            reason: 's1',
+            title: 'Refresh',
+            type: 'ADD',
+          },
+          {
+            confidence: 'high',
+            content: {snippets: ['b'], tags: ['t']},
+            impact: 'low',
+            path: 'auth/jwt',
+            reason: 's2',
+            title: 'Rotation',
+            type: 'ADD',
+          },
+        ],
+      })
+      warnings.length = 0
+
+      // `update` stays healthy so the merge-target sidecar is written;
+      // `delete` throws so the source sidecar becomes a permanent orphan
+      // (markdown is already removed upstream). Exactly one `merge-delete`
+      // warn should fire, and no `merge-update` warn should appear.
+      const failing = wrapThrowingMethod(healthy, 'delete')
+      tool = createCurateTool(undefined, undefined, failing, logger) as unknown as CurateTool
+      await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            impact: 'low',
+            mergeTarget: 'auth/jwt',
+            mergeTargetTitle: 'Rotation',
+            path: 'auth/jwt',
+            reason: 'dedupe',
+            title: 'Refresh',
+            type: 'MERGE',
+          },
+        ],
+      })
+
+      expect(warnings).to.have.lengthOf(1)
+      expect(warnings[0]).to.include('sidecar merge-delete failed')
+      expect(warnings[0]).to.include('auth/jwt/refresh.md')
+      expect(warnings[0]).to.not.include('merge-update')
     })
   })
 
@@ -499,6 +562,65 @@ describe('Runtime-signals — sidecar-failure logging at swallow sites', () => {
 
       const match = warnings.find((w) => w.includes('manifest-service: sidecar list failed'))
       expect(match, `expected warn for manifest list, got: ${warnings.join(' | ')}`).to.not.be.undefined
+    })
+  })
+
+  describe('SearchKnowledgeService.mirrorHitsToSignalStore', () => {
+    it('warns on batchUpdate() failure during access-hit flush', async () => {
+      const {createSearchKnowledgeService} = await import(
+        '../../../../src/agent/infra/tools/implementations/search-knowledge-service.js'
+      )
+      const {FileSystemService} = await import(
+        '../../../../src/agent/infra/file-system/file-system-service.js'
+      )
+
+      const contextTreeDir = join(tmpDir, '.brv/context-tree/auth')
+      await fs.mkdir(contextTreeDir, {recursive: true})
+      await fs.writeFile(join(contextTreeDir, 'a.md'), '# A\nBody.', 'utf8')
+
+      const throwingStore = {
+        async batchUpdate() {
+          throw new Error('batchUpdate failed')
+        },
+        async delete() {},
+        async get() {
+          return createDefaultRuntimeSignals()
+        },
+        async getMany() {
+          return new Map()
+        },
+        async list() {
+          return new Map()
+        },
+        async set() {},
+        async update() {
+          return createDefaultRuntimeSignals()
+        },
+      }
+      const {logger, warnings} = createCapturingLogger()
+      const fsService = new FileSystemService({
+        allowedPaths: [tmpDir],
+        workingDirectory: tmpDir,
+      })
+      await fsService.initialize()
+      const svc = createSearchKnowledgeService(fsService, {
+        baseDirectory: tmpDir,
+        logger,
+        runtimeSignalStore: throwingStore,
+      })
+
+      // Prime pendingAccessHits so the flush has work to do. The ISearchKnowledgeService
+      // surface doesn't expose flushAccessHits — cast to the concrete class.
+      const concrete = svc as unknown as {
+        flushAccessHits(path: string): Promise<boolean>
+        pendingAccessHits: Map<string, number>
+      }
+      concrete.pendingAccessHits.set('auth/a.md', 3)
+
+      const flushed = await concrete.flushAccessHits(contextTreeDir)
+      expect(flushed).to.equal(true)
+      const match = warnings.find((w) => w.includes('search-knowledge-flush: sidecar batchUpdate failed'))
+      expect(match, `expected warn for flush batchUpdate, got: ${warnings.join(' | ')}`).to.not.be.undefined
     })
   })
 
