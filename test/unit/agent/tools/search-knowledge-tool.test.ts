@@ -619,29 +619,27 @@ describe('Search Knowledge Tool', () => {
       expect(secondListDirCount).to.equal(firstListDirCount)
     })
 
-    it('flushes pending access hits even when the cached file mtimes are unchanged', async () => {
+    it('does not write to markdown on flush — access hits only touch the sidecar', async () => {
+      // Post-commit-5 flushAccessHits never writes to markdown. This test
+      // guards the invariant by asserting writeFile is never invoked across
+      // repeated searches, regardless of pending hits.
       const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 0})
 
       readFileStub.resolves({
         content:
-          '---\nimportance: 50\nrecency: 1\nmaturity: draft\naccessCount: 0\nupdateCount: 0\ncreatedAt: \'2026-03-27T00:00:00.000Z\'\nupdatedAt: \'2026-03-27T00:00:00.000Z\'\n---\n# Test File\n\nTest content for caching.',
+          '---\ncreatedAt: \'2026-03-27T00:00:00.000Z\'\nupdatedAt: \'2026-03-27T00:00:00.000Z\'\n---\n# Test File\n\nTest content for caching.',
         encoding: 'utf8',
-        lines: 10,
-        size: 220,
-        totalLines: 10,
+        lines: 5,
+        size: 140,
+        totalLines: 5,
         truncated: false,
       })
-      writeFileStub.resolves({bytesWritten: 240, path: '/test/.brv/context-tree/test/file.md', success: true})
+      writeFileStub.resolves({bytesWritten: 0, path: '/test/.brv/context-tree/test/file.md', success: true})
 
       await tool.execute({query: 'test'})
+      await tool.execute({query: 'test'})
+
       expect(writeFileStub.called).to.equal(false)
-
-      await tool.execute({query: 'test'})
-
-      expect(writeFileStub.calledOnce).to.equal(true)
-      expect(writeFileStub.firstCall.args[0]).to.equal('/test/.brv/context-tree/test/file.md')
-      expect(writeFileStub.firstCall.args[1]).to.include('importance: 53')
-      expect(writeFileStub.firstCall.args[1]).to.include('accessCount: 1')
     })
   })
 
@@ -906,8 +904,10 @@ describe('Search Knowledge Tool', () => {
       expect((secondBatch[0] as SearchKnowledgeOutput).results).to.be.an('array')
       expect((secondBatch[1] as SearchKnowledgeOutput).results).to.be.an('array')
 
-      // Second batch triggers one more build (not two) + one readFile from access-hit flush = 3 total
-      expect(readFileStub.callCount).to.equal(3)
+      // Second batch triggers one more build (not two). Post-commit-5 the
+      // access-hit flush no longer reads the file for a markdown rewrite,
+      // so the total readFile count is 2 (one per batch build), not 3.
+      expect(readFileStub.callCount).to.equal(2)
     })
 
     it('should not deadlock when multiple tools execute concurrently', async () => {
@@ -1233,7 +1233,20 @@ describe('Search Knowledge Tool', () => {
         })
       })
 
-      const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 0})
+      // Post-commit-5: the symbol-tree fallback for minMaturity is gone.
+      // Seed the sidecar to match the intent of the markdown fixtures: leaf
+      // is core, summary is draft, so with minMaturity='core' only the leaf
+      // survives.
+      const {createMockRuntimeSignalStore} = await import('../../../helpers/mock-factories.js')
+      const runtimeSignalStore = createMockRuntimeSignalStore()
+      await runtimeSignalStore.set('auth/jwt.md', {
+        accessCount: 0, importance: 90, maturity: 'core', recency: 1, updateCount: 0,
+      })
+      await runtimeSignalStore.set('auth/_index.md', {
+        accessCount: 0, importance: 70, maturity: 'draft', recency: 0.9, updateCount: 0,
+      })
+
+      const tool = createSearchKnowledgeTool(fileSystemMock, {baseDirectory: '/test', cacheTtlMs: 0, runtimeSignalStore})
       const result = (await tool.execute({minMaturity: 'core', query: 'security token'})) as {
         results: Array<{path: string; symbolKind?: string}>
       }

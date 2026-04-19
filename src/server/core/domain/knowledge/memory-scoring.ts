@@ -10,7 +10,6 @@
  * All functions are stateless and side-effect free.
  */
 
-import type {FrontmatterScoring} from './markdown-writer.js'
 import type {RuntimeSignals} from './runtime-signals-schema.js'
 
 // ---------------------------------------------------------------------------
@@ -143,114 +142,61 @@ export function determineTier(
 }
 
 /**
- * Record a search access hit on a knowledge file.
- *
- * Increments access count and adds an importance bonus.
- *
- * @param scoring - Current scoring state
- * @returns Updated scoring (original not mutated)
- */
-export function recordAccessHit(scoring: FrontmatterScoring): FrontmatterScoring {
-  const newAccessCount = (scoring.accessCount ?? 0) + 1
-  const newImportance = Math.min(100, (scoring.importance ?? 50) + ACCESS_IMPORTANCE_BONUS)
-
-  return {
-    ...scoring,
-    accessCount: newAccessCount,
-    importance: newImportance,
-  }
-}
-
-/**
  * Record multiple accumulated access hits at once.
  *
- * @param scoring - Current scoring state
- * @param hitCount - Number of hits to record
- * @returns Updated scoring (original not mutated)
+ * Increments accessCount by `hitCount` and importance by
+ * `ACCESS_IMPORTANCE_BONUS * hitCount` (capped at 100). Caller is
+ * responsible for recomputing maturity via `determineTier` if the
+ * importance delta may cross a hysteresis threshold.
  */
-export function recordAccessHits(scoring: FrontmatterScoring, hitCount: number): FrontmatterScoring {
+export function recordAccessHits(signals: RuntimeSignals, hitCount: number): RuntimeSignals {
   if (hitCount <= 0) {
-    return scoring
+    return signals
   }
 
-  const newAccessCount = (scoring.accessCount ?? 0) + hitCount
-  const newImportance = Math.min(100, (scoring.importance ?? 50) + ACCESS_IMPORTANCE_BONUS * hitCount)
-
   return {
-    ...scoring,
-    accessCount: newAccessCount,
-    importance: newImportance,
+    ...signals,
+    accessCount: signals.accessCount + hitCount,
+    importance: Math.min(100, signals.importance + ACCESS_IMPORTANCE_BONUS * hitCount),
   }
 }
 
 /**
  * Record a curate update on a knowledge file.
  *
- * Increments update count, adds an importance bonus, resets recency to 1.0,
- * and updates the timestamp.
- *
- * @param scoring - Current scoring state
- * @returns Updated scoring (original not mutated)
+ * Increments updateCount, adds an importance bonus, resets recency to 1.0.
+ * Caller is responsible for recomputing maturity via `determineTier`.
  */
-export function recordCurateUpdate(scoring: FrontmatterScoring): FrontmatterScoring {
-  const newUpdateCount = (scoring.updateCount ?? 0) + 1
-  const newImportance = Math.min(100, (scoring.importance ?? 50) + UPDATE_IMPORTANCE_BONUS)
-  const now = new Date().toISOString()
-
+export function recordCurateUpdate(signals: RuntimeSignals): RuntimeSignals {
   return {
-    ...scoring,
-    importance: newImportance,
+    ...signals,
+    importance: Math.min(100, signals.importance + UPDATE_IMPORTANCE_BONUS),
     recency: 1,
-    updateCount: newUpdateCount,
-    updatedAt: now,
+    updateCount: signals.updateCount + 1,
   }
 }
 
 /**
- * Return default scoring values for a new or unscored knowledge file.
- */
-export function applyDefaultScoring(): FrontmatterScoring {
-  const now = new Date().toISOString()
-
-  return {
-    accessCount: 0,
-    createdAt: now,
-    importance: 50,
-    maturity: 'draft',
-    recency: 1,
-    updateCount: 0,
-    updatedAt: now,
-  }
-}
-
-/**
- * Merge two scoring states during a MERGE operation.
+ * Merge two runtime-signal snapshots during a MERGE operation.
  *
  * Strategy:
  * - importance: max of both
  * - recency: max of both
  * - accessCount: sum
  * - updateCount: sum + 1 (for the merge itself)
- * - maturity: higher tier
- * - createdAt: earlier date
- * - updatedAt: current time
+ * - maturity: higher tier (caller may refine via `determineTier`)
  */
-export function mergeScoring(source: FrontmatterScoring, target: FrontmatterScoring): FrontmatterScoring {
+export function mergeScoring(source: RuntimeSignals, target: RuntimeSignals): RuntimeSignals {
   const tierRank: Record<string, number> = {core: 3, draft: 1, validated: 2}
-  const sourceRank = tierRank[source.maturity ?? 'draft'] ?? 1
-  const targetRank = tierRank[target.maturity ?? 'draft'] ?? 1
-  const higherTier = sourceRank >= targetRank ? (source.maturity ?? 'draft') : (target.maturity ?? 'draft')
-
-  const sourceCreated = source.createdAt ? new Date(source.createdAt).getTime() : Date.now()
-  const targetCreated = target.createdAt ? new Date(target.createdAt).getTime() : Date.now()
+  const sourceRank = tierRank[source.maturity] ?? 1
+  const targetRank = tierRank[target.maturity] ?? 1
+  const higherTier = sourceRank >= targetRank ? source.maturity : target.maturity
 
   return {
-    accessCount: (source.accessCount ?? 0) + (target.accessCount ?? 0),
-    createdAt: sourceCreated <= targetCreated ? source.createdAt : target.createdAt,
-    importance: Math.max(source.importance ?? 50, target.importance ?? 50),
-    maturity: higherTier as 'core' | 'draft' | 'validated',
-    recency: Math.max(source.recency ?? 1, target.recency ?? 1),
-    updateCount: (source.updateCount ?? 0) + (target.updateCount ?? 0) + 1,
-    updatedAt: new Date().toISOString(),
+    accessCount: source.accessCount + target.accessCount,
+    importance: Math.max(source.importance, target.importance),
+    maturity: higherTier,
+    recency: Math.max(source.recency, target.recency),
+    updateCount: source.updateCount + target.updateCount + 1,
   }
 }

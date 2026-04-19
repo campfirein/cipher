@@ -1,5 +1,3 @@
-import type { FrontmatterScoring } from '../../../../server/core/domain/knowledge/markdown-writer.js'
-
 import { CONTEXT_FILE } from '../../../../server/constants.js'
 import { parseRelations } from '../../../../server/core/domain/knowledge/relation-parser.js'
 
@@ -64,8 +62,6 @@ export interface SummaryDocLike {
   excerpt?: string
   /** Path to the _index.md file, e.g. "domain/topic/_index.md" */
   path: string
-  /** Frontmatter scoring parsed from _index.md — used to apply hotness/importance to propagated hits */
-  scoring?: {importance?: number; maturity?: string; recency?: number}
   tokenCount: number
 }
 
@@ -113,7 +109,6 @@ interface DocumentLike {
   content: string
   id: string
   path: string
-  scoring: FrontmatterScoring
   title: string
 }
 
@@ -146,15 +141,6 @@ function determineKind(segments: string[]): MemorySymbolKind {
       // 4+ segments: treat deepest folder as subtopic-level
       return MemorySymbolKind.Subtopic
     }
-  }
-}
-
-function extractMetadataFromScoring(scoring: FrontmatterScoring): SymbolMetadata {
-  return {
-    importance: scoring.importance ?? 50,
-    keywords: [],
-    maturity: scoring.maturity ?? 'draft',
-    tags: [],
   }
 }
 
@@ -257,10 +243,10 @@ export function buildSymbolTree(
     const folderNode = symbolMap.get(folderPath)
 
     if (folderNode) {
-      folderNode.metadata = {
-        ...folderNode.metadata,
-        ...extractMetadataFromScoring(doc.scoring),
-      }
+      // Context metadata starts at defaults. Post-commit-5, ranking signals
+      // (importance, maturity) are read from the sidecar at query time; the
+      // symbol tree only carries structural metadata.
+      folderNode.metadata = { ...folderNode.metadata }
     }
 
     // Also register the context.md path itself for direct lookups
@@ -276,7 +262,7 @@ export function buildSymbolTree(
     const contextNode: MemorySymbol = {
       children: [],
       kind: MemorySymbolKind.Context,
-      metadata: extractMetadataFromScoring(doc.scoring),
+      metadata: { ...DEFAULT_METADATA },
       name: doc.title || segments.at(-1)!.replace(/\.md$/, ''),
       parent: parentNode,
       path: doc.path,

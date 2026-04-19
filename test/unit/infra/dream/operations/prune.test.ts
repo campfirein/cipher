@@ -185,10 +185,21 @@ describe('prune', () => {
   })
 
   it('NEVER flags core files regardless of age', async () => {
-    await createMdFile(ctxDir, 'auth/core-doc.md', '# Core knowledge', {maturity: 'core'})
+    // Post-commit-5: core protection comes from the sidecar, not markdown.
+    // Seed a runtimeSignalStore that reports maturity='core' for this path
+    // so the prune candidacy scan excludes it.
+    await createMdFile(ctxDir, 'auth/core-doc.md', '# Core knowledge')
     await setMtimeDaysAgo(ctxDir, 'auth/core-doc.md', 365)
 
-    const results = await prune(deps)
+    const runtimeSignalStore = {
+      async list() {
+        return new Map([
+          ['auth/core-doc.md', {importance: 80, maturity: 'core' as const}],
+        ])
+      },
+    }
+
+    const results = await prune({...deps, runtimeSignalStore})
     expect(results).to.deep.equal([])
     expect(agent.createTaskSession.called).to.be.false
   })

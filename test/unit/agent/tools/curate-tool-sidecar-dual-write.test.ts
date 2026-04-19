@@ -250,8 +250,8 @@ describe('Curate tool — runtime-signal sidecar dual-write', () => {
     })
   })
 
-  describe('markdown/sidecar consistency', () => {
-    it('ADD writes matching scoring to both markdown frontmatter and sidecar', async () => {
+  describe('markdown/sidecar separation', () => {
+    it('ADD writes scoring only to the sidecar — markdown carries no runtime-signal fields', async () => {
       await runCurate(basePath, signalStore, [
         {
           confidence: 'high',
@@ -269,17 +269,18 @@ describe('Curate tool — runtime-signal sidecar dual-write', () => {
       const markdown = await fs.readFile(markdownPath, 'utf8')
       const signals = await signalStore.get(relPath)
 
-      // Pull scoring fields out of the markdown frontmatter.
-      const importanceMatch = /^importance:\s*(\d+)/m.exec(markdown)
-      const maturityMatch = /^maturity:\s*(core|draft|validated)/m.exec(markdown)
-      const recencyMatch = /^recency:\s*([\d.]+)/m.exec(markdown)
+      // Sidecar carries the runtime signals (default values on ADD).
+      expect(signals).to.deep.equal(createDefaultRuntimeSignals())
 
-      expect(importanceMatch?.[1]).to.equal(String(signals.importance))
-      expect(maturityMatch?.[1]).to.equal(signals.maturity)
-      expect(recencyMatch?.[1]).to.equal(String(signals.recency))
+      // Markdown carries zero runtime-signal fields — not emitted any more.
+      expect(markdown).to.not.match(/^importance:/m)
+      expect(markdown).to.not.match(/^recency:/m)
+      expect(markdown).to.not.match(/^maturity:/m)
+      expect(markdown).to.not.match(/^accessCount:/m)
+      expect(markdown).to.not.match(/^updateCount:/m)
     })
 
-    it('UPDATE keeps markdown and sidecar in sync after a bump', async () => {
+    it('UPDATE bumps the sidecar while leaving markdown scoring-free', async () => {
       // Seed.
       await runCurate(basePath, signalStore, [
         {
@@ -309,13 +310,14 @@ describe('Curate tool — runtime-signal sidecar dual-write', () => {
       const markdown = await fs.readFile(join(basePath, relPath), 'utf8')
       const signals = await signalStore.get(relPath)
 
-      const importanceMatch = /^importance:\s*(\d+)/m.exec(markdown)
-      const maturityMatch = /^maturity:\s*(core|draft|validated)/m.exec(markdown)
-      const updateCountMatch = /^updateCount:\s*(\d+)/m.exec(markdown)
+      // Sidecar reflects the bump.
+      expect(signals.importance).to.equal(55) // 50 + UPDATE_IMPORTANCE_BONUS(5)
+      expect(signals.updateCount).to.equal(1)
 
-      expect(importanceMatch?.[1]).to.equal(String(signals.importance))
-      expect(maturityMatch?.[1]).to.equal(signals.maturity)
-      expect(updateCountMatch?.[1]).to.equal(String(signals.updateCount))
+      // Markdown still carries no runtime-signal fields.
+      expect(markdown).to.not.match(/^importance:/m)
+      expect(markdown).to.not.match(/^maturity:/m)
+      expect(markdown).to.not.match(/^updateCount:/m)
     })
   })
 

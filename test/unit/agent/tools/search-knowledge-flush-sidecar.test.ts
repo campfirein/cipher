@@ -110,7 +110,7 @@ describe('SearchKnowledgeService — flushAccessHits dual-write', () => {
     expect((await signalStore.list()).size).to.equal(0)
   })
 
-  it('completes the markdown flush even if the sidecar batchUpdate throws', async () => {
+  it('reports completion even when the sidecar batchUpdate throws and leaves markdown untouched', async () => {
     const throwing: IRuntimeSignalStore = {
       async batchUpdate() {
         throw new Error('sidecar down')
@@ -135,14 +135,17 @@ describe('SearchKnowledgeService — flushAccessHits dual-write', () => {
     const relPath = 'x.md'
     const filePath = join(contextTreeDir, relPath)
     await fs.writeFile(filePath, MARKDOWN_WITH_SCORING, 'utf8')
+    const before = await fs.readFile(filePath, 'utf8')
     primePendingHits(isolated, {[relPath]: 1})
 
+    // Flush must not throw despite the sidecar failure — commit 5 no longer
+    // writes to markdown so `flushed` simply indicates that pending hits
+    // were processed.
     const flushed = await isolated.flushAccessHits(contextTreeDir)
     expect(flushed).to.equal(true)
 
-    // Markdown was written despite sidecar failure — read it back and verify
-    // importance bumped (50 + 3 = 53).
-    const rewritten = await fs.readFile(filePath, 'utf8')
-    expect(rewritten).to.include('importance: 53')
+    // Markdown is byte-identical — flush never touches it post-commit-5.
+    const after = await fs.readFile(filePath, 'utf8')
+    expect(after).to.equal(before)
   })
 })
