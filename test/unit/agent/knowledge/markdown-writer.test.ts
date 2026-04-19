@@ -475,5 +475,109 @@ Some old content`
       expect(parsed.relations).to.have.members(['domain/new/file.md', 'domain/old/file.md'])
       expect(parsed.tags).to.deep.equal(['newtag'])
     })
+
+    describe('timestamp merge', () => {
+      it('preserves the earliest createdAt from either input', () => {
+        const source = `---
+title: Source
+tags: []
+keywords: []
+createdAt: '2026-03-10T00:00:00.000Z'
+updatedAt: '2026-04-01T00:00:00.000Z'
+---
+Source body`
+
+        const target = `---
+title: Target
+tags: []
+keywords: []
+createdAt: '2026-01-15T00:00:00.000Z'
+updatedAt: '2026-02-20T00:00:00.000Z'
+---
+Target body`
+
+        const merged = MarkdownWriter.mergeContexts(source, target)
+        const parsed = MarkdownWriter.parseContent(merged)
+
+        // Earliest createdAt wins (target's 2026-01-15 is earlier than source's 2026-03-10).
+        expect(parsed.timestamps?.createdAt).to.equal('2026-01-15T00:00:00.000Z')
+      })
+
+      it('stamps a fresh updatedAt on merge', () => {
+        const source = `---
+title: Source
+tags: []
+keywords: []
+createdAt: '2026-01-01T00:00:00.000Z'
+updatedAt: '2026-01-01T00:00:00.000Z'
+---
+Source`
+
+        const target = `---
+title: Target
+tags: []
+keywords: []
+createdAt: '2026-01-01T00:00:00.000Z'
+updatedAt: '2026-01-01T00:00:00.000Z'
+---
+Target`
+
+        const before = Date.now()
+        const merged = MarkdownWriter.mergeContexts(source, target)
+        const after = Date.now()
+        const parsed = MarkdownWriter.parseContent(merged)
+
+        expect(parsed.timestamps?.updatedAt).to.exist
+        const updatedAtMs = new Date(parsed.timestamps!.updatedAt!).getTime()
+        expect(updatedAtMs).to.be.at.least(before)
+        expect(updatedAtMs).to.be.at.most(after)
+      })
+
+      it('falls back to the single available createdAt when only one input has it', () => {
+        const source = `---
+title: Source
+tags: []
+keywords: []
+createdAt: '2026-05-01T00:00:00.000Z'
+---
+Source`
+
+        const target = `---
+title: Target
+tags: []
+keywords: []
+---
+Target`
+
+        const merged = MarkdownWriter.mergeContexts(source, target)
+        const parsed = MarkdownWriter.parseContent(merged)
+
+        expect(parsed.timestamps?.createdAt).to.equal('2026-05-01T00:00:00.000Z')
+      })
+
+      it('omits createdAt entirely when neither input carries it', () => {
+        const source = `---
+title: Source
+tags: []
+keywords: []
+---
+Source`
+
+        const target = `---
+title: Target
+tags: []
+keywords: []
+---
+Target`
+
+        const merged = MarkdownWriter.mergeContexts(source, target)
+        const parsed = MarkdownWriter.parseContent(merged)
+
+        // Neither input had createdAt — merged output has no createdAt either.
+        expect(parsed.timestamps?.createdAt).to.be.undefined
+        // updatedAt is always stamped on merge since content changed.
+        expect(parsed.timestamps?.updatedAt).to.exist
+      })
+    })
   })
 })

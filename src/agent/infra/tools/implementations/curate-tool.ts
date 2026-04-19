@@ -1,20 +1,18 @@
 import {basename, dirname, join, relative, resolve} from 'node:path'
 import {z} from 'zod'
 
-import type {ContextData, FrontmatterScoring} from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import type {ContextData} from '../../../../server/core/domain/knowledge/markdown-writer.js'
 import type {IRuntimeSignalStore} from '../../../../server/core/interfaces/storage/i-runtime-signal-store.js'
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
 import type {AbstractGenerationQueue} from '../../map/abstract-queue.js'
 
 import {REVIEW_BACKUPS_DIR} from '../../../../server/constants.js'
 import {DirectoryManager} from '../../../../server/core/domain/knowledge/directory-manager.js'
-import {MarkdownWriter, parseFrontmatterScoring} from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import {MarkdownWriter, parseCreatedAt} from '../../../../server/core/domain/knowledge/markdown-writer.js'
 import {
-  applyDefaultScoring,
   determineTier,
   mergeScoring,
   recordCurateUpdate,
-  UPDATE_IMPORTANCE_BONUS,
 } from '../../../../server/core/domain/knowledge/memory-scoring.js'
 import {
   createDefaultRuntimeSignals,
@@ -46,10 +44,9 @@ function relPathFromContextPath(contextPath: string, basePath: string): string {
  * when the existing file has no `createdAt` (old files or those that never
  * had it).
  */
-function existingScoringCreatedAt(existingContent: null | string | undefined): string {
+function existingCreatedAt(existingContent: null | string | undefined): string {
   if (!existingContent) return new Date().toISOString()
-  const existing = parseFrontmatterScoring(existingContent)
-  return existing?.createdAt ?? new Date().toISOString()
+  return parseCreatedAt(existingContent) ?? new Date().toISOString()
 }
 
 /**
@@ -84,18 +81,13 @@ async function mirrorCurateUpdate(
   if (!store) return
   try {
     await store.update(relPath, (current: RuntimeSignals): RuntimeSignals => {
-      // `recordCurateUpdate` returns a FrontmatterScoring whose fields are
-      // all concretely populated for our inputs (we pass a fully-valued
-      // RuntimeSignals). Non-null assertions reflect that invariant — no
-      // silent fallbacks that paper over unreachable branches.
       const bumped = recordCurateUpdate(current)
-      const bumpedImportance = bumped.importance!
       return {
         ...current,
-        importance: bumpedImportance,
-        maturity: determineTier(bumpedImportance, current.maturity),
-        recency: bumped.recency!,
-        updateCount: bumped.updateCount!,
+        importance: bumped.importance,
+        maturity: determineTier(bumped.importance, current.maturity),
+        recency: bumped.recency,
+        updateCount: bumped.updateCount,
       }
     })
   } catch {
@@ -825,10 +817,10 @@ async function executeAdd(
       rawConcept: filteredContent.rawConcept,
       reason,
       relations: filteredContent.relations,
-      scoring: applyDefaultScoring(),
       snippets: filteredContent.snippets ?? [],
       summary,
       tags: filteredContent.tags,
+      timestamps: {createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()},
     })
     const filename = `${toSnakeCase(title)}.md`
     const contextPath = join(finalPath, filename)
@@ -944,23 +936,11 @@ async function executeUpdate(
     // Read existing file to detect structural loss
     const existingContent = await DirectoryManager.readFile(contextPath)
 
-    // Source of truth for scoring is the sidecar, not markdown. Markdown may
-    // carry stale values post-commit-4 (ranking bumps go to the sidecar only)
-    // so reading from markdown here would silently regress the importance /
-    // maturity we re-serialise in the dual-write path. When no sidecar store
-    // is provided, fall back to defaults — consistent with ADD semantics.
-    const baseSignals = runtimeSignalStore
-      ? await runtimeSignalStore.get(relPathFromContextPath(contextPath, basePath))
-      : createDefaultRuntimeSignals()
-    const bumpedImportance = Math.min(100, baseSignals.importance + UPDATE_IMPORTANCE_BONUS)
-    const nextTier = determineTier(bumpedImportance, baseSignals.maturity)
-    const finalScoring: FrontmatterScoring = {
-      accessCount: baseSignals.accessCount,
-      createdAt: existingScoringCreatedAt(existingContent),
-      importance: bumpedImportance,
-      maturity: nextTier,
-      recency: 1,
-      updateCount: baseSignals.updateCount + 1,
+    // Markdown only carries content timestamps post-commit-5. The sidecar
+    // handles all scoring (importance / recency / maturity / counts) via
+    // `mirrorCurateUpdate` below, inside an atomic read-modify-write.
+    const timestamps = {
+      createdAt: existingCreatedAt(existingContent),
       updatedAt: new Date().toISOString(),
     }
 
@@ -998,8 +978,8 @@ async function executeUpdate(
     const contextContent = MarkdownWriter.generateContext({
       ...resolvedContextData,
       reason,
-      scoring: finalScoring,
       summary,
+      timestamps,
     })
     await backupBeforeWrite(contextPath, basePath)
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
@@ -1241,6 +1221,16 @@ async function executeMerge(
     await backupBeforeWrite(targetContextPath, basePath)
     await backupBeforeWrite(sourceContextPath, basePath)
 
+    // Capture source sidecar signals BEFORE any destructive operation so a
+    // mid-flow crash cannot leave the target unmerged with an orphaned
+    // source entry. The sidecar merge happens after the markdown writes
+    // succeed, using the captured snapshot.
+    const sourceRelPath = relPathFromContextPath(sourceContextPath, basePath)
+    const targetRelPath = relPathFromContextPath(targetContextPath, basePath)
+    const sourceSignalsSnapshot = runtimeSignalStore
+      ? await runtimeSignalStore.get(sourceRelPath)
+      : null
+
     const mergedContent = MarkdownWriter.mergeContexts(sourceContent, targetContent, reason, summary)
     await DirectoryManager.writeFileAtomic(targetContextPath, mergedContent)
     onAfterWrite?.(targetContextPath, mergedContent)
@@ -1248,30 +1238,24 @@ async function executeMerge(
     await DirectoryManager.deleteFile(sourceContextPath)
     await deleteDerivedSiblings(sourceContextPath)
 
-    // Dual-write: merge sidecar signals by delegating to `mergeScoring`
-    // (the same policy used for markdown). This keeps the two merge paths
-    // from drifting when weights change. The merge runs inside `update`'s
-    // atomic callback so a concurrent access-hit flush on the target cannot
-    // lose bumps.
-    if (runtimeSignalStore) {
-      const sourceRelPath = relPathFromContextPath(sourceContextPath, basePath)
-      const targetRelPath = relPathFromContextPath(targetContextPath, basePath)
+    // Dual-write: merge sidecar signals using `mergeScoring` (the canonical
+    // merge policy). Runs inside `update`'s atomic callback so a concurrent
+    // access-hit flush on the target cannot lose bumps.
+    if (runtimeSignalStore && sourceSignalsSnapshot) {
       try {
-        const sourceSignals = await runtimeSignalStore.get(sourceRelPath)
         await runtimeSignalStore.update(targetRelPath, (current: RuntimeSignals): RuntimeSignals => {
-          const merged = mergeScoring(sourceSignals, current)
-          const mergedImportance = merged.importance ?? current.importance
+          const merged = mergeScoring(sourceSignalsSnapshot, current)
           return {
-            accessCount: merged.accessCount ?? current.accessCount,
-            importance: mergedImportance,
-            maturity: determineTier(mergedImportance, merged.maturity ?? current.maturity),
-            recency: merged.recency ?? current.recency,
-            updateCount: merged.updateCount ?? current.updateCount,
+            accessCount: merged.accessCount,
+            importance: merged.importance,
+            maturity: determineTier(merged.importance, merged.maturity),
+            recency: merged.recency,
+            updateCount: merged.updateCount,
           }
         })
         await runtimeSignalStore.delete(sourceRelPath)
       } catch {
-        // Best-effort — merge of markdown already succeeded.
+        // Best-effort — markdown merge already succeeded.
       }
     }
 
@@ -1406,6 +1390,15 @@ async function executeDelete(
 
     await Promise.all(mdFiles.map((f) => backupBeforeWrite(f, basePath)))
     await DirectoryManager.deleteTopicRecursive(fullPath)
+
+    // Dual-write: drop sidecar entries for every markdown file that was
+    // deleted. Without this, folder deletes leak orphan signal entries.
+    // Best-effort — the markdown delete has already succeeded.
+    if (runtimeSignalStore) {
+      await Promise.all(
+        mdFiles.map((f) => dropSidecar(runtimeSignalStore, relPathFromContextPath(f, basePath))),
+      )
+    }
 
     return {
       ...reviewMeta,

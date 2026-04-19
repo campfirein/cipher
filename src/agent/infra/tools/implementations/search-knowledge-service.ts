@@ -17,13 +17,7 @@ import {
   SUMMARY_INDEX_FILE,
 } from '../../../../server/constants.js'
 import {
-  type FrontmatterScoring,
-  parseFrontmatterScoring,
-  updateScoringInContent,
-} from '../../../../server/core/domain/knowledge/markdown-writer.js'
-import {
   applyDecay,
-  applyDefaultScoring,
   compoundScore,
   determineTier,
   recordAccessHits,
@@ -190,7 +184,6 @@ interface IndexedDocument {
   /** Path to .overview.md sibling, if it exists at index-build time */
   overviewPath?: string
   path: string
-  scoring: FrontmatterScoring
   /** Path used in the merged symbol tree (namespaced for shared sources) */
   symbolPath: string
   title: string
@@ -199,7 +192,6 @@ interface IndexedDocument {
 interface SummarySource {
   excerpt: string
   path: string
-  scoring?: SummaryDocLike['scoring']
 }
 
 interface CachedIndex {
@@ -293,7 +285,6 @@ function getSummarySource(
     return {
       excerpt: summaryDoc.excerpt ?? '',
       path: summaryDoc.path,
-      scoring: summaryDoc.scoring,
     }
   }
 
@@ -304,7 +295,6 @@ function getSummarySource(
     return {
       excerpt: extractExcerpt(contextDoc.content, contextDoc.title),
       path: contextDoc.path,
-      scoring: contextDoc.scoring,
     }
   }
 
@@ -549,7 +539,6 @@ async function indexOriginDocuments(
       const fullPath = join(origin.contextTreeRoot, filePath)
       const {content} = await fileSystem.readFile(fullPath)
       const title = extractTitle(content, filePath.replace(/\.md$/, '').split('/').pop() || filePath)
-      const scoring = parseFrontmatterScoring(content) ?? applyDefaultScoring()
       const qualifiedId = `${origin.originKey}::${filePath}`
       const symbolPath = getSymbolPath(origin, filePath)
 
@@ -566,7 +555,6 @@ async function indexOriginDocuments(
         originKey: origin.originKey,
         ...(overviewPath !== undefined && {overviewPath}),
         path: filePath,
-        scoring,
         symbolPath,
         title,
       }
@@ -585,17 +573,10 @@ async function indexOriginDocuments(
       const fm = parseSummaryFrontmatter(content)
       if (!fm) return null
 
-      // Persist frontmatter scoring so propagateScoresToParents can apply hotness/tier boosts
-      const frontmatter = parseFrontmatterScoring(content)
-      const scoring = frontmatter
-        ? {importance: frontmatter.importance, maturity: frontmatter.maturity, recency: frontmatter.recency}
-        : undefined
-
       return {
         condensationOrder: fm.condensation_order,
         excerpt: stripMarkdownFrontmatter(content).slice(0, 400),
         path: getSymbolPath(origin, filePath),
-        scoring,
         tokenCount: fm.token_count,
       } satisfies SummaryDocLike
     } catch {
@@ -917,11 +898,18 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
   }
 
   /**
-   * Flush accumulated access hits to disk by updating frontmatter scoring.
-   * Called during index rebuild to batch writes and avoid write amplification.
-   * Best-effort: errors are swallowed per file.
+   * Flush accumulated access hits to the runtime-signal sidecar.
+   *
+   * Post-commit-5 this no longer writes to markdown — ranking signals
+   * live exclusively in the sidecar. The `contextTreePath` parameter is
+   * retained for signature compatibility with the cache-invalidation
+   * callback but is no longer used.
+   *
+   * Returns `true` when hits were processed so the caller knows to
+   * refresh file mtimes (historical contract); with markdown writes
+   * removed the refresh is harmless but kept for symmetry.
    */
-  async flushAccessHits(contextTreePath: string): Promise<boolean> {
+  async flushAccessHits(_contextTreePath: string): Promise<boolean> {
     if (this.pendingAccessHits.size === 0) {
       return false
     }
@@ -929,27 +917,6 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     const hits = new Map(this.pendingAccessHits)
     this.pendingAccessHits.clear()
 
-    const tasks = [...hits.entries()].map(async ([relPath, count]) => {
-      try {
-        const fullPath = join(contextTreePath, relPath)
-        const {content} = await this.fileSystem.readFile(fullPath)
-        const scoring = parseFrontmatterScoring(content) ?? applyDefaultScoring()
-        const updated = recordAccessHits(scoring, count)
-        const newTier = determineTier(
-          updated.importance ?? 50,
-          (updated.maturity ?? 'draft') as 'core' | 'draft' | 'validated',
-        )
-        const finalScoring: FrontmatterScoring = {...updated, maturity: newTier}
-        const newContent = updateScoringInContent(content, finalScoring)
-        await this.fileSystem.writeFile(fullPath, newContent)
-      } catch {
-        // Best-effort — swallow per-file errors
-      }
-    })
-    await Promise.allSettled(tasks)
-
-    // Dual-write to the runtime-signal sidecar. Markdown remains canonical in
-    // phase 3; sidecar failures must not affect the flush outcome.
     await this.mirrorHitsToSignalStore(hits)
     return true
   }
@@ -1220,16 +1187,12 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       [...hits.entries()].map(([relPath, count]) => [
         relPath,
         (current: RuntimeSignals): RuntimeSignals => {
-          // `recordAccessHits` always returns concrete importance/accessCount
-          // when given a fully-valued RuntimeSignals; the `!` assertions
-          // reflect that invariant rather than defensive fallbacks.
           const bumped = recordAccessHits(current, count)
-          const bumpedImportance = bumped.importance!
           return {
             ...current,
-            accessCount: bumped.accessCount!,
-            importance: bumpedImportance,
-            maturity: determineTier(bumpedImportance, current.maturity),
+            accessCount: bumped.accessCount,
+            importance: bumped.importance,
+            maturity: determineTier(bumped.importance, current.maturity),
           }
         },
       ]),
