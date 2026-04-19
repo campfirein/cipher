@@ -17,6 +17,7 @@ import {access, mkdir, readdir, readFile, rename, writeFile} from 'node:fs/promi
 import {dirname, join, resolve} from 'node:path'
 
 import type {ICipherAgent} from '../../../../agent/core/interfaces/i-cipher-agent.js'
+import type {ILogger} from '../../../../agent/core/interfaces/i-logger.js'
 import type {IRuntimeSignalStore} from '../../../core/interfaces/storage/i-runtime-signal-store.js'
 import type {DreamOperation} from '../dream-log-schema.js'
 import type {SynthesisCandidate} from '../dream-response-schemas.js'
@@ -30,6 +31,11 @@ import {parseDreamResponse} from '../parse-dream-response.js'
 export type SynthesizeDeps = {
   agent: ICipherAgent
   contextTreeDir: string
+  /**
+   * Optional logger. When provided, sidecar seed failures emit a warn
+   * so the fail-open degradation is observable rather than silent.
+   */
+  logger?: ILogger
   /**
    * Optional sidecar store for runtime ranking signals. When provided,
    * newly created synthesis files are seeded with default signals so
@@ -101,7 +107,7 @@ export async function synthesize(deps: SynthesizeDeps): Promise<DreamOperation[]
     for (const candidate of novel) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        const op = await writeSynthesisFile(candidate, contextTreeDir, deps.runtimeSignalStore)
+        const op = await writeSynthesisFile(candidate, contextTreeDir, deps.runtimeSignalStore, deps.logger)
         if (op) results.push(op)
       } catch {
         // Skip failed candidate — don't discard already-written results
@@ -231,6 +237,7 @@ async function writeSynthesisFile(
   candidate: SynthesisCandidate,
   contextTreeDir: string,
   runtimeSignalStore?: IRuntimeSignalStore,
+  logger?: ILogger,
 ): Promise<DreamOperation | undefined> {
   const slug = slugify(candidate.title)
   const relativePath = `${candidate.placement}/${slug}.md`
@@ -280,7 +287,7 @@ async function writeSynthesisFile(
     try {
       await runtimeSignalStore.set(relativePath, createDefaultRuntimeSignals())
     } catch (error) {
-      warnSidecarFailure(undefined, 'synthesize', 'seed', relativePath, error)
+      warnSidecarFailure(logger, 'synthesize', 'seed', relativePath, error)
     }
   }
 

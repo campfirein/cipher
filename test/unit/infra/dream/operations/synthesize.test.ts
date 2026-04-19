@@ -524,8 +524,12 @@ describe('synthesize', () => {
         title: 'Seeded Pattern',
       }]))
 
+      const setSpy = stub(signalStore, 'set').callThrough()
+
       await synthesize({...deps, runtimeSignalStore: signalStore})
 
+      expect(setSpy.calledOnce).to.be.true
+      expect(setSpy.firstCall.args[0]).to.equal('auth/seeded-pattern.md')
       const signals = await signalStore.get('auth/seeded-pattern.md')
       expect(signals.importance).to.equal(50)
       expect(signals.maturity).to.equal('draft')
@@ -554,12 +558,35 @@ describe('synthesize', () => {
         },
       ]))
 
+      const setSpy = stub(signalStore, 'set').callThrough()
+
       await synthesize({...deps, runtimeSignalStore: signalStore})
 
-      const sig1 = await signalStore.get('auth/multi-one.md')
-      const sig2 = await signalStore.get('api/multi-two.md')
-      expect(sig1.importance).to.equal(50)
-      expect(sig2.importance).to.equal(50)
+      expect(setSpy.calledTwice).to.be.true
+      expect(setSpy.firstCall.args[0]).to.equal('auth/multi-one.md')
+      expect(setSpy.secondCall.args[0]).to.equal('api/multi-two.md')
+    })
+
+    it('creates file even when sidecar store.set throws (fail-open)', async () => {
+      const brokenStore = createMockRuntimeSignalStore()
+      stub(brokenStore, 'set').rejects(new Error('disk full'))
+
+      await createMdFile(ctxDir, 'auth/_index.md', '# Auth', {type: 'summary'})
+      await createMdFile(ctxDir, 'api/_index.md', '# API', {type: 'summary'})
+
+      agent.executeOnSession.resolves(llmResponse([{
+        claim: 'Fail open.',
+        confidence: 0.9,
+        evidence: [{domain: 'auth', fact: 'A'}, {domain: 'api', fact: 'B'}],
+        placement: 'auth',
+        title: 'Fail Open Pattern',
+      }]))
+
+      const results = await synthesize({...deps, runtimeSignalStore: brokenStore})
+      expect(results).to.have.lengthOf(1)
+
+      const content = await readFile(join(ctxDir, 'auth/fail-open-pattern.md'), 'utf8')
+      expect(content).to.include('type: synthesis')
     })
 
     it('succeeds even when sidecar store is not provided', async () => {
