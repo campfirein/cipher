@@ -16,6 +16,7 @@ import {mkdir, readFile, unlink, writeFile} from 'node:fs/promises'
 import {dirname, extname, join} from 'node:path'
 
 import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
+import type {ILogger} from '../../../agent/core/interfaces/i-logger.js'
 import type {RuntimeSignals} from '../../core/domain/knowledge/runtime-signals-schema.js'
 import type {ArchiveResult, DrillDownResult} from '../../core/domain/knowledge/summary-types.js'
 import type {IContextTreeArchiveService} from '../../core/interfaces/context-tree/i-context-tree-archive-service.js'
@@ -33,13 +34,17 @@ import {
 } from '../../constants.js'
 import {applyDecay} from '../../core/domain/knowledge/memory-scoring.js'
 import {createDefaultRuntimeSignals} from '../../core/domain/knowledge/runtime-signals-schema.js'
+import {warnSidecarFailure} from '../../core/domain/knowledge/sidecar-logging.js'
 import {estimateTokens} from '../executor/pre-compaction/compaction-escalation.js'
 import {isArchiveStub, isDerivedArtifact} from './derived-artifact.js'
 import {toUnixPath} from './path-utils.js'
 import {generateArchiveStubContent, parseArchiveStubFrontmatter} from './summary-frontmatter.js'
 
 export class FileContextTreeArchiveService implements IContextTreeArchiveService {
-  constructor(private readonly runtimeSignalStore?: IRuntimeSignalStore) {}
+  constructor(
+    private readonly runtimeSignalStore?: IRuntimeSignalStore,
+    private readonly logger?: ILogger,
+  ) {}
 
   public async archiveEntry(
     relativePath: string,
@@ -99,8 +104,9 @@ export class FileContextTreeArchiveService implements IContextTreeArchiveService
     if (this.runtimeSignalStore) {
       try {
         await this.runtimeSignalStore.delete(toUnixPath(relativePath))
-      } catch {
+      } catch (error) {
         // Best-effort — archive already succeeded.
+        warnSidecarFailure(this.logger, 'archive-service', 'delete', relativePath, error)
       }
     }
 
@@ -148,7 +154,8 @@ export class FileContextTreeArchiveService implements IContextTreeArchiveService
     let signalsByPath: Map<string, RuntimeSignals>
     try {
       signalsByPath = this.runtimeSignalStore ? await this.runtimeSignalStore.list() : new Map()
-    } catch {
+    } catch (error) {
+      warnSidecarFailure(this.logger, 'archive-service', 'list', 'candidate scan', error)
       signalsByPath = new Map()
     }
 
@@ -189,8 +196,9 @@ export class FileContextTreeArchiveService implements IContextTreeArchiveService
     if (this.runtimeSignalStore) {
       try {
         await this.runtimeSignalStore.set(toUnixPath(fm.original_path), createDefaultRuntimeSignals())
-      } catch {
+      } catch (error) {
         // Best-effort — markdown restore already succeeded.
+        warnSidecarFailure(this.logger, 'archive-service', 'seed', fm.original_path, error)
       }
     }
 
@@ -257,7 +265,14 @@ ${content.slice(0, 8000)}
     try {
       const signals = await this.runtimeSignalStore.get(relativePath)
       return signals.importance
-    } catch {
+    } catch (error) {
+      warnSidecarFailure(
+        this.logger,
+        'archive-service',
+        'get',
+        `${relativePath} (archive metadata read)`,
+        error,
+      )
       return createDefaultRuntimeSignals().importance
     }
   }

@@ -215,7 +215,25 @@ export async function createCipherAgentServices(
   const mapSelectionContributor = new MapSelectionContributor('mapSelection', 16)
   systemPromptManager.registerContributor(mapSelectionContributor)
 
-  // 6b. Swarm coordinator — try to load config and build providers.
+  // 6b. Storage layer — initialised before the swarm block so the swarm
+  // SearchKnowledgeService receives `runtimeSignalStore` at construction
+  // time. Post-commit-5 the markdown fallback is gone, so a swarm search
+  // without the sidecar would silently drop every access-hit bump.
+  const keyStorage = new FileKeyStorage({
+    storageDir: storageBasePath,
+  })
+  await keyStorage.initialize()
+
+  const messageStorage = new MessageStorageService(keyStorage)
+  const messageStorageService = messageStorage
+  const historyStorage = new GranularHistoryStorage(messageStorage)
+
+  // Sidecar store for per-machine ranking signals (importance, recency,
+  // maturity, accessCount, updateCount). Kept out of the context-tree
+  // markdown so query-time bumps don't dirty version-controlled files.
+  const runtimeSignalStore = new RuntimeSignalStore(keyStorage, logger)
+
+  // 6c. Swarm coordinator — try to load config and build providers.
   // Missing config → fail-open (no swarm). Invalid config → warn but continue.
   let swarmCoordinator: SwarmCoordinator | undefined
   try {
@@ -237,7 +255,11 @@ export async function createCipherAgentServices(
     }
 
     const swarmProviders = buildProvidersFromConfig(swarmConfig, {
-      searchService: createSearchKnowledgeService(fileSystemService),
+      searchService: createSearchKnowledgeService(fileSystemService, {
+        baseDirectory: workingDirectory,
+        logger,
+        runtimeSignalStore,
+      }),
     })
 
     if (swarmProviders.length > 0) {
@@ -263,23 +285,6 @@ export async function createCipherAgentServices(
 
   // 7. Abstract generation queue (generator injected later via rebindCurateTools)
   const abstractQueue = new AbstractGenerationQueue(workingDirectory)
-
-  // 8. Storage layer — initialised before ToolProvider so curate/search
-  // factories receive `runtimeSignalStore` via ToolServices at construction
-  // time (no late-bind workarounds).
-  const keyStorage = new FileKeyStorage({
-    storageDir: storageBasePath,
-  })
-  await keyStorage.initialize()
-
-  const messageStorage = new MessageStorageService(keyStorage)
-  const messageStorageService = messageStorage
-  const historyStorage = new GranularHistoryStorage(messageStorage)
-
-  // Sidecar store for per-machine ranking signals (importance, recency,
-  // maturity, accessCount, updateCount). Kept out of the context-tree
-  // markdown so query-time bumps don't dirty version-controlled files.
-  const runtimeSignalStore = new RuntimeSignalStore(keyStorage, logger)
 
   // 9. Tool provider (depends on FileSystemService, ProcessService, MemoryManager, SystemPromptManager)
   const verbose = config.llm.verbose ?? false

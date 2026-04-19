@@ -218,8 +218,8 @@ export const TOOL_REGISTRY: Record<KnownTool, ToolRegistryEntry> = {
 
   [ToolName.CURATE]: {
     descriptionFile: 'curate',
-    factory: ({ abstractQueue, environmentContext, runtimeSignalStore }) =>
-      createCurateTool(environmentContext?.workingDirectory, abstractQueue, runtimeSignalStore),
+    factory: ({ abstractQueue, environmentContext, logger, runtimeSignalStore }) =>
+      createCurateTool(environmentContext?.workingDirectory, abstractQueue, runtimeSignalStore, logger),
     markers: [ToolMarker.ContextBuilding, ToolMarker.Modification],
     outputGuidance: 'curate',
     requiredServices: [],
