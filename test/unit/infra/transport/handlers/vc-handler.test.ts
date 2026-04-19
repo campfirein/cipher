@@ -3936,6 +3936,22 @@ describe('VcHandler', () => {
       expect(registeredEvents).to.include(VcEvents.DIFF)
     })
 
+    it('should throw GIT_NOT_INITIALIZED when git repo is missing', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
+
+      let caught: unknown
+      try {
+        await invoke(deps, VcEvents.DIFF, {path: 'foo.md', side: 'staged'})
+      } catch (error) {
+        caught = error
+      }
+
+      expect(caught).to.be.instanceOf(VcError)
+      expect((caught as VcError).code).to.equal(VcErrorCode.GIT_NOT_INITIALIZED)
+    })
+
     it('staged: should compare HEAD blob (old) against index blob (new)', async () => {
       const deps = makeDiffDeps(sandbox)
       try {
@@ -4166,6 +4182,40 @@ describe('VcHandler', () => {
       }
     })
 
+    it('count reflects only successful operations (writeFile failure → not counted)', async () => {
+      const deps = makeDiscardDeps(sandbox)
+      try {
+        deps.gitService.getBlobContents
+          .withArgs({directory: deps.tmpDir, paths: ['ok.md', 'fail.md'], ref: 'STAGE'})
+          .resolves({'fail.md': 'will fail', 'ok.md': 'will succeed'})
+        deps.writeFileStub.withArgs(join(deps.tmpDir, 'fail.md'), 'will fail').rejects(new Error('disk full'))
+        deps.writeFileStub.withArgs(join(deps.tmpDir, 'ok.md'), 'will succeed').resolves()
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{count: number}>(deps, VcEvents.DISCARD, {filePaths: ['ok.md', 'fail.md']})
+
+        expect(result.count).to.equal(1)
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('count reflects only successful operations (unlink failure → not counted)', async () => {
+      const deps = makeDiscardDeps(sandbox)
+      try {
+        deps.gitService.getBlobContents.resolves({'absent.md': undefined, 'present.md': undefined})
+        deps.unlinkStub.withArgs(join(deps.tmpDir, 'absent.md')).rejects(new Error('ENOENT'))
+        deps.unlinkStub.withArgs(join(deps.tmpDir, 'present.md')).resolves()
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{count: number}>(deps, VcEvents.DISCARD, {filePaths: ['present.md', 'absent.md']})
+
+        expect(result.count).to.equal(1)
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
     it('should return count=0 and do nothing for empty filePaths', async () => {
       const deps = makeDiscardDeps(sandbox)
       try {
@@ -4198,6 +4248,22 @@ describe('VcHandler', () => {
 
       const registeredEvents = deps.transport.onRequest.args.map((args: unknown[]) => args[0])
       expect(registeredEvents).to.include(VcEvents.DIFFS)
+    })
+
+    it('should throw GIT_NOT_INITIALIZED when git repo is missing', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
+
+      let caught: unknown
+      try {
+        await invoke(deps, VcEvents.DIFFS, {paths: ['foo.md'], side: 'staged'})
+      } catch (error) {
+        caught = error
+      }
+
+      expect(caught).to.be.instanceOf(VcError)
+      expect((caught as VcError).code).to.equal(VcErrorCode.GIT_NOT_INITIALIZED)
     })
 
     it('should return empty array when paths is empty', async () => {

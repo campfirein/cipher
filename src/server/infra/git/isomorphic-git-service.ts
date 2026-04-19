@@ -152,13 +152,9 @@ export class IsomorphicGitService implements IGitService {
       }
     }
 
-    // Collapse multi-stage entries (1/2/3) on explicit file paths in `toAdd` before staging.
-    // isomorphic-git's `git.add` only inserts stage 0 — it doesn't remove existing stages 1/2/3
-    // the way native `git add` does. For a conflicted path, this leaves the file still "unmerged"
-    // in the index even after staging. Pre-removing wipes all stages (including any stale stage 0)
-    // so the follow-up `git.add` produces a clean single-stage 0 entry — matching `git add` semantics.
-    // Directory / `.` patterns are not pre-removed (no literal index entry); `git.add` expands them
-    // recursively, and any conflicted files inside still need their explicit paths to collapse.
+    // isomorphic-git's `git.add` only inserts stage 0 and leaves stages 1/2/3 in place,
+    // so conflicted files stay "unmerged" after staging. Pre-remove explicit paths to wipe
+    // all stages; the follow-up `git.add` then produces a clean stage-0 entry.
     const explicitFilePaths = toAdd.filter((p) => p !== '.' && !p.endsWith('/'))
     await Promise.allSettled(
       explicitFilePaths.map((filepath) => git.remove({dir, filepath, fs})),
@@ -403,12 +399,9 @@ export class IsomorphicGitService implements IGitService {
 
     if (!mergeInProgress) return []
 
-    // Index-based detection (matches native git): a file is "unmerged" only when its
-    // index has multi-stage entries (1/2/3) — surfaced by `git.statusMatrix` as `stage === 3`
-    // (the index entry differs from BOTH head and workdir). After `git.add` collapses
-    // stages into a single stage 0, the row becomes `[*, *, 1|2]` and the file leaves
-    // the conflict set. Workdir content (presence of `<<<<<<<` markers) is intentionally
-    // NOT inspected here — that signal is exposed separately via `getFilesWithConflictMarkers`.
+    // Index-based detection: `stage === 3` marks multi-stage entries from a merge.
+    // Once `git.add` collapses them into stage 0, the file leaves the conflict set.
+    // Workdir markers are checked separately via `getFilesWithConflictMarkers`.
     const matrix = await git.statusMatrix({dir, fs})
     const conflicts: GitConflict[] = []
 

@@ -6,6 +6,7 @@ import { useState } from 'react'
 
 import type { ChangeFile } from '../types'
 
+import { fileKey } from '../utils/file-key'
 import { FileListItem } from './file-list-item'
 
 function stopPropagation(event: MouseEvent) {
@@ -133,7 +134,7 @@ export function FileList({
               disabled={disabled}
               file={file}
               isSelected={isFileSelected?.(file)}
-              key={`${file.status === 'unmerged' ? 'merge' : file.isStaged ? 'staged' : 'unstaged'}:${file.path}`}
+              key={fileKey(file)}
               onAction={onFileAction}
               onDiscard={onDiscardFile}
               onSelect={onFileSelect}

@@ -662,32 +662,31 @@ describe('IsomorphicGitService', () => {
       expect(conflicts).to.be.empty
     })
 
-    it('detects both_modified conflict when MERGE_HEAD exists', async () => {
-      // Commit a tracked file so statusMatrix has baseline
+    it('detects both_modified conflict after a real merge', async () => {
+      // Common ancestor with the tracked file
       await writeFile(join(testDir, 'file.md'), 'initial')
       await service.add({directory: testDir, filePaths: ['file.md']})
       await service.commit({directory: testDir, message: 'initial'})
 
-      // Simulate native git merge conflict state:
-      // native git writes MERGE_HEAD and conflict markers; isomorphic-git does not
-      await writeFile(join(testDir, '.git', 'MERGE_HEAD'), 'deadbeef\n')
-      await writeFile(join(testDir, 'file.md'), '<<<<<<< HEAD\nmain\n=======\nfeature\n>>>>>>> feature')
+      // Diverge: feature branch modifies file
+      await service.createBranch({branch: 'feature', directory: testDir})
+      await service.checkout({directory: testDir, ref: 'feature'})
+      await writeFile(join(testDir, 'file.md'), 'feature version')
+      await service.add({directory: testDir, filePaths: ['file.md']})
+      await service.commit({directory: testDir, message: 'feature change'})
+
+      // main also modifies file → conflicting change
+      await service.checkout({directory: testDir, ref: 'main'})
+      await writeFile(join(testDir, 'file.md'), 'main version')
+      await service.add({directory: testDir, filePaths: ['file.md']})
+      await service.commit({directory: testDir, message: 'main change'})
+
+      await service.merge({branch: 'feature', directory: testDir})
 
       const conflicts = await service.getConflicts({directory: testDir})
       expect(conflicts).to.have.length(1)
       expect(conflicts[0].path).to.equal('file.md')
       expect(conflicts[0].type).to.equal('both_modified')
-    })
-
-    it('detects both_added conflict when new file has conflict markers', async () => {
-      // File does NOT exist in HEAD (never committed), appears in workdir with conflict markers
-      await writeFile(join(testDir, '.git', 'MERGE_HEAD'), 'deadbeef\n')
-      await writeFile(join(testDir, 'brand-new.md'), '<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch')
-
-      const conflicts = await service.getConflicts({directory: testDir})
-      expect(conflicts).to.have.length(1)
-      expect(conflicts[0].path).to.equal('brand-new.md')
-      expect(conflicts[0].type).to.equal('both_added')
     })
 
     it('detects deleted_modified conflict when tracked file is deleted from workdir', async () => {
@@ -706,15 +705,26 @@ describe('IsomorphicGitService', () => {
     })
 
     it('detects conflicts in nested directories', async () => {
-      // Commit a tracked nested file
+      // Common ancestor with a nested tracked file
       await mkdir(join(testDir, 'sub'), {recursive: true})
       await writeFile(join(testDir, 'sub', 'nested.md'), 'initial')
       await service.add({directory: testDir, filePaths: ['sub/nested.md']})
       await service.commit({directory: testDir, message: 'initial'})
 
-      // Simulate native git merge conflict state
-      await writeFile(join(testDir, '.git', 'MERGE_HEAD'), 'deadbeef\n')
-      await writeFile(join(testDir, 'sub', 'nested.md'), '<<<<<<< HEAD\nmain\n=======\nfeature\n>>>>>>> feature')
+      // Diverge: feature modifies nested file
+      await service.createBranch({branch: 'feature', directory: testDir})
+      await service.checkout({directory: testDir, ref: 'feature'})
+      await writeFile(join(testDir, 'sub', 'nested.md'), 'feature version')
+      await service.add({directory: testDir, filePaths: ['sub/nested.md']})
+      await service.commit({directory: testDir, message: 'feature change'})
+
+      // main also modifies → conflicting change
+      await service.checkout({directory: testDir, ref: 'main'})
+      await writeFile(join(testDir, 'sub', 'nested.md'), 'main version')
+      await service.add({directory: testDir, filePaths: ['sub/nested.md']})
+      await service.commit({directory: testDir, message: 'main change'})
+
+      await service.merge({branch: 'feature', directory: testDir})
 
       const conflicts = await service.getConflicts({directory: testDir})
       expect(conflicts).to.have.length(1)

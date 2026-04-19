@@ -14,6 +14,7 @@ import { useVcPull } from '../api/execute-vc-pull'
 import { useVcPush } from '../api/execute-vc-push'
 import { useVcReset } from '../api/execute-vc-reset'
 import { useGetVcStatus } from '../api/get-vc-status'
+import { fileKey } from '../utils/file-key'
 import { statusToFiles } from '../utils/status-to-files'
 import { BranchBar } from './branch-bar'
 import { CommitInput } from './commit-input'
@@ -25,15 +26,6 @@ import { MultiDiffView } from './multi-diff-view'
 import { StageAllAndCommitDialog } from './stage-all-and-commit-dialog'
 
 type ViewMode = 'multi-staged' | 'multi-unstaged' | 'single'
-
-function fileBucket(file: ChangeFile): 'merge' | 'staged' | 'unstaged' {
-  if (file.status === 'unmerged') return 'merge'
-  return file.isStaged ? 'staged' : 'unstaged'
-}
-
-function fileKey(file: ChangeFile): string {
-  return `${fileBucket(file)}:${file.path}`
-}
 
 async function runAction(promise: Promise<unknown>, errorMsg: string): Promise<void> {
   try {

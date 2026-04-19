@@ -681,12 +681,24 @@ export class VcHandler {
   private async handleDiff(data: IVcDiffRequest, clientId: string): Promise<IVcDiffResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
     const directory = this.contextTreeService.resolvePath(projectPath)
+
+    const gitInitialized = await this.gitService.isInitialized({directory})
+    if (!gitInitialized) {
+      throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
+    }
+
     return this.computeDiff(directory, data.path, data.side)
   }
 
   private async handleDiffs(data: IVcDiffsRequest, clientId: string): Promise<IVcDiffsResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
     const directory = this.contextTreeService.resolvePath(projectPath)
+
+    const gitInitialized = await this.gitService.isInitialized({directory})
+    if (!gitInitialized) {
+      throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
+    }
+
     const {paths, side} = data
 
     if (side === 'staged') {
@@ -723,17 +735,22 @@ export class VcHandler {
       this.gitService.getBlobContents({directory, paths: filePaths, ref: 'HEAD'}),
     ])
 
-    await Promise.all(
+    const results = await Promise.all(
       filePaths.map(async (path) => {
         const target = stage[path] ?? head[path]
         const absolutePath = join(directory, path)
-        await (target === undefined
-          ? fs.promises.unlink(absolutePath).catch(() => {})
-          : fs.promises.writeFile(absolutePath, target))
+        try {
+          await (target === undefined
+            ? fs.promises.unlink(absolutePath)
+            : fs.promises.writeFile(absolutePath, target))
+          return true
+        } catch {
+          return false
+        }
       }),
     )
 
-    return {count: filePaths.length}
+    return {count: results.filter(Boolean).length}
   }
 
   private async handleFetch(data: IVcFetchRequest, clientId: string): Promise<IVcFetchResponse> {
