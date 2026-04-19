@@ -2,6 +2,10 @@ import {Badge} from '@campfirein/byterover-packages/components/badge'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
 import {NavLink, Outlet} from 'react-router-dom'
 
+import {TourBar} from '../features/onboarding/components/tour-bar'
+import {TourHost} from '../features/onboarding/components/tour-host'
+import {WelcomeOverlay} from '../features/onboarding/components/welcome-overlay'
+import {useTourWatchers} from '../features/onboarding/hooks/use-tour-watchers'
 import {useTaskCounts} from '../features/tasks/stores/task-store'
 import {useGetVcStatus} from '../features/vc/api/get-vc-status'
 import {statusToFiles} from '../features/vc/utils/status-to-files'
@@ -43,6 +47,7 @@ function ChangesBadge() {
 
 export function MainLayout() {
   const tabs = useTabs()
+  useTourWatchers()
 
   return (
     <div className="flex h-screen flex-col">
@@ -79,6 +84,10 @@ export function MainLayout() {
       <main className="min-h-0 flex-1 overflow-y-auto p-4">
         <Outlet />
       </main>
+
+      <WelcomeOverlay />
+      <TourHost />
+      <TourBar />
     </div>
   )
 }

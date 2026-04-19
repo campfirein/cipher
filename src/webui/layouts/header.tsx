@@ -1,10 +1,10 @@
 import {Button} from '@campfirein/byterover-packages/components/button'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@campfirein/byterover-packages/components/tooltip'
-import {Book} from 'lucide-react'
 import {useState} from 'react'
 
 import logo from '../assets/logo-byterover.svg'
 import {AuthMenu} from '../features/auth/components/auth-menu'
+import {HelpMenu} from '../features/onboarding/components/help-menu'
 import {ProjectDropdown} from '../features/project/components/project-dropdown'
 import {useGetActiveProviderConfig} from '../features/provider/api/get-active-provider-config'
 import {useGetProviders} from '../features/provider/api/get-providers'
@@ -57,15 +57,7 @@ export function Header() {
         </Tooltip>
         <ProviderFlowDialog onOpenChange={setProviderDialogOpen} open={providerDialogOpen} />
 
-        <a
-          className="flex items-center gap-1.5 rounded-md px-2.5 py-2 text-xs transition-colors hover:bg-muted"
-          href="https://docs.byterover.dev"
-          rel="noopener noreferrer"
-          target="_blank"
-        >
-          <Book className="size-4" />
-          Docs
-        </a>
+        <HelpMenu />
 
         <AuthMenu />
       </div>

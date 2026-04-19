@@ -1,5 +1,7 @@
 import type {ComponentRef} from 'react'
 
+import {TourTaskBanner, TourTaskContinueCta} from '../../onboarding/components/tour-task-banner'
+import {useOnboardingStore} from '../../onboarding/stores/onboarding-store'
 import {useStickToBottom} from '../hooks/use-stick-to-bottom'
 import {useTickingNow} from '../hooks/use-ticking-now'
 import {useTaskById} from '../stores/task-store'
@@ -18,6 +20,9 @@ export function TaskDetailView({taskId}: TaskDetailViewProps) {
   const isActive = task ? isActiveStatus(task.status) : false
   const now = useTickingNow(isActive)
 
+  const tourTaskId = useOnboardingStore((s) => s.tourTaskId)
+  const isTourTask = tourTaskId === taskId
+
   const lastReasoning = task?.reasoningContents?.at(-1)
   const {onScroll, ref: scrollRef} = useStickToBottom<ComponentRef<'div'>>(
     [
@@ -28,8 +33,14 @@ export function TaskDetailView({taskId}: TaskDetailViewProps) {
       task?.responseContent,
       task?.result,
       task?.error?.message,
+      // Include status so the active → terminal transition (which is when the
+      // Result/Error sections + tour Continue CTA appear) re-runs the effect
+      // and snaps the user to the new bottom if they were already there.
+      task?.status,
     ],
-    isActive,
+    // Stay enabled for the tour task even after it terminates, so the final
+    // scroll picks up the Continue CTA at the bottom of the detail.
+    isActive || isTourTask,
   )
 
   if (!task) {
@@ -46,11 +57,13 @@ export function TaskDetailView({taskId}: TaskDetailViewProps) {
       <DetailHeader now={now} task={task} />
       <div className="border-border/50 border-t" />
       <div className="flex min-h-0 flex-1 flex-col gap-7 overflow-y-auto px-6 py-5" onScroll={onScroll} ref={scrollRef}>
+        <TourTaskBanner task={task} />
         <InputSection task={task} />
         {task.type !== 'query' && <EventLogSection now={now} task={task} />}
         {showLive && <LiveStreamSection task={task} />}
         {result && <ResultSection content={result} />}
         {error && <ErrorSection error={error} />}
+        <TourTaskContinueCta task={task} />
       </div>
     </div>
   )
