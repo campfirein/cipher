@@ -2,6 +2,14 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.7.0]
+
+### Added
+- **Intel Mac (darwin-x64) install support** — `curl -fsSL https://byterover.dev/install.sh | sh` now installs on Intel Macs. Previously the installer rejected `darwin-x64` with an Apple-Silicon-only error. CI also publishes a `darwin-x64` tarball alongside the existing `darwin-arm64`, `linux-x64`, and `linux-arm64` builds.
+
+### Fixed
+- **Security dependency update** — Updated `basic-ftp` and `hono` to patch a high-severity npm advisory.
+
 ## [3.6.0]
 
 ### Added
