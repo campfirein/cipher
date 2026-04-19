@@ -288,6 +288,7 @@ export class DreamExecutor {
         ...(await synthesize({
           agent,
           contextTreeDir,
+          runtimeSignalStore: this.deps.runtimeSignalStore,
           searchService: this.deps.searchService,
           signal,
           taskId,

@@ -17,9 +17,12 @@ import {access, mkdir, readdir, readFile, rename, writeFile} from 'node:fs/promi
 import {dirname, join, resolve} from 'node:path'
 
 import type {ICipherAgent} from '../../../../agent/core/interfaces/i-cipher-agent.js'
+import type {IRuntimeSignalStore} from '../../../core/interfaces/storage/i-runtime-signal-store.js'
 import type {DreamOperation} from '../dream-log-schema.js'
 import type {SynthesisCandidate} from '../dream-response-schemas.js'
 
+import {createDefaultRuntimeSignals} from '../../../core/domain/knowledge/runtime-signals-schema.js'
+import {warnSidecarFailure} from '../../../core/domain/knowledge/sidecar-logging.js'
 import {isDescendantOf} from '../../../utils/path-utils.js'
 import {SynthesizeResponseSchema} from '../dream-response-schemas.js'
 import {parseDreamResponse} from '../parse-dream-response.js'
@@ -27,6 +30,12 @@ import {parseDreamResponse} from '../parse-dream-response.js'
 export type SynthesizeDeps = {
   agent: ICipherAgent
   contextTreeDir: string
+  /**
+   * Optional sidecar store for runtime ranking signals. When provided,
+   * newly created synthesis files are seeded with default signals so
+   * ranking data lives in the sidecar rather than in markdown frontmatter.
+   */
+  runtimeSignalStore?: IRuntimeSignalStore
   searchService: {
     search(query: string, options?: {limit?: number; scope?: string}): Promise<{results: Array<{path: string; score: number; title: string}>}>
   }
@@ -92,7 +101,7 @@ export async function synthesize(deps: SynthesizeDeps): Promise<DreamOperation[]
     for (const candidate of novel) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        const op = await writeSynthesisFile(candidate, contextTreeDir)
+        const op = await writeSynthesisFile(candidate, contextTreeDir, deps.runtimeSignalStore)
         if (op) results.push(op)
       } catch {
         // Skip failed candidate — don't discard already-written results
@@ -221,6 +230,7 @@ async function isDuplicateCandidate(
 async function writeSynthesisFile(
   candidate: SynthesisCandidate,
   contextTreeDir: string,
+  runtimeSignalStore?: IRuntimeSignalStore,
 ): Promise<DreamOperation | undefined> {
   const slug = slugify(candidate.title)
   const relativePath = `${candidate.placement}/${slug}.md`
@@ -243,7 +253,6 @@ async function writeSynthesisFile(
   /* eslint-disable camelcase */
   const frontmatter = {
     confidence: candidate.confidence,
-    maturity: 'draft',
     sources,
     synthesized_at: new Date().toISOString(),
     type: 'synthesis',
@@ -263,6 +272,17 @@ async function writeSynthesisFile(
   const content = `---\n${yaml}\n---\n\n${body}`
 
   await atomicWrite(absPath, content)
+
+  // Seed the sidecar with default signals so ranking data lives in the
+  // sidecar rather than in markdown frontmatter. Best-effort — a sidecar
+  // failure must never prevent the synthesis file from being created.
+  if (runtimeSignalStore) {
+    try {
+      await runtimeSignalStore.set(relativePath, createDefaultRuntimeSignals())
+    } catch (error) {
+      warnSidecarFailure(undefined, 'synthesize', 'seed', relativePath, error)
+    }
+  }
 
   return {
     action: 'CREATE',
