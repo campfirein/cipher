@@ -2,6 +2,20 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.7.0]
+
+### Added
+- **Intel Mac (darwin-x64) install support** — `curl -fsSL https://byterover.dev/install.sh | sh` now installs on Intel Macs. Previously the installer rejected `darwin-x64` with an Apple-Silicon-only error. CI also publishes a `darwin-x64` tarball alongside the existing `darwin-arm64`, `linux-x64`, and `linux-arm64` builds.
+
+### Fixed
+- **Security dependency update** — Updated `basic-ftp` and `hono` to patch a high-severity npm advisory.
+
+## [3.6.0]
+
+### Added
+- **`brv dream` — tidy up your context tree** — A new command that cleans up your memory in the background: merges related notes, writes short summaries that connect ideas across topics, and archives stale entries. It runs on its own when the CLI has been idle for a while, or you can run it yourself. Changes the model is unsure about are held for you to review with `brv review pending`, and `brv dream --undo` reverts the last run. Flags: `--force` / `-f` to skip the time and activity gates, `--detach` to queue and exit without waiting, `--undo`, `--timeout <seconds>`, `--format json`.
+- **`brv query-log` — see what you've asked before** — Every `brv query` is now saved locally so you can look back at past questions and how they were answered. `brv query-log view` lists recent queries with filters `--status`, `--tier`, `--since`, `--before`, and `--limit`, plus `--detail` to also show the matched docs for each entry, and `--format json`. `brv query-log summary` shows aggregated metrics — coverage, cache hit rate, and top topics — over a window set by `--last`, `--since`, or `--before`, with `--format` options `text`, `json`, or `narrative` for a plain-English recap.
+
 ## [3.5.1]
 
 ### Changed

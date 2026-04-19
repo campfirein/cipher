@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {mkdir, rm, writeFile} from 'node:fs/promises'
+import {mkdir, readdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -17,6 +17,30 @@ function makeEntry(overrides: Partial<CurateLogEntry> & {id: string}): CurateLog
     taskId: `task-${overrides.id}`,
     ...overrides,
   } as CurateLogEntry
+}
+
+/** Poll until the .json file count in dir stabilises (two consecutive reads match). */
+async function waitForPruneToSettle(dir: string): Promise<void> {
+  const count = async (): Promise<number> => {
+    try {
+      const files = await readdir(dir)
+      return files.filter((f: string) => f.endsWith('.json')).length
+    } catch {
+      return 0
+    }
+  }
+
+  let prev = await count()
+  for (let i = 0; i < 50; i++) {
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => {
+      setTimeout(r, 2)
+    })
+    // eslint-disable-next-line no-await-in-loop
+    const cur = await count()
+    if (cur === prev) return
+    prev = cur
+  }
 }
 
 describe('FileCurateLogStore', () => {
@@ -338,10 +362,7 @@ describe('FileCurateLogStore', () => {
 
       const ids = [await saveEntry(), await saveEntry(), await saveEntry(), await saveEntry(), await saveEntry()]
 
-      // Allow prune to settle
-      await new Promise((resolve) => {
-        setTimeout(resolve, 50)
-      })
+      await waitForPruneToSettle(join(tempDir, 'curate-log'))
 
       // Only the 3 newest should remain
       const newest = ids.slice(2) // ids[2], ids[3], ids[4]
@@ -357,6 +378,76 @@ describe('FileCurateLogStore', () => {
       for (const result of oldestResults) {
         expect(result).to.be.null
       }
+    })
+
+    it('should not prune at old limit (100) and should prune at new limit (1000)', async function () {
+      this.timeout(30_000)
+
+      const logDir = join(tempDir, 'curate-log')
+      await mkdir(logDir, {recursive: true})
+
+      // Helper: seed N files directly on disk (parallel writes, no store overhead)
+      const seedFiles = async (startTs: number, count: number): Promise<void> => {
+        const writes: Promise<void>[] = []
+        for (let i = 0; i < count; i++) {
+          const ts = startTs + i
+          const id = `cur-${ts}`
+          const entry = {
+            completedAt: ts + 1,
+            id,
+            input: {},
+            operations: [],
+            startedAt: ts,
+            status: 'completed',
+            summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0},
+            taskId: `task-${id}`,
+          }
+
+          writes.push(writeFile(join(logDir, `${id}.json`), JSON.stringify(entry)))
+        }
+
+        await Promise.all(writes)
+      }
+
+      const countFiles = async (): Promise<number> => {
+        const files = await readdir(logDir)
+        return files.filter((f: string) => f.endsWith('.json')).length
+      }
+
+      const baseTs = 1_700_000_000_000
+
+      // Phase 1: Seed 99 files on disk, then save entry #100 via store
+      // Old limit was 100 — must NOT prune
+      await seedFiles(baseTs, 99)
+      const store100 = new FileCurateLogStore({baseDir: tempDir})
+      const id100 = `cur-${baseTs + 99}`
+      await store100.save(makeEntry({id: id100, startedAt: baseTs + 99}))
+      await waitForPruneToSettle(logDir)
+
+      expect(await countFiles()).to.equal(100)
+      expect(await store100.getById(`cur-${baseTs}`)).to.not.be.null // oldest survives
+
+      // Phase 2: Seed up to 999 files, then save entry #1000 via store
+      // New limit is 1000 — must NOT prune at boundary
+      await seedFiles(baseTs + 100, 899)
+      const store1000 = new FileCurateLogStore({baseDir: tempDir})
+      const id1000 = `cur-${baseTs + 999}`
+      await store1000.save(makeEntry({id: id1000, startedAt: baseTs + 999}))
+      await waitForPruneToSettle(logDir)
+
+      expect(await countFiles()).to.equal(1000)
+      expect(await store1000.getById(`cur-${baseTs}`)).to.not.be.null // oldest still survives
+
+      // Phase 3: Save entry #1001 via store — exceeds new limit, oldest must be pruned
+      const store1001 = new FileCurateLogStore({baseDir: tempDir})
+      const id1001 = `cur-${baseTs + 1000}`
+      await store1001.save(makeEntry({id: id1001, startedAt: baseTs + 1000}))
+      await waitForPruneToSettle(logDir)
+
+      expect(await countFiles()).to.equal(1000)
+      expect(await store1001.getById(`cur-${baseTs}`)).to.be.null // oldest pruned
+      expect(await store1001.getById(`cur-${baseTs + 1}`)).to.not.be.null // second oldest survives
+      expect(await store1001.getById(id1001)).to.not.be.null // newest survives
     })
   })
 
@@ -524,9 +615,7 @@ describe('FileCurateLogStore', () => {
         completedAt: Date.now(),
         id,
         input: {},
-        operations: [
-          {needsReview: true, path: '/a.md', reviewStatus: 'pending', status: 'success', type: 'UPDATE'},
-        ],
+        operations: [{needsReview: true, path: '/a.md', reviewStatus: 'pending', status: 'success', type: 'UPDATE'}],
         startedAt: Date.now() - 500,
         status: 'completed',
         summary: {added: 0, deleted: 0, failed: 0, merged: 0, updated: 1},
@@ -586,7 +675,16 @@ describe('FileCurateLogStore', () => {
         id,
         input: {},
         operations: [
-          {confidence: 'low', impact: 'high', needsReview: true, path: '/a.md', reason: 'test', reviewStatus: 'pending', status: 'success', type: 'UPDATE'},
+          {
+            confidence: 'low',
+            impact: 'high',
+            needsReview: true,
+            path: '/a.md',
+            reason: 'test',
+            reviewStatus: 'pending',
+            status: 'success',
+            type: 'UPDATE',
+          },
         ],
         startedAt: Date.now() - 500,
         status: 'completed',

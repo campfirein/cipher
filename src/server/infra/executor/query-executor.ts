@@ -1,24 +1,41 @@
-import { join, relative } from 'node:path'
+import {join, relative} from 'node:path'
 
-import type { ICipherAgent } from '../../../agent/core/interfaces/i-cipher-agent.js'
-import type { IFileSystem } from '../../../agent/core/interfaces/i-file-system.js'
-import type { ISearchKnowledgeService, SearchKnowledgeResult } from '../../../agent/infra/sandbox/tools-sdk.js'
-import type { IQueryExecutor, QueryExecuteOptions } from '../../core/interfaces/executor/i-query-executor.js'
+import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
+import type {IFileSystem} from '../../../agent/core/interfaces/i-file-system.js'
+import type {ISearchKnowledgeService, SearchKnowledgeResult} from '../../../agent/infra/sandbox/tools-sdk.js'
+import type {QueryLogMatchedDoc} from '../../core/domain/entities/query-log-entry.js'
+import type {
+  IQueryExecutor,
+  QueryExecuteOptions,
+  QueryExecutorResult,
+} from '../../core/interfaces/executor/i-query-executor.js'
 
-import { ABSTRACT_EXTENSION, BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR } from '../../constants.js'
-import { loadSources } from '../../core/domain/source/source-schema.js'
-import { isDerivedArtifact } from '../context-tree/derived-artifact.js'
-import { FileContextTreeManifestService } from '../context-tree/file-context-tree-manifest-service.js'
+import {ABSTRACT_EXTENSION, BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR} from '../../constants.js'
+import {
+  TIER_DIRECT_SEARCH,
+  TIER_EXACT_CACHE,
+  TIER_FULL_AGENTIC,
+  TIER_FUZZY_CACHE,
+  TIER_OPTIMIZED_LLM,
+} from '../../core/domain/entities/query-log-entry.js'
+import {loadSources} from '../../core/domain/source/source-schema.js'
+import {isDerivedArtifact} from '../context-tree/derived-artifact.js'
+import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
 import {
   canRespondDirectly,
   type DirectSearchResult,
   formatDirectResponse,
   formatNotFoundResponse,
 } from './direct-search-responder.js'
-import { QueryResultCache } from './query-result-cache.js'
+import {QueryResultCache} from './query-result-cache.js'
 
 /** Attribution footer appended to all query responses */
 const ATTRIBUTION_FOOTER = '\n\n---\nSource: ByteRover Knowledge Base'
+
+/** Map search results to the matchedDocs shape for QueryExecutorResult. */
+function buildMatchedDocs(sr: SearchKnowledgeResult | undefined): QueryLogMatchedDoc[] {
+  return (sr?.results ?? []).map((r) => ({path: r.path, score: r.score, title: r.title}))
+}
 
 /** Minimum normalized score to consider a result high-confidence for pre-fetching */
 const SMART_ROUTING_SCORE_THRESHOLD = 0.7
@@ -64,7 +81,7 @@ export class QueryExecutor implements IQueryExecutor {
   private static readonly FINGERPRINT_CACHE_TTL_MS = 30_000
   private readonly baseDirectory?: string
   private readonly cache?: QueryResultCache
-  private cachedFingerprint?: { expiresAt: number; sourceValidityHash: string; value: string; worktreeRoot?: string }
+  private cachedFingerprint?: {expiresAt: number; sourceValidityHash: string; value: string; worktreeRoot?: string}
   private readonly fileSystem?: IFileSystem
   private readonly searchService?: ISearchKnowledgeService
 
@@ -77,12 +94,13 @@ export class QueryExecutor implements IQueryExecutor {
     }
   }
 
-  public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<string> {
-    const { query, taskId, worktreeRoot } = options
+  public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<QueryExecutorResult> {
+    const startTime = Date.now()
+    const {query, taskId, worktreeRoot} = options
     const workspaceScope = this.deriveWorkspaceScope(worktreeRoot)
 
     // Start search early — runs in parallel with fingerprint computation (independent operations)
-    const searchPromise = this.searchService?.search(query, { limit: SMART_ROUTING_MAX_DOCS, scope: workspaceScope })
+    const searchPromise = this.searchService?.search(query, {limit: SMART_ROUTING_MAX_DOCS, scope: workspaceScope})
     // Prevent unhandled rejection if we return early (cache hit) while search is still pending
     searchPromise?.catch(() => {})
 
@@ -92,7 +110,12 @@ export class QueryExecutor implements IQueryExecutor {
       fingerprint = await this.computeContextTreeFingerprint(worktreeRoot)
       const cached = this.cache.get(query, fingerprint)
       if (cached) {
-        return cached + ATTRIBUTION_FOOTER
+        return {
+          matchedDocs: [],
+          response: cached + ATTRIBUTION_FOOTER,
+          tier: TIER_EXACT_CACHE,
+          timing: {durationMs: Date.now() - startTime},
+        }
       }
     }
 
@@ -100,7 +123,12 @@ export class QueryExecutor implements IQueryExecutor {
     if (this.cache && fingerprint) {
       const fuzzyHit = this.cache.findSimilar(query, fingerprint)
       if (fuzzyHit) {
-        return fuzzyHit + ATTRIBUTION_FOOTER
+        return {
+          matchedDocs: [],
+          response: fuzzyHit + ATTRIBUTION_FOOTER,
+          tier: TIER_FUZZY_CACHE,
+          timing: {durationMs: Date.now() - startTime},
+        }
       }
     }
 
@@ -124,7 +152,13 @@ export class QueryExecutor implements IQueryExecutor {
         this.cache.set(query, response, fingerprint)
       }
 
-      return response + ATTRIBUTION_FOOTER
+      return {
+        matchedDocs: [],
+        response: response + ATTRIBUTION_FOOTER,
+        searchMetadata: {resultCount: 0, topScore: 0, totalFound: 0},
+        tier: TIER_DIRECT_SEARCH,
+        timing: {durationMs: Date.now() - startTime},
+      }
     }
 
     // === Tier 2: Direct search response (~100-200ms) ===
@@ -135,7 +169,18 @@ export class QueryExecutor implements IQueryExecutor {
           this.cache.set(query, directResult, fingerprint)
         }
 
-        return directResult + ATTRIBUTION_FOOTER
+        return {
+          matchedDocs: buildMatchedDocs(searchResult),
+          response: directResult + ATTRIBUTION_FOOTER,
+          searchMetadata: {
+            cacheFingerprint: fingerprint,
+            resultCount: searchResult.results.length,
+            topScore: searchResult.results[0]?.score ?? 0,
+            totalFound: searchResult.totalFound,
+          },
+          tier: TIER_DIRECT_SEARCH,
+          timing: {durationMs: Date.now() - startTime},
+        }
       }
     }
 
@@ -158,9 +203,7 @@ export class QueryExecutor implements IQueryExecutor {
         if (manifest) {
           const resolved = await manifestService.resolveForInjection(manifest, query, this.baseDirectory)
           if (resolved.length > 0) {
-            manifestContext = resolved
-              .map((e) => `[${e.type} ${e.path}]\n${e.content}`)
-              .join('\n\n---\n\n')
+            manifestContext = resolved.map((e) => `[${e.type} ${e.path}]\n${e.content}`).join('\n\n---\n\n')
           }
         }
       } catch {
@@ -207,12 +250,12 @@ export class QueryExecutor implements IQueryExecutor {
 
     // Query-optimized LLM overrides: tokens and lower temperature
     const queryOverrides = prefetchedContext
-      ? { maxIterations: 50, maxTokens: 1024, temperature: 0.3 }
-      : { maxIterations: 50, maxTokens: 2048, temperature: 0.5 }
+      ? {maxIterations: 50, maxTokens: 1024, temperature: 0.3}
+      : {maxIterations: 50, maxTokens: 2048, temperature: 0.5}
 
     try {
       const response = await agent.executeOnSession(taskSessionId, prompt, {
-        executionContext: { commandType: 'query', ...queryOverrides },
+        executionContext: {commandType: 'query', ...queryOverrides},
         taskId,
       })
 
@@ -221,7 +264,19 @@ export class QueryExecutor implements IQueryExecutor {
         this.cache.set(query, response, fingerprint)
       }
 
-      return response + ATTRIBUTION_FOOTER
+      const tier = prefetchedContext ? TIER_OPTIMIZED_LLM : TIER_FULL_AGENTIC
+      return {
+        matchedDocs: buildMatchedDocs(searchResult),
+        response: response + ATTRIBUTION_FOOTER,
+        searchMetadata: {
+          cacheFingerprint: fingerprint,
+          resultCount: searchResult?.results.length ?? 0,
+          topScore: searchResult?.results[0]?.score ?? 0,
+          totalFound: searchResult?.totalFound ?? 0,
+        },
+        tier,
+        timing: {durationMs: Date.now() - startTime},
+      }
     } finally {
       // Clean up entire task session (sandbox + history) in one call
       await agent.deleteTaskSession(taskSessionId)
@@ -236,21 +291,16 @@ export class QueryExecutor implements IQueryExecutor {
   private buildPrefetchedContext(searchResult: SearchKnowledgeResult): string | undefined {
     if (searchResult.totalFound === 0) return undefined
 
-    const highConfidenceResults = searchResult.results.filter(
-      (r) => r.score >= SMART_ROUTING_SCORE_THRESHOLD,
-    )
+    const highConfidenceResults = searchResult.results.filter((r) => r.score >= SMART_ROUTING_SCORE_THRESHOLD)
 
     if (highConfidenceResults.length === 0) return undefined
 
-    const sections = highConfidenceResults.map(
-      (r) => {
-        const source = r.origin === 'shared' && r.originAlias
-          ? `[${r.originAlias}]:${r.path}`
-          : `.brv/context-tree/${r.path}`
+    const sections = highConfidenceResults.map((r) => {
+      const source =
+        r.origin === 'shared' && r.originAlias ? `[${r.originAlias}]:${r.path}` : `.brv/context-tree/${r.path}`
 
-        return `### ${r.title}\n**Source**: ${source}\n\n${r.excerpt}`
-      },
-    )
+      return `### ${r.title}\n**Source**: ${source}\n\n${r.excerpt}`
+    })
 
     return sections.join('\n\n---\n\n')
   }
@@ -268,14 +318,14 @@ export class QueryExecutor implements IQueryExecutor {
     query: string,
     options: {
       manifestContext?: string
-      metadata: { hasPreFetched: boolean; resultCount: number; topScore: number; totalFound: number }
+      metadata: {hasPreFetched: boolean; resultCount: number; topScore: number; totalFound: number}
       metaVar: string
       prefetchedContext?: string
       resultsVar: string
       scopeVar?: string
     },
   ): string {
-    const { manifestContext, metadata, metaVar, prefetchedContext, resultsVar, scopeVar } = options
+    const {manifestContext, metadata, metaVar, prefetchedContext, resultsVar, scopeVar} = options
     const groundingRules = `### Grounding Rules (CRITICAL)
 - ONLY use information from the curated knowledge base (local .brv/context-tree/ plus any read-only shared sources)
 - If no relevant knowledge is found, respond: "This topic is not covered in the knowledge base."
@@ -350,9 +400,12 @@ ${responseFormat}`
   private async computeContextTreeFingerprint(worktreeRoot?: string): Promise<string> {
     // Fast path: return cached fingerprint if still valid (avoids globFiles I/O)
     // Invalidate if worktreeRoot changed or knowledge source validity changed
-    if (this.cachedFingerprint && Date.now() < this.cachedFingerprint.expiresAt
-      && this.cachedFingerprint.worktreeRoot === worktreeRoot
-      && this.cachedFingerprint.sourceValidityHash === this.computeSourceValidityHash()) {
+    if (
+      this.cachedFingerprint &&
+      Date.now() < this.cachedFingerprint.expiresAt &&
+      this.cachedFingerprint.worktreeRoot === worktreeRoot &&
+      this.cachedFingerprint.sourceValidityHash === this.computeSourceValidityHash()
+    ) {
       return this.cachedFingerprint.value
     }
 
@@ -377,7 +430,7 @@ ${responseFormat}`
 
       // Include shared source state in fingerprint so edits in shared
       // projects invalidate cached query answers.
-      const loaded = this.baseDirectory ? loadSources(this.baseDirectory) : null
+      const loaded = this.baseDirectory ? loadSources(this.baseDirectory) : undefined
       if (loaded) {
         // sources-file mtime detects source additions/removals
         if (loaded.mtime) {
@@ -440,7 +493,10 @@ ${responseFormat}`
     const loaded = loadSources(this.baseDirectory)
     if (!loaded) return 'no-sources'
 
-    return loaded.origins.map((o) => o.originKey).sort().join(',')
+    return loaded.origins
+      .map((o) => o.originKey)
+      .sort()
+      .join(',')
   }
 
   /**
@@ -469,9 +525,36 @@ ${responseFormat}`
    */
   private extractQueryEntities(query: string): string[] {
     const stopwords = new Set([
-      'a', 'about', 'an', 'and', 'by', 'did', 'do', 'does', 'for', 'from',
-      'how', 'in', 'is', 'my', 'of', 'or', 'our', 'that', 'the', 'their',
-      'this', 'to', 'was', 'were', 'what', 'when', 'where', 'which', 'who', 'with',
+      'a',
+      'about',
+      'an',
+      'and',
+      'by',
+      'did',
+      'do',
+      'does',
+      'for',
+      'from',
+      'how',
+      'in',
+      'is',
+      'my',
+      'of',
+      'or',
+      'our',
+      'that',
+      'the',
+      'their',
+      'this',
+      'to',
+      'was',
+      'were',
+      'what',
+      'when',
+      'where',
+      'which',
+      'who',
+      'with',
     ])
     const words = query.toLowerCase().split(/\s+/)
 
@@ -497,13 +580,13 @@ ${responseFormat}`
 
     try {
       const entitySearches = await Promise.allSettled(
-        entities.slice(0, 3).map((entity) =>
-          this.searchService!.search(entity, { limit: 3, scope }),
-        ),
+        entities.slice(0, 3).map((entity) => this.searchService!.search(entity, {limit: 3, scope})),
       )
 
       // Collect existing paths to deduplicate
-      const existingPaths = new Set(searchResult.results.map((r) => `${r.originAlias ?? r.origin ?? 'local'}::${r.path}`))
+      const existingPaths = new Set(
+        searchResult.results.map((r) => `${r.originAlias ?? r.origin ?? 'local'}::${r.path}`),
+      )
       const supplementary = []
 
       for (const settled of entitySearches) {
@@ -555,18 +638,17 @@ ${responseFormat}`
               // Use originContextTreeRoot for shared results, local context tree for local
               const ctBase = result.originContextTreeRoot ?? join(BRV_DIR, CONTEXT_TREE_DIR)
               const ctPath = join(ctBase, result.path)
-              const { content: fullContent } = await this.fileSystem!.readFile(ctPath)
+              const {content: fullContent} = await this.fileSystem!.readFile(ctPath)
               content = fullContent
             } catch {
               // Use excerpt if full read fails
             }
 
             // Include source attribution in path for shared results
-            const displayPath = result.origin === 'shared' && result.originAlias
-              ? `[${result.originAlias}]:${result.path}`
-              : result.path
+            const displayPath =
+              result.origin === 'shared' && result.originAlias ? `[${result.originAlias}]:${result.path}` : result.path
 
-            return { content, path: displayPath, score: result.score, title: result.title }
+            return {content, path: displayPath, score: result.score, title: result.title}
           }),
       )
 

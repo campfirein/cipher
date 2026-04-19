@@ -4,6 +4,7 @@ import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.j
 import type {CurationStatus} from '../../core/domain/entities/curation-status.js'
 import type {CurateExecuteOptions, ICurateExecutor} from '../../core/interfaces/executor/i-curate-executor.js'
 
+import {BRV_DIR} from '../../constants.js'
 import {FileValidationError} from '../../core/domain/errors/task-error.js'
 import {
   createFileContentReader,
@@ -15,6 +16,7 @@ import {FileContextTreeManifestService} from '../context-tree/file-context-tree-
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-summary-service.js'
 import {diffStates} from '../context-tree/snapshot-diff.js'
+import {DreamStateService} from '../dream/dream-state-service.js'
 import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
 type BackgroundDrainAgent = ICipherAgent & {drainBackgroundWork?: () => Promise<void>}
@@ -148,6 +150,14 @@ export class CurateExecutor implements ICurateExecutor {
         } catch {
           // Fail-open: summary/manifest errors never block curation
         }
+      }
+
+      // Increment dream curation counter (fail-open: non-critical for curation)
+      try {
+        const dreamStateService = new DreamStateService({baseDir: path.join(baseDir, BRV_DIR)})
+        await dreamStateService.incrementCurationCount()
+      } catch {
+        // Dream state tracking is non-critical — don't block curation
       }
 
       await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
