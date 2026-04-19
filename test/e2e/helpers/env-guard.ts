@@ -1,10 +1,45 @@
 export type E2eConfig = {
-  apiBaseUrl: string
   apiKey: string
-  cogitApiBaseUrl: string
+  cogitBaseUrl: string
   gitRemoteBaseUrl: string
-  llmApiBaseUrl: string
+  iamBaseUrl: string
+  llmBaseUrl: string
   webAppUrl: string
+}
+
+/** Strips trailing slashes and leading/trailing whitespace from a URL. */
+const normalizeUrl = (url: string): string => url.trim().replace(/\/+$/, '')
+
+/** Throws if the URL contains a path component (anything beyond '/'). */
+const assertRootDomain = (name: string, url: string): void => {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error(`${name} is not a valid URL: "${url}". Provide a full URL including scheme (e.g., https://example.com).`)
+  }
+
+  if (parsed.pathname !== '/') {
+    throw new Error(
+      `${name} must not include a path component. Provide the root domain only (e.g., https://example.com).`,
+    )
+  }
+}
+
+/**
+ * Reads a required environment variable, trims whitespace, and normalizes
+ * trailing slashes. Throws if the variable is missing or empty.
+ */
+const readRequiredEnv = (name: string): string => {
+  const value = process.env[name]?.trim()
+  if (!value) {
+    throw new Error(
+      `Missing required environment variable: ${name}. ` +
+      'Ensure .env.development is loaded via dotenv. See test/e2e/README.md',
+    )
+  }
+
+  return normalizeUrl(value)
 }
 
 /**
@@ -25,20 +60,29 @@ export function requireE2eEnv(this: {skip(): never}): void {
 
 /**
  * Returns typed E2E configuration from environment variables.
- * BRV_E2E_API_KEY is required; all other variables default to dev-beta URLs.
+ *
+ * All variables are required — no hardcoded defaults. Variable names and
+ * validation match the runtime contract in src/server/config/environment.ts.
+ * BRV_IAM_BASE_URL and BRV_COGIT_BASE_URL must be root domains (no path).
  */
-export const getE2eConfig =  (): E2eConfig => {
+export const getE2eConfig = (): E2eConfig => {
   const apiKey = process.env.BRV_E2E_API_KEY
   if (!apiKey) {
     throw new Error('BRV_E2E_API_KEY is required. See test/e2e/README.md')
   }
 
+  const iamBaseUrl = readRequiredEnv('BRV_IAM_BASE_URL')
+  assertRootDomain('BRV_IAM_BASE_URL', iamBaseUrl)
+
+  const cogitBaseUrl = readRequiredEnv('BRV_COGIT_BASE_URL')
+  assertRootDomain('BRV_COGIT_BASE_URL', cogitBaseUrl)
+
   return {
-    apiBaseUrl: process.env.BRV_API_BASE_URL ?? 'https://dev-beta-iam.byterover.dev/api/v1',
     apiKey,
-    cogitApiBaseUrl: process.env.BRV_COGIT_API_BASE_URL ?? 'https://dev-beta-cgit.byterover.dev/api/v1',
-    gitRemoteBaseUrl: process.env.BRV_GIT_REMOTE_BASE_URL ?? 'https://dev-beta.byterover.dev',
-    llmApiBaseUrl: process.env.BRV_LLM_API_BASE_URL ?? 'https://dev-beta-llm.byterover.dev',
-    webAppUrl: process.env.BRV_WEB_APP_URL ?? 'https://dev-beta-app.byterover.dev',
+    cogitBaseUrl,
+    gitRemoteBaseUrl: readRequiredEnv('BRV_GIT_REMOTE_BASE_URL'),
+    iamBaseUrl,
+    llmBaseUrl: readRequiredEnv('BRV_LLM_BASE_URL'),
+    webAppUrl: readRequiredEnv('BRV_WEB_APP_URL'),
   }
 }

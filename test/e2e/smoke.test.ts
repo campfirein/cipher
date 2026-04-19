@@ -9,9 +9,9 @@ describe('E2E Smoke Test', () => {
     const config = getE2eConfig()
 
     expect(config).to.have.property('apiKey').that.is.a('string').and.is.not.empty
-    expect(config).to.have.property('apiBaseUrl').that.is.a('string').and.is.not.empty
-    expect(config).to.have.property('cogitApiBaseUrl').that.is.a('string').and.is.not.empty
-    expect(config).to.have.property('llmApiBaseUrl').that.is.a('string').and.is.not.empty
+    expect(config).to.have.property('iamBaseUrl').that.is.a('string').and.is.not.empty
+    expect(config).to.have.property('cogitBaseUrl').that.is.a('string').and.is.not.empty
+    expect(config).to.have.property('llmBaseUrl').that.is.a('string').and.is.not.empty
     expect(config).to.have.property('gitRemoteBaseUrl').that.is.a('string').and.is.not.empty
     expect(config).to.have.property('webAppUrl').that.is.a('string').and.is.not.empty
   })

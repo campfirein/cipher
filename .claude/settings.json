@@ -3,10 +3,11 @@
     "allow": [
       "WebSearch",
       "Bash(find:*)",
-      "Bash(npm run test:*)",
       "Bash(grep:*)",
+      "Bash(npm run test:*)",
       "Bash(npm run build:*)",
       "Bash(npx mocha:*)",
+      "Bash(npm test:*)",
       "Bash(git log:*)",
       "Bash(git show:*)",
       "mcp__linear__list_issues",

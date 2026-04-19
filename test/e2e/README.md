@@ -6,7 +6,22 @@ End-to-end tests that run against real backend services. These tests verify full
 
 - Node.js (same version as the rest of the project)
 - A running backend service (or access to a staging environment)
-- Required environment variables configured.
+- Required environment variables configured (see below)
+
+## Environment Variables
+
+E2E tests use the same variable names as the runtime (see `.env.example`). All are required — there are no hardcoded defaults.
+
+| Variable | Required | Notes |
+|---|---|---|
+| `BRV_E2E_API_KEY` | Yes | Auth gate — tests skip if unset |
+| `BRV_IAM_BASE_URL` | Yes | Root domain only (no path) |
+| `BRV_COGIT_BASE_URL` | Yes | Root domain only (no path) |
+| `BRV_LLM_BASE_URL` | Yes | Root domain only |
+| `BRV_GIT_REMOTE_BASE_URL` | Yes | May include path |
+| `BRV_WEB_APP_URL` | Yes | May include path |
+
+Copy `.env.example` to `.env.development` and fill in your environment's values. The E2E mocha config loads dotenv automatically.
 
 ## Running Tests
 
