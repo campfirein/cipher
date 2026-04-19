@@ -201,7 +201,7 @@ function buildTooltip(event: TimelineEvent, endTimestamp: number): ReactNode {
         <span className="mono text-muted-foreground tabular-nums">{time}</span>
         <span className="mono text-blue-400 ml-2 tabular-nums">+{duration}</span>
       </span>
-      <span className="mono text-foreground/80 text-[10px] truncate">
+      <span className="mono text-foreground/80 text-[10px] wrap-break-word">
         {event.call.toolName}
         {summary && ` · ${summary}`}
       </span>

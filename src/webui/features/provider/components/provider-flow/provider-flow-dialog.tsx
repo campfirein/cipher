@@ -3,10 +3,11 @@ import { LoaderCircle } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 
-import type { ModelDTO, ProviderDTO } from '../../../../../shared/transport/events'
+import type {ModelDTO, ProviderDTO} from '../../../../../shared/transport/events'
 
 import { getErrorMessage } from '../../../../utils/get-error-message'
 import { useSetActiveModel } from '../../../model/api/set-active-model'
+import {TourStepBadge} from '../../../onboarding/components/tour-step-badge'
 import { useAwaitOAuthCallback } from '../../api/await-oauth-callback'
 import { useConnectProvider } from '../../api/connect-provider'
 import { useDisconnectProvider } from '../../api/disconnect-provider'
@@ -25,17 +26,27 @@ type FlowStep = 'api_key' | 'auth_method' | 'base_url' | 'connecting' | 'model_s
 
 interface ProviderFlowDialogProps {
   onOpenChange: (open: boolean) => void
+  /**
+   * Fires when a provider becomes the active one (direct activation, model
+   * selected after a fresh connection, or the existing provider re-activated).
+   * The dialog still closes itself afterwards via onOpenChange — this is just
+   * a discriminator for callers that need to distinguish "success" from
+   * "dismissed", e.g. the onboarding tour.
+   */
+  onProviderActivated?: () => void
   open: boolean
+  /** When set, shows a "Step N of M" pill above the dialog content (tour mode). */
+  tourStepLabel?: string
 }
 
-export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogProps) {
+export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tourStepLabel}: ProviderFlowDialogProps) {
   const [step, setStep] = useState<FlowStep>('select')
   const [selectedProvider, setSelectedProvider] = useState<ProviderDTO | undefined>()
   const [baseUrl, setBaseUrl] = useState<string | undefined>()
   const [error, setError] = useState<string | undefined>()
   const [isNewConnection, setIsNewConnection] = useState(false)
 
-  const { data } = useGetProviders()
+  const {data} = useGetProviders()
   const connectMutation = useConnectProvider()
   const disconnectMutation = useDisconnectProvider()
   const setActiveMutation = useSetActiveProvider()
@@ -60,30 +71,35 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
     setTimeout(reset, 150)
   }, [onOpenChange, reset])
 
-  const handleOpenChange = useCallback((nextOpen: boolean) => {
-    if (nextOpen) {
-      onOpenChange(true)
-    } else {
-      onOpenChange(false)
-      setTimeout(reset, 150)
-    }
-  }, [onOpenChange, reset])
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (nextOpen) {
+        onOpenChange(true)
+      } else {
+        onOpenChange(false)
+        setTimeout(reset, 150)
+      }
+    },
+    [onOpenChange, reset],
+  )
 
-  const handleProviderSelect = useCallback(async (provider: ProviderDTO) => {
-    setSelectedProvider(provider)
-    setError(undefined)
+  const handleProviderSelect = useCallback(
+    async (provider: ProviderDTO) => {
+      setSelectedProvider(provider)
+      setError(undefined)
 
-    // ByteRover + already current → done
-    if (provider.id === 'byterover' && provider.isCurrent) {
-      resetAndClose()
-      return
-    }
+      // ByteRover + already current → done
+      if (provider.id === 'byterover' && provider.isCurrent) {
+        onProviderActivated?.()
+        resetAndClose()
+        return
+      }
 
-    // Already connected → show actions
-    if (provider.isConnected) {
-      setStep('provider_actions')
-      return
-    }
+      // Already connected → show actions
+      if (provider.isConnected) {
+        setStep('provider_actions')
+        return
+      }
 
     // ByteRover + not connected → connect + activate directly
     if (provider.id === 'byterover') {
@@ -92,32 +108,33 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
         await connectMutation.mutateAsync({ providerId: provider.id })
         await setActiveMutation.mutateAsync({ providerId: provider.id })
         toast.success(`Connected to ${provider.name}`)
+        onProviderActivated?.()
         resetAndClose()
       } catch (error_) {
         toast.error(getErrorMessage(error_, 'Connection failed'))
         setStep('select')
       }
 
-      return
-    }
+        return
+      }
 
-    // OpenAI Compatible → base_url step
-    if (provider.id === 'openai-compatible') {
-      setStep('base_url')
-      return
-    }
+      // OpenAI Compatible → base_url step
+      if (provider.id === 'openai-compatible') {
+        setStep('base_url')
+        return
+      }
 
-    // Supports OAuth → let user choose between OAuth and API key
-    if (provider.supportsOAuth) {
-      setStep('auth_method')
-      return
-    }
+      // Supports OAuth → let user choose between OAuth and API key
+      if (provider.supportsOAuth) {
+        setStep('auth_method')
+        return
+      }
 
-    // Requires API key → api_key step
-    if (provider.requiresApiKey) {
-      setStep('api_key')
-      return
-    }
+      // Requires API key → api_key step
+      if (provider.requiresApiKey) {
+        setStep('api_key')
+        return
+      }
 
     // No key needed → connect directly → model select
     setStep('connecting')
@@ -129,7 +146,7 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
       toast.error(getErrorMessage(error_, 'Connection failed'))
       setStep('select')
     }
-  }, [connectMutation, resetAndClose, setActiveMutation])
+  }, [connectMutation, onProviderActivated, resetAndClose, setActiveMutation])
 
   const handleOAuth = useCallback(async (provider: ProviderDTO) => {
     setStep('connecting')
@@ -141,9 +158,9 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
         return
       }
 
-      if (result.authUrl) {
-        window.open(result.authUrl, '_blank')
-      }
+        if (result.authUrl) {
+          window.open(result.authUrl, '_blank')
+        }
 
       const callbackResult = await awaitOAuthMutation.mutateAsync({ providerId: provider.id })
       if (callbackResult.success) {
@@ -159,8 +176,9 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
     }
   }, [awaitOAuthMutation, startOAuthMutation])
 
-  const handleAction = useCallback(async (actionId: ProviderActionId) => {
-    if (!selectedProvider) return
+  const handleAction = useCallback(
+    async (actionId: ProviderActionId) => {
+      if (!selectedProvider) return
 
     switch (actionId) {
       case 'activate': {
@@ -168,19 +186,20 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
         try {
           await setActiveMutation.mutateAsync({ providerId: selectedProvider.id })
           toast.success(`Activated ${selectedProvider.name}`)
+          onProviderActivated?.()
           resetAndClose()
         } catch (error_) {
           setError(getErrorMessage(error_, 'Failed'))
           setStep('provider_actions')
         }
 
-        break
-      }
+          break
+        }
 
-      case 'change_model': {
-        setStep('model_select')
-        break
-      }
+        case 'change_model': {
+          setStep('model_select')
+          break
+        }
 
       case 'disconnect': {
         setStep('connecting')
@@ -195,33 +214,36 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
           setStep('provider_actions')
         }
 
-        break
-      }
+          break
+        }
 
-      case 'reconfigure': {
-        setStep('base_url')
-        break
-      }
+        case 'reconfigure': {
+          setStep('base_url')
+          break
+        }
 
-      case 'reconnect_oauth': {
-        await handleOAuth(selectedProvider)
-        break
-      }
+        case 'reconnect_oauth': {
+          await handleOAuth(selectedProvider)
+          break
+        }
 
-      case 'replace': {
-        setStep('api_key')
-        break
+        case 'replace': {
+          setStep('api_key')
+          break
+        }
       }
-    }
-  }, [disconnectMutation, handleOAuth, resetAndClose, selectedProvider, setActiveMutation])
+    },
+    [disconnectMutation, handleOAuth, onProviderActivated, resetAndClose, selectedProvider, setActiveMutation],
+  )
 
   const handleBaseUrlSubmit = useCallback((url: string) => {
     setBaseUrl(url)
     setStep('api_key')
   }, [])
 
-  const handleApiKeySubmit = useCallback(async (apiKey: string) => {
-    if (!selectedProvider) return
+  const handleApiKeySubmit = useCallback(
+    async (apiKey: string) => {
+      if (!selectedProvider) return
 
     // Validate first (skip for openai-compatible)
     if (selectedProvider.id !== 'openai-compatible' && apiKey) {
@@ -252,18 +274,20 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
     }
   }, [baseUrl, connectMutation, selectedProvider, validateMutation])
 
-  const handleModelSelect = useCallback(async (model: ModelDTO) => {
-    if (!selectedProvider) return
+  const handleModelSelect = useCallback(
+    async (model: ModelDTO) => {
+      if (!selectedProvider) return
 
-    try {
-      await setActiveModelMutation.mutateAsync({
-        contextLength: model.contextLength,
-        modelId: model.id,
-        providerId: selectedProvider.id,
-      })
+      try {
+        await setActiveModelMutation.mutateAsync({
+          contextLength: model.contextLength,
+          modelId: model.id,
+          providerId: selectedProvider.id,
+        })
 
       if (isNewConnection) {
         toast.success(`Connected to ${selectedProvider.name}`)
+        onProviderActivated?.()
         resetAndClose()
       } else {
         toast.success(`Model set to ${model.name}`)
@@ -272,7 +296,7 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
     } catch (error_) {
       toast.error(getErrorMessage(error_, 'Failed to set model'))
     }
-  }, [isNewConnection, resetAndClose, selectedProvider, setActiveModelMutation])
+  }, [isNewConnection, onProviderActivated, resetAndClose, selectedProvider, setActiveModelMutation])
 
   const handleApiKeyBack = useCallback(() => {
     setError(undefined)
@@ -338,9 +362,7 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
         return (
           <div className="flex flex-col items-center gap-3 py-12">
             <LoaderCircle className="text-primary size-6 animate-spin" />
-            <p className="text-muted-foreground text-sm">
-              Connecting to {selectedProvider?.name}...
-            </p>
+            <p className="text-muted-foreground text-sm">Connecting to {selectedProvider?.name}...</p>
           </div>
         )
       }
@@ -377,12 +399,7 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
       }
 
       case 'select': {
-        return (
-          <ProviderSelectStep
-            onSelect={(p) => handleProviderSelect(p)}
-            providers={providers}
-          />
-        )
+        return <ProviderSelectStep onSelect={(p) => handleProviderSelect(p)} providers={providers} />
       }
 
       default: {
@@ -393,7 +410,11 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
 
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
-      <DialogContent className="flex h-150 flex-col sm:max-w-lg" showCloseButton={step === 'select' || step === 'model_select' || step === 'connecting'}>
+      <DialogContent
+        className="flex h-150 flex-col sm:max-w-lg"
+        showCloseButton={step === 'select' || step === 'model_select' || step === 'connecting'}
+      >
+        {tourStepLabel && <TourStepBadge label={tourStepLabel} />}
         {renderStep()}
       </DialogContent>
     </Dialog>
