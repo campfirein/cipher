@@ -1,11 +1,10 @@
 import {cn} from '@campfirein/byterover-packages/lib/utils'
 import {ChevronDown, ChevronUp} from 'lucide-react'
 import {Fragment, memo, useMemo, useState} from 'react'
-import {Prism as SyntaxHighlighter} from 'react-syntax-highlighter'
-import {oneDark} from 'react-syntax-highlighter/dist/esm/styles/prism'
 
 import type {ToolCallEvent} from '../types/stored-task'
 
+import {oneDark, SyntaxHighlighter} from '../../../lib/syntax-highlighter'
 import {formatToolArgs} from '../utils/format-tool-args'
 import {stripTaskIdSuffix} from '../utils/strip-task-id'
 import {MarkdownInline} from './markdown-inline'

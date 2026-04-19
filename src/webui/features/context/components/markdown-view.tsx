@@ -2,12 +2,11 @@ import {Button} from '@campfirein/byterover-packages/components/button'
 import {AlertTriangle, Check, Copy} from 'lucide-react'
 import {Children, createElement, type FC, isValidElement, memo, ReactElement, type ReactNode, useState} from 'react'
 import ReactMarkdown, {type Components, type Options} from 'react-markdown'
-import {Prism as SyntaxHighlighter} from 'react-syntax-highlighter'
-import {oneDark} from 'react-syntax-highlighter/dist/esm/styles/prism'
 import remarkFrontmatter from 'remark-frontmatter'
 import remarkGfm from 'remark-gfm'
 
 import {hasConflictMarkers} from '../../../../shared/utils/conflict-markers'
+import {oneDark, SyntaxHighlighter} from '../../../lib/syntax-highlighter'
 
 // ── CodeBlock ──────────────────────────────────────────────────────────────
 

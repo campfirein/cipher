@@ -1,8 +1,8 @@
 import {memo} from 'react'
 import ReactMarkdown, {type Components} from 'react-markdown'
-import {Prism as SyntaxHighlighter} from 'react-syntax-highlighter'
-import {oneDark} from 'react-syntax-highlighter/dist/esm/styles/prism'
 import remarkGfm from 'remark-gfm'
+
+import {oneDark, SyntaxHighlighter} from '../../../lib/syntax-highlighter'
 
 const COMPONENTS: Components = {
   a({children, href}) {
