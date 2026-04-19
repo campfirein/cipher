@@ -1,6 +1,7 @@
 import { AuthorInfo } from '@campfirein/byterover-packages/components/contexts/author-info'
 import { DetailBody } from '@campfirein/byterover-packages/components/contexts/detail-body'
 import { FolderDetail, type FolderNode } from '@campfirein/byterover-packages/components/contexts/folder-detail'
+import { Skeleton } from '@campfirein/byterover-packages/components/skeleton'
 import { formatDistanceToNow } from 'date-fns'
 import { useMemo } from 'react'
 
@@ -38,7 +39,7 @@ export function ContextDetailPanel({ onToggleHistory }: ContextDetailPanelProps)
     setEditContent,
   } = useContextTree()
 
-  const { data: historyData } = useGetContextHistory({
+  const { data: historyData, isPending: isHistoryPending } = useGetContextHistory({
     enabled: Boolean(selectedPath) && isFilePath(selectedPath),
     path: selectedPath,
   })
@@ -146,6 +147,11 @@ export function ContextDetailPanel({ onToggleHistory }: ContextDetailPanelProps)
                 name={lastCommit.author.name}
                 timestamp={formatDistanceToNow(new Date(lastCommit.timestamp), {addSuffix: true})}
               />
+            ) : isHistoryPending ? (
+              <div className="border-border mx-5 mb-5 flex items-center gap-2 border-b py-2">
+                <Skeleton className="size-6 shrink-0 rounded-full" />
+                <Skeleton className="h-4 w-56" />
+              </div>
             ) : undefined
           }
         />

@@ -3,6 +3,8 @@ import {cn} from '@campfirein/byterover-packages/lib/utils'
 import {NavLink, Outlet} from 'react-router-dom'
 
 import {useTaskCounts} from '../features/tasks/stores/task-store'
+import {useGetVcStatus} from '../features/vc/api/get-vc-status'
+import {statusToFiles} from '../features/vc/utils/status-to-files'
 import {Header} from './header'
 
 type BadgeTone = 'active' | 'idle'
@@ -20,12 +22,23 @@ function useTabs(): TabDef[] {
   const tasksTone: BadgeTone = inProgress > 0 ? 'active' : 'idle'
 
   return [
-    {label: 'Analytics', path: '/analytics'},
     {label: 'Context', path: '/contexts'},
+    {label: 'Changes', path: '/changes'},
     {badge: tasksBadge, badgeTone: tasksTone, label: 'Tasks', path: '/tasks'},
-    {label: 'Changes', path: '/sync'},
     {label: 'Configuration', path: '/configuration'},
   ]
+}
+
+function ChangesBadge() {
+  const {data: status} = useGetVcStatus()
+  const {staged, unmerged, unstaged} = statusToFiles(status)
+  const count = staged.length + unstaged.length + unmerged.length
+  if (count === 0) return null
+  return (
+    <span className="ml-1.5 rounded-md bg-[#4f3422] p-1 text-xs font-semibold tabular-nums text-[#ffc53d]">
+      {count}
+    </span>
+  )
 }
 
 export function MainLayout() {
@@ -57,6 +70,7 @@ export function MainLayout() {
                 {tab.badge}
               </Badge>
             )}
+            {tab.path === '/changes' && <ChangesBadge />}
           </NavLink>
         ))}
       </nav>

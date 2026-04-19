@@ -3,11 +3,11 @@ import {createBrowserRouter} from 'react-router-dom'
 import {ProjectGuard} from './features/project/components/project-guard'
 import {MainLayout} from './layouts/main-layout'
 import {AnalyticsPage} from './pages/analytics-page'
+import {ChangesPage} from './pages/changes-page'
 import {ConfigurationPage} from './pages/configuration-page'
 import {ContextsPage} from './pages/contexts-page'
 import {HomePage} from './pages/home-page'
 import {ProjectSelectorPage} from './pages/project-selector-page'
-import {SyncPage} from './pages/sync-page'
 import {TasksPage} from './pages/tasks-page'
 
 export const router = createBrowserRouter([
@@ -24,8 +24,8 @@ export const router = createBrowserRouter([
             index: true,
           },
           {
-            element: <SyncPage />,
-            path: 'sync',
+            element: <ChangesPage />,
+            path: 'changes',
           },
           {
             element: <ConfigurationPage />,

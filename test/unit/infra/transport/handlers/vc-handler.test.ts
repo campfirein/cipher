@@ -90,6 +90,8 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     deleteBranch: sandbox.stub().resolves(),
     fetch: sandbox.stub().resolves(),
     getAheadBehind: sandbox.stub().resolves({ahead: 0, behind: 0}),
+    getBlobContent: sandbox.stub().resolves(),
+    getBlobContents: sandbox.stub().resolves({}),
     getConflicts: sandbox.stub().resolves([]),
     getCurrentBranch: sandbox.stub().resolves('main'),
     getFilesWithConflictMarkers: sandbox.stub().resolves([]),
@@ -748,6 +750,54 @@ describe('VcHandler', () => {
           expect(error.code).to.equal(VcErrorCode.GIT_NOT_INITIALIZED)
         }
       }
+    })
+
+    it('should throw VcError MERGE_CONFLICT when index has unmerged entries', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.status.resolves({
+        files: [{path: 'a.md', staged: true, status: 'modified'}],
+        isClean: false,
+      })
+      deps.gitService.getConflicts.resolves([{path: 'a.md', type: 'both_modified'}])
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.COMMIT]({message: 'test'}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.MERGE_CONFLICT)
+        }
+      }
+
+      expect(deps.gitService.commit.called).to.be.false
+    })
+
+    it('should throw VcError CONFLICT_MARKERS_PRESENT when staged file still has markers', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.status.resolves({
+        files: [{path: 'a.md', staged: true, status: 'modified'}],
+        isClean: false,
+      })
+      deps.gitService.getConflicts.resolves([])
+      deps.gitService.getFilesWithConflictMarkers.resolves(['a.md'])
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.COMMIT]({message: 'test'}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.CONFLICT_MARKERS_PRESENT)
+          expect(error.message).to.include('a.md')
+        }
+      }
+
+      expect(deps.gitService.commit.called).to.be.false
     })
   })
 
@@ -3223,6 +3273,33 @@ describe('VcHandler', () => {
       }
     })
 
+    it('should throw CONFLICT_MARKERS_PRESENT when continuing with marker text remaining', async () => {
+      const deps = makeMergeDeps(sandbox, {mergeHead: true})
+      try {
+        deps.gitService.getConflicts.resolves([])
+        deps.gitService.getFilesWithConflictMarkers.resolves(['file.md'])
+
+        makeVcHandler(deps).setup()
+        try {
+          await deps.requestHandlers[VcEvents.MERGE](
+            {action: 'continue', message: 'try commit'} satisfies IVcMergeRequest,
+            CLIENT_ID,
+          )
+          expect.fail('Expected error')
+        } catch (error) {
+          expect(error).to.be.instanceOf(VcError)
+          if (error instanceof VcError) {
+            expect(error.code).to.equal(VcErrorCode.CONFLICT_MARKERS_PRESENT)
+            expect(error.message).to.include('file.md')
+          }
+        }
+
+        expect(deps.gitService.commit.called).to.be.false
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
     it('should throw NO_MERGE_IN_PROGRESS when continuing without MERGE_HEAD', async () => {
       const deps = makeMergeDeps(sandbox)
       try {
@@ -3835,6 +3912,421 @@ describe('VcHandler', () => {
         const result = await invoke<IVcResetResponse>(deps, VcEvents.RESET, {})
         expect(result.mode).to.equal('mixed')
         expect(result.filesUnstaged).to.equal(2)
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+  })
+
+  describe('handleDiff', () => {
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    function makeDiffDeps(sb: SinonSandbox): TestDeps & {tmpDir: string} {
+      const tmpDir = join(tmpdir(), `brv-vc-diff-test-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`)
+      mkdirSync(tmpDir, {recursive: true})
+      const deps = makeDeps(sb, projectPath)
+      deps.contextTreeService.resolvePath.returns(tmpDir)
+      return {...deps, tmpDir}
+    }
+
+    it('should register vc:diff handler', () => {
+      const deps = makeDeps(sandbox, projectPath)
+      makeVcHandler(deps).setup()
+
+      const registeredEvents = deps.transport.onRequest.args.map((args: unknown[]) => args[0])
+      expect(registeredEvents).to.include(VcEvents.DIFF)
+    })
+
+    it('should throw GIT_NOT_INITIALIZED when git repo is missing', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
+
+      let caught: unknown
+      try {
+        await invoke(deps, VcEvents.DIFF, {path: 'foo.md', side: 'staged'})
+      } catch (error) {
+        caught = error
+      }
+
+      expect(caught).to.be.instanceOf(VcError)
+      expect((caught as VcError).code).to.equal(VcErrorCode.GIT_NOT_INITIALIZED)
+    })
+
+    it('staged: should compare HEAD blob (old) against index blob (new)', async () => {
+      const deps = makeDiffDeps(sandbox)
+      try {
+        deps.gitService.getBlobContent
+          .withArgs({directory: deps.tmpDir, path: 'foo.md', ref: 'HEAD'})
+          .resolves('old content')
+        deps.gitService.getBlobContent
+          .withArgs({directory: deps.tmpDir, path: 'foo.md', ref: 'STAGE'})
+          .resolves('new content')
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{newContent: string; oldContent: string; path: string}>(
+          deps,
+          VcEvents.DIFF,
+          {path: 'foo.md', side: 'staged'},
+        )
+
+        expect(result.path).to.equal('foo.md')
+        expect(result.oldContent).to.equal('old content')
+        expect(result.newContent).to.equal('new content')
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('unstaged: should compare index blob (old) against working tree (new)', async () => {
+      const deps = makeDiffDeps(sandbox)
+      try {
+        writeFileSync(join(deps.tmpDir, 'foo.md'), 'working tree content')
+        deps.gitService.getBlobContent
+          .withArgs({directory: deps.tmpDir, path: 'foo.md', ref: 'STAGE'})
+          .resolves('staged content')
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{newContent: string; oldContent: string; path: string}>(
+          deps,
+          VcEvents.DIFF,
+          {path: 'foo.md', side: 'unstaged'},
+        )
+
+        expect(result.oldContent).to.equal('staged content')
+        expect(result.newContent).to.equal('working tree content')
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('unstaged untracked: old is empty, new is file on disk', async () => {
+      const deps = makeDiffDeps(sandbox)
+      try {
+        writeFileSync(join(deps.tmpDir, 'new-file.md'), 'brand new')
+        // File not in index → getBlobContent returns undefined
+        deps.gitService.getBlobContent.resolves()
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{newContent: string; oldContent: string; path: string}>(
+          deps,
+          VcEvents.DIFF,
+          {path: 'new-file.md', side: 'unstaged'},
+        )
+
+        expect(result.oldContent).to.equal('')
+        expect(result.newContent).to.equal('brand new')
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('unstaged deleted: old is index content, new is empty (file missing)', async () => {
+      const deps = makeDiffDeps(sandbox)
+      try {
+        // No file on disk, but index has the blob
+        deps.gitService.getBlobContent
+          .withArgs({directory: deps.tmpDir, path: 'gone.md', ref: 'STAGE'})
+          .resolves('old content')
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{newContent: string; oldContent: string; path: string}>(
+          deps,
+          VcEvents.DIFF,
+          {path: 'gone.md', side: 'unstaged'},
+        )
+
+        expect(result.oldContent).to.equal('old content')
+        expect(result.newContent).to.equal('')
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('staged added: HEAD has no blob → old is empty', async () => {
+      const deps = makeDiffDeps(sandbox)
+      try {
+        deps.gitService.getBlobContent
+          .withArgs({directory: deps.tmpDir, path: 'new.md', ref: 'HEAD'})
+          .resolves()
+        deps.gitService.getBlobContent
+          .withArgs({directory: deps.tmpDir, path: 'new.md', ref: 'STAGE'})
+          .resolves('new staged content')
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{newContent: string; oldContent: string; path: string}>(
+          deps,
+          VcEvents.DIFF,
+          {path: 'new.md', side: 'staged'},
+        )
+
+        expect(result.oldContent).to.equal('')
+        expect(result.newContent).to.equal('new staged content')
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+  })
+
+  describe('handleDiscard', () => {
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    function makeDiscardDeps(sb: SinonSandbox): TestDeps & {tmpDir: string; unlinkStub: SinonStub; writeFileStub: SinonStub} {
+      const tmpDir = join(tmpdir(), `brv-vc-discard-test-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`)
+      mkdirSync(tmpDir, {recursive: true})
+      const deps = makeDeps(sb, projectPath)
+      deps.contextTreeService.resolvePath.returns(tmpDir)
+
+      // `fs.promises.writeFile` is already stubbed in the outer beforeEach.
+      const writeFileStub = fs.promises.writeFile as unknown as SinonStub
+      const unlinkStub = sb.stub(fs.promises, 'unlink').resolves()
+
+      return {...deps, tmpDir, unlinkStub, writeFileStub}
+    }
+
+    it('should register vc:discard handler', () => {
+      const deps = makeDeps(sandbox, projectPath)
+      makeVcHandler(deps).setup()
+
+      const registeredEvents = deps.transport.onRequest.args.map((args: unknown[]) => args[0])
+      expect(registeredEvents).to.include(VcEvents.DISCARD)
+    })
+
+    it('should throw GIT_NOT_INITIALIZED when git repo is missing', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
+
+      let caught: unknown
+      try {
+        await invoke(deps, VcEvents.DISCARD, {filePaths: ['foo.md']})
+      } catch (error) {
+        caught = error
+      }
+
+      expect(caught).to.be.instanceOf(VcError)
+      expect((caught as VcError).code).to.equal(VcErrorCode.GIT_NOT_INITIALIZED)
+    })
+
+    it('should restore tracked file from index blob', async () => {
+      const deps = makeDiscardDeps(sandbox)
+      try {
+        deps.gitService.getBlobContents
+          .withArgs({directory: deps.tmpDir, paths: ['foo.md'], ref: 'STAGE'})
+          .resolves({'foo.md': 'index content'})
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{count: number}>(deps, VcEvents.DISCARD, {filePaths: ['foo.md']})
+
+        expect(result.count).to.equal(1)
+        expect(deps.writeFileStub.calledOnce).to.be.true
+        expect(deps.writeFileStub.firstCall.args[0]).to.equal(join(deps.tmpDir, 'foo.md'))
+        expect(deps.writeFileStub.firstCall.args[1]).to.equal('index content')
+        expect(deps.unlinkStub.called).to.be.false
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should restore tracked file from HEAD when index has no blob', async () => {
+      const deps = makeDiscardDeps(sandbox)
+      try {
+        deps.gitService.getBlobContents
+          .withArgs({directory: deps.tmpDir, paths: ['foo.md'], ref: 'STAGE'})
+          .resolves({'foo.md': undefined})
+        deps.gitService.getBlobContents
+          .withArgs({directory: deps.tmpDir, paths: ['foo.md'], ref: 'HEAD'})
+          .resolves({'foo.md': 'head content'})
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{count: number}>(deps, VcEvents.DISCARD, {filePaths: ['foo.md']})
+
+        expect(result.count).to.equal(1)
+        expect(deps.writeFileStub.calledOnceWith(join(deps.tmpDir, 'foo.md'), 'head content')).to.be.true
+        expect(deps.unlinkStub.called).to.be.false
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should delete untracked file (no blob in index or HEAD)', async () => {
+      const deps = makeDiscardDeps(sandbox)
+      try {
+        writeFileSync(join(deps.tmpDir, 'untracked.md'), 'new content')
+        deps.gitService.getBlobContents.resolves({'untracked.md': undefined})
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{count: number}>(deps, VcEvents.DISCARD, {filePaths: ['untracked.md']})
+
+        expect(result.count).to.equal(1)
+        expect(deps.unlinkStub.calledOnce).to.be.true
+        expect(deps.unlinkStub.firstCall.args[0]).to.equal(join(deps.tmpDir, 'untracked.md'))
+        expect(deps.writeFileStub.called).to.be.false
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should discard multiple files in a single request', async () => {
+      const deps = makeDiscardDeps(sandbox)
+      try {
+        deps.gitService.getBlobContents
+          .withArgs({directory: deps.tmpDir, paths: ['a.md', 'b.md'], ref: 'STAGE'})
+          .resolves({'a.md': 'a index', 'b.md': 'b index'})
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{count: number}>(deps, VcEvents.DISCARD, {filePaths: ['a.md', 'b.md']})
+
+        expect(result.count).to.equal(2)
+        expect(deps.writeFileStub.callCount).to.equal(2)
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('count reflects only successful operations (writeFile failure → not counted)', async () => {
+      const deps = makeDiscardDeps(sandbox)
+      try {
+        deps.gitService.getBlobContents
+          .withArgs({directory: deps.tmpDir, paths: ['ok.md', 'fail.md'], ref: 'STAGE'})
+          .resolves({'fail.md': 'will fail', 'ok.md': 'will succeed'})
+        deps.writeFileStub.withArgs(join(deps.tmpDir, 'fail.md'), 'will fail').rejects(new Error('disk full'))
+        deps.writeFileStub.withArgs(join(deps.tmpDir, 'ok.md'), 'will succeed').resolves()
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{count: number}>(deps, VcEvents.DISCARD, {filePaths: ['ok.md', 'fail.md']})
+
+        expect(result.count).to.equal(1)
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('count reflects only successful operations (unlink failure → not counted)', async () => {
+      const deps = makeDiscardDeps(sandbox)
+      try {
+        deps.gitService.getBlobContents.resolves({'absent.md': undefined, 'present.md': undefined})
+        deps.unlinkStub.withArgs(join(deps.tmpDir, 'absent.md')).rejects(new Error('ENOENT'))
+        deps.unlinkStub.withArgs(join(deps.tmpDir, 'present.md')).resolves()
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{count: number}>(deps, VcEvents.DISCARD, {filePaths: ['present.md', 'absent.md']})
+
+        expect(result.count).to.equal(1)
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('should return count=0 and do nothing for empty filePaths', async () => {
+      const deps = makeDiscardDeps(sandbox)
+      try {
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{count: number}>(deps, VcEvents.DISCARD, {filePaths: []})
+
+        expect(result.count).to.equal(0)
+        expect(deps.writeFileStub.called).to.be.false
+        expect(deps.unlinkStub.called).to.be.false
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+  })
+
+  describe('handleDiffs', () => {
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    function makeDiffsDeps(sb: SinonSandbox): TestDeps & {tmpDir: string} {
+      const tmpDir = join(tmpdir(), `brv-vc-diffs-test-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`)
+      mkdirSync(tmpDir, {recursive: true})
+      const deps = makeDeps(sb, projectPath)
+      deps.contextTreeService.resolvePath.returns(tmpDir)
+      return {...deps, tmpDir}
+    }
+
+    it('should register vc:diffs handler', () => {
+      const deps = makeDeps(sandbox, projectPath)
+      makeVcHandler(deps).setup()
+
+      const registeredEvents = deps.transport.onRequest.args.map((args: unknown[]) => args[0])
+      expect(registeredEvents).to.include(VcEvents.DIFFS)
+    })
+
+    it('should throw GIT_NOT_INITIALIZED when git repo is missing', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
+
+      let caught: unknown
+      try {
+        await invoke(deps, VcEvents.DIFFS, {paths: ['foo.md'], side: 'staged'})
+      } catch (error) {
+        caught = error
+      }
+
+      expect(caught).to.be.instanceOf(VcError)
+      expect((caught as VcError).code).to.equal(VcErrorCode.GIT_NOT_INITIALIZED)
+    })
+
+    it('should return empty array when paths is empty', async () => {
+      const deps = makeDiffsDeps(sandbox)
+      try {
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{diffs: Array<{newContent: string; oldContent: string; path: string}>}>(
+          deps,
+          VcEvents.DIFFS,
+          {paths: [], side: 'staged'},
+        )
+
+        expect(result.diffs).to.deep.equal([])
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('staged: returns HEAD vs STAGE for every path, preserving order', async () => {
+      const deps = makeDiffsDeps(sandbox)
+      try {
+        deps.gitService.getBlobContents
+          .withArgs({directory: deps.tmpDir, paths: ['a.md', 'b.md'], ref: 'HEAD'})
+          .resolves({'a.md': 'a head', 'b.md': 'b head'})
+        deps.gitService.getBlobContents
+          .withArgs({directory: deps.tmpDir, paths: ['a.md', 'b.md'], ref: 'STAGE'})
+          .resolves({'a.md': 'a stage', 'b.md': 'b stage'})
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{diffs: Array<{newContent: string; oldContent: string; path: string}>}>(
+          deps,
+          VcEvents.DIFFS,
+          {paths: ['a.md', 'b.md'], side: 'staged'},
+        )
+
+        expect(result.diffs).to.have.length(2)
+        expect(result.diffs[0]).to.deep.equal({newContent: 'a stage', oldContent: 'a head', path: 'a.md'})
+        expect(result.diffs[1]).to.deep.equal({newContent: 'b stage', oldContent: 'b head', path: 'b.md'})
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('unstaged: returns STAGE vs working tree for every path', async () => {
+      const deps = makeDiffsDeps(sandbox)
+      try {
+        writeFileSync(join(deps.tmpDir, 'foo.md'), 'foo working')
+        writeFileSync(join(deps.tmpDir, 'bar.md'), 'bar working')
+        deps.gitService.getBlobContents
+          .withArgs({directory: deps.tmpDir, paths: ['foo.md', 'bar.md'], ref: 'STAGE'})
+          .resolves({'bar.md': 'bar stage', 'foo.md': 'foo stage'})
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{diffs: Array<{newContent: string; oldContent: string; path: string}>}>(
+          deps,
+          VcEvents.DIFFS,
+          {paths: ['foo.md', 'bar.md'], side: 'unstaged'},
+        )
+
+        expect(result.diffs).to.have.length(2)
+        expect(result.diffs[0]).to.deep.equal({newContent: 'foo working', oldContent: 'foo stage', path: 'foo.md'})
+        expect(result.diffs[1]).to.deep.equal({newContent: 'bar working', oldContent: 'bar stage', path: 'bar.md'})
       } finally {
         cleanupDir(deps.tmpDir)
       }

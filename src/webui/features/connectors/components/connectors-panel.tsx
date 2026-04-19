@@ -114,10 +114,11 @@ export function ConnectorsPanel() {
                 </div>
                 <div className='flex items-center'>
                   <DropdownMenu>
-                    <DropdownMenuTrigger disabled={installMutation.isPending}>
-                      <Button className="text-sm" disabled={installMutation.isPending} size="sm" variant="outline">
-                        {connectorLabels[connector.connectorType]}
-                      </Button>
+                    <DropdownMenuTrigger
+                      disabled={installMutation.isPending}
+                      render={<Button className="text-sm" disabled={installMutation.isPending} size="sm" variant="outline" />}
+                    >
+                      {connectorLabels[connector.connectorType]}
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align='end'>
                       {connector.supportedTypes.map((type) => (

@@ -24,6 +24,7 @@ export * from './source-events.js'
 export * from './space-events.js'
 export * from './status-events.js'
 export * from './task-events.js'
+export * from './vc-events.js'
 export * from './worktree-events.js'
 
 // Utility exports
@@ -49,6 +50,7 @@ import {SourceEvents} from './source-events.js'
 import {SpaceEvents} from './space-events.js'
 import {StatusEvents} from './status-events.js'
 import {TaskEvents} from './task-events.js'
+import {VcEvents} from './vc-events.js'
 import {WorktreeEvents} from './worktree-events.js'
 
 /**
@@ -78,6 +80,7 @@ export const AllEventGroups = [
   SpaceEvents,
   StatusEvents,
   TaskEvents,
+  VcEvents,
   WorktreeEvents,
 ] as const
 
