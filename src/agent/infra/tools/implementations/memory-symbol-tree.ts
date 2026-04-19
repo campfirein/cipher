@@ -242,12 +242,8 @@ export function buildSymbolTree(
     const folderPath = segments.slice(0, -1).join('/')
     const folderNode = symbolMap.get(folderPath)
 
-    if (folderNode) {
-      // Context metadata starts at defaults. Post-commit-5, ranking signals
-      // (importance, maturity) are read from the sidecar at query time; the
-      // symbol tree only carries structural metadata.
-      folderNode.metadata = { ...folderNode.metadata }
-    }
+    // Post-commit-5: ranking signals (importance, maturity) are read from the
+    // sidecar at query time; the symbol tree only carries structural metadata.
 
     // Also register the context.md path itself for direct lookups
     symbolMap.set(doc.path, folderNode ?? getOrCreateFolderNode(symbolMap, root, folderPath, segments.slice(0, -1)))

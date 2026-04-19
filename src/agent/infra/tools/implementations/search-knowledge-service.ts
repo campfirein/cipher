@@ -1187,16 +1187,12 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       [...hits.entries()].map(([relPath, count]) => [
         relPath,
         (current: RuntimeSignals): RuntimeSignals => {
-          // `recordAccessHits` always returns concrete importance/accessCount
-          // when given a fully-valued RuntimeSignals; the `!` assertions
-          // reflect that invariant rather than defensive fallbacks.
           const bumped = recordAccessHits(current, count)
-          const bumpedImportance = bumped.importance!
           return {
             ...current,
-            accessCount: bumped.accessCount!,
-            importance: bumpedImportance,
-            maturity: determineTier(bumpedImportance, current.maturity),
+            accessCount: bumped.accessCount,
+            importance: bumped.importance,
+            maturity: determineTier(bumped.importance, current.maturity),
           }
         },
       ]),

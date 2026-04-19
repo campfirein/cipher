@@ -189,6 +189,55 @@ describe('Curate tool — runtime-signal sidecar dual-write', () => {
       const after = await signalStore.get(relPath)
       expect(after).to.deep.equal(createDefaultRuntimeSignals())
     })
+
+    it('drops sidecar entries for every file inside a deleted folder', async () => {
+      // Seed two files under the same topic folder.
+      await runCurate(basePath, signalStore, [
+        {
+          confidence: 'high',
+          content: {snippets: ['a'], tags: ['t']},
+          impact: 'low',
+          path: 'domain/topic',
+          reason: 'seed one',
+          title: 'File One',
+          type: 'ADD',
+        },
+        {
+          confidence: 'high',
+          content: {snippets: ['b'], tags: ['t']},
+          impact: 'low',
+          path: 'domain/topic',
+          reason: 'seed two',
+          title: 'File Two',
+          type: 'ADD',
+        },
+      ])
+
+      const relOne = 'domain/topic/file_one.md'
+      const relTwo = 'domain/topic/file_two.md'
+
+      // Mark both sidecar entries with non-default values so we can prove removal.
+      await signalStore.set(relOne, {...createDefaultRuntimeSignals(), importance: 80})
+      await signalStore.set(relTwo, {...createDefaultRuntimeSignals(), importance: 90})
+
+      // Folder delete: omit `title` so executeDelete takes the folder branch.
+      const result = await runCurate(basePath, signalStore, [
+        {
+          confidence: 'low',
+          impact: 'low',
+          path: 'domain/topic',
+          reason: 'clean folder',
+          type: 'DELETE',
+        },
+      ])
+      expect(result.summary.deleted).to.equal(1)
+
+      // Both sidecar entries must be gone — get() returns defaults on miss.
+      const afterOne = await signalStore.get(relOne)
+      const afterTwo = await signalStore.get(relTwo)
+      expect(afterOne).to.deep.equal(createDefaultRuntimeSignals())
+      expect(afterTwo).to.deep.equal(createDefaultRuntimeSignals())
+    })
   })
 
   describe('MERGE', () => {
