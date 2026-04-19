@@ -190,33 +190,42 @@ describe('E2E env-guard', () => {
 
     describe('variable name alignment', () => {
       it('should read from BRV_IAM_BASE_URL, not BRV_API_BASE_URL', () => {
-        process.env.BRV_IAM_BASE_URL = 'https://iam.correct'
-        process.env.BRV_API_BASE_URL = 'https://iam.wrong'
+        try {
+          process.env.BRV_IAM_BASE_URL = 'https://iam.correct'
+          process.env.BRV_API_BASE_URL = 'https://iam.wrong'
 
-        const config: E2eConfig = getE2eConfig()
+          const config: E2eConfig = getE2eConfig()
 
-        expect(config.iamBaseUrl).to.equal('https://iam.correct')
-        delete process.env.BRV_API_BASE_URL
+          expect(config.iamBaseUrl).to.equal('https://iam.correct')
+        } finally {
+          delete process.env.BRV_API_BASE_URL
+        }
       })
 
       it('should read from BRV_COGIT_BASE_URL, not BRV_COGIT_API_BASE_URL', () => {
-        process.env.BRV_COGIT_BASE_URL = 'https://cogit.correct'
-        process.env.BRV_COGIT_API_BASE_URL = 'https://cogit.wrong'
+        try {
+          process.env.BRV_COGIT_BASE_URL = 'https://cogit.correct'
+          process.env.BRV_COGIT_API_BASE_URL = 'https://cogit.wrong'
 
-        const config: E2eConfig = getE2eConfig()
+          const config: E2eConfig = getE2eConfig()
 
-        expect(config.cogitBaseUrl).to.equal('https://cogit.correct')
-        delete process.env.BRV_COGIT_API_BASE_URL
+          expect(config.cogitBaseUrl).to.equal('https://cogit.correct')
+        } finally {
+          delete process.env.BRV_COGIT_API_BASE_URL
+        }
       })
 
       it('should read from BRV_LLM_BASE_URL, not BRV_LLM_API_BASE_URL', () => {
-        process.env.BRV_LLM_BASE_URL = 'https://llm.correct'
-        process.env.BRV_LLM_API_BASE_URL = 'https://llm.wrong'
+        try {
+          process.env.BRV_LLM_BASE_URL = 'https://llm.correct'
+          process.env.BRV_LLM_API_BASE_URL = 'https://llm.wrong'
 
-        const config: E2eConfig = getE2eConfig()
+          const config: E2eConfig = getE2eConfig()
 
-        expect(config.llmBaseUrl).to.equal('https://llm.correct')
-        delete process.env.BRV_LLM_API_BASE_URL
+          expect(config.llmBaseUrl).to.equal('https://llm.correct')
+        } finally {
+          delete process.env.BRV_LLM_API_BASE_URL
+        }
       })
     })
   })
