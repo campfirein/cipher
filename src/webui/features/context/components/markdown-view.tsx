@@ -1,11 +1,13 @@
 import {Button} from '@campfirein/byterover-packages/components/button'
-import {Check, Copy} from 'lucide-react'
+import {AlertTriangle, Check, Copy} from 'lucide-react'
 import {Children, createElement, type FC, isValidElement, memo, ReactElement, type ReactNode, useState} from 'react'
 import ReactMarkdown, {type Components, type Options} from 'react-markdown'
 import {Prism as SyntaxHighlighter} from 'react-syntax-highlighter'
 import {oneDark} from 'react-syntax-highlighter/dist/esm/styles/prism'
 import remarkFrontmatter from 'remark-frontmatter'
 import remarkGfm from 'remark-gfm'
+
+import {hasConflictMarkers} from '../../../../shared/utils/conflict-markers'
 
 // ── CodeBlock ──────────────────────────────────────────────────────────────
 
@@ -175,9 +177,56 @@ interface MarkdownViewProps {
   content: string
 }
 
-export function MarkdownView({className, content}: MarkdownViewProps) {
+/**
+ * Renders file content as monospace text with conflict-marker LINES highlighted
+ * (amber background). Content lines between markers stay un-tinted so the user
+ * can focus on the markers themselves.
+ */
+function ConflictView({content}: {content: string}) {
+  const lines = content.split('\n')
+  let region: 'none' | 'ours' | 'theirs' = 'none'
+
   return (
-    <div className={className ?? 'bg-card text-secondary-foreground mx-auto min-h-0 w-full flex-1 space-y-2 overflow-y-auto break-words text-sm leading-7'}>
+    <pre className="bg-card overflow-x-auto rounded-md py-2 font-mono text-xs leading-6">
+      {lines.map((line, i) => {
+        let cls = 'block px-3 whitespace-pre-wrap break-all'
+        if (line.startsWith('<<<<<<<')) {
+          cls += ' bg-[#4f3422] text-[#ffc53d] font-semibold'
+          region = 'ours'
+        } else if (line.startsWith('=======') && region !== 'none') {
+          cls += ' bg-[#4f3422] text-[#ffc53d] font-semibold'
+          region = 'theirs'
+        } else if (line.startsWith('>>>>>>>')) {
+          cls += ' bg-[#4f3422] text-[#ffc53d] font-semibold'
+          region = 'none'
+        }
+
+        return <span className={cls} key={i}>{line || '\u00A0'}</span>
+      })}
+    </pre>
+  )
+}
+
+export function MarkdownView({className, content}: MarkdownViewProps) {
+  const wrapperClass = className ?? 'bg-card text-secondary-foreground mx-auto min-h-0 w-full flex-1 space-y-2 overflow-y-auto break-words text-sm leading-7'
+
+  // Markdown rendering breaks on conflict markers (`=======` is a setext heading underline,
+  // `<<<<<<<` may be parsed as autolink), producing a misleading preview. Render a structured
+  // conflict view instead so users can see exactly what's in each side of the conflict.
+  if (hasConflictMarkers(content)) {
+    return (
+      <div className={wrapperClass}>
+        <div className="bg-[#4f3422] text-[#ffc53d] mb-2 flex items-center gap-2 rounded-md px-3 py-2 text-xs">
+          <AlertTriangle className="size-3.5 shrink-0" />
+          <span>Unresolved conflict markers — showing raw content with side highlighting.</span>
+        </div>
+        <ConflictView content={content} />
+      </div>
+    )
+  }
+
+  return (
+    <div className={wrapperClass}>
       <MemoizedReactMarkdown components={MARKDOWN_COMPONENTS} remarkPlugins={REMARK_PLUGINS}>
         {content}
       </MemoizedReactMarkdown>

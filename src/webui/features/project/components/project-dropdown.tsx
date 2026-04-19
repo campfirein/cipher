@@ -86,12 +86,10 @@ export function ProjectDropdown() {
   return (
     <>
       <DropdownMenu onOpenChange={setIsOpen} open={isOpen}>
-        <DropdownMenuTrigger>
-          <Button variant="ghost">
-            {selectedProject ? <ProjectAvatar name={projectName} seed={selectedProject} size="sm" /> : null}
-            <span className="truncate">{projectName || 'No project selected'}</span>
-            <ChevronDown className="size-4 shrink-0" />
-          </Button>
+        <DropdownMenuTrigger render={<Button variant="ghost" />}>
+          {selectedProject ? <ProjectAvatar name={projectName} seed={selectedProject} size="sm" /> : null}
+          <span className="truncate">{projectName || 'No project selected'}</span>
+          <ChevronDown className="size-4 shrink-0" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-(--anchor-width) min-w-72" sideOffset={6}>
           <DropdownMenuItem onClick={() => setIsHintOpen(true)}>

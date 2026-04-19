@@ -1,0 +1,337 @@
+import { FileText, LoaderCircle } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
+
+import type { ChangeFile } from '../types'
+
+import { getErrorMessage } from '../../../utils/get-error-message'
+import { useVcAdd } from '../api/execute-vc-add'
+import { useVcCommit } from '../api/execute-vc-commit'
+import { useVcMergeAbort } from '../api/execute-vc-merge-abort'
+import { useVcMergeContinue } from '../api/execute-vc-merge-continue'
+import { useVcPull } from '../api/execute-vc-pull'
+import { useVcPush } from '../api/execute-vc-push'
+import { useVcReset } from '../api/execute-vc-reset'
+import { useGetVcStatus } from '../api/get-vc-status'
+import { statusToFiles } from '../utils/status-to-files'
+import { BranchBar } from './branch-bar'
+import { CommitInput } from './commit-input'
+import { DiffView } from './diff-view'
+import { DiscardChangesDialog } from './discard-changes-dialog'
+import { FileList } from './file-list'
+import { InitializeVcButton } from './initialize-vc-button'
+import { MultiDiffView } from './multi-diff-view'
+import { StageAllAndCommitDialog } from './stage-all-and-commit-dialog'
+
+type ViewMode = 'multi-staged' | 'multi-unstaged' | 'single'
+
+function fileBucket(file: ChangeFile): 'merge' | 'staged' | 'unstaged' {
+  if (file.status === 'unmerged') return 'merge'
+  return file.isStaged ? 'staged' : 'unstaged'
+}
+
+function fileKey(file: ChangeFile): string {
+  return `${fileBucket(file)}:${file.path}`
+}
+
+async function runAction(promise: Promise<unknown>, errorMsg: string): Promise<void> {
+  try {
+    await promise
+  } catch (error) {
+    toast.error(getErrorMessage(error, errorMsg))
+  }
+}
+
+export function ChangesPanel() {
+  const navigate = useNavigate()
+  const { data: status, isLoading } = useGetVcStatus()
+  const [selectedKey, setSelectedKey] = useState<string | undefined>()
+  const [viewMode, setViewMode] = useState<ViewMode>('single')
+  const [discardTargets, setDiscardTargets] = useState<ChangeFile[] | undefined>()
+  const [commitMessage, setCommitMessage] = useState('')
+  const [showStageAllConfirm, setShowStageAllConfirm] = useState(false)
+
+  const addMutation = useVcAdd()
+  const resetMutation = useVcReset()
+  const commitMutation = useVcCommit()
+  const pushMutation = useVcPush()
+  const pullMutation = useVcPull()
+  const mergeAbortMutation = useVcMergeAbort()
+  const mergeContinueMutation = useVcMergeContinue()
+
+  const { staged, unmerged, unstaged } = useMemo(() => statusToFiles(status), [status])
+
+  const selectedFile = useMemo(
+    () => (selectedKey ? [...unmerged, ...staged, ...unstaged].find((f) => fileKey(f) === selectedKey) : undefined),
+    [selectedKey, staged, unmerged, unstaged],
+  )
+
+  const busy =
+    addMutation.isPending ||
+    resetMutation.isPending ||
+    commitMutation.isPending ||
+    pushMutation.isPending ||
+    pullMutation.isPending ||
+    mergeAbortMutation.isPending ||
+    mergeContinueMutation.isPending
+
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <LoaderCircle className="text-muted-foreground size-5 animate-spin" />
+      </div>
+    )
+  }
+
+  if (!status?.initialized) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4">
+        <div className="flex flex-col items-center gap-1 text-center">
+          <h2 className="text-foreground text-lg font-semibold">Version control not initialized</h2>
+          <p className="text-muted-foreground text-sm">Initialize to start tracking changes in this project.</p>
+        </div>
+        <InitializeVcButton />
+      </div>
+    )
+  }
+
+  const handleStageFile = (file: ChangeFile) =>
+    runAction(addMutation.mutateAsync({ filePaths: [file.path] }), 'Failed to stage file')
+
+  const handleUnstageFile = (file: ChangeFile) =>
+    runAction(resetMutation.mutateAsync({ filePaths: [file.path] }), 'Failed to unstage file')
+
+  const handleStageAll = () => runAction(addMutation.mutateAsync({}), 'Failed to stage all')
+
+  const stageMergeFiles = (paths: string[]) =>
+    runAction(addMutation.mutateAsync({ filePaths: paths }), 'Failed to stage')
+
+  const handleStageMergeAll = () => stageMergeFiles(unmerged.map((f) => f.path))
+
+  const handleAbortMerge = async () => {
+    try {
+      await mergeAbortMutation.mutateAsync()
+      toast.success('Merge aborted')
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to abort merge'))
+    }
+  }
+
+  const handleUnstageAll = () => runAction(resetMutation.mutateAsync({}), 'Failed to unstage all')
+
+  const doCommit = async (message: string): Promise<boolean> => {
+    try {
+      await commitMutation.mutateAsync({ message })
+      toast.success('Committed')
+      return true
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to commit'))
+      return false
+    }
+  }
+
+  const continueMerge = async (message: string): Promise<boolean> => {
+    try {
+      await mergeContinueMutation.mutateAsync({ message })
+      toast.success('Merge committed')
+      return true
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to commit merge'))
+      return false
+    }
+  }
+
+  const handleCommit = async () => {
+    const message = commitMessage.trim()
+    if (!message) return
+
+    // During a merge, route through `vc:merge --continue` so the server's
+    // unmerged-files guard runs (handleCommit doesn't have it).
+    if (status.mergeInProgress) {
+      const ok = await continueMerge(message)
+      if (ok) setCommitMessage('')
+      return
+    }
+
+    if (staged.length === 0 && unstaged.length > 0) {
+      setShowStageAllConfirm(true)
+      return
+    }
+
+    const committed = await doCommit(message)
+    if (committed) setCommitMessage('')
+  }
+
+  const handleStageAllAndCommit = async () => {
+    const message = commitMessage.trim()
+    if (!message) return
+    try {
+      await addMutation.mutateAsync({})
+      const committed = await doCommit(message)
+      if (committed) {
+        setCommitMessage('')
+        setShowStageAllConfirm(false)
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to stage & commit'))
+    }
+  }
+
+  const handlePush = async () => {
+    try {
+      const result = await pushMutation.mutateAsync({ setUpstream: !status.trackingBranch })
+      toast.success(result.alreadyUpToDate ? 'Already up to date' : `Pushed ${result.branch}`)
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to push'))
+    }
+  }
+
+  const handlePull = async () => {
+    try {
+      const result = await pullMutation.mutateAsync({})
+      if (result.conflicts && result.conflicts.length > 0) {
+        toast.error(`Pull had conflicts in ${result.conflicts.length} file(s)`)
+      } else {
+        toast.success(result.alreadyUpToDate ? 'Already up to date' : `Pulled ${result.branch}`)
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to pull'))
+    }
+  }
+
+  const handleSelectFile = (file: ChangeFile) => {
+    setSelectedKey(fileKey(file))
+    setViewMode('single')
+  }
+
+  const isFileSelected = (file: ChangeFile) => fileKey(file) === selectedKey && viewMode === 'single'
+
+  const handleOpenStagedChanges = () => setViewMode('multi-staged')
+  const handleOpenChanges = () => setViewMode('multi-unstaged')
+
+  const handleOpenInContext = (file: ChangeFile) => {
+    navigate(`/contexts?path=${encodeURIComponent(file.path)}`)
+  }
+
+  const handleStageToggle = (file: ChangeFile) => (file.isStaged ? handleUnstageFile(file) : handleStageFile(file))
+
+  const handleDiscardFile = (file: ChangeFile) => setDiscardTargets([file])
+  const handleDiscardAll = () => {
+    if (unstaged.length > 0) setDiscardTargets(unstaged)
+  }
+
+  return (
+    <div className="flex h-full w-full">
+      <aside className="border-border flex h-full w-80 shrink-0 flex-col gap-2">
+        <BranchBar
+          ahead={status.ahead}
+          behind={status.behind}
+          branch={status.branch}
+          hasTracking={Boolean(status.trackingBranch)}
+          isAborting={mergeAbortMutation.isPending}
+          isPulling={pullMutation.isPending}
+          isPushing={pushMutation.isPending}
+          mergeInProgress={status.mergeInProgress}
+          onAbortMerge={handleAbortMerge}
+          onPull={handlePull}
+          onPush={handlePush}
+        />
+
+        <CommitInput
+          canCommit={staged.length > 0 || unstaged.length > 0}
+          isCommitting={commitMutation.isPending}
+          message={commitMessage}
+          onCommit={handleCommit}
+          onMessageChange={setCommitMessage}
+        />
+
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+          <FileList
+            disabled={busy}
+            files={unmerged}
+            isFileSelected={isFileSelected}
+            label="Merge Changes"
+            onFileAction={handleStageFile}
+            onFileSelect={handleSelectFile}
+            onGroupAction={handleStageMergeAll}
+            variant="stage"
+          />
+          <FileList
+            disabled={busy}
+            files={staged}
+            isFileSelected={isFileSelected}
+            label="Staged Changes"
+            onFileAction={handleUnstageFile}
+            onFileSelect={handleSelectFile}
+            onGroupAction={handleUnstageAll}
+            onOpenAll={handleOpenStagedChanges}
+            openAllLabel="Open all staged changes"
+            variant="unstage"
+          />
+          <FileList
+            disabled={busy}
+            files={unstaged}
+            isFileSelected={isFileSelected}
+            label="Changes"
+            onDiscardFile={handleDiscardFile}
+            onDiscardGroup={handleDiscardAll}
+            onFileAction={handleStageFile}
+            onFileSelect={handleSelectFile}
+            onGroupAction={handleStageAll}
+            onOpenAll={handleOpenChanges}
+            openAllLabel="Open all changes"
+            variant="stage"
+          />
+        </div>
+      </aside>
+
+      <main className="flex h-full flex-1 flex-col overflow-hidden pl-4">
+        {viewMode === 'multi-staged' && (
+          <MultiDiffView
+            emptyMessage="No staged changes"
+            files={staged}
+            onOpenFile={handleOpenInContext}
+            onStageToggle={handleStageToggle}
+            side="staged"
+            title="Staged Changes"
+          />
+        )}
+        {viewMode === 'multi-unstaged' && (
+          <MultiDiffView
+            emptyMessage="No changes"
+            files={unstaged}
+            onOpenFile={handleOpenInContext}
+            onStageToggle={handleStageToggle}
+            side="unstaged"
+            title="Changes"
+          />
+        )}
+        {viewMode === 'single' &&
+          (selectedFile ? (
+            <DiffView file={selectedFile} onOpenFile={handleOpenInContext} onStageToggle={handleStageToggle} />
+          ) : (
+            <div className="bg-card text-secondary-foreground flex h-full flex-col items-center justify-center gap-3 rounded-md text-sm">
+              <FileText className="size-8" strokeWidth={1.25} />
+              <p>Select a file to view its diff</p>
+            </div>
+          ))}
+      </main>
+
+      <DiscardChangesDialog
+        files={discardTargets ?? []}
+        onOpenChange={(open) => {
+          if (!open) setDiscardTargets(undefined)
+        }}
+        open={discardTargets !== undefined && discardTargets.length > 0}
+      />
+
+      <StageAllAndCommitDialog
+        isCommitting={addMutation.isPending || commitMutation.isPending}
+        onConfirm={handleStageAllAndCommit}
+        onOpenChange={setShowStageAllConfirm}
+        open={showStageAllConfirm}
+      />
+    </div>
+  )
+}

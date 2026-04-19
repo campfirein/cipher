@@ -1,9 +1,11 @@
 import { Dialog, DialogContent } from '@campfirein/byterover-packages/components/dialog'
 import { LoaderCircle } from 'lucide-react'
 import { useCallback, useState } from 'react'
+import { toast } from 'sonner'
 
 import type { ModelDTO, ProviderDTO } from '../../../../../shared/transport/events'
 
+import { getErrorMessage } from '../../../../utils/get-error-message'
 import { useSetActiveModel } from '../../../model/api/set-active-model'
 import { useAwaitOAuthCallback } from '../../api/await-oauth-callback'
 import { useConnectProvider } from '../../api/connect-provider'
@@ -89,9 +91,10 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
       try {
         await connectMutation.mutateAsync({ providerId: provider.id })
         await setActiveMutation.mutateAsync({ providerId: provider.id })
+        toast.success(`Connected to ${provider.name}`)
         resetAndClose()
       } catch (error_) {
-        setError(error_ instanceof Error ? error_.message : 'Connection failed')
+        toast.error(getErrorMessage(error_, 'Connection failed'))
         setStep('select')
       }
 
@@ -123,7 +126,7 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
       setIsNewConnection(true)
       setStep('model_select')
     } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : 'Connection failed')
+      toast.error(getErrorMessage(error_, 'Connection failed'))
       setStep('select')
     }
   }, [connectMutation, resetAndClose, setActiveMutation])
@@ -133,7 +136,7 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
     try {
       const result = await startOAuthMutation.mutateAsync({providerId: provider.id})
       if (!result.success) {
-        setError(result.error ?? 'Failed to start OAuth')
+        toast.error(result.error ?? 'Failed to start OAuth')
         setStep('select')
         return
       }
@@ -147,11 +150,11 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
         setIsNewConnection(true)
         setStep('model_select')
       } else {
-        setError(callbackResult.error ?? 'OAuth failed')
+        toast.error(callbackResult.error ?? 'OAuth failed')
         setStep('select')
       }
     } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : 'OAuth failed')
+      toast.error(getErrorMessage(error_, 'OAuth failed'))
       setStep('select')
     }
   }, [awaitOAuthMutation, startOAuthMutation])
@@ -164,9 +167,10 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
         setStep('connecting')
         try {
           await setActiveMutation.mutateAsync({ providerId: selectedProvider.id })
+          toast.success(`Activated ${selectedProvider.name}`)
           resetAndClose()
         } catch (error_) {
-          setError(error_ instanceof Error ? error_.message : 'Failed')
+          setError(getErrorMessage(error_, 'Failed'))
           setStep('provider_actions')
         }
 
@@ -182,11 +186,12 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
         setStep('connecting')
         try {
           await disconnectMutation.mutateAsync({ providerId: selectedProvider.id })
+          toast.success(`Disconnected ${selectedProvider.name}`)
           setStep('select')
           setSelectedProvider(undefined)
           setError(undefined)
         } catch (error_) {
-          setError(error_ instanceof Error ? error_.message : 'Failed')
+          setError(getErrorMessage(error_, 'Failed'))
           setStep('provider_actions')
         }
 
@@ -227,7 +232,7 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
           return
         }
       } catch (error_) {
-        setError(error_ instanceof Error ? error_.message : 'Validation failed')
+        setError(getErrorMessage(error_, 'Validation failed'))
         return
       }
     }
@@ -242,7 +247,7 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
       setIsNewConnection(true)
       setStep('model_select')
     } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : 'Connection failed')
+      setError(getErrorMessage(error_, 'Connection failed'))
       setStep('api_key')
     }
   }, [baseUrl, connectMutation, selectedProvider, validateMutation])
@@ -258,12 +263,14 @@ export function ProviderFlowDialog({ onOpenChange, open }: ProviderFlowDialogPro
       })
 
       if (isNewConnection) {
+        toast.success(`Connected to ${selectedProvider.name}`)
         resetAndClose()
       } else {
+        toast.success(`Model set to ${model.name}`)
         setStep('provider_actions')
       }
     } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : 'Failed to set model')
+      toast.error(getErrorMessage(error_, 'Failed to set model'))
     }
   }, [isNewConnection, resetAndClose, selectedProvider, setActiveModelMutation])
 

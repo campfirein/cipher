@@ -24,6 +24,12 @@ import {
   type IVcCommitResponse,
   type IVcConfigRequest,
   type IVcConfigResponse,
+  type IVcDiffRequest,
+  type IVcDiffResponse,
+  type IVcDiffsRequest,
+  type IVcDiffsResponse,
+  type IVcDiscardRequest,
+  type IVcDiscardResponse,
   type IVcFetchRequest,
   type IVcFetchResponse,
   type IVcInitResponse,
@@ -40,6 +46,7 @@ import {
   type IVcResetRequest,
   type IVcResetResponse,
   type IVcStatusResponse,
+  type VcDiffSide,
   VcErrorCode,
   type VcErrorCodeType,
   VcEvents,
@@ -147,6 +154,15 @@ export class VcHandler {
     this.transport.onRequest<IVcConfigRequest, IVcConfigResponse>(VcEvents.CONFIG, (data, clientId) =>
       this.handleConfig(data, clientId),
     )
+    this.transport.onRequest<IVcDiffRequest, IVcDiffResponse>(VcEvents.DIFF, (data, clientId) =>
+      this.handleDiff(data, clientId),
+    )
+    this.transport.onRequest<IVcDiffsRequest, IVcDiffsResponse>(VcEvents.DIFFS, (data, clientId) =>
+      this.handleDiffs(data, clientId),
+    )
+    this.transport.onRequest<IVcDiscardRequest, IVcDiscardResponse>(VcEvents.DISCARD, (data, clientId) =>
+      this.handleDiscard(data, clientId),
+    )
     this.transport.onRequest<IVcFetchRequest, IVcFetchResponse>(VcEvents.FETCH, (data, clientId) =>
       this.handleFetch(data, clientId),
     )
@@ -198,6 +214,23 @@ export class VcHandler {
     )
   }
 
+  private async computeDiff(directory: string, path: string, side: VcDiffSide): Promise<IVcDiffResponse> {
+    if (side === 'staged') {
+      const [head, stage] = await Promise.all([
+        this.gitService.getBlobContent({directory, path, ref: 'HEAD'}),
+        this.gitService.getBlobContent({directory, path, ref: 'STAGE'}),
+      ])
+      return {newContent: stage ?? '', oldContent: head ?? '', path}
+    }
+
+    // unstaged: compare index (old) against working tree (new)
+    const [stage, workingTree] = await Promise.all([
+      this.gitService.getBlobContent({directory, path, ref: 'STAGE'}),
+      fs.promises.readFile(join(directory, path), 'utf8').catch(() => ''),
+    ])
+    return {newContent: workingTree, oldContent: stage ?? '', path}
+  }
+
   /**
    * When force is NOT set, checks for uncommitted changes and throws
    * VcError(UNCOMMITTED_CHANGES) if the working tree is dirty.
@@ -212,6 +245,30 @@ export class VcHandler {
       throw new VcError(
         'You have uncommitted changes that would be overwritten. Commit your changes or use --force to discard them.',
         VcErrorCode.UNCOMMITTED_CHANGES,
+      )
+    }
+  }
+
+  /**
+   * Block a commit when either:
+   *  1. The index still has unmerged (multi-stage) entries — matches native git's commit guard.
+   *  2. Any tracked file still contains `<<<<<<<` markers — extra strictness on top of native git,
+   *     matching our existing push-time guard. Avoids accidentally publishing marker text.
+   */
+  private async guardUnmergedAndMarkers(directory: string): Promise<void> {
+    const conflicts = await this.gitService.getConflicts({directory})
+    if (conflicts.length > 0) {
+      throw new VcError(
+        'Committing is not possible because you have unmerged files.',
+        VcErrorCode.MERGE_CONFLICT,
+      )
+    }
+
+    const markerFiles = await this.gitService.getFilesWithConflictMarkers({directory})
+    if (markerFiles.length > 0) {
+      throw new VcError(
+        `Conflict markers detected in: ${markerFiles.join(', ')}. Resolve them before committing.`,
+        VcErrorCode.CONFLICT_MARKERS_PRESENT,
       )
     }
   }
@@ -578,6 +635,8 @@ export class VcHandler {
       throw new VcError('Nothing staged.', VcErrorCode.NOTHING_STAGED)
     }
 
+    await this.guardUnmergedAndMarkers(directory)
+
     const config = await this.vcGitConfigStore.get(projectPath)
     if (!config?.name || !config.email) {
       const hint = await this.buildAuthorHint(config)
@@ -617,6 +676,64 @@ export class VcHandler {
     }
 
     return {key: data.key, value}
+  }
+
+  private async handleDiff(data: IVcDiffRequest, clientId: string): Promise<IVcDiffResponse> {
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const directory = this.contextTreeService.resolvePath(projectPath)
+    return this.computeDiff(directory, data.path, data.side)
+  }
+
+  private async handleDiffs(data: IVcDiffsRequest, clientId: string): Promise<IVcDiffsResponse> {
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const directory = this.contextTreeService.resolvePath(projectPath)
+    const {paths, side} = data
+
+    if (side === 'staged') {
+      const [head, stage] = await Promise.all([
+        this.gitService.getBlobContents({directory, paths, ref: 'HEAD'}),
+        this.gitService.getBlobContents({directory, paths, ref: 'STAGE'}),
+      ])
+      const diffs = paths.map((path) => ({newContent: stage[path] ?? '', oldContent: head[path] ?? '', path}))
+      return {diffs}
+    }
+
+    // unstaged: compare index (old) against working tree (new)
+    const stage = await this.gitService.getBlobContents({directory, paths, ref: 'STAGE'})
+    const workingTree = await Promise.all(
+      paths.map((path) => fs.promises.readFile(join(directory, path), 'utf8').catch(() => '')),
+    )
+    const diffs = paths.map((path, i) => ({newContent: workingTree[i], oldContent: stage[path] ?? '', path}))
+    return {diffs}
+  }
+
+  private async handleDiscard(data: IVcDiscardRequest, clientId: string): Promise<IVcDiscardResponse> {
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const directory = this.contextTreeService.resolvePath(projectPath)
+
+    const gitInitialized = await this.gitService.isInitialized({directory})
+    if (!gitInitialized) {
+      throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
+    }
+
+    const {filePaths} = data
+    // Prefer index blob (preserves staged changes); fall back to HEAD; else delete (untracked).
+    const [stage, head] = await Promise.all([
+      this.gitService.getBlobContents({directory, paths: filePaths, ref: 'STAGE'}),
+      this.gitService.getBlobContents({directory, paths: filePaths, ref: 'HEAD'}),
+    ])
+
+    await Promise.all(
+      filePaths.map(async (path) => {
+        const target = stage[path] ?? head[path]
+        const absolutePath = join(directory, path)
+        await (target === undefined
+          ? fs.promises.unlink(absolutePath).catch(() => {})
+          : fs.promises.writeFile(absolutePath, target))
+      }),
+    )
+
+    return {count: filePaths.length}
   }
 
   private async handleFetch(data: IVcFetchRequest, clientId: string): Promise<IVcFetchResponse> {
@@ -747,11 +864,7 @@ export class VcHandler {
         return {action: 'continue', defaultMessage}
       }
 
-      // Check for unresolved conflicts before committing
-      const conflicts = await this.gitService.getConflicts({directory})
-      if (conflicts.length > 0) {
-        throw new VcError('Committing is not possible because you have unmerged files.', VcErrorCode.MERGE_CONFLICT)
-      }
+      await this.guardUnmergedAndMarkers(directory)
 
       const config = await this.vcGitConfigStore.get(projectPath)
       if (!config?.name || !config.email) {
