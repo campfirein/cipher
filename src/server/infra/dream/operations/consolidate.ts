@@ -17,10 +17,12 @@ import {access, mkdir, readdir, readFile, rename, unlink, writeFile} from 'node:
 import {dirname, join} from 'node:path'
 
 import type {ICipherAgent} from '../../../../agent/core/interfaces/i-cipher-agent.js'
+import type {ILogger} from '../../../../agent/core/interfaces/i-logger.js'
 import type {DreamOperation} from '../dream-log-schema.js'
 import type {ConsolidationAction} from '../dream-response-schemas.js'
 import type {DreamState, PendingMerge} from '../dream-state-schema.js'
 
+import {warnSidecarFailure} from '../../../core/domain/knowledge/sidecar-logging.js'
 import {ConsolidateResponseSchema} from '../dream-response-schemas.js'
 import {parseDreamResponse} from '../parse-dream-response.js'
 
@@ -38,6 +40,11 @@ export type ConsolidateDeps = {
     update(updater: (state: DreamState) => DreamState): Promise<DreamState>
     write(state: DreamState): Promise<void>
   }
+  /**
+   * Optional logger. When provided, per-file sidecar failures during the
+   * CROSS_REFERENCE review gate emit a warn so silent swallows are visible.
+   */
+  logger?: ILogger
   reviewBackupStore?: {
     save(relativePath: string, content: string): Promise<void>
   }
@@ -205,7 +212,13 @@ async function processDomain(domain: string, files: string[], deps: ConsolidateD
     for (const action of parsed.actions) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        const op = await executeAction(action, contextTreeDir, fileContents, deps.runtimeSignalStore, deps.reviewBackupStore)
+        const op = await executeAction(action, {
+          contextTreeDir,
+          fileContents,
+          logger: deps.logger,
+          reviewBackupStore: deps.reviewBackupStore,
+          runtimeSignalStore: deps.runtimeSignalStore,
+        })
         if (op) results.push(op)
       } catch {
         // Skip failed action, continue with others
@@ -455,20 +468,25 @@ function buildPrompt(
   return lines.join('\n')
 }
 
+type ActionContext = {
+  contextTreeDir: string
+  fileContents: Map<string, string>
+  logger?: ConsolidateDeps['logger']
+  reviewBackupStore?: ConsolidateDeps['reviewBackupStore']
+  runtimeSignalStore: ConsolidateDeps['runtimeSignalStore']
+}
+
 async function executeAction(
   action: ConsolidationAction,
-  contextTreeDir: string,
-  fileContents: Map<string, string>,
-  runtimeSignalStore: ConsolidateDeps['runtimeSignalStore'],
-  reviewBackupStore?: ConsolidateDeps['reviewBackupStore'],
+  ctx: ActionContext,
 ): Promise<DreamOperation | undefined> {
   switch (action.type) {
     case 'CROSS_REFERENCE': {
-      return executeCrossReference(action, contextTreeDir, fileContents, runtimeSignalStore, reviewBackupStore)
+      return executeCrossReference(action, ctx)
     }
 
     case 'MERGE': {
-      return executeMerge(action, contextTreeDir, fileContents, runtimeSignalStore, reviewBackupStore)
+      return executeMerge(action, ctx)
     }
 
     case 'SKIP': {
@@ -476,18 +494,13 @@ async function executeAction(
     }
 
     case 'TEMPORAL_UPDATE': {
-      return executeTemporalUpdate(action, contextTreeDir, fileContents, runtimeSignalStore, reviewBackupStore)
+      return executeTemporalUpdate(action, ctx)
     }
   }
 }
 
-async function executeMerge(
-  action: ConsolidationAction,
-  contextTreeDir: string,
-  fileContents: Map<string, string>,
-  runtimeSignalStore: ConsolidateDeps['runtimeSignalStore'],
-  reviewBackupStore?: ConsolidateDeps['reviewBackupStore'],
-): Promise<DreamOperation> {
+async function executeMerge(action: ConsolidationAction, ctx: ActionContext): Promise<DreamOperation> {
+  const {contextTreeDir, fileContents, reviewBackupStore, runtimeSignalStore} = ctx
   const outputFile = action.outputFile ?? action.files[0]
   if (!action.mergedContent) {
     throw new Error(`MERGE action missing mergedContent for ${outputFile}`)
@@ -529,7 +542,7 @@ async function executeMerge(
   await Promise.all(toDelete.map((f) => unlink(join(contextTreeDir, f)).catch(() => {})))
 
   // Determine needsReview
-  const needsReview = await determineNeedsReview('MERGE', action.files, runtimeSignalStore)
+  const needsReview = await determineNeedsReview('MERGE', action.files, {runtimeSignalStore})
 
   return {
     action: 'MERGE',
@@ -542,13 +555,8 @@ async function executeMerge(
   }
 }
 
-async function executeTemporalUpdate(
-  action: ConsolidationAction,
-  contextTreeDir: string,
-  fileContents: Map<string, string>,
-  runtimeSignalStore: ConsolidateDeps['runtimeSignalStore'],
-  reviewBackupStore?: ConsolidateDeps['reviewBackupStore'],
-): Promise<DreamOperation> {
+async function executeTemporalUpdate(action: ConsolidationAction, ctx: ActionContext): Promise<DreamOperation> {
+  const {contextTreeDir, fileContents, reviewBackupStore, runtimeSignalStore} = ctx
   const targetFile = action.files[0]
   if (!action.updatedContent) {
     throw new Error(`TEMPORAL_UPDATE action missing updatedContent for ${targetFile}`)
@@ -563,7 +571,10 @@ async function executeTemporalUpdate(
     previousTexts[targetFile] = original
   }
 
-  const needsReview = await determineNeedsReview('TEMPORAL_UPDATE', action.files, runtimeSignalStore, action.confidence)
+  const needsReview = await determineNeedsReview('TEMPORAL_UPDATE', action.files, {
+    confidence: action.confidence,
+    runtimeSignalStore,
+  })
 
   // Create review backup only when the operation needs human review
   if (reviewBackupStore && original !== undefined && needsReview) {
@@ -589,13 +600,8 @@ async function executeTemporalUpdate(
   }
 }
 
-async function executeCrossReference(
-  action: ConsolidationAction,
-  contextTreeDir: string,
-  fileContents: Map<string, string>,
-  runtimeSignalStore: ConsolidateDeps['runtimeSignalStore'],
-  reviewBackupStore?: ConsolidateDeps['reviewBackupStore'],
-): Promise<DreamOperation> {
+async function executeCrossReference(action: ConsolidationAction, ctx: ActionContext): Promise<DreamOperation> {
+  const {contextTreeDir, fileContents, logger, reviewBackupStore, runtimeSignalStore} = ctx
   const previousTexts: Record<string, string> = {}
   for (const file of action.files) {
     const content = fileContents.get(file)
@@ -604,7 +610,7 @@ async function executeCrossReference(
     }
   }
 
-  const needsReview = await determineNeedsReview('CROSS_REFERENCE', action.files, runtimeSignalStore)
+  const needsReview = await determineNeedsReview('CROSS_REFERENCE', action.files, {logger, runtimeSignalStore})
   if (needsReview && reviewBackupStore) {
     await Promise.all(
       Object.entries(previousTexts).map(([file, content]) =>
@@ -673,26 +679,31 @@ async function addRelatedLinks(filePath: string, relatedPaths: string[]): Promis
 async function determineNeedsReview(
   actionType: 'CROSS_REFERENCE' | 'MERGE' | 'TEMPORAL_UPDATE',
   files: string[],
-  runtimeSignalStore: ConsolidateDeps['runtimeSignalStore'],
-  confidence?: number,
+  opts: {
+    confidence?: number
+    logger?: ConsolidateDeps['logger']
+    runtimeSignalStore: ConsolidateDeps['runtimeSignalStore']
+  },
 ): Promise<boolean> {
   // MERGE always needs review
   if (actionType === 'MERGE') return true
 
   // TEMPORAL_UPDATE: needs review when confidence is low or absent
-  if (actionType === 'TEMPORAL_UPDATE') return (confidence ?? 0) < 0.7
+  if (actionType === 'TEMPORAL_UPDATE') return (opts.confidence ?? 0) < 0.7
 
   // CROSS_REFERENCE: only if any file has core maturity in the sidecar.
   // Without a store, no file can qualify as core — review is skipped, which
   // matches the pre-migration default when no scoring was present.
+  const {logger, runtimeSignalStore} = opts
   if (!runtimeSignalStore) return false
   for (const file of files) {
     try {
       // eslint-disable-next-line no-await-in-loop
       const signals = await runtimeSignalStore.get(file)
       if (signals.maturity === 'core') return true
-    } catch {
+    } catch (error) {
       // Ignore per-file sidecar failures — continue checking remaining files.
+      warnSidecarFailure(logger, 'consolidate', 'get', `${file} (CROSS_REFERENCE gate)`, error)
     }
   }
 

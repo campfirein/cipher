@@ -17,6 +17,7 @@
 import {readdir, readFile, stat, writeFile} from 'node:fs/promises'
 import {join, relative} from 'node:path'
 
+import type {ILogger} from '../../../agent/core/interfaces/i-logger.js'
 import type {RuntimeSignals} from '../../core/domain/knowledge/runtime-signals-schema.js'
 import type {
   ContextManifest,
@@ -37,6 +38,7 @@ import {
   STUB_EXTENSION,
   SUMMARY_INDEX_FILE,
 } from '../../constants.js'
+import {warnSidecarFailure} from '../../core/domain/knowledge/sidecar-logging.js'
 import {DEFAULT_LANE_BUDGETS} from '../../core/domain/knowledge/summary-types.js'
 import {estimateTokens} from '../executor/pre-compaction/compaction-escalation.js'
 import {isArchiveStub, isDerivedArtifact} from './derived-artifact.js'
@@ -46,6 +48,11 @@ import {parseSummaryFrontmatter} from './summary-frontmatter.js'
 
 export interface ManifestServiceConfig {
   baseDirectory?: string
+  /**
+   * Optional logger. When provided, sidecar list failures during manifest
+   * build emit a warn so the fail-open degradation is visible.
+   */
+  logger?: ILogger
   /**
    * Optional. Source of truth for per-context `importance` used in lane
    * allocation. When absent or when a path has no entry, the default
@@ -73,7 +80,8 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
     let signalsByPath: Map<string, RuntimeSignals>
     try {
       signalsByPath = this.config.runtimeSignalStore ? await this.config.runtimeSignalStore.list() : new Map()
-    } catch {
+    } catch (error) {
+      warnSidecarFailure(this.config.logger, 'manifest-service', 'list', 'buildManifest', error)
       signalsByPath = new Map()
     }
 

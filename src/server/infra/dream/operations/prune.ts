@@ -16,11 +16,13 @@ import {readdir, readFile, stat, utimes} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {ICipherAgent} from '../../../../agent/core/interfaces/i-cipher-agent.js'
+import type {ILogger} from '../../../../agent/core/interfaces/i-logger.js'
 import type {DreamOperation} from '../dream-log-schema.js'
 import type {PruneDecision} from '../dream-response-schemas.js'
 import type {DreamState} from '../dream-state-schema.js'
 
 import {DEFAULT_IMPORTANCE, DEFAULT_MATURITY} from '../../../core/domain/knowledge/runtime-signals-schema.js'
+import {warnSidecarFailure} from '../../../core/domain/knowledge/sidecar-logging.js'
 import {isExcludedFromSync} from '../../context-tree/derived-artifact.js'
 import {toUnixPath} from '../../context-tree/path-utils.js'
 import {PruneResponseSchema} from '../dream-response-schemas.js'
@@ -39,6 +41,11 @@ export type PruneDeps = {
     update(updater: (state: DreamState) => DreamState): Promise<DreamState>
     write(state: DreamState): Promise<void>
   }
+  /**
+   * Optional logger. When provided, sidecar failures in the candidate scan
+   * emit a warn so the fail-open degradation is visible.
+   */
+  logger?: ILogger
   projectRoot: string
   reviewBackupStore?: {
     save(relativePath: string, content: string): Promise<void>
@@ -105,7 +112,8 @@ async function findCandidates(deps: PruneDeps): Promise<CandidateInfo[]> {
   let signalsByPath: Map<string, {importance: number; maturity: 'core' | 'draft' | 'validated'}>
   try {
     signalsByPath = deps.runtimeSignalStore ? await deps.runtimeSignalStore.list() : new Map()
-  } catch {
+  } catch (error) {
+    warnSidecarFailure(deps.logger, 'prune', 'list', 'findCandidates', error)
     signalsByPath = new Map()
   }
 
