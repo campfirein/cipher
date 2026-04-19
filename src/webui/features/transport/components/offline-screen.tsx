@@ -1,10 +1,11 @@
 import {CopyButton} from '@campfirein/byterover-packages/components/copy-button'
 
+import {UiConfigError} from '../../../lib/transport'
 import {useTransportStore} from '../../../stores/transport-store'
 import {StateCard, StatusPill, VersionStamp} from './state-card'
 
-export function OfflineScreen({error}: {error?: Error | null}) {
-  const isConfigError = error?.message.includes('Failed to fetch UI config')
+export function OfflineScreen({error}: {error?: Error}) {
+  const isConfigError = error instanceof UiConfigError
   const reconnectCount = useTransportStore((s) => s.reconnectCount)
 
   const command = isConfigError ? 'brv restart' : 'brv webui'
