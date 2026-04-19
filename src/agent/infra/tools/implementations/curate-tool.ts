@@ -1252,7 +1252,14 @@ async function executeMerge(
     // Dual-write: merge sidecar signals using `mergeScoring` (the canonical
     // merge policy). Runs inside `update`'s atomic callback so a concurrent
     // access-hit flush on the target cannot lose bumps.
+    //
+    // The target-update and source-delete are wrapped in separate try/catch
+    // blocks so an operator can tell which half failed. If update succeeds
+    // but delete throws the source sidecar entry becomes an orphan (source
+    // markdown is already gone, nothing will ever overwrite it). Tracked by
+    // pruneOrphans in the backlog.
     if (runtimeSignalStore && sourceSignalsSnapshot) {
+      let targetUpdated = false
       try {
         await runtimeSignalStore.update(targetRelPath, (current: RuntimeSignals): RuntimeSignals => {
           const merged = mergeScoring(sourceSignalsSnapshot, current)
@@ -1264,10 +1271,19 @@ async function executeMerge(
             updateCount: merged.updateCount,
           }
         })
-        await runtimeSignalStore.delete(sourceRelPath)
+        targetUpdated = true
       } catch (error) {
         // Best-effort — markdown merge already succeeded.
-        warnSidecarFailure(logger, CURATE_SITE, 'merge', `${sourceRelPath} -> ${targetRelPath}`, error)
+        warnSidecarFailure(logger, CURATE_SITE, 'merge-update', `${sourceRelPath} -> ${targetRelPath}`, error)
+      }
+
+      if (targetUpdated) {
+        try {
+          await runtimeSignalStore.delete(sourceRelPath)
+        } catch (error) {
+          // Source sidecar is now a permanent orphan until pruneOrphans runs.
+          warnSidecarFailure(logger, CURATE_SITE, 'merge-delete', sourceRelPath, error)
+        }
       }
     }
 
