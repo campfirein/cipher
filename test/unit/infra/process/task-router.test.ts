@@ -1080,6 +1080,29 @@ describe('TaskRouter', () => {
       expect(ids).to.include(localTaskId)
       expect(ids).to.not.include(taskId)
     })
+
+    it('should return an empty list when projectFilter cannot be resolved', async () => {
+      // Fresh router with NO resolveClientProjectPath wired up — so when the
+      // request omits projectPath, projectFilter ends up undefined and the
+      // handler must NOT leak every task across projects.
+      const helper = makeStubTransportServer(sandbox)
+      const localRouter = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        projectRegistry,
+        projectRouter,
+        transport: helper.transport,
+      })
+      localRouter.setup()
+
+      const localCreate = helper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      localCreate!(makeTaskCreateRequest({projectPath: '/app', taskId: randomUUID()}), 'client-1')
+      localCreate!(makeTaskCreateRequest({projectPath: '/other', taskId: randomUUID()}), 'client-2')
+
+      const listHandler = helper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = await listHandler!({}, 'unknown-client')
+      expect(result).to.deep.equal({tasks: []})
+    })
   })
 
   // ==========================================================================

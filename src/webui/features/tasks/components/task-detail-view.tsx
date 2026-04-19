@@ -1,3 +1,5 @@
+import type {ComponentRef} from 'react'
+
 import {useStickToBottom} from '../hooks/use-stick-to-bottom'
 import {useTickingNow} from '../hooks/use-ticking-now'
 import {useTaskById} from '../stores/task-store'
@@ -17,7 +19,7 @@ export function TaskDetailView({taskId}: TaskDetailViewProps) {
   const now = useTickingNow(isActive)
 
   const lastReasoning = task?.reasoningContents?.at(-1)
-  const {onScroll, ref: scrollRef} = useStickToBottom<HTMLDivElement>(
+  const {onScroll, ref: scrollRef} = useStickToBottom<ComponentRef<'div'>>(
     [
       task?.toolCalls?.length ?? 0,
       task?.reasoningContents?.length ?? 0,
@@ -36,8 +38,8 @@ export function TaskDetailView({taskId}: TaskDetailViewProps) {
 
   // Live and Result are mutually exclusive (TUI convention).
   const showLive = isActive && (task.streamingContent || task.responseContent)
-  const showResult = task.status === 'completed' && task.result
-  const showError = task.status === 'error' && task.error
+  const result = task.status === 'completed' ? task.result : undefined
+  const error = task.status === 'error' ? task.error : undefined
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -47,8 +49,8 @@ export function TaskDetailView({taskId}: TaskDetailViewProps) {
         <InputSection task={task} />
         {task.type !== 'query' && <EventLogSection now={now} task={task} />}
         {showLive && <LiveStreamSection task={task} />}
-        {showResult && <ResultSection content={task.result!} />}
-        {showError && <ErrorSection error={task.error!} />}
+        {result && <ResultSection content={result} />}
+        {error && <ErrorSection error={error} />}
       </div>
     </div>
   )

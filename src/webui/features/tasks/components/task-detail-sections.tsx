@@ -11,18 +11,21 @@ import {MarkdownInline} from './markdown-inline'
 import {SectionLabel, TerminalDot} from './task-detail-shared'
 
 export function InputSection({task}: {task: StoredTask}) {
-  const hasFiles = task.files && task.files.length > 0
-  const hasFolder = Boolean(task.folderPath)
+  const {folderPath} = task
+  const files = task.files ?? []
+  const hasAttachments = Boolean(folderPath) || files.length > 0
   return (
     <section>
       <SectionLabel>Input</SectionLabel>
       <div className="border-blue-400 text-foreground/90 mono border-l-2 pl-3 text-sm leading-relaxed whitespace-pre-wrap">
         {task.content || <span className="text-muted-foreground italic">(empty)</span>}
       </div>
-      {(hasFiles || hasFolder) && (
+      {hasAttachments && (
         <div className="mt-3 flex flex-wrap gap-1.5 pl-3">
-          {hasFolder && <AttachmentChip Icon={Folder} path={task.folderPath!} />}
-          {hasFiles && task.files!.map((file) => <AttachmentChip Icon={Paperclip} key={file} path={file} />)}
+          {folderPath && <AttachmentChip Icon={Folder} path={folderPath} />}
+          {files.map((file) => (
+            <AttachmentChip Icon={Paperclip} key={file} path={file} />
+          ))}
         </div>
       )}
     </section>
