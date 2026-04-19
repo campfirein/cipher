@@ -8,6 +8,7 @@ import {ContextsPage} from './pages/contexts-page'
 import {HomePage} from './pages/home-page'
 import {ProjectSelectorPage} from './pages/project-selector-page'
 import {SyncPage} from './pages/sync-page'
+import {TasksPage} from './pages/tasks-page'
 
 export const router = createBrowserRouter([
   {
@@ -37,6 +38,10 @@ export const router = createBrowserRouter([
           {
             element: <ContextsPage />,
             path: 'contexts',
+          },
+          {
+            element: <TasksPage />,
+            path: 'tasks',
           },
         ],
         element: <MainLayout />,

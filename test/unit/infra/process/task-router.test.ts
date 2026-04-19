@@ -987,6 +987,125 @@ describe('TaskRouter', () => {
   })
 
   // ==========================================================================
+  // task:list (snapshot for web UI)
+  // ==========================================================================
+
+  describe('task:list', () => {
+    it('should register a handler for task:list', () => {
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      expect(handler).to.exist
+    })
+
+    it('should return active tasks for the requested project (and unassigned)', async () => {
+      const createHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const appTaskId = randomUUID()
+      const otherTaskId = randomUUID()
+      const unassignedTaskId = randomUUID()
+      createHandler!(makeTaskCreateRequest({projectPath: '/app', taskId: appTaskId}), 'client-1')
+      createHandler!(makeTaskCreateRequest({projectPath: '/other', taskId: otherTaskId}), 'client-2')
+      createHandler!(makeTaskCreateRequest({projectPath: undefined, taskId: unassignedTaskId}), 'client-3')
+
+      const listHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await listHandler!({projectPath: '/app'}, 'client-1')) as {
+        tasks: Array<{projectPath?: string; status: string; taskId: string; type: string}>
+      }
+
+      const ids = result.tasks.map((t) => t.taskId)
+      expect(ids).to.include(appTaskId)
+      expect(ids).to.include(unassignedTaskId)
+      expect(ids).to.not.include(otherTaskId)
+      const appTask = result.tasks.find((t) => t.taskId === appTaskId)
+      expect(appTask).to.have.property('status', 'created')
+      expect(appTask).to.have.property('type', 'curate')
+    })
+
+    it('should reflect started status after task:started', async () => {
+      const createHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const startedHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.STARTED)
+      const taskId = randomUUID()
+      createHandler!(makeTaskCreateRequest({projectPath: '/app', taskId}), 'client-1')
+      startedHandler!({taskId}, 'agent-1')
+
+      const listHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await listHandler!({projectPath: '/app'}, 'client-1')) as {
+        tasks: Array<{startedAt?: number; status: string; taskId: string}>
+      }
+      const item = result.tasks.find((t) => t.taskId === taskId)
+      expect(item).to.exist
+      expect(item!.status).to.equal('started')
+      expect(item!.startedAt).to.be.a('number')
+    })
+
+    it('should include recently completed tasks (within grace period)', async () => {
+      const createHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const completedHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.COMPLETED)
+      const taskId = randomUUID()
+      createHandler!(makeTaskCreateRequest({projectPath: '/app', taskId}), 'client-1')
+      completedHandler!({result: 'done', taskId}, 'agent-1')
+
+      const listHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await listHandler!({projectPath: '/app'}, 'client-1')) as {
+        tasks: Array<{completedAt?: number; result?: string; status: string; taskId: string}>
+      }
+      const item = result.tasks.find((t) => t.taskId === taskId)
+      expect(item).to.exist
+      expect(item!.status).to.equal('completed')
+      expect(item!.result).to.equal('done')
+      expect(item!.completedAt).to.be.a('number')
+    })
+
+    it("should default to caller's registered project when projectPath omitted", async () => {
+      const createHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const taskId = randomUUID()
+      createHandler!(makeTaskCreateRequest({projectPath: '/app', taskId}), 'client-1')
+
+      // Wire up resolveClientProjectPath via a fresh router so we can return /app for client-1
+      const helper = makeStubTransportServer(sandbox)
+      const localRouter = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        projectRegistry,
+        projectRouter,
+        resolveClientProjectPath: (id) => (id === 'client-1' ? '/app' : undefined),
+        transport: helper.transport,
+      })
+      localRouter.setup()
+      const localCreate = helper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const localTaskId = randomUUID()
+      localCreate!(makeTaskCreateRequest({projectPath: '/app', taskId: localTaskId}), 'client-1')
+
+      const listHandler = helper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await listHandler!({}, 'client-1')) as {tasks: Array<{taskId: string}>}
+      const ids = result.tasks.map((t) => t.taskId)
+      expect(ids).to.include(localTaskId)
+      expect(ids).to.not.include(taskId)
+    })
+
+    it('should return an empty list when projectFilter cannot be resolved', async () => {
+      // Fresh router with NO resolveClientProjectPath wired up — so when the
+      // request omits projectPath, projectFilter ends up undefined and the
+      // handler must NOT leak every task across projects.
+      const helper = makeStubTransportServer(sandbox)
+      const localRouter = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        projectRegistry,
+        projectRouter,
+        transport: helper.transport,
+      })
+      localRouter.setup()
+
+      const localCreate = helper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      localCreate!(makeTaskCreateRequest({projectPath: '/app', taskId: randomUUID()}), 'client-1')
+      localCreate!(makeTaskCreateRequest({projectPath: '/other', taskId: randomUUID()}), 'client-2')
+
+      const listHandler = helper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = await listHandler!({}, 'unknown-client')
+      expect(result).to.deep.equal({tasks: []})
+    })
+  })
+
+  // ==========================================================================
   // clearTasks / getDebugState
   // ==========================================================================
 

@@ -324,8 +324,8 @@ Bad examples:
           success: true,
         })
       } else {
-        const logSuffix = logId ? ` (Log: ${logId})` : ''
-        this.log(`✓ Context queued for processing.${logSuffix}`)
+        const suffix = logId ? ` (Task: ${taskId} · Log: ${logId})` : ` (Task: ${taskId})`
+        this.log(`✓ Context queued for processing.${suffix}`)
       }
     } else {
       const completionPromise = waitForTaskCompletion(
@@ -347,8 +347,8 @@ Bad examples:
                 this.log(`  update ${file}`)
               }
 
-              const logSuffix = logId ? ` (Log: ${logId})` : ''
-              this.log(`✓ Context curated successfully.${logSuffix}`)
+              const suffix = logId ? ` (Task: ${tid} · Log: ${logId})` : ` (Task: ${tid})`
+              this.log(`✓ Context curated successfully.${suffix}`)
 
               if (pendingReview) {
                 this.printPendingReviewSummary(pendingReview.pendingCount, pendingOps, tid)
