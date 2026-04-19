@@ -12,7 +12,14 @@ const normalizeUrl = (url: string): string => url.trim().replace(/\/+$/, '')
 
 /** Throws if the URL contains a path component (anything beyond '/'). */
 const assertRootDomain = (name: string, url: string): void => {
-  if (new URL(url).pathname !== '/') {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error(`${name} is not a valid URL: "${url}". Provide a full URL including scheme (e.g., https://example.com).`)
+  }
+
+  if (parsed.pathname !== '/') {
     throw new Error(
       `${name} must not include a path component. Provide the root domain only (e.g., https://example.com).`,
     )
