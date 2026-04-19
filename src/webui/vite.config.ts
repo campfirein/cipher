@@ -164,6 +164,32 @@ export default defineConfig(({command, mode}) => {
       fs: {
         allow: [repoRoot],
       },
+      // Proxy review surfaces to the daemon so dev mirrors production: a single
+      // origin serves both the localweb (via Vite) and the review page (via
+      // the daemon's Express server).
+      proxy: {
+        '/api/review': {
+          changeOrigin: true,
+          router: () => daemonOrigin(),
+          target: 'http://127.0.0.1',
+        },
+        '^/review(?:\\?.*)?$': {
+          changeOrigin: true,
+          router: () => daemonOrigin(),
+          target: 'http://127.0.0.1',
+        },
+      },
     },
   }
 })
+
+function daemonOrigin(): string {
+  try {
+    const status = discoverDaemon()
+    if (status.running) return `http://127.0.0.1:${status.port}`
+  } catch {
+    /* daemon down — proxy will surface a 502 */
+  }
+
+  return 'http://127.0.0.1:0'
+}
