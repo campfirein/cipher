@@ -3,7 +3,7 @@ import {Checkbox} from '@campfirein/byterover-packages/components/checkbox'
 import {Sheet, SheetContent} from '@campfirein/byterover-packages/components/sheet'
 import {Textarea} from '@campfirein/byterover-packages/components/textarea'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
-import {type ComponentRef, type KeyboardEvent, useEffect, useRef, useState} from 'react'
+import {type KeyboardEvent, useEffect, useRef, useState} from 'react'
 import {toast} from 'sonner'
 
 import type {TaskCreateRequest} from '../../../../shared/transport/events/task-events'
@@ -52,7 +52,7 @@ function ComposerForm({
   const [type, setType] = useState<ComposerType>('curate')
   const [content, setContent] = useState('')
   const [openDetailAfter, setOpenDetailAfter] = useState(false)
-  const textareaRef = useRef<ComponentRef<typeof Textarea>>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     textareaRef.current?.focus()
@@ -83,7 +83,7 @@ function ComposerForm({
     }
   }
 
-  const onTextareaKeyDown = (event: KeyboardEvent<ComponentRef<typeof Textarea>>) => {
+  const onTextareaKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       event.preventDefault()
       submit().catch(() => {})

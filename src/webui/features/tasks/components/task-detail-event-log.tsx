@@ -34,11 +34,6 @@ export function EventLogSection({now, task}: {now: number; task: StoredTask}) {
   const seenRef = useRef<null | Set<string>>(null)
   const prevToneRef = useRef<Map<string, EventTone>>(new Map())
 
-  // Hide event log for query tasks since they don't have events
-  if (task.type === 'query') {
-    return null
-  }
-
   // First render — seed with all current events so initial paint doesn't stagger.
   // Only events that arrive *after* mount will animate in.
   if (seenRef.current === null) {

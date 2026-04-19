@@ -1,6 +1,7 @@
 import {includeIgnoreFile} from '@eslint/compat'
 import oclif from 'eslint-config-oclif'
 import prettier from 'eslint-config-prettier'
+import globals from 'globals'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 
@@ -24,12 +25,7 @@ export default [
   {
     files: ['src/webui/**/*.ts', 'src/webui/**/*.tsx'],
     languageOptions: {
-      globals: {
-        document: 'readonly',
-        fetch: 'readonly',
-        sessionStorage: 'readonly',
-        window: 'readonly',
-      },
+      globals: globals.browser,
     },
     rules: {
       'n/no-unsupported-features/node-builtins': 'off',

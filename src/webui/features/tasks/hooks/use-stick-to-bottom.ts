@@ -11,7 +11,6 @@ import {type RefObject, useCallback, useLayoutEffect, useRef} from 'react'
 
 const NEAR_BOTTOM_PX = 80
 
-// eslint-disable-next-line no-undef
 export function useStickToBottom<T extends HTMLElement>(
   deps: ReadonlyArray<unknown>,
   enabled = true,

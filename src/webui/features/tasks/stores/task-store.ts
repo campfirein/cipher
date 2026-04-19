@@ -63,7 +63,6 @@ interface TaskActions {
   setResponse: (taskId: string, content: string, sessionId?: string) => void
   setSearchQuery: (query: string) => void
   setStatusFilter: (filter: StatusFilter) => void
-  setTasks: (tasks: TaskListItem[]) => void
   setTypeFilter: (filter: TypeFilter) => void
   updateToolCallResult: (args: UpdateToolCallResultArgs) => void
   upsertStatus: (taskId: string, patch: Partial<TaskListItem> & {status: TaskListItemStatus}) => void
@@ -123,8 +122,6 @@ export const useTaskStore = create<TaskActions & TaskState>()(
       setSearchQuery: (query) => set({searchQuery: query}),
 
       setStatusFilter: (filter) => set({statusFilter: filter}),
-
-      setTasks: (tasks) => set({tasks: tasks as StoredTask[]}),
 
       setTypeFilter: (filter) => set({typeFilter: filter}),
 

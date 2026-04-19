@@ -8,6 +8,7 @@
 
 import {useEffect} from 'react'
 
+import {LlmEvents} from '../../../../shared/transport/events/llm-events'
 import {TaskEvents} from '../../../../shared/transport/events/task-events'
 import {useTransportStore} from '../../../stores/transport-store'
 import {useTaskStore} from '../stores/task-store'
@@ -78,14 +79,6 @@ interface LlmThinkingPayload {
   taskId?: string
 }
 
-const LLM_EVENTS = {
-  CHUNK: 'llmservice:chunk',
-  RESPONSE: 'llmservice:response',
-  THINKING: 'llmservice:thinking',
-  TOOL_CALL: 'llmservice:toolCall',
-  TOOL_RESULT: 'llmservice:toolResult',
-} as const
-
 export function useTaskSubscriptions(): void {
   const apiClient = useTransportStore((s) => s.apiClient)
 
@@ -133,7 +126,7 @@ export function useTaskSubscriptions(): void {
         })
       }),
 
-      apiClient.on<LlmToolCallPayload>(LLM_EVENTS.TOOL_CALL, (data) => {
+      apiClient.on<LlmToolCallPayload>(LlmEvents.TOOL_CALL, (data) => {
         if (!data.taskId) return
         store.addToolCall(data.taskId, {
           args: data.args,
@@ -145,7 +138,7 @@ export function useTaskSubscriptions(): void {
         })
       }),
 
-      apiClient.on<LlmToolResultPayload>(LLM_EVENTS.TOOL_RESULT, (data) => {
+      apiClient.on<LlmToolResultPayload>(LlmEvents.TOOL_RESULT, (data) => {
         if (!data.taskId) return
         store.updateToolCallResult({
           callId: data.callId,
@@ -158,7 +151,7 @@ export function useTaskSubscriptions(): void {
         })
       }),
 
-      apiClient.on<LlmChunkPayload>(LLM_EVENTS.CHUNK, (data) => {
+      apiClient.on<LlmChunkPayload>(LlmEvents.CHUNK, (data) => {
         if (!data.taskId) return
         store.appendStreamingContent({
           content: data.content,
@@ -169,12 +162,12 @@ export function useTaskSubscriptions(): void {
         })
       }),
 
-      apiClient.on<LlmResponsePayload>(LLM_EVENTS.RESPONSE, (data) => {
+      apiClient.on<LlmResponsePayload>(LlmEvents.RESPONSE, (data) => {
         if (!data.taskId) return
         store.setResponse(data.taskId, data.content, data.sessionId)
       }),
 
-      apiClient.on<LlmThinkingPayload>(LLM_EVENTS.THINKING, (data) => {
+      apiClient.on<LlmThinkingPayload>(LlmEvents.THINKING, (data) => {
         if (!data.taskId) return
         store.addReasoningContent(data.taskId, {
           content: '',

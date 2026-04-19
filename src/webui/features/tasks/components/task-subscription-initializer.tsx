@@ -19,7 +19,7 @@ import {useTaskStore} from '../stores/task-store'
  */
 export function TaskSubscriptionInitializer() {
   const projectPath = useTransportStore((s) => s.selectedProject)
-  const setTasks = useTaskStore((s) => s.setTasks)
+  const reset = useTaskStore((s) => s.reset)
   const mergeTasks = useTaskStore((s) => s.mergeTasks)
   const previousProject = useRef(projectPath)
 
@@ -27,10 +27,10 @@ export function TaskSubscriptionInitializer() {
 
   useEffect(() => {
     if (previousProject.current !== projectPath) {
-      setTasks([])
+      reset()
       previousProject.current = projectPath
     }
-  }, [projectPath, setTasks])
+  }, [projectPath, reset])
 
   const {data} = useGetTasks({projectPath: projectPath || undefined})
 

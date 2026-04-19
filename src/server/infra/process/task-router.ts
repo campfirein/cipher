@@ -646,10 +646,13 @@ export class TaskRouter {
 
   private handleTaskList(data: TaskListRequest, clientId: string): TaskListResponse {
     const projectFilter = data.projectPath ?? this.resolveClientProjectPath?.(clientId)
-    const matches = (taskProject?: string): boolean => {
-      if (projectFilter === undefined) return true
-      return taskProject === projectFilter || taskProject === undefined
-    }
+
+    // No resolvable project — return empty rather than leaking every task.
+    // A client that hasn't registered a project shouldn't see other projects' work.
+    if (projectFilter === undefined) return {tasks: []}
+
+    const matches = (taskProject?: string): boolean =>
+      taskProject === projectFilter || taskProject === undefined
 
     const items: TaskListItem[] = []
 

@@ -17,7 +17,7 @@ export interface TaskCreateRequest {
   folderPath?: string
   projectPath?: string
   taskId: string
-  type: 'curate' | 'curate-folder' | 'query'
+  type: 'curate' | 'curate-folder' | 'query' | 'search'
   worktreeRoot?: string
 }
 
