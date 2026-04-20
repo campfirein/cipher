@@ -17,6 +17,8 @@
 import {readdir, readFile, stat, writeFile} from 'node:fs/promises'
 import {join, relative} from 'node:path'
 
+import type {ILogger} from '../../../agent/core/interfaces/i-logger.js'
+import type {RuntimeSignals} from '../../core/domain/knowledge/runtime-signals-schema.js'
 import type {
   ContextManifest,
   LaneTokens,
@@ -24,6 +26,7 @@ import type {
   ResolvedEntry,
 } from '../../core/domain/knowledge/summary-types.js'
 import type {IContextTreeManifestService} from '../../core/interfaces/context-tree/i-context-tree-manifest-service.js'
+import type {IRuntimeSignalStore} from '../../core/interfaces/storage/i-runtime-signal-store.js'
 
 import {
   ABSTRACT_EXTENSION,
@@ -35,7 +38,7 @@ import {
   STUB_EXTENSION,
   SUMMARY_INDEX_FILE,
 } from '../../constants.js'
-import {parseFrontmatterScoring} from '../../core/domain/knowledge/markdown-writer.js'
+import {warnSidecarFailure} from '../../core/domain/knowledge/sidecar-logging.js'
 import {DEFAULT_LANE_BUDGETS} from '../../core/domain/knowledge/summary-types.js'
 import {estimateTokens} from '../executor/pre-compaction/compaction-escalation.js'
 import {isArchiveStub, isDerivedArtifact} from './derived-artifact.js'
@@ -45,6 +48,18 @@ import {parseSummaryFrontmatter} from './summary-frontmatter.js'
 
 export interface ManifestServiceConfig {
   baseDirectory?: string
+  /**
+   * Optional logger. When provided, sidecar list failures during manifest
+   * build emit a warn so the fail-open degradation is visible.
+   */
+  logger?: ILogger
+  /**
+   * Optional. Source of truth for per-context `importance` used in lane
+   * allocation. When absent or when a path has no entry, the default
+   * importance (50) is used — same effective sort as the pre-migration
+   * fallback of `scoring?.importance ?? 50`.
+   */
+  runtimeSignalStore?: IRuntimeSignalStore
 }
 
 export class FileContextTreeManifestService implements IContextTreeManifestService {
@@ -59,12 +74,23 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
     const contextTreeDir = join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
     const budgets = laneBudgets ?? DEFAULT_LANE_BUDGETS
 
+    // Preload sidecar signals once — used to read `importance` per context.
+    // Fail-open: on sidecar error we treat every path as having no entry,
+    // which falls back to default importance (50) at the read site.
+    let signalsByPath: Map<string, RuntimeSignals>
+    try {
+      signalsByPath = this.config.runtimeSignalStore ? await this.config.runtimeSignalStore.list() : new Map()
+    } catch (error) {
+      warnSidecarFailure(this.config.logger, 'manifest-service', 'list', 'buildManifest', error)
+      signalsByPath = new Map()
+    }
+
     // Scan all entries
     const summaries: ManifestEntry[] = []
     const contexts: ManifestEntry[] = []
     const stubs: ManifestEntry[] = []
 
-    await this.scanForManifest(contextTreeDir, contextTreeDir, summaries, contexts, stubs)
+    await this.scanForManifest(contextTreeDir, contextTreeDir, summaries, contexts, stubs, signalsByPath)
 
     // Lane allocation with prioritized fill
     const activeSummaries = this.allocateLane(
@@ -263,6 +289,7 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
     summaries: ManifestEntry[],
     contexts: ManifestEntry[],
     stubs: ManifestEntry[],
+    signalsByPath: Map<string, RuntimeSignals>,
   ): Promise<void> {
     let entries: import('node:fs').Dirent[]
     try {
@@ -289,7 +316,7 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
         // Scan _archived/ for .stub.md files only; recurse otherwise
         await (entryName === ARCHIVE_DIR
           ? this.scanArchivedStubs(fullPath, contextTreeDir, stubs)
-          : this.scanForManifest(fullPath, contextTreeDir, summaries, contexts, stubs))
+          : this.scanForManifest(fullPath, contextTreeDir, summaries, contexts, stubs, signalsByPath))
       } else if (entry.isFile() && entryName.endsWith(CONTEXT_FILE_EXTENSION)) {
         const relativePath = toUnixPath(relative(contextTreeDir, fullPath))
 
@@ -308,10 +335,12 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
             // Skip unreadable summaries
           }
         } else if (!isDerivedArtifact(relativePath) && !isArchiveStub(relativePath)) {
-          // Regular context entry — extract importance from frontmatter
+          // Regular context entry — importance comes from the sidecar, not
+          // markdown frontmatter. Paths without a sidecar entry fall back to
+          // default importance (50), matching the prior `?? 50` behaviour.
           try {
             const content = await readFile(fullPath, 'utf8')
-            const scoring = parseFrontmatterScoring(content)
+            const importance = signalsByPath.get(relativePath)?.importance ?? 50
 
             // Use abstract sibling for token budgeting only if it is known to exist
             // (checked via abstractsInDir set, avoiding ENOENT as control flow).
@@ -328,7 +357,7 @@ export class FileContextTreeManifestService implements IContextTreeManifestServi
             contexts.push({
               abstractPath: abstractTokens === undefined ? undefined : abstractRelPath,
               abstractTokens,
-              importance: scoring?.importance ?? 50,
+              importance,
               path: relativePath,
               tokens: abstractTokens ?? estimateTokens(content),
               type: 'context',

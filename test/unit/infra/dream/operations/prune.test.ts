@@ -165,30 +165,64 @@ describe('prune', () => {
   })
 
   it('finds stale validated files via mtime (threshold 120 days)', async () => {
-    await createMdFile(ctxDir, 'api/old-validated.md', '# Validated doc', {maturity: 'validated'})
+    // Post-commit-5: maturity is read from the sidecar, not markdown.
+    await createMdFile(ctxDir, 'api/old-validated.md', '# Validated doc')
     await setMtimeDaysAgo(ctxDir, 'api/old-validated.md', 121)
+
+    const runtimeSignalStore = {
+      async list() {
+        return new Map([
+          ['api/old-validated.md', {importance: 50, maturity: 'validated' as const}],
+        ])
+      },
+    }
 
     agent.executeOnSession.resolves(llmResponse([
       {decision: 'KEEP', file: 'api/old-validated.md', reason: 'Still relevant'},
     ]))
 
-    const results = await prune(deps)
+    const results = await prune({...deps, runtimeSignalStore})
     expect(results).to.have.lengthOf(1)
+    expect(agent.createTaskSession.called).to.be.true
   })
 
   it('does NOT flag validated files under 120 days old', async () => {
-    await createMdFile(ctxDir, 'api/recent-validated.md', '# Validated doc', {maturity: 'validated'})
+    // Post-commit-5: maturity is read from the sidecar, not markdown.
+    // Without a sidecar entry reporting 'validated' the file would default
+    // to 'draft' (60-day threshold) and 119 days would cross it — so we
+    // must prime the sidecar to genuinely exercise the 120-day threshold.
+    await createMdFile(ctxDir, 'api/recent-validated.md', '# Validated doc')
     await setMtimeDaysAgo(ctxDir, 'api/recent-validated.md', 119)
 
-    const results = await prune(deps)
+    const runtimeSignalStore = {
+      async list() {
+        return new Map([
+          ['api/recent-validated.md', {importance: 50, maturity: 'validated' as const}],
+        ])
+      },
+    }
+
+    const results = await prune({...deps, runtimeSignalStore})
     expect(results).to.deep.equal([])
+    expect(agent.createTaskSession.called).to.be.false
   })
 
   it('NEVER flags core files regardless of age', async () => {
-    await createMdFile(ctxDir, 'auth/core-doc.md', '# Core knowledge', {maturity: 'core'})
+    // Post-commit-5: core protection comes from the sidecar, not markdown.
+    // Seed a runtimeSignalStore that reports maturity='core' for this path
+    // so the prune candidacy scan excludes it.
+    await createMdFile(ctxDir, 'auth/core-doc.md', '# Core knowledge')
     await setMtimeDaysAgo(ctxDir, 'auth/core-doc.md', 365)
 
-    const results = await prune(deps)
+    const runtimeSignalStore = {
+      async list() {
+        return new Map([
+          ['auth/core-doc.md', {importance: 80, maturity: 'core' as const}],
+        ])
+      },
+    }
+
+    const results = await prune({...deps, runtimeSignalStore})
     expect(results).to.deep.equal([])
     expect(agent.createTaskSession.called).to.be.false
   })
