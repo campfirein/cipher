@@ -77,13 +77,20 @@ export function TourBar() {
 
   const idx = TOUR_STEPS.indexOf(tourStep)
 
-  // When a right sheet is open, dock just to its left so the bar lives next
-  // to the user's focus. Otherwise, center horizontally (more visible on wide
-  // screens than a corner anchor).
+  // Steps 2 (curate) + 3 (query) open a right-side sheet that fills full height,
+  // so the bar moves to the top to stay visually clear of it. Steps 1 (provider)
+  // and 4 (connector) use centered dialogs — bottom is the natural rest spot.
+  const dockTop = tourStep === 'curate' || tourStep === 'query'
+  const verticalAnchor = dockTop ? 'top-4' : 'bottom-4'
+
+  // When a right sheet is open, anchor by the right edge so the bar sits next
+  // to the sheet's left edge instead of being hidden under it.
   const sheetOpen = sheetWidth > 0
-  const wrapperClass = sheetOpen
-    ? 'pointer-events-none fixed bottom-4 z-100 flex'
-    : 'pointer-events-none fixed inset-x-0 bottom-4 z-100 flex justify-center px-4'
+  const wrapperClass = cn(
+    'pointer-events-none fixed z-100 flex',
+    verticalAnchor,
+    sheetOpen ? '' : 'inset-x-0 justify-center px-4',
+  )
   const wrapperStyle = sheetOpen ? {right: `${sheetWidth + 16}px`} : undefined
 
   return (
