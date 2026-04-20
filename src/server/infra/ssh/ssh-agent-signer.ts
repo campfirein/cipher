@@ -4,7 +4,7 @@ import net from 'node:net'
 import type {SSHKeyType, SSHSignatureResult} from './types.js'
 
 import {getPublicKeyMetadata} from './ssh-key-parser.js'
-import {SSHSIG_MAGIC_PREAMBLE} from './sshsig-constants.js'
+import {SSHSIG_HASH_ALGORITHM, SSHSIG_MAGIC_PREAMBLE} from './sshsig-constants.js'
 
 const SSHSIG_MAGIC = Buffer.from(SSHSIG_MAGIC_PREAMBLE)
 
@@ -180,17 +180,16 @@ export class SshAgentSigner {
    */
   async sign(payload: string): Promise<SSHSignatureResult> {
     const NAMESPACE = 'git'
-    const HASH_ALGORITHM = 'sha512'
 
-    // 1. Hash commit payload
-    const messageHash = createHash('sha512').update(Buffer.from(payload, 'utf8')).digest()
+    // 1. Hash commit payload with the spec-mandated SHA-512.
+    const messageHash = createHash(SSHSIG_HASH_ALGORITHM).update(Buffer.from(payload, 'utf8')).digest()
 
     // 2. Build signed-data structure per PROTOCOL.sshsig §2 (6-byte SSHSIG preamble)
     const signedData = Buffer.concat([
       SSHSIG_MAGIC,
       sshString(NAMESPACE),
       sshString(''),
-      sshString(HASH_ALGORITHM),
+      sshString(SSHSIG_HASH_ALGORITHM),
       sshString(messageHash),
     ])
 
@@ -214,7 +213,7 @@ export class SshAgentSigner {
       sshString(this.keyBlob),
       sshString(NAMESPACE),
       sshString(''),
-      sshString(HASH_ALGORITHM),
+      sshString(SSHSIG_HASH_ALGORITHM),
       sshString(agentSignature),
     ])
 

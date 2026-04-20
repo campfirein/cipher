@@ -2,12 +2,11 @@ import {createHash, sign} from 'node:crypto'
 
 import type {ParsedSSHKey, SSHSignatureResult} from './types.js'
 
-import {SSHSIG_MAGIC_PREAMBLE} from './sshsig-constants.js'
+import {SSHSIG_HASH_ALGORITHM, SSHSIG_MAGIC_PREAMBLE} from './sshsig-constants.js'
 
 const SSHSIG_MAGIC = Buffer.from(SSHSIG_MAGIC_PREAMBLE)
 const SSHSIG_VERSION = 1
 const NAMESPACE = 'git'
-const HASH_ALGORITHM = 'sha512'
 
 /**
  * Encode a Buffer or string as an SSH wire-format length-prefixed string.
@@ -30,9 +29,9 @@ function sshString(data: Buffer | string): Buffer {
  * @param key     - Parsed SSH key from ssh-key-parser
  */
 export function signCommitPayload(payload: string, key: ParsedSSHKey): SSHSignatureResult {
-  // 1. Hash the commit payload with SHA-512
-  //    isomorphic-git passes payload as a string; convert to bytes first
-  const messageHash = createHash('sha512').update(Buffer.from(payload, 'utf8')).digest()
+  // 1. Hash the commit payload with the spec-mandated SHA-512.
+  //    isomorphic-git passes payload as a string; convert to bytes first.
+  const messageHash = createHash(SSHSIG_HASH_ALGORITHM).update(Buffer.from(payload, 'utf8')).digest()
 
   // 2. Build the "signed data" structure per PROTOCOL.sshsig §2
   //    This is what the private key actually signs — NOT the raw payload.
@@ -40,7 +39,7 @@ export function signCommitPayload(payload: string, key: ParsedSSHKey): SSHSignat
     SSHSIG_MAGIC, //  6-byte preamble per spec
     sshString(NAMESPACE), //  "git"
     sshString(''), //  reserved (empty)
-    sshString(HASH_ALGORITHM), //  "sha512"
+    sshString(SSHSIG_HASH_ALGORITHM), //  "sha512"
     sshString(messageHash), //  H(payload)
   ])
 
@@ -68,7 +67,7 @@ export function signCommitPayload(payload: string, key: ParsedSSHKey): SSHSignat
     sshString(key.publicKeyBlob), //  public key blob
     sshString(NAMESPACE), //  "git"
     sshString(''), //  reserved
-    sshString(HASH_ALGORITHM), //  "sha512"
+    sshString(SSHSIG_HASH_ALGORITHM), //  "sha512"
     sshString(signatureBlob), //  wrapped signature
   ])
 
