@@ -1,7 +1,7 @@
 import type { MouseEvent } from 'react'
 
 import { Button } from '@campfirein/byterover-packages/components/button'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@campfirein/byterover-packages/components/tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@campfirein/byterover-packages/components/tooltip'
 import { cn } from '@campfirein/byterover-packages/lib/utils'
 import { FileText, Minus, Plus, Undo2 } from 'lucide-react'
 
@@ -65,17 +65,15 @@ export function FileListItem({ disabled, file, isSelected, onAction, onDiscard, 
     >
       <FileText className="text-primary-foreground size-4 shrink-0" strokeWidth={2} />
 
-      <TooltipProvider delay={500}>
-        <Tooltip disableHoverablePopup>
-          <TooltipTrigger render={<div className="flex min-w-0 flex-1 items-baseline gap-1.5" />}>
-            <span className="text-foreground truncate text-sm">{fileName}</span>
-            {dirPath && <span className="text-muted-foreground truncate text-xs group-hover:hidden">{dirPath}</span>}
-          </TooltipTrigger>
-          <TooltipContent className="pointer-events-none max-w-lg break-all" side="bottom">
-            {file.path}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <Tooltip disableHoverablePopup>
+        <TooltipTrigger render={<div className="flex min-w-0 flex-1 items-baseline gap-1.5" />}>
+          <span className="text-foreground truncate text-sm">{fileName}</span>
+          {dirPath && <span className="text-muted-foreground truncate text-xs group-hover:hidden">{dirPath}</span>}
+        </TooltipTrigger>
+        <TooltipContent className="pointer-events-none max-w-lg break-all" side="bottom">
+          {file.path}
+        </TooltipContent>
+      </Tooltip>
 
       <div className="flex items-center gap-1">
         <div className="hidden items-center gap-1 group-hover:flex group-focus-within:flex">
