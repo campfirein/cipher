@@ -819,6 +819,71 @@ describe('VcHandler', () => {
         }
       }
     })
+
+    it('should propagate "Unsupported OpenSSH key type" for RSA OpenSSH key, NOT throw PASSPHRASE_REQUIRED (ENG-2002 B7)', async () => {
+      // Regression test for ENG-2002 B7: before B6's regex fix, probeSSHKey
+      // false-marked RSA/ECDSA OpenSSH keys as needsPassphrase:true and
+      // handleCommit threw PASSPHRASE_REQUIRED, triggering a spurious passphrase
+      // prompt in the CLI. After B6, the unsupported-key-type error must
+      // propagate cleanly — no PASSPHRASE_REQUIRED conversion anywhere.
+      const sshStr = (s: Buffer | string) => {
+        const b = Buffer.isBuffer(s) ? s : Buffer.from(s)
+        const len = Buffer.allocUnsafe(4)
+        len.writeUInt32BE(b.length, 0)
+        return Buffer.concat([len, b])
+      }
+
+      const writeU32 = (v: number) => {
+        const b = Buffer.allocUnsafe(4)
+        b.writeUInt32BE(v, 0)
+        return b
+      }
+
+      // Unencrypted ssh-rsa OpenSSH key (cipher='none') so the only failure mode
+      // is the unsupported-keytype check, not encryption handling.
+      const pubBlob = Buffer.concat([sshStr('ssh-rsa'), sshStr(Buffer.alloc(64, 0xaa))])
+      const rsaKeyBuf = Buffer.concat([
+        Buffer.from('openssh-key-v1\0', 'binary'),
+        sshStr('none'),
+        sshStr('none'),
+        sshStr(Buffer.alloc(0)),
+        writeU32(1),
+        sshStr(pubBlob),
+        sshStr(Buffer.alloc(64, 0xbb)),
+      ])
+      const rsaKeyPem = `-----BEGIN OPENSSH PRIVATE KEY-----\n${rsaKeyBuf.toString('base64')}\n-----END OPENSSH PRIVATE KEY-----`
+      const realTmpDir = fs.mkdtempSync(join(tmpdir(), 'brv-rsa-key-test-'))
+      const rsaKeyPath = join(realTmpDir, 'rsa_key')
+      writeFileSync(rsaKeyPath, rsaKeyPem, {mode: 0o600})
+
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.status.resolves({
+        files: [{path: 'a.md', staged: true, status: 'added'}],
+        isClean: false,
+      })
+      deps.vcGitConfigStore.get.resolves({
+        commitSign: true,
+        email: 'test@example.com',
+        name: 'Test',
+        signingKey: rsaKeyPath,
+      })
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.COMMIT]({message: 'signed commit', sign: true}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(Error)
+        // The error must NOT be PASSPHRASE_REQUIRED — that would re-trigger the
+        // CLI retry loop and produce spurious passphrase prompts.
+        if (error instanceof VcError) {
+          expect(error.code).to.not.equal(VcErrorCode.PASSPHRASE_REQUIRED)
+        }
+
+        expect((error as Error).message).to.match(/Unsupported OpenSSH key type/)
+      }
+    })
   })
 
   describe('handleConfig', () => {
