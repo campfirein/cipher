@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 
 import type { ChangeFile } from '../types'
 
-import { getErrorMessage } from '../../../utils/get-error-message'
+import { formatError } from '../../../lib/error-messages'
 import { useVcAdd } from '../api/execute-vc-add'
 import { useVcCommit } from '../api/execute-vc-commit'
 import { useVcMergeAbort } from '../api/execute-vc-merge-abort'
@@ -31,7 +31,7 @@ async function runAction(promise: Promise<unknown>, errorMsg: string): Promise<v
   try {
     await promise
   } catch (error) {
-    toast.error(getErrorMessage(error, errorMsg))
+    toast.error(formatError(error, errorMsg))
   }
 }
 
@@ -94,7 +94,11 @@ export function ChangesPanel() {
   const handleUnstageFile = (file: ChangeFile) =>
     runAction(resetMutation.mutateAsync({ filePaths: [file.path] }), 'Failed to unstage file')
 
-  const handleStageAll = () => runAction(addMutation.mutateAsync({}), 'Failed to stage all')
+  const handleStageAll = () => {
+    const filePaths = unstaged.map((f) => f.path)
+    if (filePaths.length === 0) return
+    runAction(addMutation.mutateAsync({ filePaths }), 'Failed to stage all')
+  }
 
   const stageMergeFiles = (paths: string[]) =>
     runAction(addMutation.mutateAsync({ filePaths: paths }), 'Failed to stage')
@@ -106,7 +110,7 @@ export function ChangesPanel() {
       await mergeAbortMutation.mutateAsync()
       toast.success('Merge aborted')
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to abort merge'))
+      toast.error(formatError(error, 'Failed to abort merge'))
     }
   }
 
@@ -118,7 +122,7 @@ export function ChangesPanel() {
       toast.success('Committed')
       return true
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to commit'))
+      toast.error(formatError(error, 'Failed to commit'))
       return false
     }
   }
@@ -129,7 +133,7 @@ export function ChangesPanel() {
       toast.success('Merge committed')
       return true
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to commit merge'))
+      toast.error(formatError(error, 'Failed to commit merge'))
       return false
     }
   }
@@ -166,7 +170,7 @@ export function ChangesPanel() {
         setShowStageAllConfirm(false)
       }
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to stage & commit'))
+      toast.error(formatError(error, 'Failed to stage & commit'))
     }
   }
 
@@ -175,7 +179,7 @@ export function ChangesPanel() {
       const result = await pushMutation.mutateAsync({ setUpstream: !status.trackingBranch })
       toast.success(result.alreadyUpToDate ? 'Already up to date' : `Pushed ${result.branch}`)
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to push'))
+      toast.error(formatError(error, 'Failed to push'))
     }
   }
 
@@ -188,7 +192,7 @@ export function ChangesPanel() {
         toast.success(result.alreadyUpToDate ? 'Already up to date' : `Pulled ${result.branch}`)
       }
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to pull'))
+      toast.error(formatError(error, 'Failed to pull'))
     }
   }
 

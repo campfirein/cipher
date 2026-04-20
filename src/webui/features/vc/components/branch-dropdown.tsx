@@ -242,7 +242,7 @@ export function BranchDropdown() {
                 <DropdownMenuItem
                   onClick={() => {
                     setOpen(false)
-                    navigate('/sync')
+                    navigate('/changes')
                   }}
                 >
                   <GitCommit className="size-5" />

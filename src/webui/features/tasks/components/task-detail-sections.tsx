@@ -4,6 +4,7 @@ import {Folder, Paperclip} from 'lucide-react'
 
 import type {StoredTask} from '../types/stored-task'
 
+import {formatError} from '../../../lib/error-messages'
 import {shortTaskId} from '../utils/format-time'
 import {isActiveStatus} from '../utils/task-status'
 import {AttachmentChip} from './attachment-chip'
@@ -80,7 +81,7 @@ export function ErrorSection({error}: {error: NonNullable<StoredTask['error']>})
       <TerminalDot tone="error" />
       <SectionLabel>Error</SectionLabel>
       <Card className="bg-red-500/5 p-5 ring-1 ring-red-500/30" size="sm">
-        <p className="text-red-400 text-sm">{error.message}</p>
+        <p className="text-red-400 text-sm">{formatError(error)}</p>
         {error.code && <p className="text-muted-foreground mono mt-1 text-[11px]">{error.code}</p>}
       </Card>
     </section>

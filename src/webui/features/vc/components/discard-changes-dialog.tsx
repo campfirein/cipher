@@ -12,7 +12,7 @@ import {toast} from 'sonner'
 
 import type {ChangeFile} from '../types'
 
-import {getErrorMessage} from '../../../utils/get-error-message'
+import {formatError} from '../../../lib/error-messages'
 import {useVcDiscard} from '../api/execute-vc-discard'
 
 type DiscardChangesDialogProps = {
@@ -30,7 +30,7 @@ export function DiscardChangesDialog({files, onOpenChange, open}: DiscardChanges
       toast.success(files.length === 1 ? `Discarded changes in ${files[0].path}` : `Discarded changes in ${files.length} files`)
       onOpenChange(false)
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to discard changes'))
+      toast.error(formatError(error, 'Failed to discard changes'))
     }
   }
 

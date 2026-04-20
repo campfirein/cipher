@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 
 import type {ModelDTO, ProviderDTO} from '../../../../../shared/transport/events'
 
-import { getErrorMessage } from '../../../../utils/get-error-message'
+import { formatError } from '../../../../lib/error-messages'
 import { useSetActiveModel } from '../../../model/api/set-active-model'
 import {TourStepBadge} from '../../../onboarding/components/tour-step-badge'
 import { useAwaitOAuthCallback } from '../../api/await-oauth-callback'
@@ -111,7 +111,7 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
         onProviderActivated?.()
         resetAndClose()
       } catch (error_) {
-        toast.error(getErrorMessage(error_, 'Connection failed'))
+        toast.error(formatError(error_, 'Connection failed'))
         setStep('select')
       }
 
@@ -143,7 +143,7 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
       setIsNewConnection(true)
       setStep('model_select')
     } catch (error_) {
-      toast.error(getErrorMessage(error_, 'Connection failed'))
+      toast.error(formatError(error_, 'Connection failed'))
       setStep('select')
     }
   }, [connectMutation, onProviderActivated, resetAndClose, setActiveMutation])
@@ -171,7 +171,7 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
         setStep('select')
       }
     } catch (error_) {
-      toast.error(getErrorMessage(error_, 'OAuth failed'))
+      toast.error(formatError(error_, 'OAuth failed'))
       setStep('select')
     }
   }, [awaitOAuthMutation, startOAuthMutation])
@@ -189,7 +189,7 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
           onProviderActivated?.()
           resetAndClose()
         } catch (error_) {
-          setError(getErrorMessage(error_, 'Failed'))
+          setError(formatError(error_, 'Failed'))
           setStep('provider_actions')
         }
 
@@ -210,7 +210,7 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
           setSelectedProvider(undefined)
           setError(undefined)
         } catch (error_) {
-          setError(getErrorMessage(error_, 'Failed'))
+          setError(formatError(error_, 'Failed'))
           setStep('provider_actions')
         }
 
@@ -254,7 +254,7 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
           return
         }
       } catch (error_) {
-        setError(getErrorMessage(error_, 'Validation failed'))
+        setError(formatError(error_, 'Validation failed'))
         return
       }
     }
@@ -269,7 +269,7 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
       setIsNewConnection(true)
       setStep('model_select')
     } catch (error_) {
-      setError(getErrorMessage(error_, 'Connection failed'))
+      setError(formatError(error_, 'Connection failed'))
       setStep('api_key')
     }
   }, [baseUrl, connectMutation, selectedProvider, validateMutation])
@@ -294,7 +294,7 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
         setStep('provider_actions')
       }
     } catch (error_) {
-      toast.error(getErrorMessage(error_, 'Failed to set model'))
+      toast.error(formatError(error_, 'Failed to set model'))
     }
   }, [isNewConnection, onProviderActivated, resetAndClose, selectedProvider, setActiveModelMutation])
 

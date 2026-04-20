@@ -2,7 +2,7 @@ import { LoaderCircle } from 'lucide-react'
 
 import type { ChangeFile } from '../types'
 
-import { getErrorMessage } from '../../../utils/get-error-message'
+import { formatError } from '../../../lib/error-messages'
 import { useGetVcDiff } from '../api/get-vc-diff'
 import { DiffFileHeader } from './diff-file-header'
 import { DiffViewer } from './diff-viewer'
@@ -29,7 +29,7 @@ export function DiffView({ file, onOpenFile, onStageToggle }: DiffViewProps) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-muted-foreground text-sm">
-          {getErrorMessage(error, 'Failed to load diff')}
+          {formatError(error, 'Failed to load diff')}
         </p>
       </div>
     )
