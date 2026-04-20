@@ -149,9 +149,12 @@ any `brv vc config user.signingkey` setting are untouched.
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Fix |
+Symptom column shows the leading substring of each error — the actual
+output continues with a key path or key-type detail. Match by prefix.
+
+| Symptom (starts with) | Likely cause | Fix |
 | --- | --- | --- |
-| `Error: Encrypted OpenSSH private keys are not supported for direct signing.` | brv cannot decrypt OpenSSH-format encrypted keys natively. | Run `ssh-add <keypath>` to load the key into ssh-agent, then retry. |
-| `Error: Unsupported OpenSSH key type: ssh-rsa` | RSA / ECDSA OpenSSH keys are not parsed natively. | Same — load via `ssh-add`. |
-| `Signing key requires a passphrase. Provide it via the --passphrase flag or BRV_SSH_PASSPHRASE…` | PEM-format key needs a passphrase and none was supplied. | Pass `--passphrase` or set `BRV_SSH_PASSPHRASE`. |
+| `Error: Encrypted OpenSSH private keys are not supported for direct signing. Load the key into ssh-agent first: ssh-add …` | brv cannot decrypt OpenSSH-format encrypted keys natively. | Run the `ssh-add` command from the error message, then retry. |
+| `Error: Unsupported OpenSSH key type: …` | RSA / ECDSA / non-Ed25519 OpenSSH keys are not parsed natively. | Load the key into ssh-agent (`ssh-add <keypath>`). |
+| `Error: Signing key requires a passphrase. Provide it via the --passphrase flag or the BRV_SSH_PASSPHRASE environment variable, then retry.` | PEM-format key needs a passphrase and none was supplied. | Pass `--passphrase` or set `BRV_SSH_PASSPHRASE`. |
 | `Could not verify signature.` from `git verify-commit` | `allowed_signers` file missing or wrong fingerprint. | Re-create as shown in **Verification**. |
