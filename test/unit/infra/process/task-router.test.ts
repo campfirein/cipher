@@ -418,6 +418,170 @@ describe('TaskRouter', () => {
   })
 
   // ==========================================================================
+  // preDispatchCheck (ENG-2126 fix #4)
+  // ==========================================================================
+
+  describe('preDispatchCheck', () => {
+    it('dispatches to agent pool when check resolves eligible', async () => {
+      const preDispatchCheck = sandbox.stub().resolves({eligible: true})
+
+      router = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        preDispatchCheck,
+        projectRegistry,
+        projectRouter,
+        transport: transportHelper.transport,
+      })
+      router.setup()
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({type: 'dream'})
+      await handler!(request, 'client-1')
+
+      expect(preDispatchCheck.calledOnce, 'preDispatchCheck should be invoked').to.be.true
+      expect((agentPool.submitTask as SinonStub).calledOnce, 'eligible task should reach the agent pool').to.be.true
+    })
+
+    it('short-circuits to task:completed with skip reason when check resolves ineligible', async () => {
+      const preDispatchCheck = sandbox.stub().resolves({eligible: false, skipResult: 'Dream skipped: Queue not empty (2 tasks pending)'})
+
+      router = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        preDispatchCheck,
+        projectRegistry,
+        projectRouter,
+        transport: transportHelper.transport,
+      })
+      router.setup()
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({type: 'dream'})
+      await handler!(request, 'client-1')
+
+      // Agent pool never receives the task
+      expect((agentPool.submitTask as SinonStub).called, 'ineligible task must not reach the agent pool').to.be.false
+
+      // Client receives task:completed with the skip reason
+      const completedCall = (transportHelper.transport.sendTo as SinonStub).getCalls().find(
+        (c) => c.args[0] === 'client-1' && c.args[1] === TransportTaskEventNames.COMPLETED,
+      )
+      expect(completedCall, 'expected task:completed to be sent').to.exist
+      expect(completedCall!.args[2].result).to.equal('Dream skipped: Queue not empty (2 tasks pending)')
+      expect(completedCall!.args[2].taskId).to.equal(request.taskId)
+    })
+
+    it('falls through to dispatch when check throws (fail-open)', async () => {
+      const preDispatchCheck = sandbox.stub().rejects(new Error('state read failed'))
+
+      router = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        preDispatchCheck,
+        projectRegistry,
+        projectRouter,
+        transport: transportHelper.transport,
+      })
+      router.setup()
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({type: 'dream'})
+      await handler!(request, 'client-1')
+
+      // Errors in pre-check must not block dispatch — agent's own gate check is the fallback
+      expect((agentPool.submitTask as SinonStub).calledOnce, 'fail-open: task should still reach the agent').to.be.true
+    })
+
+    it('is skipped when no preDispatchCheck is configured', async () => {
+      // default router in beforeEach has no preDispatchCheck
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({type: 'dream'})
+      await handler!(request, 'client-1')
+
+      expect((agentPool.submitTask as SinonStub).calledOnce).to.be.true
+    })
+
+    it('does NOT decrement agentPool.activeTasks counter when pre-check skips (the task was never submitted)', async () => {
+      // Regression for Codex P1: handleTaskCompleted unconditionally calls
+      // agentPool.notifyTaskCompleted, which decrements activeTasks. For a
+      // pre-dispatch skip the task never reached the pool, so notifying would
+      // undercount real load and let drainQueue dispatch an extra queued task.
+      const preDispatchCheck = sandbox.stub().resolves({eligible: false, skipResult: 'Dream skipped: Queue not empty (3 tasks pending)'})
+
+      router = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        preDispatchCheck,
+        projectRegistry,
+        projectRouter,
+        transport: transportHelper.transport,
+      })
+      router.setup()
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({type: 'dream'})
+      await handler!(request, 'client-1')
+
+      expect(agentPool.notifyTaskCompleted.called, 'pre-check skip must not notify the agent pool').to.be.false
+    })
+
+    it('does NOT fire onTaskCompleted lifecycle hooks when pre-check skips', async () => {
+      // Regression for RyanNg #5: hooks that act on completed tasks (metrics,
+      // counters) should not see pre-check skips as completions.
+      const hookOnCompleted = sandbox.stub().resolves()
+      const preDispatchCheck = sandbox.stub().resolves({eligible: false, skipResult: 'Dream skipped: Queue not empty (1 task pending)'})
+      const hookHelper = makeStubTransportServer(sandbox)
+
+      const routerWithHooks = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        lifecycleHooks: [{onTaskCompleted: hookOnCompleted}],
+        preDispatchCheck,
+        projectRegistry,
+        projectRouter,
+        transport: hookHelper.transport,
+      })
+      routerWithHooks.setup()
+
+      const handler = hookHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({type: 'dream'})
+      await handler!(request, 'client-1')
+
+      // Allow async hook chain to flush
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10)
+      })
+
+      expect(hookOnCompleted.called, 'onTaskCompleted must not fire for pre-check skips').to.be.false
+    })
+
+    it('still broadcasts task:completed to the project room on pre-check skip (so REPL/TUI see it)', async () => {
+      const preDispatchCheck = sandbox.stub().resolves({eligible: false, skipResult: 'Dream skipped: Queue not empty (1 task pending)'})
+
+      router = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        preDispatchCheck,
+        projectRegistry,
+        projectRouter,
+        transport: transportHelper.transport,
+      })
+      router.setup()
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest({type: 'dream'})
+      await handler!(request, 'client-1')
+
+      const broadcastCall = projectRouter.broadcastToProject.getCalls().find(
+        (c) => c.args[1] === TransportTaskEventNames.COMPLETED,
+      )
+      expect(broadcastCall, 'project room should still see task:completed for skips').to.exist
+      expect(broadcastCall!.args[2].result).to.equal('Dream skipped: Queue not empty (1 task pending)')
+    })
+  })
+
+  // ==========================================================================
   // Task Lifecycle
   // ==========================================================================
 
@@ -493,6 +657,22 @@ describe('TaskRouter', () => {
       handler!({error: {message: 'fail', name: 'Error'}, taskId}, 'agent-1')
 
       expect(agentPool.notifyTaskCompleted.calledWith('/app')).to.be.true
+    })
+
+    it('should notify agentPool on task:completed for daemon-submitted tasks', () => {
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.COMPLETED)
+
+      handler!({projectPath: '/daemon-app', result: 'done', taskId: 'daemon-task'}, 'agent-1')
+
+      expect(agentPool.notifyTaskCompleted.calledWith('/daemon-app')).to.be.true
+    })
+
+    it('should notify agentPool on task:error for daemon-submitted tasks', () => {
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.ERROR)
+
+      handler!({error: {message: 'fail', name: 'Error'}, projectPath: '/daemon-app', taskId: 'daemon-task'}, 'agent-1')
+
+      expect(agentPool.notifyTaskCompleted.calledWith('/daemon-app')).to.be.true
     })
 
     it('should route task:cancelled to client and broadcast', () => {

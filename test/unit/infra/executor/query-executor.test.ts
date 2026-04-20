@@ -4,7 +4,10 @@
  * 1. Variable naming regression: UUID hyphens in sandbox variable names cause
  *    ReferenceError when LLM writes code using underscores.
  *
- * 2. Workspace scoping (PR3): search scope derivation, scope injection for
+ * 2. QueryExecutorResult tier classification: verifies each tier returns correct
+ *    structured metadata (tier, timing, matchedDocs, searchMetadata).
+ *
+ * 3. Workspace scoping (PR3): search scope derivation, scope injection for
  *    agent follow-up searches, and cache fingerprint isolation.
  */
 
@@ -12,14 +15,23 @@ import {expect} from 'chai'
 import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {restore, stub} from 'sinon'
+import {restore, type SinonStub, stub} from 'sinon'
 
 import type {ICipherAgent} from '../../../../src/agent/core/interfaces/i-cipher-agent.js'
 import type {IFileSystem} from '../../../../src/agent/core/interfaces/i-file-system.js'
-import type {ISearchKnowledgeService} from '../../../../src/agent/infra/sandbox/tools-sdk.js'
+import type {ISearchKnowledgeService, SearchKnowledgeResult} from '../../../../src/agent/infra/sandbox/tools-sdk.js'
 
 import {LocalSandbox} from '../../../../src/agent/infra/sandbox/local-sandbox.js'
+import {
+  TIER_DIRECT_SEARCH,
+  TIER_EXACT_CACHE,
+  TIER_FULL_AGENTIC,
+  TIER_FUZZY_CACHE,
+  TIER_OPTIMIZED_LLM,
+} from '../../../../src/server/core/domain/entities/query-log-entry.js'
 import {QueryExecutor} from '../../../../src/server/infra/executor/query-executor.js'
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
 
 function createMockAgent(): ICipherAgent {
   return {
@@ -30,7 +42,7 @@ function createMockAgent(): ICipherAgent {
     deleteSession: stub().resolves(true),
     deleteTaskSession: stub().resolves(),
     execute: stub().resolves(''),
-    executeOnSession: stub().resolves('response text'),
+    executeOnSession: stub().resolves('LLM response'),
     generate: stub().resolves({content: '', toolCalls: [], usage: {inputTokens: 0, outputTokens: 0}}),
     getSessionMetadata: stub().resolves(),
     getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
@@ -40,8 +52,58 @@ function createMockAgent(): ICipherAgent {
     setSandboxVariableOnSession: stub(),
     setupTaskForwarding: stub().returns(() => {}),
     start: stub().resolves(),
-    stream: stub().resolves({[Symbol.asyncIterator]: () => ({next: () => Promise.resolve({done: true, value: undefined})})}),
+    stream: stub().resolves({
+      [Symbol.asyncIterator]: () => ({next: () => Promise.resolve({done: true, value: undefined})}),
+    }),
   } as unknown as ICipherAgent
+}
+
+function createMockFileSystem(): IFileSystem {
+  return {
+    editFile: stub().resolves({bytesWritten: 0, replacements: 0}),
+    globFiles: stub().resolves({
+      files: [
+        {isDirectory: false, modified: new Date(1000), path: 'doc1.md', size: 100},
+        {isDirectory: false, modified: new Date(2000), path: 'doc2.md', size: 200},
+      ],
+      ignoredCount: 0,
+      totalFound: 2,
+      truncated: false,
+    }),
+    initialize: stub().resolves(),
+    readFile: stub().resolves({
+      content: '# Test Document\n\nThis is test content about authentication and security.',
+      encoding: 'utf8',
+    }),
+    searchFiles: stub().resolves({matches: [], message: '', totalMatches: 0}),
+    writeFile: stub().resolves({bytesWritten: 0}),
+  } as unknown as IFileSystem
+}
+
+function createMockSearchService(
+  results: SearchKnowledgeResult['results'] = [],
+  totalFound?: number,
+): ISearchKnowledgeService {
+  const searchResult: SearchKnowledgeResult = {
+    message: '',
+    results,
+    totalFound: totalFound ?? results.length,
+  }
+  return {
+    search: stub().resolves(searchResult),
+  } as unknown as ISearchKnowledgeService
+}
+
+function makeSearchResult(
+  overrides: Partial<SearchKnowledgeResult['results'][0]> = {},
+): SearchKnowledgeResult['results'][0] {
+  return {
+    excerpt: 'Test excerpt about the topic.',
+    path: 'topics/auth.md',
+    score: 0.95,
+    title: 'Authentication Guide',
+    ...overrides,
+  }
 }
 
 // Low-score results: enough to avoid OOD short-circuit, but below direct-response threshold
@@ -57,6 +119,13 @@ const lowScoreSearchResult = {
   totalFound: 3,
 }
 
+/** Attribution footer appended by QueryExecutor to all responses */
+const ATTRIBUTION_FOOTER = '\n\n---\nSource: ByteRover Knowledge Base'
+
+const TASK_ID = 'test-task-001'
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
 describe('QueryExecutor', () => {
   let tempDir: string
 
@@ -69,8 +138,12 @@ describe('QueryExecutor', () => {
     rmSync(tempDir, {force: true, recursive: true})
   })
 
+  // ── Sandbox variable naming regression ────────────────────────────────────
+
   describe('sandbox variable naming (regression)', () => {
+    // Typical UUID taskId with hyphens (as generated by crypto.randomUUID())
     const taskId = '8cd8e2d8-a7fc-4371-89ca-59460687c12d'
+    // What the LLM would write in code-exec (hyphens → underscores, valid JS identifier)
     const llmGeneratedResultsVar = '__query_results_8cd8e2d8_a7fc_4371_89ca_59460687c12d'
     const llmGeneratedMetaVar = '__query_meta_8cd8e2d8_a7fc_4371_89ca_59460687c12d'
 
@@ -137,6 +210,157 @@ describe('QueryExecutor', () => {
       })
     })
   })
+
+  // ── QueryExecutorResult tier tests ──────────────────────────────────────────
+
+  describe('executeWithAgent', () => {
+    describe('Tier 0: exact cache hit', () => {
+      it('should return tier 0 with empty matchedDocs on exact cache hit', async () => {
+        const agent = createMockAgent()
+        const fileSystem = createMockFileSystem()
+        // First call: direct search (Tier 2) populates cache
+        const searchService = createMockSearchService([makeSearchResult({score: 0.95})])
+        const executor = new QueryExecutor({enableCache: true, fileSystem, searchService})
+
+        // First call — goes through to Tier 2 direct search (score 0.95 > 0.93 threshold)
+        const firstResult = await executor.executeWithAgent(agent, {query: 'what is authentication', taskId: TASK_ID})
+        expect(firstResult.tier).to.equal(TIER_DIRECT_SEARCH)
+
+        // Second call — same query, same fingerprint → Tier 0 cache hit
+        const result = await executor.executeWithAgent(agent, {query: 'what is authentication', taskId: TASK_ID})
+
+        expect(result.tier).to.equal(TIER_EXACT_CACHE)
+        expect(result.matchedDocs).to.deep.equal([])
+        expect(result.searchMetadata).to.be.undefined
+        expect(result.timing.durationMs).to.be.at.least(0)
+        expect(result.response).to.include(ATTRIBUTION_FOOTER)
+      })
+    })
+
+    describe('Tier 1: fuzzy cache hit', () => {
+      it('should return tier 1 with empty matchedDocs on fuzzy cache match', async () => {
+        const agent = createMockAgent()
+        const fileSystem = createMockFileSystem()
+        const searchService = createMockSearchService([makeSearchResult({score: 0.95})])
+        const executor = new QueryExecutor({enableCache: true, fileSystem, searchService})
+
+        // Prime cache with first query (goes through Tier 2 direct search)
+        await executor.executeWithAgent(agent, {query: 'authentication security guide overview', taskId: TASK_ID})
+
+        // Similar query with sufficient token overlap (Jaccard >= 0.6)
+        // Tokens: "authentication", "security", "guide" overlap; "detailed" and "overview" differ
+        const result = await executor.executeWithAgent(agent, {
+          query: 'authentication security guide detailed',
+          taskId: TASK_ID,
+        })
+
+        expect(result.tier).to.equal(TIER_FUZZY_CACHE)
+        expect(result.matchedDocs).to.deep.equal([])
+        expect(result.searchMetadata).to.be.undefined
+        expect(result.timing.durationMs).to.be.at.least(0)
+        expect(result.response).to.include(ATTRIBUTION_FOOTER)
+      })
+    })
+
+    describe('Tier 2: OOD (out-of-domain)', () => {
+      it('should return tier 2 with empty matchedDocs when search returns no results', async () => {
+        const agent = createMockAgent()
+        const fileSystem = createMockFileSystem()
+        const searchService = createMockSearchService([], 0)
+        const executor = new QueryExecutor({fileSystem, searchService})
+
+        const result = await executor.executeWithAgent(agent, {query: 'what is quantum computing', taskId: TASK_ID})
+
+        expect(result.tier).to.equal(TIER_DIRECT_SEARCH)
+        expect(result.matchedDocs).to.deep.equal([])
+        expect(result.searchMetadata).to.deep.equal({resultCount: 0, topScore: 0, totalFound: 0})
+        expect(result.timing.durationMs).to.be.at.least(0)
+        expect(result.response).to.include('No matching knowledge found')
+        expect(result.response).to.include(ATTRIBUTION_FOOTER)
+      })
+    })
+
+    describe('Tier 2: direct search response', () => {
+      it('should return tier 2 with matchedDocs when direct response threshold met', async () => {
+        const agent = createMockAgent()
+        const fileSystem = createMockFileSystem()
+        const searchResult = makeSearchResult({path: 'topics/auth.md', score: 0.95, title: 'Authentication Guide'})
+        const searchService = createMockSearchService([searchResult])
+        const executor = new QueryExecutor({fileSystem, searchService})
+
+        const result = await executor.executeWithAgent(agent, {query: 'what is authentication', taskId: TASK_ID})
+
+        expect(result.tier).to.equal(TIER_DIRECT_SEARCH)
+        expect(result.matchedDocs).to.have.length(1)
+        expect(result.matchedDocs[0]).to.deep.equal({
+          path: 'topics/auth.md',
+          score: 0.95,
+          title: 'Authentication Guide',
+        })
+        expect(result.searchMetadata).to.deep.include({resultCount: 1, totalFound: 1})
+        expect(result.searchMetadata!.topScore).to.equal(0.95)
+        expect(result.timing.durationMs).to.be.at.least(0)
+        expect(result.response).to.include(ATTRIBUTION_FOOTER)
+      })
+    })
+
+    describe('Tier 3: optimized LLM with prefetched context', () => {
+      it('should return tier 3 when search results have high scores and LLM is invoked', async () => {
+        const agent = createMockAgent()
+        const fileSystem = createMockFileSystem()
+        // Score 0.75: above SMART_ROUTING_SCORE_THRESHOLD (0.7) for prefetch,
+        // but below DIRECT_RESPONSE_SCORE_THRESHOLD (0.85) so direct search is skipped
+        const searchResults = [
+          makeSearchResult({path: 'topics/auth.md', score: 0.75, title: 'Auth Guide'}),
+          makeSearchResult({path: 'topics/security.md', score: 0.72, title: 'Security Guide'}),
+        ]
+        const searchService = createMockSearchService(searchResults)
+        // No baseDirectory — avoids FileContextTreeManifestService filesystem access
+        const executor = new QueryExecutor({fileSystem, searchService})
+
+        const result = await executor.executeWithAgent(agent, {query: 'how does authentication work', taskId: TASK_ID})
+
+        expect(result.tier).to.equal(TIER_OPTIMIZED_LLM)
+        expect(result.matchedDocs).to.have.length(2)
+        expect(result.matchedDocs[0]).to.deep.equal({path: 'topics/auth.md', score: 0.75, title: 'Auth Guide'})
+        expect(result.matchedDocs[1]).to.deep.equal({path: 'topics/security.md', score: 0.72, title: 'Security Guide'})
+        expect(result.searchMetadata).to.deep.include({resultCount: 2, totalFound: 2})
+        expect(result.searchMetadata!.topScore).to.equal(0.75)
+        expect(result.timing.durationMs).to.be.at.least(0)
+        expect(result.response).to.include('LLM response')
+        expect(result.response).to.include(ATTRIBUTION_FOOTER)
+        expect((agent.executeOnSession as SinonStub).calledOnce).to.be.true
+      })
+    })
+
+    describe('Tier 4: full agentic (no prefetched context)', () => {
+      it('should return tier 4 when all search scores are below smart routing threshold', async () => {
+        const agent = createMockAgent()
+        const fileSystem = createMockFileSystem()
+        // All scores below SMART_ROUTING_SCORE_THRESHOLD (0.7) → no prefetched context
+        const searchResults = [
+          makeSearchResult({path: 'topics/misc.md', score: 0.5, title: 'Misc Notes'}),
+          makeSearchResult({path: 'topics/other.md', score: 0.4, title: 'Other'}),
+        ]
+        const searchService = createMockSearchService(searchResults)
+        const executor = new QueryExecutor({fileSystem, searchService})
+
+        const result = await executor.executeWithAgent(agent, {query: 'complex multi-step question', taskId: TASK_ID})
+
+        expect(result.tier).to.equal(TIER_FULL_AGENTIC)
+        expect(result.matchedDocs).to.have.length(2)
+        expect(result.matchedDocs[0]).to.deep.equal({path: 'topics/misc.md', score: 0.5, title: 'Misc Notes'})
+        expect(result.searchMetadata).to.deep.include({resultCount: 2, totalFound: 2})
+        expect(result.searchMetadata!.topScore).to.equal(0.5)
+        expect(result.timing.durationMs).to.be.at.least(0)
+        expect(result.response).to.include('LLM response')
+        expect(result.response).to.include(ATTRIBUTION_FOOTER)
+        expect((agent.executeOnSession as SinonStub).calledOnce).to.be.true
+      })
+    })
+  })
+
+  // ── Workspace scoping tests ─────────────────────────────────────────────────
 
   describe('workspace scoping (PR3)', () => {
     describe('search scope derivation', () => {
@@ -221,7 +445,9 @@ describe('QueryExecutor', () => {
         })
 
         const setSandboxCalls = (agent.setSandboxVariableOnSession as ReturnType<typeof stub>).getCalls()
-        const scopeCall = setSandboxCalls.find((c: {args: unknown[]}) => (c.args[1] as string).startsWith('__query_scope_'))
+        const scopeCall = setSandboxCalls.find((c: {args: unknown[]}) =>
+          (c.args[1] as string).startsWith('__query_scope_'),
+        )
         expect(scopeCall).to.not.be.undefined
         expect(scopeCall!.args[2]).to.equal('packages/api')
       })
@@ -243,7 +469,9 @@ describe('QueryExecutor', () => {
         })
 
         const setSandboxCalls = (agent.setSandboxVariableOnSession as ReturnType<typeof stub>).getCalls()
-        const scopeCall = setSandboxCalls.find((c: {args: unknown[]}) => (c.args[1] as string).startsWith('__query_scope_'))
+        const scopeCall = setSandboxCalls.find((c: {args: unknown[]}) =>
+          (c.args[1] as string).startsWith('__query_scope_'),
+        )
         expect(scopeCall).to.be.undefined
       })
 
