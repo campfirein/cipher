@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {mkdtempSync, writeFileSync} from 'node:fs'
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -54,6 +54,10 @@ describe('probeSSHKey()', () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'brv-ssh-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(tempDir, {force: true, recursive: true})
   })
 
   it('returns {exists: false} for non-existent file', async () => {
@@ -211,6 +215,10 @@ describe('parseSSHPrivateKey()', () => {
     writeFileSync(keyPath, TEST_OPENSSH_ED25519_KEY, {mode: 0o600})
   })
 
+  after(() => {
+    rmSync(tempDir, {force: true, recursive: true})
+  })
+
   it('returns a ParsedSSHKey with correct shape', async () => {
     const parsed = await parseSSHPrivateKey(keyPath)
 
@@ -264,6 +272,10 @@ describe('extractPublicKey()', () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'brv-extract-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(tempDir, {force: true, recursive: true})
   })
 
   it('extracts public key from encrypted OpenSSH key with no .pub sidecar', async () => {

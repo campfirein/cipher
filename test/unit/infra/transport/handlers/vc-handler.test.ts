@@ -792,31 +792,35 @@ describe('VcHandler', () => {
       ])
       const encKeyPem = `-----BEGIN OPENSSH PRIVATE KEY-----\n${encKeyBuf.toString('base64')}\n-----END OPENSSH PRIVATE KEY-----`
       const realTmpDir = fs.mkdtempSync(join(tmpdir(), 'brv-enc-key-test-'))
-      const encKeyPath = join(realTmpDir, 'enc_key')
-      writeFileSync(encKeyPath, encKeyPem, {mode: 0o600})
-
-      const deps = makeDeps(sandbox, projectPath)
-      deps.gitService.isInitialized.resolves(true)
-      deps.gitService.status.resolves({
-        files: [{path: 'a.md', staged: true, status: 'added'}],
-        isClean: false,
-      })
-      deps.vcGitConfigStore.get.resolves({
-        commitSign: true,
-        email: 'test@example.com',
-        name: 'Test',
-        signingKey: encKeyPath,
-      })
-      makeVcHandler(deps).setup()
-
       try {
-        await deps.requestHandlers[VcEvents.COMMIT]({message: 'signed commit', sign: true}, CLIENT_ID)
-        expect.fail('Expected error')
-      } catch (error) {
-        expect(error).to.be.instanceOf(VcError)
-        if (error instanceof VcError) {
-          expect(error.code).to.equal(VcErrorCode.SIGNING_KEY_NOT_SUPPORTED)
+        const encKeyPath = join(realTmpDir, 'enc_key')
+        writeFileSync(encKeyPath, encKeyPem, {mode: 0o600})
+
+        const deps = makeDeps(sandbox, projectPath)
+        deps.gitService.isInitialized.resolves(true)
+        deps.gitService.status.resolves({
+          files: [{path: 'a.md', staged: true, status: 'added'}],
+          isClean: false,
+        })
+        deps.vcGitConfigStore.get.resolves({
+          commitSign: true,
+          email: 'test@example.com',
+          name: 'Test',
+          signingKey: encKeyPath,
+        })
+        makeVcHandler(deps).setup()
+
+        try {
+          await deps.requestHandlers[VcEvents.COMMIT]({message: 'signed commit', sign: true}, CLIENT_ID)
+          expect.fail('Expected error')
+        } catch (error) {
+          expect(error).to.be.instanceOf(VcError)
+          if (error instanceof VcError) {
+            expect(error.code).to.equal(VcErrorCode.SIGNING_KEY_NOT_SUPPORTED)
+          }
         }
+      } finally {
+        rmSync(realTmpDir, {force: true, recursive: true})
       }
     })
 
@@ -853,35 +857,39 @@ describe('VcHandler', () => {
       ])
       const rsaKeyPem = `-----BEGIN OPENSSH PRIVATE KEY-----\n${rsaKeyBuf.toString('base64')}\n-----END OPENSSH PRIVATE KEY-----`
       const realTmpDir = fs.mkdtempSync(join(tmpdir(), 'brv-rsa-key-test-'))
-      const rsaKeyPath = join(realTmpDir, 'rsa_key')
-      writeFileSync(rsaKeyPath, rsaKeyPem, {mode: 0o600})
-
-      const deps = makeDeps(sandbox, projectPath)
-      deps.gitService.isInitialized.resolves(true)
-      deps.gitService.status.resolves({
-        files: [{path: 'a.md', staged: true, status: 'added'}],
-        isClean: false,
-      })
-      deps.vcGitConfigStore.get.resolves({
-        commitSign: true,
-        email: 'test@example.com',
-        name: 'Test',
-        signingKey: rsaKeyPath,
-      })
-      makeVcHandler(deps).setup()
-
       try {
-        await deps.requestHandlers[VcEvents.COMMIT]({message: 'signed commit', sign: true}, CLIENT_ID)
-        expect.fail('Expected error')
-      } catch (error) {
-        expect(error).to.be.instanceOf(Error)
-        // The error must NOT be PASSPHRASE_REQUIRED — that would re-trigger the
-        // CLI retry loop and produce spurious passphrase prompts.
-        if (error instanceof VcError) {
-          expect(error.code).to.not.equal(VcErrorCode.PASSPHRASE_REQUIRED)
-        }
+        const rsaKeyPath = join(realTmpDir, 'rsa_key')
+        writeFileSync(rsaKeyPath, rsaKeyPem, {mode: 0o600})
 
-        expect((error as Error).message).to.match(/Unsupported OpenSSH key type/)
+        const deps = makeDeps(sandbox, projectPath)
+        deps.gitService.isInitialized.resolves(true)
+        deps.gitService.status.resolves({
+          files: [{path: 'a.md', staged: true, status: 'added'}],
+          isClean: false,
+        })
+        deps.vcGitConfigStore.get.resolves({
+          commitSign: true,
+          email: 'test@example.com',
+          name: 'Test',
+          signingKey: rsaKeyPath,
+        })
+        makeVcHandler(deps).setup()
+
+        try {
+          await deps.requestHandlers[VcEvents.COMMIT]({message: 'signed commit', sign: true}, CLIENT_ID)
+          expect.fail('Expected error')
+        } catch (error) {
+          // After B6, probeSSHKey throws a plain Error (not a VcError) for
+          // unsupported keytypes. Pin both the type and the message so any
+          // future wrapping into VcError is caught and reviewed deliberately
+          // (a wrap that uses code=PASSPHRASE_REQUIRED would re-introduce the
+          // CLI retry loop this test guards against).
+          expect(error).to.be.instanceOf(Error)
+          expect(error).to.not.be.instanceOf(VcError)
+          expect((error as Error).message).to.match(/Unsupported OpenSSH key type/)
+        }
+      } finally {
+        rmSync(realTmpDir, {force: true, recursive: true})
       }
     })
   })
