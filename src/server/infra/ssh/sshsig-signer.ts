@@ -3,13 +3,12 @@ import {createHash, sign} from 'node:crypto'
 import type {ParsedSSHKey, SSHSignatureResult} from './types.js'
 
 // sshsig constants
-// PROTOCOL.sshsig defines MAGIC_PREAMBLE as `byte[6] "SSHSIG"` for both the
-// envelope and the signed-data structure. The OpenSSH C source uses
-// `MAGIC_PREAMBLE_LEN = sizeof("SSHSIG") - 1`, i.e. 6 bytes (no null terminator).
+// PROTOCOL.sshsig defines MAGIC_PREAMBLE as `byte[6] "SSHSIG"` (no null
+// terminator) for both the envelope and the signed-data structure. The OpenSSH
+// C source uses `MAGIC_PREAMBLE_LEN = sizeof("SSHSIG") - 1`, i.e. 6 bytes.
 // Adding the null byte produces signatures that fail `ssh-keygen -Y verify`
 // and `git verify-commit`.
-const SSHSIG_MAGIC = Buffer.from('SSHSIG')
-const SSHSIG_SIGNED_DATA_MAGIC = Buffer.from('SSHSIG')
+export const SSHSIG_MAGIC = Buffer.from('SSHSIG')
 const SSHSIG_VERSION = 1
 const NAMESPACE = 'git'
 const HASH_ALGORITHM = 'sha512'
@@ -42,7 +41,7 @@ export function signCommitPayload(payload: string, key: ParsedSSHKey): SSHSignat
   // 2. Build the "signed data" structure per PROTOCOL.sshsig §2
   //    This is what the private key actually signs — NOT the raw payload.
   const signedData = Buffer.concat([
-    SSHSIG_SIGNED_DATA_MAGIC, //  "SSHSIG" (6 bytes, byte[6] per spec)
+    SSHSIG_MAGIC, //  6-byte preamble per spec
     sshString(NAMESPACE), //  "git"
     sshString(''), //  reserved (empty)
     sshString(HASH_ALGORITHM), //  "sha512"
