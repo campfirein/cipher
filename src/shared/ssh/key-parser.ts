@@ -195,9 +195,7 @@ function isPassphraseError(err: unknown): boolean {
   // (malformed/unparseable PEM) and other format-level failures, causing
   // probeSSHKey to incorrectly return needsPassphrase:true for non-passphrase
   // failures.
-  const code = 'code' in err && typeof (err as {code: unknown}).code === 'string'
-    ? (err as {code: string}).code
-    : ''
+  const code = 'code' in err && typeof err.code === 'string' ? err.code : ''
   if (code === 'ERR_OSSL_BAD_DECRYPT' || code === 'ERR_OSSL_CRYPTO_INTERRUPTED_OR_CANCELLED') {
     return true
   }

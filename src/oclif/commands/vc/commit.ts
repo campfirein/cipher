@@ -55,14 +55,14 @@ export default class VcCommit extends Command {
       const sigIndicator = result.signed ? ' 🔏' : ''
       this.log(`[${result.sha.slice(0, 7)}] ${result.message}${sigIndicator}`)
     } catch (error) {
-      // oclif commands run non-interactively (no TUI). When the signing key is
-      // passphrase-protected and the user did not provide one, surface a clear
-      // actionable error instead of prompting — passphrase entry belongs in the
-      // TUI's Ink layer (ENG-2002 §Signing Flow step 2).
+      // oclif commands run non-interactively. Surface a clear actionable error
+      // for missing passphrase instead of prompting — interactive entry belongs
+      // in the TUI layer.
       if (
         error instanceof Error &&
         'code' in error &&
-        (error as {code: string}).code === VcErrorCode.PASSPHRASE_REQUIRED
+        typeof error.code === 'string' &&
+        error.code === VcErrorCode.PASSPHRASE_REQUIRED
       ) {
         this.error(
           'Signing key requires a passphrase. Provide it via the --passphrase flag ' +

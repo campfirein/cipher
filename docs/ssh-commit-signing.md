@@ -55,9 +55,13 @@ do not need to change any brv config.
 
 ## Passphrase-protected keys (without ssh-agent)
 
-For Ed25519 keys whose private file lives unencrypted on disk you do not need a
-passphrase. For any other passphrase-protected key, **use ssh-agent** (above).
-Only Ed25519-via-PEM-PKCS8 supports passphrase entry directly:
+For an unencrypted Ed25519 key on disk you do not need a passphrase. For any
+other passphrase-protected key, **use ssh-agent** (above) — that is the
+expected path for the vast majority of users.
+
+The narrow exception is an Ed25519 key saved in legacy PEM/PKCS8 format
+(rather than the modern OpenSSH format that `ssh-keygen` produces by
+default). Keys in that format support direct passphrase entry:
 
 ```bash
 # Pass once via flag

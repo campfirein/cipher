@@ -195,7 +195,6 @@ describe('signCommitPayload()', () => {
 
     before(async function () {
       if (!isSshKeygenAvailable()) {
-        console.warn('[sshsig round-trip] ssh-keygen not on PATH — skipping suite')
         this.skip()
       }
 
@@ -210,7 +209,7 @@ describe('signCommitPayload()', () => {
     })
 
     it('ssh-keygen -Y check-novalidate accepts the signature', () => {
-      const payload = 'tree abc123\nparent def456\nauthor Test <t@e.com> 0 +0000\n\nB0 round-trip\n'
+      const payload = 'tree abc123\nparent def456\nauthor Test <t@e.com> 0 +0000\n\nround-trip test payload\n'
       const {armored} = signCommitPayload(payload, roundtripKey)
 
       const sigPath = join(roundtripDir, 'commit.sig')
