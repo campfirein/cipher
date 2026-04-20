@@ -153,7 +153,7 @@ function ComposerForm({
                   {content ? (
                     <>
                       <kbd className="bg-muted text-foreground/70 inline-flex items-center gap-1 rounded px-1.5 py-0.5 leading-none">
-                        <Command className="size-2.5" />/ Ctrl + Enter
+                        <Command className="size-2.5" /> · Ctrl + Enter
                       </kbd>{' '}
                       to {type}
                     </>
