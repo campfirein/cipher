@@ -9,7 +9,7 @@ import type {
   SessionEventName,
   TokenUsage,
 } from '../../../../../src/agent/core/domain/agent-events/index.js'
-import type {HarnessMode} from '../../../../../src/agent/infra/harness/types.js'
+import type {HarnessMode} from '../../../../../src/agent/core/domain/harness/types.js'
 
 import {
   AGENT_EVENT_NAMES,

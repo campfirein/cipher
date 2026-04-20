@@ -1,6 +1,6 @@
 import {z} from 'zod'
 
-import {HarnessLanguageSchema, HarnessModeSchema} from '../harness/types.js'
+import {HarnessLanguageSchema, HarnessModeSchema} from '../../core/domain/harness/types.js'
 
 /**
  * LLM configuration schema with validation and defaults.

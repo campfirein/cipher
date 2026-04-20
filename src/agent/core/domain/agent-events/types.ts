@@ -1,4 +1,4 @@
-import type {HarnessMode} from '../../../infra/harness/types.js'
+import type {HarnessMode} from '../harness/types.js'
 
 /**
  * Agent-level event names for CipherAgent.
