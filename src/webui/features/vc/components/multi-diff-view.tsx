@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { VcDiffSide } from '../../../../shared/transport/events/vc-events'
 import type { ChangeFile } from '../types'
 
-import { getErrorMessage } from '../../../utils/get-error-message'
+import { formatError } from '../../../lib/error-messages'
 import { useGetVcDiffs } from '../api/get-vc-diffs'
 import { DiffFileHeader } from './diff-file-header'
 import { DiffViewer } from './diff-viewer'
@@ -52,7 +52,7 @@ export function MultiDiffView({ emptyMessage, files, onOpenFile, onStageToggle, 
     return (
       <div className="flex h-full items-center justify-center bg-card rounded-md">
         <p className="text-secondary-foreground text-sm">
-          {getErrorMessage(error, 'Failed to load diffs')}
+          {formatError(error, 'Failed to load diffs')}
         </p>
       </div>
     )

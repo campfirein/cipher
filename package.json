@@ -207,7 +207,7 @@
     "prepack": "npm run build && BRV_ENV=production oclif manifest",
     "prepare": "husky",
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/webui/tsconfig.json",
     "version": "git add README.md"
   },
   "lint-staged": {

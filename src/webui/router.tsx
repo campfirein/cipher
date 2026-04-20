@@ -7,6 +7,7 @@ import {ChangesPage} from './pages/changes-page'
 import {ConfigurationPage} from './pages/configuration-page'
 import {ContextsPage} from './pages/contexts-page'
 import {HomePage} from './pages/home-page'
+import {NotFoundPage} from './pages/not-found-page'
 import {ProjectSelectorPage} from './pages/project-selector-page'
 import {TasksPage} from './pages/tasks-page'
 
@@ -43,11 +44,19 @@ export const router = createBrowserRouter([
             element: <TasksPage />,
             path: 'tasks',
           },
+          {
+            element: <NotFoundPage />,
+            path: '*',
+          },
         ],
         element: <MainLayout />,
       },
     ],
     element: <ProjectGuard />,
     path: '/',
+  },
+  {
+    element: <NotFoundPage />,
+    path: '*',
   },
 ])

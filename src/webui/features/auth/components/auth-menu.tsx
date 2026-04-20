@@ -24,9 +24,12 @@ function UnauthorizedTrigger() {
 
   return (
     <>
-      <Button onClick={() => setIsOpen(true)} size="sm" variant="outline">
-        <User className="size-4 shrink-0 text-muted-foreground" />
-        <span>Log In</span>
+      <Button className="h-auto rounded-full p-0" onClick={() => setIsOpen(true)} variant="ghost">
+        <Avatar>
+          <AvatarFallback className="bg-transparent">
+            <User className="size-4 shrink-0" />
+          </AvatarFallback>
+        </Avatar>
       </Button>
 
       <LoginDialog onOpenChange={setIsOpen} open={isOpen} />

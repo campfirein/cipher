@@ -20,7 +20,7 @@ export function Header() {
 
   const activeProvider = providersData?.providers.find((p) => p.isCurrent)
   const providerLabel = activeProvider
-    ? `${activeProvider.name}${activeConfig?.activeModel ? ` / ${activeConfig.activeModel}` : ''}`
+    ? `${activeProvider.name}${activeConfig?.activeModel ? ` | ${activeConfig.activeModel}` : ''}`
     : 'No model configured'
 
   return (
@@ -44,7 +44,7 @@ export function Header() {
       <div className="flex items-center gap-2">
         <Tooltip>
           <TooltipTrigger render={
-            <Button className="text-sm bg-background hover:bg-muted py-1.5 px-3 border border-border gap-2" onClick={() => setProviderDialogOpen(true)} size="sm" />
+            <Button onClick={() => setProviderDialogOpen(true)} size="sm" variant="ghost" />
           }>
             {providerLabel}
             {!activeProvider && <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />}

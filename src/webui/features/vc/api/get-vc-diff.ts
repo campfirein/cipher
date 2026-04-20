@@ -27,7 +27,7 @@ export const getVcDiffQueryOptions = (request: IVcDiffRequest) =>
 type UseGetVcDiffOptions = {
   enabled?: boolean
   path: string
-  queryConfig?: QueryConfig<ReturnType<typeof getVcDiffQueryOptions>>
+  queryConfig?: QueryConfig<typeof getVcDiffQueryOptions>
   side: VcDiffSide
 }
 

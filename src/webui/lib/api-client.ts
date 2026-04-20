@@ -9,6 +9,7 @@
 import type {Socket} from 'socket.io-client'
 
 interface AckResponse<T> {
+  code?: string
   data: T
   error?: string
   success: boolean
@@ -52,7 +53,11 @@ export class BrvApiClient {
         if (response.success) {
           resolve(response.data)
         } else {
-          reject(new Error(response.error ?? 'Request failed'))
+          const err = Object.assign(
+            new Error(response.error ?? 'Request failed'),
+            response.code ? {code: response.code} : {},
+          )
+          reject(err)
         }
       })
     })
