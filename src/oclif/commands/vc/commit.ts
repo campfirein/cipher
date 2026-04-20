@@ -1,4 +1,3 @@
-import {password} from '@inquirer/prompts'
 import {Command, Flags} from '@oclif/core'
 
 import {type IVcCommitRequest, type IVcCommitResponse, VcErrorCode, VcEvents} from '../../../shared/transport/events/vc-events.js'
@@ -10,22 +9,23 @@ export default class VcCommit extends Command {
     '<%= config.bin %> <%= command.id %> -m "Add project architecture notes"',
     '<%= config.bin %> <%= command.id %> -m "Signed commit" --sign',
     '<%= config.bin %> <%= command.id %> -m "Unsigned commit" --no-sign',
+    '<%= config.bin %> <%= command.id %> -m "Signed (encrypted key)" --sign --passphrase "$MY_PASS"',
+    'BRV_SSH_PASSPHRASE="$MY_PASS" <%= config.bin %> <%= command.id %> -m "Signed (env)" --sign',
   ]
-public static flags = {
+  public static flags = {
     message: Flags.string({
       char: 'm',
       description: 'Commit message',
     }),
     passphrase: Flags.string({
-      description: 'SSH key passphrase (prefer BRV_SSH_PASSPHRASE env var)',
+      description: 'SSH key passphrase (or set BRV_SSH_PASSPHRASE env var)',
     }),
     sign: Flags.boolean({
       allowNo: true,
       description: 'Sign the commit with your configured SSH key. Use --no-sign to override commit.sign=true.',
     }),
   }
-private static readonly MAX_PASSPHRASE_RETRIES = 3
-public static strict = false
+  public static strict = false
 
   public async run(): Promise<void> {
     const {argv, flags} = await this.parse(VcCommit)
@@ -40,13 +40,12 @@ public static strict = false
     }
 
     const {sign} = flags
-    const pp = flags.passphrase ?? process.env.BRV_SSH_PASSPHRASE
-
-    await this.runCommit(message, sign, pp)
-  }
-
-  private async runCommit(message: string, sign: boolean | undefined, passphrase?: string, attempt: number = 0): Promise<void> {
-    const payload: IVcCommitRequest = {message, ...(sign === undefined ? {} : {sign}), ...(passphrase ? {passphrase} : {})}
+    const passphrase = flags.passphrase ?? process.env.BRV_SSH_PASSPHRASE
+    const payload: IVcCommitRequest = {
+      message,
+      ...(sign === undefined ? {} : {sign}),
+      ...(passphrase ? {passphrase} : {}),
+    }
 
     try {
       const result = await withDaemonRetry(async (client) =>
@@ -56,31 +55,19 @@ public static strict = false
       const sigIndicator = result.signed ? ' 🔏' : ''
       this.log(`[${result.sha.slice(0, 7)}] ${result.message}${sigIndicator}`)
     } catch (error) {
-      // Passphrase required — prompt and retry (capped)
+      // oclif commands run non-interactively (no TUI). When the signing key is
+      // passphrase-protected and the user did not provide one, surface a clear
+      // actionable error instead of prompting — passphrase entry belongs in the
+      // TUI's Ink layer (ENG-2002 §Signing Flow step 2).
       if (
         error instanceof Error &&
         'code' in error &&
         (error as {code: string}).code === VcErrorCode.PASSPHRASE_REQUIRED
       ) {
-        if (attempt >= VcCommit.MAX_PASSPHRASE_RETRIES) {
-          this.error(`Too many failed passphrase attempts (${VcCommit.MAX_PASSPHRASE_RETRIES}).`)
-        }
-
-        if (!process.stdin.isTTY) {
-          this.error('Passphrase required but no TTY available. Set BRV_SSH_PASSPHRASE env var or use --passphrase flag.')
-        }
-
-        let pp: string
-        try {
-          pp = await password({
-            message: 'Enter SSH key passphrase:',
-          })
-        } catch {
-          this.error('Passphrase input cancelled.')
-        }
-
-        await this.runCommit(message, sign, pp, attempt + 1)
-        return
+        this.error(
+          'Signing key requires a passphrase. Provide it via the --passphrase flag ' +
+            'or the BRV_SSH_PASSPHRASE environment variable, then retry.',
+        )
       }
 
       this.error(formatConnectionError(error))
