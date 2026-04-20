@@ -55,4 +55,8 @@ export const router = createBrowserRouter([
     element: <ProjectGuard />,
     path: '/',
   },
+  {
+    element: <NotFoundPage />,
+    path: '*',
+  },
 ])

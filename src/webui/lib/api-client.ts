@@ -53,8 +53,10 @@ export class BrvApiClient {
         if (response.success) {
           resolve(response.data)
         } else {
-          const err = new Error(response.error ?? 'Request failed')
-          if (response.code) (err as Error & {code: string}).code = response.code
+          const err = Object.assign(
+            new Error(response.error ?? 'Request failed'),
+            response.code ? {code: response.code} : {},
+          )
           reject(err)
         }
       })

@@ -1,13 +1,4 @@
-/**
- * Central place to override error messages shown in the web UI.
- *
- * The daemon serves multiple clients (REPL, MCP, oclif, web) so some of its
- * error messages reference slash-commands or `brv` shell commands that mean
- * nothing in a browser. Edit `OVERRIDES` below to replace the user-facing
- * copy for a given error code. Unmapped codes fall through to whatever the
- * server sent; falsy/malformed errors get the `fallback`.
- */
-
+// Override map for daemon error codes whose messages reference CLI-only affordances (REPL slash-commands, brv shell).
 const OVERRIDES: Record<string, string> = {
   // Auth / providers
   ERR_NOT_AUTHENTICATED: 'Please sign in to continue.',
