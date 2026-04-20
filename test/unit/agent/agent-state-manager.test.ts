@@ -13,6 +13,12 @@ import {AgentEventBus} from '../../../src/agent/infra/events/event-emitter.js'
 function createTestConfig(overrides?: Partial<ValidatedAgentConfig>): ValidatedAgentConfig {
   return {
     apiBaseUrl: 'https://api.test.com',
+    harness: {
+      autoLearn: true,
+      enabled: false,
+      language: 'auto',
+      maxVersions: 20,
+    },
     llm: {
       maxIterations: 50,
       maxTokens: 8192,

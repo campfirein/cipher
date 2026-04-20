@@ -1,5 +1,7 @@
 import {z} from 'zod'
 
+import {HarnessLanguageSchema, HarnessModeSchema} from '../harness/types.js'
+
 /**
  * LLM configuration schema with validation and defaults.
  */
@@ -60,6 +62,29 @@ export type BlobStorageConfig = z.input<typeof BlobStorageConfigSchema>
 export type ValidatedBlobStorageConfig = z.output<typeof BlobStorageConfigSchema>
 
 /**
+ * AutoHarness V2 configuration schema.
+ *
+ * Off by default. When enabled, the sandbox injects per-(projectId,
+ * commandType) learned harness functions at `harness.*`. Mode selection
+ * (assisted / filter / policy) derives from the heuristic H at each
+ * session; `modeOverride` pins a specific mode. `language` picks the
+ * bootstrap template and defaults to runtime auto-detection.
+ */
+export const HarnessConfigSchema = z
+  .object({
+    autoLearn: z.boolean().default(true).describe('Run the refinement loop post-session when enabled'),
+    enabled: z.boolean().default(false).describe('Master switch for the AutoHarness feature'),
+    language: HarnessLanguageSchema.default('auto').describe('Template language — auto-detects unless overridden'),
+    maxVersions: z.number().int().positive().default(20).describe('Versions retained per (projectId, commandType)'),
+    modeOverride: HarnessModeSchema.optional().describe('Force a specific mode, bypassing heuristic gating'),
+    refinementModel: z.string().min(1).optional().describe('Model id for the refiner; defaults to the runtime model'),
+  })
+  .strict()
+
+export type HarnessConfig = z.input<typeof HarnessConfigSchema>
+export type ValidatedHarnessConfig = z.output<typeof HarnessConfigSchema>
+
+/**
  * Main agent configuration schema.
  * Combines all sub-schemas with validation and defaults.
  *
@@ -71,6 +96,7 @@ export const AgentConfigSchema = z
     apiBaseUrl: z.string().url().describe('ByteRover API base URL'),
     blobStorage: BlobStorageConfigSchema.optional().describe('Blob storage configuration'),
     fileSystem: FileSystemConfigSchema.optional().describe('File system configuration'),
+    harness: HarnessConfigSchema.default({}).describe('AutoHarness V2 configuration (off by default)'),
     httpReferer: z.string().optional().describe('HTTP Referer for OpenRouter rankings'),
     llm: LLMConfigSchema.default({}).describe('LLM configuration'),
     maxInputTokens: z.number().positive().optional().describe('Context window size from provider API'),
