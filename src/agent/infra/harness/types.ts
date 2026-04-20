@@ -46,6 +46,17 @@ export type HarnessCapability = z.output<typeof HarnessCapabilitySchema>
 export const ProjectTypeSchema = z.enum(['typescript', 'python', 'generic'])
 export type ProjectType = z.output<typeof ProjectTypeSchema>
 
+/**
+ * Template language for harness bootstrap. Superset of `ProjectType`:
+ * derives its members from `ProjectTypeSchema.options` and adds `'auto'`
+ * for runtime detection. A detected project pins to one of the
+ * `ProjectType` members; `'auto'` is only valid as a user-facing config
+ * value. Deriving (rather than listing) keeps the two enums in sync if
+ * a new project type is ever added.
+ */
+export const HarnessLanguageSchema = z.enum([...ProjectTypeSchema.options, 'auto'] as const)
+export type HarnessLanguage = z.output<typeof HarnessLanguageSchema>
+
 // ---------------------------------------------------------------------------
 // Record schemas
 // ---------------------------------------------------------------------------
@@ -159,6 +170,11 @@ export const EvaluationScenarioSchema = z
 export type EvaluationScenario = z.input<typeof EvaluationScenarioSchema>
 export type ValidatedEvaluationScenario = z.output<typeof EvaluationScenarioSchema>
 
-// `HarnessConfig` is a re-export of the inferred type from
-// `agent-schemas.ts`. It is added in a follow-up change — defining it
-// here now would create a circular import with the config schema.
+// ---------------------------------------------------------------------------
+// Config re-export
+// ---------------------------------------------------------------------------
+
+// Callers in the harness module import `HarnessConfig` from here rather
+// than reaching into `agent-schemas.ts`. `type`-only re-export keeps the
+// runtime-module graph acyclic.
+export type {HarnessConfig, ValidatedHarnessConfig} from '../agent/agent-schemas.js'
