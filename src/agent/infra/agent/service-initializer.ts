@@ -173,6 +173,7 @@ export async function createCipherAgentServices(
 
   // 5b. Sandbox service for code execution (no dependencies)
   const sandboxService = new SandboxService()
+  sandboxService.setHarnessConfig(config.harness)
 
   // 5c. Build environment context for sandbox injection
   const environmentBuilder = new EnvironmentContextBuilder()

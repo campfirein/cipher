@@ -5,6 +5,7 @@ import type { ICurateService } from '../../core/interfaces/i-curate-service.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
 import type { ISwarmCoordinator } from '../../core/interfaces/i-swarm-coordinator.js'
+import type { ValidatedHarnessConfig } from '../agent/agent-schemas.js'
 import type { SessionManager } from '../session/session-manager.js'
 import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
 
@@ -27,6 +28,8 @@ export class SandboxService implements ISandboxService {
   private environmentContext?: EnvironmentContext
   /** File system service for Tools SDK */
   private fileSystem?: IFileSystem
+  /** AutoHarness V2 config block, wired in before any session is created. */
+  private harnessConfig?: ValidatedHarnessConfig
   /** Variables buffered before sandbox creation, keyed by sessionId */
   private pendingVariables = new Map<string, Record<string, unknown>>()
   /** Command type used to build each sandbox's ToolsSDK, keyed by sessionId */
@@ -188,6 +191,17 @@ export class SandboxService implements ISandboxService {
   setFileSystem(fileSystem: IFileSystem): void {
     this.fileSystem = fileSystem
     this.invalidateSandboxes()
+  }
+
+  /**
+   * Wire in the AutoHarness V2 config block. Consumers read individual
+   * flags (`enabled`, `autoLearn`, `language`, `modeOverride`) off the
+   * stored block; a config update requires another `setHarnessConfig` call.
+   *
+   * @param config - Harness config block from `AgentConfig.harness`
+   */
+  setHarnessConfig(config: ValidatedHarnessConfig): void {
+    this.harnessConfig = config
   }
 
   /**

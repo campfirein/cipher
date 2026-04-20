@@ -16,6 +16,7 @@ import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {ICurateService} from '../../../../src/agent/core/interfaces/i-curate-service.js'
 import type {IFileSystem} from '../../../../src/agent/core/interfaces/i-file-system.js'
+import type {ValidatedHarnessConfig} from '../../../../src/agent/infra/agent/agent-schemas.js'
 import type {ISearchKnowledgeService} from '../../../../src/agent/infra/sandbox/tools-sdk.js'
 
 import {SandboxService} from '../../../../src/agent/infra/sandbox/sandbox-service.js'
@@ -216,6 +217,27 @@ describe('SandboxService', () => {
       expect(mockSearchKnowledgeService.search.calledOnce).to.be.true
       expect(mockSearchKnowledgeService.search.firstCall.args[0]).to.equal('authentication')
       expect(mockSearchKnowledgeService.search.firstCall.args[1]).to.deep.equal({limit: 5})
+    })
+  })
+
+  describe('setHarnessConfig', () => {
+    it('stores the harness config block for later consumers', () => {
+      const service = new SandboxService()
+      const config: ValidatedHarnessConfig = {
+        autoLearn: true,
+        enabled: true,
+        language: 'typescript',
+        maxVersions: 20,
+      }
+
+      service.setHarnessConfig(config)
+
+      // No consumer reads `harnessConfig` yet, so there is no observable
+      // effect to assert — reach through a narrow cast to the private field.
+      // Coupled to the field name by string: a rename will not fail the cast
+      // at compile time, so update both together.
+      const internal = service as unknown as {harnessConfig?: ValidatedHarnessConfig}
+      expect(internal.harnessConfig).to.deep.equal(config)
     })
   })
 
