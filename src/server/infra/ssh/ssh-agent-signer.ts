@@ -176,10 +176,10 @@ export class SshAgentSigner {
    * Sign a commit payload using the ssh-agent, producing an armored sshsig signature.
    */
   async sign(payload: string): Promise<SSHSignatureResult> {
-    // Envelope magic: 6 bytes, no null (per PROTOCOL.sshsig blob format)
+    // PROTOCOL.sshsig defines MAGIC_PREAMBLE as `byte[6] "SSHSIG"` for both the
+    // envelope and the signed-data structure. See sshsig-signer.ts for the rationale.
     const SSHSIG_MAGIC = Buffer.from('SSHSIG')
-    // Signed data magic: 7 bytes, WITH null (per PROTOCOL.sshsig §2 signed data)
-    const SSHSIG_SIGNED_DATA_MAGIC = Buffer.from('SSHSIG\0')
+    const SSHSIG_SIGNED_DATA_MAGIC = Buffer.from('SSHSIG')
     const NAMESPACE = 'git'
     const HASH_ALGORITHM = 'sha512'
 

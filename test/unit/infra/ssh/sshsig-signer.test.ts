@@ -1,6 +1,7 @@
 import {expect} from 'chai'
+import {execFileSync} from 'node:child_process'
 import {createHash, verify as cryptoVerify, generateKeyPairSync} from 'node:crypto'
-import {mkdtempSync, writeFileSync} from 'node:fs'
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -8,6 +9,27 @@ import type {ParsedSSHKey} from '../../../../src/server/infra/ssh/types.js'
 
 import {parseSSHPrivateKey} from '../../../../src/server/infra/ssh/ssh-key-parser.js'
 import {signCommitPayload} from '../../../../src/server/infra/ssh/sshsig-signer.js'
+
+/**
+ * Returns true iff `ssh-keygen` is on PATH and supports the `-Y` subcommand family.
+ *
+ * Probe: `ssh-keygen -Y check-novalidate` with no further args. The binary exits
+ * non-zero with "Too few arguments..." but only when both the binary AND the -Y
+ * subcommand family are available. ENOENT (binary missing) surfaces as `code === 'ENOENT'`.
+ */
+function isSshKeygenAvailable(): boolean {
+  try {
+    execFileSync('ssh-keygen', ['-Y', 'check-novalidate'], {stdio: 'ignore'})
+    return true
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && (error as {code: string}).code === 'ENOENT') {
+      return false
+    }
+
+    // Non-zero exit (expected: missing namespace) — binary is present and supports -Y.
+    return true
+  }
+}
 
 /** Parse an SSH wire-format length-prefixed string from a buffer. Returns [value, nextOffset]. */
 function readSSHString(buf: Buffer, offset: number): [Buffer, number] {
@@ -145,7 +167,8 @@ describe('signCommitPayload()', () => {
 
     const messageHash = createHash('sha512').update(Buffer.from(payload, 'utf8')).digest()
     const signedData = Buffer.concat([
-      Buffer.from('SSHSIG\0'),
+      // 6-byte preamble per PROTOCOL.sshsig (no null terminator).
+      Buffer.from('SSHSIG'),
       sshString('git'),
       sshString(''),
       sshString('sha512'),
@@ -158,5 +181,51 @@ describe('signCommitPayload()', () => {
     const valid = cryptoVerify('sha512', signedData, pub, rawSig)
     expect(valid).to.be.true
   })
+  })
+
+  // Round-trip suite: feed our armored signature back to the OpenSSH reference
+  // verifier (`ssh-keygen -Y check-novalidate`) and assert acceptance. This is the
+  // only test in the file that validates against an external verifier — every other
+  // assertion is structural and can pass while the signature is cryptographically
+  // invalid (which is exactly how B0/ENG-2002 slipped past the original reviews).
+  describe('round-trip with ssh-keygen', () => {
+    let roundtripDir: string
+    let roundtripKeyPath: string
+    let roundtripKey: Awaited<ReturnType<typeof parseSSHPrivateKey>>
+
+    before(async function () {
+      if (!isSshKeygenAvailable()) {
+        console.warn('[sshsig round-trip] ssh-keygen not on PATH — skipping suite')
+        this.skip()
+      }
+
+      roundtripDir = mkdtempSync(join(tmpdir(), 'brv-sshsig-roundtrip-'))
+      roundtripKeyPath = join(roundtripDir, 'id_ed25519')
+      execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', 'roundtrip', '-f', roundtripKeyPath])
+      roundtripKey = await parseSSHPrivateKey(roundtripKeyPath)
+    })
+
+    after(() => {
+      if (roundtripDir) rmSync(roundtripDir, {force: true, recursive: true})
+    })
+
+    it('ssh-keygen -Y check-novalidate accepts the signature', () => {
+      const payload = 'tree abc123\nparent def456\nauthor Test <t@e.com> 0 +0000\n\nB0 round-trip\n'
+      const {armored} = signCommitPayload(payload, roundtripKey)
+
+      const sigPath = join(roundtripDir, 'commit.sig')
+      writeFileSync(sigPath, armored)
+
+      // ssh-keygen reads message from stdin, signature from -s file.
+      // -n git: namespace must match what signCommitPayload uses.
+      // check-novalidate: verifies cryptographic validity without an allowed_signers file.
+      const stdout = execFileSync(
+        'ssh-keygen',
+        ['-Y', 'check-novalidate', '-n', 'git', '-s', sigPath],
+        {input: payload, stdio: ['pipe', 'pipe', 'pipe']},
+      ).toString()
+
+      expect(stdout).to.match(/Good "git" signature/i)
+    })
   })
 })

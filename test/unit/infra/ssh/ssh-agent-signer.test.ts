@@ -247,7 +247,7 @@ describe('SshAgentSigner.sign()', () => {
     }
   })
 
-  it('signed data sent to agent uses 7-byte magic WITH null terminator', async () => {
+  it('signed data sent to agent starts with 6-byte SSHSIG magic followed by namespace', async () => {
     const parsed = await parseSSHPrivateKey(keyPath)
 
     // We'll capture the signed data sent to the agent's sign method
@@ -305,10 +305,18 @@ describe('SshAgentSigner.sign()', () => {
       expect(signer).to.not.be.null
       await signer!.sign('test payload for magic check')
 
-      // Verify the signed data starts with SSHSIG\0 (7 bytes)
+      // Per PROTOCOL.sshsig the signed-data structure is:
+      //   byte[6] MAGIC_PREAMBLE ("SSHSIG" — NO null terminator)
+      //   string  namespace
+      //   ...
+      // Asserting only the first 7 bytes is unsafe because the namespace length
+      // prefix happens to begin with 0x00 (uint32 BE of "git" = 0x00000003), so a
+      // wrong 7-byte 'SSHSIG\0' check would pass spuriously.
       expect(capturedSignData).to.not.be.undefined
-      const signedMagic = capturedSignData!.subarray(0, 7).toString('binary')
-      expect(signedMagic).to.equal('SSHSIG\0')
+      expect(capturedSignData!.subarray(0, 6).toString()).to.equal('SSHSIG')
+      const namespaceLen = capturedSignData!.readUInt32BE(6)
+      expect(namespaceLen).to.equal(3)
+      expect(capturedSignData!.subarray(10, 13).toString()).to.equal('git')
     } finally {
       server.close()
     }
