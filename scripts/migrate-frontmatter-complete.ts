@@ -33,7 +33,7 @@ interface MigrationOptions {
 // ── Required semantic fields ──
 
 const REQUIRED_STRING_FIELDS = ['title', 'summary'] as const
-const REQUIRED_ARRAY_FIELDS = ['related'] as const
+const REQUIRED_ARRAY_FIELDS = ['tags', 'keywords', 'related'] as const
 const REQUIRED_TIMESTAMP_FIELDS = ['createdAt', 'updatedAt'] as const
 
 // ── Helpers ──
@@ -58,9 +58,10 @@ function parseFrontmatterRaw(content: string): null | {body: string; parsed: Rec
     return null
   }
 
-  const yamlBlock = content.slice(4, actualEnd)
-  const bodyStart = content.indexOf('\n', actualEnd + 1) + 1
-  const body = content.slice(bodyStart)
+  const isCrlf = endIndex === -1
+  const yamlBlock = content.slice(isCrlf ? 5 : 4, actualEnd)
+  const delimiterLen = isCrlf ? 7 : 4  // '\r\n---\r\n' = 7, '\n---\n' = 4
+  const body = content.slice(actualEnd + delimiterLen)
 
   try {
     const parsed = yamlLoad(yamlBlock) as null | Record<string, unknown>
@@ -100,9 +101,11 @@ function buildCompleteFrontmatter(
     ? parsed.updatedAt
     : fileMtime.toISOString()
 
-  // Field order must match generateFrontmatter() output (title, summary,
-  // tags, related, keywords, createdAt, updatedAt) so that yamlDump with
-  // sortKeys:false produces identical YAML and the migration is idempotent.
+  // Context-tree files carry exactly these 7 canonical semantic fields.
+  // Legacy runtime-signal fields (importance, maturity, recency, accessCount,
+  // updateCount) are intentionally not preserved — they are inert since the
+  // sidecar migration (ENG-2133–ENG-2160).
+  // Field order must match generateFrontmatter() output for idempotency.
   const fm: Record<string, unknown> = {}
   fm.title = typeof parsed.title === 'string' ? parsed.title : ''
   fm.summary = typeof parsed.summary === 'string' ? parsed.summary : ''
