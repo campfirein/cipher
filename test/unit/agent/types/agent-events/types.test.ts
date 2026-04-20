@@ -9,6 +9,7 @@ import type {
   SessionEventName,
   TokenUsage,
 } from '../../../../../src/agent/core/domain/agent-events/index.js'
+import type {HarnessMode} from '../../../../../src/agent/infra/harness/types.js'
 
 import {
   AGENT_EVENT_NAMES,
@@ -35,11 +36,15 @@ describe('cipher/agent-events', () => {
         'cipher:stateChanged',
         'cipher:stateReset',
         'cipher:ui',
+        'harness:refinement-completed',
       ])
     })
 
     it('should have correct SESSION_EVENT_NAMES array', () => {
       expect(SESSION_EVENT_NAMES).to.deep.equal([
+        'harness:loaded',
+        'harness:mode-selected',
+        'harness:outcome-recorded',
         'llmservice:chunk',
         'llmservice:contextCompressed',
         'llmservice:contextOverflow',
@@ -73,6 +78,10 @@ describe('cipher/agent-events', () => {
         'cipher:stateChanged',
         'cipher:stateReset',
         'cipher:ui',
+        'harness:refinement-completed',
+        'harness:loaded',
+        'harness:mode-selected',
+        'harness:outcome-recorded',
         'llmservice:chunk',
         'llmservice:contextCompressed',
         'llmservice:contextOverflow',
@@ -377,6 +386,117 @@ describe('cipher/agent-events', () => {
       expectTypeOf<string>(payload.sessionId)
       expectTypeOf<string | undefined>(payload.model)
       expectTypeOf<string | undefined>(payload.provider)
+    })
+  })
+
+  describe('Type Safety - Harness events', () => {
+    it('harness:loaded (SessionEventMap) omits sessionId; (AgentEventMap) requires it', () => {
+      const sessionPayload: SessionEventMap['harness:loaded'] = {
+        commandType: 'curate',
+        mode: 'assisted',
+        projectId: 'proj-1',
+        version: 1,
+      }
+      expectTypeOf<HarnessMode>(sessionPayload.mode)
+      expectTypeOf<number>(sessionPayload.version)
+
+      // SessionEventMap form does NOT expose sessionId
+      type SessionHasSessionId = SessionEventMap['harness:loaded'] extends {sessionId: unknown} ? true : false
+      expectTypeOf<SessionHasSessionId>().toEqualTypeOf<false>()
+
+      const agentPayload: AgentEventMap['harness:loaded'] = {
+        commandType: 'curate',
+        mode: 'assisted',
+        projectId: 'proj-1',
+        sessionId: 'session-123',
+        version: 1,
+      }
+      expectTypeOf<string>(agentPayload.sessionId)
+    })
+
+    it('harness:mode-selected carries heuristic + mode in both maps', () => {
+      const sessionPayload: SessionEventMap['harness:mode-selected'] = {
+        commandType: 'curate',
+        heuristic: 0.42,
+        mode: 'filter',
+        projectId: 'proj-1',
+        version: 3,
+      }
+      expectTypeOf<number>(sessionPayload.heuristic)
+      expectTypeOf<HarnessMode>(sessionPayload.mode)
+
+      const agentPayload: AgentEventMap['harness:mode-selected'] = {
+        ...sessionPayload,
+        sessionId: 'session-123',
+      }
+      expectTypeOf<string>(agentPayload.sessionId)
+    })
+
+    it('harness:outcome-recorded carries identifiers only (no full outcome)', () => {
+      const sessionPayload: SessionEventMap['harness:outcome-recorded'] = {
+        commandType: 'curate',
+        outcomeId: 'out-1',
+        projectId: 'proj-1',
+        success: true,
+      }
+      expectTypeOf<string>(sessionPayload.outcomeId)
+      expectTypeOf<boolean>(sessionPayload.success)
+
+      // Intentionally not on SessionEventMap payload — full outcome is
+      // retrieved via IHarnessStore.listOutcomes, not shipped on the bus.
+      type HasCode = SessionEventMap['harness:outcome-recorded'] extends {code: unknown} ? true : false
+      expectTypeOf<HasCode>().toEqualTypeOf<false>()
+    })
+
+    it('harness:refinement-completed is agent-only and discriminates on `accepted`', () => {
+      // Accepted branch: toVersion required, reason absent.
+      const accepted: AgentEventMap['harness:refinement-completed'] = {
+        accepted: true,
+        commandType: 'curate',
+        fromVersion: 2,
+        projectId: 'proj-1',
+        toVersion: 3,
+      }
+      if (accepted.accepted) {
+        // Narrowing proves the invariant: toVersion is `number`, not `number | undefined`.
+        expectTypeOf<number>(accepted.toVersion)
+      }
+
+      // Rejected branch: reason required, toVersion absent.
+      const rejected: AgentEventMap['harness:refinement-completed'] = {
+        accepted: false,
+        commandType: 'curate',
+        fromVersion: 2,
+        projectId: 'proj-1',
+        reason: 'delta-H below 0.05 threshold',
+      }
+      if (!rejected.accepted) {
+        expectTypeOf<string>(rejected.reason)
+      }
+
+      // Compile-time: omitting toVersion on an accepted payload is a type error.
+      // @ts-expect-error — accepted without toVersion violates the discriminated union.
+      const bogusAccepted: AgentEventMap['harness:refinement-completed'] = {
+        accepted: true,
+        commandType: 'curate',
+        fromVersion: 2,
+        projectId: 'proj-1',
+      }
+      expect(bogusAccepted).to.exist // runtime presence suppresses unused-var lint
+
+      // Compile-time: omitting reason on a rejected payload is a type error.
+      // @ts-expect-error — rejected without reason violates the discriminated union.
+      const bogusRejected: AgentEventMap['harness:refinement-completed'] = {
+        accepted: false,
+        commandType: 'curate',
+        fromVersion: 2,
+        projectId: 'proj-1',
+      }
+      expect(bogusRejected).to.exist
+
+      // Deliberately NOT in SessionEventMap — refinement is post-session.
+      type InSessionMap = 'harness:refinement-completed' extends keyof SessionEventMap ? true : false
+      expectTypeOf<InSessionMap>().toEqualTypeOf<false>()
     })
   })
 })

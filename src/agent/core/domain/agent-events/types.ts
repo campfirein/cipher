@@ -1,3 +1,5 @@
+import type {HarnessMode} from '../../../infra/harness/types.js'
+
 /**
  * Agent-level event names for CipherAgent.
  * These events are emitted at the agent level and include sessionId in payloads.
@@ -10,6 +12,7 @@ export const AGENT_EVENT_NAMES = [
   'cipher:stateChanged',
   'cipher:stateReset',
   'cipher:ui',
+  'harness:refinement-completed',
 ] as const
 
 /**
@@ -17,6 +20,9 @@ export const AGENT_EVENT_NAMES = [
  * These events are emitted at the session level and do not include sessionId in payloads.
  */
 export const SESSION_EVENT_NAMES = [
+  'harness:loaded',
+  'harness:mode-selected',
+  'harness:outcome-recorded',
   'llmservice:chunk',
   'llmservice:contextCompressed',
   'llmservice:contextOverflow',
@@ -112,7 +118,16 @@ export type AgentExecutionStateType = 'ABORTED' | 'COMPLETE' | 'ERROR' | 'EXECUT
 
 /**
  * Agent-level event payloads.
- * All agent events include sessionId for tracking which session triggered the event.
+ *
+ * Session-scoped events (every `cipher:*` event, every forwarded session
+ * event) carry `sessionId` — required for events tied to a live session,
+ * optional for global state changes (`cipher:stateChanged`,
+ * `cipher:stateReset`).
+ *
+ * Post-session events — currently only `harness:refinement-completed`,
+ * which fires from the async refinement flow after a session has
+ * ended — intentionally omit `sessionId`. They are scoped to a
+ * `(projectId, commandType)` pair rather than to a specific session.
  */
 export interface AgentEventMap {
   /**
@@ -209,6 +224,88 @@ export interface AgentEventMap {
     sessionId?: string
     type: UIEventType
   }
+
+  /**
+   * Emitted when a harness version is loaded into a sandbox for a session.
+   * @property {string} commandType - Command type the harness is scoped to
+   * @property {HarnessMode} mode - Mode selected for this session ('assisted' initially, replaced in Phase 5)
+   * @property {string} projectId - Project ID the harness belongs to
+   * @property {string} sessionId - ID of the session into which the harness was loaded
+   * @property {number} version - Harness version number
+   */
+  'harness:loaded': {
+    commandType: string
+    mode: HarnessMode
+    projectId: string
+    sessionId: string
+    version: number
+  }
+
+  /**
+   * Emitted when the harness mode is selected (Phase 5). Follows `harness:loaded`
+   * once per session for harness-enabled sessions.
+   * @property {string} commandType - Command type the harness is scoped to
+   * @property {number} heuristic - H value that drove the mode choice
+   * @property {HarnessMode} mode - Selected mode
+   * @property {string} projectId - Project ID the harness belongs to
+   * @property {string} sessionId - ID of the session
+   * @property {number} version - Harness version number
+   */
+  'harness:mode-selected': {
+    commandType: string
+    heuristic: number
+    mode: HarnessMode
+    projectId: string
+    sessionId: string
+    version: number
+  }
+
+  /**
+   * Emitted every time a `code_exec` outcome is persisted to the store.
+   * Payload carries only identifiers + the success bit; full outcome lives
+   * in storage and is looked up via `IHarnessStore.listOutcomes`.
+   * @property {string} commandType - Command type the outcome belongs to
+   * @property {string} outcomeId - Unique id of the persisted outcome record
+   * @property {string} projectId - Project id the outcome belongs to
+   * @property {string} sessionId - ID of the session the outcome came from
+   * @property {boolean} success - Whether the code_exec succeeded
+   */
+  'harness:outcome-recorded': {
+    commandType: string
+    outcomeId: string
+    projectId: string
+    sessionId: string
+    success: boolean
+  }
+
+  /**
+   * Emitted by the synthesizer (Phase 6) after a refinement attempt finishes,
+   * regardless of outcome. Fires once per `(projectId, commandType)` post-session
+   * trigger. Not scoped to a specific session.
+   *
+   * Discriminated by `accepted`:
+   *   - `accepted: true`  → `toVersion: number` (the newly-promoted version id)
+   *   - `accepted: false` → `reason: string`    (why the candidate was rejected)
+   *
+   * TypeScript enforces the invariant — Phase 6's emitter cannot produce
+   * `{accepted: true}` without `toVersion`, nor `{accepted: false}` without
+   * `reason`.
+   */
+  'harness:refinement-completed':
+    | {
+        accepted: false
+        commandType: string
+        fromVersion: number
+        projectId: string
+        reason: string
+      }
+    | {
+        accepted: true
+        commandType: string
+        fromVersion: number
+        projectId: string
+        toVersion: number
+      }
 
   /**
    * Session events forwarded to agent bus with sessionId added.
@@ -578,6 +675,50 @@ export interface AgentEventMap {
  * These are scoped to a specific session and do not include sessionId.
  */
 export interface SessionEventMap {
+  /**
+   * Emitted when a harness version is loaded into the sandbox.
+   * @property {string} commandType - Command type the harness is scoped to
+   * @property {HarnessMode} mode - Mode selected for this session
+   * @property {string} projectId - Project ID the harness belongs to
+   * @property {number} version - Harness version number
+   */
+  'harness:loaded': {
+    commandType: string
+    mode: HarnessMode
+    projectId: string
+    version: number
+  }
+
+  /**
+   * Emitted when the harness mode is selected. Follows `harness:loaded`.
+   * @property {string} commandType - Command type the harness is scoped to
+   * @property {number} heuristic - H value that drove the mode choice
+   * @property {HarnessMode} mode - Selected mode
+   * @property {string} projectId - Project ID the harness belongs to
+   * @property {number} version - Harness version number
+   */
+  'harness:mode-selected': {
+    commandType: string
+    heuristic: number
+    mode: HarnessMode
+    projectId: string
+    version: number
+  }
+
+  /**
+   * Emitted every time a `code_exec` outcome is persisted.
+   * @property {string} commandType - Command type the outcome belongs to
+   * @property {string} outcomeId - Unique id of the persisted outcome record
+   * @property {string} projectId - Project id the outcome belongs to
+   * @property {boolean} success - Whether the code_exec succeeded
+   */
+  'harness:outcome-recorded': {
+    commandType: string
+    outcomeId: string
+    projectId: string
+    success: boolean
+  }
+
   /**
    * Emitted when a chunk of content is received (streaming).
    * @property {string} content - Content of the chunk
