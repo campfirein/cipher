@@ -21,6 +21,8 @@ jobs:
         include:
           - os: macos-latest
             target: darwin-arm64
+          - os: macos-15-intel
+            target: darwin-x64
           - os: ubuntu-latest
             target: linux-x64
           - os: ubuntu-24.04-arm
@@ -107,7 +109,7 @@ jobs:
           SHA="${{ steps.meta.outputs.sha }}"
           GCS_VERSIONED="gs://${GCS_BUCKET}/versions/${VERSION}/${SHA}"
           GCS_CHANNEL="gs://${GCS_BUCKET}/channels/stable"
-          for target in darwin-arm64 linux-x64 linux-arm64; do
+          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
             versioned_tarball="brv-v${VERSION}-${SHA}-${target}.tar.gz"
             channel_tarball="brv-${target}.tar.gz"
             echo "Promoting ${versioned_tarball} -> ${channel_tarball}"

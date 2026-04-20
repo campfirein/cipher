@@ -33,10 +33,12 @@ import type {ITaskLifecycleHook} from '../../core/interfaces/process/i-task-life
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IProjectRouter} from '../../core/interfaces/routing/i-project-router.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
+import type {PreDispatchCheck} from './task-router.js'
 
 import {ConnectionCoordinator} from './connection-coordinator.js'
 import {TaskRouter} from './task-router.js'
 
+export type {PreDispatchCheck, PreDispatchCheckResult} from './task-router.js'
 export type {TaskInfo} from './types.js'
 
 type TransportHandlersOptions = {
@@ -44,6 +46,8 @@ type TransportHandlersOptions = {
   clientManager?: IClientManager
   /** Lifecycle hooks for task events (e.g. CurateLogHandler). */
   lifecycleHooks?: ITaskLifecycleHook[]
+  /** Optional daemon-side gate run before dispatching a task to the agent pool. */
+  preDispatchCheck?: PreDispatchCheck
   projectRegistry?: IProjectRegistry
   projectRouter?: IProjectRouter
   transport: ITransportServer
@@ -64,6 +68,7 @@ export class TransportHandlers {
       agentPool: options.agentPool,
       getAgentForProject: (projectPath) => this.connectionCoordinator.getAgentForProject(projectPath),
       lifecycleHooks: options.lifecycleHooks,
+      preDispatchCheck: options.preDispatchCheck,
       projectRegistry: options.projectRegistry,
       projectRouter: options.projectRouter,
       resolveClientProjectPath: (clientId) => options.clientManager?.getClient(clientId)?.projectPath,
