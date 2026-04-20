@@ -27,7 +27,7 @@ export function ProviderSelectStep({onSelect, providers}: ProviderSelectStepProp
       <DialogHeader>
         <DialogTitle>Pick a provider to power curate &amp; query</DialogTitle>
         <DialogDescription>
-          ByteRover routes LLM calls through your chosen provider. You can change this later in Configuration.
+          ByteRover routes LLM calls through your chosen provider. You can change this later.
         </DialogDescription>
       </DialogHeader>
 
