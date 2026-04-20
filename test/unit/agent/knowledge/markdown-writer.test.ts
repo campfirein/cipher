@@ -616,8 +616,8 @@ Target`
       })
 
       // title and summary should be present as empty strings
-      expect(result).to.match(/title: (''+|""+)/)
-      expect(result).to.match(/summary: (''+|""+)/)
+      expect(result).to.match(/title: (''|"")/)
+      expect(result).to.match(/summary: (''|"")/)
     })
 
     it('emits empty array for related when no relations provided', () => {

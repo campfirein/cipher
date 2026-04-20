@@ -174,18 +174,19 @@ function generateFrontmatter(
   const normalizedRelations = (relations || []).map(rel => normalizeRelationPath(rel))
 
   const now = new Date().toISOString()
-  const createdAt = timestamps?.createdAt ?? now
+  const createdAt = timestamps?.createdAt ?? timestamps?.updatedAt ?? now
   const updatedAt = timestamps?.updatedAt ?? createdAt
 
-  const fm: Record<string, string | string[]> = {
-    createdAt,
-    keywords,
-    related: normalizedRelations,
-    summary: summary ?? '',
-    tags,
-    title: title || '',
-    updatedAt,
-  }
+  // Field order is enforced by insertion order (yamlDump uses sortKeys:false).
+  // Must match migration script's buildCompleteFrontmatter() for idempotency.
+  const fm: Record<string, string | string[]> = {}
+  fm.title = title ?? ''
+  fm.summary = summary ?? ''
+  fm.tags = tags
+  fm.related = normalizedRelations
+  fm.keywords = keywords
+  fm.createdAt = createdAt
+  fm.updatedAt = updatedAt
 
   const yamlContent = yamlDump(fm, { flowLevel: 1, lineWidth: -1, sortKeys: false }).trimEnd()
 

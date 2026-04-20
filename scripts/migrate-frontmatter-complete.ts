@@ -10,7 +10,7 @@
 
 import {dump as yamlDump, load as yamlLoad} from 'js-yaml'
 import {readdirSync, readFileSync, statSync, writeFileSync} from 'node:fs'
-import {join} from 'node:path'
+import {basename, join} from 'node:path'
 
 // ── Constants (mirrored from src/server/constants.ts to avoid import-path issues) ──
 
@@ -39,7 +39,7 @@ const REQUIRED_TIMESTAMP_FIELDS = ['createdAt', 'updatedAt'] as const
 // ── Helpers ──
 
 function isExcluded(filePath: string): boolean {
-  const base = filePath.split('/').pop() ?? ''
+  const base = basename(filePath)
   if (base === SUMMARY_INDEX_FILE) return true
   if (base.endsWith(STUB_EXTENSION)) return true
   return false
