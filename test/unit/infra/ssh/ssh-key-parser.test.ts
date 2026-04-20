@@ -141,8 +141,11 @@ describe('probeSSHKey()', () => {
       caught = error
     }
 
-    expect(caught, 'probeSSHKey must throw for unsupported key type, not return needsPassphrase:true').to.be.instanceOf(Error)
-    expect((caught as Error).message).to.match(/Unsupported OpenSSH key type/)
+    if (!(caught instanceof Error)) {
+      expect.fail('probeSSHKey must throw for unsupported key type, not return needsPassphrase:true')
+    }
+
+    expect(caught.message).to.match(/Unsupported OpenSSH key type/)
   })
 
   it('throws (does not false-prompt for passphrase) for malformed PEM that surfaces ERR_OSSL_UNSUPPORTED', async () => {
@@ -192,8 +195,11 @@ describe('probeSSHKey()', () => {
       caught = error
     }
 
-    expect(caught).to.be.instanceOf(Error)
-    expect((caught as Error).message).to.match(/Unsupported OpenSSH key type/)
+    if (!(caught instanceof Error)) {
+      expect.fail(`Expected Error, got ${typeof caught}`)
+    }
+
+    expect(caught.message).to.match(/Unsupported OpenSSH key type/)
   })
 
   it('returns {exists: true, needsPassphrase: true} for encrypted OpenSSH key', async () => {
@@ -231,7 +237,8 @@ describe('parseSSHPrivateKey()', () => {
 
   // Single setup: every test in this block is read-only against keyPath, so
   // before/after (lifecycle once) is correct — beforeEach would re-create the
-  // key file unnecessarily and slow the suite.
+  // key file unnecessarily and slow the suite. New tests added here MUST stay
+  // read-only; if you need to mutate, use a separate tempDir per test.
   before(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'brv-ssh-parse-test-'))
     keyPath = join(tempDir, 'id_ed25519')

@@ -878,18 +878,18 @@ describe('VcHandler', () => {
         try {
           await deps.requestHandlers[VcEvents.COMMIT]({message: 'signed commit', sign: true}, CLIENT_ID)
           expect.fail('Expected error')
-        } catch (error) {
+        } catch (error: unknown) {
+          // Narrow first so subsequent property access doesn't need `as`.
+          if (!(error instanceof Error)) {
+            expect.fail(`Expected Error instance, got ${typeof error}`)
+          }
+
           // After B6, probeSSHKey throws a plain Error (not a VcError) for
           // unsupported keytypes. Pin both the type and the message so any
           // future wrapping into VcError is caught and reviewed deliberately
           // (a wrap that uses code=PASSPHRASE_REQUIRED would re-introduce the
           // CLI retry loop this test guards against).
-          expect(error).to.be.instanceOf(Error)
           expect(error).to.not.be.instanceOf(VcError)
-          if (!(error instanceof Error)) {
-            expect.fail('error is not an Error instance')
-          }
-
           expect(error.message).to.match(/Unsupported OpenSSH key type/)
         }
       } finally {
