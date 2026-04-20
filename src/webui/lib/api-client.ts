@@ -18,6 +18,8 @@ export interface RequestOptions {
   timeout?: number
 }
 
+export const DEFAULT_REQUEST_TIMEOUT_MS = 5000
+
 export class BrvApiClient {
   constructor(private readonly socket: Socket) {}
 
@@ -35,12 +37,11 @@ export class BrvApiClient {
   ): Promise<TResponse> {
     return new Promise<TResponse>((resolve, reject) => {
       let didFinish = false
-      const timeoutId = options?.timeout
-        ? globalThis.setTimeout(() => {
-            didFinish = true
-            reject(new Error(`Request timed out after ${options.timeout}ms`))
-          }, options.timeout)
-        : undefined
+      const timeout = options?.timeout || DEFAULT_REQUEST_TIMEOUT_MS
+      const timeoutId = globalThis.setTimeout(() => {
+        didFinish = true
+        reject(new Error(`Request timed out after ${timeout}ms`))
+      }, timeout)
 
       this.socket.emit(event, data, (response: AckResponse<TResponse>) => {
         if (didFinish) return
