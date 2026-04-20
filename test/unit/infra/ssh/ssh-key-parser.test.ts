@@ -91,6 +91,63 @@ describe('probeSSHKey()', () => {
     expect(result.opensshEncrypted).to.be.true
   })
 
+  it('throws "Unsupported OpenSSH key type" for unencrypted RSA OpenSSH key (does not false-prompt for passphrase)', async () => {
+    // Regression test for ENG-2002 B6: the isPassphraseError regex used to include
+    // /unsupported/, which false-matched parseOpenSSHKey's own error string and
+    // caused probeSSHKey to incorrectly return needsPassphrase:true for RSA/ECDSA
+    // OpenSSH-format keys, triggering a spurious passphrase prompt.
+    const pubBlob = Buffer.concat([sshStr('ssh-rsa'), sshStr(Buffer.alloc(64, 0xaa))])
+    const buf = Buffer.concat([
+      Buffer.from('openssh-key-v1\0', 'binary'),
+      sshStr('none'),                               // cipher: NOT encrypted
+      sshStr('none'),                               // kdf
+      sshStr(Buffer.alloc(0)),
+      writeU32(1),
+      sshStr(pubBlob),
+      sshStr(Buffer.alloc(64, 0xbb)),
+    ])
+    const pem = `-----BEGIN OPENSSH PRIVATE KEY-----\n${buf.toString('base64')}\n-----END OPENSSH PRIVATE KEY-----`
+    const keyPath = join(tempDir, 'id_rsa_openssh')
+    writeFileSync(keyPath, pem, {mode: 0o600})
+
+    let caught: unknown
+    try {
+      await probeSSHKey(keyPath)
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught, 'probeSSHKey must throw for unsupported key type, not return needsPassphrase:true').to.be.instanceOf(Error)
+    expect((caught as Error).message).to.match(/Unsupported OpenSSH key type/)
+  })
+
+  it('throws "Unsupported OpenSSH key type" for unencrypted ECDSA OpenSSH key (does not false-prompt for passphrase)', async () => {
+    // Same regression as above, but exercising ecdsa-sha2-nistp256.
+    const pubBlob = Buffer.concat([sshStr('ecdsa-sha2-nistp256'), sshStr(Buffer.alloc(65, 0xaa))])
+    const buf = Buffer.concat([
+      Buffer.from('openssh-key-v1\0', 'binary'),
+      sshStr('none'),
+      sshStr('none'),
+      sshStr(Buffer.alloc(0)),
+      writeU32(1),
+      sshStr(pubBlob),
+      sshStr(Buffer.alloc(64, 0xbb)),
+    ])
+    const pem = `-----BEGIN OPENSSH PRIVATE KEY-----\n${buf.toString('base64')}\n-----END OPENSSH PRIVATE KEY-----`
+    const keyPath = join(tempDir, 'id_ecdsa_openssh')
+    writeFileSync(keyPath, pem, {mode: 0o600})
+
+    let caught: unknown
+    try {
+      await probeSSHKey(keyPath)
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).to.be.instanceOf(Error)
+    expect((caught as Error).message).to.match(/Unsupported OpenSSH key type/)
+  })
+
   it('returns {exists: true, needsPassphrase: true} for encrypted OpenSSH key', async () => {
     // Construct a minimal OpenSSH key with cipherName = 'aes256-ctr' to simulate encrypted key.
     // Must include a valid public key blob + private key blob so parseOpenSSHKey doesn't crash.

@@ -193,9 +193,16 @@ function isPassphraseError(err: unknown): boolean {
     : ''
   if (code.startsWith('ERR_OSSL')) return true
 
-  // Fallback: string matching for compatibility across Node.js/OpenSSL versions
+  // Fallback: string matching for compatibility across Node.js/OpenSSL versions.
+  //
+  // NOTE: Do NOT add `/unsupported/` here. Several callers (parseOpenSSHKey,
+  // parseSSHPrivateKey) throw `"Unsupported OpenSSH key type: ..."` /
+  // `"Unsupported PEM key type: ..."` for keys this build cannot parse natively.
+  // Including `/unsupported/` would false-match those errors and cause
+  // probeSSHKey to incorrectly report the key needs a passphrase, producing a
+  // spurious passphrase prompt instead of surfacing the real error.
   const msg = err.message.toLowerCase()
-  return /bad decrypt|passphrase|bad password|interrupted or cancelled|unsupported/.test(msg)
+  return /bad decrypt|passphrase|bad password|interrupted or cancelled/.test(msg)
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
