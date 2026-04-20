@@ -1,3 +1,4 @@
+import {Button} from '@campfirein/byterover-packages/components/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,14 +24,11 @@ export function HelpMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <button
-            className="hover:bg-muted text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 rounded-md px-2.5 py-2 text-xs transition-colors"
-            type="button"
-          >
+          <Button size="sm" variant="ghost">
             <HelpCircle className="size-4" />
             Help
             {showHint && <span aria-hidden className={cn('size-1.5 rounded-full bg-orange-500')} />}
-          </button>
+          </Button>
         }
       />
       <DropdownMenuContent align="end" className="w-56">

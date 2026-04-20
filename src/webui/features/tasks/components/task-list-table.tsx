@@ -25,6 +25,9 @@ const COL = {
   checkbox: 'w-10', // 40px
   duration: 'w-24', // 96px
   id: 'w-36', // 144px
+  // Flexible column — fills the remaining space but never below ~288px so the
+  // input + activity line stay readable on narrow viewports.
+  input: 'min-w-72',
   started: 'w-28', // 112px
   status: 'w-36', // 144px
   type: 'w-24', // 96px
@@ -73,7 +76,7 @@ export function TaskTable({
           </TableHead>
           <TableHead className={cn(COL.id, 'text-xs tracking-wider')}>ID</TableHead>
           <TableHead className={cn(COL.type, 'text-xs tracking-wider')}>Type</TableHead>
-          <TableHead className="min-w-0 text-xs tracking-wider">Input</TableHead>
+          <TableHead className={cn(COL.input, 'text-xs tracking-wider')}>Input</TableHead>
           <TableHead className={cn(COL.status, 'text-xs tracking-wider')}>Status</TableHead>
           <TableHead className={cn(COL.started, 'text-right text-xs tracking-wider')}>Started</TableHead>
           <TableHead className={cn(COL.duration, 'text-right text-xs tracking-wider')}>Duration</TableHead>

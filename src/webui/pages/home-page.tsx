@@ -1,5 +1,5 @@
-import {StatusPanel} from '../features/status/components/status-panel'
+import {Navigate} from 'react-router-dom'
 
 export function HomePage() {
-  return <StatusPanel />
+  return <Navigate replace to="/contexts" />
 }
