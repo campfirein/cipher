@@ -37,15 +37,20 @@ export function Header() {
 
         <BranchDropdown />
 
-        <Badge
-          aria-label="Running against the local daemon"
-          className="border-primary-foreground/40 bg-primary-foreground/15 text-primary-foreground mono gap-1 px-1.5 text-[9px] leading-none font-semibold tracking-[0.16em] uppercase"
-          title="You're viewing the local web UI, served from the daemon on your machine."
-          variant="outline"
-        >
-          <span aria-hidden className="bg-primary-foreground size-1 shrink-0 rounded-full" />
-          <span className="leading-none">Local</span>
-        </Badge>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Badge
+                className="border-primary-foreground/40 bg-primary-foreground/15 text-primary-foreground mono gap-1 px-1.5 text-[9px] leading-none font-semibold tracking-[0.16em] uppercase"
+                variant="outline"
+              />
+            }
+          >
+            <span aria-hidden className="bg-primary-foreground size-1 shrink-0 rounded-full" />
+            <span className="leading-none">Local</span>
+          </TooltipTrigger>
+          <TooltipContent>You're viewing the local web UI, served from the daemon on your machine.</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Spacer */}

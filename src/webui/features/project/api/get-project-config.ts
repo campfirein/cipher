@@ -14,6 +14,12 @@ interface GetProjectConfigRequest {
   projectPath: string
 }
 
+/**
+ * Mirrors the daemon's wire shape (see brv-server.ts:487-491). Top-level
+ * `spaceId` / `teamId` are the agent-process contract — the webui only reads
+ * `brvConfig.teamName` / `brvConfig.spaceName`, but we keep the duplicates so
+ * this type stays a faithful response decoder.
+ */
 interface GetProjectConfigResponse {
   brvConfig?: BrvConfigDTO
   spaceId: string
@@ -41,9 +47,4 @@ type UseGetProjectConfigOptions = {
 }
 
 export const useGetProjectConfig = ({projectPath, queryConfig}: UseGetProjectConfigOptions) =>
-  useQuery({
-    // .brv/config.json only changes via brv link / re-onboard within a session.
-    staleTime: 5 * 60 * 1000,
-    ...getProjectConfigQueryOptions(projectPath),
-    ...queryConfig,
-  })
+  useQuery({...queryConfig, ...getProjectConfigQueryOptions(projectPath)})

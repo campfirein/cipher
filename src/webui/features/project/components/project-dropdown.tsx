@@ -49,7 +49,7 @@ function ProjectItem({onSelect, project, showRemote = false}: ProjectItemProps) 
   })
   const teamName = projectConfig?.brvConfig?.teamName
   const spaceName = projectConfig?.brvConfig?.spaceName
-  const remoteLabel = teamName && spaceName ? `${teamName}/${spaceName}` : undefined
+  const remoteLabel = teamName && spaceName ? `${teamName} / ${spaceName}` : undefined
 
   return (
     <DropdownMenuItem className="gap-2 rounded-md" onClick={onSelect}>
