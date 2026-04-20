@@ -22,6 +22,7 @@ import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.j
 import type {FileState} from '../../core/domain/entities/context-tree-snapshot.js'
 import type {CurateLogEntry} from '../../core/domain/entities/curate-log-entry.js'
 import type {CurateLogStatus} from '../../core/interfaces/storage/i-curate-log-store.js'
+import type {IRuntimeSignalStore} from '../../core/interfaces/storage/i-runtime-signal-store.js'
 import type {DreamLogEntry, DreamLogSummary, DreamOperation} from '../dream/dream-log-schema.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
@@ -61,6 +62,13 @@ export type DreamExecutorDeps = {
   reviewBackupStore?: {
     save(relativePath: string, content: string): Promise<void>
   }
+  /**
+   * Optional. Passed through to consolidate's CROSS_REFERENCE review gate
+   * (reads `maturity` via `get`) and to prune's candidacy scan (reads
+   * `importance`/`maturity` via `list`). The full `IRuntimeSignalStore` is
+   * accepted so both code paths can consume what they need.
+   */
+  runtimeSignalStore?: IRuntimeSignalStore
   searchService: ConsolidateDeps['searchService']
 }
 
@@ -268,6 +276,7 @@ export class DreamExecutor {
         contextTreeDir,
         dreamStateService: this.deps.dreamStateService,
         reviewBackupStore: this.deps.reviewBackupStore,
+        runtimeSignalStore: this.deps.runtimeSignalStore,
         searchService: this.deps.searchService,
         signal,
         taskId,
@@ -279,6 +288,7 @@ export class DreamExecutor {
         ...(await synthesize({
           agent,
           contextTreeDir,
+          runtimeSignalStore: this.deps.runtimeSignalStore,
           searchService: this.deps.searchService,
           signal,
           taskId,
@@ -295,6 +305,7 @@ export class DreamExecutor {
         dreamStateService: this.deps.dreamStateService,
         projectRoot,
         reviewBackupStore: this.deps.reviewBackupStore,
+        runtimeSignalStore: this.deps.runtimeSignalStore,
         signal,
         taskId,
       })),

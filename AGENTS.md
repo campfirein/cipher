@@ -1,4 +1,4 @@
-# CLAUDE.md
+# Repository Guidelines
 
 ByteRover CLI (`brv`) - Interactive REPL with React/Ink TUI
 
@@ -83,8 +83,7 @@ npm run typecheck                    # TypeScript type checking
 - `brv search <query>` — pure BM25 retrieval over the context tree (minisearch, no LLM, no token cost); structured results with paths/scores. Pairs with `brv query` (LLM-synthesized answer). Engine: `server/infra/executor/search-executor.ts`
 - `brv locations` — lists all registered projects with context-tree status (text or `--format json`); reads from `LocationsEvents` over the daemon transport
 - `brv query-log view [id]` / `brv query-log summary` — inspect query history and recall metrics (coverage, cache hit rate, top topics); store: `server/infra/storage/file-query-log-store.ts`, summary use-case in `server/infra/usecase/`
-- `brv dream [--force] [--undo] [--detach]` — background context-tree consolidation; operations in `server/infra/dream/operations/` (synthesize, consolidate, prune); lock/state via `dream-lock-service.ts` + `dream-state-service.ts`
-- Runtime signals sidecar — file-level usage/maturity data lives in `RuntimeSignalStore` (`server/infra/context-tree/runtime-signal-store.ts`, `IKeyStorage` keys `["signals", ...pathSegments]`), NOT in synthesized markdown frontmatter. Read: search-knowledge + manifest service; write: curate-service + dream-executor synthesize. Schema: `server/core/domain/knowledge/runtime-signals-schema.ts`
+- `brv dream [--force] [--undo] [--detach]` — background context-tree consolidation (synthesize/consolidate/prune); engine: `server/infra/dream/`
 - Canonical project resolver: `resolveProject()` in `server/infra/project/` — priority `flag > direct > linked > walked-up > null`. `projectRoot` and `worktreeRoot` are threaded through transport schemas, task routing, and all executors
 - All commands are daemon-routed: `oclif/` and `tui/` never import from `server/`
 - Oclif: `src/oclif/commands/{vc,worktree,source}/`; TUI: `src/tui/features/{vc,worktree,source}/`; slash commands (`vc-*`, `worktree`, `source`) in `src/tui/features/commands/definitions/`

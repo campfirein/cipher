@@ -2,6 +2,30 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.7.1]
+
+### Changed
+- **Agent skill template — dedicated "Query and Curate History" section** — The bundled `SKILL.md` installed via `brv connectors install` (for Claude Code, Cursor, Codex, Copilot, and other skill-based agents) now has a dedicated Section 11 covering `brv curate view`, `brv query-log view`, and `brv query-log summary` — including the resolution-tier taxonomy (0=exact cache … 4=full agentic) and time/status filters. Connected agents will now reach for history and recall metrics when debugging knowledge gaps instead of guessing. Re-run `brv connectors install <agent>` to regenerate the skill for an existing connector.
+
+### Fixed
+- **`brv vc status` stays clean after queries and curates** — Runtime ranking signals (hotness, recency, access counts, maturity) used to live in markdown frontmatter, so every `brv search`, `brv query`, or agent curate silently dirtied context files and polluted `brv vc status` / `brv vc diff`. Those signals now live in a per-project sidecar outside the context tree; markdown keeps only semantic fields (title, tags, keywords, summary, related, createdAt, updatedAt). Older context trees with legacy signal fields in frontmatter continue to parse — stale fields are ignored on read, so no migration is needed.
+- **Synthesis files no longer leak `maturity: draft` into frontmatter** — `brv dream synthesize` previously wrote `maturity: draft` into the YAML frontmatter of each new synthesis file; that field now seeds the sidecar instead, leaving the synthesis markdown body and frontmatter free of ranking state.
+- **`brv vc` diffs no longer show OS / editor noise** — Added the following patterns to the context-tree `.gitignore` so they're excluded from `brv vc` tracking: `.DS_Store`, `._*` (macOS); `Thumbs.db`, `ehthumbs.db`, `Desktop.ini` (Windows); `.directory`, `.fuse_hidden*`, `.nfs*` (Linux); and editor swap/backup/temp patterns `*.swp`, `*.swo`, `*~`, `.#*`, `*.bak`, `*.tmp`. Patterns auto-sync into existing projects on the next `brv vc` command — no manual `.gitignore` edit required.
+
+## [3.7.0]
+
+### Added
+- **Intel Mac (darwin-x64) install support** — `curl -fsSL https://byterover.dev/install.sh | sh` now installs on Intel Macs. Previously the installer rejected `darwin-x64` with an Apple-Silicon-only error. CI also publishes a `darwin-x64` tarball alongside the existing `darwin-arm64`, `linux-x64`, and `linux-arm64` builds.
+
+### Fixed
+- **Security dependency update** — Updated `basic-ftp` and `hono` to patch a high-severity npm advisory.
+
+## [3.6.0]
+
+### Added
+- **`brv dream` — tidy up your context tree** — A new command that cleans up your memory in the background: merges related notes, writes short summaries that connect ideas across topics, and archives stale entries. It runs on its own when the CLI has been idle for a while, or you can run it yourself. Changes the model is unsure about are held for you to review with `brv review pending`, and `brv dream --undo` reverts the last run. Flags: `--force` / `-f` to skip the time and activity gates, `--detach` to queue and exit without waiting, `--undo`, `--timeout <seconds>`, `--format json`.
+- **`brv query-log` — see what you've asked before** — Every `brv query` is now saved locally so you can look back at past questions and how they were answered. `brv query-log view` lists recent queries with filters `--status`, `--tier`, `--since`, `--before`, and `--limit`, plus `--detail` to also show the matched docs for each entry, and `--format json`. `brv query-log summary` shows aggregated metrics — coverage, cache hit rate, and top topics — over a window set by `--last`, `--since`, or `--before`, with `--format` options `text`, `json`, or `narrative` for a plain-English recap.
+
 ## [3.5.1]
 
 ### Changed

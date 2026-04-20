@@ -4,10 +4,16 @@ import {Command, Flags} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
 import {join} from 'node:path'
 
+import type {ILogger} from '../../agent/core/interfaces/i-logger.js'
+
+import {NoOpLogger} from '../../agent/core/interfaces/i-logger.js'
+import {ConsoleLogger} from '../../agent/infra/logger/console-logger.js'
+import {FileKeyStorage} from '../../agent/infra/storage/file-key-storage.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../server/constants.js'
 import {type ProviderConfigResponse, TransportStateEventNames} from '../../server/core/domain/transport/schemas.js'
 import {FileContextTreeArchiveService} from '../../server/infra/context-tree/file-context-tree-archive-service.js'
 import {FileContextTreeManifestService} from '../../server/infra/context-tree/file-context-tree-manifest-service.js'
+import {RuntimeSignalStore} from '../../server/infra/context-tree/runtime-signal-store.js'
 import {DreamLogStore} from '../../server/infra/dream/dream-log-store.js'
 import {DreamStateService} from '../../server/infra/dream/dream-state-service.js'
 import {undoLastDream} from '../../server/infra/dream/dream-undo.js'
@@ -26,6 +32,34 @@ import {
 } from '../lib/daemon-client.js'
 import {writeJsonResponse} from '../lib/json-response.js'
 import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS, waitForTaskCompletion} from '../lib/task-client.js'
+
+/** Build the dep bundle for `undoLastDream` on the CLI-direct path; exported for wiring tests. */
+export async function buildUndoDeps(
+  projectRoot: string,
+  logger: ILogger = new ConsoleLogger(),
+): Promise<Parameters<typeof undoLastDream>[0]> {
+  const brvDir = join(projectRoot, BRV_DIR)
+  const contextTreeDir = join(brvDir, CONTEXT_TREE_DIR)
+  const projectDataDir = getProjectDataDir(projectRoot)
+
+  // Runtime-signal sidecar — keeps archive/restore from leaking orphan
+  // signal entries on the CLI-direct `brv dream --undo` path. Mirrors the
+  // daemon wiring in agent-process.ts.
+  const keyStorage = new FileKeyStorage({storageDir: projectDataDir})
+  await keyStorage.initialize()
+  const runtimeSignalStore = new RuntimeSignalStore(keyStorage, logger)
+
+  return {
+    archiveService: new FileContextTreeArchiveService(runtimeSignalStore),
+    contextTreeDir,
+    curateLogStore: new FileCurateLogStore({baseDir: projectDataDir}),
+    dreamLogStore: new DreamLogStore({baseDir: brvDir}),
+    dreamStateService: new DreamStateService({baseDir: brvDir}),
+    manifestService: new FileContextTreeManifestService({baseDirectory: projectRoot, runtimeSignalStore}),
+    projectRoot,
+    reviewBackupStore: new FileReviewBackupStore(brvDir),
+  }
+}
 
 export default class Dream extends Command {
   public static description = 'Run background memory consolidation on the context tree'
@@ -149,21 +183,13 @@ export default class Dream extends Command {
 
   private async runUndo(format: 'json' | 'text'): Promise<void> {
     const projectRoot = resolveProject()?.projectRoot ?? process.cwd()
-    const brvDir = join(projectRoot, BRV_DIR)
-    const contextTreeDir = join(brvDir, CONTEXT_TREE_DIR)
-    const projectDataDir = getProjectDataDir(projectRoot)
+    // JSON mode: route sidecar warnings to a no-op so structured stdout
+    // is never paired with stderr noise that breaks downstream parsers.
+    const logger: ILogger = format === 'json' ? new NoOpLogger() : new ConsoleLogger()
+    const deps = await buildUndoDeps(projectRoot, logger)
 
     try {
-      const result = await undoLastDream({
-        archiveService: new FileContextTreeArchiveService(),
-        contextTreeDir,
-        curateLogStore: new FileCurateLogStore({baseDir: projectDataDir}),
-        dreamLogStore: new DreamLogStore({baseDir: brvDir}),
-        dreamStateService: new DreamStateService({baseDir: brvDir}),
-        manifestService: new FileContextTreeManifestService({baseDirectory: projectRoot}),
-        projectRoot,
-        reviewBackupStore: new FileReviewBackupStore(brvDir),
-      })
+      const result = await undoLastDream(deps)
 
       if (format === 'json') {
         writeJsonResponse({command: 'dream', data: {...result, status: 'undone'}, success: true})

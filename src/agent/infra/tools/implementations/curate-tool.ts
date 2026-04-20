@@ -2,17 +2,24 @@ import {basename, dirname, join, relative, resolve} from 'node:path'
 import {z} from 'zod'
 
 import type {ContextData} from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import type {IRuntimeSignalStore} from '../../../../server/core/interfaces/storage/i-runtime-signal-store.js'
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
+import type {ILogger} from '../../../core/interfaces/i-logger.js'
 import type {AbstractGenerationQueue} from '../../map/abstract-queue.js'
 
 import {REVIEW_BACKUPS_DIR} from '../../../../server/constants.js'
 import {DirectoryManager} from '../../../../server/core/domain/knowledge/directory-manager.js'
-import {MarkdownWriter, parseFrontmatterScoring} from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import {MarkdownWriter, parseCreatedAt} from '../../../../server/core/domain/knowledge/markdown-writer.js'
 import {
-  applyDefaultScoring,
   determineTier,
+  mergeScoring,
   recordCurateUpdate,
 } from '../../../../server/core/domain/knowledge/memory-scoring.js'
+import {
+  createDefaultRuntimeSignals,
+  type RuntimeSignals,
+} from '../../../../server/core/domain/knowledge/runtime-signals-schema.js'
+import {warnSidecarFailure} from '../../../../server/core/domain/knowledge/sidecar-logging.js'
 import {toSnakeCase} from '../../../../server/utils/file-helpers.js'
 import {deriveImpactFromLoss, detectStructuralLoss} from '../../../core/domain/knowledge/conflict-detector.js'
 import {resolveStructuralLoss} from '../../../core/domain/knowledge/conflict-resolver.js'
@@ -23,6 +30,93 @@ import {ToolName} from '../../../core/domain/tools/constants.js'
  * enqueue abstract generation without coupling to AbstractGenerationQueue.
  */
 type WriteCallback = (contextPath: string, content: string) => void
+
+/**
+ * Derive the sidecar relPath (forward-slash, relative to the context tree
+ * root) from an absolute context-file path and the operation basePath.
+ */
+function relPathFromContextPath(contextPath: string, basePath: string): string {
+  return relative(basePath, contextPath).split('\\').join('/')
+}
+
+/**
+ * Preserve the original `createdAt` from the existing markdown frontmatter on
+ * UPDATE. `createdAt` is immutable content metadata, not a runtime signal, so
+ * it stays in the markdown source-of-truth. Falls back to a fresh timestamp
+ * when the existing file has no `createdAt` (old files or those that never
+ * had it).
+ */
+function existingCreatedAt(existingContent: null | string | undefined): string {
+  if (!existingContent) return new Date().toISOString()
+  return parseCreatedAt(existingContent) ?? new Date().toISOString()
+}
+
+const CURATE_SITE = 'curate-tool'
+
+/**
+ * Seed the sidecar with default signals for a newly-added file.
+ * Best-effort: sidecar write failures never break the markdown operation.
+ */
+async function seedSidecarDefaults(
+  store: IRuntimeSignalStore | undefined,
+  relPath: string,
+  logger?: ILogger,
+): Promise<void> {
+  if (!store) return
+  try {
+    await store.set(relPath, createDefaultRuntimeSignals())
+  } catch (error) {
+    warnSidecarFailure(logger, CURATE_SITE, 'seed', relPath, error)
+  }
+}
+
+/**
+ * Mirror a curate UPDATE into the sidecar.
+ *
+ * Applies `recordCurateUpdate`-equivalent bumps (importance +5, recency=1,
+ * updateCount+1) and recomputes `maturity` via `determineTier` inside the
+ * atomic updater so same-path contention does not lose writes.
+ * `updatedAt` is intentionally NOT mirrored — it is a content timestamp
+ * that stays in markdown frontmatter.
+ */
+async function mirrorCurateUpdate(
+  store: IRuntimeSignalStore | undefined,
+  relPath: string,
+  logger?: ILogger,
+): Promise<void> {
+  if (!store) return
+  try {
+    await store.update(relPath, (current: RuntimeSignals): RuntimeSignals => {
+      const bumped = recordCurateUpdate(current)
+      return {
+        ...current,
+        importance: bumped.importance,
+        maturity: determineTier(bumped.importance, current.maturity),
+        recency: bumped.recency,
+        updateCount: bumped.updateCount,
+      }
+    })
+  } catch (error) {
+    warnSidecarFailure(logger, CURATE_SITE, 'update', relPath, error)
+  }
+}
+
+/**
+ * Remove a path's sidecar entry after its markdown file was deleted or moved
+ * (DELETE, MERGE source, archive). Best-effort.
+ */
+async function dropSidecar(
+  store: IRuntimeSignalStore | undefined,
+  relPath: string,
+  logger?: ILogger,
+): Promise<void> {
+  if (!store) return
+  try {
+    await store.delete(relPath)
+  } catch (error) {
+    warnSidecarFailure(logger, CURATE_SITE, 'drop', relPath, error)
+  }
+}
 
 /**
  * Operation types for curating knowledge topics.
@@ -656,7 +750,13 @@ function buildFullPath(basePath: string, knowledgePath: string): string {
 /**
  * Execute ADD operation - create new domain/topic/subtopic with {title}.md
  */
-async function executeAdd(basePath: string, operation: Operation, onAfterWrite?: WriteCallback): Promise<OperationResult> {
+async function executeAdd(
+  basePath: string,
+  operation: Operation,
+  onAfterWrite?: WriteCallback,
+  runtimeSignalStore?: IRuntimeSignalStore,
+  logger?: ILogger,
+): Promise<OperationResult> {
   const {confidence, content, domainContext, impact, path, reason, subtopicContext, summary, title, topicContext} =
     operation
   const reviewMeta = deriveReviewMetadata('ADD', confidence, impact)
@@ -725,15 +825,19 @@ async function executeAdd(basePath: string, operation: Operation, onAfterWrite?:
       rawConcept: filteredContent.rawConcept,
       reason,
       relations: filteredContent.relations,
-      scoring: applyDefaultScoring(),
       snippets: filteredContent.snippets ?? [],
       summary,
       tags: filteredContent.tags,
+      timestamps: {createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()},
     })
     const filename = `${toSnakeCase(title)}.md`
     const contextPath = join(finalPath, filename)
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
     onAfterWrite?.(contextPath, contextContent)
+
+    // Dual-write: seed the sidecar with default signals for the new file.
+    // Mirrors the default scoring applied to markdown frontmatter above.
+    await seedSidecarDefaults(runtimeSignalStore, relPathFromContextPath(contextPath, basePath), logger)
 
     await ensureContextMd(basePath, parsed, topicContext, subtopicContext, onAfterWrite)
 
@@ -773,7 +877,13 @@ function maxImpact(
 /**
  * Execute UPDATE operation - modify existing {title}.md
  */
-async function executeUpdate(basePath: string, operation: Operation, onAfterWrite?: WriteCallback): Promise<OperationResult> {
+async function executeUpdate(
+  basePath: string,
+  operation: Operation,
+  onAfterWrite?: WriteCallback,
+  runtimeSignalStore?: IRuntimeSignalStore,
+  logger?: ILogger,
+): Promise<OperationResult> {
   const {confidence, content, domainContext, impact, path, reason, subtopicContext, summary, title, topicContext} =
     operation
   // Used for early-exit validation failures (before structural loss can be assessed)
@@ -832,15 +942,16 @@ async function executeUpdate(basePath: string, operation: Operation, onAfterWrit
 
     await createDomainContextIfMissing(basePath, parsed.domain, domainContext, onAfterWrite)
 
-    // Read existing file to preserve scoring metadata and detect structural loss
+    // Read existing file to detect structural loss
     const existingContent = await DirectoryManager.readFile(contextPath)
-    const existingScoring = existingContent ? parseFrontmatterScoring(existingContent) : undefined
-    const updatedScoring = existingScoring ? recordCurateUpdate(existingScoring) : applyDefaultScoring()
-    const newTier = determineTier(
-      updatedScoring.importance ?? 50,
-      (updatedScoring.maturity ?? 'draft') as 'core' | 'draft' | 'validated',
-    )
-    const finalScoring = {...updatedScoring, maturity: newTier}
+
+    // Markdown only carries content timestamps post-commit-5. The sidecar
+    // handles all scoring (importance / recency / maturity / counts) via
+    // `mirrorCurateUpdate` below, inside an atomic read-modify-write.
+    const timestamps = {
+      createdAt: existingCreatedAt(existingContent),
+      updatedAt: new Date().toISOString(),
+    }
 
     // Filter out non-existent files from rawConcept.files
     const filteredContent = await filterValidFiles(content)
@@ -876,12 +987,17 @@ async function executeUpdate(basePath: string, operation: Operation, onAfterWrit
     const contextContent = MarkdownWriter.generateContext({
       ...resolvedContextData,
       reason,
-      scoring: finalScoring,
       summary,
+      timestamps,
     })
     await backupBeforeWrite(contextPath, basePath)
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
     onAfterWrite?.(contextPath, contextContent)
+
+    // Dual-write: mirror the curate-update bumps (importance +5, recency=1,
+    // updateCount+1, maturity retiered) into the sidecar. `updatedAt` stays
+    // in markdown only — it is a content timestamp, not a runtime signal.
+    await mirrorCurateUpdate(runtimeSignalStore, relPathFromContextPath(contextPath, basePath), logger)
 
     await ensureContextMd(basePath, parsed, topicContext, subtopicContext, onAfterWrite)
 
@@ -912,7 +1028,13 @@ async function executeUpdate(basePath: string, operation: Operation, onAfterWrit
  * Execute UPSERT operation - automatically creates or updates based on file existence
  * This is the recommended operation type as it eliminates the need for pre-checks.
  */
-async function executeUpsert(basePath: string, operation: Operation, onAfterWrite?: WriteCallback): Promise<OperationResult> {
+async function executeUpsert(
+  basePath: string,
+  operation: Operation,
+  onAfterWrite?: WriteCallback,
+  runtimeSignalStore?: IRuntimeSignalStore,
+  logger?: ILogger,
+): Promise<OperationResult> {
   const {path, reason, title} = operation
   const reviewMeta = deriveReviewMetadata('UPSERT', operation.confidence, operation.impact)
 
@@ -960,7 +1082,7 @@ async function executeUpsert(basePath: string, operation: Operation, onAfterWrit
 
     if (exists) {
       // File exists - delegate to UPDATE logic
-      const result = await executeUpdate(basePath, {...operation, type: 'UPDATE'}, onAfterWrite)
+      const result = await executeUpdate(basePath, {...operation, type: 'UPDATE'}, onAfterWrite, runtimeSignalStore, logger)
       // Return with UPSERT type but indicate it was an update
       return {
         ...result,
@@ -970,7 +1092,7 @@ async function executeUpsert(basePath: string, operation: Operation, onAfterWrit
     }
 
     // File doesn't exist - delegate to ADD logic
-    const result = await executeAdd(basePath, {...operation, type: 'ADD'}, onAfterWrite)
+    const result = await executeAdd(basePath, {...operation, type: 'ADD'}, onAfterWrite, runtimeSignalStore, logger)
     // Return with UPSERT type but indicate it was an add
     return {
       ...result,
@@ -992,7 +1114,13 @@ async function executeUpsert(basePath: string, operation: Operation, onAfterWrit
 /**
  * Execute MERGE operation - combine source file into target file, delete source file
  */
-async function executeMerge(basePath: string, operation: Operation, onAfterWrite?: WriteCallback): Promise<OperationResult> {
+async function executeMerge(
+  basePath: string,
+  operation: Operation,
+  onAfterWrite?: WriteCallback,
+  runtimeSignalStore?: IRuntimeSignalStore,
+  logger?: ILogger,
+): Promise<OperationResult> {
   const {
     confidence,
     domainContext,
@@ -1104,12 +1232,60 @@ async function executeMerge(basePath: string, operation: Operation, onAfterWrite
     await backupBeforeWrite(targetContextPath, basePath)
     await backupBeforeWrite(sourceContextPath, basePath)
 
+    // Capture source sidecar signals BEFORE any destructive operation so a
+    // mid-flow crash cannot leave the target unmerged with an orphaned
+    // source entry. The sidecar merge happens after the markdown writes
+    // succeed, using the captured snapshot.
+    const sourceRelPath = relPathFromContextPath(sourceContextPath, basePath)
+    const targetRelPath = relPathFromContextPath(targetContextPath, basePath)
+    const sourceSignalsSnapshot = runtimeSignalStore
+      ? await runtimeSignalStore.get(sourceRelPath)
+      : null
+
     const mergedContent = MarkdownWriter.mergeContexts(sourceContent, targetContent, reason, summary)
     await DirectoryManager.writeFileAtomic(targetContextPath, mergedContent)
     onAfterWrite?.(targetContextPath, mergedContent)
 
     await DirectoryManager.deleteFile(sourceContextPath)
     await deleteDerivedSiblings(sourceContextPath)
+
+    // Dual-write: merge sidecar signals using `mergeScoring` (the canonical
+    // merge policy). Runs inside `update`'s atomic callback so a concurrent
+    // access-hit flush on the target cannot lose bumps.
+    //
+    // The target-update and source-delete are wrapped in separate try/catch
+    // blocks so an operator can tell which half failed. If update succeeds
+    // but delete throws the source sidecar entry becomes an orphan (source
+    // markdown is already gone, nothing will ever overwrite it). Tracked by
+    // pruneOrphans in the backlog.
+    if (runtimeSignalStore && sourceSignalsSnapshot) {
+      let targetUpdated = false
+      try {
+        await runtimeSignalStore.update(targetRelPath, (current: RuntimeSignals): RuntimeSignals => {
+          const merged = mergeScoring(sourceSignalsSnapshot, current)
+          return {
+            accessCount: merged.accessCount,
+            importance: merged.importance,
+            maturity: determineTier(merged.importance, merged.maturity),
+            recency: merged.recency,
+            updateCount: merged.updateCount,
+          }
+        })
+        targetUpdated = true
+      } catch (error) {
+        // Best-effort — markdown merge already succeeded.
+        warnSidecarFailure(logger, CURATE_SITE, 'merge-update', `${sourceRelPath} -> ${targetRelPath}`, error)
+      }
+
+      if (targetUpdated) {
+        try {
+          await runtimeSignalStore.delete(sourceRelPath)
+        } catch (error) {
+          // Source sidecar is now a permanent orphan until pruneOrphans runs.
+          warnSidecarFailure(logger, CURATE_SITE, 'merge-delete', sourceRelPath, error)
+        }
+      }
+    }
 
     await ensureContextMd(basePath, sourceParsed, topicContext, subtopicContext, onAfterWrite)
     await ensureContextMd(basePath, targetParsed, topicContext, subtopicContext, onAfterWrite)
@@ -1142,7 +1318,12 @@ async function executeMerge(basePath: string, operation: Operation, onAfterWrite
  * Execute DELETE operation - remove specific file or entire folder
  * If title is provided, deletes specific file; if omitted, deletes entire folder
  */
-async function executeDelete(basePath: string, operation: Operation): Promise<OperationResult> {
+async function executeDelete(
+  basePath: string,
+  operation: Operation,
+  runtimeSignalStore?: IRuntimeSignalStore,
+  logger?: ILogger,
+): Promise<OperationResult> {
   const {path, reason, title} = operation
   const reviewMeta = deriveReviewMetadata('DELETE', operation.confidence, operation.impact)
 
@@ -1180,6 +1361,10 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
       await backupBeforeWrite(filePath, basePath)
       await DirectoryManager.deleteFile(filePath)
       await deleteDerivedSiblings(filePath)
+
+      // Dual-write: drop the deleted file's sidecar entry so it does not
+      // become an orphan.
+      await dropSidecar(runtimeSignalStore, relPathFromContextPath(filePath, basePath), logger)
 
       return {
         ...reviewMeta,
@@ -1235,6 +1420,15 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
     await Promise.all(mdFiles.map((f) => backupBeforeWrite(f, basePath)))
     await DirectoryManager.deleteTopicRecursive(fullPath)
 
+    // Dual-write: drop sidecar entries for every markdown file that was
+    // deleted. Without this, folder deletes leak orphan signal entries.
+    // Best-effort — the markdown delete has already succeeded.
+    if (runtimeSignalStore) {
+      await Promise.all(
+        mdFiles.map((f) => dropSidecar(runtimeSignalStore, relPathFromContextPath(f, basePath), logger)),
+      )
+    }
+
     return {
       ...reviewMeta,
       additionalFilePaths: mdFiles,
@@ -1262,7 +1456,13 @@ async function executeDelete(basePath: string, operation: Operation): Promise<Op
  * Execute curate operations on knowledge topics.
  * Exported for use by CurateService in sandbox.
  */
-export async function executeCurate(input: unknown, _context?: ToolExecutionContext, abstractQueue?: AbstractGenerationQueue): Promise<CurateOutput> {
+export async function executeCurate(
+  input: unknown,
+  _context?: ToolExecutionContext,
+  abstractQueue?: AbstractGenerationQueue,
+  runtimeSignalStore?: IRuntimeSignalStore,
+  logger?: ILogger,
+): Promise<CurateOutput> {
   const parseResult = CurateInputSchema.safeParse(input)
   if (!parseResult.success) {
     return {
@@ -1308,7 +1508,7 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
 
     switch (operation.type) {
       case 'ADD': {
-        result = await executeAdd(basePath, operation, onAfterWrite)
+        result = await executeAdd(basePath, operation, onAfterWrite, runtimeSignalStore, logger)
 
         if (result.status === 'success') summary.added++
 
@@ -1316,7 +1516,7 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
       }
 
       case 'DELETE': {
-        result = await executeDelete(basePath, operation)
+        result = await executeDelete(basePath, operation, runtimeSignalStore, logger)
 
         if (result.status === 'success') summary.deleted++
 
@@ -1324,7 +1524,7 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
       }
 
       case 'MERGE': {
-        result = await executeMerge(basePath, operation, onAfterWrite)
+        result = await executeMerge(basePath, operation, onAfterWrite, runtimeSignalStore, logger)
 
         if (result.status === 'success') summary.merged++
 
@@ -1332,7 +1532,7 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
       }
 
       case 'UPDATE': {
-        result = await executeUpdate(basePath, operation, onAfterWrite)
+        result = await executeUpdate(basePath, operation, onAfterWrite, runtimeSignalStore, logger)
 
         if (result.status === 'success') summary.updated++
 
@@ -1340,7 +1540,7 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
       }
 
       case 'UPSERT': {
-        result = await executeUpsert(basePath, operation, onAfterWrite)
+        result = await executeUpsert(basePath, operation, onAfterWrite, runtimeSignalStore, logger)
 
         // UPSERT counts as either added or updated based on what happened
         if (result.status === 'success') {
@@ -1381,7 +1581,12 @@ export async function executeCurate(input: unknown, _context?: ToolExecutionCont
   return {applied, summary}
 }
 
-export function createCurateTool(workingDirectory?: string, abstractQueue?: AbstractGenerationQueue): Tool {
+export function createCurateTool(
+  workingDirectory?: string,
+  abstractQueue?: AbstractGenerationQueue,
+  runtimeSignalStore?: IRuntimeSignalStore,
+  logger?: ILogger,
+): Tool {
   return {
     description: `Curate knowledge topics with atomic operations. This tool manages the knowledge structure using four operation types and supports a two-part context model: Raw Concept + Narrative.
 
@@ -1583,11 +1788,11 @@ export function createCurateTool(workingDirectory?: string, abstractQueue?: Abst
         if (parseResult.success) {
           parseResult.data.basePath = resolve(workingDirectory, parseResult.data.basePath)
 
-          return executeCurate(parseResult.data, context, abstractQueue)
+          return executeCurate(parseResult.data, context, abstractQueue, runtimeSignalStore, logger)
         }
       }
 
-      return executeCurate(input, context, abstractQueue)
+      return executeCurate(input, context, abstractQueue, runtimeSignalStore, logger)
     },
 
     id: ToolName.CURATE,

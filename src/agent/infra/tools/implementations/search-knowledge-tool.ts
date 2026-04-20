@@ -1,5 +1,6 @@
 import {z} from 'zod'
 
+import type {IRuntimeSignalStore} from '../../../../server/core/interfaces/storage/i-runtime-signal-store.js'
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
 import type {IFileSystem} from '../../../core/interfaces/i-file-system.js'
 
@@ -60,6 +61,7 @@ const SearchKnowledgeInputSchema = z
 export interface SearchKnowledgeToolConfig {
   baseDirectory?: string
   cacheTtlMs?: number
+  runtimeSignalStore?: IRuntimeSignalStore
 }
 
 /**
