@@ -575,7 +575,7 @@ export class VcHandler {
         }
       } else {
         // Path B/C: cache or file-based parsing
-        const parsed = await this.resolveSigningKey(keyPath, data.passphrase)
+        const parsed = await this.resolveSigningKey(projectPath, keyPath, data.passphrase)
         onSign = async (payload: string) => {
           const result = signCommitPayload(payload, parsed)
           return result.armored
@@ -655,7 +655,7 @@ export class VcHandler {
           try {
             const parsed = await parseSSHPrivateKey(resolvedPath)
             // Cache the parsed key for immediate use
-            this.signingKeyCache.set(resolvedPath, parsed)
+            this.signingKeyCache.set(projectPath, resolvedPath, parsed)
             hint = `Fingerprint: ${parsed.fingerprint}`
           } catch {
             // Encrypted key — require passphrase to get fingerprint; skip hint
@@ -776,7 +776,7 @@ export class VcHandler {
     let hint: string | undefined
     try {
       const parsed = await parseSSHPrivateKey(resolvedPath)
-      this.signingKeyCache.set(resolvedPath, parsed)
+      this.signingKeyCache.set(projectPath, resolvedPath, parsed)
       hint = `Fingerprint: ${parsed.fingerprint} | commit.sign: ${String(commitSign)}`
     } catch {
       hint = `commit.sign: ${String(commitSign)}`
@@ -1477,9 +1477,14 @@ export class VcHandler {
    *   Path B: in-memory TTL cache (passphrase not needed after first use)
    *   Path C: parse key file (may require passphrase — delegates to CLI caller via PASSPHRASE_REQUIRED error)
    */
-  private async resolveSigningKey(keyPath: string, passphrase?: string): Promise<ParsedSSHKey> {
-    // Path B: in-memory TTL cache
-    const cachedKey = this.signingKeyCache.get(keyPath)
+  private async resolveSigningKey(
+    projectPath: string,
+    keyPath: string,
+    passphrase?: string,
+  ): Promise<ParsedSSHKey> {
+    // Path B: in-memory TTL cache — scoped by (project, key) pair so a user
+    // switching projects never inherits a decrypted KeyObject from elsewhere.
+    const cachedKey = this.signingKeyCache.get(projectPath, keyPath)
     if (cachedKey) return cachedKey
 
     // Path C: parse key file
@@ -1512,7 +1517,7 @@ export class VcHandler {
 
     const parsed = await parseSSHPrivateKey(keyPath, passphrase)
     // Store in cache (passphrase is not stored — only the decrypted KeyObject)
-    this.signingKeyCache.set(keyPath, parsed)
+    this.signingKeyCache.set(projectPath, keyPath, parsed)
     return parsed
   }
 

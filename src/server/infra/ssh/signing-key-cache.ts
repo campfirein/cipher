@@ -12,16 +12,22 @@ interface CacheEntry {
  * cache the ParsedSSHKey object (which holds an opaque crypto.KeyObject)
  * so subsequent commits within the TTL window require no passphrase prompt.
  *
+ * Scoping: entries are keyed by (projectPath, keyPath). Two different projects
+ * that happen to share an identical signing-key path MUST NOT share cached
+ * state — a user switching projects should not inherit the previous project's
+ * decrypted key object. The null byte separator is safe because POSIX and
+ * Windows paths cannot contain \0.
+ *
  * Security properties:
  * - Stored in daemon process memory only — never written to disk
  * - crypto.KeyObject is opaque and not directly extractable
  * - Passphrase is never stored — only the decrypted key object
  * - Cleared entirely on daemon restart
- * - Per-key invalidation when user changes config
+ * - Per-project, per-key invalidation when user changes config
  */
 export class SigningKeyCache {
   private readonly cache = new Map<string, CacheEntry>()
-  private readonly ttlMs: number
+private readonly ttlMs: number
 
   /**
    * @param ttlMs - Cache TTL in milliseconds.
@@ -33,6 +39,11 @@ export class SigningKeyCache {
    */
   constructor(ttlMs: number = 30 * 60 * 1000) {
     this.ttlMs = ttlMs
+  }
+
+  /** Null byte cannot appear in POSIX or Windows path components. */
+  private static composeKey(projectPath: string, keyPath: string): string {
+    return `${projectPath}\0${keyPath}`
   }
 
   /**
@@ -49,15 +60,16 @@ export class SigningKeyCache {
   }
 
   /**
-   * Get a cached key by its resolved file path.
+   * Get a cached key for a (project, key) pair.
    * Returns null if the entry does not exist or has expired.
    */
-  get(keyPath: string): null | ParsedSSHKey {
-    const entry = this.cache.get(keyPath)
+  get(projectPath: string, keyPath: string): null | ParsedSSHKey {
+    const compositeKey = SigningKeyCache.composeKey(projectPath, keyPath)
+    const entry = this.cache.get(compositeKey)
     if (!entry) return null
 
     if (Date.now() > entry.expiresAt) {
-      this.cache.delete(keyPath)
+      this.cache.delete(compositeKey)
       return null
     }
 
@@ -65,10 +77,10 @@ export class SigningKeyCache {
   }
 
   /**
-   * Invalidate a specific key (e.g., when user changes signing key config).
+   * Invalidate a specific (project, key) pair (e.g., when user changes config).
    */
-  invalidate(keyPath: string): void {
-    this.cache.delete(keyPath)
+  invalidate(projectPath: string, keyPath: string): void {
+    this.cache.delete(SigningKeyCache.composeKey(projectPath, keyPath))
   }
 
   /**
@@ -79,11 +91,11 @@ export class SigningKeyCache {
   }
 
   /**
-   * Cache a parsed key by its resolved file path.
-   * Resets TTL if the key was already cached.
+   * Cache a parsed key for a (project, key) pair.
+   * Resets TTL if the entry was already cached.
    * Also sweeps expired entries to prevent memory leaks.
    */
-  set(keyPath: string, key: ParsedSSHKey): void {
+  set(projectPath: string, keyPath: string, key: ParsedSSHKey): void {
     const now = Date.now()
 
     // Sweep expired entries
@@ -91,7 +103,7 @@ export class SigningKeyCache {
       if (now > entry.expiresAt) this.cache.delete(path)
     }
 
-    this.cache.set(keyPath, {
+    this.cache.set(SigningKeyCache.composeKey(projectPath, keyPath), {
       expiresAt: now + this.ttlMs,
       key,
     })
