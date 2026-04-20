@@ -1,6 +1,7 @@
 import {expect} from 'chai'
+import sinon from 'sinon'
 
-import {MarkdownWriter} from '../../../../src/server/core/domain/knowledge/markdown-writer.js'
+import {MarkdownWriter, validateSemanticFrontmatter} from '../../../../src/server/core/domain/knowledge/markdown-writer.js'
 
 function filterBulletLines(lines: string[] | undefined): string[] {
   return (lines ?? []).filter((line) => line.trim().startsWith('-'))
@@ -555,7 +556,7 @@ Target`
         expect(parsed.timestamps?.createdAt).to.equal('2026-05-01T00:00:00.000Z')
       })
 
-      it('omits createdAt entirely when neither input carries it', () => {
+      it('produces a fresh createdAt when neither input carries it', () => {
         const source = `---
 title: Source
 tags: []
@@ -570,13 +571,275 @@ keywords: []
 ---
 Target`
 
+        const before = Date.now()
         const merged = MarkdownWriter.mergeContexts(source, target)
+        const after = Date.now()
         const parsed = MarkdownWriter.parseContent(merged)
 
-        // Neither input had createdAt — merged output has no createdAt either.
-        expect(parsed.timestamps?.createdAt).to.be.undefined
+        // Writer now always emits createdAt; when neither input had it,
+        // mergeTimestamps omits createdAt from its return, but
+        // generateFrontmatter fills in a default timestamp.
+        expect(parsed.timestamps?.createdAt).to.exist
+        const createdMs = new Date(parsed.timestamps!.createdAt!).getTime()
+        expect(createdMs).to.be.at.least(before)
+        expect(createdMs).to.be.at.most(after)
         // updatedAt is always stamped on merge since content changed.
         expect(parsed.timestamps?.updatedAt).to.exist
+      })
+    })
+  })
+
+  describe('generateFrontmatter unconditional emission', () => {
+    it('emits all 7 fields even when no optional values provided', () => {
+      const result = MarkdownWriter.generateContext({
+        keywords: [],
+        name: '',
+        snippets: ['content'],
+        tags: [],
+      })
+
+      expect(result).to.include('title:')
+      expect(result).to.include('summary:')
+      expect(result).to.include('tags:')
+      expect(result).to.include('related:')
+      expect(result).to.include('keywords:')
+      expect(result).to.include('createdAt:')
+      expect(result).to.include('updatedAt:')
+    })
+
+    it('emits empty string defaults for title and summary when absent', () => {
+      const result = MarkdownWriter.generateContext({
+        keywords: [],
+        name: '',
+        snippets: ['content'],
+        tags: [],
+      })
+
+      // title and summary should be present as empty strings
+      expect(result).to.match(/title: (''+|""+)/)
+      expect(result).to.match(/summary: (''+|""+)/)
+    })
+
+    it('emits empty array for related when no relations provided', () => {
+      const result = MarkdownWriter.generateContext({
+        keywords: [],
+        name: 'Test',
+        snippets: ['content'],
+        tags: [],
+      })
+
+      expect(result).to.include('related: []')
+    })
+
+    it('emits createdAt and updatedAt defaults when no timestamps provided', () => {
+      const before = Date.now()
+      const result = MarkdownWriter.generateContext({
+        keywords: [],
+        name: 'Test',
+        snippets: ['content'],
+        tags: [],
+      })
+      const after = Date.now()
+
+      const parsed = MarkdownWriter.parseContent(result)
+      expect(parsed.timestamps?.createdAt).to.exist
+      expect(parsed.timestamps?.updatedAt).to.exist
+
+      const createdMs = new Date(parsed.timestamps!.createdAt!).getTime()
+      expect(createdMs).to.be.at.least(before)
+      expect(createdMs).to.be.at.most(after)
+    })
+
+    it('uses provided timestamps instead of defaults', () => {
+      const result = MarkdownWriter.generateContext({
+        keywords: [],
+        name: 'Test',
+        snippets: ['content'],
+        tags: [],
+        timestamps: {createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z'},
+      })
+
+      expect(result).to.include("createdAt: '2026-01-01T00:00:00.000Z'")
+      expect(result).to.include("updatedAt: '2026-01-02T00:00:00.000Z'")
+    })
+
+    it('emits updatedAt same as createdAt for new files when only createdAt given', () => {
+      const result = MarkdownWriter.generateContext({
+        keywords: [],
+        name: 'Test',
+        snippets: ['content'],
+        tags: [],
+        timestamps: {createdAt: '2026-01-01T00:00:00.000Z'},
+      })
+
+      expect(result).to.include("createdAt: '2026-01-01T00:00:00.000Z'")
+      expect(result).to.include("updatedAt: '2026-01-01T00:00:00.000Z'")
+    })
+
+    it('preserves field order: title, summary, tags, related, keywords, createdAt, updatedAt', () => {
+      const result = MarkdownWriter.generateContext({
+        keywords: ['kw'],
+        name: 'Title',
+        relations: ['domain/file.md'],
+        snippets: ['content'],
+        summary: 'A summary',
+        tags: ['tag'],
+        timestamps: {createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z'},
+      })
+
+      const titleIdx = result.indexOf('title:')
+      const summaryIdx = result.indexOf('summary:')
+      const tagsIdx = result.indexOf('tags:')
+      const relatedIdx = result.indexOf('related:')
+      const keywordsIdx = result.indexOf('keywords:')
+      const createdIdx = result.indexOf('createdAt:')
+      const updatedIdx = result.indexOf('updatedAt:')
+
+      expect(titleIdx).to.be.lessThan(summaryIdx)
+      expect(summaryIdx).to.be.lessThan(tagsIdx)
+      expect(tagsIdx).to.be.lessThan(relatedIdx)
+      expect(relatedIdx).to.be.lessThan(keywordsIdx)
+      expect(keywordsIdx).to.be.lessThan(createdIdx)
+      expect(createdIdx).to.be.lessThan(updatedIdx)
+    })
+  })
+
+  describe('validateSemanticFrontmatter', () => {
+    afterEach(() => {
+      sinon.restore()
+    })
+
+    describe('strict mode', () => {
+      it('passes when all required fields are present', () => {
+        const frontmatter = {
+          createdAt: '2026-01-01T00:00:00.000Z',
+          keywords: ['kw'],
+          related: ['domain/file.md'],
+          summary: 'Summary',
+          tags: ['tag'],
+          title: 'Title',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        }
+
+        expect(() => validateSemanticFrontmatter(frontmatter, 'strict', 'test.md')).to.not.throw()
+      })
+
+      it('passes when optional string fields are empty strings', () => {
+        const frontmatter = {
+          createdAt: '2026-01-01T00:00:00.000Z',
+          keywords: [],
+          related: [],
+          summary: '',
+          tags: [],
+          title: '',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        }
+
+        expect(() => validateSemanticFrontmatter(frontmatter, 'strict', 'test.md')).to.not.throw()
+      })
+
+      it('throws when title is missing', () => {
+        const frontmatter = {
+          createdAt: '2026-01-01T00:00:00.000Z',
+          keywords: [],
+          related: [],
+          summary: '',
+          tags: [],
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        }
+
+        expect(() => validateSemanticFrontmatter(frontmatter, 'strict', 'test.md'))
+          .to.throw(/test\.md.*title/)
+      })
+
+      it('throws when createdAt is missing', () => {
+        const frontmatter = {
+          keywords: [],
+          related: [],
+          summary: '',
+          tags: [],
+          title: 'Title',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        }
+
+        expect(() => validateSemanticFrontmatter(frontmatter, 'strict', 'test.md'))
+          .to.throw(/test\.md.*createdAt/)
+      })
+
+      it('throws listing all missing fields', () => {
+        const frontmatter = {
+          keywords: [],
+          tags: [],
+        }
+
+        expect(() => validateSemanticFrontmatter(frontmatter, 'strict', 'path/to/file.md'))
+          .to.throw(/path\/to\/file\.md.*title.*summary.*related.*createdAt.*updatedAt/)
+      })
+    })
+
+    describe('lenient mode', () => {
+      it('returns the frontmatter unchanged when all fields are present', () => {
+        const frontmatter = {
+          createdAt: '2026-01-01T00:00:00.000Z',
+          keywords: ['kw'],
+          related: ['domain/file.md'],
+          summary: 'Summary',
+          tags: ['tag'],
+          title: 'Title',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        }
+
+        const result = validateSemanticFrontmatter(frontmatter, 'lenient', 'test.md')
+        expect(result).to.deep.equal(frontmatter)
+      })
+
+      it('synthesises defaults for missing fields', () => {
+        const frontmatter = {
+          keywords: ['kw'],
+          tags: ['tag'],
+        }
+
+        const result = validateSemanticFrontmatter(frontmatter, 'lenient', 'test.md')
+
+        expect(result.title).to.equal('')
+        expect(result.summary).to.equal('')
+        expect(result.related).to.deep.equal([])
+        expect(result.createdAt).to.be.a('string')
+        expect(result.updatedAt).to.be.a('string')
+        // Original fields preserved
+        expect(result.keywords).to.deep.equal(['kw'])
+        expect(result.tags).to.deep.equal(['tag'])
+      })
+
+      it('logs a warning when fields are missing', () => {
+        const warnSpy = sinon.spy(console, 'warn')
+        const frontmatter = {
+          keywords: [],
+          tags: [],
+        }
+
+        validateSemanticFrontmatter(frontmatter, 'lenient', 'domain/test.md')
+
+        expect(warnSpy.calledOnce).to.be.true
+        expect(warnSpy.firstCall.args[0]).to.include('domain/test.md')
+        expect(warnSpy.firstCall.args[0]).to.include('title')
+      })
+
+      it('does not log a warning when all fields are present', () => {
+        const warnSpy = sinon.spy(console, 'warn')
+        const frontmatter = {
+          createdAt: '2026-01-01T00:00:00.000Z',
+          keywords: [],
+          related: [],
+          summary: '',
+          tags: [],
+          title: '',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        }
+
+        validateSemanticFrontmatter(frontmatter, 'lenient', 'test.md')
+
+        expect(warnSpy.called).to.be.false
       })
     })
   })

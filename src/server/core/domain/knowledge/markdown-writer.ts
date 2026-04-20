@@ -74,6 +74,82 @@ interface Frontmatter {
   updatedAt?: string
 }
 
+/**
+ * Frontmatter shape with all seven semantic fields guaranteed present.
+ * Produced by `validateSemanticFrontmatter` in lenient mode.
+ */
+export interface CompleteFrontmatter {
+  createdAt: string
+  keywords: string[]
+  related: string[]
+  summary: string
+  tags: string[]
+  title: string
+  updatedAt: string
+}
+
+const REQUIRED_STRING_FIELDS = ['title', 'summary'] as const
+const REQUIRED_ARRAY_FIELDS = ['related'] as const
+const REQUIRED_TIMESTAMP_FIELDS = ['createdAt', 'updatedAt'] as const
+
+/**
+ * Validate that a parsed frontmatter object contains all seven required
+ * semantic fields.
+ *
+ * **Strict mode** — throws if any required field is missing. Used for
+ * new-write paths (curate ADD, review-api-handler) and test fixtures.
+ *
+ * **Lenient mode** — synthesises safe defaults in-memory for any missing
+ * field (`""` for strings, `[]` for arrays, `now()` for timestamps) and
+ * emits a single `console.warn`. Does NOT rewrite the file on read.
+ * Used for the legacy read path.
+ */
+export function validateSemanticFrontmatter(
+  frontmatter: Partial<CompleteFrontmatter> & {keywords: string[]; tags: string[]},
+  mode: 'lenient' | 'strict',
+  filePath: string,
+): CompleteFrontmatter {
+  const missing: string[] = []
+
+  for (const field of REQUIRED_STRING_FIELDS) {
+    if (frontmatter[field] === undefined) missing.push(field)
+  }
+
+  for (const field of REQUIRED_ARRAY_FIELDS) {
+    if (frontmatter[field] === undefined) missing.push(field)
+  }
+
+  for (const field of REQUIRED_TIMESTAMP_FIELDS) {
+    if (frontmatter[field] === undefined) missing.push(field)
+  }
+
+  if (missing.length === 0) {
+    return frontmatter as CompleteFrontmatter
+  }
+
+  if (mode === 'strict') {
+    throw new Error(
+      `Missing required frontmatter fields in ${filePath}: ${missing.join(', ')}`,
+    )
+  }
+
+  // Lenient: synthesise defaults
+  const now = new Date().toISOString()
+  const result: CompleteFrontmatter = {
+    createdAt: frontmatter.createdAt ?? now,
+    keywords: frontmatter.keywords,
+    related: frontmatter.related ?? [],
+    summary: frontmatter.summary ?? '',
+    tags: frontmatter.tags,
+    title: frontmatter.title ?? '',
+    updatedAt: frontmatter.updatedAt ?? now,
+  }
+
+  console.warn(`[frontmatter] Missing required fields in ${filePath}: ${missing.join(', ')}`)
+
+  return result
+}
+
 interface ParsedFrontmatter {
   body: string
   frontmatter: Frontmatter
@@ -97,33 +173,20 @@ function generateFrontmatter(
 ): string {
   const normalizedRelations = (relations || []).map(rel => normalizeRelationPath(rel))
 
-  const fm: Record<string, string | string[]> = {}
+  const now = new Date().toISOString()
+  const createdAt = timestamps?.createdAt ?? now
+  const updatedAt = timestamps?.updatedAt ?? createdAt
 
-  if (title) {
-    fm.title = title
+  const fm: Record<string, string | string[]> = {
+    createdAt,
+    keywords,
+    related: normalizedRelations,
+    summary: summary ?? '',
+    tags,
+    title: title || '',
+    updatedAt,
   }
 
-  if (summary) {
-    fm.summary = summary
-  }
-
-  fm.tags = tags
-
-  if (normalizedRelations.length > 0) {
-    fm.related = normalizedRelations
-  }
-
-  fm.keywords = keywords
-
-  if (timestamps?.createdAt) {
-    fm.createdAt = timestamps.createdAt
-  }
-
-  if (timestamps?.updatedAt) {
-    fm.updatedAt = timestamps.updatedAt
-  }
-
-  // Always generate frontmatter since tags and keywords are required
   const yamlContent = yamlDump(fm, { flowLevel: 1, lineWidth: -1, sortKeys: false }).trimEnd()
 
   return `---\n${yamlContent}\n---\n`
