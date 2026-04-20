@@ -16,6 +16,7 @@ import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {ICurateService} from '../../../../src/agent/core/interfaces/i-curate-service.js'
 import type {IFileSystem} from '../../../../src/agent/core/interfaces/i-file-system.js'
+import type {HarnessConfig} from '../../../../src/agent/infra/agent/agent-schemas.js'
 import type {ISearchKnowledgeService} from '../../../../src/agent/infra/sandbox/tools-sdk.js'
 
 import {SandboxService} from '../../../../src/agent/infra/sandbox/sandbox-service.js'
@@ -216,6 +217,26 @@ describe('SandboxService', () => {
       expect(mockSearchKnowledgeService.search.calledOnce).to.be.true
       expect(mockSearchKnowledgeService.search.firstCall.args[0]).to.equal('authentication')
       expect(mockSearchKnowledgeService.search.firstCall.args[1]).to.deep.equal({limit: 5})
+    })
+  })
+
+  describe('setHarnessConfig', () => {
+    it('stores the harness config block for later phases to consume', () => {
+      const service = new SandboxService()
+      const config: HarnessConfig = {
+        autoLearn: true,
+        enabled: true,
+        language: 'typescript',
+        maxVersions: 20,
+      }
+
+      service.setHarnessConfig(config)
+
+      // Phase 0 wires the config through; consumers land in Phase 2/3. Until a
+      // consumer exists, the only observable effect is the stored field, so
+      // reach in through a narrow cast rather than exposing a public getter.
+      const internal = service as unknown as {harnessConfig?: HarnessConfig}
+      expect(internal.harnessConfig).to.deep.equal(config)
     })
   })
 

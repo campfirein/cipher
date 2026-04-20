@@ -1,5 +1,6 @@
 import type { MemoryManager } from '../../../infra/memory/memory-manager.js'
 import type { EnvironmentContext } from '../environment/types.js'
+import type { HarnessMode } from '../harness/types.js'
 
 /**
  * Conversation metadata for execution context
@@ -55,6 +56,13 @@ export interface ContributorContext {
 
   /** Instructions for file reference handling */
   fileReferenceInstructions?: string
+
+  /**
+   * Harness mode selected for the current session (Phase 5 reads this to
+   * decide whether to render the harness prompt addendum). `undefined`
+   * means no harness is injected.
+   */
+  harnessMode?: HarnessMode
 
   /** Memory manager instance for accessing memories */
   memoryManager?: MemoryManager
