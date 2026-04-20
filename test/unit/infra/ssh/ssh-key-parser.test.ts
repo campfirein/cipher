@@ -148,16 +148,11 @@ describe('probeSSHKey()', () => {
     expect(caught.message).to.match(/Unsupported OpenSSH key type/)
   })
 
-  it('throws (does not false-prompt for passphrase) for malformed PEM that surfaces ERR_OSSL_UNSUPPORTED', async () => {
-    // Regression test for ENG-2002 C2 (incomplete B6 fix). Node.js crypto emits
-    // `ERR_OSSL_UNSUPPORTED` (not just `ERR_OSSL_BAD_DECRYPT`) when createPrivateKey
-    // hits a PEM body it cannot decode — including malformed PKCS8, garbage payload,
-    // or unsupported algorithm OIDs. The original isPassphraseError used
-    // `code.startsWith('ERR_OSSL')` which matched ERR_OSSL_UNSUPPORTED and made
-    // probeSSHKey false-report needsPassphrase:true for any unparseable PEM.
-    //
-    // Two characters of base64 garbage inside a PEM envelope is the smallest
-    // reliable repro across Node versions.
+  it('throws a user-grade error (not raw OpenSSL code) for a file that is not a valid SSH key', async () => {
+    // Regression test for ENG-2002 AC9-b + C2. Node.js crypto emits
+    // ERR_OSSL_UNSUPPORTED for any PEM body it cannot decode. The raw error
+    // ("error:1E08010C:DECODER routines::unsupported") is not user-grade;
+    // probeSSHKey must translate it to actionable English.
     const malformedPem = '-----BEGIN PRIVATE KEY-----\nQUFBQQ==\n-----END PRIVATE KEY-----'
     const keyPath = join(tempDir, 'malformed_pem')
     writeFileSync(keyPath, malformedPem, {mode: 0o600})
@@ -169,7 +164,12 @@ describe('probeSSHKey()', () => {
       caught = error
     }
 
-    expect(caught, 'probeSSHKey must throw for malformed PEM, not return needsPassphrase:true').to.be.instanceOf(Error)
+    if (!(caught instanceof Error)) {
+      expect.fail('probeSSHKey must throw for malformed PEM, not return needsPassphrase:true')
+    }
+
+    expect(caught.message).to.match(/not a valid SSH private key/i)
+    expect(caught.message).to.not.match(/ERR_OSSL|DECODER routines/)
   })
 
   it('throws "Unsupported OpenSSH key type" for unencrypted ECDSA OpenSSH key (does not false-prompt for passphrase)', async () => {
@@ -291,6 +291,33 @@ describe('parseSSHPrivateKey()', () => {
     }
 
     expect(threw).to.be.true
+  })
+
+  it('throws a user-grade error (not raw OpenSSL code) when given a wrong passphrase for an encrypted PEM key', async () => {
+    // Regression test for ENG-2002 AC9-c. createPrivateKey with a wrong
+    // passphrase emits ERR_OSSL_BAD_DECRYPT whose raw message
+    // ("error:1C800064:Provider routines::bad decrypt") is not user-grade;
+    // parseSSHPrivateKey must translate it to actionable English.
+    const {privateKey} = generateKeyPairSync('ed25519', {
+      privateKeyEncoding: {cipher: 'aes-256-cbc', format: 'pem', passphrase: 'rightpass', type: 'pkcs8'},
+      publicKeyEncoding: {format: 'pem', type: 'spki'},
+    })
+    const encKeyPath = join(tempDir, 'id_ed25519_pem_wrongpp')
+    writeFileSync(encKeyPath, privateKey, {mode: 0o600})
+
+    let caught: unknown
+    try {
+      await parseSSHPrivateKey(encKeyPath, 'wrongpass')
+    } catch (error) {
+      caught = error
+    }
+
+    if (!(caught instanceof Error)) {
+      expect.fail('parseSSHPrivateKey must throw when given a wrong passphrase')
+    }
+
+    expect(caught.message).to.match(/passphrase/i)
+    expect(caught.message).to.not.match(/ERR_OSSL|Provider routines|bad decrypt/i)
   })
 })
 

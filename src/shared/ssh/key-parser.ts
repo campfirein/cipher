@@ -212,6 +212,34 @@ function isPassphraseError(err: unknown): boolean {
   return /bad decrypt|passphrase|bad password|interrupted or cancelled/.test(msg)
 }
 
+/**
+ * Translate a Node.js crypto error into a user-grade Error when the code
+ * matches a known cause. Otherwise returns the original error untouched so
+ * unrecognised failures still surface for debugging.
+ *
+ * Purpose: the raw OpenSSL messages (`error:1C800064:Provider routines::bad
+ * decrypt`, `error:1E08010C:DECODER routines::unsupported`) are unreadable to
+ * end users. AC9-b and AC9-c of ENG-2002 require actionable English.
+ */
+function formatCryptoError(err: unknown, keyPath: string): Error {
+  if (!(err instanceof Error)) return new Error(String(err))
+
+  const code = 'code' in err && typeof err.code === 'string' ? err.code : ''
+
+  if (code === 'ERR_OSSL_BAD_DECRYPT') {
+    return new Error(`Wrong passphrase for SSH key at ${keyPath}.`)
+  }
+
+  if (code === 'ERR_OSSL_UNSUPPORTED') {
+    return new Error(
+      `File at ${keyPath} is not a valid SSH private key ` +
+        `(unrecognised or malformed PEM / PKCS8 body).`,
+    )
+  }
+
+  return err
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────
 
 /**
@@ -256,7 +284,7 @@ export async function probeSSHKey(keyPath: string): Promise<SSHKeyProbe> {
       return {exists: true, needsPassphrase: true}
     }
 
-    throw error
+    throw formatCryptoError(error, keyPath)
   }
 }
 
@@ -314,11 +342,16 @@ export async function parseSSHPrivateKey(
   }
 
   // ── Standard PEM format (PKCS8, RSA, ECDSA) ───────────────────────────
-  const privateKeyObject = createPrivateKey({
-    format: 'pem',
-    key: raw,
-    ...(passphrase ? {passphrase} : {}),
-  })
+  let privateKeyObject
+  try {
+    privateKeyObject = createPrivateKey({
+      format: 'pem',
+      key: raw,
+      ...(passphrase ? {passphrase} : {}),
+    })
+  } catch (error: unknown) {
+    throw formatCryptoError(error, keyPath)
+  }
 
   const publicKey = createPublicKey(privateKeyObject)
 
