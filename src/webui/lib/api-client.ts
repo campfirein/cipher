@@ -47,9 +47,7 @@ export class BrvApiClient {
         if (didFinish) return
 
         didFinish = true
-        if (timeoutId !== undefined) {
-          globalThis.clearTimeout(timeoutId)
-        }
+        globalThis.clearTimeout(timeoutId)
 
         if (response.success) {
           resolve(response.data)
