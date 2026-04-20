@@ -106,18 +106,21 @@ export interface IVcCommitResponse {
   signed?: boolean
 }
 
-export type VcConfigKey = 'commit.sign' | 'user.email' | 'user.name' | 'user.signingkey' | 'user.signingKey'
+// Canonical form is all-lowercase (matches the `git config` CLI convention and
+// the FIELD_MAP lookup key in vc-handler.ts). Camel-case variants from legacy
+// callers are accepted at runtime via case-insensitive lookup below, but are
+// not part of the exported union so new code cannot depend on them.
+export type VcConfigKey = 'commit.sign' | 'user.email' | 'user.name' | 'user.signingkey'
 
 export const VC_CONFIG_KEYS: readonly string[] = [
   'user.name',
   'user.email',
   'user.signingkey',
-  'user.signingKey',
   'commit.sign',
 ] satisfies readonly VcConfigKey[]
 
 export function isVcConfigKey(key: string): key is VcConfigKey {
-  return (VC_CONFIG_KEYS as readonly string[]).includes(key) || (VC_CONFIG_KEYS as readonly string[]).includes(key.toLowerCase())
+  return (VC_CONFIG_KEYS as readonly string[]).includes(key.toLowerCase())
 }
 
 /** Import SSH signing settings from local/global git config (no key/value needed). */
