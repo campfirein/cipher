@@ -886,7 +886,11 @@ describe('VcHandler', () => {
           // CLI retry loop this test guards against).
           expect(error).to.be.instanceOf(Error)
           expect(error).to.not.be.instanceOf(VcError)
-          expect((error as Error).message).to.match(/Unsupported OpenSSH key type/)
+          if (!(error instanceof Error)) {
+            expect.fail('error is not an Error instance')
+          }
+
+          expect(error.message).to.match(/Unsupported OpenSSH key type/)
         }
       } finally {
         rmSync(realTmpDir, {force: true, recursive: true})

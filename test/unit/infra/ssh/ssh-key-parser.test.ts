@@ -229,6 +229,9 @@ describe('parseSSHPrivateKey()', () => {
   let tempDir: string
   let keyPath: string
 
+  // Single setup: every test in this block is read-only against keyPath, so
+  // before/after (lifecycle once) is correct — beforeEach would re-create the
+  // key file unnecessarily and slow the suite.
   before(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'brv-ssh-parse-test-'))
     keyPath = join(tempDir, 'id_ed25519')

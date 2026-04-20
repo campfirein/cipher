@@ -184,10 +184,10 @@ describe('signCommitPayload()', () => {
   })
 
   // Round-trip suite: feed our armored signature back to the OpenSSH reference
-  // verifier (`ssh-keygen -Y check-novalidate`) and assert acceptance. This is the
-  // only test in the file that validates against an external verifier — every other
-  // assertion is structural and can pass while the signature is cryptographically
-  // invalid (which is exactly how B0/ENG-2002 slipped past the original reviews).
+  // verifier (`ssh-keygen -Y check-novalidate`) and assert acceptance. This is
+  // the only test in the file that validates against an external verifier —
+  // every other assertion is structural and can pass while the signature is
+  // cryptographically invalid (the trap earlier reviews of this code missed).
   describe('round-trip with ssh-keygen', () => {
     let roundtripDir: string
     let roundtripKeyPath: string
