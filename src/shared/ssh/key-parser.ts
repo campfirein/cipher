@@ -187,14 +187,15 @@ function opensshEd25519ToNodeKey(privateKeyBlob: Buffer): {
 function isPassphraseError(err: unknown): boolean {
   if (!(err instanceof Error)) return false
 
-  // Node.js crypto errors expose an `code` property. Whitelist only codes that
-  // genuinely indicate a passphrase issue — `ERR_OSSL_BAD_DECRYPT` (wrong/missing
-  // passphrase on an encrypted PEM) and `ERR_OSSL_CRYPTO_INTERRUPTED_OR_CANCELLED`
-  // (Node-internal cancellation during prompt). A broader prefix match like
-  // `code.startsWith('ERR_OSSL')` would false-match `ERR_OSSL_UNSUPPORTED`
-  // (malformed/unparseable PEM) and other format-level failures, causing
-  // probeSSHKey to incorrectly return needsPassphrase:true for non-passphrase
-  // failures.
+  // Node.js crypto errors expose an `code` property. Whitelist exactly the two
+  // OpenSSL codes that mean "passphrase is the problem":
+  //   - ERR_OSSL_BAD_DECRYPT             — wrong / empty-string passphrase on encrypted PEM
+  //   - ERR_OSSL_CRYPTO_INTERRUPTED_OR_CANCELLED — encrypted PEM with NO passphrase
+  //                                        argument (OpenSSL aborts the read instead
+  //                                        of erroring; misleadingly named)
+  // A broader prefix match like `code.startsWith('ERR_OSSL')` would false-match
+  // `ERR_OSSL_UNSUPPORTED` (malformed/unparseable PEM) and other format-level
+  // failures, causing probeSSHKey to incorrectly return needsPassphrase:true.
   const code = 'code' in err && typeof err.code === 'string' ? err.code : ''
   if (code === 'ERR_OSSL_BAD_DECRYPT' || code === 'ERR_OSSL_CRYPTO_INTERRUPTED_OR_CANCELLED') {
     return true

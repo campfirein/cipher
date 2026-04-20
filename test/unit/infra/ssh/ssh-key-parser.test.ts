@@ -1,4 +1,5 @@
 import {expect} from 'chai'
+import {generateKeyPairSync} from 'node:crypto'
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -93,6 +94,25 @@ describe('probeSSHKey()', () => {
     expect(result.exists).to.be.true
     if (!result.exists) throw new Error('unreachable')
     expect(result.opensshEncrypted).to.be.true
+  })
+
+  it('returns needsPassphrase:true for an encrypted PEM key with no passphrase argument', async () => {
+    // Pins the no-passphrase code path: createPrivateKey on an encrypted PEM
+    // emits ERR_OSSL_CRYPTO_INTERRUPTED_OR_CANCELLED (NOT a "user cancelled
+    // prompt" — OpenSSL just aborts the read). isPassphraseError must catch
+    // this code, otherwise probeSSHKey would surface a raw crypto error
+    // instead of asking the caller for a passphrase.
+    const {privateKey} = generateKeyPairSync('ed25519', {
+      privateKeyEncoding: {cipher: 'aes-256-cbc', format: 'pem', passphrase: 'secret', type: 'pkcs8'},
+      publicKeyEncoding: {format: 'pem', type: 'spki'},
+    })
+    const keyPath = join(tempDir, 'id_ed25519_pem_enc')
+    writeFileSync(keyPath, privateKey, {mode: 0o600})
+
+    const result = await probeSSHKey(keyPath)
+    expect(result.exists).to.be.true
+    if (!result.exists) throw new Error('unreachable')
+    expect(result.needsPassphrase).to.be.true
   })
 
   it('throws "Unsupported OpenSSH key type" for unencrypted RSA OpenSSH key (does not false-prompt for passphrase)', async () => {
