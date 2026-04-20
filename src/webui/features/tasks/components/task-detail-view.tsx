@@ -59,7 +59,7 @@ export function TaskDetailView({taskId}: TaskDetailViewProps) {
       <div className="flex min-h-0 flex-1 flex-col gap-7 overflow-y-auto px-6 py-5" onScroll={onScroll} ref={scrollRef}>
         <TourTaskBanner task={task} />
         <InputSection task={task} />
-        {task.type !== 'query' && <EventLogSection now={now} task={task} />}
+        <EventLogSection now={now} task={task} />
         {showLive && <LiveStreamSection task={task} />}
         {result && <ResultSection content={result} />}
         {error && <ErrorSection error={error} />}
