@@ -1,5 +1,6 @@
 import {Sheet, SheetContent} from '@campfirein/byterover-packages/components/sheet'
 import {Textarea} from '@campfirein/byterover-packages/components/textarea'
+import {cn} from '@campfirein/byterover-packages/lib/utils'
 import {type ComponentRef, type KeyboardEvent, useEffect, useRef, useState} from 'react'
 
 import {useTransportStore} from '../../../stores/transport-store'
@@ -32,10 +33,17 @@ export function TaskComposerSheet({
   prefillNotice,
   tourStepLabel,
 }: TaskComposerSheetProps) {
+  // Tour mode keeps the dim/blur backdrop because the composer is the focal
+  // point of the step. Outside the tour, drop the overlay so the rest of the
+  // app stays sharp behind the side sheet.
+  const inTour = Boolean(tourStepLabel)
   return (
     <Sheet onOpenChange={(next) => !next && onClose()} open={open}>
       <SheetContent
-        className="data-[side=right]:w-full data-[side=right]:max-w-xl p-0 shadow-[inset_1px_0_0_rgba(96,165,250,0.18)]"
+        className={cn(
+          'data-[side=right]:w-full data-[side=right]:max-w-xl p-0 shadow-[inset_1px_0_0_rgba(96,165,250,0.18)]',
+          !inTour && 'sheet-no-overlay',
+        )}
         side="right"
       >
         {open && (
@@ -72,7 +80,7 @@ function ComposerForm({
   const {data: activeProviderConfig} = useGetActiveProviderConfig()
   const [type, setType] = useState<ComposerType>(initialType ?? 'curate')
   const [content, setContent] = useState(initialContent ?? '')
-  const [openDetailAfter, setOpenDetailAfter] = useState(false)
+  const [openDetailAfter, setOpenDetailAfter] = useState(true)
   const [providerDialogOpen, setProviderDialogOpen] = useState(false)
   const [hadPrefill, setHadPrefill] = useState(Boolean(initialContent))
   const textareaRef = useRef<ComponentRef<typeof Textarea>>(null)

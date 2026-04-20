@@ -187,3 +187,13 @@
   background-size: 24px 24px;
 }
 
+/*
+ * Opt-out of the sheet's default backdrop dim + blur.
+ * Apply `sheet-no-overlay` to a SheetContent and the overlay sibling in the
+ * same portal becomes transparent, keeping the page behind the sheet sharp.
+ */
+[data-slot="sheet-portal"]:has(.sheet-no-overlay) [data-slot="sheet-overlay"] {
+  background: transparent;
+  backdrop-filter: none;
+}
+

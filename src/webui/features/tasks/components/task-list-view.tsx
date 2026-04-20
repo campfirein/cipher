@@ -6,12 +6,7 @@ import {useSearchParams} from 'react-router-dom'
 import {useTransportStore} from '../../../stores/transport-store'
 import {useGetTasks} from '../api/get-tasks'
 import {useTickingNow} from '../hooks/use-ticking-now'
-import {
-  statusMatchesFilter,
-  taskMatchesQuery,
-  useStatusBreakdown,
-  useTaskStore,
-} from '../stores/task-store'
+import {statusMatchesFilter, taskMatchesQuery, useStatusBreakdown, useTaskStore} from '../stores/task-store'
 import {isTerminalStatus} from '../utils/task-status'
 import {TaskComposerSheet} from './task-composer'
 import {TaskDetailView} from './task-detail-view'
@@ -180,16 +175,15 @@ export function TaskListView() {
       )}
 
       <Sheet onOpenChange={(open) => !open && closeTask()} open={Boolean(selectedTaskId)}>
-        <SheetContent className="data-[side=right]:w-full data-[side=right]:max-w-3xl p-0 shadow-[inset_1px_0_0_rgba(96,165,250,0.18)]" side="right">
+        <SheetContent
+          className="data-[side=right]:w-full data-[side=right]:max-w-3xl p-0 shadow-[inset_1px_0_0_rgba(96,165,250,0.18)]"
+          side="right"
+        >
           {selectedTaskId && <TaskDetailView taskId={selectedTaskId} />}
         </SheetContent>
       </Sheet>
 
-      <TaskComposerSheet
-        onClose={closeComposer}
-        onSubmitted={onComposerSubmitted}
-        open={composer.open}
-      />
+      <TaskComposerSheet onClose={closeComposer} onSubmitted={onComposerSubmitted} open={composer.open} />
     </div>
   )
 }

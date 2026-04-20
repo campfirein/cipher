@@ -1,3 +1,4 @@
+import {Badge} from '@campfirein/byterover-packages/components/badge'
 import {Button} from '@campfirein/byterover-packages/components/button'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@campfirein/byterover-packages/components/tooltip'
 import {useState} from 'react'
@@ -35,6 +36,21 @@ export function Header() {
         <ProjectDropdown />
 
         <BranchDropdown />
+
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Badge
+                className="border-primary-foreground/40 bg-primary-foreground/15 text-primary-foreground mono gap-1 px-1.5 text-[9px] leading-none font-semibold tracking-[0.16em] uppercase"
+                variant="outline"
+              />
+            }
+          >
+            <span aria-hidden className="bg-primary-foreground size-1 shrink-0 rounded-full" />
+            <span className="leading-none">Local</span>
+          </TooltipTrigger>
+          <TooltipContent>You're viewing the local web UI, served from the daemon on your machine.</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Spacer */}
@@ -43,17 +59,11 @@ export function Header() {
       {/* Right: provider/model + docs + login */}
       <div className="flex items-center gap-2">
         <Tooltip>
-          <TooltipTrigger render={
-            <Button onClick={() => setProviderDialogOpen(true)} size="sm" variant="ghost" />
-          }>
+          <TooltipTrigger render={<Button onClick={() => setProviderDialogOpen(true)} size="sm" variant="ghost" />}>
             {providerLabel}
             {!activeProvider && <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />}
           </TooltipTrigger>
-          {!activeProvider && (
-            <TooltipContent>
-              Configure to use curate/query feature
-            </TooltipContent>
-          )}
+          {!activeProvider && <TooltipContent>Configure to use curate/query feature</TooltipContent>}
         </Tooltip>
         <ProviderFlowDialog onOpenChange={setProviderDialogOpen} open={providerDialogOpen} />
 

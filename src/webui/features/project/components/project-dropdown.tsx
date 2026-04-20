@@ -17,11 +17,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@campfirein/byterover-packages/components/dropdown-menu'
-import {ChevronDown, FolderOpen} from 'lucide-react'
+import {ChevronDown, FolderOpen, Link2} from 'lucide-react'
 import {useMemo, useState} from 'react'
 
 import {ProjectLocationDTO} from '../../../../shared/transport/events'
 import {useTransportStore} from '../../../stores/transport-store'
+import {useGetProjectConfig} from '../api/get-project-config'
 import {useGetProjectList} from '../api/get-project-list'
 import {displayPath} from '../utils/display-path'
 import {getProjectName} from '../utils/project-name'
@@ -33,10 +34,22 @@ const RECENT_LIMIT = 5
 type ProjectItemProps = {
   onSelect: () => void
   project: ProjectLocationDTO
+  /**
+   * Fetch + show "Linked to <team> / <space>" — only worth doing for open
+   * projects since the daemon won't have warm config caches for unopened ones.
+   */
+  showRemote?: boolean
 }
 
-function ProjectItem({onSelect, project}: ProjectItemProps) {
+function ProjectItem({onSelect, project, showRemote = false}: ProjectItemProps) {
   const name = getProjectName(project.projectPath)
+  const {data: projectConfig} = useGetProjectConfig({
+    projectPath: project.projectPath,
+    queryConfig: {enabled: showRemote},
+  })
+  const teamName = projectConfig?.brvConfig?.teamName
+  const spaceName = projectConfig?.brvConfig?.spaceName
+  const remoteLabel = teamName && spaceName ? `${teamName} / ${spaceName}` : undefined
 
   return (
     <DropdownMenuItem className="gap-2 rounded-md" onClick={onSelect}>
@@ -44,6 +57,15 @@ function ProjectItem({onSelect, project}: ProjectItemProps) {
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-sm font-medium leading-5 text-card-foreground!">{name}</span>
         <span className="truncate text-xs leading-4 text-muted-foreground!">{displayPath(project.projectPath)}</span>
+        {remoteLabel && (
+          <span className="text-muted-foreground! mono flex items-start gap-1 text-[10px] leading-4">
+            <Link2 className="mt-0.5 size-2.5 shrink-0" />
+            <span className="min-w-0 wrap-break-word">
+              <span>Remote space: </span>
+              <span className="text-primary-foreground! font-medium">{remoteLabel}</span>
+            </span>
+          </span>
+        )}
       </div>
     </DropdownMenuItem>
   )
@@ -102,7 +124,7 @@ export function ProjectDropdown() {
             <DropdownMenuGroup>
               <DropdownMenuLabel>Open Projects</DropdownMenuLabel>
               {openProjects.map((p) => (
-                <ProjectItem key={p.projectPath} onSelect={() => handleSelect(p)} project={p} />
+                <ProjectItem key={p.projectPath} onSelect={() => handleSelect(p)} project={p} showRemote />
               ))}
 
               <DropdownMenuSeparator />
