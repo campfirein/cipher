@@ -5,9 +5,11 @@ import {join} from 'node:path'
 import {restore, type SinonStub, stub} from 'sinon'
 
 import type {ICipherAgent} from '../../../../../src/agent/core/interfaces/i-cipher-agent.js'
+import type {IRuntimeSignalStore} from '../../../../../src/server/core/interfaces/storage/i-runtime-signal-store.js'
 import type {DreamOperation} from '../../../../../src/server/infra/dream/dream-log-schema.js'
 
 import {synthesize, type SynthesizeDeps} from '../../../../../src/server/infra/dream/operations/synthesize.js'
+import {createMockRuntimeSignalStore} from '../../../../helpers/mock-factories.js'
 
 /** Helper: create a markdown file with optional frontmatter */
 async function createMdFile(dir: string, relativePath: string, body: string, frontmatter?: Record<string, unknown>): Promise<void> {
@@ -159,7 +161,7 @@ describe('synthesize', () => {
 
     const content = await readFile(join(ctxDir, 'auth/shared-token-validation.md'), 'utf8')
     expect(content).to.include('type: synthesis')
-    expect(content).to.include('maturity: draft')
+    expect(content).to.not.include('maturity:')
     expect(content).to.include('Shared Token Validation')
     expect(content).to.include('Both auth and API share token validation logic.')
   })
@@ -477,5 +479,134 @@ describe('synthesize', () => {
     expect(agent.executeOnSession.calledOnce).to.be.true
     const options = agent.executeOnSession.firstCall.args[2]
     expect(options).to.have.property('signal', controller.signal)
+  })
+
+  // ── Runtime-signal sidecar ──────────────────────────────────────────────
+
+  describe('runtime-signal sidecar', () => {
+    let signalStore: IRuntimeSignalStore
+
+    beforeEach(() => {
+      signalStore = createMockRuntimeSignalStore()
+    })
+
+    it('does not write maturity to markdown frontmatter', async () => {
+      await createMdFile(ctxDir, 'auth/_index.md', '# Auth', {type: 'summary'})
+      await createMdFile(ctxDir, 'api/_index.md', '# API', {type: 'summary'})
+
+      agent.executeOnSession.resolves(llmResponse([{
+        claim: 'Cross-domain pattern.',
+        confidence: 0.9,
+        evidence: [{domain: 'auth', fact: 'A'}, {domain: 'api', fact: 'B'}],
+        placement: 'auth',
+        title: 'Sidecar Test',
+      }]))
+
+      await synthesize({...deps, runtimeSignalStore: signalStore})
+
+      const content = await readFile(join(ctxDir, 'auth/sidecar-test.md'), 'utf8')
+      expect(content).to.not.include('maturity:')
+      expect(content).to.not.include('importance:')
+      expect(content).to.not.include('recency:')
+      expect(content).to.not.include('accessCount:')
+      expect(content).to.not.include('updateCount:')
+    })
+
+    it('seeds sidecar with default signals after writing synthesis file', async () => {
+      await createMdFile(ctxDir, 'auth/_index.md', '# Auth', {type: 'summary'})
+      await createMdFile(ctxDir, 'api/_index.md', '# API', {type: 'summary'})
+
+      agent.executeOnSession.resolves(llmResponse([{
+        claim: 'Pattern.',
+        confidence: 0.85,
+        evidence: [{domain: 'auth', fact: 'A'}, {domain: 'api', fact: 'B'}],
+        placement: 'auth',
+        title: 'Seeded Pattern',
+      }]))
+
+      const setSpy = stub(signalStore, 'set').callThrough()
+
+      await synthesize({...deps, runtimeSignalStore: signalStore})
+
+      expect(setSpy.calledOnce).to.be.true
+      expect(setSpy.firstCall.args[0]).to.equal('auth/seeded-pattern.md')
+      const signals = await signalStore.get('auth/seeded-pattern.md')
+      expect(signals.importance).to.equal(50)
+      expect(signals.maturity).to.equal('draft')
+      expect(signals.accessCount).to.equal(0)
+      expect(signals.updateCount).to.equal(0)
+    })
+
+    it('seeds sidecar for each created file in multi-candidate run', async () => {
+      await createMdFile(ctxDir, 'auth/_index.md', '# Auth', {type: 'summary'})
+      await createMdFile(ctxDir, 'api/_index.md', '# API', {type: 'summary'})
+
+      agent.executeOnSession.resolves(llmResponse([
+        {
+          claim: 'First.',
+          confidence: 0.9,
+          evidence: [{domain: 'auth', fact: 'A'}, {domain: 'api', fact: 'B'}],
+          placement: 'auth',
+          title: 'Multi One',
+        },
+        {
+          claim: 'Second.',
+          confidence: 0.8,
+          evidence: [{domain: 'auth', fact: 'C'}, {domain: 'api', fact: 'D'}],
+          placement: 'api',
+          title: 'Multi Two',
+        },
+      ]))
+
+      const setSpy = stub(signalStore, 'set').callThrough()
+
+      await synthesize({...deps, runtimeSignalStore: signalStore})
+
+      expect(setSpy.calledTwice).to.be.true
+      expect(setSpy.firstCall.args[0]).to.equal('auth/multi-one.md')
+      expect(setSpy.secondCall.args[0]).to.equal('api/multi-two.md')
+    })
+
+    it('creates file even when sidecar store.set throws (fail-open)', async () => {
+      const brokenStore = createMockRuntimeSignalStore()
+      stub(brokenStore, 'set').rejects(new Error('disk full'))
+
+      await createMdFile(ctxDir, 'auth/_index.md', '# Auth', {type: 'summary'})
+      await createMdFile(ctxDir, 'api/_index.md', '# API', {type: 'summary'})
+
+      agent.executeOnSession.resolves(llmResponse([{
+        claim: 'Fail open.',
+        confidence: 0.9,
+        evidence: [{domain: 'auth', fact: 'A'}, {domain: 'api', fact: 'B'}],
+        placement: 'auth',
+        title: 'Fail Open Pattern',
+      }]))
+
+      const results = await synthesize({...deps, runtimeSignalStore: brokenStore})
+      expect(results).to.have.lengthOf(1)
+
+      const content = await readFile(join(ctxDir, 'auth/fail-open-pattern.md'), 'utf8')
+      expect(content).to.include('type: synthesis')
+    })
+
+    it('succeeds even when sidecar store is not provided', async () => {
+      await createMdFile(ctxDir, 'auth/_index.md', '# Auth', {type: 'summary'})
+      await createMdFile(ctxDir, 'api/_index.md', '# API', {type: 'summary'})
+
+      agent.executeOnSession.resolves(llmResponse([{
+        claim: 'No store.',
+        confidence: 0.9,
+        evidence: [{domain: 'auth', fact: 'A'}, {domain: 'api', fact: 'B'}],
+        placement: 'auth',
+        title: 'No Store Pattern',
+      }]))
+
+      // No runtimeSignalStore in deps — should still create the file
+      const results = await synthesize(deps)
+      expect(results).to.have.lengthOf(1)
+
+      const content = await readFile(join(ctxDir, 'auth/no-store-pattern.md'), 'utf8')
+      expect(content).to.include('type: synthesis')
+    })
   })
 })

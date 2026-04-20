@@ -1,3 +1,4 @@
+import type {IRuntimeSignalStore} from '../../../server/core/interfaces/storage/i-runtime-signal-store.js'
 import type {AgentEventBus, SessionEventBus} from '../../infra/events/event-emitter.js'
 import type {FileSystemService} from '../../infra/file-system/file-system-service.js'
 import type {CompactionService} from '../../infra/llm/context/compaction/compaction-service.js'
@@ -52,6 +53,12 @@ export interface CipherAgentServices {
   messageStorageService: MessageStorageService
   policyEngine: IPolicyEngine
   processService: ProcessService
+  /**
+   * Sidecar store for per-machine ranking signals kept out of the shared
+   * context-tree markdown (importance, recency, maturity, accessCount,
+   * updateCount). Reachable here for future wiring; no consumer uses it yet.
+   */
+  runtimeSignalStore: IRuntimeSignalStore
   sandboxService: ISandboxService
   systemPromptManager: SystemPromptManager
   toolManager: ToolManager
