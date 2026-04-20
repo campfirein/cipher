@@ -4,7 +4,9 @@ import net from 'node:net'
 import type {SSHKeyType, SSHSignatureResult} from './types.js'
 
 import {getPublicKeyMetadata} from './ssh-key-parser.js'
-import {SSHSIG_MAGIC} from './sshsig-constants.js'
+import {SSHSIG_MAGIC_PREAMBLE} from './sshsig-constants.js'
+
+const SSHSIG_MAGIC = Buffer.from(SSHSIG_MAGIC_PREAMBLE)
 
 // SSH agent protocol message types
 const SSH_AGENTC_REQUEST_IDENTITIES = 11

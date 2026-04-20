@@ -2,8 +2,9 @@ import {createHash, sign} from 'node:crypto'
 
 import type {ParsedSSHKey, SSHSignatureResult} from './types.js'
 
-import {SSHSIG_MAGIC} from './sshsig-constants.js'
+import {SSHSIG_MAGIC_PREAMBLE} from './sshsig-constants.js'
 
+const SSHSIG_MAGIC = Buffer.from(SSHSIG_MAGIC_PREAMBLE)
 const SSHSIG_VERSION = 1
 const NAMESPACE = 'git'
 const HASH_ALGORITHM = 'sha512'
