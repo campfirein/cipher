@@ -139,7 +139,7 @@ export function validateSemanticFrontmatter(
   // Lenient: synthesise defaults
   const now = new Date().toISOString()
   const result: CompleteFrontmatter = {
-    createdAt: frontmatter.createdAt ?? now,
+    createdAt: frontmatter.createdAt ?? frontmatter.updatedAt ?? now,
     keywords: frontmatter.keywords,
     related: frontmatter.related ?? [],
     summary: frontmatter.summary ?? '',
@@ -215,7 +215,7 @@ function parseFrontmatter(content: string): null | ParsedFrontmatter {
 
   const isCrlf = endIndex === -1
   const yamlBlock = content.slice(isCrlf ? 5 : 4, actualEnd)
-  const delimiterLen = isCrlf ? 7 : 4  // '\r\n---\r\n' = 7, '\n---\n' = 4
+  const delimiterLen = isCrlf ? 7 : 5  // '\r\n---\r\n' = 7, '\n---\n' = 5
   const body = content.slice(actualEnd + delimiterLen)
 
   try {
