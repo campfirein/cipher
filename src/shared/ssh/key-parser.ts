@@ -187,20 +187,28 @@ function opensshEd25519ToNodeKey(privateKeyBlob: Buffer): {
 function isPassphraseError(err: unknown): boolean {
   if (!(err instanceof Error)) return false
 
-  // Node.js crypto errors expose an `code` property (e.g., 'ERR_OSSL_BAD_DECRYPT')
+  // Node.js crypto errors expose an `code` property. Whitelist only codes that
+  // genuinely indicate a passphrase issue — `ERR_OSSL_BAD_DECRYPT` (wrong/missing
+  // passphrase on an encrypted PEM) and `ERR_OSSL_CRYPTO_INTERRUPTED_OR_CANCELLED`
+  // (Node-internal cancellation during prompt). A broader prefix match like
+  // `code.startsWith('ERR_OSSL')` would false-match `ERR_OSSL_UNSUPPORTED`
+  // (malformed/unparseable PEM) and other format-level failures, causing
+  // probeSSHKey to incorrectly return needsPassphrase:true for non-passphrase
+  // failures.
   const code = 'code' in err && typeof (err as {code: unknown}).code === 'string'
     ? (err as {code: string}).code
     : ''
-  if (code.startsWith('ERR_OSSL')) return true
+  if (code === 'ERR_OSSL_BAD_DECRYPT' || code === 'ERR_OSSL_CRYPTO_INTERRUPTED_OR_CANCELLED') {
+    return true
+  }
 
   // Fallback: string matching for compatibility across Node.js/OpenSSL versions.
   //
-  // NOTE: Do NOT add `/unsupported/` here. Several callers (parseOpenSSHKey,
+  // Do NOT add `/unsupported/` here — several callers (parseOpenSSHKey,
   // parseSSHPrivateKey) throw `"Unsupported OpenSSH key type: ..."` /
   // `"Unsupported PEM key type: ..."` for keys this build cannot parse natively.
-  // Including `/unsupported/` would false-match those errors and cause
-  // probeSSHKey to incorrectly report the key needs a passphrase, producing a
-  // spurious passphrase prompt instead of surfacing the real error.
+  // Matching that text would re-introduce the same false-positive that the
+  // code-based whitelist above is guarding against.
   const msg = err.message.toLowerCase()
   return /bad decrypt|passphrase|bad password|interrupted or cancelled/.test(msg)
 }

@@ -121,6 +121,30 @@ describe('probeSSHKey()', () => {
     expect((caught as Error).message).to.match(/Unsupported OpenSSH key type/)
   })
 
+  it('throws (does not false-prompt for passphrase) for malformed PEM that surfaces ERR_OSSL_UNSUPPORTED', async () => {
+    // Regression test for ENG-2002 C2 (incomplete B6 fix). Node.js crypto emits
+    // `ERR_OSSL_UNSUPPORTED` (not just `ERR_OSSL_BAD_DECRYPT`) when createPrivateKey
+    // hits a PEM body it cannot decode — including malformed PKCS8, garbage payload,
+    // or unsupported algorithm OIDs. The original isPassphraseError used
+    // `code.startsWith('ERR_OSSL')` which matched ERR_OSSL_UNSUPPORTED and made
+    // probeSSHKey false-report needsPassphrase:true for any unparseable PEM.
+    //
+    // Two characters of base64 garbage inside a PEM envelope is the smallest
+    // reliable repro across Node versions.
+    const malformedPem = '-----BEGIN PRIVATE KEY-----\nQUFBQQ==\n-----END PRIVATE KEY-----'
+    const keyPath = join(tempDir, 'malformed_pem')
+    writeFileSync(keyPath, malformedPem, {mode: 0o600})
+
+    let caught: unknown
+    try {
+      await probeSSHKey(keyPath)
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught, 'probeSSHKey must throw for malformed PEM, not return needsPassphrase:true').to.be.instanceOf(Error)
+  })
+
   it('throws "Unsupported OpenSSH key type" for unencrypted ECDSA OpenSSH key (does not false-prompt for passphrase)', async () => {
     // Same regression as above, but exercising ecdsa-sha2-nistp256.
     const pubBlob = Buffer.concat([sshStr('ecdsa-sha2-nistp256'), sshStr(Buffer.alloc(65, 0xaa))])
