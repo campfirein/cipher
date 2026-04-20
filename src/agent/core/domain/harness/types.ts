@@ -169,12 +169,3 @@ export const EvaluationScenarioSchema = z
   .strict()
 export type EvaluationScenario = z.input<typeof EvaluationScenarioSchema>
 export type ValidatedEvaluationScenario = z.output<typeof EvaluationScenarioSchema>
-
-// ---------------------------------------------------------------------------
-// Config re-export
-// ---------------------------------------------------------------------------
-
-// Callers in the harness module import `HarnessConfig` from here rather
-// than reaching into `agent-schemas.ts`. `type`-only re-export keeps the
-// runtime-module graph acyclic.
-export type {HarnessConfig, ValidatedHarnessConfig} from '../agent/agent-schemas.js'

@@ -20,6 +20,12 @@
  * vN+1 serialized by the in-process refinement queue). Multi-key or
  * cross-entity atomicity is not a store concern for v1.0.
  *
+ * ## Ordering
+ *
+ * List methods return newest-first (by `createdAt` for outcomes,
+ * by `version` for harness versions). Scenarios have no meaningful
+ * temporal order and are returned in insertion-stable order.
+ *
  * ## Known extension (Phase 7)
  *
  * `brv harness use <version-id>` pins an explicit "active" version per
@@ -37,7 +43,7 @@ import type {
   CodeExecOutcome,
   EvaluationScenario,
   HarnessVersion,
-} from '../../infra/harness/types.js'
+} from '../domain/harness/types.js'
 
 export interface IHarnessStore {
   /**
@@ -52,19 +58,20 @@ export interface IHarnessStore {
    * pair — ranked by the stored `version` number, not by `heuristic`. This
    * is "newest" semantics, not "best" semantics. Phase 7's pinned-version
    * concept lives in a separate method (see the Known extension note in
-   * the module header).
+   * the module header). Returns `undefined` when no version exists for
+   * the pair.
    */
-  getLatest(projectId: string, commandType: string): Promise<HarnessVersion | null>
+  getLatest(projectId: string, commandType: string): Promise<HarnessVersion | undefined>
 
   /**
-   * Fetch a specific version by its id. Returns `null` when the id is not
-   * in the store; does not throw on miss.
+   * Fetch a specific version by its id. Returns `undefined` when the id is
+   * not in the store; does not throw on miss.
    */
   getVersion(
     projectId: string,
     commandType: string,
     versionId: string,
-  ): Promise<HarnessVersion | null>
+  ): Promise<HarnessVersion | undefined>
 
   /**
    * List outcomes for a `(projectId, commandType)` pair, newest first.
@@ -90,19 +97,18 @@ export interface IHarnessStore {
 
   /**
    * Snapshot every stored version for a `(projectId, commandType)` pair,
-   * ordered from oldest to newest. At typical v1.0 scale (`maxVersions`
-   * default 20), the array fits comfortably in memory.
+   * newest first (highest `version` number to lowest). At typical v1.0
+   * scale (`maxVersions` default 20), the array fits comfortably in memory.
    */
   listVersions(projectId: string, commandType: string): Promise<HarnessVersion[]>
 
   /**
-   * Prune older versions, keeping at most `keep` records for the pair.
-   * Implementations should preserve:
-   *   1. the latest version (highest `version` number),
-   *   2. the parent chain of the best-H version on record,
-   * and drop the remainder starting from the oldest.
+   * Prune older versions for a `(projectId, commandType)` pair, keeping at
+   * most `keep` records. Returns the number of versions deleted.
    *
-   * Returns the number of versions deleted.
+   * Which records are preserved vs. dropped is an implementation concern —
+   * the contract only guarantees that at most `keep` versions remain. See
+   * the concrete store for its retention policy.
    */
   pruneOldVersions(
     projectId: string,
@@ -111,9 +117,13 @@ export interface IHarnessStore {
   ): Promise<number>
 
   /**
-   * Set the `userFeedback` field on a stored outcome. `null` clears a prior
-   * flag (distinct from "never flagged" which is `undefined` on the
+   * Set the `userFeedback` field on a stored outcome identified by the
+   * composite key `(projectId, commandType, outcomeId)`. `null` clears a
+   * prior flag (distinct from "never flagged" which is `undefined` on the
    * record).
+   *
+   * Requires the partition key because outcomes are stored under
+   * `(projectId, commandType)` — a bare id lookup would force a scan.
    *
    * This method does NOT insert synthetic weighted outcomes — that is the
    * caller's responsibility (Phase 2's `HarnessOutcomeRecorder.attachFeedback`
@@ -121,7 +131,12 @@ export interface IHarnessStore {
    * 1× for `'good'` per the design's weighting policy). Keeping the store
    * primitive means the policy can evolve without a storage-layer edit.
    */
-  recordFeedback(outcomeId: string, verdict: 'bad' | 'good' | null): Promise<void>
+  recordFeedback(
+    projectId: string,
+    commandType: string,
+    outcomeId: string,
+    verdict: 'bad' | 'good' | null,
+  ): Promise<void>
 
   /**
    * Persist a code_exec outcome. Includes the raw outcome fields plus the
@@ -140,9 +155,11 @@ export interface IHarnessStore {
 
   /**
    * Persist a new harness version. Templates bootstrap as v1; refinements
-   * write v2, v3, … each pointing to a parent. Implementations must reject
-   * a version with a clashing `id` or a `(projectId, commandType, version)`
-   * tuple that already exists.
+   * write v2, v3, … each pointing to a parent.
+   *
+   * @throws {HarnessStoreError} with code `VERSION_CONFLICT` when a version
+   *   with the same `id`, or the same `(projectId, commandType, version)`
+   *   tuple, already exists.
    */
   saveVersion(version: HarnessVersion): Promise<void>
 }

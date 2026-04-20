@@ -8,7 +8,7 @@ import {
   HarnessModeSchema,
   HarnessVersionSchema,
   ProjectTypeSchema,
-} from '../../../../src/agent/infra/harness/types.js'
+} from '../../../../src/agent/core/domain/harness/types.js'
 
 describe('autoharness-v2 types and schemas', () => {
   // ─── Enums ────────────────────────────────────────────────────────────────
