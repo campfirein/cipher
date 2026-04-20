@@ -16,7 +16,7 @@ import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {ICurateService} from '../../../../src/agent/core/interfaces/i-curate-service.js'
 import type {IFileSystem} from '../../../../src/agent/core/interfaces/i-file-system.js'
-import type {HarnessConfig} from '../../../../src/agent/infra/agent/agent-schemas.js'
+import type {ValidatedHarnessConfig} from '../../../../src/agent/infra/agent/agent-schemas.js'
 import type {ISearchKnowledgeService} from '../../../../src/agent/infra/sandbox/tools-sdk.js'
 
 import {SandboxService} from '../../../../src/agent/infra/sandbox/sandbox-service.js'
@@ -221,9 +221,9 @@ describe('SandboxService', () => {
   })
 
   describe('setHarnessConfig', () => {
-    it('stores the harness config block for later phases to consume', () => {
+    it('stores the harness config block for later consumers', () => {
       const service = new SandboxService()
-      const config: HarnessConfig = {
+      const config: ValidatedHarnessConfig = {
         autoLearn: true,
         enabled: true,
         language: 'typescript',
@@ -232,10 +232,11 @@ describe('SandboxService', () => {
 
       service.setHarnessConfig(config)
 
-      // Phase 0 wires the config through; consumers land in Phase 2/3. Until a
-      // consumer exists, the only observable effect is the stored field, so
-      // reach in through a narrow cast rather than exposing a public getter.
-      const internal = service as unknown as {harnessConfig?: HarnessConfig}
+      // No consumer reads `harnessConfig` yet, so there is no observable
+      // effect to assert — reach through a narrow cast to the private field.
+      // Coupled to the field name by string: a rename will not fail the cast
+      // at compile time, so update both together.
+      const internal = service as unknown as {harnessConfig?: ValidatedHarnessConfig}
       expect(internal.harnessConfig).to.deep.equal(config)
     })
   })

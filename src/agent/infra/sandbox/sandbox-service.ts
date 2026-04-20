@@ -5,7 +5,7 @@ import type { ICurateService } from '../../core/interfaces/i-curate-service.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
 import type { ISwarmCoordinator } from '../../core/interfaces/i-swarm-coordinator.js'
-import type { HarnessConfig } from '../agent/agent-schemas.js'
+import type { ValidatedHarnessConfig } from '../agent/agent-schemas.js'
 import type { SessionManager } from '../session/session-manager.js'
 import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
 
@@ -28,8 +28,8 @@ export class SandboxService implements ISandboxService {
   private environmentContext?: EnvironmentContext
   /** File system service for Tools SDK */
   private fileSystem?: IFileSystem
-  /** AutoHarness V2 config block; consumed by Phase 2 (outcome recording) and Phase 3 (harness load). */
-  private harnessConfig?: HarnessConfig
+  /** AutoHarness V2 config block, wired in before any session is created. */
+  private harnessConfig?: ValidatedHarnessConfig
   /** Variables buffered before sandbox creation, keyed by sessionId */
   private pendingVariables = new Map<string, Record<string, unknown>>()
   /** Command type used to build each sandbox's ToolsSDK, keyed by sessionId */
@@ -194,14 +194,13 @@ export class SandboxService implements ISandboxService {
   }
 
   /**
-   * Set the AutoHarness V2 config block. Stored once per service; later
-   * phases read individual fields (`enabled`, `autoLearn`, `language`,
-   * `modeOverride`) from the block. Consumers land in Phase 2 and 3 —
-   * this setter only wires the config through in v1.0 Phase 0.
+   * Wire in the AutoHarness V2 config block. Consumers read individual
+   * flags (`enabled`, `autoLearn`, `language`, `modeOverride`) off the
+   * stored block; a config update requires another `setHarnessConfig` call.
    *
    * @param config - Harness config block from `AgentConfig.harness`
    */
-  setHarnessConfig(config: HarnessConfig): void {
+  setHarnessConfig(config: ValidatedHarnessConfig): void {
     this.harnessConfig = config
   }
 

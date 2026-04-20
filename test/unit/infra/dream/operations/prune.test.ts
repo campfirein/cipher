@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {mkdir, stat, utimes, writeFile} from 'node:fs/promises'
+import {mkdir, mkdtemp, rm, stat, utimes, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {restore, type SinonStub, stub} from 'sinon'
@@ -65,9 +65,12 @@ describe('prune', () => {
   let deps: PruneDeps
 
   beforeEach(async () => {
-    ctxDir = join(tmpdir(), `brv-prune-test-${Date.now()}`)
+    // mkdtemp atomically creates a uniquely-named dir; Date.now() is only
+    // millisecond-resolution and collides between tests under full-suite
+    // load, causing stale files from a previous test to leak into the
+    // next one's candidate scan.
+    ctxDir = await mkdtemp(join(tmpdir(), 'brv-prune-test-'))
     projectRoot = ctxDir // simplified for tests — prune uses ctxDir directly
-    await mkdir(ctxDir, {recursive: true})
 
     agent = {
       createTaskSession: stub().resolves('session-1'),
@@ -104,8 +107,9 @@ describe('prune', () => {
     }
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     restore()
+    await rm(ctxDir, {force: true, recursive: true})
   })
 
   // ── Preconditions ─────────────────────────────────────────────────────────
