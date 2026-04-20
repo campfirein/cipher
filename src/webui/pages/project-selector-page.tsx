@@ -28,7 +28,6 @@ export function ProjectSelectorPage() {
     queryConfig: {
       enabled: isConnected,
       refetchInterval: 3000,
-      refetchIntervalInBackground: true,
       refetchOnWindowFocus: true,
       retry: 1,
       staleTime: 10_000,

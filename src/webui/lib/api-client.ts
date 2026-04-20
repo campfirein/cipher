@@ -37,7 +37,7 @@ export class BrvApiClient {
   ): Promise<TResponse> {
     return new Promise<TResponse>((resolve, reject) => {
       let didFinish = false
-      const timeout = options?.timeout || DEFAULT_REQUEST_TIMEOUT_MS
+      const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS
       const timeoutId = globalThis.setTimeout(() => {
         didFinish = true
         reject(new Error(`Request timed out after ${timeout}ms`))
