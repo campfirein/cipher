@@ -2,13 +2,8 @@ import {createHash, sign} from 'node:crypto'
 
 import type {ParsedSSHKey, SSHSignatureResult} from './types.js'
 
-// sshsig constants
-// PROTOCOL.sshsig defines MAGIC_PREAMBLE as `byte[6] "SSHSIG"` (no null
-// terminator) for both the envelope and the signed-data structure. The OpenSSH
-// C source uses `MAGIC_PREAMBLE_LEN = sizeof("SSHSIG") - 1`, i.e. 6 bytes.
-// Adding the null byte produces signatures that fail `ssh-keygen -Y verify`
-// and `git verify-commit`.
-export const SSHSIG_MAGIC = Buffer.from('SSHSIG')
+import {SSHSIG_MAGIC} from './sshsig-constants.js'
+
 const SSHSIG_VERSION = 1
 const NAMESPACE = 'git'
 const HASH_ALGORITHM = 'sha512'
