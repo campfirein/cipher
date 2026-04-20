@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {generateKeyPairSync} from 'node:crypto'
+import {generateKeyPairSync, sign} from 'node:crypto'
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -196,7 +196,7 @@ describe('probeSSHKey()', () => {
     }
 
     if (!(caught instanceof Error)) {
-      expect.fail(`Expected Error, got ${typeof caught}`)
+      expect.fail('probeSSHKey must throw for unsupported key type, not return needsPassphrase:true')
     }
 
     expect(caught.message).to.match(/Unsupported OpenSSH key type/)
@@ -274,7 +274,6 @@ describe('parseSSHPrivateKey()', () => {
   })
 
   it('privateKeyObject is a valid KeyObject that can sign', async () => {
-    const {sign} = await import('node:crypto')
     const parsed = await parseSSHPrivateKey(keyPath)
 
     // Ed25519 uses sign(null, data, key) — algorithm is implicit
