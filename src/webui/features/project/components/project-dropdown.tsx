@@ -93,16 +93,16 @@ type OpenProjectItemProps = {
   isSelected: boolean
   onSelect: () => void
   project: ProjectLocationDTO
+  webAppUrl: string | undefined
 }
 
-function OpenProjectItem({isSelected, onSelect, project}: OpenProjectItemProps) {
+function OpenProjectItem({isSelected, onSelect, project, webAppUrl}: OpenProjectItemProps) {
   const name = getProjectName(project.projectPath)
   const {data: projectConfig} = useGetProjectConfig({projectPath: project.projectPath})
-  const {data: envConfig} = useGetEnvironmentConfig()
   const teamName = projectConfig?.brvConfig?.teamName
   const spaceName = projectConfig?.brvConfig?.spaceName
   const remoteLabel = teamName && spaceName ? `${teamName} / ${spaceName}` : undefined
-  const remoteSpaceUrl = buildRemoteSpaceUrl({spaceName, teamName, webAppUrl: envConfig?.webAppUrl})
+  const remoteSpaceUrl = buildRemoteSpaceUrl({spaceName, teamName, webAppUrl})
 
   return (
     <DropdownMenuSub>
@@ -138,6 +138,7 @@ export function ProjectDropdown() {
       staleTime: 30 * 1000,
     },
   })
+  const {data: envConfig} = useGetEnvironmentConfig()
 
   const projects = useMemo(() => projResp?.locations ?? [], [projResp])
   const {openProjects, recentProjects} = useMemo(() => {
@@ -186,6 +187,7 @@ export function ProjectDropdown() {
                   key={p.projectPath}
                   onSelect={() => handleSelect(p)}
                   project={p}
+                  webAppUrl={envConfig?.webAppUrl}
                 />
               ))}
 
