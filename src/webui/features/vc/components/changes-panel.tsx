@@ -8,6 +8,7 @@ import type { ChangeFile } from '../types'
 
 import successTick from '../../../assets/success-tick.svg'
 import { formatError } from '../../../lib/error-messages'
+import { useAuthStore } from '../../auth/stores/auth-store'
 import { useVcAdd } from '../api/execute-vc-add'
 import { useVcCommit } from '../api/execute-vc-commit'
 import { useVcMergeAbort } from '../api/execute-vc-merge-abort'
@@ -39,6 +40,7 @@ async function runAction(promise: Promise<unknown>, errorMsg: string): Promise<v
 
 export function ChangesPanel() {
   const navigate = useNavigate()
+  const isAuthenticated = useAuthStore((s) => s.isAuthorized)
   const { data: status, isFetching, isLoading, refetch } = useGetVcStatus()
   const [selectedKey, setSelectedKey] = useState<string | undefined>()
   const [viewMode, setViewMode] = useState<ViewMode>('single')
@@ -221,23 +223,6 @@ export function ChangesPanel() {
 
   const hasAnyChanges = staged.length + unstaged.length + unmerged.length > 0
 
-  if (!hasAnyChanges) {
-    return (
-      <div className="flex h-full w-full flex-col items-center justify-center rounded-md">
-        <img alt="" className="size-30 mb-6" src={successTick} />
-        <div className="flex flex-col items-center gap-1 text-center mb-5">
-          <p className="text-foreground text-base font-medium">No changes detected</p>
-          <p className="text-muted-foreground max-w-xs text-xs">
-            Your workspace is up to date. Any modifications to your files will appear here.
-          </p>
-        </div>
-        <Button className="w-37" disabled={isFetching} onClick={() => refetch()} variant="secondary">
-          Refresh
-        </Button>
-      </div>
-    )
-  }
-
   return (
     <div className="flex h-full w-full">
       <aside className="border-border flex h-full w-80 shrink-0 flex-col gap-2">
@@ -247,6 +232,7 @@ export function ChangesPanel() {
           branch={status.branch}
           hasTracking={Boolean(status.trackingBranch)}
           isAborting={mergeAbortMutation.isPending}
+          isAuthenticated={isAuthenticated}
           isPulling={pullMutation.isPending}
           isPushing={pushMutation.isPending}
           mergeInProgress={status.mergeInProgress}
@@ -327,10 +313,23 @@ export function ChangesPanel() {
         {viewMode === 'single' &&
           (selectedFile ? (
             <DiffView file={selectedFile} onOpenFile={handleOpenInContext} onStageToggle={handleStageToggle} />
-          ) : (
+          ) : hasAnyChanges ? (
             <div className="bg-card text-secondary-foreground flex h-full flex-col items-center justify-center gap-3 rounded-md text-sm">
               <FileText className="size-8" strokeWidth={1.25} />
               <p>Select a file to view changes</p>
+            </div>
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center rounded-md bg-card">
+              <img alt="" className="size-30 mb-6" src={successTick} />
+              <div className="flex flex-col items-center gap-1 text-center mb-5">
+                <p className="text-foreground text-base font-medium">No changes detected</p>
+                <p className="text-muted-foreground max-w-xs text-xs">
+                  Your workspace is up to date. Any modifications to your files will appear here.
+                </p>
+              </div>
+              <Button className="w-37" disabled={isFetching} onClick={() => refetch()} variant="secondary">
+                Refresh
+              </Button>
             </div>
           ))}
       </main>

@@ -82,16 +82,16 @@ export function ProviderActionStep({error, onAction, onBack, provider}: Provider
         )}
       </div>
 
-      <DialogFooter className="mt-auto">
-        <Button onClick={onBack} variant="secondary">
-          Cancel
-        </Button>
-        {!provider.isCurrent && (
+      {!provider.isCurrent && (
+        <DialogFooter className="mt-auto">
+          <Button onClick={onBack} variant="secondary">
+            Cancel
+          </Button>
           <Button onClick={() => onAction('activate')}>
             Active
           </Button>
-        )}
-      </DialogFooter>
+        </DialogFooter>
+      )}
     </div>
   )
 }

@@ -6,8 +6,8 @@ const OVERRIDES: Record<string, string> = {
   ERR_PROVIDER_NOT_CONFIGURED: 'No provider is connected, or its credentials are missing or expired.',
   // Version control
   ERR_VC_ALREADY_INITIALIZED: 'Version control is already initialized for this project.',
-  ERR_VC_AUTH_FAILED: 'Authentication failed. Sign in with the avatar in the top-right and try again.',
-  ERR_VC_BRANCH_NOT_FOUND: "Branch not found. Create it from the branch bar's branch switcher.",
+  ERR_VC_AUTH_FAILED: 'Authentication failed. Please sign in and try again.',
+  ERR_VC_BRANCH_NOT_FOUND: "Branch not found. You can create a new branch if needed.",
   ERR_VC_NO_COMMITS: 'Make at least one commit before continuing.',
   ERR_VC_NO_REMOTE: 'No remote is configured yet. Set one up before using pull, push, or fetch.',
   ERR_VC_NO_UPSTREAM:
@@ -15,7 +15,7 @@ const OVERRIDES: Record<string, string> = {
   ERR_VC_NON_FAST_FORWARD: 'The remote has changes. Pull first, then try again.',
   ERR_VC_NOTHING_TO_PUSH: 'Nothing to push — stage and commit your changes first.',
   ERR_VC_REMOTE_ALREADY_EXISTS: "A remote named 'origin' already exists. Remove or rename it before adding a new one.",
-  ERR_VC_USER_NOT_CONFIGURED: 'Configure your commit author name and email in Configuration before committing.',
+  ERR_VC_USER_NOT_CONFIGURED: 'Set commit author via `brv vc config` before committing.',
 }
 
 const DEFAULT_FALLBACK = 'Something went wrong'
