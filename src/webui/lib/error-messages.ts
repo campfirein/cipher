@@ -1,5 +1,11 @@
+export interface ErrorContext {
+  projectPath?: string
+}
+
+type OverrideValue = ((ctx: ErrorContext) => string) | string
+
 // Override map for daemon error codes whose messages reference CLI-only affordances (REPL slash-commands, brv shell).
-const OVERRIDES: Record<string, string> = {
+const OVERRIDES: Record<string, OverrideValue> = {
   // Auth / providers
   ERR_NOT_AUTHENTICATED: 'Please sign in to continue.',
 
@@ -15,7 +21,10 @@ const OVERRIDES: Record<string, string> = {
   ERR_VC_NON_FAST_FORWARD: 'The remote has changes. Pull first, then try again.',
   ERR_VC_NOTHING_TO_PUSH: 'Nothing to push — stage and commit your changes first.',
   ERR_VC_REMOTE_ALREADY_EXISTS: "A remote named 'origin' already exists. Remove or rename it before adding a new one.",
-  ERR_VC_USER_NOT_CONFIGURED: 'Set commit author via `brv vc config` before committing.',
+  ERR_VC_USER_NOT_CONFIGURED: ({projectPath}) =>
+    projectPath
+      ? `Please run \`brv vc config\` in "${projectPath}" to set your commit author before committing.`
+      : 'Please run `brv vc config` inside your project to set commit author before committing.',
 }
 
 const DEFAULT_FALLBACK = 'Something went wrong'
@@ -24,9 +33,12 @@ function hasStringProp<K extends string>(value: unknown, key: K): value is Recor
   return typeof value === 'object' && value !== null && key in value && typeof (value as Record<K, unknown>)[key] === 'string'
 }
 
-export function formatError(error: unknown, fallback: string = DEFAULT_FALLBACK): string {
-  if (hasStringProp(error, 'code') && OVERRIDES[error.code]) {
-    return OVERRIDES[error.code]
+export function formatError(error: unknown, fallback: string = DEFAULT_FALLBACK, context: ErrorContext = {}): string {
+  if (hasStringProp(error, 'code')) {
+    const override = OVERRIDES[error.code]
+    if (override !== undefined) {
+      return typeof override === 'function' ? override(context) : override
+    }
   }
 
   if (hasStringProp(error, 'message')) {

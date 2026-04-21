@@ -38,4 +38,30 @@ describe('formatError', () => {
   it('returns the default fallback when none is provided and the error has no message', () => {
     expect(formatError({})).to.equal('Something went wrong')
   })
+
+  describe('context-aware overrides', () => {
+    it('includes the project path in the USER_NOT_CONFIGURED override when context is provided', () => {
+      const error = {code: 'ERR_VC_USER_NOT_CONFIGURED', message: 'raw server message'}
+      const result = formatError(error, 'fallback copy', {projectPath: '/Users/thien/my-proj'})
+
+      expect(result).to.include('/Users/thien/my-proj')
+      expect(result).to.include('brv vc config')
+    })
+
+    it('falls back to a generic USER_NOT_CONFIGURED override when no project path is supplied', () => {
+      const error = {code: 'ERR_VC_USER_NOT_CONFIGURED', message: 'raw server message'}
+      const result = formatError(error)
+
+      expect(result).to.include('brv vc config')
+      expect(result).to.not.include('undefined')
+    })
+
+    it('ignores context for non-function overrides', () => {
+      const error = {code: 'ERR_PROVIDER_NOT_CONFIGURED', message: 'raw'}
+      const withCtx = formatError(error, 'fallback copy', {projectPath: '/Users/thien/proj'})
+      const withoutCtx = formatError(error)
+
+      expect(withCtx).to.equal(withoutCtx)
+    })
+  })
 })
