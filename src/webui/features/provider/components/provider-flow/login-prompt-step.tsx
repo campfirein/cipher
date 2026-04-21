@@ -81,8 +81,10 @@ export function LoginPromptStep({onAuthenticated, onBack}: LoginPromptStepProps)
   async function handleSignIn() {
     setLoggingIn(true)
     // Open the popup synchronously to keep the user-gesture context — browsers
-    // block window.open() if it lands inside an async callback.
-    const popup = window.open('', '_blank', 'noopener,noreferrer')
+    // block window.open() if it lands inside an async callback. `noopener` is
+    // intentionally omitted so we get a window reference and can navigate it
+    // once the auth URL arrives.
+    const popup = window.open('about:blank', '_blank')
     setState({type: 'starting'})
 
     try {
@@ -92,7 +94,7 @@ export function LoginPromptStep({onAuthenticated, onBack}: LoginPromptStepProps)
         throw new Error('Received an unsafe OAuth URL from the daemon')
       }
 
-      if (popup) {
+      if (popup && !popup.closed) {
         popup.location.href = response.authUrl
       } else {
         window.open(response.authUrl, '_blank', 'noopener,noreferrer')
