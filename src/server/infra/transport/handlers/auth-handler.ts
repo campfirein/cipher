@@ -1,3 +1,5 @@
+import type {UserDTO} from '../../../../shared/transport/types/dto.js'
+import type {User} from '../../../core/domain/entities/user.js'
 import type {IAuthService} from '../../../core/interfaces/auth/i-auth-service.js'
 import type {ICallbackHandler} from '../../../core/interfaces/auth/i-callback-handler.js'
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
@@ -15,11 +17,27 @@ import {
   type AuthLoginWithApiKeyResponse,
   type AuthLogoutResponse,
   type AuthRefreshResponse,
+  type AuthStartLoginRequest,
   type AuthStartLoginResponse,
 } from '../../../../shared/transport/events/auth-events.js'
 import {AuthToken} from '../../../core/domain/entities/auth-token.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
 import {processLog} from '../../../utils/process-logger.js'
+
+function toUserDTO(user: User): UserDTO {
+  const dto: UserDTO = {
+    email: user.email,
+    hasOnboardedCli: user.hasOnboardedCli,
+    id: user.id,
+    name: user.name,
+  }
+
+  if (user.avatarUrl !== undefined) {
+    dto.avatarUrl = user.avatarUrl
+  }
+
+  return dto
+}
 
 export interface AuthHandlerDeps {
   authService: IAuthService
@@ -86,7 +104,7 @@ export class AuthHandler {
 
       this.transport.broadcast(AuthEvents.STATE_CHANGED, {
         isAuthorized: true,
-        user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id, name: user.name},
+        user: toUserDTO(user),
       })
     } catch {
       // Network/API error fetching user info — broadcast authorized state without user details.
@@ -124,12 +142,12 @@ export class AuthHandler {
 
       this.transport.broadcast(AuthEvents.LOGIN_COMPLETED, {
         success: true,
-        user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id, name: user.name},
+        user: toUserDTO(user),
       })
 
       this.transport.broadcast(AuthEvents.STATE_CHANGED, {
         isAuthorized: true,
-        user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id, name: user.name},
+        user: toUserDTO(user),
       })
     } catch (error) {
       this.transport.broadcast(AuthEvents.LOGIN_COMPLETED, {
@@ -203,12 +221,7 @@ export class AuthHandler {
               }
             : undefined,
           isAuthorized: true,
-          user: {
-            email: user.email,
-            hasOnboardedCli: user.hasOnboardedCli,
-            id: user.id,
-            name: user.name,
-          },
+          user: toUserDTO(user),
         }
       } catch {
         return {isAuthorized: false}
@@ -238,7 +251,7 @@ export class AuthHandler {
 
           this.transport.broadcast(AuthEvents.STATE_CHANGED, {
             isAuthorized: true,
-            user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id, name: user.name},
+            user: toUserDTO(user),
           })
 
           return {success: true, userEmail: user.email}
@@ -288,7 +301,7 @@ export class AuthHandler {
 
         this.transport.broadcast(AuthEvents.STATE_CHANGED, {
           isAuthorized: true,
-          user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id, name: user.name},
+          user: toUserDTO(user),
         })
 
         return {success: true}
@@ -299,28 +312,34 @@ export class AuthHandler {
   }
 
   private setupStartLogin(): void {
-    this.transport.onRequest<void, AuthStartLoginResponse>(AuthEvents.START_LOGIN, async () => {
-      await this.callbackHandler.start()
-      const port = this.callbackHandler.getPort()
-      if (!port) {
-        throw new Error('Failed to start callback server')
-      }
+    this.transport.onRequest<AuthStartLoginRequest | undefined, AuthStartLoginResponse>(
+      AuthEvents.START_LOGIN,
+      async (request) => {
+        await this.callbackHandler.start()
+        const port = this.callbackHandler.getPort()
+        if (!port) {
+          throw new Error('Failed to start callback server')
+        }
 
-      const redirectUri = `http://localhost:${port}/callback`
-      const authContext = this.authService.initiateAuthorization(redirectUri)
+        const redirectUri = `http://localhost:${port}/callback`
+        const authContext = this.authService.initiateAuthorization(redirectUri)
 
-      // Open browser (non-blocking, don't fail if it can't open)
-      try {
-        await this.browserLauncher.open(authContext.authUrl)
-      } catch {
-        // Browser open failed — TUI will show URL
-      }
+        // Open browser unless the caller wants to handle it (e.g. web UI uses window.open).
+        // Non-blocking, don't fail if it can't open.
+        if (!request?.skipBrowserLaunch) {
+          try {
+            await this.browserLauncher.open(authContext.authUrl)
+          } catch {
+            // Browser open failed — TUI will show URL
+          }
+        }
 
-      // Wait for callback in background, then complete login
-      this.waitForLoginCallback(authContext, redirectUri)
+        // Wait for callback in background, then complete login
+        this.waitForLoginCallback(authContext, redirectUri)
 
-      return {authUrl: authContext.authUrl}
-    })
+        return {authUrl: authContext.authUrl}
+      },
+    )
   }
 
   private waitForLoginCallback(authContext: {authUrl: string; state: string}, redirectUri: string): void {

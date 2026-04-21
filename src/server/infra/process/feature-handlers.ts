@@ -52,6 +52,7 @@ import {
   AuthHandler,
   ConfigHandler,
   ConnectorsHandler,
+  ContextTreeHandler,
   HubHandler,
   InitHandler,
   LocationsHandler,
@@ -81,6 +82,7 @@ export interface FeatureHandlersOptions {
   providerOAuthTokenStore: IProviderOAuthTokenStore
   resolveProjectPath: ProjectPathResolver
   transport: ITransportServer
+  webuiPort?: number
 }
 
 /**
@@ -98,6 +100,7 @@ export async function setupFeatureHandlers({
   providerOAuthTokenStore,
   resolveProjectPath,
   transport,
+  webuiPort,
 }: FeatureHandlersOptions): Promise<void> {
   const envConfig = getCurrentConfig()
   const tokenStore = createTokenStore()
@@ -167,11 +170,12 @@ export async function setupFeatureHandlers({
   new StatusHandler({
     contextTreeService,
     contextTreeSnapshotService,
-    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({ baseDir: getProjectDataDir(projectPath) }),
     projectConfigStore,
     resolveProjectPath,
     tokenStore,
     transport,
+    webuiPort,
   }).setup()
 
   new LocationsHandler({
@@ -200,13 +204,14 @@ export async function setupFeatureHandlers({
     contextFileReader,
     contextTreeService,
     contextTreeSnapshotService,
-    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({ baseDir: getProjectDataDir(projectPath) }),
     projectConfigStore,
     resolveProjectPath,
     reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
     tokenStore,
     transport,
     webAppUrl: envConfig.webAppUrl,
+    webuiPort,
   }).setup()
 
   new PullHandler({
@@ -224,16 +229,16 @@ export async function setupFeatureHandlers({
   new ResetHandler({
     contextTreeService,
     contextTreeSnapshotService,
-    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({ baseDir: getProjectDataDir(projectPath) }),
     resolveProjectPath,
     reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
     transport,
   }).setup()
 
   new ReviewHandler({
-    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
-    onResolved({projectPath, taskId}) {
-      broadcastToProject(projectPath, ReviewEvents.NOTIFY, {pendingCount: 0, reviewUrl: '', taskId})
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({ baseDir: getProjectDataDir(projectPath) }),
+    onResolved({ projectPath, taskId }) {
+      broadcastToProject(projectPath, ReviewEvents.NOTIFY, { pendingCount: 0, reviewUrl: '', taskId })
     },
     resolveProjectPath,
     reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
@@ -261,8 +266,8 @@ export async function setupFeatureHandlers({
     transport,
   }).setup()
 
-  const skillConnectorFactory = (projectRoot: string): SkillConnector => new SkillConnector({fileService, projectRoot})
-  const hubInstallService = new HubInstallService({fileService, skillConnectorFactory})
+  const skillConnectorFactory = (projectRoot: string): SkillConnector => new SkillConnector({ fileService, projectRoot })
+  const hubInstallService = new HubInstallService({ fileService, skillConnectorFactory })
   const hubRegistryConfigStore = new HubRegistryConfigStore()
   const hubKeychainStore = createHubKeychainStore()
 
@@ -305,9 +310,17 @@ export async function setupFeatureHandlers({
     webAppUrl: envConfig.webAppUrl,
   }).setup()
 
+  new ContextTreeHandler({
+    contextFileReader,
+    contextTreeService,
+    gitService,
+    resolveProjectPath,
+    transport,
+  }).setup()
+
   // Worktree & source handlers
-  new WorktreeHandler({resolveProjectPath, transport}).setup()
-  new SourceHandler({resolveProjectPath, transport}).setup()
+  new WorktreeHandler({ resolveProjectPath, transport }).setup()
+  new SourceHandler({ resolveProjectPath, transport }).setup()
 
   log('Feature handlers registered')
 }
