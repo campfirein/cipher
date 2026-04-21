@@ -25,6 +25,7 @@ import {useMemo, useState} from 'react'
 
 import {ProjectLocationDTO} from '../../../../shared/transport/events'
 import {useTransportStore} from '../../../stores/transport-store'
+import {isSafeHttpUrl} from '../../auth/utils/is-safe-http-url'
 import {useGetProjectConfig} from '../api/get-project-config'
 import {useGetProjectList} from '../api/get-project-list'
 import {displayPath} from '../utils/display-path'
@@ -99,7 +100,11 @@ function OpenProjectItem({isSelected, onSelect, project}: OpenProjectItemProps) 
   const teamName = projectConfig?.brvConfig?.teamName
   const spaceName = projectConfig?.brvConfig?.spaceName
   const remoteLabel = teamName && spaceName ? `${teamName} / ${spaceName}` : undefined
-  const remoteUrl = projectConfig?.remoteUrl
+  // Only open http(s) URLs — SSH remotes (git@host:…) can't open in a browser,
+  // and a tampered `.git/config` could otherwise smuggle `javascript:` / `file:` URIs.
+  const openableRemoteUrl = projectConfig?.remoteUrl && isSafeHttpUrl(projectConfig.remoteUrl)
+    ? projectConfig.remoteUrl
+    : undefined
 
   return (
     <DropdownMenuSub>
@@ -112,9 +117,9 @@ function OpenProjectItem({isSelected, onSelect, project}: OpenProjectItemProps) 
           <span className="text-sm">{isSelected ? 'Current project' : 'Switch to this project'}</span>
         </DropdownMenuItem>
         <DropdownMenuItem
-          disabled={!remoteUrl}
+          disabled={!openableRemoteUrl}
           onClick={() => {
-            if (remoteUrl) window.open(remoteUrl, '_blank', 'noopener,noreferrer')
+            if (openableRemoteUrl) window.open(openableRemoteUrl, '_blank', 'noopener,noreferrer')
           }}
         >
           <SquareArrowOutUpRight className="size-4" />

@@ -23,10 +23,9 @@
 
 import {GlobalInstanceManager} from '@campfirein/brv-transport-client'
 import express from 'express'
-import * as git from 'isomorphic-git'
 import {fork, type StdioOptions} from 'node:child_process'
 import {randomUUID} from 'node:crypto'
-import fs, {mkdirSync, readdirSync, readFileSync, unlinkSync} from 'node:fs'
+import {mkdirSync, readdirSync, readFileSync, unlinkSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 
@@ -38,7 +37,6 @@ import {
   AGENT_IDLE_TIMEOUT_MS,
   AGENT_POOL_MAX_SIZE,
   BRV_DIR,
-  CONTEXT_TREE_DIR,
   HEARTBEAT_FILE,
   WEBUI_DEFAULT_PORT,
 } from '../../constants.js'
@@ -53,6 +51,7 @@ import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
 import {ClientManager} from '../client/client-manager.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
+import {readContextTreeRemoteUrl} from '../context-tree/read-context-tree-remote.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
 import {DreamTrigger} from '../dream/dream-trigger.js'
 import {createReviewApiRouter} from '../http/review-api-handler.js'
@@ -84,15 +83,6 @@ import {HeartbeatWriter} from './heartbeat.js'
 import {IdleTimeoutPolicy} from './idle-timeout-policy.js'
 import {selectDaemonPort} from './port-selector.js'
 import {ShutdownHandler} from './shutdown-handler.js'
-
-async function readContextTreeRemoteUrl(projectPath: string, remote = 'origin'): Promise<string | undefined> {
-  const dir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
-  try {
-    return await git.getConfig({dir, fs, path: `remote.${remote}.url`})
-  } catch {
-    return undefined
-  }
-}
 
 function log(msg: string): void {
   processLog(`[Daemon] ${msg}`)
