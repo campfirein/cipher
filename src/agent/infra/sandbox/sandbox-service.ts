@@ -1,13 +1,21 @@
 import type { EnvironmentContext } from '../../core/domain/environment/types.js'
-import type { ProjectType } from '../../core/domain/harness/types.js'
+import type {
+  HarnessContext,
+  HarnessLoadResult,
+  HarnessMeta,
+  HarnessModule,
+  ProjectType,
+} from '../../core/domain/harness/types.js'
 import type { REPLResult, SandboxConfig } from '../../core/domain/sandbox/types.js'
 import type { IContentGenerator } from '../../core/interfaces/i-content-generator.js'
 import type { ICurateService } from '../../core/interfaces/i-curate-service.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
+import type { IHarnessStore } from '../../core/interfaces/i-harness-store.js'
 import type { ILogger } from '../../core/interfaces/i-logger.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
 import type { ISwarmCoordinator } from '../../core/interfaces/i-swarm-coordinator.js'
 import type { ValidatedHarnessConfig } from '../agent/agent-schemas.js'
+import type { HarnessModuleBuilder } from '../harness/harness-module-builder.js'
 import type { HarnessOutcomeRecorder } from '../harness/harness-outcome-recorder.js'
 import type { SessionManager } from '../session/session-manager.js'
 import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
@@ -16,6 +24,19 @@ import { ProjectTypeSchema } from '../../core/domain/harness/types.js'
 import {CurateResultCollector} from './curate-result-collector.js'
 import { LocalSandbox } from './local-sandbox.js'
 import { createToolsSDK } from './tools-sdk.js'
+
+/**
+ * Per-session harness state captured after a successful `loadHarness`.
+ * Holds the callable module + the metadata the template declared, so
+ * subsequent `executeCode` calls can inject `harness.*` into the
+ * sandbox context without re-invoking the module builder.
+ */
+interface SessionHarnessState {
+  readonly commandType: 'chat' | 'curate' | 'query'
+  readonly meta: HarnessMeta
+  readonly module: HarnessModule
+  readonly projectType: ProjectType
+}
 
 /**
  * Sandbox service implementation.
@@ -34,8 +55,12 @@ export class SandboxService implements ISandboxService {
   private fileSystem?: IFileSystem
   /** AutoHarness V2 config block, wired in before any session is created. */
   private harnessConfig?: ValidatedHarnessConfig
+  /** AutoHarness V2 module builder — evaluates harness code per session. */
+  private harnessModuleBuilder?: HarnessModuleBuilder
   /** AutoHarness V2 outcome recorder — fire-and-forget from executeCode. */
   private harnessOutcomeRecorder?: HarnessOutcomeRecorder
+  /** AutoHarness V2 storage — reads latest HarnessVersion on loadHarness. */
+  private harnessStore?: IHarnessStore
   /** Current harness version ID per session, populated by Phase 3 loadHarness. */
   private harnessVersionIdBySession = new Map<string, string>()
   /** Logger for defensive .catch on fire-and-forget record calls. */
@@ -48,6 +73,8 @@ export class SandboxService implements ISandboxService {
   private sandboxes = new Map<string, LocalSandbox>()
   /** Search knowledge service for Tools SDK */
   private searchKnowledgeService?: ISearchKnowledgeService
+  /** Per-session harness state after loadHarness; drives harness.* injection. */
+  private sessionHarnessStates = new Map<string, SessionHarnessState>()
   /** Session manager for sub-agent delegation via tools.agentQuery() */
   private sessionManager?: SessionManager
   /** Swarm coordinator for cross-provider query and store */
@@ -59,6 +86,7 @@ export class SandboxService implements ISandboxService {
   async cleanup(): Promise<void> {
     this.harnessOutcomeRecorder?.cleanup()
     this.harnessVersionIdBySession.clear()
+    this.sessionHarnessStates.clear()
     this.sandboxes.clear()
     this.sandboxCommandTypes.clear()
     this.pendingVariables.clear()
@@ -72,6 +100,7 @@ export class SandboxService implements ISandboxService {
   async clearSession(sessionId: string): Promise<void> {
     this.harnessOutcomeRecorder?.clearSession(sessionId)
     this.harnessVersionIdBySession.delete(sessionId)
+    this.sessionHarnessStates.delete(sessionId)
     this.sandboxes.delete(sessionId)
     this.sandboxCommandTypes.delete(sessionId)
     this.pendingVariables.delete(sessionId)
@@ -139,6 +168,15 @@ export class SandboxService implements ISandboxService {
         this.pendingVariables.delete(sessionId)
       }
 
+      // Inject harness.* namespace if a harness module is loaded for this
+      // session (via loadHarness()). When no harness is loaded, the
+      // sandbox context has no `harness` entry and user code runs
+      // against raw `tools.*` orchestration.
+      const harnessNs = this.buildHarnessNamespace(sessionId)
+      if (harnessNs !== undefined) {
+        initialContext.harness = harnessNs
+      }
+
       // Build per-session ToolsSDK (includes agentQuery bound to this sessionId)
       const sessionToolsSDK = this.buildToolsSDK(sessionId, config?.commandType)
 
@@ -192,6 +230,73 @@ export class SandboxService implements ISandboxService {
           })
       } catch (error) {
         this.logger?.warn('harness.record threw', {error})
+      }
+    }
+
+    return result
+  }
+
+  /**
+   * Load the latest harness version for `(projectId, commandType)` and
+   * register it on `sessionId` so future `executeCode` calls inject
+   * `harness.*` into the sandbox context.
+   *
+   * Never throws — every failure is encoded in the returned
+   * `HarnessLoadResult`. A `{loaded: false}` result leaves the session
+   * untouched; the sandbox continues with raw `tools.*` orchestration.
+   * On `{loaded: true}`, the method also populates
+   * `harnessVersionIdBySession` so Phase 2's recorder can attribute
+   * outcomes to the loaded version, and — if the session's sandbox
+   * already exists — injects `harness.*` into its context immediately.
+   *
+   * Harness mode is hardcoded to the Phase 3 "assisted" baseline;
+   * Phase 5's `HarnessModeSelector` will layer mode gating on top.
+   */
+  async loadHarness(
+    sessionId: string,
+    projectId: string,
+    commandType: 'chat' | 'curate' | 'query',
+  ): Promise<HarnessLoadResult> {
+    if (
+      this.harnessConfig?.enabled !== true ||
+      this.harnessStore === undefined ||
+      this.harnessModuleBuilder === undefined
+    ) {
+      return {loaded: false, reason: 'no-version'}
+    }
+
+    const version = await this.harnessStore.getLatest(projectId, commandType)
+    if (version === undefined) {
+      return {loaded: false, reason: 'no-version'}
+    }
+
+    const result = this.harnessModuleBuilder.build(version)
+    if (!result.loaded) {
+      this.logger?.warn('SandboxService.loadHarness: builder returned failure', {
+        commandType,
+        projectId,
+        reason: result.reason,
+        versionId: version.id,
+      })
+      return result
+    }
+
+    this.sessionHarnessStates.set(sessionId, {
+      commandType,
+      meta: result.module.meta(),
+      module: result.module,
+      projectType: this.resolveProjectType(),
+    })
+    this.harnessVersionIdBySession.set(sessionId, result.version.id)
+
+    // If the sandbox already exists, inject now. Otherwise `executeCode`
+    // picks up the namespace at sandbox-creation time via the
+    // `buildHarnessNamespace` check in the creation block.
+    const sandbox = this.sandboxes.get(sessionId)
+    if (sandbox !== undefined) {
+      const harnessNs = this.buildHarnessNamespace(sessionId)
+      if (harnessNs !== undefined) {
+        sandbox.updateContext({harness: harnessNs})
       }
     }
 
@@ -257,6 +362,15 @@ export class SandboxService implements ISandboxService {
   }
 
   /**
+   * Wire in the AutoHarness V2 module builder. `loadHarness` uses this
+   * to evaluate the `HarnessVersion.code` string returned by the store
+   * into a callable module.
+   */
+  setHarnessModuleBuilder(builder: HarnessModuleBuilder): void {
+    this.harnessModuleBuilder = builder
+  }
+
+  /**
    * Wire in the AutoHarness V2 outcome recorder. When set, every
    * `executeCode` call fire-and-forgets a `recorder.record(...)` with the
    * sandbox result. Errors from the recorder never propagate to the caller.
@@ -267,6 +381,15 @@ export class SandboxService implements ISandboxService {
   setHarnessOutcomeRecorder(recorder: HarnessOutcomeRecorder, logger?: ILogger): void {
     this.harnessOutcomeRecorder = recorder
     this.logger = logger
+  }
+
+  /**
+   * Wire in the AutoHarness V2 storage interface. `loadHarness` calls
+   * `store.getLatest(projectId, commandType)` to find the version to
+   * evaluate.
+   */
+  setHarnessStore(store: IHarnessStore): void {
+    this.harnessStore = store
   }
 
   /**
@@ -324,6 +447,74 @@ export class SandboxService implements ISandboxService {
   setSwarmCoordinator(swarmCoordinator: ISwarmCoordinator): void {
     this.swarmCoordinator = swarmCoordinator
     this.invalidateSandboxes()
+  }
+
+  /**
+   * Build the `harness.*` namespace for a session, or `undefined` if
+   * no harness is loaded. Each call to `harness.curate()` /
+   * `harness.query()` constructs a fresh `HarnessContext` so the
+   * `abort` signal and tool bindings are session-current. `meta`
+   * returns the captured metadata without re-invoking the VM.
+   */
+  private buildHarnessNamespace(sessionId: string): Record<string, unknown> | undefined {
+    const state = this.sessionHarnessStates.get(sessionId)
+    if (state === undefined) return undefined
+
+    const {commandType, meta, module, projectType} = state
+    const workingDirectory = this.environmentContext?.workingDirectory ?? ''
+
+    const buildCtx = (): HarnessContext => ({
+      // Phase 3 placeholder: a fresh signal per call. Phase 5's
+      // `AgentLLMService` hook will thread the session's real abort
+      // signal through so `ctx.abort` propagates user cancellation.
+      abort: new AbortController().signal,
+      env: {commandType, projectType, workingDirectory},
+      tools: this.buildHarnessTools(),
+    })
+
+    const ns: Record<string, unknown> = {
+      meta: (): HarnessMeta => meta,
+    }
+
+    if (module.curate !== undefined) {
+      const curateFn = module.curate
+      ns.curate = async (): Promise<unknown> => curateFn(buildCtx())
+    }
+
+    if (module.query !== undefined) {
+      const queryFn = module.query
+      ns.query = async (): Promise<unknown> => queryFn(buildCtx())
+    }
+
+    return ns
+  }
+
+  /**
+   * Build the `HarnessContext['tools']` surface by binding the two
+   * v1.0 methods (`curate`, `readFile`) to the service's real tool
+   * instances. Each bound function throws if the underlying service
+   * isn't wired — the harness code sees a normal runtime error rather
+   * than a silent no-op.
+   */
+  private buildHarnessTools(): HarnessContext['tools'] {
+    const {curateService} = this
+    const {fileSystem} = this
+    return {
+      async curate(operations, options) {
+        if (curateService === undefined) {
+          throw new Error('harness.ctx.tools.curate: no curate service wired')
+        }
+
+        return curateService.curate(operations, options)
+      },
+      async readFile(filePath, options) {
+        if (fileSystem === undefined) {
+          throw new Error('harness.ctx.tools.readFile: no file system wired')
+        }
+
+        return fileSystem.readFile(filePath, options)
+      },
+    }
   }
 
   /**

@@ -23,7 +23,7 @@ import { createBlobStorage } from '../blob/blob-storage-factory.js'
 import { EnvironmentContextBuilder } from '../environment/environment-context-builder.js'
 import { AgentEventBus, SessionEventBus } from '../events/event-emitter.js'
 import { FileSystemService } from '../file-system/file-system-service.js'
-import { HarnessOutcomeRecorder, HarnessStore } from '../harness/index.js'
+import { HarnessModuleBuilder, HarnessOutcomeRecorder, HarnessStore } from '../harness/index.js'
 import { AgentLLMService } from '../llm/agent-llm-service.js'
 import { CompactionService } from '../llm/context/compaction/compaction-service.js'
 import { EscalatedCompressionStrategy } from '../llm/context/compression/escalated-compression.js'
@@ -262,6 +262,16 @@ export async function createCipherAgentServices(
     config.harness,
   )
   sandboxService.setHarnessOutcomeRecorder(harnessOutcomeRecorder, logger)
+
+  // Phase 3 Task 3.3: wire the module builder + store into the sandbox so
+  // `SandboxService.loadHarness(...)` can evaluate stored versions into
+  // callable `harness.*` namespaces. No consumer calls `loadHarness` yet
+  // in v1.0 — Phase 5's mode-selector + AgentLLMService hook is the first.
+  const harnessModuleBuilder = new HarnessModuleBuilder(
+    logger.withSource('HarnessModuleBuilder'),
+  )
+  sandboxService.setHarnessModuleBuilder(harnessModuleBuilder)
+  sandboxService.setHarnessStore(harnessStore)
 
   // 6c. Swarm coordinator — try to load config and build providers.
   // Missing config → fail-open (no swarm). Invalid config → warn but continue.
