@@ -47,7 +47,12 @@ async function generateIds(s: FileQueryLogStore, count: number): Promise<string[
   return ids
 }
 
-/** Poll until the .json file count in dir stabilises (two consecutive reads match). */
+/**
+ * Poll until the .json file count in dir stabilises. Requires 5 consecutive
+ * stable readings (25ms of no change) to avoid a race under slow CI where the
+ * async prune hasn't started yet — two consecutive identical pre-prune counts
+ * would otherwise declare "settled" before any work happened.
+ */
 async function waitForPruneToSettle(dir: string): Promise<void> {
   const count = async (): Promise<number> => {
     try {
@@ -58,15 +63,22 @@ async function waitForPruneToSettle(dir: string): Promise<void> {
     }
   }
 
+  let stable = 0
   let prev = await count()
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 200; i++) {
     // eslint-disable-next-line no-await-in-loop
     await new Promise((r) => {
-      setTimeout(r, 2)
+      setTimeout(r, 5)
     })
     // eslint-disable-next-line no-await-in-loop
     const cur = await count()
-    if (cur === prev) return
+    if (cur === prev) {
+      stable++
+      if (stable >= 5) return
+    } else {
+      stable = 0
+    }
+
     prev = cur
   }
 }
