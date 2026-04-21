@@ -101,8 +101,10 @@ export function createCodeExecTool(sandboxService: ISandboxService): Tool {
       const result = await sandboxService.executeCode(code, sessionId, {
         commandType: context?.commandType,
         contextPayload,
+        conversationTurn: context?.conversationTurn,
         language,
         maxStdoutChars,
+        taskDescription: context?.taskDescription,
         timeout,
       })
 

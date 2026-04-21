@@ -178,12 +178,14 @@ export class SandboxService implements ISandboxService {
           .record({
             code,
             commandType,
+            conversationTurn: config?.conversationTurn,
             executionTimeMs: result.executionTime,
             harnessVersionId: this.harnessVersionIdBySession.get(sessionId),
             projectId: this.environmentContext.workingDirectory,
             projectType: this.resolveProjectType(),
             result,
             sessionId,
+            taskDescription: config?.taskDescription,
           })
           .catch((error: unknown) => {
             this.logger?.warn('harness.record rejected', {error})
