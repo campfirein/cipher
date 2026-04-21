@@ -117,6 +117,11 @@ export class AuthHandler {
 
       await this.tokenStore.save(authToken)
 
+      // Refresh the daemon's cached auth state immediately so that
+      // subsequent provider:connect / provider:setActive calls see the
+      // new token without waiting for the next 5-second poll cycle.
+      await this.authStateStore.loadToken()
+
       this.transport.broadcast(AuthEvents.LOGIN_COMPLETED, {
         success: true,
         user: {email: user.email, hasOnboardedCli: user.hasOnboardedCli, id: user.id, name: user.name},
@@ -229,6 +234,7 @@ export class AuthHandler {
           })
 
           await this.tokenStore.save(authToken)
+          await this.authStateStore.loadToken()
 
           this.transport.broadcast(AuthEvents.STATE_CHANGED, {
             isAuthorized: true,
@@ -277,6 +283,7 @@ export class AuthHandler {
         })
 
         await this.tokenStore.save(newToken)
+        await this.authStateStore.loadToken()
 
         this.transport.broadcast(AuthEvents.STATE_CHANGED, {
           isAuthorized: true,

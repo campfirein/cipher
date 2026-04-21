@@ -295,4 +295,95 @@ describe('AuthHandler — setupExternalAuthSync', () => {
       expect(stateChangedCall!.args[1]).to.deep.equal({isAuthorized: false})
     })
   })
+
+  describe('processLoginCallback — auth cache refresh', () => {
+    it('should refresh authStateStore cache immediately after saving token', async () => {
+      // Need fresh mocks with full login flow support
+      const loginTransport = createMockTransport()
+      const loginAuthStateStore = {
+        getToken: stub(),
+        loadToken: stub().resolves(createValidToken()),
+        onAuthChanged: stub(),
+        onAuthExpired: stub(),
+        startPolling: stub(),
+        stopPolling: stub(),
+      } as unknown as SinonStubbedInstance<IAuthStateStore>
+
+      new AuthHandler({
+        authService: {
+          exchangeCodeForToken: stub().resolves({
+            accessToken: 'a', expiresAt: new Date(Date.now() + 3_600_000),
+            refreshToken: 'r', sessionKey: 's', tokenType: 'Bearer',
+          }),
+          initiateAuthorization: stub().returns({authUrl: 'https://auth.test', state: 'st'}),
+          refreshToken: stub(),
+        } as unknown as IAuthService,
+        authStateStore: loginAuthStateStore,
+        browserLauncher: {open: stub().resolves()} as unknown as IBrowserLauncher,
+        callbackHandler: {
+          getPort: stub().returns(3000), start: stub().resolves(),
+          stop: stub().resolves(), waitForCallback: stub().resolves({code: 'c'}),
+        } as unknown as ICallbackHandler,
+        projectConfigStore,
+        resolveProjectPath: stub().returns('/test'),
+        tokenStore: {clear: stub().resolves(), load: stub().resolves(), save: stub().resolves()} as unknown as ITokenStore,
+        transport: loginTransport,
+        userService,
+      }).setup()
+
+      const handler = loginTransport._handlers.get(AuthEvents.START_LOGIN)
+      await handler!({}, 'client-1')
+      await new Promise((resolve) => { setTimeout(resolve, 50) })
+
+      expect(loginAuthStateStore.loadToken.called, 'loadToken should be called after login to refresh daemon cache').to.be.true
+    })
+
+    it('should refresh authStateStore cache before broadcasting LOGIN_COMPLETED', async () => {
+      const callOrder: string[] = []
+      const loginTransport = createMockTransport()
+      const loginAuthStateStore = {
+        getToken: stub(),
+        loadToken: stub().callsFake(async () => { callOrder.push('loadToken'); return createValidToken() }),
+        onAuthChanged: stub(),
+        onAuthExpired: stub(),
+        startPolling: stub(),
+        stopPolling: stub(),
+      } as unknown as SinonStubbedInstance<IAuthStateStore>
+
+      new AuthHandler({
+        authService: {
+          exchangeCodeForToken: stub().resolves({
+            accessToken: 'a', expiresAt: new Date(Date.now() + 3_600_000),
+            refreshToken: 'r', sessionKey: 's', tokenType: 'Bearer',
+          }),
+          initiateAuthorization: stub().returns({authUrl: 'https://auth.test', state: 'st'}),
+          refreshToken: stub(),
+        } as unknown as IAuthService,
+        authStateStore: loginAuthStateStore,
+        browserLauncher: {open: stub().resolves()} as unknown as IBrowserLauncher,
+        callbackHandler: {
+          getPort: stub().returns(3000), start: stub().resolves(),
+          stop: stub().resolves(), waitForCallback: stub().resolves({code: 'c'}),
+        } as unknown as ICallbackHandler,
+        projectConfigStore,
+        resolveProjectPath: stub().returns('/test'),
+        tokenStore: {clear: stub().resolves(), load: stub().resolves(), save: stub().resolves()} as unknown as ITokenStore,
+        transport: loginTransport,
+        userService,
+      }).setup()
+
+      loginTransport.broadcast = stub().callsFake((event: string) => {
+        if (event === AuthEvents.LOGIN_COMPLETED) callOrder.push('LOGIN_COMPLETED')
+      }) as unknown as typeof loginTransport.broadcast
+
+      const handler = loginTransport._handlers.get(AuthEvents.START_LOGIN)
+      await handler!({}, 'client-1')
+      await new Promise((resolve) => { setTimeout(resolve, 50) })
+
+      expect(callOrder).to.include('loadToken')
+      expect(callOrder).to.include('LOGIN_COMPLETED')
+      expect(callOrder.indexOf('loadToken'), 'loadToken should be called before LOGIN_COMPLETED broadcast')
+        .to.be.lessThan(callOrder.indexOf('LOGIN_COMPLETED'))
+    })
+  })
 })
