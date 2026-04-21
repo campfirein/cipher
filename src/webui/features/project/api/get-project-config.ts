@@ -22,6 +22,8 @@ interface GetProjectConfigRequest {
  */
 interface GetProjectConfigResponse {
   brvConfig?: BrvConfigDTO
+  /** Git remote URL of the project's context tree (`.brv/context-tree`), if any. */
+  remoteUrl?: string
   spaceId: string
   storagePath: string
   teamId: string

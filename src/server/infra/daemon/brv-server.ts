@@ -51,6 +51,7 @@ import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
 import {ClientManager} from '../client/client-manager.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
+import {readContextTreeRemoteUrl} from '../context-tree/read-context-tree-remote.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
 import {DreamTrigger} from '../dream/dream-trigger.js'
 import {createReviewApiRouter} from '../http/review-api-handler.js'
@@ -470,7 +471,7 @@ async function main(): Promise<void> {
     // State server endpoints — agent child processes request config on startup
     transportServer.onRequest<
       {projectPath: string},
-      {brvConfig?: BrvConfig; spaceId: string; storagePath: string; teamId: string}
+      {brvConfig?: BrvConfig; remoteUrl?: string; spaceId: string; storagePath: string; teamId: string}
     >(TransportStateEventNames.GET_PROJECT_CONFIG, async (data) => {
       // Smart invalidation: only invalidate if config file was modified since last load
       // This prevents unnecessary disk I/O while still catching changes from
@@ -481,11 +482,15 @@ async function main(): Promise<void> {
         log(`Config invalidated due to file modification: ${data.projectPath}`)
       }
 
-      const config = await projectStateLoader.getProjectConfig(data.projectPath)
+      const [config, remoteUrl] = await Promise.all([
+        projectStateLoader.getProjectConfig(data.projectPath),
+        readContextTreeRemoteUrl(data.projectPath),
+      ])
       // Register project (idempotent) to ensure XDG storage directories exist
       const projectInfo = projectRegistry.register(data.projectPath)
       return {
         brvConfig: config,
+        remoteUrl,
         spaceId: config?.spaceId ?? '',
         storagePath: projectInfo.storagePath,
         teamId: config?.teamId ?? '',
