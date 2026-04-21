@@ -23,6 +23,7 @@ import { createBlobStorage } from '../blob/blob-storage-factory.js'
 import { EnvironmentContextBuilder } from '../environment/environment-context-builder.js'
 import { AgentEventBus, SessionEventBus } from '../events/event-emitter.js'
 import { FileSystemService } from '../file-system/file-system-service.js'
+import { HarnessOutcomeRecorder, HarnessStore } from '../harness/index.js'
 import { AgentLLMService } from '../llm/agent-llm-service.js'
 import { CompactionService } from '../llm/context/compaction/compaction-service.js'
 import { EscalatedCompressionStrategy } from '../llm/context/compression/escalated-compression.js'
@@ -175,17 +176,6 @@ export async function createCipherAgentServices(
   const sandboxService = new SandboxService()
   sandboxService.setHarnessConfig(config.harness)
 
-  // 5b-1. AutoHarness V2 outcome recorder (depends on HarnessStore from Phase 1.4)
-  // TODO(ENG-2228): When Phase 1.4 adds `harnessStore` construction above,
-  // construct the recorder here. Note: the recorder constructor takes a
-  // SessionEventBus, but this is agent scope — resolve the session-vs-agent
-  // bus question flagged in ENG-2232's "Notes for reviewer" before wiring.
-  //   const harnessOutcomeRecorder = new HarnessOutcomeRecorder(
-  //     harnessStore, agentEventBus,
-  //     logger.withSource('HarnessOutcomeRecorder'), config.harness,
-  //   )
-  //   sandboxService.setHarnessOutcomeRecorder(harnessOutcomeRecorder, logger)
-
   // 5c. Build environment context for sandbox injection
   const environmentBuilder = new EnvironmentContextBuilder()
   const environmentContext = await environmentBuilder.build({
@@ -244,6 +234,34 @@ export async function createCipherAgentServices(
   // maturity, accessCount, updateCount). Kept out of the context-tree
   // markdown so query-time bumps don't dirty version-controlled files.
   const runtimeSignalStore = new RuntimeSignalStore(keyStorage, logger)
+
+  // 6b-1. AutoHarness V2 store + outcome recorder. The recorder is
+  // agent-scoped (one instance per agent, held on SandboxService) but
+  // its constructor takes `SessionEventBus` because the emitted event
+  // (`harness:outcome-recorded`) is typed as session-scoped. We pass a
+  // dedicated `SessionEventBus` instance here rather than casting
+  // `agentEventBus` — the two bus types have different `harness:outcome-recorded`
+  // payload shapes (the agent variant carries `sessionId`, the session
+  // variant omits it).
+  //
+  // NOTE: `harnessEventBus` is currently unreachable once the recorder
+  // is constructed — the reference is scoped to this function and
+  // `HarnessOutcomeRecorder` holds it as `private readonly`. That's
+  // intentional for v1.0 (no subscriber exists), but Phase 6/7
+  // observability will need EITHER a getter on `HarnessOutcomeRecorder`
+  // (`getEventBus(): SessionEventBus`) exposing this instance, OR a
+  // refactor of the recorder to emit on `AgentEventBus` with the
+  // sessionId-carrying payload. Flagging now so the first subscriber
+  // doesn't discover it at Phase 6.
+  const harnessStore = new HarnessStore(keyStorage, logger.withSource('HarnessStore'))
+  const harnessEventBus = new SessionEventBus()
+  const harnessOutcomeRecorder = new HarnessOutcomeRecorder(
+    harnessStore,
+    harnessEventBus,
+    logger.withSource('HarnessOutcomeRecorder'),
+    config.harness,
+  )
+  sandboxService.setHarnessOutcomeRecorder(harnessOutcomeRecorder, logger)
 
   // 6c. Swarm coordinator — try to load config and build providers.
   // Missing config → fail-open (no swarm). Invalid config → warn but continue.
@@ -353,6 +371,8 @@ export async function createCipherAgentServices(
     blobStorage,
     compactionService,
     fileSystemService,
+    harnessOutcomeRecorder,
+    harnessStore,
     historyStorage,
     memoryManager,
     messageStorageService,
