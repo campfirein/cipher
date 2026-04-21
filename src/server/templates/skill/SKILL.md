@@ -77,6 +77,38 @@ brv curate "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via
 brv curate "Authentication middleware details" -f src/middleware/auth.ts
 ```
 
+**Execution mode: wait by default**
+
+Default is **blocking** — call `brv curate "..."` with no flag and wait for it to finish before continuing. Any follow-up step (query, search, read, review, next curate that builds on this one) may depend on the just-curated data being live in the context tree.
+
+```bash
+brv curate "..."                 # DEFAULT — wait until done, then continue
+brv curate "..." --detach        # Only when BOTH conditions below hold
+```
+
+**Use `--detach` only when BOTH of the following are true:**
+
+1. No remaining step in this turn will query, search, read, or reference this curated data, AND no later curate in this turn builds on it.
+2. The user explicitly said not to wait — phrases addressed *to you* like "don't wait", "don't block on this", "fire and forget", "move on without waiting". The phrase must be something the user says to the agent, not something the agent would narrate about itself. This rules out "run in background" and "run async" as triggers — agents use those phrases to self-narrate at least as often as users use them to instruct, which creates a mirror-priming loop.
+
+**If the user's phrasing is ambiguous, wait.** Detach requires an unambiguous signal. "Quick one, keep moving" is not enough.
+
+If either condition is uncertain, do not `--detach`. Wait.
+
+**Size/duration is NOT a reason to `--detach`.** A slow curate whose output the next step reads must still block. **"Looks like the last step" is also NOT a reason** — that is a guess, not evidence.
+
+**Reporting:**
+- Blocking (default) → "Saved X"
+- `--detach` → "Queued X (log: `<logId>`)" — do NOT claim "saved" until verified
+
+**Cross-turn hygiene for detached curates (CRITICAL):** before any later tool call reads data a previous `--detach` submitted, run:
+
+```bash
+brv curate view <logId> --format json
+```
+
+Only proceed when `status: completed`. If `processing`, wait or tell the user. If `error`/`cancelled`, report and consider re-curate. `--detach` errors are silent — verification before trust is mandatory.
+
 ### 4. Review Pending Changes
 **Overview:** After a curate operation, some changes may require human review before being applied. Use `brv review` to list, approve, or reject pending operations.
 
