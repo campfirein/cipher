@@ -15,15 +15,20 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@campfirein/byterover-packages/components/dropdown-menu'
-import {ChevronDown, FolderOpen, Link2} from 'lucide-react'
+import {ArrowRightLeft, ChevronDown, FolderOpen, SquareArrowOutUpRight} from 'lucide-react'
 import {useMemo, useState} from 'react'
 
 import {ProjectLocationDTO} from '../../../../shared/transport/events'
 import {useTransportStore} from '../../../stores/transport-store'
+import {useGetEnvironmentConfig} from '../../config/api/get-environment-config'
 import {useGetProjectConfig} from '../api/get-project-config'
 import {useGetProjectList} from '../api/get-project-list'
+import {buildRemoteSpaceUrl} from '../utils/build-remote-space-url'
 import {displayPath} from '../utils/display-path'
 import {getProjectName} from '../utils/project-name'
 import {AllProjectsDialog} from './all-projects-dialog'
@@ -41,6 +46,32 @@ type ProjectItemProps = {
   showRemote?: boolean
 }
 
+type ProjectItemRowProps = {
+  name: string
+  project: ProjectLocationDTO
+  remoteLabel?: string
+}
+
+function ProjectItemRow({name, project, remoteLabel}: ProjectItemRowProps) {
+  return (
+    <>
+      <ProjectAvatar name={name} seed={project.projectPath} />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-sm font-medium leading-5 text-card-foreground!">{name}</span>
+        <span className="truncate text-xs leading-4 text-muted-foreground!">{displayPath(project.projectPath)}</span>
+        {remoteLabel && (
+          <span className="text-muted-foreground! mono flex items-start gap-1 text-[10px] leading-4">
+            <span className="min-w-0 wrap-break-word">
+              <span>Remote space: </span>
+              <span className="text-primary-foreground! font-medium">{remoteLabel}</span>
+            </span>
+          </span>
+        )}
+      </div>
+    </>
+  )
+}
+
 function ProjectItem({onSelect, project, showRemote = false}: ProjectItemProps) {
   const name = getProjectName(project.projectPath)
   const {data: projectConfig} = useGetProjectConfig({
@@ -53,21 +84,47 @@ function ProjectItem({onSelect, project, showRemote = false}: ProjectItemProps) 
 
   return (
     <DropdownMenuItem className="gap-2 rounded-md" onClick={onSelect}>
-      <ProjectAvatar name={name} seed={project.projectPath} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-sm font-medium leading-5 text-card-foreground!">{name}</span>
-        <span className="truncate text-xs leading-4 text-muted-foreground!">{displayPath(project.projectPath)}</span>
-        {remoteLabel && (
-          <span className="text-muted-foreground! mono flex items-start gap-1 text-[10px] leading-4">
-            <Link2 className="mt-0.5 size-2.5 shrink-0" />
-            <span className="min-w-0 wrap-break-word">
-              <span>Remote space: </span>
-              <span className="text-primary-foreground! font-medium">{remoteLabel}</span>
-            </span>
-          </span>
-        )}
-      </div>
+      <ProjectItemRow name={name} project={project} remoteLabel={remoteLabel} />
     </DropdownMenuItem>
+  )
+}
+
+type OpenProjectItemProps = {
+  isSelected: boolean
+  onSelect: () => void
+  project: ProjectLocationDTO
+}
+
+function OpenProjectItem({isSelected, onSelect, project}: OpenProjectItemProps) {
+  const name = getProjectName(project.projectPath)
+  const {data: projectConfig} = useGetProjectConfig({projectPath: project.projectPath})
+  const {data: envConfig} = useGetEnvironmentConfig()
+  const teamName = projectConfig?.brvConfig?.teamName
+  const spaceName = projectConfig?.brvConfig?.spaceName
+  const remoteLabel = teamName && spaceName ? `${teamName} / ${spaceName}` : undefined
+  const remoteSpaceUrl = buildRemoteSpaceUrl({spaceName, teamName, webAppUrl: envConfig?.webAppUrl})
+
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger className="gap-2 rounded-md">
+        <ProjectItemRow name={name} project={project} remoteLabel={remoteLabel} />
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="min-w-56">
+        <DropdownMenuItem disabled={isSelected} onClick={onSelect}>
+          <ArrowRightLeft className="size-4" />
+          <span className="text-sm">{isSelected ? 'Current project' : 'Switch to this project'}</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!remoteSpaceUrl}
+          onClick={() => {
+            if (remoteSpaceUrl) window.open(remoteSpaceUrl, '_blank', 'noopener,noreferrer')
+          }}
+        >
+          <SquareArrowOutUpRight className="size-4" />
+          <span className="text-sm">Open Remote space</span>
+        </DropdownMenuItem>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   )
 }
 
@@ -124,7 +181,12 @@ export function ProjectDropdown() {
             <DropdownMenuGroup>
               <DropdownMenuLabel>Open Projects</DropdownMenuLabel>
               {openProjects.map((p) => (
-                <ProjectItem key={p.projectPath} onSelect={() => handleSelect(p)} project={p} showRemote />
+                <OpenProjectItem
+                  isSelected={p.projectPath === selectedProject}
+                  key={p.projectPath}
+                  onSelect={() => handleSelect(p)}
+                  project={p}
+                />
               ))}
 
               <DropdownMenuSeparator />
