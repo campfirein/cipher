@@ -106,7 +106,15 @@ describe('SandboxService.loadHarness', () => {
     const result = await service.loadHarness('s1', 'p1', 'curate')
 
     expect(result).to.deep.equal({loaded: false, reason: 'meta-threw'})
-    // No version id registered — failed loads leave the session untouched.
+
+    // Invariant: failed loads leave the session untouched — no
+    // harness state registered, no version id tracked.
+    const internal = service as unknown as {
+      harnessVersionIdBySession: Map<string, string>
+      sessionHarnessStates: Map<string, unknown>
+    }
+    expect(internal.sessionHarnessStates.has('s1')).to.equal(false)
+    expect(internal.harnessVersionIdBySession.has('s1')).to.equal(false)
   })
 
   // ── Successful load ──────────────────────────────────────────────────────
@@ -136,11 +144,13 @@ describe('SandboxService.loadHarness', () => {
     expect(result.module).to.equal(fakeModule)
   })
 
-  // ── Capability-driven injection ──────────────────────────────────────────
+  // ── Capability-driven injection (behavioral) ─────────────────────────────
 
-  it('curate-only module injects harness.curate and NOT harness.query', async () => {
-    // Use a real HarnessModuleBuilder so the namespace wiring is
-    // exercised end-to-end for the capabilities check.
+  it('curate-only module makes harness.curate visible inside sandbox code; harness.query absent', async () => {
+    // Exercises the real pipeline end-to-end: store → builder →
+    // namespace injection → sandbox context. Verifies the user-
+    // visible surface (what shows up on `harness` inside executed
+    // code) rather than the private `buildHarnessNamespace` return.
     const {HarnessModuleBuilder: RealBuilder} = await import(
       '../../../../src/agent/infra/harness/harness-module-builder.js'
     )
@@ -152,19 +162,61 @@ describe('SandboxService.loadHarness', () => {
 
     const result = await service.loadHarness('s1', 'p1', 'curate')
     expect(result.loaded).to.equal(true)
-    if (!result.loaded) return
 
-    // Inspect what the internal buildHarnessNamespace produced by
-    // reading through a narrow cast — the private Map keyed by
-    // sessionId is the only externally-inspectable surface for this.
-    const internal = service as unknown as {
-      buildHarnessNamespace: (sessionId: string) => Record<string, unknown> | undefined
-    }
-    const ns = internal.buildHarnessNamespace('s1')
-    if (ns === undefined) throw new Error('expected harness namespace')
-    expect(typeof ns.meta).to.equal('function')
-    expect(typeof ns.curate).to.equal('function')
-    expect(ns.query).to.equal(undefined)
+    // Run code in the sandbox that inspects what's bound to `harness`
+    // and returns a structured snapshot. The expression result becomes
+    // REPLResult.returnValue.
+    const exec = await service.executeCode(
+      `({
+        hasMeta: typeof harness !== 'undefined' && typeof harness.meta === 'function',
+        hasCurate: typeof harness !== 'undefined' && typeof harness.curate === 'function',
+        hasQuery: typeof harness !== 'undefined' && typeof harness.query === 'function',
+      })`,
+      's1',
+    )
+    expect(exec.returnValue).to.deep.equal({
+      hasCurate: true,
+      hasMeta: true,
+      hasQuery: false,
+    })
+  })
+
+  // ── Injection ordering (load after executeCode) ──────────────────────────
+
+  it('injects harness into an existing sandbox when loadHarness is called after the first executeCode', async () => {
+    // Exercises the `sandbox.updateContext({harness: ...})` branch
+    // in `loadHarness` — distinct from the sandbox-creation branch
+    // in `executeCode` that the other tests cover.
+    const {HarnessModuleBuilder: RealBuilder} = await import(
+      '../../../../src/agent/infra/harness/harness-module-builder.js'
+    )
+    const {NoOpLogger} = await import('../../../../src/agent/core/interfaces/i-logger.js')
+    service.setHarnessConfig(makeEnabledConfig())
+    service.setHarnessStore(store as unknown as IHarnessStore)
+    service.setHarnessModuleBuilder(new RealBuilder(new NoOpLogger()))
+    store.getLatest.resolves(makeVersion())
+
+    // 1. First executeCode creates the sandbox with NO harness namespace.
+    const before = await service.executeCode(
+      `typeof harness === 'undefined'`,
+      's1',
+    )
+    expect(before.returnValue).to.equal(true)
+
+    // 2. loadHarness now runs against the already-existing sandbox —
+    //    this is the branch we need to cover.
+    const result = await service.loadHarness('s1', 'p1', 'curate')
+    expect(result.loaded).to.equal(true)
+
+    // 3. Subsequent executeCode sees harness.* injected via updateContext.
+    const after = await service.executeCode(
+      `({
+        hasMeta: typeof harness !== 'undefined' && typeof harness.meta === 'function',
+        hasCurate: typeof harness !== 'undefined' && typeof harness.curate === 'function',
+      })`,
+      's1',
+    )
+    expect(after.returnValue).to.deep.equal({hasCurate: true, hasMeta: true})
   })
 
   // ── harnessVersionIdBySession population ─────────────────────────────────

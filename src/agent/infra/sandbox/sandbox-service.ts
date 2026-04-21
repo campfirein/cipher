@@ -257,6 +257,14 @@ export class SandboxService implements ISandboxService {
     projectId: string,
     commandType: 'chat' | 'curate' | 'query',
   ): Promise<HarnessLoadResult> {
+    // Deliberate: three distinct conditions (admin-disabled,
+    // store not wired, builder not wired) collapse into the same
+    // 'no-version' result for v1.0. `HarnessLoadResult` doesn't
+    // distinguish 'disabled' / 'not-configured' / 'no-version' as
+    // separate reasons because no consumer yet needs to branch on
+    // them — Phase 5's mode selector is the first real caller and
+    // will add variants if the downstream telemetry needs them.
+    // Keep this conflation intentional, not accidental.
     if (
       this.harnessConfig?.enabled !== true ||
       this.harnessStore === undefined ||
@@ -292,12 +300,13 @@ export class SandboxService implements ISandboxService {
     // If the sandbox already exists, inject now. Otherwise `executeCode`
     // picks up the namespace at sandbox-creation time via the
     // `buildHarnessNamespace` check in the creation block.
+    //
+    // `buildHarnessNamespace` only returns `undefined` when no state is
+    // registered for `sessionId` — we just set it above, so the result
+    // is guaranteed non-undefined here. No need to re-guard.
     const sandbox = this.sandboxes.get(sessionId)
     if (sandbox !== undefined) {
-      const harnessNs = this.buildHarnessNamespace(sessionId)
-      if (harnessNs !== undefined) {
-        sandbox.updateContext({harness: harnessNs})
-      }
+      sandbox.updateContext({harness: this.buildHarnessNamespace(sessionId)})
     }
 
     return result

@@ -30,6 +30,13 @@ function makeSandboxService(): ISandboxService & {lastConfig?: SandboxConfig} {
       svc.lastConfig = config
       return {executionTime: 1, locals: {}, stderr: '', stdout: ''}
     },
+    // Phase 3 Task 3.3 — canned no-op so the stub satisfies the
+    // required `ISandboxService.loadHarness` method. This test file
+    // doesn't exercise harness loading; it only verifies that
+    // SandboxConfig fields are forwarded correctly.
+    async loadHarness() {
+      return {loaded: false, reason: 'no-version'}
+    },
     setSandboxVariable() {},
   }
   return svc

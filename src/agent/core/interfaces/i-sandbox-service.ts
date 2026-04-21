@@ -1,12 +1,15 @@
 import type { ValidatedHarnessConfig } from '../../infra/agent/agent-schemas.js'
+import type { HarnessModuleBuilder } from '../../infra/harness/harness-module-builder.js'
 import type { HarnessOutcomeRecorder } from '../../infra/harness/harness-outcome-recorder.js'
 import type { ISearchKnowledgeService } from '../../infra/sandbox/tools-sdk.js'
 import type { SessionManager } from '../../infra/session/session-manager.js'
 import type { EnvironmentContext } from '../domain/environment/types.js'
+import type { HarnessLoadResult } from '../domain/harness/types.js'
 import type { REPLResult, SandboxConfig } from '../domain/sandbox/types.js'
 import type { IContentGenerator } from './i-content-generator.js'
 import type { ICurateService } from './i-curate-service.js'
 import type { IFileSystem } from './i-file-system.js'
+import type { IHarnessStore } from './i-harness-store.js'
 import type { ILogger } from './i-logger.js'
 import type { ISwarmCoordinator } from './i-swarm-coordinator.js'
 
@@ -45,6 +48,26 @@ export interface ISandboxService {
    * @returns Execution result with stdout, stderr, and locals
    */
   executeCode(code: string, sessionId: string, config?: SandboxConfig): Promise<REPLResult>
+
+  /**
+   * Load the latest `HarnessVersion` for `(projectId, commandType)` and
+   * register the resulting module on `sessionId`. Future `executeCode`
+   * calls inject `harness.*` into the sandbox context when a module is
+   * loaded. Never throws — every failure mode is encoded in the
+   * returned `HarnessLoadResult`.
+   *
+   * First production consumer: Phase 5's `AgentLLMService` session-start
+   * hook.
+   *
+   * @param sessionId - Session identifier
+   * @param projectId - Project identifier (composite-key partition)
+   * @param commandType - Harness command type scope
+   */
+  loadHarness(
+    sessionId: string,
+    projectId: string,
+    commandType: 'chat' | 'curate' | 'query',
+  ): Promise<HarnessLoadResult>
 
   /**
    * Set the content generator for parallel LLM operations (mapExtract).
@@ -86,6 +109,15 @@ export interface ISandboxService {
   setHarnessConfig?(config: ValidatedHarnessConfig): void
 
   /**
+   * Wire in the AutoHarness V2 module builder. `loadHarness` uses this
+   * to evaluate the `HarnessVersion.code` string returned by the store
+   * into a callable module.
+   *
+   * @param builder - Module builder instance
+   */
+  setHarnessModuleBuilder?(builder: HarnessModuleBuilder): void
+
+  /**
    * Wire in the AutoHarness V2 outcome recorder for fire-and-forget
    * recording on every `executeCode` call.
    *
@@ -93,6 +125,15 @@ export interface ISandboxService {
    * @param logger - Logger for defensive .catch on fire-and-forget calls
    */
   setHarnessOutcomeRecorder?(recorder: HarnessOutcomeRecorder, logger?: ILogger): void
+
+  /**
+   * Wire in the AutoHarness V2 storage interface. `loadHarness` calls
+   * `store.getLatest(projectId, commandType)` to find the version to
+   * evaluate.
+   *
+   * @param store - Harness storage instance
+   */
+  setHarnessStore?(store: IHarnessStore): void
 
   /**
    * Set a variable in a session's sandbox.
