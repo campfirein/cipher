@@ -99,11 +99,14 @@ describe('Memory Symbol Tree & Path Matcher', () => {
       expect(refresh?.parent?.parent?.parent).to.be.undefined
     })
 
-    it('should absorb context.md files into parent folder metadata', () => {
+    it('should absorb context.md files into parent folder node (structural only)', () => {
+      // Post-commit-5: the symbol tree no longer carries per-node scoring
+      // (importance / maturity) — ranking reads those from the sidecar.
+      // Metadata collapses to structural defaults at tree-build time.
       const auth = tree.symbolMap.get('auth')
-      // context.md had importance=75, maturity='validated'
-      expect(auth?.metadata.importance).to.equal(75)
-      expect(auth?.metadata.maturity).to.equal('validated')
+      expect(auth).to.exist
+      expect(auth?.metadata.importance).to.equal(50)
+      expect(auth?.metadata.maturity).to.equal('draft')
     })
 
     it('should not create Context nodes for context.md files', () => {

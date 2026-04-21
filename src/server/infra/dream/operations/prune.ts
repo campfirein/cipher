@@ -16,10 +16,13 @@ import {readdir, readFile, stat, utimes} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {ICipherAgent} from '../../../../agent/core/interfaces/i-cipher-agent.js'
+import type {ILogger} from '../../../../agent/core/interfaces/i-logger.js'
 import type {DreamOperation} from '../dream-log-schema.js'
 import type {PruneDecision} from '../dream-response-schemas.js'
 import type {DreamState} from '../dream-state-schema.js'
 
+import {DEFAULT_IMPORTANCE, DEFAULT_MATURITY} from '../../../core/domain/knowledge/runtime-signals-schema.js'
+import {warnSidecarFailure} from '../../../core/domain/knowledge/sidecar-logging.js'
 import {isExcludedFromSync} from '../../context-tree/derived-artifact.js'
 import {toUnixPath} from '../../context-tree/path-utils.js'
 import {PruneResponseSchema} from '../dream-response-schemas.js'
@@ -38,9 +41,23 @@ export type PruneDeps = {
     update(updater: (state: DreamState) => DreamState): Promise<DreamState>
     write(state: DreamState): Promise<void>
   }
+  /**
+   * Optional logger. When provided, sidecar failures in the candidate scan
+   * emit a warn so the fail-open degradation is visible.
+   */
+  logger?: ILogger
   projectRoot: string
   reviewBackupStore?: {
     save(relativePath: string, content: string): Promise<void>
+  }
+  /**
+   * Runtime-signal sidecar. Source of truth for `importance` and `maturity`
+   * used in prune's candidacy decisions. Absent store or missing-per-path
+   * entries are treated as defaults (importance 50, maturity 'draft') —
+   * matches the plan's "paths without entries use defaults" principle.
+   */
+  runtimeSignalStore?: {
+    list(): Promise<Map<string, {importance: number; maturity: 'core' | 'draft' | 'validated'}>>
   }
   signal?: AbortSignal
   taskId: string
@@ -88,11 +105,26 @@ async function findCandidates(deps: PruneDeps): Promise<CandidateInfo[]> {
   const candidateMap = new Map<string, CandidateInfo>()
   const now = Date.now()
 
+  // Source of truth for importance/maturity is the sidecar. Preload once per
+  // scan so per-path lookups are O(1) map reads instead of repeated regex
+  // passes over markdown content. On sidecar failure the map is empty and
+  // every path falls back to defaults (importance 50, maturity 'draft').
+  let signalsByPath: Map<string, {importance: number; maturity: 'core' | 'draft' | 'validated'}>
+  try {
+    signalsByPath = deps.runtimeSignalStore ? await deps.runtimeSignalStore.list() : new Map()
+  } catch (error) {
+    warnSidecarFailure(deps.logger, 'prune', 'list', 'findCandidates', error)
+    signalsByPath = new Map()
+  }
+
   // Signal A: archive service importance decay
   try {
     const importancePaths = await deps.archiveService.findArchiveCandidates(deps.projectRoot)
     const infoResults = await Promise.all(
-      importancePaths.map(async (path) => ({info: await readCandidateInfo(deps.contextTreeDir, path, now), path})),
+      importancePaths.map(async (path) => ({
+        info: await readCandidateInfo(deps.contextTreeDir, path, now, signalsByPath),
+        path,
+      })),
     )
     for (const {info, path} of infoResults) {
       if (info && info.maturity !== 'core') {
@@ -105,7 +137,7 @@ async function findCandidates(deps: PruneDeps): Promise<CandidateInfo[]> {
 
   // Signal B: mtime staleness
   try {
-    const stalePaths = await findStaleFiles(deps.contextTreeDir, now)
+    const stalePaths = await findStaleFiles(deps.contextTreeDir, now, signalsByPath)
     for (const {info, path} of stalePaths) {
       if (candidateMap.has(path)) {
         // Already found by Signal A — mark as both
@@ -125,17 +157,22 @@ async function findCandidates(deps: PruneDeps): Promise<CandidateInfo[]> {
   return candidates.slice(0, MAX_CANDIDATES)
 }
 
-async function readCandidateInfo(contextTreeDir: string, relativePath: string, now: number): Promise<CandidateInfo | undefined> {
+async function readCandidateInfo(
+  contextTreeDir: string,
+  relativePath: string,
+  now: number,
+  signalsByPath: Map<string, {importance: number; maturity: 'core' | 'draft' | 'validated'}>,
+): Promise<CandidateInfo | undefined> {
   try {
     const fullPath = join(contextTreeDir, relativePath)
-    const content = await readFile(fullPath, 'utf8')
     const fileStat = await stat(fullPath)
     const daysSinceModified = (now - fileStat.mtimeMs) / MS_PER_DAY
+    const signals = signalsByPath.get(relativePath)
 
     return {
       daysSinceModified,
-      importance: extractImportance(content),
-      maturity: extractMaturity(content),
+      importance: signals?.importance ?? DEFAULT_IMPORTANCE,
+      maturity: signals?.maturity ?? DEFAULT_MATURITY,
       path: relativePath,
       signal: 'importance',
     }
@@ -144,15 +181,22 @@ async function readCandidateInfo(contextTreeDir: string, relativePath: string, n
   }
 }
 
-async function findStaleFiles(contextTreeDir: string, now: number): Promise<Array<{info: CandidateInfo; path: string}>> {
+async function findStaleFiles(
+  contextTreeDir: string,
+  now: number,
+  signalsByPath: Map<string, {importance: number; maturity: 'core' | 'draft' | 'validated'}>,
+): Promise<Array<{info: CandidateInfo; path: string}>> {
   const results: Array<{info: CandidateInfo; path: string}> = []
 
   await walkMdFiles(contextTreeDir, async (relativePath, fullPath) => {
     try {
-      const content = await readFile(fullPath, 'utf8')
-      const maturity = extractMaturity(content)
+      const signals = signalsByPath.get(relativePath)
+      const maturity = signals?.maturity ?? DEFAULT_MATURITY
 
-      // core files NEVER pruned
+      // core files NEVER pruned. Absent sidecar entry means maturity defaults
+      // to 'draft', so core protection depends on the sidecar being populated.
+      // That is intentional: post-migration, a file is only 'core' when the
+      // maturity tier has been earned via repeated access / curate updates.
       if (maturity === 'core') return
 
       const threshold = maturity === 'validated' ? VALIDATED_STALE_DAYS : DRAFT_STALE_DAYS
@@ -163,7 +207,7 @@ async function findStaleFiles(contextTreeDir: string, now: number): Promise<Arra
         results.push({
           info: {
             daysSinceModified,
-            importance: extractImportance(content),
+            importance: signals?.importance ?? DEFAULT_IMPORTANCE,
             maturity,
             path: relativePath,
             signal: 'mtime',
@@ -431,14 +475,3 @@ async function writePendingMerge(decision: PruneDecision, deps: PruneDeps): Prom
   })
 }
 
-// ── Frontmatter helpers ────────────────────────────────────────────────────
-
-function extractMaturity(content: string): string {
-  const match = /^maturity:\s*['"]?(core|draft|validated)['"]?/m.exec(content)
-  return match?.[1] ?? 'draft'
-}
-
-function extractImportance(content: string): number {
-  const match = /^importance:\s*(\d+(?:\.\d+)?)/m.exec(content)
-  return match ? Number.parseFloat(match[1]) : 50
-}

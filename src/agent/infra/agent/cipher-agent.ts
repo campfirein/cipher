@@ -1213,8 +1213,14 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       })
     }
 
-    // Rebuild sandbox CurateService with the queue — reuses existing hot-swap path
-    const newCurateService = createCurateService(services.workingDirectory, services.abstractQueue)
+    // Rebuild sandbox CurateService with the queue — reuses existing hot-swap path.
+    // runtimeSignalStore is threaded so agent-driven curate ADD/UPDATE seed +
+    // bump the sidecar (matches the tool-registry wiring at construction time).
+    const newCurateService = createCurateService(
+      services.workingDirectory,
+      services.abstractQueue,
+      services.runtimeSignalStore,
+    )
     services.sandboxService.setCurateService?.(newCurateService)
 
     // Atomically rebuild CURATE + INGEST_RESOURCE tools so both enqueue abstracts

@@ -2,6 +2,7 @@ import {readFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import {z} from 'zod'
 
+import type {IRuntimeSignalStore} from '../../../../server/core/interfaces/storage/i-runtime-signal-store.js'
 import type {Tool, ToolExecutionContext} from '../../../core/domain/tools/types.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../../server/constants.js'
@@ -42,6 +43,7 @@ const ExpandKnowledgeInputSchema = z
  */
 export interface ExpandKnowledgeToolConfig {
   baseDirectory?: string
+  runtimeSignalStore?: IRuntimeSignalStore
 }
 
 /**
@@ -55,7 +57,7 @@ export interface ExpandKnowledgeToolConfig {
  * @returns Configured expand knowledge tool
  */
 export function createExpandKnowledgeTool(config: ExpandKnowledgeToolConfig = {}): Tool {
-  const archiveService = new FileContextTreeArchiveService()
+  const archiveService = new FileContextTreeArchiveService(config.runtimeSignalStore)
 
   return {
     description:

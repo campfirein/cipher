@@ -123,14 +123,37 @@ export const MANIFEST_FILE = '_manifest.json'
 export const ARCHIVE_IMPORTANCE_THRESHOLD = 35
 export const DEFAULT_GHOST_CUE_MAX_TOKENS = 220
 
-/** Patterns the context-tree .gitignore must contain (derived artifacts only). */
+/** Patterns the context-tree .gitignore must contain. */
 export const CONTEXT_TREE_GITIGNORE_PATTERNS = [
+  // Derived artifacts
   '.gitignore',
   '.snapshot.json',
   '_manifest.json',
   '_index.md',
   '*.abstract.md',
   '*.overview.md',
+
+  // macOS
+  '.DS_Store',
+  '._*',
+
+  // Windows
+  'Thumbs.db',
+  'ehthumbs.db',
+  'Desktop.ini',
+
+  // Linux
+  '.directory',
+  '.fuse_hidden*',
+  '.nfs*',
+
+  // Editor swap / backup / temp
+  '*.swp',
+  '*.swo',
+  '*~',
+  '.#*',
+  '*.bak',
+  '*.tmp',
 ]
 
 export const CONTEXT_TREE_GITIGNORE_HEADER = '# Derived artifacts — do not track'

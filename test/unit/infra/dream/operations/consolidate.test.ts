@@ -298,10 +298,19 @@ describe('consolidate', () => {
 
   it('sets needsReview=true when file has core maturity', async () => {
     await createMdFile(ctxDir, 'auth/core-auth.md', '# Core Auth', {
-      keywords: [], maturity: 'core', related: [], tags: [], title: 'Core Auth',
+      keywords: [], related: [], tags: [], title: 'Core Auth',
     })
     await createMdFile(ctxDir, 'auth/helper.md', '# Helper')
     const reviewBackupStore = {save: stub().resolves()}
+
+    // Post-migration: maturity is read from the sidecar, not markdown.
+    // Seed the sidecar with `maturity: 'core'` for the file that should
+    // trigger the review gate.
+    const runtimeSignalStore = {
+      get: stub().callsFake(async (path: string) => ({
+        maturity: path === 'auth/core-auth.md' ? 'core' : 'draft',
+      })),
+    }
 
     agent.executeOnSession.resolves(llmResponse([{
       files: ['auth/core-auth.md', 'auth/helper.md'],
@@ -309,12 +318,15 @@ describe('consolidate', () => {
       type: 'CROSS_REFERENCE',
     }]))
 
-    const results = await consolidate(['auth/core-auth.md', 'auth/helper.md'], {...deps, reviewBackupStore})
+    const results = await consolidate(
+      ['auth/core-auth.md', 'auth/helper.md'],
+      {...deps, reviewBackupStore, runtimeSignalStore},
+    )
 
     // CROSS_REFERENCE is normally needsReview=false, but core maturity overrides
     expect(results[0].needsReview).to.be.true
     expect(asConsolidate(results[0]).previousTexts).to.deep.equal({
-      'auth/core-auth.md': '---\nkeywords: []\nmaturity: core\nrelated: []\ntags: []\ntitle: Core Auth\n---\n# Core Auth',
+      'auth/core-auth.md': '---\nkeywords: []\nrelated: []\ntags: []\ntitle: Core Auth\n---\n# Core Auth',
       'auth/helper.md': '# Helper',
     })
     expect(reviewBackupStore.save.calledTwice).to.be.true
