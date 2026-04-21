@@ -57,6 +57,7 @@ export class SandboxService implements ISandboxService {
    * Clean up all resources (called on agent shutdown).
    */
   async cleanup(): Promise<void> {
+    this.harnessOutcomeRecorder?.cleanup()
     this.harnessVersionIdBySession.clear()
     this.sandboxes.clear()
     this.sandboxCommandTypes.clear()
@@ -69,6 +70,7 @@ export class SandboxService implements ISandboxService {
    * @param sessionId - Session identifier
    */
   async clearSession(sessionId: string): Promise<void> {
+    this.harnessOutcomeRecorder?.clearSession(sessionId)
     this.harnessVersionIdBySession.delete(sessionId)
     this.sandboxes.delete(sessionId)
     this.sandboxCommandTypes.delete(sessionId)

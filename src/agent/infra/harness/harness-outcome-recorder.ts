@@ -110,6 +110,23 @@ export class HarnessOutcomeRecorder {
   }
 
   /**
+   * Release all per-session state. Called on agent shutdown.
+   */
+  cleanup(): void {
+    this.commandTypesBySession.clear()
+    this.sessionCount.clear()
+  }
+
+  /**
+   * Release per-session state for a single session. Called when a session
+   * ends so the Maps don't grow unbounded in long-running agents.
+   */
+  clearSession(sessionId: string): void {
+    this.commandTypesBySession.delete(sessionId)
+    this.sessionCount.delete(sessionId)
+  }
+
+  /**
    * Returns the set of command types seen for a session. Phase 6 uses
    * this to trigger refinement only for command types the session touched.
    */

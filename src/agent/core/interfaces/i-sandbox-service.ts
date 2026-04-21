@@ -1,3 +1,5 @@
+import type { ValidatedHarnessConfig } from '../../infra/agent/agent-schemas.js'
+import type { HarnessOutcomeRecorder } from '../../infra/harness/harness-outcome-recorder.js'
 import type { ISearchKnowledgeService } from '../../infra/sandbox/tools-sdk.js'
 import type { SessionManager } from '../../infra/session/session-manager.js'
 import type { EnvironmentContext } from '../domain/environment/types.js'
@@ -5,6 +7,7 @@ import type { REPLResult, SandboxConfig } from '../domain/sandbox/types.js'
 import type { IContentGenerator } from './i-content-generator.js'
 import type { ICurateService } from './i-curate-service.js'
 import type { IFileSystem } from './i-file-system.js'
+import type { ILogger } from './i-logger.js'
 import type { ISwarmCoordinator } from './i-swarm-coordinator.js'
 
 /**
@@ -74,6 +77,22 @@ export interface ISandboxService {
    * @param fileSystem - File system service instance
    */
   setFileSystem?(fileSystem: IFileSystem): void
+
+  /**
+   * Wire in the AutoHarness V2 config block.
+   *
+   * @param config - Harness config block from `AgentConfig.harness`
+   */
+  setHarnessConfig?(config: ValidatedHarnessConfig): void
+
+  /**
+   * Wire in the AutoHarness V2 outcome recorder for fire-and-forget
+   * recording on every `executeCode` call.
+   *
+   * @param recorder - Outcome recorder instance
+   * @param logger - Logger for defensive .catch on fire-and-forget calls
+   */
+  setHarnessOutcomeRecorder?(recorder: HarnessOutcomeRecorder, logger?: ILogger): void
 
   /**
    * Set a variable in a session's sandbox.
