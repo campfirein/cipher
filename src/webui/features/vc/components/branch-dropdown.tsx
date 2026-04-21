@@ -19,6 +19,7 @@ import {toast} from 'sonner'
 
 import type {VcBranch} from '../../../../shared/transport/events/vc-events'
 
+import {formatError} from '../../../lib/error-messages'
 import {useVcBranchSetUpstream} from '../api/execute-vc-branch-set-upstream'
 import {useVcCheckout} from '../api/execute-vc-checkout'
 import {useVcFetch} from '../api/execute-vc-fetch'
@@ -116,7 +117,7 @@ export function BranchDropdown() {
     } catch (error) {
       toast.error('Failed to switch branch', {
         ...TOAST_OPTS,
-        description: error instanceof Error ? error.message : undefined,
+        description: formatError(error),
       })
     }
   }
@@ -150,7 +151,7 @@ export function BranchDropdown() {
     } catch (error) {
       toast.error('Failed to checkout remote branch', {
         ...TOAST_OPTS,
-        description: error instanceof Error ? error.message : undefined,
+        description: formatError(error),
       })
     }
   }
@@ -169,7 +170,7 @@ export function BranchDropdown() {
     toast.promise(fetchMut.mutateAsync({}), {
       ...TOAST_OPTS,
       error: (err: unknown) => ({
-        description: err instanceof Error ? err.message : undefined,
+        description: formatError(err),
         message: 'Fetch failed',
       }),
       loading: 'Fetching from remote…',
@@ -182,7 +183,7 @@ export function BranchDropdown() {
     toast.promise(pull.mutateAsync({}), {
       ...TOAST_OPTS,
       error: (err: unknown) => ({
-        description: err instanceof Error ? err.message : undefined,
+        description: formatError(err),
         message: 'Pull failed',
       }),
       loading: 'Updating project…',

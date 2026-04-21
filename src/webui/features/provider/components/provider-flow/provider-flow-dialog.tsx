@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import type {ModelDTO, ProviderDTO} from '../../../../../shared/transport/events'
 
 import { formatError } from '../../../../lib/error-messages'
+import { useAuthStore } from '../../../auth/stores/auth-store'
 import { useSetActiveModel } from '../../../model/api/set-active-model'
 import {TourStepBadge} from '../../../onboarding/components/tour-step-badge'
 import { useAwaitOAuthCallback } from '../../api/await-oauth-callback'
@@ -18,11 +19,20 @@ import { useValidateApiKey } from '../../api/validate-api-key'
 import { ApiKeyStep } from './api-key-step'
 import { AuthMethodStep } from './auth-method-step'
 import { BaseUrlStep } from './base-url-step'
+import { LoginPromptStep } from './login-prompt-step'
 import { ModelSelectStep } from './model-select-step'
 import { type ProviderActionId, ProviderActionStep } from './provider-action-step'
 import { ProviderSelectStep } from './provider-select-step'
 
-type FlowStep = 'api_key' | 'auth_method' | 'base_url' | 'connecting' | 'model_select' | 'provider_actions' | 'select'
+type FlowStep = 'api_key' | 'auth_method' | 'base_url' | 'connecting' | 'login_prompt' | 'model_select' | 'provider_actions' | 'select'
+
+const BYTEROVER_PROVIDER_ID = 'byterover'
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
 
 interface ProviderFlowDialogProps {
   onOpenChange: (open: boolean) => void
@@ -46,6 +56,7 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
   const [error, setError] = useState<string | undefined>()
   const [isNewConnection, setIsNewConnection] = useState(false)
 
+  const isAuthorized = useAuthStore((s) => s.isAuthorized)
   const {data} = useGetProviders()
   const connectMutation = useConnectProvider()
   const disconnectMutation = useDisconnectProvider()
@@ -83,13 +94,51 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
     [onOpenChange, reset],
   )
 
+  const connectByteRover = useCallback(
+    async (provider: ProviderDTO) => {
+      setStep('connecting')
+      try {
+        // Server auth state can lag briefly after login; retry so the user
+        // doesn't have to click Connect again.
+        let connectResult = await connectMutation.mutateAsync({providerId: provider.id})
+        for (let attempt = 0; !connectResult.success && attempt < 6; attempt++) {
+          // eslint-disable-next-line no-await-in-loop
+          await sleep(1000)
+          // eslint-disable-next-line no-await-in-loop
+          connectResult = await connectMutation.mutateAsync({providerId: provider.id})
+        }
+
+        if (!connectResult.success) {
+          toast.error(connectResult.error ?? 'Failed to connect ByteRover')
+          setStep('select')
+          return
+        }
+
+        await setActiveMutation.mutateAsync({providerId: provider.id})
+        toast.success(`Connected to ${provider.name}`)
+        onProviderActivated?.()
+        resetAndClose()
+      } catch (error_) {
+        toast.error(formatError(error_, 'Connection failed'))
+        setStep('select')
+      }
+    },
+    [connectMutation, onProviderActivated, resetAndClose, setActiveMutation],
+  )
+
   const handleProviderSelect = useCallback(
     async (provider: ProviderDTO) => {
       setSelectedProvider(provider)
       setError(undefined)
 
+      // ByteRover requires sign-in first
+      if (provider.id === BYTEROVER_PROVIDER_ID && !isAuthorized) {
+        setStep('login_prompt')
+        return
+      }
+
       // ByteRover + already current → done
-      if (provider.id === 'byterover' && provider.isCurrent) {
+      if (provider.id === BYTEROVER_PROVIDER_ID && provider.isCurrent) {
         onProviderActivated?.()
         resetAndClose()
         return
@@ -101,20 +150,9 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
         return
       }
 
-    // ByteRover + not connected → connect + activate directly
-    if (provider.id === 'byterover') {
-      setStep('connecting')
-      try {
-        await connectMutation.mutateAsync({ providerId: provider.id })
-        await setActiveMutation.mutateAsync({ providerId: provider.id })
-        toast.success(`Connected to ${provider.name}`)
-        onProviderActivated?.()
-        resetAndClose()
-      } catch (error_) {
-        toast.error(formatError(error_, 'Connection failed'))
-        setStep('select')
-      }
-
+      // ByteRover + not connected → connect + activate directly
+      if (provider.id === BYTEROVER_PROVIDER_ID) {
+        await connectByteRover(provider)
         return
       }
 
@@ -146,7 +184,7 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
       toast.error(formatError(error_, 'Connection failed'))
       setStep('select')
     }
-  }, [connectMutation, onProviderActivated, resetAndClose, setActiveMutation])
+  }, [connectByteRover, connectMutation, isAuthorized, onProviderActivated, resetAndClose])
 
   const handleOAuth = useCallback(async (provider: ProviderDTO) => {
     setStep('connecting')
@@ -157,10 +195,6 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
         setStep('select')
         return
       }
-
-        if (result.authUrl) {
-          window.open(result.authUrl, '_blank')
-        }
 
       const callbackResult = await awaitOAuthMutation.mutateAsync({ providerId: provider.id })
       if (callbackResult.success) {
@@ -365,6 +399,20 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
             <p className="text-muted-foreground text-sm">Connecting to {selectedProvider?.name}...</p>
           </div>
         )
+      }
+
+      case 'login_prompt': {
+        return selectedProvider ? (
+          <LoginPromptStep
+            onAuthenticated={() => {
+              connectByteRover(selectedProvider)
+            }}
+            onBack={() => {
+              setStep('select')
+              setSelectedProvider(undefined)
+            }}
+          />
+        ) : null
       }
 
       case 'model_select': {
