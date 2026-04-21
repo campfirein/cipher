@@ -24,10 +24,6 @@ export function VcCommitFlow({message, onCancel, onComplete}: VcCommitFlowProps)
     }
   })
 
-  // Remember passphrase across the synchronous `passphrase-submitted` →
-  // `committing` transition so the mutation fires with it.
-  const passphraseRef = useRef<string | undefined>(undefined)
-
   const fireCommit = useCallback(
     (passphrase?: string) => {
       commitMutation.mutate(
@@ -71,7 +67,6 @@ export function VcCommitFlow({message, onCancel, onComplete}: VcCommitFlowProps)
         message="Enter SSH key passphrase:"
         onCancel={() => dispatch({type: 'passphrase-cancelled'})}
         onSubmit={(pp) => {
-          passphraseRef.current = pp
           dispatch({type: 'passphrase-submitted'})
           fireCommit(pp)
         }}
