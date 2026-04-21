@@ -18,6 +18,7 @@ import type {CipherAgentServices, SessionServices} from '../../core/interfaces/c
 import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
 import type {ValidatedAgentConfig} from './agent-schemas.js'
 
+import { RuntimeSignalStore } from '../../../server/infra/context-tree/runtime-signal-store.js'
 import { createBlobStorage } from '../blob/blob-storage-factory.js'
 import { EnvironmentContextBuilder } from '../environment/environment-context-builder.js'
 import { AgentEventBus, SessionEventBus } from '../events/event-emitter.js'
@@ -214,7 +215,25 @@ export async function createCipherAgentServices(
   const mapSelectionContributor = new MapSelectionContributor('mapSelection', 16)
   systemPromptManager.registerContributor(mapSelectionContributor)
 
-  // 6b. Swarm coordinator — try to load config and build providers.
+  // 6b. Storage layer — initialised before the swarm block so the swarm
+  // SearchKnowledgeService receives `runtimeSignalStore` at construction
+  // time. Post-commit-5 the markdown fallback is gone, so a swarm search
+  // without the sidecar would silently drop every access-hit bump.
+  const keyStorage = new FileKeyStorage({
+    storageDir: storageBasePath,
+  })
+  await keyStorage.initialize()
+
+  const messageStorage = new MessageStorageService(keyStorage)
+  const messageStorageService = messageStorage
+  const historyStorage = new GranularHistoryStorage(messageStorage)
+
+  // Sidecar store for per-machine ranking signals (importance, recency,
+  // maturity, accessCount, updateCount). Kept out of the context-tree
+  // markdown so query-time bumps don't dirty version-controlled files.
+  const runtimeSignalStore = new RuntimeSignalStore(keyStorage, logger)
+
+  // 6c. Swarm coordinator — try to load config and build providers.
   // Missing config → fail-open (no swarm). Invalid config → warn but continue.
   let swarmCoordinator: SwarmCoordinator | undefined
   try {
@@ -236,7 +255,11 @@ export async function createCipherAgentServices(
     }
 
     const swarmProviders = buildProvidersFromConfig(swarmConfig, {
-      searchService: createSearchKnowledgeService(fileSystemService),
+      searchService: createSearchKnowledgeService(fileSystemService, {
+        baseDirectory: workingDirectory,
+        logger,
+        runtimeSignalStore,
+      }),
     })
 
     if (swarmProviders.length > 0) {
@@ -263,7 +286,7 @@ export async function createCipherAgentServices(
   // 7. Abstract generation queue (generator injected later via rebindCurateTools)
   const abstractQueue = new AbstractGenerationQueue(workingDirectory)
 
-  // 8. Tool provider (depends on FileSystemService, ProcessService, MemoryManager, SystemPromptManager)
+  // 9. Tool provider (depends on FileSystemService, ProcessService, MemoryManager, SystemPromptManager)
   const verbose = config.llm.verbose ?? false
   const descriptionLoader = new ToolDescriptionLoader()
   const toolProvider: ToolProvider = new ToolProvider(
@@ -274,6 +297,7 @@ export async function createCipherAgentServices(
       getToolProvider: (): ToolProvider => toolProvider,
       memoryManager,
       processService,
+      runtimeSignalStore,
       sandboxService,
       swarmCoordinator,
     },
@@ -282,28 +306,18 @@ export async function createCipherAgentServices(
   )
   await toolProvider.initialize()
 
-  // 9. Policy engine with default rules for autonomous execution
+  // 10. Policy engine with default rules for autonomous execution
   const policyEngine = new PolicyEngine({defaultDecision: 'ALLOW'})
   policyEngine.addRules(DEFAULT_POLICY_RULES)
 
-  // 10. Tool scheduler (orchestrates policy check → execution)
+  // 11. Tool scheduler (orchestrates policy check → execution)
   const toolScheduler = new CoreToolScheduler(toolProvider, policyEngine, undefined, {
     verbose,
   })
 
-  // 11. Tool manager (with scheduler for policy-based execution)
+  // 12. Tool manager (with scheduler for policy-based execution)
   const toolManager = new ToolManager(toolProvider, toolScheduler)
   await toolManager.initialize()
-
-  // 11. History storage - granular file-based storage
-  const keyStorage = new FileKeyStorage({
-    storageDir: storageBasePath,
-  })
-  await keyStorage.initialize()
-
-  const messageStorage = new MessageStorageService(keyStorage)
-  const messageStorageService = messageStorage
-  const historyStorage = new GranularHistoryStorage(messageStorage)
 
   // CompactionService for context overflow management
   const tokenizer = new GeminiTokenizer(config.model ?? 'gemini-3-flash-preview')
@@ -332,6 +346,7 @@ export async function createCipherAgentServices(
     messageStorageService,
     policyEngine,
     processService,
+    runtimeSignalStore,
     sandboxService,
     systemPromptManager,
     toolManager,

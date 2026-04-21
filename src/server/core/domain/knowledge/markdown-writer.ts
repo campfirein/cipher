@@ -1,6 +1,5 @@
 import {dump as yamlDump, load as yamlLoad} from 'js-yaml'
 
-import { determineTier, mergeScoring as mergeScoringFn } from './memory-scoring.js'
 import { normalizeRelationPath, parseRelations } from './relation-parser.js'
 
 export interface RawConcept {
@@ -30,16 +29,14 @@ export interface Fact {
 }
 
 /**
- * Scoring metadata for knowledge lifecycle management (FinMem-inspired).
- * Stored in YAML frontmatter alongside existing fields.
+ * Content timestamps kept in markdown frontmatter. `createdAt` is the
+ * immutable creation time; `updatedAt` reflects the last content
+ * modification. Runtime ranking signals (importance, recency, maturity,
+ * accessCount, updateCount) live in the sidecar — see
+ * `features/runtime-signals/plan.md`.
  */
-export interface FrontmatterScoring {
-  accessCount?: number
+export interface ContextTimestamps {
   createdAt?: string
-  importance?: number
-  maturity?: 'core' | 'draft' | 'validated'
-  recency?: number
-  updateCount?: number
   updatedAt?: string
 }
 
@@ -51,24 +48,29 @@ export interface ContextData {
   rawConcept?: RawConcept
   reason?: string
   relations?: string[]
-  scoring?: FrontmatterScoring
   snippets: string[]
   summary?: string
   tags: string[]
+  timestamps?: ContextTimestamps
 }
 
+/**
+ * Fields carried in the markdown frontmatter block. Post-commit-5 this
+ * covers only semantic content and content timestamps; runtime ranking
+ * signals live in the sidecar.
+ *
+ * `parseFrontmatter` may return instances that also carry legacy fields
+ * (importance, recency, maturity, accessCount, updateCount) on files
+ * written before the migration. Those are silently ignored — the typed
+ * shape only exposes what commit 5 and later writers produce.
+ */
 interface Frontmatter {
-  accessCount?: number
   createdAt?: string
-  importance?: number
   keywords: string[]
-  maturity?: 'core' | 'draft' | 'validated'
-  recency?: number
   related: string[]
   summary?: string
   tags: string[]
   title?: string
-  updateCount?: number
   updatedAt?: string
 }
 
@@ -79,19 +81,23 @@ interface ParsedFrontmatter {
 
 /**
  * Generate YAML frontmatter block from context data.
- * Only includes fields that have values.
+ *
+ * Emits only semantic fields and content timestamps. Runtime ranking
+ * signals (importance, recency, maturity, accessCount, updateCount) are
+ * not written — they live in the sidecar store since commit 5 of the
+ * runtime-signals migration.
  */
 function generateFrontmatter(
   title: string,
   relations?: string[],
   tags: string[] = [],
   keywords: string[] = [],
-  scoring?: FrontmatterScoring,
+  timestamps?: ContextTimestamps,
   summary?: string,
 ): string {
   const normalizedRelations = (relations || []).map(rel => normalizeRelationPath(rel))
 
-  const fm: Record<string, number | string | string[]> = {}
+  const fm: Record<string, string | string[]> = {}
 
   if (title) {
     fm.title = title
@@ -109,35 +115,12 @@ function generateFrontmatter(
 
   fm.keywords = keywords
 
-  // Scoring fields — only emit when present (backward compatible)
-  if (scoring) {
-    if (scoring.importance !== undefined) {
-      fm.importance = Math.round(scoring.importance * 100) / 100
-    }
+  if (timestamps?.createdAt) {
+    fm.createdAt = timestamps.createdAt
+  }
 
-    if (scoring.recency !== undefined) {
-      fm.recency = Math.round(scoring.recency * 1000) / 1000
-    }
-
-    if (scoring.maturity) {
-      fm.maturity = scoring.maturity
-    }
-
-    if (scoring.accessCount !== undefined && scoring.accessCount > 0) {
-      fm.accessCount = scoring.accessCount
-    }
-
-    if (scoring.updateCount !== undefined && scoring.updateCount > 0) {
-      fm.updateCount = scoring.updateCount
-    }
-
-    if (scoring.createdAt) {
-      fm.createdAt = scoring.createdAt
-    }
-
-    if (scoring.updatedAt) {
-      fm.updatedAt = scoring.updatedAt
-    }
+  if (timestamps?.updatedAt) {
+    fm.updatedAt = timestamps.updatedAt
   }
 
   // Always generate frontmatter since tags and keywords are required
@@ -188,33 +171,17 @@ function parseFrontmatter(content: string): null | ParsedFrontmatter {
       frontmatter.summary = parsed.summary
     }
 
-    // Scoring fields (backward compatible — absent in old files)
-    if (typeof parsed.importance === 'number') {
-      frontmatter.importance = parsed.importance
-    }
-
-    if (typeof parsed.recency === 'number') {
-      frontmatter.recency = parsed.recency
-    }
-
-    if (typeof parsed.accessCount === 'number') {
-      frontmatter.accessCount = parsed.accessCount
-    }
-
-    if (typeof parsed.updateCount === 'number') {
-      frontmatter.updateCount = parsed.updateCount
-    }
-
+    // Content timestamps (createdAt is immutable, updatedAt tracks real
+    // content modification). Pre-migration files may also carry legacy
+    // scoring fields (importance, recency, maturity, accessCount,
+    // updateCount) — those are silently ignored here; the runtime signals
+    // they represented now live in the sidecar.
     if (typeof parsed.createdAt === 'string') {
       frontmatter.createdAt = parsed.createdAt
     }
 
     if (typeof parsed.updatedAt === 'string') {
       frontmatter.updatedAt = parsed.updatedAt
-    }
-
-    if (parsed.maturity === 'draft' || parsed.maturity === 'validated' || parsed.maturity === 'core') {
-      frontmatter.maturity = parsed.maturity
     }
 
     return { body, frontmatter }
@@ -698,81 +665,38 @@ function mergeFacts(source?: Fact[], target?: Fact[]): Fact[] | undefined {
 }
 
 /**
- * Parse content extracting relations from either frontmatter or legacy @ format.
- * Returns parsed frontmatter metadata and the body content for further parsing.
+ * Extract the createdAt timestamp from a raw markdown file's frontmatter.
+ * Used by callers (e.g. curate UPDATE) that need to preserve the immutable
+ * creation time across a write without round-tripping through the full
+ * parsed-content shape.
  */
-/**
- * Extract scoring metadata from parsed frontmatter.
- * Returns defaults for missing fields.
- */
-export function extractScoring(fm: Frontmatter): FrontmatterScoring {
-  return {
-    accessCount: fm.accessCount ?? 0,
-    createdAt: fm.createdAt,
-    importance: fm.importance ?? 50,
-    maturity: fm.maturity ?? 'draft',
-    recency: fm.recency ?? 1,
-    updateCount: fm.updateCount ?? 0,
-    updatedAt: fm.updatedAt,
-  }
-}
-
-/**
- * Parse frontmatter from raw markdown content and return scoring metadata.
- * Exported for use by search-knowledge-service to extract scoring without
- * going through the full parseContent path.
- */
-export function parseFrontmatterScoring(content: string): FrontmatterScoring | undefined {
-  const parsed = parseFrontmatter(content)
-  if (!parsed) {
-    return undefined
-  }
-
-  return extractScoring(parsed.frontmatter)
-}
-
-/**
- * Replace scoring fields in existing markdown content without touching the body.
- * If no frontmatter exists, returns the original content unchanged.
- */
-export function updateScoringInContent(content: string, scoring: FrontmatterScoring): string {
-  const parsed = parseFrontmatter(content)
-  if (!parsed) {
-    return content
-  }
-
-  const { body, frontmatter } = parsed
-  const updatedFrontmatter = generateFrontmatter(
-    frontmatter.title ?? '',
-    frontmatter.related,
-    frontmatter.tags,
-    frontmatter.keywords,
-    scoring,
-    frontmatter.summary,
-  )
-
-  return updatedFrontmatter + body
+export function parseCreatedAt(content: string): string | undefined {
+  return parseFrontmatter(content)?.frontmatter.createdAt
 }
 
 function parseContentWithFrontmatter(content: string): {
   body: string
   keywords: string[]
   relations: string[]
-  scoring?: FrontmatterScoring
   summary?: string
   tags: string[]
+  timestamps?: ContextTimestamps
   title?: string
 } {
   const parsed = parseFrontmatter(content)
 
   if (parsed) {
+    const timestamps: ContextTimestamps = {}
+    if (parsed.frontmatter.createdAt) timestamps.createdAt = parsed.frontmatter.createdAt
+    if (parsed.frontmatter.updatedAt) timestamps.updatedAt = parsed.frontmatter.updatedAt
+
     return {
       body: parsed.body,
       keywords: parsed.frontmatter.keywords,
       relations: parsed.frontmatter.related,
-      scoring: extractScoring(parsed.frontmatter),
       summary: parsed.frontmatter.summary,
       tags: parsed.frontmatter.tags,
+      timestamps: Object.keys(timestamps).length > 0 ? timestamps : undefined,
       title: parsed.frontmatter.title,
     }
   }
@@ -791,7 +715,7 @@ export const MarkdownWriter = {
     const snippets = (data.snippets || []).filter(s => s && s.trim())
     const relations = data.relations || []
 
-    const frontmatter = generateFrontmatter(data.name, relations, data.tags, data.keywords, data.scoring, data.summary)
+    const frontmatter = generateFrontmatter(data.name, relations, data.tags, data.keywords, data.timestamps, data.summary)
     const reasonSection = generateReasonSection(data.reason)
     const rawConceptSection = generateRawConceptSection(data.rawConcept)
     const narrativeSection = generateNarrativeSection(data.narrative)
@@ -835,17 +759,10 @@ export const MarkdownWriter = {
     // reason: explicit override wins, then source (newer), then target (older)
     const mergedReason = reason ?? parseReasonSection(sourceParsed.body) ?? parseReasonSection(targetParsed.body)
 
-    // Merge scoring metadata (FinMem-inspired lifecycle)
-    const defaultScoring: FrontmatterScoring = { importance: 50, maturity: 'draft', recency: 1 }
-    let mergedScoringData: FrontmatterScoring | undefined
-    if (sourceParsed.scoring || targetParsed.scoring) {
-      const merged = mergeScoringFn(sourceParsed.scoring ?? defaultScoring, targetParsed.scoring ?? defaultScoring)
-      const recalculatedTier = determineTier(
-        merged.importance ?? 50,
-        (merged.maturity ?? 'draft') as 'core' | 'draft' | 'validated',
-      )
-      mergedScoringData = { ...merged, maturity: recalculatedTier }
-    }
+    // Merge timestamps: preserve the earliest createdAt and stamp a fresh
+    // updatedAt. Scoring signals (importance/recency/maturity/counts) are
+    // merged at the sidecar layer by the merge caller — not here.
+    const mergedTimestamps = mergeTimestamps(sourceParsed.timestamps, targetParsed.timestamps)
 
     const sourceRawConcept = parseRawConceptSection(sourceParsed.body)
     const targetRawConcept = parseRawConceptSection(targetParsed.body)
@@ -880,15 +797,15 @@ export const MarkdownWriter = {
       rawConcept: mergedRawConcept,
       reason: mergedReason,
       relations: mergedRelations,
-      scoring: mergedScoringData,
       snippets: mergedSnippets,
       summary: summary ?? sourceParsed.summary ?? targetParsed.summary,
       tags: mergedTags,
+      timestamps: mergedTimestamps,
     })
   },
 
   parseContent(content: string, name: string = ''): ContextData {
-    const { body, keywords, relations, scoring, summary, tags, title } = parseContentWithFrontmatter(content)
+    const { body, keywords, relations, summary, tags, timestamps, title } = parseContentWithFrontmatter(content)
 
     return {
       facts: parseFactsSection(body),
@@ -898,10 +815,31 @@ export const MarkdownWriter = {
       rawConcept: parseRawConceptSection(body),
       reason: parseReasonSection(body),
       relations,
-      scoring,
       snippets: extractSnippetsFromContent(body),
       summary,
       tags,
+      timestamps,
     }
   },
+}
+
+/**
+ * Merge two timestamp records: earliest createdAt, fresh updatedAt.
+ *
+ * Always stamps a fresh `updatedAt` — merge is a content modification, so
+ * the output always carries an updated timestamp regardless of input shape.
+ * `createdAt` only appears in the output when at least one input had it.
+ */
+function mergeTimestamps(a?: ContextTimestamps, b?: ContextTimestamps): ContextTimestamps {
+  const out: ContextTimestamps = {updatedAt: new Date().toISOString()}
+
+  const aCreated = a?.createdAt
+  const bCreated = b?.createdAt
+  if (aCreated && bCreated) {
+    out.createdAt = new Date(aCreated).getTime() <= new Date(bCreated).getTime() ? aCreated : bCreated
+  } else if (aCreated ?? bCreated) {
+    out.createdAt = aCreated ?? bCreated
+  }
+
+  return out
 }

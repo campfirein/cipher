@@ -108,12 +108,26 @@ describe('FileContextTreeArchiveService', () => {
       expect(await fileExists(join(contextTreeDir, ARCHIVE_DIR, 'api', 'endpoints', 'legacy-v1.stub.md'))).to.be.true
     })
 
-    it('should extract importance from frontmatter', async () => {
+    it('captures importance from the runtime-signal sidecar in the archive stub', async () => {
+      // Post-migration: evicted_importance is read from the sidecar, not
+      // markdown. Seed the sidecar with a known value, then assert the stub
+      // preserves it.
+      const {createMockRuntimeSignalStore} = await import('../../../helpers/mock-factories.js')
+      const signalStore = createMockRuntimeSignalStore()
+      await signalStore.set('auth/tokens.md', {
+        accessCount: 0,
+        importance: 25,
+        maturity: 'draft',
+        recency: 1,
+        updateCount: 0,
+      })
+      const scopedService = new FileContextTreeArchiveService(signalStore)
+
       const domainDir = join(contextTreeDir, 'auth')
       await mkdir(domainDir, {recursive: true})
-      await writeFile(join(domainDir, 'tokens.md'), '---\nimportance: 25\nmaturity: draft\n---\n# Tokens')
+      await writeFile(join(domainDir, 'tokens.md'), '# Tokens')
 
-      await service.archiveEntry('auth/tokens.md', mockAgent, testDir)
+      await scopedService.archiveEntry('auth/tokens.md', mockAgent, testDir)
 
       const stubContent = await readFile(join(contextTreeDir, ARCHIVE_DIR, 'auth', 'tokens.stub.md'), 'utf8')
       const fm = parseArchiveStubFrontmatter(stubContent)
