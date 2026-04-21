@@ -25,10 +25,8 @@ import {useMemo, useState} from 'react'
 
 import {ProjectLocationDTO} from '../../../../shared/transport/events'
 import {useTransportStore} from '../../../stores/transport-store'
-import {useGetEnvironmentConfig} from '../../config/api/get-environment-config'
 import {useGetProjectConfig} from '../api/get-project-config'
 import {useGetProjectList} from '../api/get-project-list'
-import {buildRemoteSpaceUrl} from '../utils/build-remote-space-url'
 import {displayPath} from '../utils/display-path'
 import {getProjectName} from '../utils/project-name'
 import {AllProjectsDialog} from './all-projects-dialog'
@@ -93,16 +91,15 @@ type OpenProjectItemProps = {
   isSelected: boolean
   onSelect: () => void
   project: ProjectLocationDTO
-  webAppUrl: string | undefined
 }
 
-function OpenProjectItem({isSelected, onSelect, project, webAppUrl}: OpenProjectItemProps) {
+function OpenProjectItem({isSelected, onSelect, project}: OpenProjectItemProps) {
   const name = getProjectName(project.projectPath)
   const {data: projectConfig} = useGetProjectConfig({projectPath: project.projectPath})
   const teamName = projectConfig?.brvConfig?.teamName
   const spaceName = projectConfig?.brvConfig?.spaceName
   const remoteLabel = teamName && spaceName ? `${teamName} / ${spaceName}` : undefined
-  const remoteSpaceUrl = buildRemoteSpaceUrl({spaceName, teamName, webAppUrl})
+  const remoteUrl = projectConfig?.remoteUrl
 
   return (
     <DropdownMenuSub>
@@ -115,9 +112,9 @@ function OpenProjectItem({isSelected, onSelect, project, webAppUrl}: OpenProject
           <span className="text-sm">{isSelected ? 'Current project' : 'Switch to this project'}</span>
         </DropdownMenuItem>
         <DropdownMenuItem
-          disabled={!remoteSpaceUrl}
+          disabled={!remoteUrl}
           onClick={() => {
-            if (remoteSpaceUrl) window.open(remoteSpaceUrl, '_blank', 'noopener,noreferrer')
+            if (remoteUrl) window.open(remoteUrl, '_blank', 'noopener,noreferrer')
           }}
         >
           <SquareArrowOutUpRight className="size-4" />
@@ -138,7 +135,6 @@ export function ProjectDropdown() {
       staleTime: 30 * 1000,
     },
   })
-  const {data: envConfig} = useGetEnvironmentConfig()
 
   const projects = useMemo(() => projResp?.locations ?? [], [projResp])
   const {openProjects, recentProjects} = useMemo(() => {
@@ -187,7 +183,6 @@ export function ProjectDropdown() {
                   key={p.projectPath}
                   onSelect={() => handleSelect(p)}
                   project={p}
-                  webAppUrl={envConfig?.webAppUrl}
                 />
               ))}
 

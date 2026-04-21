@@ -23,9 +23,10 @@
 
 import {GlobalInstanceManager} from '@campfirein/brv-transport-client'
 import express from 'express'
+import * as git from 'isomorphic-git'
 import {fork, type StdioOptions} from 'node:child_process'
 import {randomUUID} from 'node:crypto'
-import {mkdirSync, readdirSync, readFileSync, unlinkSync} from 'node:fs'
+import fs, {mkdirSync, readdirSync, readFileSync, unlinkSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 
@@ -37,6 +38,7 @@ import {
   AGENT_IDLE_TIMEOUT_MS,
   AGENT_POOL_MAX_SIZE,
   BRV_DIR,
+  CONTEXT_TREE_DIR,
   HEARTBEAT_FILE,
   WEBUI_DEFAULT_PORT,
 } from '../../constants.js'
@@ -82,6 +84,15 @@ import {HeartbeatWriter} from './heartbeat.js'
 import {IdleTimeoutPolicy} from './idle-timeout-policy.js'
 import {selectDaemonPort} from './port-selector.js'
 import {ShutdownHandler} from './shutdown-handler.js'
+
+async function readContextTreeRemoteUrl(projectPath: string, remote = 'origin'): Promise<string | undefined> {
+  const dir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
+  try {
+    return await git.getConfig({dir, fs, path: `remote.${remote}.url`})
+  } catch {
+    return undefined
+  }
+}
 
 function log(msg: string): void {
   processLog(`[Daemon] ${msg}`)
@@ -470,7 +481,7 @@ async function main(): Promise<void> {
     // State server endpoints — agent child processes request config on startup
     transportServer.onRequest<
       {projectPath: string},
-      {brvConfig?: BrvConfig; spaceId: string; storagePath: string; teamId: string}
+      {brvConfig?: BrvConfig; remoteUrl?: string; spaceId: string; storagePath: string; teamId: string}
     >(TransportStateEventNames.GET_PROJECT_CONFIG, async (data) => {
       // Smart invalidation: only invalidate if config file was modified since last load
       // This prevents unnecessary disk I/O while still catching changes from
@@ -481,11 +492,15 @@ async function main(): Promise<void> {
         log(`Config invalidated due to file modification: ${data.projectPath}`)
       }
 
-      const config = await projectStateLoader.getProjectConfig(data.projectPath)
+      const [config, remoteUrl] = await Promise.all([
+        projectStateLoader.getProjectConfig(data.projectPath),
+        readContextTreeRemoteUrl(data.projectPath),
+      ])
       // Register project (idempotent) to ensure XDG storage directories exist
       const projectInfo = projectRegistry.register(data.projectPath)
       return {
         brvConfig: config,
+        remoteUrl,
         spaceId: config?.spaceId ?? '',
         storagePath: projectInfo.storagePath,
         teamId: config?.teamId ?? '',
