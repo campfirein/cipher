@@ -2,6 +2,16 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.7.1]
+
+### Changed
+- **Agent skill template — dedicated "Query and Curate History" section** — The bundled `SKILL.md` installed via `brv connectors install` (for Claude Code, Cursor, Codex, Copilot, and other skill-based agents) now has a dedicated Section 11 covering `brv curate view`, `brv query-log view`, and `brv query-log summary` — including the resolution-tier taxonomy (0=exact cache … 4=full agentic) and time/status filters. Connected agents will now reach for history and recall metrics when debugging knowledge gaps instead of guessing. Re-run `brv connectors install <agent>` to regenerate the skill for an existing connector.
+
+### Fixed
+- **`brv vc status` stays clean after queries and curates** — Runtime ranking signals (hotness, recency, access counts, maturity) used to live in markdown frontmatter, so every `brv search`, `brv query`, or agent curate silently dirtied context files and polluted `brv vc status` / `brv vc diff`. Those signals now live in a per-project sidecar outside the context tree; markdown keeps only semantic fields (title, tags, keywords, summary, related, createdAt, updatedAt). Older context trees with legacy signal fields in frontmatter continue to parse — stale fields are ignored on read, so no migration is needed.
+- **Synthesis files no longer leak `maturity: draft` into frontmatter** — `brv dream synthesize` previously wrote `maturity: draft` into the YAML frontmatter of each new synthesis file; that field now seeds the sidecar instead, leaving the synthesis markdown body and frontmatter free of ranking state.
+- **`brv vc` diffs no longer show OS / editor noise** — Added the following patterns to the context-tree `.gitignore` so they're excluded from `brv vc` tracking: `.DS_Store`, `._*` (macOS); `Thumbs.db`, `ehthumbs.db`, `Desktop.ini` (Windows); `.directory`, `.fuse_hidden*`, `.nfs*` (Linux); and editor swap/backup/temp patterns `*.swp`, `*.swo`, `*~`, `.#*`, `*.bak`, `*.tmp`. Patterns auto-sync into existing projects on the next `brv vc` command — no manual `.gitignore` edit required.
+
 ## [3.7.0]
 
 ### Added

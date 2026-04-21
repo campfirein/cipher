@@ -5,6 +5,7 @@
 
 import {resolve} from 'node:path'
 
+import type {IRuntimeSignalStore} from '../../../server/core/interfaces/storage/i-runtime-signal-store.js'
 import type {
   CurateOperation,
   CurateOperationResult,
@@ -100,7 +101,11 @@ function validateOperations(operations: CurateOperation[]): CurateOperationResul
 export class CurateService implements ICurateService {
   private readonly workingDirectory: string
 
-  constructor(workingDirectory?: string, private readonly abstractQueue?: AbstractGenerationQueue) {
+  constructor(
+    workingDirectory?: string,
+    private readonly abstractQueue?: AbstractGenerationQueue,
+    private readonly runtimeSignalStore?: IRuntimeSignalStore,
+  ) {
     this.workingDirectory = workingDirectory ?? process.cwd()
   }
 
@@ -148,7 +153,7 @@ export class CurateService implements ICurateService {
     }
 
     // Call the underlying executeCurate function from curate-tool
-    const result = await executeCurate({basePath, operations}, undefined, this.abstractQueue)
+    const result = await executeCurate({basePath, operations}, undefined, this.abstractQueue, this.runtimeSignalStore)
 
     return result
   }
@@ -194,6 +199,10 @@ export class CurateService implements ICurateService {
  * @param workingDirectory - Working directory for resolving relative paths
  * @returns CurateService instance
  */
-export function createCurateService(workingDirectory?: string, abstractQueue?: AbstractGenerationQueue): ICurateService {
-  return new CurateService(workingDirectory, abstractQueue)
+export function createCurateService(
+  workingDirectory?: string,
+  abstractQueue?: AbstractGenerationQueue,
+  runtimeSignalStore?: IRuntimeSignalStore,
+): ICurateService {
+  return new CurateService(workingDirectory, abstractQueue, runtimeSignalStore)
 }

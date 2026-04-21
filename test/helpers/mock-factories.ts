@@ -44,9 +44,11 @@ import type {IProviderConfigStore} from '../../src/server/core/interfaces/i-prov
 import type {IProviderKeychainStore} from '../../src/server/core/interfaces/i-provider-keychain-store.js'
 import type {IProviderOAuthTokenStore} from '../../src/server/core/interfaces/i-provider-oauth-token-store.js'
 import type {IAuthStateStore} from '../../src/server/core/interfaces/state/i-auth-state-store.js'
+import type {IRuntimeSignalStore} from '../../src/server/core/interfaces/storage/i-runtime-signal-store.js'
 import type {ITransportServer} from '../../src/server/core/interfaces/transport/i-transport-server.js'
 
 import {AuthToken} from '../../src/server/core/domain/entities/auth-token.js'
+import {createDefaultRuntimeSignals} from '../../src/server/core/domain/knowledge/runtime-signals-schema.js'
 
 /**
  * Type aliases for service mocks - balances type safety with readability.
@@ -353,6 +355,57 @@ export function createMockToolScheduler(
 }
 
 /**
+ * Creates an in-memory IRuntimeSignalStore backed by a Map.
+ *
+ * Behaviour mirrors RuntimeSignalStore: get returns defaults for unknown
+ * paths, update runs the updater against the current (or default) record.
+ * No atomicity guarantees are needed at the mock level — tests using this
+ * mock don't exercise concurrent writes.
+ */
+export function createMockRuntimeSignalStore(): IRuntimeSignalStore {
+  const store = new Map<string, ReturnType<typeof createDefaultRuntimeSignals>>()
+
+  const get = async (relPath: string) => store.get(relPath) ?? createDefaultRuntimeSignals()
+
+  return {
+    async batchUpdate(updates) {
+      await Promise.all(
+        [...updates.entries()].map(async ([relPath, updater]) => {
+          const current = await get(relPath)
+          store.set(relPath, updater(current))
+        }),
+      )
+    },
+    async delete(relPath) {
+      store.delete(relPath)
+    },
+    get,
+    async getMany(relPaths) {
+      // Mirror the real store: only return entries for paths that have a
+      // stored record. Callers distinguish missing via `.has(path)`.
+      const entries: Array<readonly [string, ReturnType<typeof createDefaultRuntimeSignals>]> = []
+      for (const relPath of relPaths) {
+        const value = store.get(relPath)
+        if (value !== undefined) entries.push([relPath, value])
+      }
+
+      return new Map(entries)
+    },
+    async list() {
+      return new Map(store)
+    },
+    async set(relPath, signals) {
+      store.set(relPath, signals)
+    },
+    async update(relPath, updater) {
+      const next = updater(await get(relPath))
+      store.set(relPath, next)
+      return next
+    },
+  }
+}
+
+/**
  * Creates a properly-typed mock CipherAgentServices
  *
  * @param agentEventBus - Real or mock AgentEventBus instance
@@ -376,6 +429,7 @@ export function createMockCipherAgentServices(
     messageStorageService: {} as unknown as MessageStorageService,
     policyEngine: createMockPolicyEngine(sandbox),
     processService: createMockProcessService(sandbox),
+    runtimeSignalStore: createMockRuntimeSignalStore(),
     sandboxService: createMockSandboxService(sandbox),
     systemPromptManager: createMockSystemPromptManager(sandbox),
     toolManager: createMockToolManager(sandbox),
