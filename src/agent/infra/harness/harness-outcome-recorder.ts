@@ -6,7 +6,11 @@
  * with 5 permits), per-session rate limiting (50 outcomes), session
  * state tracking, and event emission.
  *
- * Implements contracts §C1, §C3, §C5, §C6, §C7 from
+ * `attachFeedback` implements the 3x/1x weighting policy from §C2:
+ * set the `userFeedback` field on the original, then insert synthetic
+ * clones so the heuristic weights user opinion proportionally.
+ *
+ * Implements contracts §C1, §C2, §C3, §C5, §C6, §C7 from
  * `features/autoharness-v2/tasks/phase_1_2_handoff.md`.
  */
 
@@ -85,6 +89,12 @@ class Semaphore {
 // Recorder
 // ---------------------------------------------------------------------------
 
+/** Synthetic outcome count per verdict (§C2 weighting policy). */
+const BAD_SYNTHETIC_COUNT = 3
+/** Maximum recent outcomes to scan when cloning for synthetic insertion (§C2). */
+const FEEDBACK_LIST_LIMIT = 100
+/** Synthetic outcome count for 'good' verdict — asymmetric with BAD (3:1) per §C2. */
+const GOOD_SYNTHETIC_COUNT = 1
 const MAX_OUTCOMES_PER_SESSION = 50
 const SEMAPHORE_PERMITS = 5
 
@@ -107,6 +117,70 @@ export class HarnessOutcomeRecorder {
     this.sessionEventBus = sessionEventBus
     this.logger = logger
     this.config = config
+  }
+
+  /**
+   * Attach user feedback to an outcome and insert synthetic clones
+   * per the 3x/1x weighting policy (§C2).
+   *
+   * - `'bad'`  → `recordFeedback` + 3 synthetic `saveOutcome` calls
+   * - `'good'` → `recordFeedback` + 1 synthetic `saveOutcome` call
+   * - `null`   → `recordFeedback` only (clears the flag, no synthetics)
+   *
+   * `OUTCOME_NOT_FOUND` from `store.recordFeedback` propagates to the
+   * caller. Synthetic-insertion failures are logged and swallowed —
+   * partial insertion is tolerable.
+   *
+   * Does NOT use the recorder's semaphore or rate limit — this is
+   * user-driven, not on the code-exec hot path.
+   */
+  async attachFeedback(
+    projectId: string,
+    commandType: string,
+    outcomeId: string,
+    verdict: 'bad' | 'good' | null,
+  ): Promise<void> {
+    // 1. Set the field on the original — propagates OUTCOME_NOT_FOUND
+    await this.store.recordFeedback(projectId, commandType, outcomeId, verdict)
+
+    // 2. No synthetics for null verdict (just clearing the flag)
+    if (verdict === null) return
+
+    // 3. Find the original in recent outcomes for cloning
+    const recentOutcomes = await this.store.listOutcomes(projectId, commandType, FEEDBACK_LIST_LIMIT)
+    const original = recentOutcomes.find((o) => o.id === outcomeId)
+
+    if (!original) {
+      this.logger.warn('Outcome not found in recent listings — skipping synthetic insertion', {
+        commandType,
+        limit: FEEDBACK_LIST_LIMIT,
+        outcomeId,
+        projectId,
+      })
+      return
+    }
+
+    // 4. Insert synthetic clones
+    const count = verdict === 'bad' ? BAD_SYNTHETIC_COUNT : GOOD_SYNTHETIC_COUNT
+
+    const syntheticPromises = Array.from({length: count}, (_, i) => {
+      const synthetic: CodeExecOutcome = {
+        ...original,
+        id: randomUUID(),
+        userFeedback: verdict,
+      }
+      return this.store.saveOutcome(synthetic).catch((error: unknown) => {
+        this.logger.warn('Synthetic outcome insertion failed', {
+          commandType,
+          error,
+          outcomeId,
+          projectId,
+          syntheticIndex: i,
+        })
+      })
+    })
+
+    await Promise.all(syntheticPromises)
   }
 
   /**
