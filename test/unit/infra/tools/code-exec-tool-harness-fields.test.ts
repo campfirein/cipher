@@ -5,7 +5,7 @@
  * `ToolExecutionContext` are forwarded into `SandboxConfig` when
  * `code_exec` calls `sandboxService.executeCode()`.
  *
- * ENG-2233 (Phase 2 Task 2.4)
+ * ENG-2233
  */
 
 import {expect} from 'chai'
