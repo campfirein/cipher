@@ -8,6 +8,16 @@
 
 import {z} from 'zod'
 
+import type {
+  CurateOperation,
+  CurateOptions,
+  CurateResult,
+} from '../../interfaces/i-curate-service.js'
+import type {
+  FileContent,
+  ReadFileOptions,
+} from '../file-system/types.js'
+
 // ---------------------------------------------------------------------------
 // Enums
 // ---------------------------------------------------------------------------
@@ -169,3 +179,86 @@ export const EvaluationScenarioSchema = z
   .strict()
 export type EvaluationScenario = z.input<typeof EvaluationScenarioSchema>
 export type ValidatedEvaluationScenario = z.output<typeof EvaluationScenarioSchema>
+
+// ---------------------------------------------------------------------------
+// Phase 3 — HarnessContext + module contract
+// ---------------------------------------------------------------------------
+
+/**
+ * Environment metadata surfaced to a harness function at call time.
+ * Scoped deliberately narrow — the context must be cheap to construct
+ * per call and must not leak session-specific references beyond what
+ * the template actually uses. Extend additively when a real consumer
+ * materializes.
+ */
+export interface HarnessContextEnv {
+  readonly commandType: 'chat' | 'curate' | 'query'
+  readonly projectType: ProjectType
+  readonly workingDirectory: string
+}
+
+/**
+ * Tool surface exposed to harness functions inside the VM. Each member
+ * is a bound proxy into the outer sandbox's `ToolsSDK` — harness code
+ * calls `ctx.tools.curate(...)` and the call bridges out to the real
+ * `tools.curate`.
+ *
+ * Signatures mirror `ToolsSDK` exactly. Every referenced type lives in
+ * `core/` — `CurateOperation` / `CurateOptions` / `CurateResult` in
+ * `core/interfaces/i-curate-service.ts`; `ReadFileOptions` / `FileContent`
+ * in `core/domain/file-system/types.ts`. That keeps `HarnessContextTools`
+ * free of `infra/` imports.
+ *
+ * v1.0 surface is `curate` + `readFile` — exactly what Phase 4's
+ * pass-through templates need. Adding more members (`grep`,
+ * `searchKnowledge`, etc.) is additive when a real consumer asks.
+ * The cost of a new member is moving its types into `core/` if they
+ * don't live there already; for `grep` / `searchKnowledge` that means
+ * splitting `SearchKnowledgeOptions` / `GrepOptions` out of
+ * `infra/sandbox/tools-sdk.ts` first.
+ */
+export interface HarnessContextTools {
+  readonly curate: (
+    operations: CurateOperation[],
+    options?: CurateOptions,
+  ) => Promise<CurateResult>
+  readonly readFile: (filePath: string, options?: ReadFileOptions) => Promise<FileContent>
+}
+
+/**
+ * Context passed as the sole argument to every harness function call.
+ * Frozen at call boundary so a compromised harness can't mutate what
+ * it sees. `readonly` is compile-time; Phase 3 Task 3.2's module
+ * builder enforces the invariant at runtime via `Object.freeze`.
+ */
+export interface HarnessContext {
+  readonly abort: AbortSignal
+  readonly env: HarnessContextEnv
+  readonly tools: HarnessContextTools
+}
+
+/**
+ * Shape exported by every harness module (template or refined).
+ * `meta` is always required; `curate` / `query` are optional and must
+ * be present iff declared in `meta().capabilities`. Phase 3 Task 3.2
+ * validates this invariant at load time.
+ */
+export interface HarnessModule {
+  readonly curate?: (ctx: HarnessContext) => Promise<CurateResult>
+  readonly meta: () => HarnessMeta
+  readonly query?: (ctx: HarnessContext) => Promise<unknown>
+}
+
+/**
+ * Result of `SandboxService.loadHarness`. Discriminated on `loaded` so
+ * consumers narrow cleanly: `{loaded: true}` carries the module and
+ * its source version; `{loaded: false}` carries a machine-readable
+ * `reason` that distinguishes "nothing to load" from "harness code is
+ * broken."
+ *
+ * Consumers never throw on a failed load — the sandbox degrades to
+ * raw `tools.*` orchestration transparently.
+ */
+export type HarnessLoadResult =
+  | {loaded: false; reason: 'meta-invalid' | 'meta-threw' | 'no-version' | 'syntax'}
+  | {loaded: true; module: HarnessModule; version: HarnessVersion}
