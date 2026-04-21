@@ -177,9 +177,11 @@ export async function createCipherAgentServices(
 
   // 5b-1. AutoHarness V2 outcome recorder (depends on HarnessStore from Phase 1.4)
   // TODO(ENG-2228): When Phase 1.4 adds `harnessStore` construction above,
-  // construct the recorder here:
+  // construct the recorder here. Note: the recorder constructor takes a
+  // SessionEventBus, but this is agent scope — resolve the session-vs-agent
+  // bus question flagged in ENG-2232's "Notes for reviewer" before wiring.
   //   const harnessOutcomeRecorder = new HarnessOutcomeRecorder(
-  //     harnessStore, sessionEventBus,
+  //     harnessStore, agentEventBus,
   //     logger.withSource('HarnessOutcomeRecorder'), config.harness,
   //   )
   //   sandboxService.setHarnessOutcomeRecorder(harnessOutcomeRecorder, logger)

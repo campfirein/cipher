@@ -13,6 +13,7 @@
 import {expect} from 'chai'
 import sinon from 'sinon'
 
+import type {EnvironmentContext} from '../../../../src/agent/core/domain/environment/types.js'
 import type {ILogger} from '../../../../src/agent/core/interfaces/i-logger.js'
 import type {ValidatedHarnessConfig} from '../../../../src/agent/infra/agent/agent-schemas.js'
 import type {RecordParams} from '../../../../src/agent/infra/harness/harness-outcome-recorder.js'
@@ -60,6 +61,18 @@ function makeLogger(): ILogger & {calls: Record<string, Array<{context?: Record<
   }
 }
 
+function makeEnvironmentContext(workingDirectory = '/test/project'): EnvironmentContext {
+  return {
+    brvStructure: '',
+    fileTree: '',
+    isGitRepository: false,
+    nodeVersion: '22.0.0',
+    osVersion: 'test',
+    platform: 'darwin',
+    workingDirectory,
+  }
+}
+
 function createRecorder(
   config?: Partial<ValidatedHarnessConfig>,
 ): {logger: ReturnType<typeof makeLogger>; recorder: HarnessOutcomeRecorder; store: InMemoryHarnessStore} {
@@ -68,6 +81,18 @@ function createRecorder(
   const logger = makeLogger()
   const recorder = new HarnessOutcomeRecorder(store, bus, logger, makeHarnessConfig(config))
   return {logger, recorder, store}
+}
+
+/** Wire recorder + environment into a SandboxService ready for recording. */
+function wireService(
+  recorder: HarnessOutcomeRecorder,
+  overrides?: {config?: Partial<ValidatedHarnessConfig>; workingDirectory?: string},
+): SandboxService {
+  const service = new SandboxService()
+  service.setHarnessConfig(makeHarnessConfig(overrides?.config))
+  service.setEnvironmentContext(makeEnvironmentContext(overrides?.workingDirectory))
+  service.setHarnessOutcomeRecorder(recorder)
+  return service
 }
 
 // ---------------------------------------------------------------------------
@@ -94,9 +119,7 @@ describe('SandboxService — harness outcome recording', () => {
 
   it('calls recorder.record once per executeCode with correct params', async () => {
     const {recorder} = createRecorder()
-    const service = new SandboxService()
-    service.setHarnessConfig(makeHarnessConfig({language: 'typescript'}))
-    service.setHarnessOutcomeRecorder(recorder)
+    const service = wireService(recorder, {config: {language: 'typescript'}, workingDirectory: '/my/project'})
     const spy = sinon.spy(recorder, 'record')
 
     await service.executeCode('1 + 1', 'sess-1', {commandType: 'curate'})
@@ -110,13 +133,12 @@ describe('SandboxService — harness outcome recording', () => {
     expect(params.result).to.have.property('stderr')
     expect(params.executionTimeMs).to.be.a('number').and.to.be.at.least(0)
     expect(params.projectType).to.equal('typescript')
-    expect(params.projectId).to.be.a('string')
+    expect(params.projectId).to.equal('/my/project')
   })
 
   it('defaults commandType to chat when config.commandType is absent', async () => {
     const {recorder} = createRecorder()
-    const service = new SandboxService()
-    service.setHarnessOutcomeRecorder(recorder)
+    const service = wireService(recorder)
     const spy = sinon.spy(recorder, 'record')
 
     await service.executeCode('1', 'sess-1')
@@ -127,9 +149,7 @@ describe('SandboxService — harness outcome recording', () => {
 
   it('resolves projectType to generic when language is auto', async () => {
     const {recorder} = createRecorder()
-    const service = new SandboxService()
-    service.setHarnessConfig(makeHarnessConfig({language: 'auto'}))
-    service.setHarnessOutcomeRecorder(recorder)
+    const service = wireService(recorder, {config: {language: 'auto'}})
     const spy = sinon.spy(recorder, 'record')
 
     await service.executeCode('1', 'sess-1')
@@ -137,12 +157,23 @@ describe('SandboxService — harness outcome recording', () => {
     expect(spy.firstCall.args[0].projectType).to.equal('generic')
   })
 
+  it('skips recording when environmentContext is not set', async () => {
+    const {recorder} = createRecorder()
+    const service = new SandboxService()
+    service.setHarnessOutcomeRecorder(recorder)
+    const spy = sinon.spy(recorder, 'record')
+
+    const result = await service.executeCode('1 + 1', 'sess-1')
+
+    expect(spy.callCount).to.equal(0)
+    expect(result.returnValue).to.equal(2)
+  })
+
   // ── Error resilience ─────────────────────────────────────────────────────
 
   it('recorder throwing synchronously does not break executeCode', async () => {
     const {recorder} = createRecorder()
-    const service = new SandboxService()
-    service.setHarnessOutcomeRecorder(recorder)
+    const service = wireService(recorder)
     sinon.stub(recorder, 'record').throws(new Error('sync boom'))
 
     const result = await service.executeCode('1 + 1', 'sess-1')
@@ -153,8 +184,7 @@ describe('SandboxService — harness outcome recording', () => {
 
   it('recorder returning rejected promise does not break executeCode', async () => {
     const {recorder} = createRecorder()
-    const service = new SandboxService()
-    service.setHarnessOutcomeRecorder(recorder)
+    const service = wireService(recorder)
     sinon.stub(recorder, 'record').rejects(new Error('async boom'))
 
     const result = await service.executeCode('1 + 1', 'sess-1')
@@ -177,8 +207,7 @@ describe('SandboxService — harness outcome recording', () => {
     const t0 = performance.now() - t0Start
 
     // With slow recorder that takes 100ms
-    const service = new SandboxService()
-    service.setHarnessOutcomeRecorder(recorder)
+    const service = wireService(recorder)
     sinon.stub(recorder, 'record').callsFake(async () => {
       await new Promise<void>((resolve) => {
         setTimeout(resolve, 100)

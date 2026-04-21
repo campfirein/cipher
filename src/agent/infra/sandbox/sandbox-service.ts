@@ -164,8 +164,12 @@ export class SandboxService implements ISandboxService {
     // Fire-and-forget: record outcome in the background. The recorder's
     // internal contract (Task 2.1) swallows errors, but the try/catch +
     // .catch are belt-and-braces against programming bugs in the recorder.
-    if (this.harnessOutcomeRecorder) {
+    if (this.harnessOutcomeRecorder && this.environmentContext?.workingDirectory) {
       const ct = config?.commandType
+      if (ct !== undefined && ct !== 'chat' && ct !== 'curate' && ct !== 'query') {
+        this.logger?.debug('harness.record: unknown commandType mapped to chat', {commandType: ct})
+      }
+
       const commandType = ct === 'curate' || ct === 'query' ? ct : 'chat'
       try {
         this.harnessOutcomeRecorder
@@ -174,7 +178,7 @@ export class SandboxService implements ISandboxService {
             commandType,
             executionTimeMs: result.executionTime,
             harnessVersionId: this.harnessVersionIdBySession.get(sessionId),
-            projectId: this.environmentContext?.workingDirectory ?? 'unknown',
+            projectId: this.environmentContext.workingDirectory,
             projectType: this.resolveProjectType(),
             result,
             sessionId,
