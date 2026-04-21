@@ -42,7 +42,7 @@ describe('formatError', () => {
   describe('context-aware overrides', () => {
     it('includes the project path in the USER_NOT_CONFIGURED override when context is provided', () => {
       const error = {code: 'ERR_VC_USER_NOT_CONFIGURED', message: 'raw server message'}
-      const result = formatError(error, undefined, {projectPath: '/Users/thien/my-proj'})
+      const result = formatError(error, 'fallback copy', {projectPath: '/Users/thien/my-proj'})
 
       expect(result).to.include('/Users/thien/my-proj')
       expect(result).to.include('brv vc config')
@@ -58,7 +58,7 @@ describe('formatError', () => {
 
     it('ignores context for non-function overrides', () => {
       const error = {code: 'ERR_PROVIDER_NOT_CONFIGURED', message: 'raw'}
-      const withCtx = formatError(error, undefined, {projectPath: '/Users/thien/proj'})
+      const withCtx = formatError(error, 'fallback copy', {projectPath: '/Users/thien/proj'})
       const withoutCtx = formatError(error)
 
       expect(withCtx).to.equal(withoutCtx)

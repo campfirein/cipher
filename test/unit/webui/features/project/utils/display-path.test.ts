@@ -58,6 +58,10 @@ describe('displayPath', () => {
       expect(displayPath(String.raw`D:\work\proj`)).to.equal(String.raw`D:\work\proj`)
     })
 
+    it('returns the path unchanged for a Windows UNC share (no drive letter)', () => {
+      expect(displayPath(String.raw`\\server\share\folder`)).to.equal(String.raw`\\server\share\folder`)
+    })
+
     it('returns the path unchanged for filesystem root', () => {
       expect(displayPath('/')).to.equal('/')
     })
