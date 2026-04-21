@@ -253,6 +253,7 @@ export class AuthHandler {
     this.transport.onRequest<void, AuthLogoutResponse>(AuthEvents.LOGOUT, async () => {
       try {
         await this.tokenStore.clear()
+        await this.authStateStore.loadToken()
         this.transport.broadcast(AuthEvents.STATE_CHANGED, {isAuthorized: false})
         return {success: true}
       } catch {
