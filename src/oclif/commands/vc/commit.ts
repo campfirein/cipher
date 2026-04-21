@@ -18,7 +18,8 @@ export default class VcCommit extends Command {
       description: 'Commit message',
     }),
     passphrase: Flags.string({
-      description: 'SSH key passphrase (or set BRV_SSH_PASSPHRASE env var)',
+      description:
+        'SSH key passphrase — WARNING: visible in process list and shell history. Prefer BRV_SSH_PASSPHRASE env var or ssh-agent.',
     }),
     sign: Flags.boolean({
       allowNo: true,
