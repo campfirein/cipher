@@ -114,6 +114,26 @@ describe('HarnessOutcomeRecorder', () => {
     })
   })
 
+  // ── Success determination ──────────────────────────────────────────────────
+
+  describe('success determination', () => {
+    it('sets success: false when stderr is non-empty', async () => {
+      const recorder = new HarnessOutcomeRecorder(store, bus, logger, makeConfig())
+      await recorder.record(makeParams({result: makeResult({stderr: 'uncaught error'})}))
+
+      const outcomes = await store.listOutcomes('proj-1', 'curate')
+      expect(outcomes[0].success).to.equal(false)
+    })
+
+    it('sets success: true when stderr is empty', async () => {
+      const recorder = new HarnessOutcomeRecorder(store, bus, logger, makeConfig())
+      await recorder.record(makeParams({result: makeResult({stderr: '', stdout: 'ok'})}))
+
+      const outcomes = await store.listOutcomes('proj-1', 'curate')
+      expect(outcomes[0].success).to.equal(true)
+    })
+  })
+
   // ── Usage detection ───────────────────────────────────────────────────────
 
   describe('usage detection', () => {

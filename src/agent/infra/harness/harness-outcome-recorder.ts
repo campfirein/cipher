@@ -26,6 +26,7 @@ import type {SessionEventBus} from '../events/event-emitter.js'
 export interface RecordParams {
   code: string
   commandType: 'chat' | 'curate' | 'query'
+  /** Reserved for Task 2.4 — threaded from AgentLLMService conversation loop. */
   conversationTurn?: number
   executionTimeMs: number
   harnessVersionId?: string
@@ -33,6 +34,7 @@ export interface RecordParams {
   projectType: ProjectType
   result: REPLResult
   sessionId: string
+  /** Reserved for Task 2.4 — threaded from AgentLLMService conversation loop. */
   taskDescription?: string
 }
 
@@ -40,6 +42,8 @@ export interface RecordParams {
 // Usage-detection regexes (§C1)
 // ---------------------------------------------------------------------------
 
+// Capabilities from HarnessCapabilitySchema (core/domain/harness/types.ts) + meta pseudo-method.
+// If a new capability is added to the schema, update this regex to match.
 const HARNESS_CALL_RE =
   /\bharness\.(curate|query|search|extract|gather|answer|buildOps|discover|meta)\b/
 
@@ -145,17 +149,20 @@ export class HarnessOutcomeRecorder {
       sessionId: params.sessionId,
       stderr: params.result.stderr || undefined,
       stdout: params.result.stdout || undefined,
-      success: !params.result.stderr,
+      // Approximation: any stderr = failure. Task 2.3 replaces with an
+      // explicit boolean from the sandbox runner to avoid false positives
+      // from deprecation warnings, console.warn, etc.
+      success: params.result.stderr.length === 0,
       timestamp: Date.now(),
       usedHarness,
     }
 
     // 4. Session state update — BEFORE rate limit check
-    if (!this.commandTypesBySession.has(params.sessionId)) {
-      this.commandTypesBySession.set(params.sessionId, new Set())
+    if (this.commandTypesBySession.has(params.sessionId)) {
+      this.commandTypesBySession.get(params.sessionId)?.add(params.commandType)
+    } else {
+      this.commandTypesBySession.set(params.sessionId, new Set<string>([params.commandType]))
     }
-
-    this.commandTypesBySession.get(params.sessionId)!.add(params.commandType)
 
     // 5. Rate limit check — counter increments BEFORE write
     const count = this.sessionCount.get(params.sessionId) ?? 0
