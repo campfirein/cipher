@@ -1,6 +1,6 @@
 import { Button } from '@campfirein/byterover-packages/components/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@campfirein/byterover-packages/components/dropdown-menu'
-import { LoaderCircle, Plus } from 'lucide-react'
+import { ChevronDown, LoaderCircle, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -67,7 +67,7 @@ export function ConnectorsPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-6 w-full sm:max-w-lg md:max-w-xl lg:max-w-2xl">
+    <div className="flex flex-col gap-5 w-full sm:max-w-lg md:max-w-xl lg:max-w-2xl">
       {/* Title + Add button */}
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-1">
@@ -100,9 +100,9 @@ export function ConnectorsPanel() {
       {connectors.length === 0 ? (
         <p className="text-muted-foreground py-8 text-center text-sm">No connectors installed. Add one to get started.</p>
       ) : (
-        <div className='border rounded-xl px-6 py-5 flex flex-col gap-5'>{
+        <div className='border rounded-xl px-6 py-5 flex flex-col gap-4'>{
           connectors.map((connector, index) => (
-            <div className='flex flex-col gap-5' key={connector.agent}>
+            <div className='flex flex-col gap-4' key={connector.agent}>
               <div className='flex justify-between items-center'>
                 <div className='flex items-center gap-3 text-sm'>
                   {agentIcons[connector.agent] ? (
@@ -110,7 +110,10 @@ export function ConnectorsPanel() {
                   ) : (
                     <div className="size-5 shrink-0" />
                   )}
-                  {connector.agent}
+                  <div className='flex flex-col'>
+                    <span>{connector.agent}</span>
+                    <span className='text-primary text-xs'>Connected</span>
+                  </div>
                 </div>
                 <div className='flex items-center'>
                   <DropdownMenu>
@@ -119,6 +122,7 @@ export function ConnectorsPanel() {
                       render={<Button className="text-sm" disabled={installMutation.isPending} size="sm" variant="outline" />}
                     >
                       {connectorLabels[connector.connectorType]}
+                      <ChevronDown className="size-3.5 shrink-0" />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align='end'>
                       {connector.supportedTypes.map((type) => (

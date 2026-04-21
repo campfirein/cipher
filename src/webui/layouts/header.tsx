@@ -1,6 +1,7 @@
 import {Badge} from '@campfirein/byterover-packages/components/badge'
 import {Button} from '@campfirein/byterover-packages/components/button'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@campfirein/byterover-packages/components/tooltip'
+import {Server} from 'lucide-react'
 import {useState} from 'react'
 
 import logo from '../assets/logo-byterover.svg'
@@ -60,6 +61,7 @@ export function Header() {
       <div className="flex items-center gap-2">
         <Tooltip>
           <TooltipTrigger render={<Button onClick={() => setProviderDialogOpen(true)} size="sm" variant="ghost" />}>
+            <Server className="size-3.5 shrink-0 mr-1" />
             {providerLabel}
             {!activeProvider && <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />}
           </TooltipTrigger>

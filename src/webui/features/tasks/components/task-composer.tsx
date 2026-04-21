@@ -1,6 +1,7 @@
 import {Sheet, SheetContent} from '@campfirein/byterover-packages/components/sheet'
 import {Textarea} from '@campfirein/byterover-packages/components/textarea'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
+import {Command} from 'lucide-react'
 import {type ComponentRef, type KeyboardEvent, useEffect, useRef, useState} from 'react'
 
 import {useTransportStore} from '../../../stores/transport-store'
@@ -147,11 +148,28 @@ function ComposerForm({
                 value={content}
               />
               {showPrefillNotice && prefillNotice && <PrefillBadge label={prefillNotice} />}
-              <span className="text-muted-foreground/40 mono pointer-events-none absolute right-3 bottom-2 text-[10px] tabular-nums">
-                {content.length} chars
+              <span className="text-muted-foreground/40 mono pointer-events-none absolute right-3 bottom-2 flex items-center gap-2 text-[10px] tabular-nums">
+                <span className="text-muted-foreground/60">
+                  {content ? (
+                    <>
+                      <kbd className="bg-muted text-foreground/70 inline-flex items-center gap-1 rounded px-1.5 py-0.5 leading-none">
+                        <Command className="size-2.5" /> · Ctrl + Enter
+                      </kbd>{' '}
+                      to {type}
+                    </>
+                  ) : (
+                    <>
+                      <kbd className="bg-muted text-foreground/70 inline-flex items-center rounded px-1.5 py-0.5 leading-none">
+                        Tab
+                      </kbd>{' '}
+                      to use example
+                    </>
+                  )}
+                </span>
+                <span>{content.length} chars</span>
               </span>
             </div>
-            <HelpRow hasContent={Boolean(content)} type={type} />
+            <HelpRow type={type} />
           </div>
 
           {type === 'curate' && !inTour && <CurateAttachmentHint />}

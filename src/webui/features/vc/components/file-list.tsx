@@ -1,6 +1,7 @@
 import type { MouseEvent } from 'react'
 
 import { Button } from '@campfirein/byterover-packages/components/button'
+import { TooltipProvider } from '@campfirein/byterover-packages/components/tooltip'
 import { ChevronDown, ChevronRight, FileDiff, Minus, Plus, Undo2 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -128,19 +129,21 @@ export function FileList({
       </div>
 
       {expanded && (
-        <div className="flex flex-col">
-          {files.map((file) => (
-            <FileListItem
-              disabled={disabled}
-              file={file}
-              isSelected={isFileSelected?.(file)}
-              key={fileKey(file)}
-              onAction={onFileAction}
-              onDiscard={onDiscardFile}
-              onSelect={onFileSelect}
-            />
-          ))}
-        </div>
+        <TooltipProvider delay={500}>
+          <div className="flex flex-col">
+            {files.map((file) => (
+              <FileListItem
+                disabled={disabled}
+                file={file}
+                isSelected={isFileSelected?.(file)}
+                key={fileKey(file)}
+                onAction={onFileAction}
+                onDiscard={onDiscardFile}
+                onSelect={onFileSelect}
+              />
+            ))}
+          </div>
+        </TooltipProvider>
       )}
     </section>
   )
