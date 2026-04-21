@@ -58,6 +58,7 @@ import {OpenRouterTokenizer} from './tokenizers/openrouter-tokenizer.js'
 import {type ProcessedOutput, ToolOutputProcessor, type TruncationConfig} from './tool-output-processor.js'
 
 /** Target utilization ratio for message tokens (leaves headroom for response) */
+const MAX_TASK_DESCRIPTION_LENGTH = 500
 const TARGET_MESSAGE_TOKEN_UTILIZATION = 0.7
 
 /**
@@ -1132,11 +1133,22 @@ export class AgentLLMService implements ILLMService {
       // Create metadata callback for streaming tool output
       const metadataCallback = this.metadataHandler.createCallback(toolCall.id, toolName)
 
+      // Derive harness context from current conversation state.
+      const messages = this.contextManager.getMessages()
+      const userMessages = messages.filter((m) => m.role === 'user')
+      const lastUser = userMessages.at(-1)
+      const lastUserContent = lastUser
+        ? (this.extractTextContent(lastUser) || undefined)?.slice(0, MAX_TASK_DESCRIPTION_LENGTH)
+        : undefined
+      const conversationTurn = lastUser ? userMessages.length - 1 : undefined
+
       // Execute tool via ToolManager (returns structured result)
-      // Pass taskId and commandType in context for subagent billing tracking and context-aware behavior
+      // Pass taskId, commandType, and harness context for subagent billing tracking and context-aware behavior
       const result: ToolExecutionResult = await this.toolManager.executeTool(toolName, toolArgs, this.sessionId, {
         commandType: executionContext?.commandType,
+        conversationTurn,
         metadata: metadataCallback,
+        taskDescription: lastUserContent,
         taskId,
       })
 

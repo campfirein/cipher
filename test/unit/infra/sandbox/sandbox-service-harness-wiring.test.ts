@@ -122,7 +122,11 @@ describe('SandboxService — harness outcome recording', () => {
     const service = wireService(recorder, {config: {language: 'typescript'}, workingDirectory: '/my/project'})
     const spy = sinon.spy(recorder, 'record')
 
-    await service.executeCode('1 + 1', 'sess-1', {commandType: 'curate'})
+    await service.executeCode('1 + 1', 'sess-1', {
+      commandType: 'curate',
+      conversationTurn: 2,
+      taskDescription: 'find the auth module',
+    })
 
     expect(spy.calledOnce).to.equal(true)
     const params: RecordParams = spy.firstCall.args[0]
@@ -134,6 +138,8 @@ describe('SandboxService — harness outcome recording', () => {
     expect(params.executionTimeMs).to.be.a('number').and.to.be.at.least(0)
     expect(params.projectType).to.equal('typescript')
     expect(params.projectId).to.equal('/my/project')
+    expect(params.conversationTurn).to.equal(2)
+    expect(params.taskDescription).to.equal('find the auth module')
   })
 
   it('defaults commandType to chat when config.commandType is absent', async () => {
