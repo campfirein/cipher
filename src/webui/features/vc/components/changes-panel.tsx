@@ -8,6 +8,7 @@ import type { ChangeFile } from '../types'
 
 import successTick from '../../../assets/success-tick.svg'
 import { formatError } from '../../../lib/error-messages'
+import { useTransportStore } from '../../../stores/transport-store'
 import { useAuthStore } from '../../auth/stores/auth-store'
 import { useVcAdd } from '../api/execute-vc-add'
 import { useVcCommit } from '../api/execute-vc-commit'
@@ -41,6 +42,7 @@ async function runAction(promise: Promise<unknown>, errorMsg: string): Promise<v
 export function ChangesPanel() {
   const navigate = useNavigate()
   const isAuthenticated = useAuthStore((s) => s.isAuthorized)
+  const selectedProject = useTransportStore((s) => s.selectedProject)
   const { data: status, isFetching, isLoading, refetch } = useGetVcStatus()
   const [selectedKey, setSelectedKey] = useState<string | undefined>()
   const [viewMode, setViewMode] = useState<ViewMode>('single')
@@ -126,7 +128,7 @@ export function ChangesPanel() {
       toast.success('Committed')
       return true
     } catch (error) {
-      toast.error(formatError(error, 'Failed to commit'))
+      toast.error(formatError(error, 'Failed to commit', {projectPath: selectedProject}))
       return false
     }
   }
@@ -137,7 +139,7 @@ export function ChangesPanel() {
       toast.success('Merge committed')
       return true
     } catch (error) {
-      toast.error(formatError(error, 'Failed to commit merge'))
+      toast.error(formatError(error, 'Failed to commit merge', {projectPath: selectedProject}))
       return false
     }
   }
@@ -174,7 +176,7 @@ export function ChangesPanel() {
         setShowStageAllConfirm(false)
       }
     } catch (error) {
-      toast.error(formatError(error, 'Failed to stage & commit'))
+      toast.error(formatError(error, 'Failed to stage & commit', {projectPath: selectedProject}))
     }
   }
 
