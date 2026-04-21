@@ -187,7 +187,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
     apiKeyUrl: 'https://platform.minimax.io',
     baseUrl: 'https://api.minimax.io/v1',
     category: 'other',
-    defaultModel: 'MiniMax-M2',
+    defaultModel: 'MiniMax-M2.7',
     description: 'MiniMax AI models',
     envVars: ['MINIMAX_API_KEY'],
     headers: {},
