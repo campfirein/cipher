@@ -31,6 +31,7 @@ import {FileKeyStorage} from '../../../../src/agent/infra/storage/file-key-stora
 // must be a simple slug — not a filesystem path. In production the
 // recorder receives `environmentContext.workingDirectory` (a full path);
 // that path-to-key incompatibility is a known gap tracked outside this test.
+// TODO: remove slug workaround once projectId is encoded before key insertion
 const PROJECT_ID = 'test-project'
 const SESSION_ID = 'integ-session-1'
 const OUTCOME_COUNT = 20
@@ -128,10 +129,11 @@ describe('outcome collection — integration', function () {
       )
     }
 
-    // The recorder is fire-and-forget, so give writes a moment to land.
-    // The semaphore (5 permits) serializes, but each write is fast on tmpdir.
+    // The recorder is fire-and-forget — wait for background writes to land.
+    // No drain() API yet; 1000ms is generous for 20 file writes through a
+    // 5-permit semaphore on tmpdir.
     await new Promise((resolve) => {
-      setTimeout(resolve, 500)
+      setTimeout(resolve, 1000)
     })
 
     // Collect outcomes across all three command types
@@ -140,7 +142,15 @@ describe('outcome collection — integration', function () {
     const chatOutcomes = await harnessStore.listOutcomes(PROJECT_ID, 'chat', 100)
     const allOutcomes = [...curateOutcomes, ...queryOutcomes, ...chatOutcomes]
 
+    // Per-bucket distribution: i%3 fan-out → curate=7, query=7, chat=6
+    expect(curateOutcomes).to.have.length(7)
+    expect(queryOutcomes).to.have.length(7)
+    expect(chatOutcomes).to.have.length(6)
     expect(allOutcomes).to.have.length(OUTCOME_COUNT)
+
+    // All 20 IDs must be distinct
+    const ids = new Set(allOutcomes.map((o) => o.id))
+    expect(ids.size).to.equal(OUTCOME_COUNT)
 
     // Verify every outcome has required fields populated
     for (const outcome of allOutcomes) {
@@ -160,36 +170,12 @@ describe('outcome collection — integration', function () {
     // confirms the full pipeline works without errors when the fields are set.
   })
 
-  it('populates distinct IDs for all 20 outcomes', async () => {
-    const {harnessStore, sandboxService} = await createHarnessStack(tempDir)
-
-    for (let i = 0; i < OUTCOME_COUNT; i++) {
-      // eslint-disable-next-line no-await-in-loop
-      await sandboxService.executeCode(`${i}`, SESSION_ID, {
-        commandType: 'chat',
-        conversationTurn: i,
-        taskDescription: `task-${i}`,
-      })
-    }
-
-    await new Promise((resolve) => {
-      setTimeout(resolve, 500)
-    })
-
-    const outcomes = await harnessStore.listOutcomes(PROJECT_ID, 'chat', 100)
-    expect(outcomes).to.have.length(OUTCOME_COUNT)
-
-    const ids = new Set(outcomes.map((o) => o.id))
-    expect(ids.size).to.equal(OUTCOME_COUNT)
-  })
-
   // ── Scenario 2: Latency bound ──────────────────────────────────────
 
   it('recorder overhead stays within 2x baseline + 100ms tolerance', async function () {
     // CI environments have unpredictable timing — skip there
     if (process.env.CI === 'true') {
       this.skip()
-      return
     }
 
     const callCount = OUTCOME_COUNT
@@ -225,7 +211,7 @@ describe('outcome collection — integration', function () {
 
     // Allow fire-and-forget writes to complete before teardown
     await new Promise((resolve) => {
-      setTimeout(resolve, 500)
+      setTimeout(resolve, 1000)
     })
 
     // The recorder is fire-and-forget, so T₁ should be close to T₀.
@@ -247,7 +233,7 @@ describe('outcome collection — integration', function () {
 
     // Wait for fire-and-forget write
     await new Promise((resolve) => {
-      setTimeout(resolve, 300)
+      setTimeout(resolve, 1000)
     })
 
     const initialOutcomes = await harnessStore.listOutcomes(PROJECT_ID, 'curate', 100)
@@ -258,6 +244,7 @@ describe('outcome collection — integration', function () {
 
     if (!originalId) throw new Error('Expected outcome id')
     const originalTimestamp = initialOutcomes[0]?.timestamp
+    expect(originalTimestamp).to.be.a('number').and.be.greaterThan(0)
 
     // Attach 'bad' feedback → 3 synthetic clones
     await recorder.attachFeedback(PROJECT_ID, 'curate', originalId, 'bad')
