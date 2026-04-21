@@ -31,6 +31,7 @@ import type {ISandboxService} from '../../src/agent/core/interfaces/i-sandbox-se
 import type {ScheduledToolExecution, ToolSchedulerContext} from '../../src/agent/core/interfaces/i-tool-scheduler.js'
 import type {AgentEventBus} from '../../src/agent/infra/events/event-emitter.js'
 import type {FileSystemService} from '../../src/agent/infra/file-system/file-system-service.js'
+import type {HarnessStore} from '../../src/agent/infra/harness/harness-store.js'
 import type {CompactionService} from '../../src/agent/infra/llm/context/compaction/compaction-service.js'
 import type {ContextManager} from '../../src/agent/infra/llm/context/context-manager.js'
 import type {AbstractGenerationQueue} from '../../src/agent/infra/map/abstract-queue.js'
@@ -424,6 +425,11 @@ export function createMockCipherAgentServices(
     blobStorage: createMockBlobStorage(sandbox),
     compactionService: {} as unknown as CompactionService,
     fileSystemService: createMockFileSystemService(sandbox),
+    // `harnessStore` is a real dependency on the shipped services bundle —
+    // Phase 1 wires one in unconditionally. Tests that don't exercise the
+    // store accept the `{}` cast; tests that do exercise it override via
+    // `overrides`. Matches the pattern used for `abstractQueue`.
+    harnessStore: {} as unknown as HarnessStore,
     historyStorage: createMockHistoryStorage(sandbox),
     memoryManager: createMockMemoryManager(sandbox),
     messageStorageService: {} as unknown as MessageStorageService,
