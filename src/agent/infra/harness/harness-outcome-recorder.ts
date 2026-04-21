@@ -93,6 +93,7 @@ class Semaphore {
 const BAD_SYNTHETIC_COUNT = 3
 /** Maximum recent outcomes to scan when cloning for synthetic insertion (§C2). */
 const FEEDBACK_LIST_LIMIT = 100
+/** Synthetic outcome count for 'good' verdict — asymmetric with BAD (3:1) per §C2. */
 const GOOD_SYNTHETIC_COUNT = 1
 const MAX_OUTCOMES_PER_SESSION = 50
 const SEMAPHORE_PERMITS = 5

@@ -169,6 +169,38 @@ describe('HarnessOutcomeRecorder — attachFeedback', () => {
     expect(outcomes[0].userFeedback).to.equal(null)
   })
 
+  // ── 3b. verdict change: bad → good leaves orphaned bad synthetics ─────────
+
+  it('changing verdict from bad to good adds good synthetics without removing bad ones', async () => {
+    const original = makeOutcome()
+    await store.saveOutcome(original)
+
+    const recorder = new HarnessOutcomeRecorder(store, bus, logger, makeConfig())
+
+    // First: flag as bad → 3 bad synthetics
+    await recorder.attachFeedback('proj-1', 'curate', 'outcome-1', 'bad')
+    const afterBad = await store.listOutcomes('proj-1', 'curate', 200)
+    expect(afterBad).to.have.length(4) // 1 original + 3 bad synthetics
+
+    // Then: change to good → 1 good synthetic added, bad synthetics remain
+    await recorder.attachFeedback('proj-1', 'curate', 'outcome-1', 'good')
+    const afterGood = await store.listOutcomes('proj-1', 'curate', 200)
+    // 1 original + 3 bad synthetics + 1 good synthetic = 5
+    expect(afterGood).to.have.length(5)
+
+    // Original field updated to 'good'
+    const flagged = afterGood.find((o) => o.id === 'outcome-1')
+    expect(flagged?.userFeedback).to.equal('good')
+
+    // Bad synthetics still present (orphaned — by design per §C2)
+    const badSynthetics = afterGood.filter((o) => o.id !== 'outcome-1' && o.userFeedback === 'bad')
+    expect(badSynthetics).to.have.length(3)
+
+    // Good synthetic added
+    const goodSynthetics = afterGood.filter((o) => o.id !== 'outcome-1' && o.userFeedback === 'good')
+    expect(goodSynthetics).to.have.length(1)
+  })
+
   // ── 4. Nonexistent outcome → OUTCOME_NOT_FOUND propagates ────────────────
 
   it('throws HarnessStoreError(OUTCOME_NOT_FOUND) when outcome does not exist', async () => {
@@ -194,9 +226,16 @@ describe('HarnessOutcomeRecorder — attachFeedback', () => {
     await store.saveOutcome(original)
 
     const originalSave = store.saveOutcome.bind(store)
-    const stub = sinon.stub(store, 'saveOutcome')
-    stub.callsFake(async (outcome: CodeExecOutcome) => originalSave(outcome))
-    stub.onSecondCall().rejects(new Error('disk full'))
+    let failedOnce = false
+    sinon.stub(store, 'saveOutcome').callsFake(async (outcome: CodeExecOutcome) => {
+      // Fail exactly one synthetic save, regardless of call order
+      if (outcome.id !== 'outcome-1' && !failedOnce) {
+        failedOnce = true
+        throw new Error('disk full')
+      }
+
+      return originalSave(outcome)
+    })
 
     const recorder = new HarnessOutcomeRecorder(store, bus, logger, makeConfig())
     // Should NOT throw — partial insertion is tolerable
