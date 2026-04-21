@@ -26,7 +26,7 @@ export const minimaxProvider: ProviderModule = {
       model: provider.chatModel(config.model),
     })
   },
-  defaultModel: 'MiniMax-M2',
+  defaultModel: 'MiniMax-M2.7',
   description: 'MiniMax AI models',
   envVars: ['MINIMAX_API_KEY'],
   id: 'minimax',
