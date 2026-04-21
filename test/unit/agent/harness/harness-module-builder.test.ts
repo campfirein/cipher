@@ -96,6 +96,31 @@ describe('HarnessModuleBuilder', () => {
     expect(result.module.query).to.equal(undefined)
   })
 
+  it('template exporting both curate+query produces both wrappers that route through the VM', async () => {
+    // Symmetry check with the curate path — same wrapInvocation
+    // machinery applies to query. The pass-through invokes a
+    // different branch inside the function body so we can confirm the
+    // right script ran.
+    const code = `
+      exports.meta = function meta() {
+        return {
+          capabilities: ['curate'],
+          commandType: 'curate',
+          projectPatterns: [],
+          version: 1,
+        }
+      }
+      exports.curate = async function curate(ctx) { return {fn: 'curate'} }
+      exports.query  = async function query(ctx)  { return {fn: 'query'}  }
+    `
+    const result = builder.build(makeVersion(code))
+    if (!result.loaded) throw new Error('expected loaded')
+    const {curate, query} = result.module
+    if (!curate || !query) throw new Error('expected both curate and query')
+    expect(await curate(makeCtx())).to.deep.equal({fn: 'curate'})
+    expect(await query(makeCtx())).to.deep.equal({fn: 'query'})
+  })
+
   it('module.meta() caches — subsequent calls return the same reference', () => {
     // Proof-by-identity that the VM function is called exactly once at
     // build(). Re-invoking the VM for every meta() call would produce
@@ -220,6 +245,56 @@ describe('HarnessModuleBuilder', () => {
     try {
       await curate(makeCtx())
       expect.fail('expected throw — ctx should be frozen')
+    } catch (error) {
+      expect(error).to.be.instanceOf(Error)
+    }
+  })
+
+  it('curate(ctx) cannot mutate nested ctx.env properties (deep freeze)', async () => {
+    // Shallow Object.freeze on ctx alone would leave ctx.env mutable —
+    // a harness could silently rewrite env.commandType or env.workingDirectory.
+    // The deep-freeze at the invocation boundary is what closes this gap.
+    const result = builder.build(
+      makeVersion(
+        `exports.meta = function meta() { return {capabilities: ['curate'], commandType: 'curate', projectPatterns: [], version: 1} }
+         exports.curate = async function curate(ctx) {
+           ctx.env.commandType = 'hacked'
+           return 'ok'
+         }`,
+      ),
+    )
+    if (!result.loaded) throw new Error('expected loaded')
+    const {curate} = result.module
+    if (!curate) throw new Error('expected curate')
+
+    try {
+      await curate(makeCtx())
+      expect.fail('expected throw — ctx.env should be deep-frozen')
+    } catch (error) {
+      expect(error).to.be.instanceOf(Error)
+    }
+  })
+
+  it('curate(ctx) cannot replace ctx.tools members (deep freeze)', async () => {
+    // Same concern as ctx.env, but for the tool surface — a harness
+    // rebinding `ctx.tools.curate = evilFn` would hijack subsequent
+    // pass-through templates that call `ctx.tools.curate(...)`.
+    const result = builder.build(
+      makeVersion(
+        `exports.meta = function meta() { return {capabilities: ['curate'], commandType: 'curate', projectPatterns: [], version: 1} }
+         exports.curate = async function curate(ctx) {
+           ctx.tools.curate = function() { return 'hijacked' }
+           return 'ok'
+         }`,
+      ),
+    )
+    if (!result.loaded) throw new Error('expected loaded')
+    const {curate} = result.module
+    if (!curate) throw new Error('expected curate')
+
+    try {
+      await curate(makeCtx())
+      expect.fail('expected throw — ctx.tools should be deep-frozen')
     } catch (error) {
       expect(error).to.be.instanceOf(Error)
     }

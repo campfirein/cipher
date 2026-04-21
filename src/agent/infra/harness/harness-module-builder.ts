@@ -154,13 +154,16 @@ export class HarnessModuleBuilder {
       return {loaded: false, reason: 'syntax'}
     }
 
-    // 4. Call `meta()` once via a fresh vm.Script.runInContext with
-    //    timeout — catches sync infinite loops in meta(). The result
-    //    is cached; subsequent `module.meta()` calls return the
-    //    captured value without re-invoking the VM function.
+    // 4. Pre-compile the invoke scripts once per `build()`. Each
+    //    maps an exported function name to a `vm.Script` that reads
+    //    `module.exports.<name>(__harnessArg)` and writes the result
+    //    to `__harnessResult`. Compiling once here saves
+    //    `new vm.Script(...)` work on every `curate`/`query`
+    //    invocation.
+    const metaInvokeScript = this.compileInvokeScript('meta', version.id)
     let rawMeta: unknown
     try {
-      rawMeta = this.invokeInVm(scriptContext, 'meta', undefined, version.id)
+      rawMeta = this.invokeInVm(scriptContext, metaInvokeScript)
     } catch (error) {
       this.logger.warn('HarnessModuleBuilder: meta() threw', {
         error: error instanceof Error ? error.message : String(error),
@@ -180,14 +183,20 @@ export class HarnessModuleBuilder {
 
     const meta = parsed.data
 
-    // 5. Build the callable wrappers.
-    const harnessModule: HarnessModule = this.buildModule(
+    // 5. Build the callable wrappers. Pre-compile curate/query
+    //    invoke scripts only when the template actually exported them.
+    const curateInvokeScript =
+      curateFn === undefined ? undefined : this.compileInvokeScript('curate', version.id)
+    const queryInvokeScript =
+      queryFn === undefined ? undefined : this.compileInvokeScript('query', version.id)
+
+    const harnessModule: HarnessModule = this.buildModule({
+      curateInvokeScript,
       meta,
-      curateFn === undefined ? undefined : 'curate',
-      queryFn === undefined ? undefined : 'query',
+      queryInvokeScript,
       scriptContext,
-      version.id,
-    )
+      versionId: version.id,
+    })
 
     return {loaded: true, module: harnessModule, version}
   }
@@ -197,34 +206,36 @@ export class HarnessModuleBuilder {
    * becomes a `wrapInvocation`-backed wrapper; `meta()` returns the
    * already-captured value so the VM function is never re-invoked.
    */
-  private buildModule(
-    meta: ValidatedHarnessMeta,
-    curateExport: 'curate' | undefined,
-    queryExport: 'query' | undefined,
-    scriptContext: vm.Context,
-    versionId: string,
-  ): HarnessModule {
+  private buildModule(opts: {
+    curateInvokeScript: undefined | vm.Script
+    meta: ValidatedHarnessMeta
+    queryInvokeScript: undefined | vm.Script
+    scriptContext: vm.Context
+    versionId: string
+  }): HarnessModule {
     const built: {
       curate?: HarnessModule['curate']
       meta: HarnessModule['meta']
       query?: HarnessModule['query']
     } = {
-      meta: (): HarnessMeta => meta,
+      meta: (): HarnessMeta => opts.meta,
     }
 
-    if (curateExport !== undefined) {
+    if (opts.curateInvokeScript !== undefined) {
       built.curate = this.wrapInvocation(
-        scriptContext,
+        opts.scriptContext,
+        opts.curateInvokeScript,
         'curate',
-        versionId,
+        opts.versionId,
       ) as HarnessModule['curate']
     }
 
-    if (queryExport !== undefined) {
+    if (opts.queryInvokeScript !== undefined) {
       built.query = this.wrapInvocation(
-        scriptContext,
+        opts.scriptContext,
+        opts.queryInvokeScript,
         'query',
-        versionId,
+        opts.versionId,
       ) as HarnessModule['query']
     }
 
@@ -232,27 +243,33 @@ export class HarnessModuleBuilder {
   }
 
   /**
-   * Invoke `module.exports[name](__harnessArg)` inside the
-   * `scriptContext` via a fresh `vm.Script.runInContext` call with
-   * the timeout option. Any sync infinite loop is caught by V8's
-   * wall-clock timeout. The invocation's return value (including a
-   * Promise) is returned to the caller — async hang detection is a
-   * later-stage concern, handled by `wrapInvocation`.
+   * Compile once — the invoke script is the same string for a given
+   * `name` per `build()` call, so reusing it across invocations saves
+   * `new vm.Script(...)` work.
+   */
+  private compileInvokeScript(name: 'curate' | 'meta' | 'query', versionId: string): vm.Script {
+    return new vm.Script(`__harnessResult = module.exports.${name}(__harnessArg)`, {
+      filename: `harness:${versionId}#${name}`,
+    })
+  }
+
+  /**
+   * Run a pre-compiled invoke script inside the `scriptContext`.
+   * The script reads `module.exports.<name>(__harnessArg)` and writes
+   * its return value to `__harnessResult`. V8's wall-clock timeout on
+   * `runInContext` catches sync infinite loops; async hang detection
+   * is the caller's concern (see `wrapInvocation`).
    */
   private invokeInVm(
     scriptContext: vm.Context,
-    name: 'curate' | 'meta' | 'query',
-    arg: unknown,
-    versionId: string,
+    invokeScript: vm.Script,
+    arg?: unknown,
   ): unknown {
     const contextRef = scriptContext as unknown as ScriptContext
     // Thread the argument through the context. Safe because we
     // assume serial invocations per scriptContext (a harness module
     // is loaded once per session and one code_exec runs at a time).
     contextRef.__harnessArg = arg
-    const invokeScript = new vm.Script(`__harnessResult = module.exports.${name}(__harnessArg)`, {
-      filename: `harness:${versionId}#${name}`,
-    })
     try {
       invokeScript.runInContext(scriptContext, {timeout: VM_TIMEOUT_MS})
       return contextRef.__harnessResult
@@ -274,18 +291,29 @@ export class HarnessModuleBuilder {
    */
   private wrapInvocation(
     scriptContext: vm.Context,
+    invokeScript: vm.Script,
     name: 'curate' | 'query',
     versionId: string,
   ): (ctx: HarnessContext) => Promise<unknown> {
     const {logger} = this
     const invokeInVm = this.invokeInVm.bind(this)
     return async (ctx: HarnessContext): Promise<unknown> => {
-      const frozenCtx = Object.freeze(ctx)
+      // Deep-freeze at the boundary. `Object.freeze` is shallow, so we
+      // also freeze `ctx.env` and `ctx.tools` (both copied via spread so
+      // the caller's originals stay untouched). Without this, a harness
+      // could mutate `ctx.env.commandType = 'hacked'` or
+      // `ctx.tools.curate = evilFn` — the top-level freeze catches
+      // `ctx.env = ...` but not nested writes.
+      const frozenCtx: HarnessContext = Object.freeze({
+        ...ctx,
+        env: Object.freeze({...ctx.env}),
+        tools: Object.freeze({...ctx.tools}),
+      })
 
       let syncResult: unknown
       try {
         // Sync invocation — vm timeout catches infinite loops.
-        syncResult = invokeInVm(scriptContext, name, frozenCtx, versionId)
+        syncResult = invokeInVm(scriptContext, invokeScript, frozenCtx)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         logger.warn(`HarnessModuleBuilder: ${name}() sync failure`, {error: message, versionId})
