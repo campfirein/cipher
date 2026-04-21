@@ -29,7 +29,7 @@ export function Header() {
     <header className="flex items-center gap-4 px-6 py-3.5">
       {/* Left: logo + project + branch */}
       <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 mr-2.5">
           <img alt="ByteRover" className="w-32" src={logo} />
           {version && <span className="text-primary-foreground text-xs font-medium">v{version}</span>}
         </div>
