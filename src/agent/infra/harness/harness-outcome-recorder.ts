@@ -42,7 +42,8 @@ export interface RecordParams {
 // Usage-detection regexes (§C1)
 // ---------------------------------------------------------------------------
 
-// Capabilities from HarnessCapabilitySchema (core/domain/harness/types.ts) + meta pseudo-method.
+// Capabilities from HarnessCapabilitySchema (core/domain/harness/types.ts) + meta pseudo-method
+// + query (commandType-level harness method, not yet formalized in the capability enum).
 // If a new capability is added to the schema, update this regex to match.
 const HARNESS_CALL_RE =
   /\bharness\.(curate|query|search|extract|gather|answer|buildOps|discover|meta)\b/
@@ -164,7 +165,11 @@ export class HarnessOutcomeRecorder {
       this.commandTypesBySession.set(params.sessionId, new Set<string>([params.commandType]))
     }
 
-    // 5. Rate limit check — counter increments BEFORE write
+    // 5. Rate limit check — counter increments BEFORE write intentionally.
+    // Moving it after the write opens a concurrency window: N parallel calls
+    // all read count < 50, all pass, all write — defeating the cap.
+    // Tradeoff: transient store failures burn slots. Acceptable for v1.0;
+    // the 50-slot budget is generous for human-paced sessions.
     const count = this.sessionCount.get(params.sessionId) ?? 0
     this.sessionCount.set(params.sessionId, count + 1)
     if (count >= MAX_OUTCOMES_PER_SESSION) {
