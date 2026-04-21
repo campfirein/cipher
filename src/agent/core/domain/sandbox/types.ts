@@ -39,11 +39,26 @@ export interface SandboxConfig {
   /** Context data to preload as "context" variable */
   contextPayload?: Record<string, unknown> | string | unknown[]
 
+  /**
+   * Conversation turn index (zero-based, user-messages only) — the Nth
+   * user message in the session when this code_exec fired. Used by
+   * Phase 6 refinement to cluster outcomes by task stage.
+   */
+  conversationTurn?: number
+
   /** Language: 'javascript' or 'typescript' (default: auto-detect) */
   language?: 'javascript' | 'typescript'
 
   /** Cap stdout buffer at this many characters. undefined = unlimited. */
   maxStdoutChars?: number
+
+  /**
+   * Free-text description of the task the user requested when this
+   * code_exec fired. Truncated to 500 chars at the call site. Used by
+   * Phase 6 refinement as the primary signal for matching outcomes to
+   * evaluation scenarios.
+   */
+  taskDescription?: string
 
   /** Timeout in ms (default: 30000, max: 300000) */
   timeout?: number

@@ -102,6 +102,12 @@ export interface ToolExecutionContext {
   commandType?: string
 
   /**
+   * Conversation turn index (zero-based, user-messages only). Threaded
+   * from AgentLLMService for outcome recording (Phase 2).
+   */
+  conversationTurn?: number
+
+  /**
    * Callback for streaming metadata updates during execution.
    * Tools can use this to push real-time output (e.g., bash streaming).
    */
@@ -115,6 +121,12 @@ export interface ToolExecutionContext {
    * Tools should check this signal periodically and abort gracefully.
    */
   signal?: AbortSignal
+
+  /**
+   * Free-text description of the user's task, truncated to 500 chars.
+   * Threaded from AgentLLMService for outcome recording (Phase 2).
+   */
+  taskDescription?: string
 
   /** Task ID from usecase for billing tracking */
   taskId?: string
