@@ -1,6 +1,7 @@
 import type {IRuntimeSignalStore} from '../../../server/core/interfaces/storage/i-runtime-signal-store.js'
 import type {AgentEventBus, SessionEventBus} from '../../infra/events/event-emitter.js'
 import type {FileSystemService} from '../../infra/file-system/file-system-service.js'
+import type {HarnessOutcomeRecorder} from '../../infra/harness/harness-outcome-recorder.js'
 import type {CompactionService} from '../../infra/llm/context/compaction/compaction-service.js'
 import type {AbstractGenerationQueue} from '../../infra/map/abstract-queue.js'
 import type {MemoryManager} from '../../infra/memory/memory-manager.js'
@@ -45,6 +46,13 @@ export interface CipherAgentServices {
    */
   compactionService: CompactionService
   fileSystemService: FileSystemService
+  /**
+   * AutoHarness V2 outcome recorder. Currently `undefined` — construction
+   * in `service-initializer.ts` is blocked by Phase 1.4 (ENG-2228) which
+   * adds `HarnessStore`. Declared now so the type is ready when wiring
+   * lands; first consumer is Phase 7's `brv query --feedback`.
+   */
+  harnessOutcomeRecorder?: HarnessOutcomeRecorder
   historyStorage: IHistoryStorage
   memoryManager: MemoryManager
   /**

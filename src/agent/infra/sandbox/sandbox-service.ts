@@ -1,14 +1,18 @@
 import type { EnvironmentContext } from '../../core/domain/environment/types.js'
+import type { ProjectType } from '../../core/domain/harness/types.js'
 import type { REPLResult, SandboxConfig } from '../../core/domain/sandbox/types.js'
 import type { IContentGenerator } from '../../core/interfaces/i-content-generator.js'
 import type { ICurateService } from '../../core/interfaces/i-curate-service.js'
 import type { IFileSystem } from '../../core/interfaces/i-file-system.js'
+import type { ILogger } from '../../core/interfaces/i-logger.js'
 import type { ISandboxService } from '../../core/interfaces/i-sandbox-service.js'
 import type { ISwarmCoordinator } from '../../core/interfaces/i-swarm-coordinator.js'
 import type { ValidatedHarnessConfig } from '../agent/agent-schemas.js'
+import type { HarnessOutcomeRecorder } from '../harness/harness-outcome-recorder.js'
 import type { SessionManager } from '../session/session-manager.js'
 import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
 
+import { ProjectTypeSchema } from '../../core/domain/harness/types.js'
 import {CurateResultCollector} from './curate-result-collector.js'
 import { LocalSandbox } from './local-sandbox.js'
 import { createToolsSDK } from './tools-sdk.js'
@@ -30,6 +34,12 @@ export class SandboxService implements ISandboxService {
   private fileSystem?: IFileSystem
   /** AutoHarness V2 config block, wired in before any session is created. */
   private harnessConfig?: ValidatedHarnessConfig
+  /** AutoHarness V2 outcome recorder — fire-and-forget from executeCode. */
+  private harnessOutcomeRecorder?: HarnessOutcomeRecorder
+  /** Current harness version ID per session, populated by Phase 3 loadHarness. */
+  private harnessVersionIdBySession = new Map<string, string>()
+  /** Logger for defensive .catch on fire-and-forget record calls. */
+  private logger?: ILogger
   /** Variables buffered before sandbox creation, keyed by sessionId */
   private pendingVariables = new Map<string, Record<string, unknown>>()
   /** Command type used to build each sandbox's ToolsSDK, keyed by sessionId */
@@ -47,6 +57,8 @@ export class SandboxService implements ISandboxService {
    * Clean up all resources (called on agent shutdown).
    */
   async cleanup(): Promise<void> {
+    this.harnessOutcomeRecorder?.cleanup()
+    this.harnessVersionIdBySession.clear()
     this.sandboxes.clear()
     this.sandboxCommandTypes.clear()
     this.pendingVariables.clear()
@@ -58,6 +70,8 @@ export class SandboxService implements ISandboxService {
    * @param sessionId - Session identifier
    */
   async clearSession(sessionId: string): Promise<void> {
+    this.harnessOutcomeRecorder?.clearSession(sessionId)
+    this.harnessVersionIdBySession.delete(sessionId)
     this.sandboxes.delete(sessionId)
     this.sandboxCommandTypes.delete(sessionId)
     this.pendingVariables.delete(sessionId)
@@ -138,12 +152,48 @@ export class SandboxService implements ISandboxService {
       this.sandboxCommandTypes.set(sessionId, config?.commandType)
     }
 
+    let result: REPLResult
+
     if (this.collector) {
-      const {curateResults, result} = await this.collector.collect(() => sandbox.execute(code, config))
-      return curateResults.length > 0 ? {...result, curateResults} : result
+      const collected = await this.collector.collect(() => sandbox.execute(code, config))
+      result = collected.curateResults.length > 0
+        ? {...collected.result, curateResults: collected.curateResults}
+        : collected.result
+    } else {
+      result = await sandbox.execute(code, config)
     }
 
-    return sandbox.execute(code, config)
+    // Fire-and-forget: record outcome in the background. The recorder's
+    // internal contract (Task 2.1) swallows errors, but the try/catch +
+    // .catch are belt-and-braces against programming bugs in the recorder.
+    if (this.harnessOutcomeRecorder && this.environmentContext?.workingDirectory) {
+      const ct = config?.commandType
+      if (ct !== undefined && ct !== 'chat' && ct !== 'curate' && ct !== 'query') {
+        this.logger?.debug('harness.record: unknown commandType mapped to chat', {commandType: ct})
+      }
+
+      const commandType = ct === 'curate' || ct === 'query' ? ct : 'chat'
+      try {
+        this.harnessOutcomeRecorder
+          .record({
+            code,
+            commandType,
+            executionTimeMs: result.executionTime,
+            harnessVersionId: this.harnessVersionIdBySession.get(sessionId),
+            projectId: this.environmentContext.workingDirectory,
+            projectType: this.resolveProjectType(),
+            result,
+            sessionId,
+          })
+          .catch((error: unknown) => {
+            this.logger?.warn('harness.record rejected', {error})
+          })
+      } catch (error) {
+        this.logger?.warn('harness.record threw', {error})
+      }
+    }
+
+    return result
   }
 
   /**
@@ -202,6 +252,19 @@ export class SandboxService implements ISandboxService {
    */
   setHarnessConfig(config: ValidatedHarnessConfig): void {
     this.harnessConfig = config
+  }
+
+  /**
+   * Wire in the AutoHarness V2 outcome recorder. When set, every
+   * `executeCode` call fire-and-forgets a `recorder.record(...)` with the
+   * sandbox result. Errors from the recorder never propagate to the caller.
+   *
+   * @param recorder - Outcome recorder instance
+   * @param logger - Logger for defensive .catch on fire-and-forget calls
+   */
+  setHarnessOutcomeRecorder(recorder: HarnessOutcomeRecorder, logger?: ILogger): void {
+    this.harnessOutcomeRecorder = recorder
+    this.logger = logger
   }
 
   /**
@@ -293,5 +356,16 @@ export class SandboxService implements ISandboxService {
       this.sandboxes.clear()
       this.sandboxCommandTypes.clear()
     }
+  }
+
+  /**
+   * Map `harnessConfig.language` to a `ProjectType`. `'auto'` and absent
+   * language both resolve to `'generic'`; Phase 4 bootstrap will formalize
+   * richer detection. Uses `ProjectTypeSchema.safeParse` so new values
+   * added to the schema are automatically accepted without a code change.
+   */
+  private resolveProjectType(): ProjectType {
+    const parsed = ProjectTypeSchema.safeParse(this.harnessConfig?.language)
+    return parsed.success ? parsed.data : 'generic'
   }
 }
