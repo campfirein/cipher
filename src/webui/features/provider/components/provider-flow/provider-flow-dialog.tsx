@@ -28,6 +28,12 @@ type FlowStep = 'api_key' | 'auth_method' | 'base_url' | 'connecting' | 'login_p
 
 const BYTEROVER_PROVIDER_ID = 'byterover'
 
+// Server auth state polls token from disk every ~5s, so right after login the
+// connect call may briefly still see "not authenticated". 6 × 1s covers that
+// window so the user doesn't have to retry by hand.
+const CONNECT_RETRY_MAX_ATTEMPTS = 6
+const CONNECT_RETRY_DELAY_MS = 1000
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
@@ -98,12 +104,10 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
     async (provider: ProviderDTO) => {
       setStep('connecting')
       try {
-        // Server auth state can lag briefly after login; retry so the user
-        // doesn't have to click Connect again.
         let connectResult = await connectMutation.mutateAsync({providerId: provider.id})
-        for (let attempt = 0; !connectResult.success && attempt < 6; attempt++) {
+        for (let attempt = 0; !connectResult.success && attempt < CONNECT_RETRY_MAX_ATTEMPTS; attempt++) {
           // eslint-disable-next-line no-await-in-loop
-          await sleep(1000)
+          await sleep(CONNECT_RETRY_DELAY_MS)
           // eslint-disable-next-line no-await-in-loop
           connectResult = await connectMutation.mutateAsync({providerId: provider.id})
         }
@@ -460,7 +464,7 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
     <Dialog onOpenChange={handleOpenChange} open={open}>
       <DialogContent
         className="flex h-150 flex-col sm:max-w-lg"
-        showCloseButton={step === 'select' || step === 'model_select' || step === 'connecting'}
+        showCloseButton={step === 'select' || step === 'model_select' || step === 'connecting' || step === 'login_prompt'}
       >
         {tourStepLabel && <TourStepBadge label={tourStepLabel} />}
         {renderStep()}

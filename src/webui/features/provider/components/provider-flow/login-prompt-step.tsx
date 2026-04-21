@@ -63,6 +63,7 @@ export function LoginPromptStep({onAuthenticated, onBack}: LoginPromptStepProps)
         const result = await queryClient.fetchQuery(getAuthStateQueryOptions())
         if (cancelled) return
         if (result.isAuthorized) {
+          queryClient.invalidateQueries({queryKey: getAuthStateQueryOptions().queryKey})
           setLoggingIn(false)
         }
       } catch {
@@ -79,15 +80,24 @@ export function LoginPromptStep({onAuthenticated, onBack}: LoginPromptStepProps)
 
   async function handleSignIn() {
     setLoggingIn(true)
+    // Open the popup synchronously to keep the user-gesture context — browsers
+    // block window.open() if it lands inside an async callback.
+    const popup = window.open('', '_blank', 'noopener,noreferrer')
     setState({type: 'starting'})
 
     try {
       const response = await login()
       if (!isSafeHttpUrl(response.authUrl)) {
+        popup?.close()
         throw new Error('Received an unsafe OAuth URL from the daemon')
       }
 
-      window.open(response.authUrl, '_blank', 'noopener,noreferrer')
+      if (popup) {
+        popup.location.href = response.authUrl
+      } else {
+        window.open(response.authUrl, '_blank', 'noopener,noreferrer')
+      }
+
       setState({authUrl: response.authUrl, type: 'waiting'})
     } catch (error) {
       setLoggingIn(false)

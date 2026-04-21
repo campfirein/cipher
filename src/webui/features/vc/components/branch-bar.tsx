@@ -21,12 +21,12 @@ interface BranchBarProps {
 
 const SIGN_IN_HINT = 'Please sign in to use sync feature'
 
-function withSignInTooltip(node: ReactNode, label: string, isAuthenticated: boolean): ReactNode {
+function withSignInTooltip(node: ReactNode, isAuthenticated: boolean): ReactNode {
   if (isAuthenticated) return node
   return (
     <Tooltip>
       <TooltipTrigger render={<span tabIndex={0} />}>{node}</TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
+      <TooltipContent>{SIGN_IN_HINT}</TooltipContent>
     </Tooltip>
   )
 }
@@ -104,8 +104,8 @@ export function BranchBar({
           </Button>
         )}
 
-        {withSignInTooltip(pullButton, SIGN_IN_HINT, isAuthenticated)}
-        {withSignInTooltip(pushButton, SIGN_IN_HINT, isAuthenticated)}
+        {withSignInTooltip(pullButton, isAuthenticated)}
+        {withSignInTooltip(pushButton, isAuthenticated)}
       </div>
     </div>
   )
