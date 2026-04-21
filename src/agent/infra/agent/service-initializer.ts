@@ -175,6 +175,15 @@ export async function createCipherAgentServices(
   const sandboxService = new SandboxService()
   sandboxService.setHarnessConfig(config.harness)
 
+  // 5b-1. AutoHarness V2 outcome recorder (depends on HarnessStore from Phase 1.4)
+  // TODO(ENG-2228): When Phase 1.4 adds `harnessStore` construction above,
+  // construct the recorder here:
+  //   const harnessOutcomeRecorder = new HarnessOutcomeRecorder(
+  //     harnessStore, sessionEventBus,
+  //     logger.withSource('HarnessOutcomeRecorder'), config.harness,
+  //   )
+  //   sandboxService.setHarnessOutcomeRecorder(harnessOutcomeRecorder, logger)
+
   // 5c. Build environment context for sandbox injection
   const environmentBuilder = new EnvironmentContextBuilder()
   const environmentContext = await environmentBuilder.build({
