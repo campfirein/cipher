@@ -3,7 +3,9 @@ import {realpath} from 'node:fs/promises'
 import {join} from 'node:path'
 import {removeStopwords} from 'stopword'
 
+import type {IRuntimeSignalStore} from '../../../../server/core/interfaces/storage/i-runtime-signal-store.js'
 import type {IFileSystem} from '../../../core/interfaces/i-file-system.js'
+import type {ILogger} from '../../../core/interfaces/i-logger.js'
 import type {ISearchKnowledgeService, SearchKnowledgeResult} from '../../sandbox/tools-sdk.js'
 
 import {
@@ -15,17 +17,16 @@ import {
   SUMMARY_INDEX_FILE,
 } from '../../../../server/constants.js'
 import {
-  type FrontmatterScoring,
-  parseFrontmatterScoring,
-  updateScoringInContent,
-} from '../../../../server/core/domain/knowledge/markdown-writer.js'
-import {
   applyDecay,
-  applyDefaultScoring,
   compoundScore,
   determineTier,
   recordAccessHits,
 } from '../../../../server/core/domain/knowledge/memory-scoring.js'
+import {
+  createDefaultRuntimeSignals,
+  type RuntimeSignals,
+} from '../../../../server/core/domain/knowledge/runtime-signals-schema.js'
+import {warnSidecarFailure} from '../../../../server/core/domain/knowledge/sidecar-logging.js'
 import {loadSources, type SearchOrigin} from '../../../../server/core/domain/source/source-schema.js'
 import {isArchiveStub, isDerivedArtifact} from '../../../../server/infra/context-tree/derived-artifact.js'
 import {
@@ -106,6 +107,7 @@ function propagateScoresToParents(
   symbolTree: MemorySymbolTree,
   summaryMap: Map<string, SummaryDocLike>,
   symbolPathDocMap: Map<string, IndexedDocument>,
+  signalsByPath: Map<string, RuntimeSignals>,
   propagationFactor = 0.55,
 ): SearchKnowledgeResult['results'] {
   const boosts = new Map<string, number>()
@@ -130,11 +132,15 @@ function propagateScoresToParents(
     const doc = getSummarySource(parentPath, summaryMap, symbolPathDocMap)
     if (!doc) continue
 
-    // Propagate the strongest child BM25 signal upward, then apply the parent
-    // summary's own scoring exactly once. This avoids double-counting lifecycle
-    // weights that are already baked into child compound scores.
-    const finalScore = doc.scoring
-      ? compoundScore(score, doc.scoring.importance ?? 50, doc.scoring.recency ?? 0.5, doc.scoring.maturity ?? 'draft')
+    // Propagate the strongest child BM25 signal upward. Apply the parent
+    // summary's own scoring boost only when the sidecar has a concrete entry
+    // for this path — matches the pre-migration behaviour where summaries
+    // without scoring in their frontmatter were not boosted. Lookup uses the
+    // summary doc's file path (e.g. `auth/jwt/_index.md`) which matches the
+    // sidecar's relPath key scheme.
+    const sidecarSignals = signalsByPath.get(doc.path)
+    const finalScore = sidecarSignals
+      ? compoundScore(score, sidecarSignals)
       : score
 
     boosted.push({
@@ -179,7 +185,6 @@ interface IndexedDocument {
   /** Path to .overview.md sibling, if it exists at index-build time */
   overviewPath?: string
   path: string
-  scoring: FrontmatterScoring
   /** Path used in the merged symbol tree (namespaced for shared sources) */
   symbolPath: string
   title: string
@@ -188,7 +193,6 @@ interface IndexedDocument {
 interface SummarySource {
   excerpt: string
   path: string
-  scoring?: SummaryDocLike['scoring']
 }
 
 interface CachedIndex {
@@ -230,6 +234,18 @@ export interface SearchKnowledgeServiceConfig {
   baseDirectory?: string
   /** Cache TTL in milliseconds (defaults to 5000) */
   cacheTtlMs?: number
+  /**
+   * Optional logger. When provided, sidecar read failures on the ranking
+   * path emit a `warn` so the fail-open degradation is observable rather
+   * than silent.
+   */
+  logger?: ILogger
+  /**
+   * Sidecar store for runtime ranking signals. When provided, `flushAccessHits`
+   * mirrors its importance/accessCount/maturity bumps to the store alongside
+   * the existing markdown writes. Phase 3 of the runtime-signals migration.
+   */
+  runtimeSignalStore?: IRuntimeSignalStore
 }
 
 /**
@@ -270,7 +286,6 @@ function getSummarySource(
     return {
       excerpt: summaryDoc.excerpt ?? '',
       path: summaryDoc.path,
-      scoring: summaryDoc.scoring,
     }
   }
 
@@ -281,7 +296,6 @@ function getSummarySource(
     return {
       excerpt: extractExcerpt(contextDoc.content, contextDoc.title),
       path: contextDoc.path,
-      scoring: contextDoc.scoring,
     }
   }
 
@@ -526,7 +540,6 @@ async function indexOriginDocuments(
       const fullPath = join(origin.contextTreeRoot, filePath)
       const {content} = await fileSystem.readFile(fullPath)
       const title = extractTitle(content, filePath.replace(/\.md$/, '').split('/').pop() || filePath)
-      const scoring = parseFrontmatterScoring(content) ?? applyDefaultScoring()
       const qualifiedId = `${origin.originKey}::${filePath}`
       const symbolPath = getSymbolPath(origin, filePath)
 
@@ -543,7 +556,6 @@ async function indexOriginDocuments(
         originKey: origin.originKey,
         ...(overviewPath !== undefined && {overviewPath}),
         path: filePath,
-        scoring,
         symbolPath,
         title,
       }
@@ -562,17 +574,10 @@ async function indexOriginDocuments(
       const fm = parseSummaryFrontmatter(content)
       if (!fm) return null
 
-      // Persist frontmatter scoring so propagateScoresToParents can apply hotness/tier boosts
-      const frontmatter = parseFrontmatterScoring(content)
-      const scoring = frontmatter
-        ? {importance: frontmatter.importance, maturity: frontmatter.maturity, recency: frontmatter.recency}
-        : undefined
-
       return {
         condensationOrder: fm.condensation_order,
         excerpt: stripMarkdownFrontmatter(content).slice(0, 400),
         path: getSymbolPath(origin, filePath),
-        scoring,
         tokenCount: fm.token_count,
       } satisfies SummaryDocLike
     } catch {
@@ -877,7 +882,9 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
   private readonly baseDirectory: string
   private readonly cacheTtlMs: number
   private readonly fileSystem: IFileSystem
+  private readonly logger?: ILogger
   private readonly pendingAccessHits: Map<string, number> = new Map()
+  private readonly runtimeSignalStore?: IRuntimeSignalStore
   private readonly state: IndexState = {
     buildingPromise: undefined,
     cachedIndex: undefined,
@@ -887,14 +894,23 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     this.fileSystem = fileSystem
     this.baseDirectory = config.baseDirectory ?? process.cwd()
     this.cacheTtlMs = config.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS
+    this.logger = config.logger
+    this.runtimeSignalStore = config.runtimeSignalStore
   }
 
   /**
-   * Flush accumulated access hits to disk by updating frontmatter scoring.
-   * Called during index rebuild to batch writes and avoid write amplification.
-   * Best-effort: errors are swallowed per file.
+   * Flush accumulated access hits to the runtime-signal sidecar.
+   *
+   * Post-commit-5 this no longer writes to markdown — ranking signals
+   * live exclusively in the sidecar. The `contextTreePath` parameter is
+   * retained for signature compatibility with the cache-invalidation
+   * callback but is no longer used.
+   *
+   * Returns `true` when hits were processed so the caller knows to
+   * refresh file mtimes (historical contract); with markdown writes
+   * removed the refresh is harmless but kept for symmetry.
    */
-  async flushAccessHits(contextTreePath: string): Promise<boolean> {
+  async flushAccessHits(_contextTreePath: string): Promise<boolean> {
     if (this.pendingAccessHits.size === 0) {
       return false
     }
@@ -902,24 +918,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     const hits = new Map(this.pendingAccessHits)
     this.pendingAccessHits.clear()
 
-    const tasks = [...hits.entries()].map(async ([relPath, count]) => {
-      try {
-        const fullPath = join(contextTreePath, relPath)
-        const {content} = await this.fileSystem.readFile(fullPath)
-        const scoring = parseFrontmatterScoring(content) ?? applyDefaultScoring()
-        const updated = recordAccessHits(scoring, count)
-        const newTier = determineTier(
-          updated.importance ?? 50,
-          (updated.maturity ?? 'draft') as 'core' | 'draft' | 'validated',
-        )
-        const finalScoring: FrontmatterScoring = {...updated, maturity: newTier}
-        const newContent = updateScoringInContent(content, finalScoring)
-        await this.fileSystem.writeFile(fullPath, newContent)
-      } catch {
-        // Best-effort — swallow per-file errors
-      }
-    })
-    await Promise.allSettled(tasks)
+    await this.mirrorHitsToSignalStore(hits)
     return true
   }
 
@@ -971,6 +970,14 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       return this.buildOverviewResult(symbolTree, referenceIndex, normalizedScope, options.overviewDepth)
     }
 
+    // Load the runtime-signal sidecar map for the specific paths this query
+    // touches: all document paths in the index plus their summary siblings.
+    // This is O(k) per search instead of O(all entries). Entries are present
+    // only for paths with stored signals — callers use `.has()` to distinguish
+    // missing from default, and `.get(path) ?? defaults` for ergonomic
+    // default-on-miss. On sidecar failure, degrade to BM25-only ranking.
+    const signalsByPath = await this.loadSignalsByPath(documentMap, summaryMap)
+
     // Symbolic path resolution: try path-based query first
     if (isPathLikeQuery(query, symbolTree)) {
       const symbolicResult = this.trySymbolicSearch(
@@ -983,6 +990,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
         pathToDocumentId,
         summaryMap,
         symbolPathDocMap,
+        signalsByPath,
         options,
       )
 
@@ -1013,6 +1021,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       referenceIndex,
       summaryMap,
       symbolPathDocMap,
+      signalsByPath,
       options,
     )
 
@@ -1029,6 +1038,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
         referenceIndex,
         summaryMap,
         symbolPathDocMap,
+        signalsByPath,
         options,
       )
     }
@@ -1131,6 +1141,81 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
   }
 
   /**
+   * Load the runtime-signal map for this search via `getMany`, limiting the
+   * request to paths that this search could possibly rank: every indexed
+   * document plus every summary sibling (parent-propagation can touch any
+   * summary). The returned map contains entries only for paths with stored
+   * signals; callers use `.has()` / `.get()` to distinguish missing from
+   * default. Returns an empty map on sidecar failure so ranking degrades to
+   * BM25 alone rather than erroring out mid-query.
+   */
+  private async loadSignalsByPath(
+    documentMap: Map<string, IndexedDocument>,
+    summaryMap: Map<string, SummaryDocLike>,
+  ): Promise<Map<string, RuntimeSignals>> {
+    if (!this.runtimeSignalStore) return new Map()
+
+    const paths = new Set<string>()
+    for (const doc of documentMap.values()) paths.add(doc.path)
+    for (const summary of summaryMap.values()) paths.add(summary.path)
+
+    try {
+      return await this.runtimeSignalStore.getMany([...paths])
+    } catch (error) {
+      this.logger?.warn(
+        `SearchKnowledgeService: sidecar getMany failed, falling back to BM25-only ranking: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      return new Map()
+    }
+  }
+
+  /**
+   * Mirror a batch of access-hit bumps into the runtime-signal sidecar.
+   *
+   * Matches the markdown flush semantics above:
+   *   - `recordAccessHits` bumps `importance` by `ACCESS_IMPORTANCE_BONUS * count`
+   *     and `accessCount` by `count`.
+   *   - `determineTier` recomputes `maturity` from the new importance.
+   * Both steps run inside `update`'s atomic read-modify-write callback so
+   * same-path contention within the process does not lose bumps.
+   * `updatedAt` is never mirrored — it is a content timestamp, not a signal.
+   */
+  private async mirrorHitsToSignalStore(hits: Map<string, number>): Promise<void> {
+    const store = this.runtimeSignalStore
+    if (!store) return
+
+    const updates = new Map(
+      [...hits.entries()].map(([relPath, count]) => [
+        relPath,
+        (current: RuntimeSignals): RuntimeSignals => {
+          const bumped = recordAccessHits(current, count)
+          return {
+            ...current,
+            accessCount: bumped.accessCount,
+            importance: bumped.importance,
+            maturity: determineTier(bumped.importance, current.maturity),
+          }
+        },
+      ]),
+    )
+
+    try {
+      await store.batchUpdate(updates)
+    } catch (error) {
+      // Best-effort — sidecar failure must not break the flush. The sidecar
+      // will re-sync on the next bump for these paths; the warn makes the
+      // fail-open visible to operators.
+      warnSidecarFailure(
+        this.logger,
+        'search-knowledge-flush',
+        'batchUpdate',
+        `${updates.size} path(s)`,
+        error,
+      )
+    }
+  }
+
+  /**
    * Run the standard text-based MiniSearch pipeline, optionally scoped to a subtree.
    */
   private runTextSearch(
@@ -1144,6 +1229,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     referenceIndex: ReferenceIndex,
     summaryMap: Map<string, SummaryDocLike>,
     symbolPathDocMap: Map<string, IndexedDocument>,
+    signalsByPath: Map<string, RuntimeSignals>,
     options?: SearchOptions,
   ): SearchKnowledgeResult {
     const filteredQuery = filterStopWords(query)
@@ -1186,14 +1272,19 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     // Normalize BM25 scores to [0, 1) then blend with importance + recency via compound scoring.
     // Decay is computed lazily from file mtime — no disk writes during search.
     // Local results get a configurable score boost to prefer local knowledge over shared.
+    //
+    // Runtime signals (importance / recency / maturity) come from the sidecar
+    // `signalsByPath` map. Paths with no sidecar entry fall back to defaults —
+    // matches the pre-migration behaviour where missing-frontmatter files used
+    // applyDefaultScoring().
     const now = Date.now()
     const searchResults = rawResults.map((r) => {
       const doc = documentMap.get(r.id)
-      const scoring = doc?.scoring ?? applyDefaultScoring()
+      const signals = (doc && signalsByPath.get(doc.path)) ?? createDefaultRuntimeSignals()
       const daysSince = doc ? Math.max(0, (now - doc.mtime) / 86_400_000) : 0
-      const decayed = applyDecay(scoring, daysSince)
+      const decayed = applyDecay(signals, daysSince)
       const bm25 = normalizeScore(r.score)
-      let finalScore = compoundScore(bm25, decayed.importance ?? 50, decayed.recency ?? 1, decayed.maturity ?? 'draft')
+      let finalScore = compoundScore(bm25, decayed)
 
       // Local score boost: prefer local results over shared when scores are close
       if (doc?.origin === 'local') {
@@ -1279,10 +1370,17 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
           if (options?.minMaturity && enriched.symbolKind) {
             const docMaturity =
               enriched.symbolKind === 'summary'
-                ? (getSummarySource(enriched.path, summaryMap, symbolPathDocMap)?.scoring?.maturity ??
-                  symbolTree.symbolMap.get(enriched.path)?.metadata.maturity ??
+                ? (() => {
+                    const summaryDoc = getSummarySource(enriched.path, summaryMap, symbolPathDocMap)
+                    return (
+                      (summaryDoc && signalsByPath.get(summaryDoc.path)?.maturity) ??
+                      symbolTree.symbolMap.get(enriched.path)?.metadata.maturity ??
+                      'draft'
+                    )
+                  })()
+                : (signalsByPath.get(document.path)?.maturity ??
+                  symbolTree.symbolMap.get(document.symbolPath)?.metadata.maturity ??
                   'draft')
-                : (symbolTree.symbolMap.get(document.symbolPath)?.metadata.maturity ?? 'draft')
             if ((MATURITY_TIER_RANK[docMaturity] ?? 1) < (MATURITY_TIER_RANK[options.minMaturity] ?? 1)) {
               continue
             }
@@ -1298,7 +1396,13 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     }
 
     // Propagate scores upward to parent domain/topic nodes (hierarchical retrieval)
-    const propagated = propagateScoresToParents(propagationInputs, symbolTree, summaryMap, symbolPathDocMap)
+    const propagated = propagateScoresToParents(
+      propagationInputs,
+      symbolTree,
+      summaryMap,
+      symbolPathDocMap,
+      signalsByPath,
+    )
     for (const p of propagated) {
       // Apply local score boost to propagated summaries so they stay competitive
       // with boosted direct BM25 hits (the boost was already applied to direct hits above)
@@ -1309,7 +1413,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
       if (options?.excludeKinds && p.symbolKind && options.excludeKinds.includes(p.symbolKind)) continue
       if (options?.minMaturity && p.symbolKind === 'summary') {
         const summaryDoc = getSummarySource(p.path, summaryMap, symbolPathDocMap)
-        const summaryMaturity = summaryDoc?.scoring?.maturity ?? 'draft'
+        const summaryMaturity = (summaryDoc && signalsByPath.get(summaryDoc.path)?.maturity) ?? 'draft'
         if ((MATURITY_TIER_RANK[summaryMaturity] ?? 1) < (MATURITY_TIER_RANK[options.minMaturity] ?? 1)) continue
       }
 
@@ -1356,6 +1460,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     pathToDocumentId: Map<string, string>,
     summaryMap: Map<string, SummaryDocLike>,
     symbolPathDocMap: Map<string, IndexedDocument>,
+    signalsByPath: Map<string, RuntimeSignals>,
     options?: SearchOptions,
   ): null | SearchKnowledgeResult {
     const pathMatches = matchMemoryPath(symbolTree, query.split(/\s+/)[0].includes('/') ? query.split(/\s+/)[0] : query)
@@ -1410,6 +1515,7 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
         referenceIndex,
         summaryMap,
         symbolPathDocMap,
+        signalsByPath,
         options,
       )
     }
