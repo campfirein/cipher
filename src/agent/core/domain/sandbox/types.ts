@@ -42,7 +42,7 @@ export interface SandboxConfig {
   /**
    * Conversation turn index (zero-based, user-messages only) — the Nth
    * user message in the session when this code_exec fired. Used by
-   * Phase 6 refinement to cluster outcomes by task stage.
+   * refinement to cluster outcomes by task stage.
    */
   conversationTurn?: number
 
@@ -55,8 +55,8 @@ export interface SandboxConfig {
   /**
    * Free-text description of the task the user requested when this
    * code_exec fired. Truncated to 500 chars at the call site. Used by
-   * Phase 6 refinement as the primary signal for matching outcomes to
-   * evaluation scenarios.
+   * refinement as the primary signal for matching outcomes to evaluation
+   * scenarios.
    */
   taskDescription?: string
 

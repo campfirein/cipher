@@ -103,7 +103,7 @@ export interface ToolExecutionContext {
 
   /**
    * Conversation turn index (zero-based, user-messages only). Threaded
-   * from AgentLLMService for outcome recording (Phase 2).
+   * from AgentLLMService for outcome recording.
    */
   conversationTurn?: number
 
@@ -124,7 +124,7 @@ export interface ToolExecutionContext {
 
   /**
    * Free-text description of the user's task, truncated to 500 chars.
-   * Threaded from AgentLLMService for outcome recording (Phase 2).
+   * Threaded from AgentLLMService for outcome recording.
    */
   taskDescription?: string
 

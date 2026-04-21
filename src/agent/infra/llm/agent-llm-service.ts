@@ -1133,14 +1133,14 @@ export class AgentLLMService implements ILLMService {
       // Create metadata callback for streaming tool output
       const metadataCallback = this.metadataHandler.createCallback(toolCall.id, toolName)
 
-      // Compute harness outcome context from conversation state (Phase 2 Task 2.4).
-      // taskDescription = last user message truncated to 500 chars; conversationTurn = zero-based user-only count.
+      // Derive harness context from current conversation state.
       const messages = this.contextManager.getMessages()
       const userMessages = messages.filter((m) => m.role === 'user')
-      const lastUserContent = userMessages.length > 0
-        ? String(userMessages.at(-1)?.content ?? '').slice(0, MAX_TASK_DESCRIPTION_LENGTH)
+      const lastUser = userMessages.at(-1)
+      const lastUserContent = lastUser
+        ? (this.extractTextContent(lastUser) || undefined)?.slice(0, MAX_TASK_DESCRIPTION_LENGTH)
         : undefined
-      const conversationTurn = userMessages.length > 0 ? userMessages.length - 1 : undefined
+      const conversationTurn = lastUser ? userMessages.length - 1 : undefined
 
       // Execute tool via ToolManager (returns structured result)
       // Pass taskId, commandType, and harness context for subagent billing tracking and context-aware behavior

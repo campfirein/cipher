@@ -91,7 +91,7 @@ describe('code_exec tool — harness field forwarding', () => {
     const tool = createCodeExecTool(sandbox)
 
     // The tool forwards whatever it receives — truncation happens in AgentLLMService
-    const longDesc = 'x'.repeat(500)
+    const longDesc = 'x'.repeat(600)
     const context: ToolExecutionContext = {
       sessionId: 'sess-1',
       taskDescription: longDesc,
@@ -100,7 +100,7 @@ describe('code_exec tool — harness field forwarding', () => {
     await tool.execute({code: '1'}, context)
 
     expect(sandbox.lastConfig?.taskDescription).to.equal(longDesc)
-    expect(sandbox.lastConfig?.taskDescription).to.have.length(500)
+    expect(sandbox.lastConfig?.taskDescription).to.have.length(600)
   })
 
   it('forwards both fields together alongside existing config fields', async () => {
