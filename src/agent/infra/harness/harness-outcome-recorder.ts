@@ -148,8 +148,8 @@ export class HarnessOutcomeRecorder {
       projectId: params.projectId,
       projectType: params.projectType,
       sessionId: params.sessionId,
-      stderr: params.result.stderr || undefined,
-      stdout: params.result.stdout || undefined,
+      stderr: params.result.stderr.length > 0 ? params.result.stderr : undefined,
+      stdout: params.result.stdout.length > 0 ? params.result.stdout : undefined,
       // Approximation: any stderr = failure. Task 2.3 replaces with an
       // explicit boolean from the sandbox runner to avoid false positives
       // from deprecation warnings, console.warn, etc.
