@@ -436,13 +436,14 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   public async executeOnSession(
     sessionId: string,
     input: string,
-    options?: {executionContext?: ExecutionContext; taskId?: string},
+    options?: {executionContext?: ExecutionContext; signal?: AbortSignal; taskId?: string},
   ): Promise<string> {
     this.ensureStarted()
 
     const response = await this.generate(input, {
       executionContext: options?.executionContext,
       sessionId,
+      signal: options?.signal,
       taskId: options?.taskId,
     })
 
@@ -1212,8 +1213,14 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       })
     }
 
-    // Rebuild sandbox CurateService with the queue — reuses existing hot-swap path
-    const newCurateService = createCurateService(services.workingDirectory, services.abstractQueue)
+    // Rebuild sandbox CurateService with the queue — reuses existing hot-swap path.
+    // runtimeSignalStore is threaded so agent-driven curate ADD/UPDATE seed +
+    // bump the sidecar (matches the tool-registry wiring at construction time).
+    const newCurateService = createCurateService(
+      services.workingDirectory,
+      services.abstractQueue,
+      services.runtimeSignalStore,
+    )
     services.sandboxService.setCurateService?.(newCurateService)
 
     // Atomically rebuild CURATE + INGEST_RESOURCE tools so both enqueue abstracts

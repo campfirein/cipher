@@ -348,14 +348,10 @@ _index.md
     })
 
     it('should handle lines with leading/trailing whitespace', async () => {
-      const withSpaces = `# Derived artifacts — do not track
-  .gitignore
-  .snapshot.json
-_manifest.json
-_index.md
-  *.abstract.md
-*.overview.md
-`
+      const withSpaces = FULL_GITIGNORE
+        .replace(/^\.gitignore$/m, '  .gitignore')
+        .replace(/^\.snapshot\.json$/m, '  .snapshot.json')
+        .replace(/^\*\.abstract\.md$/m, '  *.abstract.md')
       writeFileSync(path.join(testDir, '.gitignore'), withSpaces)
 
       await ensureContextTreeGitignore(testDir)
@@ -365,14 +361,7 @@ _index.md
     })
 
     it('should skip pattern when a variant already covers it — /_manifest.json contains _manifest.json', async () => {
-      const withSlash = `# Derived artifacts — do not track
-.gitignore
-.snapshot.json
-/_manifest.json
-_index.md
-*.abstract.md
-*.overview.md
-`
+      const withSlash = FULL_GITIGNORE.replace(/^_manifest\.json$/m, '/_manifest.json')
       writeFileSync(path.join(testDir, '.gitignore'), withSlash)
 
       await ensureContextTreeGitignore(testDir)

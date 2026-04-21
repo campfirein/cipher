@@ -22,20 +22,24 @@
 import {connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 import {appendFileSync} from 'node:fs'
+import {join} from 'node:path'
 
+import type {ISearchKnowledgeService} from '../../../agent/infra/sandbox/tools-sdk.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {ProviderConfigResponse, TaskExecute} from '../../core/domain/transport/schemas.js'
+import type {IRuntimeSignalStore} from '../../core/interfaces/storage/i-runtime-signal-store.js'
 
 import {SESSIONS_DIR} from '../../../agent/core/domain/session/session-metadata.js'
 import {CipherAgent} from '../../../agent/infra/agent/index.js'
 import {FileSystemService} from '../../../agent/infra/file-system/file-system-service.js'
 import {FolderPackService} from '../../../agent/infra/folder-pack/folder-pack-service.js'
 import {SessionMetadataStore} from '../../../agent/infra/session/session-metadata-store.js'
+import {FileKeyStorage} from '../../../agent/infra/storage/file-key-storage.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {decodeSearchContent} from '../../../shared/transport/search-content.js'
 import {getCurrentConfig} from '../../config/environment.js'
-import {DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
+import {BRV_DIR, DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {serializeTaskError, TaskError, TaskErrorCode} from '../../core/domain/errors/task-error.js'
 import {loadSources} from '../../core/domain/source/source-schema.js'
 import {
@@ -44,10 +48,19 @@ import {
   TransportStateEventNames,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
+import {FileContextTreeArchiveService} from '../context-tree/file-context-tree-archive-service.js'
+import {RuntimeSignalStore} from '../context-tree/runtime-signal-store.js'
+import {DreamLockService} from '../dream/dream-lock-service.js'
+import {DreamLogStore} from '../dream/dream-log-store.js'
+import {DreamStateService} from '../dream/dream-state-service.js'
+import {DreamTrigger} from '../dream/dream-trigger.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
+import {DreamExecutor} from '../executor/dream-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
 import {SearchExecutor} from '../executor/search-executor.js'
+import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
+import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {createAgentLogger} from './agent-logger.js'
 import {resolveSessionId} from './session-resolver.js'
@@ -354,7 +367,27 @@ async function start(): Promise<void> {
     workingDirectory: projectPath,
   })
   await fileSystemService.initialize()
-  const searchService = createSearchKnowledgeService(fileSystemService, {baseDirectory: projectPath})
+
+  // Runtime-signal sidecar for this daemon. FileKeyStorage is file-backed
+  // under configResult.storagePath, so the daemon and any other process for
+  // the same project write to the same on-disk store. `brv search`, curate,
+  // and archive in this daemon all mirror scoring writes through it.
+  const daemonKeyStorage = new FileKeyStorage({
+    storageDir: configResult.storagePath,
+  })
+  await daemonKeyStorage.initialize()
+  const daemonLogger = {
+    debug: (msg: string): void => agentLog(msg),
+    error: (msg: string): void => agentLog(msg),
+    info: (msg: string): void => agentLog(msg),
+    warn: (msg: string): void => agentLog(msg),
+  }
+  const daemonRuntimeSignalStore = new RuntimeSignalStore(daemonKeyStorage, daemonLogger)
+
+  const searchService = createSearchKnowledgeService(fileSystemService, {
+    baseDirectory: projectPath,
+    runtimeSignalStore: daemonRuntimeSignalStore,
+  })
 
   // 7. Create executors and listen for task:execute from pool
   const curateExecutor = new CurateExecutor()
@@ -372,7 +405,16 @@ async function start(): Promise<void> {
   transport.on<TaskExecute>(TransportTaskEventNames.EXECUTE, (task) => {
     agentLog(`task:execute received taskId=${task.taskId} type=${task.type} activeTaskCount=${activeTaskCount + 1}`)
     // eslint-disable-next-line no-void
-    void executeTask(task, curateExecutor, folderPackExecutor, queryExecutor, searchExecutor)
+    void executeTask(
+      task,
+      curateExecutor,
+      folderPackExecutor,
+      queryExecutor,
+      searchExecutor,
+      searchService,
+      configResult.storagePath,
+      daemonRuntimeSignalStore,
+    )
   })
 
   // 8. Register with transport server (for TransportHandlers tracking)
@@ -389,8 +431,11 @@ async function executeTask(
   folderPackExecutor: FolderPackExecutor,
   queryExecutor: QueryExecutor,
   searchExecutor: SearchExecutor,
+  searchKnowledgeService: ISearchKnowledgeService,
+  storagePath: string,
+  runtimeSignalStore: IRuntimeSignalStore,
 ): Promise<void> {
-  const {clientCwd, clientId, content, files, folderPath, taskId, type, worktreeRoot} = task
+  const {clientCwd, clientId, content, files, folderPath, force, taskId, trigger, type, worktreeRoot} = task
   if (!transport || !agent) return
 
   // Search tasks are pure BM25 retrieval — no LLM, no provider needed.
@@ -468,9 +513,17 @@ async function executeTask(
 
     try {
       let result: string
+      let logId: string | undefined
       switch (type) {
         case 'curate': {
-          result = await curateExecutor.executeWithAgent(agent, {clientCwd, content, files, projectRoot: projectPath, taskId, worktreeRoot})
+          result = await curateExecutor.executeWithAgent(agent, {
+            clientCwd,
+            content,
+            files,
+            projectRoot: projectPath,
+            taskId,
+            worktreeRoot,
+          })
 
           break
         }
@@ -488,8 +541,66 @@ async function executeTask(
           break
         }
 
+        case 'dream': {
+          const brvDir = join(projectPath, BRV_DIR)
+          const dreamLockService = new DreamLockService({baseDir: brvDir})
+          const dreamStateService = new DreamStateService({baseDir: brvDir})
+
+          // Run trigger check (acquires lock if eligible).
+          // Gate 3 (queue) is pre-checked by the daemon (TransportHandlers.preDispatchCheck
+          // for CLI dispatch, onAgentIdle for idle-trigger dispatch), so the agent treats
+          // its own queue view as empty. Gates 1 (time) and 2 (activity) are re-checked here
+          // as defense-in-depth in case state drifted between dispatch and execution.
+          const dreamTrigger = new DreamTrigger({
+            dreamLockService,
+            dreamStateService,
+            getQueueLength: () => 0,
+          })
+          const eligibility = await dreamTrigger.tryStartDream(projectPath, force)
+          if (!eligibility.eligible) {
+            result = `Dream skipped: ${eligibility.reason}`
+            break
+          }
+
+          const dreamExecutor = new DreamExecutor({
+            archiveService: new FileContextTreeArchiveService(runtimeSignalStore),
+            curateLogStore: new FileCurateLogStore({baseDir: storagePath}),
+            dreamLockService,
+            dreamLogStore: new DreamLogStore({baseDir: brvDir}),
+            dreamStateService,
+            reviewBackupStore: new FileReviewBackupStore(brvDir),
+            runtimeSignalStore,
+            searchService: searchKnowledgeService,
+          })
+          const dreamResult = await dreamExecutor.executeWithAgent(agent, {
+            priorMtime: eligibility.priorMtime,
+            projectRoot: projectPath,
+            taskId,
+            trigger: trigger ?? 'cli',
+          })
+          result = dreamResult.result
+          logId = dreamResult.logId
+
+          break
+        }
+
         case 'query': {
-          result = await queryExecutor.executeWithAgent(agent, {query: content, taskId, worktreeRoot})
+          const queryResult = await queryExecutor.executeWithAgent(agent, {query: content, taskId, worktreeRoot})
+          result = queryResult.response
+
+          // Send query metadata to daemon for QueryLogHandler (crosses process boundary via transport).
+          // Must arrive BEFORE task:completed so setQueryResult runs before onTaskCompleted.
+          try {
+            transport.request(TransportTaskEventNames.QUERY_RESULT, {
+              matchedDocs: queryResult.matchedDocs,
+              searchMetadata: queryResult.searchMetadata,
+              taskId,
+              tier: queryResult.tier,
+              timing: queryResult.timing,
+            })
+          } catch {
+            agentLog(`task:queryResult send failed taskId=${taskId}`)
+          }
 
           break
         }
@@ -506,7 +617,7 @@ async function executeTask(
       // Emit task:completed
       agentLog(`task:completed taskId=${taskId}`)
       try {
-        transport.request(TransportTaskEventNames.COMPLETED, {clientId, result, taskId})
+        transport.request(TransportTaskEventNames.COMPLETED, {clientId, ...(logId ? {logId} : {}), projectPath, result, taskId})
       } catch (error) {
         agentLog(
           `task:completed send failed taskId=${taskId}: ${error instanceof Error ? error.message : String(error)}`,
@@ -517,7 +628,7 @@ async function executeTask(
       const errorData = serializeTaskError(error)
       agentLog(`task:error taskId=${taskId} error=${errorData.message}`)
       try {
-        transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, taskId})
+        transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, projectPath, taskId})
       } catch (error_) {
         agentLog(
           `task:error send failed taskId=${taskId}: ${error_ instanceof Error ? error_.message : String(error_)}`,

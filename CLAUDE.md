@@ -56,10 +56,10 @@ npm run typecheck                    # TypeScript type checking
 ### Source Layout (`src/`)
 
 - `agent/` — LLM agent: `core/` (interfaces/domain), `infra/` (23 modules, including llm, memory, map, swarm, tools, document-parser), `resources/` (prompts YAML, tool `.txt` descriptions)
-- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (29 modules, including vc, git, hub, mcp, cogit, project, provider-oauth, space), `templates/`, `utils/`
+- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (30 modules, including vc, git, hub, mcp, cogit, project, provider-oauth, space, dream), `templates/`, `utils/`
 - `shared/` — Cross-module: constants, types, transport events, utils
 - `tui/` — React/Ink TUI: app (router/pages), components, features (23 modules, including vc, worktree, source, hub, curate), hooks, lib, providers, stores
-- `oclif/` — Commands grouped by topic (`vc/`, `hub/`, `worktree/`, `source/`, `space/`, `review/`, `connectors/`, `curate/`, `model/`, `providers/`, `swarm/`) + top-level `.ts` commands; hooks, lib (daemon-client, task-client, json-response)
+- `oclif/` — Commands grouped by topic (`vc/`, `hub/`, `worktree/`, `source/`, `space/`, `review/`, `connectors/`, `curate/`, `model/`, `providers/`, `swarm/`, `query-log/`) + top-level `.ts` commands; hooks, lib (daemon-client, task-client, json-response)
 
 **Import boundary** (ESLint-enforced): `tui/` must not import from `server/`, `agent/`, or `oclif/`. Use transport events or `shared/`.
 
@@ -82,6 +82,9 @@ npm run typecheck                    # TypeScript type checking
 - `brv source` (add/list/remove) — link another project's context tree as a read-only knowledge source with write isolation
 - `brv search <query>` — pure BM25 retrieval over the context tree (minisearch, no LLM, no token cost); structured results with paths/scores. Pairs with `brv query` (LLM-synthesized answer). Engine: `server/infra/executor/search-executor.ts`
 - `brv locations` — lists all registered projects with context-tree status (text or `--format json`); reads from `LocationsEvents` over the daemon transport
+- `brv query-log view [id]` / `brv query-log summary` — inspect query history and recall metrics (coverage, cache hit rate, top topics); store: `server/infra/storage/file-query-log-store.ts`, summary use-case in `server/infra/usecase/`
+- `brv dream [--force] [--undo] [--detach]` — background context-tree consolidation; operations in `server/infra/dream/operations/` (synthesize, consolidate, prune); lock/state via `dream-lock-service.ts` + `dream-state-service.ts`
+- Runtime signals sidecar — file-level usage/maturity data lives in `RuntimeSignalStore` (`server/infra/context-tree/runtime-signal-store.ts`, `IKeyStorage` keys `["signals", ...pathSegments]`), NOT in synthesized markdown frontmatter. Read: search-knowledge + manifest service; write: curate-service + dream-executor synthesize. Schema: `server/core/domain/knowledge/runtime-signals-schema.ts`
 - Canonical project resolver: `resolveProject()` in `server/infra/project/` — priority `flag > direct > linked > walked-up > null`. `projectRoot` and `worktreeRoot` are threaded through transport schemas, task routing, and all executors
 - All commands are daemon-routed: `oclif/` and `tui/` never import from `server/`
 - Oclif: `src/oclif/commands/{vc,worktree,source}/`; TUI: `src/tui/features/{vc,worktree,source}/`; slash commands (`vc-*`, `worktree`, `source`) in `src/tui/features/commands/definitions/`

@@ -100,6 +100,13 @@ export const AGENT_PROCESS_STOP_TIMEOUT_MS = 5000 // 5s max wait for child proce
 export const CURATE_LOG_DIR = 'curate-log'
 export const CURATE_LOG_ID_PREFIX = 'cur'
 
+// Query log
+export const QUERY_LOG_DIR = 'query-log'
+export const QUERY_LOG_ID_PREFIX = 'qry'
+// Dream log
+export const DREAM_LOG_DIR = 'dream-log'
+export const DREAM_LOG_ID_PREFIX = 'drm'
+
 // Review backups (stores pre-curate file content for local HITL review diffs)
 export const REVIEW_BACKUPS_DIR = 'review-backups'
 // === Hierarchical DAG (summary, archive, manifest) ===
@@ -113,15 +120,37 @@ export const MANIFEST_FILE = '_manifest.json'
 export const ARCHIVE_IMPORTANCE_THRESHOLD = 35
 export const DEFAULT_GHOST_CUE_MAX_TOKENS = 220
 
-/** Patterns the context-tree .gitignore must contain (derived artifacts only). */
+/** Patterns the context-tree .gitignore must contain. */
 export const CONTEXT_TREE_GITIGNORE_PATTERNS = [
+  // Derived artifacts
   '.gitignore',
   '.snapshot.json',
   '_manifest.json',
   '_index.md',
   '*.abstract.md',
   '*.overview.md',
+
+  // macOS
+  '.DS_Store',
+  '._*',
+
+  // Windows
+  'Thumbs.db',
+  'ehthumbs.db',
+  'Desktop.ini',
+
+  // Linux
+  '.directory',
+  '.fuse_hidden*',
+  '.nfs*',
+
+  // Editor swap / backup / temp
+  '*.swp',
+  '*.swo',
+  '*~',
+  '.#*',
+  '*.bak',
+  '*.tmp',
 ]
 
 export const CONTEXT_TREE_GITIGNORE_HEADER = '# Derived artifacts — do not track'
-
