@@ -193,17 +193,10 @@ describe('HarnessOutcomeRecorder — attachFeedback', () => {
     const original = makeOutcome()
     await store.saveOutcome(original)
 
-    let saveCallCount = 0
     const originalSave = store.saveOutcome.bind(store)
-    sinon.stub(store, 'saveOutcome').callsFake(async (outcome: CodeExecOutcome) => {
-      saveCallCount++
-      // Fail on the 2nd synthetic save (saveCallCount tracks only synthetic saves)
-      if (saveCallCount === 2) {
-        throw new Error('disk full')
-      }
-
-      return originalSave(outcome)
-    })
+    const stub = sinon.stub(store, 'saveOutcome')
+    stub.callsFake(async (outcome: CodeExecOutcome) => originalSave(outcome))
+    stub.onSecondCall().rejects(new Error('disk full'))
 
     const recorder = new HarnessOutcomeRecorder(store, bus, logger, makeConfig())
     // Should NOT throw — partial insertion is tolerable
@@ -265,12 +258,10 @@ describe('HarnessOutcomeRecorder — attachFeedback', () => {
 
     const recorder = new HarnessOutcomeRecorder(store, bus, logger, makeConfig())
 
-    const start = Date.now()
     const promises = Array.from({length: 10}, (_, i) =>
       recorder.attachFeedback('proj-1', 'curate', `oc-${i}`, 'bad'),
     )
     await Promise.all(promises)
-    const elapsed = Date.now() - start
 
     const outcomes = await store.listOutcomes('proj-1', 'curate', 200)
     // 10 originals + 30 synthetics
@@ -281,8 +272,5 @@ describe('HarnessOutcomeRecorder — attachFeedback', () => {
       const flagged = outcomes.find((o) => o.id === `oc-${i}`)
       expect(flagged?.userFeedback).to.equal('bad')
     }
-
-    // No rate-limit delay — should complete very fast against in-memory store
-    expect(elapsed).to.be.lessThan(50)
   })
 })

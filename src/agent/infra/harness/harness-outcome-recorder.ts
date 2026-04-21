@@ -91,6 +91,7 @@ class Semaphore {
 
 /** Synthetic outcome count per verdict (§C2 weighting policy). */
 const BAD_SYNTHETIC_COUNT = 3
+/** Maximum recent outcomes to scan when cloning for synthetic insertion (§C2). */
 const FEEDBACK_LIST_LIMIT = 100
 const GOOD_SYNTHETIC_COUNT = 1
 const MAX_OUTCOMES_PER_SESSION = 50
@@ -178,7 +179,7 @@ export class HarnessOutcomeRecorder {
       })
     })
 
-    await Promise.allSettled(syntheticPromises)
+    await Promise.all(syntheticPromises)
   }
 
   /**
