@@ -3,6 +3,14 @@
  */
 export enum HarnessStoreErrorCode {
   /**
+   * `recordFeedback` was called with an `outcomeId` that does not exist
+   * under the given `(projectId, commandType)` partition. Callers should
+   * only flag outcomes they obtained from `listOutcomes` — a miss here
+   * is a real bug, not a racy fallback.
+   */
+  OUTCOME_NOT_FOUND = 'OUTCOME_NOT_FOUND',
+
+  /**
    * A version with the same `id`, or the same
    * `(projectId, commandType, version)` tuple, already exists.
    */
@@ -31,6 +39,18 @@ export class HarnessStoreError extends Error {
 
   static isHarnessStoreError(error: unknown): error is HarnessStoreError {
     return error instanceof HarnessStoreError
+  }
+
+  static outcomeNotFound(
+    projectId: string,
+    commandType: string,
+    outcomeId: string,
+  ): HarnessStoreError {
+    return new HarnessStoreError(
+      `Outcome not found for (${projectId}, ${commandType}): ${outcomeId}`,
+      HarnessStoreErrorCode.OUTCOME_NOT_FOUND,
+      {commandType, outcomeId, projectId},
+    )
   }
 
   static versionConflict(

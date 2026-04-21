@@ -2,16 +2,16 @@
  * AutoHarness V2 storage — `IKeyStorage`-backed implementation.
  *
  * Facade over `IKeyStorage` that partitions harness versions, outcomes,
- * and scenarios under composite key prefixes. This file ships the
- * version CRUD (Phase 1 Task 1.2); outcome and scenario CRUD land in
- * Task 1.3 — those methods are `throw 'not implemented yet'` stubs
- * here so the class satisfies the interface and stays compile-valid
- * mid-phase.
+ * and scenarios under composite key prefixes.
  *
  * Key-space layout (see `tasks/phase_1_2_handoff.md §C4`):
  *   ["harness", "version",  projectId, commandType, versionId]
- *   ["harness", "outcome",  projectType, projectId, commandType, outcomeId]   (Task 1.3)
- *   ["harness", "scenario", projectType, projectId, commandType, scenarioId]  (Task 1.3)
+ *   ["harness", "outcome",  projectType, projectId, commandType, outcomeId]
+ *   ["harness", "scenario", projectType, projectId, commandType, scenarioId]
+ *
+ * `projectType` appears in the outcome/scenario prefix (not version) —
+ * enables a v1.1 cross-project aggregation query
+ * (`list(["harness", "outcome", "typescript"])`) without a migration.
  *
  * `HarnessVersion` bodies are inlined in the key record — typical
  * harness code is <10KB. If that ceiling moves, swap the code field to
@@ -33,13 +33,24 @@ import type {BatchOperation, IKeyStorage, StorageKey} from '../../core/interface
 import type {ILogger} from '../../core/interfaces/i-logger.js'
 
 import {HarnessStoreError} from '../../core/domain/errors/harness-store-error.js'
-import {HarnessVersionSchema} from '../../core/domain/harness/types.js'
+import {
+  CodeExecOutcomeSchema,
+  EvaluationScenarioSchema,
+  HarnessVersionSchema,
+  ProjectTypeSchema,
+} from '../../core/domain/harness/types.js'
 
 const HARNESS_PREFIX = 'harness'
 const VERSION_PREFIX = 'version'
+const OUTCOME_PREFIX = 'outcome'
+const SCENARIO_PREFIX = 'scenario'
 
-const TASK_1_3_PENDING =
-  'Not implemented — HarnessStore: outcome/scenario CRUD lands in Phase 1 Task 1.3'
+/**
+ * Default cap when `listOutcomes` is called without an explicit `limit`.
+ * Keeps the heuristic's 50-outcome window comfortably within range while
+ * bounding memory for bad callers.
+ */
+const DEFAULT_LIST_OUTCOMES_LIMIT = 100
 
 export class HarnessStore implements IHarnessStore {
   constructor(
@@ -47,10 +58,33 @@ export class HarnessStore implements IHarnessStore {
     private readonly logger: ILogger,
   ) {}
 
-  // ── outcomes (Task 1.3 stubs) ──────────────────────────────────────────────
+  // ── outcomes ──────────────────────────────────────────────────────────────
 
-  async deleteOutcomes(_projectId: string, _commandType: string): Promise<number> {
-    throw new Error(TASK_1_3_PENDING)
+  async deleteOutcomes(projectId: string, commandType: string): Promise<number> {
+    const keys: StorageKey[] = []
+    for (const projectType of ProjectTypeSchema.options) {
+      // eslint-disable-next-line no-await-in-loop
+      const entries = await this.keyStorage.listWithValues<CodeExecOutcome>([
+        HARNESS_PREFIX,
+        OUTCOME_PREFIX,
+        projectType,
+        projectId,
+        commandType,
+      ])
+      for (const entry of entries) keys.push(entry.key)
+    }
+
+    if (keys.length === 0) return 0
+
+    const operations: BatchOperation[] = keys.map((key) => ({key, type: 'delete' as const}))
+    await this.keyStorage.batch(operations)
+    this.logger.debug('HarnessStore.deleteOutcomes cleared partition', {
+      commandType,
+      deleted: keys.length,
+      projectId,
+    })
+
+    return keys.length
   }
 
   // ── versions ───────────────────────────────────────────────────────────────
@@ -73,15 +107,40 @@ export class HarnessStore implements IHarnessStore {
   }
 
   async listOutcomes(
-    _projectId: string,
-    _commandType: string,
-    _limit?: number,
+    projectId: string,
+    commandType: string,
+    limit?: number,
   ): Promise<CodeExecOutcome[]> {
-    throw new Error(TASK_1_3_PENDING)
+    // Precondition: `limit` (when provided) is a positive integer. Invalid
+    // values degrade silently to the default rather than throwing, since
+    // this method is read-only and a bad limit is strictly a caller hint.
+    const cap =
+      limit !== undefined && Number.isInteger(limit) && limit > 0
+        ? limit
+        : DEFAULT_LIST_OUTCOMES_LIMIT
+
+    const matches = await this.listOutcomesAcrossPartitions(projectId, commandType)
+    matches.sort((a, b) => b.timestamp - a.timestamp)
+    return matches.slice(0, cap)
   }
 
-  async listScenarios(_projectId: string, _commandType: string): Promise<EvaluationScenario[]> {
-    throw new Error(TASK_1_3_PENDING)
+  async listScenarios(projectId: string, commandType: string): Promise<EvaluationScenario[]> {
+    const matches: EvaluationScenario[] = []
+    for (const projectType of ProjectTypeSchema.options) {
+      // eslint-disable-next-line no-await-in-loop
+      const entries = await this.keyStorage.listWithValues<EvaluationScenario>([
+        HARNESS_PREFIX,
+        SCENARIO_PREFIX,
+        projectType,
+        projectId,
+        commandType,
+      ])
+      for (const entry of entries) matches.push(entry.value)
+    }
+
+    // No temporal order on scenarios — return in insertion-stable order
+    // per the interface docstring.
+    return matches
   }
 
   async listVersions(projectId: string, commandType: string): Promise<HarnessVersion[]> {
@@ -164,20 +223,56 @@ export class HarnessStore implements IHarnessStore {
   }
 
   async recordFeedback(
-    _projectId: string,
-    _commandType: string,
-    _outcomeId: string,
-    _verdict: 'bad' | 'good' | null,
+    projectId: string,
+    commandType: string,
+    outcomeId: string,
+    verdict: 'bad' | 'good' | null,
   ): Promise<void> {
-    throw new Error(TASK_1_3_PENDING)
+    // `recordFeedback`'s signature doesn't carry `projectType`, so we
+    // locate the outcome by scanning all partitions first.
+    //
+    // Uses `get` + `set` rather than `keyStorage.update` because
+    // `FileKeyStorage.update` wraps thrown errors as plain `Error`,
+    // which would mangle the typed `HarnessStoreError.outcomeNotFound`
+    // we want to surface on the narrow race where the outcome is
+    // deleted between our locate scan and the read. That race window
+    // is non-corrupting — we simply report `OUTCOME_NOT_FOUND` to the
+    // caller. In practice Phase 2 callers flag outcomes they just
+    // read from `listOutcomes`, so the race is negligible.
+    const locatedKey = await this.findOutcomeKey(projectId, commandType, outcomeId)
+    if (locatedKey === undefined) {
+      throw HarnessStoreError.outcomeNotFound(projectId, commandType, outcomeId)
+    }
+
+    const current = await this.keyStorage.get<CodeExecOutcome>(locatedKey)
+    if (current === undefined) {
+      throw HarnessStoreError.outcomeNotFound(projectId, commandType, outcomeId)
+    }
+
+    await this.keyStorage.set(locatedKey, {...current, userFeedback: verdict})
   }
 
-  async saveOutcome(_outcome: CodeExecOutcome): Promise<void> {
-    throw new Error(TASK_1_3_PENDING)
+  async saveOutcome(outcome: CodeExecOutcome): Promise<void> {
+    const parsed = CodeExecOutcomeSchema.parse(outcome)
+    const key = this.outcomeKey(
+      parsed.projectType,
+      parsed.projectId,
+      parsed.commandType,
+      parsed.id,
+    )
+    // Duplicate `id` is an idempotent overwrite per the interface docs.
+    await this.keyStorage.set(key, parsed)
   }
 
-  async saveScenario(_scenario: EvaluationScenario): Promise<void> {
-    throw new Error(TASK_1_3_PENDING)
+  async saveScenario(scenario: EvaluationScenario): Promise<void> {
+    const parsed = EvaluationScenarioSchema.parse(scenario)
+    const key = this.scenarioKey(
+      parsed.projectType,
+      parsed.projectId,
+      parsed.commandType,
+      parsed.id,
+    )
+    await this.keyStorage.set(key, parsed)
   }
 
   async saveVersion(version: HarnessVersion): Promise<void> {
@@ -226,6 +321,41 @@ export class HarnessStore implements IHarnessStore {
 
   // ── internals ──────────────────────────────────────────────────────────────
 
+  private async findOutcomeKey(
+    projectId: string,
+    commandType: string,
+    outcomeId: string,
+  ): Promise<StorageKey | undefined> {
+    for (const projectType of ProjectTypeSchema.options) {
+      const key = this.outcomeKey(projectType, projectId, commandType, outcomeId)
+      // eslint-disable-next-line no-await-in-loop
+      const hit = await this.keyStorage.exists(key)
+      if (hit) return key
+    }
+
+    return undefined
+  }
+
+  private async listOutcomesAcrossPartitions(
+    projectId: string,
+    commandType: string,
+  ): Promise<CodeExecOutcome[]> {
+    const matches: CodeExecOutcome[] = []
+    for (const projectType of ProjectTypeSchema.options) {
+      // eslint-disable-next-line no-await-in-loop
+      const entries = await this.keyStorage.listWithValues<CodeExecOutcome>([
+        HARNESS_PREFIX,
+        OUTCOME_PREFIX,
+        projectType,
+        projectId,
+        commandType,
+      ])
+      for (const entry of entries) matches.push(entry.value)
+    }
+
+    return matches
+  }
+
   private async listVersionsForPair(
     projectId: string,
     commandType: string,
@@ -237,6 +367,24 @@ export class HarnessStore implements IHarnessStore {
       commandType,
     ])
     return entries.map((e) => e.value)
+  }
+
+  private outcomeKey(
+    projectType: string,
+    projectId: string,
+    commandType: string,
+    outcomeId: string,
+  ): StorageKey {
+    return [HARNESS_PREFIX, OUTCOME_PREFIX, projectType, projectId, commandType, outcomeId]
+  }
+
+  private scenarioKey(
+    projectType: string,
+    projectId: string,
+    commandType: string,
+    scenarioId: string,
+  ): StorageKey {
+    return [HARNESS_PREFIX, SCENARIO_PREFIX, projectType, projectId, commandType, scenarioId]
   }
 
   private versionKey(projectId: string, commandType: string, versionId: string): StorageKey {
