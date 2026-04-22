@@ -40,7 +40,7 @@ The only tools available to the harness function are on the \`ctx.tools\` object
     Returns: FileContent — { content: string, formattedContent: string, lines: number, totalLines: number, size: number, truncated: boolean, encoding: string, message: string }
 
 Constraints:
-  * Must export exactly: exports.meta = function() { return HarnessMeta }; exports.curate = async function(ctx) { ... }
+  * Must export exports.meta = function() { return HarnessMeta } and the handler matching the commandType: exports.curate = async function(ctx) { ... } or exports.query = async function(ctx) { ... }
   * May only call ctx.tools.curate and ctx.tools.readFile — no other APIs
   * No async work except via ctx.tools.* calls
   * No setTimeout / setInterval / process / require / node: built-in modules

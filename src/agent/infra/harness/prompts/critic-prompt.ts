@@ -7,9 +7,9 @@
  * a candidate replacement.
  *
  * The 8000-char ceiling keeps the prompt within weak models'
- * context windows. If outcomes or parent code are too large,
- * they are truncated with an explicit marker so the LLM knows
- * content was omitted.
+ * context windows. Dynamic sections (outcomes, scenarios, parent
+ * code) are truncated independently so the static instruction
+ * block is never amputated.
  */
 
 import type {
@@ -26,6 +26,15 @@ const MAX_PROMPT_LENGTH = 8000
 
 /** Maximum characters allocated to the parent code section. */
 const MAX_PARENT_CODE_LENGTH = 2000
+
+/**
+ * Budget for dynamic sections (outcomes + scenarios). Derived from
+ * MAX_PROMPT_LENGTH minus the static scaffolding (~1200 chars) and
+ * the parent code cap. Outcomes get 70% of the remainder, scenarios 30%.
+ */
+const DYNAMIC_BUDGET = MAX_PROMPT_LENGTH - MAX_PARENT_CODE_LENGTH - 1200
+const MAX_OUTCOMES_LENGTH = Math.floor(DYNAMIC_BUDGET * 0.7)
+const MAX_SCENARIOS_LENGTH = Math.floor(DYNAMIC_BUDGET * 0.3)
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -51,21 +60,23 @@ function truncate(text: string, maxLength: number): string {
  * Format raw outcomes compactly — one line per outcome with key fields.
  * Preserves all signals (commandType, stderr, executionTimeMs, usedHarness)
  * so the Critic LLM can spot correlations the prompt author didn't anticipate.
- * Overall prompt truncation handles budget; no per-section cap needed.
  */
 function formatOutcomes(outcomes: readonly CodeExecOutcome[]): string {
   const lines = outcomes.map((o) => {
     const status = o.success ? 'OK' : 'FAIL'
-    const stderr = o.stderr ? ` err="${o.stderr}"` : ''
-    return `  [${status}] ${o.commandType} ${o.executionTimeMs.toFixed(0)}ms harness=${o.usedHarness}${stderr}`
+    const stderrSnippet = o.stderr
+      ? ` err="${o.stderr.slice(0, 80).replaceAll('"', "'")}"`
+      : ''
+    return `  [${status}] ${o.commandType} ${o.executionTimeMs.toFixed(0)}ms harness=${o.usedHarness}${stderrSnippet}`
   })
-  return lines.join('\n')
+  return truncate(lines.join('\n'), MAX_OUTCOMES_LENGTH)
 }
 
-function summarizeScenarios(scenarios: readonly EvaluationScenario[]): string {
-  return scenarios
+function formatScenarios(scenarios: readonly EvaluationScenario[]): string {
+  const text = scenarios
     .map((s, i) => `  ${i + 1}. [${s.commandType}] ${s.taskDescription} — expected: ${s.expectedBehavior}`)
     .join('\n')
+  return truncate(text, MAX_SCENARIOS_LENGTH)
 }
 
 // ---------------------------------------------------------------------------
@@ -75,9 +86,9 @@ function summarizeScenarios(scenarios: readonly EvaluationScenario[]): string {
 export function buildCriticPrompt(ctx: CriticPromptContext): string {
   const parentCodeSection = truncate(ctx.parentCode, MAX_PARENT_CODE_LENGTH)
   const outcomesSection = formatOutcomes(ctx.recentOutcomes)
-  const scenariosSection = summarizeScenarios(ctx.scenarios)
+  const scenariosSection = formatScenarios(ctx.scenarios)
 
-  const prompt = `You are a harness quality critic. Analyze the following harness version and its recent execution outcomes to identify the root cause of failures.
+  return `You are a harness quality critic. Analyze the following harness version and its recent execution outcomes to identify the root cause of failures.
 
 ## Current harness code
 
@@ -87,7 +98,7 @@ ${parentCodeSection}
 
 ## Performance
 
-Current heuristic score (H): ${ctx.heuristic}
+Current heuristic score (H): ${ctx.heuristic.toFixed(2)}
 Recent outcomes (${ctx.recentOutcomes.length} total):
 ${outcomesSection}
 
@@ -107,6 +118,4 @@ Respond in exactly this format:
 - Failure pattern: <short description of the most common failure>
 - Root cause: <mechanism in the code causing failures>
 - Suggested change: <structural hint for the Refiner — what to change, not the full code>`
-
-  return truncate(prompt, MAX_PROMPT_LENGTH)
 }

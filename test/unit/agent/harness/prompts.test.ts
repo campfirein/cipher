@@ -207,7 +207,31 @@ describe('Harness prompts — SDK documentation, Critic, and Refiner', () => {
     })
   })
 
+  // Test 8: Critic prompt truncates large parentCode without losing instructions
+  describe('truncation edge cases', () => {
+    it('truncates large parentCode but preserves the instruction block', () => {
+      const largeCode = 'exports.meta = function() {}\n' + 'x'.repeat(3000)
+      const prompt = buildCriticPrompt({
+        heuristic: 0.1,
+        parentCode: largeCode,
+        recentOutcomes: [makeOutcome({id: 'o-1', stderr: 'err', success: false})],
+        scenarios: [makeScenario({id: 's-1'})],
+      })
+
+      // Instruction block must survive — it's never in a truncated section
+      expect(prompt).to.include('Respond in exactly this format')
+      expect(prompt).to.include('# Critic analysis')
+      // parentCode was truncated
+      expect(prompt).to.include('[truncated for brevity]')
+      // Still within ceiling
+      expect(prompt.length).to.be.at.most(8000)
+    })
+  })
+
   // Test 6: Snapshot — pin exact output for fixed inputs
+  // To regenerate snapshots: run this test, copy the actual output from the
+  // failure diff, and replace the CRITIC_PROMPT_SNAPSHOT / REFINER_PROMPT_SNAPSHOT
+  // constants at the bottom of this file.
   describe('snapshot — exact output for fixed inputs', () => {
     // Use minimal deterministic fixtures for reproducible snapshots
     const snapshotParentCode = `exports.meta = function() { return { capabilities: ['curate'], commandType: 'curate', projectPatterns: [], version: 1 } }
@@ -301,7 +325,7 @@ exports.curate = async function(ctx) { return { applied: [], summary: { added: 0
 
 ## Performance
 
-Current heuristic score (H): 0.5
+Current heuristic score (H): 0.50
 Recent outcomes (2 total):
   [FAIL] curate 100ms harness=true err="Error: file not found"
   [OK] curate 50ms harness=true
@@ -354,7 +378,7 @@ The only tools available to the harness function are on the \`ctx.tools\` object
     Returns: FileContent — { content: string, formattedContent: string, lines: number, totalLines: number, size: number, truncated: boolean, encoding: string, message: string }
 
 Constraints:
-  * Must export exactly: exports.meta = function() { return HarnessMeta }; exports.curate = async function(ctx) { ... }
+  * Must export exports.meta = function() { return HarnessMeta } and the handler matching the commandType: exports.curate = async function(ctx) { ... } or exports.query = async function(ctx) { ... }
   * May only call ctx.tools.curate and ctx.tools.readFile — no other APIs
   * No async work except via ctx.tools.* calls
   * No setTimeout / setInterval / process / require / node: built-in modules
@@ -381,7 +405,7 @@ exports.curate = async function(ctx) { return { applied: [], summary: { added: 0
 Produce the COMPLETE replacement harness code as a single string. The code must:
 
 1. Export \`exports.meta\` as a function returning a HarnessMeta object
-2. Export \`exports.curate\` as an async function taking \`ctx\` and returning a CurateResult
+2. Export the appropriate handler function (\`exports.curate\` or \`exports.query\`) matching the harness's declared commandType
 3. Preserve \`version: 1\` in the meta return value (version bumps are handled externally)
 4. Only use \`ctx.tools.curate\` and \`ctx.tools.readFile\` — no other APIs
 5. Contain no \`require()\`, \`import\`, \`setTimeout\`, \`setInterval\`, or \`process\` calls
