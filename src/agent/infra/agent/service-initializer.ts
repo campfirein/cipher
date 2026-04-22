@@ -23,7 +23,7 @@ import { createBlobStorage } from '../blob/blob-storage-factory.js'
 import { EnvironmentContextBuilder } from '../environment/environment-context-builder.js'
 import { AgentEventBus, SessionEventBus } from '../events/event-emitter.js'
 import { FileSystemService } from '../file-system/file-system-service.js'
-import { HarnessModuleBuilder, HarnessOutcomeRecorder, HarnessStore } from '../harness/index.js'
+import { HarnessBootstrap, HarnessModuleBuilder, HarnessOutcomeRecorder, HarnessStore } from '../harness/index.js'
 import { AgentLLMService } from '../llm/agent-llm-service.js'
 import { CompactionService } from '../llm/context/compaction/compaction-service.js'
 import { EscalatedCompressionStrategy } from '../llm/context/compression/escalated-compression.js'
@@ -49,6 +49,7 @@ import { buildProvidersFromConfig } from '../swarm/provider-factory.js'
 import { SwarmCoordinator } from '../swarm/swarm-coordinator.js'
 import { validateSwarmProviders } from '../swarm/validation/config-validator.js'
 import { ContextTreeStructureContributor } from '../system-prompt/contributors/context-tree-structure-contributor.js'
+import { HarnessContributor } from '../system-prompt/contributors/harness-contributor.js'
 import { MapSelectionContributor } from '../system-prompt/contributors/map-selection-contributor.js'
 import { SwarmStateContributor } from '../system-prompt/contributors/swarm-state-contributor.js'
 import { SystemPromptManager } from '../system-prompt/system-prompt-manager.js'
@@ -273,6 +274,24 @@ export async function createCipherAgentServices(
   sandboxService.setHarnessModuleBuilder(harnessModuleBuilder)
   sandboxService.setHarnessStore(harnessStore)
 
+  // Phase 4 Task 4.2 + Phase 5 Task 5.4: HarnessBootstrap fires on first
+  // turn per `(projectId, commandType)`, writing v1 from the matching
+  // template. `AgentLLMService.ensureHarnessReady()` invokes it before
+  // each system-prompt build.
+  const harnessBootstrap = new HarnessBootstrap(
+    harnessStore,
+    fileSystemService,
+    config.harness,
+    logger.withSource('HarnessBootstrap'),
+  )
+
+  // Phase 5 Task 5.4: HarnessContributor renders the mode-specific
+  // prompt block. Registered at priority 18 — after context tree (15),
+  // map selection (16), swarm state (17), before memories (20). Reads
+  // `harnessMode` + `harnessVersion` from ContributorContext; those are
+  // populated by AgentLLMService after `ensureHarnessReady()`.
+  systemPromptManager.registerContributor(new HarnessContributor())
+
   // 6c. Swarm coordinator — try to load config and build providers.
   // Missing config → fail-open (no swarm). Invalid config → warn but continue.
   let swarmCoordinator: SwarmCoordinator | undefined
@@ -381,6 +400,8 @@ export async function createCipherAgentServices(
     blobStorage,
     compactionService,
     fileSystemService,
+    harnessBootstrap,
+    harnessConfig: config.harness,
     harnessOutcomeRecorder,
     harnessStore,
     historyStorage,
@@ -479,6 +500,9 @@ export function createSessionServices(
           new MiddleRemovalStrategy({preserveEnd: 5, preserveStart: 4}),
           new OldestRemovalStrategy({minMessagesToKeep: 4}),
         ],
+        harnessBootstrap: sharedServices.harnessBootstrap,
+        harnessConfig: sharedServices.harnessConfig,
+        harnessStore: sharedServices.harnessStore,
         historyStorage: sharedServices.historyStorage,
         logger: sessionLogger,
         memoryManager: sharedServices.memoryManager,

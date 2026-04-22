@@ -2,9 +2,11 @@ import type {MessageParam} from '@anthropic-ai/sdk/resources/messages'
 import type {Content} from '@google/genai'
 import type {ChatCompletionMessageParam} from 'openai/resources/chat/completions'
 
+import type {HarnessMode, HarnessVersion} from '../../core/domain/harness/types.js'
 import type {ToolExecutionResult} from '../../core/domain/tools/tool-error.js'
 import type {ToolSet} from '../../core/domain/tools/types.js'
 import type {ExecutionContext} from '../../core/interfaces/i-cipher-agent.js'
+import type {IHarnessStore} from '../../core/interfaces/i-harness-store.js'
 import type {IHistoryStorage} from '../../core/interfaces/i-history-storage.js'
 import type {ILLMService} from '../../core/interfaces/i-llm-service.js'
 import type {ILogger} from '../../core/interfaces/i-logger.js'
@@ -18,6 +20,8 @@ import type {
   ToolStateError,
   ToolStateRunning,
 } from '../../core/interfaces/message-types.js'
+import type {ValidatedHarnessConfig} from '../agent/agent-schemas.js'
+import type {HarnessBootstrap} from '../harness/harness-bootstrap.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
 import type {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
 import type {ToolManager} from '../tools/tool-manager.js'
@@ -28,6 +32,7 @@ import {getErrorMessage} from '../../../server/utils/error-helpers.js'
 import {AgentStateMachine} from '../../core/domain/agent/agent-state-machine.js'
 import {AgentState, TerminationReason} from '../../core/domain/agent/agent-state.js'
 import {LlmGenerationError, LlmMaxIterationsError, LlmResponseParsingError} from '../../core/domain/errors/llm-error.js'
+import {computeHeuristic} from '../../core/domain/harness/heuristic.js'
 import {
   getEffectiveMaxInputTokens,
   getMaxInputTokensForModel,
@@ -43,6 +48,7 @@ import {
 import {NoOpLogger} from '../../core/interfaces/i-logger.js'
 import {EnvironmentContextBuilder} from '../environment/environment-context-builder.js'
 import {SessionEventBus} from '../events/event-emitter.js'
+import {selectHarnessMode} from '../harness/harness-mode-selector.js'
 import {ToolMetadataHandler} from '../tools/streaming/metadata-handler.js'
 import {AsyncMutex} from './context/async-mutex.js'
 import {ContextManager, type FileData, type ImageData} from './context/context-manager.js'
@@ -166,6 +172,16 @@ export class AgentLLMService implements ILLMService {
   private readonly environmentBuilder: EnvironmentContextBuilder
   private readonly formatter: IMessageFormatter<ChatCompletionMessageParam | Content | MessageParam>
   private readonly generator: IContentGenerator
+  private readonly harnessBootstrap?: HarnessBootstrap
+  private readonly harnessConfig?: ValidatedHarnessConfig
+  /**
+   * Per-session-per-commandType dedup for the `harness:mode-selected`
+   * event — emit at most once per pair for the lifetime of this
+   * service instance, matching the event's docstring ("once per
+   * session for harness-enabled sessions").
+   */
+  private readonly harnessModeSelectedEmitted = new Set<string>()
+  private readonly harnessStore?: IHarnessStore
   private readonly logger: ILogger
   private readonly loopDetector: LoopDetector
   /** Flag indicating memory was modified by tools during this task, requiring prompt rebuild */
@@ -206,6 +222,10 @@ export class AgentLLMService implements ILLMService {
    * @param options.memoryManager - Memory manager for agent memories
    * @param options.sessionEventBus - Event bus for session lifecycle events
    * @param options.compactionService - Optional compaction service for context overflow management
+   * @param options.compressionStrategies - Optional context-compression strategies
+   * @param options.harnessBootstrap - AutoHarness V2 bootstrap (Phase 4)
+   * @param options.harnessConfig - AutoHarness V2 validated config
+   * @param options.harnessStore - AutoHarness V2 store for the H window
    * @param options.historyStorage - Optional history storage for persistence
    * @param options.logger - Optional logger for structured logging
    * @param options.sandboxService - Optional sandbox service for rolling checkpoint variable injection
@@ -218,6 +238,12 @@ export class AgentLLMService implements ILLMService {
       compactionService?: CompactionService
       /** Optional compression strategies for context overflow management */
       compressionStrategies?: ICompressionStrategy[]
+      /** AutoHarness V2 bootstrap (Phase 4) — fires on first turn per pair. */
+      harnessBootstrap?: HarnessBootstrap
+      /** AutoHarness V2 config — modeOverride + enabled gate. */
+      harnessConfig?: ValidatedHarnessConfig
+      /** AutoHarness V2 store — used to read outcomes for the H window. */
+      harnessStore?: IHarnessStore
       historyStorage?: IHistoryStorage
       logger?: ILogger
       memoryManager?: MemoryManager
@@ -231,6 +257,9 @@ export class AgentLLMService implements ILLMService {
     this.sessionId = sessionId
     this.generator = generator
     this.compactionService = options.compactionService
+    this.harnessBootstrap = options.harnessBootstrap
+    this.harnessStore = options.harnessStore
+    this.harnessConfig = options.harnessConfig
     this.sandboxService = options.sandboxService
     this.toolManager = options.toolManager
     this.systemPromptManager = options.systemPromptManager
@@ -457,12 +486,6 @@ export class AgentLLMService implements ILLMService {
     return this.contextManager.initialize()
   }
 
-  /**
-   * Add a parallel tool result to the context.
-   * Called sequentially after parallel execution to preserve message order.
-   *
-   * @param result - Parallel tool result to add
-   */
   private async addParallelToolResultToContext(result: ParallelToolResult): Promise<void> {
     const {toolCall, toolResult} = result
 
@@ -840,6 +863,83 @@ export class AgentLLMService implements ILLMService {
   }
 
   /**
+   * Add a parallel tool result to the context.
+   * Called sequentially after parallel execution to preserve message order.
+   *
+   * @param result - Parallel tool result to add
+   */
+/**
+ * AutoHarness V2 (Phase 5 Task 5.4) — ensures the harness is
+ * bootstrapped, loaded, and a mode is selected for this session-pair.
+ * Emits `harness:mode-selected` at most once per
+ * `(sessionId, commandType)`. Returns the selection for the prompt
+ * contributor, or `undefined` when harness is disabled / below
+ * threshold / has no version in store.
+ *
+ * Cheap on the happy path after the first turn: bootstrap is
+ * idempotent + short-circuits on `getLatest`; `SandboxService.loadHarness`
+ * short-circuits on `sessionHarnessStates`. Two async store reads
+ * per turn when enabled — acceptable for v1.0.
+ */
+  private async ensureHarnessReady(
+    commandType: 'chat' | 'curate' | 'query',
+  ): Promise<undefined | {mode: HarnessMode; version: HarnessVersion}> {
+    const {harnessBootstrap, harnessConfig, harnessStore, sandboxService} = this
+    if (
+      harnessConfig === undefined ||
+      !harnessConfig.enabled ||
+      harnessBootstrap === undefined ||
+      harnessStore === undefined ||
+      sandboxService === undefined
+    ) {
+      return undefined
+    }
+
+    // Slug/path gap workaround (known issue — see
+    // outcome-collection.test.ts:32): the recorder derives projectId
+    // from `environmentContext.workingDirectory`, so we use the same
+    // source here. In-memory storage accepts paths; persistent
+    // FileKeyStorage would need a slug — that unification is tracked
+    // separately.
+    const projectId = this.workingDirectory
+    const {workingDirectory} = this
+
+    await harnessBootstrap.bootstrapIfNeeded(projectId, commandType, workingDirectory)
+
+    const loadResult = await sandboxService.loadHarness(this.sessionId, projectId, commandType)
+    if (!loadResult.loaded) return undefined
+
+    const outcomes = await harnessStore.listOutcomes(projectId, commandType, 50)
+    const heuristic = computeHeuristic(outcomes, Date.now())
+    if (heuristic === null) {
+      // Below the min-sample floor — behave as "no harness" for this
+      // turn. When enough outcomes accumulate, mode selection kicks in.
+      return undefined
+    }
+
+    const selection = selectHarnessMode(heuristic, harnessConfig)
+    if (selection === undefined) return undefined
+
+    const dedupKey = `${this.sessionId}\u0000${commandType}`
+    if (!this.harnessModeSelectedEmitted.has(dedupKey)) {
+      this.harnessModeSelectedEmitted.add(dedupKey)
+      // `SessionEventBus` payload omits `sessionId` — the bus is already
+      // session-scoped and forwarding infra adds it when routing to
+      // `AgentEventBus`. See `AgentEventMap.'harness:mode-selected'`
+      // which includes `sessionId` for cross-session consumers.
+      this.sessionEventBus.emit('harness:mode-selected', {
+        commandType,
+        heuristic,
+        mode: selection.mode,
+        projectId,
+        version: loadResult.version.version,
+      })
+    }
+
+    return {mode: selection.mode, version: loadResult.version}
+  }
+
+  /**
    * Execute a single iteration of the agentic loop.
    *
    * @param options - Iteration options
@@ -890,6 +990,13 @@ export class AgentLLMService implements ILLMService {
         workingDirectory: this.workingDirectory,
       })
 
+      // AutoHarness V2 (Phase 5): bootstrap + load + mode-select BEFORE
+      // prompt build, so the system-prompt contributor sees the final
+      // mode and version in `ContributorContext`.
+      const harnessReady = executionContext?.commandType === undefined
+        ? undefined
+        : await this.ensureHarnessReady(executionContext.commandType)
+
       basePrompt = await this.systemPromptManager.build({
         availableMarkers,
         availableTools,
@@ -897,6 +1004,8 @@ export class AgentLLMService implements ILLMService {
         conversationMetadata: executionContext?.conversationMetadata,
         environmentContext,
         fileReferenceInstructions: executionContext?.fileReferenceInstructions,
+        harnessMode: harnessReady?.mode,
+        harnessVersion: harnessReady?.version,
         memoryManager: this.memoryManager,
       })
 
