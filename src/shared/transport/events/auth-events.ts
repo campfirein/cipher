@@ -19,6 +19,14 @@ export interface AuthGetStateResponse {
   user?: UserDTO
 }
 
+export interface AuthStartLoginRequest {
+  /**
+   * When true, the daemon returns the auth URL without launching the system browser.
+   * Used by clients (e.g. web UI) that prefer to open the URL themselves.
+   */
+  skipBrowserLaunch?: boolean
+}
+
 export interface AuthStartLoginResponse {
   authUrl: string
 }

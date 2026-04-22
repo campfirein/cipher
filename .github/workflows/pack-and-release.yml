@@ -42,6 +42,9 @@ jobs:
             echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
             exit 1
           fi
+      - uses: webfactory/ssh-agent@v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.BYTEROVER_WEB_PACKAGES_DEPLOY_KEY }}
       - run: npm ci
       - name: Create .env.production
         run: echo "$ENV_PRODUCTION" > .env.production

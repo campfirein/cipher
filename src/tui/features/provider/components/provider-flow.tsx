@@ -26,6 +26,7 @@ import {useDisconnectProvider} from '../api/disconnect-provider.js'
 import {useGetProviders} from '../api/get-providers.js'
 import {useSetActiveProvider} from '../api/set-active-provider.js'
 import {useValidateApiKey} from '../api/validate-api-key.js'
+import {derivePostLoginAction} from '../utils/derive-post-login-action.js'
 import {ApiKeyDialog} from './api-key-dialog.js'
 import {AuthMethodDialog} from './auth-method-dialog.js'
 import {BaseUrlDialog} from './base-url-dialog.js'
@@ -281,14 +282,34 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
     }
   }, [disconnectMutation, isAuthorized, onComplete, selectedProvider, setActiveMutation])
 
-  const handleLoginComplete = useCallback((message: string) => {
+  const handleLoginComplete = useCallback(async (message: string) => {
     const nowAuthorized = useAuthStore.getState().isAuthorized
-    if (!nowAuthorized) {
-      setError(message)
+    const action = derivePostLoginAction({
+      errorMessage: message,
+      isAuthorized: nowAuthorized,
+      selectedProviderId: selectedProvider?.id,
+    })
+
+    if (action.type === 'connect-byterover' && selectedProvider) {
+      setStep('connecting')
+      try {
+        await connectMutation.mutateAsync({providerId: selectedProvider.id})
+        await setActiveMutation.mutateAsync({providerId: selectedProvider.id})
+        onComplete(`Connected to ${selectedProvider.name}`)
+      } catch (error_) {
+        setError(formatTransportError(error_))
+        setStep('select')
+      }
+
+      return
+    }
+
+    if (action.type === 'return-to-select-with-error') {
+      setError(action.message)
     }
 
     setStep('select')
-  }, [])
+  }, [connectMutation, onComplete, selectedProvider, setActiveMutation])
 
   const handleBaseUrlSubmit = useCallback((url: string) => {
     setBaseUrl(url)

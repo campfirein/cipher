@@ -33,6 +33,10 @@ jobs:
           path: node_modules
           key: node-modules-${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}
       - if: steps.cache.outputs.cache-hit != 'true'
+        uses: webfactory/ssh-agent@v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.BYTEROVER_WEB_PACKAGES_DEPLOY_KEY }}
+      - if: steps.cache.outputs.cache-hit != 'true'
         run: npm ci
 
   lint:

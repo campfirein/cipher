@@ -2,6 +2,27 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.8.2]
+
+### Fixed
+- **Web UI styles missing in the published-package build** — `brv webui` from the installed CLI used to render shared components (dialogs, sheets) unstyled because the Tailwind `@source` glob didn't match the installed layout of `@campfirein/byterover-packages`.
+
+## [3.8.0]
+
+### Added
+- **`brv webui` — a browser dashboard for ByteRover** — Run `brv webui` to open a local dashboard at `http://localhost:7700`. Browse and edit your context tree, review and commit changes, run curate and query, manage LLM providers and connected agents, and switch between projects — all from the browser. Still loads when the daemon isn't running, with a clear recovery screen. Use `--port <n>` to pick a different port (remembered across runs).
+- **Guided first-run tour** — The web UI walks new users through setting up a provider, running their first curate and query, and connecting an agent. "Restart the tour" lives in the Help menu if you skip it.
+
+### Changed
+- **Connected agents now wait for `brv curate` by default** — The agent skill installed by `brv connectors install` tells Claude Code, Cursor, Codex, Copilot, and other connected agents to let `brv curate` finish before moving on, so follow-up queries see the new data. Agents only fire-and-forget (`--detach`) when you explicitly say so. Re-run `brv connectors install <agent>` to update.
+- **Updated default models** — OpenAI via OAuth now defaults to `gpt-5.4-mini`; MiniMax now defaults to `MiniMax-M2.7`.
+- **Complete frontmatter on context files** — Context-tree markdown files written by `brv curate` and `brv dream` now always include all seven semantic fields (title, summary, tags, related, keywords, createdAt, updatedAt). Older files without them still load fine.
+
+### Fixed
+- **ByteRover OAuth login now resumes provider setup** — Picking ByteRover while signed out used to bounce you back to the provider list after login; it now continues the setup automatically.
+- **No more "Connecting to ByteRover…" hang after a fresh login** — Provider connect sees new credentials immediately instead of waiting up to 5 seconds for a cache refresh.
+- **Security dependency update** — Patched `@hono/node-server` and `hono` to address a high-severity npm advisory.
+
 ## [3.7.1]
 
 ### Changed
