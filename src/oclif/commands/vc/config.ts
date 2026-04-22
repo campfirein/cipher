@@ -2,8 +2,22 @@ import {Args, Command, Flags} from '@oclif/core'
 import {existsSync, readFileSync} from 'node:fs'
 
 import {extractPublicKey, resolveHome} from '../../../shared/ssh/index.js'
-import {isVcConfigKey, type IVcConfigResponse, type IVcSigningKeyResponse, VcEvents} from '../../../shared/transport/events/vc-events.js'
+import {isVcConfigKey, type IVcConfigResponse, type IVcSigningKeyResponse, VcErrorCode, VcEvents} from '../../../shared/transport/events/vc-events.js'
 import {formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
+
+/**
+ * Returns the transport-error code (e.g. VcErrorCode.SIGNING_KEY_ALREADY_EXISTS)
+ * from errors coming back through the daemon transport. TransportRequestError
+ * preserves `.code`; other error shapes return undefined.
+ */
+function getTransportErrorCode(error: unknown): string | undefined {
+  if (error instanceof Error && 'code' in error) {
+    const {code} = error as Error & {code?: unknown}
+    if (typeof code === 'string') return code
+  }
+
+  return undefined
+}
 
 export default class VcConfig extends Command {
   public static args = {
@@ -115,10 +129,10 @@ public static flags = {
           this.log('✅ Signing key registered successfully on server')
         }
       } catch (error) {
-        const errMsg = error instanceof Error ? error.message : String(error)
-        if (errMsg.includes('already exists') || errMsg.includes('Duplicate') || errMsg.includes('ALREADY_EXISTS') || errMsg.includes('409')) {
+        if (getTransportErrorCode(error) === VcErrorCode.SIGNING_KEY_ALREADY_EXISTS) {
           this.log('✅ Signing key is already registered on server')
         } else {
+          const errMsg = error instanceof Error ? error.message : String(error)
           this.log(`⚠️  Could not automatically register key: ${errMsg}`)
           this.log(`   You may need to run: brv signing-key add --key ${result.value}`)
         }

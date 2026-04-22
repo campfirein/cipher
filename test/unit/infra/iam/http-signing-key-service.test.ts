@@ -7,7 +7,9 @@ import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {IHttpClient} from '../../../../src/server/core/interfaces/services/i-http-client.js'
 
+import {VcError} from '../../../../src/server/core/domain/errors/vc-error.js'
 import {HttpSigningKeyService} from '../../../../src/server/infra/iam/http-signing-key-service.js'
+import {VcErrorCode} from '../../../../src/shared/transport/events/vc-events.js'
 
 type Stubbed<T> = {[K in keyof T]: SinonStub & T[K]}
 
@@ -81,6 +83,41 @@ describe('HttpSigningKeyService', () => {
         title: 'My laptop',
       })
     })
+
+    // Regression test for PR #435 review comment #19: dup-detection at the
+    // CLI used to sniff four different English substrings on the error
+    // message. The IAM server already communicates duplicate intent via HTTP
+    // 409; the HTTP adapter is the right layer to translate that into a
+    // structured VcError whose code the CLI can match exactly.
+    it('throws VcError SIGNING_KEY_ALREADY_EXISTS when underlying client reports HTTP 409', async () => {
+      httpClient.post.rejects(new Error('HTTP 409: Conflict'))
+
+      let caught: unknown
+      try {
+        await service.addKey('My laptop', 'ssh-ed25519 AAAA...')
+      } catch (error) {
+        caught = error
+      }
+
+      expect(caught).to.be.instanceOf(VcError)
+      if (caught instanceof VcError) {
+        expect(caught.code).to.equal(VcErrorCode.SIGNING_KEY_ALREADY_EXISTS)
+      }
+    })
+
+    it('passes through other HTTP errors unchanged', async () => {
+      const original = new Error('HTTP 500: Internal Server Error')
+      httpClient.post.rejects(original)
+
+      let caught: unknown
+      try {
+        await service.addKey('My laptop', 'ssh-ed25519 AAAA...')
+      } catch (error) {
+        caught = error
+      }
+
+      expect(caught).to.equal(original)
+    })
   })
 
   describe('listKeys()', () => {
@@ -117,6 +154,27 @@ describe('HttpSigningKeyService', () => {
       const keys = await service.listKeys()
 
       expect(keys).to.deep.equal([])
+    })
+
+    // Regression test for PR #435 review comment #20: even though
+    // AuthenticatedHttpClient throws on non-2xx responses, a 200 OK with
+    // `{success: false}` would previously slip past listKeys unnoticed and
+    // return []. Callers had no way to distinguish "no keys" from "request
+    // silently failed". Surface that state as an explicit throw.
+    it('throws when response envelope reports success:false', async () => {
+      httpClient.get.resolves({
+        data: {signing_keys: []}, // eslint-disable-line camelcase
+        success: false,
+      })
+
+      let caught: unknown
+      try {
+        await service.listKeys()
+      } catch (error) {
+        caught = error
+      }
+
+      expect(caught).to.be.instanceOf(Error)
     })
   })
 

@@ -1,6 +1,9 @@
 import type {IHttpClient} from '../../core/interfaces/services/i-http-client.js'
 import type {ISigningKeyService, SigningKeyResource} from '../../core/interfaces/services/i-signing-key-service.js'
 
+import {VcErrorCode} from '../../../shared/transport/events/vc-events.js'
+import {VcError} from '../../core/domain/errors/vc-error.js'
+
 // IAM API wraps all responses in {success, data}
 interface ApiEnvelope<T> {
   data: T
@@ -54,12 +57,33 @@ export class HttpSigningKeyService implements ISigningKeyService {
   }
 
   async addKey(title: string, publicKey: string): Promise<SigningKeyResource> {
-    const response = await this.httpClient.post<ApiEnvelope<CreateSigningKeyData>>(
-      `${this.iamBaseUrl}/api/v3/users/me/signing-keys`,
-      /* eslint-disable camelcase */
-      {public_key: publicKey, title},
-      /* eslint-enable camelcase */
-    )
+    let response: ApiEnvelope<CreateSigningKeyData>
+    try {
+      response = await this.httpClient.post<ApiEnvelope<CreateSigningKeyData>>(
+        `${this.iamBaseUrl}/api/v3/users/me/signing-keys`,
+        /* eslint-disable camelcase */
+        {public_key: publicKey, title},
+        /* eslint-enable camelcase */
+      )
+    } catch (error) {
+      // AuthenticatedHttpClient collapses non-2xx axios errors into Error
+      // instances whose message carries the HTTP status. Translate the
+      // duplicate-key signal (409) into a structured VcError so callers can
+      // branch on the code instead of regex-matching English substrings.
+      if (error instanceof Error && /\b409\b|conflict/i.test(error.message)) {
+        throw new VcError(
+          'This SSH public key is already registered with your Byterover account.',
+          VcErrorCode.SIGNING_KEY_ALREADY_EXISTS,
+        )
+      }
+
+      throw error
+    }
+
+    if (!response.success) {
+      throw new Error('IAM signing-key add request failed (response.success=false)')
+    }
+
     return mapResource(response.data.signing_key)
   }
 
@@ -67,6 +91,10 @@ export class HttpSigningKeyService implements ISigningKeyService {
     const response = await this.httpClient.get<ApiEnvelope<ListSigningKeysData>>(
       `${this.iamBaseUrl}/api/v3/users/me/signing-keys`,
     )
+    if (!response.success) {
+      throw new Error('IAM signing-key list request failed (response.success=false)')
+    }
+
     return (response.data.signing_keys ?? []).map((raw) => mapResource(raw))
   }
 
