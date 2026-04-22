@@ -1175,6 +1175,62 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
       expect(deps.vcGitConfigStore.set.called, 'must not write config when path is rejected').to.be.false
     })
 
+    // Regression test for PR #435 review comment #24. handleImportGitSigning
+    // reads via `git config --get <key>`, which resolves local → global →
+    // system. The existing tests all set the value in local repo config —
+    // the real-world common setup is a single `user.signingKey` in
+    // ~/.gitconfig. If someone refactored the implementation to skip the
+    // global lookup, every existing test still passed while the most
+    // common user configuration would ship broken.
+    it('handleImportGitSigning: reads signingKey from GIT_CONFIG_GLOBAL when no local repo config exists', async () => {
+      const realProjectPath = fs.mkdtempSync(join(tmpdir(), 'brv-test-import-global-'))
+      mkdirSync(realProjectPath, {recursive: true})
+      const {execSync} = await import('node:child_process')
+      execSync('git init', {cwd: realProjectPath})
+      // Fresh repo has no local user.signingKey, so resolution falls through
+      // to GIT_CONFIG_GLOBAL — no explicit --unset needed.
+
+      const keyPath = join(realProjectPath, 'global_key')
+      const fakeKey = `-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACAmIfT6LJouOpJugPKYl7yiJwYIlrh124TOYjaNzxjNQgAAAJgCtf3VArX9
+1QAAAAtzc2gtZWQyNTUxOQAAACAmIfT6LJouOpJugPKYl7yiJwYIlrh124TOYjaNzxjNQg
+AAEB01GDi+m4swI3lsGv870+yJFfAJP0CcFSDPcTyCUpaBSYh9Posmi46km6A8piXvKIn
+BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
+-----END OPENSSH PRIVATE KEY-----`
+      writeFileSync(keyPath, fakeKey, {mode: 0o600})
+
+      // Write ONLY a global gitconfig (pointed to via GIT_CONFIG_GLOBAL).
+      const globalConfigPath = join(realProjectPath, 'fake_gitconfig')
+      writeFileSync(globalConfigPath, `[user]\n\tsigningKey = ${keyPath}\n[gpg]\n\tformat = ssh\n[commit]\n\tgpgSign = true\n`)
+
+      // Point git's global-config lookup at our temp file for the duration
+      // of this test (handler spawns git as a child process and inherits env).
+      const originalGlobal = process.env.GIT_CONFIG_GLOBAL
+      process.env.GIT_CONFIG_GLOBAL = globalConfigPath
+
+      try {
+        const deps = makeDeps(sandbox, realProjectPath)
+        deps.vcGitConfigStore.get.resolves({})
+        makeVcHandler(deps).setup()
+
+        await deps.requestHandlers[VcEvents.CONFIG]({importGitSigning: true}, CLIENT_ID)
+
+        expect(deps.vcGitConfigStore.set.calledOnce, 'config must be written').to.be.true
+        const savedConfig = deps.vcGitConfigStore.set.firstCall.args[1]
+        expect(savedConfig.signingKey).to.equal(keyPath)
+        expect(savedConfig.commitSign).to.equal(true)
+      } finally {
+        if (originalGlobal === undefined) {
+          delete process.env.GIT_CONFIG_GLOBAL
+        } else {
+          process.env.GIT_CONFIG_GLOBAL = originalGlobal
+        }
+
+        rmSync(realProjectPath, {force: true, recursive: true})
+      }
+    })
+
     it('handleImportGitSigning: does NOT set commitSign when gpgsign is explicitly false', async () => {
       const realProjectPath = fs.mkdtempSync(join(tmpdir(), 'brv-test-import-nosign-'))
       mkdirSync(realProjectPath, {recursive: true})
