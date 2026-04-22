@@ -105,7 +105,6 @@ describe('detectAndPickTemplate', () => {
 
   afterEach(() => {
     sb.restore()
-    _clearPolyglotWarningState()
   })
 
   // ── Override branch: config.language wins, no detection runs ──────────────
@@ -190,9 +189,14 @@ describe('detectAndPickTemplate', () => {
     await detectAndPickTemplate(CWD_A, fileSystem, makeConfig(), logger)
 
     expect(logger.warn.callCount).to.equal(1)
-    // Second hit logs debug instead of warn. Other debug calls (e.g. from
-    // the override branch) don't apply because we're in the auto branch.
-    expect(logger.debug.callCount).to.equal(1)
+    // Second hit logs debug with the polyglot message. Asserting on
+    // message content rather than raw call count keeps the test precise
+    // if debug-log volume elsewhere grows.
+    const polyglotDebug = logger.debug.getCalls().find((call) => {
+      const [msg] = call.args
+      return typeof msg === 'string' && msg.includes('Polyglot repo')
+    })
+    expect(polyglotDebug, 'expected a polyglot debug log on second call').to.not.equal(undefined)
   })
 
   it('7. warn fires again for a different workingDirectory', async () => {
