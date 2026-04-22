@@ -1,5 +1,3 @@
-import type {AddressInfo} from 'node:net'
-
 import {expect} from 'chai'
 import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {createServer, get as httpGet, type Server as HttpServer, type IncomingMessage} from 'node:http'
@@ -65,7 +63,11 @@ describe('createWebUiMiddleware', () => {
         resolve()
       })
     })
-    const addr = server.address() as AddressInfo
+    const addr = server.address()
+    if (!addr || typeof addr === 'string') {
+      throw new Error('unexpected server address type')
+    }
+
     return addr.port
   }
 
@@ -94,5 +96,30 @@ describe('createWebUiMiddleware', () => {
 
     expect(response.status).to.equal(200)
     expect(response.body).to.equal('console.log(1)')
+  })
+
+  it('should serve index.html for SPA routes on a normal install path', async () => {
+    const distRoot = join(testDir, 'dist', 'webui')
+    mkdirSync(distRoot, {recursive: true})
+    const indexHtml = '<!doctype html><html><body>brv</body></html>'
+    writeFileSync(join(distRoot, 'index.html'), indexHtml, 'utf8')
+
+    const port = await startServer(distRoot)
+    const response = await httpRequest(`http://127.0.0.1:${port}/contexts?branch=main`)
+
+    expect(response.status).to.equal(200)
+    expect(response.body).to.equal(indexHtml)
+  })
+
+  it('should not register static or SPA routes when webuiDistDir does not exist', async () => {
+    const missingRoot = join(testDir, 'does-not-exist')
+    const port = await startServer(missingRoot)
+
+    const spaResponse = await httpRequest(`http://127.0.0.1:${port}/contexts`)
+    expect(spaResponse.status).to.equal(404)
+
+    // Config endpoint should still be reachable so the browser can bootstrap
+    const configResponse = await httpRequest(`http://127.0.0.1:${port}/api/ui/config`)
+    expect(configResponse.status).to.equal(200)
   })
 })

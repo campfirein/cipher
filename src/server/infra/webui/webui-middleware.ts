@@ -55,10 +55,9 @@ export function createWebUiMiddleware({getConfig, webuiDistDir}: CreateWebUiMidd
   if (existsSync(webuiDistDir)) {
     app.use(express.static(webuiDistDir))
 
-    // SPA fallback: serve index.html for unmatched routes.
-    // Pass `root` so send's dotfile check only scans the relative path,
-    // not the absolute install location (e.g. `~/.nvm/...` on nvm installs
-    // would otherwise trigger a 404 from send's default `dotfiles: 'ignore'`).
+    // SPA fallback. `root` scopes send's dotfile check to the relative
+    // path; without it, a dotfile anywhere in the absolute install path
+    // (e.g. ~/.nvm/...) triggers a 404.
     app.get('*splat', (_req, res) => {
       res.sendFile('index.html', {root: webuiDistDir})
     })
