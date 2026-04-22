@@ -385,6 +385,42 @@ describe('extractPublicKey()', () => {
 
     expect(threw).to.be.true
   })
+
+  // Regression test for ENG-2002 AC9-b/c (PR #435 review comment #17).
+  // Before the fix, the PEM branch of extractPublicKey called
+  // parseSSHPrivateKey(keyPath) with no passphrase. For an encrypted PEM key
+  // without a .pub sidecar, Node's createPrivateKey emitted either
+  // ERR_OSSL_BAD_DECRYPT (user-facing: "Wrong passphrase ..." — misleading,
+  // nobody entered one) or ERR_OSSL_CRYPTO_INTERRUPTED_OR_CANCELLED (raw
+  // OpenSSL code leaks to the CLI — violates AC9 "no raw OpenSSL codes").
+  //
+  // The fix must detect passphrase-class errors from parseSSHPrivateKey and
+  // replace them with an actionable hint pointing at `ssh-keygen -y -f`.
+  it('throws actionable hint (not raw OpenSSL / misleading "wrong passphrase") for encrypted PEM with no sidecar', async () => {
+    const {privateKey} = generateKeyPairSync('ed25519', {
+      privateKeyEncoding: {cipher: 'aes-256-cbc', format: 'pem', passphrase: 'secret', type: 'pkcs8'},
+      publicKeyEncoding: {format: 'pem', type: 'spki'},
+    })
+    const keyPath = join(tempDir, 'id_ed25519_pem_enc_no_sidecar')
+    writeFileSync(keyPath, privateKey, {mode: 0o600})
+
+    let caught: Error | undefined
+    try {
+      await extractPublicKey(keyPath)
+    } catch (error) {
+      if (error instanceof Error) caught = error
+    }
+
+    expect(caught, 'extractPublicKey must throw on encrypted PEM without sidecar').to.be.instanceOf(Error)
+    if (!caught) throw new Error('unreachable')
+    // Actionable hint — tells the user exactly how to unblock themselves.
+    expect(caught.message).to.include('ssh-keygen -y -f')
+    expect(caught.message).to.include(keyPath)
+    // Must not misleadingly blame a passphrase the user never entered.
+    expect(caught.message).to.not.match(/Wrong passphrase/i)
+    // AC9: no raw OpenSSL codes or OpenSSL routine names in user-facing error.
+    expect(caught.message).to.not.match(/ERR_OSSL|DECODER routines|Provider routines|bad decrypt/i)
+  })
 })
 
 // ── resolveHome tests ─────────────────────────────────────────────────────────

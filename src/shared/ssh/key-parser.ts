@@ -422,8 +422,26 @@ export async function extractPublicKey(keyPath: string): Promise<{
   }
 
   // 3. PEM/PKCS8 format: requires the private key to be unencrypted
-  const parsed = await parseSSHPrivateKey(keyPath)
-  return {keyType: parsed.keyType, publicKeyBlob: parsed.publicKeyBlob}
+  //
+  // An encrypted PEM without a .pub sidecar has no cheap way to derive the
+  // public key — the material lives inside the encrypted body. Rather than
+  // let parseSSHPrivateKey's "Wrong passphrase" (misleading — the caller
+  // never entered one) or a raw OpenSSL code reach the CLI, translate
+  // passphrase-class failures into an actionable hint pointing at the
+  // canonical ssh-keygen workaround. ENG-2002 AC9-b/c.
+  try {
+    const parsed = await parseSSHPrivateKey(keyPath)
+    return {keyType: parsed.keyType, publicKeyBlob: parsed.publicKeyBlob}
+  } catch (error) {
+    if (isPassphraseError(error)) {
+      throw new Error(
+        `Cannot extract public key from encrypted PEM at ${keyPath}. ` +
+          `Generate a .pub sidecar first:\n\n    ssh-keygen -y -f ${keyPath} > ${keyPath}.pub`,
+      )
+    }
+
+    throw error
+  }
 }
 
 /**
