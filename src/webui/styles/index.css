@@ -4,7 +4,7 @@
 
 @custom-variant dark (&:is(.dark *));
 @source "../**/*.{ts,tsx}";
-@source "../../../node_modules/@campfirein/byterover-packages/src/**/*.{ts,tsx}";
+@source "../../../node_modules/@campfirein/byterover-packages/ui/src/**/*.{ts,tsx}";
 @source "../../../packages/byterover-packages/ui/src/**/*.{ts,tsx}";
 
 :root {
@@ -142,24 +142,45 @@
 }
 
 @keyframes rail-flow {
-  0% { background-position: 0 0; }
-  100% { background-position: 0 -200%; }
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 0 -200%;
+  }
 }
 
 @keyframes dot-pulse {
-  0% { transform: scale(1); opacity: 0.55; }
-  80%, 100% { transform: scale(2.2); opacity: 0; }
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  80%,
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
 }
 
 @keyframes dot-flash {
-  0% { transform: scale(1); }
-  45% { transform: scale(1.5); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.5);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 @keyframes pill-ping {
-  0%   { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.55); }
-  100% { box-shadow: 0 0 0 5px rgba(96, 165, 250, 0); }
+  0% {
+    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 5px rgba(96, 165, 250, 0);
+  }
 }
 
 @layer base {
@@ -192,8 +213,7 @@
  * Apply `sheet-no-overlay` to a SheetContent and the overlay sibling in the
  * same portal becomes transparent, keeping the page behind the sheet sharp.
  */
-[data-slot="sheet-portal"]:has(.sheet-no-overlay) [data-slot="sheet-overlay"] {
+[data-slot='sheet-portal']:has(.sheet-no-overlay) [data-slot='sheet-overlay'] {
   background: transparent;
   backdrop-filter: none;
 }
-
