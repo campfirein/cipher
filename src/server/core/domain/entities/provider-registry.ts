@@ -98,7 +98,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
   byterover: {
     baseUrl: '',
     category: 'popular',
-    description: 'Built-in LLM, logged-in ByteRover account required. Limited free usage.',
+    description: 'Built-in LLM, ByteRover account required. Limited free usage.',
     headers: {},
     id: 'byterover',
     modelsEndpoint: '',
@@ -259,7 +259,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
     baseUrl: '',
     category: 'other',
     defaultModel: 'llama3',
-    description: 'Connect any OpenAI-compatible endpoint (Ollama, LM Studio, etc.)',
+    description: 'OpenAI-compatible endpoint (Ollama, LM Studio, etc.)',
     envVars: ['OPENAI_COMPATIBLE_API_KEY'],
     headers: {},
     id: 'openai-compatible',

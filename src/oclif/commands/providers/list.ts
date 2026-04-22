@@ -40,6 +40,9 @@ export default class ProviderList extends Command {
         const authBadge =
           p.authMethod === 'oauth' ? chalk.cyan('[OAuth]') : p.authMethod === 'api-key' ? chalk.dim('[API Key]') : ''
         this.log(`  ${p.name} [${p.id}] ${status} ${authBadge}`.trimEnd())
+        if (p.description) {
+          this.log(`    ${chalk.dim(p.description)}`)
+        }
       }
     } catch (error) {
       if (format === 'json') {

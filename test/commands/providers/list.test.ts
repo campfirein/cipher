@@ -145,6 +145,37 @@ describe('Provider List Command', () => {
       expect(loggedMessages.some((m) => m.includes('(connected)'))).to.be.false
       expect(loggedMessages.some((m) => m.includes('Groq') && m.includes('[groq]'))).to.be.true
     })
+
+    it('should print description on a separate indented line', async () => {
+      mockListResponse([
+        {
+          description: 'Claude models by Anthropic',
+          id: 'anthropic',
+          isConnected: true,
+          isCurrent: true,
+          name: 'Anthropic',
+        },
+      ])
+
+      await createCommand().run()
+
+      const headerIndex = loggedMessages.findIndex((m) => m.includes('Anthropic') && m.includes('[anthropic]'))
+      expect(headerIndex).to.be.greaterThan(-1)
+      const descriptionLine = loggedMessages[headerIndex + 1]
+      expect(descriptionLine).to.include('Claude models by Anthropic')
+      expect(descriptionLine?.startsWith('    ')).to.be.true
+    })
+
+    it('should skip the description line when description is empty', async () => {
+      mockListResponse([{description: '', id: 'groq', isConnected: false, isCurrent: false, name: 'Groq'}])
+
+      await createCommand().run()
+
+      const headerIndex = loggedMessages.findIndex((m) => m.includes('Groq'))
+      const next = loggedMessages[headerIndex + 1]
+      // Next entry must not be an indented empty line
+      expect(next === undefined || !next.startsWith('    ')).to.be.true
+    })
   })
 
   // ==================== JSON Output ====================
