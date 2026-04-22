@@ -917,15 +917,27 @@ export class AgentLLMService implements ILLMService {
       if (!loadResult.loaded) return undefined
 
       const outcomes = await harnessStore.listOutcomes(projectId, commandType, 50)
-      const heuristic = computeHeuristic(outcomes, Date.now())
-      if (heuristic === null) {
-        // Below the min-sample floor — behave as "no harness" for this
-        // turn. When enough outcomes accumulate, mode selection kicks in.
+      const rawHeuristic = computeHeuristic(outcomes, Date.now())
+
+      // Override wins even when H is null (below the min-sample floor).
+      // Users who explicitly set `config.harness.modeOverride` expect
+      // Mode X from the first turn, not after 10 outcomes accumulate.
+      let selection: ReturnType<typeof selectHarnessMode>
+      if (harnessConfig.modeOverride !== undefined) {
+        selection = {mode: harnessConfig.modeOverride, source: 'override'}
+      } else if (rawHeuristic === null) {
+        // Heuristic path + no override + insufficient samples → behave
+        // as "no harness" for this turn. Once enough outcomes
+        // accumulate, mode selection kicks in.
         return undefined
+      } else {
+        selection = selectHarnessMode(rawHeuristic, harnessConfig)
       }
 
-      const selection = selectHarnessMode(heuristic, harnessConfig)
       if (selection === undefined) return undefined
+      // Event carries the actual H when available; 0 marker when the
+      // override path bypassed computation on insufficient samples.
+      const eventHeuristic = rawHeuristic ?? 0
 
       // `::` separator — safe because `commandType` is the controlled
       // enum `'chat' | 'curate' | 'query'` and cannot contain colons.
@@ -938,7 +950,7 @@ export class AgentLLMService implements ILLMService {
         // which includes `sessionId` for cross-session consumers.
         this.sessionEventBus.emit('harness:mode-selected', {
           commandType,
-          heuristic,
+          heuristic: eventHeuristic,
           mode: selection.mode,
           projectId,
           version: loadResult.version.version,
