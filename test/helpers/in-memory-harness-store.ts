@@ -45,7 +45,7 @@ function partitionKey(projectId: string, commandType: string): string {
   return `${projectId}\u0000${commandType}`
 }
 
-function versionKey(projectId: string, commandType: string, versionId: string): string {
+function compositeKey(projectId: string, commandType: string, versionId: string): string {
   return `${partitionKey(projectId, commandType)}\u0000${versionId}`
 }
 
@@ -72,7 +72,7 @@ export class InMemoryHarnessStore implements IHarnessStore {
     commandType: string,
     scenarioId: string,
   ): Promise<boolean> {
-    const key = versionKey(projectId, commandType, scenarioId)
+    const key = compositeKey(projectId, commandType, scenarioId)
     return this.scenarios.delete(key)
   }
 
@@ -93,7 +93,7 @@ export class InMemoryHarnessStore implements IHarnessStore {
     commandType: string,
     versionId: string,
   ): Promise<HarnessVersion | undefined> {
-    const hit = this.versions.get(versionKey(projectId, commandType, versionId))
+    const hit = this.versions.get(compositeKey(projectId, commandType, versionId))
     return hit ? structuredClone(hit) : undefined
   }
 
@@ -139,7 +139,7 @@ export class InMemoryHarnessStore implements IHarnessStore {
     const sorted = [...matches].sort((a, b) => b.version - a.version)
     const toDelete = sorted.slice(keep)
     for (const v of toDelete) {
-      this.versions.delete(versionKey(v.projectId, v.commandType, v.id))
+      this.versions.delete(compositeKey(v.projectId, v.commandType, v.id))
     }
 
     return toDelete.length
@@ -165,17 +165,17 @@ export class InMemoryHarnessStore implements IHarnessStore {
   }
 
   async saveOutcome(outcome: CodeExecOutcome): Promise<void> {
-    const key = versionKey(outcome.projectId, outcome.commandType, outcome.id)
+    const key = compositeKey(outcome.projectId, outcome.commandType, outcome.id)
     this.outcomes.set(key, structuredClone(outcome))
   }
 
   async saveScenario(scenario: EvaluationScenario): Promise<void> {
-    const key = versionKey(scenario.projectId, scenario.commandType, scenario.id)
+    const key = compositeKey(scenario.projectId, scenario.commandType, scenario.id)
     this.scenarios.set(key, structuredClone(scenario))
   }
 
   async saveVersion(version: HarnessVersion): Promise<void> {
-    const key = versionKey(version.projectId, version.commandType, version.id)
+    const key = compositeKey(version.projectId, version.commandType, version.id)
     if (this.versions.has(key)) {
       throw HarnessStoreError.versionConflict(version.projectId, version.commandType, {
         id: version.id,

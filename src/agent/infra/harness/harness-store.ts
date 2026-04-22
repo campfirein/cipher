@@ -99,6 +99,10 @@ export class HarnessStore implements IHarnessStore {
       // eslint-disable-next-line no-await-in-loop
       const exists = await this.keyStorage.exists(key)
       if (exists) {
+        // keyStorage.delete is idempotent on missing keys, so the narrow
+        // TOCTOU window between exists() and delete() is harmless — a
+        // concurrent deleteOutcomes could remove the key in between, but
+        // the delete call simply no-ops.
         // eslint-disable-next-line no-await-in-loop
         await this.keyStorage.delete(key)
         this.logger.debug('HarnessStore.deleteScenario removed entry', {

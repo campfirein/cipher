@@ -277,12 +277,18 @@ export class HarnessScenarioCapture {
   ): Promise<void> {
     const key = `${projectId}\0${commandType}`
     const previous = this.pairLocks.get(key) ?? Promise.resolve()
-    // Chain: run fn after previous completes. Previous errors are isolated
-    // (swallowed in the stored chain) so one failed capture doesn't block
-    // subsequent captures for the same pair.
-    const current = previous.then(fn, fn)
-    // Store a never-rejecting version for chaining
-    this.pairLocks.set(key, current.then(() => {}, () => {}))
+    // Chain: swallow previous errors so one failed capture doesn't block
+    // subsequent captures for the same pair, then run fn.
+    const current = previous.catch(() => {}).then(fn)
+    // Store a never-rejecting version for chaining; clean up the entry
+    // once settled so pairLocks doesn't grow unbounded across projects.
+    const stored = current.then(() => {}, () => {})
+    this.pairLocks.set(key, stored)
+    stored.finally(() => {
+      if (this.pairLocks.get(key) === stored) {
+        this.pairLocks.delete(key)
+      }
+    })
     return current
   }
 }

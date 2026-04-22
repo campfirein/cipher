@@ -370,4 +370,39 @@ describe('HarnessScenarioCapture', () => {
     scenarios = await store.listScenarios('proj-1', 'curate')
     expect(scenarios).to.have.lengthOf(2)
   })
+
+  // cleanup() clears all session state (negative rate-limits + pair locks)
+  it('cleanup clears all session state so captures resume normally', async () => {
+    const ctx1 = makeCaptureContext({
+      outcome: makeOutcome({
+        sessionId: 'session-Z',
+        stderr: 'Error: first',
+        success: false,
+      }),
+      taskDescription: 'Task 1',
+    })
+
+    await capture.captureIfInteresting(ctx1)
+
+    let scenarios = await store.listScenarios('proj-1', 'curate')
+    expect(scenarios).to.have.lengthOf(1)
+
+    capture.cleanup()
+
+    // Same session should now be capturable again (rate-limit reset)
+    const ctx2 = makeCaptureContext({
+      code: 'different code',
+      outcome: makeOutcome({
+        sessionId: 'session-Z',
+        stderr: 'Exception: second',
+        success: false,
+      }),
+      taskDescription: 'Task 2',
+    })
+
+    await capture.captureIfInteresting(ctx2)
+
+    scenarios = await store.listScenarios('proj-1', 'curate')
+    expect(scenarios).to.have.lengthOf(2)
+  })
 })
