@@ -290,7 +290,14 @@ export async function createCipherAgentServices(
   // map selection (16), swarm state (17), before memories (20). Reads
   // `harnessMode` + `harnessVersion` from ContributorContext; those are
   // populated by AgentLLMService after `ensureHarnessReady()`.
-  systemPromptManager.registerContributor(new HarnessContributor())
+  //
+  // Registration is gated on `config.harness.enabled`: when disabled at
+  // agent-init time, the contributor is not registered at all, saving a
+  // no-op invocation per prompt build. Config is validated once here —
+  // runtime toggles require restarting the agent (acceptable for v1.0).
+  if (config.harness.enabled) {
+    systemPromptManager.registerContributor(new HarnessContributor())
+  }
 
   // 6c. Swarm coordinator — try to load config and build providers.
   // Missing config → fail-open (no swarm). Invalid config → warn but continue.

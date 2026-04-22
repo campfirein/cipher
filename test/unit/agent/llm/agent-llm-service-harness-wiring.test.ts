@@ -19,8 +19,10 @@ import {ByteRoverContentGenerator} from '../../../../src/agent/infra/llm/generat
 import {SystemPromptManager} from '../../../../src/agent/infra/system-prompt/system-prompt-manager.js'
 import {ToolManager} from '../../../../src/agent/infra/tools/tool-manager.js'
 
-const PROJECT_ID = process.cwd() // AgentLLMService uses this as projectId
-
+// `AgentLLMService` derives `projectId` from `process.cwd()` at
+// construction time. Each test captures the same value inside
+// `beforeEach` so fixtures match whatever cwd the service sees —
+// immune to `process.chdir()` calls from other test files.
 function makeConfig(overrides: Partial<ValidatedHarnessConfig> = {}): ValidatedHarnessConfig {
   return {
     autoLearn: true,
@@ -31,7 +33,7 @@ function makeConfig(overrides: Partial<ValidatedHarnessConfig> = {}): ValidatedH
   }
 }
 
-function makeVersion(): HarnessVersion {
+function makeVersion(projectId: string): HarnessVersion {
   return {
     code: '/* placeholder */',
     commandType: 'curate',
@@ -44,13 +46,18 @@ function makeVersion(): HarnessVersion {
       projectPatterns: ['**/*.ts'],
       version: 1,
     },
-    projectId: PROJECT_ID,
+    projectId,
     projectType: 'typescript',
     version: 1,
   }
 }
 
-function makeOutcomes(count: number, successRate: number, now: number): CodeExecOutcome[] {
+function makeOutcomes(
+  projectId: string,
+  count: number,
+  successRate: number,
+  now: number,
+): CodeExecOutcome[] {
   const outcomes: CodeExecOutcome[] = []
   for (let i = 0; i < count; i++) {
     outcomes.push({
@@ -59,7 +66,7 @@ function makeOutcomes(count: number, successRate: number, now: number): CodeExec
       delegated: true,
       executionTimeMs: 10,
       id: `o-${i}`,
-      projectId: PROJECT_ID,
+      projectId,
       projectType: 'typescript',
       sessionId: 'sess',
       success: i < Math.round(count * successRate),
@@ -161,9 +168,14 @@ describe('AgentLLMService.ensureHarnessReady (Phase 5 Task 5.4 wiring)', () => {
   let sb: SinonSandbox
   let sessionEventBus: SessionEventBus
   let modeSelectedEvents: Array<Record<string, unknown>>
+  let projectId: string
 
   beforeEach(() => {
     sb = createSandbox()
+    // Capture cwd once per test to match the service's own `process.cwd()`
+    // read at construction. Per-test capture keeps these tests immune to
+    // any other test file that calls `process.chdir()`.
+    projectId = process.cwd()
     sessionEventBus = new SessionEventBus()
     modeSelectedEvents = []
     sessionEventBus.on('harness:mode-selected', (payload) => {
@@ -214,10 +226,10 @@ describe('AgentLLMService.ensureHarnessReady (Phase 5 Task 5.4 wiring)', () => {
 
   it('3. happy path: loaded + H in Mode A → emits event, returns {mode: assisted, version}', async () => {
     const stubs = makeHarnessStubs(sb)
-    const version = makeVersion()
+    const version = makeVersion(projectId)
     stubs.sandboxService.loadHarness.resolves({loaded: true, version})
     // Seed outcomes that produce H in [0.30, 0.60) — pass-through cap.
-    stubs.store.listOutcomes.resolves(makeOutcomes(20, 1, Date.now()))
+    stubs.store.listOutcomes.resolves(makeOutcomes(projectId, 20, 1, Date.now()))
 
     const service = buildService({
       config: makeConfig(),
@@ -237,16 +249,16 @@ describe('AgentLLMService.ensureHarnessReady (Phase 5 Task 5.4 wiring)', () => {
     const [event] = modeSelectedEvents
     expect(event.commandType).to.equal('curate')
     expect(event.mode).to.equal('assisted')
-    expect(event.projectId).to.equal(PROJECT_ID)
+    expect(event.projectId).to.equal(projectId)
     expect(event.version).to.equal(1)
     expect(event.heuristic).to.be.a('number')
   })
 
   it('4. heuristic=null (insufficient outcomes) → no event, returns undefined', async () => {
     const stubs = makeHarnessStubs(sb)
-    stubs.sandboxService.loadHarness.resolves({loaded: true, version: makeVersion()})
+    stubs.sandboxService.loadHarness.resolves({loaded: true, version: makeVersion(projectId)})
     // Fewer than the min-sample floor → computeHeuristic returns null.
-    stubs.store.listOutcomes.resolves(makeOutcomes(5, 1, Date.now()))
+    stubs.store.listOutcomes.resolves(makeOutcomes(projectId, 5, 1, Date.now()))
 
     const service = buildService({
       config: makeConfig(),
@@ -265,8 +277,8 @@ describe('AgentLLMService.ensureHarnessReady (Phase 5 Task 5.4 wiring)', () => {
 
   it('5. modeOverride=policy + low H → returns policy (override wins); event carries policy', async () => {
     const stubs = makeHarnessStubs(sb)
-    stubs.sandboxService.loadHarness.resolves({loaded: true, version: makeVersion()})
-    stubs.store.listOutcomes.resolves(makeOutcomes(20, 0, Date.now())) // H would be ~0 without override
+    stubs.sandboxService.loadHarness.resolves({loaded: true, version: makeVersion(projectId)})
+    stubs.store.listOutcomes.resolves(makeOutcomes(projectId, 20, 0, Date.now())) // H would be ~0 without override
 
     const service = buildService({
       config: makeConfig({modeOverride: 'policy'}),
@@ -286,8 +298,8 @@ describe('AgentLLMService.ensureHarnessReady (Phase 5 Task 5.4 wiring)', () => {
 
   it('6. event fires ONCE per (sessionId, commandType) across multiple calls', async () => {
     const stubs = makeHarnessStubs(sb)
-    stubs.sandboxService.loadHarness.resolves({loaded: true, version: makeVersion()})
-    stubs.store.listOutcomes.resolves(makeOutcomes(20, 1, Date.now()))
+    stubs.sandboxService.loadHarness.resolves({loaded: true, version: makeVersion(projectId)})
+    stubs.store.listOutcomes.resolves(makeOutcomes(projectId, 20, 1, Date.now()))
 
     const service = buildService({
       config: makeConfig(),
@@ -308,7 +320,7 @@ describe('AgentLLMService.ensureHarnessReady (Phase 5 Task 5.4 wiring)', () => {
 
   it('7. fails open: store error → logs warn and returns undefined (does not throw)', async () => {
     const stubs = makeHarnessStubs(sb)
-    stubs.sandboxService.loadHarness.resolves({loaded: true, version: makeVersion()})
+    stubs.sandboxService.loadHarness.resolves({loaded: true, version: makeVersion(projectId)})
     const boom = new Error('store read failed')
     stubs.store.listOutcomes.rejects(boom)
 

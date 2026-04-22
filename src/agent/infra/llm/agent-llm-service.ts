@@ -486,6 +486,12 @@ export class AgentLLMService implements ILLMService {
     return this.contextManager.initialize()
   }
 
+  /**
+   * Add a parallel tool result to the context.
+   * Called sequentially after parallel execution to preserve message order.
+   *
+   * @param result - Parallel tool result to add
+   */
   private async addParallelToolResultToContext(result: ParallelToolResult): Promise<void> {
     const {toolCall, toolResult} = result
 
@@ -862,12 +868,6 @@ export class AgentLLMService implements ILLMService {
     return undefined
   }
 
-  /**
-   * Add a parallel tool result to the context.
-   * Called sequentially after parallel execution to preserve message order.
-   *
-   * @param result - Parallel tool result to add
-   */
   /**
    * AutoHarness V2 (Phase 5 Task 5.4) — ensures the harness is
    * bootstrapped, loaded, and a mode is selected for this session-pair.
