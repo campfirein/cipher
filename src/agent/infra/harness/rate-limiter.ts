@@ -13,6 +13,16 @@ import {HarnessModeCError} from './harness-mode-c-errors.js'
 export const RATE_CAP_DEFAULT = 30
 export const RATE_WINDOW_MS_DEFAULT = 60_000
 
+/**
+ * Symbol-keyed reset method. Tests must explicitly import this
+ * symbol to clear limiter state, which prevents accidental
+ * production calls: a stray string-named `_resetForTests()` in
+ * production code would silently discard rate history, hiding
+ * runaway harness behavior. The symbol can only be reached by
+ * code that imports it.
+ */
+export const TEST_ONLY_RESET: unique symbol = Symbol('TEST_ONLY_RESET')
+
 export class RateLimiter {
   private readonly cap: number
   private readonly timestamps: number[] = []
@@ -24,17 +34,6 @@ export class RateLimiter {
   }
 
   /**
-   * Test-only helper — clears the in-flight window so tests don't
-   * leak rate state between cases. Production code must not call
-   * this; the `_` prefix flags it as internal.
-   *
-   * @internal
-   */
-  _resetForTests(): void {
-    this.timestamps.length = 0
-  }
-
-  /**
    * Record one call against the limit. Throws `HarnessModeCError`
    * with code `'RATE_CAP_THROTTLED'` if the `cap + 1`-th call would
    * land inside the current rolling window.
@@ -43,7 +42,12 @@ export class RateLimiter {
     const now = Date.now()
     const cutoff = now - this.windowMs
     // Expire stale entries. At cap = 30, shift cost is negligible.
-    while (this.timestamps.length > 0 && this.timestamps[0] !== undefined && this.timestamps[0] < cutoff) {
+    // `timestamps[0]` is guaranteed defined while `length > 0` (array
+    // only populated via push), but `noUncheckedIndexedAccess` still
+    // narrows to `number | undefined`, so we bind + guard once.
+    while (this.timestamps.length > 0) {
+      const head = this.timestamps[0]
+      if (head === undefined || head >= cutoff) break
       this.timestamps.shift()
     }
 
@@ -56,6 +60,12 @@ export class RateLimiter {
     }
 
     this.timestamps.push(now)
+  }
+
+  // Test-only reset, keyed by the TEST_ONLY_RESET symbol so production
+  // code has no string-name surface to call accidentally.
+  [TEST_ONLY_RESET](): void {
+    this.timestamps.length = 0
   }
 }
 

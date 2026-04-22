@@ -11,6 +11,7 @@ import {
   RATE_CAP_DEFAULT,
   RATE_WINDOW_MS_DEFAULT,
   RateLimiter,
+  TEST_ONLY_RESET,
 } from '../../../../src/agent/infra/harness/rate-limiter.js'
 
 function expectModeCError(
@@ -118,13 +119,18 @@ describe('Mode C safety caps', () => {
     it('11. GLOBAL_RATE_LIMITER is process-wide (shared across imports)', () => {
       // Two different "sessions" would both reach for GLOBAL_RATE_LIMITER.
       // Verify that hits against it accumulate rather than per-reference.
-      GLOBAL_RATE_LIMITER._resetForTests()
-      for (let i = 0; i < 30; i++) GLOBAL_RATE_LIMITER.checkAndRecord()
-      expectModeCError(
-        () => GLOBAL_RATE_LIMITER.checkAndRecord(),
-        'RATE_CAP_THROTTLED',
-      )
-      GLOBAL_RATE_LIMITER._resetForTests()
+      // `try/finally` so a mid-test throw doesn't leak global state into
+      // subsequent tests.
+      GLOBAL_RATE_LIMITER[TEST_ONLY_RESET]()
+      try {
+        for (let i = 0; i < 30; i++) GLOBAL_RATE_LIMITER.checkAndRecord()
+        expectModeCError(
+          () => GLOBAL_RATE_LIMITER.checkAndRecord(),
+          'RATE_CAP_THROTTLED',
+        )
+      } finally {
+        GLOBAL_RATE_LIMITER[TEST_ONLY_RESET]()
+      }
     })
   })
 

@@ -521,19 +521,21 @@ export class SandboxService implements ISandboxService {
     const opsCounter = new OpsCounter()
     return {
       async curate(operations, options) {
-        opsCounter.increment()
+        // Service-wired check FIRST — a misconfiguration error never
+        // reaches the real tool, so it shouldn't consume op budget.
         if (curateService === undefined) {
           throw new Error('harness.ctx.tools.curate: no curate service wired')
         }
 
+        opsCounter.increment()
         return curateService.curate(operations, options)
       },
       async readFile(filePath, options) {
-        opsCounter.increment()
         if (fileSystem === undefined) {
           throw new Error('harness.ctx.tools.readFile: no file system wired')
         }
 
+        opsCounter.increment()
         return fileSystem.readFile(filePath, options)
       },
     }
