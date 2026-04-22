@@ -5,6 +5,7 @@ import type {
   HarnessVersion,
 } from '../../../../src/agent/core/domain/harness/types.js'
 
+import {HarnessModeSchema} from '../../../../src/agent/core/domain/harness/types.js'
 import {
   contributeHarnessPrompt,
   type PromptContributionContext,
@@ -44,7 +45,7 @@ A learned \`harness.curate(ctx)\` function is available for curate tasks in this
 </harness-v2>`
 
 const SNAPSHOT_FILTER = `<harness-v2 mode="filter" version="v-test-123">
-A \`harness.curate(ctx)\` function is available for curate tasks here. When the task fits the harness, state your plan briefly and then invoke \`harness.curate(ctx)\`. If the harness approach does not fit this task, write your own orchestration instead.
+A \`harness.curate(ctx)\` function is available for curate tasks here. It has been validated on recent invocations and is a strong default for this request. Review it against the task; invoke \`harness.curate(ctx)\` if suitable, or write your own orchestration only if you see a specific reason the harness does not fit.
 </harness-v2>`
 
 const SNAPSHOT_POLICY = `<harness-v2 mode="policy" version="v-test-123">
@@ -67,11 +68,15 @@ describe('contributeHarnessPrompt', () => {
     expect(out.length).to.be.at.most(600)
   })
 
-  it('3. Mode B mentions propose/plan workflow, ≤ 600 chars', () => {
+  it('3. Mode B positions harness as a reviewable default, ≤ 600 chars', () => {
+    // Per types.ts line 30: filter = "LLM reviews proposals from the
+    // harness". The body must position the harness as the proposal
+    // and the LLM as the reviewer — NOT the other way around.
     const out = contributeHarnessPrompt(makeCtx('filter'))
     expect(out).to.include('<harness-v2 mode="filter"')
-    expect(out).to.match(/plan|propose/i)
     expect(out).to.include('harness.curate(')
+    expect(out).to.match(/review/i)
+    expect(out).to.match(/default|strong/i)
     expect(out.length).to.be.at.most(600)
   })
 
@@ -87,8 +92,10 @@ describe('contributeHarnessPrompt', () => {
 
   // ── Version id attribute ──────────────────────────────────────────────────
 
-  it('5. version id appears in the opening tag for all three modes', () => {
-    for (const mode of ['assisted', 'filter', 'policy'] as const) {
+  it('5. version id appears in the opening tag for every HarnessMode', () => {
+    // Iterate over the schema's options rather than a hardcoded list
+    // so a new mode added to the enum is automatically covered.
+    for (const mode of HarnessModeSchema.options) {
       const out = contributeHarnessPrompt(makeCtx(mode))
       expect(out, `mode=${mode}`).to.include(`version="${TEST_VERSION_ID}"`)
     }
@@ -114,5 +121,21 @@ describe('contributeHarnessPrompt', () => {
     const first = contributeHarnessPrompt(makeCtx('assisted'))
     const second = contributeHarnessPrompt(makeCtx('assisted'))
     expect(first).to.equal(second)
+  })
+
+  // ── XML-attribute safety ─────────────────────────────────────────────────
+
+  it('8. version id with special characters is escaped in the tag', () => {
+    // Version ids are randomUUID() in production today (always safe)
+    // but this is defense-in-depth for a future where ids come from
+    // elsewhere. Phase 7 CLI will parse these tags; malformed XML
+    // would break silently without this escape.
+    const version = {...makeVersion(), id: 'v-"broken&<>'}
+    const out = contributeHarnessPrompt({mode: 'assisted', version})
+
+    // The raw specials must NOT appear in the emitted attribute.
+    expect(out).to.not.include('v-"broken')
+    // Expected encoded form:
+    expect(out).to.include('version="v-&quot;broken&amp;&lt;&gt;"')
   })
 })
