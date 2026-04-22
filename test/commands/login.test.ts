@@ -6,18 +6,18 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import type {
-  AuthLoginCompletedEvent,
-  AuthLoginWithApiKeyResponse,
-  AuthStartLoginResponse,
-} from '../../src/shared/transport/events/auth-events.js'
-
 import Login, {type LoginOAuthOptions} from '../../src/oclif/commands/login.js'
+import {
+  AuthEvents,
+  type AuthLoginCompletedEvent,
+  type AuthLoginWithApiKeyResponse,
+  type AuthStartLoginResponse,
+} from '../../src/shared/transport/events/auth-events.js'
 
 // ==================== TestableLoginCommand ====================
 
 class TestableLoginCommand extends Login {
-  public interactive = true
+  protected interactive = true
   private readonly mockConnector: () => Promise<ConnectionResult>
 
   constructor(argv: string[], mockConnector: () => Promise<ConnectionResult>, config: Config) {
@@ -45,6 +45,10 @@ class TestableLoginCommand extends Login {
       retryDelayMs: 0,
       transportConnector: this.mockConnector,
     })
+  }
+
+  public setInteractive(value: boolean): void {
+    this.interactive = value
   }
 }
 
@@ -122,7 +126,7 @@ describe('Login Command', () => {
   function mockOAuthFlow(startResponse: AuthStartLoginResponse, completion?: AuthLoginCompletedEvent): void {
     const onStub = mockClient.on as sinon.SinonStub
     onStub.callsFake((event: string, cb: (data: AuthLoginCompletedEvent) => void) => {
-      if (event === 'auth:loginCompleted' && completion) {
+      if (event === AuthEvents.LOGIN_COMPLETED && completion) {
         setImmediate(() => {
           cb(completion)
         })
@@ -130,9 +134,8 @@ describe('Login Command', () => {
 
       return () => {}
     })
-
     ;(mockClient.requestWithAck as sinon.SinonStub).callsFake((event: string) => {
-      if (event === 'auth:startLogin') return Promise.resolve(startResponse)
+      if (event === AuthEvents.START_LOGIN) return Promise.resolve(startResponse)
       return Promise.resolve({})
     })
   }
@@ -156,7 +159,7 @@ describe('Login Command', () => {
 
       expect((mockClient.requestWithAck as sinon.SinonStub).calledOnce).to.be.true
       const [event, data] = (mockClient.requestWithAck as sinon.SinonStub).firstCall.args
-      expect(event).to.equal('auth:loginWithApiKey')
+      expect(event).to.equal(AuthEvents.LOGIN_WITH_API_KEY)
       expect(data).to.deep.equal({apiKey: 'my-secret-key'})
     })
   })
@@ -206,7 +209,7 @@ describe('Login Command', () => {
       expect(json.data).to.deep.include({error: 'Invalid API key'})
     })
 
-    it('should output JSON on connection error', async () => {
+    it('should output JSON with a user-friendly message on connection error', async () => {
       mockConnector.rejects(new NoInstanceRunningError())
 
       await createJsonCommand('--api-key', 'test-key').run()
@@ -214,7 +217,7 @@ describe('Login Command', () => {
       const json = parseJsonOutput()
       expect(json.command).to.equal('login')
       expect(json.success).to.be.false
-      expect(json.data).to.have.property('error')
+      expect(String(json.data.error ?? '')).to.include('Daemon failed to start automatically')
     })
 
     it('should not log "Logging in..." in json mode', async () => {
@@ -274,7 +277,7 @@ describe('Login Command', () => {
       await createCommand().run()
 
       const requestWithAckCalls = (mockClient.requestWithAck as sinon.SinonStub).getCalls()
-      expect(requestWithAckCalls.some((c) => c.args[0] === 'auth:startLogin')).to.be.true
+      expect(requestWithAckCalls.some((c) => c.args[0] === AuthEvents.START_LOGIN)).to.be.true
       expect(loggedMessages.some((m) => m.includes('Logged in as oauth@example.com'))).to.be.true
     })
 
@@ -290,10 +293,7 @@ describe('Login Command', () => {
     })
 
     it('should print error message when LOGIN_COMPLETED reports failure', async () => {
-      mockOAuthFlow(
-        {authUrl: 'https://auth.byterover.dev/oauth'},
-        {error: 'User denied access', success: false},
-      )
+      mockOAuthFlow({authUrl: 'https://auth.byterover.dev/oauth'}, {error: 'User denied access', success: false})
 
       await createCommand().run()
 
@@ -369,7 +369,7 @@ describe('Login Command', () => {
   describe('non-interactive shell', () => {
     it('should error with a pointer to --api-key when no flag and not a TTY', async () => {
       const command = createCommand()
-      command.interactive = false
+      command.setInteractive(false)
 
       await command.run()
 
@@ -380,7 +380,7 @@ describe('Login Command', () => {
 
     it('should emit JSON error when non-interactive and no --api-key', async () => {
       const command = createJsonCommand()
-      command.interactive = false
+      command.setInteractive(false)
 
       await command.run()
 
@@ -394,7 +394,7 @@ describe('Login Command', () => {
       mockLoginResponse({success: true, userEmail: 'ci@example.com'})
 
       const command = createCommand('--api-key', 'ci-key')
-      command.interactive = false
+      command.setInteractive(false)
 
       await command.run()
 
