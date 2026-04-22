@@ -51,6 +51,9 @@ export const VcEvents = {
   CLONE_PROGRESS: 'vc:clone:progress',
   COMMIT: 'vc:commit',
   CONFIG: 'vc:config',
+  DIFF: 'vc:diff',
+  DIFFS: 'vc:diffs',
+  DISCARD: 'vc:discard',
   FETCH: 'vc:fetch',
   INIT: 'vc:init',
   LOG: 'vc:log',
@@ -261,21 +264,29 @@ export interface IVcCloneProgressEvent {
 export type VcBranchAction = 'create' | 'delete' | 'list' | 'set-upstream'
 
 export type IVcBranchRequest =
-  | {action: 'create'; name: string}
+  | {action: 'create'; name: string; startPoint?: string}
   | {action: 'delete'; name: string}
   | {action: 'list'; all?: boolean}
   | {action: 'set-upstream'; upstream: string}
 
+export interface VcBranch {
+  isCurrent: boolean
+  isRemote: boolean
+  name: string
+}
+
 export type IVcBranchResponse =
   | {action: 'create'; created: string}
   | {action: 'delete'; deleted: string}
-  | {action: 'list'; branches: Array<{isCurrent: boolean; isRemote: boolean; name: string}>}
+  | {action: 'list'; branches: VcBranch[]}
   | {action: 'set-upstream'; branch: string; upstream: string}
 
 export interface IVcCheckoutRequest {
   branch: string
   create?: boolean
   force?: boolean
+  /** Ref to create the new branch from when `create` is true. Ignored otherwise. */
+  startPoint?: string
 }
 
 export interface IVcCheckoutResponse {
@@ -314,3 +325,51 @@ export interface IVcResetResponse {
   headSha?: string
   mode: VcResetMode
 }
+
+/**
+ * Diff sides:
+ * - `'staged'` → compare HEAD blob (old) against index blob (new)
+ * - `'unstaged'` → compare index blob (old) against working tree content (new)
+ */
+export type VcDiffSide = 'staged' | 'unstaged'
+
+export interface IVcDiffRequest {
+  path: string
+  side: VcDiffSide
+}
+
+export interface IVcDiffResponse {
+  /** Content on the "new" side (working tree or index depending on `side`). */
+  newContent: string
+  /** Content on the "old" side (index or HEAD depending on `side`). */
+  oldContent: string
+  path: string
+}
+
+/**
+ * Batched diff — returns diffs for multiple paths on the same side in one round-trip.
+ * Preserves the order of the input `paths`.
+ */
+export interface IVcDiffsRequest {
+  paths: string[]
+  side: VcDiffSide
+}
+
+export interface IVcDiffsResponse {
+  diffs: IVcDiffResponse[]
+}
+
+/**
+ * Discards unstaged changes in the working tree.
+ * - Tracked files: working tree is restored from the index (or HEAD if not in index).
+ * - Untracked files: removed from disk.
+ * Staged changes in the index are preserved.
+ */
+export interface IVcDiscardRequest {
+  filePaths: string[]
+}
+
+export interface IVcDiscardResponse {
+  count: number
+}
+

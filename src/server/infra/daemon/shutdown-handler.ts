@@ -9,6 +9,12 @@ import type {IShutdownHandler} from '../../core/interfaces/daemon/i-shutdown-han
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 
 import {SHUTDOWN_FORCE_EXIT_MS, TRANSPORT_STOP_TIMEOUT_MS} from '../../constants.js'
+import {removeWebuiState} from '../webui/webui-state.js'
+
+interface IWebUiServer {
+  isRunning(): boolean
+  stop(): Promise<void>
+}
 
 export interface ShutdownHandlerDeps {
   readonly agentIdleTimeoutPolicy?: IAgentIdleTimeoutPolicy
@@ -19,20 +25,22 @@ export interface ShutdownHandlerDeps {
   readonly instanceManager: IGlobalInstanceManager
   readonly log: (message: string) => void
   readonly transportServer: ITransportServer
+  readonly webuiServer?: IWebUiServer
 }
 
 /**
  * Ordered graceful shutdown handler for the daemon.
  *
- * Shutdown sequence (8 steps):
+ * Shutdown sequence (9 steps):
  * 1. Stop server idle timeout checks
  * 2. Stop agent idle timeout checks
  * 3. Uninstall resilience handlers
  * 4. Stop heartbeat writer (stops writes, file becomes stale naturally)
  * 5. Stop agent pool (SIGTERM child processes, wait for exit)
  * 6. Stop transport server (disconnect sockets, close HTTP server)
- * 7. Release daemon.json
- * 8. Schedule force exit safety net
+ * 7. Stop web UI server + remove webui.json
+ * 8. Release daemon.json
+ * 9. Schedule force exit safety net
  *
  * Agent pool is stopped BEFORE transport server so agents can use
  * their transport connections for graceful shutdown signaling.
@@ -120,7 +128,18 @@ export class ShutdownHandler implements IShutdownHandler {
       log(`Error stopping transport: ${error instanceof Error ? error.message : String(error)}`)
     }
 
-    // Step 7. Release daemon.json
+    // Step 7. Stop web UI server + remove state file
+    if (this.deps.webuiServer?.isRunning()) {
+      try {
+        await this.deps.webuiServer.stop()
+      } catch (error) {
+        log(`Error stopping web UI server: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    removeWebuiState()
+
+    // Step 8. Release daemon.json
     try {
       instanceManager.release()
     } catch (error) {
@@ -129,7 +148,7 @@ export class ShutdownHandler implements IShutdownHandler {
 
     log('Shutdown complete')
 
-    // Step 8. Safety net: force exit if event loop hasn't drained
+    // Step 9. Safety net: force exit if event loop hasn't drained
     // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
     setTimeout(() => process.exit(0), SHUTDOWN_FORCE_EXIT_MS).unref()
   }

@@ -64,7 +64,7 @@ export type CommitGitParams = {
    */
   onSign?: (payload: string) => Promise<string>
 } & BaseGitParams
-export type LogGitParams = BaseGitParams & {depth?: number; ref?: string}
+export type LogGitParams = BaseGitParams & {depth?: number; filepath?: string; ref?: string}
 export type PushGitParams = BaseGitParams & {branch?: string; remote?: string}
 export type PullGitParams = BaseGitParams & {allowUnrelatedHistories?: boolean; author?: {email: string; name: string}; branch?: string; remote?: string}
 export type FetchGitParams = BaseGitParams & {ref?: string; remote?: string}
@@ -75,7 +75,12 @@ export type MergeGitParams = BaseGitParams & {
   branch: string
   message?: string
 }
-export type CreateBranchGitParams = BaseGitParams & {branch: string; checkout?: boolean}
+export type CreateBranchGitParams = BaseGitParams & {
+  branch: string
+  checkout?: boolean
+  /** Ref (branch name, tag, or SHA) to create the new branch from. Defaults to HEAD. */
+  startPoint?: string
+}
 export type DeleteBranchGitParams = BaseGitParams & {branch: string}
 export type ListBranchesGitParams = BaseGitParams & {remote?: string}
 export type CheckoutGitParams = BaseGitParams & {force?: boolean; ref: string}
@@ -101,6 +106,26 @@ export type CloneGitParams = BaseGitParams & {
   url: string
 }
 
+/**
+ * Source of the blob content.
+ * - `'HEAD'` → blob at the HEAD commit
+ * - `'STAGE'` → blob in the git index (staging area)
+ */
+export type GitBlobRef = 'HEAD' | 'STAGE'
+
+export type GetBlobContentParams = BaseGitParams & {
+  path: string
+  ref: GitBlobRef
+}
+
+export type GetBlobContentsParams = BaseGitParams & {
+  paths: string[]
+  ref: GitBlobRef
+}
+
+/** Map of path → blob content (utf8). Missing entries indicate the blob is absent at that ref. */
+export type BlobContents = Record<string, string | undefined>
+
 // --- Interface ---
 export interface IGitService {
   abortMerge(params: AbortMergeGitParams): Promise<void>
@@ -114,6 +139,21 @@ export interface IGitService {
   fetch(params: FetchGitParams): Promise<void>
   /** Returns how many commits the local ref is ahead/behind relative to the remote ref. */
   getAheadBehind(params: GetAheadBehindParams): Promise<AheadBehind>
+  /**
+   * Reads the content of a file blob at a given git ref.
+   * - `ref: 'HEAD'` → resolves HEAD commit, then reads the blob at `path`
+   * - `ref: 'STAGE'` → reads the blob staged in the index at `path`
+   *
+   * Returns `undefined` when no blob exists at that ref (e.g. file not yet committed,
+   * or file not yet staged), or when HEAD has no commits.
+   */
+  getBlobContent(params: GetBlobContentParams): Promise<string | undefined>
+  /**
+   * Batch version of {@link getBlobContent} — reads multiple blobs at the same ref in one pass.
+   * For `STAGE`, walks the index once instead of once per path (avoids an N+1).
+   * Returned map contains an entry for every requested path; `undefined` when no blob exists.
+   */
+  getBlobContents(params: GetBlobContentsParams): Promise<BlobContents>
   /**
    * Returns conflicts currently present in the working tree.
    * Detects all three conflict types (both_modified, both_added, deleted_modified)

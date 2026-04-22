@@ -187,7 +187,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
     apiKeyUrl: 'https://platform.minimax.io',
     baseUrl: 'https://api.minimax.io/v1',
     category: 'other',
-    defaultModel: 'MiniMax-M2',
+    defaultModel: 'MiniMax-M2.7',
     description: 'MiniMax AI models',
     envVars: ['MINIMAX_API_KEY'],
     headers: {},
@@ -239,7 +239,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
       // Public OAuth client ID (safe to commit — native app public client, no client secret)
       clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
       // OpenAI Codex model used for the ChatGPT OAuth (Codex CLI) flow
-      defaultModel: 'gpt-5.1-codex-mini',
+      defaultModel: 'gpt-5.4-mini',
       /* eslint-disable camelcase -- OAuth query params follow RFC 6749 naming */
       extraParams: {
         codex_cli_simplified_flow: 'true',
