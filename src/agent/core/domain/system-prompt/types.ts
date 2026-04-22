@@ -1,6 +1,6 @@
 import type { MemoryManager } from '../../../infra/memory/memory-manager.js'
 import type { EnvironmentContext } from '../environment/types.js'
-import type { HarnessMode } from '../harness/types.js'
+import type { HarnessMode, HarnessVersion } from '../harness/types.js'
 
 /**
  * Conversation metadata for execution context
@@ -63,6 +63,16 @@ export interface ContributorContext {
    * means no harness is injected.
    */
   harnessMode?: HarnessMode
+
+  /**
+   * The `HarnessVersion` record the mode selection was computed against.
+   * Paired with `harnessMode` — both are set or both absent. The
+   * harness system-prompt contributor needs the version id for the
+   * `<harness-v2 version="…">` tag; the object is passed in full so
+   * future contributor logic can read metadata without another store
+   * round-trip.
+   */
+  harnessVersion?: HarnessVersion
 
   /** Memory manager instance for accessing memories */
   memoryManager?: MemoryManager

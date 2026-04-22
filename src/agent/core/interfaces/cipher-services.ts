@@ -1,7 +1,8 @@
 import type {IRuntimeSignalStore} from '../../../server/core/interfaces/storage/i-runtime-signal-store.js'
+import type {ValidatedHarnessConfig} from '../../infra/agent/agent-schemas.js'
 import type {AgentEventBus, SessionEventBus} from '../../infra/events/event-emitter.js'
 import type {FileSystemService} from '../../infra/file-system/file-system-service.js'
-import type {HarnessOutcomeRecorder, HarnessStore} from '../../infra/harness/index.js'
+import type {HarnessBootstrap, HarnessOutcomeRecorder, HarnessStore} from '../../infra/harness/index.js'
 import type {CompactionService} from '../../infra/llm/context/compaction/compaction-service.js'
 import type {AbstractGenerationQueue} from '../../infra/map/abstract-queue.js'
 import type {MemoryManager} from '../../infra/memory/memory-manager.js'
@@ -46,6 +47,18 @@ export interface CipherAgentServices {
    */
   compactionService: CompactionService
   fileSystemService: FileSystemService
+  /**
+   * AutoHarness V2 bootstrap (Phase 4 Task 4.2) — fires on first turn
+   * per `(projectId, commandType)`, writing v1 from the matching
+   * template. Consumed by `AgentLLMService.ensureHarnessReady()`.
+   */
+  harnessBootstrap?: HarnessBootstrap
+  /**
+   * AutoHarness V2 validated config — the `harness` block from
+   * `AgentConfigSchema`. Threaded here so `AgentLLMService` can read
+   * `enabled` / `modeOverride` without re-parsing.
+   */
+  harnessConfig?: ValidatedHarnessConfig
   /**
    * AutoHarness V2 outcome recorder. Wired in by `service-initializer.ts`
    * alongside `harnessStore`; consumers can assume it is present. Kept
