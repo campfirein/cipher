@@ -21,6 +21,7 @@ import type { SessionManager } from '../session/session-manager.js'
 import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
 
 import { ProjectTypeSchema } from '../../core/domain/harness/types.js'
+import {HarnessEvaluatorError} from '../harness/harness-evaluator-errors.js'
 import { OpsCounter } from '../harness/ops-counter.js'
 import {CurateResultCollector} from './curate-result-collector.js'
 import { LocalSandbox } from './local-sandbox.js'
@@ -105,6 +106,16 @@ export class SandboxService implements ISandboxService {
     this.sandboxes.delete(sessionId)
     this.sandboxCommandTypes.delete(sessionId)
     this.pendingVariables.delete(sessionId)
+  }
+
+  /**
+   * Public accessor for `buildHarnessTools` — consumed by the
+   * `HarnessEvaluator` to construct dryRun-enabled tool contexts.
+   * Keeps one tools-construction path; the `dryRun` flag is the
+   * only branch.
+   */
+  createHarnessTools(options?: {dryRun?: boolean}): HarnessContext['tools'] {
+    return this.buildHarnessTools(options)
   }
 
   /**
@@ -505,22 +516,32 @@ export class SandboxService implements ISandboxService {
    * instances. Each bound function throws if the underlying service
    * isn't wired — the harness code sees a normal runtime error rather
    * than a silent no-op.
+   *
+   * When `options.dryRun` is `true`, write-capable tools (`curate`)
+   * throw `HarnessEvaluatorError('WRITE_BLOCKED_DURING_EVAL')` instead
+   * of executing. Read-only tools (`readFile`) remain unblocked.
+   * The evaluator uses this for side-effect-free candidate scoring.
    */
-  private buildHarnessTools(): HarnessContext['tools'] {
+  private buildHarnessTools(options?: {dryRun?: boolean}): HarnessContext['tools'] {
     const {curateService} = this
     const {fileSystem} = this
+    const writeBlocked = options?.dryRun === true
     // Fresh counter per outer harness invocation. The `buildCtx` helper
     // calls `buildHarnessTools()` each time `harness.curate()` /
     // `harness.query()` fires, so the counter's scope is naturally one
     // outer call — no explicit reset needed.
     //
-    // Tier 1 X1 safety gate: caps apply unconditionally (all modes).
-    // Mode A / B almost never approach 50 ops; Mode C is where they
-    // bite. Always-on enforcement prevents a "mode not set yet"
-    // bypass window.
+    // Caps apply unconditionally (all modes). Always-on enforcement
+    // prevents a "mode not set yet" bypass window.
     const opsCounter = new OpsCounter()
     return {
-      async curate(operations, options) {
+      async curate(operations, opts) {
+        // dryRun blocks writes before anything else — no ops counted,
+        // no service check. The evaluator sees a clean rejection.
+        if (writeBlocked) {
+          throw new HarnessEvaluatorError('WRITE_BLOCKED_DURING_EVAL')
+        }
+
         // Service-wired check FIRST — a misconfiguration error never
         // reaches the real tool, so it shouldn't consume op budget.
         if (curateService === undefined) {
@@ -528,15 +549,15 @@ export class SandboxService implements ISandboxService {
         }
 
         opsCounter.increment()
-        return curateService.curate(operations, options)
+        return curateService.curate(operations, opts)
       },
-      async readFile(filePath, options) {
+      async readFile(filePath, opts) {
         if (fileSystem === undefined) {
           throw new Error('harness.ctx.tools.readFile: no file system wired')
         }
 
         opsCounter.increment()
-        return fileSystem.readFile(filePath, options)
+        return fileSystem.readFile(filePath, opts)
       },
     }
   }
