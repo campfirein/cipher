@@ -72,6 +72,7 @@ function makeStoreStub(sb: SinonSandbox): {
   const getLatest = sb.stub()
   const listScenarios = sb.stub()
   const store = {
+    deleteOutcome: sb.stub(),
     deleteOutcomes: sb.stub(),
     deleteScenario: sb.stub(),
     getLatest,
