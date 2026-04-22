@@ -185,6 +185,7 @@
     "lint": "eslint",
     "lint:fix": "npm run lint -- --fix",
     "postpack": "shx rm -f oclif.manifest.json",
+    "kpi:harness": "tsx scripts/autoharness-kpi/runner.ts",
     "prepack": "npm run build && BRV_ENV=production oclif manifest",
     "prepare": "husky",
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",

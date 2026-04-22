@@ -1,0 +1,10 @@
+{
+  "$comment": "Populated by the first clean KPI run at v1.0 ship time. Until then, this file is a placeholder. On each subsequent ship, compare against these numbers — a significant regression (harnessSuccessRate drops by > 5pp or delta drops by > 5pp) should block the release.",
+  "fixtureVersion": "1.0.0",
+  "targetModel": "llama-3.1-8b-instruct",
+  "runsPerArm": 10,
+  "measuredAt": null,
+  "harnessSuccessRate": null,
+  "rawSuccessRate": null,
+  "delta": null
+}
