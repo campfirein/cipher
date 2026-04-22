@@ -917,15 +917,32 @@ export class AgentLLMService implements ILLMService {
       if (!loadResult.loaded) return undefined
 
       const outcomes = await harnessStore.listOutcomes(projectId, commandType, 50)
-      const heuristic = computeHeuristic(outcomes, Date.now())
-      if (heuristic === null) {
-        // Below the min-sample floor — behave as "no harness" for this
-        // turn. When enough outcomes accumulate, mode selection kicks in.
+      const rawHeuristic = computeHeuristic(outcomes, Date.now())
+
+      // Override wins even when H is null (below the min-sample floor).
+      // Users who explicitly set `config.harness.modeOverride` expect
+      // Mode X from the first turn, not after 10 outcomes accumulate.
+      let selection: ReturnType<typeof selectHarnessMode>
+      if (harnessConfig.modeOverride !== undefined) {
+        selection = {mode: harnessConfig.modeOverride, source: 'override'}
+      } else if (rawHeuristic === null) {
+        // Heuristic path + no override + insufficient samples → behave
+        // as "no harness" for this turn. Once enough outcomes
+        // accumulate, mode selection kicks in.
         return undefined
+      } else {
+        selection = selectHarnessMode(rawHeuristic, harnessConfig)
       }
 
-      const selection = selectHarnessMode(heuristic, harnessConfig)
       if (selection === undefined) return undefined
+      // Event schema requires `heuristic: number`. When override fires
+      // with null H (below the min-sample floor), we emit 0 as a sentinel
+      // for "H was not computed". There's no real ambiguity in practice:
+      // a computed H=0 would hit `selection === undefined` in the
+      // heuristic branch above and never reach this emit path, so
+      // `heuristic: 0` on an emitted event always means "override
+      // bypassed computation", not "H equals 0".
+      const eventHeuristic = rawHeuristic ?? 0
 
       // `::` separator — safe because `commandType` is the controlled
       // enum `'chat' | 'curate' | 'query'` and cannot contain colons.
@@ -938,7 +955,7 @@ export class AgentLLMService implements ILLMService {
         // which includes `sessionId` for cross-session consumers.
         this.sessionEventBus.emit('harness:mode-selected', {
           commandType,
-          heuristic,
+          heuristic: eventHeuristic,
           mode: selection.mode,
           projectId,
           version: loadResult.version.version,
