@@ -192,22 +192,6 @@ describe('SigningKeyHandler', () => {
     })
   })
 
-  describe('list action', () => {
-    it('returns mapped key list', async () => {
-      const deps = makeDeps(sandbox)
-      const {getRequestHandler} = makeHandler(sandbox, deps)
-
-      // The handler creates its own HttpSigningKeyService internally.
-      // We test the auth check path; for the actual IAM call we rely on http-signing-key-service tests.
-      // Here we just verify the flow doesn't throw when auth is valid.
-      // Since we can't easily stub the internal HttpSigningKeyService (ES module instantiation),
-      // we verify the NotAuthenticatedError path (above) and rely on integration for IAM calls.
-      // This test verifies setup registers the event handler.
-      const handler = getRequestHandler()
-      expect(handler).to.be.a('function')
-    })
-  })
-
   describe('setup', () => {
     it('registers handler for VcEvents.SIGNING_KEY', () => {
       const deps = makeDeps(sandbox)
