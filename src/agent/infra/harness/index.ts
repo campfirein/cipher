@@ -9,4 +9,6 @@
 export {HarnessBootstrap} from './harness-bootstrap.js'
 export {HarnessModuleBuilder} from './harness-module-builder.js'
 export {HarnessOutcomeRecorder} from './harness-outcome-recorder.js'
+export {HarnessScenarioCapture} from './harness-scenario-capture.js'
 export {HarnessStore} from './harness-store.js'
+export {HarnessSynthesizer} from './harness-synthesizer.js'

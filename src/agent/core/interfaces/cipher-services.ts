@@ -2,6 +2,7 @@ import type {IRuntimeSignalStore} from '../../../server/core/interfaces/storage/
 import type {ValidatedHarnessConfig} from '../../infra/agent/agent-schemas.js'
 import type {AgentEventBus, SessionEventBus} from '../../infra/events/event-emitter.js'
 import type {FileSystemService} from '../../infra/file-system/file-system-service.js'
+import type {HarnessSynthesizer} from '../../infra/harness/harness-synthesizer.js'
 import type {HarnessBootstrap, HarnessOutcomeRecorder, HarnessStore} from '../../infra/harness/index.js'
 import type {CompactionService} from '../../infra/llm/context/compaction/compaction-service.js'
 import type {AbstractGenerationQueue} from '../../infra/map/abstract-queue.js'
@@ -75,6 +76,13 @@ export interface CipherAgentServices {
    * same entity space.
    */
   harnessStore: HarnessStore
+  /**
+   * AutoHarness V2 synthesizer — orchestrates the Critic → Refiner →
+   * Evaluator pipeline. Agent-scoped singleton created in service-initializer
+   * when `config.harness.enabled` is true. The session-end trigger in
+   * SessionManager calls `refineIfNeeded()` for each commandType touched.
+   */
+  harnessSynthesizer?: HarnessSynthesizer
   historyStorage: IHistoryStorage
   memoryManager: MemoryManager
   /**

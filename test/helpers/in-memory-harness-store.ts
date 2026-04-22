@@ -54,6 +54,15 @@ export class InMemoryHarnessStore implements IHarnessStore {
   private scenarios = new Map<string, EvaluationScenario>()
   private versions = new Map<string, HarnessVersion>()
 
+  async deleteOutcome(
+    projectId: string,
+    commandType: string,
+    outcomeId: string,
+  ): Promise<boolean> {
+    const key = compositeKey(projectId, commandType, outcomeId)
+    return this.outcomes.delete(key)
+  }
+
   async deleteOutcomes(projectId: string, commandType: string): Promise<number> {
     const partition = partitionKey(projectId, commandType)
     let deleted = 0
