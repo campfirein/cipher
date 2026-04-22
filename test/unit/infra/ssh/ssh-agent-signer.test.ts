@@ -377,6 +377,93 @@ describe('SshAgentSigner.sign()', () => {
     }
   })
 
+  // Regression test for PR #435 review comment #25: the sign-request flags
+  // field is the only place where the RSA-via-agent code path diverges from
+  // the ed25519 path. Without this assertion, a refactor from
+  // `=== 'ssh-rsa'` to `=== 'rsa'` or `.startsWith('rsa-')` would go green
+  // across every other test — because ed25519 uses flags=0 either way —
+  // while RSA users silently sign with SHA-1 and downstream verification
+  // rejects the signature. RSA is the v1 recovery path for encrypted
+  // ~/.ssh/id_rsa users; breaking it silently means v1 ships with no RSA
+  // support for that population.
+  it('sets SSH_AGENT_RSA_SHA2_512 in flags for ssh-rsa keys (full agent round-trip)', async () => {
+    // Build a fake ssh-rsa wire-format public key blob. Content is
+    // opaque to this test — only the fingerprint match to the agent
+    // identity matters for finding the signer, and the keyType on the
+    // .pub sidecar drives the flags branch inside sign().
+    const rsaPubBlob = Buffer.concat([
+      sshString('ssh-rsa'),
+      sshString(Buffer.alloc(3, 0x01)), // fake exponent
+      sshString(Buffer.alloc(128, 0x02)), // fake modulus
+    ])
+
+    const rsaKeyDir = mkdtempSync(join(tmpdir(), 'brv-rsa-agent-test-'))
+    const rsaKeyPath = join(rsaKeyDir, 'id_rsa')
+    writeFileSync(rsaKeyPath, 'fake rsa key material — never parsed in this path', {mode: 0o600})
+    writeFileSync(
+      `${rsaKeyPath}.pub`,
+      `ssh-rsa ${rsaPubBlob.toString('base64')} test@rsa`,
+      {mode: 0o644},
+    )
+
+    // Mock agent that records the flags field from the first SIGN request.
+    let capturedFlags: number | undefined
+    const socketDir = mkdtempSync(join(tmpdir(), 'brv-rsa-mock-agent-'))
+    const socketPath = join(socketDir, 'agent.sock')
+    const server = net.createServer((conn) => {
+      const chunks: Buffer[] = []
+      conn.on('data', (chunk) => {
+        chunks.push(chunk)
+        const acc = Buffer.concat(chunks)
+        if (acc.length < 4) return
+        const msgLen = acc.readUInt32BE(0)
+        if (acc.length < 4 + msgLen) return
+        const payload = acc.subarray(4, 4 + msgLen)
+        chunks.length = 0
+
+        if (payload[0] === SSH_AGENTC_REQUEST_IDENTITIES) {
+          const body = Buffer.concat([
+            Buffer.from([SSH_AGENT_IDENTITIES_ANSWER]),
+            writeUInt32BE(1),
+            sshString(rsaPubBlob),
+            sshString('test@rsa'),
+          ])
+          conn.write(Buffer.concat([writeUInt32BE(body.length), body]))
+        } else if (payload[0] === SSH_AGENTC_SIGN_REQUEST) {
+          // Parse: [type=13][uint32 len][blob][uint32 len][data][uint32 flags]
+          let offset = 1
+          const blobLen = payload.readUInt32BE(offset)
+          offset += 4 + blobLen
+          const dataLen = payload.readUInt32BE(offset)
+          offset += 4 + dataLen
+          capturedFlags = payload.readUInt32BE(offset)
+
+          // Return minimally valid signature envelope.
+          const sig = Buffer.concat([sshString('ssh-rsa'), sshString(Buffer.alloc(256, 0xbb))])
+          const body = Buffer.concat([Buffer.from([SSH_AGENT_SIGN_RESPONSE]), sshString(sig)])
+          conn.write(Buffer.concat([writeUInt32BE(body.length), body]))
+        }
+      })
+    })
+    server.listen(socketPath)
+    process.env.SSH_AUTH_SOCK = socketPath
+
+    try {
+      const signer = await tryGetSshAgentSigner(rsaKeyPath)
+      expect(signer, 'tryGetSshAgentSigner must resolve with an RSA-capable signer').to.not.be.null
+      if (!signer) throw new Error('unreachable')
+
+      await signer.sign('hello RSA')
+
+      // Flag value comes from the SSH_AGENT_RSA_SHA2_512 constant (4) in
+      // ssh-agent-signer.ts — pinned here so a refactor that drops the
+      // branch (e.g. `=== 'rsa'`) regresses immediately.
+      expect(capturedFlags, 'RSA signing must set SSH_AGENT_RSA_SHA2_512 flag').to.equal(4)
+    } finally {
+      server.close()
+    }
+  })
+
   // Regression test for PR #435 review comment #22: sign() used to blindly
   // return response.subarray(5, 5 + sigLen) without checking that sigLen
   // actually fits in the response buffer. A truncated agent response
