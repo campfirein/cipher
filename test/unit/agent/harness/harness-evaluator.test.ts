@@ -323,25 +323,19 @@ describe('HarnessEvaluator — statistical-significance gate', () => {
     // Low baseline: 10/50 successes → H = 0.2*(10/50)+0.8 = 0.84
     listOutcomes.resolves(makeOutcomes(50, 10))
 
-    // Candidate that succeeds on first 6 calls, fails on next 4.
-    // Achieved by making the curate tool fail after 6 calls.
-    let callCount = 0
-    const mixedTools: HarnessContextTools = {
-      curate: (async () => {
-        callCount++
-        if (callCount > 6) {
-          throw new Error('fail after 6')
-        }
-
-        return {applied: 1}
-      }) as unknown as HarnessContextTools['curate'],
-      readFile: (async () => ({content: '', exists: true, path: '/'})) as unknown as HarnessContextTools['readFile'],
-    }
+    // Candidate succeeds on first 6 calls, fails on next 4.
+    // Sinon onCall sequencing is robust under any concurrency model.
+    const curateStub = sb.stub()
+    for (let i = 0; i < 6; i++) curateStub.onCall(i).resolves({applied: 1})
+    for (let i = 6; i < 10; i++) curateStub.onCall(i).rejects(new Error('fail after 6'))
 
     const evaluator = new HarnessEvaluator(
       store,
       logger,
-      () => mixedTools,
+      () => ({
+        curate: curateStub as unknown as HarnessContextTools['curate'],
+        readFile: (async () => ({content: '', exists: true, path: '/'})) as unknown as HarnessContextTools['readFile'],
+      }),
     )
 
     // Use a candidate that calls curate — tool behavior controls success/failure

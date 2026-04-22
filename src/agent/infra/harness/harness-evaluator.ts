@@ -186,7 +186,7 @@ export class HarnessEvaluator {
     const ctx: HarnessContext = {
       abort: new AbortController().signal,
       env: {
-        commandType: scenario.commandType === 'query' ? 'query' : 'curate',
+        commandType: scenario.commandType,
         projectType: scenario.projectType,
         workingDirectory: '/eval',
       },
