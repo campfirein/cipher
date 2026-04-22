@@ -10,7 +10,9 @@ npm run dev                          # Kill daemon + build + run dev mode
 npm test                             # All tests
 npx mocha --forbid-only "test/path/to/file.test.ts"  # Single test
 npm run lint                         # ESLint
-npm run typecheck                    # TypeScript type checking
+npm run typecheck                    # TypeScript (root + src/webui/tsconfig.json)
+npm run build:ui                     # Build the web UI bundle (Vite); runs automatically as part of `build`
+npm run dev:ui                       # Vite dev server for the web UI
 ./bin/dev.js [command]               # Dev mode (ts-node)
 ./bin/run.js [command]               # Prod mode
 ```
@@ -56,10 +58,11 @@ npm run typecheck                    # TypeScript type checking
 ### Source Layout (`src/`)
 
 - `agent/` — LLM agent: `core/` (interfaces/domain), `infra/` (23 modules, including llm, memory, map, swarm, tools, document-parser), `resources/` (prompts YAML, tool `.txt` descriptions)
-- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (30 modules, including vc, git, hub, mcp, cogit, project, provider-oauth, space, dream), `templates/`, `utils/`
+- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (31 modules, including vc, git, hub, mcp, cogit, project, provider-oauth, space, dream, webui), `templates/`, `utils/`
 - `shared/` — Cross-module: constants, types, transport events, utils
 - `tui/` — React/Ink TUI: app (router/pages), components, features (23 modules, including vc, worktree, source, hub, curate), hooks, lib, providers, stores
-- `oclif/` — Commands grouped by topic (`vc/`, `hub/`, `worktree/`, `source/`, `space/`, `review/`, `connectors/`, `curate/`, `model/`, `providers/`, `swarm/`, `query-log/`) + top-level `.ts` commands; hooks, lib (daemon-client, task-client, json-response)
+- `webui/` — Browser dashboard (React/Vite). Entry `src/webui/index.tsx`; `features/` (15 panels), `pages/` (home, changes, configuration, contexts, tasks, analytics, project-selector), `layouts/`, `stores/`. Connects to the daemon via Socket.IO; no imports from `server/`, `agent/`, or `tui/` (same boundary rule)
+- `oclif/` — Commands grouped by topic (`vc/`, `hub/`, `worktree/`, `source/`, `space/`, `review/`, `connectors/`, `curate/`, `model/`, `providers/`, `swarm/`, `query-log/`) + top-level `.ts` commands (incl. `webui.ts`); hooks, lib (daemon-client, task-client, json-response)
 
 **Import boundary** (ESLint-enforced): `tui/` must not import from `server/`, `agent/`, or `oclif/`. Use transport events or `shared/`.
 
@@ -75,6 +78,14 @@ npm run typecheck                    # TypeScript type checking
 - Agent pool manages forked child processes per project; task routing in `server/infra/process/`
 - MCP server in `server/infra/mcp/` exposes tools via Model Context Protocol; `tools/` subdir has dedicated implementations (`brv-query-tool`, `brv-curate-tool`)
 
+### Web UI (`src/webui/`, `src/server/infra/webui/`)
+
+- `brv webui [-p, --port <n>]` opens the dashboard in the default browser. Port is persisted via daemon events (`webui:getPort` / `webui:setPort`); first-run default is 7700
+- Server side: `server/infra/webui/` — `webui-server.ts` (standalone HTTP server), `webui-middleware.ts` (Express static files + `/api/ui/config`), `webui-state.ts` (port persistence). CSP headers applied
+- Browser bootstraps by fetching `/api/ui/config` to discover the daemon's dynamic Socket.IO port, then connects cross-origin
+- Daemon `ClientType` includes `'webui'` alongside `'tui' | 'cli' | 'agent' | 'mcp' | 'extension'`
+- Build/dev: `npm run build:ui` (Vite, runs as part of `npm run build`); `npm run dev:ui` for live reload. `typecheck` runs both the root and `src/webui/tsconfig.json`
+
 ### VC, Worktrees & Knowledge Sources
 
 - `brv vc` — isomorphic-git version control (add, branch, checkout, clone, commit, config, fetch, init, log, merge, pull, push, remote, reset, status); git plumbing in `server/infra/git/` (`isomorphic-git-service.ts`), VC config store in `server/infra/vc/`
@@ -88,12 +99,13 @@ npm run typecheck                    # TypeScript type checking
 - Canonical project resolver: `resolveProject()` in `server/infra/project/` — priority `flag > direct > linked > walked-up > null`. `projectRoot` and `worktreeRoot` are threaded through transport schemas, task routing, and all executors
 - All commands are daemon-routed: `oclif/` and `tui/` never import from `server/`
 - Oclif: `src/oclif/commands/{vc,worktree,source}/`; TUI: `src/tui/features/{vc,worktree,source}/`; slash commands (`vc-*`, `worktree`, `source`) in `src/tui/features/commands/definitions/`
+- `brv curate` blocks execution by default and rejects overlapping runs for the same project; pass `--detach` to run in background. Behavioral contract lives in `src/server/templates/sections/` (`brv-instructions.md`, `workflow.md`, `skill/SKILL.md`) — the in-daemon agent reads these at runtime
 
 ### Agent (`src/agent/`)
 
 - Tools: definitions in `resources/tools/*.txt`, implementations in `infra/tools/implementations/`, registry in `infra/tools/tool-registry.ts`
 - Tool categories: file ops (read/write/edit/glob/grep/list-dir), bash (exec/output), knowledge (create/expand/search), memory (read/write/edit/delete/list), swarm (query/store), todos (read/write), curate, code exec, batch, detect domains, kill process, search history
-- LLM: 18 providers in `infra/llm/providers/`; 6 compression strategies in `infra/llm/context/compression/`
+- LLM: 20 providers in `infra/llm/providers/`; 6 compression strategies in `infra/llm/context/compression/`
 - System prompts: contributor pattern (XML sections) in `infra/system-prompt/`
 - Map/memory: `infra/map/` (agentic map, context-tree store, LLM map memory, worker pool); `infra/memory/` (memory-manager, deduplicator)
 - Storage: file-based blob (`infra/blob/`) and key storage (`infra/storage/`) — no SQLite
