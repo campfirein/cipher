@@ -6,6 +6,7 @@
  * from '.../infra/harness'` without reaching into individual files.
  */
 
+export {HarnessBootstrap} from './harness-bootstrap.js'
 export {HarnessModuleBuilder} from './harness-module-builder.js'
 export {HarnessOutcomeRecorder} from './harness-outcome-recorder.js'
 export {HarnessStore} from './harness-store.js'
