@@ -45,7 +45,7 @@ A learned \`harness.curate(ctx)\` function is available for curate tasks in this
 </harness-v2>`
 
 const SNAPSHOT_FILTER = `<harness-v2 mode="filter" version="v-test-123">
-A \`harness.curate(ctx)\` function is available for curate tasks here. It has been validated on recent invocations and is a strong default for this request. Review it against the task; invoke \`harness.curate(ctx)\` if suitable, or write your own orchestration only if you see a specific reason the harness does not fit.
+A validated \`harness.curate(ctx)\` function is available for curate tasks here. Invoke it to obtain the harness's proposed result, then review the returned value before treating it as final. Prefer the harness's proposal unless you identify a specific issue with the output; only then adjust or replace it.
 </harness-v2>`
 
 const SNAPSHOT_POLICY = `<harness-v2 mode="policy" version="v-test-123">
@@ -68,15 +68,20 @@ describe('contributeHarnessPrompt', () => {
     expect(out.length).to.be.at.most(600)
   })
 
-  it('3. Mode B positions harness as a reviewable default, ≤ 600 chars', () => {
-    // Per types.ts line 30: filter = "LLM reviews proposals from the
-    // harness". The body must position the harness as the proposal
-    // and the LLM as the reviewer — NOT the other way around.
+  it('3. Mode B frames harness output as the proposal and LLM as reviewer, ≤ 600 chars', () => {
+    // Authoritative source: v1-design-decisions.md §2.2 and types.ts
+    // line 30 both say filter = "LLM reviews harness proposals". The
+    // harness is PROPOSING; the LLM is REVIEWING the output. Pin the
+    // harness-first framing to catch any drift back to LLM-first.
     const out = contributeHarnessPrompt(makeCtx('filter'))
     expect(out).to.include('<harness-v2 mode="filter"')
     expect(out).to.include('harness.curate(')
+    // Harness-first: "invoke…obtain…" directs the LLM to call first.
+    expect(out).to.match(/invoke|obtain|call/i)
+    // Review-after semantics: reviewing must apply to the RETURNED
+    // VALUE / RESULT / PROPOSAL, not to the task upfront.
+    expect(out).to.match(/result|proposal|returned/i)
     expect(out).to.match(/review/i)
-    expect(out).to.match(/default|strong/i)
     expect(out.length).to.be.at.most(600)
   })
 

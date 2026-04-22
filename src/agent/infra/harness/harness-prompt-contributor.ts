@@ -17,9 +17,9 @@ const MODE_BODIES: Readonly<Record<HarnessMode, string>> = {
   ].join(' '),
 
   filter: [
-    'A `harness.curate(ctx)` function is available for curate tasks here.',
-    'It has been validated on recent invocations and is a strong default for this request.',
-    'Review it against the task; invoke `harness.curate(ctx)` if suitable, or write your own orchestration only if you see a specific reason the harness does not fit.',
+    'A validated `harness.curate(ctx)` function is available for curate tasks here.',
+    'Invoke it to obtain the harness\'s proposed result, then review the returned value before treating it as final.',
+    'Prefer the harness\'s proposal unless you identify a specific issue with the output; only then adjust or replace it.',
   ].join(' '),
 
   policy: [
@@ -53,6 +53,9 @@ export function contributeHarnessPrompt(ctx?: PromptContributionContext): string
   if (ctx === undefined) return ''
 
   const body = MODE_BODIES[ctx.mode]
+  // `ctx.mode` is safe unescaped: `HarnessMode` is a Zod enum constrained
+  // to `'assisted' | 'filter' | 'policy'`, none of which contain XML
+  // specials. Version id is escaped as defense-in-depth — see below.
   const safeVersionId = escapeXmlAttribute(ctx.version.id)
   return `<harness-v2 mode="${ctx.mode}" version="${safeVersionId}">\n${body}\n</harness-v2>`
 }
