@@ -27,7 +27,7 @@ interface CacheEntry {
  */
 export class SigningKeyCache {
   private readonly cache = new Map<string, CacheEntry>()
-private readonly ttlMs: number
+  private readonly ttlMs: number
 
   /**
    * @param ttlMs - Cache TTL in milliseconds.
