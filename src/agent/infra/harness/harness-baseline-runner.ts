@@ -21,7 +21,7 @@
  * wires `HarnessToolsFactory` to `SandboxService.buildHarnessTools({dryRun: true})`.
  */
 
-import type {HarnessContext, ProjectType, ValidatedEvaluationScenario} from '../../core/domain/harness/types.js'
+import type {HarnessContext, HarnessModule, ProjectType, ValidatedEvaluationScenario} from '../../core/domain/harness/types.js'
 import type {IHarnessStore} from '../../core/interfaces/i-harness-store.js'
 import type {ILogger} from '../../core/interfaces/i-logger.js'
 import type {HarnessToolsFactory} from './harness-evaluator.js'
@@ -81,6 +81,10 @@ export const BASELINE_MAX_COUNT = 50
  */
 const SUPPORTED_BASELINE_COMMANDS: ReadonlySet<string> = new Set<SupportedCommandType>(['curate'])
 
+function isSupportedBaselineCommand(cmd: string): cmd is SupportedCommandType {
+  return SUPPORTED_BASELINE_COMMANDS.has(cmd)
+}
+
 export class HarnessBaselineRunner {
   private readonly moduleBuilder: HarnessModuleBuilder
 
@@ -107,7 +111,7 @@ export class HarnessBaselineRunner {
       )
     }
 
-    if (!SUPPORTED_BASELINE_COMMANDS.has(commandType)) {
+    if (!isSupportedBaselineCommand(commandType)) {
       throw new HarnessBaselineRunnerError(
         `baseline is only supported for commandType 'curate' in v1.0 (got '${commandType}'). Query/chat templates land in a follow-up.`,
         'UNSUPPORTED_COMMAND_TYPE',
@@ -116,15 +120,18 @@ export class HarnessBaselineRunner {
     }
 
     const allScenarios = await this.harnessStore.listScenarios(projectId, commandType)
-    const scenarios = allScenarios.slice(0, count)
 
-    if (scenarios.length < BASELINE_MIN_SCENARIOS) {
+    // Guard on store coverage, not the requested window: `--count 2` with
+    // 10 stored scenarios is a bad request (count too low), not missing data.
+    if (allScenarios.length < BASELINE_MIN_SCENARIOS) {
       throw new HarnessBaselineRunnerError(
-        `not enough scenarios — baseline needs at least ${BASELINE_MIN_SCENARIOS}, found ${scenarios.length}. Run curate ${BASELINE_MIN_SCENARIOS - scenarios.length} more time(s) first.`,
+        `not enough scenarios — baseline needs at least ${BASELINE_MIN_SCENARIOS}, found ${allScenarios.length}. Run curate ${BASELINE_MIN_SCENARIOS - allScenarios.length} more time(s) first.`,
         'INSUFFICIENT_SCENARIOS',
-        {found: scenarios.length, required: BASELINE_MIN_SCENARIOS},
+        {found: allScenarios.length, required: BASELINE_MIN_SCENARIOS},
       )
     }
+
+    const scenarios = allScenarios.slice(0, count)
 
     const currentVersion = await this.harnessStore.getLatest(projectId, commandType)
     if (currentVersion === undefined) {
@@ -135,10 +142,7 @@ export class HarnessBaselineRunner {
       )
     }
 
-    const rawCode = getTemplate(
-      commandType as SupportedCommandType,
-      currentVersion.projectType,
-    ).code
+    const rawCode = getTemplate(commandType, currentVersion.projectType).code
 
     // Build both modules. Either failing to build is a bug-level
     // error — the current version came from the store (previously
@@ -196,7 +200,7 @@ export class HarnessBaselineRunner {
    * side-by-side, different semantics, different test surface).
    */
   private async runSingleScenario(
-    module: import('../../core/domain/harness/types.js').HarnessModule,
+    module: HarnessModule,
     scenario: ValidatedEvaluationScenario,
   ): Promise<{stderr?: string; success: boolean}> {
     const tools = this.toolsFactory()
@@ -210,12 +214,16 @@ export class HarnessBaselineRunner {
       tools,
     }
 
-    try {
-      const fn = scenario.commandType === 'query' ? module.query : module.curate
-      if (fn === undefined) {
-        return {stderr: `no ${scenario.commandType} function on module`, success: false}
-      }
+    const fnMap: Partial<Record<string, (ctx: HarnessContext) => Promise<unknown>>> = {
+      curate: module.curate,
+      query: module.query,
+    }
+    const fn = fnMap[scenario.commandType]
+    if (fn === undefined) {
+      return {stderr: `no ${scenario.commandType} function on module`, success: false}
+    }
 
+    try {
       await fn(ctx)
       return {success: true}
     } catch (error) {

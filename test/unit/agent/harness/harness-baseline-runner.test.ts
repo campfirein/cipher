@@ -94,6 +94,13 @@ function makeStoreStub(sb: SinonSandbox): {
  * Build a tools factory whose `curate` rejects/resolves per-arm.
  * Discriminates arms by a side-channel counter: each factory call
  * alternates. Tests use this to control per-arm outcomes.
+ *
+ * IMPLEMENTATION COUPLING: this helper assumes `runBaseline` invokes
+ * the RAW arm before the HARNESS arm within each scenario (odd call =
+ * raw, even = harness). If that order is ever reversed, arm
+ * assertions invert silently. A more resilient scheme would tag the
+ * arm via `ctx.env` and discriminate on the tag; kept simple here
+ * because the single `runBaseline` caller is serial and deliberate.
  */
 function makeTwoArmToolsFactory(
   sb: SinonSandbox,
@@ -207,6 +214,28 @@ describe('HarnessBaselineRunner', () => {
     expect(err.code).to.equal('INSUFFICIENT_SCENARIOS')
     expect(err.details.found).to.equal(2)
     expect(err.details.required).to.equal(BASELINE_MIN_SCENARIOS)
+  })
+
+  it('4b. INSUFFICIENT_SCENARIOS reflects STORE coverage, not the sliced window', async () => {
+    // Store has plenty (10); caller passes --count=2. Error should report
+    // the requested window as the bad input, not claim missing data.
+    const {getLatest, listScenarios, store} = makeStoreStub(sb)
+    listScenarios.resolves(Array.from({length: 10}, (_, i) => makeScenario(`s${i}`)))
+    getLatest.resolves(makeVersion())
+    const runner = new HarnessBaselineRunner(store, new NoOpLogger(), () =>
+      ({curate: sb.stub(), readFile: sb.stub()}) as unknown as HarnessContextTools,
+    )
+
+    let caught: unknown
+    try {
+      await runner.runBaseline({commandType: 'curate', count: 2, projectId: PROJECT_ID})
+    } catch (error) {
+      caught = error
+    }
+
+    // With the fix, 10 stored ≥ 3, so guard does NOT fire — the run proceeds
+    // and completes on the 2-scenario slice (count itself is valid: [1, 50]).
+    expect(caught).to.equal(undefined)
   })
 
   it('5. throws NO_CURRENT_VERSION when the pair has no stored version', async () => {
