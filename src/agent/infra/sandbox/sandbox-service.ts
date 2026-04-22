@@ -107,6 +107,16 @@ export class SandboxService implements ISandboxService {
   }
 
   /**
+   * Public accessor for `buildHarnessTools` — consumed by the
+   * `HarnessEvaluator` to construct dryRun-enabled tool contexts.
+   * Keeps one tools-construction path; the `dryRun` flag is the
+   * only branch.
+   */
+  createHarnessTools(options?: {dryRun?: boolean}): HarnessContext['tools'] {
+    return this.buildHarnessTools(options)
+  }
+
+  /**
    * Delete a variable from a session's sandbox.
    * If the sandbox doesn't exist yet, cleans up any pending variable with that key.
    *
@@ -504,24 +514,35 @@ export class SandboxService implements ISandboxService {
    * instances. Each bound function throws if the underlying service
    * isn't wired — the harness code sees a normal runtime error rather
    * than a silent no-op.
+   *
+   * When `options.dryRun` is `true`, write-capable tools (`curate`)
+   * throw `HarnessEvaluatorError('WRITE_BLOCKED_DURING_EVAL')` instead
+   * of executing. Read-only tools (`readFile`) remain unblocked.
+   * The evaluator uses this for side-effect-free candidate scoring.
    */
-  private buildHarnessTools(): HarnessContext['tools'] {
+  private buildHarnessTools(options?: {dryRun?: boolean}): HarnessContext['tools'] {
     const {curateService} = this
     const {fileSystem} = this
+    const writeBlocked = options?.dryRun === true
     return {
-      async curate(operations, options) {
+      async curate(operations, opts) {
+        if (writeBlocked) {
+          const {HarnessEvaluatorError} = await import('../harness/harness-evaluator-errors.js')
+          throw new HarnessEvaluatorError('WRITE_BLOCKED_DURING_EVAL')
+        }
+
         if (curateService === undefined) {
           throw new Error('harness.ctx.tools.curate: no curate service wired')
         }
 
-        return curateService.curate(operations, options)
+        return curateService.curate(operations, opts)
       },
-      async readFile(filePath, options) {
+      async readFile(filePath, opts) {
         if (fileSystem === undefined) {
           throw new Error('harness.ctx.tools.readFile: no file system wired')
         }
 
-        return fileSystem.readFile(filePath, options)
+        return fileSystem.readFile(filePath, opts)
       },
     }
   }
