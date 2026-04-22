@@ -144,9 +144,13 @@ export class HarnessScenarioCapture {
         return
       }
 
-      // LRU eviction: delete the oldest (first in insertion order) when at cap
+      // LRU eviction: delete the oldest by createdAt when at cap.
+      // Sort explicitly — listScenarios ordering is store-dependent
+      // (InMemoryHarnessStore preserves insertion order; FileKeyStorage
+      // orders lexicographically by key, which may not match createdAt).
       if (existing.length >= MAX_SCENARIOS_PER_PAIR) {
-        const oldest = existing[0]
+        const sorted = [...existing].sort((a, b) => a.createdAt - b.createdAt)
+        const oldest = sorted[0]
         await this.harnessStore.deleteScenario(ctx.projectId, ctx.commandType, oldest.id)
         this.logger.debug('HarnessScenarioCapture: evicted oldest scenario for LRU cap', {
           commandType: ctx.commandType,
@@ -158,6 +162,7 @@ export class HarnessScenarioCapture {
       await this.harnessStore.saveScenario({
         code: ctx.code,
         commandType: ctx.commandType,
+        createdAt: Date.now(),
         expectedBehavior: this.deriveExpectedBehavior(captureType, ctx),
         id: randomUUID(),
         projectId: ctx.projectId,

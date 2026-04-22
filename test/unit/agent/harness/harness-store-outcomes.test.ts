@@ -33,6 +33,7 @@ function makeScenario(overrides: Partial<EvaluationScenario> = {}): EvaluationSc
   return {
     code: 'tools.search("x")',
     commandType: 'curate',
+    createdAt: Date.now(),
     expectedBehavior: 'returns results',
     id: 's-default',
     projectId: 'p',

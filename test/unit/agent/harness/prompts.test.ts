@@ -62,6 +62,7 @@ function makeScenario(overrides: Partial<EvaluationScenario> = {}): EvaluationSc
   return {
     code: 'exports.curate = async function(ctx) { await ctx.tools.curate([]) }',
     commandType: 'curate',
+    createdAt: Date.now(),
     expectedBehavior: 'Curates project files successfully',
     id: `scenario-${Math.random().toString(36).slice(2, 8)}`,
     projectId: 'proj-1',
@@ -269,6 +270,7 @@ exports.curate = async function(ctx) { return { applied: [], summary: { added: 0
       {
         code: 'test-code',
         commandType: 'curate',
+        createdAt: 1_700_000_000_000,
         expectedBehavior: 'Curates successfully',
         id: 'scenario-1',
         projectId: 'proj-1',
