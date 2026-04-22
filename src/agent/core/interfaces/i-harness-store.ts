@@ -47,6 +47,18 @@ import type {
 
 export interface IHarnessStore {
   /**
+   * Delete a single outcome by its `(projectId, commandType, outcomeId)` key.
+   * Returns `true` when the outcome existed and was deleted; `false` on miss.
+   * Used by `HarnessOutcomeRecorder` for clearing synthetic feedback outcomes
+   * on re-label and cap enforcement.
+   */
+  deleteOutcome(
+    projectId: string,
+    commandType: string,
+    outcomeId: string,
+  ): Promise<boolean>
+
+  /**
    * Delete every outcome for a `(projectId, commandType)` pair — invoked by
    * `brv harness reset` (Phase 7) and by the migration hatch in test
    * fixtures. Returns the number of records deleted.

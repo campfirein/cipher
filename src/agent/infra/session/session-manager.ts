@@ -63,8 +63,11 @@ export interface SessionManagerOptions {
  * and creates session-specific services (LLM, EventBus) per conversation.
  */
 export class SessionManager {
+  /** Grace window before a session's dedup entry expires (ms). */
+  private static readonly ENDED_SESSION_GRACE_MS = 60_000
   private cleanupTimer?: ReturnType<typeof setInterval>
   private readonly config: Required<SessionManagerConfig>
+  private readonly endedSessions = new Set<string>()
   private readonly httpConfig: ByteRoverHttpConfig
   private readonly llmConfig: {
     httpReferer?: string
@@ -353,6 +356,7 @@ export class SessionManager {
     }
 
     this.sessions.clear()
+    this.endedSessions.clear()
 
     // Clear all metadata maps
     this.sessionCreatedAt.clear()
@@ -394,6 +398,9 @@ export class SessionManager {
     // Remove from memory only - history remains in storage
     const ended = this.sessions.delete(id)
     if (ended) {
+      // Fire harness refinement trigger (fire-and-forget)
+      this.triggerHarnessRefinement(id)
+
       try {
         this.onSessionRemoved?.(id, reason)
       } catch {
@@ -627,5 +634,47 @@ export class SessionManager {
 
     this.sessions.set(id, session)
     return session
+  }
+
+  /**
+   * Fire the harness refinement pipeline for each command type the session
+   * touched. Fire-and-forget — the synthesizer's per-pair single-flight
+   * handles serialization; errors are swallowed so session cleanup never
+   * fails due to refinement issues.
+   *
+   * Deduplicates via `endedSessions` with a 60s grace window so the trigger
+   * fires at most once per session even if session-end is observed twice
+   * (e.g., client disconnect + timeout).
+   */
+  private triggerHarnessRefinement(sessionId: string): void {
+    const config = this.sharedServices.harnessConfig
+    if (!config?.enabled || !config.autoLearn) return
+
+    const synthesizer = this.sharedServices.harnessSynthesizer
+    const recorder = this.sharedServices.harnessOutcomeRecorder
+    if (!synthesizer || !recorder) return
+
+    if (this.endedSessions.has(sessionId)) return
+    this.endedSessions.add(sessionId)
+
+    const projectId = recorder.getProjectIdForSession(sessionId)
+    const commandTypes = recorder.getCommandTypesForSession(sessionId)
+
+    // Release per-session recorder state now that we've read it.
+    // Without this, the three recorder maps grow one entry per ended session.
+    recorder.clearSession(sessionId)
+
+    if (!projectId) return
+
+    for (const commandType of commandTypes) {
+      synthesizer
+        .refineIfNeeded(projectId, commandType)
+        .catch(() => {
+          // Swallow — refinement failures must not affect session lifecycle
+        })
+    }
+
+    // Clean up dedup entry after grace window to prevent unbounded growth
+    setTimeout(() => this.endedSessions.delete(sessionId), SessionManager.ENDED_SESSION_GRACE_MS)
   }
 }

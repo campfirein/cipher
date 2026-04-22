@@ -23,6 +23,10 @@ import { createBlobStorage } from '../blob/blob-storage-factory.js'
 import { EnvironmentContextBuilder } from '../environment/environment-context-builder.js'
 import { AgentEventBus, SessionEventBus } from '../events/event-emitter.js'
 import { FileSystemService } from '../file-system/file-system-service.js'
+import { AgentRefinerClient } from '../harness/agent-refiner-client.js'
+import { HarnessEvaluator } from '../harness/harness-evaluator.js'
+import { HarnessScenarioCapture } from '../harness/harness-scenario-capture.js'
+import { HarnessSynthesizer } from '../harness/harness-synthesizer.js'
 import { HarnessBootstrap, HarnessModuleBuilder, HarnessOutcomeRecorder, HarnessStore } from '../harness/index.js'
 import { AgentLLMService } from '../llm/agent-llm-service.js'
 import { CompactionService } from '../llm/context/compaction/compaction-service.js'
@@ -299,6 +303,56 @@ export async function createCipherAgentServices(
     systemPromptManager.registerContributor(new HarnessContributor())
   }
 
+  // 6b-2. AutoHarness V2 synthesizer + dependencies. Created when the
+  // harness is enabled so the session-end trigger can fire the
+  // Critic → Refiner → Evaluator pipeline. Gated on `enabled` since
+  // the evaluator's toolsFactory and the refiner's content generator
+  // should not be instantiated for disabled harnesses.
+  let harnessSynthesizer: HarnessSynthesizer | undefined
+  if (config.harness.enabled) {
+    const harnessEvaluator = new HarnessEvaluator(
+      harnessStore,
+      logger.withSource('HarnessEvaluator'),
+      () => sandboxService.createHarnessTools({dryRun: true}),
+    )
+
+    const harnessScenarioCapture = new HarnessScenarioCapture(
+      harnessStore,
+      logger.withSource('HarnessScenarioCapture'),
+    )
+
+    // RefinerClient uses the refinement model override if configured,
+    // otherwise falls back to the agent's default model. The synthesizer
+    // checks the blocklist at runtime to skip weak models.
+    const refinementModel = config.harness.refinementModel ?? config.model
+    const refinerProvider = config.provider ?? (config.openRouterApiKey ? 'openrouter' : 'byterover')
+
+    const refinerGenerator = createGeneratorForProvider(refinerProvider, {
+      apiKey: refinerProvider === 'openrouter'
+        ? (config.openRouterApiKey ?? config.providerApiKey)
+        : config.providerApiKey,
+      baseUrl: config.providerBaseUrl,
+      headers: config.providerHeaders,
+      httpReferer: config.httpReferer,
+      maxTokens: 4096,
+      model: refinementModel,
+      siteName: config.siteName,
+      temperature: 0,
+    })
+
+    const refinerClient = new AgentRefinerClient(refinerGenerator, refinementModel)
+
+    harnessSynthesizer = new HarnessSynthesizer(
+      harnessStore,
+      harnessEvaluator,
+      harnessScenarioCapture,
+      refinerClient,
+      agentEventBus,
+      config.harness,
+      logger.withSource('HarnessSynthesizer'),
+    )
+  }
+
   // 6c. Swarm coordinator — try to load config and build providers.
   // Missing config → fail-open (no swarm). Invalid config → warn but continue.
   let swarmCoordinator: SwarmCoordinator | undefined
@@ -411,6 +465,7 @@ export async function createCipherAgentServices(
     harnessConfig: config.harness,
     harnessOutcomeRecorder,
     harnessStore,
+    harnessSynthesizer,
     historyStorage,
     memoryManager,
     messageStorageService,

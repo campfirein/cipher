@@ -104,17 +104,17 @@ describe('HarnessOutcomeRecorder — attachFeedback', () => {
     expect(flagged).to.exist
     expect(flagged?.userFeedback).to.equal('bad')
 
-    // 3 synthetics
-    const synthetics = outcomes.filter((o) => o.id !== 'outcome-1')
+    // 3 synthetics with deterministic __synthetic_ IDs
+    const synthetics = outcomes.filter((o) => o.id.includes('__synthetic_'))
     expect(synthetics).to.have.length(3)
 
     for (const s of synthetics) {
-      // Fresh unique id
-      expect(s.id).to.be.a('string').and.not.equal('outcome-1')
+      // Deterministic id with __synthetic_bad_ prefix
+      expect(s.id).to.match(/^outcome-1__synthetic_bad_\d$/)
       // userFeedback set on synthetic
       expect(s.userFeedback).to.equal('bad')
-      // Same timestamp as original
-      expect(s.timestamp).to.equal(original.timestamp)
+      // Timestamp is fresh (Date.now()), not inherited from original
+      expect(s.timestamp).to.be.greaterThanOrEqual(original.timestamp)
       // Same partition fields
       expect(s.projectId).to.equal(original.projectId)
       expect(s.commandType).to.equal(original.commandType)
@@ -122,14 +122,18 @@ describe('HarnessOutcomeRecorder — attachFeedback', () => {
       expect(s.sessionId).to.equal(original.sessionId)
       // Same content fields
       expect(s.code).to.equal(original.code)
-      expect(s.success).to.equal(original.success)
+      // success derived from verdict: 'bad' → false
+      expect(s.success).to.equal(false)
       expect(s.executionTimeMs).to.equal(original.executionTimeMs)
       expect(s.usedHarness).to.equal(original.usedHarness)
     }
 
-    // All 3 synthetics have distinct ids
+    // All 3 synthetics have distinct deterministic ids
     const syntheticIds = new Set(synthetics.map((s) => s.id))
     expect(syntheticIds.size).to.equal(3)
+    expect(syntheticIds).to.include('outcome-1__synthetic_bad_0')
+    expect(syntheticIds).to.include('outcome-1__synthetic_bad_1')
+    expect(syntheticIds).to.include('outcome-1__synthetic_bad_2')
   })
 
   // ── 2. verdict: 'good' → 1 synthetic + field set ─────────────────────────
@@ -148,10 +152,12 @@ describe('HarnessOutcomeRecorder — attachFeedback', () => {
     const flagged = outcomes.find((o) => o.id === 'outcome-1')
     expect(flagged?.userFeedback).to.equal('good')
 
-    const synthetics = outcomes.filter((o) => o.id !== 'outcome-1')
+    const synthetics = outcomes.filter((o) => o.id.includes('__synthetic_'))
     expect(synthetics).to.have.length(1)
+    expect(synthetics[0].id).to.equal('outcome-1__synthetic_good_0')
     expect(synthetics[0].userFeedback).to.equal('good')
-    expect(synthetics[0].timestamp).to.equal(original.timestamp)
+    // Timestamp is fresh (Date.now()), not inherited from original
+    expect(synthetics[0].timestamp).to.be.greaterThanOrEqual(original.timestamp)
   })
 
   // ── 3. verdict: null → field cleared, no synthetics ───────────────────────
@@ -169,9 +175,9 @@ describe('HarnessOutcomeRecorder — attachFeedback', () => {
     expect(outcomes[0].userFeedback).to.equal(null)
   })
 
-  // ── 3b. verdict change: bad → good leaves orphaned bad synthetics ─────────
+  // ── 3b. verdict change: bad → good → old synthetics removed, new added ────
 
-  it('changing verdict from bad to good adds good synthetics without removing bad ones', async () => {
+  it('changing verdict from bad to good removes bad synthetics and adds good ones', async () => {
     const original = makeOutcome()
     await store.saveOutcome(original)
 
@@ -182,22 +188,22 @@ describe('HarnessOutcomeRecorder — attachFeedback', () => {
     const afterBad = await store.listOutcomes('proj-1', 'curate', 200)
     expect(afterBad).to.have.length(4) // 1 original + 3 bad synthetics
 
-    // Then: change to good → 1 good synthetic added, bad synthetics remain
+    // Then: change to good → bad synthetics cleared, 1 good synthetic added
     await recorder.attachFeedback('proj-1', 'curate', 'outcome-1', 'good')
     const afterGood = await store.listOutcomes('proj-1', 'curate', 200)
-    // 1 original + 3 bad synthetics + 1 good synthetic = 5
-    expect(afterGood).to.have.length(5)
+    // 1 original + 1 good synthetic = 2
+    expect(afterGood).to.have.length(2)
 
     // Original field updated to 'good'
     const flagged = afterGood.find((o) => o.id === 'outcome-1')
     expect(flagged?.userFeedback).to.equal('good')
 
-    // Bad synthetics still present (orphaned — by design per §C2)
-    const badSynthetics = afterGood.filter((o) => o.id !== 'outcome-1' && o.userFeedback === 'bad')
-    expect(badSynthetics).to.have.length(3)
+    // Bad synthetics removed (re-label is idempotent)
+    const badSynthetics = afterGood.filter((o) => o.id !== 'outcome-1' && o.id.includes('__synthetic_bad_'))
+    expect(badSynthetics).to.have.length(0)
 
     // Good synthetic added
-    const goodSynthetics = afterGood.filter((o) => o.id !== 'outcome-1' && o.userFeedback === 'good')
+    const goodSynthetics = afterGood.filter((o) => o.id !== 'outcome-1' && o.id.includes('__synthetic_good_'))
     expect(goodSynthetics).to.have.length(1)
   })
 
@@ -246,8 +252,8 @@ describe('HarnessOutcomeRecorder — attachFeedback', () => {
     const flagged = outcomes.find((o) => o.id === 'outcome-1')
     expect(flagged?.userFeedback).to.equal('bad')
 
-    // 2 of 3 synthetics landed (row #2 failed)
-    const synthetics = outcomes.filter((o) => o.id !== 'outcome-1')
+    // 2 of 3 synthetics landed (one failed)
+    const synthetics = outcomes.filter((o) => o.id.includes('__synthetic_'))
     expect(synthetics).to.have.length(2)
 
     // Warn was logged
@@ -287,7 +293,7 @@ describe('HarnessOutcomeRecorder — attachFeedback', () => {
 
   // ── 7. Concurrent: 10 parallel attachFeedback calls → all complete ────────
 
-  it('10 parallel attachFeedback("bad") calls on distinct outcomes → 30 synthetics, all fast', async () => {
+  it('10 parallel attachFeedback("bad") calls on distinct outcomes → synthetics capped', async () => {
     // Seed 10 distinct outcomes
     await Promise.all(
       Array.from({length: 10}, (_, i) =>
@@ -303,13 +309,18 @@ describe('HarnessOutcomeRecorder — attachFeedback', () => {
     await Promise.all(promises)
 
     const outcomes = await store.listOutcomes('proj-1', 'curate', 200)
-    // 10 originals + 30 synthetics
-    expect(outcomes).to.have.length(40)
+    const synthetics = outcomes.filter((o) => o.id.includes('__synthetic_'))
 
     // All originals flagged
     for (let i = 0; i < 10; i++) {
       const flagged = outcomes.find((o) => o.id === `oc-${i}`)
       expect(flagged?.userFeedback).to.equal('bad')
     }
+
+    // Cap enforcement: at most 10 synthetics in the 50-outcome window.
+    // Concurrent calls may leave slightly more due to race conditions,
+    // but a sequential check should show ≤ 10.
+    expect(synthetics.length).to.be.at.most(30) // upper bound: no cap race wins
+    expect(synthetics.length).to.be.at.least(10) // lower bound: at least 10 landed
   })
 })

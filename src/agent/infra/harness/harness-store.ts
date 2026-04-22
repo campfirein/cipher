@@ -60,6 +60,33 @@ export class HarnessStore implements IHarnessStore {
 
   // ── outcomes ──────────────────────────────────────────────────────────────
 
+  async deleteOutcome(
+    projectId: string,
+    commandType: string,
+    outcomeId: string,
+  ): Promise<boolean> {
+    // Outcome key includes projectType, which we don't have. Try all
+    // three values — at most 3 lookups, acceptable for user-driven
+    // feedback operations.
+    //
+    // TOCTOU window between get() and delete() is harmless: a concurrent
+    // writer cannot change the key under us (IDs are deterministic), and
+    // a concurrent delete simply makes ours a no-op. Same reasoning as
+    // deleteScenario.
+    for (const projectType of ProjectTypeSchema.options) {
+      const key = this.outcomeKey(projectType, projectId, commandType, outcomeId)
+      // eslint-disable-next-line no-await-in-loop
+      const hit = await this.keyStorage.get(key)
+      if (hit !== undefined) {
+        // eslint-disable-next-line no-await-in-loop
+        await this.keyStorage.delete(key)
+        return true
+      }
+    }
+
+    return false
+  }
+
   async deleteOutcomes(projectId: string, commandType: string): Promise<number> {
     const keys: StorageKey[] = []
     for (const projectType of ProjectTypeSchema.options) {
