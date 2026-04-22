@@ -37,7 +37,6 @@
  */
 
 import {expect} from 'chai'
-import {createSandbox, type SinonSandbox} from 'sinon'
 
 import type {EnvironmentContext} from '../../../../src/agent/core/domain/environment/types.js'
 import type {HarnessVersion} from '../../../../src/agent/core/domain/harness/types.js'
@@ -91,7 +90,7 @@ function makeConfig(): ValidatedHarnessConfig {
   }
 }
 
-function makeVersion(code: string, id: string = 'v-degradation'): HarnessVersion {
+function makeVersion(code: string, id: string): HarnessVersion {
   return {
     code,
     commandType: 'curate',
@@ -151,6 +150,17 @@ async function expectSandboxHealthy(sandboxService: SandboxService): Promise<voi
   expect(result.returnValue, 'sandbox must still execute plain JS after harness failure').to.equal(4)
 }
 
+/**
+ * Assertion for load-time failures: the recorder fires from
+ * `executeCode`, not `loadHarness`. A future change that accidentally
+ * wires `record()` into the load path would silently record a spurious
+ * outcome — this guard catches that.
+ */
+async function expectNoOutcomeRecorded(harnessStore: HarnessStore): Promise<void> {
+  const outcomes = await harnessStore.listOutcomes(PROJECT_ID, 'curate', 10)
+  expect(outcomes, 'load-time failure must not record an outcome').to.have.length(0)
+}
+
 /** Poll the outcome store for a recorded entry; cold-start.test.ts pattern. */
 async function pollForOutcome(
   harnessStore: HarnessStore,
@@ -173,16 +183,6 @@ async function pollForOutcome(
 describe('AutoHarness V2 — graceful-degradation regression (Phase 3.4 invariants)', function () {
   this.timeout(25_000)
 
-  let sb: SinonSandbox
-
-  beforeEach(() => {
-    sb = createSandbox()
-  })
-
-  afterEach(() => {
-    sb.restore()
-  })
-
   // ── Load-time failures: harness NOT loaded, sandbox degrades ──────────────
 
   it('1. Syntax error → loadHarness returns {loaded:false, reason:syntax}; sandbox stays healthy', async () => {
@@ -193,6 +193,7 @@ describe('AutoHarness V2 — graceful-degradation regression (Phase 3.4 invarian
     expect(result).to.deep.equal({loaded: false, reason: 'syntax'})
 
     await expectSandboxHealthy(sandboxService)
+    await expectNoOutcomeRecorded(harnessStore)
   })
 
   it('2. meta() throws → {loaded:false, reason:meta-threw}; sandbox stays healthy', async () => {
@@ -204,6 +205,7 @@ describe('AutoHarness V2 — graceful-degradation regression (Phase 3.4 invarian
     expect(result).to.deep.equal({loaded: false, reason: 'meta-threw'})
 
     await expectSandboxHealthy(sandboxService)
+    await expectNoOutcomeRecorded(harnessStore)
   })
 
   it('3. meta() returns schema-invalid object → {loaded:false, reason:meta-invalid}; sandbox stays healthy', async () => {
@@ -220,6 +222,7 @@ describe('AutoHarness V2 — graceful-degradation regression (Phase 3.4 invarian
     expect(result).to.deep.equal({loaded: false, reason: 'meta-invalid'})
 
     await expectSandboxHealthy(sandboxService)
+    await expectNoOutcomeRecorded(harnessStore)
   })
 
   // ── Runtime failures: loaded; wrapper throws on invocation; session lives ─
@@ -234,8 +237,12 @@ describe('AutoHarness V2 — graceful-degradation regression (Phase 3.4 invarian
     const loadResult = await sandboxService.loadHarness(SESSION_ID, PROJECT_ID, 'curate')
     expect(loadResult.loaded).to.equal(true)
 
+    // The IIFE rejects; `LocalSandbox.execute` normalises the rejection
+    // into `REPLResult.stderr` rather than propagating a throw to the
+    // test. This contract is what the `/curate\(\) failed/` assertion
+    // below latches onto.
     const exec = await sandboxService.executeCode(
-      '(async () => harness.curate())().catch((e) => { throw e })',
+      '(async () => harness.curate())()',
       SESSION_ID,
       {commandType: 'curate', taskDescription: 'degradation-4'},
     )
@@ -257,8 +264,12 @@ describe('AutoHarness V2 — graceful-degradation regression (Phase 3.4 invarian
 
     await sandboxService.loadHarness(SESSION_ID, PROJECT_ID, 'curate')
 
+    // The IIFE rejects; `LocalSandbox.execute` normalises the rejection
+    // into `REPLResult.stderr` rather than propagating a throw to the
+    // test. This contract is what the `/curate\(\) failed/` assertion
+    // below latches onto.
     const exec = await sandboxService.executeCode(
-      '(async () => harness.curate())().catch((e) => { throw e })',
+      '(async () => harness.curate())()',
       SESSION_ID,
       {commandType: 'curate', taskDescription: 'degradation-5'},
     )
@@ -277,8 +288,12 @@ describe('AutoHarness V2 — graceful-degradation regression (Phase 3.4 invarian
 
     await sandboxService.loadHarness(SESSION_ID, PROJECT_ID, 'curate')
 
+    // The IIFE rejects; `LocalSandbox.execute` normalises the rejection
+    // into `REPLResult.stderr` rather than propagating a throw to the
+    // test. This contract is what the `/curate\(\) failed/` assertion
+    // below latches onto.
     const exec = await sandboxService.executeCode(
-      '(async () => harness.curate())().catch((e) => { throw e })',
+      '(async () => harness.curate())()',
       SESSION_ID,
       {commandType: 'curate', taskDescription: 'degradation-6'},
     )
@@ -297,8 +312,12 @@ describe('AutoHarness V2 — graceful-degradation regression (Phase 3.4 invarian
 
     await sandboxService.loadHarness(SESSION_ID, PROJECT_ID, 'curate')
 
+    // The IIFE rejects; `LocalSandbox.execute` normalises the rejection
+    // into `REPLResult.stderr` rather than propagating a throw to the
+    // test. This contract is what the `/curate\(\) failed/` assertion
+    // below latches onto.
     const exec = await sandboxService.executeCode(
-      '(async () => harness.curate())().catch((e) => { throw e })',
+      '(async () => harness.curate())()',
       SESSION_ID,
       {commandType: 'curate', taskDescription: 'degradation-7'},
     )
