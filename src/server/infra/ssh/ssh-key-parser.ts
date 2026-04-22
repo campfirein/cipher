@@ -4,6 +4,7 @@ export {
   computeFingerprint,
   extractPublicKey,
   getPublicKeyMetadata,
+  isPassphraseError,
   parseSSHPrivateKey,
   probeSSHKey,
   resolveHome,

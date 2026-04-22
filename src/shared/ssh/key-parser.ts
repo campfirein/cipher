@@ -184,7 +184,7 @@ function opensshEd25519ToNodeKey(privateKeyBlob: Buffer): {
 }
 
 /** Detect whether a PEM key parsing error indicates an encrypted key needing a passphrase. */
-function isPassphraseError(err: unknown): boolean {
+export function isPassphraseError(err: unknown): boolean {
   if (!(err instanceof Error)) return false
 
   // Node.js crypto errors expose an `code` property. Whitelist exactly the two

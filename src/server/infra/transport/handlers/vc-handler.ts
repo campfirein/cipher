@@ -62,6 +62,7 @@ import {VcError} from '../../../core/domain/errors/vc-error.js'
 import {ensureContextTreeGitignore, ensureGitignoreEntries} from '../../../utils/gitignore.js'
 import {buildCogitRemoteUrl, isValidBranchName, parseUserFacingUrl} from '../../git/cogit-url.js'
 import {
+  isPassphraseError,
   type ParsedSSHKey,
   parseSSHPrivateKey,
   probeSSHKey,
@@ -764,8 +765,14 @@ export class VcHandler {
             // Cache the parsed key for immediate use
             this.signingKeyCache.set(projectPath, resolvedPath, parsed)
             hint = `Fingerprint: ${parsed.fingerprint}`
-          } catch {
-            // Encrypted key — require passphrase to get fingerprint; skip hint
+          } catch (error) {
+            // Encrypted key — need passphrase for fingerprint; skip hint silently.
+            // Anything else (corrupt file, unexpected format, race between probe
+            // and parse) surfaces as a hint so the user gets a breadcrumb at
+            // config time rather than a surprise at `brv vc commit --sign`.
+            if (!isPassphraseError(error)) {
+              hint = `Could not compute fingerprint: ${error instanceof Error ? error.message : String(error)}`
+            }
           }
         }
 
@@ -970,13 +977,17 @@ export class VcHandler {
     const updated: typeof existing = {...existing, commitSign, signingKey: resolvedPath}
     await this.vcGitConfigStore.set(projectPath, updated)
 
-    let hint: string | undefined
+    let hint = `commit.sign: ${String(commitSign)}`
     try {
       const parsed = await parseSSHPrivateKey(resolvedPath)
       this.signingKeyCache.set(projectPath, resolvedPath, parsed)
       hint = `Fingerprint: ${parsed.fingerprint} | commit.sign: ${String(commitSign)}`
-    } catch {
-      hint = `commit.sign: ${String(commitSign)}`
+    } catch (error) {
+      // Encrypted key: fingerprint unavailable without passphrase, that's fine.
+      // Anything else: surface alongside commit.sign so the user notices now.
+      if (!isPassphraseError(error)) {
+        hint = `${hint} | Could not compute fingerprint: ${error instanceof Error ? error.message : String(error)}`
+      }
     }
 
     return {hint, key: 'user.signingkey', value: resolvedPath}
