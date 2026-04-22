@@ -27,11 +27,13 @@ import type {ValidatedHarnessConfig} from '../../../../src/agent/infra/agent/age
 import type {HarnessToolsFactory} from '../../../../src/agent/infra/harness/harness-evaluator.js'
 import type {IRefinerClient} from '../../../../src/agent/infra/harness/harness-refiner-client.js'
 
-import {AgentEventBus} from '../../../../src/agent/infra/events/event-emitter.js'
+import {AgentEventBus, SessionEventBus} from '../../../../src/agent/infra/events/event-emitter.js'
 import {HarnessEvaluator} from '../../../../src/agent/infra/harness/harness-evaluator.js'
+import {HarnessOutcomeRecorder} from '../../../../src/agent/infra/harness/harness-outcome-recorder.js'
 import {HarnessScenarioCapture} from '../../../../src/agent/infra/harness/harness-scenario-capture.js'
 import {HarnessStore} from '../../../../src/agent/infra/harness/harness-store.js'
 import {HarnessSynthesizer} from '../../../../src/agent/infra/harness/harness-synthesizer.js'
+import {SessionManager} from '../../../../src/agent/infra/session/session-manager.js'
 import {FileKeyStorage} from '../../../../src/agent/infra/storage/file-key-storage.js'
 
 // ---------------------------------------------------------------------------
@@ -444,28 +446,35 @@ describe('Learning-loop integration test', function () {
   // ── Scenario 4: session-end trigger idempotence ──────────────────────
 
   describe('Scenario 4: session-end trigger idempotence', () => {
-    it('fires refineIfNeeded exactly once when session-end observed twice', async () => {
-      // Use a stub synthesizer to spy on refineIfNeeded calls.
-      // The idempotence guarantee lives in SessionManager's endedSessions
-      // dedup set — we need real SessionManager wiring.
-      const {SessionManager} = await import('../../../../src/agent/infra/session/session-manager.js')
-      const {SessionEventBus} = await import('../../../../src/agent/infra/events/event-emitter.js')
-      const {HarnessOutcomeRecorder} = await import('../../../../src/agent/infra/harness/harness-outcome-recorder.js')
+    // SessionManager leaks a setInterval timer; dispose in afterEach so
+    // a failing assertion doesn't leak it into subsequent tests.
+    let sm: InstanceType<typeof SessionManager> | undefined
 
+    afterEach(() => {
+      sm?.dispose()
+      sm = undefined
+    })
+
+    it('fires refineIfNeeded exactly once when session-end observed twice', async () => {
+      // The idempotence guarantee lives in SessionManager's endedSessions
+      // dedup set — we need real SessionManager + recorder wiring.
       const recorderEventBus = new SessionEventBus()
       const recorder = new HarnessOutcomeRecorder(store, recorderEventBus, logger, makeHarnessConfig())
 
+      const recordOutcome = async () =>
+        recorder.record({
+          code: 'tools.search("x")',
+          commandType: COMMAND_TYPE,
+          executionTimeMs: 10,
+          harnessVersionId: undefined,
+          projectId: PROJECT_ID,
+          projectType: 'typescript',
+          result: {curateResults: undefined, executionTime: 10, locals: {}, stderr: '', stdout: '2'},
+          sessionId: 'sess-1',
+        })
+
       // Seed per-session state so the trigger has commandTypes to iterate
-      await recorder.record({
-        code: 'tools.search("x")',
-        commandType: COMMAND_TYPE,
-        executionTimeMs: 10,
-        harnessVersionId: undefined,
-        projectId: PROJECT_ID,
-        projectType: 'typescript',
-        result: {curateResults: undefined, executionTime: 10, locals: {}, stderr: '', stdout: '2'},
-        sessionId: 'sess-1',
-      })
+      await recordOutcome()
 
       // Stub synthesizer — spy on refineIfNeeded
       const refineStub = sinon.stub().resolves()
@@ -474,37 +483,41 @@ describe('Learning-loop integration test', function () {
         refineIfNeeded: refineStub,
       }
 
-      const sharedServices = {
+      const sharedServices: Partial<Record<string, unknown>> = {
         harnessConfig: makeHarnessConfig(),
         harnessOutcomeRecorder: recorder,
         harnessSynthesizer: synthesizerStub,
       }
 
-      const sm = new SessionManager(
-        sharedServices as never,
+      sm = new SessionManager(
+        sharedServices as unknown as ConstructorParameters<typeof SessionManager>[0],
         {apiBaseUrl: '', projectId: '', sessionKey: '', spaceId: '', teamId: ''},
         {model: 'test-model'},
       )
 
-      // Inject a stub session
-      const stubSession = {
-        dispose: sinon.stub(),
-        getLLMService: () => ({
-          getContextManager: () => ({flush: sinon.stub().resolves()}),
-        }),
+      // Inject a stub session into the private sessions Map.
+      // Assumed shape: Map<string, IChatSession>. If SessionManager
+      // renames this field, this cast will break at runtime.
+      const injectSession = () => {
+        const stub = {
+          dispose: sinon.stub(),
+          getLLMService: () => ({
+            getContextManager: () => ({flush: sinon.stub().resolves()}),
+          }),
+        }
+        ;(sm as unknown as {sessions: Map<string, unknown>}).sessions.set('sess-1', stub)
       }
-      ;(sm as unknown as {sessions: Map<string, unknown>}).sessions.set('sess-1', stubSession)
 
-      // First end → trigger fires
+      injectSession()
+
+      // First end → trigger fires and clears recorder per-session state
       await sm.endSession('sess-1')
 
-      // Re-inject session for second call
-      ;(sm as unknown as {sessions: Map<string, unknown>}).sessions.set('sess-1', {
-        dispose: sinon.stub(),
-        getLLMService: () => ({
-          getContextManager: () => ({flush: sinon.stub().resolves()}),
-        }),
-      })
+      // Re-seed recorder state so the second trigger WOULD fire if
+      // dedup were broken. Without this, the trigger exits early on
+      // empty commandTypes regardless of the dedup set.
+      await recordOutcome()
+      injectSession()
 
       // Second end → dedup prevents second trigger
       await sm.endSession('sess-1')
@@ -512,11 +525,8 @@ describe('Learning-loop integration test', function () {
       // Allow fire-and-forget promises to settle
       await Promise.resolve()
 
-      // refineIfNeeded called exactly once
+      // refineIfNeeded called exactly once — dedup prevented second fire
       expect(refineStub.callCount).to.equal(1)
-
-      // No thrown errors on second call
-      sm.dispose()
     })
   })
 })
