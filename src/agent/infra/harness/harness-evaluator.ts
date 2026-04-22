@@ -13,10 +13,11 @@
  */
 
 import type {
-  EvaluationScenario,
   HarnessContext,
   HarnessContextTools,
+  HarnessModule,
   HarnessVersion,
+  ValidatedEvaluationScenario,
 } from '../../core/domain/harness/types.js'
 import type {IHarnessStore} from '../../core/interfaces/i-harness-store.js'
 import type {ILogger} from '../../core/interfaces/i-logger.js'
@@ -86,7 +87,7 @@ export class HarnessEvaluator {
   async evaluate(
     candidateCode: string,
     parentVersion: HarnessVersion,
-    scenarios: readonly EvaluationScenario[],
+    scenarios: readonly ValidatedEvaluationScenario[],
   ): Promise<EvaluationResult> {
     // 1. Build candidate module
     const candidateVersion = this.buildCandidateVersion(candidateCode, parentVersion)
@@ -104,7 +105,7 @@ export class HarnessEvaluator {
       }
     }
 
-    // 2. Run all scenarios (sequentially — each scenario's runs are independent)
+    // 2. Run all scenarios concurrently via Promise.all
     const details = await this.runAllScenarios(buildResult.module, scenarios)
 
     // 3. Compute heuristics
@@ -178,14 +179,14 @@ export class HarnessEvaluator {
    * invoke the candidate module's function, and measure the outcome.
    */
   private async executeSingleRun(
-    module: {readonly curate?: (ctx: HarnessContext) => Promise<unknown>; readonly query?: (ctx: HarnessContext) => Promise<unknown>},
-    scenario: EvaluationScenario,
+    module: HarnessModule,
+    scenario: ValidatedEvaluationScenario,
   ): Promise<EvaluationRunResult> {
     const tools = this.toolsFactory()
     const ctx: HarnessContext = {
       abort: new AbortController().signal,
       env: {
-        commandType: scenario.commandType as 'chat' | 'curate' | 'query',
+        commandType: scenario.commandType === 'query' ? 'query' : 'curate',
         projectType: scenario.projectType,
         workingDirectory: '/eval',
       },
@@ -221,22 +222,17 @@ export class HarnessEvaluator {
   }
 
   /**
-   * Run all scenarios sequentially. Each scenario runs its
-   * `EVAL_RUNS_PER_SCENARIO` iterations independently.
+   * Run all scenarios concurrently. Each scenario's runs are independent;
+   * `Promise.all` is safe because each run gets its own tools + context.
    */
   private async runAllScenarios(
-    module: {readonly curate?: (ctx: HarnessContext) => Promise<unknown>; readonly query?: (ctx: HarnessContext) => Promise<unknown>},
-    scenarios: readonly EvaluationScenario[],
+    module: HarnessModule,
+    scenarios: readonly ValidatedEvaluationScenario[],
   ): Promise<EvaluationDetail[]> {
-    const details: EvaluationDetail[] = []
-    // Scenarios run sequentially — each scenario's 10 runs are independent
-    // but sequential execution prevents resource contention in the VM layer.
     const scenarioPromises = scenarios.map((scenario) =>
       this.runScenario(module, scenario),
     )
-    const results = await Promise.all(scenarioPromises)
-    details.push(...results)
-    return details
+    return Promise.all(scenarioPromises)
   }
 
   /**
@@ -244,10 +240,10 @@ export class HarnessEvaluator {
    * the per-scenario heuristic from the runs' success/failure flags.
    */
   private async runScenario(
-    module: {readonly curate?: (ctx: HarnessContext) => Promise<unknown>; readonly query?: (ctx: HarnessContext) => Promise<unknown>},
-    scenario: EvaluationScenario,
+    module: HarnessModule,
+    scenario: ValidatedEvaluationScenario,
   ): Promise<EvaluationDetail> {
-    // Run sequentially: each run gets a fresh context
+    // Runs execute concurrently — each gets a fresh HarnessContext + tools.
     const runPromises = Array.from({length: EVAL_RUNS_PER_SCENARIO}, () =>
       this.executeSingleRun(module, scenario),
     )

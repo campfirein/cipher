@@ -1,10 +1,10 @@
 /**
- * AutoHarness V2 — Phase 6 Task 6.1 HarnessEvaluator tests.
+ * AutoHarness V2 — HarnessEvaluator tests.
  *
- * Closes brutal-review item A5: the 10-run statistical-significance
- * gate. The evaluator scores a candidate harness by running it against
+ * The evaluator scores a candidate harness by running it against
  * evaluation scenarios and computing mean Δ H vs. the baseline parent
- * version.
+ * version. The 10-run statistical-significance gate prevents accepting
+ * a candidate whose improvement was a single-sample noise spike.
  *
  * Tests 1-6 use a real `HarnessModuleBuilder` with stubbed tools and
  * store. Test 7 uses the real sandbox + module-builder pipeline to
@@ -16,9 +16,9 @@ import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {
   CodeExecOutcome,
-  EvaluationScenario,
   HarnessContextTools,
   HarnessVersion,
+  ValidatedEvaluationScenario,
 } from '../../../../src/agent/core/domain/harness/types.js'
 import type {IHarnessStore} from '../../../../src/agent/core/interfaces/i-harness-store.js'
 import type {ILogger} from '../../../../src/agent/core/interfaces/i-logger.js'
@@ -127,7 +127,7 @@ function makeParentVersion(overrides?: Partial<HarnessVersion>): HarnessVersion 
   }
 }
 
-function makeScenario(overrides?: Partial<EvaluationScenario>): EvaluationScenario {
+function makeScenario(overrides?: Partial<ValidatedEvaluationScenario>): ValidatedEvaluationScenario {
   return {
     code: 'tools.curate([])',
     commandType: 'curate',
@@ -238,7 +238,7 @@ function makeDryRunTools(): HarnessContextTools {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('HarnessEvaluator — Phase 6 Task 6.1', () => {
+describe('HarnessEvaluator — statistical-significance gate', () => {
   let sb: SinonSandbox
 
   beforeEach(() => {

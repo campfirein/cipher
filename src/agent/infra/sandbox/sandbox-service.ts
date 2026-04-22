@@ -21,6 +21,7 @@ import type { SessionManager } from '../session/session-manager.js'
 import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
 
 import { ProjectTypeSchema } from '../../core/domain/harness/types.js'
+import {HarnessEvaluatorError} from '../harness/harness-evaluator-errors.js'
 import {CurateResultCollector} from './curate-result-collector.js'
 import { LocalSandbox } from './local-sandbox.js'
 import { createToolsSDK } from './tools-sdk.js'
@@ -527,7 +528,6 @@ export class SandboxService implements ISandboxService {
     return {
       async curate(operations, opts) {
         if (writeBlocked) {
-          const {HarnessEvaluatorError} = await import('../harness/harness-evaluator-errors.js')
           throw new HarnessEvaluatorError('WRITE_BLOCKED_DURING_EVAL')
         }
 
