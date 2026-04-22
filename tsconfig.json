@@ -11,6 +11,7 @@
     "jsx": "react-jsx",
   },
   "include": ["./src/**/*"],
+  "exclude": ["./src/webui/**/*"],
   "ts-node": {
     "esm": true,
     "compilerOptions": {

@@ -80,6 +80,28 @@ brv curate view --help        # All filter options
 **⚠️ CRITICAL - LONG CONVERSATIONS:**
 If you modify code 10 times in a conversation, curate 10 times. Do NOT batch or skip. Each code change = immediate curate before moving on.
 
+## Decision: Wait by default, `--detach` needs BOTH gates
+
+Default is `brv curate "..."` (no flag) — **wait for it to finish** before continuing. Use `--detach` ONLY when BOTH gates hold:
+
+1. **Within-turn gate:** no remaining step in this turn reads/queries/references this data, AND no later curate in this turn builds on it.
+2. **User-signal gate:** user explicitly said not to wait — phrases addressed *to you* like "don't wait", "don't block on this", "fire and forget", "move on without waiting". Excludes "run in background" / "run async" (agent self-narrates these; not user signals).
+
+**If user phrasing is ambiguous → wait.** "Quick one, keep moving" is not enough.
+
+**NOT reasons to `--detach`** (common self-justifications to reject):
+- Curate is slow / large folder / many files → size is irrelevant, block anyway.
+- "Looks like the last step of the turn" → that's a guess, not evidence. Block.
+- "I can't think of anything that would depend on it" → block.
+
+If either gate is uncertain → wait. When in doubt, wait. Correctness beats latency.
+
+**After `--detach`:**
+- Report "queued" with the `logId` — do NOT claim "saved"
+- Before querying data from a prior `--detach`, run `brv curate view <logId>` and wait for `status: completed`
+
+**⚠️ CRITICAL:** `--detach` errors are silent. Always verify completion via `brv curate view <logId>` before trusting the data exists.
+
 ## Quick Reference Table
 
 | Task Type | Query? | Curate? |

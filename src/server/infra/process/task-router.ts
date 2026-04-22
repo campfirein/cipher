@@ -31,6 +31,10 @@ import type {
   TaskCreateResponse,
   TaskErrorEvent,
   TaskExecute,
+  TaskListItem,
+  TaskListItemStatus,
+  TaskListRequest,
+  TaskListResponse,
   TaskStartedEvent,
 } from '../../core/domain/transport/schemas.js'
 import type {IAgentPool} from '../../core/interfaces/agent/i-agent-pool.js'
@@ -100,6 +104,24 @@ type TaskRouterOptions = {
 
 function hasTaskId(data: unknown): data is {[key: string]: unknown; taskId: string} {
   return typeof data === 'object' && data !== null && 'taskId' in data && typeof data.taskId === 'string'
+}
+
+function toListItem(task: TaskInfo): TaskListItem {
+  const status: TaskListItemStatus = task.status ?? (task.completedAt ? 'completed' : task.startedAt ? 'started' : 'created')
+  return {
+    ...(task.completedAt ? {completedAt: task.completedAt} : {}),
+    content: task.content,
+    createdAt: task.createdAt,
+    ...(task.error ? {error: task.error} : {}),
+    ...(task.files && task.files.length > 0 ? {files: task.files} : {}),
+    ...(task.folderPath ? {folderPath: task.folderPath} : {}),
+    ...(task.projectPath ? {projectPath: task.projectPath} : {}),
+    ...(task.result ? {result: task.result} : {}),
+    ...(task.startedAt ? {startedAt: task.startedAt} : {}),
+    status,
+    taskId: task.taskId,
+    type: task.type,
+  }
 }
 
 export class TaskRouter {
@@ -214,6 +236,11 @@ export class TaskRouter {
       this.handleTaskCancel(data, clientId),
     )
 
+    // Snapshot query from clients (e.g. web UI Tasks tab)
+    this.transport.onRequest<TaskListRequest, TaskListResponse>(TransportTaskEventNames.LIST, (data, clientId) =>
+      this.handleTaskList(data, clientId),
+    )
+
     // Task lifecycle events from agent
     this.transport.onRequest<TaskStartedEvent, void>(TransportTaskEventNames.STARTED, (data) => {
       this.handleTaskStarted(data)
@@ -273,6 +300,11 @@ export class TaskRouter {
 
   private handleTaskCancelled(data: TaskCancelledEvent): void {
     const {taskId} = data
+    const existing = this.tasks.get(taskId)
+    if (existing) {
+      this.tasks.set(taskId, {...existing, completedAt: Date.now(), status: 'cancelled'})
+    }
+
     const task = this.tasks.get(taskId)
 
     transportLog(`Task cancelled: ${taskId}`)
@@ -299,6 +331,11 @@ export class TaskRouter {
 
   private handleTaskCompleted(data: TaskCompletedEvent): void {
     const {logId: eventLogId, result, taskId} = data
+    const existing = this.tasks.get(taskId)
+    if (existing) {
+      this.tasks.set(taskId, {...existing, completedAt: Date.now(), result, status: 'completed'})
+    }
+
     const task = this.tasks.get(taskId)
 
     transportLog(`Task completed: ${taskId}`)
@@ -457,6 +494,7 @@ export class TaskRouter {
       clientId,
       content: data.content,
       createdAt: Date.now(),
+      status: 'created',
       ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
       ...(data.folderPath ? {folderPath: data.folderPath} : {}),
@@ -472,6 +510,7 @@ export class TaskRouter {
       content: data.content,
       ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
+      ...(data.folderPath ? {folderPath: data.folderPath} : {}),
       taskId,
       type: data.type,
     }
@@ -616,6 +655,11 @@ export class TaskRouter {
 
   private handleTaskError(data: TaskErrorEvent): void {
     const {error, taskId} = data
+    const existing = this.tasks.get(taskId)
+    if (existing) {
+      this.tasks.set(taskId, {...existing, completedAt: Date.now(), error, status: 'error'})
+    }
+
     const task = this.tasks.get(taskId)
 
     transportLog(`Task error: ${taskId} - [${error.code}] ${error.message}`)
@@ -653,6 +697,31 @@ export class TaskRouter {
     if (task) {
       this.notifyHooksError(taskId, error.message, task).catch(() => {})
     }
+  }
+
+  private handleTaskList(data: TaskListRequest, clientId: string): TaskListResponse {
+    const projectFilter = data.projectPath ?? this.resolveClientProjectPath?.(clientId)
+
+    // No resolvable project — return empty rather than leaking every task.
+    // A client that hasn't registered a project shouldn't see other projects' work.
+    if (projectFilter === undefined) return {tasks: []}
+
+    const matches = (taskProject?: string): boolean =>
+      taskProject === projectFilter || taskProject === undefined
+
+    const items: TaskListItem[] = []
+
+    for (const task of this.tasks.values()) {
+      if (!matches(task.projectPath)) continue
+      items.push(toListItem(task))
+    }
+
+    for (const {task} of this.completedTasks.values()) {
+      if (!matches(task.projectPath)) continue
+      items.push(toListItem(task))
+    }
+
+    return {tasks: items}
   }
 
   /**
@@ -697,6 +766,7 @@ export class TaskRouter {
     const {taskId} = data
     const task = this.tasks.get(taskId)
     if (task) {
+      this.tasks.set(taskId, {...task, startedAt: Date.now(), status: 'started'})
       this.transport.sendTo(task.clientId, TransportTaskEventNames.STARTED, {taskId})
 
       broadcastToProjectRoom(

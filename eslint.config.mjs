@@ -20,6 +20,46 @@ export default [
       },
     },
   },
+  // Web UI (browser environment) — allow browser globals and React naming conventions
+  {
+    files: ['src/webui/**/*.ts', 'src/webui/**/*.tsx'],
+    languageOptions: {
+      globals: {
+        document: 'readonly',
+        fetch: 'readonly',
+        sessionStorage: 'readonly',
+        window: 'readonly',
+      },
+    },
+    rules: {
+      'n/no-unsupported-features/node-builtins': 'off',
+      // Prevent Web UI from importing server code directly
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/server/**', '../server/**', '../../server/**', '../../../server/**', '../../../../server/**'],
+              message: 'Web UI should not import from server. Use transport events or feature APIs instead.',
+            },
+            {
+              group: ['**/agent/**', '../agent/**', '../../agent/**', '../../../agent/**', '../../../../agent/**'],
+              message: 'Web UI should not import from agent. Use transport events or feature APIs instead.',
+            },
+            {
+              group: ['**/oclif/**', '../oclif/**', '../../oclif/**', '../../../oclif/**', '../../../../oclif/**'],
+              message: 'Web UI should not import from oclif. Use transport events or feature APIs instead.',
+            },
+            {
+              group: ['**/tui/**', '../tui/**', '../../tui/**', '../../../tui/**', '../../../../tui/**'],
+              message: 'Web UI should not import from tui. Use transport events or feature APIs instead.',
+            },
+          ],
+        },
+      ],
+      'unicorn/filename-case': 'off',
+    },
+  },
   // Prevent TUI from importing server code directly
   {
     files: ['src/tui/**/*.ts', 'src/tui/**/*.tsx'],
