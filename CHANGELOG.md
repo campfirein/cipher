@@ -2,6 +2,11 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.8.2]
+
+### Fixed
+- **Web UI styles missing in the published-package build** — `brv webui` from the installed CLI used to render shared components (dialogs, sheets) unstyled because the Tailwind `@source` glob didn't match the installed layout of `@campfirein/byterover-packages`.
+
 ## [3.8.0]
 
 ### Added
