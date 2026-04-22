@@ -6,13 +6,18 @@ import {Config as OclifConfig} from '@oclif/core'
 import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
-import type {AuthLoginWithApiKeyResponse} from '../../src/shared/transport/events/auth-events.js'
+import type {
+  AuthLoginCompletedEvent,
+  AuthLoginWithApiKeyResponse,
+  AuthStartLoginResponse,
+} from '../../src/shared/transport/events/auth-events.js'
 
-import Login from '../../src/oclif/commands/login.js'
+import Login, {type LoginOAuthOptions} from '../../src/oclif/commands/login.js'
 
 // ==================== TestableLoginCommand ====================
 
 class TestableLoginCommand extends Login {
+  public interactive = true
   private readonly mockConnector: () => Promise<ConnectionResult>
 
   constructor(argv: string[], mockConnector: () => Promise<ConnectionResult>, config: Config) {
@@ -20,9 +25,23 @@ class TestableLoginCommand extends Login {
     this.mockConnector = mockConnector
   }
 
+  protected override isInteractive(): boolean {
+    return this.interactive
+  }
+
   protected override async loginWithApiKey(apiKey: string): Promise<AuthLoginWithApiKeyResponse> {
     return super.loginWithApiKey(apiKey, {
       maxRetries: 1,
+      retryDelayMs: 0,
+      transportConnector: this.mockConnector,
+    })
+  }
+
+  protected override async loginWithOAuth(options?: LoginOAuthOptions): Promise<AuthLoginCompletedEvent> {
+    return super.loginWithOAuth({
+      ...options,
+      maxRetries: 1,
+      oauthTimeoutMs: 100,
       retryDelayMs: 0,
       transportConnector: this.mockConnector,
     })
@@ -98,6 +117,24 @@ describe('Login Command', () => {
 
   function mockLoginResponse(response: AuthLoginWithApiKeyResponse): void {
     ;(mockClient.requestWithAck as sinon.SinonStub).resolves(response)
+  }
+
+  function mockOAuthFlow(startResponse: AuthStartLoginResponse, completion?: AuthLoginCompletedEvent): void {
+    const onStub = mockClient.on as sinon.SinonStub
+    onStub.callsFake((event: string, cb: (data: AuthLoginCompletedEvent) => void) => {
+      if (event === 'auth:loginCompleted' && completion) {
+        setImmediate(() => {
+          cb(completion)
+        })
+      }
+
+      return () => {}
+    })
+
+    ;(mockClient.requestWithAck as sinon.SinonStub).callsFake((event: string) => {
+      if (event === 'auth:startLogin') return Promise.resolve(startResponse)
+      return Promise.resolve({})
+    })
   }
 
   // ==================== Successful Login ====================
@@ -222,6 +259,146 @@ describe('Login Command', () => {
       await createCommand('--api-key', 'test-key').run()
 
       expect(loggedMessages.some((m) => m.includes('Something went wrong'))).to.be.true
+    })
+  })
+
+  // ==================== OAuth Flow (no --api-key) ====================
+
+  describe('oauth flow', () => {
+    it('should start OAuth flow and print success on completion', async () => {
+      mockOAuthFlow(
+        {authUrl: 'https://auth.byterover.dev/oauth?state=abc'},
+        {success: true, user: {email: 'oauth@example.com', hasOnboardedCli: true, id: 'u1', name: 'Oauth User'}},
+      )
+
+      await createCommand().run()
+
+      const requestWithAckCalls = (mockClient.requestWithAck as sinon.SinonStub).getCalls()
+      expect(requestWithAckCalls.some((c) => c.args[0] === 'auth:startLogin')).to.be.true
+      expect(loggedMessages.some((m) => m.includes('Logged in as oauth@example.com'))).to.be.true
+    })
+
+    it('should print the auth URL as a browser fallback', async () => {
+      mockOAuthFlow(
+        {authUrl: 'https://auth.byterover.dev/oauth?state=abc'},
+        {success: true, user: {email: 'oauth@example.com', hasOnboardedCli: true, id: 'u1'}},
+      )
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('https://auth.byterover.dev/oauth?state=abc'))).to.be.true
+    })
+
+    it('should print error message when LOGIN_COMPLETED reports failure', async () => {
+      mockOAuthFlow(
+        {authUrl: 'https://auth.byterover.dev/oauth'},
+        {error: 'User denied access', success: false},
+      )
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('User denied access'))).to.be.true
+    })
+
+    it('should time out if LOGIN_COMPLETED never arrives', async () => {
+      mockOAuthFlow({authUrl: 'https://auth.byterover.dev/oauth'})
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.toLowerCase().includes('timed out'))).to.be.true
+    })
+
+    it('should emit JSON on successful OAuth login', async () => {
+      mockOAuthFlow(
+        {authUrl: 'https://auth.byterover.dev/oauth'},
+        {success: true, user: {email: 'oauth@example.com', hasOnboardedCli: true, id: 'u1'}},
+      )
+
+      await createJsonCommand().run()
+
+      const json = parseJsonOutput()
+      expect(json.command).to.equal('login')
+      expect(json.success).to.be.true
+      expect(json.data).to.deep.include({userEmail: 'oauth@example.com'})
+    })
+
+    it('should emit JSON on OAuth failure', async () => {
+      mockOAuthFlow({authUrl: 'https://auth.byterover.dev/oauth'}, {error: 'User denied access', success: false})
+
+      await createJsonCommand().run()
+
+      const json = parseJsonOutput()
+      expect(json.command).to.equal('login')
+      expect(json.success).to.be.false
+      expect(json.data).to.deep.include({error: 'User denied access'})
+    })
+
+    it('should clear the timeout and surface the error when START_LOGIN rejects', async () => {
+      let timerFired = false
+      ;(mockClient.on as sinon.SinonStub).returns(() => {
+        /* unsubscribe */
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).rejects(new Error('start failed'))
+
+      await createCommand().run()
+      // Wait past the 100 ms test timeout. If the timer was not cleared, it would
+      // reject an already-discarded promise and surface as an unhandled rejection.
+      await new Promise<void>((resolve) => {
+        setTimeout(() => {
+          timerFired = true
+          resolve()
+        }, 150)
+      })
+
+      expect(timerFired).to.be.true
+      expect(loggedMessages.some((m) => m.includes('start failed'))).to.be.true
+      expect(loggedMessages.some((m) => m.toLowerCase().includes('timed out'))).to.be.false
+    })
+
+    it('should handle connection errors during OAuth flow via formatConnectionError', async () => {
+      mockConnector.rejects(new NoInstanceRunningError())
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Daemon failed to start automatically'))).to.be.true
+    })
+  })
+
+  // ==================== Non-interactive shells ====================
+
+  describe('non-interactive shell', () => {
+    it('should error with a pointer to --api-key when no flag and not a TTY', async () => {
+      const command = createCommand()
+      command.interactive = false
+
+      await command.run()
+
+      expect(loggedMessages.some((m) => m.toLowerCase().includes('non-interactive'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('--api-key'))).to.be.true
+      expect((mockClient.requestWithAck as sinon.SinonStub).called).to.be.false
+    })
+
+    it('should emit JSON error when non-interactive and no --api-key', async () => {
+      const command = createJsonCommand()
+      command.interactive = false
+
+      await command.run()
+
+      const json = parseJsonOutput()
+      expect(json.command).to.equal('login')
+      expect(json.success).to.be.false
+      expect(String(json.data.error ?? '').toLowerCase()).to.include('non-interactive')
+    })
+
+    it('should still perform api-key login when non-interactive and --api-key provided', async () => {
+      mockLoginResponse({success: true, userEmail: 'ci@example.com'})
+
+      const command = createCommand('--api-key', 'ci-key')
+      command.interactive = false
+
+      await command.run()
+
+      expect(loggedMessages.some((m) => m.includes('Logged in as ci@example.com'))).to.be.true
     })
   })
 })
