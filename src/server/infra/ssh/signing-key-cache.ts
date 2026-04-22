@@ -64,16 +64,10 @@ private readonly ttlMs: number
    * Returns undefined if the entry does not exist or has expired.
    */
   get(projectPath: string, keyPath: string): ParsedSSHKey | undefined {
-    const compositeKey = SigningKeyCache.composeKey(projectPath, keyPath)
-    const entry = this.cache.get(compositeKey)
-    if (!entry) return undefined
-
-    if (Date.now() > entry.expiresAt) {
-      this.cache.delete(compositeKey)
-      return undefined
-    }
-
-    return entry.key
+    const now = Date.now()
+    this.sweep(now)
+    const entry = this.cache.get(SigningKeyCache.composeKey(projectPath, keyPath))
+    return entry && now <= entry.expiresAt ? entry.key : undefined
   }
 
   /**
@@ -97,15 +91,22 @@ private readonly ttlMs: number
    */
   set(projectPath: string, keyPath: string, key: ParsedSSHKey): void {
     const now = Date.now()
-
-    // Sweep expired entries
-    for (const [path, entry] of this.cache) {
-      if (now > entry.expiresAt) this.cache.delete(path)
-    }
-
+    this.sweep(now)
     this.cache.set(SigningKeyCache.composeKey(projectPath, keyPath), {
       expiresAt: now + this.ttlMs,
       key,
     })
+  }
+
+  /**
+   * Evict every cache entry whose TTL has already elapsed at `now`. Called
+   * from both get() and set() so long-running daemons that are read-heavy
+   * (cache once, sign many) still reclaim memory for keys the user has
+   * stopped using.
+   */
+  private sweep(now: number): void {
+    for (const [k, entry] of this.cache) {
+      if (now > entry.expiresAt) this.cache.delete(k)
+    }
   }
 }
