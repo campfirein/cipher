@@ -21,6 +21,7 @@ import type { SessionManager } from '../session/session-manager.js'
 import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
 
 import { ProjectTypeSchema } from '../../core/domain/harness/types.js'
+import { OpsCounter } from '../harness/ops-counter.js'
 import {CurateResultCollector} from './curate-result-collector.js'
 import { LocalSandbox } from './local-sandbox.js'
 import { createToolsSDK } from './tools-sdk.js'
@@ -508,12 +509,25 @@ export class SandboxService implements ISandboxService {
   private buildHarnessTools(): HarnessContext['tools'] {
     const {curateService} = this
     const {fileSystem} = this
+    // Fresh counter per outer harness invocation. The `buildCtx` helper
+    // calls `buildHarnessTools()` each time `harness.curate()` /
+    // `harness.query()` fires, so the counter's scope is naturally one
+    // outer call — no explicit reset needed.
+    //
+    // Tier 1 X1 safety gate: caps apply unconditionally (all modes).
+    // Mode A / B almost never approach 50 ops; Mode C is where they
+    // bite. Always-on enforcement prevents a "mode not set yet"
+    // bypass window.
+    const opsCounter = new OpsCounter()
     return {
       async curate(operations, options) {
+        // Service-wired check FIRST — a misconfiguration error never
+        // reaches the real tool, so it shouldn't consume op budget.
         if (curateService === undefined) {
           throw new Error('harness.ctx.tools.curate: no curate service wired')
         }
 
+        opsCounter.increment()
         return curateService.curate(operations, options)
       },
       async readFile(filePath, options) {
@@ -521,6 +535,7 @@ export class SandboxService implements ISandboxService {
           throw new Error('harness.ctx.tools.readFile: no file system wired')
         }
 
+        opsCounter.increment()
         return fileSystem.readFile(filePath, options)
       },
     }
