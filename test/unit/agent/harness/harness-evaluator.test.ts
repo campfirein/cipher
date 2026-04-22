@@ -131,6 +131,7 @@ function makeScenario(overrides?: Partial<ValidatedEvaluationScenario>): Validat
   return {
     code: 'tools.curate([])',
     commandType: 'curate',
+    createdAt: Date.now(),
     expectedBehavior: 'Succeeds without errors',
     id: 'scenario-1',
     projectId: 'proj-eval',
@@ -186,6 +187,7 @@ function makeStoreStub(sb: SinonSandbox): {
   const listOutcomes = sb.stub()
   const store = {
     deleteOutcomes: sb.stub(),
+    deleteScenario: sb.stub(),
     getLatest: sb.stub(),
     getVersion: sb.stub(),
     listOutcomes,
