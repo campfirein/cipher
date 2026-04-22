@@ -14,14 +14,16 @@ import {Command, Flags} from '@oclif/core'
 
 import type {HarnessVersion} from '../../../agent/core/domain/harness/types.js'
 import type {IHarnessStore} from '../../../agent/core/interfaces/i-harness-store.js'
-import type {HarnessFeatureConfig} from '../../lib/harness-cli.js'
+import type {HarnessCommandType, HarnessFeatureConfig} from '../../lib/harness-cli.js'
 
 import {selectHarnessMode} from '../../../agent/infra/harness/harness-mode-selector.js'
 import {resolveProject} from '../../../server/infra/project/resolve-project.js'
-import {openHarnessStoreForProject, readHarnessFeatureConfig} from '../../lib/harness-cli.js'
-
-const COMMAND_TYPES = ['chat', 'curate', 'query'] as const
-type HarnessCommandType = (typeof COMMAND_TYPES)[number]
+import {
+  HARNESS_COMMAND_TYPES,
+  isHarnessCommandType,
+  openHarnessStoreForProject,
+  readHarnessFeatureConfig,
+} from '../../lib/harness-cli.js'
 
 export interface LastRefinement {
   readonly acceptedAt: number
@@ -182,6 +184,10 @@ export function renderStatusText(report: StatusReport): string {
 }
 
 function humaniseAgo(ms: number): string {
+  // Clock-skew safety: if a stored `acceptedAt` is ever in the future
+  // (rare — clock jumps, bad backfills), clamp to "just now" rather
+  // than print a negative duration.
+  if (ms <= 0) return 'just now'
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`
   if (ms < 86_400_000) return `${Math.round(ms / 3_600_000)}h`
@@ -199,7 +205,7 @@ export default class HarnessStatus extends Command {
     commandType: Flags.string({
       default: 'curate',
       description: 'Harness pair command type',
-      options: [...COMMAND_TYPES],
+      options: [...HARNESS_COMMAND_TYPES],
     }),
     format: Flags.string({
       default: 'text',
@@ -210,7 +216,14 @@ export default class HarnessStatus extends Command {
 
   async run(): Promise<void> {
     const {flags} = await this.parse(HarnessStatus)
-    const commandType = flags.commandType as HarnessCommandType
+    // oclif's `options:` constraint means parse throws on unknown values
+    // before we reach here; the guard exists to narrow the string type
+    // without an `as` cast rather than to catch a bypass.
+    if (!isHarnessCommandType(flags.commandType)) {
+      this.error(`invalid --commandType value '${flags.commandType}'`, {exit: 1})
+    }
+
+    const {commandType} = flags
     const format = flags.format === 'json' ? 'json' : 'text'
 
     const projectRoot = resolveProject()?.projectRoot ?? process.cwd()

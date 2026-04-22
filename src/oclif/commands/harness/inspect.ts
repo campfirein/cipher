@@ -12,11 +12,12 @@ import {Args, Command, Flags} from '@oclif/core'
 import type {HarnessVersion} from '../../../agent/core/domain/harness/types.js'
 
 import {resolveProject} from '../../../server/infra/project/resolve-project.js'
-import {openHarnessStoreForProject} from '../../lib/harness-cli.js'
+import {
+  HARNESS_COMMAND_TYPES,
+  isHarnessCommandType,
+  openHarnessStoreForProject,
+} from '../../lib/harness-cli.js'
 import {resolveVersionRef, VersionRefError} from '../../lib/resolve-version-ref.js'
-
-const COMMAND_TYPES = ['chat', 'curate', 'query'] as const
-type HarnessCommandType = (typeof COMMAND_TYPES)[number]
 
 export interface InspectReport {
   readonly code: string
@@ -81,7 +82,7 @@ export default class HarnessInspect extends Command {
     commandType: Flags.string({
       default: 'curate',
       description: 'Harness pair command type',
-      options: [...COMMAND_TYPES],
+      options: [...HARNESS_COMMAND_TYPES],
     }),
     format: Flags.string({
       default: 'text',
@@ -92,7 +93,11 @@ export default class HarnessInspect extends Command {
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(HarnessInspect)
-    const commandType = flags.commandType as HarnessCommandType
+    if (!isHarnessCommandType(flags.commandType)) {
+      this.error(`invalid --commandType value '${flags.commandType}'`, {exit: 1})
+    }
+
+    const {commandType} = flags
     const format = flags.format === 'json' ? 'json' : 'text'
 
     const projectRoot = resolveProject()?.projectRoot ?? process.cwd()

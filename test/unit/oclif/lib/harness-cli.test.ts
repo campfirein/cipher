@@ -3,9 +3,45 @@ import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {readHarnessFeatureConfig} from '../../../../src/oclif/lib/harness-cli.js'
+import {
+  isHarnessCommandType,
+  openHarnessStoreForProject,
+  readHarnessFeatureConfig,
+} from '../../../../src/oclif/lib/harness-cli.js'
 
-describe('readHarnessFeatureConfig', () => {
+describe('harness-cli helpers', () => {
+  describe('isHarnessCommandType', () => {
+    it('accepts the three canonical values', () => {
+      expect(isHarnessCommandType('chat')).to.equal(true)
+      expect(isHarnessCommandType('curate')).to.equal(true)
+      expect(isHarnessCommandType('query')).to.equal(true)
+    })
+
+    it('rejects anything else', () => {
+      expect(isHarnessCommandType('CURATE')).to.equal(false)
+      expect(isHarnessCommandType('')).to.equal(false)
+      expect(isHarnessCommandType('bogus')).to.equal(false)
+    })
+  })
+
+  describe('openHarnessStoreForProject', () => {
+    it('returns undefined when the derived storage directory does not exist', async () => {
+      // tmpdir path is registered — but no XDG storage directory has
+      // ever been written for it, so the resolver's `existsSync` short-
+      // circuits to undefined. This is the only externally-observable
+      // behaviour of the "unused project" path; the happy path is
+      // exercised implicitly via daemon integration (Phase 7.7 test).
+      const tempRoot = await mkdtemp(join(tmpdir(), 'brv-harness-open-'))
+      try {
+        const opened = await openHarnessStoreForProject(tempRoot)
+        expect(opened).to.equal(undefined)
+      } finally {
+        await rm(tempRoot, {force: true, recursive: true})
+      }
+    })
+  })
+
+  describe('readHarnessFeatureConfig', () => {
   let tempRoot: string
 
   beforeEach(async () => {
@@ -57,5 +93,6 @@ describe('readHarnessFeatureConfig', () => {
     const cfg = await readHarnessFeatureConfig(tempRoot)
     expect(cfg.enabled).to.equal(false)
     expect(cfg.autoLearn).to.equal(true)
+  })
   })
 })

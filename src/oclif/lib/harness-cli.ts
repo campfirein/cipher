@@ -31,6 +31,19 @@ import {resolvePath, sanitizeProjectPath} from '../../server/utils/path-utils.js
  * decoupled from the agent schema so the CLI doesn't pull in the full
  * agent-schemas surface for a flag read.
  */
+/**
+ * Command types supported by the harness pair. Single source of
+ * truth for the `brv harness *` command family — status / inspect /
+ * use / diff / reset / baseline all constrain the `--commandType`
+ * flag against this list.
+ */
+export const HARNESS_COMMAND_TYPES = ['chat', 'curate', 'query'] as const
+export type HarnessCommandType = (typeof HARNESS_COMMAND_TYPES)[number]
+
+export function isHarnessCommandType(value: string): value is HarnessCommandType {
+  return (HARNESS_COMMAND_TYPES as readonly string[]).includes(value)
+}
+
 export interface HarnessFeatureConfig {
   readonly autoLearn: boolean
   readonly enabled: boolean
@@ -122,13 +135,17 @@ export async function readHarnessFeatureConfig(
     return HARNESS_CONFIG_DEFAULTS
   }
 
-  if (typeof parsed !== 'object' || parsed === null) return HARNESS_CONFIG_DEFAULTS
-  const harnessField = (parsed as Record<string, unknown>).harness
+  if (typeof parsed !== 'object' || parsed === null || !('harness' in parsed)) {
+    return HARNESS_CONFIG_DEFAULTS
+  }
+
+  const harnessField = parsed.harness
   if (typeof harnessField !== 'object' || harnessField === null) return HARNESS_CONFIG_DEFAULTS
 
-  const h = harnessField as Record<string, unknown>
+  const autoLearn = 'autoLearn' in harnessField ? harnessField.autoLearn : undefined
+  const enabled = 'enabled' in harnessField ? harnessField.enabled : undefined
   return {
-    autoLearn: typeof h.autoLearn === 'boolean' ? h.autoLearn : HARNESS_CONFIG_DEFAULTS.autoLearn,
-    enabled: typeof h.enabled === 'boolean' ? h.enabled : HARNESS_CONFIG_DEFAULTS.enabled,
+    autoLearn: typeof autoLearn === 'boolean' ? autoLearn : HARNESS_CONFIG_DEFAULTS.autoLearn,
+    enabled: typeof enabled === 'boolean' ? enabled : HARNESS_CONFIG_DEFAULTS.enabled,
   }
 }

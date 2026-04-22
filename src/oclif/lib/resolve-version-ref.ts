@@ -35,7 +35,11 @@ export class VersionRefError extends Error {
   }
 }
 
-/** `v<N>` where N is a positive integer — `v0`, `v-1`, `v1.5` don't match. */
+/**
+ * `v<N>` where the regex matches any `\d+` (including `0`), then the
+ * resolver rejects `N <= 0` explicitly so the error message is clearer
+ * than a silent "not found". `v-1` and `v1.5` never match the regex.
+ */
 const V_N_PATTERN = /^v(\d+)$/
 
 /**

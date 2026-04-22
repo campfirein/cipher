@@ -124,6 +124,7 @@ describe('resolveVersionRef', () => {
       caught = error
     }
 
+    expect(caught).to.be.instanceOf(VersionRefError)
     expect((caught as VersionRefError).code).to.equal('NO_VERSIONS')
   })
 

@@ -81,120 +81,120 @@ function makeInputs(overrides: Partial<StatusInputs> = {}): StatusInputs {
 
 describe('HarnessStatus command — buildStatusReport + renderStatusText', () => {
   describe('buildStatusReport', () => {
-  let sb: SinonSandbox
+    let sb: SinonSandbox
 
-  beforeEach(() => {
-    sb = createSandbox()
-  })
-
-  afterEach(() => {
-    sb.restore()
-  })
-
-  it('1. no store (fresh project) → enabled flag only, empty counters', async () => {
-    const report = await buildStatusReport(
-      makeInputs({featureConfig: {autoLearn: true, enabled: false}}),
-    )
-    expect(report.enabled).to.equal(false)
-    expect(report.currentVersionId).to.equal(null)
-    expect(report.currentVersion).to.equal(null)
-    expect(report.heuristic).to.equal(null)
-    expect(report.mode).to.equal(null)
-    expect(report.outcomeCount).to.equal(0)
-    expect(report.lastRefinement).to.equal(undefined)
-  })
-
-  it('2. store present but no version → outcomeCount populated, version fields null', async () => {
-    const store = makeStoreStub(sb)
-    ;(store.getLatest as SinonStub).resolves()
-    ;(store.listVersions as SinonStub).resolves([])
-    ;(store.listOutcomes as SinonStub).resolves([
-      makeOutcome({id: 'o1'}),
-      makeOutcome({id: 'o2', userFeedback: 'good'}),
-    ])
-
-    const report = await buildStatusReport(makeInputs({store}))
-
-    expect(report.currentVersionId).to.equal(null)
-    expect(report.outcomeCount).to.equal(2)
-    expect(report.outcomesWithFeedback).to.equal(1)
-    expect(report.mode).to.equal(null)
-  })
-
-  it('3. loaded version H=0.62 → mode="filter" (B floor 0.60)', async () => {
-    const store = makeStoreStub(sb)
-    const v1 = makeVersion({id: 'v-a', version: 1})
-    ;(store.getLatest as SinonStub).resolves(v1)
-    ;(store.listVersions as SinonStub).resolves([v1])
-    ;(store.listOutcomes as SinonStub).resolves([])
-
-    const report = await buildStatusReport(makeInputs({store}))
-
-    expect(report.currentVersionId).to.equal('v-a')
-    expect(report.currentVersion).to.equal(1)
-    expect(report.heuristic).to.equal(0.62)
-    expect(report.mode).to.equal('filter')
-    expect(report.lastRefinement).to.equal(undefined)
-  })
-
-  it('4. heuristic below 0.30 → mode=null', async () => {
-    const store = makeStoreStub(sb)
-    const v1 = makeVersion({heuristic: 0.1})
-    ;(store.getLatest as SinonStub).resolves(v1)
-    ;(store.listVersions as SinonStub).resolves([v1])
-    ;(store.listOutcomes as SinonStub).resolves([])
-
-    const report = await buildStatusReport(makeInputs({store}))
-    expect(report.mode).to.equal(null)
-  })
-
-  it('5. refinement present → lastRefinement populated with deltaH', async () => {
-    const store = makeStoreStub(sb)
-    const v1 = makeVersion({heuristic: 0.5, id: 'v-a', version: 1})
-    const v2 = makeVersion({
-      createdAt: 1_700_000_100_000,
-      heuristic: 0.62,
-      id: 'v-b',
-      parentId: 'v-a',
-      version: 2,
+    beforeEach(() => {
+      sb = createSandbox()
     })
-    ;(store.getLatest as SinonStub).resolves(v2)
-    ;(store.listVersions as SinonStub).resolves([v2, v1]) // newest-first per listVersions contract
-    ;(store.listOutcomes as SinonStub).resolves([])
 
-    const report = await buildStatusReport(makeInputs({store}))
-
-    expect(report.lastRefinement).to.deep.equal({
-      acceptedAt: 1_700_000_100_000,
-      deltaH: 0.12,
-      fromVersion: 1,
-      toVersion: 2,
+    afterEach(() => {
+      sb.restore()
     })
-  })
 
-  it('6. only v1 bootstrap (no parentId) → lastRefinement undefined', async () => {
-    const store = makeStoreStub(sb)
-    const v1 = makeVersion()
-    ;(store.getLatest as SinonStub).resolves(v1)
-    ;(store.listVersions as SinonStub).resolves([v1])
-    ;(store.listOutcomes as SinonStub).resolves([])
+    it('1. no store (fresh project) → enabled flag only, empty counters', async () => {
+      const report = await buildStatusReport(
+        makeInputs({featureConfig: {autoLearn: true, enabled: false}}),
+      )
+      expect(report.enabled).to.equal(false)
+      expect(report.currentVersionId).to.equal(null)
+      expect(report.currentVersion).to.equal(null)
+      expect(report.heuristic).to.equal(null)
+      expect(report.mode).to.equal(null)
+      expect(report.outcomeCount).to.equal(0)
+      expect(report.lastRefinement).to.equal(undefined)
+    })
 
-    const report = await buildStatusReport(makeInputs({store}))
-    expect(report.lastRefinement).to.equal(undefined)
-  })
+    it('2. store present but no version → outcomeCount populated, version fields null', async () => {
+      const store = makeStoreStub(sb)
+      ;(store.getLatest as SinonStub).resolves()
+      ;(store.listVersions as SinonStub).resolves([])
+      ;(store.listOutcomes as SinonStub).resolves([
+        makeOutcome({id: 'o1'}),
+        makeOutcome({id: 'o2', userFeedback: 'good'}),
+      ])
 
-  it('7. listOutcomes is invoked with MAX_SAFE_INTEGER so the count is accurate', async () => {
-    const store = makeStoreStub(sb)
-    const listOutcomes = store.listOutcomes as SinonStub
-    ;(store.getLatest as SinonStub).resolves()
-    ;(store.listVersions as SinonStub).resolves([])
-    listOutcomes.resolves([])
+      const report = await buildStatusReport(makeInputs({store}))
 
-    await buildStatusReport(makeInputs({store}))
+      expect(report.currentVersionId).to.equal(null)
+      expect(report.outcomeCount).to.equal(2)
+      expect(report.outcomesWithFeedback).to.equal(1)
+      expect(report.mode).to.equal(null)
+    })
 
-    expect(listOutcomes.calledOnce).to.equal(true)
-    expect(listOutcomes.firstCall.args[2]).to.equal(Number.MAX_SAFE_INTEGER)
-  })
+    it('3. loaded version H=0.62 → mode="filter" (B floor 0.60)', async () => {
+      const store = makeStoreStub(sb)
+      const v1 = makeVersion({id: 'v-a', version: 1})
+      ;(store.getLatest as SinonStub).resolves(v1)
+      ;(store.listVersions as SinonStub).resolves([v1])
+      ;(store.listOutcomes as SinonStub).resolves([])
+
+      const report = await buildStatusReport(makeInputs({store}))
+
+      expect(report.currentVersionId).to.equal('v-a')
+      expect(report.currentVersion).to.equal(1)
+      expect(report.heuristic).to.equal(0.62)
+      expect(report.mode).to.equal('filter')
+      expect(report.lastRefinement).to.equal(undefined)
+    })
+
+    it('4. heuristic below 0.30 → mode=null', async () => {
+      const store = makeStoreStub(sb)
+      const v1 = makeVersion({heuristic: 0.1})
+      ;(store.getLatest as SinonStub).resolves(v1)
+      ;(store.listVersions as SinonStub).resolves([v1])
+      ;(store.listOutcomes as SinonStub).resolves([])
+
+      const report = await buildStatusReport(makeInputs({store}))
+      expect(report.mode).to.equal(null)
+    })
+
+    it('5. refinement present → lastRefinement populated with deltaH', async () => {
+      const store = makeStoreStub(sb)
+      const v1 = makeVersion({heuristic: 0.5, id: 'v-a', version: 1})
+      const v2 = makeVersion({
+        createdAt: 1_700_000_100_000,
+        heuristic: 0.62,
+        id: 'v-b',
+        parentId: 'v-a',
+        version: 2,
+      })
+      ;(store.getLatest as SinonStub).resolves(v2)
+      ;(store.listVersions as SinonStub).resolves([v2, v1]) // newest-first per listVersions contract
+      ;(store.listOutcomes as SinonStub).resolves([])
+
+      const report = await buildStatusReport(makeInputs({store}))
+
+      expect(report.lastRefinement).to.deep.equal({
+        acceptedAt: 1_700_000_100_000,
+        deltaH: 0.12,
+        fromVersion: 1,
+        toVersion: 2,
+      })
+    })
+
+    it('6. only v1 bootstrap (no parentId) → lastRefinement undefined', async () => {
+      const store = makeStoreStub(sb)
+      const v1 = makeVersion()
+      ;(store.getLatest as SinonStub).resolves(v1)
+      ;(store.listVersions as SinonStub).resolves([v1])
+      ;(store.listOutcomes as SinonStub).resolves([])
+
+      const report = await buildStatusReport(makeInputs({store}))
+      expect(report.lastRefinement).to.equal(undefined)
+    })
+
+    it('7. listOutcomes is invoked with MAX_SAFE_INTEGER so the count is accurate', async () => {
+      const store = makeStoreStub(sb)
+      const listOutcomes = store.listOutcomes as SinonStub
+      ;(store.getLatest as SinonStub).resolves()
+      ;(store.listVersions as SinonStub).resolves([])
+      listOutcomes.resolves([])
+
+      await buildStatusReport(makeInputs({store}))
+
+      expect(listOutcomes.calledOnce).to.equal(true)
+      expect(listOutcomes.firstCall.args[2]).to.equal(Number.MAX_SAFE_INTEGER)
+    })
   })
 
   describe('renderStatusText', () => {
