@@ -10,6 +10,7 @@ import type {
   AddRemoteGitParams,
   AheadBehind,
   BaseGitParams,
+  BlobContents,
   CheckoutGitParams,
   CloneGitParams,
   CommitGitParams,
@@ -17,6 +18,8 @@ import type {
   DeleteBranchGitParams,
   FetchGitParams,
   GetAheadBehindParams,
+  GetBlobContentParams,
+  GetBlobContentsParams,
   GetRemoteUrlGitParams,
   GetTrackingBranchParams,
   GitBranch,
@@ -43,6 +46,7 @@ import type {
 } from '../../core/interfaces/services/i-git-service.js'
 import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
 
+import {hasConflictMarkers} from '../../../shared/utils/conflict-markers.js'
 import {GitAuthError, GitError} from '../../core/domain/errors/git-error.js'
 import {gitHttpWrapper as http} from './git-http-wrapper.js'
 
@@ -147,6 +151,14 @@ export class IsomorphicGitService implements IGitService {
         toAdd.push(rp)
       }
     }
+
+    // isomorphic-git's `git.add` only inserts stage 0 and leaves stages 1/2/3 in place,
+    // so conflicted files stay "unmerged" after staging. Pre-remove explicit paths to wipe
+    // all stages; the follow-up `git.add` then produces a clean stage-0 entry.
+    const explicitFilePaths = toAdd.filter((p) => p !== '.' && !p.endsWith('/'))
+    await Promise.allSettled(
+      explicitFilePaths.map((filepath) => git.remove({dir, filepath, fs})),
+    )
 
     const results = await Promise.allSettled([
       ...toRemove.map((filepath) => git.remove({dir, filepath, fs})),
@@ -271,7 +283,13 @@ export class IsomorphicGitService implements IGitService {
 
   async createBranch(params: CreateBranchGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
-    await git.branch({checkout: params.checkout, dir, fs, ref: params.branch})
+    await git.branch({
+      checkout: params.checkout,
+      dir,
+      fs,
+      object: params.startPoint,
+      ref: params.branch,
+    })
   }
 
   async deleteBranch(params: DeleteBranchGitParams): Promise<void> {
@@ -315,6 +333,61 @@ export class IsomorphicGitService implements IGitService {
     return {ahead, behind}
   }
 
+  async getBlobContent(params: GetBlobContentParams): Promise<string | undefined> {
+    const contents = await this.getBlobContents({directory: params.directory, paths: [params.path], ref: params.ref})
+    return contents[params.path]
+  }
+
+  async getBlobContents(params: GetBlobContentsParams): Promise<BlobContents> {
+    const dir = this.requireDirectory(params)
+    const {paths, ref} = params
+    const result: BlobContents = Object.fromEntries(paths.map((p) => [p, undefined]))
+    if (paths.length === 0) return result
+
+    if (ref === 'HEAD') {
+      const headOid = await git.resolveRef({dir, fs, ref: 'HEAD'}).catch(() => null)
+      if (!headOid) return result
+
+      await Promise.all(
+        paths.map(async (path) => {
+          try {
+            const {blob} = await git.readBlob({dir, filepath: path, fs, oid: headOid})
+            result[path] = Buffer.from(blob).toString('utf8')
+          } catch {
+            // leave as undefined
+          }
+        }),
+      )
+      return result
+    }
+
+    // STAGE — walk the index once, reading only the blobs we care about.
+    const pathSet = new Set(paths)
+    await git
+      .walk({
+        dir,
+        fs,
+        async map(filepath, [entry]) {
+          if (!pathSet.has(filepath) || !entry) return
+          if ((await entry.type()) !== 'blob') return
+          const oid = await entry.oid()
+          try {
+            const {blob} = await git.readBlob({dir, fs, oid})
+            result[filepath] = Buffer.from(blob).toString('utf8')
+          } catch {
+            // leave as undefined
+          }
+        },
+        // eslint-disable-next-line new-cap
+        trees: [git.STAGE()],
+      })
+      .catch(() => {
+        // walk failed → every entry stays undefined
+      })
+
+    return result
+  }
+
   async getConflicts(params: BaseGitParams): Promise<GitConflict[]> {
     const dir = this.requireDirectory(params)
 
@@ -326,41 +399,41 @@ export class IsomorphicGitService implements IGitService {
 
     if (!mergeInProgress) return []
 
+    // Index-based detection: `stage === 3` marks multi-stage entries from a merge.
+    // Once `git.add` collapses them into stage 0, the file leaves the conflict set.
+    // Workdir markers are checked separately via `getFilesWithConflictMarkers`.
     const matrix = await git.statusMatrix({dir, fs})
     const conflicts: GitConflict[] = []
 
-    await Promise.all(
-      matrix.map(async ([filepath, head, workdir, stage]) => {
-        const path = String(filepath)
+    for (const [filepath, head, workdir, stage] of matrix) {
+      const path = String(filepath)
 
-        // deleted_modified: file was in HEAD but gone from workdir
-        if (head === 1 && workdir === 0) {
-          conflicts.push({path, type: 'deleted_modified'})
-          return
-        }
+      // deleted_modified: file in HEAD, removed from workdir, with multi-stage index entry.
+      // `stage !== 0` filters out clean staged deletions (`[1,0,0]`).
+      if (head === 1 && workdir === 0 && stage !== 0) {
+        conflicts.push({path, type: 'deleted_modified'})
+        continue
+      }
 
-        // deleted_modified (isomorphic-git variant): file in HEAD, on disk unchanged,
-        // but index differs from both (stage=3). This happens when the other branch
-        // deletes a file that we modified — isomorphic-git keeps our version on disk.
-        if (head === 1 && workdir === 1 && stage === 3) {
-          conflicts.push({path, type: 'deleted_modified'})
-          return
-        }
+      // deleted_modified (isomorphic-git variant): file in HEAD, on disk unchanged,
+      // but index differs from both (stage=3). Other branch deleted a file we modified —
+      // isomorphic-git keeps our version on disk while leaving multi-stage index entries.
+      if (head === 1 && workdir === 1 && stage === 3) {
+        conflicts.push({path, type: 'deleted_modified'})
+        continue
+      }
 
-        // both_added or both_modified: look for conflict markers in file content
-        if (workdir === 2) {
-          try {
-            const content = await fs.promises.readFile(join(dir, path), 'utf8')
-            if (content.includes('<<<<<<<')) {
-              const type: GitConflict['type'] = head === 0 ? 'both_added' : 'both_modified'
-              conflicts.push({path, type})
-            }
-          } catch {
-            // skip binary or unreadable files
-          }
-        }
-      }),
-    )
+      // both_modified: file in HEAD, modified in workdir, multi-stage index.
+      if (head === 1 && workdir === 2 && stage === 3) {
+        conflicts.push({path, type: 'both_modified'})
+        continue
+      }
+
+      // both_added: file not in HEAD, present in workdir, multi-stage index.
+      if (head === 0 && workdir === 2 && stage === 3) {
+        conflicts.push({path, type: 'both_added'})
+      }
+    }
 
     return conflicts.sort((a, b) => a.path.localeCompare(b.path))
   }
@@ -383,7 +456,7 @@ export class IsomorphicGitService implements IGitService {
         if (workdir === 0) return
         try {
           const content = await fs.promises.readFile(join(dir, path), 'utf8')
-          if (content.includes('<<<<<<<') && content.includes('=======') && content.includes('>>>>>>>')) {
+          if (hasConflictMarkers(content)) {
             conflicted.push(path)
           }
         } catch {
@@ -486,7 +559,7 @@ export class IsomorphicGitService implements IGitService {
   async log(params: LogGitParams): Promise<GitCommit[]> {
     const dir = this.requireDirectory(params)
     try {
-      const commits = await git.log({depth: params.depth, dir, fs, ref: params.ref})
+      const commits = await git.log({depth: params.depth, dir, filepath: params.filepath, fs, ref: params.ref})
       return commits.map((c) => ({
         author: {email: c.commit.author.email, name: c.commit.author.name},
         message: c.commit.message.trim(),

@@ -181,7 +181,7 @@ describe('Curate Command', () => {
       expect(payload).to.have.property('content', 'test context')
       expect(payload).to.have.property('type', 'curate')
       expect(payload).to.have.property('taskId').that.is.a('string')
-      expect(loggedMessages).to.include('✓ Context queued for processing.')
+      expect(loggedMessages.some((m) => m.startsWith('✓ Context queued for processing.'))).to.be.true
     })
 
     it('should send task:create with empty content when only files provided', async () => {
@@ -524,7 +524,7 @@ describe('Curate Command', () => {
     it('should accept --timeout flag without error', async () => {
       await createCommand('test context', '--detach', '--timeout', '600').run()
 
-      expect(loggedMessages).to.include('✓ Context queued for processing.')
+      expect(loggedMessages.some((m) => m.startsWith('✓ Context queued for processing.'))).to.be.true
     })
 
     it('should warn when --timeout is used with --detach', async () => {

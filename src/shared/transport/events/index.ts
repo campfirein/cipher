@@ -7,6 +7,7 @@ export * from './auth-events.js'
 export * from './client-events.js'
 export * from './config-events.js'
 export * from './connector-events.js'
+export * from './context-tree-events.js'
 export * from './hub-events.js'
 export * from './init-events.js'
 export * from './llm-events.js'
@@ -23,6 +24,7 @@ export * from './source-events.js'
 export * from './space-events.js'
 export * from './status-events.js'
 export * from './task-events.js'
+export * from './vc-events.js'
 export * from './worktree-events.js'
 
 // Utility exports
@@ -31,6 +33,7 @@ import {AuthEvents} from './auth-events.js'
 import {ClientEvents} from './client-events.js'
 import {ConfigEvents} from './config-events.js'
 import {ConnectorEvents} from './connector-events.js'
+import {ContextTreeEvents} from './context-tree-events.js'
 import {HubEvents} from './hub-events.js'
 import {InitEvents} from './init-events.js'
 import {LlmEvents} from './llm-events.js'
@@ -47,6 +50,7 @@ import {SourceEvents} from './source-events.js'
 import {SpaceEvents} from './space-events.js'
 import {StatusEvents} from './status-events.js'
 import {TaskEvents} from './task-events.js'
+import {VcEvents} from './vc-events.js'
 import {WorktreeEvents} from './worktree-events.js'
 
 /**
@@ -59,6 +63,7 @@ export const AllEventGroups = [
   ClientEvents,
   ConfigEvents,
   ConnectorEvents,
+  ContextTreeEvents,
   HubEvents,
   InitEvents,
   LlmEvents,
@@ -75,6 +80,7 @@ export const AllEventGroups = [
   SpaceEvents,
   StatusEvents,
   TaskEvents,
+  VcEvents,
   WorktreeEvents,
 ] as const
 

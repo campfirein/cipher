@@ -26,6 +26,7 @@ export interface StatusHandlerDeps {
   resolveProjectPath: ProjectPathResolver
   tokenStore: ITokenStore
   transport: ITransportServer
+  webuiPort?: number
 }
 
 /**
@@ -40,6 +41,7 @@ export class StatusHandler {
   private readonly resolveProjectPath: ProjectPathResolver
   private readonly tokenStore: ITokenStore
   private readonly transport: ITransportServer
+  private readonly webuiPort?: number
 
   constructor(deps: StatusHandlerDeps) {
     this.contextTreeService = deps.contextTreeService
@@ -49,6 +51,7 @@ export class StatusHandler {
     this.resolveProjectPath = deps.resolveProjectPath
     this.tokenStore = deps.tokenStore
     this.transport = deps.transport
+    this.webuiPort = deps.webuiPort
   }
 
   setup(): void {
@@ -194,10 +197,10 @@ export class StatusHandler {
 
       if (pendingFiles.size > 0) {
         result.pendingReviewCount = pendingFiles.size
-        const port = this.transport.getPort()
-        if (port) {
+        const reviewPort = this.webuiPort ?? this.transport.getPort()
+        if (reviewPort) {
           const encoded = Buffer.from(projectPath).toString('base64url')
-          result.reviewUrl = `http://127.0.0.1:${port}/review?project=${encoded}`
+          result.reviewUrl = `http://127.0.0.1:${reviewPort}/review?project=${encoded}`
         }
       }
     } catch {
