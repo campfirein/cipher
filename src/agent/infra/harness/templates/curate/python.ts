@@ -1,4 +1,5 @@
 // CommonJS-in-string template body per phase_3_4_handoff.md §C7.
+// v1.0 placeholder: `ctx.tools.curate(ctx.env)` — real adapter shape decided by Task 4.2.
 import type {HarnessMeta} from '../../../../core/domain/harness/types.js'
 
 export const TEMPLATE_CODE = `

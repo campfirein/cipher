@@ -27,5 +27,13 @@ export function getTemplate(
   commandType: SupportedCommandType,
   projectType: ProjectType,
 ): Template {
-  return REGISTRY[commandType][projectType]
+  const template = REGISTRY[commandType][projectType]
+  if (template === undefined) {
+    // Unreachable under the current type signature, but guards against
+    // silent `undefined` when `SupportedCommandType` widens ahead of a
+    // new template landing.
+    throw new Error(`no template registered for commandType=${commandType}, projectType=${projectType}`)
+  }
+
+  return template
 }

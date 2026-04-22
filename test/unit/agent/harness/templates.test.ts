@@ -3,7 +3,6 @@ import {createSandbox, type SinonSandbox} from 'sinon'
 
 import type {
   HarnessContext,
-  HarnessMeta,
   HarnessVersion,
 } from '../../../../src/agent/core/domain/harness/types.js'
 
@@ -81,7 +80,7 @@ describe('harness template registry (curate templates, v1.0)', () => {
           expect(result.loaded).to.equal(true)
           if (!result.loaded) return
           const embedded = result.module.meta()
-          expect(embedded).to.deep.equal(template.meta as HarnessMeta)
+          expect(embedded).to.deep.equal(template.meta)
         })
       }
     }
@@ -107,6 +106,8 @@ describe('harness template registry (curate templates, v1.0)', () => {
 
         expect(curateStub.callCount).to.equal(1)
         expect(curateStub.firstCall.firstArg).to.deep.equal(ctx.env)
+        // v1 templates must not touch the filesystem — pins the pass-through invariant.
+        expect(readFileStub.callCount).to.equal(0)
       })
     }
   })
