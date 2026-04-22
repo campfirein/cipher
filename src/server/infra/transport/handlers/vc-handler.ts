@@ -1,6 +1,6 @@
 import {execFile} from 'node:child_process'
 import fs from 'node:fs'
-import {join} from 'node:path'
+import path, {join} from 'node:path'
 import {promisify} from 'node:util'
 
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
@@ -733,6 +733,16 @@ export class VcHandler {
           resolvedPath = resolvedPath.slice(0, -4)
         }
 
+        // Reject relative paths — they silently resolve against the daemon's
+        // CWD and would break the next time the daemon starts from a
+        // different directory. Matches git's own `user.signingKey` semantic.
+        if (!path.isAbsolute(resolvedPath)) {
+          throw new VcError(
+            `Signing key path must be absolute. Got: ${resolvedPath}`,
+            VcErrorCode.INVALID_CONFIG_VALUE,
+          )
+        }
+
         const probe = await probeSSHKey(resolvedPath)
         if (!probe.exists) {
           throw new VcError(
@@ -936,6 +946,14 @@ export class VcHandler {
     let resolvedPath = resolveHome(signingKey)
     if (resolvedPath.endsWith('.pub')) {
       resolvedPath = resolvedPath.slice(0, -4)
+    }
+
+    // Reject relative paths imported from git config. See handleConfig for rationale.
+    if (!path.isAbsolute(resolvedPath)) {
+      throw new VcError(
+        `Signing key path from git config must be absolute. Got: ${resolvedPath}`,
+        VcErrorCode.INVALID_CONFIG_VALUE,
+      )
     }
 
     const probe = await probeSSHKey(resolvedPath)
