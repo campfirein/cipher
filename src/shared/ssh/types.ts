@@ -7,7 +7,7 @@ export type SSHKeyType =
   | 'ssh-ed25519'
   | 'ssh-rsa'
 
-export interface ParsedSSHKey {
+export type ParsedSSHKey = {
   /** SHA256 fingerprint — used for display and matching with IAM */
   fingerprint: string
   /** Key type identifier (e.g., 'ssh-ed25519') */
@@ -18,18 +18,18 @@ export interface ParsedSSHKey {
   publicKeyBlob: Buffer
 }
 
-export interface SSHSignatureResult {
+export type SSHSignatureResult = {
   /** Armored SSH signature (-----BEGIN SSH SIGNATURE----- ... -----END SSH SIGNATURE-----) */
   armored: string
   /** Raw sshsig binary (before base64 armoring) */
   raw: Buffer
 }
 
-export interface SSHKeyProbeResult {
+export type SSHKeyProbeResult = {
   exists: false
 }
 
-export interface SSHKeyProbeResultFound {
+export type SSHKeyProbeResultFound = {
   exists: true
   needsPassphrase: boolean
   /** True when the key is OpenSSH native format AND encrypted (bcrypt KDF + AES cipher). */

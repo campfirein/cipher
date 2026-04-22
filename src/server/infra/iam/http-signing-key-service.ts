@@ -5,22 +5,22 @@ import {VcErrorCode} from '../../../shared/transport/events/vc-events.js'
 import {VcError} from '../../core/domain/errors/vc-error.js'
 
 // IAM API wraps all responses in {success, data}
-interface ApiEnvelope<T> {
+type ApiEnvelope<T> = {
   data: T
   success: boolean
 }
 
 // IAM API response wrappers (inside data envelope)
-interface CreateSigningKeyData {
+type CreateSigningKeyData = {
   signing_key: RawSigningKeyResource
 }
 
-interface ListSigningKeysData {
+type ListSigningKeysData = {
   signing_keys: RawSigningKeyResource[]
 }
 
 // IAM returns snake_case; map to camelCase
-interface RawSigningKeyResource {
+type RawSigningKeyResource = {
   created_at: string
   fingerprint: string
   id: string

@@ -1,6 +1,6 @@
 // ── DTOs ─────────────────────────────────────────────────────────────────────
 
-export interface SigningKeyResource {
+export type SigningKeyResource = {
   createdAt: string
   fingerprint: string
   id: string

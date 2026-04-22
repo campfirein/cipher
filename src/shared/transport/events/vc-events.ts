@@ -159,7 +159,7 @@ export type IVcSigningKeyRequest =
   | {action: 'list'}
   | {action: 'remove'; keyId: string}
 
-export interface SigningKeyItem {
+export type SigningKeyItem = {
   createdAt: string
   fingerprint: string
   id: string

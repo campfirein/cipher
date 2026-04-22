@@ -12,7 +12,7 @@ import {NotAuthenticatedError} from '../../../core/domain/errors/task-error.js'
 import {AuthenticatedHttpClient} from '../../http/authenticated-http-client.js'
 import {HttpSigningKeyService} from '../../iam/http-signing-key-service.js'
 
-export interface SigningKeyHandlerDeps {
+export type SigningKeyHandlerDeps = {
   iamBaseUrl: string
   /** Optional test seam: inject a pre-built service to bypass HTTP client construction. */
   signingKeyService?: ISigningKeyService
