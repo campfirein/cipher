@@ -54,6 +54,18 @@ export interface IHarnessStore {
   deleteOutcomes(projectId: string, commandType: string): Promise<number>
 
   /**
+   * Delete a single scenario by its `(projectId, commandType, scenarioId)` key.
+   * Returns `true` when the scenario existed and was deleted; `false` on miss.
+   * Used by `HarnessScenarioCapture` for LRU eviction when the per-pair cap
+   * is exceeded.
+   */
+  deleteScenario(
+    projectId: string,
+    commandType: string,
+    scenarioId: string,
+  ): Promise<boolean>
+
+  /**
    * Return the most-recently-written version for a `(projectId, commandType)`
    * pair — ranked by the stored `version` number, not by `heuristic`. This
    * is "newest" semantics, not "best" semantics. Phase 7's pinned-version

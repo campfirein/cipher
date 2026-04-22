@@ -87,6 +87,32 @@ export class HarnessStore implements IHarnessStore {
     return keys.length
   }
 
+  // ── scenarios ─────────────────────────────────────────────────────────────
+
+  async deleteScenario(
+    projectId: string,
+    commandType: string,
+    scenarioId: string,
+  ): Promise<boolean> {
+    for (const projectType of ProjectTypeSchema.options) {
+      const key = this.scenarioKey(projectType, projectId, commandType, scenarioId)
+      // eslint-disable-next-line no-await-in-loop
+      const exists = await this.keyStorage.exists(key)
+      if (exists) {
+        // eslint-disable-next-line no-await-in-loop
+        await this.keyStorage.delete(key)
+        this.logger.debug('HarnessStore.deleteScenario removed entry', {
+          commandType,
+          projectId,
+          scenarioId,
+        })
+        return true
+      }
+    }
+
+    return false
+  }
+
   // ── versions ───────────────────────────────────────────────────────────────
 
   async getLatest(projectId: string, commandType: string): Promise<HarnessVersion | undefined> {
