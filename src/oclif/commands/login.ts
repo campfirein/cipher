@@ -66,11 +66,16 @@ export default class Login extends Command {
       const completion = new Promise<AuthLoginCompletedEvent>((resolve, reject) => {
         timer = setTimeout(() => {
           unsubscribe?.()
+          timer = undefined
           reject(new Error(`Login timed out after ${Math.round(timeoutMs / 1000)}s`))
         }, timeoutMs)
 
         unsubscribe = client.on<AuthLoginCompletedEvent>(AuthEvents.LOGIN_COMPLETED, (data) => {
-          if (timer) clearTimeout(timer)
+          if (timer) {
+            clearTimeout(timer)
+            timer = undefined
+          }
+
           unsubscribe?.()
           resolve(data)
         })
@@ -82,7 +87,11 @@ export default class Login extends Command {
 
         return await completion
       } catch (error) {
-        if (timer) clearTimeout(timer)
+        if (timer) {
+          clearTimeout(timer)
+          timer = undefined
+        }
+
         unsubscribe?.()
         throw error
       }
@@ -105,11 +114,11 @@ export default class Login extends Command {
     try {
       await (apiKey ? this.runApiKey(apiKey, format) : this.runOAuth(format))
     } catch (error) {
+      const message = formatConnectionError(error)
       if (format === 'json') {
-        const message = error instanceof Error ? error.message : 'Login failed'
         this.emitError(format, message)
       } else {
-        this.log(formatConnectionError(error))
+        this.log(message)
       }
     }
   }
@@ -154,8 +163,8 @@ export default class Login extends Command {
 
     const result = await this.loginWithOAuth({onAuthUrl})
 
-    if (result.success && result.user) {
-      this.emitSuccess(format, result.user.email)
+    if (result.success) {
+      this.emitSuccess(format, result.user?.email)
     } else {
       this.emitError(format, result.error ?? 'Authentication failed')
     }
