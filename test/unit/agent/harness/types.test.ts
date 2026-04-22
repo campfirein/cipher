@@ -262,6 +262,7 @@ describe('autoharness-v2 types and schemas', () => {
     const valid = {
       code: 'await tools.curate([])',
       commandType: 'curate',
+      createdAt: Date.now(),
       expectedBehavior: 'Produces 5 curate operations',
       id: 'scen-1',
       projectId: 'proj-1',
