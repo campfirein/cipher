@@ -3,15 +3,6 @@ import {join} from 'node:path'
 import type {ProjectType} from '../../core/domain/harness/types.js'
 import type {IFileSystem} from '../../core/interfaces/i-file-system.js'
 
-/**
- * AutoHarness V2 Phase 4 Task 4.1 — project type detector.
- *
- * Pure async function consumed by `HarnessBootstrap` (Task 4.2) to decide
- * which template to materialize for a newly-bootstrapped project. Polyglot
- * fallback (choosing between detected types, config override) is Task 4.4;
- * this function returns evidence only.
- */
-
 export interface DetectResult {
   readonly detected: readonly ProjectType[]
 }
@@ -64,9 +55,14 @@ async function packageJsonDeclaresTypeScript(
     return false
   }
 
-  if (typeof parsed !== 'object' || parsed === null) return false
-  const pkg = parsed as {dependencies?: unknown; devDependencies?: unknown}
-  return hasTypeScriptEntry(pkg.dependencies) || hasTypeScriptEntry(pkg.devDependencies)
+  if (!isPackageLike(parsed)) return false
+  return hasTypeScriptEntry(parsed.dependencies) || hasTypeScriptEntry(parsed.devDependencies)
+}
+
+function isPackageLike(
+  value: unknown,
+): value is {dependencies?: unknown; devDependencies?: unknown} {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function hasTypeScriptEntry(deps: unknown): boolean {
