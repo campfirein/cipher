@@ -28,7 +28,7 @@ public static flags = {
     const {flags} = await this.parse(SigningKeyAdd)
     const keyPath = resolveHome(flags.key)
 
-    let publicKey: string
+    let publicKey: string | undefined
     let {title} = flags
 
     try {
@@ -52,13 +52,20 @@ public static flags = {
       )
     }
 
+    // Narrow explicitly: this.error() returns `never` but oclif's type
+    // declaration doesn't expose that, so without the guard TS treats
+    // publicKey as possibly undefined below.
+    if (!publicKey) {
+      this.error('Failed to determine public key material from key file')
+    }
+
     if (!title) title = 'My SSH key'
 
     try {
       const response = await withDaemonRetry(async (client) =>
         client.requestWithAck<IVcSigningKeyResponse>(VcEvents.SIGNING_KEY, {
           action: 'add',
-          publicKey: publicKey!,
+          publicKey,
           title,
         }),
       )

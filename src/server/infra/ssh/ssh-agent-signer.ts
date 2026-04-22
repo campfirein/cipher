@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto'
 import net from 'node:net'
 
-import type {SSHKeyType, SSHSignatureResult} from './types.js'
+import type {SSHSignatureResult} from './types.js'
 
 import {getPublicKeyMetadata} from './ssh-key-parser.js'
 import {SSHSIG_HASH_ALGORITHM, SSHSIG_MAGIC_PREAMBLE} from './sshsig-constants.js'
@@ -267,7 +267,7 @@ export async function tryGetSshAgentSigner(keyPath: string): Promise<null | SshA
     const match = identities.find((id) => id.fingerprint === parsed.fingerprint)
     if (!match) return null
 
-    return new SshAgentSigner(agent, match.blob, parsed.keyType as SSHKeyType)
+    return new SshAgentSigner(agent, match.blob, parsed.keyType)
   } catch {
     // Agent unavailable — degrade gracefully to cache/file path
     return null

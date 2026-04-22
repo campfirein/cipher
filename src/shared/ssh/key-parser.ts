@@ -44,6 +44,11 @@ const VALID_SSH_KEY_TYPES: ReadonlySet<string> = new Set<SSHKeyType>([
   'ssh-rsa',
 ])
 
+/** Type predicate — true when `s` is one of the SSH key types we accept. */
+export function isValidSSHKeyType(s: string): s is SSHKeyType {
+  return VALID_SSH_KEY_TYPES.has(s)
+}
+
 /** Read a uint32 big-endian from a buffer at offset; returns [value, newOffset] */
 function readUInt32(buf: Buffer, offset: number): [number, number] {
   return [buf.readUInt32BE(offset), offset + 4]
@@ -106,13 +111,11 @@ function parseOpenSSHKey(raw: string): {
   // Read key type from public key blob to identify the key
   const [keyTypeBuf] = readSSHString(publicKeyBlob, 0)
   const keyTypeStr = keyTypeBuf.toString()
-  if (!VALID_SSH_KEY_TYPES.has(keyTypeStr)) {
+  if (!isValidSSHKeyType(keyTypeStr)) {
     throw new Error(`Unknown SSH key type: '${keyTypeStr}'`)
   }
 
-  const keyType = keyTypeStr as SSHKeyType
-
-  return {cipherName, keyType, privateKeyBlob, publicKeyBlob}
+  return {cipherName, keyType: keyTypeStr, privateKeyBlob, publicKeyBlob}
 }
 
 /**
@@ -361,7 +364,15 @@ export async function parseSSHPrivateKey(
   let keyType: SSHKeyType
 
   if (asymKeyType === 'ed25519') {
-    const derPub = publicKey.export({format: 'der', type: 'spki'}) as Buffer
+    // KeyObject.export has an overload returning string | Buffer depending on
+    // format. DER output is binary; Buffer.from(string) would silently
+    // UTF-8-encode and corrupt the DER bytes, so narrow via isBuffer.
+    const exported = publicKey.export({format: 'der', type: 'spki'})
+    if (!Buffer.isBuffer(exported)) {
+      throw new TypeError('Expected Buffer from DER export of Ed25519 public key')
+    }
+
+    const derPub = exported
     // Ed25519 SPKI DER = 12-byte ASN.1 header + 32-byte raw public key
     const rawPubBytes = derPub.subarray(12)
 
@@ -449,15 +460,14 @@ export async function extractPublicKey(keyPath: string): Promise<{
  * checking for a .pub file first, then attempting to parse an OpenSSH private key
  * (which contains the public key even if the private key is encrypted).
  */
-export async function getPublicKeyMetadata(keyPath: string): Promise<null | {fingerprint: string; keyType: string}> {
+export async function getPublicKeyMetadata(keyPath: string): Promise<undefined | {fingerprint: string; keyType: SSHKeyType}> {
   const pubPath = keyPath.endsWith('.pub') ? keyPath : `${keyPath}.pub`
   try {
     const rawPub = await readFile(pubPath, 'utf8')
     const parts = rawPub.trim().split(' ')
-    if (parts.length >= 2) {
-      const keyType = parts[0]
+    if (parts.length >= 2 && isValidSSHKeyType(parts[0])) {
       const blob = Buffer.from(parts[1], 'base64')
-      return {fingerprint: computeFingerprint(blob), keyType}
+      return {fingerprint: computeFingerprint(blob), keyType: parts[0]}
     }
   } catch {
     // Ignore error, fallback to private key
@@ -473,10 +483,10 @@ export async function getPublicKeyMetadata(keyPath: string): Promise<null | {fin
       }
     }
   } catch {
-    return null
+    return undefined
   }
 
-  return null
+  return undefined
 }
 
 /**
