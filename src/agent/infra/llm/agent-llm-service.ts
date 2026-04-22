@@ -935,8 +935,13 @@ export class AgentLLMService implements ILLMService {
       }
 
       if (selection === undefined) return undefined
-      // Event carries the actual H when available; 0 marker when the
-      // override path bypassed computation on insufficient samples.
+      // Event schema requires `heuristic: number`. When override fires
+      // with null H (below the min-sample floor), we emit 0 as a sentinel
+      // for "H was not computed". There's no real ambiguity in practice:
+      // a computed H=0 would hit `selection === undefined` in the
+      // heuristic branch above and never reach this emit path, so
+      // `heuristic: 0` on an emitted event always means "override
+      // bypassed computation", not "H equals 0".
       const eventHeuristic = rawHeuristic ?? 0
 
       // `::` separator — safe because `commandType` is the controlled

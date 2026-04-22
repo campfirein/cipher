@@ -163,6 +163,9 @@ async function buildStack(
   // exercises mode selection in isolation.
   const harnessBootstrap = new HarnessBootstrap(
     harnessStore,
+    // HarnessBootstrap's 2nd arg is `IFileSystem`, used only inside
+    // `bootstrapIfNeeded` for project-type detection. We never call
+    // that method here, so an empty object cast is safe.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     {} as any,
     harnessConfig,
@@ -291,7 +294,15 @@ describe('AutoHarness V2 — Phase 5 mode selection integration', function () {
     const ready = await callEnsureHarnessReady(stack.agentService, 'curate')
 
     expect(ready?.mode).to.equal('filter')
+    // Length guard before indexed access — a silent emission failure
+    // should surface as "expected length 1, got 0", not TypeError.
+    expect(modeEvents).to.have.length(1)
     expect(modeEvents[0].mode).to.equal('filter')
+    // Sentinel value: when override fires with no outcomes (H is null),
+    // `ensureHarnessReady` emits `heuristic: 0` via `rawHeuristic ?? 0`.
+    // Pin the sentinel so a future encoding change (e.g. `-1` or `NaN`)
+    // breaks this test visibly rather than silently.
+    expect(modeEvents[0].heuristic).to.equal(0)
 
     const prompt = await stack.systemPromptManager.build({
       commandType: 'curate',
@@ -311,7 +322,10 @@ describe('AutoHarness V2 — Phase 5 mode selection integration', function () {
     const ready = await callEnsureHarnessReady(stack.agentService, 'curate')
 
     expect(ready?.mode).to.equal('policy')
+    // Length guard + sentinel check — same rationale as scenario 2.
+    expect(modeEvents).to.have.length(1)
     expect(modeEvents[0].mode).to.equal('policy')
+    expect(modeEvents[0].heuristic).to.equal(0)
 
     const prompt = await stack.systemPromptManager.build({
       commandType: 'curate',
@@ -357,6 +371,12 @@ describe('AutoHarness V2 — Phase 5 mode selection integration', function () {
     // Wire minimal tool services so `buildHarnessTools`'s service-
     // wired guards pass and the counter actually runs. The stub resolves
     // quickly (50 invocations per call is fine).
+    //
+    // FOLLOW-UP: direct assignment to private fields is brittle against
+    // renames. `SandboxService` should grow typed test-injection setters
+    // (e.g., `setCurateService(...)`, `setFileSystem(...)`) — tracked
+    // outside this PR so the integration gate can land first. Same
+    // pattern used by `outcome-collection.test.ts` and `cold-start.test.ts`.
     const curateStub = sb.stub().resolves({applied: 0, errors: [], items: []})
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(stack.sandboxService as any).curateService = {curate: curateStub}
