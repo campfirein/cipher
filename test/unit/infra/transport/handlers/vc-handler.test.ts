@@ -28,6 +28,7 @@ import {BrvConfig} from '../../../../../src/server/core/domain/entities/brv-conf
 import {GitAuthError, GitError} from '../../../../../src/server/core/domain/errors/git-error.js'
 import {NotAuthenticatedError} from '../../../../../src/server/core/domain/errors/task-error.js'
 import {VcError} from '../../../../../src/server/core/domain/errors/vc-error.js'
+import {SigningKeyCache} from '../../../../../src/server/infra/ssh/signing-key-cache.js'
 import {VcHandler} from '../../../../../src/server/infra/transport/handlers/vc-handler.js'
 import {
   type IVcBranchRequest,
@@ -188,7 +189,7 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
   }
 }
 
-function makeVcHandler(deps: TestDeps): VcHandler {
+function makeVcHandler(deps: TestDeps, signingKeyCache?: SigningKeyCache): VcHandler {
   return new VcHandler({
     broadcastToProject: deps.broadcastToProject,
     contextTreeService: deps.contextTreeService,
@@ -196,6 +197,7 @@ function makeVcHandler(deps: TestDeps): VcHandler {
     gitService: deps.gitService,
     projectConfigStore: deps.projectConfigStore,
     resolveProjectPath: deps.resolveProjectPath,
+    ...(signingKeyCache ? {signingKeyCache} : {}),
     spaceService: deps.spaceService,
     teamService: deps.teamService,
     tokenStore: deps.tokenStore,
@@ -1110,6 +1112,67 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
           expect(error.message).to.include('gpg')
         }
       }
+    })
+
+    // Regression test for PR #435 review comment #14: when the user changes
+    // user.signingkey, the cache entry for the PREVIOUS key path must be
+    // evicted. Otherwise the old ParsedSSHKey sits in daemon memory until its
+    // 30-min TTL expires — low-severity leak, but the cache exposes an
+    // invalidate(projectPath, keyPath) API for exactly this purpose.
+    it('handleConfig user.signingkey: invalidates cache entry for the previous key path', async () => {
+      const realProjectPath = fs.mkdtempSync(join(tmpdir(), 'brv-test-config-cache-invalidate-'))
+      const oldKeyPath = join(realProjectPath, 'old_key')
+      const newKeyPath = join(realProjectPath, 'new_key')
+      const fakeKey = `-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACAmIfT6LJouOpJugPKYl7yiJwYIlrh124TOYjaNzxjNQgAAAJgCtf3VArX9
+1QAAAAtzc2gtZWQyNTUxOQAAACAmIfT6LJouOpJugPKYl7yiJwYIlrh124TOYjaNzxjNQg
+AAEB01GDi+m4swI3lsGv870+yJFfAJP0CcFSDPcTyCUpaBSYh9Posmi46km6A8piXvKIn
+BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
+-----END OPENSSH PRIVATE KEY-----`
+      writeFileSync(oldKeyPath, fakeKey, {mode: 0o600})
+      writeFileSync(newKeyPath, fakeKey, {mode: 0o600})
+
+      const cache = new SigningKeyCache()
+      // Parse once via the real parser so we have an authentic ParsedSSHKey to seed.
+      const {parseSSHPrivateKey} = await import('../../../../../src/server/infra/ssh/ssh-key-parser.js')
+      const parsed = await parseSSHPrivateKey(oldKeyPath)
+      cache.set(projectPath, oldKeyPath, parsed)
+
+      const deps = makeDeps(sandbox, projectPath)
+      deps.vcGitConfigStore.get.resolves({signingKey: oldKeyPath})
+      makeVcHandler(deps, cache).setup()
+
+      await deps.requestHandlers[VcEvents.CONFIG]({key: 'user.signingkey', value: newKeyPath}, CLIENT_ID)
+
+      // Old entry must be gone (get() returns a falsy value once the entry
+      // is evicted — null today, undefined after review comment #11).
+      expect(cache.get(projectPath, oldKeyPath), 'old cache entry should be invalidated').to.not.be.ok
+
+      rmSync(realProjectPath, {force: true, recursive: true})
+    })
+
+    // Regression test for PR #435 review comment #16: user.signingkey paths
+    // must be absolute. Relative paths silently resolve against the daemon's
+    // CWD and break if the daemon restarts from a different working
+    // directory. Matches git's own `user.signingKey` semantic.
+    it('handleConfig user.signingkey: rejects non-absolute path with INVALID_CONFIG_VALUE', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.vcGitConfigStore.get.resolves({})
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.CONFIG]({key: 'user.signingkey', value: './id_ed25519'}, CLIENT_ID)
+        expect.fail('Expected VcError')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.INVALID_CONFIG_VALUE)
+          expect(error.message).to.match(/absolute/i)
+        }
+      }
+
+      expect(deps.vcGitConfigStore.set.called, 'must not write config when path is rejected').to.be.false
     })
 
     it('handleImportGitSigning: does NOT set commitSign when gpgsign is explicitly false', async () => {

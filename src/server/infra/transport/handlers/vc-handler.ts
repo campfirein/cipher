@@ -759,6 +759,13 @@ export class VcHandler {
           }
         }
 
+        // Evict any cached ParsedSSHKey bound to the PREVIOUS key path —
+        // otherwise a stale entry keeps the old decrypted key object in daemon
+        // memory until its 30-min TTL expires.
+        if (existing.signingKey && existing.signingKey !== resolvedPath) {
+          this.signingKeyCache.invalidate(projectPath, existing.signingKey)
+        }
+
         await this.vcGitConfigStore.set(projectPath, {...existing, signingKey: resolvedPath})
         return {hint, key: data.key, value: resolvedPath}
       }
