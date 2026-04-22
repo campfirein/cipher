@@ -22,6 +22,7 @@ import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
 
 import { ProjectTypeSchema } from '../../core/domain/harness/types.js'
 import {HarnessEvaluatorError} from '../harness/harness-evaluator-errors.js'
+import { OpsCounter } from '../harness/ops-counter.js'
 import {CurateResultCollector} from './curate-result-collector.js'
 import { LocalSandbox } from './local-sandbox.js'
 import { createToolsSDK } from './tools-sdk.js'
@@ -525,16 +526,29 @@ export class SandboxService implements ISandboxService {
     const {curateService} = this
     const {fileSystem} = this
     const writeBlocked = options?.dryRun === true
+    // Fresh counter per outer harness invocation. The `buildCtx` helper
+    // calls `buildHarnessTools()` each time `harness.curate()` /
+    // `harness.query()` fires, so the counter's scope is naturally one
+    // outer call — no explicit reset needed.
+    //
+    // Caps apply unconditionally (all modes). Always-on enforcement
+    // prevents a "mode not set yet" bypass window.
+    const opsCounter = new OpsCounter()
     return {
       async curate(operations, opts) {
+        // dryRun blocks writes before anything else — no ops counted,
+        // no service check. The evaluator sees a clean rejection.
         if (writeBlocked) {
           throw new HarnessEvaluatorError('WRITE_BLOCKED_DURING_EVAL')
         }
 
+        // Service-wired check FIRST — a misconfiguration error never
+        // reaches the real tool, so it shouldn't consume op budget.
         if (curateService === undefined) {
           throw new Error('harness.ctx.tools.curate: no curate service wired')
         }
 
+        opsCounter.increment()
         return curateService.curate(operations, opts)
       },
       async readFile(filePath, opts) {
@@ -542,6 +556,7 @@ export class SandboxService implements ISandboxService {
           throw new Error('harness.ctx.tools.readFile: no file system wired')
         }
 
+        opsCounter.increment()
         return fileSystem.readFile(filePath, opts)
       },
     }
