@@ -125,13 +125,13 @@ describe('tryGetSshAgentSigner()', () => {
   it('returns null when SSH_AUTH_SOCK is not set', async () => {
     delete process.env.SSH_AUTH_SOCK
     const result = await tryGetSshAgentSigner(keyPath)
-    expect(result).to.be.null
+    expect(result).to.be.undefined
   })
 
   it('returns null when agent is unreachable', async () => {
     process.env.SSH_AUTH_SOCK = '/nonexistent/agent.sock'
     const result = await tryGetSshAgentSigner(keyPath)
-    expect(result).to.be.null
+    expect(result).to.be.undefined
   })
 
   it('returns null when agent has no matching key', async () => {
@@ -148,7 +148,7 @@ describe('tryGetSshAgentSigner()', () => {
 
     try {
       const result = await tryGetSshAgentSigner(keyPath)
-      expect(result).to.be.null
+      expect(result).to.be.undefined
     } finally {
       agent.cleanup()
     }
@@ -169,7 +169,7 @@ describe('tryGetSshAgentSigner()', () => {
 
     try {
       const signer = await tryGetSshAgentSigner(keyPath)
-      expect(signer).to.not.be.null
+      expect(signer).to.not.be.undefined
     } finally {
       agent.cleanup()
     }
@@ -210,7 +210,7 @@ describe('SshAgentSigner.sign()', () => {
 
     try {
       const signer = await tryGetSshAgentSigner(keyPath)
-      expect(signer).to.not.be.null
+      expect(signer).to.not.be.undefined
 
       const result = await signer!.sign('test commit payload')
       expect(result.armored).to.match(/^-----BEGIN SSH SIGNATURE-----/)
@@ -302,7 +302,7 @@ describe('SshAgentSigner.sign()', () => {
 
     try {
       const signer = await tryGetSshAgentSigner(keyPath)
-      expect(signer).to.not.be.null
+      expect(signer).to.not.be.undefined
       await signer!.sign('test payload for magic check')
 
       // Per PROTOCOL.sshsig the signed-data structure is:
@@ -450,7 +450,7 @@ describe('SshAgentSigner.sign()', () => {
 
     try {
       const signer = await tryGetSshAgentSigner(rsaKeyPath)
-      expect(signer, 'tryGetSshAgentSigner must resolve with an RSA-capable signer').to.not.be.null
+      expect(signer, 'tryGetSshAgentSigner must resolve with an RSA-capable signer').to.not.be.undefined
       if (!signer) throw new Error('unreachable')
 
       await signer.sign('hello RSA')
@@ -512,7 +512,7 @@ describe('SshAgentSigner.sign()', () => {
 
     try {
       const signer = await tryGetSshAgentSigner(keyPath)
-      expect(signer, 'signer should be constructed').to.not.be.null
+      expect(signer, 'signer should be constructed').to.not.be.undefined
       if (!signer) throw new Error('unreachable')
 
       let caught: Error | undefined

@@ -61,16 +61,16 @@ private readonly ttlMs: number
 
   /**
    * Get a cached key for a (project, key) pair.
-   * Returns null if the entry does not exist or has expired.
+   * Returns undefined if the entry does not exist or has expired.
    */
-  get(projectPath: string, keyPath: string): null | ParsedSSHKey {
+  get(projectPath: string, keyPath: string): ParsedSSHKey | undefined {
     const compositeKey = SigningKeyCache.composeKey(projectPath, keyPath)
     const entry = this.cache.get(compositeKey)
-    if (!entry) return null
+    if (!entry) return undefined
 
     if (Date.now() > entry.expiresAt) {
       this.cache.delete(compositeKey)
-      return null
+      return undefined
     }
 
     return entry.key

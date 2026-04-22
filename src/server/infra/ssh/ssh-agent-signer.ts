@@ -246,30 +246,30 @@ export class SshAgentSigner {
  * Try to get an SshAgentSigner for the key at the given path.
  *
  * Priority chain path A: connect to ssh-agent → find matching key → return signer.
- * Returns null (non-throwing) if:
+ * Returns undefined (non-throwing) if:
  * - $SSH_AUTH_SOCK is not set
  * - Agent is unreachable
  * - The key at keyPath is not loaded in the agent
  */
-export async function tryGetSshAgentSigner(keyPath: string): Promise<null | SshAgentSigner> {
+export async function tryGetSshAgentSigner(keyPath: string): Promise<SshAgentSigner | undefined> {
   const agentSocket = process.env.SSH_AUTH_SOCK ?? (process.platform === 'win32' ? String.raw`\\.\pipe\openssh-ssh-agent` : undefined)
-  if (!agentSocket) return null
+  if (!agentSocket) return undefined
 
   try {
     const agent = new SshAgentClient(agentSocket)
 
     // Derive public key fingerprint from key file (reads only public key — no passphrase needed)
-    const parsed = await getPublicKeyMetadata(keyPath).catch(() => null)
-    if (!parsed) return null
+    const parsed = await getPublicKeyMetadata(keyPath).catch(() => {})
+    if (!parsed) return undefined
 
     // Find matching identity in agent
     const identities = await agent.listIdentities()
     const match = identities.find((id) => id.fingerprint === parsed.fingerprint)
-    if (!match) return null
+    if (!match) return undefined
 
     return new SshAgentSigner(agent, match.blob, parsed.keyType)
   } catch {
     // Agent unavailable — degrade gracefully to cache/file path
-    return null
+    return undefined
   }
 }
