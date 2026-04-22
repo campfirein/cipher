@@ -25,13 +25,6 @@ import {getGlobalDataDir} from '../../server/utils/global-data-path.js'
 import {resolvePath, sanitizeProjectPath} from '../../server/utils/path-utils.js'
 
 /**
- * Public feature-flag view for `brv harness status` and friends.
- *
- * `enabled` / `autoLearn` mirror `ValidatedHarnessConfig` but are
- * decoupled from the agent schema so the CLI doesn't pull in the full
- * agent-schemas surface for a flag read.
- */
-/**
  * Command types supported by the harness pair. Single source of
  * truth for the `brv harness *` command family — status / inspect /
  * use / diff / reset / baseline all constrain the `--commandType`
@@ -44,6 +37,13 @@ export function isHarnessCommandType(value: string): value is HarnessCommandType
   return (HARNESS_COMMAND_TYPES as readonly string[]).includes(value)
 }
 
+/**
+ * Public feature-flag view for `brv harness status` and friends.
+ *
+ * `enabled` / `autoLearn` mirror `ValidatedHarnessConfig` but are
+ * decoupled from the agent schema so the CLI doesn't pull in the full
+ * agent-schemas surface for a flag read.
+ */
 export interface HarnessFeatureConfig {
   readonly autoLearn: boolean
   readonly enabled: boolean

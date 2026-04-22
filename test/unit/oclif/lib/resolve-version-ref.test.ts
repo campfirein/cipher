@@ -156,6 +156,7 @@ describe('resolveVersionRef', () => {
       caught = error
     }
 
+    expect(caught).to.be.instanceOf(VersionRefError)
     expect((caught as VersionRefError).code).to.equal('NOT_FOUND')
     expect((caught as VersionRefError).message).to.include('#1')
     expect((caught as VersionRefError).message).to.include('#2')
@@ -171,6 +172,7 @@ describe('resolveVersionRef', () => {
       caught = error
     }
 
+    expect(caught).to.be.instanceOf(VersionRefError)
     expect((caught as VersionRefError).code).to.equal('INVALID_GRAMMAR')
   })
 
@@ -195,6 +197,7 @@ describe('resolveVersionRef', () => {
       caught = error
     }
 
+    expect(caught).to.be.instanceOf(VersionRefError)
     expect((caught as VersionRefError).code).to.equal('NOT_FOUND')
     expect((caught as VersionRefError).message).to.include('v-unknown')
   })
