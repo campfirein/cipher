@@ -62,10 +62,9 @@ export interface SessionManagerOptions {
  * Each session gets its own LLM service instance with isolated context.
  * and creates session-specific services (LLM, EventBus) per conversation.
  */
-/** Grace window before a session's dedup entry expires (ms). */
-const ENDED_SESSION_GRACE_MS = 60_000
-
 export class SessionManager {
+  /** Grace window before a session's dedup entry expires (ms). */
+  private static readonly ENDED_SESSION_GRACE_MS = 60_000
   private cleanupTimer?: ReturnType<typeof setInterval>
   private readonly config: Required<SessionManagerConfig>
   private readonly endedSessions = new Set<string>()
@@ -659,18 +658,23 @@ export class SessionManager {
     this.endedSessions.add(sessionId)
 
     const projectId = recorder.getProjectIdForSession(sessionId)
+    const commandTypes = recorder.getCommandTypesForSession(sessionId)
+
+    // Release per-session recorder state now that we've read it.
+    // Without this, the three recorder maps grow one entry per ended session.
+    recorder.clearSession(sessionId)
+
     if (!projectId) return
 
-    const commandTypes = recorder.getCommandTypesForSession(sessionId)
     for (const commandType of commandTypes) {
       synthesizer
-        .refineIfNeeded(projectId, commandType as 'chat' | 'curate' | 'query')
+        .refineIfNeeded(projectId, commandType)
         .catch(() => {
           // Swallow — refinement failures must not affect session lifecycle
         })
     }
 
     // Clean up dedup entry after grace window to prevent unbounded growth
-    setTimeout(() => this.endedSessions.delete(sessionId), ENDED_SESSION_GRACE_MS)
+    setTimeout(() => this.endedSessions.delete(sessionId), SessionManager.ENDED_SESSION_GRACE_MS)
   }
 }

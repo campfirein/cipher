@@ -190,8 +190,10 @@ describe('HarnessOutcomeRecorder — synthetic feedback weighting', () => {
   // ── 6. feedback on non-existent outcome → no-op, no throw ───────────────
 
   it('feedback on non-existent outcome is a no-op', async () => {
-    // InMemoryHarnessStore.recordFeedback is a no-op on miss (doesn't throw).
-    // attachFeedback should complete without error or synthetics.
+    // InMemoryHarnessStore.recordFeedback is a silent no-op on miss.
+    // The real HarnessStore throws OUTCOME_NOT_FOUND — that propagation
+    // path is tested in harness-outcome-recorder-feedback.test.ts (test 4).
+    // Here we verify the no-synthetics-inserted invariant.
     await recorder.attachFeedback('proj-1', 'curate', 'ghost-id', 'bad')
 
     const outcomes = await store.listOutcomes('proj-1', 'curate', 200)

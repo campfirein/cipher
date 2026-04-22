@@ -121,7 +121,7 @@ const SYNTHETIC_DELIMITER = '__synthetic_'
 // ---------------------------------------------------------------------------
 
 export class HarnessOutcomeRecorder {
-  private readonly commandTypesBySession = new Map<string, Set<string>>()
+  private readonly commandTypesBySession = new Map<string, Set<'chat' | 'curate' | 'query'>>()
   private readonly config: ValidatedHarnessConfig
   private readonly logger: ILogger
   private readonly projectIdBySession = new Map<string, string>()
@@ -246,8 +246,8 @@ export class HarnessOutcomeRecorder {
    * trigger uses this to fire refinement only for command types the
    * session touched.
    */
-  getCommandTypesForSession(sessionId: string): ReadonlySet<string> {
-    return this.commandTypesBySession.get(sessionId) ?? new Set<string>()
+  getCommandTypesForSession(sessionId: string): ReadonlySet<'chat' | 'curate' | 'query'> {
+    return this.commandTypesBySession.get(sessionId) ?? new Set<'chat' | 'curate' | 'query'>()
   }
 
   /**
@@ -303,7 +303,7 @@ export class HarnessOutcomeRecorder {
     if (this.commandTypesBySession.has(params.sessionId)) {
       this.commandTypesBySession.get(params.sessionId)?.add(params.commandType)
     } else {
-      this.commandTypesBySession.set(params.sessionId, new Set<string>([params.commandType]))
+      this.commandTypesBySession.set(params.sessionId, new Set([params.commandType]))
     }
 
     // Track projectId for the session-end trigger's resolveProjectId

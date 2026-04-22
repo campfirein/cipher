@@ -324,7 +324,7 @@ export async function createCipherAgentServices(
     // RefinerClient uses the refinement model override if configured,
     // otherwise falls back to the agent's default model. The synthesizer
     // checks the blocklist at runtime to skip weak models.
-    const refinementModel = config.harness.refinementModel ?? config.model ?? 'gemini-3-flash-preview'
+    const refinementModel = config.harness.refinementModel ?? config.model
     const refinerProvider = config.provider ?? (config.openRouterApiKey ? 'openrouter' : 'byterover')
 
     const refinerGenerator = createGeneratorForProvider(refinerProvider, {
@@ -333,7 +333,6 @@ export async function createCipherAgentServices(
         : config.providerApiKey,
       baseUrl: config.providerBaseUrl,
       headers: config.providerHeaders,
-      httpConfig: {} as unknown as Record<string, unknown>,
       httpReferer: config.httpReferer,
       maxTokens: 4096,
       model: refinementModel,

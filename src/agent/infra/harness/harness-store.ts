@@ -68,6 +68,11 @@ export class HarnessStore implements IHarnessStore {
     // Outcome key includes projectType, which we don't have. Try all
     // three values — at most 3 lookups, acceptable for user-driven
     // feedback operations.
+    //
+    // TOCTOU window between get() and delete() is harmless: a concurrent
+    // writer cannot change the key under us (IDs are deterministic), and
+    // a concurrent delete simply makes ours a no-op. Same reasoning as
+    // deleteScenario.
     for (const projectType of ProjectTypeSchema.options) {
       const key = this.outcomeKey(projectType, projectId, commandType, outcomeId)
       // eslint-disable-next-line no-await-in-loop

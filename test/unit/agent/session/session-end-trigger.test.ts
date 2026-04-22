@@ -46,15 +46,17 @@ function makeSynthesizerStub(): HarnessSynthesizer & {
  * Stub outcome recorder with controllable session state.
  */
 function makeRecorderStub(opts: {
-  commandTypes?: ReadonlySet<string>
+  commandTypes?: ReadonlySet<'chat' | 'curate' | 'query'>
   projectId?: string
-}): HarnessOutcomeRecorder {
+}): HarnessOutcomeRecorder & {clearSessionStub: sinon.SinonStub} {
+  const clearSessionStub = sinon.stub()
   return {
     cleanup: sinon.stub(),
-    clearSession: sinon.stub(),
-    getCommandTypesForSession: sinon.stub().returns(opts.commandTypes ?? new Set<string>()),
+    clearSession: clearSessionStub,
+    clearSessionStub,
+    getCommandTypesForSession: sinon.stub().returns(opts.commandTypes ?? new Set<'chat' | 'curate' | 'query'>()),
     getProjectIdForSession: sinon.stub().returns(opts.projectId ?? 'proj-1'),
-  } as unknown as HarnessOutcomeRecorder
+  } as unknown as HarnessOutcomeRecorder & {clearSessionStub: sinon.SinonStub}
 }
 
 /**
@@ -124,11 +126,14 @@ describe('SessionManager — session-end harness trigger', () => {
     await sm.endSession('s1')
 
     // Allow fire-and-forget promises to settle
-    await new Promise((r) => { setTimeout(r, 10) })
+    await Promise.resolve()
 
     expect(synthesizer.refineStub.callCount).to.equal(2)
     expect(synthesizer.refineStub.calledWith('proj-1', 'curate')).to.equal(true)
     expect(synthesizer.refineStub.calledWith('proj-1', 'query')).to.equal(true)
+
+    // Recorder per-session state is cleaned up
+    expect(recorder.clearSessionStub.calledWith('s1')).to.equal(true)
   })
 
   it('endSession is a no-op when harness is disabled', async () => {
@@ -149,7 +154,7 @@ describe('SessionManager — session-end harness trigger', () => {
     ;(sm as unknown as {sessions: Map<string, unknown>}).sessions.set('s1', session)
 
     await sm.endSession('s1')
-    await new Promise((r) => { setTimeout(r, 10) })
+    await Promise.resolve()
 
     expect(synthesizer.refineStub.callCount).to.equal(0)
   })
@@ -172,7 +177,7 @@ describe('SessionManager — session-end harness trigger', () => {
     ;(sm as unknown as {sessions: Map<string, unknown>}).sessions.set('s1', session)
 
     await sm.endSession('s1')
-    await new Promise((r) => { setTimeout(r, 10) })
+    await Promise.resolve()
 
     expect(synthesizer.refineStub.callCount).to.equal(0)
   })
@@ -203,7 +208,7 @@ describe('SessionManager — session-end harness trigger', () => {
     ;(sm as unknown as {sessions: Map<string, unknown>}).sessions.set('s1', session2)
     await sm.endSession('s1')
 
-    await new Promise((r) => { setTimeout(r, 10) })
+    await Promise.resolve()
 
     expect(synthesizer.refineStub.callCount).to.equal(1)
   })
