@@ -376,5 +376,71 @@ describe('SshAgentSigner.sign()', () => {
       agent.cleanup()
     }
   })
+
+  // Regression test for PR #435 review comment #22: sign() used to blindly
+  // return response.subarray(5, 5 + sigLen) without checking that sigLen
+  // actually fits in the response buffer. A truncated agent response
+  // silently yielded a short signature; downstream verification would
+  // then fail with a generic "bad signature" error instead of surfacing
+  // the agent-boundary problem at its source.
+  it('throws when agent response claims a signature length larger than the body', async () => {
+    const parsed = await parseSSHPrivateKey(keyPath)
+
+    // Build a malformed SIGN_RESPONSE: type byte + sigLen(=100) + only 3 bytes of signature.
+    // The outer request/response length prefix is added by the mock server.
+    const malformedBody = Buffer.concat([
+      Buffer.from([SSH_AGENT_SIGN_RESPONSE]),
+      writeUInt32BE(100),
+      Buffer.from('ABC'),
+    ])
+
+    const tempDir2 = mkdtempSync(join(tmpdir(), 'brv-mock-agent-trunc-'))
+    const socketPath = join(tempDir2, 'agent.sock')
+    const server = net.createServer((conn) => {
+      const chunks: Buffer[] = []
+      conn.on('data', (chunk) => {
+        chunks.push(chunk)
+        const acc = Buffer.concat(chunks)
+        if (acc.length < 4) return
+        const msgLen = acc.readUInt32BE(0)
+        if (acc.length < 4 + msgLen) return
+        const payload = acc.subarray(4, 4 + msgLen)
+        chunks.length = 0
+
+        if (payload[0] === SSH_AGENTC_REQUEST_IDENTITIES) {
+          const body = Buffer.concat([
+            Buffer.from([SSH_AGENT_IDENTITIES_ANSWER]),
+            writeUInt32BE(1),
+            sshString(parsed.publicKeyBlob),
+            sshString('comment'),
+          ])
+          conn.write(Buffer.concat([writeUInt32BE(body.length), body]))
+        } else if (payload[0] === SSH_AGENTC_SIGN_REQUEST) {
+          conn.write(Buffer.concat([writeUInt32BE(malformedBody.length), malformedBody]))
+        }
+      })
+    })
+    server.listen(socketPath)
+    process.env.SSH_AUTH_SOCK = socketPath
+
+    try {
+      const signer = await tryGetSshAgentSigner(keyPath)
+      expect(signer, 'signer should be constructed').to.not.be.null
+      if (!signer) throw new Error('unreachable')
+
+      let caught: Error | undefined
+      try {
+        await signer.sign('payload')
+      } catch (error) {
+        if (error instanceof Error) caught = error
+      }
+
+      expect(caught, 'sign() must reject on truncated response').to.be.instanceOf(Error)
+      if (!caught) throw new Error('unreachable')
+      expect(caught.message).to.match(/truncat|signature.*byte/i)
+    } finally {
+      server.close()
+    }
+  })
 })
 })

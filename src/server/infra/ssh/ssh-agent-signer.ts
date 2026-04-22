@@ -115,7 +115,13 @@ class SshAgentClient {
           }
 
           if (accumulated.length >= 4 + responseLen) {
-            settle(() => resolve(accumulated.subarray(4, 4 + responseLen)))
+            const body = accumulated.subarray(4, 4 + responseLen)
+            if (body.length === 0) {
+              settle(() => reject(new Error('Agent returned empty response body')))
+              return
+            }
+
+            settle(() => resolve(body))
           }
         }
       })
@@ -157,6 +163,12 @@ class SshAgentClient {
 
     // Response: byte SSH_AGENT_SIGN_RESPONSE + string(signature)
     const sigLen = readUInt32(response, 1)
+    if (sigLen > response.length - 5) {
+      throw new Error(
+        `Agent signature truncated: header claims ${sigLen} bytes, body has ${response.length - 5}`,
+      )
+    }
+
     return response.subarray(5, 5 + sigLen)
   }
 }
