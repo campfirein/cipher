@@ -868,19 +868,24 @@ export class AgentLLMService implements ILLMService {
    *
    * @param result - Parallel tool result to add
    */
-/**
- * AutoHarness V2 (Phase 5 Task 5.4) — ensures the harness is
- * bootstrapped, loaded, and a mode is selected for this session-pair.
- * Emits `harness:mode-selected` at most once per
- * `(sessionId, commandType)`. Returns the selection for the prompt
- * contributor, or `undefined` when harness is disabled / below
- * threshold / has no version in store.
- *
- * Cheap on the happy path after the first turn: bootstrap is
- * idempotent + short-circuits on `getLatest`; `SandboxService.loadHarness`
- * short-circuits on `sessionHarnessStates`. Two async store reads
- * per turn when enabled — acceptable for v1.0.
- */
+  /**
+   * AutoHarness V2 (Phase 5 Task 5.4) — ensures the harness is
+   * bootstrapped, loaded, and a mode is selected for this session-pair.
+   * Emits `harness:mode-selected` at most once per
+   * `(sessionId, commandType)`. Returns the selection for the prompt
+   * contributor, or `undefined` when harness is disabled / below
+   * threshold / has no version in store.
+   *
+   * Cheap on the happy path after the first turn: bootstrap is
+   * idempotent + short-circuits on `getLatest`; `SandboxService.loadHarness`
+   * short-circuits on `sessionHarnessStates`. Two async store reads
+   * per turn when enabled — acceptable for v1.0.
+   *
+   * Fails open: any unexpected error from bootstrap / load / store is
+   * logged at `warn` and the method returns `undefined`, leaving the
+   * agent to proceed without harness. Harness is non-critical
+   * infrastructure; a transient I/O error here must not kill the task.
+   */
   private async ensureHarnessReady(
     commandType: 'chat' | 'curate' | 'query',
   ): Promise<undefined | {mode: HarnessMode; version: HarnessVersion}> {
@@ -895,48 +900,60 @@ export class AgentLLMService implements ILLMService {
       return undefined
     }
 
-    // Slug/path gap workaround (known issue — see
-    // outcome-collection.test.ts:32): the recorder derives projectId
-    // from `environmentContext.workingDirectory`, so we use the same
-    // source here. In-memory storage accepts paths; persistent
-    // FileKeyStorage would need a slug — that unification is tracked
-    // separately.
-    const projectId = this.workingDirectory
-    const {workingDirectory} = this
+    try {
+      // Slug/path gap workaround (known issue — see
+      // outcome-collection.test.ts:32): the recorder derives projectId
+      // from `environmentContext.workingDirectory`, so we use the same
+      // source here. `bootstrapIfNeeded` takes both `projectId` (for
+      // store key partitioning) and `workingDirectory` (for filesystem
+      // detection); at present they're the same value, aliased for
+      // readability at the call site.
+      const projectId = this.workingDirectory
+      const {workingDirectory} = this
 
-    await harnessBootstrap.bootstrapIfNeeded(projectId, commandType, workingDirectory)
+      await harnessBootstrap.bootstrapIfNeeded(projectId, commandType, workingDirectory)
 
-    const loadResult = await sandboxService.loadHarness(this.sessionId, projectId, commandType)
-    if (!loadResult.loaded) return undefined
+      const loadResult = await sandboxService.loadHarness(this.sessionId, projectId, commandType)
+      if (!loadResult.loaded) return undefined
 
-    const outcomes = await harnessStore.listOutcomes(projectId, commandType, 50)
-    const heuristic = computeHeuristic(outcomes, Date.now())
-    if (heuristic === null) {
-      // Below the min-sample floor — behave as "no harness" for this
-      // turn. When enough outcomes accumulate, mode selection kicks in.
+      const outcomes = await harnessStore.listOutcomes(projectId, commandType, 50)
+      const heuristic = computeHeuristic(outcomes, Date.now())
+      if (heuristic === null) {
+        // Below the min-sample floor — behave as "no harness" for this
+        // turn. When enough outcomes accumulate, mode selection kicks in.
+        return undefined
+      }
+
+      const selection = selectHarnessMode(heuristic, harnessConfig)
+      if (selection === undefined) return undefined
+
+      // `::` separator — safe because `commandType` is the controlled
+      // enum `'chat' | 'curate' | 'query'` and cannot contain colons.
+      const dedupKey = `${this.sessionId}::${commandType}`
+      if (!this.harnessModeSelectedEmitted.has(dedupKey)) {
+        this.harnessModeSelectedEmitted.add(dedupKey)
+        // `SessionEventBus` payload omits `sessionId` — the bus is already
+        // session-scoped and forwarding infra adds it when routing to
+        // `AgentEventBus`. See `AgentEventMap.'harness:mode-selected'`
+        // which includes `sessionId` for cross-session consumers.
+        this.sessionEventBus.emit('harness:mode-selected', {
+          commandType,
+          heuristic,
+          mode: selection.mode,
+          projectId,
+          version: loadResult.version.version,
+        })
+      }
+
+      return {mode: selection.mode, version: loadResult.version}
+    } catch (error) {
+      this.logger.warn('ensureHarnessReady failed; proceeding without harness', {
+        commandType,
+        error: getErrorMessage(error),
+        sessionId: this.sessionId,
+      })
       return undefined
     }
-
-    const selection = selectHarnessMode(heuristic, harnessConfig)
-    if (selection === undefined) return undefined
-
-    const dedupKey = `${this.sessionId}\u0000${commandType}`
-    if (!this.harnessModeSelectedEmitted.has(dedupKey)) {
-      this.harnessModeSelectedEmitted.add(dedupKey)
-      // `SessionEventBus` payload omits `sessionId` — the bus is already
-      // session-scoped and forwarding infra adds it when routing to
-      // `AgentEventBus`. See `AgentEventMap.'harness:mode-selected'`
-      // which includes `sessionId` for cross-session consumers.
-      this.sessionEventBus.emit('harness:mode-selected', {
-        commandType,
-        heuristic,
-        mode: selection.mode,
-        projectId,
-        version: loadResult.version.version,
-      })
-    }
-
-    return {mode: selection.mode, version: loadResult.version}
   }
 
   /**
@@ -993,9 +1010,10 @@ export class AgentLLMService implements ILLMService {
       // AutoHarness V2 (Phase 5): bootstrap + load + mode-select BEFORE
       // prompt build, so the system-prompt contributor sees the final
       // mode and version in `ContributorContext`.
-      const harnessReady = executionContext?.commandType === undefined
+      const harnessCommandType = executionContext?.commandType
+      const harnessReady = harnessCommandType === undefined
         ? undefined
-        : await this.ensureHarnessReady(executionContext.commandType)
+        : await this.ensureHarnessReady(harnessCommandType)
 
       basePrompt = await this.systemPromptManager.build({
         availableMarkers,

@@ -305,4 +305,28 @@ describe('AgentLLMService.ensureHarnessReady (Phase 5 Task 5.4 wiring)', () => {
 
     expect(modeSelectedEvents).to.have.length(1)
   })
+
+  it('7. fails open: store error → logs warn and returns undefined (does not throw)', async () => {
+    const stubs = makeHarnessStubs(sb)
+    stubs.sandboxService.loadHarness.resolves({loaded: true, version: makeVersion()})
+    const boom = new Error('store read failed')
+    stubs.store.listOutcomes.rejects(boom)
+
+    const service = buildService({
+      config: makeConfig(),
+      harnessBootstrap: stubs.bootstrap,
+      harnessStore: stubs.store,
+      sandboxService: stubs.sandboxService,
+      sb,
+      sessionEventBus,
+    })
+
+    // Harness is non-critical — must never propagate an error up to the
+    // agent's state machine. Returning undefined lets the LLM turn run
+    // without the harness block.
+    const result = await callEnsureHarnessReady(service, 'curate')
+
+    expect(result).to.equal(undefined)
+    expect(modeSelectedEvents).to.have.length(0)
+  })
 })
