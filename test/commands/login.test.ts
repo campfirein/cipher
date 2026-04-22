@@ -333,6 +333,15 @@ describe('Login Command', () => {
       expect(json.data).to.deep.include({error: 'User denied access'})
     })
 
+    it('should display a fallback message when OAuth succeeds but user is absent', async () => {
+      mockOAuthFlow({authUrl: 'https://auth.byterover.dev/oauth'}, {success: true, user: undefined})
+
+      await createCommand().run()
+
+      expect(loggedMessages.some((m) => m.includes('Logged in'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('undefined'))).to.be.false
+    })
+
     it('should clear the timeout and surface the error when START_LOGIN rejects', async () => {
       let timerFired = false
       ;(mockClient.on as sinon.SinonStub).returns(() => {

@@ -135,7 +135,7 @@ export default class Login extends Command {
     if (format === 'json') {
       writeJsonResponse({command: 'login', data: {userEmail}, success: true})
     } else {
-      this.log(`Logged in as ${userEmail}`)
+      this.log(userEmail ? `Logged in as ${userEmail}` : 'Logged in successfully')
     }
   }
 
