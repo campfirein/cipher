@@ -170,7 +170,7 @@ export const EvaluationScenarioSchema = z
   .object({
     code: z.string().min(1),
     commandType: z.enum(['chat', 'curate', 'query']),
-    createdAt: z.number(),
+    createdAt: z.number().int().nonnegative(),
     expectedBehavior: z.string().min(1),
     id: z.string().min(1),
     projectId: z.string().min(1),
