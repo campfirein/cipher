@@ -54,12 +54,19 @@ export function VcCommitFlow({message, onCancel, onComplete}: VcCommitFlowProps)
     fireCommit()
   }, [fireCommit])
 
-  // Terminal state → bubble up to dialog manager
+  // Terminal state → bubble up to dialog manager.
+  //
+  // Also drop the passphrase from React-Query's mutation.variables. The
+  // library retains variables until `reset()` or GC (~5 min), so without
+  // this the plaintext passphrase keeps living in TUI memory after the
+  // commit succeeds — visible to devtools, error boundaries, diagnostic
+  // dumpers. Cleared even on error/cancel terminal states for symmetry.
   useEffect(() => {
     if (state.kind === 'done') {
+      commitMutation.reset()
       onComplete(state.message)
     }
-  }, [state, onComplete])
+  }, [state, onComplete, commitMutation])
 
   if (state.kind === 'awaiting-passphrase') {
     return (
