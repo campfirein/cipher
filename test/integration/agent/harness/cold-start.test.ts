@@ -144,16 +144,26 @@ describe('AutoHarness V2 — cold-start integration (Phase 3 + Phase 4)', functi
 
   let tempDir: string
   let sb: SinonSandbox
+  let activeSandboxService: SandboxService | undefined
 
   beforeEach(() => {
     // `realpathSync` unwraps macOS `/var` → `/private/var` symlink so path
     // comparisons (e.g. warn-once keying on workingDirectory) stay stable.
     tempDir = realpathSync(mkdtempSync(join(tmpdir(), 'brv-cold-start-')))
     sb = createSandbox()
+    activeSandboxService = undefined
     _clearPolyglotWarningState()
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Mirror service-initializer's shutdown contract: clears session state
+    // and stops any background timers in the recorder. Benign for the
+    // current recorder but guards against future changes that hold live
+    // resources.
+    if (activeSandboxService !== undefined) {
+      await activeSandboxService.cleanup()
+    }
+
     sb.restore()
     rmSync(tempDir, {force: true, recursive: true})
   })
@@ -169,6 +179,7 @@ describe('AutoHarness V2 — cold-start integration (Phase 3 + Phase 4)', functi
       makeHarnessConfig(),
       new NoOpLogger(),
     )
+    activeSandboxService = sandboxService
 
     await bootstrap.bootstrapIfNeeded(PROJECT_ID, 'curate', tempDir)
 
@@ -194,11 +205,20 @@ describe('AutoHarness V2 — cold-start integration (Phase 3 + Phase 4)', functi
     )
     expect(exec.returnValue).to.equal(true)
 
-    // The recorder is fire-and-forget — wait for the background write.
-    await new Promise((resolve) => {
-      setTimeout(resolve, 500)
-    })
-    const outcomes = await harnessStore.listOutcomes(PROJECT_ID, 'curate', 10)
+    // The recorder is fire-and-forget — poll until the outcome lands
+    // rather than a flat sleep, so the test stays fast when the write
+    // completes in <50ms but doesn't false-negative on slow CI.
+    const deadline = Date.now() + 2000
+    let outcomes = await harnessStore.listOutcomes(PROJECT_ID, 'curate', 10)
+    while (outcomes.length === 0 && Date.now() < deadline) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => {
+        setTimeout(r, 50)
+      })
+      // eslint-disable-next-line no-await-in-loop
+      outcomes = await harnessStore.listOutcomes(PROJECT_ID, 'curate', 10)
+    }
+
     expect(outcomes.length).to.be.greaterThan(0)
   })
 
@@ -207,12 +227,13 @@ describe('AutoHarness V2 — cold-start integration (Phase 3 + Phase 4)', functi
   it('2. 100 parallel bootstrapIfNeeded on same pair → exactly 1 v1', async () => {
     writeFileSync(join(tempDir, 'tsconfig.json'), '{}')
 
-    const {bootstrap, harnessStore} = await createColdStartStack(
+    const {bootstrap, harnessStore, sandboxService} = await createColdStartStack(
       PROJECT_ID,
       tempDir,
       makeHarnessConfig(),
       new NoOpLogger(),
     )
+    activeSandboxService = sandboxService
 
     const calls: Array<Promise<void>> = []
     for (let i = 0; i < 100; i++) {
@@ -223,7 +244,9 @@ describe('AutoHarness V2 — cold-start integration (Phase 3 + Phase 4)', functi
 
     const versions = await harnessStore.listVersions(PROJECT_ID, 'curate')
     expect(versions.length).to.equal(1)
-    expect(versions[0].version).to.equal(1)
+    const [only] = versions
+    if (only === undefined) throw new Error('unreachable: length asserted above')
+    expect(only.version).to.equal(1)
   })
 
   // ── Scenario 3: polyglot → generic + warn-once ───────────────────────────
@@ -233,17 +256,20 @@ describe('AutoHarness V2 — cold-start integration (Phase 3 + Phase 4)', functi
     writeFileSync(join(tempDir, 'pyproject.toml'), '[project]\nname="x"\n')
 
     const spyLogger = makeSpyLogger(sb)
-    const {bootstrap, harnessStore} = await createColdStartStack(
+    const {bootstrap, harnessStore, sandboxService} = await createColdStartStack(
       PROJECT_ID,
       tempDir,
       makeHarnessConfig(),
       spyLogger,
     )
+    activeSandboxService = sandboxService
 
     await bootstrap.bootstrapIfNeeded(PROJECT_ID, 'curate', tempDir)
 
     const v1 = await harnessStore.getLatest(PROJECT_ID, 'curate')
-    expect(v1?.projectType).to.equal('generic')
+    expect(v1, 'bootstrap must have written v1').to.not.equal(undefined)
+    if (v1 === undefined) throw new Error('unreachable: chai asserted above')
+    expect(v1.projectType).to.equal('generic')
 
     // Warn fired exactly once with types listed + override path.
     const polyglotWarnCalls = spyLogger.warn.getCalls().filter((call) => {
@@ -251,10 +277,14 @@ describe('AutoHarness V2 — cold-start integration (Phase 3 + Phase 4)', functi
       return typeof msg === 'string' && /polyglot/i.test(msg)
     })
     expect(polyglotWarnCalls.length).to.equal(1)
-    const [warnMessage] = polyglotWarnCalls[0].args as [string]
-    expect(warnMessage).to.include('typescript')
-    expect(warnMessage).to.include('python')
-    expect(warnMessage).to.include('config.harness.language')
+    const rawMsg = polyglotWarnCalls[0].args[0]
+    if (typeof rawMsg !== 'string') {
+      throw new TypeError('expected warn message to be a string')
+    }
+
+    expect(rawMsg).to.include('typescript')
+    expect(rawMsg).to.include('python')
+    expect(rawMsg).to.include('config.harness.language')
 
     // Warn-once: second call on the same path should NOT re-warn.
     // Use a fresh bootstrap call but note that `getLatest` now returns v1
@@ -272,16 +302,19 @@ describe('AutoHarness V2 — cold-start integration (Phase 3 + Phase 4)', functi
     // be 'python'. The typescript value below proves override precedence.
     writeFileSync(join(tempDir, 'pyproject.toml'), '[project]\nname="x"\n')
 
-    const {bootstrap, harnessStore} = await createColdStartStack(
+    const {bootstrap, harnessStore, sandboxService} = await createColdStartStack(
       PROJECT_ID,
       tempDir,
       makeHarnessConfig({language: 'typescript'}),
       new NoOpLogger(),
     )
+    activeSandboxService = sandboxService
 
     await bootstrap.bootstrapIfNeeded(PROJECT_ID, 'curate', tempDir)
 
     const v1 = await harnessStore.getLatest(PROJECT_ID, 'curate')
-    expect(v1?.projectType).to.equal('typescript')
+    expect(v1, 'bootstrap must have written v1').to.not.equal(undefined)
+    if (v1 === undefined) throw new Error('unreachable: chai asserted above')
+    expect(v1.projectType).to.equal('typescript')
   })
 })
