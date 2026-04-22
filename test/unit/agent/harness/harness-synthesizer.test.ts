@@ -2,7 +2,7 @@
  * AutoHarness V2 — HarnessSynthesizer tests.
  *
  * Validates the orchestration logic: single-flight per-pair gate,
- * weak-model skip, Critic→Refiner→Evaluator pipeline, markdown-fence
+ * weak-model skip, Critic->Refiner->Evaluator pipeline, markdown-fence
  * fallback, accept/reject paths, and concurrent-pair parallelism.
  *
  * Uses stubbed Evaluator, RefinerClient, and store — the real
@@ -25,6 +25,7 @@ import type {EvaluationResult, HarnessEvaluator} from '../../../../src/agent/inf
 import type {IRefinerClient} from '../../../../src/agent/infra/harness/harness-refiner-client.js'
 import type {HarnessScenarioCapture} from '../../../../src/agent/infra/harness/harness-scenario-capture.js'
 
+import {HarnessStoreError} from '../../../../src/agent/core/domain/errors/harness-store-error.js'
 import {NoOpLogger} from '../../../../src/agent/core/interfaces/i-logger.js'
 import {AgentEventBus} from '../../../../src/agent/infra/events/event-emitter.js'
 import {HarnessSynthesizer} from '../../../../src/agent/infra/harness/harness-synthesizer.js'
@@ -117,6 +118,11 @@ function makeCandidateLoadFailedResult(): EvaluationResult {
   }
 }
 
+/** Guard that narrows result and throws with a clear message on miss. */
+function assertDefined<T>(value: T | undefined, label: string): asserts value is T {
+  if (value === undefined) throw new Error(`expected ${label} to be defined`)
+}
+
 // ---------------------------------------------------------------------------
 // Stubs
 // ---------------------------------------------------------------------------
@@ -199,6 +205,17 @@ function makeSynthesizer(stubs: StubSet): HarnessSynthesizer {
   )
 }
 
+/** Wire stubs for a standard happy-path refinement (Critic + Refiner + Evaluate). */
+function wireHappyPath(stubs: StubSet, parent: HarnessVersion, evalResult: EvaluationResult): void {
+  stubs.getLatest.resolves(parent)
+  stubs.listOutcomes.resolves(makeOutcomes(50))
+  stubs.listScenarios.resolves(makeScenarios(10))
+  stubs.completeCritic.resolves('Failure pattern: null pointer. Root cause: missing check.')
+  stubs.completeRefiner.resolves('exports.meta = () => ({capabilities:["curate"],commandType:"curate",projectPatterns:["**/*.ts"],version:2}); exports.curate = async (ctx) => { if (!ctx) return; };')
+  stubs.evaluate.resolves(evalResult)
+  stubs.saveVersion.resolves()
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -214,7 +231,7 @@ describe('HarnessSynthesizer', () => {
     sb.restore()
   })
 
-  // Test 1: Pair has no parent version → no refinement
+  // Test 1: Pair has no parent version -> no refinement
   it('returns undefined when pair has no parent version', async () => {
     const stubs = makeStubs(sb)
     stubs.getLatest.resolves()
@@ -227,27 +244,19 @@ describe('HarnessSynthesizer', () => {
     expect(stubs.completeRefiner.callCount).to.equal(0)
   })
 
-  // Test 2: 100 parallel refineIfNeeded on same pair → only one runs
+  // Test 2: 100 parallel refineIfNeeded on same pair -> only one runs
   it('single-flights concurrent calls on the same pair (log-and-drop)', async () => {
     const stubs = makeStubs(sb)
     const parent = makeParentVersion()
-    stubs.getLatest.resolves(parent)
-    stubs.listOutcomes.resolves(makeOutcomes(50))
-    stubs.listScenarios.resolves(makeScenarios(10))
-    stubs.completeCritic.resolves('Failure pattern: null pointer')
-    stubs.completeRefiner.resolves('exports.meta = () => ({capabilities:["curate"],commandType:"curate",projectPatterns:["**/*.ts"],version:2}); exports.curate = async (ctx) => { if (!ctx) return; };')
-    stubs.evaluate.resolves(makeAcceptedResult())
-    stubs.saveVersion.resolves()
+    wireHappyPath(stubs, parent, makeAcceptedResult())
 
     const synth = makeSynthesizer(stubs)
 
     const promises = Array.from({length: 100}, () => synth.refineIfNeeded('proj-1', 'curate'))
     const results = await Promise.all(promises)
 
-    // Only one should have actually run (non-undefined result)
     const ran = results.filter((r): r is NonNullable<typeof r> => r !== undefined)
     expect(ran).to.have.lengthOf(1)
-    // Critic + Refiner each called exactly once
     expect(stubs.completeCritic.callCount).to.equal(1)
     expect(stubs.completeRefiner.callCount).to.equal(1)
   })
@@ -255,7 +264,6 @@ describe('HarnessSynthesizer', () => {
   // Test 3: Weak-model skip
   it('skips refinement when runtime model is blocklisted and no refinementModel override', async () => {
     const stubs = makeStubs(sb)
-    // Override refiner client to use a blocklisted model
     stubs.refinerClient = {
       completeCritic: stubs.completeCritic,
       completeRefiner: stubs.completeRefiner,
@@ -275,13 +283,7 @@ describe('HarnessSynthesizer', () => {
   it('accepts candidate when delta H exceeds threshold', async () => {
     const stubs = makeStubs(sb)
     const parent = makeParentVersion()
-    stubs.getLatest.resolves(parent)
-    stubs.listOutcomes.resolves(makeOutcomes(50))
-    stubs.listScenarios.resolves(makeScenarios(10))
-    stubs.completeCritic.resolves('Failure pattern: null pointer. Root cause: missing check.')
-    stubs.completeRefiner.resolves('exports.meta = () => ({capabilities:["curate"],commandType:"curate",projectPatterns:["**/*.ts"],version:2}); exports.curate = async (ctx) => { if (!ctx) return; };')
-    stubs.evaluate.resolves(makeAcceptedResult(0.1))
-    stubs.saveVersion.resolves()
+    wireHappyPath(stubs, parent, makeAcceptedResult(0.1))
 
     const eventPayloads: unknown[] = []
     stubs.eventBus.on('harness:refinement-completed', (payload) => eventPayloads.push(payload))
@@ -289,11 +291,11 @@ describe('HarnessSynthesizer', () => {
     const synth = makeSynthesizer(stubs)
     const result = await synth.refineIfNeeded('proj-1', 'curate')
 
-    expect(result).to.not.equal(undefined)
-    expect(result!.accepted).to.equal(true)
-    expect(result!.deltaH).to.equal(0.1)
-    expect(result!.fromVersionId).to.equal(parent.id)
-    expect(result!.toVersionId).to.be.a('string')
+    assertDefined(result, 'result')
+    expect(result.accepted).to.equal(true)
+    expect(result.deltaH).to.equal(0.1)
+    expect(result.fromVersionId).to.equal(parent.id)
+    expect(result.toVersionId).to.be.a('string')
 
     // saveVersion called with version = parent.version + 1
     expect(stubs.saveVersion.callCount).to.equal(1)
@@ -316,7 +318,6 @@ describe('HarnessSynthesizer', () => {
     stubs.listOutcomes.resolves(makeOutcomes(50))
     stubs.listScenarios.resolves(makeScenarios(10))
     stubs.completeCritic.resolves('Analysis here')
-    // Refiner wraps code in markdown fences
     stubs.completeRefiner.resolves('```javascript\nexports.meta = () => ({capabilities:["curate"],commandType:"curate",projectPatterns:["**/*.ts"],version:2}); exports.curate = async (ctx) => {};\n```')
     stubs.evaluate.resolves(makeAcceptedResult())
     stubs.saveVersion.resolves()
@@ -324,23 +325,18 @@ describe('HarnessSynthesizer', () => {
     const synth = makeSynthesizer(stubs)
     await synth.refineIfNeeded('proj-1', 'curate')
 
-    // The evaluate call should receive code WITHOUT fences
     expect(stubs.evaluate.callCount).to.equal(1)
     const candidateCode = stubs.evaluate.firstCall.args[0] as string
     expect(candidateCode).to.not.include('```')
     expect(candidateCode).to.include('exports.meta')
   })
 
-  // Test 6: Syntactically-invalid refiner output → evaluator rejects
+  // Test 6: Syntactically-invalid refiner output -> evaluator rejects
   it('rejects when evaluator returns candidate load failed', async () => {
     const stubs = makeStubs(sb)
     const parent = makeParentVersion()
-    stubs.getLatest.resolves(parent)
-    stubs.listOutcomes.resolves(makeOutcomes(50))
-    stubs.listScenarios.resolves(makeScenarios(10))
-    stubs.completeCritic.resolves('Analysis')
+    wireHappyPath(stubs, parent, makeCandidateLoadFailedResult())
     stubs.completeRefiner.resolves('const { x = broken JS')
-    stubs.evaluate.resolves(makeCandidateLoadFailedResult())
 
     const eventPayloads: unknown[] = []
     stubs.eventBus.on('harness:refinement-completed', (payload) => eventPayloads.push(payload))
@@ -348,30 +344,23 @@ describe('HarnessSynthesizer', () => {
     const synth = makeSynthesizer(stubs)
     const result = await synth.refineIfNeeded('proj-1', 'curate')
 
-    expect(result).to.not.equal(undefined)
-    expect(result!.accepted).to.equal(false)
-    expect(result!.reason).to.be.a('string')
+    assertDefined(result, 'result')
+    expect(result.accepted).to.equal(false)
+    expect(result.reason).to.be.a('string')
 
-    // No version saved
     expect(stubs.saveVersion.callCount).to.equal(0)
 
-    // Event emitted with accepted: false
     expect(eventPayloads).to.have.lengthOf(1)
     const event = eventPayloads[0] as {accepted: false; reason: string}
     expect(event.accepted).to.equal(false)
     expect(event.reason).to.be.a('string')
   })
 
-  // Test 7: delta H below threshold → rejected
-  it('rejects when delta H is below 0.05 threshold', async () => {
+  // Test 7: delta H below threshold -> rejected
+  it('rejects when delta H is below acceptance threshold', async () => {
     const stubs = makeStubs(sb)
     const parent = makeParentVersion()
-    stubs.getLatest.resolves(parent)
-    stubs.listOutcomes.resolves(makeOutcomes(50))
-    stubs.listScenarios.resolves(makeScenarios(10))
-    stubs.completeCritic.resolves('Analysis')
-    stubs.completeRefiner.resolves('exports.meta = () => ({capabilities:["curate"],commandType:"curate",projectPatterns:["**/*.ts"],version:2}); exports.curate = async (ctx) => {};')
-    stubs.evaluate.resolves(makeRejectedResult(0.03))
+    wireHappyPath(stubs, parent, makeRejectedResult(0.03))
 
     const eventPayloads: unknown[] = []
     stubs.eventBus.on('harness:refinement-completed', (payload) => eventPayloads.push(payload))
@@ -379,20 +368,18 @@ describe('HarnessSynthesizer', () => {
     const synth = makeSynthesizer(stubs)
     const result = await synth.refineIfNeeded('proj-1', 'curate')
 
-    expect(result).to.not.equal(undefined)
-    expect(result!.accepted).to.equal(false)
-    expect(result!.reason).to.include('0.03')
+    assertDefined(result, 'result')
+    expect(result.accepted).to.equal(false)
+    expect(result.reason).to.include('0.03')
 
-    // No version saved
     expect(stubs.saveVersion.callCount).to.equal(0)
 
-    // Event emitted with accepted: false
     expect(eventPayloads).to.have.lengthOf(1)
     const event = eventPayloads[0] as {accepted: false; reason: string}
     expect(event.accepted).to.equal(false)
   })
 
-  // Test 8: Concurrent refinements on DIFFERENT pairs → both run
+  // Test 8: Concurrent refinements on DIFFERENT pairs -> both run
   it('allows concurrent refinements on different pairs', async () => {
     const stubs = makeStubs(sb)
 
@@ -415,13 +402,11 @@ describe('HarnessSynthesizer', () => {
       synth.refineIfNeeded('proj-1', 'query'),
     ])
 
-    // Both should have run (neither dropped)
-    expect(resultCurate).to.not.equal(undefined)
-    expect(resultQuery).to.not.equal(undefined)
-    expect(resultCurate!.accepted).to.equal(true)
-    expect(resultQuery!.accepted).to.equal(true)
+    assertDefined(resultCurate, 'resultCurate')
+    assertDefined(resultQuery, 'resultQuery')
+    expect(resultCurate.accepted).to.equal(true)
+    expect(resultQuery.accepted).to.equal(true)
 
-    // Critic + Refiner each called twice (once per pair)
     expect(stubs.completeCritic.callCount).to.equal(2)
     expect(stubs.completeRefiner.callCount).to.equal(2)
   })
@@ -432,7 +417,6 @@ describe('HarnessSynthesizer', () => {
     const parent = makeParentVersion({heuristic: 0.9})
     stubs.getLatest.resolves(parent)
 
-    // Outcomes that produce a high heuristic (all successful, all using harness)
     const highOutcomes = Array.from({length: 50}, (_, i) => ({
       code: `code-${i}`,
       commandType: 'curate',
@@ -448,7 +432,6 @@ describe('HarnessSynthesizer', () => {
     }))
     stubs.listOutcomes.resolves(highOutcomes)
 
-    // All-passing scenarios
     const passingScenarios = Array.from({length: 5}, (_, i) => ({
       code: `scenario-code-${i}`,
       commandType: 'curate' as const,
@@ -467,5 +450,30 @@ describe('HarnessSynthesizer', () => {
     expect(result).to.equal(undefined)
     expect(stubs.completeCritic.callCount).to.equal(0)
     expect(stubs.completeRefiner.callCount).to.equal(0)
+  })
+
+  // Test 10: VERSION_CONFLICT on concurrent cross-instance race
+  it('treats VERSION_CONFLICT as lost race and emits rejected event', async () => {
+    const stubs = makeStubs(sb)
+    const parent = makeParentVersion()
+    wireHappyPath(stubs, parent, makeAcceptedResult())
+    stubs.saveVersion.rejects(
+      HarnessStoreError.versionConflict('proj-1', 'curate', {version: 2}),
+    )
+
+    const eventPayloads: unknown[] = []
+    stubs.eventBus.on('harness:refinement-completed', (payload) => eventPayloads.push(payload))
+
+    const synth = makeSynthesizer(stubs)
+    const result = await synth.refineIfNeeded('proj-1', 'curate')
+
+    assertDefined(result, 'result')
+    expect(result.accepted).to.equal(false)
+    expect(result.reason).to.include('lost race')
+
+    expect(eventPayloads).to.have.lengthOf(1)
+    const event = eventPayloads[0] as {accepted: false; reason: string}
+    expect(event.accepted).to.equal(false)
+    expect(event.reason).to.include('lost race')
   })
 })

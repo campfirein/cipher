@@ -48,8 +48,8 @@ const OUTCOMES_WINDOW = 50
 
 /**
  * Skip refinement when baseline H is at or above this threshold
- *  AND all scenarios are passing — the harness is already performing
- *  well enough that LLM calls would be wasted.
+ * AND all scenarios are passing — the harness is already performing
+ * well enough that LLM calls would be wasted.
  */
 const SKIP_REFINEMENT_THRESHOLD = 0.85
 
@@ -57,8 +57,9 @@ const SKIP_REFINEMENT_THRESHOLD = 0.85
  * Strip a single leading/trailing markdown fence pair from LLM output.
  * Weak models add fences despite prompt instructions; one fallback
  * layer is sufficient — further stripping invites complexity.
+ * Trailing `\s*` tolerates models that append a trailing newline.
  */
-const MARKDOWN_FENCE_RE = /^```(?:\w*)\n([\s\S]*?)\n```$/
+const MARKDOWN_FENCE_RE = /^```(?:\w*)\n([\s\S]*?)\n```\s*$/
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -99,8 +100,8 @@ export class HarnessSynthesizer {
 
   /**
    * Clear per-session state. Called by the session-end trigger
-   *  between sessions so weak-model warnings fire once per session,
-   *  not once per synthesizer lifetime.
+   * between sessions so weak-model warnings fire once per session,
+   * not once per synthesizer lifetime.
    */
   cleanup(): void {
     this.weakModelWarned.clear()
@@ -153,14 +154,18 @@ export class HarnessSynthesizer {
 
   // ── private ─────────────────────────────────────────────────────────────────
 
-  private async acceptCandidate(
-    candidateCode: string,
-    parent: HarnessVersion,
-    deltaH: number,
-    candidateHeuristic: number,
-  ): Promise<SynthesisResult> {
-    // Build candidate to extract metadata safely
-    const candidateVersion: HarnessVersion = {
+  private async acceptCandidate(opts: {
+    candidateCode: string
+    candidateHeuristic: number
+    deltaH: number
+    parent: HarnessVersion
+  }): Promise<SynthesisResult> {
+    const {candidateCode, candidateHeuristic, deltaH, parent} = opts
+
+    // Build candidate to extract metadata safely — compute metadata
+    // before constructing the final version so the object is fully
+    // formed in one place without post-construction mutation.
+    const protoVersion: HarnessVersion = {
       code: candidateCode,
       commandType: parent.commandType,
       createdAt: Date.now(),
@@ -172,11 +177,10 @@ export class HarnessSynthesizer {
       projectType: parent.projectType,
       version: parent.version + 1,
     }
-
-    // Try to extract metadata from the candidate's meta() export
-    const buildResult = this.moduleBuilder.build(candidateVersion)
-    if (buildResult.loaded) {
-      candidateVersion.metadata = buildResult.module.meta()
+    const buildResult = this.moduleBuilder.build(protoVersion)
+    const candidateVersion: HarnessVersion = {
+      ...protoVersion,
+      metadata: buildResult.loaded ? buildResult.module.meta() : parent.metadata,
     }
 
     try {
@@ -268,7 +272,7 @@ export class HarnessSynthesizer {
     })
     const criticAnalysis = await this.refinerClient.completeCritic(criticPrompt)
 
-    // 7. Refiner call
+    // 8. Refiner call
     const refinerPrompt = buildRefinerPrompt({
       criticAnalysis,
       parentCode: parent.code,
@@ -277,19 +281,24 @@ export class HarnessSynthesizer {
     })
     let candidateCode = await this.refinerClient.completeRefiner(refinerPrompt)
 
-    // 8. Markdown-fence fallback strip
+    // 9. Markdown-fence fallback strip
     const fenceMatch = MARKDOWN_FENCE_RE.exec(candidateCode)
     if (fenceMatch) {
       candidateCode = fenceMatch[1]
       this.logger.debug('HarnessSynthesizer: stripped markdown fences from refiner output')
     }
 
-    // 9. Evaluate
+    // 10. Evaluate
     const evalResult = await this.evaluator.evaluate(candidateCode, parent, scenarios)
 
-    // 10. Accept / reject
+    // 11. Accept / reject
     if (evalResult.accepted) {
-      return this.acceptCandidate(candidateCode, parent, evalResult.deltaH, evalResult.candidateHeuristic)
+      return this.acceptCandidate({
+        candidateCode,
+        candidateHeuristic: evalResult.candidateHeuristic,
+        deltaH: evalResult.deltaH,
+        parent,
+      })
     }
 
     return this.rejectCandidate(parent, evalResult.deltaH)
@@ -306,7 +315,7 @@ export class HarnessSynthesizer {
   }
 
   private rejectCandidate(parent: HarnessVersion, deltaH: number): SynthesisResult {
-    const reason = `delta H = ${deltaH.toFixed(2)} below 0.05`
+    const reason = `delta H was ${deltaH.toFixed(2)}, below acceptance threshold`
 
     this.logger.info('HarnessSynthesizer: rejected candidate', {
       commandType: parent.commandType,
