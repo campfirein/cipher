@@ -246,6 +246,9 @@ describe('HarnessBootstrap', () => {
     await bootstrap.bootstrapIfNeeded(PROJECT_ID, 'query', WORKING_DIRECTORY)
 
     expect(saveVersion.callCount).to.equal(0)
+    // Guard fires before getLatest, so the store must not be touched at all
+    // for no-op commandTypes. Pinning this catches an accidental reorder.
+    expect(getLatest.callCount).to.equal(0)
     const skipDebug = logger.debug.getCalls().some((call) => {
       const [msg] = call.args
       return typeof msg === 'string' && msg.includes('no template for commandType')
@@ -256,9 +259,12 @@ describe('HarnessBootstrap', () => {
   // ── Concurrency / idempotence via real store ──────────────────────────────
 
   it('10. 100 parallel bootstrapIfNeeded on same pair → exactly 1 v1 in store', async () => {
-    // Uses real FileKeyStorage({inMemory: true}) + real HarnessStore to
-    // exercise the actual VERSION_CONFLICT path under load. Proves the
-    // idempotence invariant that Phase 4's cold-start depends on.
+    // Exercises SINGLE-INSTANCE deduplication: 100 callers share one
+    // in-flight promise, only one save lands. Uses real
+    // FileKeyStorage({inMemory: true}) + real HarnessStore so the full
+    // path runs. Cross-instance races (two HarnessBootstrap instances
+    // racing on the same pair) rely on VERSION_CONFLICT swallowing,
+    // which test 6 covers.
     const keyStorage = new FileKeyStorage({inMemory: true})
     await keyStorage.initialize()
     const store = new HarnessStore(keyStorage, new NoOpLogger())

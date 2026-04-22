@@ -59,6 +59,8 @@ export class HarnessBootstrap {
     try {
       await promise
     } finally {
+      // Clear regardless of outcome so a later retry starts a fresh bootstrap
+      // rather than re-awaiting the settled (possibly rejected) promise.
       this.inFlight.delete(pairKey)
     }
   }
@@ -70,11 +72,9 @@ export class HarnessBootstrap {
   ): Promise<void> {
     if (!this.config.enabled) return
 
-    const existing = await this.store.getLatest(projectId, commandType)
-    if (existing !== undefined) return
-
     // v1.0 ships curate templates only (Task 4.3). chat/query bootstraps
-    // are graceful no-ops until template coverage extends.
+    // are graceful no-ops until template coverage extends. Guard fires
+    // BEFORE `store.getLatest` so no-op commandTypes skip the store I/O.
     if (commandType !== 'curate') {
       this.logger.debug('HarnessBootstrap: no template for commandType — skipping', {
         commandType,
@@ -82,6 +82,9 @@ export class HarnessBootstrap {
       })
       return
     }
+
+    const existing = await this.store.getLatest(projectId, commandType)
+    if (existing !== undefined) return
 
     const projectType = await detectAndPickTemplate(
       workingDirectory,
