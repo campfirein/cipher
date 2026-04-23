@@ -87,6 +87,28 @@ export class InMemoryHarnessStore implements IHarnessStore {
     return this.scenarios.delete(key)
   }
 
+  async deleteScenarios(projectId: string, commandType: string): Promise<number> {
+    const partition = partitionKey(projectId, commandType)
+    let deleted = 0
+    for (const [key, scenario] of this.scenarios) {
+      if (partitionKey(scenario.projectId, scenario.commandType) === partition) {
+        this.scenarios.delete(key)
+        deleted++
+      }
+    }
+
+    return deleted
+  }
+
+  async deleteVersion(
+    projectId: string,
+    commandType: string,
+    versionId: string,
+  ): Promise<boolean> {
+    const key = compositeKey(projectId, commandType, versionId)
+    return this.versions.delete(key)
+  }
+
   async getLatest(projectId: string, commandType: string): Promise<HarnessVersion | undefined> {
     const matches = this.versionsForPartition(projectId, commandType)
     if (matches.length === 0) return undefined

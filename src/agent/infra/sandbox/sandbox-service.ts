@@ -21,6 +21,7 @@ import type { HarnessOutcomeRecorder } from '../harness/harness-outcome-recorder
 import type { SessionManager } from '../session/session-manager.js'
 import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
 
+import { sanitizeProjectPath } from '../../../server/utils/path-utils.js'
 import { ProjectTypeSchema } from '../../core/domain/harness/types.js'
 import {HarnessEvaluatorError} from '../harness/harness-evaluator-errors.js'
 import { OpsCounter } from '../harness/ops-counter.js'
@@ -232,7 +233,7 @@ export class SandboxService implements ISandboxService {
             conversationTurn: config?.conversationTurn,
             executionTimeMs: result.executionTime,
             harnessVersionId: this.harnessVersionIdBySession.get(sessionId),
-            projectId: this.environmentContext.workingDirectory,
+            projectId: sanitizeProjectPath(this.environmentContext.workingDirectory),
             projectType: this.resolveProjectType(),
             result,
             sessionId,

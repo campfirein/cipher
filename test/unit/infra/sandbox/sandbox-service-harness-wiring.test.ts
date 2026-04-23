@@ -137,7 +137,9 @@ describe('SandboxService — harness outcome recording', () => {
     expect(params.result).to.have.property('stderr')
     expect(params.executionTimeMs).to.be.a('number').and.to.be.at.least(0)
     expect(params.projectType).to.equal('typescript')
-    expect(params.projectId).to.equal('/my/project')
+    // projectId is sanitized via sanitizeProjectPath (FileKeyStorage
+    // rejects path separators in key segments)
+    expect(params.projectId).to.equal('my--project')
     expect(params.conversationTurn).to.equal(2)
     expect(params.taskDescription).to.equal('find the auth module')
   })

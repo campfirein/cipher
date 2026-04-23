@@ -40,6 +40,8 @@ function makeStoreStub(sb: SinonSandbox): {
     deleteOutcome: sb.stub(),
     deleteOutcomes: sb.stub(),
     deleteScenario: sb.stub(),
+    deleteScenarios: sb.stub(),
+    deleteVersion: sb.stub(),
     getLatest,
     getPin: sb.stub(),
     getVersion: sb.stub(),

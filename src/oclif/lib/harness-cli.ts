@@ -94,7 +94,7 @@ export async function openHarnessStoreForProject(
 
   return {
     close: () => keyStorage.close(),
-    projectId: resolvedRoot,
+    projectId: sanitized,
     store,
   }
 }

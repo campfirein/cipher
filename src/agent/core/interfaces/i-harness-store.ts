@@ -79,6 +79,23 @@ export interface IHarnessStore {
   ): Promise<boolean>
 
   /**
+   * Delete every scenario for a `(projectId, commandType)` pair.
+   * Returns the number of records deleted. Used by `brv harness reset`.
+   */
+  deleteScenarios(projectId: string, commandType: string): Promise<number>
+
+  /**
+   * Delete a single version by its `(projectId, commandType, versionId)` key.
+   * Returns `true` when the version existed and was deleted; `false` on miss.
+   * Used by `brv harness reset` to clear all versions for a pair.
+   */
+  deleteVersion(
+    projectId: string,
+    commandType: string,
+    versionId: string,
+  ): Promise<boolean>
+
+  /**
    * Return the most-recently-written version for a `(projectId, commandType)`
    * pair — ranked by the stored `version` number, not by `heuristic`. This
    * is "newest" semantics, not "best" semantics. User-initiated pins live

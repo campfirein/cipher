@@ -29,6 +29,7 @@ import type {CompactionService} from './context/compaction/compaction-service.js
 import type {ICompressionStrategy} from './context/compression/types.js'
 
 import {getErrorMessage} from '../../../server/utils/error-helpers.js'
+import {sanitizeProjectPath} from '../../../server/utils/path-utils.js'
 import {AgentStateMachine} from '../../core/domain/agent/agent-state-machine.js'
 import {AgentState, TerminationReason} from '../../core/domain/agent/agent-state.js'
 import {LlmGenerationError, LlmMaxIterationsError, LlmResponseParsingError} from '../../core/domain/errors/llm-error.js'
@@ -901,14 +902,11 @@ export class AgentLLMService implements ILLMService {
     }
 
     try {
-      // Slug/path gap workaround (known issue — see
-      // outcome-collection.test.ts:32): the recorder derives projectId
-      // from `environmentContext.workingDirectory`, so we use the same
-      // source here. `bootstrapIfNeeded` takes both `projectId` (for
-      // store key partitioning) and `workingDirectory` (for filesystem
-      // detection); at present they're the same value, aliased for
-      // readability at the call site.
-      const projectId = this.workingDirectory
+      // projectId is the sanitized working directory — FileKeyStorage
+      // rejects path separators in key segments, so the raw absolute
+      // path cannot be used as a store partition key. `workingDirectory`
+      // stays unsanitized for filesystem detection (template language).
+      const projectId = sanitizeProjectPath(this.workingDirectory)
       const {workingDirectory} = this
 
       await harnessBootstrap.bootstrapIfNeeded(projectId, commandType, workingDirectory)

@@ -147,7 +147,52 @@ export class HarnessStore implements IHarnessStore {
     return false
   }
 
+  async deleteScenarios(projectId: string, commandType: string): Promise<number> {
+    const keys: StorageKey[] = []
+    for (const projectType of ProjectTypeSchema.options) {
+      // eslint-disable-next-line no-await-in-loop
+      const entries = await this.keyStorage.listWithValues<EvaluationScenario>([
+        HARNESS_PREFIX,
+        SCENARIO_PREFIX,
+        projectType,
+        projectId,
+        commandType,
+      ])
+      for (const entry of entries) keys.push(entry.key)
+    }
+
+    if (keys.length === 0) return 0
+
+    const operations: BatchOperation[] = keys.map((key) => ({key, type: 'delete' as const}))
+    await this.keyStorage.batch(operations)
+    this.logger.debug('HarnessStore.deleteScenarios cleared partition', {
+      commandType,
+      deleted: keys.length,
+      projectId,
+    })
+
+    return keys.length
+  }
+
   // ── versions ───────────────────────────────────────────────────────────────
+
+  async deleteVersion(
+    projectId: string,
+    commandType: string,
+    versionId: string,
+  ): Promise<boolean> {
+    const key = this.versionKey(projectId, commandType, versionId)
+    const exists = await this.keyStorage.exists(key)
+    if (!exists) return false
+
+    await this.keyStorage.delete(key)
+    this.logger.debug('HarnessStore.deleteVersion removed entry', {
+      commandType,
+      projectId,
+      versionId,
+    })
+    return true
+  }
 
   async getLatest(projectId: string, commandType: string): Promise<HarnessVersion | undefined> {
     // Delegate to `listVersions` rather than re-deriving the "max version"
