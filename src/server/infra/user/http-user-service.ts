@@ -11,6 +11,7 @@ export type UserServiceConfig = {
 type UserMeApiResponse = {
   code: number
   data: {
+    avatar_url?: string
     email: string
     hasOnboardedCli: boolean
     id: string
@@ -52,6 +53,7 @@ export class HttpUserService implements IUserService {
 
   private mapToUser(userData: UserMeApiResponse['data']): User {
     return new User({
+      avatarUrl: userData.avatar_url,
       email: userData.email,
       hasOnboardedCli: userData.hasOnboardedCli,
       id: userData.id,

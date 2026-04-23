@@ -8,7 +8,9 @@
  *
  * `attachFeedback` implements the 3x/1x weighting policy from §C2:
  * set the `userFeedback` field on the original, then insert synthetic
- * clones so the heuristic weights user opinion proportionally.
+ * clones so the heuristic weights user opinion proportionally. Synthetic
+ * outcomes use deterministic IDs (`${outcomeId}__synthetic_${verdict}_${i}`)
+ * for identifiability, re-label idempotence, and cap enforcement.
  *
  * Implements contracts §C1, §C2, §C3, §C5, §C6, §C7 from
  * `features/autoharness-v2/tasks/phase_1_2_handoff.md`.
@@ -30,7 +32,7 @@ import type {SessionEventBus} from '../events/event-emitter.js'
 export interface RecordParams {
   code: string
   commandType: 'chat' | 'curate' | 'query'
-  /** Reserved for Task 2.4 — threaded from AgentLLMService conversation loop. */
+  /** Reserved — threaded from AgentLLMService conversation loop. */
   conversationTurn?: number
   executionTimeMs: number
   harnessVersionId?: string
@@ -38,7 +40,7 @@ export interface RecordParams {
   projectType: ProjectType
   result: REPLResult
   sessionId: string
-  /** Reserved for Task 2.4 — threaded from AgentLLMService conversation loop. */
+  /** Reserved — threaded from AgentLLMService conversation loop. */
   taskDescription?: string
 }
 
@@ -86,22 +88,43 @@ class Semaphore {
 }
 
 // ---------------------------------------------------------------------------
-// Recorder
+// Constants
 // ---------------------------------------------------------------------------
 
 /** Synthetic outcome count per verdict (§C2 weighting policy). */
-const BAD_SYNTHETIC_COUNT = 3
+export const BAD_SYNTHETIC_COUNT = 3
+
+/**
+ * Maximum feedback-sourced synthetic outcomes in the H window.
+ * At most 10/50 = 20% of the window is feedback-sourced, preventing
+ * a single user from poisoning a pair's heuristic via feedback abuse.
+ */
+const FEEDBACK_SYNTHETIC_CAP = 10
+
 /** Maximum recent outcomes to scan when cloning for synthetic insertion (§C2). */
 const FEEDBACK_LIST_LIMIT = 100
+
 /** Synthetic outcome count for 'good' verdict — asymmetric with BAD (3:1) per §C2. */
-const GOOD_SYNTHETIC_COUNT = 1
+export const GOOD_SYNTHETIC_COUNT = 1
+
+/** H window size — matches the synthesizer's OUTCOMES_WINDOW. */
+const H_WINDOW_SIZE = 50
+
 const MAX_OUTCOMES_PER_SESSION = 50
 const SEMAPHORE_PERMITS = 5
 
+/** Delimiter between the original outcome ID and the synthetic suffix. */
+export const SYNTHETIC_DELIMITER = '__synthetic_'
+
+// ---------------------------------------------------------------------------
+// Recorder
+// ---------------------------------------------------------------------------
+
 export class HarnessOutcomeRecorder {
-  private readonly commandTypesBySession = new Map<string, Set<string>>()
+  private readonly commandTypesBySession = new Map<string, Set<'chat' | 'curate' | 'query'>>()
   private readonly config: ValidatedHarnessConfig
   private readonly logger: ILogger
+  private readonly projectIdBySession = new Map<string, string>()
   private readonly semaphore = new Semaphore(SEMAPHORE_PERMITS)
   private readonly sessionCount = new Map<string, number>()
   private readonly sessionEventBus: SessionEventBus
@@ -123,9 +146,13 @@ export class HarnessOutcomeRecorder {
    * Attach user feedback to an outcome and insert synthetic clones
    * per the 3x/1x weighting policy (§C2).
    *
-   * - `'bad'`  → `recordFeedback` + 3 synthetic `saveOutcome` calls
-   * - `'good'` → `recordFeedback` + 1 synthetic `saveOutcome` call
-   * - `null`   → `recordFeedback` only (clears the flag, no synthetics)
+   * - `'bad'`  → clear old synthetics + `recordFeedback` + 3 synthetic inserts
+   * - `'good'` → clear old synthetics + `recordFeedback` + 1 synthetic insert
+   * - `null`   → clear old synthetics + `recordFeedback` (clears field, removes synthetics)
+   *
+   * Synthetic IDs use the deterministic format
+   * `${outcomeId}__synthetic_${verdict}_${i}` so re-label and cap enforcement
+   * can identify and delete them without a full scan.
    *
    * `OUTCOME_NOT_FOUND` from `store.recordFeedback` propagates to the
    * caller. Synthetic-insertion failures are logged and swallowed —
@@ -143,10 +170,13 @@ export class HarnessOutcomeRecorder {
     // 1. Set the field on the original — propagates OUTCOME_NOT_FOUND
     await this.store.recordFeedback(projectId, commandType, outcomeId, verdict)
 
-    // 2. No synthetics for null verdict (just clearing the flag)
+    // 2. Clear any previously-inserted synthetics (idempotent on re-label)
+    await this.clearSyntheticsFor(projectId, commandType, outcomeId)
+
+    // 3. No new synthetics for null verdict (clear-only; done)
     if (verdict === null) return
 
-    // 3. Find the original in recent outcomes for cloning
+    // 4. Find the original in recent outcomes for cloning
     const recentOutcomes = await this.store.listOutcomes(projectId, commandType, FEEDBACK_LIST_LIMIT)
     const original = recentOutcomes.find((o) => o.id === outcomeId)
 
@@ -160,13 +190,19 @@ export class HarnessOutcomeRecorder {
       return
     }
 
-    // 4. Insert synthetic clones
+    // 5. Insert synthetic clones with deterministic IDs.
+    // `success` is derived from the verdict, NOT inherited from the original:
+    // 'bad' → success:false, 'good' → success:true. This ensures the
+    // heuristic treats feedback as a signal independent of the code execution.
     const count = verdict === 'bad' ? BAD_SYNTHETIC_COUNT : GOOD_SYNTHETIC_COUNT
+    const syntheticSuccess = verdict === 'good'
 
     const syntheticPromises = Array.from({length: count}, (_, i) => {
       const synthetic: CodeExecOutcome = {
         ...original,
-        id: randomUUID(),
+        id: `${outcomeId}${SYNTHETIC_DELIMITER}${verdict}_${i}`,
+        success: syntheticSuccess,
+        timestamp: Date.now(),
         userFeedback: verdict,
       }
       return this.store.saveOutcome(synthetic).catch((error: unknown) => {
@@ -181,6 +217,9 @@ export class HarnessOutcomeRecorder {
     })
 
     await Promise.all(syntheticPromises)
+
+    // 6. Cap enforcement — trim if too many feedback synthetics in the window
+    await this.enforceFeedbackCap(projectId, commandType)
   }
 
   /**
@@ -188,6 +227,7 @@ export class HarnessOutcomeRecorder {
    */
   cleanup(): void {
     this.commandTypesBySession.clear()
+    this.projectIdBySession.clear()
     this.sessionCount.clear()
   }
 
@@ -197,15 +237,25 @@ export class HarnessOutcomeRecorder {
    */
   clearSession(sessionId: string): void {
     this.commandTypesBySession.delete(sessionId)
+    this.projectIdBySession.delete(sessionId)
     this.sessionCount.delete(sessionId)
   }
 
   /**
-   * Returns the set of command types seen for a session. Phase 6 uses
-   * this to trigger refinement only for command types the session touched.
+   * Returns the set of command types seen for a session. The session-end
+   * trigger uses this to fire refinement only for command types the
+   * session touched.
    */
-  getCommandTypesForSession(sessionId: string): ReadonlySet<string> {
-    return this.commandTypesBySession.get(sessionId) ?? new Set<string>()
+  getCommandTypesForSession(sessionId: string): ReadonlySet<'chat' | 'curate' | 'query'> {
+    return this.commandTypesBySession.get(sessionId) ?? new Set<'chat' | 'curate' | 'query'>()
+  }
+
+  /**
+   * Returns the projectId observed for a session. Sessions in practice
+   * operate under a single project; the first-seen value wins.
+   */
+  getProjectIdForSession(sessionId: string): string | undefined {
+    return this.projectIdBySession.get(sessionId)
   }
 
   /**
@@ -241,7 +291,7 @@ export class HarnessOutcomeRecorder {
       sessionId: params.sessionId,
       stderr: params.result.stderr.length > 0 ? params.result.stderr : undefined,
       stdout: params.result.stdout.length > 0 ? params.result.stdout : undefined,
-      // Approximation: any stderr = failure. Task 2.3 replaces with an
+      // Approximation: any stderr = failure. A later task replaces with an
       // explicit boolean from the sandbox runner to avoid false positives
       // from deprecation warnings, console.warn, etc.
       success: params.result.stderr.length === 0,
@@ -253,7 +303,12 @@ export class HarnessOutcomeRecorder {
     if (this.commandTypesBySession.has(params.sessionId)) {
       this.commandTypesBySession.get(params.sessionId)?.add(params.commandType)
     } else {
-      this.commandTypesBySession.set(params.sessionId, new Set<string>([params.commandType]))
+      this.commandTypesBySession.set(params.sessionId, new Set([params.commandType]))
+    }
+
+    // Track projectId for the session-end trigger's resolveProjectId
+    if (!this.projectIdBySession.has(params.sessionId)) {
+      this.projectIdBySession.set(params.sessionId, params.projectId)
     }
 
     // 5. Rate limit check — counter increments BEFORE write intentionally.
@@ -291,5 +346,65 @@ export class HarnessOutcomeRecorder {
     } finally {
       this.semaphore.release()
     }
+  }
+
+  // ── private ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Delete all synthetic outcomes previously inserted for the given
+   * outcome. Tries both 'bad' and 'good' IDs so the caller doesn't
+   * need to know the previous verdict.
+   */
+  private async clearSyntheticsFor(
+    projectId: string,
+    commandType: string,
+    outcomeId: string,
+  ): Promise<void> {
+    const deletePromises: Array<Promise<boolean>> = []
+    for (const v of ['bad', 'good'] as const) {
+      const count = v === 'bad' ? BAD_SYNTHETIC_COUNT : GOOD_SYNTHETIC_COUNT
+      for (let i = 0; i < count; i++) {
+        deletePromises.push(
+          this.store.deleteOutcome(
+            projectId,
+            commandType,
+            `${outcomeId}${SYNTHETIC_DELIMITER}${v}_${i}`,
+          ),
+        )
+      }
+    }
+
+    await Promise.all(deletePromises)
+  }
+
+  /**
+   * If more than FEEDBACK_SYNTHETIC_CAP feedback-sourced synthetic
+   * outcomes exist in the H window, drop the oldest until the cap is met.
+   * Best-effort: concurrent feedback calls may temporarily exceed the cap;
+   * the next call corrects it.
+   */
+  private async enforceFeedbackCap(
+    projectId: string,
+    commandType: string,
+  ): Promise<void> {
+    const window = await this.store.listOutcomes(projectId, commandType, H_WINDOW_SIZE)
+    const synthetics = window.filter((o) => o.id.includes(SYNTHETIC_DELIMITER))
+
+    if (synthetics.length <= FEEDBACK_SYNTHETIC_CAP) return
+
+    // listOutcomes returns newest-first; drop from the tail (oldest)
+    const excess = synthetics.slice(FEEDBACK_SYNTHETIC_CAP)
+    const deletePromises = excess.map((o) =>
+      this.store.deleteOutcome(projectId, commandType, o.id).catch((error: unknown) => {
+        this.logger.warn('Failed to delete excess synthetic outcome', {
+          commandType,
+          error,
+          outcomeId: o.id,
+          projectId,
+        })
+      }),
+    )
+
+    await Promise.all(deletePromises)
   }
 }

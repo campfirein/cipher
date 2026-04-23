@@ -13,6 +13,7 @@ import type {AgentState, ExecutionContext, ICipherAgent} from '../../core/interf
 import type {IHistoryStorage} from '../../core/interfaces/i-history-storage.js'
 import type {ITokenizer} from '../../core/interfaces/i-tokenizer.js'
 import type {FileSystemService} from '../file-system/file-system-service.js'
+import type {HarnessSynthesizer} from '../harness/harness-synthesizer.js'
 import type {MemoryManager} from '../memory/memory-manager.js'
 import type {ProcessService} from '../process/process-service.js'
 import type {SystemPromptManager} from '../system-prompt/system-prompt-manager.js'
@@ -514,6 +515,15 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   }
 
   /**
+   * Public accessor for the harness synthesizer. Used by `brv harness refine`
+   * via the agent-process task dispatch. Returns `undefined` when harness is
+   * disabled (synthesizer was never instantiated).
+   */
+  public getHarnessSynthesizer(): HarnessSynthesizer | undefined {
+    return this.services?.harnessSynthesizer
+  }
+
+  /**
    * Get an existing session or create a new one.
    */
   public async getOrCreateSession(sessionId: string): Promise<IChatSession> {
@@ -572,7 +582,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
   protected override async initializeServices(): Promise<CipherAgentServices> {
     // Pass pre-created event bus to service initializer
-    return createCipherAgentServices(this.config, this._agentEventBus)
+    return createCipherAgentServices(this.config, this._agentEventBus, () => this.buildHttpConfig())
   }
 
   /**
@@ -660,6 +670,8 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     this.rebindCurateTools(services, httpConfig, sessionLLMConfig)
   }
 
+  // === Protected Methods (implement abstract from BaseAgent) ===
+
   /**
    * Reset the agent to initial state.
    * Resets execution state only. To reset sessions, use resetSession(sessionId).
@@ -670,8 +682,6 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       this.stateManager.reset()
     }
   }
-
-  // === Protected Methods (implement abstract from BaseAgent) ===
 
   /**
    * Reset a specific session's conversation history.

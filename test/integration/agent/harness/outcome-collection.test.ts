@@ -257,14 +257,15 @@ describe('outcome collection — integration', function () {
     const original = afterBad.find((o) => o.id === originalId)
     expect(original?.userFeedback).to.equal('bad')
 
-    // Synthetics should have userFeedback: 'bad' and same timestamp
-    const synthetics = afterBad.filter((o) => o.id !== originalId)
+    // Synthetics have deterministic __synthetic_ IDs and fresh timestamps
+    const synthetics = afterBad.filter((o) => o.id.includes('__synthetic_'))
     expect(synthetics).to.have.length(3)
 
     for (const s of synthetics) {
       expect(s.userFeedback).to.equal('bad')
-      expect(s.timestamp).to.equal(originalTimestamp)
-      expect(s.id).to.not.equal(originalId)
+      // Timestamp is fresh (Date.now()), not inherited from original
+      expect(s.timestamp).to.be.greaterThanOrEqual(originalTimestamp!)
+      expect(s.id).to.match(/__synthetic_bad_\d$/)
       expect(s.projectId).to.equal(PROJECT_ID)
       expect(s.commandType).to.equal('curate')
     }
@@ -273,20 +274,14 @@ describe('outcome collection — integration', function () {
     const syntheticIds = new Set(synthetics.map((s) => s.id))
     expect(syntheticIds.size).to.equal(3)
 
-    // Clear feedback with null → flag cleared, synthetics remain
+    // Clear feedback with null → flag cleared AND synthetics removed
     await recorder.attachFeedback(PROJECT_ID, 'curate', originalId, null)
 
     const afterClear = await harnessStore.listOutcomes(PROJECT_ID, 'curate', 100)
-    // Synthetics are separate records — they remain (4 total)
-    expect(afterClear).to.have.length(4)
+    // Synthetics are removed on null — only original remains
+    expect(afterClear).to.have.length(1)
 
     const cleared = afterClear.find((o) => o.id === originalId)
     expect(cleared?.userFeedback).to.equal(null)
-
-    // Synthetics still have 'bad' — they are independent records
-    const remainingSynthetics = afterClear.filter((o) => o.id !== originalId)
-    for (const s of remainingSynthetics) {
-      expect(s.userFeedback).to.equal('bad')
-    }
   })
 })

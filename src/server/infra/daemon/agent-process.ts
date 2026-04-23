@@ -21,7 +21,7 @@
 
 import {connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
-import {appendFileSync} from 'node:fs'
+import {appendFileSync, existsSync, readFileSync} from 'node:fs'
 import {join} from 'node:path'
 
 import type {ISearchKnowledgeService} from '../../../agent/infra/sandbox/tools-sdk.js'
@@ -36,6 +36,7 @@ import {FolderPackService} from '../../../agent/infra/folder-pack/folder-pack-se
 import {SessionMetadataStore} from '../../../agent/infra/session/session-metadata-store.js'
 import {FileKeyStorage} from '../../../agent/infra/storage/file-key-storage.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
+import {HARNESS_NOT_ENABLED_REASON} from '../../../shared/constants/harness.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {decodeSearchContent} from '../../../shared/transport/search-content.js'
 import {getCurrentConfig} from '../../config/environment.js'
@@ -48,6 +49,7 @@ import {
   TransportStateEventNames,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
+import {sanitizeProjectPath} from '../../utils/path-utils.js'
 import {FileContextTreeArchiveService} from '../context-tree/file-context-tree-archive-service.js'
 import {RuntimeSignalStore} from '../context-tree/runtime-signal-store.js'
 import {DreamLockService} from '../dream/dream-lock-service.js'
@@ -260,9 +262,27 @@ async function start(): Promise<void> {
   const sharedAllowedPaths = (sourcesData?.origins ?? []).map((o) => o.contextTreeRoot)
 
   const envConfig = getCurrentConfig()
+
+  // Read harness config from the project's .brv/config.json.
+  // The AgentConfigSchema defaults to {enabled: false} when absent,
+  // so only override when the file explicitly sets harness fields.
+  let harnessConfig: Record<string, unknown> | undefined
+  const projectConfigPath = join(projectPath, BRV_DIR, 'config.json')
+  if (existsSync(projectConfigPath)) {
+    try {
+      const raw = JSON.parse(readFileSync(projectConfigPath, 'utf8'))
+      if (typeof raw?.harness === 'object' && raw.harness !== null) {
+        harnessConfig = raw.harness
+      }
+    } catch {
+      // Malformed config — fall through to schema default (disabled)
+    }
+  }
+
   const agentConfig = {
     apiBaseUrl: envConfig.llmBaseUrl,
     fileSystem: {allowedPaths: ['.', ...sharedAllowedPaths], workingDirectory: projectPath},
+    ...(harnessConfig ? {harness: harnessConfig} : {}),
     llm: {
       maxIterations: 10,
       maxTokens: 4096,
@@ -580,6 +600,20 @@ async function executeTask(
           })
           result = dreamResult.result
           logId = dreamResult.logId
+
+          break
+        }
+
+        case 'harness-refine': {
+          const synthesizer = agent.getHarnessSynthesizer()
+          if (!synthesizer) {
+            result = JSON.stringify({accepted: false, reason: HARNESS_NOT_ENABLED_REASON})
+            break
+          }
+
+          const commandTypeForRefine = content as 'chat' | 'curate' | 'query'
+          const synthResult = await synthesizer.refineIfNeeded(sanitizeProjectPath(projectPath), commandTypeForRefine)
+          result = JSON.stringify(synthResult ?? {accepted: false, reason: 'refinement skipped'})
 
           break
         }

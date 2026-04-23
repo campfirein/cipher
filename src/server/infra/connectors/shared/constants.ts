@@ -20,6 +20,7 @@ export const hasMcpToolsInBrvSection = (content: string): boolean => {
   const startIdx = content.indexOf(BRV_RULE_MARKERS.START)
   const endIdx = content.indexOf(BRV_RULE_MARKERS.END)
   if (startIdx === -1 || endIdx === -1) return false
-  const brvSection = new Set(content.slice(startIdx, endIdx))
-  return brvSection.has('brv-query') || brvSection.has('brv-curate')
+  // eslint-disable-next-line unicorn/prefer-set-has
+  const brvSection = content.slice(startIdx, endIdx)
+  return brvSection.includes('brv-query') || brvSection.includes('brv-curate')
 }

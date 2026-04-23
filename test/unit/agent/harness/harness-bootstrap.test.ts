@@ -37,9 +37,14 @@ function makeStoreStub(sb: SinonSandbox): {
   const getLatest = sb.stub()
   const saveVersion = sb.stub()
   const store = {
+    deleteOutcome: sb.stub(),
     deleteOutcomes: sb.stub(),
+    deletePin: sb.stub().resolves(false),
     deleteScenario: sb.stub(),
+    deleteScenarios: sb.stub(),
+    deleteVersion: sb.stub(),
     getLatest,
+    getPin: sb.stub(),
     getVersion: sb.stub(),
     listOutcomes: sb.stub(),
     listScenarios: sb.stub(),
@@ -49,6 +54,7 @@ function makeStoreStub(sb: SinonSandbox): {
     saveOutcome: sb.stub(),
     saveScenario: sb.stub(),
     saveVersion,
+    setPin: sb.stub(),
   } satisfies IHarnessStore
 
   return {getLatest, saveVersion, store}

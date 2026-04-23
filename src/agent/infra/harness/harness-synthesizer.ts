@@ -213,8 +213,10 @@ export class HarnessSynthesizer {
     this.eventBus.emit('harness:refinement-completed', {
       accepted: true,
       commandType: parent.commandType,
+      fromHeuristic: parent.heuristic,
       fromVersion: parent.version,
       projectId: parent.projectId,
+      toHeuristic: candidateHeuristic,
       toVersion: candidateVersion.version,
     })
 

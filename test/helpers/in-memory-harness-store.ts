@@ -33,6 +33,7 @@
 import type {
   CodeExecOutcome,
   EvaluationScenario,
+  HarnessPin,
   HarnessVersion,
 } from '../../src/agent/core/domain/harness/types.js'
 import type {IHarnessStore} from '../../src/agent/core/interfaces/i-harness-store.js'
@@ -51,8 +52,18 @@ function compositeKey(projectId: string, commandType: string, versionId: string)
 
 export class InMemoryHarnessStore implements IHarnessStore {
   private outcomes = new Map<string, CodeExecOutcome>()
+  private pins = new Map<string, HarnessPin>()
   private scenarios = new Map<string, EvaluationScenario>()
   private versions = new Map<string, HarnessVersion>()
+
+  async deleteOutcome(
+    projectId: string,
+    commandType: string,
+    outcomeId: string,
+  ): Promise<boolean> {
+    const key = compositeKey(projectId, commandType, outcomeId)
+    return this.outcomes.delete(key)
+  }
 
   async deleteOutcomes(projectId: string, commandType: string): Promise<number> {
     const partition = partitionKey(projectId, commandType)
@@ -67,6 +78,10 @@ export class InMemoryHarnessStore implements IHarnessStore {
     return deleted
   }
 
+  async deletePin(projectId: string, commandType: string): Promise<boolean> {
+    return this.pins.delete(partitionKey(projectId, commandType))
+  }
+
   async deleteScenario(
     projectId: string,
     commandType: string,
@@ -74,6 +89,28 @@ export class InMemoryHarnessStore implements IHarnessStore {
   ): Promise<boolean> {
     const key = compositeKey(projectId, commandType, scenarioId)
     return this.scenarios.delete(key)
+  }
+
+  async deleteScenarios(projectId: string, commandType: string): Promise<number> {
+    const partition = partitionKey(projectId, commandType)
+    let deleted = 0
+    for (const [key, scenario] of this.scenarios) {
+      if (partitionKey(scenario.projectId, scenario.commandType) === partition) {
+        this.scenarios.delete(key)
+        deleted++
+      }
+    }
+
+    return deleted
+  }
+
+  async deleteVersion(
+    projectId: string,
+    commandType: string,
+    versionId: string,
+  ): Promise<boolean> {
+    const key = compositeKey(projectId, commandType, versionId)
+    return this.versions.delete(key)
   }
 
   async getLatest(projectId: string, commandType: string): Promise<HarnessVersion | undefined> {
@@ -86,6 +123,14 @@ export class InMemoryHarnessStore implements IHarnessStore {
     }
 
     return structuredClone(latest)
+  }
+
+  async getPin(
+    projectId: string,
+    commandType: string,
+  ): Promise<HarnessPin | undefined> {
+    const hit = this.pins.get(partitionKey(projectId, commandType))
+    return hit ? structuredClone(hit) : undefined
   }
 
   async getVersion(
@@ -192,6 +237,10 @@ export class InMemoryHarnessStore implements IHarnessStore {
     }
 
     this.versions.set(key, structuredClone(version))
+  }
+
+  async setPin(pin: HarnessPin): Promise<void> {
+    this.pins.set(partitionKey(pin.projectId, pin.commandType), structuredClone(pin))
   }
 
   private versionsForPartition(projectId: string, commandType: string): HarnessVersion[] {

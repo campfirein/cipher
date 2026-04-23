@@ -26,6 +26,7 @@
 import type {
   CodeExecOutcome,
   EvaluationScenario,
+  HarnessPin,
   HarnessVersion,
 } from '../../core/domain/harness/types.js'
 import type {IHarnessStore} from '../../core/interfaces/i-harness-store.js'
@@ -36,6 +37,7 @@ import {HarnessStoreError} from '../../core/domain/errors/harness-store-error.js
 import {
   CodeExecOutcomeSchema,
   EvaluationScenarioSchema,
+  HarnessPinSchema,
   HarnessVersionSchema,
   ProjectTypeSchema,
 } from '../../core/domain/harness/types.js'
@@ -44,6 +46,7 @@ const HARNESS_PREFIX = 'harness'
 const VERSION_PREFIX = 'version'
 const OUTCOME_PREFIX = 'outcome'
 const SCENARIO_PREFIX = 'scenario'
+const PIN_PREFIX = 'pin'
 
 /**
  * Default cap when `listOutcomes` is called without an explicit `limit`.
@@ -59,6 +62,33 @@ export class HarnessStore implements IHarnessStore {
   ) {}
 
   // ── outcomes ──────────────────────────────────────────────────────────────
+
+  async deleteOutcome(
+    projectId: string,
+    commandType: string,
+    outcomeId: string,
+  ): Promise<boolean> {
+    // Outcome key includes projectType, which we don't have. Try all
+    // three values — at most 3 lookups, acceptable for user-driven
+    // feedback operations.
+    //
+    // TOCTOU window between get() and delete() is harmless: a concurrent
+    // writer cannot change the key under us (IDs are deterministic), and
+    // a concurrent delete simply makes ours a no-op. Same reasoning as
+    // deleteScenario.
+    for (const projectType of ProjectTypeSchema.options) {
+      const key = this.outcomeKey(projectType, projectId, commandType, outcomeId)
+      // eslint-disable-next-line no-await-in-loop
+      const hit = await this.keyStorage.get(key)
+      if (hit !== undefined) {
+        // eslint-disable-next-line no-await-in-loop
+        await this.keyStorage.delete(key)
+        return true
+      }
+    }
+
+    return false
+  }
 
   async deleteOutcomes(projectId: string, commandType: string): Promise<number> {
     const keys: StorageKey[] = []
@@ -88,6 +118,14 @@ export class HarnessStore implements IHarnessStore {
   }
 
   // ── scenarios ─────────────────────────────────────────────────────────────
+
+  async deletePin(projectId: string, commandType: string): Promise<boolean> {
+    const key = this.pinKey(projectId, commandType)
+    const exists = await this.keyStorage.get(key)
+    if (exists === undefined) return false
+    await this.keyStorage.delete(key)
+    return true
+  }
 
   async deleteScenario(
     projectId: string,
@@ -119,6 +157,51 @@ export class HarnessStore implements IHarnessStore {
 
   // ── versions ───────────────────────────────────────────────────────────────
 
+  async deleteScenarios(projectId: string, commandType: string): Promise<number> {
+    const keys: StorageKey[] = []
+    for (const projectType of ProjectTypeSchema.options) {
+      // eslint-disable-next-line no-await-in-loop
+      const entries = await this.keyStorage.listWithValues<EvaluationScenario>([
+        HARNESS_PREFIX,
+        SCENARIO_PREFIX,
+        projectType,
+        projectId,
+        commandType,
+      ])
+      for (const entry of entries) keys.push(entry.key)
+    }
+
+    if (keys.length === 0) return 0
+
+    const operations: BatchOperation[] = keys.map((key) => ({key, type: 'delete' as const}))
+    await this.keyStorage.batch(operations)
+    this.logger.debug('HarnessStore.deleteScenarios cleared partition', {
+      commandType,
+      deleted: keys.length,
+      projectId,
+    })
+
+    return keys.length
+  }
+
+  async deleteVersion(
+    projectId: string,
+    commandType: string,
+    versionId: string,
+  ): Promise<boolean> {
+    const key = this.versionKey(projectId, commandType, versionId)
+    const exists = await this.keyStorage.exists(key)
+    if (!exists) return false
+
+    await this.keyStorage.delete(key)
+    this.logger.debug('HarnessStore.deleteVersion removed entry', {
+      commandType,
+      projectId,
+      versionId,
+    })
+    return true
+  }
+
   async getLatest(projectId: string, commandType: string): Promise<HarnessVersion | undefined> {
     // Delegate to `listVersions` rather than re-deriving the "max version"
     // comparator — a future change to the sort key can't silently break
@@ -126,6 +209,13 @@ export class HarnessStore implements IHarnessStore {
     // (`maxVersions` default 20).
     const sorted = await this.listVersions(projectId, commandType)
     return sorted[0]
+  }
+
+  async getPin(
+    projectId: string,
+    commandType: string,
+  ): Promise<HarnessPin | undefined> {
+    return this.keyStorage.get<HarnessPin>(this.pinKey(projectId, commandType))
   }
 
   async getVersion(
@@ -349,6 +439,13 @@ export class HarnessStore implements IHarnessStore {
     }
   }
 
+  async setPin(pin: HarnessPin): Promise<void> {
+    const parsed = HarnessPinSchema.parse(pin)
+    // Idempotent overwrite: exactly one pin per pair, new `use` replaces
+    // the previous record rather than appending.
+    await this.keyStorage.set(this.pinKey(parsed.projectId, parsed.commandType), parsed)
+  }
+
   // ── internals ──────────────────────────────────────────────────────────────
 
   private async findOutcomeKey(
@@ -406,6 +503,10 @@ export class HarnessStore implements IHarnessStore {
     outcomeId: string,
   ): StorageKey {
     return [HARNESS_PREFIX, OUTCOME_PREFIX, projectType, projectId, commandType, outcomeId]
+  }
+
+  private pinKey(projectId: string, commandType: string): StorageKey {
+    return [HARNESS_PREFIX, PIN_PREFIX, projectId, commandType]
   }
 
   private scenarioKey(

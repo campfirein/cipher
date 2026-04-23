@@ -181,6 +181,27 @@ export const EvaluationScenarioSchema = z
 export type EvaluationScenario = z.input<typeof EvaluationScenarioSchema>
 export type ValidatedEvaluationScenario = z.output<typeof EvaluationScenarioSchema>
 
+/**
+ * User-initiated version pin. Exactly one pin per
+ * `(projectId, commandType)` pair; a new `brv harness use` replaces the
+ * previous record rather than appending.
+ *
+ * Consulted by `SandboxService.loadHarness` BEFORE `getLatest` — this is
+ * the rollback path's reason to exist. When the pinned id has been
+ * pruned (retention policy dropped it), callers warn-log and fall back
+ * to `getLatest` rather than erroring.
+ */
+export const HarnessPinSchema = z
+  .object({
+    commandType: z.string().min(1),
+    pinnedAt: z.number().int().nonnegative(),
+    pinnedVersionId: z.string().min(1),
+    projectId: z.string().min(1),
+  })
+  .strict()
+export type HarnessPin = z.input<typeof HarnessPinSchema>
+export type ValidatedHarnessPin = z.output<typeof HarnessPinSchema>
+
 // ---------------------------------------------------------------------------
 // Phase 3 — HarnessContext + module contract
 // ---------------------------------------------------------------------------

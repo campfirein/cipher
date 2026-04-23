@@ -4,6 +4,7 @@ import type {
   HarnessLoadResult,
   HarnessMeta,
   HarnessModule,
+  HarnessVersion,
   ProjectType,
 } from '../../core/domain/harness/types.js'
 import type { REPLResult, SandboxConfig } from '../../core/domain/sandbox/types.js'
@@ -20,6 +21,7 @@ import type { HarnessOutcomeRecorder } from '../harness/harness-outcome-recorder
 import type { SessionManager } from '../session/session-manager.js'
 import type { ISearchKnowledgeService, ToolsSDK } from './tools-sdk.js'
 
+import { sanitizeProjectPath } from '../../../server/utils/path-utils.js'
 import { ProjectTypeSchema } from '../../core/domain/harness/types.js'
 import {HarnessEvaluatorError} from '../harness/harness-evaluator-errors.js'
 import { OpsCounter } from '../harness/ops-counter.js'
@@ -231,7 +233,7 @@ export class SandboxService implements ISandboxService {
             conversationTurn: config?.conversationTurn,
             executionTimeMs: result.executionTime,
             harnessVersionId: this.harnessVersionIdBySession.get(sessionId),
-            projectId: this.environmentContext.workingDirectory,
+            projectId: sanitizeProjectPath(this.environmentContext.workingDirectory),
             projectType: this.resolveProjectType(),
             result,
             sessionId,
@@ -285,7 +287,32 @@ export class SandboxService implements ISandboxService {
       return {loaded: false, reason: 'no-version'}
     }
 
-    const version = await this.harnessStore.getLatest(projectId, commandType)
+    // Pin-first resolution: a user-initiated `brv harness use` record
+    // beats the default `getLatest`. When the pinned id has since been
+    // pruned (retention policy), warn-log and fall back to `getLatest`
+    // rather than refusing to load — a broken pin is a preference
+    // failure, not a feature failure.
+    const pin = await this.harnessStore.getPin(projectId, commandType)
+    let version: HarnessVersion | undefined
+    if (pin !== undefined) {
+      version = await this.harnessStore.getVersion(
+        projectId,
+        commandType,
+        pin.pinnedVersionId,
+      )
+      if (version === undefined) {
+        this.logger?.warn('SandboxService.loadHarness: pinned version pruned, falling back to latest', {
+          commandType,
+          pinnedVersionId: pin.pinnedVersionId,
+          projectId,
+        })
+      }
+    }
+
+    if (version === undefined) {
+      version = await this.harnessStore.getLatest(projectId, commandType)
+    }
+
     if (version === undefined) {
       return {loaded: false, reason: 'no-version'}
     }
