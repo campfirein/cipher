@@ -33,6 +33,7 @@
 import type {
   CodeExecOutcome,
   EvaluationScenario,
+  HarnessPin,
   HarnessVersion,
 } from '../../src/agent/core/domain/harness/types.js'
 import type {IHarnessStore} from '../../src/agent/core/interfaces/i-harness-store.js'
@@ -51,6 +52,7 @@ function compositeKey(projectId: string, commandType: string, versionId: string)
 
 export class InMemoryHarnessStore implements IHarnessStore {
   private outcomes = new Map<string, CodeExecOutcome>()
+  private pins = new Map<string, HarnessPin>()
   private scenarios = new Map<string, EvaluationScenario>()
   private versions = new Map<string, HarnessVersion>()
 
@@ -95,6 +97,14 @@ export class InMemoryHarnessStore implements IHarnessStore {
     }
 
     return structuredClone(latest)
+  }
+
+  async getPin(
+    projectId: string,
+    commandType: string,
+  ): Promise<HarnessPin | undefined> {
+    const hit = this.pins.get(partitionKey(projectId, commandType))
+    return hit ? structuredClone(hit) : undefined
   }
 
   async getVersion(
@@ -201,6 +211,10 @@ export class InMemoryHarnessStore implements IHarnessStore {
     }
 
     this.versions.set(key, structuredClone(version))
+  }
+
+  async setPin(pin: HarnessPin): Promise<void> {
+    this.pins.set(partitionKey(pin.projectId, pin.commandType), structuredClone(pin))
   }
 
   private versionsForPartition(projectId: string, commandType: string): HarnessVersion[] {

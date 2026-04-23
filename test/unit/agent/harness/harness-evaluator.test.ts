@@ -190,6 +190,7 @@ function makeStoreStub(sb: SinonSandbox): {
     deleteOutcomes: sb.stub(),
     deleteScenario: sb.stub(),
     getLatest: sb.stub(),
+    getPin: sb.stub(),
     getVersion: sb.stub(),
     listOutcomes,
     listScenarios: sb.stub(),
@@ -199,6 +200,7 @@ function makeStoreStub(sb: SinonSandbox): {
     saveOutcome: sb.stub(),
     saveScenario: sb.stub(),
     saveVersion: sb.stub(),
+    setPin: sb.stub(),
   } satisfies IHarnessStore
 
   return {listOutcomes, store}
