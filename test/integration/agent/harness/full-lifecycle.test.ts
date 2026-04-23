@@ -207,7 +207,7 @@ async function seedOutcomes(
       sessionId: 'seed-session',
       stderr: spec.stderr,
       success: spec.success,
-      timestamp: now - baseOffset + i * 1000,
+      timestamp: now - baseOffset - (spec.count - 1 - i) * 1000,
       usedHarness: spec.usedHarness ?? false,
     }
     promises.push(store.saveOutcome(outcome))
@@ -518,13 +518,8 @@ describe('AutoHarness V2 — full-lifecycle integration test (ship gate)', funct
     expect(refEvent.fromVersion).to.equal(1)
     expect(refEvent.toVersion).to.equal(2)
     expect(refEvent.fromHeuristic).to.be.a('number')
-    expect(refEvent.toHeuristic).to.be.a('number')
-    // v2's heuristic must be higher than v1's — type guards rather than `as number`
-    if (typeof refEvent.toHeuristic !== 'number' || typeof refEvent.fromHeuristic !== 'number') {
-      throw new TypeError('expected heuristic event fields to be numbers')
-    }
-
-    expect(refEvent.toHeuristic).to.be.greaterThan(refEvent.fromHeuristic)
+    // v2's heuristic must be higher than v1's
+    expect(refEvent.toHeuristic).to.be.a('number').and.greaterThan(refEvent.fromHeuristic as number)
 
     // Critic and refiner both called exactly once
     expect(refiner.criticCallCount).to.equal(1)
