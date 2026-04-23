@@ -43,7 +43,8 @@ export async function countArtifacts(
 ): Promise<ResetArtifactCounts> {
   const [versions, outcomes, scenarios] = await Promise.all([
     store.listVersions(projectId, commandType),
-    store.listOutcomes(projectId, commandType, Number.MAX_SAFE_INTEGER),
+    // Recorder caps at ~200 outcomes per pair, so this is effectively "all".
+    store.listOutcomes(projectId, commandType, 10_000),
     store.listScenarios(projectId, commandType),
   ])
 

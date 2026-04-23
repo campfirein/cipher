@@ -16,6 +16,7 @@ import {randomUUID} from 'node:crypto'
 import type {SynthesisResult} from '../../../agent/infra/harness/harness-synthesizer.js'
 
 import {resolveProject} from '../../../server/infra/project/resolve-project.js'
+import {HARNESS_NOT_ENABLED_REASON} from '../../../shared/constants/harness.js'
 import {TaskEvents} from '../../../shared/transport/events/index.js'
 import {withDaemonRetry} from '../../lib/daemon-client.js'
 import {
@@ -166,18 +167,22 @@ export default class HarnessRefine extends Command {
       return
     }
 
-    // Parse the result from the agent process
+    // Parse the result from the agent process with minimal shape guard
     let synthesisResult: SynthesisResult | undefined
     try {
-      synthesisResult = taskResult ? JSON.parse(taskResult) as SynthesisResult : undefined
+      const parsed: unknown = taskResult ? JSON.parse(taskResult) : undefined
+      synthesisResult =
+        parsed !== null && typeof parsed === 'object' && 'accepted' in parsed
+          ? (parsed as SynthesisResult)
+          : undefined
     } catch {
       synthesisResult = undefined
     }
 
     // Synthesizer unavailable — exit 2 per spec
-    if (synthesisResult?.reason === 'harness not enabled') {
+    if (synthesisResult?.reason === HARNESS_NOT_ENABLED_REASON) {
       if (format === 'json') {
-        this.log(JSON.stringify({accepted: false, error: 'harness not enabled'}, null, 2))
+        this.log(JSON.stringify({accepted: false, error: HARNESS_NOT_ENABLED_REASON}, null, 2))
         this.exit(2)
       } else {
         this.error('Harness is not enabled — configure harness.enabled in .brv/config.json', {exit: 2})
@@ -186,6 +191,8 @@ export default class HarnessRefine extends Command {
       return
     }
 
+    // toVersion inferred — SynthesisResult carries toVersionId (UUID) but
+    // not the numeric version. Safe for strictly sequential refinement.
     const toVersion = synthesisResult?.accepted ? (fromVersion === undefined ? undefined : fromVersion + 1) : undefined
 
     if (format === 'json') {

@@ -36,6 +36,7 @@ import {FolderPackService} from '../../../agent/infra/folder-pack/folder-pack-se
 import {SessionMetadataStore} from '../../../agent/infra/session/session-metadata-store.js'
 import {FileKeyStorage} from '../../../agent/infra/storage/file-key-storage.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
+import {HARNESS_NOT_ENABLED_REASON} from '../../../shared/constants/harness.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {decodeSearchContent} from '../../../shared/transport/search-content.js'
 import {getCurrentConfig} from '../../config/environment.js'
@@ -606,7 +607,7 @@ async function executeTask(
         case 'harness-refine': {
           const synthesizer = agent.getHarnessSynthesizer()
           if (!synthesizer) {
-            result = JSON.stringify({accepted: false, reason: 'harness not enabled'})
+            result = JSON.stringify({accepted: false, reason: HARNESS_NOT_ENABLED_REASON})
             break
           }
 
