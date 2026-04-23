@@ -138,9 +138,19 @@ Bad examples:
 
     let providerContext: ProviderErrorContext | undefined
 
+    // Capture projectRoot out of the daemon callback so feedback can
+    // run AFTER withDaemonRetry resolves. If feedback ran inside the
+    // callback, `this.error(..., {exit: 1})` would be caught by the
+    // outer try/catch below and routed to `reportError`, which
+    // swallows the exit code — the CLI would exit 0 on a
+    // NO_RECENT_OUTCOME path.
+    let capturedProjectRoot: string | undefined
+    let daemonSucceeded = false
     try {
       await withDaemonRetry(
         async (client, projectRoot, worktreeRoot) => {
+          capturedProjectRoot = projectRoot
+
           const active = await client.requestWithAck<ProviderConfigResponse>(
             TransportStateEventNames.GET_PROVIDER_CONFIG,
           )
@@ -157,12 +167,7 @@ Bad examples:
           }
 
           await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType, worktreeRoot})
-
-          // --feedback attaches to the outcome the daemon just wrote.
-          // Detach mode has no completed outcome yet; skip with a hint.
-          if (flags.feedback !== undefined && projectRoot !== undefined) {
-            await this.handleFeedback(projectRoot, flags, format)
-          }
+          daemonSucceeded = true
         },
         {
           ...this.getDaemonClientOptions(),
@@ -175,6 +180,16 @@ Bad examples:
       )
     } catch (error) {
       this.reportError(error, format, providerContext)
+      return
+    }
+
+    // Feedback attaches only on a successful primary run.
+    if (
+      daemonSucceeded &&
+      flags.feedback !== undefined &&
+      capturedProjectRoot !== undefined
+    ) {
+      await this.handleFeedback(capturedProjectRoot, flags, format)
     }
   }
 
@@ -295,7 +310,17 @@ Bad examples:
 
     try {
       const result = await attachFeedbackFromCli(projectRoot, 'curate', flags.feedback)
-      if (format === 'text') {
+      if (format === 'json') {
+        writeJsonResponse({
+          command: 'curate:feedback',
+          data: {
+            outcomeId: result.outcomeId,
+            syntheticCount: result.syntheticCount,
+            verdict: result.verdict,
+          },
+          success: true,
+        })
+      } else {
         this.log(
           `feedback attached: ${result.verdict} → outcome ${result.outcomeId} (${result.syntheticCount} synthetic row${result.syntheticCount === 1 ? '' : 's'} inserted for heuristic weighting)`,
         )
@@ -303,10 +328,20 @@ Bad examples:
     } catch (error) {
       if (error instanceof FeedbackError) {
         if (error.code === 'HARNESS_DISABLED') {
-          if (format === 'text') this.warn(`--feedback ignored: ${error.message}`)
+          if (format === 'json') {
+            writeJsonResponse({
+              command: 'curate:feedback',
+              data: {reason: error.message, skipped: true},
+              success: true,
+            })
+          } else {
+            this.warn(`--feedback ignored: ${error.message}`)
+          }
+
           return
         }
 
+        // NO_RECENT_OUTCOME / NO_STORAGE — user-input error per §C1.
         this.error(error.message, {exit: 1})
       }
 

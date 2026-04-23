@@ -87,10 +87,18 @@ Bad:
     if (!this.validateInput(args.query, format)) return
 
     let providerContext: ProviderErrorContext | undefined
+    // Captured from the daemon callback so feedback runs AFTER
+    // withDaemonRetry resolves. Running it inside the callback would
+    // let `this.error({exit: 1})` get caught by the outer try/catch
+    // and routed to `reportError`, which swallows the exit code.
+    let capturedProjectRoot: string | undefined
+    let daemonSucceeded = false
 
     try {
       await withDaemonRetry(
         async (client, projectRoot, worktreeRoot) => {
+          capturedProjectRoot = projectRoot
+
           const active = await client.requestWithAck<ProviderConfigResponse>(
             TransportStateEventNames.GET_PROVIDER_CONFIG,
           )
@@ -114,10 +122,7 @@ Bad:
             timeoutMs: (flags.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
             worktreeRoot,
           })
-
-          if (feedbackVerdict !== undefined && projectRoot !== undefined) {
-            await this.handleFeedback(projectRoot, feedbackVerdict, format)
-          }
+          daemonSucceeded = true
         },
         {
           ...this.getDaemonClientOptions(),
@@ -130,6 +135,15 @@ Bad:
       )
     } catch (error) {
       this.reportError(error, format, providerContext)
+      return
+    }
+
+    if (
+      daemonSucceeded &&
+      feedbackVerdict !== undefined &&
+      capturedProjectRoot !== undefined
+    ) {
+      await this.handleFeedback(capturedProjectRoot, feedbackVerdict, format)
     }
   }
 
@@ -147,7 +161,17 @@ Bad:
   ): Promise<void> {
     try {
       const result = await attachFeedbackFromCli(projectRoot, 'query', verdict)
-      if (format === 'text') {
+      if (format === 'json') {
+        writeJsonResponse({
+          command: 'query:feedback',
+          data: {
+            outcomeId: result.outcomeId,
+            syntheticCount: result.syntheticCount,
+            verdict: result.verdict,
+          },
+          success: true,
+        })
+      } else {
         this.log(
           `feedback attached: ${result.verdict} → outcome ${result.outcomeId} (${result.syntheticCount} synthetic row${result.syntheticCount === 1 ? '' : 's'} inserted for heuristic weighting)`,
         )
@@ -155,10 +179,20 @@ Bad:
     } catch (error) {
       if (error instanceof FeedbackError) {
         if (error.code === 'HARNESS_DISABLED') {
-          if (format === 'text') this.warn(`--feedback ignored: ${error.message}`)
+          if (format === 'json') {
+            writeJsonResponse({
+              command: 'query:feedback',
+              data: {reason: error.message, skipped: true},
+              success: true,
+            })
+          } else {
+            this.warn(`--feedback ignored: ${error.message}`)
+          }
+
           return
         }
 
+        // NO_RECENT_OUTCOME / NO_STORAGE — user-input error per §C1.
         this.error(error.message, {exit: 1})
       }
 

@@ -92,7 +92,7 @@ class Semaphore {
 // ---------------------------------------------------------------------------
 
 /** Synthetic outcome count per verdict (§C2 weighting policy). */
-const BAD_SYNTHETIC_COUNT = 3
+export const BAD_SYNTHETIC_COUNT = 3
 
 /**
  * Maximum feedback-sourced synthetic outcomes in the H window.
@@ -105,7 +105,7 @@ const FEEDBACK_SYNTHETIC_CAP = 10
 const FEEDBACK_LIST_LIMIT = 100
 
 /** Synthetic outcome count for 'good' verdict — asymmetric with BAD (3:1) per §C2. */
-const GOOD_SYNTHETIC_COUNT = 1
+export const GOOD_SYNTHETIC_COUNT = 1
 
 /** H window size — matches the synthesizer's OUTCOMES_WINDOW. */
 const H_WINDOW_SIZE = 50
@@ -114,7 +114,7 @@ const MAX_OUTCOMES_PER_SESSION = 50
 const SEMAPHORE_PERMITS = 5
 
 /** Delimiter between the original outcome ID and the synthetic suffix. */
-const SYNTHETIC_DELIMITER = '__synthetic_'
+export const SYNTHETIC_DELIMITER = '__synthetic_'
 
 // ---------------------------------------------------------------------------
 // Recorder

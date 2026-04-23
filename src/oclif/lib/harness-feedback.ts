@@ -23,23 +23,27 @@ import type {ValidatedHarnessConfig} from '../../agent/infra/agent/agent-schemas
 
 import {NoOpLogger} from '../../agent/core/interfaces/i-logger.js'
 import {SessionEventBus} from '../../agent/infra/events/event-emitter.js'
-import {HarnessOutcomeRecorder} from '../../agent/infra/harness/harness-outcome-recorder.js'
+import {
+  BAD_SYNTHETIC_COUNT,
+  GOOD_SYNTHETIC_COUNT,
+  HarnessOutcomeRecorder,
+  SYNTHETIC_DELIMITER,
+} from '../../agent/infra/harness/harness-outcome-recorder.js'
 import {openHarnessStoreForProject, readHarnessFeatureConfig} from './harness-cli.js'
 
 export type FeedbackVerdict = 'bad' | 'good'
-
-/** Synthetic-row counts per verdict — mirrors Phase 6 Task 6.5's §C2 policy. */
-const BAD_SYNTHETIC_COUNT = 3
-const GOOD_SYNTHETIC_COUNT = 1
-
-/** Synthetic id substring — must stay in sync with `HarnessOutcomeRecorder`'s delimiter. */
-const SYNTHETIC_DELIMITER = '__synthetic_'
 
 /**
  * Scan depth when hunting for the most-recent NON-synthetic outcome.
  * 10 feedback synthetics (bad=3, good=1 × several re-labels) can
  * precede a real outcome in the worst case; 50 gives comfortable
  * headroom without unbounded store reads.
+ *
+ * `BAD_SYNTHETIC_COUNT`, `GOOD_SYNTHETIC_COUNT`, and
+ * `SYNTHETIC_DELIMITER` are re-used from `HarnessOutcomeRecorder`
+ * (the canonical owner of the §C2 weighting policy) to prevent
+ * drift — redeclaring them here would silently diverge on a policy
+ * change.
  */
 const FEEDBACK_SCAN_LIMIT = 50
 
