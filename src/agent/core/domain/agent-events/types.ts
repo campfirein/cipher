@@ -302,8 +302,10 @@ export interface AgentEventMap {
     | {
         accepted: true
         commandType: string
+        fromHeuristic: number
         fromVersion: number
         projectId: string
+        toHeuristic: number
         toVersion: number
       }
 
