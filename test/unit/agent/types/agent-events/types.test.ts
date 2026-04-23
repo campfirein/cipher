@@ -453,8 +453,10 @@ describe('cipher/agent-events', () => {
       const accepted: AgentEventMap['harness:refinement-completed'] = {
         accepted: true,
         commandType: 'curate',
+        fromHeuristic: 0.5,
         fromVersion: 2,
         projectId: 'proj-1',
+        toHeuristic: 0.6,
         toVersion: 3,
       }
       if (accepted.accepted) {

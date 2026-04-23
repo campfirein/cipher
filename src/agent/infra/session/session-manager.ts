@@ -11,6 +11,7 @@ import {PolicyEngine} from '../tools/policy-engine.js'
 import {ToolManager} from '../tools/tool-manager.js'
 import {ToolProvider} from '../tools/tool-provider.js'
 import {ChatSession} from './chat-session.js'
+import {HarnessBannerListener} from './harness-banner-listener.js'
 import {generateSessionTitle} from './title-generator.js'
 
 /**
@@ -47,6 +48,11 @@ export interface SessionMetadata {
 export type SessionRemovalReason = 'deleted' | 'ended' | 'ttl_expired'
 
 export interface SessionManagerOptions {
+  /** Override banner writeLine + TTY detection for testing. */
+  bannerOverrides?: {
+    isTty?: boolean
+    writeLine?: (s: string) => void
+  }
   config?: SessionManagerConfig
   /**
    * Optional lifecycle callback fired after a session is removed from memory maps.
@@ -65,6 +71,8 @@ export interface SessionManagerOptions {
 export class SessionManager {
   /** Grace window before a session's dedup entry expires (ms). */
   private static readonly ENDED_SESSION_GRACE_MS = 60_000
+  private readonly bannerListeners = new Map<string, HarnessBannerListener>()
+  private readonly bannerOverrides?: {isTty?: boolean; writeLine?: (s: string) => void}
   private cleanupTimer?: ReturnType<typeof setInterval>
   private readonly config: Required<SessionManagerConfig>
   private readonly endedSessions = new Set<string>()
@@ -138,6 +146,7 @@ export class SessionManager {
     this.sharedServices = sharedServices
     this.httpConfig = httpConfig
     this.llmConfig = llmConfig
+    this.bannerOverrides = options?.bannerOverrides
     this.onSessionRemoved = options?.onSessionRemoved
     this.config = {
       maxSessions: options?.config?.maxSessions ?? 100,
@@ -326,6 +335,8 @@ export class SessionManager {
     // Remove from memory
     const deleted = this.sessions.delete(id)
     if (deleted) {
+      this.endBannerListener(id)
+
       try {
         this.onSessionRemoved?.(id, 'deleted')
       } catch {
@@ -357,6 +368,13 @@ export class SessionManager {
 
     this.sessions.clear()
     this.endedSessions.clear()
+
+    // Clean up banner listeners (unsubscribe from agent event bus)
+    for (const listener of this.bannerListeners.values()) {
+      listener.onSessionEnd()
+    }
+
+    this.bannerListeners.clear()
 
     // Clear all metadata maps
     this.sessionCreatedAt.clear()
@@ -398,6 +416,12 @@ export class SessionManager {
     // Remove from memory only - history remains in storage
     const ended = this.sessions.delete(id)
     if (ended) {
+      // End the banner listener (prints any refinement captured during this
+      // session's lifetime from concurrently-running synthesizers). Must happen
+      // before triggering THIS session's refinement, which fires async — those
+      // events land after this listener has already unsubscribed.
+      this.endBannerListener(id)
+
       // Fire harness refinement trigger (fire-and-forget)
       this.triggerHarnessRefinement(id)
 
@@ -537,6 +561,23 @@ export class SessionManager {
   }
 
   /**
+   * Create a HarnessBannerListener for a session. Subscribes to the
+   * agent-level refinement-completed event; `endBannerListener`
+   * unsubscribes and prints the banner on session end.
+   */
+  private createBannerListener(sessionId: string): void {
+    const agentBus = this.sharedServices.agentEventBus
+    if (!agentBus) return
+
+    const writeLine = this.bannerOverrides?.writeLine ?? ((s: string) => process.stderr.write(s))
+    const isTty = this.bannerOverrides?.isTty ?? (process.stderr.isTTY ?? false)
+    const harnessEnabled = this.sharedServices.harnessConfig?.enabled ?? false
+
+    const listener = new HarnessBannerListener({eventBus: agentBus, harnessEnabled, isTty, writeLine})
+    this.bannerListeners.set(sessionId, listener)
+  }
+
+  /**
    * Internal session creation logic.
    *
    * @param id - Session ID
@@ -562,6 +603,7 @@ export class SessionManager {
     this.sessionLastActivity.set(id, now)
 
     this.sessions.set(id, session)
+    this.createBannerListener(id)
     return session
   }
 
@@ -633,7 +675,19 @@ export class SessionManager {
     this.sessionLastActivity.set(id, now)
 
     this.sessions.set(id, session)
+    this.createBannerListener(id)
     return session
+  }
+
+  /**
+   * End the banner listener for a session — prints banner if applicable
+   * and unsubscribes from the agent event bus.
+   */
+  private endBannerListener(sessionId: string): void {
+    const listener = this.bannerListeners.get(sessionId)
+    if (!listener) return
+    listener.onSessionEnd()
+    this.bannerListeners.delete(sessionId)
   }
 
   /**
