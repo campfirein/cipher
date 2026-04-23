@@ -118,6 +118,9 @@ function makeEnvironmentContext(workingDirectory: string): EnvironmentContext {
  * behavior: curate throws (blocked writes during eval), readFile
  * returns a stub.
  */
+// Test-file double-cast: the factory returns simplified stubs whose
+// parameter signatures don't match the full HarnessContextTools contract.
+// Duplicating the exact parameter types here is not worth the import cost.
 const evalToolsFactory: HarnessToolsFactory = () => ({
   curate: (async () => {
     throw new Error('WRITE_BLOCKED_DURING_EVAL')
@@ -284,6 +287,10 @@ describe('CLI lifecycle integration test (ship gate)', function () {
 
     sandboxService = new SandboxService()
     sandboxService.setHarnessConfig(config)
+    // EnvironmentContext.workingDirectory feeds `projectId` into the
+    // recorder (sandbox-service.ts). Use the slug so store keys are valid;
+    // FileKeyStorage rejects path separators, so a real tempDir path would
+    // fail. The real tempDir stays on FileSystemService for detection.
     sandboxService.setEnvironmentContext(makeEnvironmentContext(PROJECT_ID))
     sandboxService.setHarnessStore(store)
     sandboxService.setHarnessModuleBuilder(builder)
@@ -357,6 +364,9 @@ describe('CLI lifecycle integration test (ship gate)', function () {
     // ── Step 4: Seed 20 outcomes + refinement → v2 ────────────────────
     // Seed additional outcomes (dominant failures) for the synthesizer's
     // critic analysis and evaluation. Seed scenarios for the evaluator.
+    // Seed 47 more outcomes (3 already landed from step 2 = 50 total).
+    // 50 outcomes with 0.8 failure ratio passes the synthesizer's
+    // minimum-signal check and drives critic analysis.
     await seedOutcomes(store, 47)
     await seedScenarios(store, 10)
 
