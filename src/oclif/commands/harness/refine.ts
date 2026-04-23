@@ -141,7 +141,7 @@ export default class HarnessRefine extends Command {
               timeoutMs: 60_000,
             },
             () => {},
-          )
+          ).catch(reject)
         })
 
         await client.requestWithAck(TaskEvents.CREATE, {
@@ -158,6 +158,7 @@ export default class HarnessRefine extends Command {
       const message = error instanceof Error ? error.message : String(error)
       if (format === 'json') {
         this.log(JSON.stringify({accepted: false, error: message}, null, 2))
+        this.exit(2)
       } else {
         this.error(`Refinement failed: ${message}`, {exit: 2})
       }
