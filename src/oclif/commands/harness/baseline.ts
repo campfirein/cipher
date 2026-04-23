@@ -49,7 +49,6 @@ import {
 import {resolveProject} from '../../../server/infra/project/resolve-project.js'
 import {
   HARNESS_COMMAND_TYPES,
-  type HarnessCommandType,
   isHarnessCommandType,
   openHarnessStoreForProject,
 } from '../../lib/harness-cli.js'
@@ -97,16 +96,24 @@ function pct(n: number): string {
   return `${(n * 100).toFixed(0)}%`
 }
 
+function signedPct(n: number): string {
+  return n >= 0 ? `+${pct(n)}` : pct(n)
+}
+
 function symbol(ok: boolean): string {
   return ok ? '✓' : '✗'
 }
 
 export function renderBaselineText(report: BaselineReport): string {
   const lines: string[] = [
+    '⚠  Baseline runs with a no-op tool stub — `readFile` throws, and',
+    '   any harness that calls it counts as a failure. Treat results',
+    '   as a crash-rate signal, not a tool-interaction-quality signal.',
+    '',
     `scenarios: ${report.scenarioCount}`,
     `raw:       ${pct(report.rawSuccessRate)}`,
     `harness:   ${pct(report.harnessSuccessRate)}`,
-    `delta:     ${signedFixed2(report.delta)}  (${pct(report.delta)})`,
+    `delta:     ${signedFixed2(report.delta)}  (${signedPct(report.delta)})`,
     '',
     '── per-scenario ─────────────────────────────────────',
   ]
@@ -173,6 +180,11 @@ export default class HarnessBaseline extends Command {
 
   async run(): Promise<void> {
     const {flags} = await this.parse(HarnessBaseline)
+    // oclif's `options:` validator rejects unknown values before we
+    // reach here — this guard is a TypeScript type predicate, not
+    // runtime validation. It narrows `flags.commandType` from
+    // `string` to `HarnessCommandType` so the runner call below
+    // needs no `as` cast.
     if (!isHarnessCommandType(flags.commandType)) {
       this.error(`invalid --commandType value '${flags.commandType}'`, {exit: 1})
     }
@@ -192,7 +204,7 @@ export default class HarnessBaseline extends Command {
     try {
       const runner = new HarnessBaselineRunner(opened.store, new NoOpLogger(), makeStubToolsFactory())
       const report = await runner.runBaseline({
-        commandType: commandType as HarnessCommandType,
+        commandType,
         count: flags.count,
         projectId: opened.projectId,
       })

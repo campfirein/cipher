@@ -57,14 +57,21 @@ describe('HarnessBaseline command — toBaselineJsonReport + renderBaselineText'
       expect(text).to.include('scenarios: 4')
       expect(text).to.include('raw:       25%')
       expect(text).to.include('harness:   75%')
-      expect(text).to.match(/delta:\s+\+0\.50/)
+      expect(text).to.match(/delta:\s+\+0\.50\s+\(\+50%\)/)
     })
 
-    it('2. prefixes delta with "+" when positive, bare "-" when negative', () => {
+    it('2. signs both the decimal delta AND the percent delta consistently', () => {
       const positive = renderBaselineText(makeReport({delta: 0.3}))
-      expect(positive).to.match(/delta:\s+\+0\.30/)
+      expect(positive).to.match(/delta:\s+\+0\.30\s+\(\+30%\)/)
       const negative = renderBaselineText(makeReport({delta: -0.2}))
-      expect(negative).to.match(/delta:\s+-0\.20/)
+      expect(negative).to.match(/delta:\s+-0\.20\s+\(-20%\)/)
+    })
+
+    it('2b. leads with a stub-tool warning banner so users understand the signal shape', () => {
+      const text = renderBaselineText(makeReport())
+      expect(text).to.include('no-op tool stub')
+      expect(text).to.include('readFile')
+      expect(text).to.include('crash-rate signal')
     })
 
     it('3. includes per-scenario rows with ✓/✗ markers', () => {
