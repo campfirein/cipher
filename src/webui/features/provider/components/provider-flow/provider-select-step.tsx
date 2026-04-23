@@ -50,12 +50,16 @@ export function ProviderSelectStep({onSelect, providers}: ProviderSelectStepProp
                 )}
                 key={provider.id}
                 onClick={() => onSelect(provider)}
+                title={provider.description}
                 type="button"
               >
                 <div className="bg-muted/50 grid size-7 shrink-0 place-items-center overflow-hidden rounded-md">
                   {icon && <img alt="" className="size-5" src={icon} />}
                 </div>
-                <span className="text-foreground flex-1 text-sm font-medium">{provider.name}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-foreground truncate text-sm font-medium">{provider.name}</div>
+                  <div className="text-muted-foreground min-h-[1lh] truncate text-xs">{provider.description}</div>
+                </div>
                 <div
                   className={cn(
                     'grid size-[18px] shrink-0 place-items-center rounded-full border transition-colors',
