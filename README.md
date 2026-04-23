@@ -30,6 +30,7 @@ Or download our self-hosted PDF version of the paper [here](https://byterover.de
 
 **Key Features:**
 
+- 🌐 Web dashboard for curating and querying context (`brv webui`)
 - 🖥️ Interactive TUI with REPL interface (React/Ink)
 - 🧠 Context tree and knowledge storage management
 - 🔀 Git-like version control for the context tree (branch, commit, merge, push/pull)
@@ -101,35 +102,6 @@ The REPL auto-configures on first run - no setup needed. Type `/` to discover al
 /query How is authentication implemented?
 ```
 
-## Web UI Development
-
-The web UI supports a local-first development flow for the shared component library.
-
-`npm run dev:ui` uses the git submodule at `packages/byterover-packages/ui` so edits to shared UI components hot-reload immediately in Vite.
-
-```bash
-# Clone with submodules, or initialize them after clone
-git clone --recurse-submodules <repo-url>
-# or
-git submodule update --init --recursive
-
-# Install dependencies
-npm ci
-
-# Start or restart the daemon
-./bin/dev.js restart
-
-# Start the web UI in local development mode
-npm run dev:ui
-```
-
-Notes:
-
-- Edit shared components in `packages/byterover-packages/ui/src`.
-- `npm run dev:ui` uses the submodule source.
-- `npm run build:ui` uses the installed package path.
-- If `/api/ui/config` or transport bootstrap fails, restart the Vite dev server after restarting the daemon.
-
 ## ByteRover Cloud
 
 ByteRover Cloud is a hosted platform for teams to sync, share, and manage context knowledge across projects and machines.
@@ -139,12 +111,12 @@ Everything works locally by default - Cloud adds collaboration and persistence w
 <a href="https://app.byterover.dev"><img src="https://img.shields.io/badge/Try%20ByteRover%20Cloud-Free-blue?style=for-the-badge" alt="Try ByteRover Cloud" /></a>
 </p>
 
-Sign in with your ByteRover account via `/login` (TUI) or
-an [API key](https://app.byterover.dev/settings/keys) (`brv login`) to get started.
+Sign in from the dashboard, or run `brv login` with an [API key](https://app.byterover.dev/settings/keys).
 
 - 🔄 **Team context sync** — push and pull shared knowledge across teammates
 - 📂 **Shared spaces** — organize context across multiple projects and teams
 - 💻 **Multi-machine access** — sync your context tree across devices with cloud backup
+- 💻 **Multi-machine access** — sync your context tree across devices
 - 🧠 **Built-in hosted LLM** — start immediately with limited free usage
 - 👥 **Team management** — manage members, spaces, and permissions via the web app
 - 📊 **Usage analytics** — track seat allocation and monthly credit consumption
@@ -153,10 +125,13 @@ an [API key](https://app.byterover.dev/settings/keys) (`brv login`) to get start
 <details>
 <summary><h2>CLI Usage</h2></summary>
 
+Most users only need `brv webui`. The commands below are for advanced users and automation. Run `brv --help` for the full, up-to-date reference.
+
 ### Core Workflow
 
 ```bash
 brv                  # Start interactive REPL
+brv webui            # Open the ByteRover dashboard (primary UI)
 brv status           # Show project and daemon status
 brv curate           # Add context to knowledge storage
 brv curate view      # View curate history
@@ -245,7 +220,7 @@ Run `brv --help` for the full command reference.
 <details>
 <summary><h2>Supported LLM Providers</h2></summary>
 
-ByteRover CLI supports 18 LLM providers out of the box. Use `brv providers connect` to set up a provider and `brv providers switch` to change the active one.
+ByteRover CLI supports 18 LLM providers out of the box. Connect and switch providers from the dashboard, or use `brv providers connect` / `brv providers switch`.
 
 | Provider | Description |
 |----------|-------------|
@@ -310,13 +285,12 @@ We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) for deve
 ByteRover CLI is built and maintained by the [ByteRover team](https://byterover.dev/).
 
 - Join our [Discord](https://discord.com/invite/UMRrpNjh5W) to share projects, ask questions, or just say hi
-- [Report issues](https://github.com/campfirein/byterover-cli/issues) <!-- TODO: ENG-1575 --> on GitHub
+- [Report issues](https://github.com/campfirein/byterover-cli/issues) on GitHub
 - If you enjoy ByteRover CLI, please give us a star on GitHub — it helps a lot!
 - Follow [@kevinnguyendn](https://x.com/kevinnguyendn) on X
 
 ## Contributors
 
-<!-- TODO: ENG-1575 -->
 [![Contributors](https://contrib.rocks/image?repo=campfirein/byterover-cli&max=40&columns=10)](https://github.com/campfirein/byterover-cli/graphs/contributors)
 
 ## Star History

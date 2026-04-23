@@ -2,6 +2,16 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.8.3]
+
+### Changed
+- **`brv login` opens your browser by default** — Just run `brv login` and sign in in your browser. On CI or a remote shell, use `--api-key <key>` instead (get one at https://app.byterover.dev/settings/keys). SSH and non-interactive shells are detected automatically and skip the browser step.
+- **Provider picker shows what each provider is** — `brv providers list` and the web provider picker now show a short description under each name, so you can pick by what a provider does instead of guessing from the brand.
+
+### Fixed
+- **No more "Logged in as undefined"** — `brv login` now says "Logged in successfully" when the server doesn't return your email.
+- **`brv webui` works when installed under a hidden folder** — Reloading a page like `/contexts` no longer 404s when `brv` lives under a dotfile path such as `~/.nvm/...` or `~/.asdf/...`.
+
 ## [3.8.2]
 
 ### Fixed

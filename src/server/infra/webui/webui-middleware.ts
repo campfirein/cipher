@@ -1,6 +1,5 @@
 import express, {type Express} from 'express'
 import {existsSync} from 'node:fs'
-import {join} from 'node:path'
 
 interface WebUiConfig {
   daemonPort: number
@@ -56,9 +55,11 @@ export function createWebUiMiddleware({getConfig, webuiDistDir}: CreateWebUiMidd
   if (existsSync(webuiDistDir)) {
     app.use(express.static(webuiDistDir))
 
-    // SPA fallback: serve index.html for unmatched routes
+    // SPA fallback. `root` scopes send's dotfile check to the relative
+    // path; without it, a dotfile anywhere in the absolute install path
+    // (e.g. ~/.nvm/...) triggers a 404.
     app.get('*splat', (_req, res) => {
-      res.sendFile(join(webuiDistDir, 'index.html'))
+      res.sendFile('index.html', {root: webuiDistDir})
     })
   }
 
