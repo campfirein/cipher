@@ -17,12 +17,18 @@ import {
   providerMissingMessage,
   withDaemonRetry,
 } from '../../lib/daemon-client.js'
+import {
+  attachFeedbackFromCli,
+  FeedbackError,
+  type FeedbackVerdict,
+} from '../../lib/harness-feedback.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
 import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS, type ToolCallRecord, waitForTaskCompletion} from '../../lib/task-client.js'
 
 /** Parsed flags type */
 type CurateFlags = {
   detach?: boolean
+  feedback?: FeedbackVerdict
   files?: string[]
   folder?: string[]
   format?: 'json' | 'text'
@@ -72,6 +78,11 @@ Bad examples:
       default: false,
       description: 'Queue task and exit without waiting for completion',
     }),
+    feedback: Flags.string({
+      description:
+        'After the curate completes, flag the most-recent outcome for AutoHarness learning. "bad" inserts 3 synthetic failures (weighted heavier); "good" inserts 1 synthetic success.',
+      options: ['good', 'bad'],
+    }),
     files: Flags.string({
       char: 'f',
       description: 'Include specific file paths for critical context (max 5 files)',
@@ -101,8 +112,14 @@ Bad examples:
 
   public async run(): Promise<void> {
     const {args, flags: rawFlags} = await this.parse(Curate)
+    // oclif's `options: ['good', 'bad']` validator rejects anything
+    // else before we reach here, so the cast is type-narrowing, not
+    // input validation.
+    const feedbackVerdict: FeedbackVerdict | undefined =
+      rawFlags.feedback === 'good' || rawFlags.feedback === 'bad' ? rawFlags.feedback : undefined
     const flags: CurateFlags = {
       detach: rawFlags.detach,
+      feedback: feedbackVerdict,
       files: rawFlags.files,
       folder: rawFlags.folder,
       format: rawFlags.format === 'json' ? 'json' : rawFlags.format === 'text' ? 'text' : undefined,
@@ -121,9 +138,19 @@ Bad examples:
 
     let providerContext: ProviderErrorContext | undefined
 
+    // Capture projectRoot out of the daemon callback so feedback can
+    // run AFTER withDaemonRetry resolves. If feedback ran inside the
+    // callback, `this.error(..., {exit: 1})` would be caught by the
+    // outer try/catch below and routed to `reportError`, which
+    // swallows the exit code — the CLI would exit 0 on a
+    // NO_RECENT_OUTCOME path.
+    let capturedProjectRoot: string | undefined
+    let daemonSucceeded = false
     try {
       await withDaemonRetry(
         async (client, projectRoot, worktreeRoot) => {
+          capturedProjectRoot = projectRoot
+
           const active = await client.requestWithAck<ProviderConfigResponse>(
             TransportStateEventNames.GET_PROVIDER_CONFIG,
           )
@@ -140,6 +167,7 @@ Bad examples:
           }
 
           await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType, worktreeRoot})
+          daemonSucceeded = true
         },
         {
           ...this.getDaemonClientOptions(),
@@ -152,6 +180,16 @@ Bad examples:
       )
     } catch (error) {
       this.reportError(error, format, providerContext)
+      return
+    }
+
+    // Feedback attaches only on a successful primary run.
+    if (
+      daemonSucceeded &&
+      flags.feedback !== undefined &&
+      capturedProjectRoot !== undefined
+    ) {
+      await this.handleFeedback(capturedProjectRoot, flags, format)
     }
   }
 
@@ -245,6 +283,70 @@ Bad examples:
     const idx = filePath.indexOf(marker)
     if (idx === -1) return undefined
     return filePath.slice(idx + marker.length)
+  }
+
+  /**
+   * Attach the `--feedback` verdict to the most-recent curate outcome.
+   *
+   * Surface contract (handoff §C1):
+   *   - HARNESS_DISABLED → warn, exit 0 (primary curate already succeeded)
+   *   - NO_RECENT_OUTCOME / NO_STORAGE → `this.error` with exit 1
+   *   - detach mode → skipped with a hint (no outcome to flag yet)
+   */
+  private async handleFeedback(
+    projectRoot: string,
+    flags: CurateFlags,
+    format: 'json' | 'text',
+  ): Promise<void> {
+    if (flags.feedback === undefined) return
+
+    if (flags.detach === true) {
+      if (format === 'text') {
+        this.warn('--feedback skipped: detach mode — no completed outcome to flag yet.')
+      }
+
+      return
+    }
+
+    try {
+      const result = await attachFeedbackFromCli(projectRoot, 'curate', flags.feedback)
+      if (format === 'json') {
+        writeJsonResponse({
+          command: 'curate:feedback',
+          data: {
+            outcomeId: result.outcomeId,
+            syntheticCount: result.syntheticCount,
+            verdict: result.verdict,
+          },
+          success: true,
+        })
+      } else {
+        this.log(
+          `feedback attached: ${result.verdict} → outcome ${result.outcomeId} (${result.syntheticCount} synthetic row${result.syntheticCount === 1 ? '' : 's'} inserted for heuristic weighting)`,
+        )
+      }
+    } catch (error) {
+      if (error instanceof FeedbackError) {
+        if (error.code === 'HARNESS_DISABLED') {
+          if (format === 'json') {
+            writeJsonResponse({
+              command: 'curate:feedback',
+              data: {reason: error.message, skipped: true},
+              success: true,
+            })
+          } else {
+            this.warn(`--feedback ignored: ${error.message}`)
+          }
+
+          return
+        }
+
+        // NO_RECENT_OUTCOME / NO_STORAGE — user-input error per §C1.
+        this.error(error.message, {exit: 1})
+      }
+
+      throw error
+    }
   }
 
   /**
