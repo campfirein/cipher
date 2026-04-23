@@ -343,11 +343,12 @@ describe('CLI lifecycle integration test (ship gate)', function () {
 
     for (let i = 0; i < 3; i++) {
       // eslint-disable-next-line no-await-in-loop
-      await sandboxService.executeCode(
+      const exec = await sandboxService.executeCode(
         `typeof harness !== 'undefined' && typeof harness.curate === 'function'`,
         SESSION_ID,
         {commandType: COMMAND_TYPE, taskDescription: `curate-${i}`},
       )
+      expect(exec.returnValue).to.equal(true)
     }
 
     // Wait for fire-and-forget outcomes to land
@@ -419,11 +420,12 @@ describe('CLI lifecycle integration test (ship gate)', function () {
     if (!loadV2.loaded) throw new Error('unreachable: loadV2 asserted above')
     expect(loadV2.version.version).to.equal(2)
 
-    await sandboxService.executeCode(
+    const execV2 = await sandboxService.executeCode(
       `typeof harness !== 'undefined' && typeof harness.curate === 'function'`,
       SESSION_2,
       {commandType: COMMAND_TYPE, taskDescription: 'curate-with-v2'},
     )
+    expect(execV2.returnValue).to.equal(true)
 
     // ── Step 8: Query --feedback bad → synthetics inserted ─────────────
     // Seed 15 query outcomes (all success, no stderr) so H is computable
