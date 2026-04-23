@@ -103,7 +103,7 @@ describe('attachFeedbackToStore', () => {
 
     expect(caught).to.be.instanceOf(FeedbackError)
     expect((caught as FeedbackError).code).to.equal('NO_RECENT_OUTCOME')
-    expect((caught as FeedbackError).message).to.include('run curate first')
+    expect((caught as FeedbackError).details.commandType).to.equal('curate')
   })
 
   it('5. most-recent-by-timestamp wins when multiple outcomes exist', async () => {

@@ -77,12 +77,17 @@ Bad:
 
   public async run(): Promise<void> {
     const {args, flags: rawFlags} = await this.parse(Query)
-    const flags = rawFlags as QueryFlags
-    const format = (flags.format ?? 'text') as 'json' | 'text'
-    // oclif's `options: ['good', 'bad']` validator rejects anything
-    // else before we reach here — cast is type-narrowing only.
+    // oclif's `options:` validators reject unknown values before we
+    // reach here; the branches below narrow the string types without
+    // `as` casts (matching the curate command's pattern).
     const feedbackVerdict: FeedbackVerdict | undefined =
       rawFlags.feedback === 'good' || rawFlags.feedback === 'bad' ? rawFlags.feedback : undefined
+    const flags: QueryFlags = {
+      feedback: feedbackVerdict,
+      format: rawFlags.format === 'json' ? 'json' : rawFlags.format === 'text' ? 'text' : undefined,
+      timeout: rawFlags.timeout,
+    }
+    const format: 'json' | 'text' = flags.format ?? 'text'
 
     if (!this.validateInput(args.query, format)) return
 
