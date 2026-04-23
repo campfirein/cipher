@@ -1,0 +1,108 @@
+{
+  "$comment": "AutoHarness V2 KPI reference fixture — 20 curate tasks run once with raw tools.* and once with the current harness, both against Llama 3.1 8B Instruct. Stable across ships; regenerate only on deliberate fixture updates. See features/autoharness-v2/tasks/phase_8/task_04-kpi-harness.md for the methodology.",
+  "fixtureVersion": "1.0.0",
+  "targetModel": "llama-3.1-8b-instruct",
+  "commandType": "curate",
+  "tasks": [
+    {
+      "id": "t01-list-exports",
+      "taskDescription": "Curate every exported class name from `src/agent/infra/harness/` along with its source file path.",
+      "expectedBehavior": "Returns a non-empty list of `{className, filePath}` entries covering HarnessStore, HarnessBootstrap, HarnessModuleBuilder, HarnessOutcomeRecorder, HarnessSynthesizer, HarnessEvaluator, HarnessScenarioCapture (at minimum)."
+    },
+    {
+      "id": "t02-config-fields",
+      "taskDescription": "Curate all fields defined on HarnessConfigSchema in `src/agent/infra/agent/agent-schemas.ts`.",
+      "expectedBehavior": "Returns the full field list: autoLearn, enabled, language, maxVersions, modeOverride, refinementModel."
+    },
+    {
+      "id": "t03-interface-methods",
+      "taskDescription": "Curate every method name on the IHarnessStore interface.",
+      "expectedBehavior": "Returns all ~11 methods (deleteOutcomes, getLatest, getVersion, listOutcomes, listScenarios, listVersions, pruneOldVersions, recordFeedback, saveOutcome, saveScenario, saveVersion)."
+    },
+    {
+      "id": "t04-zod-schemas",
+      "taskDescription": "List every Zod schema exported from `src/agent/core/domain/harness/types.ts`.",
+      "expectedBehavior": "Returns HarnessCapabilitySchema, HarnessLanguageSchema, HarnessMetaSchema, HarnessModeSchema, HarnessVersionSchema, CodeExecOutcomeSchema, EvaluationScenarioSchema, ProjectTypeSchema."
+    },
+    {
+      "id": "t05-error-codes",
+      "taskDescription": "Curate all error codes on HarnessStoreErrorCode.",
+      "expectedBehavior": "Returns OUTCOME_NOT_FOUND, VERSION_CONFLICT."
+    },
+    {
+      "id": "t06-template-names",
+      "taskDescription": "Curate all harness template files under `src/agent/infra/harness/templates/`.",
+      "expectedBehavior": "Returns the 3 shipped curate templates: curate/typescript.ts, curate/python.ts, curate/generic.ts."
+    },
+    {
+      "id": "t07-mode-thresholds",
+      "taskDescription": "Curate the heuristic thresholds that map H to HarnessMode.",
+      "expectedBehavior": "Returns {assisted: 0.30, filter: 0.60, policy: 0.85} or the equivalent ranges."
+    },
+    {
+      "id": "t08-oclif-commands",
+      "taskDescription": "List every `brv harness <subcommand>` command file under `src/oclif/commands/harness/`.",
+      "expectedBehavior": "Returns the shipped subcommand names. (Minimum set grows as Phase 7 lands; empty result when phase not shipped is acceptable.)"
+    },
+    {
+      "id": "t09-sandbox-services",
+      "taskDescription": "Curate every `set*` method on SandboxService.",
+      "expectedBehavior": "Returns setHarnessConfig, setHarnessStore, setHarnessModuleBuilder, setHarnessOutcomeRecorder, setEnvironmentContext, setFileSystem, setContentGenerator, etc."
+    },
+    {
+      "id": "t10-event-payloads",
+      "taskDescription": "Curate the payload fields of the harness:refinement-completed event.",
+      "expectedBehavior": "Returns fromVersionId, accepted, toVersionId?, deltaH?, reason?."
+    },
+    {
+      "id": "t11-tools-sdk-methods",
+      "taskDescription": "Curate every method surface exposed by HarnessContextTools in types.ts.",
+      "expectedBehavior": "Returns curate (+ signature) and readFile (+ signature). v1.0 surface is exactly those two."
+    },
+    {
+      "id": "t12-capability-tags",
+      "taskDescription": "Curate every HarnessCapability tag.",
+      "expectedBehavior": "Returns discover, extract, buildOps, search, gather, curate, answer."
+    },
+    {
+      "id": "t13-phase-task-docs",
+      "taskDescription": "Curate every task doc under `features/autoharness-v2/tasks/phase_5/`.",
+      "expectedBehavior": "Returns the 5 task docs: task_01 mode selector, task_02 prompt contributor, task_03 Mode C caps, task_04 agent wiring, task_05 integration test."
+    },
+    {
+      "id": "t14-numeric-parameters",
+      "taskDescription": "Curate the numeric parameters locked in v1-design-decisions.md §2.1 (heuristic formula weights + windowing).",
+      "expectedBehavior": "Returns formula weights {successRate: 0.2, errorRate: 0.3, realHarnessRate: 0.5}, window size 50, min-sample floor 10, recency 30-day half-life, pass-through cap 0.55."
+    },
+    {
+      "id": "t15-mode-c-caps",
+      "taskDescription": "Curate the two Mode C safety caps and their values.",
+      "expectedBehavior": "Returns ops cap 50 per curate() call, rate cap 30 mapExtract/60s process-wide."
+    },
+    {
+      "id": "t16-refinement-gates",
+      "taskDescription": "Curate the refinement acceptance thresholds.",
+      "expectedBehavior": "Returns ΔH improvement ≥ 0.05, evaluation runs per candidate 10, max versions per pair 20, refinement queue concurrency 1 per pair."
+    },
+    {
+      "id": "t17-feedback-weights",
+      "taskDescription": "Curate the user-feedback insertion weights.",
+      "expectedBehavior": "Returns bad → 3 synthetic failures, good → 1 synthetic success, cap 10 per window."
+    },
+    {
+      "id": "t18-project-detector-rules",
+      "taskDescription": "Curate the project-type detection rules in project-detector.ts.",
+      "expectedBehavior": "Returns: tsconfig.json → typescript; package.json with typescript dep → typescript; pyproject.toml → python; setup.py → python; setup.cfg → python; polyglot → both."
+    },
+    {
+      "id": "t19-weak-model-block-list",
+      "taskDescription": "Curate the weak-model block list entries (refinement skipped).",
+      "expectedBehavior": "Returns all entries in REFINEMENT_MODEL_BLOCKLIST (llama-3.1-8b-instruct, mistral-7b-instruct, qwen-2.5-7b-instruct, gemma-2-9b-it, phi-3-mini)."
+    },
+    {
+      "id": "t20-phase-ship-gates",
+      "taskDescription": "Curate each phase's ship-gate integration test file path.",
+      "expectedBehavior": "Returns Phase 3 isolation.test.ts, Phase 4 cold-start.test.ts, Phase 5 mode-selection.test.ts, Phase 6 learning-loop.test.ts, Phase 7 cli-lifecycle.test.ts, Phase 8 full-lifecycle.test.ts."
+    }
+  ]
+}
