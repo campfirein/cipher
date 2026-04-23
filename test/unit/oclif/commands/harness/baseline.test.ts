@@ -1,3 +1,24 @@
+/**
+ * Unit tests for `brv harness baseline`.
+ *
+ * Tests the pure logic functions (`toBaselineJsonReport`,
+ * `renderBaselineText`) extracted from the command. The oclif
+ * `run()` method is NOT covered here.
+ *
+ * Coverage exemption rationale: `run()` is thin glue — flag parse,
+ * resolve project, open store, delegate to `HarnessBaselineRunner`
+ * (separately tested), format-switch, release store. Each branch is
+ * one-liner routing; the logic lives in the helpers and the runner.
+ * Following the convention of sibling harness CLI commands
+ * (`diff.test.ts`, `status.test.ts`, `inspect.test.ts`, `use.test.ts`)
+ * which cover pure functions only. `reset.test.ts` is the one sibling
+ * that exercises `run()`, via a dedicated integration test — because
+ * `reset` has interactive-prompt behavior worth end-to-end coverage.
+ *
+ * If we later decide every harness CLI command needs `run()`
+ * coverage, that's a cross-command refactor, not this PR.
+ */
+
 import {expect} from 'chai'
 
 import type {BaselineReport} from '../../../../../src/agent/infra/harness/harness-baseline-runner.js'
