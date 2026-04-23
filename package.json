@@ -206,6 +206,7 @@
     "postpack": "shx rm -f oclif.manifest.json",
     "prepack": "npm run build && BRV_ENV=production oclif manifest",
     "prepare": "husky",
+    "smoke:harness": "node --loader ts-node/esm scripts/harness-smoke.ts",
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/webui/tsconfig.json",
     "version": "git add README.md"
