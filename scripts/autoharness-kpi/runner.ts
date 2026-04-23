@@ -121,9 +121,31 @@ const STUB_RATES: Readonly<Record<string, {harness: number; raw: number;}>> = {
 // Pure functions (unit-tested)
 // ─────────────────────────────────────────────────────────────────────────
 
+function isFixtureTask(value: unknown): value is FixtureTask {
+  if (typeof value !== 'object' || value === null) return false
+  const obj = value as Record<string, unknown>
+  return (
+    typeof obj.id === 'string' &&
+    typeof obj.taskDescription === 'string' &&
+    typeof obj.expectedBehavior === 'string'
+  )
+}
+
+const VALID_COMMAND_TYPES = new Set<string>(['chat', 'curate', 'query'])
+
+function isValidCommandType(v: unknown): v is Fixture['commandType'] {
+  return typeof v === 'string' && VALID_COMMAND_TYPES.has(v)
+}
+
 /** Parse and validate a fixture file. Throws on schema mismatch. */
 export function loadFixture(path: string): Fixture {
-  const raw = JSON.parse(readFileSync(path, 'utf8')) as unknown
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(path, 'utf8')) as unknown
+  } catch (error) {
+    throw new Error(`fixture file is not valid JSON: ${path} — ${error instanceof Error ? error.message : String(error)}`)
+  }
+
   if (typeof raw !== 'object' || raw === null) {
     throw new TypeError(`fixture is not an object: ${path}`)
   }
@@ -134,23 +156,20 @@ export function loadFixture(path: string): Fixture {
     throw new Error(`fixture has no tasks: ${path}`)
   }
 
+  const validatedTasks: FixtureTask[] = []
   for (const task of tasks) {
-    if (
-      typeof task !== 'object' ||
-      task === null ||
-      typeof (task as FixtureTask).id !== 'string' ||
-      typeof (task as FixtureTask).taskDescription !== 'string' ||
-      typeof (task as FixtureTask).expectedBehavior !== 'string'
-    ) {
+    if (!isFixtureTask(task)) {
       throw new Error(`fixture task malformed: ${JSON.stringify(task)}`)
     }
+
+    validatedTasks.push(task)
   }
 
   return {
-    commandType: (parsed.commandType as Fixture['commandType']) ?? 'curate',
-    fixtureVersion: (parsed.fixtureVersion as string) ?? 'unversioned',
-    targetModel: (parsed.targetModel as string) ?? 'unknown',
-    tasks: tasks as FixtureTask[],
+    commandType: isValidCommandType(parsed.commandType) ? parsed.commandType : 'curate',
+    fixtureVersion: typeof parsed.fixtureVersion === 'string' ? parsed.fixtureVersion : 'unversioned',
+    targetModel: typeof parsed.targetModel === 'string' ? parsed.targetModel : 'unknown',
+    tasks: validatedTasks,
   }
 }
 
@@ -219,11 +238,18 @@ export function computeKpiReport(args: {
   const rawSuccessRate = rawArm.overallSuccessRate
 
   const byTaskId = new Map(rawArm.perTask.map((t) => [t.taskId, t.successRate]))
-  const perTask = harnessArm.perTask.map((h) => ({
-    harnessSuccessRate: h.successRate,
-    rawSuccessRate: byTaskId.get(h.taskId) ?? 0,
-    taskId: h.taskId,
-  }))
+  const perTask = harnessArm.perTask.map((h) => {
+    const rawRate = byTaskId.get(h.taskId)
+    if (rawRate === undefined) {
+      throw new Error(`task ID mismatch: harness arm has '${h.taskId}' but raw arm does not`)
+    }
+
+    return {
+      harnessSuccessRate: h.successRate,
+      rawSuccessRate: rawRate,
+      taskId: h.taskId,
+    }
+  })
 
   return {
     delta: harnessSuccessRate - rawSuccessRate,

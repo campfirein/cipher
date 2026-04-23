@@ -18,6 +18,7 @@ import {
   main,
   makeStubLlmClient,
   parseArgs,
+  renderReport,
   runArm,
   SHIP_GATE_DELTA,
 } from '../../../../scripts/autoharness-kpi/runner.js'
@@ -77,6 +78,17 @@ describe('KPI harness', () => {
         const bad = join(dir, 'bad.json')
         writeFileSync(bad, JSON.stringify({tasks: [{id: 1}]}))
         expect(() => loadFixture(bad)).to.throw(/malformed/)
+      } finally {
+        rmSync(dir, {force: true, recursive: true})
+      }
+    })
+
+    it('throws a clear error on invalid JSON', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'kpi-invalid-json-'))
+      try {
+        const bad = join(dir, 'not-json.json')
+        writeFileSync(bad, '{not: valid json}')
+        expect(() => loadFixture(bad)).to.throw(/not valid JSON/)
       } finally {
         rmSync(dir, {force: true, recursive: true})
       }
@@ -165,6 +177,16 @@ describe('KPI harness', () => {
       expect(report.rawSuccessRate).to.equal(0.4)
       expect(report.harnessSuccessRate).to.equal(0.8)
       expect(report.delta).to.be.closeTo(0.4, 1e-9)
+    })
+
+    it('throws on task-ID mismatch between arms', () => {
+      const fixture = makeFixture([
+        {expectedBehavior: 'x', id: 'a', taskDescription: 'x'},
+      ])
+      const rawArm = makeArmResult('raw', ['b'], 0.5, 10) // 'b' not 'a'
+      const harnessArm = makeArmResult('harness', ['a'], 0.8, 10)
+      expect(() => computeKpiReport({fixture, harnessArm, rawArm, runsPerArm: 10}))
+        .to.throw(/task ID mismatch/)
     })
 
     it('carries fixture + model metadata through to the report', () => {
@@ -264,6 +286,65 @@ describe('KPI harness', () => {
     it('rejects --runs non-numeric', () => {
       expect(() => parseArgs(['--runs', 'abc'])).to.throw(/positive integer/)
     })
+
+    it('rejects --runs negative', () => {
+      expect(() => parseArgs(['--runs', '-1'])).to.throw(/positive integer/)
+    })
+
+    it('rejects --runs zero', () => {
+      expect(() => parseArgs(['--runs', '0'])).to.throw(/positive integer/)
+    })
+
+    it('rejects --fixture with no argument', () => {
+      expect(() => parseArgs(['--fixture'])).to.throw(/requires a path/)
+    })
+
+    it('rejects --output with no argument', () => {
+      expect(() => parseArgs(['--output'])).to.throw(/requires a path/)
+    })
+
+    it('rejects --runs with no argument', () => {
+      expect(() => parseArgs(['--runs'])).to.throw(/requires a number/)
+    })
+  })
+
+  describe('renderReport', () => {
+    it('includes per-task rates, overall, delta, and ship-gate verdict', () => {
+      const report: KpiReport = {
+        delta: 0.4,
+        fixtureVersion: 'test-1',
+        harnessSuccessRate: 0.9,
+        measuredAt: 0,
+        perTask: [
+          {harnessSuccessRate: 0.9, rawSuccessRate: 0.5, taskId: 't01-test'},
+        ],
+        rawSuccessRate: 0.5,
+        runsPerArm: 10,
+        targetModel: 'test-model',
+      }
+      const output = renderReport(report)
+      expect(output).to.include('t01-test')
+      expect(output).to.include('50%')
+      expect(output).to.include('90%')
+      expect(output).to.include('+40.0pp')
+      expect(output).to.include('ship gate met')
+    })
+
+    it('shows shortfall when delta is below ship gate', () => {
+      const report: KpiReport = {
+        delta: 0.2,
+        fixtureVersion: 'x',
+        harnessSuccessRate: 0.6,
+        measuredAt: 0,
+        perTask: [],
+        rawSuccessRate: 0.4,
+        runsPerArm: 10,
+        targetModel: 'x',
+      }
+      const output = renderReport(report)
+      expect(output).to.include('NOT met')
+      expect(output).to.include('10.0pp')
+    })
   })
 
   describe('main (end-to-end with stub LLM)', () => {
@@ -307,8 +388,9 @@ describe('KPI harness', () => {
         caught = error
       }
 
-      expect(caught).to.be.an('error')
-      expect((caught as Error).message).to.match(/--llm real is not yet implemented/)
+      expect(caught).to.be.instanceOf(Error)
+      if (!(caught instanceof Error)) throw new Error('unreachable')
+      expect(caught.message).to.match(/--llm real is not yet implemented/)
     })
   })
 })

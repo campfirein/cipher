@@ -1,6 +1,5 @@
 {
   "$comment": "AutoHarness V2 KPI reference fixture — 20 curate tasks run once with raw tools.* and once with the current harness, both against Llama 3.1 8B Instruct. Stable across ships; regenerate only on deliberate fixture updates. See features/autoharness-v2/tasks/phase_8/task_04-kpi-harness.md for the methodology.",
-  "$schema": "./fixture-tasks.schema.json",
   "fixtureVersion": "1.0.0",
   "targetModel": "llama-3.1-8b-instruct",
   "commandType": "curate",
