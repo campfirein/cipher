@@ -67,6 +67,13 @@ export interface IHarnessStore {
   deleteOutcomes(projectId: string, commandType: string): Promise<number>
 
   /**
+   * Remove the pin for a `(projectId, commandType)` pair.
+   * Idempotent — returns `true` if a pin existed and was removed,
+   * `false` if no pin was set.
+   */
+  deletePin(projectId: string, commandType: string): Promise<boolean>
+
+  /**
    * Delete a single scenario by its `(projectId, commandType, scenarioId)` key.
    * Returns `true` when the scenario existed and was deleted; `false` on miss.
    * Used by `HarnessScenarioCapture` for LRU eviction when the per-pair cap

@@ -78,6 +78,10 @@ export class InMemoryHarnessStore implements IHarnessStore {
     return deleted
   }
 
+  async deletePin(projectId: string, commandType: string): Promise<boolean> {
+    return this.pins.delete(partitionKey(projectId, commandType))
+  }
+
   async deleteScenario(
     projectId: string,
     commandType: string,

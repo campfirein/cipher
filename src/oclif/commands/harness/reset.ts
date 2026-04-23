@@ -72,6 +72,8 @@ export async function executeReset(
     await store.deleteVersion(projectId, commandType, v.id)
   }
 
+  await store.deletePin(projectId, commandType)
+
   return {
     outcomes: outcomesDeleted,
     scenarios: scenariosDeleted,
@@ -98,7 +100,7 @@ export function renderResetText(counts: ResetArtifactCounts): string {
 
 export default class HarnessReset extends Command {
   static override description = 'Delete all harness state for a (project, commandType) pair'
-static override flags = {
+  static override flags = {
     commandType: Flags.string({
       default: 'curate',
       description: 'Harness pair command type',

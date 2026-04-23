@@ -89,7 +89,7 @@ export function formatRefineResult(
 
 export default class HarnessRefine extends Command {
   static override description = 'Force-trigger a refinement attempt for a pair'
-static override flags = {
+  static override flags = {
     commandType: Flags.string({
       default: 'curate',
       description: 'Harness pair command type',
@@ -177,6 +177,7 @@ static override flags = {
     if (synthesisResult?.reason === 'harness not enabled') {
       if (format === 'json') {
         this.log(JSON.stringify({accepted: false, error: 'harness not enabled'}, null, 2))
+        this.exit(2)
       } else {
         this.error('Harness is not enabled — configure harness.enabled in .brv/config.json', {exit: 2})
       }

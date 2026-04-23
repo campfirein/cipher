@@ -61,6 +61,7 @@ function makeStoreStub(sb: SinonSandbox): IHarnessStore {
   return {
     deleteOutcome: sb.stub(),
     deleteOutcomes: sb.stub().resolves(0),
+    deletePin: sb.stub().resolves(false),
     deleteScenario: sb.stub(),
     deleteScenarios: sb.stub().resolves(0),
     deleteVersion: sb.stub().resolves(true),
@@ -145,6 +146,12 @@ describe('HarnessReset command — countArtifacts + executeReset + renderResetTe
     expect((store.deleteVersion as SinonStub).callCount).to.equal(2)
     expect((store.deleteVersion as SinonStub).firstCall.args).to.deep.equal([PROJECT_ID, 'curate', 'v-2'])
     expect((store.deleteVersion as SinonStub).secondCall.args).to.deep.equal([PROJECT_ID, 'curate', 'v-1'])
+
+    // Deletion order: outcomes before versions
+    expect((store.deleteOutcomes as SinonStub).calledBefore(store.deleteVersion as SinonStub)).to.equal(true)
+
+    // Pin cleared
+    expect((store.deletePin as SinonStub).calledOnce).to.equal(true)
   })
 
   // Test 4: executeReset with nothing to delete returns zero counts
@@ -162,9 +169,9 @@ describe('HarnessReset command — countArtifacts + executeReset + renderResetTe
   it('renderResetText shows deletion counts', () => {
     const text = renderResetText({outcomes: 47, scenarios: 12, versions: 3})
 
-    expect(text).to.include('3')
-    expect(text).to.include('47')
-    expect(text).to.include('12')
+    expect(text).to.include('3 version')
+    expect(text).to.include('47 outcome')
+    expect(text).to.include('12 scenario')
   })
 
   // Test 6: renderResetText with nothing deleted shows appropriate message

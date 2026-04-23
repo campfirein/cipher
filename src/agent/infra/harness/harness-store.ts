@@ -119,6 +119,14 @@ export class HarnessStore implements IHarnessStore {
 
   // ── scenarios ─────────────────────────────────────────────────────────────
 
+  async deletePin(projectId: string, commandType: string): Promise<boolean> {
+    const key = this.pinKey(projectId, commandType)
+    const exists = await this.keyStorage.get(key)
+    if (exists === undefined) return false
+    await this.keyStorage.delete(key)
+    return true
+  }
+
   async deleteScenario(
     projectId: string,
     commandType: string,
@@ -147,6 +155,8 @@ export class HarnessStore implements IHarnessStore {
     return false
   }
 
+  // ── versions ───────────────────────────────────────────────────────────────
+
   async deleteScenarios(projectId: string, commandType: string): Promise<number> {
     const keys: StorageKey[] = []
     for (const projectType of ProjectTypeSchema.options) {
@@ -173,8 +183,6 @@ export class HarnessStore implements IHarnessStore {
 
     return keys.length
   }
-
-  // ── versions ───────────────────────────────────────────────────────────────
 
   async deleteVersion(
     projectId: string,
