@@ -42,6 +42,7 @@
 import type {
   CodeExecOutcome,
   EvaluationScenario,
+  HarnessPin,
   HarnessVersion,
 } from '../domain/harness/types.js'
 
@@ -80,12 +81,22 @@ export interface IHarnessStore {
   /**
    * Return the most-recently-written version for a `(projectId, commandType)`
    * pair — ranked by the stored `version` number, not by `heuristic`. This
-   * is "newest" semantics, not "best" semantics. Phase 7's pinned-version
-   * concept lives in a separate method (see the Known extension note in
-   * the module header). Returns `undefined` when no version exists for
-   * the pair.
+   * is "newest" semantics, not "best" semantics. User-initiated pins live
+   * in a separate record; see `getPin`. Returns `undefined` when no
+   * version exists for the pair.
    */
   getLatest(projectId: string, commandType: string): Promise<HarnessVersion | undefined>
+
+  /**
+   * Return the active user-initiated version pin for a
+   * `(projectId, commandType)` pair, or `undefined` when no pin exists.
+   *
+   * Consulted by `SandboxService.loadHarness` before `getLatest`. When
+   * the pinned id has since been pruned (retention policy), callers
+   * MUST fall back to `getLatest` rather than erroring — pin is a
+   * preference, not a requirement.
+   */
+  getPin(projectId: string, commandType: string): Promise<HarnessPin | undefined>
 
   /**
    * Fetch a specific version by its id. Returns `undefined` when the id is
@@ -170,6 +181,16 @@ export interface IHarnessStore {
   saveOutcome(outcome: CodeExecOutcome): Promise<void>
 
   /**
+   * Persist a user-initiated version pin for a `(projectId, commandType)`
+   * pair. Idempotent overwrite: a subsequent `setPin` replaces the
+   * previous record rather than appending (exactly one pin per pair).
+   *
+   * Does NOT validate that `pinnedVersionId` exists — that's the
+   * caller's responsibility (usually after a `resolveVersionRef`
+   * success). The sandbox-side prune-fallback handles "pinned id no
+   * longer exists" at load time.
+   */
+  /**
    * Persist an evaluation scenario for a `(projectId, commandType)` pair.
    * Scenarios are captured from both successful AND failed sessions —
    * negative scenarios prevent the refiner from "improving" into a harness
@@ -186,4 +207,16 @@ export interface IHarnessStore {
    *   tuple, already exists.
    */
   saveVersion(version: HarnessVersion): Promise<void>
+
+  /**
+   * Persist a user-initiated version pin for a `(projectId, commandType)`
+   * pair. Idempotent overwrite: a subsequent `setPin` replaces the
+   * previous record rather than appending (exactly one pin per pair).
+   *
+   * Does NOT validate that `pinnedVersionId` exists — that's the
+   * caller's responsibility (usually after a `resolveVersionRef`
+   * success). The sandbox-side prune-fallback handles "pinned id no
+   * longer exists" at load time.
+   */
+  setPin(pin: HarnessPin): Promise<void>
 }

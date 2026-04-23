@@ -55,13 +55,22 @@ function makeEnabledConfig(overrides: Partial<ValidatedHarnessConfig> = {}): Val
 describe('SandboxService.loadHarness', () => {
   let sandbox: SinonSandbox
   let service: SandboxService
-  let store: Partial<IHarnessStore> & {getLatest: SinonStub}
+  let store: Partial<IHarnessStore> & {
+    getLatest: SinonStub
+    getPin: SinonStub
+    getVersion: SinonStub
+  }
   let builder: Partial<HarnessModuleBuilder> & {build: SinonStub}
 
   beforeEach(() => {
     sandbox = createSandbox()
     service = new SandboxService()
-    store = {getLatest: sandbox.stub().resolves()}
+    // Default: no pin, no version. Individual tests override.
+    store = {
+      getLatest: sandbox.stub().resolves(),
+      getPin: sandbox.stub().resolves(),
+      getVersion: sandbox.stub().resolves(),
+    }
     builder = {build: sandbox.stub().returns({loaded: false, reason: 'syntax'})}
   })
 
@@ -240,5 +249,82 @@ describe('SandboxService.loadHarness', () => {
       harnessVersionIdBySession: Map<string, string>
     }
     expect(internal.harnessVersionIdBySession.get('s1')).to.equal('v-abc')
+  })
+
+  // ── Phase 7 Task 7.2: pin-first resolution ───────────────────────────────
+
+  it('consults the pin BEFORE getLatest and injects the pinned version when present', async () => {
+    service.setHarnessConfig(makeEnabledConfig())
+    service.setHarnessStore(store as unknown as IHarnessStore)
+    service.setHarnessModuleBuilder(builder as unknown as HarnessModuleBuilder)
+
+    const pinnedVersion = makeVersion({id: 'v-pinned'})
+    const latestVersion = makeVersion({id: 'v-latest', version: 2})
+    store.getPin.resolves({
+      commandType: 'curate',
+      pinnedAt: 1_700_000_000_000,
+      pinnedVersionId: 'v-pinned',
+      projectId: 'p1',
+    })
+    store.getVersion.resolves(pinnedVersion)
+    store.getLatest.resolves(latestVersion)
+    builder.build.returns({loaded: true, module: {meta: () => pinnedVersion.metadata}, version: pinnedVersion})
+
+    const result = await service.loadHarness('s1', 'p1', 'curate')
+
+    expect(result.loaded).to.equal(true)
+    // Pin wins: builder saw the pinned version, not the latest.
+    const built = builder.build.firstCall.args[0] as HarnessVersion
+    expect(built.id).to.equal('v-pinned')
+    // `getLatest` is NOT called when the pin resolves to a live version.
+    expect(store.getLatest.called).to.equal(false)
+  })
+
+  it('falls back to getLatest when the pinned version has been pruned', async () => {
+    service.setHarnessConfig(makeEnabledConfig())
+    service.setHarnessStore(store as unknown as IHarnessStore)
+    service.setHarnessModuleBuilder(builder as unknown as HarnessModuleBuilder)
+
+    const latestVersion = makeVersion({id: 'v-latest', version: 5})
+    store.getPin.resolves({
+      commandType: 'curate',
+      pinnedAt: 1_700_000_000_000,
+      pinnedVersionId: 'v-pruned',
+      projectId: 'p1',
+    })
+    // Pinned id no longer exists — retention policy dropped it.
+    store.getVersion.resolves()
+    store.getLatest.resolves(latestVersion)
+    builder.build.returns({
+      loaded: true,
+      module: {meta: () => latestVersion.metadata},
+      version: latestVersion,
+    })
+
+    const result = await service.loadHarness('s1', 'p1', 'curate')
+
+    expect(result.loaded).to.equal(true)
+    // Broken-pin path: getVersion was attempted (hit undefined), then
+    // getLatest ran and its value drove the build call.
+    expect(store.getVersion.calledOnceWith('p1', 'curate', 'v-pruned')).to.equal(true)
+    expect(store.getLatest.calledOnceWith('p1', 'curate')).to.equal(true)
+    const built = builder.build.firstCall.args[0] as HarnessVersion
+    expect(built.id).to.equal('v-latest')
+  })
+
+  it('skips the pin path entirely when no pin is set', async () => {
+    service.setHarnessConfig(makeEnabledConfig())
+    service.setHarnessStore(store as unknown as IHarnessStore)
+    service.setHarnessModuleBuilder(builder as unknown as HarnessModuleBuilder)
+
+    // getPin default stub resolves to undefined — no pin.
+    store.getLatest.resolves(makeVersion())
+    builder.build.returns({loaded: false, reason: 'syntax'})
+
+    await service.loadHarness('s1', 'p1', 'curate')
+
+    // `getVersion` is never called when the pin is absent.
+    expect(store.getVersion.called).to.equal(false)
+    expect(store.getLatest.calledOnceWith('p1', 'curate')).to.equal(true)
   })
 })

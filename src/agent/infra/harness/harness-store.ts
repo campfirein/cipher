@@ -26,6 +26,7 @@
 import type {
   CodeExecOutcome,
   EvaluationScenario,
+  HarnessPin,
   HarnessVersion,
 } from '../../core/domain/harness/types.js'
 import type {IHarnessStore} from '../../core/interfaces/i-harness-store.js'
@@ -36,6 +37,7 @@ import {HarnessStoreError} from '../../core/domain/errors/harness-store-error.js
 import {
   CodeExecOutcomeSchema,
   EvaluationScenarioSchema,
+  HarnessPinSchema,
   HarnessVersionSchema,
   ProjectTypeSchema,
 } from '../../core/domain/harness/types.js'
@@ -44,6 +46,7 @@ const HARNESS_PREFIX = 'harness'
 const VERSION_PREFIX = 'version'
 const OUTCOME_PREFIX = 'outcome'
 const SCENARIO_PREFIX = 'scenario'
+const PIN_PREFIX = 'pin'
 
 /**
  * Default cap when `listOutcomes` is called without an explicit `limit`.
@@ -153,6 +156,13 @@ export class HarnessStore implements IHarnessStore {
     // (`maxVersions` default 20).
     const sorted = await this.listVersions(projectId, commandType)
     return sorted[0]
+  }
+
+  async getPin(
+    projectId: string,
+    commandType: string,
+  ): Promise<HarnessPin | undefined> {
+    return this.keyStorage.get<HarnessPin>(this.pinKey(projectId, commandType))
   }
 
   async getVersion(
@@ -376,6 +386,13 @@ export class HarnessStore implements IHarnessStore {
     }
   }
 
+  async setPin(pin: HarnessPin): Promise<void> {
+    const parsed = HarnessPinSchema.parse(pin)
+    // Idempotent overwrite: exactly one pin per pair, new `use` replaces
+    // the previous record rather than appending.
+    await this.keyStorage.set(this.pinKey(parsed.projectId, parsed.commandType), parsed)
+  }
+
   // ── internals ──────────────────────────────────────────────────────────────
 
   private async findOutcomeKey(
@@ -433,6 +450,10 @@ export class HarnessStore implements IHarnessStore {
     outcomeId: string,
   ): StorageKey {
     return [HARNESS_PREFIX, OUTCOME_PREFIX, projectType, projectId, commandType, outcomeId]
+  }
+
+  private pinKey(projectId: string, commandType: string): StorageKey {
+    return [HARNESS_PREFIX, PIN_PREFIX, projectId, commandType]
   }
 
   private scenarioKey(
