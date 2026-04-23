@@ -42,6 +42,18 @@ function makeRejectedEvent(overrides: {
   }
 }
 
+function makeListener(eventBus: AgentEventBus, writeLine: sinon.SinonStub, opts?: {
+  harnessEnabled?: boolean
+  isTty?: boolean
+}) {
+  return new HarnessBannerListener({
+    eventBus,
+    harnessEnabled: opts?.harnessEnabled ?? true,
+    isTty: opts?.isTty ?? true,
+    writeLine,
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -51,11 +63,10 @@ describe('HarnessBannerListener', () => {
     sinon.restore()
   })
 
-  // Test 1: Accepted refinement + TTY + enabled → banner prints
   it('prints banner when accepted refinement fires with TTY and enabled', () => {
     const eventBus = new AgentEventBus()
     const writeLine = sinon.stub()
-    const listener = new HarnessBannerListener(eventBus, writeLine, true, true)
+    const listener = makeListener(eventBus, writeLine)
 
     eventBus.emit('harness:refinement-completed', makeAcceptedEvent())
     listener.onSessionEnd()
@@ -64,11 +75,10 @@ describe('HarnessBannerListener', () => {
     expect(writeLine.firstCall.args[0]).to.include('harness updated')
   })
 
-  // Test 2: Accepted refinement + TTY + disabled → no print
   it('does not print when harness is disabled', () => {
     const eventBus = new AgentEventBus()
     const writeLine = sinon.stub()
-    const listener = new HarnessBannerListener(eventBus, writeLine, true, false)
+    const listener = makeListener(eventBus, writeLine, {harnessEnabled: false})
 
     eventBus.emit('harness:refinement-completed', makeAcceptedEvent())
     listener.onSessionEnd()
@@ -76,11 +86,10 @@ describe('HarnessBannerListener', () => {
     expect(writeLine.callCount).to.equal(0)
   })
 
-  // Test 3: Accepted refinement + not TTY → no print
   it('does not print when not a TTY', () => {
     const eventBus = new AgentEventBus()
     const writeLine = sinon.stub()
-    const listener = new HarnessBannerListener(eventBus, writeLine, false, true)
+    const listener = makeListener(eventBus, writeLine, {isTty: false})
 
     eventBus.emit('harness:refinement-completed', makeAcceptedEvent())
     listener.onSessionEnd()
@@ -88,11 +97,10 @@ describe('HarnessBannerListener', () => {
     expect(writeLine.callCount).to.equal(0)
   })
 
-  // Test 4: Rejected refinement → no print
   it('does not print for rejected refinements', () => {
     const eventBus = new AgentEventBus()
     const writeLine = sinon.stub()
-    const listener = new HarnessBannerListener(eventBus, writeLine, true, true)
+    const listener = makeListener(eventBus, writeLine)
 
     eventBus.emit('harness:refinement-completed', makeRejectedEvent())
     listener.onSessionEnd()
@@ -100,11 +108,10 @@ describe('HarnessBannerListener', () => {
     expect(writeLine.callCount).to.equal(0)
   })
 
-  // Test 5: Multiple accepteds → only last one prints
   it('prints only the last accepted refinement when multiple fire', () => {
     const eventBus = new AgentEventBus()
     const writeLine = sinon.stub()
-    const listener = new HarnessBannerListener(eventBus, writeLine, true, true)
+    const listener = makeListener(eventBus, writeLine)
 
     eventBus.emit('harness:refinement-completed', makeAcceptedEvent({
       fromHeuristic: 0.4,
@@ -128,22 +135,20 @@ describe('HarnessBannerListener', () => {
     expect(output).to.not.include('v1')
   })
 
-  // Test 6: Zero refinements → no print
   it('does not print when no refinements occurred', () => {
     const eventBus = new AgentEventBus()
     const writeLine = sinon.stub()
-    const listener = new HarnessBannerListener(eventBus, writeLine, true, true)
+    const listener = makeListener(eventBus, writeLine)
 
     listener.onSessionEnd()
 
     expect(writeLine.callCount).to.equal(0)
   })
 
-  // Test 7: Banner format matches spec
   it('formats banner as v{from} → v{to} (H: {fromH} → {toH})', () => {
     const eventBus = new AgentEventBus()
     const writeLine = sinon.stub()
-    const listener = new HarnessBannerListener(eventBus, writeLine, true, true)
+    const listener = makeListener(eventBus, writeLine)
 
     eventBus.emit('harness:refinement-completed', makeAcceptedEvent({
       fromHeuristic: 0.58,
@@ -159,11 +164,10 @@ describe('HarnessBannerListener', () => {
     expect(output).to.equal('harness updated: v3 → v4 (H: 0.58 → 0.64)\n')
   })
 
-  // Test 8: onSessionEnd is idempotent — second call does not re-print
   it('does not re-print on second onSessionEnd call', () => {
     const eventBus = new AgentEventBus()
     const writeLine = sinon.stub()
-    const listener = new HarnessBannerListener(eventBus, writeLine, true, true)
+    const listener = makeListener(eventBus, writeLine)
 
     eventBus.emit('harness:refinement-completed', makeAcceptedEvent())
     listener.onSessionEnd()
@@ -172,15 +176,13 @@ describe('HarnessBannerListener', () => {
     expect(writeLine.callCount).to.equal(1)
   })
 
-  // Test 9: Listener unsubscribes on session end — events after don't accumulate
   it('stops listening to events after onSessionEnd', () => {
     const eventBus = new AgentEventBus()
     const writeLine = sinon.stub()
-    const listener = new HarnessBannerListener(eventBus, writeLine, true, true)
+    const listener = makeListener(eventBus, writeLine)
 
     listener.onSessionEnd()
 
-    // Event after session end should not be captured
     eventBus.emit('harness:refinement-completed', makeAcceptedEvent())
     listener.onSessionEnd()
 

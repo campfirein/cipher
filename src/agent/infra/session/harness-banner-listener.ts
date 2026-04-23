@@ -19,6 +19,13 @@ import type {AgentEventBus} from '../events/event-emitter.js'
 
 type AcceptedRefinement = Extract<AgentEventMap['harness:refinement-completed'], {accepted: true}>
 
+export type HarnessBannerListenerOptions = {
+  readonly eventBus: AgentEventBus
+  readonly harnessEnabled: boolean
+  readonly isTty: boolean
+  readonly writeLine: (s: string) => void
+}
+
 // ---------------------------------------------------------------------------
 // HarnessBannerListener
 // ---------------------------------------------------------------------------
@@ -36,16 +43,11 @@ export class HarnessBannerListener {
   private lastAccepted: AcceptedRefinement | undefined
   private readonly writeLine: (s: string) => void
 
-  constructor(
-    eventBus: AgentEventBus,
-    writeLine: (s: string) => void,
-    isTty: boolean,
-    harnessEnabled: boolean,
-  ) {
-    this.eventBus = eventBus
-    this.writeLine = writeLine
-    this.isTty = isTty
-    this.harnessEnabled = harnessEnabled
+  constructor(opts: HarnessBannerListenerOptions) {
+    this.eventBus = opts.eventBus
+    this.writeLine = opts.writeLine
+    this.isTty = opts.isTty
+    this.harnessEnabled = opts.harnessEnabled
     this.eventBus.on('harness:refinement-completed', this.handleEvent)
   }
 

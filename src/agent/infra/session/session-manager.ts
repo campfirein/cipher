@@ -416,7 +416,10 @@ export class SessionManager {
     // Remove from memory only - history remains in storage
     const ended = this.sessions.delete(id)
     if (ended) {
-      // Print harness banner before refinement trigger fires
+      // End the banner listener (prints any refinement captured during this
+      // session's lifetime from concurrently-running synthesizers). Must happen
+      // before triggering THIS session's refinement, which fires async — those
+      // events land after this listener has already unsubscribed.
       this.endBannerListener(id)
 
       // Fire harness refinement trigger (fire-and-forget)
@@ -570,7 +573,7 @@ export class SessionManager {
     const isTty = this.bannerOverrides?.isTty ?? (process.stderr.isTTY ?? false)
     const harnessEnabled = this.sharedServices.harnessConfig?.enabled ?? false
 
-    const listener = new HarnessBannerListener(agentBus, writeLine, isTty, harnessEnabled)
+    const listener = new HarnessBannerListener({eventBus: agentBus, harnessEnabled, isTty, writeLine})
     this.bannerListeners.set(sessionId, listener)
   }
 
