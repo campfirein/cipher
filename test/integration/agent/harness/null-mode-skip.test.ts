@@ -162,8 +162,7 @@ async function buildStack(
     // HarnessBootstrap's 2nd arg is `IFileSystem`, used only inside
     // `bootstrapIfNeeded` for project-type detection. Not called in
     // this test — versions are seeded directly.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    {} as any,
+    {} as unknown as ConstructorParameters<typeof HarnessBootstrap>[1],
     harnessConfig,
     logger,
   )

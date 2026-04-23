@@ -66,6 +66,7 @@ export interface SmokeContext {
   readonly bootstrap: HarnessBootstrap
   readonly config: ValidatedHarnessConfig
   readonly keyStorage: FileKeyStorage
+  readonly ownsTempDir: boolean
   readonly projectId: string
   readonly sandboxService: SandboxService
   readonly state: SmokeState
@@ -271,11 +272,26 @@ export async function createSmokeContext(opts: {
   projectDir?: string
 } = {}): Promise<SmokeContext> {
   const llmMode = opts.llmMode ?? 'stub'
+
+  // Validate llmMode before any side effects (temp dir creation).
+  if (llmMode === 'real') {
+    throw new Error(
+      '--llm real requires a configured LLM provider. ' +
+      'Set BYTEROVER_LLM_API_KEY in env. Not yet implemented.',
+    )
+  }
+
+  const ownsTempDir = opts.projectDir === undefined
   const tempDir = opts.projectDir
     ?? realpathSync(mkdtempSync(join(tmpdir(), 'brv-smoke-harness-')))
   const projectId = 'smoke-harness-test'
 
-  writeFileSync(join(tempDir, 'tsconfig.json'), '{}')
+  // Only write tsconfig for internally-created temp dirs to avoid
+  // clobbering an existing project config in user-provided dirs.
+  if (ownsTempDir) {
+    writeFileSync(join(tempDir, 'tsconfig.json'), '{}')
+  }
+
   _clearPolyglotWarningState()
 
   const config: ValidatedHarnessConfig = {
@@ -312,15 +328,8 @@ export async function createSmokeContext(opts: {
 
   const agentEventBus = new AgentEventBus()
 
-  let refiner: IRefinerClient
-  if (llmMode === 'real') {
-    throw new Error(
-      '--llm real requires a configured LLM provider. ' +
-      'Set BYTEROVER_LLM_API_KEY in env. Not yet implemented.',
-    )
-  } else {
-    refiner = new FakeRefinerLLM()
-  }
+  // llmMode validated at top of function; only 'stub' reaches here.
+  const refiner: IRefinerClient = new FakeRefinerLLM()
 
   const evaluator = new HarnessEvaluator(store, logger, evalToolsFactory)
   const scenarioCapture = new HarnessScenarioCapture(store, logger)
@@ -349,6 +358,7 @@ export async function createSmokeContext(opts: {
     bootstrap,
     config,
     keyStorage,
+    ownsTempDir,
     projectId,
     sandboxService,
     state: {refinementEvents: []},
@@ -361,8 +371,7 @@ export async function createSmokeContext(opts: {
 export function cleanupSmokeContext(ctx: SmokeContext): void {
   ctx.sandboxService.cleanup?.()
   ctx.keyStorage.close()
-  // Only remove tempDirs we created (contain 'brv-smoke-harness-')
-  if (ctx.tempDir.includes('brv-smoke-harness-')) {
+  if (ctx.ownsTempDir) {
     rmSync(ctx.tempDir, {force: true, recursive: true})
   }
 }
@@ -472,7 +481,6 @@ export async function step07CurateWithV2(ctx: SmokeContext): Promise<void> {
   const session2 = 'smoke-sess-2'
   const loadV2 = await ctx.sandboxService.loadHarness(session2, ctx.projectId, COMMAND_TYPE)
   assert(loadV2.loaded, 'v2 must load')
-  if (!loadV2.loaded) throw new Error('unreachable')
   assert(loadV2.version.version === 2, `expected version=2, got ${loadV2.version.version}`)
 
   const exec = await ctx.sandboxService.executeCode(
@@ -526,7 +534,6 @@ export async function step10PinV1(ctx: SmokeContext): Promise<void> {
   const session3 = 'smoke-sess-3'
   const loadPinned = await ctx.sandboxService.loadHarness(session3, ctx.projectId, COMMAND_TYPE)
   assert(loadPinned.loaded, 'pinned version must load')
-  if (!loadPinned.loaded) throw new Error('unreachable')
   assert(loadPinned.version.id === ctx.state.v1.id, 'loaded version must be v1')
   assert(loadPinned.version.version === 1, 'loaded version number must be 1')
 }
@@ -626,8 +633,8 @@ export async function runSmoke(ctx: SmokeContext): Promise<StepResult[]> {
 // Main — only runs when invoked directly
 // ---------------------------------------------------------------------------
 
-const isDirectExecution = process.argv[1]?.endsWith('harness-smoke.ts')
-  || process.argv[1]?.endsWith('harness-smoke.js')
+const isDirectExecution = process.argv[1]?.endsWith('/scripts/harness-smoke.ts')
+  || process.argv[1]?.endsWith('/scripts/harness-smoke.js')
 
 if (isDirectExecution) {
   const args = process.argv.slice(2)
