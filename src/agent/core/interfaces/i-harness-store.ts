@@ -181,16 +181,6 @@ export interface IHarnessStore {
   saveOutcome(outcome: CodeExecOutcome): Promise<void>
 
   /**
-   * Persist a user-initiated version pin for a `(projectId, commandType)`
-   * pair. Idempotent overwrite: a subsequent `setPin` replaces the
-   * previous record rather than appending (exactly one pin per pair).
-   *
-   * Does NOT validate that `pinnedVersionId` exists — that's the
-   * caller's responsibility (usually after a `resolveVersionRef`
-   * success). The sandbox-side prune-fallback handles "pinned id no
-   * longer exists" at load time.
-   */
-  /**
    * Persist an evaluation scenario for a `(projectId, commandType)` pair.
    * Scenarios are captured from both successful AND failed sessions —
    * negative scenarios prevent the refiner from "improving" into a harness

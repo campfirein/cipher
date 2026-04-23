@@ -59,6 +59,14 @@ export async function applyPin(inputs: UseInputs): Promise<UseReport> {
     projectId,
   })
 
+  // `selectHarnessMode` only reads `modeOverride` off the config — the
+  // other fields (`autoLearn`, `enabled`, `language`, `maxVersions`)
+  // are required by the schema but ignored by the selector. Hardcoding
+  // them to schema defaults keeps the CLI honest about what it can
+  // honour: v1.0 doesn't plumb `modeOverride` into `HarnessFeatureConfig`,
+  // so reporting a `newMode` that disagrees with a user-pinned override
+  // is a known gap. When 7.4 / daemon-side wiring surfaces
+  // `modeOverride` to the CLI, thread it through here.
   const modeSelection = selectHarnessMode(pinnedVersion.heuristic, {
     autoLearn: true,
     enabled: true,
@@ -82,7 +90,7 @@ export function renderUseText(report: UseReport): string {
     `mode:   ${mode}`,
     '',
     'next session: harness.* will load the pinned version.',
-    'drop the pin with `brv harness use latest`.',
+    'to replace this pin, run `brv harness use <other-ref>`.',
   ].join('\n')
 }
 

@@ -114,7 +114,16 @@ function diffLines(a: readonly string[], b: readonly string[]): Edit[] {
   return edits.reverse()
 }
 
+/**
+ * Normalise trailing-newline divergence before splitting. A file that
+ * ends with `\n` and one that doesn't should diff only on real content
+ * changes, not on the presence of an empty string after the last line.
+ * `'a\n'.split('\n') === ['a', '']` is JavaScript's line-splitting trap;
+ * stripping one trailing newline (only when present) makes the result
+ * match the user's mental model of "lines".
+ */
 function splitLines(s: string): string[] {
   if (s === '') return []
-  return s.split('\n')
+  const trimmed = s.endsWith('\n') ? s.slice(0, -1) : s
+  return trimmed.split('\n')
 }

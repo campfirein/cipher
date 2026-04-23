@@ -138,7 +138,7 @@ describe('HarnessUse command — applyPin + renderUseText', () => {
       expect(text).to.include('pinned: v-abc')
       expect(text).to.include('was:    v-xyz')
       expect(text).to.include('mode:   filter')
-      expect(text).to.include('brv harness use latest')
+      expect(text).to.include('to replace this pin, run')
     })
 
     it('2. previousVersionId null renders as "<none>"', () => {

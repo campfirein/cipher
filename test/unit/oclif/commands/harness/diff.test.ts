@@ -58,6 +58,16 @@ describe('HarnessDiff command — buildDiffReport + renderDiffText', () => {
       expect(report.lineAdds).to.equal(2)
       expect(report.lineDeletes).to.equal(0)
     })
+
+    it('4. pure deletion reports lineDeletes > 0 and lineAdds == 0', () => {
+      const from = makeVersion({code: 'a\nb\nc', id: 'v-a'})
+      const to = makeVersion({code: 'a', id: 'v-b'})
+      const report = buildDiffReport(from, to)
+      expect(report.lineAdds).to.equal(0)
+      expect(report.lineDeletes).to.equal(2)
+      expect(report.unifiedDiff).to.include('-b')
+      expect(report.unifiedDiff).to.include('-c')
+    })
   })
 
   describe('renderDiffText', () => {
