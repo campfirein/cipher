@@ -35,7 +35,7 @@ export function createWebUiMiddleware({getConfig, webuiDistDir}: CreateWebUiMidd
         "connect-src 'self' ws: wss:",
         "font-src 'self' data: https://fonts.gstatic.com",
         "frame-ancestors 'none'",
-        "img-src 'self' data:",
+        "img-src 'self' data: https:",
         "object-src 'none'",
         "script-src 'self'",
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",

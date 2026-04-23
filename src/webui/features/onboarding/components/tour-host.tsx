@@ -31,8 +31,8 @@ function snapshotIsProviderStep() {
 }
 
 const CURATE_EXAMPLE =
-  'JWT tokens expire after 24h. Refresh window is 7 days. Rotation happens on every successful refresh — old refresh token is invalidated immediately.'
-const QUERY_EXAMPLE = 'What is our auth token expiration policy?'
+  'List the most important conventions and patterns used in this codebase — naming, file organization, testing approach, and any rules a new contributor should know before making changes.'
+const QUERY_EXAMPLE = 'What conventions should I follow when making changes?'
 
 export function TourHost() {
   const tourActive = useOnboardingStore((s) => s.tourActive)

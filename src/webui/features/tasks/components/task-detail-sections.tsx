@@ -1,3 +1,4 @@
+import {Button} from '@campfirein/byterover-packages/components/button'
 import {Card} from '@campfirein/byterover-packages/components/card'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
 import {Folder, Paperclip} from 'lucide-react'
@@ -5,7 +6,9 @@ import {Folder, Paperclip} from 'lucide-react'
 import type {StoredTask} from '../types/stored-task'
 
 import {formatError} from '../../../lib/error-messages'
+import {useProviderStore} from '../../provider/stores/provider-store'
 import {shortTaskId} from '../utils/format-time'
+import {isProviderTaskError} from '../utils/is-provider-task-error'
 import {isActiveStatus} from '../utils/task-status'
 import {AttachmentChip} from './attachment-chip'
 import {MarkdownInline} from './markdown-inline'
@@ -75,7 +78,16 @@ export function ResultSection({content}: {content: string}) {
   )
 }
 
-export function ErrorSection({error}: {error: NonNullable<StoredTask['error']>}) {
+export function ErrorSection({task}: {task: StoredTask}) {
+  const {error} = task
+  const openProviderDialog = useProviderStore((s) => s.openProviderDialog)
+  const showProviderCta = isProviderTaskError({
+    error,
+    hadLlmServiceError: Boolean(task.hadLlmServiceError),
+  })
+
+  if (!error) return null
+
   return (
     <section className="relative pl-8">
       <TerminalDot tone="error" />
@@ -83,6 +95,14 @@ export function ErrorSection({error}: {error: NonNullable<StoredTask['error']>})
       <Card className="bg-red-500/5 p-5 ring-1 ring-red-500/30" size="sm">
         <p className="text-red-400 text-sm">{formatError(error)}</p>
         {error.code && <p className="text-muted-foreground mono mt-1 text-[11px]">{error.code}</p>}
+        {showProviderCta && (
+          <div className="mt-3 flex items-center gap-2">
+            <Button onClick={openProviderDialog} size="sm">
+              Configure provider
+            </Button>
+            <span className="text-xs">Re-auth, switch provider, or update your API key.</span>
+          </div>
+        )}
       </Card>
     </section>
   )

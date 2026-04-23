@@ -1,6 +1,6 @@
 import { Dialog, DialogContent } from '@campfirein/byterover-packages/components/dialog'
 import { LoaderCircle } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import type {ModelDTO, ProviderDTO} from '../../../../../shared/transport/events'
@@ -61,6 +61,12 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
   const [baseUrl, setBaseUrl] = useState<string | undefined>()
   const [error, setError] = useState<string | undefined>()
   const [isNewConnection, setIsNewConnection] = useState(false)
+
+  // Window reference for the ByteRover OAuth popup. Opened synchronously in the
+  // provider row click handler to preserve the user-gesture context (browsers
+  // block popups opened later from effects or awaited promises) and handed off
+  // to LoginPromptStep, which navigates it to the auth URL.
+  const oauthPopupRef = useRef<ReturnType<typeof globalThis.open>>(null)
 
   const isAuthorized = useAuthStore((s) => s.isAuthorized)
   const {data} = useGetProviders()
@@ -135,8 +141,12 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
       setSelectedProvider(provider)
       setError(undefined)
 
-      // ByteRover requires sign-in first
+      // ByteRover requires sign-in first. Open the OAuth popup synchronously
+      // right here — we're inside the row's click handler, which is still
+      // within the user-gesture window browsers require for window.open().
+      // Opening later (from useEffect or after await) gets blocked.
       if (provider.id === BYTEROVER_PROVIDER_ID && !isAuthorized) {
+        oauthPopupRef.current = window.open('about:blank', '_blank')
         setStep('login_prompt')
         return
       }
@@ -415,6 +425,7 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
               setStep('select')
               setSelectedProvider(undefined)
             }}
+            popup={oauthPopupRef.current}
           />
         ) : null
       }

@@ -1,19 +1,25 @@
-import { Button } from '@campfirein/byterover-packages/components/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@campfirein/byterover-packages/components/dropdown-menu'
-import { ChevronDown, LoaderCircle, Plus } from 'lucide-react'
-import { useState } from 'react'
-import { toast } from 'sonner'
+import {Button} from '@campfirein/byterover-packages/components/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@campfirein/byterover-packages/components/dropdown-menu'
+import {Skeleton} from '@campfirein/byterover-packages/components/skeleton'
+import {ChevronDown, LoaderCircle, Plus} from 'lucide-react'
+import {useState} from 'react'
+import {toast} from 'sonner'
 
-import type { ConnectorDTO } from '../../../../shared/transport/types/dto'
-import type { Agent } from '../../../../shared/types/agent'
-import type { ConnectorType } from '../../../../shared/types/connector-type'
+import type {ConnectorDTO} from '../../../../shared/transport/types/dto'
+import type {Agent} from '../../../../shared/types/agent'
+import type {ConnectorType} from '../../../../shared/types/connector-type'
 
-import { requiresAgentRestart } from '../../../../shared/types/connector-type'
-import { useGetAgents } from '../api/get-agents'
-import { useGetConnectors } from '../api/get-connectors'
-import { useInstallConnector } from '../api/install-connector'
-import { AddConnectorDialog } from './add-connector-dialog'
-import { agentIcons } from './agent-icons'
+import {requiresAgentRestart} from '../../../../shared/types/connector-type'
+import {useGetAgents} from '../api/get-agents'
+import {useGetConnectors} from '../api/get-connectors'
+import {useInstallConnector} from '../api/install-connector'
+import {AddConnectorDialog} from './add-connector-dialog'
+import {agentIcons} from './agent-icons'
 
 const connectorLabels: Record<ConnectorType, string> = {
   hook: 'Hook',
@@ -23,8 +29,8 @@ const connectorLabels: Record<ConnectorType, string> = {
 }
 
 export function ConnectorsPanel() {
-  const { data: connectorsData, isLoading: isLoadingConnectors } = useGetConnectors()
-  const { data: agentsData, isLoading: isLoadingAgents } = useGetAgents()
+  const {data: connectorsData, isLoading: isLoadingConnectors} = useGetConnectors()
+  const {data: agentsData, isLoading: isLoadingAgents} = useGetAgents()
   const installMutation = useInstallConnector()
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [pendingAgentId, setPendingAgentId] = useState<string | undefined>()
@@ -37,7 +43,7 @@ export function ConnectorsPanel() {
     if (newType === connector.connectorType) return
 
     try {
-      await installMutation.mutateAsync({ agentId: connector.agent, connectorType: newType })
+      await installMutation.mutateAsync({agentId: connector.agent, connectorType: newType})
       const needsRestart = requiresAgentRestart(newType)
       toast.success(
         needsRestart
@@ -51,19 +57,11 @@ export function ConnectorsPanel() {
 
   const handleAddConnector = async (agentId: Agent, connectorType: ConnectorType) => {
     try {
-      await installMutation.mutateAsync({ agentId, connectorType })
+      await installMutation.mutateAsync({agentId, connectorType})
       toast.success(`${agentId} connected via ${connectorLabels[connectorType]}.`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to install connector')
     }
-  }
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <LoaderCircle className="text-muted-foreground size-5 animate-spin" />
-      </div>
-    )
   }
 
   return (
@@ -71,13 +69,18 @@ export function ConnectorsPanel() {
       {/* Title + Add button */}
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-1">
-          <h2 className="text-foreground text-lg font-bold">Connectors</h2>
-          <p className="text-muted-foreground text-sm">Manage how AI agents connect to ByteRover.</p>
+          <h2 className="text-foreground text-[0.95rem] font-semibold leading-tight">Connectors</h2>
+          <p className="text-muted-foreground mt-0.5 text-[0.8125rem] leading-snug">
+            Manage how AI agents connect to ByteRover.
+          </p>
         </div>
 
-        <Button onClick={() => setAddDialogOpen(true)} variant="default">
-          <Plus strokeWidth={3} /> Add connector
-        </Button>
+        <div className="flex items-center gap-2">
+          {isLoading && <LoaderCircle className="text-muted-foreground size-4 animate-spin" />}
+          <Button disabled={isLoading} onClick={() => setAddDialogOpen(true)} size="sm" variant="outline">
+            <Plus strokeWidth={3} /> Add connector
+          </Button>
+        </div>
       </div>
 
       <AddConnectorDialog
@@ -97,34 +100,51 @@ export function ConnectorsPanel() {
       />
 
       {/* Connector list */}
-      {connectors.length === 0 ? (
-        <p className="text-muted-foreground py-8 text-center text-sm">No connectors installed. Add one to get started.</p>
+      {isLoading ? (
+        <div className="bg-card border rounded-xl px-6 py-5">
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-5 shrink-0 rounded-full" />
+            <Skeleton className="h-4 flex-1" />
+            <Skeleton className="h-8 w-16 shrink-0" />
+          </div>
+        </div>
+      ) : connectors.length === 0 ? (
+        <p className="text-muted-foreground py-8 text-center text-sm">
+          No connectors installed. Add one to get started.
+        </p>
       ) : (
-        <div className='border rounded-xl px-6 py-5 flex flex-col gap-4'>{
-          connectors.map((connector, index) => (
-            <div className='flex flex-col gap-4' key={connector.agent}>
-              <div className='flex justify-between items-center'>
-                <div className='flex items-center gap-3 text-sm'>
+        <div className="bg-card border rounded-xl px-6 py-5 flex flex-col gap-4">
+          {connectors.map((connector, index) => (
+            <div className="flex flex-col gap-4" key={connector.agent}>
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-3 text-sm">
                   {agentIcons[connector.agent] ? (
                     <img alt="" className="size-5 shrink-0" src={agentIcons[connector.agent]} />
                   ) : (
                     <div className="size-5 shrink-0" />
                   )}
-                  <div className='flex flex-col'>
+                  <div className="flex flex-col">
                     <span>{connector.agent}</span>
-                    <span className='text-primary text-xs'>Connected</span>
+                    <span className="text-primary text-xs">Connected</span>
                   </div>
                 </div>
-                <div className='flex items-center'>
+                <div className="flex items-center">
                   <DropdownMenu>
                     <DropdownMenuTrigger
                       disabled={installMutation.isPending}
-                      render={<Button className="text-sm" disabled={installMutation.isPending} size="sm" variant="outline" />}
+                      render={
+                        <Button
+                          className="text-sm"
+                          disabled={installMutation.isPending}
+                          size="sm"
+                          variant="secondary"
+                        />
+                      }
                     >
                       {connectorLabels[connector.connectorType]}
                       <ChevronDown className="size-3.5 shrink-0" />
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align='end'>
+                    <DropdownMenuContent align="end">
                       {connector.supportedTypes.map((type) => (
                         <DropdownMenuItem key={type} onClick={() => handleTypeChange(connector, type)}>
                           {connectorLabels[type]}
@@ -134,10 +154,10 @@ export function ConnectorsPanel() {
                   </DropdownMenu>
                 </div>
               </div>
-              {index < connectors.length - 1 && <div className='border-b' />}
+              {index < connectors.length - 1 && <div className="border-b" />}
             </div>
-          ))
-        }</div>
+          ))}
+        </div>
       )}
     </div>
   )

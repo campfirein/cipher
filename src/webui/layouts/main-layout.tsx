@@ -6,6 +6,7 @@ import {TourBar} from '../features/onboarding/components/tour-bar'
 import {TourHost} from '../features/onboarding/components/tour-host'
 import {WelcomeOverlay} from '../features/onboarding/components/welcome-overlay'
 import {useTourWatchers} from '../features/onboarding/hooks/use-tour-watchers'
+import {GlobalProviderDialog} from '../features/provider/components/global-provider-dialog'
 import {useTaskCounts} from '../features/tasks/stores/task-store'
 import {useGetVcStatus} from '../features/vc/api/get-vc-status'
 import {statusToFiles} from '../features/vc/utils/status-to-files'
@@ -88,6 +89,7 @@ export function MainLayout() {
       <WelcomeOverlay />
       <TourHost />
       <TourBar />
+      <GlobalProviderDialog />
     </div>
   )
 }

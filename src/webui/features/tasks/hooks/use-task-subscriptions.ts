@@ -79,6 +79,13 @@ interface LlmThinkingPayload {
   taskId?: string
 }
 
+interface LlmErrorPayload {
+  code?: string
+  error: string
+  sessionId?: string
+  taskId?: string
+}
+
 export function useTaskSubscriptions(): void {
   const apiClient = useTransportStore((s) => s.apiClient)
 
@@ -174,6 +181,11 @@ export function useTaskSubscriptions(): void {
           isThinking: true,
           timestamp: Date.now(),
         })
+      }),
+
+      apiClient.on<LlmErrorPayload>(LlmEvents.ERROR, (data) => {
+        if (!data.taskId) return
+        store.markLlmServiceError(data.taskId)
       }),
     )
 

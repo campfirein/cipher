@@ -1,32 +1,103 @@
 import {Button} from '@campfirein/byterover-packages/components/button'
 import {DialogFooter, DialogHeader, DialogTitle} from '@campfirein/byterover-packages/components/dialog'
 import {useQueryClient} from '@tanstack/react-query'
-import {ChevronLeft, LoaderCircle} from 'lucide-react'
-import {useEffect, useState} from 'react'
+import {ChevronLeft, ExternalLink, LoaderCircle} from 'lucide-react'
+import {useEffect, useRef, useState} from 'react'
 
 import {getAuthStateQueryOptions} from '../../../auth/api/get-auth-state'
 import {login, subscribeToLoginCompleted} from '../../../auth/api/login'
 import {useAuthStore} from '../../../auth/stores/auth-store'
 import {isSafeHttpUrl} from '../../../auth/utils/is-safe-http-url'
 
+/**
+ * The Window reference returned by window.open, expressed without naming the
+ * DOM type directly (ESLint's no-undef doesn't ship with browser globals).
+ */
+type PopupRef = ReturnType<typeof globalThis.open>
+
 interface LoginPromptStepProps {
   onAuthenticated: () => void
   onBack: () => void
+  /**
+   * The OAuth popup. ProviderSelectStep opens it synchronously from the row
+   * click (user-gesture context), then hands it here for the step to navigate
+   * once the auth URL is ready.
+   */
+  popup: PopupRef
 }
 
 type InnerState =
+  | {authUrl: string; type: 'blocked'}
   | {authUrl: string; type: 'waiting'}
   | {message: string; type: 'error'}
-  | {type: 'idle'}
   | {type: 'starting'}
 
 const POLL_INTERVAL_MS = 2500
+/**
+ * Minimum time the "Signing in to ByteRover" dialog stays visible before we
+ * navigate the popup. Keeps the transition legible — without it the popup
+ * races to the auth URL before the user sees the step.
+ */
+const MIN_VISIBLE_DELAY_MS = 800
 
-export function LoginPromptStep({onAuthenticated, onBack}: LoginPromptStepProps) {
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
+export function LoginPromptStep({onAuthenticated, onBack, popup}: LoginPromptStepProps) {
   const queryClient = useQueryClient()
   const isAuthorized = useAuthStore((s) => s.isAuthorized)
   const setLoggingIn = useAuthStore((s) => s.setLoggingIn)
-  const [state, setState] = useState<InnerState>({type: 'idle'})
+  const [state, setState] = useState<InnerState>({type: 'starting'})
+  const didStartRef = useRef(false)
+
+  // Kick off the OAuth request as soon as the step mounts. The popup was
+  // already opened synchronously in the row click handler upstream.
+  useEffect(() => {
+    if (didStartRef.current) return
+    didStartRef.current = true
+    setLoggingIn(true)
+    let cancelled = false
+
+    async function start() {
+      try {
+        const [response] = await Promise.all([login(), sleep(MIN_VISIBLE_DELAY_MS)])
+        if (cancelled) return
+        if (!isSafeHttpUrl(response.authUrl)) {
+          popup?.close()
+          setState({message: 'Received an unsafe OAuth URL from the daemon', type: 'error'})
+          setLoggingIn(false)
+          return
+        }
+
+        if (popup && !popup.closed) {
+          popup.location.href = response.authUrl
+          setState({authUrl: response.authUrl, type: 'waiting'})
+        } else {
+          // Popup was blocked or closed before navigation. Fall back to an
+          // explicit user-initiated open via the action button below.
+          setState({authUrl: response.authUrl, type: 'blocked'})
+        }
+      } catch (error) {
+        if (cancelled) return
+        setLoggingIn(false)
+        setState({
+          message: error instanceof Error ? error.message : 'Unable to start login',
+          type: 'error',
+        })
+      }
+    }
+
+    start().catch(() => {
+      // error already surfaced via state
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [popup, setLoggingIn])
 
   // Auto-continue once auth flips to authorized (from LOGIN_COMPLETED or poll).
   useEffect(() => {
@@ -52,7 +123,6 @@ export function LoginPromptStep({onAuthenticated, onBack}: LoginPromptStepProps)
     return unsubscribe
   }, [queryClient, setLoggingIn, state.type])
 
-  // Fallback poll in case LOGIN_COMPLETED is missed.
   useEffect(() => {
     if (state.type !== 'waiting') return
 
@@ -78,36 +148,10 @@ export function LoginPromptStep({onAuthenticated, onBack}: LoginPromptStepProps)
     }
   }, [queryClient, setLoggingIn, state.type])
 
-  async function handleSignIn() {
-    setLoggingIn(true)
-    // Open the popup synchronously to keep the user-gesture context — browsers
-    // block window.open() if it lands inside an async callback. `noopener` is
-    // intentionally omitted so we get a window reference and can navigate it
-    // once the auth URL arrives.
-    const popup = window.open('about:blank', '_blank')
+  function retry() {
+    // Clear the guard so the effect runs again on next render.
+    didStartRef.current = false
     setState({type: 'starting'})
-
-    try {
-      const response = await login()
-      if (!isSafeHttpUrl(response.authUrl)) {
-        popup?.close()
-        throw new Error('Received an unsafe OAuth URL from the daemon')
-      }
-
-      if (popup && !popup.closed) {
-        popup.location.href = response.authUrl
-      } else {
-        window.open(response.authUrl, '_blank', 'noopener,noreferrer')
-      }
-
-      setState({authUrl: response.authUrl, type: 'waiting'})
-    } catch (error) {
-      setLoggingIn(false)
-      setState({
-        message: error instanceof Error ? error.message : 'Unable to start login',
-        type: 'error',
-      })
-    }
   }
 
   return (
@@ -117,27 +161,22 @@ export function LoginPromptStep({onAuthenticated, onBack}: LoginPromptStepProps)
           <button className="hover:bg-muted rounded p-0.5 transition-colors" onClick={onBack} type="button">
             <ChevronLeft className="size-5" />
           </button>
-          Sign in to ByteRover
+          Signing in to ByteRover
         </DialogTitle>
       </DialogHeader>
 
       <div className="flex flex-col gap-4">
-        <p className="text-muted-foreground text-sm">
-          ByteRover requires authentication before it can be used as a provider. Sign in to your{' '}
-          <span className="text-foreground">byterover.dev</span> account to continue.
-        </p>
-
         {state.type === 'starting' && (
-          <div className="flex items-center gap-2 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 text-sm text-blue-700">
-            <LoaderCircle className="size-4 animate-spin" />
-            Starting authentication…
+          <div className="border-primary/30 bg-primary/5 flex items-center gap-2 rounded-lg border p-3 text-sm">
+            <LoaderCircle className="text-primary-foreground size-4 animate-spin" />
+            Preparing sign-in…
           </div>
         )}
 
         {state.type === 'waiting' && (
-          <div className="flex flex-col gap-1 rounded-lg border bg-card p-3">
+          <div className="border-primary/30 bg-primary/5 flex flex-col gap-1 rounded-lg border p-3">
             <div className="flex items-center gap-2 text-sm">
-              <LoaderCircle className="text-primary size-4 animate-spin" />
+              <LoaderCircle className="text-primary-foreground size-4 animate-spin" />
               Finish signing in in the new tab.
             </div>
             <div className="text-muted-foreground pl-6 text-xs">
@@ -150,6 +189,13 @@ export function LoginPromptStep({onAuthenticated, onBack}: LoginPromptStepProps)
           </div>
         )}
 
+        {state.type === 'blocked' && (
+          <div className="border-border bg-muted text-foreground flex items-center gap-2 rounded-lg border p-3 text-sm">
+            <ExternalLink className="size-4 shrink-0" />
+            Your browser blocked the sign-in popup.
+          </div>
+        )}
+
         {state.type === 'error' && (
           <div className="text-destructive bg-destructive/10 rounded-lg px-4 py-2.5 text-sm">{state.message}</div>
         )}
@@ -157,14 +203,22 @@ export function LoginPromptStep({onAuthenticated, onBack}: LoginPromptStepProps)
 
       <DialogFooter className="mt-auto">
         <Button onClick={onBack} variant="secondary">
-          Cancel
+          Use a different provider
         </Button>
-        {state.type === 'error' ? (
-          <Button onClick={() => setState({type: 'idle'})}>Try again</Button>
-        ) : (
-          <Button disabled={state.type === 'starting' || state.type === 'waiting'} onClick={handleSignIn}>
-            {state.type === 'waiting' ? 'Waiting…' : 'Sign in'}
+        {state.type === 'error' && <Button onClick={retry}>Retry sign-in</Button>}
+        {state.type === 'blocked' && (
+          <Button
+            onClick={() => {
+              window.open(state.authUrl, '_blank', 'noopener,noreferrer')
+              setState({authUrl: state.authUrl, type: 'waiting'})
+            }}
+          >
+            <ExternalLink className="size-3.5" />
+            Open sign-in page
           </Button>
+        )}
+        {(state.type === 'starting' || state.type === 'waiting') && (
+          <Button disabled>Waiting…</Button>
         )}
       </DialogFooter>
     </div>
