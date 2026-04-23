@@ -78,6 +78,10 @@ export class InMemoryHarnessStore implements IHarnessStore {
     return deleted
   }
 
+  async deletePin(projectId: string, commandType: string): Promise<boolean> {
+    return this.pins.delete(partitionKey(projectId, commandType))
+  }
+
   async deleteScenario(
     projectId: string,
     commandType: string,
@@ -85,6 +89,28 @@ export class InMemoryHarnessStore implements IHarnessStore {
   ): Promise<boolean> {
     const key = compositeKey(projectId, commandType, scenarioId)
     return this.scenarios.delete(key)
+  }
+
+  async deleteScenarios(projectId: string, commandType: string): Promise<number> {
+    const partition = partitionKey(projectId, commandType)
+    let deleted = 0
+    for (const [key, scenario] of this.scenarios) {
+      if (partitionKey(scenario.projectId, scenario.commandType) === partition) {
+        this.scenarios.delete(key)
+        deleted++
+      }
+    }
+
+    return deleted
+  }
+
+  async deleteVersion(
+    projectId: string,
+    commandType: string,
+    versionId: string,
+  ): Promise<boolean> {
+    const key = compositeKey(projectId, commandType, versionId)
+    return this.versions.delete(key)
   }
 
   async getLatest(projectId: string, commandType: string): Promise<HarnessVersion | undefined> {

@@ -18,6 +18,7 @@ import {AgentLLMService} from '../../../../src/agent/infra/llm/agent-llm-service
 import {ByteRoverContentGenerator} from '../../../../src/agent/infra/llm/generators/byterover-content-generator.js'
 import {SystemPromptManager} from '../../../../src/agent/infra/system-prompt/system-prompt-manager.js'
 import {ToolManager} from '../../../../src/agent/infra/tools/tool-manager.js'
+import {sanitizeProjectPath} from '../../../../src/server/utils/path-utils.js'
 
 // `AgentLLMService` derives `projectId` from `process.cwd()` at
 // construction time. Each test captures the same value inside
@@ -172,10 +173,10 @@ describe('AgentLLMService.ensureHarnessReady (Phase 5 Task 5.4 wiring)', () => {
 
   beforeEach(() => {
     sb = createSandbox()
-    // Capture cwd once per test to match the service's own `process.cwd()`
-    // read at construction. Per-test capture keeps these tests immune to
-    // any other test file that calls `process.chdir()`.
-    projectId = process.cwd()
+    // The service sanitizes process.cwd() via sanitizeProjectPath before
+    // passing it as a store partition key (FileKeyStorage rejects path
+    // separators). Tests must use the same sanitized form.
+    projectId = sanitizeProjectPath(process.cwd())
     sessionEventBus = new SessionEventBus()
     modeSelectedEvents = []
     sessionEventBus.on('harness:mode-selected', (payload) => {

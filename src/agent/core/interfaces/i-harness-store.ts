@@ -67,6 +67,13 @@ export interface IHarnessStore {
   deleteOutcomes(projectId: string, commandType: string): Promise<number>
 
   /**
+   * Remove the pin for a `(projectId, commandType)` pair.
+   * Idempotent — returns `true` if a pin existed and was removed,
+   * `false` if no pin was set.
+   */
+  deletePin(projectId: string, commandType: string): Promise<boolean>
+
+  /**
    * Delete a single scenario by its `(projectId, commandType, scenarioId)` key.
    * Returns `true` when the scenario existed and was deleted; `false` on miss.
    * Used by `HarnessScenarioCapture` for LRU eviction when the per-pair cap
@@ -76,6 +83,23 @@ export interface IHarnessStore {
     projectId: string,
     commandType: string,
     scenarioId: string,
+  ): Promise<boolean>
+
+  /**
+   * Delete every scenario for a `(projectId, commandType)` pair.
+   * Returns the number of records deleted. Used by `brv harness reset`.
+   */
+  deleteScenarios(projectId: string, commandType: string): Promise<number>
+
+  /**
+   * Delete a single version by its `(projectId, commandType, versionId)` key.
+   * Returns `true` when the version existed and was deleted; `false` on miss.
+   * Used by `brv harness reset` to clear all versions for a pair.
+   */
+  deleteVersion(
+    projectId: string,
+    commandType: string,
+    versionId: string,
   ): Promise<boolean>
 
   /**

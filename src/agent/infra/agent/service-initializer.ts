@@ -138,6 +138,7 @@ export type {CipherAgentServices, SessionManagerConfig, SessionServices} from '.
 export async function createCipherAgentServices(
   config: ValidatedAgentConfig,
   agentEventBus: AgentEventBus,
+  httpConfigProvider?: () => ByteRoverHttpConfig,
 ): Promise<CipherAgentServices> {
   // 1. Logger (uses provided event bus )
   const logger = new EventBasedLogger(agentEventBus, 'CipherAgent')
@@ -333,6 +334,9 @@ export async function createCipherAgentServices(
         : config.providerApiKey,
       baseUrl: config.providerBaseUrl,
       headers: config.providerHeaders,
+      // byterover provider needs httpConfig for API routing (sessionKey,
+      // projectId, spaceId, teamId). Resolved lazily from CipherAgent.
+      httpConfig: httpConfigProvider ? {...httpConfigProvider()} : undefined,
       httpReferer: config.httpReferer,
       maxTokens: 4096,
       model: refinementModel,
