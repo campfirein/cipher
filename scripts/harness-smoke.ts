@@ -614,12 +614,10 @@ export async function runSmoke(ctx: SmokeContext): Promise<StepResult[]> {
       // eslint-disable-next-line no-await-in-loop
       await fn(ctx)
       results.push({label, passed: true, stepNumber})
-       
       console.log(`  PASS  Step ${stepNumber}: ${label}`)
     } catch (error) {
       const details = error instanceof Error ? error.message : String(error)
       results.push({details, label, passed: false, stepNumber})
-       
       console.log(`  FAIL  Step ${stepNumber}: ${label} — ${details}`)
       // Sequential dependency: if step N fails, steps N+1..12 can't run.
       break
