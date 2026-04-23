@@ -13,11 +13,17 @@ import {
   providerMissingMessage,
   withDaemonRetry,
 } from '../lib/daemon-client.js'
+import {
+  attachFeedbackFromCli,
+  FeedbackError,
+  type FeedbackVerdict,
+} from '../lib/harness-feedback.js'
 import {writeJsonResponse} from '../lib/json-response.js'
 import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS, waitForTaskCompletion} from '../lib/task-client.js'
 
 /** Parsed flags type */
 type QueryFlags = {
+  feedback?: FeedbackVerdict
   format?: 'json' | 'text'
   timeout?: number
 }
@@ -46,6 +52,11 @@ Bad:
     '<%= config.bin %> <%= command.id %> "How does auth work?" --format json',
   ]
   public static flags = {
+    feedback: Flags.string({
+      description:
+        'After the query completes, flag the most-recent outcome for AutoHarness learning. "bad" inserts 3 synthetic failures (weighted heavier); "good" inserts 1 synthetic success.',
+      options: ['good', 'bad'],
+    }),
     format: Flags.string({
       default: 'text',
       description: 'Output format (text or json)',
@@ -68,6 +79,10 @@ Bad:
     const {args, flags: rawFlags} = await this.parse(Query)
     const flags = rawFlags as QueryFlags
     const format = (flags.format ?? 'text') as 'json' | 'text'
+    // oclif's `options: ['good', 'bad']` validator rejects anything
+    // else before we reach here — cast is type-narrowing only.
+    const feedbackVerdict: FeedbackVerdict | undefined =
+      rawFlags.feedback === 'good' || rawFlags.feedback === 'bad' ? rawFlags.feedback : undefined
 
     if (!this.validateInput(args.query, format)) return
 
@@ -99,6 +114,10 @@ Bad:
             timeoutMs: (flags.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
             worktreeRoot,
           })
+
+          if (feedbackVerdict !== undefined && projectRoot !== undefined) {
+            await this.handleFeedback(projectRoot, feedbackVerdict, format)
+          }
         },
         {
           ...this.getDaemonClientOptions(),
@@ -111,6 +130,39 @@ Bad:
       )
     } catch (error) {
       this.reportError(error, format, providerContext)
+    }
+  }
+
+  /**
+   * Attach the `--feedback` verdict to the most-recent query outcome.
+   *
+   * Surface contract (handoff §C1):
+   *   - HARNESS_DISABLED → warn, exit 0 (primary query already succeeded)
+   *   - NO_RECENT_OUTCOME / NO_STORAGE → `this.error` with exit 1
+   */
+  private async handleFeedback(
+    projectRoot: string,
+    verdict: FeedbackVerdict,
+    format: 'json' | 'text',
+  ): Promise<void> {
+    try {
+      const result = await attachFeedbackFromCli(projectRoot, 'query', verdict)
+      if (format === 'text') {
+        this.log(
+          `feedback attached: ${result.verdict} → outcome ${result.outcomeId} (${result.syntheticCount} synthetic row${result.syntheticCount === 1 ? '' : 's'} inserted for heuristic weighting)`,
+        )
+      }
+    } catch (error) {
+      if (error instanceof FeedbackError) {
+        if (error.code === 'HARNESS_DISABLED') {
+          if (format === 'text') this.warn(`--feedback ignored: ${error.message}`)
+          return
+        }
+
+        this.error(error.message, {exit: 1})
+      }
+
+      throw error
     }
   }
 
