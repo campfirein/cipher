@@ -85,6 +85,7 @@ npm run dev:ui                       # Vite dev server for the web UI
 - Browser bootstraps by fetching `/api/ui/config` to discover the daemon's dynamic Socket.IO port, then connects cross-origin
 - Daemon `ClientType` includes `'webui'` alongside `'tui' | 'cli' | 'agent' | 'mcp' | 'extension'`
 - Build/dev: `npm run build:ui` (Vite, runs as part of `npm run build`); `npm run dev:ui` for live reload. `typecheck` runs both the root and `src/webui/tsconfig.json`
+- Shared UI components live in a git submodule at `packages/byterover-packages/` (published as `@campfirein/byterover-packages`). `dev:ui` / `build:ui:submodule` read from the submodule; `build:ui` / `dev:ui:package` read from the installed `node_modules` copy. Override Vite's resolution with `BRV_UI_SOURCE=submodule|package`
 
 ### VC, Worktrees & Knowledge Sources
 
@@ -100,12 +101,13 @@ npm run dev:ui                       # Vite dev server for the web UI
 - All commands are daemon-routed: `oclif/` and `tui/` never import from `server/`
 - Oclif: `src/oclif/commands/{vc,worktree,source}/`; TUI: `src/tui/features/{vc,worktree,source}/`; slash commands (`vc-*`, `worktree`, `source`) in `src/tui/features/commands/definitions/`
 - `brv curate` blocks execution by default and rejects overlapping runs for the same project; pass `--detach` to run in background. Behavioral contract lives in `src/server/templates/sections/` (`brv-instructions.md`, `workflow.md`, `skill/SKILL.md`) — the in-daemon agent reads these at runtime
+- `brv login` defaults to OAuth (interactive provider picker); pass `--api-key` only for CI. `brv logout` clears credentials
 
 ### Agent (`src/agent/`)
 
 - Tools: definitions in `resources/tools/*.txt`, implementations in `infra/tools/implementations/`, registry in `infra/tools/tool-registry.ts`
 - Tool categories: file ops (read/write/edit/glob/grep/list-dir), bash (exec/output), knowledge (create/expand/search), memory (read/write/edit/delete/list), swarm (query/store), todos (read/write), curate, code exec, batch, detect domains, kill process, search history
-- LLM: 20 providers in `infra/llm/providers/`; 6 compression strategies in `infra/llm/context/compression/`
+- LLM: 20 providers in `infra/llm/providers/`; compression strategies in `infra/llm/context/compression/`
 - System prompts: contributor pattern (XML sections) in `infra/system-prompt/`
 - Map/memory: `infra/map/` (agentic map, context-tree store, LLM map memory, worker pool); `infra/memory/` (memory-manager, deduplicator)
 - Storage: file-based blob (`infra/blob/`) and key storage (`infra/storage/`) — no SQLite
@@ -135,6 +137,10 @@ npm run dev:ui                       # Vite dev server for the web UI
 ## Environment
 
 - `BRV_ENV` — `development` | `production` (dev-only commands require `development`, set by `bin/dev.js` and `bin/run.js`)
+- `BRV_WEBUI_PORT` — override the web UI port (default `7700`)
+- `BRV_UI_SOURCE` — `submodule` | `package` — forces Vite's shared-UI resolution mode
+- `BRV_DATA_DIR` — override the global data dir (default `~/.brv`)
+- `BRV_GIT_REMOTE_BASE_URL` — override git remote base URL (beta vs prod testing)
 
 ## Stack
 

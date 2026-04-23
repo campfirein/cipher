@@ -79,6 +79,33 @@ npx mocha --forbid-only "test/path/to/file.test.ts"
 - **Pre-commit**: Runs `lint-staged` (ESLint on staged `.ts`/`.tsx` files)
 - **Pre-push**: Runs `npm run typecheck`
 
+### Web UI Development
+
+The web UI supports a local-first development flow for the shared component library. `npm run dev:ui` uses the git submodule at `packages/byterover-packages/ui` so edits to shared UI components hot-reload immediately in Vite.
+
+```bash
+# Clone with submodules, or initialize them after clone
+git clone --recurse-submodules <repo-url>
+# or
+git submodule update --init --recursive
+
+# Install dependencies
+npm ci
+
+# Start or restart the daemon
+./bin/dev.js restart
+
+# Start the web UI in local development mode
+npm run dev:ui
+```
+
+Notes:
+
+- Edit shared components in `packages/byterover-packages/ui/src`.
+- `npm run dev:ui` uses the submodule source.
+- `npm run build:ui` uses the installed package path.
+- If `/api/ui/config` or transport bootstrap fails, restart the Vite dev server after restarting the daemon.
+
 ## Project Structure
 
 ```
