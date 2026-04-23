@@ -17,7 +17,7 @@ import {
 // ==================== TestableLoginCommand ====================
 
 class TestableLoginCommand extends Login {
-  protected interactive = true
+  protected browserAvailable = true
   private readonly mockConnector: () => Promise<ConnectionResult>
 
   constructor(argv: string[], mockConnector: () => Promise<ConnectionResult>, config: Config) {
@@ -25,8 +25,8 @@ class TestableLoginCommand extends Login {
     this.mockConnector = mockConnector
   }
 
-  protected override isInteractive(): boolean {
-    return this.interactive
+  protected override canOpenBrowser(): boolean {
+    return this.browserAvailable
   }
 
   protected override async loginWithApiKey(apiKey: string): Promise<AuthLoginWithApiKeyResponse> {
@@ -47,8 +47,14 @@ class TestableLoginCommand extends Login {
     })
   }
 
-  public setInteractive(value: boolean): void {
-    this.interactive = value
+  public setCanOpenBrowser(value: boolean): void {
+    this.browserAvailable = value
+  }
+}
+
+class RealCheckLoginCommand extends Login {
+  public checkCanOpenBrowser(): boolean {
+    return this.canOpenBrowser()
   }
 }
 
@@ -373,41 +379,98 @@ describe('Login Command', () => {
     })
   })
 
-  // ==================== Non-interactive shells ====================
+  // ==================== Environments without a browser ====================
 
-  describe('non-interactive shell', () => {
-    it('should error with a pointer to --api-key when no flag and not a TTY', async () => {
+  describe('environments without a browser', () => {
+    it('should error with a pointer to --api-key when no flag and browser is unavailable', async () => {
       const command = createCommand()
-      command.setInteractive(false)
+      command.setCanOpenBrowser(false)
 
       await command.run()
 
-      expect(loggedMessages.some((m) => m.toLowerCase().includes('non-interactive'))).to.be.true
+      expect(loggedMessages.some((m) => m.toLowerCase().includes('browser'))).to.be.true
       expect(loggedMessages.some((m) => m.includes('--api-key'))).to.be.true
       expect((mockClient.requestWithAck as sinon.SinonStub).called).to.be.false
     })
 
-    it('should emit JSON error when non-interactive and no --api-key', async () => {
+    it('should emit JSON error when browser is unavailable and no --api-key', async () => {
       const command = createJsonCommand()
-      command.setInteractive(false)
+      command.setCanOpenBrowser(false)
 
       await command.run()
 
       const json = parseJsonOutput()
       expect(json.command).to.equal('login')
       expect(json.success).to.be.false
-      expect(String(json.data.error ?? '').toLowerCase()).to.include('non-interactive')
+      expect(String(json.data.error ?? '').toLowerCase()).to.include('browser')
     })
 
-    it('should still perform api-key login when non-interactive and --api-key provided', async () => {
+    it('should still perform api-key login when browser is unavailable and --api-key provided', async () => {
       mockLoginResponse({success: true, userEmail: 'ci@example.com'})
 
       const command = createCommand('--api-key', 'ci-key')
-      command.setInteractive(false)
+      command.setCanOpenBrowser(false)
 
       await command.run()
 
       expect(loggedMessages.some((m) => m.includes('Logged in as ci@example.com'))).to.be.true
+    })
+  })
+
+  // ==================== canOpenBrowser() default implementation ====================
+
+  describe('canOpenBrowser default implementation', () => {
+    const sshVars = ['SSH_CONNECTION', 'SSH_CLIENT', 'SSH_TTY'] as const
+    const savedEnv: Partial<Record<(typeof sshVars)[number], string | undefined>> = {}
+    let stdinTtyDesc: PropertyDescriptor | undefined
+    let stdoutTtyDesc: PropertyDescriptor | undefined
+
+    beforeEach(() => {
+      for (const v of sshVars) {
+        savedEnv[v] = process.env[v]
+        delete process.env[v]
+      }
+
+      stdinTtyDesc = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY')
+      stdoutTtyDesc = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY')
+      Object.defineProperty(process.stdin, 'isTTY', {configurable: true, value: true, writable: true})
+      Object.defineProperty(process.stdout, 'isTTY', {configurable: true, value: true, writable: true})
+    })
+
+    afterEach(() => {
+      for (const v of sshVars) {
+        if (savedEnv[v] === undefined) delete process.env[v]
+        else process.env[v] = savedEnv[v]
+      }
+
+      if (stdinTtyDesc) Object.defineProperty(process.stdin, 'isTTY', stdinTtyDesc)
+      else delete (process.stdin as unknown as Record<string, unknown>).isTTY
+      if (stdoutTtyDesc) Object.defineProperty(process.stdout, 'isTTY', stdoutTtyDesc)
+      else delete (process.stdout as unknown as Record<string, unknown>).isTTY
+    })
+
+    it('returns true with TTY and no SSH env', () => {
+      expect(new RealCheckLoginCommand([], config).checkCanOpenBrowser()).to.be.true
+    })
+
+    it('returns false without a TTY', () => {
+      Object.defineProperty(process.stdout, 'isTTY', {configurable: true, value: false, writable: true})
+      expect(new RealCheckLoginCommand([], config).checkCanOpenBrowser()).to.be.false
+    })
+
+    it('returns false when SSH_CONNECTION is set', () => {
+      process.env.SSH_CONNECTION = '1.2.3.4 55555 5.6.7.8 22'
+      expect(new RealCheckLoginCommand([], config).checkCanOpenBrowser()).to.be.false
+    })
+
+    it('returns false when SSH_CLIENT is set', () => {
+      process.env.SSH_CLIENT = '1.2.3.4 55555 22'
+      expect(new RealCheckLoginCommand([], config).checkCanOpenBrowser()).to.be.false
+    })
+
+    it('returns false when SSH_TTY is set', () => {
+      process.env.SSH_TTY = '/dev/pts/0'
+      expect(new RealCheckLoginCommand([], config).checkCanOpenBrowser()).to.be.false
     })
   })
 })

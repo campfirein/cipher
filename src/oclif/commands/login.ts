@@ -45,8 +45,13 @@ export default class Login extends Command {
     }),
   }
 
-  protected isInteractive(): boolean {
-    return process.stdout.isTTY === true && process.stdin.isTTY === true
+  /** Gates the OAuth flow. DISPLAY/WAYLAND_DISPLAY deliberately not checked — unset on macOS/Windows, would false-positive. */
+  protected canOpenBrowser(): boolean {
+    // Either stream not a TTY means piped/scripted/CI — no interactive user to complete OAuth.
+    if (process.stdout.isTTY !== true || process.stdin.isTTY !== true) return false
+    // SSH has a TTY but can't reach the user's local browser.
+    if (process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY) return false
+    return true
   }
 
   protected async loginWithApiKey(apiKey: string, options?: DaemonClientOptions): Promise<AuthLoginWithApiKeyResponse> {
@@ -103,10 +108,10 @@ export default class Login extends Command {
     const apiKey = flags['api-key']
     const format: OutputFormat = flags.format === 'json' ? 'json' : 'text'
 
-    if (!apiKey && !this.isInteractive()) {
+    if (!apiKey && !this.canOpenBrowser()) {
       this.emitError(
         format,
-        'Non-interactive shell detected. Use --api-key for headless login (get yours at https://app.byterover.dev/settings/keys).',
+        'Cannot open a local browser here (non-interactive shell or SSH session). Use --api-key for headless login (get yours at https://app.byterover.dev/settings/keys).',
       )
       return
     }
