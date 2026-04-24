@@ -11,9 +11,9 @@ type ConfigCta = {
 }
 
 const CONFIG_CTA: Record<string, ConfigCta> = {
-  [VcErrorCode.CONFIG_KEY_NOT_SET]: {label: 'Set identity', target: '/configuration#identity'},
-  [VcErrorCode.NO_REMOTE]: {label: 'Set remote', target: '/configuration#remotes'},
-  [VcErrorCode.USER_NOT_CONFIGURED]: {label: 'Set identity', target: '/configuration#identity'},
+  [VcErrorCode.CONFIG_KEY_NOT_SET]: {label: 'Set identity', target: '/configuration'},
+  [VcErrorCode.NO_REMOTE]: {label: 'Set remote', target: '/configuration'},
+  [VcErrorCode.USER_NOT_CONFIGURED]: {label: 'Set identity', target: '/configuration'},
 }
 
 function errorCode(error: unknown): string | undefined {

@@ -35,6 +35,11 @@ export function createWebUiMiddleware({getConfig, webuiDistDir}: CreateWebUiMidd
         "connect-src 'self' ws: wss:",
         "font-src 'self' data: https://fonts.gstatic.com",
         "frame-ancestors 'none'",
+        // `img-src https:` is deliberately broad: user avatars come from an
+        // open-ended set of OAuth provider CDNs (Google, GitHub, Gravatar,
+        // self-hosted identity providers, …) that can't be enumerated ahead
+        // of time. Images can't execute code, so the attack surface is just
+        // pixel exfiltration / tracking, which we accept for this use case.
         "img-src 'self' data: https:",
         "object-src 'none'",
         "script-src 'self'",

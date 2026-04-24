@@ -7,8 +7,10 @@ describe('validateRemoteUrl', () => {
     expect(validateRemoteUrl('https://github.com/wzlng/repo.git')).to.be.undefined
   })
 
-  it('accepts http URLs (self-hosted installs)', () => {
-    expect(validateRemoteUrl('http://self-hosted.internal/repo.git')).to.be.undefined
+  it('rejects plain http URLs with a specific message', () => {
+    expect(validateRemoteUrl('http://self-hosted.internal/repo.git')).to.equal(
+      "Plain HTTP isn't supported — use an HTTPS URL.",
+    )
   })
 
   it('trims surrounding whitespace before validating', () => {

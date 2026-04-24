@@ -65,7 +65,7 @@ export function ConnectorsPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-5 w-full sm:max-w-lg md:max-w-xl lg:max-w-2xl">
+    <div className="flex w-full flex-col gap-5">
       {/* Title + Add button */}
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-1">

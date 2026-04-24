@@ -9,20 +9,12 @@ import {
   VcErrorCode,
   VcEvents,
 } from '../../../../shared/transport/events/vc-events'
+import {hasCode} from '../../../lib/transport-error'
 import {useTransportStore} from '../../../stores/transport-store'
 
 export type VcConfigValues = {
   email: string | undefined
   name: string | undefined
-}
-
-function hasCode(error: unknown): error is {code: string} {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    typeof (error as {code: unknown}).code === 'string'
-  )
 }
 
 async function readKey(key: VcConfigKey): Promise<string | undefined> {

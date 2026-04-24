@@ -7,8 +7,8 @@ describe('detectGitUrlType', () => {
     expect(detectGitUrlType('https://github.com/wzlng/byterover-cli.git')).to.equal('https')
   })
 
-  it('detects http urls', () => {
-    expect(detectGitUrlType('http://self-hosted.internal/repo.git')).to.equal('https')
+  it('detects http urls distinctly from https', () => {
+    expect(detectGitUrlType('http://self-hosted.internal/repo.git')).to.equal('http')
   })
 
   it('detects ssh scheme urls', () => {

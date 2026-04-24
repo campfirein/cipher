@@ -51,6 +51,7 @@ export function LoginPromptStep({onAuthenticated, onBack, popup}: LoginPromptSte
   const isAuthorized = useAuthStore((s) => s.isAuthorized)
   const setLoggingIn = useAuthStore((s) => s.setLoggingIn)
   const [state, setState] = useState<InnerState>({type: 'starting'})
+  const [retryCount, setRetryCount] = useState(0)
   const didStartRef = useRef(false)
 
   // Kick off the OAuth request as soon as the step mounts. The popup was
@@ -97,7 +98,9 @@ export function LoginPromptStep({onAuthenticated, onBack, popup}: LoginPromptSte
     return () => {
       cancelled = true
     }
-  }, [popup, setLoggingIn])
+    // `retryCount` is a trigger, not read inside the effect — it forces a
+    // re-run when the user hits "Retry sign-in" after a failure.
+  }, [popup, setLoggingIn, retryCount])
 
   // Auto-continue once auth flips to authorized (from LOGIN_COMPLETED or poll).
   useEffect(() => {
@@ -149,9 +152,11 @@ export function LoginPromptStep({onAuthenticated, onBack, popup}: LoginPromptSte
   }, [queryClient, setLoggingIn, state.type])
 
   function retry() {
-    // Clear the guard so the effect runs again on next render.
+    // Clear the guard and bump `retryCount` so the start effect re-runs —
+    // state alone isn't in its deps list, so setState isn't enough.
     didStartRef.current = false
     setState({type: 'starting'})
+    setRetryCount((n) => n + 1)
   }
 
   return (

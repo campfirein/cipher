@@ -12,6 +12,7 @@ export function validateRemoteUrl(value: string): string | undefined {
 
   const urlType = detectGitUrlType(trimmed)
   if (urlType === 'ssh') return "SSH remotes aren't supported yet — use an HTTPS URL."
+  if (urlType === 'http') return "Plain HTTP isn't supported — use an HTTPS URL."
   if (urlType !== 'https') return 'Expected an HTTPS URL (e.g. https://byterover.dev/team/space.git).'
 
   return undefined
