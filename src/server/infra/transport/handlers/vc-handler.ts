@@ -1133,6 +1133,10 @@ export class VcHandler {
       return {action: 'remove'}
     }
 
+    if (data.subcommand !== 'add' && data.subcommand !== 'set-url') {
+      throw new VcError('Unknown remote subcommand.', VcErrorCode.INVALID_ACTION)
+    }
+
     if (!data.url) {
       throw new VcError('URL is required.', VcErrorCode.INVALID_REMOTE_URL)
     }

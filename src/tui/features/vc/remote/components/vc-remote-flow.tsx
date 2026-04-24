@@ -60,6 +60,12 @@ export function VcRemoteFlow({onCancel, onComplete, subcommand, url}: VcRemoteFl
               onComplete(result.url ? `origin: ${result.url}` : 'No remote configured.')
               break
             }
+
+            default: {
+              const exhaustive: never = result.action
+              onComplete(`Unknown action: ${String(exhaustive)}`)
+              break
+            }
           }
         },
       },

@@ -36,6 +36,13 @@ export const vcRemoteSubCommand: SlashCommand = {
       return errorMsg
     }
 
+    if (rawSubcommand === 'show') {
+      return {
+        render: ({onCancel, onComplete}) =>
+          React.createElement(VcRemoteFlow, {onCancel, onComplete, subcommand: 'show'}),
+      }
+    }
+
     const requiresUrl = VC_REMOTE_SUBCOMMAND_REQUIRES_URL[rawSubcommand]
 
     if (!name || (requiresUrl && !url)) {

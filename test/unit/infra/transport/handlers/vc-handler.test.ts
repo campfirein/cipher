@@ -2692,6 +2692,22 @@ describe('VcHandler', () => {
       expect(writtenConfig.spaceId).to.be.undefined
       expect(writtenConfig.teamId).to.be.undefined
     })
+
+    it('should throw INVALID_ACTION when subcommand is unknown', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'bogus'}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.INVALID_ACTION)
+        }
+      }
+    })
   })
 
   // ---- handleBranch ----
