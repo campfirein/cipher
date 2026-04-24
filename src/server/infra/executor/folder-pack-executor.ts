@@ -93,7 +93,7 @@ export class FolderPackExecutor implements IFolderPackExecutor {
         const changedPaths = diffStates(preState, postState)
         if (changedPaths.length > 0) {
           const summaryService = new FileContextTreeSummaryService()
-          const results = await summaryService.propagateStaleness(changedPaths, agent, tempFileDir)
+          const results = await summaryService.propagateStaleness(changedPaths, agent, tempFileDir, taskId)
 
           if (results.some((result) => result.actionTaken)) {
             const manifestService = new FileContextTreeManifestService({baseDirectory: tempFileDir})
