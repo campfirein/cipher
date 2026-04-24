@@ -223,6 +223,19 @@ export class BrvConfig {
   }
 
   /**
+   * Creates a new BrvConfig with space fields cleared, preserving all other fields.
+   */
+  public withoutSpace(): BrvConfig {
+    return new BrvConfig({
+      ...this,
+      spaceId: undefined,
+      spaceName: undefined,
+      teamId: undefined,
+      teamName: undefined,
+    })
+  }
+
+  /**
    * Creates a new BrvConfig with space fields replaced, preserving all other fields.
    */
   public withSpace(space: Space): BrvConfig {

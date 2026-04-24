@@ -166,13 +166,21 @@ export interface IVcLogResponse {
   currentBranch?: string
 }
 
-export type VcRemoteSubcommand = 'add' | 'set-url' | 'show'
+export type VcRemoteSubcommand = 'add' | 'remove' | 'set-url' | 'show'
 
 export const VC_REMOTE_SUBCOMMANDS: readonly string[] = [
   'add',
+  'remove',
   'set-url',
   'show',
 ] satisfies readonly VcRemoteSubcommand[]
+
+export const VC_REMOTE_SUBCOMMAND_REQUIRES_URL: Record<VcRemoteSubcommand, boolean> = {
+  add: true,
+  remove: false,
+  'set-url': true,
+  show: false,
+}
 
 export function isVcRemoteSubcommand(value: string): value is VcRemoteSubcommand {
   return VC_REMOTE_SUBCOMMANDS.includes(value)

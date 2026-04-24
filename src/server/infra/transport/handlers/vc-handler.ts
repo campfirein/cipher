@@ -258,10 +258,7 @@ export class VcHandler {
   private async guardUnmergedAndMarkers(directory: string): Promise<void> {
     const conflicts = await this.gitService.getConflicts({directory})
     if (conflicts.length > 0) {
-      throw new VcError(
-        'Committing is not possible because you have unmerged files.',
-        VcErrorCode.MERGE_CONFLICT,
-      )
+      throw new VcError('Committing is not possible because you have unmerged files.', VcErrorCode.MERGE_CONFLICT)
     }
 
     const markerFiles = await this.gitService.getFilesWithConflictMarkers({directory})
@@ -740,9 +737,7 @@ export class VcHandler {
         const target = stage[path] ?? head[path]
         const absolutePath = join(directory, path)
         try {
-          await (target === undefined
-            ? fs.promises.unlink(absolutePath)
-            : fs.promises.writeFile(absolutePath, target))
+          await (target === undefined ? fs.promises.unlink(absolutePath) : fs.promises.writeFile(absolutePath, target))
           return true
         } catch {
           return false
@@ -1116,6 +1111,26 @@ export class VcHandler {
     if (data.subcommand === 'show') {
       const url = await this.gitService.getRemoteUrl({directory, remote: 'origin'})
       return {action: 'show', url: url ? maskCredentialsInUrl(url) : undefined}
+    }
+
+    if (data.subcommand === 'remove') {
+      const existingUrl = await this.gitService.getRemoteUrl({directory, remote: 'origin'})
+      if (!existingUrl) {
+        throw new VcError("No remote 'origin' to remove.", VcErrorCode.NO_REMOTE)
+      }
+
+      // Clear config before removing the remote so a mid-way failure leaves a retry-friendly state:
+      // if removeRemote throws, config is already cleared and remote is still present, so
+      // re-running `remove` will retry removeRemote and succeed. The reverse order leaves the
+      // remote gone but config stale, and the next `remove` fails with NO_REMOTE — unrecoverable.
+      const existingConfig = await this.projectConfigStore.read(projectPath)
+      if (existingConfig) {
+        await this.projectConfigStore.write(existingConfig.withoutSpace(), projectPath)
+      }
+
+      await this.gitService.removeRemote({directory, remote: 'origin'})
+
+      return {action: 'remove'}
     }
 
     if (!data.url) {
