@@ -96,12 +96,15 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     getCurrentBranch: sandbox.stub().resolves('main'),
     getFilesWithConflictMarkers: sandbox.stub().resolves([]),
     getRemoteUrl: sandbox.stub().resolves(),
+    getTextBlob: sandbox.stub().resolves(),
     getTrackingBranch: sandbox.stub().resolves(),
+    hashBlob: sandbox.stub().resolves('0000000'),
     init: sandbox.stub().resolves(),
     isAncestor: sandbox.stub().resolves(true),
     isEmptyRepository: sandbox.stub().resolves(false),
     isInitialized: sandbox.stub().resolves(true),
     listBranches: sandbox.stub().resolves([]),
+    listChangedFiles: sandbox.stub().resolves([]),
     listRemotes: sandbox.stub().resolves([{remote: 'origin', url: 'https://example.com/repo.git'}]),
     log: sandbox.stub().resolves([]),
     merge: sandbox.stub().resolves({success: true}),
@@ -4233,7 +4236,7 @@ describe('VcHandler', () => {
       const deps = makeDiffDeps(sandbox)
       try {
         deps.gitService.getBlobContent
-          .withArgs({directory: deps.tmpDir, path: 'foo.md', ref: 'HEAD'})
+          .withArgs({directory: deps.tmpDir, path: 'foo.md', ref: {commitish: 'HEAD'}})
           .resolves('old content')
         deps.gitService.getBlobContent
           .withArgs({directory: deps.tmpDir, path: 'foo.md', ref: 'STAGE'})
@@ -4318,7 +4321,9 @@ describe('VcHandler', () => {
     it('staged added: HEAD has no blob → old is empty', async () => {
       const deps = makeDiffDeps(sandbox)
       try {
-        deps.gitService.getBlobContent.withArgs({directory: deps.tmpDir, path: 'new.md', ref: 'HEAD'}).resolves()
+        deps.gitService.getBlobContent
+          .withArgs({directory: deps.tmpDir, path: 'new.md', ref: {commitish: 'HEAD'}})
+          .resolves()
         deps.gitService.getBlobContent
           .withArgs({directory: deps.tmpDir, path: 'new.md', ref: 'STAGE'})
           .resolves('new staged content')
@@ -4405,7 +4410,7 @@ describe('VcHandler', () => {
           .withArgs({directory: deps.tmpDir, paths: ['foo.md'], ref: 'STAGE'})
           .resolves({'foo.md': undefined})
         deps.gitService.getBlobContents
-          .withArgs({directory: deps.tmpDir, paths: ['foo.md'], ref: 'HEAD'})
+          .withArgs({directory: deps.tmpDir, paths: ['foo.md'], ref: {commitish: 'HEAD'}})
           .resolves({'foo.md': 'head content'})
         makeVcHandler(deps).setup()
 
@@ -4559,7 +4564,7 @@ describe('VcHandler', () => {
       const deps = makeDiffsDeps(sandbox)
       try {
         deps.gitService.getBlobContents
-          .withArgs({directory: deps.tmpDir, paths: ['a.md', 'b.md'], ref: 'HEAD'})
+          .withArgs({directory: deps.tmpDir, paths: ['a.md', 'b.md'], ref: {commitish: 'HEAD'}})
           .resolves({'a.md': 'a head', 'b.md': 'b head'})
         deps.gitService.getBlobContents
           .withArgs({directory: deps.tmpDir, paths: ['a.md', 'b.md'], ref: 'STAGE'})
@@ -4573,8 +4578,42 @@ describe('VcHandler', () => {
         )
 
         expect(result.diffs).to.have.length(2)
-        expect(result.diffs[0]).to.deep.equal({newContent: 'a stage', oldContent: 'a head', path: 'a.md'})
-        expect(result.diffs[1]).to.deep.equal({newContent: 'b stage', oldContent: 'b head', path: 'b.md'})
+        expect(result.diffs[0]).to.deep.equal({
+          newContent: 'a stage',
+          oldContent: 'a head',
+          path: 'a.md',
+          status: 'modified',
+        })
+        expect(result.diffs[1]).to.deep.equal({
+          newContent: 'b stage',
+          oldContent: 'b head',
+          path: 'b.md',
+          status: 'modified',
+        })
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('staged: reports `modified` (not `added`) when HEAD blob is empty but STAGE has content', async () => {
+      const deps = makeDiffsDeps(sandbox)
+      try {
+        deps.gitService.getBlobContents
+          .withArgs({directory: deps.tmpDir, paths: ['empty.md'], ref: {commitish: 'HEAD'}})
+          .resolves({'empty.md': ''})
+        deps.gitService.getBlobContents
+          .withArgs({directory: deps.tmpDir, paths: ['empty.md'], ref: 'STAGE'})
+          .resolves({'empty.md': 'now has content\n'})
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{
+          diffs: Array<{newContent: string; oldContent: string; path: string; status: string}>
+        }>(deps, VcEvents.DIFFS, {paths: ['empty.md'], side: 'staged'})
+
+        expect(result.diffs).to.have.length(1)
+        expect(result.diffs[0].status).to.equal('modified')
+        expect(result.diffs[0].oldContent).to.equal('')
+        expect(result.diffs[0].newContent).to.equal('now has content\n')
       } finally {
         cleanupDir(deps.tmpDir)
       }
@@ -4597,8 +4636,18 @@ describe('VcHandler', () => {
         )
 
         expect(result.diffs).to.have.length(2)
-        expect(result.diffs[0]).to.deep.equal({newContent: 'foo working', oldContent: 'foo stage', path: 'foo.md'})
-        expect(result.diffs[1]).to.deep.equal({newContent: 'bar working', oldContent: 'bar stage', path: 'bar.md'})
+        expect(result.diffs[0]).to.deep.equal({
+          newContent: 'foo working',
+          oldContent: 'foo stage',
+          path: 'foo.md',
+          status: 'modified',
+        })
+        expect(result.diffs[1]).to.deep.equal({
+          newContent: 'bar working',
+          oldContent: 'bar stage',
+          path: 'bar.md',
+          status: 'modified',
+        })
       } finally {
         cleanupDir(deps.tmpDir)
       }
