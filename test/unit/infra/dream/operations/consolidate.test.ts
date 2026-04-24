@@ -10,9 +10,10 @@ import type {DreamOperation} from '../../../../../src/server/infra/dream/dream-l
 import {consolidate, type ConsolidateDeps} from '../../../../../src/server/infra/dream/operations/consolidate.js'
 
 /**
- * Write a file with canonical (non-alphabetical) field order matching
- * MarkdownWriter.generateFrontmatter(). This bypasses the createMdFile
- * helper which uses sortKeys: false and JS object insertion order.
+ * Create a file with canonical (non-alphabetical) frontmatter order
+ * (title -> summary -> tags -> related -> keywords -> createdAt -> updatedAt),
+ * matching MarkdownWriter's canonical order. Used to verify dream operations
+ * preserve this ordering rather than re-sorting alphabetically.
  */
 async function createCanonicalFile(dir: string, relativePath: string, body: string): Promise<void> {
   const fullPath = join(dir, relativePath)
@@ -588,6 +589,12 @@ describe('consolidate', () => {
       const titleIdx = fieldNames.indexOf('title')
       const createdAtIdx = fieldNames.indexOf('createdAt')
       expect(titleIdx, 'title should appear before createdAt (canonical order)').to.be.lessThan(createdAtIdx)
+
+      // Verify order is also preserved in the second file
+      const tokens = await readFile(join(ctxDir, 'auth/tokens.md'), 'utf8')
+      const tokensYaml = tokens.slice(tokens.indexOf('---\n') + 4, tokens.indexOf('\n---\n', 4))
+      const tokensFields = tokensYaml.split('\n').map(line => line.split(':')[0].trim()).filter(Boolean)
+      expect(tokensFields.indexOf('title')).to.be.lessThan(tokensFields.indexOf('createdAt'))
     })
 
     it('MERGE preserves field order from target file frontmatter', async () => {

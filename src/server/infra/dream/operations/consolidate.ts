@@ -293,6 +293,7 @@ function addFrontmatterFields(content: string, fields: Record<string, unknown>):
       try {
         const parsed = yamlLoad(yamlBlock) as null | Record<string, unknown>
         if (parsed && typeof parsed === 'object') {
+          // Spread preserves existing key order; new fields are appended at end.
           const merged = {...parsed, ...fields}
           const newYaml = yamlDump(merged, {flowLevel: 2, lineWidth: -1, sortKeys: false}).trimEnd()
           return `---\n${newYaml}\n---\n${body}`
