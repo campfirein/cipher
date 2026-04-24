@@ -1219,6 +1219,30 @@ export class VcHandler {
       return {action: 'show', url: url ? maskCredentialsInUrl(url) : undefined}
     }
 
+    if (data.subcommand === 'remove') {
+      const existingUrl = await this.gitService.getRemoteUrl({directory, remote: 'origin'})
+      if (!existingUrl) {
+        throw new VcError("No remote 'origin' to remove.", VcErrorCode.NO_REMOTE)
+      }
+
+      // Clear config before removing the remote so a mid-way failure leaves a retry-friendly state:
+      // if removeRemote throws, config is already cleared and remote is still present, so
+      // re-running `remove` will retry removeRemote and succeed. The reverse order leaves the
+      // remote gone but config stale, and the next `remove` fails with NO_REMOTE — unrecoverable.
+      const existingConfig = await this.projectConfigStore.read(projectPath)
+      if (existingConfig) {
+        await this.projectConfigStore.write(existingConfig.withoutSpace(), projectPath)
+      }
+
+      await this.gitService.removeRemote({directory, remote: 'origin'})
+
+      return {action: 'remove'}
+    }
+
+    if (data.subcommand !== 'add' && data.subcommand !== 'set-url') {
+      throw new VcError('Unknown remote subcommand.', VcErrorCode.INVALID_ACTION)
+    }
+
     if (!data.url) {
       throw new VcError('URL is required.', VcErrorCode.INVALID_REMOTE_URL)
     }
