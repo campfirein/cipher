@@ -294,7 +294,7 @@ function addFrontmatterFields(content: string, fields: Record<string, unknown>):
         const parsed = yamlLoad(yamlBlock) as null | Record<string, unknown>
         if (parsed && typeof parsed === 'object') {
           const merged = {...parsed, ...fields}
-          const newYaml = yamlDump(merged, {flowLevel: 2, lineWidth: -1, sortKeys: true}).trimEnd()
+          const newYaml = yamlDump(merged, {flowLevel: 2, lineWidth: -1, sortKeys: false}).trimEnd()
           return `---\n${newYaml}\n---\n${body}`
         }
       } catch {
@@ -304,7 +304,7 @@ function addFrontmatterFields(content: string, fields: Record<string, unknown>):
   }
 
   // No valid frontmatter — prepend
-  const yaml = yamlDump(fields, {flowLevel: 2, lineWidth: -1, sortKeys: true}).trimEnd()
+  const yaml = yamlDump(fields, {flowLevel: 2, lineWidth: -1, sortKeys: false}).trimEnd()
   return `---\n${yaml}\n---\n${content}`
 }
 
@@ -661,7 +661,7 @@ async function addRelatedLinks(filePath: string, relatedPaths: string[]): Promis
         if (parsed && typeof parsed === 'object') {
           const existing = Array.isArray(parsed.related) ? (parsed.related as string[]) : []
           parsed.related = [...new Set([...existing, ...relatedPaths])]
-          const newYaml = yamlDump(parsed, {flowLevel: 1, lineWidth: -1, sortKeys: true}).trimEnd()
+          const newYaml = yamlDump(parsed, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
           await atomicWrite(filePath, `---\n${newYaml}\n---\n${body}`)
           return
         }
@@ -672,7 +672,7 @@ async function addRelatedLinks(filePath: string, relatedPaths: string[]): Promis
   }
 
   // No existing frontmatter — add one with related field
-  const yaml = yamlDump({related: relatedPaths}, {flowLevel: 1, lineWidth: -1, sortKeys: true}).trimEnd()
+  const yaml = yamlDump({related: relatedPaths}, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
   await atomicWrite(filePath, `---\n${yaml}\n---\n${content}`)
 }
 
