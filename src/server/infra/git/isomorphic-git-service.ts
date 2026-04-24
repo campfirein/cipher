@@ -11,6 +11,7 @@ import type {
   AheadBehind,
   BaseGitParams,
   BlobContents,
+  ChangedFile,
   CheckoutGitParams,
   CloneGitParams,
   CommitGitParams,
@@ -22,15 +23,18 @@ import type {
   GetBlobContentsParams,
   GetRemoteUrlGitParams,
   GetTrackingBranchParams,
+  GitBlobRef,
   GitBranch,
   GitCommit,
   GitConflict,
+  GitDiffSide,
   GitRemote,
   GitStatus,
   GitStatusFile,
   IGitService,
   InitGitParams,
   ListBranchesGitParams,
+  ListChangedFilesParams,
   LogGitParams,
   MergeGitParams,
   MergeResult,
@@ -42,6 +46,7 @@ import type {
   ResetGitParams,
   ResetResult,
   SetTrackingBranchParams,
+  TextBlob,
   TrackingBranch,
 } from '../../core/interfaces/services/i-git-service.js'
 import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
@@ -156,9 +161,7 @@ export class IsomorphicGitService implements IGitService {
     // so conflicted files stay "unmerged" after staging. Pre-remove explicit paths to wipe
     // all stages; the follow-up `git.add` then produces a clean stage-0 entry.
     const explicitFilePaths = toAdd.filter((p) => p !== '.' && !p.endsWith('/'))
-    await Promise.allSettled(
-      explicitFilePaths.map((filepath) => git.remove({dir, filepath, fs})),
-    )
+    await Promise.allSettled(explicitFilePaths.map((filepath) => git.remove({dir, filepath, fs})))
 
     const results = await Promise.allSettled([
       ...toRemove.map((filepath) => git.remove({dir, filepath, fs})),
@@ -344,14 +347,14 @@ export class IsomorphicGitService implements IGitService {
     const result: BlobContents = Object.fromEntries(paths.map((p) => [p, undefined]))
     if (paths.length === 0) return result
 
-    if (ref === 'HEAD') {
-      const headOid = await git.resolveRef({dir, fs, ref: 'HEAD'}).catch(() => null)
-      if (!headOid) return result
+    if (ref !== 'STAGE') {
+      const commitOid = await this.resolveRefExpression(dir, ref.commitish).catch(() => null)
+      if (!commitOid) return result
 
       await Promise.all(
         paths.map(async (path) => {
           try {
-            const {blob} = await git.readBlob({dir, filepath: path, fs, oid: headOid})
+            const {blob} = await git.readBlob({dir, filepath: path, fs, oid: commitOid})
             result[path] = Buffer.from(blob).toString('utf8')
           } catch {
             // leave as undefined
@@ -474,6 +477,15 @@ export class IsomorphicGitService implements IGitService {
     return result === undefined || result === null ? undefined : String(result)
   }
 
+  async getTextBlob(params: GetBlobContentParams): Promise<TextBlob | undefined> {
+    const dir = this.requireDirectory(params)
+    const {path, ref} = params
+    const raw = await this.readRawBlob(dir, path, ref)
+    if (!raw) return undefined
+    if (raw.bytes.includes(0)) return {binary: true, content: '', oid: raw.oid.slice(0, 7)}
+    return {content: Buffer.from(raw.bytes).toString('utf8'), oid: raw.oid.slice(0, 7)}
+  }
+
   async getTrackingBranch(params: GetTrackingBranchParams): Promise<TrackingBranch | undefined> {
     const dir = this.requireDirectory(params)
     const remote = await git.getConfig({dir, fs, path: `branch.${params.branch}.remote`})
@@ -486,6 +498,11 @@ export class IsomorphicGitService implements IGitService {
     const mergeStr = String(merge)
     const remoteBranch = mergeStr.startsWith('refs/heads/') ? mergeStr.slice('refs/heads/'.length) : mergeStr
     return {remote: String(remote), remoteBranch}
+  }
+
+  async hashBlob(content: Buffer): Promise<string> {
+    const {oid} = await git.hashBlob({object: content})
+    return oid.slice(0, 7)
   }
 
   async init(params: InitGitParams): Promise<void> {
@@ -548,6 +565,18 @@ export class IsomorphicGitService implements IGitService {
     }
 
     return result
+  }
+
+  async listChangedFiles(params: ListChangedFilesParams): Promise<ChangedFile[]> {
+    const dir = this.requireDirectory(params)
+    const {from, to} = params
+
+    // Commit-vs-commit: walk both trees, compare oids
+    if (from !== 'STAGE' && from !== 'WORKDIR' && to !== 'STAGE' && to !== 'WORKDIR') {
+      return this.listChangedBetweenCommits(dir, from.commitish, to.commitish)
+    }
+
+    return this.listChangedFromMatrix(dir, from, to)
   }
 
   async listRemotes(params: BaseGitParams): Promise<GitRemote[]> {
@@ -835,7 +864,10 @@ export class IsomorphicGitService implements IGitService {
 
     // Cases 3-5: Reset to a specific ref (soft/mixed/hard)
     // Empty repo (no commits) — HEAD doesn't exist. Git treats this as a silent no-op.
-    const headExists = await git.resolveRef({dir, fs, ref: 'HEAD'}).then(() => true, () => false)
+    const headExists = await git.resolveRef({dir, fs, ref: 'HEAD'}).then(
+      () => true,
+      () => false,
+    )
     if (!headExists) {
       return {filesChanged: 0, headSha: ''}
     }
@@ -915,6 +947,60 @@ export class IsomorphicGitService implements IGitService {
     return {Authorization: `Basic ${credentials}`}
   }
 
+  private async classifyRefVsWorkdir(
+    dir: string,
+    fromOid: string,
+    refSet: Set<string>,
+    matrix: StatusRow[],
+  ): Promise<ChangedFile[]> {
+    // "Tracked in workdir" = present on disk (workdir != 0) AND tracked (HEAD or stage has it).
+    // This excludes untracked files (matches `git diff <commit>` which does not show untracked).
+    const trackedOnDisk = new Set<string>()
+    for (const [filepath, head, workdir, stage] of matrix) {
+      if (workdir !== 0 && (head !== 0 || stage !== 0)) trackedOnDisk.add(String(filepath))
+    }
+
+    const candidates = new Set<string>([...refSet, ...trackedOnDisk])
+
+    const results = await Promise.all(
+      [...candidates].map(async (path): Promise<ChangedFile | undefined> => {
+        const inRef = refSet.has(path)
+        const inWork = trackedOnDisk.has(path)
+        if (inRef && !inWork) return {path, status: 'deleted'}
+        if (!inRef && inWork) return {path, status: 'added'}
+        if (inRef && inWork) {
+          const [fromBlobOid, workOid] = await Promise.all([
+            this.readBlobOid(dir, fromOid, path),
+            this.hashWorkdirFile(dir, path),
+          ])
+          if (fromBlobOid && workOid && fromBlobOid !== workOid) return {path, status: 'modified'}
+        }
+
+        return undefined
+      }),
+    )
+
+    return results.filter((r): r is ChangedFile => r !== undefined).sort((a, b) => a.path.localeCompare(b.path))
+  }
+
+  private classifyStagedRow(row: StatusRow): ChangedFile | undefined {
+    const [filepath, head, , stage] = row
+    const path = String(filepath)
+    if (head === 0 && (stage === 2 || stage === 3)) return {path, status: 'added'}
+    if (head === 1 && stage === 0) return {path, status: 'deleted'}
+    if (head === 1 && (stage === 2 || stage === 3)) return {path, status: 'modified'}
+    return undefined
+  }
+
+  private classifyUnstagedRow(row: StatusRow): ChangedFile | undefined {
+    const [filepath, head, workdir, stage] = row
+    const path = String(filepath)
+    if (head === 0 && stage === 0) return undefined // skip untracked
+    if (workdir === 0 && (stage === 1 || stage === 2 || stage === 3)) return {path, status: 'deleted'}
+    if (workdir === 2 && (stage === 1 || stage === 3)) return {path, status: 'modified'}
+    return undefined
+  }
+
   private conflictsFromError(error: Error): GitConflict[] {
     if (!IsomorphicGitService.isConflictError(error)) return []
     const conflictData = error.data
@@ -935,6 +1021,12 @@ export class IsomorphicGitService implements IGitService {
         }),
       )
       .sort((a, b) => a.path.localeCompare(b.path))
+  }
+
+  private describeSide(side: GitDiffSide): string {
+    if (side === 'STAGE') return 'STAGE'
+    if (side === 'WORKDIR') return 'WORKDIR'
+    return `commitish(${side.commitish})`
   }
 
   private getAuthor(): {email: string; name: string} {
@@ -999,6 +1091,77 @@ export class IsomorphicGitService implements IGitService {
           '\nPlease commit your changes or stash them before you switch branches.',
       )
     }
+  }
+
+  private async hashWorkdirFile(dir: string, path: string): Promise<null | string> {
+    try {
+      const buf = await fs.promises.readFile(join(dir, path))
+      const {oid} = await git.hashBlob({object: buf})
+      return oid
+    } catch {
+      return null
+    }
+  }
+
+  private isCommitishSide(side: GitDiffSide): side is {commitish: string} {
+    return side !== 'STAGE' && side !== 'WORKDIR'
+  }
+
+  private async listChangedBetweenCommits(dir: string, fromRef: string, toRef: string): Promise<ChangedFile[]> {
+    const [fromOid, toOid] = await Promise.all([
+      this.resolveRefExpression(dir, fromRef),
+      this.resolveRefExpression(dir, toRef),
+    ])
+
+    const changes: ChangedFile[] = []
+    await git.walk({
+      dir,
+      fs,
+      async map(filepath, [a, b]) {
+        if (filepath === '.') return
+        const [aType, bType] = await Promise.all([a?.type(), b?.type()])
+        if (aType === 'tree' || bType === 'tree') return
+        if (!a && b && bType === 'blob') {
+          changes.push({path: filepath, status: 'added'})
+          return
+        }
+
+        if (a && !b && aType === 'blob') {
+          changes.push({path: filepath, status: 'deleted'})
+          return
+        }
+
+        if (a && b && aType === 'blob' && bType === 'blob') {
+          const [aOid, bOid] = await Promise.all([a.oid(), b.oid()])
+          if (aOid !== bOid) changes.push({path: filepath, status: 'modified'})
+        }
+      },
+      // eslint-disable-next-line new-cap
+      trees: [git.TREE({ref: fromOid}), git.TREE({ref: toOid})],
+    })
+
+    return changes
+  }
+
+  private async listChangedFromMatrix(dir: string, from: GitDiffSide, to: GitDiffSide): Promise<ChangedFile[]> {
+    const matrix = await git.statusMatrix({dir, fs})
+
+    if (from === 'STAGE' && to === 'WORKDIR') {
+      return matrix.map((row) => this.classifyUnstagedRow(row)).filter((c): c is ChangedFile => c !== undefined)
+    }
+
+    if (this.isCommitishSide(from) && to === 'STAGE') {
+      return matrix.map((row) => this.classifyStagedRow(row)).filter((c): c is ChangedFile => c !== undefined)
+    }
+
+    if (this.isCommitishSide(from) && to === 'WORKDIR') {
+      const fromOid = await this.resolveRefExpression(dir, from.commitish)
+      const tracked = await git.listFiles({dir, fs, ref: fromOid})
+      const trackedSet = new Set(tracked)
+      return this.classifyRefVsWorkdir(dir, fromOid, trackedSet, matrix)
+    }
+
+    throw new GitError(`unsupported diff side combination: from=${this.describeSide(from)} to=${this.describeSide(to)}`)
   }
 
   /**
@@ -1139,6 +1302,48 @@ export class IsomorphicGitService implements IGitService {
     }
   }
 
+  /**
+   * Reads the raw blob bytes + full oid at the given ref in a single pass.
+   * Returns `undefined` when the blob is absent (path missing, ref unresolved, etc.).
+   * Used by {@link getTextBlob}; callers downstream decide binary vs text.
+   */
+  private async readRawBlob(
+    dir: string,
+    path: string,
+    ref: GitBlobRef,
+  ): Promise<undefined | {bytes: Uint8Array; oid: string}> {
+    if (ref === 'STAGE') {
+      let found: undefined | {bytes: Uint8Array; oid: string}
+      await git
+        .walk({
+          dir,
+          fs,
+          async map(filepath, [entry]) {
+            if (filepath !== path || !entry) return
+            if ((await entry.type()) !== 'blob') return
+            const oid = await entry.oid()
+            const {blob} = await git.readBlob({dir, fs, oid})
+            found = {bytes: blob, oid}
+          },
+          // eslint-disable-next-line new-cap
+          trees: [git.STAGE()],
+        })
+        .catch(() => {
+          // leave found undefined
+        })
+      return found
+    }
+
+    const commitOid = await this.resolveRefExpression(dir, ref.commitish).catch(() => null)
+    if (!commitOid) return undefined
+    try {
+      const {blob, oid} = await git.readBlob({dir, filepath: path, fs, oid: commitOid})
+      return {bytes: blob, oid}
+    } catch {
+      return undefined
+    }
+  }
+
   private requireDirectory(params: BaseGitParams): string {
     // Guard against empty string — undefined/null are caught by TypeScript at compile time
     if (!params.directory) throw new GitError('directory is required for git operations')
@@ -1209,16 +1414,16 @@ export class IsomorphicGitService implements IGitService {
   private async resolveRefExpression(dir: string, ref: string): Promise<string> {
     const tildeMatch = /^(.+)~(\d+)$/.exec(ref)
     if (!tildeMatch) {
-      return git.resolveRef({dir, fs, ref})
+      return this.resolveSingleRef(dir, ref)
     }
 
     const baseRef = tildeMatch[1]
     const count = Number.parseInt(tildeMatch[2], 10)
     if (count === 0) {
-      return git.resolveRef({dir, fs, ref: baseRef})
+      return this.resolveSingleRef(dir, baseRef)
     }
 
-    let oid = await git.resolveRef({dir, fs, ref: baseRef})
+    let oid = await this.resolveSingleRef(dir, baseRef)
     for (let i = 0; i < count; i++) {
       // eslint-disable-next-line no-await-in-loop
       const commit = await git.readCommit({dir, fs, oid})
@@ -1230,6 +1435,24 @@ export class IsomorphicGitService implements IGitService {
     }
 
     return oid
+  }
+
+  /**
+   * Resolve a single ref (branch name, tag, full SHA, or short SHA).
+   * Falls back to `git.expandOid` for short SHAs since `git.resolveRef`
+   * only accepts full OIDs and symbolic refs.
+   */
+  private async resolveSingleRef(dir: string, ref: string): Promise<string> {
+    try {
+      return await git.resolveRef({dir, fs, ref})
+    } catch (error) {
+      // Short SHA: 4-39 hex chars. Try expandOid which disambiguates against the object DB.
+      if (/^[\da-f]{4,39}$/i.test(ref)) {
+        return git.expandOid({dir, fs, oid: ref})
+      }
+
+      throw error
+    }
   }
 
   /**

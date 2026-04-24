@@ -289,16 +289,57 @@ export interface IVcDiffResponse {
 }
 
 /**
- * Batched diff — returns diffs for multiple paths on the same side in one round-trip.
- * Preserves the order of the input `paths`.
+ * Batched diff — returns diffs for multiple files in one round-trip.
+ *
+ * Discriminated union of two mutually exclusive request shapes:
+ * - WebUI: `{paths, side}` — caller supplies the paths, server returns raw content pairs.
+ * - CLI/TUI: `{mode}` — server auto-discovers changed files, returns full `IVcDiffFile`
+ *   entries (status + oids). Binary files are filtered out.
+ *
+ * The union form guarantees callers can't accidentally mix the two shapes (type error).
  */
-export interface IVcDiffsRequest {
-  paths: string[]
-  side: VcDiffSide
+export type IVcDiffsRequest = {mode: VcDiffMode} | {paths: string[]; side: VcDiffSide}
+
+/**
+ * Diff modes for `brv vc diff` / `/vc diff`. Mirrors the four diff modes from `git diff`:
+ * - unstaged       → STAGE → WORKDIR (tracked files only; matches `git diff` no args)
+ * - staged         → HEAD → STAGE   (matches `git diff --staged`)
+ * - ref-vs-worktree → <commit|branch> → WORKDIR (matches `git diff <ref>`)
+ * - range          → <ref1> → <ref2>           (matches `git diff <ref1>..<ref2>`)
+ */
+export type VcDiffMode =
+  | {from: string; kind: 'range'; to: string}
+  | {kind: 'ref-vs-worktree'; ref: string}
+  | {kind: 'staged'}
+  | {kind: 'unstaged'}
+
+export type VcDiffFileStatus = 'added' | 'deleted' | 'modified'
+
+/**
+ * Per-file diff entry. Extends `IVcDiffResponse` with status + oid.
+ * Binary files (NUL byte on either side) are filtered out of the response upstream,
+ * so consumers only ever see text content here.
+ *
+ * Legacy (WebUI) consumers read `oldContent`/`newContent`/`path` only; the extra
+ * fields are forward-compatible extras they ignore.
+ */
+export interface IVcDiffFile {
+  /** True when either side is binary (contains a NUL byte). Content fields are empty. */
+  binary?: boolean
+  newContent: string
+  /** 7-char short oid; omitted for deleted files. */
+  newOid?: string
+  oldContent: string
+  /** 7-char short oid; omitted for added files. */
+  oldOid?: string
+  path: string
+  status: VcDiffFileStatus
 }
 
 export interface IVcDiffsResponse {
-  diffs: IVcDiffResponse[]
+  diffs: IVcDiffFile[]
+  /** Echoed when the request used `mode`; absent for legacy calls. */
+  mode?: VcDiffMode
 }
 
 /**
@@ -314,4 +355,3 @@ export interface IVcDiscardRequest {
 export interface IVcDiscardResponse {
   count: number
 }
-
