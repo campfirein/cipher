@@ -214,8 +214,26 @@ describe('SocketIOTransportServer', () => {
       expect(response.error).to.equal('Test error')
     })
 
-    it('should throw error if server not started', () => {
-      expect(() => server.onRequest('test', () => {})).to.throw(TransportServerNotStartedError)
+    it('accepts onRequest before start() and applies the handler to sockets that connect after', async () => {
+      // Pre-register the handler while server is NOT started yet.
+      expect(() =>
+        server.onRequest('pre-registered', (data: {n: number}, _clientId: string) => ({doubled: data.n * 2})),
+      ).to.not.throw()
+
+      // Now start the server; a client that connects after start should see the handler.
+      await server.start(9941)
+      const client = io('http://127.0.0.1:9941')
+      await new Promise<void>((resolve) => {
+        client.on('connect', resolve)
+      })
+
+      const response = await new Promise<{data: {doubled: number}; success: boolean}>((resolve) => {
+        client.emit('pre-registered', {n: 7}, resolve)
+      })
+      expect(response.success).to.be.true
+      expect(response.data.doubled).to.equal(14)
+
+      client.disconnect()
     })
   })
 
