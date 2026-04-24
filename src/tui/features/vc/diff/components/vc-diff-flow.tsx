@@ -1,10 +1,3 @@
-/**
- * VcDiffFlow Component
- *
- * Shows file-by-file diffs between commits, the index, or the working tree.
- * Mirrors `git diff` output: `diff --git`, `index`, `--- a/`, `+++ b/`, hunk headers, +/- lines.
- */
-
 import {Text, useInput} from 'ink'
 import Spinner from 'ink-spinner'
 import React, {useEffect} from 'react'

@@ -326,6 +326,53 @@ describe('VcHandler — handleDiffs (mode-based)', () => {
     })
   })
 
+  describe('invalid ref classification', () => {
+    it('rethrows iso-git NotFoundError from listChangedFiles as VcError(INVALID_REF)', async () => {
+      const deps = makeDeps(sandbox, '/fake/project', tmpDir)
+      const notFound = Object.assign(new Error("Could not find typo-branch."), {code: 'NotFoundError'})
+      deps.gitService.listChangedFiles.rejects(notFound)
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke(deps, {mode: {kind: 'ref-vs-worktree', ref: 'typo-branch'}})
+        expect.fail('expected throw')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        expect((error as VcError).code).to.equal(VcErrorCode.INVALID_REF)
+      }
+    })
+
+    it('rethrows iso-git NotFoundError from readSideEntry (range mode) as VcError(INVALID_REF)', async () => {
+      const deps = makeDeps(sandbox, '/fake/project', tmpDir)
+      deps.gitService.listChangedFiles.resolves([{path: 'a.md', status: 'modified'}])
+      const notFound = Object.assign(new Error("Could not find bad-ref."), {code: 'NotFoundError'})
+      deps.gitService.getTextBlob.rejects(notFound)
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke(deps, {mode: {from: 'main', kind: 'range', to: 'bad-ref'}})
+        expect.fail('expected throw')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        expect((error as VcError).code).to.equal(VcErrorCode.INVALID_REF)
+      }
+    })
+
+    it('propagates non-isomorphic-git errors unchanged', async () => {
+      const deps = makeDeps(sandbox, '/fake/project', tmpDir)
+      const unrelated = new Error('disk full')
+      deps.gitService.listChangedFiles.rejects(unrelated)
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke(deps, {mode: {kind: 'unstaged'}})
+        expect.fail('expected throw')
+      } catch (error) {
+        expect(error).to.equal(unrelated)
+      }
+    })
+  })
+
   describe('binary marking (git-diff parity)', () => {
     it('marks a file binary=true with empty content when the working-tree side contains a NUL byte', async () => {
       writeFileSync(join(tmpDir, 'logo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02]))

@@ -762,12 +762,18 @@ export class VcHandler {
     // Binary or unreadable files are dropped by buildDiffFile (returns undefined).
     if ('mode' in data) {
       const {from, to} = resolveDiffSides(data.mode)
-      const changed = await this.gitService.listChangedFiles({directory, from, to})
-      const entries = await Promise.all(
-        changed.map((change) => this.buildDiffFile({directory, from, path: change.path, status: change.status, to})),
-      )
-      const diffs = entries.filter((d): d is IVcDiffFile => d !== undefined)
-      return {diffs, mode: data.mode}
+      try {
+        const changed = await this.gitService.listChangedFiles({directory, from, to})
+        const entries = await Promise.all(
+          changed.map((change) => this.buildDiffFile({directory, from, path: change.path, status: change.status, to})),
+        )
+        const diffs = entries.filter((d): d is IVcDiffFile => d !== undefined)
+        return {diffs, mode: data.mode}
+      } catch (error) {
+        const classified = classifyIsomorphicGitError(error, VcErrorCode.INVALID_REF)
+        if (classified) throw classified
+        throw error
+      }
     }
 
     // WebUI call: caller-supplied paths + side. Status is derived from blob presence,
