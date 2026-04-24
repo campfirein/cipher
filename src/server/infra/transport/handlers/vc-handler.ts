@@ -3,7 +3,7 @@ import {join} from 'node:path'
 
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
-import type {GitCommit, IGitService} from '../../../core/interfaces/services/i-git-service.js'
+import type {GitCommit, GitDiffSide, IGitService} from '../../../core/interfaces/services/i-git-service.js'
 import type {ISpaceService} from '../../../core/interfaces/services/i-space-service.js'
 import type {ITeamService} from '../../../core/interfaces/services/i-team-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
@@ -24,6 +24,7 @@ import {
   type IVcCommitResponse,
   type IVcConfigRequest,
   type IVcConfigResponse,
+  type IVcDiffFile,
   type IVcDiffRequest,
   type IVcDiffResponse,
   type IVcDiffsRequest,
@@ -46,6 +47,8 @@ import {
   type IVcResetRequest,
   type IVcResetResponse,
   type IVcStatusResponse,
+  type VcDiffFileStatus,
+  type VcDiffMode,
   type VcDiffSide,
   VcErrorCode,
   type VcErrorCodeType,
@@ -86,6 +89,32 @@ function classifyIsomorphicGitError(error: unknown, notFoundCode: VcErrorCodeTyp
 const FIELD_MAP: Record<string, 'email' | 'name'> = {
   'user.email': 'email',
   'user.name': 'name',
+}
+
+function inferStatus(oldExists: boolean, newExists: boolean): VcDiffFileStatus {
+  if (!oldExists && newExists) return 'added'
+  if (oldExists && !newExists) return 'deleted'
+  return 'modified'
+}
+
+function resolveDiffSides(mode: VcDiffMode): {from: GitDiffSide; to: GitDiffSide} {
+  switch (mode.kind) {
+    case 'range': {
+      return {from: {commitish: mode.from}, to: {commitish: mode.to}}
+    }
+
+    case 'ref-vs-worktree': {
+      return {from: {commitish: mode.ref}, to: 'WORKDIR'}
+    }
+
+    case 'staged': {
+      return {from: {commitish: 'HEAD'}, to: 'STAGE'}
+    }
+
+    case 'unstaged': {
+      return {from: 'STAGE', to: 'WORKDIR'}
+    }
+  }
 }
 
 export interface IVcHandlerDeps {
@@ -204,6 +233,39 @@ export class VcHandler {
     return 'Run: brv vc config user.name <value> and brv vc config user.email <value>.'
   }
 
+  /**
+   * Builds a single diff entry for a changed file, or `undefined` when either required side
+   * is absent/binary (the caller filters these out to keep binaries out of diff output).
+   */
+  private async buildDiffFile(params: {
+    directory: string
+    from: GitDiffSide
+    path: string
+    status: VcDiffFileStatus
+    to: GitDiffSide
+  }): Promise<IVcDiffFile | undefined> {
+    const {directory, from, path, status, to} = params
+    const [oldSide, newSide] = await Promise.all([
+      status === 'added' ? undefined : this.readSideEntry(directory, from, path),
+      status === 'deleted' ? undefined : this.readSideEntry(directory, to, path),
+    ])
+
+    if (status !== 'added' && !oldSide) return undefined
+    if (status !== 'deleted' && !newSide) return undefined
+
+    const binary = (oldSide?.binary ?? false) || (newSide?.binary ?? false)
+    const result: IVcDiffFile = {
+      newContent: binary ? '' : (newSide?.content ?? ''),
+      oldContent: binary ? '' : (oldSide?.content ?? ''),
+      path,
+      status,
+    }
+    if (oldSide) result.oldOid = oldSide.oid
+    if (newSide) result.newOid = newSide.oid
+    if (binary) result.binary = true
+    return result
+  }
+
   private buildNoRemoteMessage(nextStep: string): string {
     return (
       `No remote configured.\n\nTo connect to cloud:\n` +
@@ -217,7 +279,7 @@ export class VcHandler {
   private async computeDiff(directory: string, path: string, side: VcDiffSide): Promise<IVcDiffResponse> {
     if (side === 'staged') {
       const [head, stage] = await Promise.all([
-        this.gitService.getBlobContent({directory, path, ref: 'HEAD'}),
+        this.gitService.getBlobContent({directory, path, ref: {commitish: 'HEAD'}}),
         this.gitService.getBlobContent({directory, path, ref: 'STAGE'}),
       ])
       return {newContent: stage ?? '', oldContent: head ?? '', path}
@@ -258,10 +320,7 @@ export class VcHandler {
   private async guardUnmergedAndMarkers(directory: string): Promise<void> {
     const conflicts = await this.gitService.getConflicts({directory})
     if (conflicts.length > 0) {
-      throw new VcError(
-        'Committing is not possible because you have unmerged files.',
-        VcErrorCode.MERGE_CONFLICT,
-      )
+      throw new VcError('Committing is not possible because you have unmerged files.', VcErrorCode.MERGE_CONFLICT)
     }
 
     const markerFiles = await this.gitService.getFilesWithConflictMarkers({directory})
@@ -699,23 +758,67 @@ export class VcHandler {
       throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
     }
 
+    // Mode-based call (CLI/TUI): auto-discover changed files + return full IVcDiffFile entries.
+    // Binary or unreadable files are dropped by buildDiffFile (returns undefined).
+    if ('mode' in data) {
+      const {from, to} = resolveDiffSides(data.mode)
+      try {
+        const changed = await this.gitService.listChangedFiles({directory, from, to})
+        const entries = await Promise.all(
+          changed.map((change) => this.buildDiffFile({directory, from, path: change.path, status: change.status, to})),
+        )
+        const diffs = entries.filter((d): d is IVcDiffFile => d !== undefined)
+        return {diffs, mode: data.mode}
+      } catch (error) {
+        const classified = classifyIsomorphicGitError(error, VcErrorCode.INVALID_REF)
+        if (classified) throw classified
+        throw error
+      }
+    }
+
+    // WebUI call: caller-supplied paths + side. Status is derived from blob presence,
+    // so an empty-blob edit is correctly reported as `modified`, not `added`.
     const {paths, side} = data
 
     if (side === 'staged') {
       const [head, stage] = await Promise.all([
-        this.gitService.getBlobContents({directory, paths, ref: 'HEAD'}),
+        this.gitService.getBlobContents({directory, paths, ref: {commitish: 'HEAD'}}),
         this.gitService.getBlobContents({directory, paths, ref: 'STAGE'}),
       ])
-      const diffs = paths.map((path) => ({newContent: stage[path] ?? '', oldContent: head[path] ?? '', path}))
+      const diffs = paths.map((path) => {
+        const oldBlob = head[path]
+        const newBlob = stage[path]
+        return {
+          newContent: newBlob ?? '',
+          oldContent: oldBlob ?? '',
+          path,
+          status: inferStatus(oldBlob !== undefined, newBlob !== undefined),
+        }
+      })
       return {diffs}
     }
 
     // unstaged: compare index (old) against working tree (new)
     const stage = await this.gitService.getBlobContents({directory, paths, ref: 'STAGE'})
     const workingTree = await Promise.all(
-      paths.map((path) => fs.promises.readFile(join(directory, path), 'utf8').catch(() => '')),
+      paths.map(async (path): Promise<string | undefined> => {
+        try {
+          return await fs.promises.readFile(join(directory, path), 'utf8')
+        } catch {
+          return undefined
+        }
+      }),
     )
-    const diffs = paths.map((path, i) => ({newContent: workingTree[i], oldContent: stage[path] ?? '', path}))
+    const diffs = paths.map((path, i) => {
+      const oldBlob = stage[path]
+      const newFile = workingTree[i]
+      return {
+        newContent: newFile ?? '',
+        oldContent: oldBlob ?? '',
+        path,
+        status: inferStatus(oldBlob !== undefined, newFile !== undefined),
+      }
+    })
     return {diffs}
   }
 
@@ -732,7 +835,7 @@ export class VcHandler {
     // Prefer index blob (preserves staged changes); fall back to HEAD; else delete (untracked).
     const [stage, head] = await Promise.all([
       this.gitService.getBlobContents({directory, paths: filePaths, ref: 'STAGE'}),
-      this.gitService.getBlobContents({directory, paths: filePaths, ref: 'HEAD'}),
+      this.gitService.getBlobContents({directory, paths: filePaths, ref: {commitish: 'HEAD'}}),
     ])
 
     const results = await Promise.all(
@@ -740,9 +843,7 @@ export class VcHandler {
         const target = stage[path] ?? head[path]
         const absolutePath = join(directory, path)
         try {
-          await (target === undefined
-            ? fs.promises.unlink(absolutePath)
-            : fs.promises.writeFile(absolutePath, target))
+          await (target === undefined ? fs.promises.unlink(absolutePath) : fs.promises.writeFile(absolutePath, target))
           return true
         } catch {
           return false
@@ -1310,6 +1411,32 @@ export class VcHandler {
       },
       untracked: gitStatus.files.filter((f) => f.status === 'untracked').map((f) => f.path),
     }
+  }
+
+  /**
+   * Reads a diff side's content + short oid in a single pass. Returns `undefined`
+   * only when the blob is absent on disk / at the ref. Binary content (NUL byte)
+   * is marked via `binary: true` so the caller can emit `Binary files ... differ`.
+   */
+  private async readSideEntry(
+    directory: string,
+    side: GitDiffSide,
+    path: string,
+  ): Promise<undefined | {binary?: boolean; content: string; oid: string}> {
+    if (side === 'WORKDIR') {
+      let buf: Buffer
+      try {
+        buf = await fs.promises.readFile(join(directory, path))
+      } catch {
+        return undefined
+      }
+
+      const oid = await this.gitService.hashBlob(buf)
+      if (buf.includes(0)) return {binary: true, content: '', oid}
+      return {content: buf.toString('utf8'), oid}
+    }
+
+    return this.gitService.getTextBlob({directory, path, ref: side})
   }
 
   /**
