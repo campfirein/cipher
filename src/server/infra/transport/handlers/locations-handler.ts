@@ -57,9 +57,8 @@ export class LocationsHandler {
       }
     })
 
-    this.transport.onRequest<LocationsRevealRequest, LocationsRevealResponse>(
-      LocationsEvents.REVEAL,
-      async (data) => this.handleReveal(data),
+    this.transport.onRequest<LocationsRevealRequest, LocationsRevealResponse>(LocationsEvents.REVEAL, async (data) =>
+      this.handleReveal(data),
     )
   }
 
@@ -124,7 +123,7 @@ export class LocationsHandler {
     if (!exists) throw new Error('Project folder no longer exists.')
 
     const {args, command} = resolveRevealCommand(process.platform, projectPath)
-    const child = spawn(command, args, {detached: true, stdio: 'ignore'})
+    const child = spawn(command, args, {detached: true, stdio: 'ignore', windowsHide: true})
     child.on('error', () => {
       /* best-effort — nothing to report back once the ack resolved */
     })

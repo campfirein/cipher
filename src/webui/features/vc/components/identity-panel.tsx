@@ -1,3 +1,4 @@
+import {Avatar, AvatarFallback, AvatarImage} from '@campfirein/byterover-packages/components/avatar'
 import {Button} from '@campfirein/byterover-packages/components/button'
 import {Field, FieldError, FieldLabel} from '@campfirein/byterover-packages/components/field'
 import {Input} from '@campfirein/byterover-packages/components/input'
@@ -10,11 +11,11 @@ import type {UserDTO} from '../../../../shared/transport/types/dto'
 
 import {formatError} from '../../../lib/error-messages'
 import {noop} from '../../../lib/noop'
+import {initials} from '../../../utils/initials'
 import {useAuthStore} from '../../auth/stores/auth-store'
 import {useGetVcConfig} from '../api/get-vc-config'
 import {useSetVcConfig} from '../api/set-vc-config'
 import {isValidEmail} from '../utils/is-valid-email'
-import {CalloutRow} from './callout-row'
 import {SettingsSection} from './settings-section'
 
 type IdentityValues = {
@@ -22,7 +23,12 @@ type IdentityValues = {
   name: string
 }
 
-function NotSetCallout({
+/**
+ * Empty-state row: lead with the suggested account identity instead of a
+ * foreground "Not set" alert. When no account is connected, fall back to a
+ * minimal "Set manually" affordance.
+ */
+function NotSetRow({
   isPending,
   onApplyAccount,
   onSetManually,
@@ -33,37 +39,51 @@ function NotSetCallout({
   onSetManually: () => void
   user: null | UserDTO
 }) {
-  return (
-    <CalloutRow
-      action={
-        <div className="flex gap-1.5">
-          <Button
-            disabled={isPending}
-            onClick={onSetManually}
-            size="sm"
-            variant={user ? 'ghost' : 'secondary'}
-          >
-            Set manually
-          </Button>
-          {user && (
-            <Button disabled={isPending} onClick={onApplyAccount} size="sm">
-              Use account
-            </Button>
-          )}
+  const containerClass =
+    'flex items-center justify-between gap-3 rounded-md border border-dashed border-border bg-muted/40 px-3.5 py-2.5'
+
+  if (!user) {
+    return (
+      <div className={containerClass}>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-foreground text-sm font-medium">Identity not configured</span>
+          <span className="text-muted-foreground truncate text-xs">
+            Optional — used for commit attribution.
+          </span>
         </div>
-      }
-      description={
-        user ? (
-          <>
-            Apply <span className="text-foreground">{user.name ?? user.email}</span> &lt;{user.email}&gt; or configure
-            manually.
-          </>
-        ) : (
-          'Name and email are required to commit.'
-        )
-      }
-      title="Not set"
-    />
+        <Button disabled={isPending} onClick={onSetManually} size="sm" variant="secondary">
+          Set manually
+        </Button>
+      </div>
+    )
+  }
+
+  const displayName = user.name ?? user.email
+  return (
+    <div className={containerClass}>
+      <div className="flex min-w-0 items-center gap-3">
+        <Avatar className="size-7 shrink-0">
+          <AvatarImage alt={displayName} src={user.avatarUrl} />
+          <AvatarFallback className="text-[10px]">{initials(displayName)}</AvatarFallback>
+        </Avatar>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-foreground truncate text-sm font-medium">
+            {displayName} <span className="text-muted-foreground font-normal">&lt;{user.email}&gt;</span>
+          </span>
+          <span className="text-muted-foreground truncate text-xs">
+            From your ByteRover account — optional, used for commit attribution.
+          </span>
+        </div>
+      </div>
+      <div className="flex shrink-0 gap-1.5">
+        <Button disabled={isPending} onClick={onSetManually} size="sm" variant="ghost">
+          Edit
+        </Button>
+        <Button disabled={isPending} onClick={onApplyAccount} size="sm">
+          Apply
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -214,7 +234,7 @@ export function IdentityPanel() {
         ) : configured ? (
           <CompactRow email={storedEmail} name={storedName} onEdit={() => setEditing(true)} />
         ) : (
-          <NotSetCallout
+          <NotSetRow
             isPending={setConfig.isPending}
             onApplyAccount={() => applyFromAccount().catch(noop)}
             onSetManually={() => setEditing(true)}
