@@ -53,7 +53,9 @@ export class FileProviderConfigStore implements IProviderConfigStore {
   }
 
   /**
-   * Marks a provider as connected.
+   * Marks a provider as connected. Defaults to also marking it as active —
+   * pass `setAsActive: false` to skip the activate step (used when the
+   * provider has no usable model yet).
    */
   public async connectProvider(
     providerId: string,
@@ -62,10 +64,12 @@ export class FileProviderConfigStore implements IProviderConfigStore {
       authMethod?: 'api-key' | 'oauth'
       baseUrl?: string
       oauthAccountId?: string
+      setAsActive?: boolean
     },
   ): Promise<void> {
     const config = await this.read()
-    const newConfig = config.withProviderConnected(providerId, options).withActiveProvider(providerId)
+    const connected = config.withProviderConnected(providerId, options)
+    const newConfig = options?.setAsActive === false ? connected : connected.withActiveProvider(providerId)
     await this.write(newConfig)
   }
 

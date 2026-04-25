@@ -9,7 +9,10 @@ export interface IProviderConfigStore {
    * Marks a provider as connected.
    *
    * @param providerId The provider ID to mark as connected
-   * @param options Optional settings like default model
+   * @param options Optional settings like default model. Pass `setAsActive: false`
+   *   to skip flipping the active provider (used when the provider has no
+   *   active model yet — activating it would put the app in a half-configured
+   *   state that the welcome view interprets as "needs setup").
    */
   connectProvider: (
     providerId: string,
@@ -18,6 +21,7 @@ export interface IProviderConfigStore {
       authMethod?: 'api-key' | 'oauth'
       baseUrl?: string
       oauthAccountId?: string
+      setAsActive?: boolean
     },
   ) => Promise<void>
 

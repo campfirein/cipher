@@ -42,6 +42,17 @@ interface ProviderAction {
   name: string
 }
 
+/**
+ * Throws on transport responses that ack with `success: false` so the
+ * existing try/catch surfaces server-side errors instead of silently
+ * marching forward into the next step.
+ */
+function ensureSuccess(response: {error?: string; success: boolean}): void {
+  if (!response.success) {
+    throw new Error(response.error ?? 'Operation failed')
+  }
+}
+
 export interface ProviderFlowProps {
   /** Hide the Cancel keybind in provider selection */
   hideCancelButton?: boolean
@@ -165,9 +176,15 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       return
     }
 
-    // Already connected → show actions menu
+    // Already connected → show actions menu. Exception: a non-byterover
+    // provider that's the active provider but has no model picked yet
+    // jumps straight to the model picker so the welcome view's user can
+    // finish setup. For non-current half-configured providers we still
+    // show the actions menu so Disconnect / Set as active stay reachable
+    // (the picker would otherwise be a dead-end if the endpoint is down).
     if (provider.isConnected) {
-      setStep('provider_actions')
+      const needsModelPick = provider.id !== 'byterover' && !provider.activeModel && provider.isCurrent
+      setStep(needsModelPick ? 'model_select' : 'provider_actions')
       return
     }
 
@@ -321,15 +338,19 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
 
     setStep('connecting')
     try {
-      await connectMutation.mutateAsync({
+      ensureSuccess(await connectMutation.mutateAsync({
         apiKey: apiKey || undefined,
         baseUrl: baseUrl || undefined,
         providerId: selectedProvider.id,
-      })
+      }))
       setStep('model_select')
     } catch (error_) {
       setError(formatTransportError(error_))
-      setStep('api_key')
+      // Server rejection (e.g. unreachable openai-compatible URL) — return to
+      // the provider list where the error is rendered. The user can re-enter
+      // the flow with a corrected URL or API key.
+      setStep('select')
+      setBaseUrl(null)
     }
   }, [baseUrl, connectMutation, selectedProvider])
 
