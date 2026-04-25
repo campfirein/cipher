@@ -12,13 +12,14 @@
  * 1. Setup daemon logging
  * 2. Select port (random batch scan in dynamic range 49152-65535)
  * 3. Acquire global instance lock (atomic temp+rename)
- * 4. Start Socket.IO transport server
+ * 4. Construct Socket.IO transport server (start() is deferred — see step 11)
  * 5. Start heartbeat writer
  * 6. Install daemon resilience handlers
  * 7. Create services (auth, project state, agent pool, handlers)
  * 8. Wire events (idle timeout, auth broadcasts, state server)
  * 9. Create shutdown handler
  * 10. Start idle timer + register signal handlers
+ * 11. Start Socket.IO transport server (port opens — clients can connect)
  */
 
 import {GlobalInstanceManager} from '@campfirein/brv-transport-client'
@@ -196,7 +197,7 @@ async function main(): Promise<void> {
   try {
     // 4a. Construct Socket.IO transport server (do NOT call start() yet — we want
     //     to register all event handlers first so clients can't connect and fire
-    //     requests before listeners are wired. start() is called at the END of
+    //     requests before listeners are wired). start() is called at the END of
     //     bootstrap just before "Daemon fully started".
     transportServer = new SocketIOTransportServer()
 
@@ -239,7 +240,18 @@ async function main(): Promise<void> {
       webuiServer = undefined
     }
 
-    // 5. Start heartbeat writer
+    // 5. Start heartbeat writer.
+    //    Heartbeat is started here (early) — NOT after transport.start(port) —
+    //    intentionally. pollForDaemon (in @campfirein/brv-transport-client) treats
+    //    a missing/stale heartbeat as "unhealthy" and a *retrying* client will
+    //    SIGTERM the daemon (via gracefullyStopDaemon in daemon-spawner.js step 5).
+    //    If heartbeat were deferred to after transport.start(port), a slow OIDC
+    //    discovery in setupFeatureHandlers (>5 s = DAEMON_READY_TIMEOUT_MS) would
+    //    trip pollForDaemon's timeout, and the retry would kill this daemon
+    //    mid-bootstrap. Keeping heartbeat early means cold clients see "healthy"
+    //    quickly and only pay the withDaemonRetry backoff (DEFAULT_RETRY_DELAY_MS
+    //    in src/oclif/lib/daemon-client.ts) for the residual handler-setup window
+    //    — a strict improvement over the old 12 s symptom.
     const heartbeatPath = join(getGlobalDataDir(), HEARTBEAT_FILE)
     heartbeatWriter = new HeartbeatWriter({
       filePath: heartbeatPath,
@@ -661,7 +673,9 @@ async function main(): Promise<void> {
     // All handlers registered. Now accept socket connections.
     // Delayed to here (vs. early during bootstrap) so a CLI connecting cold
     // never finds the server accepting sockets before listeners are wired —
-    // which was the cause of the 10s requestWithAck timeout + 2s retry delay
+    // which was the cause of the cold-start latency: a TRANSPORT_REQUEST_TIMEOUT_MS
+    // ack timeout (10 s) followed by a withDaemonRetry backoff
+    // (DEFAULT_RETRY_DELAY_MS in src/oclif/lib/daemon-client.ts).
     await transportServer.start(port)
     log(`Transport server started on port ${port}`)
 
