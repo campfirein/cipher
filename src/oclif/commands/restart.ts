@@ -327,7 +327,7 @@ The daemon will restart automatically on the next brv command.`
 
     if (process.platform === 'win32') {
       const script = Restart.buildWindowsKillScript(patterns, excludePids, skipProtected)
-      spawnSync('powershell', ['-Command', script], {stdio: 'ignore', windowsHide: true})
+      spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], {stdio: 'ignore', windowsHide: true})
     } else if (process.platform === 'linux') {
       Restart.killByProcScan(patterns, excludePids, skipProtected)
     } else {
