@@ -261,13 +261,29 @@ export class ProviderHandler {
       }
 
       // Verify openai-compatible endpoint is reachable before persisting anything —
-      // a failed setup must not leave a placeholder config that masquerades as connected.
-      if (providerId === 'openai-compatible' && baseUrl) {
-        const validation = await this.validateOpenAICompatibleEndpoint({apiKey: apiKey ?? '', baseUrl})
+      // a failed setup must not leave a placeholder config that masquerades as
+      // connected. Falls back to existing baseUrl/keychain key on reconfigure
+      // when the request omits them, so a partial reconfigure (e.g. only changing
+      // the URL) still validates with the user's stored credentials.
+      if (providerId === 'openai-compatible') {
+        const existingBaseUrl = await this.providerConfigStore.read().then((c) => c.getBaseUrl(providerId))
+        const effectiveBaseUrl = baseUrl ?? existingBaseUrl
+        if (!effectiveBaseUrl) {
+          return {
+            error: 'A base URL is required for OpenAI-compatible providers (e.g. http://localhost:11434/v1)',
+            success: false,
+          }
+        }
+
+        const effectiveApiKey = apiKey ?? (await this.providerKeychainStore.getApiKey(providerId)) ?? ''
+        const validation = await this.validateOpenAICompatibleEndpoint({
+          apiKey: effectiveApiKey,
+          baseUrl: effectiveBaseUrl,
+        })
         if (!validation.isValid) {
           const detail = validation.error ? `: ${validation.error}` : ''
           return {
-            error: `Could not reach OpenAI-compatible endpoint at ${baseUrl}${detail}`,
+            error: `Could not reach OpenAI-compatible endpoint at ${effectiveBaseUrl}${detail}`,
             success: false,
           }
         }
@@ -284,8 +300,8 @@ export class ProviderHandler {
       // "needs setup" and unmounts any in-flight setup flow on the home
       // page. The model:setActive handler activates the provider when the
       // user picks a model, which is the right moment.
-      const existingActiveModel = await this.providerConfigStore.getActiveModel(providerId)
-      const willHaveActiveModel = Boolean(provider?.defaultModel ?? existingActiveModel)
+      const willHaveActiveModel = Boolean(provider?.defaultModel)
+        || Boolean(await this.providerConfigStore.getActiveModel(providerId))
       await this.providerConfigStore.connectProvider(providerId, {
         activeModel: provider?.defaultModel,
         authMethod: apiKey ? 'api-key' : undefined,

@@ -176,14 +176,17 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       return
     }
 
-    // Already connected → show actions menu. Exception: a non-byterover
-    // provider that's the active provider but has no model picked yet
-    // jumps straight to the model picker so the welcome view's user can
-    // finish setup. For non-current half-configured providers we still
-    // show the actions menu so Disconnect / Set as active stay reachable
-    // (the picker would otherwise be a dead-end if the endpoint is down).
+    // Already connected → show actions menu. Exception: openai-compatible
+    // is the only provider that can land in a connected-but-no-active-model
+    // state (no canonical defaultModel exists for arbitrary endpoints), so
+    // when it's the current provider we jump straight to the model picker
+    // so the welcome view's user can finish setup. For non-current
+    // half-configured providers we still show the actions menu so
+    // Disconnect / Set as active stay reachable (the picker would otherwise
+    // be a dead-end if the endpoint is down).
     if (provider.isConnected) {
-      const needsModelPick = provider.id !== 'byterover' && !provider.activeModel && provider.isCurrent
+      const needsModelPick =
+        provider.id === 'openai-compatible' && !provider.activeModel && provider.isCurrent
       setStep(needsModelPick ? 'model_select' : 'provider_actions')
       return
     }
@@ -348,8 +351,11 @@ export const ProviderFlow: React.FC<ProviderFlowProps> = ({
       setError(formatTransportError(error_))
       // Server rejection (e.g. unreachable openai-compatible URL) — return to
       // the provider list where the error is rendered. The user can re-enter
-      // the flow with a corrected URL or API key.
+      // the flow with a corrected URL or API key. Mirror the other failure
+      // paths (e.g. handleSelect at the byterover branch) by clearing the
+      // selected provider too.
       setStep('select')
+      setSelectedProvider(null)
       setBaseUrl(null)
     }
   }, [baseUrl, connectMutation, selectedProvider])
