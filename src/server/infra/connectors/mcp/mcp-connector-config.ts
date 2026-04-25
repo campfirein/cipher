@@ -215,7 +215,12 @@ export const MCP_CONNECTOR_CONFIGS = {
     format: 'json',
     mode: 'auto',
     scope: 'project',
-    serverConfig: DEFAULT_SERVER_CONFIG,
+    serverConfig: {
+      type: 'stdio',
+      command: 'brv',
+      args: ['mcp'],
+      env: {},
+    },
     serverKeyPath: STANDARD_KEY_PATH,
   },
   OpenCode: {
