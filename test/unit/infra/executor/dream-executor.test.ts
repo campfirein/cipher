@@ -503,6 +503,83 @@ describe('DreamExecutor', () => {
     // Stale-summary queue: drain + re-enqueue on propagation failure
     // ==========================================================================
 
+    it('propagates over A ∪ B union of drained queue and snapshot diff (happy path)', async () => {
+      // The merge at dream-executor.ts is the central correctness invariant of this
+      // PR — anything in EITHER the queue (A) OR dream's own diff (B) must be
+      // propagated, exactly once per path. This test pins that invariant.
+      dreamStateService.drainStaleSummaryPaths.resolves(['queue/path.md'])
+
+      // Real temp project so snapshotService.getCurrentState succeeds. We override
+      // runOperations to write a new file between pre and post snapshots, so the
+      // snapshot diff produces a non-empty list — that becomes the B half of A ∪ B.
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-dream-merge-'))
+      const contextTreeDir = join(projectRoot, '.brv', 'context-tree')
+      mkdirSync(contextTreeDir, {recursive: true})
+      const captured: string[][] = []
+
+      class MergeTestExecutor extends DreamExecutor {
+        protected override async runOperations(): Promise<void> {
+          // Mutate the tree so postState differs from preState by 'diff/added.md'.
+          mkdirSync(join(contextTreeDir, 'diff'), {recursive: true})
+          writeFileSync(join(contextTreeDir, 'diff', 'added.md'), '# new from dream')
+        }
+
+        protected override async runStaleSummaryPropagation(opts: {
+          agent: ICipherAgent
+          paths: string[]
+          projectRoot: string
+        }): Promise<void> {
+          captured.push([...opts.paths].sort())
+        }
+      }
+
+      try {
+        const executor = new MergeTestExecutor(deps)
+        await executor.executeWithAgent(agent, {...defaultOptions, projectRoot})
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+
+      expect(captured).to.have.lengthOf(1)
+      expect(captured[0]).to.deep.equal(['diff/added.md', 'queue/path.md'])
+      expect(dreamStateService.enqueueStaleSummaryPaths.callCount).to.equal(0)
+    })
+
+    it('dedups paths that appear in both the queue and the snapshot diff (single regeneration)', async () => {
+      dreamStateService.drainStaleSummaryPaths.resolves(['shared/path.md'])
+
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-dream-merge-dedup-'))
+      const contextTreeDir = join(projectRoot, '.brv', 'context-tree')
+      mkdirSync(contextTreeDir, {recursive: true})
+      const captured: string[][] = []
+
+      class MergeTestExecutor extends DreamExecutor {
+        protected override async runOperations(): Promise<void> {
+          // Write the SAME path the queue contains — the merge must dedup.
+          mkdirSync(join(contextTreeDir, 'shared'), {recursive: true})
+          writeFileSync(join(contextTreeDir, 'shared', 'path.md'), '# also touched by dream')
+        }
+
+        protected override async runStaleSummaryPropagation(opts: {
+          agent: ICipherAgent
+          paths: string[]
+          projectRoot: string
+        }): Promise<void> {
+          captured.push([...opts.paths].sort())
+        }
+      }
+
+      try {
+        const executor = new MergeTestExecutor(deps)
+        await executor.executeWithAgent(agent, {...defaultOptions, projectRoot})
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+
+      expect(captured).to.have.lengthOf(1)
+      expect(captured[0]).to.deep.equal(['shared/path.md'])
+    })
+
     it('re-enqueues drained snapshot when post-dream propagation throws', async () => {
       // Atomic drain removes entries upfront. If propagation fails, the catch
       // block must re-enqueue so the snapshot is not lost.

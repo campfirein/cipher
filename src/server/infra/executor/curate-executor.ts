@@ -136,12 +136,16 @@ export class CurateExecutor implements ICurateExecutor {
       // LLM calls. The manifest is rebuilt inline because it is a pure file
       // scan (no LLM) and keeps newly-curated leaf files immediately
       // discoverable via manifest-driven retrieval.
+      // Hoisted: both blocks below construct a DreamStateService against the
+      // same project. They share the module-level mutex via `getStateMutex`,
+      // so a single instance is sufficient and avoids duplicate construction.
+      const dreamStateService = new DreamStateService({baseDir: path.join(baseDir, BRV_DIR)})
+
       if (preState) {
         try {
           const postState = await snapshotService.getCurrentState(baseDir)
           const changedPaths = diffStates(preState, postState)
           if (changedPaths.length > 0) {
-            const dreamStateService = new DreamStateService({baseDir: path.join(baseDir, BRV_DIR)})
             await dreamStateService.enqueueStaleSummaryPaths(changedPaths)
 
             const manifestService = new FileContextTreeManifestService({baseDirectory: baseDir})
@@ -154,7 +158,6 @@ export class CurateExecutor implements ICurateExecutor {
 
       // Increment dream curation counter (fail-open: non-critical for curation)
       try {
-        const dreamStateService = new DreamStateService({baseDir: path.join(baseDir, BRV_DIR)})
         await dreamStateService.incrementCurationCount()
       } catch {
         // Dream state tracking is non-critical — don't block curation

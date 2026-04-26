@@ -129,7 +129,11 @@ export class DreamExecutor {
       try {
         preState = await snapshotService.getCurrentState(projectRoot)
       } catch {
-        // Fail-open: if snapshot fails, skip propagation
+        // Fail-open: if snapshot fails, the entire step 5 block (propagation +
+        // queue drain) is skipped — the stale-summary queue is not consumed in
+        // this dream cycle and accumulates until the next successful run.
+        // Drain-skip is preferable to drain-and-lose because atomic drain
+        // already removed entries before any propagation could re-enqueue them.
       }
 
       // Step 2: Load dream state
@@ -173,10 +177,7 @@ export class DreamExecutor {
 
           const merged = [...new Set([...changedPaths, ...drainedSnapshot])]
           if (merged.length > 0) {
-            const summaryService = new FileContextTreeSummaryService()
-            await summaryService.propagateStaleness(merged, agent, projectRoot)
-            const manifestService = new FileContextTreeManifestService({baseDirectory: projectRoot})
-            await manifestService.buildManifest(projectRoot)
+            await this.runStaleSummaryPropagation({agent, paths: merged, projectRoot})
           }
         } catch {
           // Fail-open: propagation errors never block dream. Re-enqueue the
@@ -278,11 +279,6 @@ export class DreamExecutor {
     }
   }
 
-  /**
-   * Runs the three dream operations sequentially, pushing results into `out` after
-   * each step. Extracted so the executor can preserve partial work when a later step
-   * throws — and so tests can inject controlled ops without a full LLM round-trip.
-   */
   protected async runOperations(args: {
     agent: ICipherAgent
     changedFiles: Set<string>
@@ -335,6 +331,29 @@ export class DreamExecutor {
         taskId,
       })),
     )
+  }
+
+  /**
+   * Runs the three dream operations sequentially, pushing results into `out` after
+   * each step. Extracted so the executor can preserve partial work when a later step
+   * throws — and so tests can inject controlled ops without a full LLM round-trip.
+   */
+  /**
+   * Regenerate parent `_index.md` files for the given paths and rebuild the
+   * manifest. Extracted as a seam so tests can override and assert which
+   * paths were passed (the A ∪ B merge in step 5 is the central correctness
+   * invariant of the deferral). Production constructs the services here so
+   * the dependency surface of {@link DreamExecutorDeps} stays narrow.
+   */
+  protected async runStaleSummaryPropagation(args: {
+    agent: ICipherAgent
+    paths: string[]
+    projectRoot: string
+  }): Promise<void> {
+    const summaryService = new FileContextTreeSummaryService()
+    await summaryService.propagateStaleness(args.paths, args.agent, args.projectRoot)
+    const manifestService = new FileContextTreeManifestService({baseDirectory: args.projectRoot})
+    await manifestService.buildManifest(args.projectRoot)
   }
 
   /** Errors are tracked at the log level (status='error'), not per-operation — always 0 here. */
