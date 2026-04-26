@@ -45,7 +45,7 @@ function makePartialRunExecutor(args: {
 }
 
 describe('DreamExecutor', () => {
-  let dreamStateService: {drainStaleSummaryPaths: SinonStub; read: SinonStub; update: SinonStub; write: SinonStub}
+  let dreamStateService: {drainStaleSummaryPaths: SinonStub; enqueueStaleSummaryPaths: SinonStub; read: SinonStub; update: SinonStub; write: SinonStub}
   let dreamLogStore: {getNextId: SinonStub; save: SinonStub}
   let dreamLockService: {release: SinonStub; rollback: SinonStub}
   let curateLogStore: {getNextId: SinonStub; list: SinonStub; save: SinonStub}
@@ -60,9 +60,11 @@ describe('DreamExecutor', () => {
 
   beforeEach(() => {
     dreamStateService = {
-      // Default drain: empty queue, no-op clear. Tests that exercise the queue
-      // override this stub.
-      drainStaleSummaryPaths: stub().resolves({async clear() {}, snapshot: []}),
+      // Default drain: empty queue. Tests that exercise the queue override.
+      drainStaleSummaryPaths: stub().resolves([]),
+      // Default enqueue: no-op stub. Used by the executor's catch block to
+      // re-enqueue a drained snapshot if propagation fails.
+      enqueueStaleSummaryPaths: stub().resolves(),
       read: stub().resolves({...EMPTY_DREAM_STATE, pendingMerges: [], staleSummaryPaths: []}),
       // Default update implementation: read → updater → write, mirroring the real
       // service so tests that count write.callCount stay valid without changes.
@@ -495,6 +497,46 @@ describe('DreamExecutor', () => {
       } finally {
         rmSync(projectRoot, {force: true, recursive: true})
       }
+    })
+
+    // ==========================================================================
+    // Stale-summary queue: drain + re-enqueue on propagation failure
+    // ==========================================================================
+
+    it('re-enqueues drained snapshot when post-dream propagation throws', async () => {
+      // Atomic drain removes entries upfront. If propagation fails, the catch
+      // block must re-enqueue so the snapshot is not lost.
+      dreamStateService.drainStaleSummaryPaths.resolves([
+        'auth/jwt/token.md',
+        'billing/webhooks/stripe.md',
+      ])
+
+      // Force the propagation block to throw by making the snapshot service fail.
+      // The dream-executor wraps Step 5 in try/catch so the dream itself completes.
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-dream-reenqueue-'))
+      try {
+        const executor = new DreamExecutor(deps)
+        // executeWithAgent uses a real FileContextTreeSnapshotService bound to projectRoot.
+        // The directory exists but has no .brv/context-tree, so getCurrentState throws —
+        // exercising the catch block that should re-enqueue the drained snapshot.
+        await executor.executeWithAgent(agent, {...defaultOptions, projectRoot})
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+
+      expect(dreamStateService.enqueueStaleSummaryPaths.calledOnce).to.equal(true)
+      expect(dreamStateService.enqueueStaleSummaryPaths.firstCall.args[0]).to.deep.equal([
+        'auth/jwt/token.md',
+        'billing/webhooks/stripe.md',
+      ])
+    })
+
+    it('does not call enqueue when drain returns an empty snapshot (no work to retry)', async () => {
+      // Default drain stub returns [] — no snapshot to preserve on failure.
+      const executor = new DreamExecutor(deps)
+      await executor.executeWithAgent(agent, defaultOptions)
+
+      expect(dreamStateService.enqueueStaleSummaryPaths.callCount).to.equal(0)
     })
 
     // ==========================================================================

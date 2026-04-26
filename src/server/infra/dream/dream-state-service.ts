@@ -5,16 +5,6 @@ import {dirname, join, resolve} from 'node:path'
 import {AsyncMutex} from '../../../agent/infra/llm/context/async-mutex.js'
 import {type DreamState, DreamStateSchema, EMPTY_DREAM_STATE} from './dream-state-schema.js'
 
-/**
- * Result of a snapshot-and-clear drain operation. The caller processes
- * `snapshot`, then invokes `clear()` once the work has completed. Anything
- * enqueued between the snapshot capture and the clear call survives.
- */
-export type StaleSummaryDrainOp = {
-  clear: () => Promise<void>
-  snapshot: string[]
-}
-
 const STATE_FILENAME = 'dream-state.json'
 
 // Module-level mutex registry keyed by absolute state file path.
@@ -60,29 +50,25 @@ export class DreamStateService {
   }
 
   /**
-   * Snapshot-and-clear drain. Reads the current queue, returns the snapshot
-   * for the caller to process, and exposes a `clear()` callback that removes
-   * only the snapshotted entries from the persisted queue. Anything enqueued
-   * between the snapshot capture and the clear call survives.
+   * Atomic drain — reads the current queue and clears it in a single RMW,
+   * returning the deduped path list. The caller is responsible for retrying
+   * (re-enqueueing the returned snapshot) if the downstream work fails.
    *
-   * The snapshot read is unguarded — a slightly-stale snapshot is acceptable
-   * because the clear step filters precisely. Mirrors the two-phase pattern
-   * used by `consolidate.ts` for `pendingMerges`.
+   * Atomicity is the load-bearing property: any enqueue that runs after the
+   * drain returns sees an empty queue, so it always appends a fresh entry
+   * that survives independently of whether the downstream propagation succeeds
+   * or fails. Earlier "snapshot + clear-later" approaches lost same-path
+   * enqueues: the dedup check on enqueue saw the still-present snapshot entry
+   * and skipped, then `clear()` removed it.
    */
-  async drainStaleSummaryPaths(): Promise<StaleSummaryDrainOp> {
-    const state = await this.read()
-    const snapshot = state.staleSummaryPaths.map((e) => e.path)
-    return {
-      clear: async () => {
-        if (snapshot.length === 0) return
-        const drained = new Set(snapshot)
-        await this.update((existing) => ({
-          ...existing,
-          staleSummaryPaths: existing.staleSummaryPaths.filter((e) => !drained.has(e.path)),
-        }))
-      },
-      snapshot,
-    }
+  async drainStaleSummaryPaths(): Promise<string[]> {
+    let snapshot: string[] = []
+    await this.update((state) => {
+      snapshot = state.staleSummaryPaths.map((e) => e.path)
+      if (snapshot.length === 0) return state
+      return {...state, staleSummaryPaths: []}
+    })
+    return snapshot
   }
 
   /**

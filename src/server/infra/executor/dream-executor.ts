@@ -55,7 +55,8 @@ export type DreamExecutorDeps = {
     save(entry: DreamLogEntry): Promise<void>
   }
   dreamStateService: {
-    drainStaleSummaryPaths(): Promise<import('../dream/dream-state-service.js').StaleSummaryDrainOp>
+    drainStaleSummaryPaths(): Promise<string[]>
+    enqueueStaleSummaryPaths(paths: string[]): Promise<void>
     read(): Promise<import('../dream/dream-state-schema.js').DreamState>
     update(updater: (state: import('../dream/dream-state-schema.js').DreamState) => import('../dream/dream-state-schema.js').DreamState): Promise<import('../dream/dream-state-schema.js').DreamState>
     write(state: import('../dream/dream-state-schema.js').DreamState): Promise<void>
@@ -158,30 +159,34 @@ export class DreamExecutor {
       //   B. Dream's own snapshot diff — paths changed by this dream's
       //      consolidate/synthesize/prune operations.
       // Merging A ∪ B before calling propagateStaleness lets a path touched
-      // by both sources regenerate exactly once. Snapshot-and-clear semantics
-      // on the queue ensure that any curate enqueueing during processing
-      // survives to the next dream cycle.
+      // by both sources regenerate exactly once. The queue is drained
+      // atomically (cleared in the same RMW that captures the snapshot) so
+      // any concurrent curate enqueueing during propagation appends a fresh
+      // entry to the now-empty queue and the next dream picks it up.
       if (preState) {
+        let drainedSnapshot: string[] = []
         try {
-          const drainOp = await this.deps.dreamStateService.drainStaleSummaryPaths()
+          drainedSnapshot = await this.deps.dreamStateService.drainStaleSummaryPaths()
 
           const postState = await snapshotService.getCurrentState(projectRoot)
           const changedPaths = diffStates(preState, postState)
 
-          const merged = [...new Set([...changedPaths, ...drainOp.snapshot])]
+          const merged = [...new Set([...changedPaths, ...drainedSnapshot])]
           if (merged.length > 0) {
             const summaryService = new FileContextTreeSummaryService()
             await summaryService.propagateStaleness(merged, agent, projectRoot)
             const manifestService = new FileContextTreeManifestService({baseDirectory: projectRoot})
             await manifestService.buildManifest(projectRoot)
           }
-
-          // Clear only after propagation succeeds — preserves entries enqueued
-          // during the (potentially LLM-bound) propagation work above.
-          await drainOp.clear()
         } catch {
-          // Fail-open: propagation errors never block dream. Queue entries are
-          // preserved (no clear was called) and the next dream will retry.
+          // Fail-open: propagation errors never block dream. Re-enqueue the
+          // drained snapshot so the next dream cycle retries — atomic drain
+          // already removed them, so without this they would be lost.
+          if (drainedSnapshot.length > 0) {
+            await this.deps.dreamStateService.enqueueStaleSummaryPaths(drainedSnapshot).catch(() => {
+              // If the re-enqueue itself fails, there is nothing more to do here.
+            })
+          }
         }
       }
 
