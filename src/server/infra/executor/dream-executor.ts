@@ -55,6 +55,7 @@ export type DreamExecutorDeps = {
     save(entry: DreamLogEntry): Promise<void>
   }
   dreamStateService: {
+    drainStaleSummaryPaths(): Promise<import('../dream/dream-state-service.js').StaleSummaryDrainOp>
     read(): Promise<import('../dream/dream-state-schema.js').DreamState>
     update(updater: (state: import('../dream/dream-state-schema.js').DreamState) => import('../dream/dream-state-schema.js').DreamState): Promise<import('../dream/dream-state-schema.js').DreamState>
     write(state: import('../dream/dream-state-schema.js').DreamState): Promise<void>
@@ -150,18 +151,37 @@ export class DreamExecutor {
       })
 
       // Step 5: Post-dream propagation (fail-open)
+      // Two sources of stale summary paths:
+      //   A. The stale-summary queue, drained from dream state — paths from
+      //      curate operations that ran since the last dream cycle (the LLM
+      //      cascade work was deferred from curate's hot path to here).
+      //   B. Dream's own snapshot diff — paths changed by this dream's
+      //      consolidate/synthesize/prune operations.
+      // Merging A ∪ B before calling propagateStaleness lets a path touched
+      // by both sources regenerate exactly once. Snapshot-and-clear semantics
+      // on the queue ensure that any curate enqueueing during processing
+      // survives to the next dream cycle.
       if (preState) {
         try {
+          const drainOp = await this.deps.dreamStateService.drainStaleSummaryPaths()
+
           const postState = await snapshotService.getCurrentState(projectRoot)
           const changedPaths = diffStates(preState, postState)
-          if (changedPaths.length > 0) {
+
+          const merged = [...new Set([...changedPaths, ...drainOp.snapshot])]
+          if (merged.length > 0) {
             const summaryService = new FileContextTreeSummaryService()
-            await summaryService.propagateStaleness(changedPaths, agent, projectRoot)
+            await summaryService.propagateStaleness(merged, agent, projectRoot)
             const manifestService = new FileContextTreeManifestService({baseDirectory: projectRoot})
             await manifestService.buildManifest(projectRoot)
           }
+
+          // Clear only after propagation succeeds — preserves entries enqueued
+          // during the (potentially LLM-bound) propagation work above.
+          await drainOp.clear()
         } catch {
-          // Fail-open: propagation errors never block dream
+          // Fail-open: propagation errors never block dream. Queue entries are
+          // preserved (no clear was called) and the next dream will retry.
         }
       }
 

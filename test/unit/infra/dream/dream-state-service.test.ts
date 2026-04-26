@@ -13,6 +13,7 @@ function makeState(overrides: Partial<DreamState> = {}): DreamState {
     lastDreamAt: null,
     lastDreamLogId: null,
     pendingMerges: [],
+    staleSummaryPaths: [],
     totalDreams: 0,
     version: 1,
     ...overrides,
@@ -215,6 +216,139 @@ describe('DreamStateService', () => {
       const final = await service.read()
       expect(final.curationsSinceDream).to.equal(5)
       expect(final.totalDreams).to.equal(5)
+    })
+  })
+
+  // ==========================================================================
+  // enqueueStaleSummaryPaths — defer summary cascade
+  // ==========================================================================
+
+  describe('enqueueStaleSummaryPaths', () => {
+    it('appends new paths to an empty queue', async () => {
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md', 'billing/webhooks/stripe.md'])
+      const state = await service.read()
+      expect(state.staleSummaryPaths.map((e) => e.path)).to.deep.equal([
+        'auth/jwt/token.md',
+        'billing/webhooks/stripe.md',
+      ])
+    })
+
+    it('stamps each entry with enqueuedAt at the moment of the call', async () => {
+      const before = Date.now()
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md'])
+      const after = Date.now()
+
+      const state = await service.read()
+      expect(state.staleSummaryPaths).to.have.lengthOf(1)
+      const [entry] = state.staleSummaryPaths
+      expect(entry.enqueuedAt).to.be.at.least(before)
+      expect(entry.enqueuedAt).to.be.at.most(after)
+    })
+
+    it('dedups entries by path (keeps oldest enqueuedAt)', async () => {
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md'])
+      const firstState = await service.read()
+      const firstStamp = firstState.staleSummaryPaths[0].enqueuedAt
+
+      // ensure the second call's Date.now() is strictly later
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 5)
+      })
+
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md', 'billing/webhooks/stripe.md'])
+      const secondState = await service.read()
+
+      expect(secondState.staleSummaryPaths).to.have.lengthOf(2)
+      const tokenEntry = secondState.staleSummaryPaths.find((e) => e.path === 'auth/jwt/token.md')
+      expect(tokenEntry?.enqueuedAt, 'oldest enqueuedAt preserved on dedup').to.equal(firstStamp)
+    })
+
+    it('preserves other state fields when enqueuing', async () => {
+      await service.write(makeState({
+        curationsSinceDream: 7,
+        totalDreams: 2,
+      }))
+
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md'])
+
+      const state = await service.read()
+      expect(state.curationsSinceDream).to.equal(7)
+      expect(state.totalDreams).to.equal(2)
+      expect(state.staleSummaryPaths).to.have.lengthOf(1)
+    })
+
+    it('is a no-op for an empty input array', async () => {
+      await service.enqueueStaleSummaryPaths([])
+      const state = await service.read()
+      expect(state.staleSummaryPaths).to.deep.equal([])
+    })
+
+    it('does not lose entries when 10 enqueues run concurrently', async () => {
+      const paths = Array.from({length: 10}, (_, i) => `domain/topic-${i}.md`)
+      await Promise.all(paths.map((p) => service.enqueueStaleSummaryPaths([p])))
+      const state = await service.read()
+      const stored = state.staleSummaryPaths.map((e) => e.path).sort()
+      expect(stored).to.deep.equal([...paths].sort())
+    })
+  })
+
+  // ==========================================================================
+  // drainStaleSummaryPaths — snapshot-and-clear pattern
+  // ==========================================================================
+
+  describe('drainStaleSummaryPaths', () => {
+    it('returns the current snapshot of paths', async () => {
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md', 'billing/webhooks/stripe.md'])
+
+      const drainOp = await service.drainStaleSummaryPaths()
+      expect(drainOp.snapshot.sort()).to.deep.equal([
+        'auth/jwt/token.md',
+        'billing/webhooks/stripe.md',
+      ])
+    })
+
+    it('returns an empty snapshot when the queue is empty', async () => {
+      const drainOp = await service.drainStaleSummaryPaths()
+      expect(drainOp.snapshot).to.deep.equal([])
+    })
+
+    it('clear() removes only the snapshotted entries — paths added in between survive', async () => {
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md'])
+      const drainOp = await service.drainStaleSummaryPaths()
+
+      // simulate a curate enqueue happening WHILE the drain is processing (between snapshot and clear)
+      await service.enqueueStaleSummaryPaths(['billing/webhooks/stripe.md'])
+
+      await drainOp.clear()
+
+      const state = await service.read()
+      expect(state.staleSummaryPaths.map((e) => e.path)).to.deep.equal(['billing/webhooks/stripe.md'])
+    })
+
+    it('clear() on an empty snapshot is a no-op (does not affect concurrent enqueues)', async () => {
+      const drainOp = await service.drainStaleSummaryPaths()
+
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md'])
+
+      await drainOp.clear()
+
+      const state = await service.read()
+      expect(state.staleSummaryPaths.map((e) => e.path)).to.deep.equal(['auth/jwt/token.md'])
+    })
+
+    it('preserves other state fields when clearing', async () => {
+      await service.write(makeState({
+        curationsSinceDream: 3,
+        totalDreams: 1,
+      }))
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md'])
+      const drainOp = await service.drainStaleSummaryPaths()
+      await drainOp.clear()
+
+      const state = await service.read()
+      expect(state.curationsSinceDream).to.equal(3)
+      expect(state.totalDreams).to.equal(1)
+      expect(state.staleSummaryPaths).to.deep.equal([])
     })
   })
 })

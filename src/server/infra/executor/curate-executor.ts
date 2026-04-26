@@ -14,7 +14,6 @@ import {
 import {validateFileForCurate} from '../../utils/file-validator.js'
 import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
-import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-summary-service.js'
 import {diffStates} from '../context-tree/snapshot-diff.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
 import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
@@ -132,23 +131,24 @@ export class CurateExecutor implements ICurateExecutor {
       // Parse curation status from agent response for status tracking
       this.lastStatus = this.parseCurationStatus(taskId, response)
 
-      // --- Phase 4: Post-curation summary propagation (fail-open) ---
+      // Summary cascade regeneration (the LLM-driven `propagateStaleness` walk)
+      // is deferred to the next dream cycle to keep curate's hot path free of
+      // LLM calls. The manifest is rebuilt inline because it is a pure file
+      // scan (no LLM) and keeps newly-curated leaf files immediately
+      // discoverable via manifest-driven retrieval.
       if (preState) {
         try {
           const postState = await snapshotService.getCurrentState(baseDir)
           const changedPaths = diffStates(preState, postState)
           if (changedPaths.length > 0) {
-            const summaryService = new FileContextTreeSummaryService()
-            const results = await summaryService.propagateStaleness(changedPaths, agent, baseDir)
+            const dreamStateService = new DreamStateService({baseDir: path.join(baseDir, BRV_DIR)})
+            await dreamStateService.enqueueStaleSummaryPaths(changedPaths)
 
-            // Opportunistic manifest rebuild (pre-warm for next query)
-            if (results.some((r) => r.actionTaken)) {
-              const manifestService = new FileContextTreeManifestService({baseDirectory: baseDir})
-              await manifestService.buildManifest(baseDir)
-            }
+            const manifestService = new FileContextTreeManifestService({baseDirectory: baseDir})
+            await manifestService.buildManifest(baseDir)
           }
         } catch {
-          // Fail-open: summary/manifest errors never block curation
+          // Fail-open: queue/manifest errors never block curation
         }
       }
 

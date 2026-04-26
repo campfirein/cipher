@@ -45,7 +45,7 @@ function makePartialRunExecutor(args: {
 }
 
 describe('DreamExecutor', () => {
-  let dreamStateService: {read: SinonStub; update: SinonStub; write: SinonStub}
+  let dreamStateService: {drainStaleSummaryPaths: SinonStub; read: SinonStub; update: SinonStub; write: SinonStub}
   let dreamLogStore: {getNextId: SinonStub; save: SinonStub}
   let dreamLockService: {release: SinonStub; rollback: SinonStub}
   let curateLogStore: {getNextId: SinonStub; list: SinonStub; save: SinonStub}
@@ -60,7 +60,10 @@ describe('DreamExecutor', () => {
 
   beforeEach(() => {
     dreamStateService = {
-      read: stub().resolves({...EMPTY_DREAM_STATE, pendingMerges: []}),
+      // Default drain: empty queue, no-op clear. Tests that exercise the queue
+      // override this stub.
+      drainStaleSummaryPaths: stub().resolves({async clear() {}, snapshot: []}),
+      read: stub().resolves({...EMPTY_DREAM_STATE, pendingMerges: [], staleSummaryPaths: []}),
       // Default update implementation: read → updater → write, mirroring the real
       // service so tests that count write.callCount stay valid without changes.
       update: stub().callsFake(async (updater: (state: import('../../../../src/server/infra/dream/dream-state-schema.js').DreamState) => import('../../../../src/server/infra/dream/dream-state-schema.js').DreamState) => {

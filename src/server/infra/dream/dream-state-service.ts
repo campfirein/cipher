@@ -5,6 +5,16 @@ import {dirname, join, resolve} from 'node:path'
 import {AsyncMutex} from '../../../agent/infra/llm/context/async-mutex.js'
 import {type DreamState, DreamStateSchema, EMPTY_DREAM_STATE} from './dream-state-schema.js'
 
+/**
+ * Result of a snapshot-and-clear drain operation. The caller processes
+ * `snapshot`, then invokes `clear()` once the work has completed. Anything
+ * enqueued between the snapshot capture and the clear call survives.
+ */
+export type StaleSummaryDrainOp = {
+  clear: () => Promise<void>
+  snapshot: string[]
+}
+
 const STATE_FILENAME = 'dream-state.json'
 
 // Module-level mutex registry keyed by absolute state file path.
@@ -50,6 +60,56 @@ export class DreamStateService {
   }
 
   /**
+   * Snapshot-and-clear drain. Reads the current queue, returns the snapshot
+   * for the caller to process, and exposes a `clear()` callback that removes
+   * only the snapshotted entries from the persisted queue. Anything enqueued
+   * between the snapshot capture and the clear call survives.
+   *
+   * The snapshot read is unguarded — a slightly-stale snapshot is acceptable
+   * because the clear step filters precisely. Mirrors the two-phase pattern
+   * used by `consolidate.ts` for `pendingMerges`.
+   */
+  async drainStaleSummaryPaths(): Promise<StaleSummaryDrainOp> {
+    const state = await this.read()
+    const snapshot = state.staleSummaryPaths.map((e) => e.path)
+    return {
+      clear: async () => {
+        if (snapshot.length === 0) return
+        const drained = new Set(snapshot)
+        await this.update((existing) => ({
+          ...existing,
+          staleSummaryPaths: existing.staleSummaryPaths.filter((e) => !drained.has(e.path)),
+        }))
+      },
+      snapshot,
+    }
+  }
+
+  /**
+   * Append the given file paths to the stale-summary queue, deduping by path.
+   * A path already in the queue keeps its original `enqueuedAt` timestamp so
+   * "how long has this been waiting?" telemetry stays meaningful.
+   *
+   * Serialized through {@link update} so concurrent enqueues from parallel
+   * curate tasks do not lose entries. Empty input is a no-op (no write).
+   */
+  async enqueueStaleSummaryPaths(paths: string[]): Promise<void> {
+    if (paths.length === 0) return
+    const enqueuedAt = Date.now()
+    await this.update((state) => {
+      const existing = new Set(state.staleSummaryPaths.map((e) => e.path))
+      const additions = paths
+        .filter((p) => !existing.has(p))
+        .map((p) => ({enqueuedAt, path: p}))
+      if (additions.length === 0) return state
+      return {
+        ...state,
+        staleSummaryPaths: [...state.staleSummaryPaths, ...additions],
+      }
+    })
+  }
+
+  /**
    * Read-modify-write under a per-file mutex. Serializes concurrent increments
    * from parallel curate tasks within the same agent process so no updates are lost.
    */
@@ -61,10 +121,10 @@ export class DreamStateService {
     try {
       const raw = await readFile(this.stateFilePath, 'utf8')
       const parsed = DreamStateSchema.safeParse(JSON.parse(raw))
-      if (!parsed.success) return {...EMPTY_DREAM_STATE, pendingMerges: []}
+      if (!parsed.success) return {...EMPTY_DREAM_STATE, pendingMerges: [], staleSummaryPaths: []}
       return parsed.data
     } catch {
-      return {...EMPTY_DREAM_STATE, pendingMerges: []}
+      return {...EMPTY_DREAM_STATE, pendingMerges: [], staleSummaryPaths: []}
     }
   }
 

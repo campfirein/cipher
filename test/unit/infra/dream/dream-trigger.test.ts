@@ -11,6 +11,7 @@ function makeState(overrides: Partial<DreamState> = {}): DreamState {
     lastDreamAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
     lastDreamLogId: null,
     pendingMerges: [],
+    staleSummaryPaths: [],
     totalDreams: 0,
     version: 1,
     ...overrides,
