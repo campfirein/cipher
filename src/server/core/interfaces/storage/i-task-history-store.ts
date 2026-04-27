@@ -5,12 +5,20 @@ import type {TaskHistoryEntry, TaskHistoryStatus} from '../../domain/entities/ta
 export type {TaskHistoryEntry, TaskHistoryStatus} from '../../domain/entities/task-history-entry.js'
 
 export interface ITaskHistoryStore {
-  /** Remove all entries. Returns the deleted IDs so handlers can broadcast `task:deleted` per id. */
-  clear(): Promise<{deletedCount: number; taskIds: string[]}>
+  /**
+   * Tombstone all matching entries. Defaults to terminal statuses
+   * (`'cancelled' | 'completed' | 'error'`) when `statuses` is omitted,
+   * so active tasks are preserved.
+   * Returns the list of removed taskIds (caller broadcasts `task:deleted` per id).
+   */
+  clear(options?: {projectPath?: string; statuses?: TaskHistoryStatus[]}): Promise<{
+    deletedCount: number
+    taskIds: string[]
+  }>
   /** Remove a single entry by taskId. Idempotent — returns false on missing/already-deleted. */
   delete(taskId: string): Promise<boolean>
-  /** Bulk-delete by taskIds. Returns ids actually removed. Idempotent per-id. */
-  deleteMany(taskIds: string[]): Promise<{deletedCount: number; taskIds: string[]}>
+  /** Bulk-delete by taskIds. Returns count of taskIds that were live before the call. */
+  deleteMany(taskIds: string[]): Promise<number>
   /** Retrieve an entry's full Level 2 detail by taskId. Returns undefined if not found or corrupt. */
   getById(taskId: string): Promise<TaskHistoryEntry | undefined>
   /**

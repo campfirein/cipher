@@ -25,7 +25,7 @@ function makeEntry(overrides: EntryOverrides): TaskHistoryEntry {
   return {...base, ...overrides} as TaskHistoryEntry
 }
 
-describe('FileTaskHistoryStore (basic)', () => {
+describe('FileTaskHistoryStore', () => {
   let store: FileTaskHistoryStore
   let tempDir: string
   let storeDir: string
@@ -45,6 +45,7 @@ describe('FileTaskHistoryStore (basic)', () => {
     await rm(tempDir, {force: true, recursive: true})
   })
 
+  describe('basic', () => {
   it('save writes data file then appends index line', async () => {
     const entry = makeEntry({taskId: 'abc'})
     await store.save(entry)
@@ -237,5 +238,166 @@ describe('FileTaskHistoryStore (basic)', () => {
     const indexRaw = await readFile(indexPath, 'utf8')
     const lines = indexRaw.split('\n').filter(Boolean)
     expect(lines).to.have.lengthOf(3)
+  })
+  })
+
+  describe('delete + clear', () => {
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    function completedEntry(taskId: string, projectPath = '/p', createdAt = 1_745_432_000_000): TaskHistoryEntry {
+      return makeEntry({
+        completedAt: createdAt + 2000,
+        createdAt,
+        projectPath,
+        result: 'done',
+        startedAt: createdAt + 1000,
+        status: 'completed',
+        taskId,
+      })
+    }
+
+    it('delete appends tombstone + unlinks data file, returns true on first call', async () => {
+      const entry = completedEntry('one')
+      await store.save(entry)
+
+      const result = await store.delete('one')
+      expect(result).to.equal(true)
+
+      // Data file unlinked
+      const files = await readdir(dataDir)
+      expect(files).to.not.include('tsk-one.json')
+
+      // Index has the tombstone
+      const indexRaw = await readFile(indexPath, 'utf8')
+      const lines = indexRaw.split('\n').filter(Boolean)
+      expect(lines).to.have.lengthOf(2) // 1 save line + 1 tombstone
+      const tombstone = JSON.parse(lines[1]) as Record<string, unknown>
+      expect(tombstone).to.include({_deleted: true, schemaVersion: 1, taskId: 'one'})
+      expect(tombstone.deletedAt).to.be.a('number')
+    })
+
+    it('delete returns false on second call (idempotent)', async () => {
+      await store.save(completedEntry('two'))
+      const first = await store.delete('two')
+      expect(first).to.equal(true)
+
+      const second = await store.delete('two')
+      expect(second).to.equal(false)
+
+      // No extra tombstone written on the second call
+      const indexRaw = await readFile(indexPath, 'utf8')
+      const lines = indexRaw.split('\n').filter(Boolean)
+      expect(lines).to.have.lengthOf(2) // still 1 save + 1 tombstone
+    })
+
+    it('deleteMany single pass — appends multiple tombstones, returns count of newly-deleted', async () => {
+      await store.save(completedEntry('a'))
+      await store.save(completedEntry('b'))
+      await store.save(completedEntry('c'))
+
+      const count = await store.deleteMany(['a', 'b', 'c'])
+      expect(count).to.equal(3)
+
+      // All data files gone
+      const files = await readdir(dataDir)
+      expect(files).to.have.lengthOf(0)
+
+      // Index has 3 save lines + 3 tombstone lines
+      const indexRaw = await readFile(indexPath, 'utf8')
+      const lines = indexRaw.split('\n').filter(Boolean)
+      expect(lines).to.have.lengthOf(6)
+      const tombstones = lines.slice(3).map((l) => JSON.parse(l) as Record<string, unknown>)
+      expect(tombstones.map((t) => t.taskId).sort()).to.deep.equal(['a', 'b', 'c'])
+    })
+
+    it('deleteMany handles unlink races without throwing', async () => {
+      await store.save(completedEntry('race-a'))
+      await store.save(completedEntry('race-b'))
+
+      // Simulate a concurrent unlink: delete one data file out-of-band before deleteMany runs.
+      await rm(join(dataDir, 'tsk-race-a.json'), {force: true})
+
+      const count = await store.deleteMany(['race-a', 'race-b'])
+      expect(count).to.equal(2)
+
+      const files = await readdir(dataDir)
+      expect(files).to.have.lengthOf(0)
+    })
+
+    it('clear with default statuses removes only terminal entries', async () => {
+      await store.save(makeEntry({status: 'created', taskId: 'created-1'}))
+      await store.save(makeEntry({startedAt: 1, status: 'started', taskId: 'started-1'}))
+      await store.save(completedEntry('completed-1'))
+      await store.save(
+        makeEntry({
+          completedAt: 2,
+          error: {message: 'boom', name: 'Error'},
+          startedAt: 1,
+          status: 'error',
+          taskId: 'error-1',
+        }),
+      )
+      await store.save(
+        makeEntry({completedAt: 2, startedAt: 1, status: 'cancelled', taskId: 'cancelled-1'}),
+      )
+
+      const result = await store.clear()
+      expect(result.deletedCount).to.equal(3)
+      expect(result.taskIds.sort()).to.deep.equal(['cancelled-1', 'completed-1', 'error-1'])
+
+      const remaining = await store.list()
+      expect(remaining.map((r) => r.taskId).sort()).to.deep.equal(['created-1', 'started-1'])
+    })
+
+    it('clear with explicit statuses honors the filter', async () => {
+      await store.save(completedEntry('c1'))
+      await store.save(completedEntry('c2'))
+      await store.save(completedEntry('c3'))
+
+      // Empty allow-list → match nothing.
+      const empty = await store.clear({statuses: []})
+      expect(empty.deletedCount).to.equal(0)
+
+      // Only 'completed'.
+      const onlyCompleted = await store.clear({statuses: ['completed']})
+      expect(onlyCompleted.deletedCount).to.equal(3)
+      expect(onlyCompleted.taskIds.sort()).to.deep.equal(['c1', 'c2', 'c3'])
+    })
+
+    it('clear scoped by projectPath leaves other projects entries alone', async () => {
+      await store.save(completedEntry('a', '/p1'))
+      await store.save(completedEntry('b', '/p2'))
+
+      const result = await store.clear({projectPath: '/p1'})
+      expect(result.taskIds).to.deep.equal(['a'])
+      expect(result.deletedCount).to.equal(1)
+
+      const remaining = await store.list()
+      expect(remaining.map((r) => r.taskId)).to.deep.equal(['b'])
+    })
+
+    it('clear returns the list of deleted taskIds (so caller can broadcast)', async () => {
+      await store.save(completedEntry('x'))
+      await store.save(completedEntry('y'))
+
+      const result = await store.clear()
+      expect(result.deletedCount).to.equal(2)
+      expect(result.taskIds.sort()).to.deep.equal(['x', 'y'])
+    })
+
+    it('list after delete sees the entry as gone (tombstone respected)', async () => {
+      await store.save(completedEntry('ghost'))
+      await store.delete('ghost')
+
+      const result = await store.list()
+      expect(result.map((r) => r.taskId)).to.not.include('ghost')
+    })
+
+    it('getById after delete returns undefined', async () => {
+      await store.save(completedEntry('gone'))
+      await store.delete('gone')
+
+      const fetched = await store.getById('gone')
+      expect(fetched).to.equal(undefined)
+    })
   })
 })

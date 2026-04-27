@@ -32,6 +32,9 @@ import {TaskErrorDataSchema} from '../../core/domain/transport/schemas.js'
 const STATUS_VALUES = ['cancelled', 'completed', 'created', 'error', 'started'] as const
 const StatusSchema = z.enum(STATUS_VALUES)
 
+/** `clear()` default — terminal statuses only; active tasks (created/started) are preserved. */
+const DEFAULT_TERMINAL_STATUSES: readonly TaskHistoryStatus[] = ['cancelled', 'completed', 'error']
+
 /**
  * Index summary line — one per save. Drops heavy fields (responseContent,
  * toolCalls, reasoningContents, sessionId, result) that the list view
@@ -55,9 +58,15 @@ const IndexDataLineSchema = z.object({
 })
 type IndexDataLine = z.infer<typeof IndexDataLineSchema>
 
-/** Tombstone written by M2.05 delete/clear. List skips taskIds whose final line is a tombstone. */
+/**
+ * Tombstone written by delete/deleteMany/clear. List skips taskIds whose final line is a tombstone.
+ * `deletedAt` and `schemaVersion` are optional for back-compat with bare `{_deleted, taskId}` lines
+ * that may exist in older indexes or be appended by tests.
+ */
 const IndexTombstoneSchema = z.object({
   _deleted: z.literal(true),
+  deletedAt: z.number().optional(),
+  schemaVersion: z.literal(TASK_HISTORY_SCHEMA_VERSION).optional(),
   taskId: z.string(),
 })
 type IndexTombstone = z.infer<typeof IndexTombstoneSchema>
@@ -88,18 +97,50 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
     this.dataDir = join(this.storeDir, DATA_DIR)
   }
 
-  // ── Stub methods for M2.05 — present to satisfy the interface contract ─────
+  // ── Delete + clear (M2.05) ─────────────────────────────────────────────────
 
-  async clear(): Promise<{deletedCount: number; taskIds: string[]}> {
-    throw new Error('FileTaskHistoryStore.clear() not implemented (lands in M2.05)')
+  async clear(
+    options: {projectPath?: string; statuses?: TaskHistoryStatus[]} = {},
+  ): Promise<{deletedCount: number; taskIds: string[]}> {
+    const {projectPath, statuses = DEFAULT_TERMINAL_STATUSES} = options
+
+    const dedup = await this.readIndexDedup()
+    const targets: string[] = []
+    for (const line of dedup.values()) {
+      if ('_deleted' in line) continue
+      if (projectPath !== undefined && line.projectPath !== projectPath) continue
+      if (!statuses.includes(line.status)) continue
+      targets.push(line.taskId)
+    }
+
+    if (targets.length > 0) await this.tombstoneAndUnlink(targets)
+    return {deletedCount: targets.length, taskIds: targets}
   }
 
-  async delete(_taskId: string): Promise<boolean> {
-    throw new Error('FileTaskHistoryStore.delete() not implemented (lands in M2.05)')
+  async delete(taskId: string): Promise<boolean> {
+    if (!TASK_ID_PATTERN.test(taskId)) return false
+
+    const dedup = await this.readIndexDedup()
+    const line = dedup.get(taskId)
+    const wasLive = line !== undefined && !('_deleted' in line)
+    if (!wasLive) return false
+
+    await this.tombstoneAndUnlink([taskId])
+    return true
   }
 
-  async deleteMany(_taskIds: string[]): Promise<{deletedCount: number; taskIds: string[]}> {
-    throw new Error('FileTaskHistoryStore.deleteMany() not implemented (lands in M2.05)')
+  async deleteMany(taskIds: string[]): Promise<number> {
+    const valid = taskIds.filter((id) => TASK_ID_PATTERN.test(id))
+    if (valid.length === 0) return 0
+
+    const dedup = await this.readIndexDedup()
+    const live = valid.filter((id) => {
+      const line = dedup.get(id)
+      return line !== undefined && !('_deleted' in line)
+    })
+
+    if (live.length > 0) await this.tombstoneAndUnlink(live)
+    return live.length
   }
 
   // ── M2.02 scope ────────────────────────────────────────────────────────────
@@ -202,6 +243,33 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
 
     this.indexCache = map
     return map
+  }
+
+  /**
+   * Tombstone the given taskIds in a single index-append, then unlink each data file
+   * in parallel. Order matters: tombstone first so list/getById skip the entry even
+   * if the unlink fails (orphan data files are swept by M2.03 compaction). Reverse
+   * order would leave the row visible to list while getById returns undefined.
+   *
+   * Atomicity: a single `appendFile` is POSIX-atomic up to ~4 KB (PIPE_BUF). One
+   * tombstone is ~80 bytes, so this is safe up to ~50 ids per call. For larger
+   * batches concurrent saves could interleave; M2.03 (compaction) is the right
+   * place to add chunking if real workloads need it.
+   */
+  private async tombstoneAndUnlink(taskIds: readonly string[]): Promise<void> {
+    if (taskIds.length === 0) return
+
+    const now = Date.now()
+    const lines = taskIds
+      .map((taskId) =>
+        JSON.stringify({_deleted: true, deletedAt: now, schemaVersion: TASK_HISTORY_SCHEMA_VERSION, taskId}) + '\n',
+      )
+      .join('')
+    await appendFile(this.indexPath, lines, 'utf8')
+    await Promise.all(
+      taskIds.map((id) => rm(this.dataPath(id), {force: true}).catch(() => {})),
+    )
+    this.indexCache = undefined
   }
 
   private async writeAtomic(filePath: string, content: string): Promise<void> {
