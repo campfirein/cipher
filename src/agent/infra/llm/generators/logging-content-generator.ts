@@ -86,6 +86,7 @@ export class LoggingContentGenerator implements IContentGenerator {
 
     try {
       const response = await this.inner.generateContent(request)
+      this.emitUsageEvent(request, response, Date.now() - startTime)
       return response
     } catch (error) {
       this.logError(requestId, error, Date.now() - startTime)
@@ -109,6 +110,7 @@ export class LoggingContentGenerator implements IContentGenerator {
     this.logRequest(requestId, request)
     this.eventBus?.emit('llmservice:thinking')
 
+    let capturedUsage: GenerateContentChunk['usage']
     try {
       let chunkCount = 0
 
@@ -119,12 +121,63 @@ export class LoggingContentGenerator implements IContentGenerator {
           this.logChunk(requestId, chunk, chunkCount)
         }
 
+        // Capture usage when present (typically only on the final chunk).
+        // Last write wins — multiple chunks may carry usage in some providers.
+        if (chunk.usage) {
+          capturedUsage = chunk.usage
+        }
+
         yield chunk
+      }
+
+      if (capturedUsage) {
+        this.emitUsageEventFromChunk(request, capturedUsage, Date.now() - startTime)
       }
     } catch (error) {
       this.logError(requestId, error, Date.now() - startTime)
       throw error
     }
+  }
+
+  /**
+   * Emit `llmservice:usage` with the provider-reported token counts and
+   * the wall-clock duration. No-ops if either the response carries no usage
+   * (the provider didn't report any) or no event bus is wired.
+   *
+   * Caller is `generateContent` (non-streaming). Streaming variant has its
+   * own gap documented above.
+   */
+  private emitUsageEvent(
+    request: GenerateContentRequest,
+    response: GenerateContentResponse,
+    durationMs: number,
+  ): void {
+    if (!this.eventBus || !response.usage) return
+    this.emitUsageEventFromChunk(request, response.usage, durationMs)
+  }
+
+  /**
+   * Shared emit helper — used by both non-streaming (response.usage) and
+   * streaming (final chunk.usage) paths.
+   */
+  private emitUsageEventFromChunk(
+    request: GenerateContentRequest,
+    usage: NonNullable<GenerateContentResponse['usage']>,
+    durationMs: number,
+  ): void {
+    if (!this.eventBus) return
+    this.eventBus.emit('llmservice:usage', {
+      durationMs,
+      inputTokens: usage.inputTokens,
+      model: request.model,
+      outputTokens: usage.outputTokens,
+      taskId: request.taskId,
+      timestamp: Date.now(),
+      totalTokens: usage.totalTokens,
+      ...(usage.cacheReadTokens !== undefined && {cacheReadTokens: usage.cacheReadTokens}),
+      ...(usage.cacheCreationTokens !== undefined && {cacheCreationTokens: usage.cacheCreationTokens}),
+      ...(usage.reasoningTokens !== undefined && {reasoningTokens: usage.reasoningTokens}),
+    })
   }
 
   /**

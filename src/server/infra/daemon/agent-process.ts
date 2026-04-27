@@ -61,6 +61,7 @@ import {QueryExecutor} from '../executor/query-executor.js'
 import {SearchExecutor} from '../executor/search-executor.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
+import {UsageLogger} from '../telemetry/usage-logger.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {createAgentLogger} from './agent-logger.js'
 import {resolveSessionId} from './session-resolver.js'
@@ -291,6 +292,26 @@ async function start(): Promise<void> {
   })
 
   await agent.start()
+
+  // 5a.1. Optional telemetry: when BRV_USAGE_LOG points at a file path,
+  // append every `llmservice:usage` event as JSONL. Opt-in (no env var =
+  // no-op). Used for measurement experiments; not a production telemetry
+  // surface.
+  const usageLogPath = process.env.BRV_USAGE_LOG?.trim()
+  if (usageLogPath) {
+    try {
+      const usageLogger = new UsageLogger({outputPath: usageLogPath})
+      const {agentEventBus} = agent
+      if (agentEventBus) {
+        usageLogger.start(agentEventBus)
+        agentLog(`UsageLogger active → ${usageLogPath}`)
+      } else {
+        agentLog('UsageLogger requested via BRV_USAGE_LOG but agent has no event bus; skipping')
+      }
+    } catch (error) {
+      agentLog(`UsageLogger init failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
 
   // 5b. Resolve session: resume last active or create new
   const sessionsDir = `${configResult.storagePath}/${SESSIONS_DIR}`

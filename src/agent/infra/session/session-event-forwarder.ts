@@ -96,4 +96,12 @@ export function setupEventForwarding(
       sessionId,
     })
   })
+
+  // Forward llmservice:usage (per-LLM-call telemetry)
+  sessionEventBus.on('llmservice:usage', (payload) => {
+    agentEventBus.emit('llmservice:usage', {
+      ...payload,
+      sessionId,
+    })
+  })
 }

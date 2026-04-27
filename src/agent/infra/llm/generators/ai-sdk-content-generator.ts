@@ -86,15 +86,22 @@ export class AiSdkContentGenerator implements IContentGenerator {
       }
     })
 
+    // Extract additional token fields if the AI SDK exposes them (varies by provider)
+    const rawUsage = result.usage as Record<string, number | undefined>
+    const cacheReadTokens = typeof rawUsage.cachedInputTokens === 'number' ? rawUsage.cachedInputTokens : undefined
+    const reasoningTokens = typeof rawUsage.reasoningTokens === 'number' ? rawUsage.reasoningTokens : undefined
+
     return {
       content: result.text,
       finishReason: mapFinishReason(result.finishReason, toolCalls.length > 0),
       rawResponse: result.response,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       usage: {
-        completionTokens: result.usage.outputTokens ?? 0,
-        promptTokens: result.usage.inputTokens ?? 0,
+        inputTokens: result.usage.inputTokens ?? 0,
+        outputTokens: result.usage.outputTokens ?? 0,
         totalTokens: result.usage.totalTokens ?? 0,
+        ...(cacheReadTokens !== undefined && {cacheReadTokens}),
+        ...(reasoningTokens !== undefined && {reasoningTokens}),
       },
     }
   }
@@ -128,10 +135,27 @@ export class AiSdkContentGenerator implements IContentGenerator {
         }
 
         case 'finish-step': {
+          // Extract usage from the AI SDK finish event when available.
+          const finishEvent = event as Record<string, unknown>
+          const rawUsage = finishEvent.usage as Record<string, number | undefined> | undefined
+          let usage: GenerateContentChunk['usage']
+          if (rawUsage && typeof rawUsage.inputTokens === 'number' && typeof rawUsage.outputTokens === 'number') {
+            const cacheReadTokens = typeof rawUsage.cachedInputTokens === 'number' ? rawUsage.cachedInputTokens : undefined
+            const reasoningTokens = typeof rawUsage.reasoningTokens === 'number' ? rawUsage.reasoningTokens : undefined
+            usage = {
+              inputTokens: rawUsage.inputTokens,
+              outputTokens: rawUsage.outputTokens,
+              totalTokens: rawUsage.totalTokens ?? rawUsage.inputTokens + rawUsage.outputTokens,
+              ...(cacheReadTokens !== undefined && {cacheReadTokens}),
+              ...(reasoningTokens !== undefined && {reasoningTokens}),
+            }
+          }
+
           yield {
             finishReason: mapFinishReason(event.finishReason, pendingToolCalls.length > 0),
             isComplete: true,
             toolCalls: pendingToolCalls.length > 0 ? [...pendingToolCalls] : undefined,
+            ...(usage && {usage}),
           }
 
           break

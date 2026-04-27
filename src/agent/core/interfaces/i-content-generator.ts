@@ -72,13 +72,19 @@ export interface GenerateContentResponse {
   rawResponse?: unknown
   /** Tool calls requested by the model */
   toolCalls?: ToolCall[]
-  /** Token usage statistics */
+  /** Token usage statistics (provider-reported, not estimated) */
   usage?: {
-    /** Tokens used for completion */
-    completionTokens: number
-    /** Tokens used for prompt */
-    promptTokens: number
-    /** Total tokens used */
+    /** Tokens written to cache on first call (Anthropic cache_creation_input_tokens). 0 if no cache. */
+    cacheCreationTokens?: number
+    /** Tokens read from cache (Anthropic cache_read_input_tokens, Gemini cachedContentTokenCount). 0 if no cache. */
+    cacheReadTokens?: number
+    /** Tokens consumed from the prompt/input */
+    inputTokens: number
+    /** Tokens generated in the response */
+    outputTokens: number
+    /** Tokens spent on reasoning/thinking (where the provider exposes it separately) */
+    reasoningTokens?: number
+    /** Sum of input + output (provider may report as a separate number) */
     totalTokens: number
   }
 }
@@ -114,6 +120,19 @@ export interface GenerateContentChunk {
    * Defaults to CONTENT if not specified.
    */
   type?: StreamChunkType
+  /**
+   * Provider-reported token usage. Only present on the final chunk
+   * (or a dedicated usage chunk) emitted at end of stream. Same shape
+   * as `GenerateContentResponse.usage`.
+   */
+  usage?: {
+    cacheCreationTokens?: number
+    cacheReadTokens?: number
+    inputTokens: number
+    outputTokens: number
+    reasoningTokens?: number
+    totalTokens: number
+  }
 }
 
 /**
