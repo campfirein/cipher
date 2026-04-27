@@ -110,6 +110,20 @@ describe('Restart Command', () => {
     expect(command.cleanupCalls).to.have.length(1)
   })
 
+  it('passes a single shared getPpidOf to both patternKill calls', async () => {
+    // Phase 1 and Phase 3 must reuse the same getPpidOf closure so that on
+    // Windows the Win32_Process table is loaded once per restart, not twice.
+    const command = createCommand({pid: 9999, port: 50_000})
+
+    await command.run()
+
+    const phase1Call = patternKillStub.getCall(0)
+    const phase3Call = patternKillStub.getCall(1)
+    expect(phase1Call.args[2]).to.be.a('function')
+    expect(phase3Call.args[2]).to.be.a('function')
+    expect(phase1Call.args[2]).to.equal(phase3Call.args[2])
+  })
+
   describe('Phase 2: daemon kill', () => {
     it('sends SIGTERM to daemon PID when daemon info exists', async () => {
       const command = createCommand({pid: 1234, port: 50_000})
@@ -177,7 +191,7 @@ describe('Restart Command', () => {
       const phase1Call = patternKillStub.getCall(0)
       const phase3Call = patternKillStub.getCall(1)
       expect(phase1Call.args[1]).to.be.true
-      expect(phase3Call.args[1]).to.be.undefined
+      expect(phase3Call.args[1]).to.be.false
     })
 
     it('isProtectedCommand detects update in null-byte delimited cmdline (Linux)', () => {
@@ -204,6 +218,8 @@ describe('Restart Command', () => {
       expect(isProtected('node /usr/lib/byterover-cli/bin/run.js restart')).to.be.false
       // Negative: "update" as part of a path or different argument
       expect(isProtected('node /home/user/update-project/bin/run.js restart')).to.be.false
+      // Negative: "update" as a prefix of a flag at end-of-line
+      expect(isProtected('node /usr/lib/byterover-cli/bin/run.js restart --update-foo')).to.be.false
     })
   })
 

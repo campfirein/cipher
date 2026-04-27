@@ -290,7 +290,7 @@ The daemon will restart automatically on the next brv command.`
         '-Command',
         'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId),$($_.ParentProcessId)" }',
       ],
-      {encoding: 'utf8', windowsHide: true},
+      {encoding: 'utf8', timeout: 10_000, windowsHide: true},
     )
     if (result.status !== 0) return new Map()
     return Restart.parseWindowsProcessTable(result.stdout)
@@ -314,7 +314,11 @@ The daemon will restart automatically on the next brv command.`
    *   macOS:                      ps -A scan
    *   Windows:                    PowerShell Get-CimInstance — available Windows 8+ / PS 3.0+
    */
-  private static patternKill(patterns: string[], skipProtected = false): void {
+  private static patternKill(
+    patterns: string[],
+    skipProtected = false,
+    getPpidOf: (pid: number) => number | undefined = Restart.createDefaultGetPpidOf(),
+  ): void {
     // Self-exclusion: walk the full ancestor chain (getPpidOf is platform-aware —
     // Linux /proc, macOS ps, Windows PowerShell CIM). process.pid + process.ppid
     // are kept as explicit fallbacks in case the walker regresses or returns empty
@@ -322,12 +326,12 @@ The daemon will restart automatically on the next brv command.`
     const excludePids = new Set<number>([
       process.pid,
       process.ppid,
-      ...Restart.ancestorPids(process.pid),
+      ...Restart.ancestorPids(process.pid, getPpidOf),
     ])
 
     if (process.platform === 'win32') {
       const script = Restart.buildWindowsKillScript(patterns, excludePids, skipProtected)
-      spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], {stdio: 'ignore', windowsHide: true})
+      spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], {stdio: 'ignore', timeout: 10_000, windowsHide: true})
     } else if (process.platform === 'linux') {
       Restart.killByProcScan(patterns, excludePids, skipProtected)
     } else {
@@ -385,13 +389,18 @@ The daemon will restart automatically on the next brv command.`
   async run(): Promise<void> {
     const dataDir = getGlobalDataDir()
 
+    // Resolve the platform getPpidOf once. On Windows this loads the full
+    // Win32_Process table via PowerShell; share it across Phase 1 and Phase 3
+    // so the spawn happens only once instead of twice.
+    const getPpidOf = Restart.createDefaultGetPpidOf()
+
     // Phase 1: Kill all client processes first (TUI, MCP, headless commands).
     // Must happen BEFORE daemon kill — clients have reconnectors that will
     // respawn the daemon via ensureDaemonRunning() if they detect disconnection.
     // Self excluded by process.pid / process.ppid.
     // Protected commands (e.g. `brv update`) are spared.
     this.log('Stopping clients...')
-    Restart.patternKill(Restart.buildCliPatterns(), true)
+    Restart.patternKill(Restart.buildCliPatterns(), true, getPpidOf)
     await Restart.sleep(KILL_SETTLE_MS)
 
     // Phase 2: Graceful daemon kill via daemon.json PID.
@@ -418,7 +427,7 @@ The daemon will restart automatically on the next brv command.`
     }
 
     // Phase 3: Kill orphaned server/agent processes not tracked in daemon.json.
-    Restart.patternKill(Restart.SERVER_AGENT_PATTERNS)
+    Restart.patternKill(Restart.SERVER_AGENT_PATTERNS, false, getPpidOf)
     await Restart.sleep(KILL_SETTLE_MS)
 
     // Phase 4: Clean state files.
