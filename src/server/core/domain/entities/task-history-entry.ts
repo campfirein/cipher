@@ -21,7 +21,14 @@ import {z} from 'zod'
 
 import type {ReasoningContentItem, ToolCallEvent} from '../../../../shared/transport/events/task-events.js'
 
-import {TaskErrorDataSchema} from '../transport/schemas.js'
+// Inlined to break a transport/schemas.ts <-> entities/ circular import.
+// Mirrors `TaskErrorDataSchema` in transport/schemas.ts; both must stay in sync.
+const TaskErrorDataSchema = z.object({
+  code: z.string().optional(),
+  details: z.record(z.unknown()).optional(),
+  message: z.string(),
+  name: z.string(),
+})
 
 export const TASK_HISTORY_SCHEMA_VERSION = 1
 
