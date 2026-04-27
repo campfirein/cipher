@@ -15,6 +15,7 @@
  * Consumed by TransportHandlers (orchestrator).
  */
 
+import type {ReasoningContentItem, ToolCallEvent} from '../../../shared/transport/events/task-events.js'
 import type {
   LlmChunkEvent,
   LlmErrorEvent,
@@ -132,12 +133,22 @@ function toListItem(task: TaskInfo): TaskListItem {
 }
 
 export class TaskRouter {
+  /**
+   * Throttle window for `onTaskUpdate` flushes — bursts of llmservice events
+   * are coalesced into one save per window. 100ms keeps perceived latency low
+   * while bounding write volume on chatty multi-step agents.
+   */
+  private static readonly FLUSH_INTERVAL_MS = 100
   private readonly agentPool: IAgentPool | undefined
   /**
    * Track recently completed tasks for grace period.
    * Allows late-arriving llmservice:* events to be routed even after task:completed.
    */
   private completedTasks: Map<string, {completedAt: number; task: TaskInfo}> = new Map()
+  /** TaskIds with pending in-flight mutations awaiting the next throttled flush. */
+  private readonly dirtyTaskIds: Set<string> = new Set()
+  /** Pending throttle timer, if any. */
+  private flushTimer: ReturnType<typeof setTimeout> | undefined
   private readonly getAgentForProject: (projectPath?: string) => string | undefined
   private readonly lifecycleHooks: ITaskLifecycleHook[]
   private readonly preDispatchCheck: TaskRouterOptions['preDispatchCheck']
@@ -164,6 +175,11 @@ export class TaskRouter {
   clearTasks(): void {
     this.tasks.clear()
     this.completedTasks.clear()
+    this.dirtyTaskIds.clear()
+    if (this.flushTimer !== undefined) {
+      clearTimeout(this.flushTimer)
+      this.flushTimer = undefined
+    }
   }
 
   /**
@@ -270,6 +286,145 @@ export class TaskRouter {
     // LLM events
     for (const eventName of TransportLlmEventList) {
       this.registerLlmEvent(eventName)
+    }
+  }
+
+  /**
+   * Mutate the live `TaskInfo` from an `llmservice:*` event so a tab refresh
+   * during the throttle window sees the in-flight state. Each branch:
+   *   - thinking: push a `{isThinking: true, content: ''}` marker
+   *   - chunk(reasoning): append to last item / flip empty marker / push fresh
+   *   - chunk(text): IGNORED for persistence (transient stream)
+   *   - response: set responseContent + sessionId (overwrite — multi-step keeps latest)
+   *   - toolCall: push running entry
+   *   - toolResult: update existing entry by callId
+   *   - error / unsupportedInput: IGNORED (terminal hooks capture failure)
+   *
+   * Mutations use immutable `tasks.set(id, {...task, ...delta})` so consumers
+   * holding a captured reference (e.g. notifyHooks*) see a stable snapshot.
+   */
+  private accumulateLlmEvent(taskId: string, eventName: string, data: {[key: string]: unknown}): void {
+    const task = this.tasks.get(taskId)
+    if (!task) return
+
+    switch (eventName) {
+      case LlmEventNames.CHUNK: {
+        if (data.type !== 'reasoning') return // 'text' is transient — ignore
+        const content = typeof data.content === 'string' ? data.content : ''
+        const items = task.reasoningContents ?? []
+        const last = items.at(-1)
+        let nextItems: ReasoningContentItem[]
+        if (last === undefined) {
+          // Case C: empty array — push fresh body entry.
+          nextItems = [{content, isThinking: false, timestamp: Date.now()}]
+        } else if (last.isThinking === true && (last.content ?? '') === '') {
+          // Case A: flip the empty isThinking marker to body.
+          nextItems = [...items.slice(0, -1), {...last, content, isThinking: false}]
+        } else {
+          // Case B: append to existing body.
+          nextItems = [...items.slice(0, -1), {...last, content: (last.content ?? '') + content}]
+        }
+
+        this.tasks.set(taskId, {...task, reasoningContents: nextItems})
+        this.markDirty(taskId)
+        return
+      }
+
+      case LlmEventNames.RESPONSE: {
+        const content = typeof data.content === 'string' ? data.content : ''
+        const sessionId = typeof data.sessionId === 'string' ? data.sessionId : task.sessionId
+        this.tasks.set(taskId, {
+          ...task,
+          responseContent: content,
+          ...(sessionId === undefined ? {} : {sessionId}),
+        })
+        this.markDirty(taskId)
+        return
+      }
+
+      case LlmEventNames.THINKING: {
+        const items = task.reasoningContents ?? []
+        const nextItems: ReasoningContentItem[] = [
+          ...items,
+          {content: '', isThinking: true, timestamp: Date.now()},
+        ]
+        this.tasks.set(taskId, {...task, reasoningContents: nextItems})
+        this.markDirty(taskId)
+        return
+      }
+
+      case LlmEventNames.TOOL_CALL: {
+        const args = typeof data.args === 'object' && data.args !== null ? (data.args as Record<string, unknown>) : {}
+        const callId = typeof data.callId === 'string' ? data.callId : undefined
+        const sessionId = typeof data.sessionId === 'string' ? data.sessionId : ''
+        const toolName = typeof data.toolName === 'string' ? data.toolName : ''
+        const newCall: ToolCallEvent = {
+          args,
+          ...(callId === undefined ? {} : {callId}),
+          sessionId,
+          status: 'running',
+          timestamp: Date.now(),
+          toolName,
+        }
+        this.tasks.set(taskId, {
+          ...task,
+          toolCalls: [...(task.toolCalls ?? []), newCall],
+        })
+        this.markDirty(taskId)
+        return
+      }
+
+      case LlmEventNames.TOOL_RESULT: {
+        const callId = typeof data.callId === 'string' ? data.callId : undefined
+        if (callId === undefined) return
+        const items = task.toolCalls ?? []
+        const idx = items.findIndex((c) => c.callId === callId)
+        if (idx === -1) return
+        const success = data.success !== false
+        const updated: ToolCallEvent = {
+          ...items[idx],
+          ...(typeof data.error === 'string' ? {error: data.error} : {}),
+          ...(typeof data.errorType === 'string' ? {errorType: data.errorType} : {}),
+          ...(data.result === undefined ? {} : {result: data.result}),
+          status: success ? 'completed' : 'error',
+        }
+        const nextCalls = [...items.slice(0, idx), updated, ...items.slice(idx + 1)]
+        this.tasks.set(taskId, {...task, toolCalls: nextCalls})
+        this.markDirty(taskId)
+        break
+      }
+
+      // ERROR + UNSUPPORTED_INPUT: ignored — terminal lifecycle hook captures failure.
+      default:
+        // No mutation; fall through.
+    }
+  }
+
+  /**
+   * Drain the dirty set: for each taskId still active, fire `onTaskUpdate` on
+   * each lifecycle hook. Tasks moved to `completedTasks` between markDirty
+   * and flush are skipped — their terminal lifecycle hook already saved.
+   */
+  private async flushDirty(): Promise<void> {
+    this.flushTimer = undefined
+    if (this.dirtyTaskIds.size === 0) return
+
+    const ids = [...this.dirtyTaskIds]
+    this.dirtyTaskIds.clear()
+
+    for (const taskId of ids) {
+      const task = this.tasks.get(taskId)
+      if (!task) continue
+      for (const hook of this.lifecycleHooks) {
+        try {
+          // eslint-disable-next-line no-await-in-loop -- sequential hook calls by design
+          await hook.onTaskUpdate?.(task)
+        } catch (error) {
+          transportLog(
+            `LifecycleHook.onTaskUpdate error for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
+      }
     }
   }
 
@@ -789,6 +944,8 @@ export class TaskRouter {
     const task = this.tasks.get(taskId)
     if (task) {
       this.tasks.set(taskId, {...task, startedAt: Date.now(), status: 'started'})
+      // No `onTaskStarted` hook — capture the transition via the throttled flush.
+      this.markDirty(taskId)
       this.transport.sendTo(task.clientId, TransportTaskEventNames.STARTED, {taskId})
 
       broadcastToProjectRoom(
@@ -809,6 +966,24 @@ export class TaskRouter {
       // No task context — cannot determine project room, skip broadcast
       transportLog(`Task started but no task context found: ${taskId}`)
     }
+  }
+
+  /**
+   * Mark a taskId for the next throttled `onTaskUpdate` flush.
+   * Schedules a timer if none is pending. Bursts of dirty marks within the
+   * 100ms window coalesce into a single flush.
+   */
+  private markDirty(taskId: string): void {
+    this.dirtyTaskIds.add(taskId)
+    if (this.flushTimer !== undefined) return
+    this.flushTimer = setTimeout(() => {
+      this.flushDirty().catch(() => {
+        // flushDirty already swallows per-hook errors; this catch covers
+        // unexpected scheduler-level failures.
+      })
+    }, TaskRouter.FLUSH_INTERVAL_MS)
+    // unref so a pending flush doesn't block daemon shutdown.
+    this.flushTimer.unref?.()
   }
 
   /**
@@ -953,6 +1128,14 @@ export class TaskRouter {
 
     if (!task) {
       return
+    }
+
+    // Accumulator: mutate the live `TaskInfo` BEFORE broadcasting so a tab
+    // refresh during the next throttle window sees the in-flight state.
+    // Only mutates for ACTIVE tasks — grace-period entries already had their
+    // terminal save persisted by the lifecycle hook.
+    if (activeTask) {
+      this.accumulateLlmEvent(taskId, eventName, data)
     }
 
     // Notify onToolResult hooks only for active tasks
