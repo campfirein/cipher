@@ -177,6 +177,7 @@ export class ByteRoverContentGenerator implements IContentGenerator {
       finishReason,
       rawResponse,
       toolCalls,
+      usage: this.extractUsage(rawResponse),
     }
   }
 
@@ -216,12 +217,38 @@ export class ByteRoverContentGenerator implements IContentGenerator {
     const contents = this.providerType === 'claude' ? genConfig : formattedMessages
     const config = this.providerType === 'claude' ? ({} as RequestOptions) : genConfig
 
-    // Stream from HTTP service
-    yield* this.httpService.generateContentStream(
+    // We DON'T use httpService.generateContentStream because it discards the
+    // raw response after extracting chunks — losing usage metadata. Instead,
+    // call generateContent directly to get the full response, extract usage,
+    // and yield chunks ourselves (using the now-public extract helpers).
+    // This preserves the streaming chunk semantics while surfacing usage on
+    // the final chunk for telemetry.
+    const rawResponse = await this.httpService.generateContent(
       contents as Content[] | MessageCreateParamsNonStreaming,
       config as GenerateContentConfig | RequestOptions,
       executionMetadata,
     )
+
+    // Yield thinking chunks first (Gemini may emit `thought: true` parts)
+    yield* this.httpService.extractThinkingFromResponse(rawResponse)
+
+    // Yield content + tool-call chunks. Attach `usage` to the final chunk.
+    const usage = this.extractUsage(rawResponse)
+    let lastEmitted = false
+    for (const chunk of this.httpService.extractContentFromResponse(rawResponse)) {
+      if (chunk.isComplete && usage) {
+        yield {...chunk, usage}
+        lastEmitted = true
+      } else {
+        yield chunk
+      }
+    }
+
+    // Defensive: if extractContentFromResponse didn't emit a final chunk,
+    // ensure usage still surfaces via a trailing usage-only chunk.
+    if (!lastEmitted && usage) {
+      yield {isComplete: true, usage}
+    }
   }
 
   /**
@@ -327,5 +354,53 @@ export class ByteRoverContentGenerator implements IContentGenerator {
     }
 
     return ''
+  }
+
+  /**
+   * Extract provider-reported token usage from a raw response.
+   *
+   * Dispatches by `providerType`:
+   * - Gemini: `rawResponse.usageMetadata.{promptTokenCount, candidatesTokenCount, totalTokenCount, cachedContentTokenCount, thoughtsTokenCount}`
+   * - Claude: `rawResponse.usage.{input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens}`
+   *
+   * Returns undefined if the response doesn't carry usage (e.g. error path or
+   * a stub response). Callers should treat the absence as "we don't know" not zero.
+   */
+  private extractUsage(rawResponse: unknown): GenerateContentResponse['usage'] {
+    if (!rawResponse || typeof rawResponse !== 'object') return undefined
+
+    if (this.providerType === 'gemini') {
+      const meta = (rawResponse as {usageMetadata?: Record<string, number | undefined>}).usageMetadata
+      if (!meta) return undefined
+      const inputTokens = meta.promptTokenCount ?? 0
+      const outputTokens = meta.candidatesTokenCount ?? 0
+      const totalTokens = meta.totalTokenCount ?? inputTokens + outputTokens
+      const cacheReadTokens = meta.cachedContentTokenCount
+      const reasoningTokens = meta.thoughtsTokenCount
+      return {
+        inputTokens,
+        outputTokens,
+        totalTokens,
+        ...(typeof cacheReadTokens === 'number' && cacheReadTokens > 0 && {cacheReadTokens}),
+        ...(typeof reasoningTokens === 'number' && reasoningTokens > 0 && {reasoningTokens}),
+      }
+    }
+
+    // Claude
+    const {usage} = (rawResponse as {usage?: Record<string, number | undefined>})
+    if (!usage) return undefined
+     
+    const inputTokens = usage.input_tokens ?? 0
+    const outputTokens = usage.output_tokens ?? 0
+    const cacheReadTokens = usage.cache_read_input_tokens
+    const cacheCreationTokens = usage.cache_creation_input_tokens
+     
+    return {
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+      ...(typeof cacheReadTokens === 'number' && cacheReadTokens > 0 && {cacheReadTokens}),
+      ...(typeof cacheCreationTokens === 'number' && cacheCreationTokens > 0 && {cacheCreationTokens}),
+    }
   }
 }
