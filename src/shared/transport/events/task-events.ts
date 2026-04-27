@@ -36,6 +36,35 @@ export interface TaskCancelResponse {
 
 export type TaskListItemStatus = 'cancelled' | 'completed' | 'created' | 'error' | 'started'
 
+/**
+ * Reasoning/thinking content item with timestamp for ordering.
+ * Shared between webui, tui, and the server-side TaskHistoryEntry.
+ */
+export interface ReasoningContentItem {
+  content: string
+  /** Whether this reasoning item is still being streamed */
+  isThinking?: boolean
+  timestamp: number
+}
+
+/**
+ * Persisted tool-call lifecycle entry — distinct from the wire-payload
+ * `LlmToolCallEventSchema` in `core/domain/transport/schemas.ts`. This shape
+ * carries the `running | completed | error` state machine and is the form
+ * stored in `TaskHistoryEntry.toolCalls`.
+ */
+export interface ToolCallEvent {
+  args: Record<string, unknown>
+  callId?: string
+  error?: string
+  errorType?: string
+  result?: unknown
+  sessionId: string
+  status: 'completed' | 'error' | 'running'
+  timestamp: number
+  toolName: string
+}
+
 export interface TaskListItem {
   completedAt?: number
   content: string
