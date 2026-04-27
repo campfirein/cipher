@@ -6,6 +6,7 @@ import {vcCheckoutSubCommand} from './vc-checkout.js'
 import {vcCloneSubCommand} from './vc-clone.js'
 import {vcCommitSubCommand} from './vc-commit.js'
 import {vcConfigSubCommand} from './vc-config.js'
+import {vcDiffSubCommand} from './vc-diff.js'
 import {vcFetchSubCommand} from './vc-fetch.js'
 import {vcInitSubCommand} from './vc-init.js'
 import {vcLogSubCommand} from './vc-log.js'
@@ -29,6 +30,7 @@ export const vcCommand: SlashCommand = {
     vcPullSubCommand,
     vcPushSubCommand,
     vcStatusSubCommand,
+    vcDiffSubCommand,
     vcLogSubCommand,
     vcMergeSubCommand,
     vcBranchSubCommand,

@@ -52,7 +52,7 @@ export function generateSummaryContent(frontmatter: SummaryFrontmatter, body: st
     type: 'summary',
   }
 
-  const yamlContent = yamlDump(fm, {flowLevel: 1, lineWidth: -1, sortKeys: true}).trimEnd()
+  const yamlContent = yamlDump(fm, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
 
   return `---\n${yamlContent}\n---\n${body}`
 }
@@ -92,7 +92,7 @@ export function generateArchiveStubContent(frontmatter: ArchiveStubFrontmatter, 
     type: 'archive_stub',
   }
 
-  const yamlContent = yamlDump(fm, {flowLevel: 1, lineWidth: -1, sortKeys: true}).trimEnd()
+  const yamlContent = yamlDump(fm, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
 
   return `---\n${yamlContent}\n---\n${ghostCue}`
 }

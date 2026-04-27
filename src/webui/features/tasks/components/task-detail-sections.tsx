@@ -1,11 +1,16 @@
+import {Button} from '@campfirein/byterover-packages/components/button'
 import {Card} from '@campfirein/byterover-packages/components/card'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
-import {Folder, Paperclip} from 'lucide-react'
+import {Folder, Paperclip, RotateCcw} from 'lucide-react'
 
 import type {StoredTask} from '../types/stored-task'
 
 import {formatError} from '../../../lib/error-messages'
+import {useProviderStore} from '../../provider/stores/provider-store'
+import {useComposerRetryStore} from '../stores/composer-retry-store'
+import {composerTypeFromTask} from '../utils/composer-type-from-task'
 import {shortTaskId} from '../utils/format-time'
+import {isProviderTaskError} from '../utils/is-provider-task-error'
 import {isActiveStatus} from '../utils/task-status'
 import {AttachmentChip} from './attachment-chip'
 import {MarkdownInline} from './markdown-inline'
@@ -75,7 +80,21 @@ export function ResultSection({content}: {content: string}) {
   )
 }
 
-export function ErrorSection({error}: {error: NonNullable<StoredTask['error']>}) {
+export function ErrorSection({task}: {task: StoredTask}) {
+  const {error} = task
+  const openProviderDialog = useProviderStore((s) => s.openProviderDialog)
+  const requestRetry = useComposerRetryStore((s) => s.requestRetry)
+  const showProviderCta = isProviderTaskError({
+    error,
+    hadLlmServiceError: Boolean(task.hadLlmServiceError),
+  })
+
+  if (!error) return null
+
+  function retry() {
+    requestRetry({content: task.content, type: composerTypeFromTask(task.type)})
+  }
+
   return (
     <section className="relative pl-8">
       <TerminalDot tone="error" />
@@ -83,6 +102,18 @@ export function ErrorSection({error}: {error: NonNullable<StoredTask['error']>})
       <Card className="bg-red-500/5 p-5 ring-1 ring-red-500/30" size="sm">
         <p className="text-red-400 text-sm">{formatError(error)}</p>
         {error.code && <p className="text-muted-foreground mono mt-1 text-[11px]">{error.code}</p>}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {showProviderCta && (
+            <Button onClick={openProviderDialog} size="sm">
+              Configure provider
+            </Button>
+          )}
+          <Button onClick={retry} size="sm" variant={showProviderCta ? 'secondary' : 'default'}>
+            <RotateCcw className="size-3.5" />
+            Try again
+          </Button>
+          <span className="text-muted-foreground text-xs">Your prompt is preserved.</span>
+        </div>
       </Card>
     </section>
   )

@@ -185,9 +185,60 @@ describe('BrvConfig', () => {
     })
   })
 
+  describe('withoutSpace', () => {
+    it('should create new config with space fields cleared, preserving all other fields', () => {
+      const original = new BrvConfig(validConstructorArgs)
+      const cleared = original.withoutSpace()
+
+      expect(cleared.spaceId).to.be.undefined
+      expect(cleared.spaceName).to.be.undefined
+      expect(cleared.teamId).to.be.undefined
+      expect(cleared.teamName).to.be.undefined
+      expect(cleared.chatLogPath).to.equal(original.chatLogPath)
+      expect(cleared.cwd).to.equal(original.cwd)
+      expect(cleared.ide).to.equal(original.ide)
+      expect(cleared.createdAt).to.equal(original.createdAt)
+      expect(cleared.version).to.equal(original.version)
+    })
+
+    it('should not mutate the original config', () => {
+      const original = new BrvConfig(validConstructorArgs)
+      original.withoutSpace()
+
+      expect(original.spaceId).to.equal(validConstructorArgs.spaceId)
+      expect(original.teamId).to.equal(validConstructorArgs.teamId)
+    })
+
+    it('should produce a config that is not cloud-connected', () => {
+      const original = new BrvConfig(validConstructorArgs)
+      expect(original.isCloudConnected()).to.be.true
+      expect(original.withoutSpace().isCloudConnected()).to.be.false
+    })
+
+    it('should preserve non-space fields (cipherAgent fields) through withoutSpace', () => {
+      const original = new BrvConfig({
+        ...validConstructorArgs,
+        cipherAgentContext: 'context-payload',
+        cipherAgentModes: ['mode-a', 'mode-b'],
+        cipherAgentSystemPrompt: 'system-prompt-text',
+      })
+      const cleared = original.withoutSpace()
+
+      expect(cleared.cipherAgentContext).to.equal('context-payload')
+      expect(cleared.cipherAgentModes).to.deep.equal(['mode-a', 'mode-b'])
+      expect(cleared.cipherAgentSystemPrompt).to.equal('system-prompt-text')
+    })
+  })
+
   describe('fromSpace', () => {
     it('should create config from Space entity with current version', () => {
-      const space = new Space({id: 'space-789', isDefault: false, name: 'my-space', teamId: 'team-abc', teamName: 'my-team'})
+      const space = new Space({
+        id: 'space-789',
+        isDefault: false,
+        name: 'my-space',
+        teamId: 'team-abc',
+        teamName: 'my-team',
+      })
 
       const config = BrvConfig.fromSpace({
         chatLogPath: '/path/to/logs',
@@ -203,6 +254,5 @@ describe('BrvConfig', () => {
       expect(config.teamName).to.equal('my-team')
       expect(config.createdAt).to.be.a('string')
     })
-
   })
 })

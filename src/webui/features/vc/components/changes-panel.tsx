@@ -8,6 +8,7 @@ import type { ChangeFile } from '../types'
 
 import successTick from '../../../assets/success-tick.svg'
 import { formatError } from '../../../lib/error-messages'
+import { toastVcError } from '../../../lib/toast-vc-error'
 import { useTransportStore } from '../../../stores/transport-store'
 import { useAuthStore } from '../../auth/stores/auth-store'
 import { useVcAdd } from '../api/execute-vc-add'
@@ -128,7 +129,7 @@ export function ChangesPanel() {
       toast.success('Committed')
       return true
     } catch (error) {
-      toast.error(formatError(error, 'Failed to commit', {projectPath: selectedProject}))
+      toastVcError(error, 'Failed to commit', navigate, {projectPath: selectedProject})
       return false
     }
   }
@@ -139,7 +140,7 @@ export function ChangesPanel() {
       toast.success('Merge committed')
       return true
     } catch (error) {
-      toast.error(formatError(error, 'Failed to commit merge', {projectPath: selectedProject}))
+      toastVcError(error, 'Failed to commit merge', navigate, {projectPath: selectedProject})
       return false
     }
   }
@@ -176,7 +177,7 @@ export function ChangesPanel() {
         setShowStageAllConfirm(false)
       }
     } catch (error) {
-      toast.error(formatError(error, 'Failed to stage & commit', {projectPath: selectedProject}))
+      toastVcError(error, 'Failed to stage & commit', navigate, {projectPath: selectedProject})
     }
   }
 
@@ -185,7 +186,7 @@ export function ChangesPanel() {
       const result = await pushMutation.mutateAsync({ setUpstream: !status.trackingBranch })
       toast.success(result.alreadyUpToDate ? 'Already up to date' : `Pushed ${result.branch}`)
     } catch (error) {
-      toast.error(formatError(error, 'Failed to push'))
+      toastVcError(error, 'Failed to push', navigate)
     }
   }
 
@@ -198,7 +199,7 @@ export function ChangesPanel() {
         toast.success(result.alreadyUpToDate ? 'Already up to date' : `Pulled ${result.branch}`)
       }
     } catch (error) {
-      toast.error(formatError(error, 'Failed to pull'))
+      toastVcError(error, 'Failed to pull', navigate)
     }
   }
 

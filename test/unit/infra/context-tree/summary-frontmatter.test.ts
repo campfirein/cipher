@@ -153,7 +153,7 @@ Body without closing`
       expect(content.startsWith('---\n')).to.be.true
     })
 
-    it('should produce sorted YAML keys', () => {
+    it('should produce YAML keys in object-literal insertion order', () => {
       const frontmatter = {
         children_hash: 'hash',
         compression_ratio: 0.5,
@@ -170,9 +170,12 @@ Body without closing`
       const keys = yamlSection.split('\n')
         .filter((line) => /^\w/.test(line))
         .map((line) => line.split(':')[0])
-      // Keys should be in alphabetical order
-      const sortedKeys = [...keys].sort()
-      expect(keys).to.deep.equal(sortedKeys)
+      // Keys should follow the insertion order from generateSummaryContent,
+      // not be force-sorted alphabetically (sortKeys: false).
+      expect(keys).to.deep.equal([
+        'children_hash', 'compression_ratio', 'condensation_order',
+        'covers', 'covers_token_total', 'summary_level', 'token_count', 'type',
+      ])
     })
   })
 
@@ -262,7 +265,7 @@ Body`
       expect(content.startsWith('---\n')).to.be.true
     })
 
-    it('should produce sorted YAML keys', () => {
+    it('should produce YAML keys in object-literal insertion order', () => {
       const frontmatter = {
         evicted_at: '2026-03-01T00:00:00.000Z',
         evicted_importance: 25,
@@ -277,8 +280,12 @@ Body`
       const keys = yamlSection.split('\n')
         .filter((line) => /^\w/.test(line))
         .map((line) => line.split(':')[0])
-      const sortedKeys = [...keys].sort()
-      expect(keys).to.deep.equal(sortedKeys)
+      // Keys should follow the insertion order from generateArchiveStubContent,
+      // not be force-sorted alphabetically (sortKeys: false).
+      expect(keys).to.deep.equal([
+        'evicted_at', 'evicted_importance', 'original_path',
+        'original_token_count', 'points_to', 'type',
+      ])
     })
   })
 })
