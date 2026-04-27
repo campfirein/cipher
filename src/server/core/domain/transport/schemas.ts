@@ -517,6 +517,10 @@ export const TaskCreatedSchema = z.object({
   files: z.array(z.string()).optional(),
   /** Folder path for curate-folder task type */
   folderPath: z.string().optional(),
+  /** Active model id at task creation time */
+  model: z.string().optional(),
+  /** Active provider id at task creation time */
+  provider: z.string().optional(),
   /** Unique task identifier */
   taskId: z.string(),
   /** Task type */
@@ -736,7 +740,11 @@ export const TaskListItemSchema = z.object({
   files: z.array(z.string()).optional(),
   /** Folder path for `curate-folder` tasks */
   folderPath: z.string().optional(),
+  /** Active model id at task creation time */
+  model: z.string().optional(),
   projectPath: z.string().optional(),
+  /** Active provider id at task creation time */
+  provider: z.string().optional(),
   result: z.string().optional(),
   startedAt: z.number().optional(),
   status: TaskListItemStatusSchema,

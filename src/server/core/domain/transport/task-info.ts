@@ -19,8 +19,12 @@ export type TaskInfo = {
   folderPath?: string
   /** Log entry ID set by lifecycle hook after onTaskCreate */
   logId?: string
+  /** Active model id at task creation time */
+  model?: string
   /** Project path this task belongs to (for multi-project routing) */
   projectPath?: string
+  /** Active provider id at task creation time */
+  provider?: string
   /** Set on successful completion */
   result?: string
   /** Set when agent picks up the task */
