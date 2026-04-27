@@ -97,6 +97,11 @@ type TaskRouterOptions = {
   preDispatchCheck?: PreDispatchCheck
   projectRegistry?: IProjectRegistry
   projectRouter?: IProjectRouter
+  /**
+   * Resolves the active provider/model snapshot at task-create time.
+   * Failures are swallowed (fail-open) so dispatch is never blocked.
+   */
+  resolveActiveProvider?: () => Promise<{model?: string; provider?: string}>
   /** Resolves the projectPath a client registered with (from client:register). */
   resolveClientProjectPath?: (clientId: string) => string | undefined
   transport: ITransportServer
@@ -115,7 +120,9 @@ function toListItem(task: TaskInfo): TaskListItem {
     ...(task.error ? {error: task.error} : {}),
     ...(task.files && task.files.length > 0 ? {files: task.files} : {}),
     ...(task.folderPath ? {folderPath: task.folderPath} : {}),
+    ...(task.model ? {model: task.model} : {}),
     ...(task.projectPath ? {projectPath: task.projectPath} : {}),
+    ...(task.provider ? {provider: task.provider} : {}),
     ...(task.result ? {result: task.result} : {}),
     ...(task.startedAt ? {startedAt: task.startedAt} : {}),
     status,
@@ -136,6 +143,7 @@ export class TaskRouter {
   private readonly preDispatchCheck: TaskRouterOptions['preDispatchCheck']
   private readonly projectRegistry: IProjectRegistry | undefined
   private readonly projectRouter: IProjectRouter | undefined
+  private readonly resolveActiveProvider: TaskRouterOptions['resolveActiveProvider']
   private readonly resolveClientProjectPath: ((clientId: string) => string | undefined) | undefined
   /** Track active tasks */
   private tasks: Map<string, TaskInfo> = new Map()
@@ -149,6 +157,7 @@ export class TaskRouter {
     this.preDispatchCheck = options.preDispatchCheck
     this.projectRegistry = options.projectRegistry
     this.projectRouter = options.projectRouter
+    this.resolveActiveProvider = options.resolveActiveProvider
     this.resolveClientProjectPath = options.resolveClientProjectPath
   }
 
@@ -490,6 +499,15 @@ export class TaskRouter {
 
     transportLog(`Task accepted: ${taskId} (type=${data.type}, client=${clientId})`)
 
+    // Resolve active provider/model snapshot. Conditional await preserves the
+    // synchronous "store → broadcast" timing when no resolver is configured —
+    // an unconditional await would yield a microtask even on an immediately-
+    // resolved Promise, breaking tests that assert on broadcasts without
+    // awaiting the handler.
+    const {model, provider} = this.resolveActiveProvider
+      ? await this.safeResolveActiveProvider()
+      : {}
+
     this.tasks.set(taskId, {
       clientId,
       content: data.content,
@@ -498,7 +516,9 @@ export class TaskRouter {
       ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
       ...(data.folderPath ? {folderPath: data.folderPath} : {}),
+      ...(model ? {model} : {}),
       ...(projectPath ? {projectPath} : {}),
+      ...(provider ? {provider} : {}),
       taskId,
       type: data.type,
       ...(worktreeRoot ? {worktreeRoot} : {}),
@@ -511,6 +531,8 @@ export class TaskRouter {
       ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
       ...(data.folderPath ? {folderPath: data.folderPath} : {}),
+      ...(model ? {model} : {}),
+      ...(provider ? {provider} : {}),
       taskId,
       type: data.type,
     }
@@ -982,5 +1004,20 @@ export class TaskRouter {
     )
 
     return logIds.find((id): id is string => typeof id === 'string')
+  }
+
+  /**
+   * Invoke `resolveActiveProvider` with a try/catch so a thrown resolver
+   * cannot block task dispatch. Returns `{}` when no resolver is configured
+   * or when the resolver rejects/throws.
+   */
+  private async safeResolveActiveProvider(): Promise<{model?: string; provider?: string}> {
+    if (!this.resolveActiveProvider) return {}
+    try {
+      return await this.resolveActiveProvider()
+    } catch (error) {
+      transportLog(`resolveActiveProvider failed: ${error instanceof Error ? error.message : String(error)}`)
+      return {}
+    }
   }
 }
