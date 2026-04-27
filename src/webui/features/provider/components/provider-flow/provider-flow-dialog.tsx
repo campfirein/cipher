@@ -1,30 +1,38 @@
-import { Dialog, DialogContent } from '@campfirein/byterover-packages/components/dialog'
-import { LoaderCircle } from 'lucide-react'
-import { useCallback, useState } from 'react'
-import { toast } from 'sonner'
+import {Dialog, DialogContent} from '@campfirein/byterover-packages/components/dialog'
+import {LoaderCircle} from 'lucide-react'
+import {useCallback, useRef, useState} from 'react'
+import {toast} from 'sonner'
 
 import type {ModelDTO, ProviderDTO} from '../../../../../shared/transport/events'
 
-import { formatError } from '../../../../lib/error-messages'
-import { useAuthStore } from '../../../auth/stores/auth-store'
-import { useSetActiveModel } from '../../../model/api/set-active-model'
+import {formatError} from '../../../../lib/error-messages'
+import {useAuthStore} from '../../../auth/stores/auth-store'
+import {useSetActiveModel} from '../../../model/api/set-active-model'
 import {TourStepBadge} from '../../../onboarding/components/tour-step-badge'
-import { useAwaitOAuthCallback } from '../../api/await-oauth-callback'
-import { useConnectProvider } from '../../api/connect-provider'
-import { useDisconnectProvider } from '../../api/disconnect-provider'
-import { useGetProviders } from '../../api/get-providers'
-import { useSetActiveProvider } from '../../api/set-active-provider'
-import { useStartOAuth } from '../../api/start-oauth'
-import { useValidateApiKey } from '../../api/validate-api-key'
-import { ApiKeyStep } from './api-key-step'
-import { AuthMethodStep } from './auth-method-step'
-import { BaseUrlStep } from './base-url-step'
-import { LoginPromptStep } from './login-prompt-step'
-import { ModelSelectStep } from './model-select-step'
-import { type ProviderActionId, ProviderActionStep } from './provider-action-step'
-import { ProviderSelectStep } from './provider-select-step'
+import {useAwaitOAuthCallback} from '../../api/await-oauth-callback'
+import {useConnectProvider} from '../../api/connect-provider'
+import {useDisconnectProvider} from '../../api/disconnect-provider'
+import {useGetProviders} from '../../api/get-providers'
+import {useSetActiveProvider} from '../../api/set-active-provider'
+import {useStartOAuth} from '../../api/start-oauth'
+import {useValidateApiKey} from '../../api/validate-api-key'
+import {ApiKeyStep} from './api-key-step'
+import {AuthMethodStep} from './auth-method-step'
+import {BaseUrlStep} from './base-url-step'
+import {LoginPromptStep} from './login-prompt-step'
+import {ModelSelectStep} from './model-select-step'
+import {type ProviderActionId, ProviderActionStep} from './provider-action-step'
+import {ProviderSelectStep} from './provider-select-step'
 
-type FlowStep = 'api_key' | 'auth_method' | 'base_url' | 'connecting' | 'login_prompt' | 'model_select' | 'provider_actions' | 'select'
+type FlowStep =
+  | 'api_key'
+  | 'auth_method'
+  | 'base_url'
+  | 'connecting'
+  | 'login_prompt'
+  | 'model_select'
+  | 'provider_actions'
+  | 'select'
 
 const BYTEROVER_PROVIDER_ID = 'byterover'
 
@@ -61,6 +69,12 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
   const [baseUrl, setBaseUrl] = useState<string | undefined>()
   const [error, setError] = useState<string | undefined>()
   const [isNewConnection, setIsNewConnection] = useState(false)
+
+  // Window reference for the ByteRover OAuth popup. Opened synchronously in the
+  // provider row click handler to preserve the user-gesture context (browsers
+  // block popups opened later from effects or awaited promises) and handed off
+  // to LoginPromptStep, which navigates it to the auth URL.
+  const oauthPopupRef = useRef<ReturnType<typeof globalThis.open>>(null)
 
   const isAuthorized = useAuthStore((s) => s.isAuthorized)
   const {data} = useGetProviders()
@@ -135,8 +149,12 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
       setSelectedProvider(provider)
       setError(undefined)
 
-      // ByteRover requires sign-in first
+      // ByteRover requires sign-in first. Open the OAuth popup synchronously
+      // right here — we're inside the row's click handler, which is still
+      // within the user-gesture window browsers require for window.open().
+      // Opening later (from useEffect or after await) gets blocked.
       if (provider.id === BYTEROVER_PROVIDER_ID && !isAuthorized) {
+        oauthPopupRef.current = window.open('about:blank', '_blank')
         setStep('login_prompt')
         return
       }
@@ -178,58 +196,63 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
         return
       }
 
-    // No key needed → connect directly → model select
-    setStep('connecting')
-    try {
-      await connectMutation.mutateAsync({ providerId: provider.id })
-      setIsNewConnection(true)
-      setStep('model_select')
-    } catch (error_) {
-      toast.error(formatError(error_, 'Connection failed'))
-      setStep('select')
-    }
-  }, [connectByteRover, connectMutation, isAuthorized, onProviderActivated, resetAndClose])
-
-  const handleOAuth = useCallback(async (provider: ProviderDTO) => {
-    setStep('connecting')
-    try {
-      const result = await startOAuthMutation.mutateAsync({providerId: provider.id})
-      if (!result.success) {
-        toast.error(result.error ?? 'Failed to start OAuth')
-        setStep('select')
-        return
-      }
-
-      const callbackResult = await awaitOAuthMutation.mutateAsync({ providerId: provider.id })
-      if (callbackResult.success) {
+      // No key needed → connect directly → model select
+      setStep('connecting')
+      try {
+        await connectMutation.mutateAsync({providerId: provider.id})
         setIsNewConnection(true)
         setStep('model_select')
-      } else {
-        toast.error(callbackResult.error ?? 'OAuth failed')
+      } catch (error_) {
+        toast.error(formatError(error_, 'Connection failed'))
         setStep('select')
       }
-    } catch (error_) {
-      toast.error(formatError(error_, 'OAuth failed'))
-      setStep('select')
-    }
-  }, [awaitOAuthMutation, startOAuthMutation])
+    },
+    [connectByteRover, connectMutation, isAuthorized, onProviderActivated, resetAndClose],
+  )
+
+  const handleOAuth = useCallback(
+    async (provider: ProviderDTO) => {
+      setStep('connecting')
+      try {
+        const result = await startOAuthMutation.mutateAsync({providerId: provider.id})
+        if (!result.success) {
+          toast.error(result.error ?? 'Failed to start OAuth')
+          setStep('select')
+          return
+        }
+
+        const callbackResult = await awaitOAuthMutation.mutateAsync({providerId: provider.id})
+        if (callbackResult.success) {
+          setIsNewConnection(true)
+          setStep('model_select')
+        } else {
+          toast.error(callbackResult.error ?? 'OAuth failed')
+          setStep('select')
+        }
+      } catch (error_) {
+        toast.error(formatError(error_, 'OAuth failed'))
+        setStep('select')
+      }
+    },
+    [awaitOAuthMutation, startOAuthMutation],
+  )
 
   const handleAction = useCallback(
     async (actionId: ProviderActionId) => {
       if (!selectedProvider) return
 
-    switch (actionId) {
-      case 'activate': {
-        setStep('connecting')
-        try {
-          await setActiveMutation.mutateAsync({ providerId: selectedProvider.id })
-          toast.success(`Activated ${selectedProvider.name}`)
-          onProviderActivated?.()
-          resetAndClose()
-        } catch (error_) {
-          setError(formatError(error_, 'Failed'))
-          setStep('provider_actions')
-        }
+      switch (actionId) {
+        case 'activate': {
+          setStep('connecting')
+          try {
+            await setActiveMutation.mutateAsync({providerId: selectedProvider.id})
+            toast.success(`Activated ${selectedProvider.name}`)
+            onProviderActivated?.()
+            resetAndClose()
+          } catch (error_) {
+            setError(formatError(error_, 'Failed'))
+            setStep('provider_actions')
+          }
 
           break
         }
@@ -239,18 +262,18 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
           break
         }
 
-      case 'disconnect': {
-        setStep('connecting')
-        try {
-          await disconnectMutation.mutateAsync({ providerId: selectedProvider.id })
-          toast.success(`Disconnected ${selectedProvider.name}`)
-          setStep('select')
-          setSelectedProvider(undefined)
-          setError(undefined)
-        } catch (error_) {
-          setError(formatError(error_, 'Failed'))
-          setStep('provider_actions')
-        }
+        case 'disconnect': {
+          setStep('connecting')
+          try {
+            await disconnectMutation.mutateAsync({providerId: selectedProvider.id})
+            toast.success(`Disconnected ${selectedProvider.name}`)
+            setStep('select')
+            setSelectedProvider(undefined)
+            setError(undefined)
+          } catch (error_) {
+            setError(formatError(error_, 'Failed'))
+            setStep('provider_actions')
+          }
 
           break
         }
@@ -283,34 +306,36 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
     async (apiKey: string) => {
       if (!selectedProvider) return
 
-    // Validate first (skip for openai-compatible)
-    if (selectedProvider.id !== 'openai-compatible' && apiKey) {
-      try {
-        const result = await validateMutation.mutateAsync({ apiKey, providerId: selectedProvider.id })
-        if (!result.isValid) {
-          setError(result.error ?? 'Invalid API key')
+      // Validate first (skip for openai-compatible)
+      if (selectedProvider.id !== 'openai-compatible' && apiKey) {
+        try {
+          const result = await validateMutation.mutateAsync({apiKey, providerId: selectedProvider.id})
+          if (!result.isValid) {
+            setError(result.error ?? 'Invalid API key')
+            return
+          }
+        } catch (error_) {
+          setError(formatError(error_, 'Validation failed'))
           return
         }
-      } catch (error_) {
-        setError(formatError(error_, 'Validation failed'))
-        return
       }
-    }
 
-    setStep('connecting')
-    try {
-      await connectMutation.mutateAsync({
-        apiKey: apiKey || undefined,
-        baseUrl: baseUrl ?? undefined,
-        providerId: selectedProvider.id,
-      })
-      setIsNewConnection(true)
-      setStep('model_select')
-    } catch (error_) {
-      setError(formatError(error_, 'Connection failed'))
-      setStep('api_key')
-    }
-  }, [baseUrl, connectMutation, selectedProvider, validateMutation])
+      setStep('connecting')
+      try {
+        await connectMutation.mutateAsync({
+          apiKey: apiKey || undefined,
+          baseUrl: baseUrl ?? undefined,
+          providerId: selectedProvider.id,
+        })
+        setIsNewConnection(true)
+        setStep('model_select')
+      } catch (error_) {
+        setError(formatError(error_, 'Connection failed'))
+        setStep('api_key')
+      }
+    },
+    [baseUrl, connectMutation, selectedProvider, validateMutation],
+  )
 
   const handleModelSelect = useCallback(
     async (model: ModelDTO) => {
@@ -323,18 +348,20 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
           providerId: selectedProvider.id,
         })
 
-      if (isNewConnection) {
-        toast.success(`Connected to ${selectedProvider.name}`)
-        onProviderActivated?.()
-        resetAndClose()
-      } else {
-        toast.success(`Model set to ${model.name}`)
-        setStep('provider_actions')
+        if (isNewConnection) {
+          toast.success(`Connected to ${selectedProvider.name}`)
+          onProviderActivated?.()
+          resetAndClose()
+        } else {
+          toast.success(`Model set to ${model.name}`)
+          setStep('provider_actions')
+        }
+      } catch (error_) {
+        toast.error(formatError(error_, 'Failed to set model'))
       }
-    } catch (error_) {
-      toast.error(formatError(error_, 'Failed to set model'))
-    }
-  }, [isNewConnection, onProviderActivated, resetAndClose, selectedProvider, setActiveModelMutation])
+    },
+    [isNewConnection, onProviderActivated, resetAndClose, selectedProvider, setActiveModelMutation],
+  )
 
   const handleApiKeyBack = useCallback(() => {
     setError(undefined)
@@ -415,6 +442,7 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
               setStep('select')
               setSelectedProvider(undefined)
             }}
+            popup={oauthPopupRef.current}
           />
         ) : null
       }
@@ -464,7 +492,9 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
     <Dialog onOpenChange={handleOpenChange} open={open}>
       <DialogContent
         className="flex h-150 flex-col sm:max-w-lg"
-        showCloseButton={step === 'select' || step === 'model_select' || step === 'connecting' || step === 'login_prompt'}
+        showCloseButton={
+          step === 'select' || step === 'model_select' || step === 'connecting' || step === 'login_prompt'
+        }
       >
         {tourStepLabel && <TourStepBadge label={tourStepLabel} />}
         {renderStep()}

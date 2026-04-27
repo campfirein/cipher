@@ -51,7 +51,7 @@ export function LoginDialog({onOpenChange, open}: LoginDialogProps) {
 
     const unsubscribe = subscribeToLoginCompleted((data) => {
       if (data.success && data.user) {
-        toast.success(`Logged in as ${data.user.email}`, {position: 'top-center'})
+        toast.success(`Logged in as ${data.user.email}`)
         queryClient.invalidateQueries({queryKey: getAuthStateQueryOptions().queryKey})
         onOpenChange(false)
       } else {
@@ -76,7 +76,7 @@ export function LoginDialog({onOpenChange, open}: LoginDialogProps) {
         const result = await queryClient.fetchQuery(getAuthStateQueryOptions())
         if (cancelled) return
         if (result.isAuthorized && result.user) {
-          toast.success(`Logged in as ${result.user.email}`, {position: 'top-center'})
+          toast.success(`Logged in as ${result.user.email}`)
           setLoggingIn(false)
           onOpenChange(false)
         }

@@ -25,12 +25,10 @@ export function DeleteBranchDialog({branchName, onOpenChange, open}: DeleteBranc
     try {
       await del.mutateAsync(branchName)
 
-      toast.success(`Deleted ${branchName}`, {position: 'top-center'})
+      toast.success(`Deleted ${branchName}`)
       onOpenChange(false)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to delete branch', {
-        position: 'top-center',
-      })
+      toast.error(error instanceof Error ? error.message : 'Failed to delete branch')
     }
   }
 
