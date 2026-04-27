@@ -34,7 +34,7 @@ interface TaskErrorPayload {
   error: {
     code?: string
     message: string
-    name?: string
+    name: string
   }
   taskId: string
 }

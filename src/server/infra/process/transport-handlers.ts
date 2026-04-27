@@ -32,6 +32,7 @@ import type {IClientManager} from '../../core/interfaces/client/i-client-manager
 import type {ITaskLifecycleHook} from '../../core/interfaces/process/i-task-lifecycle-hook.js'
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IProjectRouter} from '../../core/interfaces/routing/i-project-router.js'
+import type {ITaskHistoryStore} from '../../core/interfaces/storage/i-task-history-store.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 import type {PreDispatchCheck} from './task-router.js'
 
@@ -44,6 +45,8 @@ export type {TaskInfo} from './types.js'
 type TransportHandlersOptions = {
   agentPool?: IAgentPool
   clientManager?: IClientManager
+  /** Per-project `ITaskHistoryStore` factory used by the M2.09 persistent-history handlers. */
+  getTaskHistoryStore?: (projectPath: string) => ITaskHistoryStore
   /** Lifecycle hooks for task events (e.g. CurateLogHandler). */
   lifecycleHooks?: ITaskLifecycleHook[]
   /** Optional daemon-side gate run before dispatching a task to the agent pool. */
@@ -69,6 +72,7 @@ export class TransportHandlers {
     this.taskRouter = new TaskRouter({
       agentPool: options.agentPool,
       getAgentForProject: (projectPath) => this.connectionCoordinator.getAgentForProject(projectPath),
+      getTaskHistoryStore: options.getTaskHistoryStore,
       lifecycleHooks: options.lifecycleHooks,
       preDispatchCheck: options.preDispatchCheck,
       projectRegistry: options.projectRegistry,

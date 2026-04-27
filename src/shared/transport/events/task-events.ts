@@ -81,7 +81,7 @@ export interface TaskListItem {
   error?: {
     code?: string
     message: string
-    name?: string
+    name: string
   }
   /** Optional file paths from `curate --files` */
   files?: string[]
@@ -103,6 +103,8 @@ export interface TaskListRequest {
   before?: number
   limit?: number
   projectPath?: string
+  status?: TaskListItemStatus[]
+  type?: string[]
 }
 
 export interface TaskListResponse {

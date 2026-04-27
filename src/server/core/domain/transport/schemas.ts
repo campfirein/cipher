@@ -255,12 +255,22 @@ export const TransportTaskEventNames = {
   CANCEL: 'task:cancel',
   // Task terminal states
   CANCELLED: 'task:cancelled',
+  // Bulk delete terminal entries (M2.09)
+  CLEAR_COMPLETED: 'task:clearCompleted',
   COMPLETED: 'task:completed',
   CREATE: 'task:create',
   CREATED: 'task:created',
+  // Single delete (M2.09)
+  DELETE: 'task:delete',
+  // Multi delete (M2.09)
+  DELETE_BULK: 'task:deleteBulk',
+  // Broadcast on successful removal (M2.09)
+  DELETED: 'task:deleted',
   ERROR: 'task:error',
   // Internal (Transport → Agent)
   EXECUTE: 'task:execute',
+  // Single-task detail fetch (M2.09)
+  GET: 'task:get',
   // Snapshot query (Client → Transport)
   LIST: 'task:list',
   // Query metadata (Agent → Daemon, before task:completed)
@@ -734,6 +744,10 @@ export const TaskListRequestSchema = z.object({
   limit: z.number().int().min(1).max(1000).optional(),
   /** Optional project filter — defaults to caller's registered project */
   projectPath: z.string().optional(),
+  /** Optional status filter (M2.09) — return only tasks whose status matches one of these. */
+  status: z.array(z.enum(['cancelled', 'completed', 'created', 'error', 'started'])).optional(),
+  /** Optional task-type filter (M2.09) — e.g. ['curate'], ['query']. */
+  type: z.array(z.string()).optional(),
 })
 
 export const TaskListItemStatusSchema = z.enum(['cancelled', 'completed', 'created', 'error', 'started'])
