@@ -18,7 +18,7 @@ async function createMdFile(dir: string, relativePath: string, body: string, fro
   let content = body
   if (frontmatter) {
     const {dump} = await import('js-yaml')
-    const yaml = dump(frontmatter, {flowLevel: 1, lineWidth: -1, sortKeys: true}).trimEnd()
+    const yaml = dump(frontmatter, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
     content = `---\n${yaml}\n---\n${body}`
   }
 
