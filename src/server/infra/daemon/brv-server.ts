@@ -59,6 +59,8 @@ import {broadcastToProjectRoom} from '../process/broadcast-utils.js'
 import {CurateLogHandler} from '../process/curate-log-handler.js'
 import {setupFeatureHandlers} from '../process/feature-handlers.js'
 import {QueryLogHandler} from '../process/query-log-handler.js'
+import {TaskHistoryHook} from '../process/task-history-hook.js'
+import {getStore as getTaskHistoryStore} from '../process/task-history-store-cache.js'
 import {TransportHandlers} from '../process/transport-handlers.js'
 import {ProjectRegistry} from '../project/project-registry.js'
 import {createProviderOAuthTokenStore} from '../provider-oauth/provider-oauth-token-store.js'
@@ -380,6 +382,12 @@ async function main(): Promise<void> {
 
     const queryLogHandler = new QueryLogHandler()
 
+    // Task-history hook — persists every lifecycle transition + accumulated
+    // llmservice events to a per-project FileTaskHistoryStore. The store
+    // factory is module-scoped so M2.09 wire handlers can read from the
+    // same instances this hook writes to.
+    const taskHistoryHook = new TaskHistoryHook({getStore: getTaskHistoryStore})
+
     // Provider config/keychain stores — shared between feature handlers and state endpoint.
     // Hoisted ahead of `new TransportHandlers` so the resolveActiveProvider callback below
     // can close over them and call resolveProviderConfig synchronously at task-create time.
@@ -408,7 +416,7 @@ async function main(): Promise<void> {
     const transportHandlers = new TransportHandlers({
       agentPool,
       clientManager,
-      lifecycleHooks: [curateLogHandler, queryLogHandler],
+      lifecycleHooks: [curateLogHandler, queryLogHandler, taskHistoryHook],
       // Daemon-side gate for dream task:create — mirrors the idle-trigger pre-check
       // in this file so the CLI path (brv dream without --force) actually honors
       // gate 3 (queue). The agent-side check kept gate 3 hardcoded to skip,
