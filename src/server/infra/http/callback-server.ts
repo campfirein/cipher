@@ -116,7 +116,7 @@ export function escapeHtml(text: string): string {
  * string when given an array, so we never feed `[object Object]` or a
  * comma-joined value into a user-facing message.
  */
-export function firstQueryParam(value: unknown): string | undefined {
+export function firstQueryParam(value?: unknown): string | undefined {
   if (typeof value === 'string') return value
   if (Array.isArray(value)) {
     const first = value[0]
@@ -141,7 +141,6 @@ const SUCCESS_HTML = `<!DOCTYPE html>
   <h1>Authentication Successful</h1>
   <p>You can now safely close this tab and return to where you left off</p>
 </div>
-<!-- inline script: would be blocked by a strict CSP if one is added later --><script>setTimeout(() => window.close(), 2500);</script>
 </body>
 </html>`
 
