@@ -7,6 +7,7 @@
 
 import {create} from 'zustand'
 
+import type {ReasoningContentItem, ToolCallEvent} from '../../../../shared/transport/events/task-events.js'
 import type {TaskStats} from '../../../types/ui.js'
 
 // ============================================================================
@@ -15,23 +16,7 @@ import type {TaskStats} from '../../../types/ui.js'
 
 export type TaskStatus = 'cancelled' | 'completed' | 'created' | 'error' | 'started'
 
-export interface ToolCallEvent {
-  args: Record<string, unknown>
-  callId?: string
-  error?: string
-  errorType?: string
-  result?: unknown
-  sessionId: string
-  status: 'completed' | 'error' | 'running'
-  timestamp: number
-  toolName: string
-}
-
-export interface ReasoningContentItem {
-  content: string
-  isThinking?: boolean
-  timestamp: number
-}
+export type {ReasoningContentItem, ToolCallEvent} from '../../../../shared/transport/events/task-events.js'
 
 export interface TaskErrorData {
   code?: string

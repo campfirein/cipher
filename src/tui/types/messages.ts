@@ -2,6 +2,8 @@
  * Message and activity log types
  */
 
+import type {ReasoningContentItem} from '../../shared/transport/events/task-events.js'
+
 /**
  * Status of an execution (curate/query job)
  */
@@ -61,15 +63,7 @@ export interface ToolProgressItem {
   toolCallName: string
 }
 
-/**
- * Reasoning content item with timestamp for sorting
- */
-export interface ReasoningContentItem {
-  content: string
-  /** Whether this reasoning item is still being streamed */
-  isThinking?: boolean
-  timestamp: number
-}
+export type {ReasoningContentItem} from '../../shared/transport/events/task-events.js'
 
 /**
  * Activity log item for displaying in logs view

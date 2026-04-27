@@ -1,0 +1,30 @@
+import type {TaskHistoryEntry, TaskHistoryStatus} from '../../domain/entities/task-history-entry.js'
+
+// Re-export domain types — single source of truth is in the entity.
+export type {TaskHistoryEntry, TaskHistoryStatus} from '../../domain/entities/task-history-entry.js'
+
+export interface ITaskHistoryStore {
+  /** Remove all entries. Returns the deleted IDs so handlers can broadcast `task:deleted` per id. */
+  clear(): Promise<{deletedCount: number; taskIds: string[]}>
+  /** Remove a single entry by taskId. Idempotent — returns false on missing/already-deleted. */
+  delete(taskId: string): Promise<boolean>
+  /** Bulk-delete by taskIds. Returns ids actually removed. Idempotent per-id. */
+  deleteMany(taskIds: string[]): Promise<{deletedCount: number; taskIds: string[]}>
+  /** Retrieve an entry by its taskId. Returns undefined if not found or corrupt. */
+  getById(taskId: string): Promise<TaskHistoryEntry | undefined>
+  /** List entries sorted newest-first. Filters applied before limit. */
+  list(options?: {
+    /** Include only entries with createdAt >= after (ms timestamp). */
+    after?: number
+    /** Include only entries with createdAt <= before (ms timestamp). */
+    before?: number
+    limit?: number
+    projectPath?: string
+    /** Include only entries matching these statuses. */
+    status?: TaskHistoryStatus[]
+    /** Include only entries matching these task types. */
+    type?: string[]
+  }): Promise<TaskHistoryEntry[]>
+  /** Persist (create or overwrite) a history entry. Best-effort — callers handle errors. */
+  save(entry: TaskHistoryEntry): Promise<void>
+}
