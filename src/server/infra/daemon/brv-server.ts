@@ -268,6 +268,16 @@ async function main(): Promise<void> {
     const getQueueLength = (projectPath: string): number =>
       agentPool?.getQueueState().find((q) => q.projectPath === projectPath)?.queueLength ?? 0
 
+    // Shared project-config resolver — used by the idle-dream dispatch and the
+    // task-router resolver wired into TransportHandlers below. Both paths must
+    // stamp the same reviewDisabled value so review semantics are consistent
+    // regardless of dispatch source (CLI task:create vs idle trigger).
+    const curateConfigStore = new ProjectConfigStore()
+    const resolveReviewDisabled = async (projectPath: string): Promise<boolean> => {
+      const config = await curateConfigStore.read(projectPath)
+      return config?.reviewDisabled === true
+    }
+
     // Shared dream pre-check trigger factory.
     // The lock service explicitly throws if invoked — gate 4 (lock) is the agent's job;
     // the daemon must only ever evaluate gates 1-3 via checkEligibility().
@@ -307,11 +317,18 @@ async function main(): Promise<void> {
           const result = await makeDreamPreCheckTrigger(projectPath).checkEligibility(projectPath)
           if (result.eligible) {
             log(`Dream eligible, dispatching dream task: ${projectPath}`)
+            // Idle dispatch bypasses TaskRouter.handleTaskCreate, so the
+            // reviewDisabled snapshot that the task-router stamps for the CLI
+            // path must be reproduced inline here. Without it, idle dreams
+            // would always default to review-enabled regardless of project
+            // setting (see resolveReviewDisabled above).
+            const reviewDisabled = await resolveReviewDisabled(projectPath)
             agentPool?.submitTask({
               clientId: 'daemon',
               content: 'Memory consolidation (idle trigger)',
               force: false,
               projectPath,
+              reviewDisabled,
               taskId: randomUUID(),
               trigger: 'agent-idle',
               type: 'dream',
@@ -360,7 +377,6 @@ async function main(): Promise<void> {
     // Start agent idle timeout policy
     agentIdleTimeoutPolicy.start()
 
-    const curateConfigStore = new ProjectConfigStore()
     const curateLogHandler = new CurateLogHandler(undefined, (info) => {
       const encoded = Buffer.from(info.projectPath).toString('base64url')
       const reviewPort = webuiServer?.getPort() ?? port
@@ -387,11 +403,10 @@ async function main(): Promise<void> {
       // Resolves the project's review-disabled flag once at task-create. The result
       // is stamped onto TaskInfo + TaskExecute so daemon hooks (CurateLogHandler) and
       // the agent process (curate-tool backups, dream review entries) all observe a
-      // single value across the daemon→agent process boundary.
-      async isReviewDisabled(projectPath) {
-        const config = await curateConfigStore.read(projectPath)
-        return config?.reviewDisabled === true
-      },
+      // single value across the daemon→agent process boundary. Shared with the
+      // idle-dream dispatch above so review semantics are identical regardless of
+      // dispatch source (CLI task:create vs agent-idle trigger).
+      isReviewDisabled: resolveReviewDisabled,
       lifecycleHooks: [curateLogHandler, queryLogHandler],
       // Daemon-side gate for dream task:create — mirrors the idle-trigger pre-check
       // in this file so the CLI path (brv dream without --force) actually honors

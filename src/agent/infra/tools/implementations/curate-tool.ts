@@ -495,6 +495,15 @@ async function backupBeforeWrite(filePath: string, basePath: string, reviewDisab
 }
 
 /**
+ * Type guard: narrows an unknown JSON value to a shape that may carry the
+ * `reviewDisabled` flag. Used as the fallback when the agent process has no
+ * AsyncLocalStorage scope (direct sandbox callers without a TaskExecute).
+ */
+function hasReviewDisabledField(value: unknown): value is {reviewDisabled?: unknown} {
+  return typeof value === 'object' && value !== null
+}
+
+/**
  * Reads `<brvDir>/config.json` and returns the `reviewDisabled` flag.
  * Returns false (review enabled) on any error so a missing/corrupt config never
  * silently swallows backups that protect the rejection path.
@@ -502,8 +511,8 @@ async function backupBeforeWrite(filePath: string, basePath: string, reviewDisab
 async function isReviewDisabledForBrvDir(brvDir: string): Promise<boolean> {
   try {
     const raw = await DirectoryManager.readFile(join(brvDir, 'config.json'))
-    const parsed = JSON.parse(raw) as {reviewDisabled?: unknown}
-    return parsed.reviewDisabled === true
+    const parsed: unknown = JSON.parse(raw)
+    return hasReviewDisabledField(parsed) && parsed.reviewDisabled === true
   } catch {
     return false
   }
@@ -1529,7 +1538,7 @@ export async function executeCurate(
   const reviewDisabled = scopedReviewDisabled ?? (await isReviewDisabledForBrvDir(dirname(resolve(basePath))))
 
   const onAfterWrite: undefined | WriteCallback = abstractQueue
-    ? (contextPath, content) => { abstractQueue.enqueue({contextPath, fullContent: content}) }
+    ? (contextPath, content) => abstractQueue.enqueue({contextPath, fullContent: content})
     : undefined
 
   const applied: OperationResult[] = []
