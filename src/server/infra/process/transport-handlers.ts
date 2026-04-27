@@ -50,6 +50,8 @@ type TransportHandlersOptions = {
   preDispatchCheck?: PreDispatchCheck
   projectRegistry?: IProjectRegistry
   projectRouter?: IProjectRouter
+  /** Resolves the active provider/model snapshot stamped onto created tasks. */
+  resolveActiveProvider?: () => Promise<{model?: string; provider?: string}>
   transport: ITransportServer
 }
 
@@ -71,6 +73,7 @@ export class TransportHandlers {
       preDispatchCheck: options.preDispatchCheck,
       projectRegistry: options.projectRegistry,
       projectRouter: options.projectRouter,
+      resolveActiveProvider: options.resolveActiveProvider,
       resolveClientProjectPath: (clientId) => options.clientManager?.getClient(clientId)?.projectPath,
       transport: options.transport,
     })
