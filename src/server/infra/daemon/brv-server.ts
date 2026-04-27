@@ -380,6 +380,31 @@ async function main(): Promise<void> {
 
     const queryLogHandler = new QueryLogHandler()
 
+    // Provider config/keychain stores — shared between feature handlers and state endpoint.
+    // Hoisted ahead of `new TransportHandlers` so the resolveActiveProvider callback below
+    // can close over them and call resolveProviderConfig synchronously at task-create time.
+    const providerConfigStore = new FileProviderConfigStore()
+    const providerKeychainStore = createProviderKeychainStore()
+    const providerOAuthTokenStore = createProviderOAuthTokenStore()
+
+    // Token refresh manager — transparently refreshes OAuth tokens before they expire
+    const tokenRefreshManager = new TokenRefreshManager({
+      providerConfigStore,
+      providerKeychainStore,
+      providerOAuthTokenStore,
+      transport: transportServer,
+    })
+
+    // Clear stale provider config on startup (e.g. migration from v1 system keychain to v2 file keystore).
+    // If a provider is configured but its API key is no longer accessible, disconnect it so the user
+    // is returned to the onboarding flow rather than hitting a cryptic API key error mid-task.
+    await clearStaleProviderConfig(providerConfigStore, providerKeychainStore, providerOAuthTokenStore)
+
+    // State endpoint: provider config — agents request this on startup and after provider:updated
+    transportServer.onRequest<void, ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG, async () =>
+      resolveProviderConfig({authStateStore, providerConfigStore, providerKeychainStore, tokenRefreshManager}),
+    )
+
     const transportHandlers = new TransportHandlers({
       agentPool,
       clientManager,
@@ -402,6 +427,21 @@ async function main(): Promise<void> {
       },
       projectRegistry,
       projectRouter,
+      // Stamp the active provider/model snapshot onto every created task so the
+      // Web UI can display which provider handled which task. Failures are
+      // swallowed by TaskRouter's safeResolveActiveProvider — never blocks dispatch.
+      async resolveActiveProvider() {
+        const config = await resolveProviderConfig({
+          authStateStore,
+          providerConfigStore,
+          providerKeychainStore,
+          tokenRefreshManager,
+        })
+        return {
+          ...(config.activeModel ? {model: config.activeModel} : {}),
+          ...(config.activeProvider ? {provider: config.activeProvider} : {}),
+        }
+      },
       transport: transportServer,
     })
     transportHandlers.setup()
@@ -589,29 +629,6 @@ async function main(): Promise<void> {
         running: transportServer!.isRunning(),
       },
     }))
-
-    // Provider config/keychain stores — shared between feature handlers and state endpoint
-    const providerConfigStore = new FileProviderConfigStore()
-    const providerKeychainStore = createProviderKeychainStore()
-    const providerOAuthTokenStore = createProviderOAuthTokenStore()
-
-    // Token refresh manager — transparently refreshes OAuth tokens before they expire
-    const tokenRefreshManager = new TokenRefreshManager({
-      providerConfigStore,
-      providerKeychainStore,
-      providerOAuthTokenStore,
-      transport: transportServer,
-    })
-
-    // Clear stale provider config on startup (e.g. migration from v1 system keychain to v2 file keystore).
-    // If a provider is configured but its API key is no longer accessible, disconnect it so the user
-    // is returned to the onboarding flow rather than hitting a cryptic API key error mid-task.
-    await clearStaleProviderConfig(providerConfigStore, providerKeychainStore, providerOAuthTokenStore)
-
-    // State endpoint: provider config — agents request this on startup and after provider:updated
-    transportServer.onRequest<void, ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG, async () =>
-      resolveProviderConfig({authStateStore, providerConfigStore, providerKeychainStore, tokenRefreshManager}),
-    )
 
     // Feature handlers (auth, init, status, push, pull, etc.) require async OIDC discovery.
     // Placed after daemon:getState so the debug endpoint is available immediately,
