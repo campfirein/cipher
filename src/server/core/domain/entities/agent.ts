@@ -83,7 +83,7 @@ export const AGENT_CONNECTOR_CONFIG: Record<Agent, AgentConnectorConfig> = {
     supported: ['rules', 'mcp', 'skill'],
   },
   OpenClaude: {
-    default: 'mcp',
+    default: 'skill',
     supported: ['rules', 'mcp', 'skill'],
   },
   OpenClaw: {
