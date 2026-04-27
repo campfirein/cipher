@@ -2,8 +2,8 @@ export type ComposerType = 'curate' | 'query'
 
 export const PLACEHOLDER: Record<ComposerType, string> = {
   curate:
-    'JWT tokens expire after 24h. Refresh window is 7 days. Rotation happens on every successful refresh — old refresh token is invalidated immediately.',
-  query: 'What is our auth token expiration policy?',
+    'List the most important conventions and patterns used in this codebase — naming, file organization, testing approach, and any rules a new contributor should know before making changes.',
+  query: 'What conventions should I follow when making changes?',
 }
 
 export const HELP: Record<ComposerType, string> = {

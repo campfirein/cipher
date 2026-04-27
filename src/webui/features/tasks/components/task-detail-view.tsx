@@ -62,7 +62,7 @@ export function TaskDetailView({taskId}: TaskDetailViewProps) {
         <EventLogSection now={now} task={task} />
         {showLive && <LiveStreamSection task={task} />}
         {result && <ResultSection content={result} />}
-        {error && <ErrorSection error={error} />}
+        {error && <ErrorSection task={task} />}
         <TourTaskContinueCta task={task} />
       </div>
     </div>

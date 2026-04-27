@@ -8,7 +8,7 @@ export function App() {
   return (
     <AppProviders>
       <RouterProvider router={router} />
-      <Toaster />
+      <Toaster position="top-center" />
     </AppProviders>
   )
 }

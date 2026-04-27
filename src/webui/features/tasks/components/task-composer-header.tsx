@@ -1,3 +1,4 @@
+import {Tooltip, TooltipContent, TooltipTrigger} from '@campfirein/byterover-packages/components/tooltip'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
 
 import type {ComposerType} from './task-composer-types'
@@ -25,7 +26,19 @@ export function ComposerHeader({
           <span className="text-muted-foreground/70 font-normal">New</span>
           <span>{type} task</span>
         </h2>
-        {!inTour && <TypeSlider onChange={onTypeChange} value={type} />}
+        {/*
+          During the tour the slider is shown but locked so users still learn
+          the affordance — it'd otherwise be invisible until they finish the
+          tour. Tooltip explains the disabled state.
+        */}
+        {inTour ? (
+          <Tooltip>
+            <TooltipTrigger render={<TypeSlider disabled onChange={onTypeChange} value={type} />} />
+            <TooltipContent>Locked during the tour — the next step covers the other mode.</TooltipContent>
+          </Tooltip>
+        ) : (
+          <TypeSlider onChange={onTypeChange} value={type} />
+        )}
       </div>
       <p className="text-muted-foreground/70 text-xs">
         {type === 'query' ? 'Searches' : 'Will dispatch to'}{' '}
@@ -35,9 +48,20 @@ export function ComposerHeader({
   )
 }
 
-function TypeSlider({onChange, value}: {onChange: (next: ComposerType) => void; value: ComposerType}) {
+function TypeSlider({
+  disabled = false,
+  onChange,
+  value,
+}: {
+  disabled?: boolean
+  onChange: (next: ComposerType) => void
+  value: ComposerType
+}) {
   return (
-    <div className="border-border bg-muted relative inline-flex rounded-md border p-0.5">
+    <div
+      aria-disabled={disabled}
+      className={cn('border-border bg-muted relative inline-flex rounded-md border p-0.5', disabled && 'opacity-60')}
+    >
       <span
         aria-hidden
         className={cn(
@@ -50,7 +74,9 @@ function TypeSlider({onChange, value}: {onChange: (next: ComposerType) => void; 
           className={cn(
             'relative z-10 px-3 py-1 text-xs font-medium transition-colors',
             option === value ? 'text-foreground' : 'text-muted-foreground hover:text-foreground/80',
+            disabled && 'cursor-not-allowed hover:text-muted-foreground',
           )}
+          disabled={disabled}
           key={option}
           onClick={() => onChange(option)}
           type="button"

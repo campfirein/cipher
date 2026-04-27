@@ -265,7 +265,7 @@ async function writeSynthesisFile(
     type: 'synthesis',
   }
   /* eslint-enable camelcase */
-  const yaml = yamlDump(frontmatter, {lineWidth: -1, sortKeys: true}).trimEnd()
+  const yaml = yamlDump(frontmatter, {lineWidth: -1, sortKeys: false}).trimEnd()
   const body = [
     `# ${candidate.title}`,
     '',
