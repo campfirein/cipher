@@ -81,10 +81,21 @@ export type PreDispatchCheckResult = {eligible: false; skipResult: string} | {el
 
 export type PreDispatchCheck = (task: TaskCreateRequest, projectPath?: string) => Promise<PreDispatchCheckResult>
 
+/**
+ * Resolves whether the review log is disabled for the given project. Called once
+ * at task-create and the result is stamped onto TaskInfo + TaskExecute, so daemon
+ * (CurateLogHandler) and agent (curate backups, dream review entries) observe a
+ * single value across the daemon→agent process boundary. Errors → undefined →
+ * downstream treats as enabled (fail-open).
+ */
+export type IsReviewDisabledResolver = (projectPath: string) => Promise<boolean>
+
 type TaskRouterOptions = {
   agentPool?: IAgentPool
   /** Function to resolve agent clientId for a given project */
   getAgentForProject: (projectPath?: string) => string | undefined
+  /** Resolves project's review-disabled flag at task-create. Optional; missing → undefined → enabled. */
+  isReviewDisabled?: IsReviewDisabledResolver
   /** Lifecycle hooks for task events (e.g. CurateLogHandler). */
   lifecycleHooks?: ITaskLifecycleHook[]
   /**
@@ -132,6 +143,7 @@ export class TaskRouter {
    */
   private completedTasks: Map<string, {completedAt: number; task: TaskInfo}> = new Map()
   private readonly getAgentForProject: (projectPath?: string) => string | undefined
+  private readonly isReviewDisabled: IsReviewDisabledResolver | undefined
   private readonly lifecycleHooks: ITaskLifecycleHook[]
   private readonly preDispatchCheck: TaskRouterOptions['preDispatchCheck']
   private readonly projectRegistry: IProjectRegistry | undefined
@@ -145,6 +157,7 @@ export class TaskRouter {
     this.transport = options.transport
     this.agentPool = options.agentPool
     this.getAgentForProject = options.getAgentForProject
+    this.isReviewDisabled = options.isReviewDisabled
     this.lifecycleHooks = options.lifecycleHooks ?? []
     this.preDispatchCheck = options.preDispatchCheck
     this.projectRegistry = options.projectRegistry
@@ -526,7 +539,19 @@ export class TaskRouter {
       clientId,
     )
 
-    // ── Await lifecycle hooks ─────────────────────────────────────────────────
+    // ── Snapshot reviewDisabled + await lifecycle hooks ───────────────────────
+
+    // Snapshot the project's review-disabled flag once at the task-create boundary.
+    // Placed after the synchronous tasks.set/task:created so callers that don't
+    // await the create handler still see the task in this.tasks immediately.
+    // The value is stamped onto TaskInfo (for CurateLogHandler) and TaskExecute
+    // (forwarded to the agent) so both sides observe a single consistent value
+    // even if the user toggles mid-task. Errors → undefined → fail-open enabled.
+    const reviewDisabled = await this.snapshotReviewDisabled(projectPath)
+    const taskAfterSnapshot = this.tasks.get(taskId)
+    if (taskAfterSnapshot && reviewDisabled !== undefined) {
+      this.tasks.set(taskId, {...taskAfterSnapshot, reviewDisabled})
+    }
 
     const logId = await this.runCreateHooks(taskId)
     const task = this.tasks.get(taskId)
@@ -576,6 +601,7 @@ export class TaskRouter {
       ...(data.folderPath ? {folderPath: data.folderPath} : {}),
       ...(data.force === undefined ? {} : {force: data.force}),
       ...(projectPath ? {projectPath} : {}),
+      ...(reviewDisabled === undefined ? {} : {reviewDisabled}),
       taskId,
       type: data.type,
       ...(worktreeRoot ? {worktreeRoot} : {}),
@@ -982,5 +1008,22 @@ export class TaskRouter {
     )
 
     return logIds.find((id): id is string => typeof id === 'string')
+  }
+
+  /**
+   * Reads the project's reviewDisabled flag at task-create. Returns undefined
+   * (which propagates as "no field set" → fail-open enabled downstream) when
+   * no resolver is wired, no projectPath, or the resolver throws/rejects.
+   */
+  private async snapshotReviewDisabled(projectPath: string | undefined): Promise<boolean | undefined> {
+    if (!this.isReviewDisabled || !projectPath) return undefined
+    try {
+      return await this.isReviewDisabled(projectPath)
+    } catch (error_) {
+      transportLog(
+        `TaskRouter: isReviewDisabled resolver threw for ${projectPath} — defaulting to enabled: ${error_ instanceof Error ? error_.message : String(error_)}`,
+      )
+      return undefined
+    }
   }
 }

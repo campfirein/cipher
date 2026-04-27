@@ -230,6 +230,55 @@ describe('BrvConfig', () => {
     })
   })
 
+  describe('reviewDisabled', () => {
+    it('should default to undefined when not set', () => {
+      const config = new BrvConfig(validConstructorArgs)
+      expect(config.reviewDisabled).to.be.undefined
+    })
+
+    it('should preserve true value through constructor', () => {
+      const config = new BrvConfig({...validConstructorArgs, reviewDisabled: true})
+      expect(config.reviewDisabled).to.be.true
+    })
+
+    it('should round-trip true through toJson/fromJson', () => {
+      const config = new BrvConfig({...validConstructorArgs, reviewDisabled: true})
+      const restored = BrvConfig.fromJson(config.toJson())
+      expect(restored.reviewDisabled).to.be.true
+    })
+
+    it('should round-trip false through toJson/fromJson', () => {
+      const config = new BrvConfig({...validConstructorArgs, reviewDisabled: false})
+      const restored = BrvConfig.fromJson(config.toJson())
+      expect(restored.reviewDisabled).to.be.false
+    })
+
+    it('should reject non-boolean reviewDisabled in fromJson', () => {
+      expect(() =>
+        BrvConfig.fromJson({...validConstructorArgs, reviewDisabled: 'yes'}),
+      ).to.throw('Invalid BrvConfig JSON structure')
+    })
+
+    it('withReviewDisabled creates a new config with the flag set, preserving other fields', () => {
+      const original = new BrvConfig(validConstructorArgs)
+      const disabled = original.withReviewDisabled(true)
+
+      expect(disabled.reviewDisabled).to.be.true
+      expect(disabled.spaceId).to.equal(original.spaceId)
+      expect(disabled.teamId).to.equal(original.teamId)
+      expect(disabled.cwd).to.equal(original.cwd)
+      expect(disabled.createdAt).to.equal(original.createdAt)
+      // Original is not mutated
+      expect(original.reviewDisabled).to.be.undefined
+    })
+
+    it('withReviewDisabled(false) creates an enabled config', () => {
+      const original = new BrvConfig({...validConstructorArgs, reviewDisabled: true})
+      const enabled = original.withReviewDisabled(false)
+      expect(enabled.reviewDisabled).to.be.false
+    })
+  })
+
   describe('fromSpace', () => {
     it('should create config from Space entity with current version', () => {
       const space = new Space({

@@ -28,6 +28,7 @@ function makePartialRunExecutor(args: {
       logId: string
       out: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[]
       projectRoot: string
+      reviewDisabled?: boolean
       signal: AbortSignal
       taskId: string
     }): Promise<void> {
@@ -369,8 +370,8 @@ describe('DreamExecutor', () => {
       ]
 
       // Call private method directly to test dual-write logic
-      await (executor as unknown as {createReviewEntries: (ops: typeof operations, dir: string, taskId: string) => Promise<void>})
-        .createReviewEntries(operations, '/tmp/ctx', 'test-task')
+      await (executor as unknown as {createReviewEntries: (args: {contextTreeDir: string; operations: typeof operations; reviewDisabled: boolean; taskId: string}) => Promise<void>})
+        .createReviewEntries({contextTreeDir: '/tmp/ctx', operations, reviewDisabled: false, taskId: 'test-task'})
 
       expect(curateLogStore.getNextId.calledOnce).to.be.true
       expect(curateLogStore.save.calledOnce).to.be.true
@@ -401,8 +402,8 @@ describe('DreamExecutor', () => {
         },
       ]
 
-      await (executor as unknown as {createReviewEntries: (ops: typeof operations, dir: string, taskId: string) => Promise<void>})
-        .createReviewEntries(operations, '/tmp/ctx', 'test-task')
+      await (executor as unknown as {createReviewEntries: (args: {contextTreeDir: string; operations: typeof operations; reviewDisabled: boolean; taskId: string}) => Promise<void>})
+        .createReviewEntries({contextTreeDir: '/tmp/ctx', operations, reviewDisabled: false, taskId: 'test-task'})
 
       const savedEntry = curateLogStore.save.firstCall.args[0]
       expect(savedEntry.taskId).to.equal('test-task')
@@ -430,8 +431,8 @@ describe('DreamExecutor', () => {
         },
       ]
 
-      await (executor as unknown as {createReviewEntries: (ops: typeof operations, dir: string, taskId: string) => Promise<void>})
-        .createReviewEntries(operations, '/tmp/ctx', 'test-task')
+      await (executor as unknown as {createReviewEntries: (args: {contextTreeDir: string; operations: typeof operations; reviewDisabled: boolean; taskId: string}) => Promise<void>})
+        .createReviewEntries({contextTreeDir: '/tmp/ctx', operations, reviewDisabled: false, taskId: 'test-task'})
 
       const savedEntry = curateLogStore.save.firstCall.args[0]
       expect(savedEntry.operations[0]).to.include({
@@ -600,6 +601,7 @@ describe('DreamExecutor', () => {
             logId: string
             out: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[]
             projectRoot: string
+            reviewDisabled?: boolean
             signal: AbortSignal
             taskId: string
           }) => Promise<void>
@@ -619,6 +621,143 @@ describe('DreamExecutor', () => {
           'createReviewEntries must run exactly once when step 7 throws after success-path review write',
         ).to.equal(1)
       })
+    })
+  })
+
+  // ── reviewDisabled — `brv review --disable` ────────────────────────────────
+  describe('reviewDisabled', () => {
+    it('skips dream-side review entry creation when options.reviewDisabled=true', async () => {
+      const executor = new DreamExecutor(deps)
+      const operations: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[] = [
+        {action: 'ARCHIVE', file: 'auth/stale.md', needsReview: true, reason: 'Stale doc', stubPath: '_archived/auth/stale.stub.md', type: 'PRUNE'},
+      ]
+
+      await (executor as unknown as {createReviewEntries: (args: {contextTreeDir: string; operations: typeof operations; reviewDisabled: boolean; taskId: string}) => Promise<void>})
+        .createReviewEntries({contextTreeDir: '/tmp/ctx', operations, reviewDisabled: true, taskId: 'test-task'})
+
+      expect(curateLogStore.save.called).to.be.false
+    })
+
+    it('still creates dream-side review entries when options.reviewDisabled=false', async () => {
+      const executor = new DreamExecutor(deps)
+      const operations: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[] = [
+        {action: 'ARCHIVE', file: 'auth/stale.md', needsReview: true, reason: 'Stale doc', stubPath: '_archived/auth/stale.stub.md', type: 'PRUNE'},
+      ]
+
+      await (executor as unknown as {createReviewEntries: (args: {contextTreeDir: string; operations: typeof operations; reviewDisabled: boolean; taskId: string}) => Promise<void>})
+        .createReviewEntries({contextTreeDir: '/tmp/ctx', operations, reviewDisabled: false, taskId: 'test-task'})
+
+      expect(curateLogStore.save.calledOnce).to.be.true
+    })
+
+    it('treats omitted options.reviewDisabled as enabled (fail-open)', async () => {
+      const executor = new DreamExecutor(deps)
+      const operations: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[] = [
+        {action: 'ARCHIVE', file: 'auth/stale.md', needsReview: true, reason: 'Stale doc', stubPath: '_archived/auth/stale.stub.md', type: 'PRUNE'},
+      ]
+
+      // executeWithAgent treats undefined as false; createReviewEntries gets called with the boolean
+      await (executor as unknown as {createReviewEntries: (args: {contextTreeDir: string; operations: typeof operations; reviewDisabled: boolean; taskId: string}) => Promise<void>})
+        .createReviewEntries({contextTreeDir: '/tmp/ctx', operations, reviewDisabled: false, taskId: 'test-task'})
+
+      expect(curateLogStore.save.calledOnce).to.be.true
+    })
+
+    it('runOperations omits reviewBackupStore from consolidate/prune when reviewDisabled=true', async () => {
+      const reviewBackupStore = {save: stub().resolves()}
+      class ProbeExecutor extends DreamExecutor {
+        public capturedReviewBackupStore: unknown
+        public capturedReviewDisabled?: boolean
+
+        protected override async runOperations(args: {
+          agent: ICipherAgent
+          changedFiles: Set<string>
+          contextTreeDir: string
+          logId: string
+          out: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[]
+          projectRoot: string
+          reviewDisabled?: boolean
+          signal: AbortSignal
+          taskId: string
+        }): Promise<void> {
+          this.capturedReviewDisabled = args.reviewDisabled
+          this.capturedReviewBackupStore =
+            args.reviewDisabled === true ? undefined : (this as unknown as {deps: {reviewBackupStore?: unknown}}).deps.reviewBackupStore
+        }
+      }
+
+      const executor = new ProbeExecutor({...deps, reviewBackupStore})
+      await executor.executeWithAgent(agent, {...defaultOptions, reviewDisabled: true})
+
+      expect(executor.capturedReviewDisabled).to.equal(true)
+      expect(executor.capturedReviewBackupStore).to.be.undefined
+    })
+
+    it('runOperations passes reviewBackupStore through when reviewDisabled=false', async () => {
+      const reviewBackupStore = {save: stub().resolves()}
+      class ProbeExecutor extends DreamExecutor {
+        public capturedReviewBackupStore: unknown
+
+        protected override async runOperations(args: {
+          agent: ICipherAgent
+          changedFiles: Set<string>
+          contextTreeDir: string
+          logId: string
+          out: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[]
+          projectRoot: string
+          reviewDisabled?: boolean
+          signal: AbortSignal
+          taskId: string
+        }): Promise<void> {
+          this.capturedReviewBackupStore =
+            args.reviewDisabled === true ? undefined : (this as unknown as {deps: {reviewBackupStore?: unknown}}).deps.reviewBackupStore
+        }
+      }
+
+      const executor = new ProbeExecutor({...deps, reviewBackupStore})
+      await executor.executeWithAgent(agent, {...defaultOptions, reviewDisabled: false})
+
+      expect(executor.capturedReviewBackupStore).to.equal(reviewBackupStore)
+    })
+
+    it('snapshots options.reviewDisabled — runOperations and createReviewEntries see the same value', async () => {
+      const reviewBackupStore = {save: stub().resolves()}
+      let capturedRunOpsReviewDisabled: boolean | undefined
+      let capturedCreateReviewEntriesReviewDisabled: boolean | undefined
+
+      class ProbeExecutor extends DreamExecutor {
+        protected override async runOperations(args: {
+          agent: ICipherAgent
+          changedFiles: Set<string>
+          contextTreeDir: string
+          logId: string
+          out: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[]
+          projectRoot: string
+          reviewDisabled?: boolean
+          signal: AbortSignal
+          taskId: string
+        }): Promise<void> {
+          capturedRunOpsReviewDisabled = args.reviewDisabled
+          // Simulate one needsReview op so the private createReviewEntries is invoked
+          args.out.push({action: 'ARCHIVE', file: 'auth/stale.md', needsReview: true, reason: 'Stale doc', stubPath: '_archived/auth/stale.stub.md', type: 'PRUNE'})
+        }
+      }
+
+      const executor = new ProbeExecutor({...deps, reviewBackupStore})
+
+      // Patch the private createReviewEntries via prototype to capture its reviewDisabled arg
+      type CreateReviewEntriesArgs = {contextTreeDir: string; operations: unknown[]; reviewDisabled: boolean; taskId: string}
+      const proto = Object.getPrototypeOf(Object.getPrototypeOf(executor)) as {createReviewEntries: (args: CreateReviewEntriesArgs) => Promise<void>}
+      const origCreateReviewEntries = proto.createReviewEntries.bind(executor)
+      ;(executor as unknown as {createReviewEntries: (args: CreateReviewEntriesArgs) => Promise<void>}).createReviewEntries = async (args) => {
+        capturedCreateReviewEntriesReviewDisabled = args.reviewDisabled
+        return origCreateReviewEntries(args)
+      }
+
+      await executor.executeWithAgent(agent, {...defaultOptions, reviewDisabled: true})
+
+      expect(capturedRunOpsReviewDisabled).to.equal(true)
+      expect(capturedCreateReviewEntriesReviewDisabled).to.equal(true)
     })
   })
 })

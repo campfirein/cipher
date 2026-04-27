@@ -394,6 +394,12 @@ export const TaskExecuteSchema = z.object({
   force: z.boolean().optional(),
   /** Project path this task belongs to (for multi-project routing) */
   projectPath: z.string().optional(),
+  /**
+   * Snapshot of the project's review-disabled flag captured at task-create time.
+   * Stamped by the daemon so the agent does not re-read .brv/config.json and
+   * race with mid-task toggles.
+   */
+  reviewDisabled: z.boolean().optional(),
   /** Unique task identifier */
   taskId: z.string(),
   /** Dream trigger source — how this dream was initiated */
