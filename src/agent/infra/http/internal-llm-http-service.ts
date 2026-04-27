@@ -98,6 +98,127 @@ export class ByteRoverLlmHttpService {
   }
 
   /**
+   * Extract content chunks from a complete response.
+   *
+   * Looks for text parts (excluding thinking) and function calls,
+   * yields them as final chunks.
+   *
+   * @param response - Complete GenerateContentResponse
+   * @yields GenerateContentChunk for content and tool calls
+   */
+  public *extractContentFromResponse(response: GenerateContentResponse): Generator<GenerateContentChunk> {
+    const {candidates} = response
+    if (!candidates || candidates.length === 0) {
+      yield {
+        content: '',
+        finishReason: 'stop',
+        isComplete: true,
+      }
+      return
+    }
+
+    const candidate = candidates[0]
+    const parts = candidate?.content?.parts
+    const finishReason = this.mapFinishReason((candidate as {finishReason?: string})?.finishReason ?? 'STOP')
+
+    if (!parts || parts.length === 0) {
+      yield {
+        content: '',
+        finishReason,
+        isComplete: true,
+      }
+      return
+    }
+
+    // Collect text content (excluding thinking parts)
+    const textParts: string[] = []
+    const functionCalls: Array<{args?: Record<string, unknown>; name?: string; thoughtSignature?: string}> = []
+
+    for (const part of parts) {
+      const partRecord = part as Record<string, unknown>
+
+      // Skip thinking parts
+      if (partRecord.thought === true) continue
+
+      // Collect text
+      if (partRecord.text && typeof partRecord.text === 'string') {
+        textParts.push(partRecord.text)
+      }
+
+      // Collect function calls (preserve thoughtSignature for Gemini 3+ models)
+      if (partRecord.functionCall) {
+        functionCalls.push({
+          ...(partRecord.functionCall as {args?: Record<string, unknown>; name?: string}),
+          ...(typeof partRecord.thoughtSignature === 'string' && {thoughtSignature: partRecord.thoughtSignature}),
+        })
+      }
+    }
+
+    // Yield final content chunk
+    yield {
+      content: textParts.join('').trimEnd(),
+      finishReason,
+      isComplete: true,
+      toolCalls:
+        functionCalls.length > 0
+          ? functionCalls.map((fc, index) => ({
+              function: {
+                arguments: JSON.stringify(fc.args ?? {}),
+                name: fc.name ?? '',
+              },
+              id: `call_${Date.now()}_${index}`,
+              ...(fc.thoughtSignature && {thoughtSignature: fc.thoughtSignature}),
+              type: 'function' as const,
+            }))
+          : undefined,
+    }
+  }
+
+  /**
+   * Extract thinking/reasoning chunks from a complete response.
+   *
+   * Looks for parts with `thought: true` and yields them as THINKING chunks.
+   *
+   * @param response - Complete GenerateContentResponse
+   * @yields GenerateContentChunk for each thinking part
+   */
+  public *extractThinkingFromResponse(response: GenerateContentResponse): Generator<GenerateContentChunk> {
+    const {candidates} = response
+    if (!candidates || candidates.length === 0) return
+
+    const parts = candidates[0]?.content?.parts
+    if (!parts) return
+
+    let thinkingSubject: string | undefined
+
+    for (const part of parts) {
+      const partRecord = part as Record<string, unknown>
+
+      // Check for thinking part (thought: true)
+      if (partRecord.thought === true && partRecord.text && typeof partRecord.text === 'string') {
+        const delta = partRecord.text
+
+        // Extract subject from **Subject** markdown if not already found
+        if (!thinkingSubject && delta) {
+          const parsed = ThoughtParser.parse(delta)
+          if (parsed.subject) {
+            thinkingSubject = parsed.subject
+          }
+        }
+
+        yield {
+          isComplete: false,
+          providerMetadata: {
+            subject: thinkingSubject,
+          },
+          reasoning: delta.trimEnd(),
+          type: StreamChunkType.THINKING,
+        }
+      }
+    }
+  }
+
+  /**
    * Call ByteRover REST LLM service to generate content.
    *
    * Simple forward to remote REST API - delegates all formatting to backend.
@@ -177,127 +298,6 @@ export class ByteRoverLlmHttpService {
     })
 
     return httpResponse.data
-  }
-
-  /**
-   * Extract content chunks from a complete response.
-   *
-   * Looks for text parts (excluding thinking) and function calls,
-   * yields them as final chunks.
-   *
-   * @param response - Complete GenerateContentResponse
-   * @yields GenerateContentChunk for content and tool calls
-   */
-  private *extractContentFromResponse(response: GenerateContentResponse): Generator<GenerateContentChunk> {
-    const {candidates} = response
-    if (!candidates || candidates.length === 0) {
-      yield {
-        content: '',
-        finishReason: 'stop',
-        isComplete: true,
-      }
-      return
-    }
-
-    const candidate = candidates[0]
-    const parts = candidate?.content?.parts
-    const finishReason = this.mapFinishReason((candidate as {finishReason?: string})?.finishReason ?? 'STOP')
-
-    if (!parts || parts.length === 0) {
-      yield {
-        content: '',
-        finishReason,
-        isComplete: true,
-      }
-      return
-    }
-
-    // Collect text content (excluding thinking parts)
-    const textParts: string[] = []
-    const functionCalls: Array<{args?: Record<string, unknown>; name?: string; thoughtSignature?: string}> = []
-
-    for (const part of parts) {
-      const partRecord = part as Record<string, unknown>
-
-      // Skip thinking parts
-      if (partRecord.thought === true) continue
-
-      // Collect text
-      if (partRecord.text && typeof partRecord.text === 'string') {
-        textParts.push(partRecord.text)
-      }
-
-      // Collect function calls (preserve thoughtSignature for Gemini 3+ models)
-      if (partRecord.functionCall) {
-        functionCalls.push({
-          ...(partRecord.functionCall as {args?: Record<string, unknown>; name?: string}),
-          ...(typeof partRecord.thoughtSignature === 'string' && {thoughtSignature: partRecord.thoughtSignature}),
-        })
-      }
-    }
-
-    // Yield final content chunk
-    yield {
-      content: textParts.join('').trimEnd(),
-      finishReason,
-      isComplete: true,
-      toolCalls:
-        functionCalls.length > 0
-          ? functionCalls.map((fc, index) => ({
-              function: {
-                arguments: JSON.stringify(fc.args ?? {}),
-                name: fc.name ?? '',
-              },
-              id: `call_${Date.now()}_${index}`,
-              ...(fc.thoughtSignature && {thoughtSignature: fc.thoughtSignature}),
-              type: 'function' as const,
-            }))
-          : undefined,
-    }
-  }
-
-  /**
-   * Extract thinking/reasoning chunks from a complete response.
-   *
-   * Looks for parts with `thought: true` and yields them as THINKING chunks.
-   *
-   * @param response - Complete GenerateContentResponse
-   * @yields GenerateContentChunk for each thinking part
-   */
-  private *extractThinkingFromResponse(response: GenerateContentResponse): Generator<GenerateContentChunk> {
-    const {candidates} = response
-    if (!candidates || candidates.length === 0) return
-
-    const parts = candidates[0]?.content?.parts
-    if (!parts) return
-
-    let thinkingSubject: string | undefined
-
-    for (const part of parts) {
-      const partRecord = part as Record<string, unknown>
-
-      // Check for thinking part (thought: true)
-      if (partRecord.thought === true && partRecord.text && typeof partRecord.text === 'string') {
-        const delta = partRecord.text
-
-        // Extract subject from **Subject** markdown if not already found
-        if (!thinkingSubject && delta) {
-          const parsed = ThoughtParser.parse(delta)
-          if (parsed.subject) {
-            thinkingSubject = parsed.subject
-          }
-        }
-
-        yield {
-          isComplete: false,
-          providerMetadata: {
-            subject: thinkingSubject,
-          },
-          reasoning: delta.trimEnd(),
-          type: StreamChunkType.THINKING,
-        }
-      }
-    }
   }
 
   /**

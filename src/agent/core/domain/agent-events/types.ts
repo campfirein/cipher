@@ -31,6 +31,7 @@ export const SESSION_EVENT_NAMES = [
   'llmservice:toolMetadata',
   'llmservice:toolResult',
   'llmservice:unsupportedInput',
+  'llmservice:usage',
   'llmservice:warning',
   'message:dequeued',
   'message:queued',
@@ -462,6 +463,44 @@ export interface AgentEventMap {
   }
 
   /**
+   * Emitted once per LLM call with provider-reported token usage and latency.
+   *
+   * Fires from `LoggingContentGenerator` so every generator path
+   * (main agent loop, mapExtract children via agentic-map, llm-map,
+   * direct generator calls) is captured.
+   *
+   * Distinct from `llmservice:response` which carries text content for the
+   * UI. This event carries metering info for cost telemetry.
+   *
+   * Field naming matches `TokenUsageSchema` in transport schemas.
+   *
+   * @property {number} durationMs - Wall-clock time from request send to response received
+   * @property {number} inputTokens - Provider-reported input tokens (NOT estimated)
+   * @property {number} outputTokens - Provider-reported output tokens
+   * @property {number} totalTokens - Provider-reported total tokens (or input+output if missing)
+   * @property {number} [cacheReadTokens] - Tokens read from prompt cache (if any)
+   * @property {number} [cacheCreationTokens] - Tokens written to cache on first call (if any)
+   * @property {number} [reasoningTokens] - Tokens spent on reasoning/thinking (Gemini)
+   * @property {string} [model] - Model identifier
+   * @property {string} sessionId - ID of the session
+   * @property {string} [taskId] - Optional task ID for concurrent task isolation
+   * @property {number} timestamp - Epoch millis when the event was emitted
+   */
+  'llmservice:usage': {
+    cacheCreationTokens?: number
+    cacheReadTokens?: number
+    durationMs: number
+    inputTokens: number
+    model?: string
+    outputTokens: number
+    reasoningTokens?: number
+    sessionId: string
+    taskId?: string
+    timestamp: number
+    totalTokens: number
+  }
+
+  /**
    * Emitted when LLM service encounters a warning (e.g., max iterations reached).
    * @property {string} message - Warning message
    * @property {string} [model] - Model identifier
@@ -777,6 +816,23 @@ export interface SessionEventMap {
   'llmservice:unsupportedInput': {
     reason: string
     taskId?: string
+  }
+
+  /**
+   * Emitted once per LLM call with provider-reported token usage and latency.
+   * See AgentEventMap['llmservice:usage'] for full field documentation.
+   */
+  'llmservice:usage': {
+    cacheCreationTokens?: number
+    cacheReadTokens?: number
+    durationMs: number
+    inputTokens: number
+    model?: string
+    outputTokens: number
+    reasoningTokens?: number
+    taskId?: string
+    timestamp: number
+    totalTokens: number
   }
 
   /**
