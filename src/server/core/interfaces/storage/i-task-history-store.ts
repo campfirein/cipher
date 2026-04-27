@@ -1,3 +1,4 @@
+import type {TaskListItem} from '../../../../shared/transport/events/task-events.js'
 import type {TaskHistoryEntry, TaskHistoryStatus} from '../../domain/entities/task-history-entry.js'
 
 // Re-export domain types — single source of truth is in the entity.
@@ -10,9 +11,13 @@ export interface ITaskHistoryStore {
   delete(taskId: string): Promise<boolean>
   /** Bulk-delete by taskIds. Returns ids actually removed. Idempotent per-id. */
   deleteMany(taskIds: string[]): Promise<{deletedCount: number; taskIds: string[]}>
-  /** Retrieve an entry by its taskId. Returns undefined if not found or corrupt. */
+  /** Retrieve an entry's full Level 2 detail by taskId. Returns undefined if not found or corrupt. */
   getById(taskId: string): Promise<TaskHistoryEntry | undefined>
-  /** List entries sorted newest-first. Filters applied before limit. */
+  /**
+   * List entries (summary shape) sorted newest-first. Filters applied before limit.
+   * Returns the wire-friendly `TaskListItem` shape — no `responseContent`, `toolCalls`,
+   * `reasoningContents`, `sessionId`, or `result`. Callers fetch full detail via `getById`.
+   */
   list(options?: {
     /** Include only entries with createdAt >= after (ms timestamp). */
     after?: number
@@ -24,7 +29,7 @@ export interface ITaskHistoryStore {
     status?: TaskHistoryStatus[]
     /** Include only entries matching these task types. */
     type?: string[]
-  }): Promise<TaskHistoryEntry[]>
-  /** Persist (create or overwrite) a history entry. Best-effort — callers handle errors. */
+  }): Promise<TaskListItem[]>
+  /** Persist (create or overwrite) a history entry. Validates with Zod — throws on invalid shape. */
   save(entry: TaskHistoryEntry): Promise<void>
 }
