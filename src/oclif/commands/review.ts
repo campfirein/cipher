@@ -54,7 +54,7 @@ When disabled:
 
     try {
       if (flags.disable || flags.enable) {
-        const target = flags.disable === true
+        const target = flags.disable
         const response = await withDaemonRetry(
           (client) =>
             client.requestWithAck<ReviewSetDisabledResponse>(ReviewEvents.SET_DISABLED, {reviewDisabled: target}),
