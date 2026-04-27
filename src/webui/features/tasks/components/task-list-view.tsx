@@ -1,11 +1,16 @@
 import {Button} from '@campfirein/byterover-packages/components/button'
 import {Sheet, SheetContent} from '@campfirein/byterover-packages/components/sheet'
-import {useMemo, useState} from 'react'
+import {useEffect, useMemo, useState} from 'react'
 import {useSearchParams} from 'react-router-dom'
 
+import type {ComposerType} from './task-composer-types'
+
 import {useTransportStore} from '../../../stores/transport-store'
+import {CURATE_EXAMPLE, QUERY_EXAMPLE, TOUR_STEP_LABEL} from '../../onboarding/lib/tour-examples'
+import {useOnboardingStore} from '../../onboarding/stores/onboarding-store'
 import {useGetTasks} from '../api/get-tasks'
 import {useTickingNow} from '../hooks/use-ticking-now'
+import {useComposerRetryStore} from '../stores/composer-retry-store'
 import {statusMatchesFilter, taskMatchesQuery, useStatusBreakdown, useTaskStore} from '../stores/task-store'
 import {isTerminalStatus} from '../utils/task-status'
 import {TaskComposerSheet} from './task-composer'
@@ -49,12 +54,51 @@ export function TaskListView() {
   const now = useTickingNow(breakdown.running > 0)
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [composer, setComposer] = useState<{open: boolean}>({open: false})
+  const [composer, setComposer] = useState<{
+    initialContent?: string
+    initialType?: ComposerType
+    open: boolean
+  }>({open: false})
 
-  const openComposer = () => setComposer({open: true})
+  const tourActive = useOnboardingStore((s) => s.tourActive)
+  const tourStep = useOnboardingStore((s) => s.tourStep)
+  const tourTaskId = useOnboardingStore((s) => s.tourTaskId)
+  const setTourTaskId = useOnboardingStore((s) => s.setTourTaskId)
+  const inComposerStep = tourStep === 'curate' || tourStep === 'query'
+  const inTour = tourActive && inComposerStep
+  const tourCueLabel =
+    inTour && !tourTaskId
+      ? tourStep === 'curate'
+        ? 'Click to capture knowledge'
+        : 'Click to ask a question'
+      : undefined
+
+  const openComposer = () => {
+    if (inTour) {
+      const example = tourStep === 'curate' ? CURATE_EXAMPLE : QUERY_EXAMPLE
+      setComposer({initialContent: example, initialType: tourStep, open: true})
+      return
+    }
+
+    setComposer({open: true})
+  }
+
   const closeComposer = () => setComposer({open: false})
 
+  // Pick up retry seeds from the task-detail "Try again" CTA. Both normal and
+  // tour mode use this composer now, so the seed flow is shared.
+  const retrySeed = useComposerRetryStore((s) => s.seed)
+  const consumeRetry = useComposerRetryStore((s) => s.consume)
+
+  useEffect(() => {
+    if (!retrySeed) return
+    setComposer({initialContent: retrySeed.content, initialType: retrySeed.type, open: true})
+    closeTask()
+    consumeRetry()
+  }, [retrySeed, consumeRetry])
+
   const onComposerSubmitted = (taskId: string, openDetail: boolean) => {
+    if (inTour) setTourTaskId(taskId)
     if (openDetail) openTask(taskId)
   }
 
@@ -139,6 +183,9 @@ export function TaskListView() {
           }}
           searchQuery={searchQuery}
           statusFilter={statusFilter}
+          // Coachmark moves between the empty-state CTA and the header CTA so
+          // we never highlight both simultaneously.
+          tourCue={tourCueLabel && tasks.length > 0 ? tourCueLabel : undefined}
         />
       )}
 
@@ -148,7 +195,7 @@ export function TaskListView() {
         </PlaceholderCard>
       ) : tasks.length === 0 ? (
         <PlaceholderCard withDots>
-          <EmptyState onNewTask={openComposer} />
+          <EmptyState onNewTask={openComposer} tourCue={tourCueLabel} />
         </PlaceholderCard>
       ) : (
         <TaskTable
@@ -183,7 +230,15 @@ export function TaskListView() {
         </SheetContent>
       </Sheet>
 
-      <TaskComposerSheet onClose={closeComposer} onSubmitted={onComposerSubmitted} open={composer.open} />
+      <TaskComposerSheet
+        initialContent={composer.initialContent}
+        initialType={composer.initialType}
+        onClose={closeComposer}
+        onSubmitted={onComposerSubmitted}
+        open={composer.open}
+        prefillNotice={inTour ? 'example' : undefined}
+        tourStepLabel={inTour ? TOUR_STEP_LABEL[tourStep] : undefined}
+      />
     </div>
   )
 }

@@ -6,9 +6,11 @@ import {useOnboardingStore} from '../stores/onboarding-store'
 /**
  * Watches store/state transitions that should auto-advance the tour.
  *
- * Currently: when the user finishes provider setup (active provider config
- * becomes available), advance from the `provider` step to `curate`. The other
- * steps advance on direct user action (composer submit, connector "Done").
+ * Currently only the `provider → curate` jump runs here (active provider
+ * config becomes available). Curate and query advance on direct user action
+ * via the composer's `onSubmitted`. The Tasks-tab coachmark is what guides
+ * the user across the tab boundary — we deliberately don't auto-navigate so
+ * the click itself becomes the teaching moment.
  */
 export function useTourWatchers() {
   const tourActive = useOnboardingStore((s) => s.tourActive)

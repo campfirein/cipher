@@ -3,6 +3,7 @@ import {Input} from '@campfirein/byterover-packages/components/input'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
 import {Plus, Search} from 'lucide-react'
 
+import {TourPointer} from '../../onboarding/components/tour-pointer'
 import {STATUS_FILTERS, type StatusFilter, type useStatusBreakdown} from '../stores/task-store'
 
 export const STATUS_LABEL: Record<StatusFilter, string> = {
@@ -27,6 +28,7 @@ export function FilterBar({
   onStatusChange,
   searchQuery,
   statusFilter,
+  tourCue,
 }: {
   breakdown: ReturnType<typeof useStatusBreakdown>
   onNewTask: () => void
@@ -34,6 +36,7 @@ export function FilterBar({
   onStatusChange: (filter: StatusFilter) => void
   searchQuery: string
   statusFilter: StatusFilter
+  tourCue?: string
 }) {
   return (
     <div className="flex min-h-9 flex-wrap items-center gap-2">
@@ -73,10 +76,12 @@ export function FilterBar({
           />
         </div>
 
-        <Button onClick={onNewTask} size="sm" variant="default">
-          <Plus className="size-4" />
-          New task
-        </Button>
+        <TourPointer active={Boolean(tourCue)} align="end" label={tourCue ?? ''}>
+          <Button onClick={onNewTask} size="sm" variant="default">
+            <Plus className="size-4" />
+            New task
+          </Button>
+        </TourPointer>
       </div>
     </div>
   )

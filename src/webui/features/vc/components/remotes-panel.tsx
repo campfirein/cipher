@@ -1,3 +1,12 @@
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@campfirein/byterover-packages/components/alert-dialog'
 import {Button} from '@campfirein/byterover-packages/components/button'
 import {Field, FieldDescription, FieldError, FieldLabel} from '@campfirein/byterover-packages/components/field'
 import {Input} from '@campfirein/byterover-packages/components/input'
@@ -19,7 +28,17 @@ import {SettingsSection} from './settings-section'
 
 const ORIGIN_NAME = 'origin'
 
-function RemoteRow({onEdit, url}: {onEdit: () => void; url: string}) {
+function RemoteRow({
+  isDeleting,
+  onDelete,
+  onEdit,
+  url,
+}: {
+  isDeleting: boolean
+  onDelete: () => void
+  onEdit: () => void
+  url: string
+}) {
   const urlType = detectGitUrlType(url)
   const isReadOnly = urlType === 'ssh' || urlType === 'git'
   return (
@@ -27,9 +46,20 @@ function RemoteRow({onEdit, url}: {onEdit: () => void; url: string}) {
       <div className="flex min-h-8 items-center gap-3">
         <span className="text-foreground w-14 shrink-0 text-sm font-medium">{ORIGIN_NAME}</span>
         <span className="mono text-foreground min-w-0 flex-1 truncate text-sm">{url}</span>
-        <Button onClick={onEdit} size="sm" variant="ghost">
-          Edit
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button disabled={isDeleting} onClick={onEdit} size="sm" variant="ghost">
+            Edit
+          </Button>
+          <Button
+            className="text-destructive hover:text-destructive"
+            disabled={isDeleting}
+            onClick={onDelete}
+            size="sm"
+            variant="ghost"
+          >
+            Delete
+          </Button>
+        </div>
       </div>
       {isReadOnly && (
         <p className="text-muted-foreground text-xs">
@@ -37,6 +67,43 @@ function RemoteRow({onEdit, url}: {onEdit: () => void; url: string}) {
         </p>
       )}
     </div>
+  )
+}
+
+type DeleteRemoteDialogProps = {
+  isPending: boolean
+  onConfirm: () => Promise<void>
+  onOpenChange: (open: boolean) => void
+  open: boolean
+  url: string
+}
+
+function DeleteRemoteDialog({isPending, onConfirm, onOpenChange, open, url}: DeleteRemoteDialogProps) {
+  function fire() {
+    onConfirm().catch(noop)
+  }
+
+  return (
+    <AlertDialog onOpenChange={onOpenChange} open={open}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            Remove <span className="mono">{ORIGIN_NAME}</span>?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            Removes <code className="mono bg-muted text-foreground rounded px-1.5 py-0.5 text-xs">{url}</code> from this
+            project. Push, pull, and fetch will be disabled until you set a new remote.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+          <Button disabled={isPending} onClick={fire} variant="destructive">
+            {isPending ? 'Removing…' : 'Remove remote'}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 
@@ -156,6 +223,7 @@ export function RemotesPanel() {
   const {data: envConfig} = useGetEnvironmentConfig()
   const setRemote = useSetVcRemote()
   const [editing, setEditing] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   const url = data?.url
   const gitInitialized = data?.gitInitialized
@@ -167,6 +235,16 @@ export function RemotesPanel() {
     await setRemote.mutateAsync({subcommand: hasRemote ? 'set-url' : 'add', url: next})
     toast.success(hasRemote ? 'Origin replaced.' : 'Remote added.')
     setEditing(false)
+  }
+
+  async function deleteRemote() {
+    try {
+      await setRemote.mutateAsync({subcommand: 'remove'})
+      toast.success('Remote removed.')
+      setDeleteDialogOpen(false)
+    } catch (error_) {
+      toast.error(formatError(error_, 'Failed to remove remote'))
+    }
   }
 
   return (
@@ -203,7 +281,21 @@ export function RemotesPanel() {
             webAppUrl={envConfig?.webAppUrl}
           />
         ) : url ? (
-          <RemoteRow onEdit={() => setEditing(true)} url={url} />
+          <>
+            <RemoteRow
+              isDeleting={setRemote.isPending && deleteDialogOpen}
+              onDelete={() => setDeleteDialogOpen(true)}
+              onEdit={() => setEditing(true)}
+              url={url}
+            />
+            <DeleteRemoteDialog
+              isPending={setRemote.isPending}
+              onConfirm={deleteRemote}
+              onOpenChange={setDeleteDialogOpen}
+              open={deleteDialogOpen}
+              url={url}
+            />
+          </>
         ) : (
           <p className="text-muted-foreground text-sm">
             No remote set. Push and pull need an{' '}

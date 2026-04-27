@@ -6,20 +6,19 @@ import {
   type IVcRemoteRequest,
   type IVcRemoteResponse,
   VcEvents,
-  type VcRemoteSubcommand,
 } from '../../../../shared/transport/events/vc-events'
 import {useTransportStore} from '../../../stores/transport-store'
 import {getVcRemoteQueryOptions} from './get-vc-remote'
 
-export type SetVcRemoteInput = {
-  subcommand: Exclude<VcRemoteSubcommand, 'show'>
-  url: string
-}
+export type SetVcRemoteInput =
+  | {subcommand: 'add' | 'set-url'; url: string}
+  | {subcommand: 'remove'}
 
 export const setVcRemote = (input: SetVcRemoteInput): Promise<IVcRemoteResponse> => {
   const {apiClient} = useTransportStore.getState()
   if (!apiClient) return Promise.reject(new Error('Not connected'))
-  const request: IVcRemoteRequest = {subcommand: input.subcommand, url: input.url}
+  const request: IVcRemoteRequest =
+    input.subcommand === 'remove' ? {subcommand: 'remove'} : {subcommand: input.subcommand, url: input.url}
   return apiClient.request<IVcRemoteResponse, IVcRemoteRequest>(VcEvents.REMOTE, request)
 }
 
