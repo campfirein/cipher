@@ -95,7 +95,7 @@ export function TaskListView() {
     setComposer({initialContent: retrySeed.content, initialType: retrySeed.type, open: true})
     closeTask()
     consumeRetry()
-  }, [retrySeed, consumeRetry])
+  }, [retrySeed, consumeRetry, closeTask])
 
   const onComposerSubmitted = (taskId: string, openDetail: boolean) => {
     if (inTour) setTourTaskId(taskId)

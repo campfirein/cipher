@@ -83,9 +83,14 @@ function CurvedArrow({
 export function TourPointer({active, align = 'center', children, className, label, side = 'bottom'}: Props) {
   if (!active) return <>{children}</>
 
-  // Arrow stick curves from the same side as the label so the assembly
-  // reads as one piece. For centered alignment we default the curve to the
-  // right (it's a self-contained vertical stack so either looks fine).
+  // Curve the stick from the side the label *visually sits on* — not the
+  // side of its anchor. For `align="end"` the label is right-anchored
+  // (`right-0`) but `whitespace-nowrap` makes it extend LEFT from the
+  // target's right edge, so it sits on the LEFT side of the target's
+  // center; `curveFrom: 'left'` makes the stick start at the left side of
+  // the SVG (viewBox x=6) so the curve flows label → tip without doubling
+  // back. `align="start"` is the inverse. `align="center"` is symmetric,
+  // so we default to right.
   const curveFrom: CurveFrom = align === 'end' ? 'left' : 'right'
 
   return (

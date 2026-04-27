@@ -23,6 +23,7 @@ import {useOnboardingStore} from '../stores/onboarding-store'
 export function useTourWatchers() {
   const tourActive = useOnboardingStore((s) => s.tourActive)
   const tourStep = useOnboardingStore((s) => s.tourStep)
+  const tourTaskId = useOnboardingStore((s) => s.tourTaskId)
   const advanceTour = useOnboardingStore((s) => s.advanceTour)
   const [, setSearchParams] = useSearchParams()
 
@@ -37,6 +38,11 @@ export function useTourWatchers() {
 
   useEffect(() => {
     if (!tourActive || tourStep !== 'query') return
+    // Only strip when no tour task is in flight — `advanceTour` clears
+    // `tourTaskId` on transition, so this catches the curate→query moment.
+    // After the user submits a query and `tourTaskId` is set again, we
+    // bail out so the new query's detail sheet stays open.
+    if (tourTaskId) return
     setSearchParams(
       (prev) => {
         if (!prev.has('task')) return prev
@@ -46,5 +52,5 @@ export function useTourWatchers() {
       },
       {replace: true},
     )
-  }, [tourActive, tourStep, setSearchParams])
+  }, [tourActive, tourStep, tourTaskId, setSearchParams])
 }
