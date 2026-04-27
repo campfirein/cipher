@@ -1,9 +1,18 @@
 import path from 'node:path'
 
 import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
+import type {ISearchKnowledgeService} from '../../../agent/infra/sandbox/tools-sdk.js'
 import type {CurationStatus} from '../../core/domain/entities/curation-status.js'
 import type {CurateExecuteOptions, ICurateExecutor} from '../../core/interfaces/executor/i-curate-executor.js'
 
+import {
+  type CurationRunResult,
+  type NodeContext,
+  TopologicalCurationRunner,
+} from '../../../agent/core/curation/flow/runner.js'
+import {buildCurationDAG} from '../../../agent/infra/curation/flow/dag-builder.js'
+import {loadExistingMemory} from '../../../agent/infra/curation/flow/existing-memory-loader.js'
+import {buildLiveServices} from '../../../agent/infra/curation/flow/services-adapter.js'
 import {BRV_DIR} from '../../constants.js'
 import {FileValidationError} from '../../core/domain/errors/task-error.js'
 import {
@@ -21,17 +30,32 @@ import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
 type BackgroundDrainAgent = ICipherAgent & {drainBackgroundWork?: () => Promise<void>}
 
+export interface CurateExecutorDeps {
+  /** Override file content reader (primarily for testing). */
+  readonly fileContentReader?: FileContentReader
+  /**
+   * Search service used by the curate-flow conflict-node to detect existing
+   * subjects in the context tree. When omitted, conflict detection always
+   * emits 'add' decisions (acceptable Phase 1 fallback in tests).
+   */
+  readonly searchService?: ISearchKnowledgeService
+}
+
 /**
- * CurateExecutor - Executes curate tasks with an injected CipherAgent.
+ * CurateExecutor — executes curate tasks via the typed-slot DAG runner.
  *
- * This is NOT a UseCase (which orchestrates business logic).
- * It's an Executor that wraps agent.execute() with curate-specific options.
+ * Phase 1 cutover (plan/agent-driven-graph/PHASE-1-IMPLEMENTATION.md): the
+ * monolithic 50-iteration agent loop is replaced by a deterministic DAG of
+ * 7 nodes (recon → chunk → extract → group → dedup → conflict → write).
+ * Service-bound nodes (extract, conflict, write) delegate via NodeServices
+ * built by `services-adapter.ts`.
  *
  * Architecture:
- * - AgentProcess injects the long-lived CipherAgent
- * - Event streaming is handled by agent-process (subscribes to agentEventBus)
+ * - AgentProcess injects the long-lived CipherAgent + SearchKnowledgeService
+ * - Event streaming flows through agent-process (subscribes to agentEventBus)
  * - Transport handles task lifecycle (task:started, task:completed, task:error)
- * - Executor focuses solely on curate execution
+ * - Post-processing (snapshot diff, summary propagation, dream state) is
+ *   preserved verbatim from the pre-cutover path.
  */
 export class CurateExecutor implements ICurateExecutor {
   /** Maximum content length per file in characters */
@@ -46,9 +70,11 @@ export class CurateExecutor implements ICurateExecutor {
   public lastStatus?: CurationStatus
   private readonly fileContentReader: FileContentReader
   private readonly preCompactionService = new PreCompactionService()
+  private readonly searchService?: ISearchKnowledgeService
 
-  constructor(fileContentReader?: FileContentReader) {
-    this.fileContentReader = fileContentReader ?? createFileContentReader()
+  constructor(deps?: CurateExecutorDeps) {
+    this.fileContentReader = deps?.fileContentReader ?? createFileContentReader()
+    this.searchService = deps?.searchService
   }
 
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
@@ -58,79 +84,88 @@ export class CurateExecutor implements ICurateExecutor {
     const fileReferenceInstructions = await this.processFileReferences(files ?? [], clientCwd)
     const fullContext = fileReferenceInstructions ? `${content}\n${fileReferenceInstructions}` : content
 
-    // --- Phase 2: Pre-compaction (fail-open, manages its own session lifecycle) ---
-    const compactionResult = await this.preCompactionService.compact(agent, fullContext, taskId)
-    const effectiveContext = compactionResult.context
-
-    // --- Phase 3: Curation (session created AFTER preprocessing + compaction) ---
-    // Capture pre-curation state for snapshot diff (summary propagation)
-    // Post-processing (snapshot, summary, manifest) operates on projectRoot where .brv/ lives.
-    // worktreeRoot is a linked subdir — .brv/ does not exist there in linked setups.
+    // --- Phase 2: Pre-compaction + task-session creation (parallel hoist).
+    // These are independent: compact() produces effective context, createTaskSession()
+    // produces the session ID. Running them concurrently hides ~5–10s of latency on
+    // large contexts. If compaction throws while the session is being created (or
+    // already created), we delete the orphan session before re-throwing to prevent
+    // leaks. Phase 3's snapshot capture also parallelizes here.
     const baseDir = projectRoot ?? clientCwd ?? process.cwd()
     const snapshotService = new FileContextTreeSnapshotService({baseDirectory: baseDir})
+    const compactionPromise = this.preCompactionService.compact(agent, fullContext, taskId)
+    const sessionPromise = agent.createTaskSession(taskId, 'curate', {mapRootEligible: true, userFacing: true})
+    // eslint-disable-next-line unicorn/no-useless-undefined -- explicit `undefined` keeps the awaited type narrow (Map<...> | undefined) instead of `void | Map<...>`
+    const snapshotPromise = snapshotService.getCurrentState(baseDir).catch(() => undefined)
+
+    let compactionResult
+    let taskSessionId
     let preState: Map<string, import('../../core/domain/entities/context-tree-snapshot.js').FileState> | undefined
     try {
-      preState = await snapshotService.getCurrentState(baseDir)
-    } catch {
-      // Fail-open: if snapshot fails, skip summary propagation
+      ;[compactionResult, taskSessionId, preState] = await Promise.all([
+        compactionPromise,
+        sessionPromise,
+        snapshotPromise,
+      ])
+    } catch (error) {
+      // Orphan-session guard: if compaction throws but session creation succeeded,
+      // delete the session before re-throwing so we don't leak it.
+      // eslint-disable-next-line unicorn/no-useless-undefined -- explicit `undefined` for type clarity
+      const settledSession = await sessionPromise.catch(() => undefined)
+      if (settledSession !== undefined) {
+        // eslint-disable-next-line unicorn/no-useless-undefined -- explicit `undefined` for type clarity
+        await agent.deleteTaskSession(settledSession).catch(() => undefined)
+      }
+
+      throw error
     }
 
-    const taskSessionId = await agent.createTaskSession(taskId, 'curate', {mapRootEligible: true, userFacing: true})
-    try {
-      // Task-scoped variable names for RLM pattern.
-      // Replace hyphens with underscores: UUIDs have hyphens which are invalid in JS identifiers,
-      // so the LLM would naturally use underscores when writing code-exec calls — causing a
-      // ReferenceError if the variable was stored under the hyphen version.
-      const taskIdSafe = taskId.replaceAll('-', '_')
-      const ctxVar = `__curate_ctx_${taskIdSafe}`
-      const histVar = `__curate_hist_${taskIdSafe}`
-      const metaVar = `__curate_meta_${taskIdSafe}`
+    const effectiveContext = compactionResult.context
 
-      // Compute context metadata (RLM pattern — LM sees metadata, not raw content)
-      const contextLines = effectiveContext.split('\n')
+    try {
+      // --- Phase 3: Curation via the typed-slot DAG runner ---
+      // No more 50-iteration agent loop. The DAG is deterministic; each
+      // service-bound slot makes at most one LLM call (extract per chunk,
+      // conflict per fact-set). See plan/agent-driven-graph/DESIGN.md.
+      const services = buildLiveServices({
+        agent,
+        basePath: path.join(baseDir, BRV_DIR, 'context-tree'),
+        lookupSubject: async (subject) => {
+          if (!this.searchService) return []
+          return loadExistingMemory(this.searchService, [subject], {limitPerSubject: 3})
+        },
+      })
+
       const metadata = {
         charCount: effectiveContext.length,
-        lineCount: contextLines.length,
+        lineCount: effectiveContext.split('\n').length,
         messageCount: (effectiveContext.match(/\n\n\[(USER|ASSISTANT)\]:/g) || []).length,
         ...(compactionResult.preCompacted && {
           originalCharCount: compactionResult.originalCharCount,
           preCompacted: true,
           preCompactionTier: compactionResult.preCompactionTier,
         }),
-        preview: effectiveContext.slice(0, 500),
-        type: 'string',
       }
 
-      // Inject context, metadata, empty history, and taskId into the TASK session's sandbox
-      const taskIdVar = `__taskId_${taskIdSafe}`
-      agent.setSandboxVariableOnSession(taskSessionId, ctxVar, effectiveContext)
-      agent.setSandboxVariableOnSession(taskSessionId, histVar, {entries: [], totalProcessed: 0})
-      agent.setSandboxVariableOnSession(taskSessionId, metaVar, metadata)
-      agent.setSandboxVariableOnSession(taskSessionId, taskIdVar, taskId)
-
-      // Prompt with curation helpers guidance (tools.curation.* replaces manual infrastructure code)
-      const prompt = [
-        `Curate using RLM approach.`,
-        `Context variable: ${ctxVar} (${metadata.charCount} chars, ${metadata.lineCount} lines, ${metadata.messageCount} messages)`,
-        `History variable: ${histVar}`,
-        `Metadata variable: ${metaVar}`,
-        `Task ID variable: ${taskIdVar} (pass as bare variable, not a string)`,
-        `IMPORTANT: Do NOT print raw context. Start with tools.curation.recon(${ctxVar}, ${metaVar}, ${histVar}) to assess.`,
-        `For chunked extraction use tools.curation.mapExtract(). Pass taskId: ${taskIdVar} (bare variable).`,
-        `IMPORTANT: Any code_exec call containing mapExtract MUST use timeout: 300000 on the code_exec tool call itself (not inside mapExtract options).`,
-        `Use tools.curation.groupBySubject() and tools.curation.dedup() to organize extractions.`,
-        `Verify via result.applied[].filePath — do NOT call readFile for verification.`,
-      ].join('\n')
-
-      // Execute on the task session (isolated sandbox + history)
-      // Task lifecycle is managed by Transport (task:started, task:completed, task:error)
-      const response = await agent.executeOnSession(taskSessionId, prompt, {
-        executionContext: {clearHistory: true, commandType: 'curate', maxIterations: 50},
+      // initialInput carries the original context for chunk-node and the
+      // recon inputs for recon-node. `existing` was previously here but is
+      // now dead — services.detectConflicts sources its own existing memory
+      // via the lookupSubject closure above (see runner.ts NodeServices doc).
+      const ctx: NodeContext = {
+        initialInput: {
+          context: effectiveContext,
+          history: {entries: [], totalProcessed: 0},
+          meta: metadata,
+        },
+        services,
         taskId,
-      })
+      }
 
-      // Parse curation status from agent response for status tracking
-      this.lastStatus = this.parseCurationStatus(taskId, response)
+      const dag = buildCurationDAG()
+      const runner = new TopologicalCurationRunner()
+      const runResult = await runner.run(dag, ctx)
+
+      this.lastStatus = this.adaptToStatus(taskId, runResult)
+      const response = this.formatResponseString(runResult)
 
       // --- Phase 4: Post-curation summary propagation (fail-open) ---
       if (preState) {
@@ -166,6 +201,29 @@ export class CurateExecutor implements ICurateExecutor {
     } finally {
       // Clean up entire task session (sandbox + history) in one call
       await agent.deleteTaskSession(taskSessionId)
+    }
+  }
+
+  /**
+   * Build a CurationStatus from the runner result. Pulls counts from the
+   * write-node's output; reports 'partial' if any slot failure occurred.
+   */
+  private adaptToStatus(taskId: string, result: CurationRunResult): CurationStatus {
+    const defaultSummary = {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0}
+    const writeOutput = result.outputs.get('write') as
+      | undefined
+      | {applied: ReadonlyArray<unknown>; summary: typeof defaultSummary}
+
+    const summary = writeOutput?.summary ?? defaultSummary
+    const status: CurationStatus['status'] =
+      result.failures.length > 0 ? 'partial' : summary.failed > 0 ? 'partial' : 'success'
+
+    return {
+      completedAt: new Date().toISOString(),
+      status,
+      summary,
+      taskId,
+      verification: {checked: 0, confirmed: 0, missing: []},
     }
   }
 
@@ -221,6 +279,27 @@ export class CurateExecutor implements ICurateExecutor {
   }
 
   /**
+   * Format the runner result as a transport-compatible response string.
+   * Wraps the write summary in the JSON-status block shape that downstream
+   * consumers (TUI, MCP) parse via regex.
+   */
+  private formatResponseString(result: CurationRunResult): string {
+    const defaultSummary = {added: 0, deleted: 0, failed: 0, merged: 0, updated: 0}
+    const writeOutput = result.outputs.get('write') as
+      | undefined
+      | {applied: ReadonlyArray<unknown>; summary: typeof defaultSummary}
+
+    const summary = writeOutput?.summary ?? defaultSummary
+    const failures = result.failures.length > 0 ? `\nFailures: ${JSON.stringify(result.failures)}` : ''
+
+    return `Curate completed via typed-slot DAG.${failures}\n\n\`\`\`json\n${JSON.stringify(
+      {summary, verification: {checked: 0, confirmed: 0, missing: []}},
+      null,
+      2,
+    )}\n\`\`\``
+  }
+
+  /**
    * Get human-readable label for file type.
    */
   private getFileTypeLabel(fileType: string): string {
@@ -240,42 +319,6 @@ export class CurateExecutor implements ICurateExecutor {
       default: {
         return fileType
       }
-    }
-  }
-
-  /**
-   * Parse curation status from the agent response.
-   * Extracts JSON status block if present, otherwise infers from response text.
-   */
-  private parseCurationStatus(taskId: string, response: string): CurationStatus {
-    const defaultSummary = { added: 0, deleted: 0, failed: 0, merged: 0, updated: 0 }
-    const defaultVerification = { checked: 0, confirmed: 0, missing: [] as string[] }
-
-    // Try to extract JSON status block from response (agent instructed to include it)
-    try {
-      const jsonMatch = /```json\n([\S\s]*?)\n```/.exec(response)
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[1])
-
-        return {
-          completedAt: new Date().toISOString(),
-          status: parsed.summary?.failed > 0 ? 'partial' : 'success',
-          summary: parsed.summary ?? defaultSummary,
-          taskId,
-          verification: parsed.verification ?? defaultVerification,
-        }
-      }
-    } catch {
-      // Ignore parse errors — fall through to heuristic
-    }
-
-    // Fallback: infer from response text
-    return {
-      completedAt: new Date().toISOString(),
-      status: response.includes('failed') ? 'failed' : 'success',
-      summary: defaultSummary,
-      taskId,
-      verification: defaultVerification,
     }
   }
 

@@ -390,7 +390,7 @@ async function start(): Promise<void> {
   })
 
   // 7. Create executors and listen for task:execute from pool
-  const curateExecutor = new CurateExecutor()
+  const curateExecutor = new CurateExecutor({searchService})
   const folderPackService = new FolderPackService(fileSystemService)
   await folderPackService.initialize()
   const folderPackExecutor = new FolderPackExecutor(folderPackService)

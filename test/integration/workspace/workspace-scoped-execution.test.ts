@@ -376,7 +376,9 @@ describe('workspace-scoped execution (integration)', () => {
         },
       ])
       const fakeReader = {readFiles}
-      const executor = new CurateExecutor(fakeReader as never)
+      // Phase 1 cutover: CurateExecutor now takes a deps object instead of
+      // a positional FileContentReader. See plan/agent-driven-graph/PHASE-1-IMPLEMENTATION.md.
+      const executor = new CurateExecutor({fileContentReader: fakeReader as never})
 
       await executor.executeWithAgent(agent, {
         clientCwd,
