@@ -116,18 +116,10 @@ export class SocketIOTransportServer implements ITransportServer {
     event: string,
     handler: RequestHandler<TRequest, TResponse>,
   ): void {
-    // Store handler wrapped to accept unknown types (avoids type assertion).
-    // Allowed before start() so all handlers can be registered before the socket
-    // starts accepting connections — eliminates the handler-registration race
-    // that used to make cold `brv status`/`vc`/`push`/etc. take ~13s while the
-    // CLI waited 10s for an ack from a not-yet-registered listener.
-    // When a socket connects in start()'s connection handler, it iterates
-    // this.requestHandlers and wires each entry — so pre-registered handlers
-    // are applied to every connection automatically.
+    // Pre-start registration is supported: start()'s connection handler iterates this.requestHandlers.
     const wrappedHandler: StoredRequestHandler = (data, clientId) => handler(data as TRequest, clientId)
     this.requestHandlers.set(event, wrappedHandler)
 
-    // Apply handler to all existing sockets (no-op before start()).
     for (const socket of this.sockets.values()) {
       this.registerEventHandler(socket, event, wrappedHandler)
     }

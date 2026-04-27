@@ -20,16 +20,9 @@ import {
 } from '../../server/utils/sandbox-detector.js'
 import {VcErrorCode} from '../../shared/transport/events/vc-events.js'
 
-/**
- * Max retry attempts. Sized to cover the cold-start window where the daemon
- * has written its heartbeat (so pollForDaemon considers it ready) but
- * `transportServer.start(port)` hasn't opened the port yet — see ENG-2464 +
- * brv-server.ts startup sequence comment. With DEFAULT_RETRY_DELAY_MS = 1s,
- * 10 attempts give a 9 s budget which covers slow OIDC-discovery cold starts
- * without making genuine-failure errors take too long to surface.
- */
+/** Max retry attempts. 10 × 1s = 9s budget covers cold-start ECONNREFUSED incl. slow OIDC. */
 const MAX_RETRIES = 10
-/** Delay between retry attempts (ms). Short enough to recover quickly from cold-start ECONNREFUSED. */
+/** Delay between retry attempts (ms). */
 const DEFAULT_RETRY_DELAY_MS = 1000
 
 /** Maps handler error codes to user-friendly CLI messages */
@@ -66,13 +59,13 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
 }
 
 export interface DaemonClientOptions {
-  /** Max retry attempts. Default: 3 */
+  /** Max retry attempts. Default: 10 */
   maxRetries?: number
   /** Explicit project path — bypasses walk-up discovery. Use for `init` where .brv/ doesn't exist yet. */
   projectPath?: string
   /** Explicit --project-root flag value to override auto-detection */
   projectRootFlag?: string
-  /** Delay between retries in ms. Default: 2000. Set to 0 in tests. */
+  /** Delay between retries in ms. Default: 1000. Set to 0 in tests. */
   retryDelayMs?: number
   /** Optional transport connector for DI/testing */
   transportConnector?: TransportConnector
