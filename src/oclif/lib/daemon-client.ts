@@ -20,10 +20,10 @@ import {
 } from '../../server/utils/sandbox-detector.js'
 import {VcErrorCode} from '../../shared/transport/events/vc-events.js'
 
-/** Max retry attempts when daemon disconnects mid-task */
-const MAX_RETRIES = 3
-/** Delay between retry attempts (ms) */
-const DEFAULT_RETRY_DELAY_MS = 2000
+/** Max retry attempts. 10 × 1s = 9s budget covers cold-start ECONNREFUSED incl. slow OIDC. */
+const MAX_RETRIES = 10
+/** Delay between retry attempts (ms). */
+const DEFAULT_RETRY_DELAY_MS = 1000
 
 /** Maps handler error codes to user-friendly CLI messages */
 const USER_FRIENDLY_MESSAGES: Record<string, string> = {
@@ -59,13 +59,13 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
 }
 
 export interface DaemonClientOptions {
-  /** Max retry attempts. Default: 3 */
+  /** Max retry attempts. Default: 10 */
   maxRetries?: number
   /** Explicit project path — bypasses walk-up discovery. Use for `init` where .brv/ doesn't exist yet. */
   projectPath?: string
   /** Explicit --project-root flag value to override auto-detection */
   projectRootFlag?: string
-  /** Delay between retries in ms. Default: 2000. Set to 0 in tests. */
+  /** Delay between retries in ms. Default: 1000. Set to 0 in tests. */
   retryDelayMs?: number
   /** Optional transport connector for DI/testing */
   transportConnector?: TransportConnector
