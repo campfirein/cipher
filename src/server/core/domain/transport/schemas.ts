@@ -12,6 +12,7 @@ import {z} from 'zod'
 import type {AgentEventMap} from '../../../../agent/core/domain/agent-events/types.js'
 
 import {QUERY_LOG_TIERS, type QueryLogTier} from '../../domain/entities/query-log-entry.js'
+import {TaskHistoryEntrySchema} from '../entities/task-history-entry.js'
 // Re-export domain types for convenience (SSOT: agent-events/types.ts)
 export type {
   AgentTerminationReason,
@@ -582,7 +583,9 @@ export const TaskQueryResultEventSchema = z.object({
     })
     .optional(),
   taskId: z.string(),
-  tier: z.custom<QueryLogTier>((val) => new Set<unknown>(QUERY_LOG_TIERS).has(val), {message: 'Invalid query log tier'}),
+  tier: z.custom<QueryLogTier>((val) => new Set<unknown>(QUERY_LOG_TIERS).has(val), {
+    message: 'Invalid query log tier',
+  }),
   timing: z.object({durationMs: z.number()}),
 })
 
@@ -725,6 +728,10 @@ export const TaskCancelResponseSchema = z.object({
  * Used by the web UI Tasks tab to populate state without replaying history.
  */
 export const TaskListRequestSchema = z.object({
+  /** Pagination cursor — return tasks with createdAt < before. */
+  before: z.number().optional(),
+  /** Page size — server clamps to 1..1000; defaults to 50 when omitted (handler policy). */
+  limit: z.number().int().min(1).max(1000).optional(),
   /** Optional project filter — defaults to caller's registered project */
   projectPath: z.string().optional(),
 })
@@ -753,7 +760,67 @@ export const TaskListItemSchema = z.object({
 })
 
 export const TaskListResponseSchema = z.object({
+  /** Cursor for the next page — pass as `before` to fetch older tasks. Undefined when no more. */
+  nextCursor: z.number().optional(),
   tasks: z.array(TaskListItemSchema),
+})
+
+/**
+ * task:get — fetch full Level 2 detail for a single persisted task.
+ * Returns null when the task is unknown or its data file is corrupt.
+ */
+export const TaskGetRequestSchema = z.object({
+  taskId: z.string(),
+})
+
+export const TaskGetResponseSchema = z.object({
+  task: TaskHistoryEntrySchema.nullable(),
+})
+
+/**
+ * task:delete — remove a single task from the per-project history store.
+ * Idempotent: deleting a non-existent task returns success: true.
+ */
+export const TaskDeleteRequestSchema = z.object({
+  taskId: z.string(),
+})
+
+export const TaskDeleteResponseSchema = z.object({
+  error: z.string().optional(),
+  success: z.boolean(),
+})
+
+/**
+ * task:deleteBulk — delete many tasks at once. `deletedCount` reports actual removals.
+ */
+export const TaskDeleteBulkRequestSchema = z.object({
+  taskIds: z.array(z.string()),
+})
+
+export const TaskDeleteBulkResponseSchema = z.object({
+  deletedCount: z.number(),
+  error: z.string().optional(),
+})
+
+/**
+ * task:clearCompleted — remove all terminal-state tasks (completed/error/cancelled)
+ * from the project's history. Active tasks (created/started) are preserved.
+ */
+export const TaskClearCompletedRequestSchema = z.object({
+  projectPath: z.string().optional(),
+})
+
+export const TaskClearCompletedResponseSchema = z.object({
+  deletedCount: z.number(),
+  error: z.string().optional(),
+})
+
+/**
+ * task:deleted — broadcast to project room when a task is removed from history.
+ * Lets other clients (TUI, other webui tabs) drop the row from their local view.
+ */
+export const TaskDeletedEventSchema = z.object({
+  taskId: z.string(),
 })
 
 // ============================================================================
@@ -942,6 +1009,16 @@ export type TaskListItem = z.infer<typeof TaskListItemSchema>
 export type TaskListItemStatus = z.infer<typeof TaskListItemStatusSchema>
 export type TaskListRequest = z.infer<typeof TaskListRequestSchema>
 export type TaskListResponse = z.infer<typeof TaskListResponseSchema>
+
+export type TaskClearCompletedRequest = z.infer<typeof TaskClearCompletedRequestSchema>
+export type TaskClearCompletedResponse = z.infer<typeof TaskClearCompletedResponseSchema>
+export type TaskDeleteBulkRequest = z.infer<typeof TaskDeleteBulkRequestSchema>
+export type TaskDeleteBulkResponse = z.infer<typeof TaskDeleteBulkResponseSchema>
+export type TaskDeleteRequest = z.infer<typeof TaskDeleteRequestSchema>
+export type TaskDeleteResponse = z.infer<typeof TaskDeleteResponseSchema>
+export type TaskDeletedEvent = z.infer<typeof TaskDeletedEventSchema>
+export type TaskGetRequest = z.infer<typeof TaskGetRequestSchema>
+export type TaskGetResponse = z.infer<typeof TaskGetResponseSchema>
 
 export type SessionInfo = z.infer<typeof SessionInfoSchema>
 export type SessionStats = z.infer<typeof SessionStatsSchema>

@@ -1,11 +1,20 @@
+import type {TaskHistoryEntry} from '../../../server/core/domain/entities/task-history-entry.js'
+
+export type {TaskHistoryEntry} from '../../../server/core/domain/entities/task-history-entry.js'
+
 export const TaskEvents = {
   ACK: 'task:ack',
   CANCEL: 'task:cancel',
   CANCELLED: 'task:cancelled',
+  CLEAR_COMPLETED: 'task:clearCompleted',
   COMPLETED: 'task:completed',
   CREATE: 'task:create',
   CREATED: 'task:created',
+  DELETE: 'task:delete',
+  DELETE_BULK: 'task:deleteBulk',
+  DELETED: 'task:deleted',
   ERROR: 'task:error',
+  GET: 'task:get',
   LIST: 'task:list',
   STARTED: 'task:started',
 } as const
@@ -91,9 +100,51 @@ export interface TaskListItem {
 }
 
 export interface TaskListRequest {
+  before?: number
+  limit?: number
   projectPath?: string
 }
 
 export interface TaskListResponse {
+  nextCursor?: number
   tasks: TaskListItem[]
+}
+
+export interface TaskClearCompletedRequest {
+  projectPath?: string
+}
+
+export interface TaskClearCompletedResponse {
+  deletedCount: number
+  error?: string
+}
+
+export interface TaskDeleteBulkRequest {
+  taskIds: string[]
+}
+
+export interface TaskDeleteBulkResponse {
+  deletedCount: number
+  error?: string
+}
+
+export interface TaskDeleteRequest {
+  taskId: string
+}
+
+export interface TaskDeleteResponse {
+  error?: string
+  success: boolean
+}
+
+export interface TaskDeletedEvent {
+  taskId: string
+}
+
+export interface TaskGetRequest {
+  taskId: string
+}
+
+export interface TaskGetResponse {
+  task: null | TaskHistoryEntry
 }
