@@ -49,7 +49,11 @@ export interface TaskListItem {
   files?: string[]
   /** Folder path for `curate-folder` tasks */
   folderPath?: string
+  /** Active model id at task creation time */
+  model?: string
   projectPath?: string
+  /** Active provider id at task creation time */
+  provider?: string
   result?: string
   startedAt?: number
   status: TaskListItemStatus
