@@ -270,7 +270,12 @@ describe('TaskRouter', () => {
         expect(submittedTask).to.not.have.property('reviewDisabled')
       })
 
-      it('omits reviewDisabled when resolver throws (fail-open)', async () => {
+      it('stamps explicit reviewDisabled=false when resolver throws (fail-open with single concrete value)', async () => {
+        // Returning undefined here would re-introduce the daemon/agent divergence the
+        // snapshot is meant to prevent: daemon stamps no field → CurateLogHandler treats
+        // as enabled (`?? false`), but the agent process opens no ALS scope and may
+        // observe a different value from .brv/config.json. Stamping a concrete `false`
+        // keeps both sides aligned (review enabled, fail-open).
         const routerWithResolver = new TaskRouter({
           agentPool,
           getAgentForProject,
@@ -288,7 +293,7 @@ describe('TaskRouter', () => {
         await new Promise((resolve) => { setTimeout(resolve, 10) })
 
         const submittedTask = agentPool.submitTask.firstCall.args[0]
-        expect(submittedTask).to.not.have.property('reviewDisabled')
+        expect(submittedTask).to.have.property('reviewDisabled', false)
       })
     })
 

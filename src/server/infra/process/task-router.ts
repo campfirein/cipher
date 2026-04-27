@@ -1011,9 +1011,21 @@ export class TaskRouter {
   }
 
   /**
-   * Reads the project's reviewDisabled flag at task-create. Returns undefined
-   * (which propagates as "no field set" → fail-open enabled downstream) when
-   * no resolver is wired, no projectPath, or the resolver throws/rejects.
+   * Reads the project's reviewDisabled flag at task-create.
+   *
+   * Returns `undefined` only when no resolver is wired or no projectPath was
+   * resolved — those are legitimate "not configured" cases where downstream
+   * consumers fall back to their own resolution path.
+   *
+   * On resolver THROW, returns the explicit boolean `false` (review enabled =
+   * fail-open) so the daemon and the agent observe a single concrete value.
+   * Returning `undefined` here would re-introduce the exact divergence the
+   * snapshot is supposed to prevent: daemon stamps no field → CurateLogHandler
+   * uses `?? false` (enabled) while the agent process opens no ALS scope and
+   * may read `reviewDisabled: true` from `.brv/config.json` in the
+   * curate-tool fallback, producing pending review entries without backups
+   * (or vice versa). Aligns with the agent-side `isReviewDisabledForBrvDir`
+   * which also fails open.
    */
   private async snapshotReviewDisabled(projectPath: string | undefined): Promise<boolean | undefined> {
     if (!this.isReviewDisabled || !projectPath) return undefined
@@ -1023,7 +1035,7 @@ export class TaskRouter {
       transportLog(
         `TaskRouter: isReviewDisabled resolver threw for ${projectPath} — defaulting to enabled: ${error_ instanceof Error ? error_.message : String(error_)}`,
       )
-      return undefined
+      return false
     }
   }
 }
