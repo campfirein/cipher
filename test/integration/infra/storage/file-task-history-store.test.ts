@@ -35,10 +35,17 @@ describe('FileTaskHistoryStore', () => {
   beforeEach(async () => {
     tempDir = join(tmpdir(), `brv-task-history-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     await mkdir(tempDir, {recursive: true})
-    // Disable stale recovery by default — legacy fixtures use ancient `createdAt`
-    // values that would otherwise trigger recovery in M2.02/M2.05 tests.
-    // The 'stale recovery' sub-describe overrides with a small threshold.
-    store = new FileTaskHistoryStore({baseDir: tempDir, staleThresholdMs: Number.POSITIVE_INFINITY})
+    // Disable stale recovery + prune + compaction by default — legacy fixtures
+    // use ancient `createdAt` values + low entry counts that would otherwise
+    // trigger M2.04 recovery / M2.03 prune / compaction during M2.02/M2.05 tests.
+    // The 'stale recovery' and 'prune + compaction' sub-describes override per-test.
+    store = new FileTaskHistoryStore({
+      baseDir: tempDir,
+      maxAgeDays: 0,
+      maxEntries: Number.POSITIVE_INFINITY,
+      maxIndexBloatRatio: Number.POSITIVE_INFINITY,
+      staleThresholdMs: Number.POSITIVE_INFINITY,
+    })
     storeDir = join(tempDir, 'task-history')
     dataDir = join(storeDir, 'data')
     indexPath = join(storeDir, '_index.jsonl')
@@ -410,7 +417,13 @@ describe('FileTaskHistoryStore', () => {
     beforeEach(() => {
       // Override outer store with a small threshold so we can fabricate
       // "stale" entries via createdAt: Date.now() - 200.
-      store = new FileTaskHistoryStore({baseDir: tempDir, staleThresholdMs: STALE_THRESHOLD_MS})
+      store = new FileTaskHistoryStore({
+        baseDir: tempDir,
+        maxAgeDays: 0,
+        maxEntries: Number.POSITIVE_INFINITY,
+        maxIndexBloatRatio: Number.POSITIVE_INFINITY,
+        staleThresholdMs: STALE_THRESHOLD_MS,
+      })
     })
 
     // eslint-disable-next-line unicorn/consistent-function-scoping
@@ -577,6 +590,341 @@ describe('FileTaskHistoryStore', () => {
       const recoveryLine = JSON.parse(lines.at(-1) ?? '') as Record<string, unknown>
       expect(recoveryLine.schemaVersion).to.equal(1)
       expect(recoveryLine.status).to.equal('error')
+    })
+  })
+
+  describe('prune + compaction', () => {
+    const ONE_DAY_MS = 86_400_000
+
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    async function countIndexLines(): Promise<number> {
+      const raw = await readFile(indexPath, 'utf8').catch(() => '')
+      return raw.split('\n').filter(Boolean).length
+    }
+
+    async function waitForPruneToSettle(): Promise<void> {
+      let prev = await countIndexLines()
+      for (let i = 0; i < 50; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => {
+          setTimeout(r, 4)
+        })
+        // eslint-disable-next-line no-await-in-loop
+        const cur = await countIndexLines()
+        if (cur === prev) return
+        prev = cur
+      }
+    }
+
+    describe('age prune', () => {
+      it('entries older than maxAgeDays appended as _deleted, data files unlinked', async () => {
+        store = new FileTaskHistoryStore({
+          baseDir: tempDir,
+          maxAgeDays: 1,
+          maxEntries: Number.POSITIVE_INFINITY,
+          maxIndexBloatRatio: Number.POSITIVE_INFINITY,
+          staleThresholdMs: Number.POSITIVE_INFINITY,
+        })
+
+        const now = Date.now()
+        await store.save(
+          makeEntry({completedAt: now - 2 * ONE_DAY_MS, createdAt: now - 2 * ONE_DAY_MS, status: 'completed', taskId: 'old'}),
+        )
+        // Trigger prune via a fresh save (within threshold).
+        await store.save(makeEntry({completedAt: now, createdAt: now, status: 'completed', taskId: 'fresh'}))
+
+        await waitForPruneToSettle()
+
+        // Old data file is gone
+        const dataFiles = await readdir(dataDir).catch(() => [])
+        expect(dataFiles).to.not.include('tsk-old.json')
+        expect(dataFiles).to.include('tsk-fresh.json')
+
+        // Tombstone exists for old taskId
+        const indexRaw = await readFile(indexPath, 'utf8')
+        const tombstones = indexRaw
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as Record<string, unknown>)
+          .filter((line) => line._deleted === true)
+        expect(tombstones.some((t) => t.taskId === 'old')).to.equal(true)
+      })
+
+      it('entries within maxAgeDays untouched', async () => {
+        store = new FileTaskHistoryStore({
+          baseDir: tempDir,
+          maxAgeDays: 30,
+          maxEntries: Number.POSITIVE_INFINITY,
+          maxIndexBloatRatio: Number.POSITIVE_INFINITY,
+          staleThresholdMs: Number.POSITIVE_INFINITY,
+        })
+
+        const now = Date.now()
+        await store.save(makeEntry({completedAt: now, createdAt: now, status: 'completed', taskId: 'recent'}))
+        await store.save(makeEntry({completedAt: now, createdAt: now, status: 'completed', taskId: 'recent2'}))
+
+        await waitForPruneToSettle()
+
+        const result = await store.list()
+        expect(result.map((r) => r.taskId).sort()).to.deep.equal(['recent', 'recent2'])
+      })
+
+      it('maxAgeDays: 0 disables age prune', async () => {
+        // Outer beforeEach already constructs store with maxAgeDays: 0.
+        // Save an ancient entry; assert it's still in the live list after settle.
+        await store.save(makeEntry({completedAt: 2, createdAt: 1, status: 'completed', taskId: 'ancient'}))
+        await waitForPruneToSettle()
+
+        const result = await store.list()
+        expect(result.map((r) => r.taskId)).to.include('ancient')
+      })
+    })
+
+    describe('count prune', () => {
+      it('trims live entry count to maxEntries (newest survive)', async () => {
+        store = new FileTaskHistoryStore({
+          baseDir: tempDir,
+          maxAgeDays: 0,
+          maxEntries: 2,
+          maxIndexBloatRatio: Number.POSITIVE_INFINITY,
+          staleThresholdMs: Number.POSITIVE_INFINITY,
+        })
+
+        const now = Date.now()
+        for (let i = 0; i < 4; i++) {
+          // eslint-disable-next-line no-await-in-loop
+          await store.save(
+            makeEntry({completedAt: now + i, createdAt: now + i, status: 'completed', taskId: `c${i}`}),
+          )
+        }
+
+        await waitForPruneToSettle()
+
+        const result = await store.list()
+        // newest 2 survive
+        expect(result.map((r) => r.taskId).sort()).to.deep.equal(['c2', 'c3'])
+      })
+
+      it('deleted-but-not-yet-compacted entries are not counted as live', async () => {
+        store = new FileTaskHistoryStore({
+          baseDir: tempDir,
+          maxAgeDays: 0,
+          maxEntries: 3,
+          maxIndexBloatRatio: Number.POSITIVE_INFINITY,
+          staleThresholdMs: Number.POSITIVE_INFINITY,
+        })
+
+        const now = Date.now()
+        await store.save(makeEntry({completedAt: now, createdAt: now, status: 'completed', taskId: 'a'}))
+        await store.save(makeEntry({completedAt: now, createdAt: now, status: 'completed', taskId: 'b'}))
+        await store.save(makeEntry({completedAt: now, createdAt: now, status: 'completed', taskId: 'c'}))
+        // Mark 'a' deleted out-of-band (tombstone via store.delete is the canonical path)
+        await store.delete('a')
+        // Save more entries — should NOT be pruned because live count is now 3 (b, c, d), under the 3 cap.
+        await store.save(makeEntry({completedAt: now, createdAt: now, status: 'completed', taskId: 'd'}))
+
+        await waitForPruneToSettle()
+
+        const result = await store.list()
+        expect(result.map((r) => r.taskId).sort()).to.deep.equal(['b', 'c', 'd'])
+      })
+    })
+
+    describe('compaction', () => {
+      it('triggered when bloat ratio > 2.0', async () => {
+        store = new FileTaskHistoryStore({
+          baseDir: tempDir,
+          maxAgeDays: 0,
+          maxEntries: Number.POSITIVE_INFINITY,
+          maxIndexBloatRatio: 2,
+          staleThresholdMs: Number.POSITIVE_INFINITY,
+        })
+
+        // Save same taskId 4 times — index has 4 lines, 1 live → ratio 4.0.
+        for (let i = 0; i < 4; i++) {
+          // eslint-disable-next-line no-await-in-loop
+          await store.save(makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'spam'}))
+        }
+
+        await waitForPruneToSettle()
+
+        const lineCount = await countIndexLines()
+        expect(lineCount).to.equal(1)
+      })
+
+      it('rewrites _index.jsonl with one line per live entry', async () => {
+        store = new FileTaskHistoryStore({
+          baseDir: tempDir,
+          maxAgeDays: 0,
+          maxEntries: Number.POSITIVE_INFINITY,
+          maxIndexBloatRatio: 2,
+          staleThresholdMs: Number.POSITIVE_INFINITY,
+        })
+
+        await store.save(makeEntry({completedAt: 1, createdAt: 1, status: 'completed', taskId: 'a'}))
+        await store.save(makeEntry({completedAt: 2, createdAt: 2, status: 'completed', taskId: 'a'}))
+        await store.save(makeEntry({completedAt: 3, createdAt: 3, status: 'completed', taskId: 'a'}))
+        await store.save(makeEntry({completedAt: 4, createdAt: 4, status: 'completed', taskId: 'b'}))
+        await store.save(makeEntry({completedAt: 5, createdAt: 5, status: 'completed', taskId: 'b'}))
+
+        await waitForPruneToSettle()
+
+        const indexRaw = await readFile(indexPath, 'utf8')
+        const lines = indexRaw.split('\n').filter(Boolean)
+        const taskIds = lines.map((l) => (JSON.parse(l) as Record<string, unknown>).taskId)
+        expect(taskIds.sort()).to.deep.equal(['a', 'b'])
+      })
+
+      it('preserves _index.jsonl.bak across one cycle', async () => {
+        store = new FileTaskHistoryStore({
+          baseDir: tempDir,
+          maxAgeDays: 0,
+          maxEntries: Number.POSITIVE_INFINITY,
+          maxIndexBloatRatio: 2,
+          staleThresholdMs: Number.POSITIVE_INFINITY,
+        })
+
+        for (let i = 0; i < 4; i++) {
+          // eslint-disable-next-line no-await-in-loop
+          await store.save(makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'bak'}))
+        }
+
+        await waitForPruneToSettle()
+
+        const bakPath = join(storeDir, '_index.jsonl.bak')
+        const bakRaw = await readFile(bakPath, 'utf8')
+        // Bak holds the pre-compaction index — multiple lines for 'bak'.
+        const bakLines = bakRaw.split('\n').filter(Boolean)
+        expect(bakLines.length).to.be.greaterThan(1)
+      })
+
+      it('unlinks orphan data files (taskId not in live map)', async () => {
+        store = new FileTaskHistoryStore({
+          baseDir: tempDir,
+          maxAgeDays: 0,
+          maxEntries: Number.POSITIVE_INFINITY,
+          maxIndexBloatRatio: 2,
+          staleThresholdMs: Number.POSITIVE_INFINITY,
+        })
+
+        // Pre-create an orphan data file with no index entry.
+        await mkdir(dataDir, {recursive: true})
+        await writeFile(join(dataDir, 'tsk-orphan.json'), JSON.stringify({fake: true}), 'utf8')
+
+        // Trigger compaction by saving same taskId multiple times.
+        for (let i = 0; i < 4; i++) {
+          // eslint-disable-next-line no-await-in-loop
+          await store.save(makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'live'}))
+        }
+
+        await waitForPruneToSettle()
+
+        const dataFiles = await readdir(dataDir)
+        expect(dataFiles).to.not.include('tsk-orphan.json')
+        expect(dataFiles).to.include('tsk-live.json')
+      })
+
+      it('atomic rename — no half-written index visible during compaction', async () => {
+        store = new FileTaskHistoryStore({
+          baseDir: tempDir,
+          maxAgeDays: 0,
+          maxEntries: Number.POSITIVE_INFINITY,
+          maxIndexBloatRatio: 2,
+          staleThresholdMs: Number.POSITIVE_INFINITY,
+        })
+
+        for (let i = 0; i < 4; i++) {
+          // eslint-disable-next-line no-await-in-loop
+          await store.save(makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'atomic'}))
+        }
+
+        await waitForPruneToSettle()
+
+        const allFiles = await readdir(storeDir)
+        expect(allFiles).to.not.include('_index.jsonl.tmp')
+        expect(allFiles).to.include('_index.jsonl')
+      })
+    })
+
+    describe('concurrency', () => {
+      it('concurrent saves dedupe — one prune pass runs', async () => {
+        store = new FileTaskHistoryStore({
+          baseDir: tempDir,
+          maxAgeDays: 0,
+          maxEntries: 2,
+          maxIndexBloatRatio: Number.POSITIVE_INFINITY,
+          staleThresholdMs: Number.POSITIVE_INFINITY,
+        })
+
+        // Burst 5 concurrent saves
+        const now = Date.now()
+        await Promise.all([
+          store.save(makeEntry({completedAt: now + 1, createdAt: now + 1, status: 'completed', taskId: 'b1'})),
+          store.save(makeEntry({completedAt: now + 2, createdAt: now + 2, status: 'completed', taskId: 'b2'})),
+          store.save(makeEntry({completedAt: now + 3, createdAt: now + 3, status: 'completed', taskId: 'b3'})),
+          store.save(makeEntry({completedAt: now + 4, createdAt: now + 4, status: 'completed', taskId: 'b4'})),
+          store.save(makeEntry({completedAt: now + 5, createdAt: now + 5, status: 'completed', taskId: 'b5'})),
+        ])
+
+        await waitForPruneToSettle()
+
+        // Only the newest 2 should survive after a single prune pass.
+        const result = await store.list()
+        expect(result.map((r) => r.taskId).sort()).to.deep.equal(['b4', 'b5'])
+      })
+
+      it('save() returns before prune/compaction completes', async () => {
+        store = new FileTaskHistoryStore({
+          baseDir: tempDir,
+          maxAgeDays: 0,
+          maxEntries: 1,
+          maxIndexBloatRatio: Number.POSITIVE_INFINITY,
+          staleThresholdMs: Number.POSITIVE_INFINITY,
+        })
+
+        // Pre-load 5 entries to make prune work non-trivial
+        for (let i = 0; i < 5; i++) {
+          // eslint-disable-next-line no-await-in-loop
+          await store.save(makeEntry({completedAt: Date.now() + i, createdAt: Date.now() + i, status: 'completed', taskId: `pre${i}`}))
+        }
+
+        await waitForPruneToSettle()
+
+        // Time a single save; assert it doesn't block on heavy prune work.
+        const t0 = Date.now()
+        await store.save(makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'fast'}))
+        const elapsed = Date.now() - t0
+
+        // Save should complete well under typical prune-pass time (<100ms generous bound).
+        expect(elapsed).to.be.lessThan(100)
+      })
+
+      it('unlink race on already-deleted data file does not throw', async () => {
+        store = new FileTaskHistoryStore({
+          baseDir: tempDir,
+          maxAgeDays: 1,
+          maxEntries: Number.POSITIVE_INFINITY,
+          maxIndexBloatRatio: Number.POSITIVE_INFINITY,
+          staleThresholdMs: Number.POSITIVE_INFINITY,
+        })
+
+        const old = Date.now() - 2 * ONE_DAY_MS
+        await store.save(makeEntry({completedAt: old, createdAt: old, status: 'completed', taskId: 'race'}))
+
+        // Pre-unlink the data file out-of-band before prune fires.
+        await rm(join(dataDir, 'tsk-race.json'), {force: true})
+
+        // Trigger prune via a fresh save.
+        let threw = false
+        try {
+          await store.save(makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'trigger'}))
+          await waitForPruneToSettle()
+        } catch {
+          threw = true
+        }
+
+        expect(threw).to.equal(false)
+      })
     })
   })
 })

@@ -71,6 +71,9 @@ describe('TaskHistory startup audit', () => {
     const {getProjectDataDir} = await import('../../../../src/server/utils/path-utils.js')
     store = new FileTaskHistoryStore({
       baseDir: getProjectDataDir(projectPath),
+      maxAgeDays: 0,
+      maxEntries: Number.POSITIVE_INFINITY,
+      maxIndexBloatRatio: Number.POSITIVE_INFINITY,
       staleThresholdMs: Number.POSITIVE_INFINITY,
     })
 

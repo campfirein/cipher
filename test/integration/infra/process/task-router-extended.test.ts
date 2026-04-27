@@ -148,9 +148,16 @@ describe('TaskRouter — extended handlers', () => {
     tempDir = join(tmpdir(), `brv-task-router-ext-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     await mkdir(tempDir, {recursive: true})
 
-    // Disable stale recovery in default fixture so legacy createdAt timestamps don't
-    // mutate test data unexpectedly. The dedicated stale-recovery test overrides.
-    store = new FileTaskHistoryStore({baseDir: tempDir, staleThresholdMs: Number.POSITIVE_INFINITY})
+    // Disable stale recovery + prune + compaction in default fixture so legacy
+    // createdAt timestamps don't mutate test data unexpectedly. The dedicated
+    // stale-recovery test (and any prune-specific tests) override per-test.
+    store = new FileTaskHistoryStore({
+      baseDir: tempDir,
+      maxAgeDays: 0,
+      maxEntries: Number.POSITIVE_INFINITY,
+      maxIndexBloatRatio: Number.POSITIVE_INFINITY,
+      staleThresholdMs: Number.POSITIVE_INFINITY,
+    })
 
     router = new TaskRouter({
       agentPool,
@@ -290,7 +297,13 @@ describe('TaskRouter — extended handlers', () => {
       projectRouter = makeStubProjectRouter(sandbox)
       getAgentForProject = sandbox.stub().returns('agent-1')
 
-      const staleStore = new FileTaskHistoryStore({baseDir: tempDir, staleThresholdMs: 100})
+      const staleStore = new FileTaskHistoryStore({
+        baseDir: tempDir,
+        maxAgeDays: 0,
+        maxEntries: Number.POSITIVE_INFINITY,
+        maxIndexBloatRatio: Number.POSITIVE_INFINITY,
+        staleThresholdMs: 100,
+      })
       router = new TaskRouter({
         agentPool,
         getAgentForProject,
