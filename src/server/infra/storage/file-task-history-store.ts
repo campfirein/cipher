@@ -25,9 +25,10 @@ import type {TaskListItem} from '../../../shared/transport/events/task-events.js
 import type {TaskHistoryEntry} from '../../core/domain/entities/task-history-entry.js'
 import type {ITaskHistoryStore, TaskHistoryStatus} from '../../core/interfaces/storage/i-task-history-store.js'
 
-import {TASK_HISTORY_DIR} from '../../constants.js'
+import {TASK_HISTORY_DIR, TASK_HISTORY_STALE_THRESHOLD_MS} from '../../constants.js'
 import {TASK_HISTORY_SCHEMA_VERSION, TaskHistoryEntrySchema} from '../../core/domain/entities/task-history-entry.js'
 import {TaskErrorDataSchema} from '../../core/domain/transport/schemas.js'
+import {transportLog} from '../../utils/process-logger.js'
 
 const STATUS_VALUES = ['cancelled', 'completed', 'created', 'error', 'started'] as const
 const StatusSchema = z.enum(STATUS_VALUES)
@@ -82,19 +83,29 @@ const FILENAME_PREFIX = 'tsk-'
 
 type FileTaskHistoryStoreOptions = {
   baseDir: string
+  /**
+   * Staleness threshold for read-path recovery: entries with status `'created'`
+   * or `'started'` whose `createdAt` is older than this are rewritten to
+   * `status: 'error'` with `code: 'INTERRUPTED'`. Defaults to
+   * `TASK_HISTORY_STALE_THRESHOLD_MS` (10 minutes). Pass
+   * `Number.POSITIVE_INFINITY` to disable recovery.
+   */
+  staleThresholdMs?: number
 }
 
 export class FileTaskHistoryStore implements ITaskHistoryStore {
   private readonly dataDir: string
-  /** Dedup-by-taskId result of the last index read. Invalidated on save (M2.05: delete/clear). */
+  /** Dedup-by-taskId result of the last index read. Invalidated on save/delete/recovery. */
   private indexCache: Map<string, IndexLine> | undefined
   private readonly indexPath: string
+  private readonly staleThresholdMs: number
   private readonly storeDir: string
 
   constructor(opts: FileTaskHistoryStoreOptions) {
     this.storeDir = join(opts.baseDir, TASK_HISTORY_DIR)
     this.indexPath = join(this.storeDir, INDEX_FILE)
     this.dataDir = join(this.storeDir, DATA_DIR)
+    this.staleThresholdMs = opts.staleThresholdMs ?? TASK_HISTORY_STALE_THRESHOLD_MS
   }
 
   // ── Delete + clear (M2.05) ─────────────────────────────────────────────────
@@ -148,13 +159,23 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
   async getById(taskId: string): Promise<TaskHistoryEntry | undefined> {
     if (!TASK_ID_PATTERN.test(taskId)) return undefined
 
+    let entry: TaskHistoryEntry
     try {
       const raw = await readFile(this.dataPath(taskId), 'utf8')
       const parsed = TaskHistoryEntrySchema.safeParse(JSON.parse(raw))
-      return parsed.success ? parsed.data : undefined
+      if (!parsed.success) return undefined
+      entry = parsed.data
     } catch {
       return undefined
     }
+
+    if (this.isStale(entry.status, entry.createdAt, Date.now())) {
+      const recovered = this.buildRecovered(entry, Date.now())
+      await this.persistRecovery(recovered)
+      return recovered
+    }
+
+    return entry
   }
 
   async list(
@@ -205,8 +226,56 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
     this.indexCache = undefined
   }
 
+  /**
+   * Construct the recovered (status='error') variant of a stale entry.
+   * Uses Zod parse to narrow to the discriminated 'error' branch without an `as` cast.
+   */
+  private buildRecovered(entry: TaskHistoryEntry, now: number): TaskHistoryEntry {
+    return TaskHistoryEntrySchema.parse({
+      ...entry,
+      completedAt: now,
+      error: {
+        code: 'INTERRUPTED',
+        message: 'Interrupted (daemon terminated)',
+        name: 'TaskError',
+      },
+      status: 'error',
+    })
+  }
+
   private dataPath(taskId: string): string {
     return join(this.dataDir, `${FILENAME_PREFIX}${taskId}.json`)
+  }
+
+  private isStale(status: TaskHistoryStatus, createdAt: number, now: number): boolean {
+    return (status === 'created' || status === 'started') && now - createdAt > this.staleThresholdMs
+  }
+
+  /**
+   * Best-effort: write the recovered shape to the data file AND append the
+   * recovery line to the index. Both writes run in parallel; each catches its
+   * own failure and logs via `transportLog`. Never throws to caller.
+   */
+  private async persistRecovery(recovered: TaskHistoryEntry): Promise<void> {
+    await Promise.all([
+      this.writeAtomic(this.dataPath(recovered.taskId), JSON.stringify(recovered, null, 2)).catch(
+        (error: unknown) => {
+          transportLog(
+            `stale recovery: failed to write data file for ${recovered.taskId}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        },
+      ),
+      appendFile(
+        this.indexPath,
+        JSON.stringify(projectToIndexLine(recovered)) + '\n',
+        'utf8',
+      ).catch((error: unknown) => {
+        transportLog(
+          `stale recovery: failed to append index line for ${recovered.taskId}: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }),
+    ])
+    this.indexCache = undefined
   }
 
   private async readIndexDedup(): Promise<Map<string, IndexLine>> {
@@ -241,8 +310,49 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
       map.set(parsed.data.taskId, parsed.data)
     }
 
+    // Stale recovery — sequential within this pass to keep index appends atomic.
+    const now = Date.now()
+    const staleTaskIds: string[] = []
+    for (const [taskId, line] of map) {
+      if ('_deleted' in line) continue
+      if (this.isStale(line.status, line.createdAt, now)) staleTaskIds.push(taskId)
+    }
+
+    for (const taskId of staleTaskIds) {
+      // eslint-disable-next-line no-await-in-loop -- sequential is intentional (atomicity)
+      const recovered = await this.recoverViaTaskId(taskId, now)
+      if (recovered !== undefined) map.set(taskId, recovered)
+    }
+
     this.indexCache = map
     return map
+  }
+
+  /**
+   * Read the data file for a stale candidate, mutate to error, persist.
+   * Returns the summary projection of the recovered entry. Returns undefined
+   * if the data file is missing/corrupt. If the data file already shows a
+   * terminal status (a prior partial-success recovery), returns its projection
+   * without re-recovering — defensive idempotency restoration.
+   */
+  private async recoverViaTaskId(taskId: string, now: number): Promise<IndexDataLine | undefined> {
+    let entry: TaskHistoryEntry
+    try {
+      const raw = await readFile(this.dataPath(taskId), 'utf8')
+      const parsed = TaskHistoryEntrySchema.safeParse(JSON.parse(raw))
+      if (!parsed.success) return undefined
+      entry = parsed.data
+    } catch {
+      return undefined
+    }
+
+    if (entry.status !== 'created' && entry.status !== 'started') {
+      return projectToIndexLine(entry)
+    }
+
+    const recovered = this.buildRecovered(entry, now)
+    await this.persistRecovery(recovered)
+    return projectToIndexLine(recovered)
   }
 
   /**
