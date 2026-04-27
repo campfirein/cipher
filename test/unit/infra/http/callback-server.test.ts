@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {CallbackServer} from '../../../../src/server/infra/http/callback-server.js'
+import {CallbackServer, escapeHtml, firstQueryParam} from '../../../../src/server/infra/http/callback-server.js'
 
 describe('CallbackServer', () => {
   let server: CallbackServer | undefined
@@ -72,6 +72,137 @@ describe('CallbackServer', () => {
       const error = await callbackPromise
       expect(error).to.be.an('error')
       expect((error as Error).message).to.include('State mismatch')
+    })
+  })
+
+  describe('callback HTML responses', () => {
+    it('returns 200 + branded HTML body on successful callback', async () => {
+      server = new CallbackServer()
+      const port = await server.start()
+
+      const expectedState = 'state-success'
+      const callbackPromise = server.waitForCallback(expectedState, 5000)
+
+      // eslint-disable-next-line n/no-unsupported-features/node-builtins
+      const res = await fetch(`http://localhost:${port}/callback?code=abc&state=${expectedState}`)
+      const body = await res.text()
+      await callbackPromise
+
+      expect(res.status).to.equal(200)
+      expect(res.headers.get('content-type') ?? '').to.include('text/html')
+      expect(body).to.include('Authentication Successful')
+      expect(body).to.include('BYTEROVER')
+    })
+
+    it('returns 400 + branded error HTML when provider returns error', async () => {
+      server = new CallbackServer()
+      const port = await server.start()
+
+      const errorPromise = server
+        .waitForCallback('any-state', 5000)
+        .catch((error: Error) => error)
+
+      // eslint-disable-next-line n/no-unsupported-features/node-builtins
+      const res = await fetch(
+        `http://localhost:${port}/callback?error=access_denied&error_description=user%20denied%20access`,
+      )
+      const body = await res.text()
+      await errorPromise
+
+      expect(res.status).to.equal(400)
+      expect(res.headers.get('content-type') ?? '').to.include('text/html')
+      expect(body).to.include('Authentication Failed')
+      expect(body).to.include('user denied access')
+    })
+
+    it('escapes HTML metacharacters in the error message', async () => {
+      server = new CallbackServer()
+      const port = await server.start()
+
+      const errorPromise = server
+        .waitForCallback('any-state', 5000)
+        .catch((error: Error) => error)
+
+      // eslint-disable-next-line n/no-unsupported-features/node-builtins
+      const res = await fetch(
+        `http://localhost:${port}/callback?error=oops&error_description=` +
+          encodeURIComponent('<script>alert("x")</script>'),
+      )
+      const body = await res.text()
+      await errorPromise
+
+      // Raw script tag must NOT appear; escaped form MUST appear in the .error-detail block.
+      expect(body).to.not.include('<script>alert("x")</script>')
+      expect(body).to.include('&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;')
+    })
+
+    it('returns 400 + error HTML when code or state is missing', async () => {
+      server = new CallbackServer()
+      const port = await server.start()
+
+      const errorPromise = server
+        .waitForCallback('any-state', 5000)
+        .catch((error: Error) => error)
+
+      // eslint-disable-next-line n/no-unsupported-features/node-builtins
+      const res = await fetch(`http://localhost:${port}/callback?code=abc`) // no state
+      const body = await res.text()
+      await errorPromise
+
+      expect(res.status).to.equal(400)
+      expect(body).to.include('Missing code or state parameter')
+    })
+  })
+
+  describe('escapeHtml', () => {
+    it('escapes all five HTML metacharacters', () => {
+      expect(escapeHtml('&')).to.equal('&amp;')
+      expect(escapeHtml('<')).to.equal('&lt;')
+      expect(escapeHtml('>')).to.equal('&gt;')
+      expect(escapeHtml('"')).to.equal('&quot;')
+      expect(escapeHtml("'")).to.equal('&#39;')
+    })
+
+    it('passes safe text through unchanged', () => {
+      expect(escapeHtml('hello world 123')).to.equal('hello world 123')
+      expect(escapeHtml('')).to.equal('')
+    })
+
+    it('escapes & first to avoid double-escaping subsequent entity prefixes', () => {
+      // If `&` were escaped after `<`, the `&` in `&lt;` would become `&amp;lt;`.
+      expect(escapeHtml('<a&b>')).to.equal('&lt;a&amp;b&gt;')
+    })
+
+    it('escapes a realistic XSS payload', () => {
+      expect(escapeHtml(`<img src=x onerror="alert('p')">`)).to.equal(
+        '&lt;img src=x onerror=&quot;alert(&#39;p&#39;)&quot;&gt;',
+      )
+    })
+  })
+
+  describe('firstQueryParam', () => {
+    it('returns the string when given a string', () => {
+      expect(firstQueryParam('hello')).to.equal('hello')
+    })
+
+    it('returns the first string when given an array of strings', () => {
+      expect(firstQueryParam(['a', 'b'])).to.equal('a')
+    })
+
+    it('returns undefined when given an empty array', () => {
+      expect(firstQueryParam([])).to.equal(undefined)
+    })
+
+    it('returns undefined when given an array whose first element is not a string', () => {
+      // Express ParsedQs: ?error[code]=x parses to { error: { code: 'x' } } — guard refuses it.
+      expect(firstQueryParam([{nested: 'x'}])).to.equal(undefined)
+    })
+
+    it('returns undefined for object / number / null / undefined inputs', () => {
+      expect(firstQueryParam({foo: 'bar'})).to.equal(undefined)
+      expect(firstQueryParam(42)).to.equal(undefined)
+      expect(firstQueryParam(null)).to.equal(undefined)
+      expect(firstQueryParam()).to.equal(undefined)
     })
   })
 

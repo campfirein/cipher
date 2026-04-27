@@ -1,4 +1,4 @@
-/* eslint-disable camelcase */
+ 
 import type {Server} from 'node:http'
 import type {Socket} from 'node:net'
 
@@ -95,13 +95,35 @@ const USER_ICON_SVG = `<svg viewBox="0 0 24 24" fill="#17b26a" aria-hidden="true
 
 const ALERT_ICON_SVG = `<svg viewBox="0 0 24 24" fill="#f87171" aria-hidden="true"><path d="M12 2 1 21h22L12 2zm0 5.5L19.5 19h-15L12 7.5zM11 11v4h2v-4h-2zm0 5v2h2v-2h-2z"/></svg>`
 
-function escapeHtml(text: string): string {
+/**
+ * Escape characters that have meaning in HTML so user-controlled error
+ * messages cannot break out of attribute or text contexts.
+ */
+export function escapeHtml(text: string): string {
   return text
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
+}
+
+/**
+ * Express parses repeated query keys (e.g. `?error=foo&error=bar`) into
+ * arrays, and nested syntax (`?error[code]=x`) into objects. Authoritative
+ * OAuth providers always send a single string per key, but the wire is
+ * untrusted — coerce any non-string shape to undefined and pick the first
+ * string when given an array, so we never feed `[object Object]` or a
+ * comma-joined value into a user-facing message.
+ */
+export function firstQueryParam(value: unknown): string | undefined {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) {
+    const first = value[0]
+    if (typeof first === 'string') return first
+  }
+
+  return undefined
 }
 
 const SUCCESS_HTML = `<!DOCTYPE html>
@@ -119,7 +141,7 @@ const SUCCESS_HTML = `<!DOCTYPE html>
   <h1>Authentication Successful</h1>
   <p>You can now safely close this tab and return to where you left off</p>
 </div>
-<script>setTimeout(() => window.close(), 2500);</script>
+<!-- inline script: would be blocked by a strict CSP if one is added later --><script>setTimeout(() => window.close(), 2500);</script>
 </body>
 </html>`
 
@@ -230,11 +252,15 @@ export class CallbackServer {
 
   private setupRoutes(): void {
     this.app.get('/callback', (req, res) => {
-      const {code, error, error_description, state} = req.query
+      const error = firstQueryParam(req.query.error)
+      const errorDescription = firstQueryParam(req.query.error_description)
+      const code = firstQueryParam(req.query.code)
+      const state = firstQueryParam(req.query.state)
+
       if (error !== undefined) {
-        const errorMessage = error_description ?? error
-        this.app.locals.onError?.(String(errorMessage))
-        res.status(400).type('html').send(errorHtml(String(errorMessage)))
+        const errorMessage = errorDescription ?? error
+        this.app.locals.onError?.(errorMessage)
+        res.status(400).type('html').send(errorHtml(errorMessage))
         return
       }
 
@@ -245,7 +271,7 @@ export class CallbackServer {
         return
       }
 
-      this.app.locals.onCallback?.(String(code), String(state))
+      this.app.locals.onCallback?.(code, state)
       res.status(200).type('html').send(SUCCESS_HTML)
     })
   }
