@@ -35,7 +35,10 @@ describe('FileTaskHistoryStore', () => {
   beforeEach(async () => {
     tempDir = join(tmpdir(), `brv-task-history-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     await mkdir(tempDir, {recursive: true})
-    store = new FileTaskHistoryStore({baseDir: tempDir})
+    // Disable stale recovery by default — legacy fixtures use ancient `createdAt`
+    // values that would otherwise trigger recovery in M2.02/M2.05 tests.
+    // The 'stale recovery' sub-describe overrides with a small threshold.
+    store = new FileTaskHistoryStore({baseDir: tempDir, staleThresholdMs: Number.POSITIVE_INFINITY})
     storeDir = join(tempDir, 'task-history')
     dataDir = join(storeDir, 'data')
     indexPath = join(storeDir, '_index.jsonl')
@@ -398,6 +401,182 @@ describe('FileTaskHistoryStore', () => {
 
       const fetched = await store.getById('gone')
       expect(fetched).to.equal(undefined)
+    })
+  })
+
+  describe('stale recovery', () => {
+    const STALE_THRESHOLD_MS = 100
+
+    beforeEach(() => {
+      // Override outer store with a small threshold so we can fabricate
+      // "stale" entries via createdAt: Date.now() - 200.
+      store = new FileTaskHistoryStore({baseDir: tempDir, staleThresholdMs: STALE_THRESHOLD_MS})
+    })
+
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    function staleStartedEntry(taskId: string, createdAtOffset = 200): TaskHistoryEntry {
+      const createdAt = Date.now() - createdAtOffset
+      return makeEntry({
+        createdAt,
+        startedAt: createdAt + 10,
+        status: 'started',
+        taskId,
+      })
+    }
+
+    it('list returns recovered shape for created/started past threshold', async () => {
+      await store.save(staleStartedEntry('ghost-1'))
+
+      const result = await store.list()
+      expect(result).to.have.lengthOf(1)
+      expect(result[0]).to.include({status: 'error', taskId: 'ghost-1'})
+      expect(result[0].error).to.deep.equal({
+        code: 'INTERRUPTED',
+        message: 'Interrupted (daemon terminated)',
+        name: 'TaskError',
+      })
+    })
+
+    it('getById returns recovered shape; rewrites both index line and data file', async () => {
+      await store.save(staleStartedEntry('ghost-2'))
+
+      const fetched = await store.getById('ghost-2')
+      expect(fetched).to.exist
+      expect(fetched!.status).to.equal('error')
+      if (fetched!.status === 'error') {
+        expect(fetched!.error).to.deep.equal({
+          code: 'INTERRUPTED',
+          message: 'Interrupted (daemon terminated)',
+          name: 'TaskError',
+        })
+      }
+
+      // Data file rewritten on disk
+      const dataRaw = await readFile(join(dataDir, 'tsk-ghost-2.json'), 'utf8')
+      const onDisk = JSON.parse(dataRaw) as Record<string, unknown>
+      expect(onDisk.status).to.equal('error')
+
+      // Index has the original save line + the recovery line
+      const indexRaw = await readFile(indexPath, 'utf8')
+      const lines = indexRaw.split('\n').filter(Boolean)
+      expect(lines).to.have.lengthOf(2)
+      const lastLine = JSON.parse(lines[1]) as Record<string, unknown>
+      expect(lastLine).to.include({status: 'error', taskId: 'ghost-2'})
+    })
+
+    it('created within threshold left alone', async () => {
+      const fresh = makeEntry({
+        createdAt: Date.now(), // well within 100ms threshold
+        status: 'created',
+        taskId: 'fresh',
+      })
+      await store.save(fresh)
+
+      const result = await store.list()
+      expect(result).to.have.lengthOf(1)
+      expect(result[0].status).to.equal('created')
+
+      // No recovery line appended
+      const indexRaw = await readFile(indexPath, 'utf8')
+      const lines = indexRaw.split('\n').filter(Boolean)
+      expect(lines).to.have.lengthOf(1)
+    })
+
+    it('already-terminal status (completed/error/cancelled) never rewritten', async () => {
+      const oldCreatedAt = Date.now() - 1000 // way past threshold
+      await store.save(
+        makeEntry({
+          completedAt: oldCreatedAt + 100,
+          createdAt: oldCreatedAt,
+          result: 'done',
+          startedAt: oldCreatedAt + 10,
+          status: 'completed',
+          taskId: 't-completed',
+        }),
+      )
+      await store.save(
+        makeEntry({
+          completedAt: oldCreatedAt + 100,
+          createdAt: oldCreatedAt,
+          error: {code: 'BOOM', message: 'boom', name: 'BoomError'},
+          startedAt: oldCreatedAt + 10,
+          status: 'error',
+          taskId: 't-error',
+        }),
+      )
+      await store.save(
+        makeEntry({
+          completedAt: oldCreatedAt + 100,
+          createdAt: oldCreatedAt,
+          startedAt: oldCreatedAt + 10,
+          status: 'cancelled',
+          taskId: 't-cancelled',
+        }),
+      )
+
+      const result = await store.list()
+      const byId = Object.fromEntries(result.map((r) => [r.taskId, r.status]))
+      expect(byId).to.deep.equal({
+        't-cancelled': 'cancelled',
+        't-completed': 'completed',
+        't-error': 'error',
+      })
+
+      // No recovery lines appended — index has only the 3 save lines.
+      const indexRaw = await readFile(indexPath, 'utf8')
+      const lines = indexRaw.split('\n').filter(Boolean)
+      expect(lines).to.have.lengthOf(3)
+    })
+
+    it('idempotent — second list call does not append more recovery lines', async () => {
+      await store.save(staleStartedEntry('once'))
+
+      await store.list() // first call: triggers recovery, appends 1 line
+
+      const after1 = await readFile(indexPath, 'utf8')
+      const lines1 = after1.split('\n').filter(Boolean).length
+
+      await store.list() // second call: must NOT append again
+      const after2 = await readFile(indexPath, 'utf8')
+      const lines2 = after2.split('\n').filter(Boolean).length
+
+      expect(lines2).to.equal(lines1)
+    })
+
+    it('failed atomic-write does not throw; in-memory recovered shape still returned', async () => {
+      await store.save(staleStartedEntry('locked'))
+
+      // Make the index file read-only — the recovery's appendFile will fail with EACCES.
+      // The recovered shape must still be returned in-memory.
+      const {chmod} = await import('node:fs/promises')
+      await chmod(indexPath, 0o444)
+
+      let result
+      let threw = false
+      try {
+        result = await store.list()
+      } catch {
+        threw = true
+      }
+
+      // Restore writability so afterEach can clean up.
+      await chmod(indexPath, 0o644)
+
+      expect(threw).to.equal(false)
+      expect(result).to.exist
+      expect(result!).to.have.lengthOf(1)
+      expect(result![0].status).to.equal('error')
+    })
+
+    it('recovery line carries schemaVersion: 1', async () => {
+      await store.save(staleStartedEntry('schema-check'))
+      await store.list() // triggers recovery, appends recovery line
+
+      const indexRaw = await readFile(indexPath, 'utf8')
+      const lines = indexRaw.split('\n').filter(Boolean)
+      const recoveryLine = JSON.parse(lines.at(-1) ?? '') as Record<string, unknown>
+      expect(recoveryLine.schemaVersion).to.equal(1)
+      expect(recoveryLine.status).to.equal('error')
     })
   })
 })
