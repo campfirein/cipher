@@ -115,6 +115,7 @@ export const TASK_HISTORY_DIR = 'task-history'
 export const TASK_HISTORY_ID_PREFIX = 'tsk'
 export const TASK_HISTORY_DEFAULT_MAX_AGE_DAYS = 30
 export const TASK_HISTORY_DEFAULT_MAX_ENTRIES = 1000
+export const TASK_HISTORY_DEFAULT_MAX_INDEX_BLOAT_RATIO = 2
 export const TASK_HISTORY_STALE_THRESHOLD_MS = 600_000
 
 // Review backups (stores pre-curate file content for local HITL review diffs)

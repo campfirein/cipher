@@ -17,7 +17,7 @@
  */
 
 import {randomUUID} from 'node:crypto'
-import {appendFile, mkdir, readFile, rename, rm, writeFile} from 'node:fs/promises'
+import {appendFile, copyFile, mkdir, readdir, readFile, rename, rm, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import {z} from 'zod'
 
@@ -25,7 +25,13 @@ import type {TaskListItem} from '../../../shared/transport/events/task-events.js
 import type {TaskHistoryEntry} from '../../core/domain/entities/task-history-entry.js'
 import type {ITaskHistoryStore, TaskHistoryStatus} from '../../core/interfaces/storage/i-task-history-store.js'
 
-import {TASK_HISTORY_DIR, TASK_HISTORY_STALE_THRESHOLD_MS} from '../../constants.js'
+import {
+  TASK_HISTORY_DEFAULT_MAX_AGE_DAYS,
+  TASK_HISTORY_DEFAULT_MAX_ENTRIES,
+  TASK_HISTORY_DEFAULT_MAX_INDEX_BLOAT_RATIO,
+  TASK_HISTORY_DIR,
+  TASK_HISTORY_STALE_THRESHOLD_MS,
+} from '../../constants.js'
 import {TASK_HISTORY_SCHEMA_VERSION, TaskHistoryEntrySchema} from '../../core/domain/entities/task-history-entry.js'
 import {TaskErrorDataSchema} from '../../core/domain/transport/schemas.js'
 import {transportLog} from '../../utils/process-logger.js'
@@ -84,6 +90,25 @@ const FILENAME_PREFIX = 'tsk-'
 type FileTaskHistoryStoreOptions = {
   baseDir: string
   /**
+   * Age-based prune threshold. Entries older than this many days are
+   * tombstoned + their data files unlinked. Default `TASK_HISTORY_DEFAULT_MAX_AGE_DAYS` (30).
+   * Set to 0 to disable age-based prune.
+   */
+  maxAgeDays?: number
+  /**
+   * Count-based prune cap. When live entry count exceeds this, oldest excess
+   * entries are tombstoned. Default `TASK_HISTORY_DEFAULT_MAX_ENTRIES` (1000).
+   * Pass `Number.POSITIVE_INFINITY` to disable.
+   */
+  maxEntries?: number
+  /**
+   * Index-compaction trigger. When `total_lines / live_count` exceeds this
+   * ratio, `_index.jsonl` is rewritten with one line per live entry. Default
+   * `TASK_HISTORY_DEFAULT_MAX_INDEX_BLOAT_RATIO` (2). Pass
+   * `Number.POSITIVE_INFINITY` to disable compaction.
+   */
+  maxIndexBloatRatio?: number
+  /**
    * Staleness threshold for read-path recovery: entries with status `'created'`
    * or `'started'` whose `createdAt` is older than this are rewritten to
    * `status: 'error'` with `code: 'INTERRUPTED'`. Defaults to
@@ -95,9 +120,16 @@ type FileTaskHistoryStoreOptions = {
 
 export class FileTaskHistoryStore implements ITaskHistoryStore {
   private readonly dataDir: string
-  /** Dedup-by-taskId result of the last index read. Invalidated on save/delete/recovery. */
+  /** Dedup-by-taskId result of the last index read. Invalidated on save/delete/recovery/prune. */
   private indexCache: Map<string, IndexLine> | undefined
   private readonly indexPath: string
+  private readonly maxAgeDays: number
+  private readonly maxEntries: number
+  private readonly maxIndexBloatRatio: number
+  /** Dedupes concurrent prune passes — only one runs at a time. */
+  private pruneInFlight = false
+  /** Set when a save fires while a prune is in flight; triggers a re-run after current pass. */
+  private pruneRequested = false
   private readonly staleThresholdMs: number
   private readonly storeDir: string
 
@@ -105,6 +137,9 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
     this.storeDir = join(opts.baseDir, TASK_HISTORY_DIR)
     this.indexPath = join(this.storeDir, INDEX_FILE)
     this.dataDir = join(this.storeDir, DATA_DIR)
+    this.maxAgeDays = opts.maxAgeDays ?? TASK_HISTORY_DEFAULT_MAX_AGE_DAYS
+    this.maxEntries = opts.maxEntries ?? TASK_HISTORY_DEFAULT_MAX_ENTRIES
+    this.maxIndexBloatRatio = opts.maxIndexBloatRatio ?? TASK_HISTORY_DEFAULT_MAX_INDEX_BLOAT_RATIO
     this.staleThresholdMs = opts.staleThresholdMs ?? TASK_HISTORY_STALE_THRESHOLD_MS
   }
 
@@ -224,6 +259,9 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
     await appendFile(this.indexPath, JSON.stringify(summary) + '\n', 'utf8')
 
     this.indexCache = undefined
+
+    // Step 3: schedule prune+compaction in background (fire-and-forget, dedup'd).
+    this.firePrune()
   }
 
   /**
@@ -247,8 +285,95 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
     return join(this.dataDir, `${FILENAME_PREFIX}${taskId}.json`)
   }
 
+  /**
+   * Schedule an asynchronous prune+compaction pass without blocking the caller.
+   * Deduplicates concurrent calls — only one pass runs at a time. If a save
+   * fires while a pass is in-flight, `pruneRequested` is set so a follow-up
+   * pass runs once the current one finishes (catches saves that landed mid-pass).
+   *
+   * Uses `setTimeout(fn, 0)` to defer the pass to the next macrotask, ensuring
+   * all pending microtasks (e.g. a follow-up `getById` that triggers M2.04
+   * recovery on the same task) drain before prune runs. Without this, the
+   * prune's own `readIndexDedup` could trigger a parallel recovery race.
+   */
+  private firePrune(): void {
+    if (this.pruneInFlight) {
+      this.pruneRequested = true
+      return
+    }
+
+    this.pruneInFlight = true
+    this.pruneRequested = false
+    const timer = setTimeout(() => {
+      this.pruneAndCompact()
+        .catch((error: unknown) => {
+          transportLog(
+            `task-history: prune+compaction failed: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        })
+        .finally(() => {
+          this.pruneInFlight = false
+          if (this.pruneRequested) {
+            this.pruneRequested = false
+            this.firePrune()
+          }
+        })
+    }, 0)
+    // Don't keep the event loop alive for a pending prune at process exit.
+    timer.unref?.()
+  }
+
   private isStale(status: TaskHistoryStatus, createdAt: number, now: number): boolean {
     return (status === 'created' || status === 'started') && now - createdAt > this.staleThresholdMs
+  }
+
+  /**
+   * Rewrite `_index.jsonl` keeping one line per live entry when bloat exceeds
+   * the configured ratio. Sweeps orphan data files (taskId not in live map)
+   * after the rewrite so the data dir stays in sync.
+   */
+  private async maybeCompact(): Promise<void> {
+    if (!Number.isFinite(this.maxIndexBloatRatio)) return
+
+    let raw: string
+    try {
+      raw = await readFile(this.indexPath, 'utf8')
+    } catch {
+      return
+    }
+
+    const allLines: IndexLine[] = []
+    const liveMap = new Map<string, IndexDataLine>()
+    for (const lineRaw of raw.split('\n')) {
+      const trimmed = lineRaw.trim()
+      if (!trimmed) continue
+      let json: unknown
+      try {
+        json = JSON.parse(trimmed)
+      } catch {
+        continue
+      }
+
+      const parsed = IndexLineSchema.safeParse(json)
+      if (!parsed.success) continue
+      allLines.push(parsed.data)
+      if ('_deleted' in parsed.data) {
+        liveMap.delete(parsed.data.taskId)
+      } else {
+        liveMap.set(parsed.data.taskId, parsed.data)
+      }
+    }
+
+    const liveCount = liveMap.size
+    const totalCount = allLines.length
+
+    // Avoid divide-by-zero; skip when nothing to compact.
+    if (liveCount === 0 || totalCount / liveCount <= this.maxIndexBloatRatio) return
+
+    const liveLines = [...liveMap.values()]
+    await this.rewriteIndex(liveLines)
+    await this.sweepOrphanData(new Set(liveMap.keys()))
+    this.indexCache = undefined
   }
 
   /**
@@ -275,6 +400,49 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
         )
       }),
     ])
+    this.indexCache = undefined
+  }
+
+  /**
+   * Phase 1 (age) + Phase 2 (count) prune. Builds the dead-taskId set from
+   * the dedup'd live map and delegates to `tombstoneAndUnlink`.
+   */
+  private async prune(): Promise<void> {
+    const dedup = await this.readIndexDedup()
+    const liveEntries: IndexDataLine[] = []
+    for (const line of dedup.values()) {
+      if ('_deleted' in line) continue
+      liveEntries.push(line)
+    }
+
+    const dead: string[] = []
+
+    // Phase 1: age prune.
+    if (this.maxAgeDays > 0) {
+      const cutoff = Date.now() - this.maxAgeDays * 86_400_000
+      for (const line of liveEntries) {
+        if (line.createdAt < cutoff) dead.push(line.taskId)
+      }
+    }
+
+    // Phase 2: count prune. Survivors = entries NOT already marked dead by phase 1.
+    const survivors = liveEntries.filter((line) => !dead.includes(line.taskId))
+    if (Number.isFinite(this.maxEntries) && survivors.length > this.maxEntries) {
+      // Oldest excess: sort asc by createdAt and take the head.
+      const sorted = [...survivors].sort((a, b) => a.createdAt - b.createdAt)
+      const excessCount = survivors.length - this.maxEntries
+      for (let i = 0; i < excessCount; i++) dead.push(sorted[i].taskId)
+    }
+
+    if (dead.length > 0) await this.tombstoneAndUnlink(dead)
+  }
+
+  private async pruneAndCompact(): Promise<void> {
+    await this.prune()
+    await this.maybeCompact()
+    // Always invalidate the cache after a pass so subsequent reads re-read
+    // disk — protects against external writes (e.g. tests appending tombstones
+    // out-of-band) that happen between prune phases.
     this.indexCache = undefined
   }
 
@@ -353,6 +521,70 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
     const recovered = this.buildRecovered(entry, now)
     await this.persistRecovery(recovered)
     return projectToIndexLine(recovered)
+  }
+
+  /**
+   * Atomically replace `_index.jsonl` with a fresh file containing exactly
+   * one line per live entry. Preserves the previous main as `_index.jsonl.bak`
+   * for one cycle. Sequence (best-effort .bak; atomic main swap):
+   *   1. Write `_index.jsonl.tmp` with the new content
+   *   2. copyFile `_index.jsonl` → `_index.jsonl.bak` (best-effort)
+   *   3. rename `_index.jsonl.tmp` → `_index.jsonl` (single atomic syscall)
+   */
+  private async rewriteIndex(liveLines: readonly IndexDataLine[]): Promise<void> {
+    const tmpPath = `${this.indexPath}.tmp`
+    const bakPath = `${this.indexPath}.bak`
+    const newContent = liveLines.map((line) => JSON.stringify(line)).join('\n') + (liveLines.length > 0 ? '\n' : '')
+
+    try {
+      await writeFile(tmpPath, newContent, 'utf8')
+    } catch (error) {
+      transportLog(
+        `task-history: rewriteIndex tmp write failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      return
+    }
+
+    // Best-effort .bak copy — non-fatal if it fails.
+    await copyFile(this.indexPath, bakPath).catch((error: unknown) => {
+      transportLog(
+        `task-history: rewriteIndex .bak copy failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    })
+
+    try {
+      await rename(tmpPath, this.indexPath)
+    } catch (error) {
+      transportLog(
+        `task-history: rewriteIndex rename failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      // Clean up stranded .tmp.
+      await rm(tmpPath, {force: true}).catch(() => {})
+    }
+  }
+
+  /**
+   * After compaction, unlink any `data/tsk-${taskId}.json` whose taskId is
+   * not in the live map. Best-effort per file — ENOENT etc. is swallowed.
+   */
+  private async sweepOrphanData(liveTaskIds: ReadonlySet<string>): Promise<void> {
+    let entries: string[]
+    try {
+      entries = await readdir(this.dataDir)
+    } catch {
+      return
+    }
+
+    const toUnlink: string[] = []
+    for (const filename of entries) {
+      if (!filename.startsWith(FILENAME_PREFIX) || !filename.endsWith('.json')) continue
+      const taskId = filename.slice(FILENAME_PREFIX.length, -'.json'.length)
+      if (!liveTaskIds.has(taskId)) toUnlink.push(filename)
+    }
+
+    await Promise.all(
+      toUnlink.map((filename) => rm(join(this.dataDir, filename), {force: true}).catch(() => {})),
+    )
   }
 
   /**
