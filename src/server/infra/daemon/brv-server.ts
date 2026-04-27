@@ -416,6 +416,7 @@ async function main(): Promise<void> {
     const transportHandlers = new TransportHandlers({
       agentPool,
       clientManager,
+      getTaskHistoryStore,
       lifecycleHooks: [curateLogHandler, queryLogHandler, taskHistoryHook],
       // Daemon-side gate for dream task:create — mirrors the idle-trigger pre-check
       // in this file so the CLI path (brv dream without --force) actually honors
