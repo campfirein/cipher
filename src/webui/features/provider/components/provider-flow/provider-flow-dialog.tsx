@@ -23,6 +23,7 @@ import {LoginPromptStep} from './login-prompt-step'
 import {ModelSelectStep} from './model-select-step'
 import {type ProviderActionId, ProviderActionStep} from './provider-action-step'
 import {ProviderSelectStep} from './provider-select-step'
+import {TeamSelectStep} from './team-select-step'
 
 type FlowStep =
   | 'api_key'
@@ -33,6 +34,7 @@ type FlowStep =
   | 'model_select'
   | 'provider_actions'
   | 'select'
+  | 'team_select'
 
 const BYTEROVER_PROVIDER_ID = 'byterover'
 
@@ -135,13 +137,15 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
         await setActiveMutation.mutateAsync({providerId: provider.id})
         toast.success(`Connected to ${provider.name}`)
         onProviderActivated?.()
-        resetAndClose()
+        // After a successful ByteRover connect, route to the team picker so
+        // the user can pin a billing team. Skipping is allowed.
+        setStep('team_select')
       } catch (error_) {
         toast.error(formatError(error_, 'Connection failed'))
         setStep('select')
       }
     },
-    [connectMutation, onProviderActivated, resetAndClose, setActiveMutation],
+    [connectMutation, onProviderActivated, setActiveMutation],
   )
 
   const handleProviderSelect = useCallback(
@@ -159,10 +163,10 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
         return
       }
 
-      // ByteRover + already current → done
+      // ByteRover + already current → jump straight to the team picker so
+      // re-opening the dialog from the trigger gets the user to billing config.
       if (provider.id === BYTEROVER_PROVIDER_ID && provider.isCurrent) {
-        onProviderActivated?.()
-        resetAndClose()
+        setStep('team_select')
         return
       }
 
@@ -482,6 +486,22 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
         return <ProviderSelectStep onSelect={(p) => handleProviderSelect(p)} providers={providers} />
       }
 
+      case 'team_select': {
+        return (
+          <TeamSelectStep
+            onBack={() => {
+              setStep('select')
+              setSelectedProvider(undefined)
+              setError(undefined)
+            }}
+            onComplete={() => {
+              onProviderActivated?.()
+              resetAndClose()
+            }}
+          />
+        )
+      }
+
       default: {
         return null
       }
@@ -493,7 +513,11 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
       <DialogContent
         className="flex h-150 flex-col sm:max-w-lg"
         showCloseButton={
-          step === 'select' || step === 'model_select' || step === 'connecting' || step === 'login_prompt'
+          step === 'select' ||
+          step === 'model_select' ||
+          step === 'connecting' ||
+          step === 'login_prompt' ||
+          step === 'team_select'
         }
       >
         {tourStepLabel && <TourStepBadge label={tourStepLabel} />}

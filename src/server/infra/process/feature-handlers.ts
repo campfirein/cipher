@@ -24,6 +24,7 @@ import {API_V1_PATH, BRV_DIR} from '../../constants.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
 import {OAuthService} from '../auth/oauth-service.js'
 import {OidcDiscoveryService} from '../auth/oidc-discovery-service.js'
+import {HttpBillingService} from '../billing/http-billing-service.js'
 import {SystemBrowserLauncher} from '../browser/system-browser-launcher.js'
 import {HttpCogitPullService} from '../cogit/http-cogit-pull-service.js'
 import {HttpCogitPushService} from '../cogit/http-cogit-push-service.js'
@@ -43,6 +44,7 @@ import {HubInstallService} from '../hub/hub-install-service.js'
 import {createHubKeychainStore} from '../hub/hub-keychain-store.js'
 import {HubRegistryConfigStore} from '../hub/hub-registry-config-store.js'
 import {HttpSpaceService} from '../space/http-space-service.js'
+import {FileBillingConfigStore} from '../storage/file-billing-config-store.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {createTokenStore} from '../storage/token-store.js'
@@ -50,6 +52,7 @@ import {HttpTeamService} from '../team/http-team-service.js'
 import {FsTemplateLoader} from '../template/fs-template-loader.js'
 import {
   AuthHandler,
+  BillingHandler,
   ConfigHandler,
   ConnectorsHandler,
   ContextTreeHandler,
@@ -65,6 +68,7 @@ import {
   SourceHandler,
   SpaceHandler,
   StatusHandler,
+  TeamHandler,
   VcHandler,
   WorktreeHandler,
 } from '../transport/handlers/index.js'
@@ -109,9 +113,12 @@ export async function setupFeatureHandlers({
   // API version paths appended at point of use.
   // Note: IAM and Cogit currently share this version path, but may version independently in the future.
   const iamApiV1 = `${envConfig.iamBaseUrl}${API_V1_PATH}`
+  const billingApiV1 = `${envConfig.billingBaseUrl}${API_V1_PATH}`
   const userService = new HttpUserService({apiBaseUrl: iamApiV1})
   const teamService = new HttpTeamService({apiBaseUrl: iamApiV1})
   const spaceService = new HttpSpaceService({apiBaseUrl: iamApiV1})
+  const billingService = new HttpBillingService({apiBaseUrl: billingApiV1})
+  const billingConfigStore = new FileBillingConfigStore()
 
   // Auth handler requires async OIDC discovery
   const discoveryService = new OidcDiscoveryService()
@@ -138,6 +145,19 @@ export async function setupFeatureHandlers({
     providerConfigStore,
     providerKeychainStore,
     providerOAuthTokenStore,
+    transport,
+  }).setup()
+
+  new BillingHandler({
+    authStateStore,
+    billingConfigStore,
+    billingService,
+    transport,
+  }).setup()
+
+  new TeamHandler({
+    authStateStore,
+    teamService,
     transport,
   }).setup()
 

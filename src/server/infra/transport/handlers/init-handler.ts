@@ -224,6 +224,7 @@ export class InitHandler {
 
     return {
       teams: teams.map((t) => ({
+        avatarUrl: t.avatarUrl,
         displayName: t.displayName,
         id: t.id,
         isDefault: t.isDefault,
