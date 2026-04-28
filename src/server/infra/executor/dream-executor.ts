@@ -55,6 +55,8 @@ export type DreamExecutorDeps = {
     save(entry: DreamLogEntry): Promise<void>
   }
   dreamStateService: {
+    drainStaleSummaryPaths(): Promise<string[]>
+    enqueueStaleSummaryPaths(paths: string[]): Promise<void>
     read(): Promise<import('../dream/dream-state-schema.js').DreamState>
     update(updater: (state: import('../dream/dream-state-schema.js').DreamState) => import('../dream/dream-state-schema.js').DreamState): Promise<import('../dream/dream-state-schema.js').DreamState>
     write(state: import('../dream/dream-state-schema.js').DreamState): Promise<void>
@@ -127,7 +129,11 @@ export class DreamExecutor {
       try {
         preState = await snapshotService.getCurrentState(projectRoot)
       } catch {
-        // Fail-open: if snapshot fails, skip propagation
+        // Fail-open: if snapshot fails, the entire step 5 block (propagation +
+        // queue drain) is skipped — the stale-summary queue is not consumed in
+        // this dream cycle and accumulates until the next successful run.
+        // Drain-skip is preferable to drain-and-lose because atomic drain
+        // already removed entries before any propagation could re-enqueue them.
       }
 
       // Step 2: Load dream state
@@ -150,18 +156,38 @@ export class DreamExecutor {
       })
 
       // Step 5: Post-dream propagation (fail-open)
+      // Two sources of stale summary paths:
+      //   A. The stale-summary queue, drained from dream state — paths from
+      //      curate operations that ran since the last dream cycle (the LLM
+      //      cascade work was deferred from curate's hot path to here).
+      //   B. Dream's own snapshot diff — paths changed by this dream's
+      //      consolidate/synthesize/prune operations.
+      // Merging A ∪ B before calling propagateStaleness lets a path touched
+      // by both sources regenerate exactly once. The queue is drained
+      // atomically (cleared in the same RMW that captures the snapshot) so
+      // any concurrent curate enqueueing during propagation appends a fresh
+      // entry to the now-empty queue and the next dream picks it up.
       if (preState) {
+        let drainedSnapshot: string[] = []
         try {
+          drainedSnapshot = await this.deps.dreamStateService.drainStaleSummaryPaths()
+
           const postState = await snapshotService.getCurrentState(projectRoot)
           const changedPaths = diffStates(preState, postState)
-          if (changedPaths.length > 0) {
-            const summaryService = new FileContextTreeSummaryService()
-            await summaryService.propagateStaleness(changedPaths, agent, projectRoot, options.taskId)
-            const manifestService = new FileContextTreeManifestService({baseDirectory: projectRoot})
-            await manifestService.buildManifest(projectRoot)
+
+          const merged = [...new Set([...changedPaths, ...drainedSnapshot])]
+          if (merged.length > 0) {
+            await this.runStaleSummaryPropagation({agent, parentTaskId: options.taskId, paths: merged, projectRoot})
           }
         } catch {
-          // Fail-open: propagation errors never block dream
+          // Fail-open: propagation errors never block dream. Re-enqueue the
+          // drained snapshot so the next dream cycle retries — atomic drain
+          // already removed them, so without this they would be lost.
+          if (drainedSnapshot.length > 0) {
+            await this.deps.dreamStateService.enqueueStaleSummaryPaths(drainedSnapshot).catch(() => {
+              // If the re-enqueue itself fails, there is nothing more to do here.
+            })
+          }
         }
       }
 
@@ -253,11 +279,6 @@ export class DreamExecutor {
     }
   }
 
-  /**
-   * Runs the three dream operations sequentially, pushing results into `out` after
-   * each step. Extracted so the executor can preserve partial work when a later step
-   * throws — and so tests can inject controlled ops without a full LLM round-trip.
-   */
   protected async runOperations(args: {
     agent: ICipherAgent
     changedFiles: Set<string>
@@ -310,6 +331,30 @@ export class DreamExecutor {
         taskId,
       })),
     )
+  }
+
+  /**
+   * Runs the three dream operations sequentially, pushing results into `out` after
+   * each step. Extracted so the executor can preserve partial work when a later step
+   * throws — and so tests can inject controlled ops without a full LLM round-trip.
+   */
+  /**
+   * Regenerate parent `_index.md` files for the given paths and rebuild the
+   * manifest. Extracted as a seam so tests can override and assert which
+   * paths were passed (the A ∪ B merge in step 5 is the central correctness
+   * invariant of the deferral). Production constructs the services here so
+   * the dependency surface of {@link DreamExecutorDeps} stays narrow.
+   */
+  protected async runStaleSummaryPropagation(args: {
+    agent: ICipherAgent
+    parentTaskId?: string
+    paths: string[]
+    projectRoot: string
+  }): Promise<void> {
+    const summaryService = new FileContextTreeSummaryService()
+    await summaryService.propagateStaleness(args.paths, args.agent, args.projectRoot, args.parentTaskId)
+    const manifestService = new FileContextTreeManifestService({baseDirectory: args.projectRoot})
+    await manifestService.buildManifest(args.projectRoot)
   }
 
   /** Errors are tracked at the log level (status='error'), not per-operation — always 0 here. */
