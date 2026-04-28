@@ -53,6 +53,7 @@ import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-sto
 
 import {hasConflictMarkers} from '../../../shared/utils/conflict-markers.js'
 import {GitAuthError, GitError} from '../../core/domain/errors/git-error.js'
+import {formatOverwriteMessage} from './git-error-messages.js'
 import {gitHttpWrapper as http} from './git-http-wrapper.js'
 import {classifyTuple} from './status-row-classifier.js'
 
@@ -206,10 +207,7 @@ export class IsomorphicGitService implements IGitService {
       await git.checkout({dir, force: params.force, fs, ref: params.ref})
     } catch (error) {
       if (error instanceof git.Errors.CheckoutConflictError) {
-        throw new GitError(
-          'Your local changes to the following files would be overwritten by checkout. ' +
-            'Commit your changes or stash them before you switch branches.',
-        )
+        throw new GitError(formatOverwriteMessage('checkout', []))
       }
 
       throw error
@@ -642,7 +640,7 @@ export class IsomorphicGitService implements IGitService {
           await git.writeRef({dir, force: true, fs, ref: `refs/heads/${currentBranch}`, value: localSha})
         }
 
-        throw new GitError('Local changes would be overwritten by merge. Commit or discard your changes first.')
+        throw new GitError(formatOverwriteMessage('merge', []))
       }
 
       if (error instanceof git.Errors.MergeConflictError) {
@@ -747,11 +745,7 @@ export class IsomorphicGitService implements IGitService {
       )
       const overwrittenFiles = dirtyFiles.filter((_, i) => wouldBeOverwritten[i])
       if (overwrittenFiles.length > 0) {
-        throw new GitError(
-          'Your local changes to the following files would be overwritten by merge:\n' +
-            overwrittenFiles.map((f) => `\t${f}`).join('\n') +
-            '\nPlease commit your changes before you merge.',
-        )
+        throw new GitError(formatOverwriteMessage('pull', overwrittenFiles))
       }
     }
 
@@ -810,7 +804,7 @@ export class IsomorphicGitService implements IGitService {
           await git.writeRef({dir, force: true, fs, ref: `refs/heads/${localBranch}`, value: localSha})
         }
 
-        throw new GitError('Local changes would be overwritten by pull. Commit or discard your changes first.')
+        throw new GitError(formatOverwriteMessage('pull', []))
       }
 
       throw error
@@ -1087,11 +1081,7 @@ export class IsomorphicGitService implements IGitService {
     /* eslint-enable no-await-in-loop */
 
     if (conflicting.length > 0) {
-      throw new GitError(
-        'Your local changes to the following files would be overwritten by checkout:\n' +
-          conflicting.map((f) => `\t${f}`).join('\n') +
-          '\nPlease commit your changes or stash them before you switch branches.',
-      )
+      throw new GitError(formatOverwriteMessage('checkout', conflicting))
     }
   }
 

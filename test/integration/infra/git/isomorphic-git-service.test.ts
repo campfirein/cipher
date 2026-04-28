@@ -408,9 +408,11 @@ describe('IsomorphicGitService', () => {
       expect(entries).to.deep.include({path: 'new.md', staged: false, status: 'modified'})
     })
 
-    it('[1,1,3] reports staged modification when workdir is restored to HEAD content after add', async () => {
+    it('[1,1,3] reports both staged + unstaged modifications when workdir is restored to HEAD after add', async () => {
       // Reachable in the wild via editor undo+autosave, AI agent revert, or sync-tool rollback
       // after `brv vc add`: workdir matches HEAD, but the index still holds the staged blob.
+      // Native git reports BOTH a staged modification (HEAD->INDEX) AND an unstaged
+      // modification (INDEX->WORKDIR), since INDEX differs from both.
       const tracked = join(testDir, 'tracked.md')
       await writeFile(tracked, 'v1\n')
       await service.add({directory: testDir, filePaths: ['tracked.md']})
@@ -433,7 +435,9 @@ describe('IsomorphicGitService', () => {
 
       expect(result.isClean).to.be.false
       const entries = result.files.filter((f) => f.path === 'tracked.md')
+      expect(entries).to.have.length(2)
       expect(entries).to.deep.include({path: 'tracked.md', staged: true, status: 'modified'})
+      expect(entries).to.deep.include({path: 'tracked.md', staged: false, status: 'modified'})
     })
 
     it('status.isClean implies pull dirty-filter sees no rows (cross-property invariant)', async () => {

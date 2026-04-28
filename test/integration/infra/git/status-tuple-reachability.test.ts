@@ -1,23 +1,23 @@
 /**
- * Tuple reachability harness (Gap D verification for ENG-2516).
+ * Tuple reachability harness for `git.statusMatrix`.
  *
- * Drives `git.statusMatrix` through a corpus of operation sequences that
- * cover every git-state transition I can think of, then asserts that every
- * tuple it produces is classifiable by `classifyTuple` (i.e. doesn't throw).
+ * Drives statusMatrix through a corpus of operation sequences that cover every
+ * git-state transition we can think of, then asserts that every tuple it
+ * produces is classifiable by `classifyTuple` (i.e. doesn't throw).
  *
- * The bug class behind ENG-2516 was a silent-drop: a reachable tuple existed
- * in the wild but no consumer enumerated it. Throw-on-unknown in the unified
- * classifier converts that silent-drop into a loud failure — but only if the
- * test corpus actually exercises the tuple. This harness IS that corpus.
+ * The bug class this guards against is a silent-drop: a reachable tuple
+ * exists in the wild but no consumer enumerates it. Throw-on-unknown in the
+ * unified classifier converts that silent-drop into a loud failure, but only
+ * if the test corpus actually exercises the tuple. This harness IS that corpus.
  *
  * If a scenario surfaces a new tuple, classifyTuple throws and this test
  * fails. The fix is then to add the tuple to the classifier with the right
- * projection — and to add the scenario as a permanent regression case.
+ * projection, and to add the scenario as a permanent regression case.
  */
 import {expect} from 'chai'
 import * as git from 'isomorphic-git'
 import fs from 'node:fs'
-import {mkdir, rm, unlink, writeFile} from 'node:fs/promises'
+import {mkdir, rm, unlink, utimes, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -139,15 +139,18 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    name: '[1,1,3] ENG-2516: workdir restored to HEAD after add',
+    name: '[1,1,3] workdir restored to HEAD after add',
     async setup(dir) {
       await initWithFile(dir, 'f.md', 'v1')
       await writeFile(join(dir, 'f.md'), 'v2')
       await git.add({dir, filepath: 'f.md', fs})
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, 1100)
-      })
-      await writeFile(join(dir, 'f.md'), 'v1') // restore via filesystem only
+      // Filesystem-only restore to HEAD content. utimes bumps mtime past the
+      // index's stat cache so isomorphic-git re-hashes the workdir blob; without
+      // that, the tuple collapses to [1,2,2] and the [1,1,3] scenario silently
+      // turns into a duplicate of [1,2,2].
+      await writeFile(join(dir, 'f.md'), 'v1')
+      const future = new Date(Date.now() + 2000)
+      await utimes(join(dir, 'f.md'), future, future)
     },
   },
   {
@@ -303,15 +306,11 @@ describe('statusMatrix tuple reachability fuzz (Gap D)', () => {
     })
   }
 
-  it('reachable set is a subset of classifier enum (summary)', () => {
-    const reachable = [...observedTuples].sort()
-    // Lock the ceiling: today's harness reaches at most these tuples. If a future
-    // scenario surfaces a new one, the per-scenario test above will already have
-    // failed via classifyTuple's throw. This test exists to print the full set
-    // for reviewers to eyeball against the classifier's enum.
+  it('reachable set is non-empty and fully classifiable', () => {
+    // The per-scenario tests above are the real regression guard: a new tuple
+    // surfaces ⇒ classifyTuple throws ⇒ that test fails. This summary just
+    // pins a sanity floor so an empty/silent harness can't pretend to pass.
     expect(unclassifiableTuples).to.deep.equal([])
-    expect(reachable.length).to.be.greaterThan(0)
-     
-    console.log(`[tuple-fuzz] reachable tuples (${reachable.length}): ${reachable.join(' ')}`)
+    expect(observedTuples.size).to.be.greaterThan(0)
   })
 })
